@@ -1,4 +1,5 @@
 import type { GithubAppGrants } from './lanes/core/lane-permissions-core.ts';
+import type { ReadGithubIssue } from './github/github-issue-reader.ts';
 import type { PackSources } from './packs/pack-sources.ts';
 import type fs from 'node:fs';
 import type { z } from 'zod';
@@ -56,6 +57,8 @@ import type { WakeView } from '../shared/contracts/wakes.ts';
 import { createSettingsHandlers } from './control/handlers/settings-handlers.ts';
 import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers.ts';
 import { createReviewHandlers } from './control/handlers/review-handlers.ts';
+import type { VerificationWiring } from './verification/verification-wiring.ts';
+import type { SessionReviewWiring } from './review/session-review-wiring.ts';
 import { createWorktreeHandlers } from './control/handlers/worktree-handlers.ts';
 
 type ControlRequest = ClientMessage;
@@ -101,6 +104,8 @@ interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
   changeMaps?: ChangeMapService;
+  verification?: Pick<VerificationWiring, 'latestRun'> | null;
+  sessionReview?: Pick<SessionReviewWiring, 'latest' | 'run'> | null;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
   sessionWakes?: SessionWakesControl | null;
   githubAppGrants?: GithubAppGrants;
@@ -145,6 +150,7 @@ interface ControlHandlerDeps {
   packSources?: Pick<PackSources, 'add' | 'update' | 'remove' | 'setPackEnabled' | 'removeHandPlacedFolder'> | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];
+  readGithubIssue?: ReadGithubIssue | null;
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;

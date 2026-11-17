@@ -27,7 +27,7 @@ interface GithubStoreWatch {
 }
 
 interface GithubStoreDependencies {
-  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'sourceKind' | 'teamReviewCompare' | 'teamReviewThreads' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits'>>;
+  github: Pick<PrGh, 'searchPrsLight' | 'prsLightByKey' | 'prDetails' | 'notificationsSince' | 'behindCounts' | 'reviewThreadsBatch' | 'rateLimitWaitMs' | 'viewPr' | 'prDiff' | 'prHead'> & Partial<Pick<PrGh, 'sourceKind' | 'teamReviewCompare' | 'teamReviewThreads' | 'viewer' | 'viewerTeams' | 'teamProfile' | 'teamMembers' | 'listMergedPrs' | 'reviewCaseData' | 'compareCommits' | 'viewIssue'>>;
   now: () => number;
   isDashboardConnected: () => boolean;
   exclusive: SharedClock['exclusive'];
@@ -595,5 +595,6 @@ export function createGithubStorePoller({ github, now, isDashboardConnected, exc
     rateLimitWaitMs: (nowMs: number, resources: readonly string[]) => github.rateLimitWaitMs(nowMs, resources),
     requestPrView, requestPrDiff, requestTeamReviewCompare, requestTeamReviewThreads,
     requestPrHead: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.prHead(repo, number), null, () => false, mode),
+    requestIssueView: (repo: string, number: number, mode: GithubStoreReadMode = 'wait') => requestRead(() => github.viewIssue?.(repo, number) ?? Promise.resolve(null), null, () => false, mode),
   };
 }

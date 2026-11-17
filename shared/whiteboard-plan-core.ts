@@ -94,6 +94,41 @@ function planSteps(board: Board): PlanStep[] {
   }));
 }
 
+type ReadySteps = { ready: StepBox[] } | { cycle: string[] };
+
+function cycleThrough(stepIds: readonly string[], afterIdsByStepId: ReadonlyMap<string, readonly string[]>): string[] | null {
+  const finishedIds = new Set<string>();
+  const visitingPath: string[] = [];
+  function visit(stepId: string): string[] | null {
+    if (finishedIds.has(stepId)) return null;
+    const visitingIndex = visitingPath.indexOf(stepId);
+    if (visitingIndex !== -1) return visitingPath.slice(visitingIndex);
+    visitingPath.push(stepId);
+    for (const afterId of afterIdsByStepId.get(stepId) ?? []) {
+      const cycle = visit(afterId);
+      if (cycle !== null) return cycle;
+    }
+    visitingPath.pop();
+    finishedIds.add(stepId);
+    return null;
+  }
+  for (const stepId of stepIds) {
+    const cycle = visit(stepId);
+    if (cycle !== null) return cycle;
+  }
+  return null;
+}
+
+function readySteps(board: Board): ReadySteps {
+  const steps = stepBoxesOf(board);
+  const statusById = new Map(steps.map((step) => [step.id, step.step.status]));
+  const afterIdsByStepId = afterIdsByStepIdOf(board, new Set(statusById.keys()));
+  const cycle = cycleThrough([...statusById.keys()], afterIdsByStepId);
+  if (cycle !== null) return { cycle };
+  const hasLanded = (stepId: string) => statusById.get(stepId) === 'landed';
+  return { ready: steps.filter((step) => step.step.status === 'planned' && (afterIdsByStepId.get(step.id) ?? []).every(hasLanded)) };
+}
+
 function dependencyWireId(fromId: string, toId: string, takenIds: ReadonlySet<string>): string {
   const base = `${fromId}-to-${toId}`.slice(0, MAX_ELEMENT_ID_LENGTH).replace(/-+$/, '');
   if (!takenIds.has(base)) return base;
@@ -108,5 +143,5 @@ function dependencyWireIdsInto(board: Board, stepId: string): string[] {
   return dependencyWiresInto(board, stepId, boardIndexOf(board.elements).stepBoxIds).map((dependency) => dependency.wire.id);
 }
 
-export { dependencyWireId, dependencyWireIdsInto, planSteps, stepBoxesOf };
+export { dependencyWireId, dependencyWireIdsInto, planSteps, readySteps, stepBoxesOf };
 export type { PlanStep, StepBox };

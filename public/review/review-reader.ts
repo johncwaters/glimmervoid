@@ -6,8 +6,9 @@ import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-
 import { announceSessionPageChange } from '../session-pages/session-pages.ts';
 import { getJSON, setJSON } from '../local-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { openDocEditor } from '../doc-editor/doc-editor.ts';
 import { CHANGES_ICON_PATH } from '../svg-dom.ts';
-import { renderFileHints, renderWorthALook } from './change-map-view.ts';
+import { renderChangeTour, renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { ReviewComment } from '#shared/contracts/review-state.ts';
 import type { DiffAnnotation, DiffFileContents, DiffLineClick, DiffSide, MountedFileDiff } from './diff-view.ts';
 import { mountFileDiff, preloadDiffRenderer } from './diff-view.ts';
@@ -16,8 +17,10 @@ import {
   effectiveDiffLayout, fileReadStateOf, findReaderFile, groupReaderFiles, isCommentOutdated, lineTextAt, readerStateOf, shouldHoldUpdate, stepReaderFile,
 } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
-import { onReviewChange, refreshReview, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
+import { onReviewChange, refreshReview, reviewOf, runSessionReview, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
+import type { CheckOutcome } from '#shared/contracts/verification.ts';
+import type { SessionReviewResult } from '#shared/contracts/session-review.ts';
 import { clock } from '#shared/clock.ts';
 
 const CHANGES_PAGE_ID = 'changes';
@@ -64,6 +67,7 @@ let shownSessionId: string | null = null;
 let selectedPath: string | null = null;
 let requestedPath: string | null = null;
 let isWorthALookShowingAll = false;
+let isTourOpen = false;
 let shownDiff: ShownDiff | null = null;
 let diffWidthPx = 0;
 let chosenLayout: DiffLayout = getJSON<unknown>(DIFF_LAYOUT_KEY, 'unified') === 'split' ? 'split' : 'unified';
@@ -90,6 +94,7 @@ function buildReader(): ReaderParts {
   onSelectionChange(() => {
     selectedPath = null;
     isWorthALookShowingAll = false;
+    isTourOpen = false;
     render();
     announceLevel();
   });
@@ -199,6 +204,8 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
     return;
   }
   if (review.statusLine) fileColumn.append(el('p', 'review-reader-status', review.statusLine));
+  appendVerificationGroup(fileColumn, review);
+  appendReviewerGroup(fileColumn, review);
   fileColumn.append(scopeMenu());
   if (review.totals.files > 0) fileColumn.append(totalsLine(review.totals));
   const { newFiles, viewedFiles, generatedFiles } = groupReaderFiles(review.files, viewedHashByPathOf(review), scope);
@@ -212,7 +219,67 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
     ? renderWorthALook(review.changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
     : null;
   if (worthALook) fileColumn.append(worthALook);
+  const tour = review.changeMapView ? renderChangeTour(review.changeMapView, { isOpen: isTourOpen, onToggle: (isOpen) => { isTourOpen = isOpen; }, onOpenFile: openFileFromWorthALook }) : null;
+  if (tour) fileColumn.append(tour);
   fileColumn.scrollTop = scrollTop;
+}
+
+const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
+
+function appendVerificationGroup(fileColumn: HTMLElement, review: SessionReview) {
+  const run = review.verification;
+  if (!run) return;
+  fileColumn.append(el('p', 'review-reader-group', run.status === 'running' ? 'Checks running' : `Checks ${String.fromCharCode(183)} ${run.status}`));
+  const list = el('div', 'review-reader-check-list');
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Checks');
+  for (const check of run.checks) {
+    const row = el('div', 'review-reader-check');
+    row.setAttribute('role', 'listitem');
+    row.dataset.status = check.status;
+    row.append(el('span', 'review-check-id', check.id), el('span', 'review-check-status', CHECK_STATUS_WORDS[check.status]));
+    list.append(row);
+    if (check.status !== 'pass' && check.outputTail.trim()) list.append(el('pre', 'review-check-output', check.outputTail));
+  }
+  fileColumn.append(list);
+}
+
+const REVIEWER_AGENT_NAMES: Record<SessionReviewResult['reviewer']['agent'], string> = { 'claude-code': 'Claude Code', codex: 'Codex' };
+
+function reviewerStatusText(result: SessionReviewResult | null): string {
+  if (!result) return 'A read-only reviewer on another agent or model reads this diff and reports what it finds.';
+  const reviewerName = result.reviewer.model ? `${REVIEWER_AGENT_NAMES[result.reviewer.agent]} (${result.reviewer.model})` : REVIEWER_AGENT_NAMES[result.reviewer.agent];
+  if (result.status === 'running') return `${reviewerName} is reviewing this diff.`;
+  if (result.status === 'failed') return result.error ?? 'The review did not finish.';
+  const findingCount = result.findings.length;
+  return `${reviewerName}: ${result.verdict ?? 'no verdict'}, ${findingCount} finding${findingCount === 1 ? '' : 's'}.`;
+}
+
+function reviewerFindingRow(finding: SessionReviewResult['findings'][number]) {
+  const row = createPressable('review-look-line', `${finding.severity} ${finding.line === null ? finding.path : `${finding.path}:${finding.line}`}`);
+  row.dataset.severity = finding.severity;
+  row.append(el('span', 'review-look-detail', finding.body));
+  row.addEventListener('click', () => openFileFromWorthALook(finding.path));
+  return row;
+}
+
+function appendReviewerGroup(fileColumn: HTMLElement, review: SessionReview) {
+  const result = review.reviewerResult;
+  const sessionId = review.sessionId;
+  const header = el('div', 'review-reviewer-header');
+  const runButton = createPressable('review-run-reviewer', 'Review');
+  runButton.disabled = result?.status === 'running';
+  runButton.addEventListener('click', () => runSessionReview(sessionId));
+  header.append(el('p', 'review-reader-group', 'Reviewer'), runButton, el('span', 'review-reviewer-status', reviewerStatusText(result)));
+  fileColumn.append(header);
+  if (result?.status !== 'done') return;
+  if (result.summary.trim()) fileColumn.append(el('p', 'review-look-text', result.summary));
+  if (result.findings.length === 0) return;
+  const list = el('div', 'review-look-list');
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Reviewer findings');
+  for (const finding of result.findings) list.append(reviewerFindingRow(finding));
+  fileColumn.append(list);
 }
 
 function appendCommitGroup(fileColumn: HTMLElement, review: SessionReview) {
@@ -544,6 +611,7 @@ function mountShownDiff(diff: HTMLElement, shown: { sessionId: string; file: Rea
   const head = el('div', 'review-reader-diff-head');
   head.append(el('span', 'review-file-path', file.path), fileCounts(file));
   if (isWideEnoughForSplit && file.status !== 'A' && file.status !== 'D' && !file.binary) head.append(layoutSwitch(shownLayout));
+  if (file.status !== 'D' && !file.binary) head.append(editFileButton(sessionId, file.path, notice));
   const viewed = viewedToggleFor(sessionId, file, notice);
   head.append(viewed.label);
   const updateNotice = updateNoticeRow();
@@ -557,6 +625,28 @@ function mountShownDiff(diff: HTMLElement, shown: { sessionId: string; file: Rea
   diff.append(body);
   shownDiff = { key, mounted: mountDiffBody(body, notice, sessionId, file, shownLayout, annotations), viewedToggle: viewed.box, updateNotice };
   diff.scrollTop = scrollTop;
+}
+
+function editFileButton(sessionId: string, filePath: string, notice: HTMLElement) {
+  const editButton = createPressable('review-edit-file', 'Edit');
+  editButton.addEventListener('click', () => {
+    editButton.disabled = true;
+    void sendControlRequest('session-doc-open', { id: sessionId, path: filePath }).then(
+      (reply) => {
+        if (reply.type === 'session-doc-open-result' && reply.ok) {
+          openDocEditor(sessionId);
+          return;
+        }
+        notice.textContent = `Could not open ${filePath}: ${reply.type === 'session-doc-open-result' ? reply.error ?? 'unknown error' : 'unexpected reply'}`;
+        notice.hidden = false;
+      },
+      (error: unknown) => {
+        notice.textContent = `Could not open ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
+        notice.hidden = false;
+      },
+    ).finally(() => { editButton.disabled = false; });
+  });
+  return editButton;
 }
 
 function showAllWorthALook() {

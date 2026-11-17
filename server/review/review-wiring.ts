@@ -17,6 +17,7 @@ const COMMENT_DELIVERY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 interface PasteTarget {
   deliver(text: string, options: DeliverOptions): DeliveryOutcome;
+  noteOperatorDraft(): void;
 }
 
 type ReviewOutcome = { ok: true } | { ok: false; error: string };
@@ -85,6 +86,7 @@ function createReviewWiring({ reviewsRoot, broadcastControl, findSession, now = 
         state: next,
         after: (): ReviewOutcome => {
           if (!sent) return { ok: true };
+          session.noteOperatorDraft();
           const pasted = session.deliver(commentPasteText(sent), { when: 'ready', submit: true, timeoutMs: COMMENT_DELIVERY_TIMEOUT_MS });
           return pasted.ok ? { ok: true } : { ok: false, error: `The comment was saved, but it could not be sent to the agent (${pasted.reason})` };
         },

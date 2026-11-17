@@ -15,6 +15,7 @@ import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts'
 import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
 import type { WakeWiring } from '../wakes/wake-wiring.ts';
+import type { MemoryStore } from '../memory-store.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
@@ -22,6 +23,10 @@ import { clock } from '../../shared/clock.ts';
 import { githubRepoSlugFromRemote, remoteMatchesGithubRepo } from '../github/core/team-review-core.ts';
 import { repoParts } from '../../shared/contracts/github-ids.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
+import { createPlanRuns } from '../plan-run-wiring.ts';
+import type { PlanRunPorts } from '../plan-run-wiring.ts';
+import type { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import { COMMAND_ROUTES } from '../../session/core/session-routes.ts';
 
 const CHECKOUT_DEADLINE_MS = 240_000;
 const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
@@ -62,10 +67,11 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
   return { id: session.id, project: session.path, cwd: session.effectiveCwd() };
 }
 
-function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
+function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
-  const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
+  const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
+  const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
     return {
@@ -184,6 +190,40 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
   }
 
+  function planRunPortsOf(session: Session, boards: NonNullable<typeof whiteboards>): PlanRunPorts {
+    const caller = whiteboardCallerOf(session);
+    return {
+      readPlanBoard: (boardRef) => boards.readPlanBoard(caller, boardRef),
+      setStepStatus: async (boardId, stepId, status) => {
+        const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops: [{ op: 'set', id: stepId, fields: { step: { status } } }] });
+        if (!reply.body.ok) throw new Error(`could not mark ${stepId} ${status}: ${reply.body.error}`);
+      },
+      spawnStep: async (name, prompt) => {
+        const outcome = await spawn(session, { prompt, name });
+        if (!outcome.ok) return { ok: false, error: outcome.error };
+        return {
+          ok: true,
+          childId: outcome.sessionId,
+          childName: outcome.name,
+          onLanded: (listener) => { agentSessions.get(outcome.sessionId)?.once('commits-landed', listener); },
+        };
+      },
+      isLive: (sessionId) => agentSessions.has(sessionId),
+      tellRunner: (text) => {
+        runtime.logger?.warn(`[plan run] ${text}`);
+        if (!session._destroyed) session.raiseAttention('agent', text);
+      },
+    };
+  }
+
+  function whiteboard(session: Session, request: WhiteboardAgentRequest): Promise<AgentReplyOf<'whiteboard'>> | AgentReplyOf<'whiteboard'> {
+    if (!whiteboards) return refusal(503, 'whiteboards are not available in this Glimmervoid');
+    if (request.sub !== 'run') return whiteboards.handleAgent(whiteboardCallerOf(session), request);
+    const spawnVerdict = COMMAND_ROUTES.spawn(roleFactsOf(session));
+    if (!spawnVerdict.answers) return refusal(403, `whiteboard run spawns a session per ready step, and ${spawnVerdict.reason}`);
+    return planRuns.run(request.board, planRunPortsOf(session, whiteboards));
+  }
+
   async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
     const outcome = await spawn(session, request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
@@ -191,8 +231,18 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
   }
 
-  function send(session: Session, { words }: AgentSendRequest): AgentReplyOf<'send'> {
+  function sendToSibling(session: Session, target: string, text: string): AgentReplyOf<'send'> {
+    if (!text) return refusal(400, 'send needs text, for example glimmervoid send --to <sibling> I am editing server/api.ts');
+    const sibling = findSiblingOf(session, target);
+    if (!sibling.ok) return refusal(404, sibling.error);
+    if (!agentSessions.has(sibling.channel.childId)) return refusal(409, `${sibling.channel.childName} has ended, so nothing was sent`);
+    post(sibling.channel.childId, 'toChild', { author: 'sibling', text: `${session.name} (${session.id}): ${text}`, at: clock.nowMs(), wakes: true });
+    return { status: 200, body: { ok: true } };
+  }
+
+  function send(session: Session, { words, to }: AgentSendRequest): AgentReplyOf<'send'> {
     const at = clock.nowMs();
+    if (to !== undefined) return sendToSibling(session, to, words.join(' ').trim());
     if (channelsByChildId.has(session.id)) {
       post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
       return { status: 200, body: { ok: true } };
@@ -348,6 +398,8 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const unsafeLaunchArgument = unsafeLaunchArgumentOf(raceSpec);
     if (unsafeLaunchArgument !== null) return refusal(400, `an agent cannot race the model or option value "${unsafeLaunchArgument}", because it reaches the agent's command line; use letters, digits and . _ : / [ ] -`);
     if (!startRace) return refusal(503, 'Arena is not running in this Glimmervoid');
+    const holdReason = budgetHoldReason();
+    if (holdReason !== null) return refusal(429, `no new sessions: ${holdReason}`);
     const unfinishedRefusal = refuseUnfinishedRace();
     if (unfinishedRefusal) return unfinishedRefusal;
     isAgentRaceStarting = true;
@@ -405,7 +457,17 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     secrets: async (session) => (secrets ? { status: 200, body: await secrets.envFor(needingSessionOf(session)) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wake: (session, request) => wakes.handleAgent(session, request),
-    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent(whiteboardCallerOf(session), request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
+    claim: (session, request) => {
+      if (!fileClaims) return refusal(503, 'file claims are not available in this Glimmervoid');
+      const outcome = fileClaims.handle({ id: session.id, name: session.name, projectPath: session.path, rootDir: session.worktreeDir ?? session.path, cwd: session.effectiveCwd() }, request);
+      return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
+    },
+    preview: (session, request) => (sessionPreviews ? { status: 200, body: sessionPreviews.handle(session.id, request) } : refusal(503, 'previews are not available in this Glimmervoid')),
+    memory: async (session, request) => {
+      const outcome = await memory.handle({ projectPath: session.path, name: session.name }, request);
+      return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
+    },
+    whiteboard,
   };
 
   return { handlers, roleFactsOf };

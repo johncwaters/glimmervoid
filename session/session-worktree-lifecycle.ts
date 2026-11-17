@@ -13,6 +13,7 @@ import { createIntegrationRefWatcher } from "../detection/integration-ref-watch.
 import { createRerereWatcher } from "../detection/rerere-watch.ts";
 import { buildMergePrompt } from "./core/merge-prompt.ts";
 import { decideSignatureDemotion } from "./core/merge-gate.ts";
+import type { StandardsGateVerdict } from "./core/merge-gate.ts";
 import { decideAutoRebase, decideRerereCooldownClear, AUTO_REBASE_STATES, SPAWN_GAP_TRIGGER } from "./core/rebase-gate.ts";
 import { nextMergeState } from "./core/worktree-state.ts";
 import type { MergeStatus } from "./core/worktree-state.ts";
@@ -28,6 +29,9 @@ import { createWorktreeProvisioning } from "./worktree/worktree-provisioning.ts"
 import { createWorktreeDiffScopes } from "./worktree/worktree-diff-scopes.ts";
 import { createWorktreeBranchSync } from "./worktree/worktree-branch-sync.ts";
 import { clock } from '../shared/clock.ts';
+import { isCoherenceJournalPath } from "../server/git/core/git-changed-paths-core.ts";
+
+type MergeGate = (tree: { sig: string; dirty: boolean } | null) => Promise<StandardsGateVerdict> | StandardsGateVerdict;
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
@@ -503,6 +507,22 @@ function createSessionWorktreeLifecycle({
     return { sig, dirty: status.trim() !== "", ahead, behind, rebaseBehind, rebaseInProgress, headSha: head, targetSha, baseRef };
   }
 
+  async function computeGateTree(): Promise<{ sig: string; dirty: boolean } | null> {
+    const worktreeDir = lifecycleState.worktreeDir;
+    if (!worktreeDir) return null;
+    const opts: RunGitOptions = { cwd: worktreeDir, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024 };
+    try {
+      const status = await gitOut(["--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"], opts);
+      const changedFileStamps = await readChangedFileStamps(worktreeDir, status);
+      const head = (await gitOut(["--no-optional-locks", "rev-parse", "HEAD"], opts)).trim();
+      const sig = crypto.createHash("sha1").update(`${status} ${changedFileStamps} ${head}`).digest("hex");
+      return { sig, dirty: statusPathsOf(status).some((changedPath) => !isCoherenceJournalPath(changedPath)) };
+    } catch (error) {
+      recordWorktreeCheckFailure(error);
+      return null;
+    }
+  }
+
   async function runAutoRebase(trigger: string, signature: WorktreeSignature): Promise<void> {
     if (lifecycleState.autoRebasing) return;
     const session = port.state();
@@ -615,6 +635,17 @@ function createSessionWorktreeLifecycle({
     port.emit("worktree-changed", { id, sig: signature.sig, headSha: signature.headSha, baseRef: signature.rebaseInProgress ? null : signature.baseRef });
   }
 
+  function queuePositionText(mergesAheadCount: number): string | null {
+    if (mergesAheadCount === 0) return null;
+    return mergesAheadCount === 1 ? "1 merge ahead in this repository" : `${mergesAheadCount} merges ahead in this repository`;
+  }
+
+  function announceQueuePosition(mergesAheadCount: number): void {
+    if (!isMerging()) return;
+    lifecycleState.mergeReason = queuePositionText(mergesAheadCount);
+    port.emit("merge-status", { id, mergeStatus: lifecycleState.mergeStatus, reason: lifecycleState.mergeReason });
+  }
+
   async function runMergeEngine(
     workspaceApi: GitWorkspace,
     workspace: Workspace,
@@ -627,6 +658,7 @@ function createSessionWorktreeLifecycle({
         projectPath: currentProjectPath(),
         workspace,
         targetBranch: effectiveIntegrationBranch(),
+        onQueuePosition: announceQueuePosition,
       });
       if (isolation && !workspaceApi.withGitIsolation) throw new Error("Merge requires Git isolation");
       const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
@@ -648,10 +680,35 @@ function createSessionWorktreeLifecycle({
     return mergeResult;
   }
 
+  let mergeGate: MergeGate | null = null;
+
+  function setMergeGate(gate: MergeGate | null): void {
+    mergeGate = gate;
+  }
+
+  async function refusalByMergeGate(gate: MergeGate): Promise<MergeResult | null> {
+    const signature = await computeGateTree();
+    const verdict = await gate(signature);
+    if (!verdict.allowed) {
+      setMergeStatus("pending-review", { reason: verdict.reason });
+      return { merged: false, refused: true, reason: verdict.reason };
+    }
+    const signatureAfterChecks = await computeGateTree();
+    if (!signature || signatureAfterChecks?.sig !== signature.sig) {
+      const reason = "the tree changed while the checks ran, so push again to check what lands";
+      setMergeStatus("pending-review", { reason });
+      return { merged: false, refused: true, reason };
+    }
+    if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
+    return null;
+  }
+
   async function mergeWorktree(isolation?: GitIsolationOptions): Promise<MergeResult> {
     if (!gitWorkspace || !lifecycleState.workspace) return { merged: false, refused: true, reason: "no-worktree" };
     const workspace = lifecycleState.workspace;
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
+    const gateRefusal = mergeGate ? await refusalByMergeGate(mergeGate) : null;
+    if (gateRefusal) return gateRefusal;
     const { result: mergeResult, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeBack", isolation);
     if (failure) return failure;
     if (!mergeResult.merged) return applyParkedOrPending(mergeResult);
@@ -670,6 +727,8 @@ function createSessionWorktreeLifecycle({
       return { merged: false, refused: true, reason: "not-continuable" };
     }
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
+    const gateRefusal = mergeGate ? await refusalByMergeGate(mergeGate) : null;
+    if (gateRefusal) return gateRefusal;
     const { result, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeKeep");
     if (failure) return failure;
     if (result.merged) {
@@ -715,12 +774,14 @@ function createSessionWorktreeLifecycle({
     getBranchSync,
     resyncBranch,
     computeWorktreeSignature,
+    computeGateTree,
     checkWorktreeChange,
     scheduleCheck,
     startWatching,
     stopWatching,
     mergeWorktree,
     mergeAndContinue,
+    setMergeGate,
     adoptWorktree,
     discardWorktree,
     releaseDroppedWorkspaceMembers,

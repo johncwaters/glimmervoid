@@ -337,9 +337,10 @@ class NotificationManager extends EventEmitter {
       timestamp: clock.nowMs(),
       ...(extraContext || {}),
     };
+    const hadReachedPhone = entry.hasReachedPhone;
     for (const channel of this._channels) {
       if (channelFilter && !channelFilter(channel)) continue;
-      if (channel.offDashboard && entry.hasReachedPhone) continue;
+      if (channel.offDashboard && hadReachedPhone) continue;
       try {
         const delivery = channel.fn(sessionName, category, message, context);
         if (channel.offDashboard && delivery?.send === true) this._markPhoneReached(entry);

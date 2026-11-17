@@ -25,6 +25,16 @@ One bot for session, review and PostHog alerts.
 | `telegram.botToken` | Bot token | `""` | Token from @BotFather in Telegram (send /newbot). |
 | `telegram.chatId` | Chat id | `""` | Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. |
 | `telegramNotifications` | Send session notifications | `false` | Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged. |
+| `telegram.acceptReplies` | Take replies | `false` | Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages from the chat id above are read. |
+
+### Slack
+
+Session alerts posted to one Slack channel through an incoming webhook.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `slack.webhookUrl` | Webhook URL | `""` | Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook). |
+| `slack.enabled` | Send session notifications | `false` | Alert in Slack when no dashboard is open, or when an alert sits unacknowledged. |
 
 ### Sessions
 
@@ -34,6 +44,8 @@ How sessions start, where projects are found, and branch cleanup.
 |-----|---------|---------|-------|
 | `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. |
 | `spawnedSessionsMax` | Spawned sessions per session | `3` | Most sessions one session may have spawned and live at once; a spawn past it is refused. |
+| `loopGuard.maxTurnsWithoutProgress` | Turns without progress | `null` | Act on a session after this many turns in a row end with its worktree unchanged and no input from you, or never at zero. |
+| `loopGuard.onStuck` | When a session is stuck | `"flag"` | Flag asks for your attention; Stop also ends the session. |
 | `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
@@ -44,6 +56,23 @@ How sessions start, where projects are found, and branch cleanup.
 | `operatorTimezone` | Operator timezone | `null` | Timezone that wake times, day boundaries and shown times use; until a dashboard reports one, the machine timezone. **File-only.** Set by the dashboard from the browser timezone each time it connects with a different one. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `packScheduledSessionsMax` | Scheduled pack sessions | `3` | Most sessions that pack launcher schedules keep live at once; a scheduled run past it is skipped. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+
+### Session review
+
+The read-only reviewer the Review button in Changes starts on a session diff.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `sessionReview.agent` | Reviewer agent | `"claude-code"` | Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout. |
+| `sessionReview.model` | Reviewer model | `""` | Model name passed to the reviewer agent. Empty uses that agent default. |
+
+### Plan approval
+
+Hold a plan an agent proposes until you approve or reject it on the dashboard.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `planGate.enabled` | Approve plans on the dashboard | `false` | Claude Code waits on its proposed plan until you decide on the card. Codex shows the plan on the card, and your decision is typed into it. Other agents keep approving in the terminal. |
 
 ### Sane YOLO
 
@@ -84,6 +113,7 @@ Token accounting and estimated-cost budgets.
 | `usage.retainDays` | Retain transcript detail | `90` | How long detailed usage is kept. |
 | `usage.budget.dailyUsd` | Daily budget | `null` | Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero. |
 | `usage.budget.monthlyUsd` | Monthly budget | `null` | Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero. |
+| `usage.budget.pauseAtLimit` | Pause at budget | `false` | At 100% of a budget, snooze live sessions and hold agent spawns and wakes until the day or month rolls over. |
 | `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.kimi` | Track Kimi Code usage | `true` | Include local Kimi Code transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -213,6 +243,9 @@ Config-file-only detection, timing, worktree and process settings.
 | `shareCommitProvenance` | Share commit provenance | `true` | After Merge pushes the base branch, also push the git notes that let glimmervoid why name the agent and session of a commit on any clone. The notes hold a hashed session id and the agent name, never a task or prompt. Off keeps them on this machine. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktree.integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktree.root` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `agentRules.rules` | Rules for every session | `[]` | Rules every agent session receives with its Glimmervoid tools, whichever agent runs it, one string per rule, up to 40. Sessions started after a change read it. Applies to new sessions. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `reactions.reactions` | Reactions | `[]` | Up to 20 reactions, each {id, on, project?, action, text?}: on session-failed, session-done, needs-attention or commits-landed, action notify raises a note on the session card and wake types text into the session once idle. **File-only.** A structured value with no dashboard control; edit it in config.json. |
+| `reactions.cooldownMinutes` | Reaction cooldown | `10` | How long one reaction waits before reacting to the same session again. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `worktree.share` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -253,6 +286,7 @@ Edit these in `config.json` unless the note names another dashboard surface.
 | Key | Default | Notes |
 |-----|---------|-------|
 | `guardrails` |  | Retired and ignored: a leftover block logs one line at startup. `guardrails.unreadablePaths` moved to `saneYoloUnreadablePaths`. Hosted boxes sandbox sessions through `sessionSandbox` instead. |
+| `verification` |  | File-only. Checks each session runs in its worktree at turn end, keyed by repository path: `{ "repos": { "<repo path>": { "checks": [{ "id": "test", "command": "npm test" }], "timeoutSeconds": 300, "gate": { "enabled": true, "required": ["test"] } } } }`. A command is a plain program and arguments, never run through a shell; one with shell syntax is skipped. The Changes panel shows each check with its output tail. With `gate.enabled`, `glimmervoid push` and a session finish refuse to merge while the worktree has uncommitted changes, and until every required check (all checks when `required` is unset) passed on the current commit, running them first when that commit or the checks changed since the last passing run; an invalid entry refuses every merge in that repository. Checks run with a minimal environment, and do not run at all while `sessionSandbox` is on, because they would run agent-edited code outside the sandbox. |
 | `sessionSandbox` |  | File-only, default off, Linux only, for hosted boxes. On, every session started from a project starts inside an OS sandbox (`@anthropic-ai/sandbox-runtime`) that keeps the Glimmervoid home, the vault and the box's credentials out of the agent's reach and limits network access to the model, GitHub and package registry hosts, while the agent keeps its own repos and logins. Lane sessions (team review, Radar, community, task titles, the question manager) still run outside it. The server refuses to start with it on any other platform, and a session start is refused when `socat` is not on `PATH`. |
 | `agentAccounts` |  | Added agent accounts, each with `id`, `agent`, `label` and `folder` (the signed-in agent home that account runs from). A Claude Code account folder keeps its own login, `.claude.json` and org policy files, and links everything else to the real `~/.claude`; its `mcpServers` are copied from the real `.claude.json` at each spawn. |
 | `agentAccountDefaults` |  | The account Add session preselects for a new session of each agent, keyed by agent id, for example `{ "claude-code": "claude-a1b2c3" }`. Unset, or naming an account that no longer exists, a new session runs on the machine's own login. Set it with Make default in Settings > Accounts. A session from Quick session keeps its source session's account; sessions opened from an issue, a pull request or Arena run on the machine's own login. |
@@ -276,6 +310,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_MANAGED_BY` | operator | Name of whoever installs and pins this Glimmervoid, such as a hosting service. When set, Settings > Updates says that name manages the version, offers no update and the server makes no release check. |
 | `GLIMMERVOID_POSTHOG_API_KEY` | operator | Supplies `posthog.apiKey`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEGRAM_BOT_TOKEN` | operator | Supplies `telegram.botToken`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
+| `GLIMMERVOID_SLACK_WEBHOOK_URL` | operator | Supplies `slack.webhookUrl`, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_POSTHOG_READ_API_KEY` | operator | Supplies `posthog.readApiKey`, the read-only PostHog key the watcher uses, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_GITHUB_READ_TOKEN` | operator | Supplies `github.readToken`, the read-only GitHub token lanes use for gh, overriding the stored value. It is stripped from every write, so a dashboard save never persists it. |
 | `GLIMMERVOID_TELEMETRY` | operator | Set to `0` to turn off usage and error telemetry (error type, error code and scrubbed stack frames, never messages or paths) whatever `telemetry.enabled` says. `DO_NOT_TRACK=1` and `CI=true` turn it off too. |

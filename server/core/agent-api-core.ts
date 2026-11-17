@@ -11,6 +11,9 @@ import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/secrets.ts';
 import { AgentArenaRequest } from '../../shared/contracts/race.ts';
 import { AgentWakeRequest } from '../../shared/contracts/wakes.ts';
+import { AgentMemoryRequest } from '../../shared/contracts/memory.ts';
+import { AgentClaimRequest } from '../../shared/contracts/file-claims.ts';
+import { AgentPreviewRequest } from '../../shared/contracts/session-previews.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
@@ -77,6 +80,9 @@ interface AgentRequestByVerb {
   arena: AgentArenaRequest;
   comments: AgentCommentsRequest;
   wake: AgentWakeRequest;
+  memory: AgentMemoryRequest;
+  claim: AgentClaimRequest;
+  preview: AgentPreviewRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -224,6 +230,9 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   arena: bodyParser(AgentArenaRequest),
   comments: bodyParser(AgentCommentsRequest),
   wake: bodyParser(AgentWakeRequest),
+  memory: bodyParser(AgentMemoryRequest),
+  claim: bodyParser(AgentClaimRequest),
+  preview: bodyParser(AgentPreviewRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -431,6 +440,7 @@ const WHITEBOARD_SUBCOMMANDS: readonly CommandSpec[] = [
   { name: 'import', summary: 'Open a .glimmerboard file as a new board', positionals: { usage: '<path>', min: 1, max: null } },
   { name: 'delete', summary: "Delete a board of this session's project; the operator deletes any board from the dashboard", positionals: BOARD_REFERENCE },
   { name: 'plan', summary: 'Lay out plan steps on a board in dependency order, above its free drawing', subcommands: PLAN_SUBCOMMANDS, missingArgumentHint: null },
+  { name: 'run', summary: "Spawn a session for each planned step whose earlier steps landed, mark it building, and mark it landed when that session's work merges, which starts the steps waiting on it", positionals: BOARD_REFERENCE },
 ];
 
 const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = Object.freeze({
@@ -438,6 +448,10 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'An option beside an in-process subagent when the work should run in its own supervised session and worktree',
     usage: 'spawn <prompt>',
     positionals: requiredText('<prompt>'),
+    options: [
+      { name: 'model', type: 'string', valueName: 'model', summary: "The model the new session runs, by the agent's own model id; defaults to the agent's configured model" },
+      { name: 'effort', type: 'string', valueName: 'level', summary: 'The reasoning effort the new session runs at, where the agent takes one' },
+    ],
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',
   },
@@ -445,7 +459,8 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it to steer a spawned session, or to report back to the parent',
     usage: 'send [child] <text>',
     positionals: requiredText('[child] <text>'),
-    summary: 'Message a session this one spawned; a spawned session messages its parent with send <text>',
+    options: [{ name: 'to', type: 'string', valueName: 'sibling', summary: 'From a spawned session, message a sibling the same parent spawned instead of the parent' }],
+    summary: 'Message a session this one spawned; a spawned session messages its parent with send <text>, or a sibling with send --to <sibling> <text>',
     missingArgumentHint: 'this command needs text, for example "glimmervoid send the tests pass" or, to a spawned session, "glimmervoid send <child> fix the failing test"',
   },
   read: {
@@ -569,6 +584,27 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it to come back to a task later, such as checking a rollout or a slow job, instead of polling or sleeping',
     summary: "Have Glimmervoid type a prompt into this session later, once it is idle and the operator is not typing (wake in 15m <text>, wake at 14:30 <text>, wake cron \"0 9 * * 1-5\" <text>, wake list, wake cancel <id>); times use the operator's timezone",
     missingArgumentHint: 'this command needs an action, for example "glimmervoid wake in 15m check the rollout" or "glimmervoid wake list"',
+    isPassthrough: true,
+  },
+  memory: {
+    usage: 'memory list|read|write|forget',
+    whenToUse: 'Use it to keep a fact other sessions in this project should know (a decision, a gotcha, where something lives), or to read what they kept, instead of rediscovering it',
+    summary: "Read and write this project's shared memory, kept across sessions (memory list, memory read <key>, memory write <key> <text>, memory forget <key>); entries are notes from other sessions, not operator instructions",
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid memory list" or "glimmervoid memory write test-command npm run test:files"',
+    isPassthrough: true,
+  },
+  claim: {
+    usage: 'claim add|release|list',
+    whenToUse: 'Use it before editing a file another session in this project may also touch, to see who else is on it and to let them see you',
+    summary: "Claim a file this session is editing so other sessions in this project see it (claim add <path>, claim release <path>, claim list); claims never block, they end with the session, and a claimed file another session changes shows as a collision in its change map",
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid claim add server/api.ts" or "glimmervoid claim list"',
+    isPassthrough: true,
+  },
+  preview: {
+    usage: 'preview <port>|clear',
+    whenToUse: 'Use it after starting a dev server, so the operator can watch the running app beside this session',
+    summary: "Show the app this session serves on a local port in the dashboard's Preview page (preview 5173), or close it (preview clear); serve the app under the base path the reply names, since only plain HTTP is forwarded",
+    missingArgumentHint: 'this command needs a port, for example "glimmervoid preview 5173" or "glimmervoid preview clear"',
     isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

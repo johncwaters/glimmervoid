@@ -4,9 +4,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { clock } from '../shared/clock.ts';
 import assert from 'node:assert/strict';
 
 import { createUsageWiring, } from '../server/usage/usage-wiring.ts';
+import { createBudgetSessionPauser } from '../server/session/session-budget-pause.ts';
+import { STATES } from '../shared/states.ts';
 import type { UsageWiringOptions } from '../server/usage/usage-wiring.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
 import type { PassOutcome } from '../server/usage/core/usage-scan-core.ts';
@@ -26,23 +29,22 @@ const BUDGET_BLOCK = {
 type GenerationRollup = Awaited<ReturnType<Scanner['runPass']>>['generationRollup'];
 
 function fakeScanner(
-  { outcome = 'complete', spend, generationRollup = [] }: { outcome?: PassOutcome; spend: () => BudgetSpend; generationRollup?: GenerationRollup },
+  { outcome = 'complete', outcomeOf = () => outcome, spend, generationRollup = [] }: { outcome?: PassOutcome; outcomeOf?: () => PassOutcome; spend: () => BudgetSpend; generationRollup?: GenerationRollup },
 ): Scanner {
-  const isByteLimited = outcome === 'byte-limited';
   return {
     runPass: async (args?: { force?: boolean }) => ({
       files: 1,
       entries: 1,
       newEntries: 1,
-      partial: isByteLimited,
-      outcome,
-      ioFailures: outcome === 'io-failed' ? 1 : 0,
+      partial: outcomeOf() === 'byte-limited',
+      outcome: outcomeOf(),
+      ioFailures: outcomeOf() === 'io-failed' ? 1 : 0,
       storeReset: args?.force === true,
       durationMs: 0,
       generationRollup,
     }),
     sessionTotals: () => new Map(),
-    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcome, isHistoryCaughtUp: outcome === 'complete', resolutionError: null }),
+    stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcomeOf(), isHistoryCaughtUp: outcomeOf() === 'complete', resolutionError: null }),
     budgetSpend: spend,
     latestCodexRateLimits: () => null,
     buildReport: () => ({
@@ -101,8 +103,8 @@ interface StoredBudgetState {
   fired: { daily: Record<string, unknown>; monthly: Record<string, unknown> };
 }
 
-const TODAY = '2026-08-19';
-const MONTH = '2026-08';
+const TODAY = clock.dayKeyOf(1_800_000_000_000);
+const MONTH = TODAY.slice(0, 7);
 
 async function makeTempRoot(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-budget-'));
@@ -119,16 +121,17 @@ interface HarnessOptions {
   sendTelegram?: NonNullable<UsageWiringOptions['sendTelegram']>;
   telegramTimeoutMs?: number;
   outcome?: PassOutcome;
+  onBudgetHold?: UsageWiringOptions['onBudgetHold'];
 }
 
-function harness({ root, usage = {}, telegram = null, telegramNotifications = false, connections = 1, spend = { todayUsd: 0, monthUsd: 0 }, fsPromises = fs, sendTelegram, telegramTimeoutMs, outcome = 'complete' }: HarnessOptions) {
+function harness({ root, usage = {}, telegram = null, telegramNotifications = false, connections = 1, spend = { todayUsd: 0, monthUsd: 0 }, fsPromises = fs, sendTelegram, telegramTimeoutMs, outcome = 'complete', onBudgetHold }: HarnessOptions) {
   const sent: Record<string, unknown>[] = [];
   const telegrams: { text?: string; botToken?: string; chatId?: string }[] = [];
   const warnings: string[] = [];
-  const state = { spend };
+  const state = { spend, outcome, nowMs: 1_800_000_000_000 };
   const spendCalls = { count: 0 };
   const scanner = fakeScanner({
-    outcome,
+    outcomeOf: () => state.outcome,
     spend: () => {
       spendCalls.count += 1;
       return { todayKey: TODAY, monthKey: MONTH, ...state.spend };
@@ -142,7 +145,7 @@ function harness({ root, usage = {}, telegram = null, telegramNotifications = fa
     controlClientCount: () => connections,
     createScanner: () => scanner,
     loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    nowFn: () => 1_800_000_000_000,
+    nowFn: () => state.nowMs,
     setIntervalFn: inertInterval,
     clearIntervalFn: (handle) => clearTimeout(handle),
     logger: { warn: (message) => { warnings.push(String(message)); }, log: () => {} },
@@ -153,6 +156,7 @@ function harness({ root, usage = {}, telegram = null, telegramNotifications = fa
       return { ok: true, error: null };
     }),
     telegramTimeoutMs,
+    onBudgetHold,
   };
   const wiring = createUsageWiring(wiringOptions);
   return {
@@ -194,6 +198,56 @@ test('the fired state survives a restart', async () => {
   const second = harness({ root, usage: { budget: { dailyUsd: 16 } }, spend: { todayUsd: 12.4, monthUsd: 12.4 } });
   await second.wiring.start();
   assert.equal(second.alerts().length, 0, 'a fresh process reads the marks off disk');
+});
+
+test('pausing at the budget pauses sessions once per period, across a restart and an undercounting io failure, and holds until spend falls back under it', async () => {
+  const root = await makeTempRoot();
+  const phases: string[] = [];
+  const onBudgetHold = (phase: 'start' | 'continue' | 'end') => { phases.push(phase); return []; };
+  const usage = { budget: { dailyUsd: 16, pauseAtLimit: true } };
+  const first = harness({ root, usage, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold });
+  await first.wiring.start();
+  assert.match(String(first.wiring.budgetHoldReason()), /daily spend \$16\.50 reached its \$16\.00 budget/);
+
+  first.state.outcome = 'io-failed';
+  first.state.spend = { todayUsd: 3, monthUsd: 3 };
+  for (let pass = 0; pass < 4; pass += 1) await first.wiring.requestReport({ force: true });
+  assert.notEqual(first.wiring.budgetHoldReason(), null, 'an undercounting io-failed pass keeps the hold');
+  await first.wiring.stop();
+
+  const second = harness({ root, usage, spend: { todayUsd: 16.5, monthUsd: 16.5 }, outcome: 'io-failed', onBudgetHold });
+  await second.wiring.start();
+  assert.match(String(second.wiring.budgetHoldReason()), /daily budget was reached earlier this period/);
+  second.state.outcome = 'complete';
+  await second.wiring.requestReport({ force: true });
+  assert.deepEqual(phases.filter((phase) => phase === 'start'), ['start'], 'a restart never pauses twice in one period');
+
+  second.state.spend = { todayUsd: 0, monthUsd: 16.5 };
+  await second.wiring.requestReport({ force: true });
+  assert.equal(second.wiring.budgetHoldReason(), null);
+  assert.equal(phases.at(-1), 'end');
+});
+
+test('a budget hold ends when the period rolls over even while usage passes keep failing', async () => {
+  const root = await makeTempRoot();
+  const held = harness({ root, usage: { budget: { dailyUsd: 16, pauseAtLimit: true } }, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold: () => [] });
+  await held.wiring.start();
+  assert.notEqual(held.wiring.budgetHoldReason(), null);
+  held.state.outcome = 'io-failed';
+  held.state.nowMs += 24 * 60 * 60 * 1000;
+  await held.wiring.requestReport({ force: true });
+  assert.equal(held.wiring.budgetHoldReason(), null);
+  await held.wiring.stop();
+});
+
+test('a budget hold saved before a restart is read before any dashboard connects', async () => {
+  const root = await makeTempRoot();
+  const usage = { budget: { dailyUsd: 16, pauseAtLimit: true } };
+  const first = harness({ root, usage, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold: () => [] });
+  await first.wiring.start();
+  await first.wiring.stop();
+  const restarted = harness({ root, usage, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold: () => [] });
+  assert.match(String(await restarted.wiring.readBudgetHoldReason()), /daily budget was reached earlier this period/);
 });
 
 test('an unreadable budget state warns, keeps its bytes, and never rewrites them', async () => {
@@ -451,4 +505,25 @@ test('byLane, planWindowLanes and budget reach the wire on a pulled report', asy
   assert.ok(cached, 'a pulled report is cached for the next connect');
   assert.deepEqual(blockAt(cached, 'budget'), BUDGET_BLOCK);
   assert.deepEqual(cached.byLane, report.byLane);
+});
+
+test('reaching the budget pauses a spawned child session as well as its parent, and never a lane', () => {
+  const snoozedIds: string[] = [];
+  const sessionNamed = (id: string, ephemeral: boolean, ownerId: string | null) => ({
+    id,
+    name: id,
+    ephemeral,
+    ownerId,
+    state: STATES.RUNNING,
+    _lastOperatorInputAt: 0,
+    snooze: () => { snoozedIds.push(id); return { ok: true as const }; },
+    killSession: () => false,
+  });
+  const pauseAtPhase = createBudgetSessionPauser(() => [
+    sessionNamed('parent', false, null),
+    sessionNamed('spawned-child', true, 'parent'),
+    sessionNamed('review-lane', true, null),
+  ], () => 1);
+  assert.deepEqual(pauseAtPhase('start'), ['parent', 'spawned-child']);
+  assert.deepEqual(snoozedIds, ['parent', 'spawned-child']);
 });

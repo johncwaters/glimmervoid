@@ -305,6 +305,12 @@ function createConfigStore({
 
       usage: pickBlock('usage', config.usage),
       telegram: pickBlock('telegram', config.telegram),
+      loopGuard: pickBlock('loopGuard', config.loopGuard),
+      slack: pickBlock('slack', config.slack),
+      sessionReview: pickBlock('sessionReview', config.sessionReview),
+      planGate: pickBlock('planGate', config.planGate),
+      agentRules: pickBlock('agentRules', config.agentRules),
+      reactions: pickBlock('reactions', config.reactions),
     };
   }
 
@@ -312,6 +318,13 @@ function createConfigStore({
     if (!launchDefaultKeys.has(key)) return false;
     if (key in target) return false;
     return value === effectiveDefaults[key];
+  }
+
+  function applyHandEditedBlocks(newConfig: Partial<GlimmervoidConfig>): void {
+    if (newConfig.reactions == null) delete config.reactions;
+    if (newConfig.reactions != null) config.reactions = newConfig.reactions;
+    if (newConfig.verification == null) delete config.verification;
+    if (newConfig.verification != null) config.verification = newConfig.verification;
   }
 
   function applySettings(newConfig: Partial<GlimmervoidConfig>): void {
@@ -345,6 +358,17 @@ function createConfigStore({
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.vault != null) config.vault = { ...config.vault, ...newConfig.vault };
+    if (newConfig.slack == null) delete config.slack;
+    if (newConfig.slack != null) config.slack = newConfig.slack;
+    if (newConfig.sessionReview == null) delete config.sessionReview;
+    if (newConfig.sessionReview != null) config.sessionReview = newConfig.sessionReview;
+    if (newConfig.planGate == null) delete config.planGate;
+    if (newConfig.planGate != null) config.planGate = newConfig.planGate;
+    if (newConfig.agentRules == null) delete config.agentRules;
+    if (newConfig.agentRules != null) config.agentRules = newConfig.agentRules;
+    applyHandEditedBlocks(newConfig);
+    if (newConfig.loopGuard == null) delete config.loopGuard;
+    if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;
     if (newConfig.coder == null) delete config.coder;
@@ -392,6 +416,7 @@ function createConfigStore({
       _lastAppliedContent = data;
 
       _lastWrittenContent = null;
+      applyHandEditedBlocks(newConfig);
       callback(newConfig);
       console.log('[config] Reloaded config.json');
     }

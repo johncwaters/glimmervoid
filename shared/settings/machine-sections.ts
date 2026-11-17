@@ -1,5 +1,5 @@
-import { SKIP_PERMISSIONS_BY_DEFAULT, SPAWNED_SESSIONS_DEFAULT, SPAWNED_SESSIONS_RANGE, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
-import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, SESSIONS, USD } from './registry-fields.ts';
+import { LOOP_GUARD_ON_STUCK, LOOP_GUARD_TURNS_RANGE, SKIP_PERMISSIONS_BY_DEFAULT, SPAWNED_SESSIONS_DEFAULT, SPAWNED_SESSIONS_RANGE, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
+import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, SESSIONS, TURNS, USD, capitalizedOptions } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const MACHINE_TELEGRAM: SettingsSection = {
@@ -25,6 +25,66 @@ export const MACHINE_TELEGRAM: SettingsSection = {
       description: 'Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged.',
       control: 'toggle', keywords: ['phone', 'off dashboard', 'test'], defaultValue: false, status: 'telegram-delivery', ...MACHINE_NOW,
     },
+    {
+      id: 'telegram-accept-replies', path: 'telegram.acceptReplies', title: 'Take replies',
+      description: 'Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages from the chat id above are read.',
+      control: 'toggle', keywords: ['answer', 'approve', 'inbound', 'remote'], defaultValue: false, ...MACHINE_NOW,
+    },
+  ],
+};
+
+export const MACHINE_SLACK: SettingsSection = {
+  id: 'machine-slack',
+  level: 'machine',
+  parent: 'browser-notifications',
+  title: 'Slack',
+  description: 'Session alerts posted to one Slack channel through an incoming webhook.',
+  settings: [
+    {
+      id: 'slack-webhook-url', path: 'slack.webhookUrl', title: 'Webhook URL',
+      description: 'Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook).',
+      control: 'password', keywords: ['credential', 'channel', 'hooks.slack.com'], defaultValue: '', ...MACHINE_NOW,
+    },
+    {
+      id: 'slack-session-notifications', path: 'slack.enabled', title: 'Send session notifications',
+      description: 'Alert in Slack when no dashboard is open, or when an alert sits unacknowledged.',
+      control: 'toggle', keywords: ['phone', 'off dashboard'], defaultValue: false, ...MACHINE_NOW,
+    },
+  ],
+};
+
+export const MACHINE_SESSION_REVIEW: SettingsSection = {
+  id: 'machine-session-review',
+  level: 'machine',
+  parent: 'machine-sessions',
+  title: 'Session review',
+  description: 'The read-only reviewer the Review button in Changes starts on a session diff.',
+  settings: [
+    {
+      id: 'session-review-agent', path: 'sessionReview.agent', title: 'Reviewer agent',
+      description: 'Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout.',
+      control: 'select', options: [{ value: 'claude-code', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }], keywords: ['review', 'second opinion', 'lane'], defaultValue: 'claude-code', ...MACHINE_NOW,
+    },
+    {
+      id: 'session-review-model', path: 'sessionReview.model', title: 'Reviewer model',
+      description: 'Model name passed to the reviewer agent. Empty uses that agent default.',
+      control: 'text', keywords: ['review', 'model'], defaultValue: '', ...MACHINE_NOW,
+    },
+  ],
+};
+
+export const MACHINE_PLAN_GATE: SettingsSection = {
+  id: 'machine-plan-gate',
+  level: 'machine',
+  parent: 'machine-sessions',
+  title: 'Plan approval',
+  description: 'Hold a plan an agent proposes until you approve or reject it on the dashboard.',
+  settings: [
+    {
+      id: 'plan-gate-enabled', path: 'planGate.enabled', title: 'Approve plans on the dashboard',
+      description: 'Claude Code waits on its proposed plan until you decide on the card. Codex shows the plan on the card, and your decision is typed into it. Other agents keep approving in the terminal.',
+      control: 'toggle', keywords: ['plan mode', 'approve', 'reject', 'exit plan mode'], defaultValue: false, ...MACHINE_NOW,
+    },
   ],
 };
 
@@ -44,6 +104,17 @@ export const MACHINE_SESSIONS: SettingsSection = {
       id: 'spawned-sessions-max', path: 'spawnedSessionsMax', title: 'Spawned sessions per session',
       description: 'Most sessions one session may have spawned and live at once; a spawn past it is refused.',
       control: 'number', range: SPAWNED_SESSIONS_RANGE, unit: SESSIONS, keywords: ['spawn', 'children', 'child sessions', 'parallel', 'agent api'], defaultValue: SPAWNED_SESSIONS_DEFAULT, ...MACHINE_NOW,
+    },
+    {
+      id: 'loop-guard-turns', path: 'loopGuard.maxTurnsWithoutProgress', title: 'Turns without progress',
+      description: 'Act on a session after this many turns in a row end with its worktree unchanged and no input from you, or never at zero.',
+      control: 'number', range: LOOP_GUARD_TURNS_RANGE, unit: TURNS, keywords: ['loop', 'stuck', 'guardrail', 'runaway'], defaultValue: null,
+      nullable: true, zeroIsNull: true, ...MACHINE_NOW,
+    },
+    {
+      id: 'loop-guard-on-stuck', path: 'loopGuard.onStuck', title: 'When a session is stuck',
+      description: 'Flag asks for your attention; Stop also ends the session.',
+      control: 'select', options: capitalizedOptions(LOOP_GUARD_ON_STUCK), keywords: ['loop', 'stuck', 'guardrail'], defaultValue: 'flag', ...MACHINE_NOW,
     },
     {
       id: 'tab-order', path: 'viewTabOrder', title: 'Tab order',
@@ -228,6 +299,11 @@ export const MACHINE_USAGE: SettingsSection = {
       description: 'Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero.',
       control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
       integer: false, nullable: true, zeroIsNull: true, step: 0.01, ...MACHINE_NOW,
+    },
+    {
+      id: 'usage-budget-pause', path: 'usage.budget.pauseAtLimit', title: 'Pause at budget',
+      description: 'At 100% of a budget, snooze live sessions and hold agent spawns and wakes until the day or month rolls over.',
+      control: 'toggle', keywords: ['spend', 'stop', 'limit', 'cap'], defaultValue: false, ...MACHINE_NOW,
     },
   ],
 };

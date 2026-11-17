@@ -15,9 +15,12 @@ import type { GlimmervoidConfig } from '../config-store.ts';
 import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
+import { isPlanGateEnabled } from '../../session/core/plan-gate-core.ts';
 import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
+import { createFileClaims } from '../file-claims.ts';
+import { STATES } from '../../shared/states.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
 import { createReviewWiring, REVIEWS_FOLDER_NAME } from '../review/review-wiring.ts';
 import type { ProvisionalBoardNaming } from '../whiteboard/whiteboard-wiring.ts';
@@ -76,6 +79,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
 import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, resolveFnoxPath } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
+import { createSessionPreviews } from '../session/session-previews.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
@@ -91,6 +95,9 @@ import { SecretSource } from '../../shared/contracts/secrets.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
+import { createVerificationWiring } from '../verification/verification-wiring.ts';
+import { createLoopGuardWiring } from '../session/loop-guard-wiring.ts';
+import { createReactionsWiring } from '../reactions-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -226,6 +233,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sshSigner,
     githubUserCredential: () => githubUserCredentialOfLink(),
     recordOutcome,
+    isPlanGateOn: () => isPlanGateEnabled(configStore.config.planGate),
     logger: console,
   };
   const frameSecret = crypto.randomBytes(32);
@@ -246,6 +254,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getPackFile: (packName, fingerprint, filePath) => laneAssembly.packStore.servableFile(packName, fingerprint, filePath),
     packPreviews: boardPackPreviews,
     getWhiteboardFiles: () => whiteboards.handleOperator,
+    previewPortOf: (sessionId) => sessionPreviews.portOf(sessionId),
     frameSecret,
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
@@ -294,9 +303,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     if (message.type !== 'session-removed' || typeof message.id !== 'string') return;
     void whiteboards.forgetSession(message.id);
     void reviews.forgetSession(message.id);
+    verification.forgetSession(message.id);
+    laneAssembly.sessionReview.forgetSession(message.id);
+    sessionPreviews.forget(message.id);
     forgetSessionInSavedOrder(message.id);
   };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
+  const sessionPreviews = createSessionPreviews({ broadcastControl: broadcastControlFromWebSockets, isSessionLive: (sessionId) => getSessionAny(sessionId) !== null });
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -315,7 +328,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
-  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
+  const fileClaims = createFileClaims({ findLiveSession: (sessionId) => allLiveSessions().find((session) => session.id === sessionId && session.state !== STATES.DONE && session.state !== STATES.FAILED) ?? null });
+  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), claimsByOthersOf: fileClaims.claimsByOthersOf });
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => configStore.config.verification,
+    isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
+    broadcastControl: broadcastControlFromWebSockets,
+    logger: console,
+  });
+  const loopGuard = createLoopGuardWiring({ getLoopGuardConfig: () => configStore.config.loopGuard, logger: console });
+  const reactions = createReactionsWiring({ readReactions: () => configStore.config.reactions, logger: console });
   const health = createBackendHealth({
     sessions,
     getAllSessions: () => allLiveSessions(),
@@ -455,6 +477,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl,
     spawnGate,
     memoryAdmission: laneAssembly.memoryAdmission,
+    budgetHoldReason: laneAssembly.budgetHoldReason,
     recordLane,
     sessionDocs,
     operatorState: {
@@ -478,6 +501,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     races: laneAssembly.races,
     startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
     wakesFilePath: path.join(glimmervoidHomeDir(), 'wakes.json'),
+    memoryFilePath: path.join(glimmervoidHomeDir(), 'memory.json'),
+    fileClaims,
+    sessionPreviews,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -503,6 +529,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     notificationManager,
     attachSessionPrLink,
     traceWiring,
+    verification,
+    loopGuard,
+    reactions,
     commitSessions: createCommitSessions({
       storeRoot: configSiblingPath(configStore.configPath, COMMIT_SESSIONS_FOLDER_NAME),
       logger: console,
@@ -757,6 +786,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     races: laneAssembly.races,
     starHint: laneAssembly.starHint,
     usage,
+    verification,
     traceWiring,
     uploadsWiring,
     whiteboards,
@@ -770,6 +800,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     idleStop,
     awakeUsageAlerts,
     githubConnectionAlerts,
+    telegramInbound: notifications.telegramInbound,
     remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,
     dataWss,
@@ -860,6 +891,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
     readTracePage: traceWiring?.readTracePage ?? null,
     sessionDocs,
+    sessionPreviews,
     secrets: secretsBroker,
     testSecretSource,
     githubConnection,
@@ -868,6 +900,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     reviews,
     changeMaps,
+    verification,
+    sessionReview: laneAssembly.sessionReview,
     serverBuild: () => serverBuild,
     telemetry,
     logger: console,

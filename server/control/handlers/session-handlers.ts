@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { codexPlanDecisionText } from '../../../session/core/plan-gate-core.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
@@ -29,6 +30,7 @@ import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
+import { buildIssuePrompt, deriveIssueSessionName } from '../../github/core/github-issue-prompt-core.ts';
 
 type AddSessionRefusal = { error: string };
 type AddSessionOutcome = { ok: true; sessionId: string } | { ok: false; error: string };
@@ -70,6 +72,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     agentAccounts = null,
     packLaunchers = null,
     testSecretSource = null,
+    readGithubIssue = null,
   } = deps;
 
   async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
@@ -159,9 +162,44 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
       return;
     }
+    session.noteOperatorDraft();
     const pasted = session.deliver(msg.text, { when: 'ready', submit: true });
     console.log(`[control] pack-session-send: ${msg.pack}/${msg.panelId} -> ${session.id} ok=${pasted.ok}`);
     replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
+  }
+
+  async function handleOpenIssueSession(msg: ClientMessageOf<'open-issue-session'>, ws: ControlSocket): Promise<void> {
+    const refuse = (error: string) => replyTo(ws, msg, 'add-session-result', { ok: false, error });
+    if (!readGithubIssue) {
+      refuse('Starting from a GitHub issue is unavailable on this host.');
+      return;
+    }
+    const folderPath = msg.path.trim();
+    if (!isExistingDirectory(folderPath)) {
+      refuse(missingFolderError(folderPath));
+      return;
+    }
+    const read = await readGithubIssue(folderPath, msg.issueNumber);
+    if (!read.ok) {
+      refuse(read.error);
+      return;
+    }
+    const { issueNumber: _issueNumber, ...sessionFields } = msg;
+    const request: AddSessionRequest = { ...sessionFields, type: 'add-session', name: deriveIssueSessionName(read.issue), path: folderPath };
+    addSession(request, (outcome) => {
+      if (outcome.ok) deliverIssuePrompt(outcome.sessionId, buildIssuePrompt(read.repo, read.issue));
+      socketReply(ws, request)(outcome);
+    }, {});
+  }
+
+  function deliverIssuePrompt(sessionId: string, prompt: string): void {
+    const session = sessions.get(sessionId);
+    if (!session) {
+      console.warn(`[control] Issue prompt dropped: session ${sessionId} is not loaded`);
+      return;
+    }
+    const pasted = session.deliver(prompt, { when: 'ready', submit: false });
+    if (!pasted.ok) console.warn(`[control] Issue prompt not sent to "${session.name}" (${pasted.reason})`);
   }
 
   function handleQuickSession(msg: ClientMessageOf<'quick-session'>, ws: ControlSocket): void {
@@ -568,6 +606,22 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     replyTo(ws, msg, 'switch-session-account-result', { id: msg.id, ok: refusal === null, ...(refusal ?? {}) });
   }
 
+  function handlePlanDecision(msg: ClientMessageOf<'plan-decision'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    const outcome = session.decidePlan(msg.decision, msg.feedback ?? null);
+    if (!outcome.ok) {
+      sendError(ws, `The plan decision was not applied: ${outcome.reason}.`, { id: session.id });
+      return;
+    }
+    if (outcome.isHeld || msg.decision === 'terminal' || session.agentId !== 'codex') return;
+    const delivery = session.deliver(codexPlanDecisionText(msg.decision, session.planGate?.feedback ?? null), { when: 'ready', submit: true });
+    if (!delivery.ok) sendError(ws, `The plan decision could not be typed into the session: ${delivery.reason}.`, { id: session.id });
+  }
+
   function handleSetSessionQuestionManager(msg: ClientMessageOf<'set-session-question-manager'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
@@ -716,6 +770,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'add-session': handleAddSession,
     'quick-session': handleQuickSession,
     'pack-launch': handlePackLaunch,
+    'open-issue-session': handleOpenIssueSession,
     'pack-session-start': handlePackSessionStart,
     'pack-session-send': handlePackSessionSend,
     'list-conversations': handleListConversations,
@@ -726,6 +781,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
     'set-session-question-manager': handleSetSessionQuestionManager,
+    'plan-decision': handlePlanDecision,
     'switch-session-account': handleSwitchSessionAccount,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
@@ -755,6 +811,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'add-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'quick-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'pack-launch': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
+    'open-issue-session': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'pack-session-start': (_msg, requestId, message) => ({ type: 'add-session-result', requestId, ok: false, error: message }),
     'pack-session-send': (_msg, requestId, message) => ({ type: 'pack-session-send-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),

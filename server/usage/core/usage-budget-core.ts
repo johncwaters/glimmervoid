@@ -5,11 +5,14 @@ const BUDGET_THRESHOLDS = Object.freeze([50, 75, 100]);
 export interface BudgetConfig {
   dailyUsd: number | null;
   monthlyUsd: number | null;
+  pauseAtLimit: boolean;
 }
 
 type BudgetScope = 'daily' | 'monthly';
 
 export type BudgetFiredState = Record<BudgetScope, Record<string, number[]>>;
+
+export type BudgetPausedPeriods = Record<BudgetScope, string | null>;
 
 export interface BudgetAlert {
   scope: BudgetScope;
@@ -28,11 +31,42 @@ interface BudgetStandingRow {
   tone: 'ok' | 'warn' | 'crit';
 }
 
-function normalizeBudgetConfig(raw: { dailyUsd?: unknown; monthlyUsd?: unknown } | null | undefined): BudgetConfig {
-  if (!raw) return { dailyUsd: null, monthlyUsd: null };
+function normalizeBudgetConfig(raw: { dailyUsd?: unknown; monthlyUsd?: unknown; pauseAtLimit?: unknown } | null | undefined): BudgetConfig {
+  if (!raw) return { dailyUsd: null, monthlyUsd: null, pauseAtLimit: false };
   return {
     dailyUsd: positiveNumberOr(raw.dailyUsd, null),
     monthlyUsd: positiveNumberOr(raw.monthlyUsd, null),
+    pauseAtLimit: raw.pauseAtLimit === true,
+  };
+}
+
+function budgetScopesAtLimit({ budget, todayUsd, monthUsd }: { budget: BudgetConfig; todayUsd: unknown; monthUsd: unknown }): BudgetStandingRow[] {
+  if (!budget.pauseAtLimit) return [];
+  return budgetStanding({ budget, todayUsd, monthUsd }).filter((row) => row.pct >= 100);
+}
+
+function pausedPeriodsAfter(rowsAtLimit: readonly BudgetStandingRow[], paused: BudgetPausedPeriods, periodKeyByScope: BudgetPausedPeriods): { paused: BudgetPausedPeriods; isNewPause: boolean } {
+  const next = { ...paused };
+  let isNewPause = false;
+  for (const row of rowsAtLimit) {
+    const periodKey = periodKeyByScope[row.scope];
+    if (periodKey === null || next[row.scope] === periodKey) continue;
+    next[row.scope] = periodKey;
+    isNewPause = true;
+  }
+  return { paused: next, isNewPause };
+}
+
+function pausedScopesInPeriod(paused: BudgetPausedPeriods, periodKeyByScope: BudgetPausedPeriods): BudgetScope[] {
+  const scopes: BudgetScope[] = ['daily', 'monthly'];
+  return scopes.filter((scope) => paused[scope] !== null && paused[scope] === periodKeyByScope[scope]);
+}
+
+function readPausedPeriods(raw: unknown): BudgetPausedPeriods {
+  const source = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  return {
+    daily: typeof source.daily === 'string' ? source.daily : null,
+    monthly: typeof source.monthly === 'string' ? source.monthly : null,
   };
 }
 
@@ -196,4 +230,4 @@ function toneForPct(pct: number): 'ok' | 'warn' | 'crit' {
 }
 
 
-export { budgetStanding, evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig };
+export { budgetScopesAtLimit, budgetStanding, pausedPeriodsAfter, pausedScopesInPeriod, readPausedPeriods, evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig };

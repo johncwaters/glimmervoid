@@ -1,6 +1,7 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { launchPlanFor } from '../shared/agent-models-core.ts';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
@@ -14,6 +15,8 @@ import { createBackend } from '../server/backend/backend.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
 import { stableLauncherPath } from '../server/runtime-paths.ts';
 import { createAgentApiWiring } from '../server/agent-api-wiring.ts';
+import { createFileClaims } from '../server/file-claims.ts';
+import { AgentClaimReply } from '../shared/contracts/file-claims.ts';
 import type { AgentApiWiringOptions } from '../server/agent-api/agent-api-context.ts';
 import { createRaceLauncher } from '../server/race/race-launch.ts';
 import { createReviewWiring } from '../server/review/review-wiring.ts';
@@ -373,6 +376,7 @@ function wiringFixture({
       : createSpawnGate({ memoryAdmission }),
     sessionDocs: createSessionDocsWiring({ broadcastControl: (message) => { broadcasts.push(message); } }),
     memoryAdmission,
+    fileClaims: createFileClaims({ findLiveSession: (sessionId) => [parent, ...agentSessions.values()].find((session) => session.id === sessionId) ?? null }),
     ...(teamReviewStatus ? {
       operatorState: {
         requestReview: async () => ({ ok: false as const, error: 'not in this fixture' }),
@@ -429,6 +433,21 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
     });
     const grandchild = await fixture.spawn(child, { prompt: 'go deeper' });
     assert.equal(grandchild.status, 403);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a spawn naming a model and effort launches the child on them, and a command-line-unsafe model is refused', async () => {
+  const fixture = wiringFixture();
+  try {
+    const reply = await fixture.spawn(fixture.parent, { prompt: 'plan the change', agent: 'claude-code', model: 'opus', effort: 'high' });
+    assert.equal(reply.status, 200);
+    assert.deepEqual(fixture.childProjects[0].agentSetup, { agent: 'claude-code', model: 'opus', options: [{ id: 'effort', value: 'high' }], instructions: '' });
+    assert.ok(launchPlanFor('claude-code', fixture.childProjects[0].agentSetup ?? null, process.platform).args.includes('opus'));
+    const unsafe = await fixture.spawn(fixture.parent, { prompt: 'x', model: 'opus --dangerously-skip-permissions' });
+    assert.equal(unsafe.status, 400);
+    assert.equal(fixture.childProjects.length, 1);
   } finally {
     fixture.destroyAll();
   }
@@ -673,12 +692,12 @@ test('limits tells a session which commands answer', async () => {
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview', 'show'].map((name) => ({ name, answers: true })),
     ]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['secrets', false], ['arena', false], ['comments', false], ['wake', false], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['secrets', false], ['arena', false], ['comments', false], ['wake', false], ['memory', false], ['claim', false], ['preview', false], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -719,7 +738,7 @@ test('an agent lists, answers and resolves the review comments the operator sent
   const reviews = createReviewWiring({
     reviewsRoot,
     broadcastControl: () => {},
-    findSession: (sessionId) => (sessionId === 'parent' ? { deliver: (text) => { pastedTexts.push(text); return { ok: true, kind: 'pasted' }; } } : null),
+    findSession: (sessionId) => (sessionId === 'parent' ? { noteOperatorDraft: () => {}, deliver: (text) => { pastedTexts.push(text); return { ok: true, kind: 'pasted' }; } } : null),
   });
   const fixture = wiringFixture({ reviewComments: reviews });
   try {
@@ -827,6 +846,37 @@ test('a parent and the child it spawned message each other through their own cha
     assert.deepEqual([(await fixture.wiring.handle(fixture.parent, 'close', { child: childId })).status, fixture.agentSessions.has(childId)], [200, false]);
     assert.equal(fixture.parent.agentSpawnBudget().liveChildren, 0, 'closing a child frees its slot');
     assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: [childId, 'still', 'there?'] })).status, 409);
+  } finally {
+    stranger.destroy();
+    fixture.destroyAll();
+  }
+});
+
+test('siblings the same parent spawned message each other and see each other\'s file claims, and no other session can', async () => {
+  const fixture = wiringFixture();
+  const stranger = new Session({ id: 'stranger', name: 'stranger', path: process.cwd(), ptySpawn: () => fakePty() });
+  try {
+    const first = await fixture.spawn(fixture.parent, { prompt: 'build the api' });
+    const second = await fixture.spawn(fixture.parent, { prompt: 'build the ui' });
+    const [firstChild, secondChild] = fixture.created;
+    const firstId = String(first.body.sessionId);
+    const secondId = String(second.body.sessionId);
+    assert.equal((await fixture.wiring.handle(firstChild, 'send', { words: ['the', 'api', 'shape', 'changed'], to: secondId })).status, 200);
+    const secondRead = AgentReadReply.parse((await fixture.wiring.handle(secondChild, 'read', {})).body).channels;
+    assert.deepEqual(secondRead.flatMap(({ entries }) => entries.map(({ from, text }) => [from, text])), [['sibling', `${firstChild.name} (${firstId}): the api shape changed`]]);
+    assert.equal((await fixture.wiring.handle(stranger, 'send', { words: ['hijack'], to: secondId })).status, 404);
+    assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: ['hello'], to: secondId })).status, 404);
+
+    const firstClaim = AgentClaimReply.parse((await fixture.wiring.handle(firstChild, 'claim', { sub: 'add', path: 'server/api.ts' })).body);
+    assert.ok('claimed' in firstClaim && /until it ends/.test(firstClaim.note));
+    const secondClaim = AgentClaimReply.parse((await fixture.wiring.handle(secondChild, 'claim', { sub: 'add', path: 'server/api.ts' })).body);
+    assert.ok('claimed' in secondClaim);
+    assert.match(secondClaim.note, new RegExp(`already claimed server/api.ts`));
+    assert.equal((await fixture.wiring.handle(secondChild, 'claim', { sub: 'add', path: '../outside.ts' })).status, 400);
+    assert.equal((await fixture.wiring.handle(secondChild, 'claim', { sub: 'release', path: 'server/api.ts' })).status, 404);
+    fixture.agentSessions.delete(firstId);
+    const listed = AgentClaimReply.parse((await fixture.wiring.handle(secondChild, 'claim', { sub: 'list' })).body);
+    assert.deepEqual('claims' in listed ? listed.claims : null, [], 'a claim ends with its session');
   } finally {
     stranger.destroy();
     fixture.destroyAll();

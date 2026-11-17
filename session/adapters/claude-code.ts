@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { EXIT_PLAN_MODE_TOOL_NAME } from "../../shared/contracts/plan-gate.ts";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { createClaudeFolderTrust } from "./claude-trust.ts";
@@ -10,7 +11,6 @@ import type { HookPayload } from "../../shared/contracts/index.ts";
 import { isRecord } from "../../shared/coerce.ts";
 import { describeInstalledClaudeHooks } from "../../detection/settings-injector.ts";
 
-const EXIT_PLAN_MODE_TOOL_NAME = "ExitPlanMode";
 
 const ID = "claude-code";
 const COMMAND_NAME = "claude";

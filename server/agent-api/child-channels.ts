@@ -2,7 +2,7 @@ import type { Session } from '../../session/sessions.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread, isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -309,7 +309,11 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return findOwnedChild(ownedChannels(parent), parent.id, target);
   }
 
-  return { noteEndCause, forgetLink, openChildChannel, settleChildWorktree, post, drain, ownedChannels, findChildOf, watchOperatorInput, operatorWakeFactsOf, flagWakeCap, isWakeLineInFlight, submitWakeLine };
+  function findSiblingOf(child: Session, target: string) {
+    return findSibling([...channelsByChildId.values()], child.id, target);
+  }
+
+  return { noteEndCause, forgetLink, openChildChannel, settleChildWorktree, post, drain, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, operatorWakeFactsOf, flagWakeCap, isWakeLineInFlight, submitWakeLine };
 }
 
 type ChildChannels = ReturnType<typeof createChildChannels>;

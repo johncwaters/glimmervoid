@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { AgentRulesBlock } from './memory.ts';
+import { ReactionsBlock } from './reactions.ts';
+import { SESSION_REVIEW_AGENTS } from './session-review.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
@@ -176,7 +179,7 @@ const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => 
   sessionBlockHours: optionalInteger('usage.sessionBlockHours', ranges.USAGE_INTEGER_RANGES.sessionBlockHours),
   costMode: z.enum(USAGE_COST_MODES, { error: usageCostModeMessage }).optional(),
   vendors: optionalObject('usage.vendors', usageVendorShape),
-  budget: optionalObject('usage.budget', usageBudgetShape),
+  budget: optionalObject('usage.budget', { ...usageBudgetShape, pauseAtLimit: optionalBoolean('usage.budget.pauseAtLimit') }),
   extraProjectsDirs: z.array(z.string({ error: 'usage.extraProjectsDirs must be an array of absolute paths' }), { error: 'usage.extraProjectsDirs must be an array of absolute paths' })
     .transform((directories) => directories.map((directory) => directory.trim()))
     .refine((directories) => directories.every((directory) => directory && isAbsolutePath(directory)), { message: 'usage.extraProjectsDirs entries must be absolute paths' })
@@ -192,9 +195,32 @@ const LanesSettings = optionalObject('lanes', {
   ).optional(),
 });
 
+export const SLACK_WEBHOOK_URL_PREFIX = 'https://hooks.slack.com/';
+
+const SlackSettings = optionalObject('slack', {
+  enabled: optionalBoolean('slack.enabled'),
+  webhookUrl: z.string({ error: 'slack.webhookUrl must be a string' })
+    .transform((value) => value.trim())
+    .refine((value) => value === '' || value.startsWith(SLACK_WEBHOOK_URL_PREFIX), { error: `slack.webhookUrl must be a Slack incoming webhook URL starting with ${SLACK_WEBHOOK_URL_PREFIX}` })
+    .optional(),
+});
+
+const SessionReviewSettings = optionalObject('sessionReview', {
+  agent: z.enum(SESSION_REVIEW_AGENTS, { error: `sessionReview.agent must be one of ${SESSION_REVIEW_AGENTS.join(', ')}` }).optional(),
+  model: optionalString('sessionReview.model', true),
+});
+
+const PlanGateSettings = optionalObject('planGate', {
+  enabled: optionalBoolean('planGate.enabled'),
+});
+
+const AgentRulesSettings = optionalObject('agentRules', AgentRulesBlock.shape);
+const ReactionsSettings = optionalObject('reactions', ReactionsBlock.shape);
+
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
+  acceptReplies: optionalBoolean('telegram.acceptReplies'),
 });
 
 
@@ -263,6 +289,10 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   packScheduledSessionsMax: optionalWholeNumber('packScheduledSessionsMax', ranges.PACK_SCHEDULED_SESSIONS_RANGE),
   spawnedSessionsMax: optionalWholeNumber('spawnedSessionsMax', ranges.SPAWNED_SESSIONS_RANGE),
+  loopGuard: optionalObject('loopGuard', {
+    maxTurnsWithoutProgress: optionalWholeNumber('loopGuard.maxTurnsWithoutProgress', ranges.LOOP_GUARD_TURNS_RANGE).nullable(),
+    onStuck: z.enum(ranges.LOOP_GUARD_ON_STUCK, { error: 'loopGuard.onStuck must be flag or stop' }).optional(),
+  }),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   linkPreviews: optionalBoolean('linkPreviews'),
@@ -291,6 +321,11 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   posthog: PosthogSettings,
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
+  slack: SlackSettings,
+  sessionReview: SessionReviewSettings,
+  planGate: PlanGateSettings,
+  agentRules: AgentRulesSettings,
+  reactions: ReactionsSettings,
   telemetry: TelemetrySettings,
   vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),

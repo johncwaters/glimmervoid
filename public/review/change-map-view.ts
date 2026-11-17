@@ -2,7 +2,7 @@ import type { ConflictRisk } from '#shared/contracts/change-map.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { button } from '../ui/button.ts';
 import { el } from '../dom-helpers.ts';
-import type { ChangeMapView, FileHint, WorthALookGroup, WorthALookLine } from '#shared/change-map-view-core.ts';
+import type { ChangeMapView, FileHint, TourStep, WorthALookGroup, WorthALookLine } from '#shared/change-map-view-core.ts';
 
 const WORTH_A_LOOK_VISIBLE_MAX = 5;
 const CONFLICT_RISK_LABEL: Record<ConflictRisk, string> = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -53,6 +53,36 @@ export function renderWorthALook(view: ChangeMapView, { isShowingAll, onShowAll,
   const showAll = button({ variant: 'quiet', size: 'small', label: 'Show all', action: 'show-all-worth-a-look', onClick: onShowAll });
   more.append(el('span', 'review-look-more-count', `+${hiddenGroupCount} more`), showAll);
   section.append(more);
+  return section;
+}
+
+function tourStepRow(step: TourStep, stepNumber: number, onOpenFile: (openPath: string) => void) {
+  const row = createPressable('review-look-line', `${stepNumber}. ${step.path}`);
+  row.dataset.factIds = step.factIds.join(' ');
+  row.append(el('span', 'review-look-detail', step.reason));
+  row.addEventListener('click', () => onOpenFile(step.openPath));
+  return row;
+}
+
+export function renderChangeTour(view: ChangeMapView, { isOpen, onToggle, onOpenFile }: { isOpen: boolean; onToggle: (isOpen: boolean) => void; onOpenFile: (openPath: string) => void }): HTMLElement | null {
+  if (view.tour.length < 2) return null;
+  const section = el('details', 'review-look review-tour');
+  section.open = isOpen;
+  section.addEventListener('toggle', () => onToggle(section.open));
+  section.append(el('summary', 'review-group-label', `Tour ${String.fromCharCode(183)} ${view.tour.length} steps`));
+  const list = el('div', 'review-look-list');
+  let currentGroup: HTMLElement | null = null;
+  let currentTitle: string | null = null;
+  view.tour.forEach((step, index) => {
+    if (step.title !== currentTitle || currentGroup === null) {
+      currentTitle = step.title;
+      currentGroup = el('div', 'review-look-group');
+      currentGroup.append(el('p', 'review-look-text', step.title));
+      list.append(currentGroup);
+    }
+    currentGroup.append(tourStepRow(step, index + 1, onOpenFile));
+  });
+  section.append(list);
   return section;
 }
 

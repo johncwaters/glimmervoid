@@ -954,3 +954,15 @@ test('an async save refuses invalid config, then accepts a repaired file without
     await fs.promises.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('a hand edit to config.json reaches the live verification and reactions blocks without a restart', async () => {
+  await withWatchedStore({ projects: [] }, async ({ store, configPath, reloadAfter }) => {
+    const verification = { repos: { '/work/repo': { checks: [{ id: 'unit', command: 'npm test' }], gate: { enabled: true } } } };
+    const reactions = { reactions: [{ on: 'session-failed', do: 'notify' }] };
+    await reloadAfter(() => {
+      fs.writeFileSync(configPath, JSON.stringify({ ...readJson(configPath), verification, reactions }));
+    }, 'the hand edit never reloaded');
+    assert.deepEqual(store.config.verification, verification);
+    assert.deepEqual(store.config.reactions, reactions);
+  });
+});

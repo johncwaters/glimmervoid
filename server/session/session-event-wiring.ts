@@ -1,4 +1,6 @@
 import { createNotifyGate, decideAcknowledge, explainNotification } from '../../session/core/notify-gate.ts';
+import type { PlanGate } from '../../shared/contracts/plan-gate.ts';
+import { isPlanGateEnabled } from '../../session/core/plan-gate-core.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { LateFinish } from '../../session/core/agent-tracker.ts';
 import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/config.ts';
@@ -32,6 +34,7 @@ interface WiringProject extends Record<string, unknown> {
 
 interface WiringConfig {
   projects: WiringProject[];
+  planGate?: unknown;
 }
 
 
@@ -52,6 +55,9 @@ interface SessionEventDependencies {
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
+  verification?: { attachSession: (session: Session) => void } | null;
+  loopGuard?: { attachSession: (session: Session) => void } | null;
+  reactions?: { attachSession: (session: Session) => void } | null;
   starHint?: { attachSession: (session: Session) => void } | null;
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
   pushProvenanceNotes?: (repoDir: string) => Promise<void>;
@@ -105,6 +111,9 @@ function persistSessionField(
 function createSessionEventWiring(dependencies: SessionEventDependencies): (session: Session) => void {
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
+    dependencies.verification?.attachSession(session);
+    dependencies.loopGuard?.attachSession(session);
+    dependencies.reactions?.attachSession(session);
     dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.starHint?.attachSession(session);
     let pendingPromptKind: string | null = null;
@@ -353,6 +362,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
 
     session.on('account-change', ({ accountId }: { accountId: string | null }) => noteStatus({ accountId }));
+    session.on('plan-gate-change', ({ planGate }: { planGate: PlanGate | null }) => noteStatus({ planGate }));
+    session.on('plan-proposed', ({ planText }: { planText: string }) => {
+      if (isPlanGateEnabled(dependencies.config.planGate)) session.proposePlan(planText);
+    });
 
     session.on('merge-status', ({ mergeStatus, reason, parked }: {
       mergeStatus: string;

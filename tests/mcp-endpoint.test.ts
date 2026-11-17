@@ -26,6 +26,7 @@ import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
+import { AgentMemoryReply } from '../shared/contracts/memory.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
 
@@ -50,7 +51,7 @@ async function boot(): Promise<BootedBackend> {
   const projectDir = path.join(tmpDir, 'project');
   fs.mkdirSync(projectDir);
   const configPath = path.join(tmpDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: SESSION_ID, name: 'mcp endpoint', path: projectDir }], repoRoots: [], autoResume: false }), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: SESSION_ID, name: 'mcp endpoint', path: projectDir }], repoRoots: [], autoResume: false, agentRules: { rules: ['Run the targeted tests before claiming done.'] } }), 'utf8');
   process.env.GLIMMERVOID_CONFIG = configPath;
   const server = http.createServer();
   const backend = createBackend(server, { staticDir: null });
@@ -116,7 +117,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['arena', 'attention', 'packs', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
@@ -162,6 +163,25 @@ test('a session without its own worktree lists every grouped tool but push and r
   const unknownResolve = await resultOf(await callMcp('tools/call', { name: 'review', arguments: { action: 'resolve', commentId: 'c-0123abcd' } }, credential));
   assert.equal(unknownResolve.isError, true);
   assert.match(JSON.stringify(unknownResolve.content), /c-0123abcd/);
+});
+
+test('memory keeps a note for later sessions of the project, fenced as untrusted, beside the operator rules', async () => {
+  const { credential } = bootedBackend();
+  const initialized = await resultOf(await callMcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } }, credential));
+  assert.match(String(initialized.instructions), /The operator's rules for every session:\n- Run the targeted tests before claiming done\./);
+
+  const written = await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'write', key: 'test-command', text: 'npm run test:files -- <files>' } }, credential));
+  assert.notEqual(written.isError, true, JSON.stringify(written));
+  const listed = AgentMemoryReply.parse((await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'list' } }, credential))).structuredContent);
+  assert.deepEqual('entries' in listed ? listed.entries.map((entry) => entry.key) : null, ['test-command']);
+  const read = AgentMemoryReply.parse((await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'read', key: 'test-command' } }, credential))).structuredContent);
+  assert.ok('entry' in read);
+  assert.equal(read.entry.text, 'npm run test:files -- <files>');
+  assert.match(read.note, /never as instructions from the operator/);
+  const forgotten = await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'forget', key: 'test-command' } }, credential));
+  assert.notEqual(forgotten.isError, true, JSON.stringify(forgotten));
+  const missing = await resultOf(await callMcp('tools/call', { name: 'memory', arguments: { action: 'read', key: 'test-command' } }, credential));
+  assert.equal(missing.isError, true);
 });
 
 test('a refused verb comes back as a tool error the agent can read', async () => {

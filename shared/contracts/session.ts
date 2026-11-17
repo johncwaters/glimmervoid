@@ -1,12 +1,17 @@
 import { z } from 'zod';
+import { PlanGate } from './plan-gate.ts';
 
 import { STATES } from '../states.ts';
+import { SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
 import { AgentAccountId } from './agent-accounts.ts';
 import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
 import { AgentNeedReply, AgentSecretsEnvReply } from './secrets.ts';
 import { AgentArenaReply } from './race.ts';
 import { AgentWakeReply } from './wakes.ts';
+import { AgentMemoryReply } from './memory.ts';
+import { AgentClaimReply } from './file-claims.ts';
+import { AgentPreviewReply } from './session-previews.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { REVIEW_TEXT_MAX_CHARS, ReviewCommentId } from './review-state.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
@@ -55,7 +60,7 @@ export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION
 
 export const ATTENTION_NOTE_MAX_CHARS = 500;
 const ATTENTION_QUESTION_ORIGINS = ['agent', 'secret'] as const;
-const ATTENTION_NOTE_ORIGINS = ['child-wake-cap', 'self-wake-cap', 'wake-failed', 'child-kept'] as const;
+const ATTENTION_NOTE_ORIGINS = ['child-wake-cap', 'self-wake-cap', 'wake-failed', 'child-kept', 'loop-guard', 'reaction'] as const;
 export const AttentionOrigin = z.enum([...ATTENTION_QUESTION_ORIGINS, ...ATTENTION_NOTE_ORIGINS]);
 export const AttentionNoteOrigin = z.enum(ATTENTION_NOTE_ORIGINS);
 export const AttentionNote = z.object({ origin: AttentionNoteOrigin, note: z.string().max(ATTENTION_NOTE_MAX_CHARS), at: z.number() }).strict();
@@ -101,6 +106,7 @@ export const SessionSnapshot = z.object({
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   attentionNotes: z.array(AttentionNote).default([]),
+  planGate: PlanGate.nullable().default(null),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
@@ -146,7 +152,7 @@ export const GitCredentialReply = z.union([
 
 export type GitCredentialRequest = z.infer<typeof GitCredentialRequest>;
 export type GitCredentialReply = z.infer<typeof GitCredentialReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -159,6 +165,8 @@ export const AgentSpawnRequest = z.object({
     .refine((prompt) => !prompt.trimStart().startsWith('-'), { message: 'prompt must not start with a dash, which the agent CLI would read as an option' }),
   name: z.string({ error: 'name must be a string' }).min(1, { error: 'name must not be empty' }).max(200, { error: 'name must be at most 200 characters' }).optional(),
   agent: z.string({ error: 'agent must be a string' }).min(1, { error: 'agent must not be empty' }).max(40, { error: 'agent must be at most 40 characters' }).optional(),
+  model: z.string({ error: 'model must be a string' }).max(200, { error: 'model must be at most 200 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'model uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
+  effort: z.string({ error: 'effort must be a string' }).max(40, { error: 'effort must be at most 40 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
 }).strict();
 
 const SessionTarget = z.string({ error: 'the session must be a string' }).min(1, { error: 'the session must not be empty' }).max(300, { error: 'the session must be at most 300 characters' });
@@ -167,6 +175,7 @@ export const AgentSendRequest = z.object({
   words: z.array(z.string({ error: 'each word must be a string' }).max(20000, { error: 'each word must be at most 20000 characters' }), { error: 'words must be a list' })
     .min(1, { error: 'send needs text' })
     .max(5000, { error: 'send takes at most 5000 words' }),
+  to: SessionTarget.optional(),
 }).strict();
 
 export const AgentReadRequest = z.object({
@@ -184,7 +193,7 @@ export const AgentAnswerRequest = z.union([
 ]);
 
 const AgentChannelEntry = z.object({
-  from: z.enum(['parent', 'child', 'glimmervoid']),
+  from: z.enum(['parent', 'child', 'sibling', 'glimmervoid']),
   at: z.number().finite(),
   text: z.string(),
 }).strict();
@@ -368,6 +377,9 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   arena: z.union([AgentArenaReply, AgentRefusal]),
   comments: z.union([z.object({ ok: z.literal(true), comments: z.array(AgentReviewCommentRow) }).strict(), AgentOkReply, AgentRefusal]),
   wake: z.union([AgentWakeReply, AgentRefusal]),
+  memory: z.union([AgentMemoryReply, AgentRefusal]),
+  claim: z.union([AgentClaimReply, AgentRefusal]),
+  preview: z.union([AgentPreviewReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
 
 export type AgentRefusal = z.infer<typeof AgentRefusal>;

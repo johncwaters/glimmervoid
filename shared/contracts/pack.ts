@@ -89,7 +89,8 @@ export const PackLauncher = z.strictObject({
   project: LauncherProject.describe('owner/name: the first configured project whose origin is that GitHub repository; or an absolute path of a folder on this machine. A launcher whose project matches nothing shows disabled'),
   agent: LaunchAgent, model: LaunchModel, effort: LaunchEffort, prompt: LaunchPrompt,
   schedule: z.string().trim().max(100).refine(isFiveFieldCron, { error: 'a launcher schedule is a cron pattern of five fields such as "0 9 * * 1-5"' }).optional()
-    .describe('A cron pattern of five fields in the operator timezone; the launcher also starts its session on this schedule, skipping a run while its last scheduled session is still live, and never catching up runs missed while Glimmervoid was down'),
+    .describe('A cron pattern of five fields in the operator timezone; the launcher also starts its session on this schedule, skipping a run while its last scheduled session is still live, and catching up runs missed while Glimmervoid was down only with catchUp'),
+  catchUp: z.boolean().optional().describe('With a schedule, start one run at once when a scheduled run fell while Glimmervoid was down or the host slept; off skips missed runs'),
 });
 export type PackLauncher = z.infer<typeof PackLauncher>;
 
@@ -137,7 +138,10 @@ export const PackAgent = z.strictObject({
 });
 export type PackAgent = z.infer<typeof PackAgent>;
 
-export const PackLauncherRuns = z.strictObject({ sessionIdByRun: z.record(z.string().min(1), z.string().min(1)).default({}) });
+export const PackLauncherRuns = z.strictObject({
+  sessionIdByRun: z.record(z.string().min(1), z.string().min(1)).default({}),
+  lastFiredAtByRun: z.record(z.string().min(1), z.number().int().nonnegative()).default({}),
+});
 
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;

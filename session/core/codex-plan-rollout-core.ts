@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const PROPOSED_PLAN_TAG = '<proposed_plan>';
+const PROPOSED_PLAN_CLOSING_TAG = '</proposed_plan>';
 const PLAN_COLLABORATION_MODE = 'plan';
 const RELEVANT_LINE_MARKERS = ['"task_started"', '"final_answer"'];
 
@@ -42,7 +43,15 @@ function isTurnStartLine(line: string, turnId: string): boolean {
   return taskStarted.success && taskStarted.data.payload.turn_id === turnId;
 }
 
-function turnEndedWithProposedPlan(rolloutLines: readonly string[], turnId: string): boolean {
+function proposedPlanText(finalAnswerText: string): string | null {
+  const openAt = finalAnswerText.indexOf(PROPOSED_PLAN_TAG);
+  if (openAt === -1) return null;
+  const bodyStart = openAt + PROPOSED_PLAN_TAG.length;
+  const closeAt = finalAnswerText.indexOf(PROPOSED_PLAN_CLOSING_TAG, bodyStart);
+  return finalAnswerText.slice(bodyStart, closeAt === -1 ? undefined : closeAt).trim();
+}
+
+function proposedPlanOfTurn(rolloutLines: readonly string[], turnId: string): string | null {
   let didTurnRunInPlanMode = false;
   let finalAnswerText = '';
   for (const line of rolloutLines) {
@@ -57,7 +66,7 @@ function turnEndedWithProposedPlan(rolloutLines: readonly string[], turnId: stri
     if (!finalAnswer.success || finalAnswer.data.payload.internal_chat_message_metadata_passthrough.turn_id !== turnId) continue;
     finalAnswerText = finalAnswer.data.payload.content.map((part) => part.text ?? '').join('');
   }
-  return didTurnRunInPlanMode && finalAnswerText.includes(PROPOSED_PLAN_TAG);
+  return didTurnRunInPlanMode ? proposedPlanText(finalAnswerText) : null;
 }
 
-export { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan };
+export { isRelevantRolloutLine, isTurnStartLine, proposedPlanOfTurn };

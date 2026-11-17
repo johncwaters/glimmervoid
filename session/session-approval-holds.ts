@@ -7,6 +7,9 @@ import { questionToolDenyReason } from "../server/question-manager/core/question
 import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
 import { clock } from '../shared/clock.ts';
+import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
+import { claudePlanDecisionReply, isExitPlanModeTool, nextPlanGate, planTextOfToolInput, shouldClearPlanGate } from "./core/plan-gate-core.ts";
+import type { PlanGateEvent } from "./core/plan-gate-core.ts";
 
 interface ClaudeApprovalHold {
   request: ClaudePermissionRequest;
@@ -61,8 +64,17 @@ function questionCallKey(request: ClaudePermissionRequest): string {
   return `${request.agentKey}:${JSON.stringify(request.toolInput)}`;
 }
 
+interface PlanHold {
+  request: ClaudePermissionRequest;
+  resolve: (reply: ClaudeHookReply | null) => void;
+}
+
 interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   readonly conversationApproval: ConversationApproval | null;
+  readonly planGate: PlanGate | null;
+  holdPlan(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null;
+  proposePlan(planText: string): void;
+  decidePlan(decision: PlanDecision, feedback: string | null): { ok: true; isHeld: boolean } | { ok: false; reason: string };
   readonly latestManagerDecisionSeq: number;
   hold(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null;
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
@@ -83,6 +95,59 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   const settledQuestionByCall = new Map<string, SettledQuestion>();
   const pendingApprovalByOperatorYield = new Map<AbortController, ConversationApproval>();
   let managerDecisionCount = 0;
+  let planGate: PlanGate | null = null;
+  let planHold: PlanHold | null = null;
+
+  function applyPlanEvent(event: PlanGateEvent): void {
+    const next = nextPlanGate(planGate, event);
+    if (next === planGate) return;
+    planGate = next;
+    port.emit("plan-gate-change", { planGate });
+  }
+
+  function releasePlanHold(): void {
+    const released = planHold;
+    if (released === null) return;
+    planHold = null;
+    applyPlanEvent({ kind: "cleared" });
+    released.resolve(null);
+  }
+
+  function holdPlan(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
+    if (agentId !== "claude-code") return null;
+    const request = parseClaudePermissionRequest(payload);
+    if (!request || !isExitPlanModeTool(request.toolName) || request.agentKey !== "") return null;
+    releasePlanHold();
+    applyPlanEvent({ kind: "plan-proposed", planText: planTextOfToolInput(request.toolInput) });
+    return new Promise((resolve) => {
+      const hold: PlanHold = { request, resolve };
+      planHold = hold;
+      abandoned.addEventListener("abort", () => {
+        if (planHold !== hold) return;
+        planHold = null;
+        applyPlanEvent({ kind: "cleared" });
+        resolve(null);
+      }, { once: true });
+    });
+  }
+
+  function proposePlan(planText: string): void {
+    applyPlanEvent({ kind: "plan-proposed", planText });
+  }
+
+  function decidePlan(decision: PlanDecision, feedback: string | null): { ok: true; isHeld: boolean } | { ok: false; reason: string } {
+    if (planGate?.status !== "pending") return { ok: false, reason: "no plan is waiting for a decision" };
+    const hold = planHold;
+    planHold = null;
+    if (decision === "terminal") {
+      applyPlanEvent({ kind: "cleared" });
+      hold?.resolve(null);
+      return { ok: true, isHeld: hold !== null };
+    }
+    applyPlanEvent({ kind: "decided", decision, feedback });
+    hold?.resolve(claudePlanDecisionReply(decision, planGate?.feedback ?? null));
+    return { ok: true, isHeld: hold !== null };
+  }
 
   function isManagerHolding(): boolean {
     return !holdsQuestionsForParent && questionManager !== null && questionManager.mightAnswer();
@@ -289,6 +354,9 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
 
   function releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void {
     forgetPassedQuestions(event, payload);
+    const normalizedEvent = event.toLowerCase();
+    if (planHold !== null && isHoldReleasedByHookEvent(planHold.request, event, payload)) releasePlanHold();
+    if (shouldClearPlanGate(planGate, planHold !== null, normalizedEvent)) applyPlanEvent({ kind: "cleared" });
     if (holds.length === 0) return;
     releaseHolds((hold) => isHoldReleasedByHookEvent(hold.request, event, payload));
   }
@@ -325,6 +393,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
 
   function releaseAll(): void {
     releaseHolds(() => true);
+    releasePlanHold();
     for (const callKey of [...parkedStatusByCall.keys()]) discardParkedStatus(callKey);
     settledQuestionByCall.clear();
   }
@@ -332,6 +401,10 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
   return {
     get conversationApproval() { return conversationApproval; },
     get latestManagerDecisionSeq() { return managerDecisionCount; },
+    get planGate() { return planGate; },
+    holdPlan,
+    proposePlan,
+    decidePlan,
     hold,
     holdQuestionTool,
     yieldManagerDecisions,

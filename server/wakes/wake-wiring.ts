@@ -27,6 +27,7 @@ interface WakeWiringOptions {
   budget: WakeBudget;
   limits?: WakeLimits;
   spawnGate?: WakeSpawnGate | null;
+  budgetHoldReason?: () => string | null;
   onSessionWakesChange?: (sessionId: string, wakes: WakeView[]) => void;
   setTimeoutFn: SetTimeoutFn;
   clearTimeoutFn: ClearTimeoutFn;
@@ -46,12 +47,13 @@ function refusal(status: number, error: string): AgentRefusalReply {
   return { status, body: { ok: false, error } };
 }
 
-function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, onSessionWakesChange = () => {}, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
+function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_WAKE_LIMITS, spawnGate = null, budgetHoldReason = () => null, onSessionWakesChange = () => {}, setTimeoutFn, clearTimeoutFn, now, logger }: WakeWiringOptions) {
   let wakes: Wake[] = [];
   let lastWakeNumber = 0;
   let timer: TimerHandle | null = null;
   let isLoaded = false;
   const recheckAtById = new Map<string, number>();
+  let lastBudgetHeldAtMs = Number.NEGATIVE_INFINITY;
   const resumingWakeIds = new Set<string>();
   const watchedSessions = new WeakSet<Session>();
   const alarmListeners = new Set<() => void>();
@@ -215,8 +217,14 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   }
 
   function evaluateWake(wake: Wake, nowMs: number): void {
+    if (budgetHoldReason() !== null) {
+      lastBudgetHeldAtMs = nowMs;
+      recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
+      return;
+    }
+    const graceAnchoredWake = wake.nextFireAt < lastBudgetHeldAtMs ? { ...wake, nextFireAt: lastBudgetHeldAtMs } : wake;
     const session = findLiveSession(wake.sessionId);
-    if (!session && nowMs - wake.nextFireAt > limits.missedGraceMs) {
+    if (!session && nowMs - graceAnchoredWake.nextFireAt > limits.missedGraceMs) {
       settleWake(wake, { ...wake, status: 'missed' });
       return;
     }
@@ -225,7 +233,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
       return;
     }
     watchSession(session);
-    const decision = decideDueWake(wake, {
+    const decision = decideDueWake(graceAnchoredWake, {
       nowMs, sessionState: session.state, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
     }, limits);
     switch (decision.kind) {

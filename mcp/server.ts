@@ -11,7 +11,7 @@ import type { WhiteboardLayouts } from '../server/whiteboard/whiteboard-wiring.t
 import type { Session } from '../session/sessions.ts';
 import { parsePresentedCredential } from './core/credentials.ts';
 import { boardReplyWithoutCommandGuide, settingsListForMcp, spawnReplyForMcp } from './core/replies.ts';
-import { SERVER_INSTRUCTIONS } from './core/instructions.ts';
+import { serverInstructionsWith } from './core/instructions.ts';
 import { boardPictureResult, boardRenderResult, boardReplyWithReading } from './whiteboard.ts';
 import type { ToolImageResult } from './core/tool-result.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
@@ -101,7 +101,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
 }
 
 function buildSessionServer(session: Session, agentApi: AgentApiPort, stores: FileStores): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: SERVER_INSTRUCTIONS, capabilities: { tools: { listChanged: false } } });
+  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: serverInstructionsWith(agentApi.operatorRules()), capabilities: { tools: { listChanged: false } } });
   for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, stores);
   return server;
 }

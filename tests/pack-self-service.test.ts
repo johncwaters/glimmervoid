@@ -98,6 +98,7 @@ function selfServiceFixture() {
         const board = { id: 'board-1', title: 'Packs', version: 1, updatedAt: 0, project: null, isArchived: false, connectedSessionIds: [], queuedBySessionId: {}, link: null };
         return { status: 200, body: { ok: true as const, board, note: 'showed the page as box b1 on board "Packs"' } };
       },
+      readPlanBoard: async () => ({ ok: false as const, reply: { status: 404, body: { ok: false as const, error: 'no plan boards in this fixture' } } }),
     },
     logger: { warn: () => {} },
   });
@@ -334,7 +335,7 @@ test('an approved pack launcher, or a panel listing sessions under acts, starts 
   }
 });
 
-test('a scheduled pack launcher starts a session on its cron in the operator timezone, skips a run while its last one is live across a restart, while its project matches nothing or when it comes due late, and never catches up missed runs', async () => {
+test('a scheduled pack launcher starts a session on its cron in the operator timezone, skips a run while its last one is live across a restart, while its project matches nothing or when it comes due late, and without catchUp never catches up missed runs', async () => {
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-schedules-'));
   const projectDir = path.join(homeDir, 'nightly-project');
   fs.mkdirSync(projectDir);
@@ -353,9 +354,11 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
   const armedTimers: { fire: () => void; delayMs: number; savedRunsAtArm: string }[] = [];
   const endedSessionIds = new Set<string>();
   let operatorTimezone = 'UTC';
+  let budgetHoldReason: string | null = null;
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   const config: GlimmervoidConfig = { projects: [] };
   const launcherDeps = {
+    budgetHoldReason: () => budgetHoldReason,
     packStore, projectPaths: () => [projectDir], originUrl: async () => 'git@github.com:example-org/other.git',
     operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: () => {} }, runsPath: packLauncherRunsPath(homeDir),
     isSessionLive: (sessionId: string) => config.projects.some((project) => project.id === sessionId) && !endedSessionIds.has(sessionId),
@@ -431,6 +434,75 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     operatorTimezone = 'Europe/Berlin';
     await restarted.refresh();
     assert.equal(armedTimers.at(-1)?.delayMs, hourMs, 'a timezone change moves the next run to 03:00 in the new timezone');
+
+    budgetHoldReason = 'the daily budget was reached';
+    await fireArmedTimer(firstFireAt + 192 * hourMs - hourMs);
+    assert.deepEqual(startedAfterRestart, [], 'a run that comes due while the spend budget holds sessions does not start');
+    budgetHoldReason = null;
+    await fireArmedTimer(firstFireAt + 216 * hourMs - hourMs);
+    assert.equal(startedAfterRestart.length, 1, 'the next run after the hold lifts starts');
+  } finally {
+    packStore.stop();
+    fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a scheduled pack launcher with catchUp starts one run at once for the runs missed while Glimmervoid was down, and none on the next restart', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-catch-up-'));
+  const projectDir = path.join(homeDir, 'nightly-project');
+  fs.mkdirSync(projectDir);
+  const packDir = path.join(homeDir, PACKS_DIR_NAME, 'nightly');
+  fs.mkdirSync(packDir, { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({
+    name: 'nightly', version: 1,
+    launchers: [{ id: 'checks', label: 'Nightly checks', project: projectDir, agent: 'codex', prompt: 'Run the nightly checks.', schedule: '0 3 * * *', catchUp: true }],
+  }));
+  const hourMs = 60 * 60 * 1000;
+  const firstFireAt = Date.parse('2026-11-13T03:00:00Z');
+  let nowMs = firstFireAt - hourMs;
+  const armedTimers: { fire: () => void; delayMs: number }[] = [];
+  const startedNames: string[] = [];
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  const bootLaunchers = async () => {
+    const launchers = createPackLaunchers({
+      packStore, projectPaths: () => [projectDir], originUrl: async () => null,
+      operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: () => {} }, runsPath: packLauncherRunsPath(homeDir),
+      isSessionLive: () => false, liveSessionNames: () => [], maxScheduledSessions: () => 3, timezone: () => 'UTC',
+      now: () => nowMs,
+      setTimeoutFn: (fire: () => void, delayMs: number) => {
+        armedTimers.push({ fire, delayMs });
+        return setTimeout(() => {}, 0);
+      },
+    });
+    await launchers.refresh();
+    const timersBefore = armedTimers.length;
+    launchers.attachSessionStarter(async (request) => {
+      startedNames.push(request.name);
+      return { ok: true, sessionId: `${request.name}-${startedNames.length}` };
+    });
+    await waitFor(() => armedTimers.length > timersBefore, 'a catch-up schedule arms once the record of past runs is read');
+  };
+  try {
+    await packStore.start();
+    await waitFor(() => packStore.statusFrame().packs.some((row) => row.name === 'nightly'));
+    assert.deepEqual(await packStore.approve(packStore.statusFrame().packs.find((row) => row.name === 'nightly')?.fingerprint ?? ''), { ok: true });
+    await bootLaunchers();
+    assert.equal(armedTimers.at(-1)?.delayMs, hourMs);
+    await waitFor(() => fs.existsSync(packLauncherRunsPath(homeDir)) && fs.readFileSync(packLauncherRunsPath(homeDir), 'utf8').includes('lastFiredAtByRun'), 'the first arm records when the schedule started watching');
+
+    nowMs = firstFireAt + 50 * hourMs;
+    await bootLaunchers();
+    assert.equal(armedTimers.at(-1)?.delayMs, 0, 'two runs fell while Glimmervoid was down, so one catches up at once');
+    const timersBeforeFire = armedTimers.length;
+    armedTimers.at(-1)?.fire();
+    await waitFor(() => armedTimers.length > timersBeforeFire);
+    assert.deepEqual(startedNames, ['Nightly checks'], 'the missed runs start one session, not one each');
+    assert.equal(armedTimers.at(-1)?.delayMs, 22 * hourMs);
+
+    nowMs += hourMs;
+    await bootLaunchers();
+    assert.equal(armedTimers.at(-1)?.delayMs, 21 * hourMs, 'a restart after the catch-up has nothing to catch up');
+    assert.deepEqual(startedNames, ['Nightly checks']);
   } finally {
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });

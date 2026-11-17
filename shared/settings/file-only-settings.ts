@@ -4,6 +4,7 @@ import { DEFAULT_QUESTION_RULES, QuestionRule } from '../contracts/question-mana
 
 import {
   NON_NEGATIVE_NUMBER_RANGE,
+  REACTION_COOLDOWN_MINUTES_RANGE,
   PORT_RANGE,
   POSITIVE_NUMBER_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,
@@ -120,6 +121,21 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     description: 'Directory that contains session worktrees. Existing worktrees are never relocated.',
     control: 'text', keywords: ['git', 'directory'], defaultValue: '', takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
+  {
+    id: 'file-agent-rules', path: 'agentRules.rules', title: 'Rules for every session', group: 'machine-detection-sessions',
+    description: 'Rules every agent session receives with its Glimmervoid tools, whichever agent runs it, one string per rule, up to 40. Sessions started after a change read it.',
+    control: 'list', keywords: ['rules', 'instructions', 'conventions', 'memory', 'agents.md'], defaultValue: [], takesEffect: 'new-sessions', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },  {
+    id: 'file-reactions', path: 'reactions.reactions', title: 'Reactions', group: 'machine-detection-sessions',
+    description: 'Up to 20 reactions, each {id, on, project?, action, text?}: on session-failed, session-done, needs-attention or commits-landed, action notify raises a note on the session card and wake types text into the session once idle.',
+    control: 'json', keywords: ['reactions', 'automation', 'triggers', 'events', 'hooks'], defaultValue: [], takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
+    id: 'file-reactions-cooldown', path: 'reactions.cooldownMinutes', title: 'Reaction cooldown', group: 'machine-detection-sessions',
+    description: 'How long one reaction waits before reacting to the same session again.',
+    control: 'number', range: REACTION_COOLDOWN_MINUTES_RANGE, unit: MINUTES, keywords: ['reactions', 'cooldown'], defaultValue: 10, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+
   {
     id: 'file-worktree-share', path: 'worktree.share', title: 'Shared worktree paths', group: 'machine-detection-sessions',
     description: 'Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it.',

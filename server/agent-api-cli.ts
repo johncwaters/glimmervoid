@@ -69,7 +69,7 @@ function whiteboardBody({ commandPath, positionals, values }: ParsedArguments): 
   const joined = joinedText(positionals);
   if (subcommand === 'list') return values.all === true ? { sub: 'list', all: true } : { sub: 'list' };
   if (subcommand === 'new') return joined ? { sub: 'new', title: joined } : null;
-  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete' || subcommand === 'export') return joined ? { sub: subcommand, board: joined } : null;
+  if (subcommand === 'connect' || subcommand === 'disconnect' || subcommand === 'get' || subcommand === 'delete' || subcommand === 'export' || subcommand === 'run') return joined ? { sub: subcommand, board: joined } : null;
   if (subcommand === 'attach' || subcommand === 'import') return joined ? { sub: subcommand, path: path.resolve(joined) } : null;
   const [board, ...argumentWords] = positionals;
   const opsFilePath = typeof values.file === 'string' ? values.file : null;
@@ -113,6 +113,19 @@ function wakeBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): 
   return { sub, when: when ?? '', text: joinedText(textWords) };
 }
 
+function memoryBody({ positionals: [sub, key, ...textWords] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'list') return { sub };
+  if (sub === 'write') return { sub, key: key ?? '', text: joinedText(textWords) };
+  return { sub, key: key ?? '' };
+}
+
+function claimBody({ positionals: [sub, claimPath] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'list') return { sub };
+  return { sub, path: claimPath === undefined ? '' : path.resolve(claimPath) };
+}
+
 function packsBody({ positionals: [command, packArgument] }: ParsedArguments): Record<string, unknown> {
   if (packArgument === undefined) return { command };
   if (command === 'add' || command === 'update') return { command, url: packArgument };
@@ -120,11 +133,19 @@ function packsBody({ positionals: [command, packArgument] }: ParsedArguments): R
 }
 
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
-  spawn: ({ positionals }) => {
+  spawn: ({ positionals, values }) => {
     const prompt = joinedText(positionals);
-    return prompt ? { prompt } : null;
+    if (!prompt) return null;
+    return {
+      prompt,
+      ...(typeof values.model === 'string' ? { model: values.model } : {}),
+      ...(typeof values.effort === 'string' ? { effort: values.effort } : {}),
+    };
   },
-  send: ({ positionals }) => (joinedText(positionals) ? { words: positionals } : null),
+  send: ({ positionals, values }) => {
+    if (!joinedText(positionals)) return null;
+    return typeof values.to === 'string' ? { words: positionals, to: values.to } : { words: positionals };
+  },
   read: ({ positionals }) => {
     const child = joinedText(positionals);
     return child ? { child } : {};
@@ -159,6 +180,13 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   arena: arenaBody,
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
   wake: wakeBody,
+  memory: memoryBody,
+  claim: claimBody,
+  preview: ({ positionals: [portText] }) => {
+    if (portText === undefined) return null;
+    if (portText === 'clear') return { port: null };
+    return { port: /^\d+$/.test(portText) ? Number(portText) : portText };
+  },
   checkout: ({ positionals: [repo] }) => (repo ? { repo: checkoutRepoArgument(repo) } : null),
 };
 

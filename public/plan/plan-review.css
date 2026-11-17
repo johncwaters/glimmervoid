@@ -45,3 +45,41 @@ ul.plan-list { list-style: disc; }
   .plan-control { padding-inline: 6px; }
 }
 html[data-layout="phone"] .plan-control { min-height: 40px; }
+
+.plan-gate-panel {
+  display: grid;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: var(--type-meta);
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
+}
+
+.plan-gate-heading {
+  margin: 0;
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.plan-gate-status { color: var(--text-muted); }
+
+.plan-gate-body {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.plan-gate-cut {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.plan-gate-feedback {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.plan-gate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

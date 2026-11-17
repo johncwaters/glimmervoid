@@ -29,6 +29,8 @@ import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import type { GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
 import type { CommitSigning } from '../commit-signing.ts';
+import type { VerificationWiring } from '../verification/verification-wiring.ts';
+import type { SessionReviewWiring } from '../review/session-review-wiring.ts';
 import type { HostReadyReader } from '../ready-host.ts';
 
 interface SnapshotLane {
@@ -44,6 +46,7 @@ interface LaneReader {
   packSources: NonNullable<ControlHandlerDeps['packSources']>;
   packLaunchers: NonNullable<ControlHandlerDeps['packLaunchers']>;
   races: NonNullable<ControlHandlerDeps['races']>;
+  readGithubIssue: NonNullable<ControlHandlerDeps['readGithubIssue']>;
 }
 
 interface RadarControl extends RadarFixControl {
@@ -107,6 +110,7 @@ interface BackendControlDependencies {
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs: SessionDocsPort;
+  sessionPreviews?: { snapshotMessage: () => Record<string, unknown> } | null;
   secrets: SecretsBroker;
   testSecretSource: (lookIn: string) => Promise<SecretSourceTestResult>;
   githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>;
@@ -115,6 +119,8 @@ interface BackendControlDependencies {
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
+  verification: Pick<VerificationWiring, 'latestRun'>;
+  sessionReview: Pick<SessionReviewWiring, 'latest' | 'run'>;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
   logger: Pick<Console, 'warn'>;
@@ -183,6 +189,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     packSources: laneAssembly.packSources,
     packLaunchers: laneAssembly.packLaunchers,
     races: laneAssembly.races,
+    readGithubIssue: laneAssembly.readGithubIssue,
     githubStore: laneAssembly.githubStore,
     requestViewer: laneAssembly.githubStore.laneStore.requestViewer,
     requestViewerTeams: laneAssembly.githubStore.laneStore.requestViewerTeams,
@@ -202,6 +209,8 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     whiteboards: dependencies.whiteboards,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
+    verification: dependencies.verification,
+    sessionReview: dependencies.sessionReview,
     agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,
   });
@@ -223,6 +232,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   };
 
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
+  sendLaneSnapshotOnConnect('session-previews', () => dependencies.sessionPreviews ?? null);
   sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot() }) }));
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => ({ type: 'secret-approvals', projects: dependencies.secrets.approvalRows() }) }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);

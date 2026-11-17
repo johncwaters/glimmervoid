@@ -99,7 +99,7 @@ async function docsFixture(run: (fixture: {
   }
 }
 
-test('an agent surfaces a draft, the operator saves an edit over the control socket, and the agent reads it back with its line endings intact', async () => {
+test('an agent surfaces a draft, the operator saves an edit over the control socket, the agent reads it back with its line endings intact, and the operator opens any checkout file', async () => {
   await docsFixture(async ({ checkout, broadcasts, edit, control }) => {
     const draftPath = path.join(checkout, 'drafts', 'post.md');
     fs.mkdirSync(path.dirname(draftPath));
@@ -123,6 +123,14 @@ test('an agent surfaces a draft, the operator saves an edit over the control soc
 
     const reopened = await control.request({ type: 'session-doc-read', requestId: 'r2', id: SESSION_ID, path: realDraftPath });
     assert.equal(reopened.hash, saved.hash, 'the saved hash is the hash a later save must present');
+
+    fs.writeFileSync(path.join(checkout, 'app.ts'), 'export const port = 3000;\n');
+    const openedByOperator = await control.request({ type: 'session-doc-open', requestId: 'o1', id: SESSION_ID, path: 'app.ts' });
+    assert.deepEqual([openedByOperator.type, openedByOperator.ok], ['session-doc-open-result', true], String(openedByOperator.error));
+    const appPath = fs.realpathSync(path.join(checkout, 'app.ts'));
+    assert.equal(((broadcasts.at(-1)?.docs ?? []) as Frame[])[0]?.path, appPath, 'the file the operator opened leads the docs list');
+    const appText = await control.request({ type: 'session-doc-read', requestId: 'r3', id: SESSION_ID, path: appPath });
+    assert.equal(appText.text, 'export const port = 3000;\n');
   });
 });
 
@@ -141,7 +149,7 @@ test('a save after the agent changed the file is refused as a conflict and leave
   });
 });
 
-test('the CLI refuses a path outside the checkout, a symlink escape, a missing, binary or oversize file, and the browser cannot name an unsurfaced file', async () => {
+test('the CLI and the browser open refuse a path outside the checkout, a symlink escape, a missing, binary or oversize file, and the browser cannot read an unsurfaced file', async () => {
   await docsFixture(async ({ checkout, outside, broadcasts, edit, control }) => {
     fs.writeFileSync(path.join(outside, 'secret.md'), 'not yours\n');
     fs.symlinkSync(path.join(outside, 'secret.md'), path.join(checkout, 'escape.md'));
@@ -164,6 +172,9 @@ test('the CLI refuses a path outside the checkout, a symlink escape, a missing, 
       const refused = await edit(docPath);
       assert.equal(refused.code, 1, docPath);
       assert.match(refused.output, reason, docPath);
+      const openedByBrowser = await control.request({ type: 'session-doc-open', requestId: 'o1', id: SESSION_ID, path: docPath });
+      assert.equal(openedByBrowser.ok, false, docPath);
+      assert.match(String(openedByBrowser.error), reason, docPath);
     }
     assert.equal(broadcasts.length, 0);
 

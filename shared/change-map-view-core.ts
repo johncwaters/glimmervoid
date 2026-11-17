@@ -1,4 +1,4 @@
-import type { ChangeMap, ChangeMapFactKind, ConflictRisk, RepoChangeMap } from './contracts/change-map.ts';
+import type { ChangeMap, ChangeMapFactKind, ChangedFile, ChangedFileStatus, ConflictRisk, RepoChangeMap, SubsystemFact } from './contracts/change-map.ts';
 
 const WIDE_BLAST_RADIUS_MIN = 10;
 const CONFLICT_RISK_RANK: Record<ConflictRisk, number> = { low: 0, medium: 1, high: 2 };
@@ -33,8 +33,17 @@ interface ChangeMapRepoRef {
   sessionPathPrefix: string;
 }
 
+export interface TourStep {
+  path: string;
+  openPath: string;
+  title: string;
+  reason: string;
+  factIds: string[];
+}
+
 export interface ChangeMapView {
   worthALook: WorthALookGroup[];
+  tour: TourStep[];
   hintsByOpenPath: Map<string, FileHint[]>;
   repos: ChangeMapRepoRef[];
   errors: string[];
@@ -158,6 +167,68 @@ function groupWorthALookLines(lines: Iterable<WorthALookLine>): WorthALookGroup[
   return groups.sort(byWorthALookOrder);
 }
 
+const TOUR_STATUS_WORDS: Record<ChangedFileStatus, string> = { added: 'Added', modified: 'Changed', deleted: 'Deleted', renamed: 'Renamed', untracked: 'Added' };
+
+const TOUR_STEPS_MAX = 60;
+
+interface RepoFactIndex {
+  subsystemByPath: Map<string, SubsystemFact>;
+  blastByPath: Map<string, RepoChangeMap['blastRadius'][number]>;
+  hotspotByPath: Map<string, RepoChangeMap['hotspots'][number]>;
+  gapsByPath: Map<string, RepoChangeMap['coChangeGaps'][number][]>;
+}
+
+function indexRepoFacts(repo: RepoChangeMap): RepoFactIndex {
+  const subsystemByPath = new Map<string, SubsystemFact>();
+  for (const subsystem of repo.subsystems) {
+    for (const path of subsystem.paths) if (!subsystemByPath.has(path)) subsystemByPath.set(path, subsystem);
+  }
+  const blastByPath = new Map<string, RepoChangeMap['blastRadius'][number]>();
+  for (const fact of repo.blastRadius) if (!blastByPath.has(fact.path)) blastByPath.set(fact.path, fact);
+  const hotspotByPath = new Map<string, RepoChangeMap['hotspots'][number]>();
+  for (const fact of repo.hotspots) if (!hotspotByPath.has(fact.path)) hotspotByPath.set(fact.path, fact);
+  const gapsByPath = new Map<string, RepoChangeMap['coChangeGaps'][number][]>();
+  for (const gap of repo.coChangeGaps) gapsByPath.set(gap.path, [...(gapsByPath.get(gap.path) ?? []), gap]);
+  return { subsystemByPath, blastByPath, hotspotByPath, gapsByPath };
+}
+
+function tourStepOf(repo: RepoChangeMap, file: ChangedFile, facts: RepoFactIndex): TourStep & { dependents: number } {
+  const subsystem = facts.subsystemByPath.get(file.path) ?? null;
+  const blast = facts.blastByPath.get(file.path) ?? null;
+  const hotspot = facts.hotspotByPath.get(file.path) ?? null;
+  const gaps = facts.gapsByPath.get(file.path) ?? [];
+  const dependents = blast?.transitiveDependentCount ?? 0;
+  const reasons = [file.previousPath ? `${TOUR_STATUS_WORDS[file.status]} from ${file.previousPath}.` : `${TOUR_STATUS_WORDS[file.status]}.`];
+  if (dependents > 0) reasons.push(`${dependents} ${dependents === 1 ? 'file depends' : 'files depend'} on it, so read it before its callers.`);
+  if (blast && blast.dependentTestCount > 0) reasons.push(`${blast.dependentTestCount} ${blast.dependentTestCount === 1 ? 'test covers' : 'tests cover'} it.`);
+  if (hotspot) reasons.push(`Touched in ${hotspot.commitCount} commits, ${hotspot.fixCommitCount} of them fixes.`);
+  for (const gap of gaps) reasons.push(`Usually changes with ${gap.partner}, which this change leaves alone.`);
+  const factIds = [file.factId, subsystem?.factId, blast?.factId, hotspot?.factId, ...gaps.map((gap) => gap.factId)].filter((id): id is string => typeof id === 'string');
+  return {
+    path: file.path,
+    openPath: `${repo.sessionPathPrefix}${file.path}`,
+    title: subsystem?.title ?? (file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : repo.name),
+    reason: reasons.join(' '),
+    factIds,
+    dependents,
+  };
+}
+
+function buildChangeTour(map: ChangeMap): TourStep[] {
+  const steps = map.repos.flatMap((repo) => {
+    const facts = indexRepoFacts(repo);
+    const repoSteps = repo.files.map((file) => tourStepOf(repo, file, facts));
+    const reachByTitle = new Map<string, number>();
+    for (const step of repoSteps) reachByTitle.set(step.title, Math.max(reachByTitle.get(step.title) ?? 0, step.dependents));
+    repoSteps.sort((left, right) => (reachByTitle.get(right.title) ?? 0) - (reachByTitle.get(left.title) ?? 0)
+      || left.title.localeCompare(right.title)
+      || right.dependents - left.dependents
+      || left.path.localeCompare(right.path));
+    return repoSteps.map(({ dependents: _dependents, ...step }) => step);
+  });
+  return steps.slice(0, TOUR_STEPS_MAX);
+}
+
 export function buildChangeMapView(map: ChangeMap): ChangeMapView {
   const providerNames = new Set(map.repos.flatMap((repo) => repo.links.map((link) => link.providerRepo)));
   const providerByName = new Map<string, ProviderLookup>();
@@ -177,6 +248,7 @@ export function buildChangeMapView(map: ChangeMap): ChangeMapView {
   }
   return {
     worthALook: groupWorthALookLines(lineByDedupeKey.values()),
+    tour: buildChangeTour(map),
     hintsByOpenPath,
     repos: map.repos.map((repo) => ({ name: repo.name, sessionPathPrefix: repo.sessionPathPrefix })),
     errors,

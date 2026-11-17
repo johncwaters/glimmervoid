@@ -1,6 +1,8 @@
 import type { WebSocket } from 'ws';
 import { NotificationManager } from '../../notifications/notification-manager.ts';
 import { createTelegramChannel, decideTelegramNotification } from '../../notifications/channels/telegram.ts';
+import { createSlackChannel } from '../../notifications/channels/slack.ts';
+import { createTelegramInbound } from '../telegram-inbound.ts';
 import { createWebNotificationChannel } from '../../notifications/channels/web-notification.ts';
 import { createTelegramCompletionDefer } from '../../notifications/telegram-completion-defer.ts';
 import { createTelegramDigest } from '../../notifications/telegram-digest.ts';
@@ -25,7 +27,8 @@ interface NotificationConfig {
   phoneEscalationMs?: number;
   notifyDebounceMs?: number;
   telegramNotifications?: boolean;
-  telegram?: { botToken?: string; chatId?: string } | null;
+  telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null;
+  slack?: { enabled?: boolean; webhookUrl?: string } | null;
 }
 
 interface NotificationWsServer {
@@ -99,6 +102,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     getActiveAgentCount: activeAgentCount,
     getSessionName: (sessionId: string) => sessions.get(sessionId)?.name,
     outbox: telegramDigest,
+    taggedOutbox: telegramOutbox,
   });
   const canTelegramEscalate = () => decideTelegramNotification({
     enabled: config.telegramNotifications === true,
@@ -117,6 +121,27 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     canEscalate: canTelegramEscalate,
   });
   void telegramOutbox.replay();
+
+  const slack = createSlackChannel({
+    getConfig: () => config,
+    getConnectionCount: viewerControlClientCount,
+    getActiveAgentCount: activeAgentCount,
+    getSessionName: (sessionId: string) => sessions.get(sessionId)?.name,
+  });
+  notificationManager.registerChannel('slack', slack.slackChannel, { offDashboard: true, canEscalate: slack.canEscalate });
+
+  const telegramInbound = createTelegramInbound({
+    readConfig: () => ({
+      botToken: config.telegram?.botToken ?? '',
+      chatId: String(config.telegram?.chatId ?? ''),
+      isAcceptingReplies: config.telegram?.acceptReplies === true,
+    }),
+    liveSessions: () => sessions.values(),
+    replyInChat: (text) => sendAndRecordTelegram(text),
+    onLastingRefusal: (message) => { lastTelegramFailure = { message, failedAt: clock.nowMs() }; },
+    logger,
+  });
+  telegramInbound.start();
 
   const heartbeat = createHeartbeat({ servers: [controlWss, dataWss] });
   onControlConnection((socket) => {
@@ -147,6 +172,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     notificationManager,
     reviewSessions,
     telegramChannel,
+    telegramInbound,
     telegramDelivery: {
       status: telegramDeliveryStatus,
       sendTest: () => sendAndRecordTelegram(TELEGRAM_TEST_TEXT),
