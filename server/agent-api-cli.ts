@@ -182,6 +182,11 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   wake: wakeBody,
   memory: memoryBody,
   claim: claimBody,
+  preview: ({ positionals: [portText] }) => {
+    if (portText === undefined) return null;
+    if (portText === 'clear') return { port: null };
+    return { port: /^\d+$/.test(portText) ? Number(portText) : portText };
+  },
   checkout: ({ positionals: [repo] }) => (repo ? { repo: checkoutRepoArgument(repo) } : null),
 };
 

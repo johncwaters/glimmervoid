@@ -131,6 +131,9 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-doc-response', requestId: 'session-doc-read-1', id: 'session-1', path: '/repo/drafts/post.md', ok: true, text: '# Draft', hash: 'abc' },
   { type: 'session-doc-asset-response', requestId: 'session-doc-asset-read-1', id: 'session-1', path: '/repo/drafts/post.md', src: 'img/chart.png', ok: true, mime: 'image/png', base64: 'iVBORw0K' },
   { type: 'session-doc-save-result', requestId: 'session-doc-save-1', id: 'session-1', path: '/repo/drafts/post.md', ok: false, conflict: true, error: 'the file changed on disk since it was opened, so reload it before saving' },
+  { type: 'session-doc-open-result', requestId: 'session-doc-open-1', id: 'session-1', path: 'src/app.ts', ok: true },
+  { type: 'session-preview-changed', id: 'session-1', port: 5173 },
+  { type: 'session-previews-snapshot', ports: { 'session-1': 5173 } },
   { type: 'notify', session: 'session-1', category: 'complete', message: 'finished', escalationCount: 0 },
   {
     type: 'update-status', updateAvailable: true, current: '0.23.1', latest: '0.24.0', currentSha: null,

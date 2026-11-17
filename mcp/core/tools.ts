@@ -376,7 +376,21 @@ const CLAIM_TOOL: GroupedTool = {
   },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL, MEMORY_TOOL, CLAIM_TOOL]);
+const PREVIEW_TOOL: GroupedTool = {
+  name: 'preview',
+  title: 'Glimmervoid preview',
+  description: "Show the app this session serves on a local port in the dashboard's Preview page, beside this session, or close it. Glimmervoid forwards the base path the reply names to that port unchanged, so serve the app under it (for example vite --base <path>); only plain HTTP is forwarded, not WebSockets or hot reload.",
+  loadsUpfront: false,
+  fields: {
+    port: z.number().int().min(1).max(65535).optional().describe('show: the local port the dev server listens on'),
+  },
+  actions: {
+    show: routeTo('preview', ['port'], { required: ['port'], hints: WRITES }),
+    clear: { verb: 'preview', presenter: undefined, required: [], accepts: [], hints: WRITES, toPayload: () => ({ port: null }) },
+  },
+};
+
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL, MEMORY_TOOL, CLAIM_TOOL, PREVIEW_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);

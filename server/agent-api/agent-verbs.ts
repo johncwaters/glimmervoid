@@ -68,7 +68,7 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
@@ -462,6 +462,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
       const outcome = fileClaims.handle({ id: session.id, name: session.name, projectPath: session.path, rootDir: session.worktreeDir ?? session.path, cwd: session.effectiveCwd() }, request);
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
     },
+    preview: (session, request) => (sessionPreviews ? { status: 200, body: sessionPreviews.handle(session.id, request) } : refusal(503, 'previews are not available in this Glimmervoid')),
     memory: async (session, request) => {
       const outcome = await memory.handle({ projectPath: session.path, name: session.name }, request);
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);

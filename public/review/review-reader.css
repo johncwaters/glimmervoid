@@ -63,18 +63,22 @@
 .review-update { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: color-mix(in oklab, var(--state-waiting) 12%, var(--bg-surface)); border-bottom: 1px solid var(--border-dim); font: var(--type-meta) var(--font-ui); }
 .review-update[hidden] { display: none; }
 .review-show-update,
+.review-edit-file,
 .review-thread-resolve,
 .review-composer-cancel,
 .review-composer-send { padding: 2px 10px; font: var(--type-meta) var(--font-ui); color: var(--text-head); background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }
 .review-composer-send { color: var(--bg-surface); background: var(--accent); border-color: var(--accent); }
 .review-show-update:hover,
+.review-edit-file:hover,
 .review-thread-resolve:hover,
 .review-composer-cancel:hover { border-color: var(--border-hover); }
 .review-show-update:focus-visible,
+.review-edit-file:focus-visible,
 .review-thread-resolve:focus-visible,
 .review-composer-cancel:focus-visible,
 .review-composer-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .review-composer-send:disabled,
+.review-edit-file:disabled,
 .review-thread-resolve:disabled { opacity: 0.6; cursor: default; }
 .review-thread,
 .review-composer { margin: 6px 12px 6px 48px; padding: 8px 10px; max-width: 72ch; background: color-mix(in oklab, var(--accent) 6%, var(--bg-surface)); border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--border-dim)); border-radius: var(--radius); font: var(--type-meta)/1.5 var(--font-ui); color: var(--text); white-space: normal; }
