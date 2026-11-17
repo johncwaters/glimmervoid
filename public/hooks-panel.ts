@@ -6,6 +6,7 @@ import { buildPanelSection, buildStatChip, el, isPanelHidden, markAsNotCredentia
 import { openConfirmDialog } from './session-card/modal.ts';
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
+import { checkbox, radio } from './ui/checkbox.ts';
 import { createPressable } from './ui/pressable.ts';
 import { select } from './ui/select.ts';
 import { disclosure } from './ui/disclosure.ts';
@@ -171,15 +172,7 @@ function buildTypeRow(draft: HookDraft, onChange: (value: string) => void) {
   const row = el('div', 'hooks-type-row');
   row.setAttribute('role', 'radiogroup');
   for (const option of HOOK_TYPE_OPTIONS) {
-    const label = el('label', 'settings-view-toggle hooks-choice');
-    const radio = el('input', 'settings-view-checkbox');
-    radio.type = 'radio';
-    radio.name = 'hooks-type';
-    radio.value = option.value;
-    radio.checked = draft.type === option.value;
-    radio.addEventListener('change', () => { if (radio.checked) onChange(option.value); });
-    label.append(radio, el('span', null, option.label));
-    row.append(label);
+    row.append(radio({ name: 'hooks-type', value: option.value, label: option.label, checked: draft.type === option.value, onSelect: () => onChange(option.value) }).element);
   }
   return row;
 }
@@ -190,29 +183,22 @@ function buildProjectPicker(draft: HookDraft, projects: HookProject[]) {
     wrap.append(el('span', 'hooks-field-hint', ALL_PROJECTS_LABEL));
     return wrap;
   }
-  const everyLabel = el('label', 'settings-view-project-choice hooks-choice');
-  const everyBox = el('input', 'settings-view-checkbox');
-  everyBox.type = 'checkbox';
-  everyBox.checked = draft.projects.length === 0;
-  everyLabel.append(everyBox, el('span', null, ALL_PROJECTS_LABEL));
-  wrap.append(everyLabel);
+  const every = checkbox({ label: ALL_PROJECTS_LABEL, checked: draft.projects.length === 0 });
+  const everyBox = every.input;
+  wrap.append(every.element);
   const boxes: HTMLInputElement[] = [];
   for (const project of projects) {
-    const label = el('label', 'settings-view-project-choice hooks-choice');
-    const box = el('input', 'settings-view-checkbox');
-    box.type = 'checkbox';
-    box.value = project.id;
-    box.checked = draft.projects.includes(project.id);
-    box.addEventListener('change', () => {
-      draft.projects = boxes.filter((entry) => entry.checked).map((entry) => entry.value);
-      everyBox.checked = draft.projects.length === 0;
+    const choice = checkbox({
+      label: projectChoiceLabel(project),
+      value: project.id,
+      checked: draft.projects.includes(project.id),
+      onChange: () => {
+        draft.projects = boxes.filter((entry) => entry.checked).map((entry) => entry.value);
+        everyBox.checked = draft.projects.length === 0;
+      },
     });
-    boxes.push(box);
-    label.append(box, el('span', null, project.name));
-    if (project.agent !== 'claude-code') {
-      label.append(el('span', 'hooks-choice-note', `${project.agent}, hook never runs`));
-    }
-    wrap.append(label);
+    boxes.push(choice.input);
+    wrap.append(choice.element);
   }
   everyBox.addEventListener('change', () => {
     if (!everyBox.checked) { everyBox.checked = draft.projects.length === 0; return; }
@@ -220,6 +206,13 @@ function buildProjectPicker(draft: HookDraft, projects: HookProject[]) {
     draft.projects = [];
   });
   return wrap;
+}
+
+function projectChoiceLabel(project: HookProject): string | Node {
+  if (project.agent === 'claude-code') return project.name;
+  const label = document.createDocumentFragment();
+  label.append(el('span', null, project.name), el('span', 'hooks-choice-note', `${project.agent}, hook never runs`));
+  return label;
 }
 
 function buildTemplateRow(events: HookEvent[]) {
@@ -284,12 +277,7 @@ function buildEditor(draft: HookDraft) {
   const eventField = buildField('Event', buildEventSelect(draft, events, (value) => { draft.event = value; eventHint.textContent = eventDescription(events, value); syncMatcher(); }), null);
   eventField.append(eventHint);
 
-  const enabledLabel = el('label', 'settings-view-toggle hooks-choice');
-  const enabledBox = el('input', 'settings-view-checkbox');
-  enabledBox.type = 'checkbox';
-  enabledBox.checked = draft.enabled;
-  enabledBox.addEventListener('change', () => { draft.enabled = enabledBox.checked; });
-  enabledLabel.append(enabledBox, el('span', null, 'Enabled'));
+  const enabledLabel = checkbox({ label: 'Enabled', checked: draft.enabled, onChange: (checked) => { draft.enabled = checked; } }).element;
 
   form.append(
     buildField('Name', buildInput(draft.name, 'Lint after edits', (value) => { draft.name = value; }), null),
@@ -401,16 +389,15 @@ function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } =
   }
 
   const actions = el('div', 'hooks-row-actions');
-  const toggleLabel = el('label', 'settings-view-toggle hooks-choice');
-  const toggle = el('input', 'settings-view-checkbox');
-  toggle.type = 'checkbox';
-  toggle.checked = hook.enabled !== false;
-  toggle.disabled = _busyIds.has(hook.id);
-  toggle.setAttribute('aria-label', `${hook.name} enabled`);
-  toggle.addEventListener('change', () => {
-    void runRowRequest(hook.id, 'save-hook', { hook: toggledHook(hook) }, toggle.checked ? 'Turning the hook on.' : 'Turning the hook off.');
-  });
-  toggleLabel.append(toggle, el('span', null, 'On'));
+  const toggleLabel = checkbox({
+    label: 'On',
+    checked: hook.enabled !== false,
+    disabled: _busyIds.has(hook.id),
+    accessibleName: `${hook.name} enabled`,
+    onChange: (checked) => {
+      void runRowRequest(hook.id, 'save-hook', { hook: toggledHook(hook) }, checked ? 'Turning the hook on.' : 'Turning the hook off.');
+    },
+  }).element;
   const edit = buildRowButton('secondary', 'Edit', 'edit-hook', `Edit ${hook.name}`, () => openEditor(hook));
   const duplicate = buildRowButton('secondary', DUPLICATE_LABEL, 'duplicate-hook', `Duplicate ${hook.name}`, () => {
     const copy = toDraft({ ...hook, name: duplicateName(hook.name) });

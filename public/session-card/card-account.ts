@@ -5,6 +5,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { writeHiddenIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { button } from '../ui/button.ts';
+import { radio } from '../ui/checkbox.ts';
 import { findSessionUi, sessionUIs } from './card-registry.ts';
 import { queryCardPart } from './card-dom.ts';
 import type { SessionUi } from './card-registry.ts';
@@ -58,16 +59,13 @@ onAgentAccountsChanged(() => {
 });
 
 function buildAccountChoice(account: AgentAccountStatus, currentAccountId: string | null): HTMLLabelElement {
-  const choice = el('label', 'dialog-checkbox-label');
-  const radio = el('input');
-  radio.type = 'radio';
-  radio.name = 'session-account';
-  radio.className = 'dialog-checkbox';
-  radio.value = account.accountId ?? '';
-  radio.checked = account.accountId === currentAccountId;
   const isSignedOut = account.login.state === 'signed-out';
-  choice.append(radio, el('span', null, isSignedOut ? `${account.label} (signed out)` : account.label));
-  return choice;
+  return radio({
+    name: 'session-account',
+    value: account.accountId ?? '',
+    label: isSignedOut ? `${account.label} (signed out)` : account.label,
+    checked: account.accountId === currentAccountId,
+  }).element;
 }
 
 export function openSwitchAccountDialog(sessionId: string) {

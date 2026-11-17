@@ -74,17 +74,6 @@
   border-color: var(--accent);
 }
 
-.settings-view-toggle,
-.settings-view-project-choice {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-
 .settings-view-checkbox {
   accent-color: var(--accent);
 }
@@ -153,7 +142,7 @@
   min-height: 44px;
 }
 
-[data-layout="phone"] .settings-view .settings-view-checkbox {
+[data-layout="phone"] .settings-view :is(.settings-view-checkbox, .ui-checkbox-input) {
   width: 20px;
   height: 20px;
   min-width: 20px;

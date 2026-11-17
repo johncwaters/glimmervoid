@@ -975,13 +975,6 @@
   color: var(--text-head);
 }
 
-.flying-animal-include {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--type-meta);
-}
-
 .flying-animals-status {
   font-family: var(--font-mono);
   color: var(--text-dim);

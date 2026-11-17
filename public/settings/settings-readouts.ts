@@ -5,6 +5,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el, writeClipboardText } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
+import { checkbox } from '../ui/checkbox.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
@@ -108,15 +109,16 @@ function buildWorkflowRuleStatus(rule: WorkflowRuleToggleRow) {
 
 function buildWorkflowRuleToggle(rule: WorkflowRuleToggleRow) {
   const row = el('div', 'settings-view-toggle-wrap');
-  const label = el('label', 'settings-view-toggle');
-  const input = el('input', 'settings-view-checkbox');
-  input.type = 'checkbox';
-  input.checked = rule.isEnabled;
-  input.disabled = pendingWorkflowRuleIds.has(rule.id);
-  input.setAttribute('aria-label', `Run rule ${rule.name}`);
-  input.addEventListener('change', () => { void saveWorkflowRuleToggle(rule, input.checked); });
-  label.append(input, el('span', 'settings-view-toggle-state', toggleStateText(rule.isEnabled)), el('span', 'settings-readonly', `${rule.name}  ${rule.summary}`));
-  row.append(label, buildWorkflowRuleStatus(rule));
+  const text = document.createDocumentFragment();
+  text.append(el('span', 'settings-view-toggle-state', toggleStateText(rule.isEnabled)), el('span', 'settings-readonly', `${rule.name}  ${rule.summary}`));
+  const toggle = checkbox({
+    label: text,
+    checked: rule.isEnabled,
+    disabled: pendingWorkflowRuleIds.has(rule.id),
+    accessibleName: `Run rule ${rule.name}`,
+    onChange: (checked) => { void saveWorkflowRuleToggle(rule, checked); },
+  });
+  row.append(toggle.element, buildWorkflowRuleStatus(rule));
   return row;
 }
 

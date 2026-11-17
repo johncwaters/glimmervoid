@@ -421,15 +421,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   display: none;
 }
 
-.repo-roots-adder-select-all {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--type-meta);
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
 .repo-roots-adder-select-bar > .repo-roots-adder-count {
   flex: 1 1 0;
 }

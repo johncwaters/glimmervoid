@@ -6,6 +6,7 @@ import { buildFlyingAnimalPreview } from './flying-animal-preview.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
 import { getFlyingAnimalsOptions, isFlyingAnimalsEnabled, setFlyingAnimalsExcludedSprites } from './ui-prefs.ts';
 import { button } from './ui/button.ts';
+import { checkbox } from './ui/checkbox.ts';
 
 export function renderFlyingAnimalsGallery() {
   const container = el('div');
@@ -25,20 +26,19 @@ export function renderFlyingAnimalsGallery() {
   for (const animal of ANIMALS) {
     const tile = el('article', 'flying-animal-tile');
     const preview = buildFlyingAnimalPreview(animal);
-    const include = el('label', 'flying-animal-include');
-    const checkbox = el('input', 'settings-view-checkbox');
-    checkbox.type = 'checkbox';
-    checkbox.checked = !options.flyingAnimalsExcludedSprites.includes(animal.sprite);
-    checkbox.setAttribute('aria-label', `Include ${animal.name}`);
-    checkbox.addEventListener('change', () => {
-      const exclusions = new Set(getFlyingAnimalsOptions().flyingAnimalsExcludedSprites);
-      if (checkbox.checked) exclusions.delete(animal.sprite);
-      if (!checkbox.checked) exclusions.add(animal.sprite);
-      setFlyingAnimalsExcludedSprites([...exclusions]);
-      applyFlyingAnimals(isFlyingAnimalsEnabled());
-      refreshAvailability();
-    });
-    include.append(checkbox, document.createTextNode('Include'));
+    const include = checkbox({
+      label: 'Include',
+      checked: !options.flyingAnimalsExcludedSprites.includes(animal.sprite),
+      accessibleName: `Include ${animal.name}`,
+      onChange: (isIncluded) => {
+        const exclusions = new Set(getFlyingAnimalsOptions().flyingAnimalsExcludedSprites);
+        if (isIncluded) exclusions.delete(animal.sprite);
+        if (!isIncluded) exclusions.add(animal.sprite);
+        setFlyingAnimalsExcludedSprites([...exclusions]);
+        applyFlyingAnimals(isFlyingAnimalsEnabled());
+        refreshAvailability();
+      },
+    }).element;
     const fly = button({ variant: 'secondary', label: 'Fly now' });
     fly.setAttribute('aria-describedby', status.id);
     fly.addEventListener('click', () => flyAnimalNow(animal.sprite));

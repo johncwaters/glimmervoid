@@ -14,6 +14,7 @@ import { SHEET_WIDTH_HANDLE_PX, sheetWidthHandle, wireSheetWidth } from '../shee
 import { button, menuButton } from '../ui/button.ts';
 import { createDeckFrame, forwardDeckKey } from './deck-frame.ts';
 import { emptyState } from '../ui/empty-state.ts';
+import { radio } from '../ui/checkbox.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
@@ -1301,15 +1302,7 @@ const BOARD_EXPORT_FORMATS = [
 ] as const;
 
 function buildExportFormatChoice(format: typeof BOARD_EXPORT_FORMATS[number], isChecked: boolean): HTMLLabelElement {
-  const choice = el('label', 'dialog-checkbox-label');
-  const radio = el('input');
-  radio.type = 'radio';
-  radio.name = 'board-export-format';
-  radio.className = 'dialog-checkbox';
-  radio.value = format.value;
-  radio.checked = isChecked;
-  choice.append(radio, el('span', null, format.label));
-  return choice;
+  return radio({ name: 'board-export-format', value: format.value, label: format.label, checked: isChecked }).element;
 }
 
 function suggestedLinkPathOf(summary: BoardSummary): string {

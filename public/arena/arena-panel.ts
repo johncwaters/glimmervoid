@@ -10,6 +10,7 @@ import { isPhoneLayout } from '../form-factor.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
 import { button } from '../ui/button.ts';
+import { checkbox } from '../ui/checkbox.ts';
 import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { buildNewRace } from './new-race-form.ts';
@@ -80,13 +81,9 @@ function openPickWinnerDialog(race: RaceRecord, winner: RaceContestant): void {
     : `${winner.label} stays an ordinary session. No other contestant is left to remove.`;
   dialog.append(el('p', 'dialog-message', loserText));
   const notes = winnerNotesOf(race, winner.id);
-  const notesBox = el('input');
-  notesBox.type = 'checkbox';
-  if (notes) {
-    const notesField = el('label', 'dialog-checkbox-label');
-    notesField.append(notesBox, el('span', null, "Also send it the judges' notes"));
-    dialog.append(notesField, el('pre', 'arena-raw-diff', notes));
-  }
+  const notesChoice = checkbox({ label: "Also send it the judges' notes" });
+  const notesBox = notesChoice.input;
+  if (notes) dialog.append(notesChoice.element, el('pre', 'arena-raw-diff', notes));
   const confirm = button({ variant: 'danger', label: 'Pick winner', onClick: () => {
     close();
     pickWinner(race, winner, notes !== null && notesBox.checked);

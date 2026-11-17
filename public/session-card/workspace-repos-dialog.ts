@@ -3,16 +3,10 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { buildDialogShell } from './modal.ts';
 import { button } from '../ui/button.ts';
+import { checkbox } from '../ui/checkbox.ts';
 
 function buildRepoCheckbox(name: string, repoPath: string, isChecked = false): HTMLLabelElement {
-  const choice = el('label', 'dialog-checkbox-label');
-  const checkbox = el('input');
-  checkbox.type = 'checkbox';
-  checkbox.className = 'dialog-checkbox';
-  checkbox.value = repoPath;
-  checkbox.checked = isChecked;
-  choice.append(checkbox, el('span', null, name));
-  return choice;
+  return checkbox({ label: name, value: repoPath, checked: isChecked }).element;
 }
 
 function repoNameOf(repoPath: string): string {

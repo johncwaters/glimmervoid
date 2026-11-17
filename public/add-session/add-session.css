@@ -321,6 +321,9 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
 }
 
 .dialog-workspace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   max-height: 220px;
   overflow-y: auto;
   min-width: 0;
@@ -333,17 +336,6 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
 .dialog-advanced-toggle[hidden],
 .dialog-workspace-list[hidden] {
   display: none;
-}
-
-.dialog-checkbox-label input[type="checkbox"] {
-  margin-top: 2px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.dialog-checkbox-label .dialog-hint {
-  flex-basis: 100%;
-  padding-left: 24px;
 }
 
 .dialog-hint {

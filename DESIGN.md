@@ -143,6 +143,12 @@ Every collapsible section is `disclosure()` from `public/ui/disclosure.ts` (look
 - **Markers:** `plus` (the default, a mono plus that turns to a minus, for inline reveals such as Show details and trace rows) and `chevron` (a small border-drawn chevron that turns down, for a boxed or headed section). The marker is muted and lifts to the head color on hover; the summary sits 8px from its marker, carries the lavender focus ring, and is at least `--control-height-small` tall (22px), `--control-height` (44px) on the phone for the tap target.
 - **Show details:** `detailsBlock(text)` is the one Show details fold over a bordered, scrolling `pre` for a raw error or command output.
 - **Layout belongs to the parent:** spacing, borders and full-width rows come from the caller's class on the returned elements.
+### Checkboxes and Radios
+A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`, both from `public/ui/checkbox.ts` (look in `public/ui/checkbox.css`). A boolean setting stays a `role="switch"`; these are for picking items and choices.
+- **Look:** the box (lavender `accent-color`) then its label in Ash mono `--type-meta`, 8px apart, at least 24px tall; the whole row is the hit target. An optional hint sits under the label in Faint Ash, tied to the box by `aria-describedby`.
+- **Options:** `label` (text or a node), `checked`, `disabled`, `value`, `hint`, `accessibleName` (when the visible label is not the name), plus `onChange(checked)` for a checkbox, and `name`, `value` and `onSelect()` for a radio. Each returns `{ element, input }`.
+- **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is 44px tall in `--type-body` with a 20px box.
+- **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
 
 ### Inputs / Fields
 - **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-field` on phone).

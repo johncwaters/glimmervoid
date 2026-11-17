@@ -6,6 +6,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { button } from '../ui/button.ts';
+import { checkbox } from '../ui/checkbox.ts';
 import { buildDialogShell } from '../session-card/modal.ts';
 import { agentsWithModels, contestantsFor, defaultSetup, VARY_SETTINGS, varyChoices, varyLineup } from './lineup-core.ts';
 import { buildSelect, setupControls } from './setup-controls.ts';
@@ -190,12 +191,7 @@ function buildVaryBuilder(onChanged: () => void): HTMLElement {
   const paintChoices = () => {
     choicesEl.replaceChildren();
     for (const choice of varyChoices(catalog, base, setting)) {
-      const option = el('label', 'dialog-checkbox-label');
-      const checkbox = el('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = choice.value;
-      option.append(checkbox, el('span', null, choice.label));
-      choicesEl.append(option);
+      choicesEl.append(checkbox({ label: choice.label, value: choice.value }).element);
     }
   };
   const baseEl = el('div', 'arena-vary-base');

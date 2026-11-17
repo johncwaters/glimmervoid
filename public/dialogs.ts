@@ -8,6 +8,7 @@ import { el, markAsNotCredential, query, queryTag, writeClipboardText } from './
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
+import { radio } from './ui/checkbox.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { mountAddSessionPicker } from './add-session/add-session-picker.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
@@ -157,16 +158,13 @@ export function openRemoteSetupDialog() {
 
   function renderAgentChoices() {
     if (chosenAgent === null || !installedAgents.some((agent) => agent.id === chosenAgent)) chosenAgent = installedAgents[0]?.id ?? null;
-    agentChoices.replaceChildren(...installedAgents.map((agent) => {
-      const option = el('label', 'settings-view-toggle hooks-choice');
-      const input = el('input', 'settings-view-checkbox');
-      input.type = 'radio';
-      input.name = 'remote-setup-agent';
-      input.checked = agent.id === chosenAgent;
-      input.addEventListener('change', () => { chosenAgent = agent.id; });
-      option.append(input, el('span', null, agent.label));
-      return option;
-    }));
+    agentChoices.replaceChildren(...installedAgents.map((agent) => radio({
+      name: 'remote-setup-agent',
+      value: agent.id,
+      label: agent.label,
+      checked: agent.id === chosenAgent,
+      onSelect: () => { chosenAgent = agent.id; },
+    }).element));
     if (installedAgents.length === 0) agentChoices.append(el('span', '', 'Install Claude Code or Codex on this machine first.'));
     startButton.disabled = isStarting || chosenAgent === null;
   }

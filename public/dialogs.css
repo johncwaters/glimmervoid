@@ -454,19 +454,6 @@ html[data-layout="phone"] .dialog-overlay {
   width: 12em;
 }
 
-.dialog-checkbox-label {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 6px 0;
-  flex-wrap: wrap;
-}
-
 .dialog-mode-button {
   border: 1px solid var(--border);
   border-radius: var(--radius);

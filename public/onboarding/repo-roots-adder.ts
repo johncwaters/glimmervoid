@@ -3,6 +3,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
+import { checkbox } from '../ui/checkbox.ts';
 import { buildGithubConnectSection } from '../secrets/github-connect.ts';
 import { githubRepoListHintOf } from '../secrets/github-connect-core.ts';
 import { MAX_CLONE_SOURCES_PER_REQUEST } from '#shared/contracts/control/settings-messages.ts';
@@ -80,15 +81,13 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
   cloneProgressRow.hidden = true;
 
   const selectBar = el('div', 'repo-roots-adder-select-bar');
-  const selectAllLabel = el('label', 'repo-roots-adder-select-all');
-  const selectAllBox = el('input', 'settings-view-checkbox');
-  selectAllBox.type = 'checkbox';
-  selectAllLabel.append(selectAllBox, el('span', null, 'Select all'));
+  const selectAll = checkbox({ label: 'Select all' });
+  const selectAllBox = selectAll.input;
   const selectionStatus = el('span', 'repo-roots-adder-count');
   selectionStatus.setAttribute('role', 'status');
   const cloneSelectedButton = button({ variant: 'secondary', label: 'Clone selected' });
   cloneSelectedButton.disabled = true;
-  selectBar.append(selectAllLabel, selectionStatus, cloneSelectedButton);
+  selectBar.append(selectAll.element, selectionStatus, cloneSelectedButton);
   selectBar.hidden = true;
 
   const suggestionsSection = el('div', 'repo-roots-adder-found');
