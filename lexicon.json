@@ -402,6 +402,10 @@
       "definition": "A session's live PTY screen rendered with xterm.js in the browser, its Terminal tab and pane in Focus and its Terminal screen on the phone; a headless copy on the server keeps its screen"
     },
     {
+      "name": "chat",
+      "definition": "The experimental Chat view of a session, the alternative to its terminal: the conversation drawn from trace records, with held questions and permission prompts answered and prompts sent over the control channel while the agent stays on its PTY"
+    },
+    {
       "name": "dashboard",
       "definition": "The browser app Glimmervoid serves on loopback, where the operator watches and steers sessions across its views, on desktop or phone"
     },
