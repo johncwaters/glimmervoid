@@ -21,6 +21,7 @@ interface DeliverOptions {
 const PASTE_SETTLE_MS = 1500;
 const SUBMIT_DELAY_MS = 300;
 const QUEUED_DELIVERY_TIMEOUT_MS = 120_000;
+const SUBMITTED_TURN_GRACE_MS = 10_000;
 const PASTE_BREAKING_CONTROL_BYTES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
 const PASTE_START = "\x1b[200~";
 const PASTE_END = "\x1b[201~";
@@ -48,5 +49,5 @@ function canSubmit({ when, state, pastedAt, lastOperatorInputAt }: { when: Deliv
   return canLandNow(when, state);
 }
 
-export { PASTE_SETTLE_MS, QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, canLandNow, canSubmit, cleanPastedText, framePaste };
+export { PASTE_SETTLE_MS, QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, SUBMITTED_TURN_GRACE_MS, canLandNow, canSubmit, cleanPastedText, framePaste };
 export type { DeliverOptions, DeliveryOutcome, DeliverySettlement, DeliveryWhen };

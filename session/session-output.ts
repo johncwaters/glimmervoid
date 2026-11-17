@@ -1,6 +1,6 @@
 import { createOutputRing } from "./core/output-ring.ts";
 import type { OutputRingSlice, OutputRingStats } from "./core/output-ring.ts";
-import { PASTE_SETTLE_MS, QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, canLandNow, canSubmit, framePaste } from "./core/input-delivery-core.ts";
+import { PASTE_SETTLE_MS, QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, SUBMITTED_TURN_GRACE_MS, canLandNow, canSubmit, framePaste } from "./core/input-delivery-core.ts";
 import type { DeliverOptions, DeliveryOutcome, DeliverySettlement, DeliveryWhen } from "./core/input-delivery-core.ts";
 import { SCREEN_KEEPER_SEED_LIMIT, SCREEN_RESET } from "./core/screen-keeper-core.ts";
 import { createScreenKeeper } from "./screen-keeper.ts";
@@ -58,6 +58,7 @@ interface SessionOutput {
   deliver(text: string, options: DeliverOptions): DeliveryOutcome;
   clearPendingPaste(): void;
   hasPendingPaste(): boolean;
+  isDeliveryInFlight(): boolean;
   forgetUnsubmittedComposerPaste(): void;
   rememberSize(cols: number, rows: number): boolean;
   ptySize(): { cols: number; rows: number };
@@ -80,6 +81,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   let drainTimer: NodeJS.Timeout | null = null;
   let pendingSubmitListener: SettleListener | undefined;
   let hasUnsubmittedPasteInComposer = false;
+  let submittedTurnGraceEndsAt = 0;
   let lastCols: number | null = null;
   let lastRows: number | null = null;
 
@@ -125,6 +127,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
       return "withheld";
     }
     options.write("\r");
+    submittedTurnGraceEndsAt = clock.nowMs() + SUBMITTED_TURN_GRACE_MS;
     return "submitted";
   }
 
@@ -284,6 +287,9 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   options.on("exit", disposeScreenKeeper);
   options.on("exit", clearPendingPaste);
   options.on("exit", forgetUnsubmittedComposerPaste);
+  options.on("state-change", ({ to }: StateChange) => {
+    if (to === STATES.RUNNING || to === STATES.WAITING) submittedTurnGraceEndsAt = 0;
+  });
 
   return {
     push,
@@ -296,6 +302,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     deliver,
     clearPendingPaste,
     hasPendingPaste: () => queuedDeliveries.length > 0,
+    isDeliveryInFlight: () => hasPastesAhead() || clock.nowMs() < submittedTurnGraceEndsAt,
     forgetUnsubmittedComposerPaste,
     rememberSize,
     ptySize,

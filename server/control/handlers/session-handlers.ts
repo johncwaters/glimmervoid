@@ -46,6 +46,7 @@ type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
+const BETWEEN_TURN_STATES: readonly string[] = [STATES.DORMANT, STATES.IDLE, STATES.COMPLETE, STATES.DONE, STATES.FAILED];
 
 async function runGitForConversationHistory(args: string[], cwd: string): Promise<string> {
   const result = await runGit(args, { cwd, timeoutMs: CONVERSATION_HISTORY_GIT_TIMEOUT_MS, trim: false });
@@ -649,6 +650,32 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     return null;
   }
 
+  function switchSessionModel(msg: ClientMessageOf<'switch-session-model'>): string | null {
+    const session = findSession(msg);
+    const project = config.projects.find((entry) => entry.id === session?.id);
+    if (!session || !project) return SESSION_GONE_TEXT;
+    if (session.ephemeral) return 'This session cannot switch models.';
+    const setupRefusal = addSessionSetupRefusal(msg.setup, session.agentId);
+    if (setupRefusal) return setupRefusal.error;
+    if (!BETWEEN_TURN_STATES.includes(session.state) || session.isDeliveryInFlight()) return 'The agent is mid-turn. Switch the model once it finishes.';
+    const conversationId = session.resumeSessionId;
+    const freshConfig = configStore.save((cfg) => {
+      const configured = cfg.projects.find((entry) => entry.id === session.id);
+      if (!configured) return ABORT_CONFIG_SAVE;
+      configured.agentSetup = { ...msg.setup, instructions: configured.agentSetup?.instructions ?? '' };
+      if (conversationId) configured.resumeSessionId = conversationId;
+      return undefined;
+    });
+    if (!freshConfig) return 'Could not write config.json';
+    applyConfigReload(freshConfig);
+    return null;
+  }
+
+  function handleSwitchSessionModel(msg: ClientMessageOf<'switch-session-model'>, ws: ControlSocket): void {
+    const refusal = switchSessionModel(msg);
+    replyTo(ws, msg, 'switch-session-model-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
+  }
+
   async function handleSwitchSessionAccount(msg: ClientMessageOf<'switch-session-account'>, ws: ControlSocket): Promise<void> {
     const refusal = await switchSessionAccount(msg);
     replyTo(ws, msg, 'switch-session-account-result', { id: msg.id, ok: refusal === null, ...(refusal ?? {}) });
@@ -851,6 +878,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'decide-approval': handleDecideApproval,
     'chat-send': handleChatSend,
     'switch-session-account': handleSwitchSessionAccount,
+    'switch-session-model': handleSwitchSessionModel,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
     'cancel-wake': handleCancelWake,
@@ -884,6 +912,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'pack-session-send': (_msg, requestId, message) => ({ type: 'pack-session-send-result', requestId, ok: false, error: message }),
     'remove-session': (_msg, requestId, message) => ({ type: 'remove-session-result', requestId, ok: false, error: message }),
     'switch-session-account': (msg, requestId, message) => ({ type: 'switch-session-account-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'switch-session-model': (msg, requestId, message) => ({ type: 'switch-session-model-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'secret-source-test': (_msg, requestId, message) => ({ type: 'secret-source-test-result', requestId, ok: false, message, detail: '' }),
   } satisfies InvalidReplyTable;
 

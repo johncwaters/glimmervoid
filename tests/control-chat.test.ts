@@ -65,3 +65,52 @@ test('Chat reads a held question from the session status and answers it and send
     fs.rmSync(projectPath, { recursive: true, force: true });
   }
 });
+
+test('Chat switches the model between turns, keeping the conversation and the session instructions, and refuses mid-turn or for another agent', async () => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-model-'));
+  const writes: string[] = [];
+  const session = new Session({ id: 'modeled', name: 'modeled', path: projectPath, ptySpawn: () => capturingPty(writes) });
+  const config: GlimmervoidConfig = { projects: [{ id: 'modeled', name: 'modeled', path: projectPath, agentSetup: { agent: 'claude-code', model: 'sonnet', options: [], instructions: 'Keep diffs small' } }] };
+  const reloads: GlimmervoidConfig[] = [];
+  const connection = connectControl<{ type: string; ok?: boolean; error?: string }>(createControlServer(controlDeps(config, {
+    sessions: new Map([[session.id, session]]),
+    applyConfigReload: (freshConfig) => { reloads.push(structuredClone(freshConfig)); },
+  })));
+  const switchTo = async (setup: unknown) => {
+    connection.send({ type: 'switch-session-model', id: session.id, requestId: `switch-${reloads.length}`, setup });
+    await new Promise((resolve) => setImmediate(resolve));
+    return connection.sent.at(-1);
+  };
+  try {
+    await session.start();
+    session.setResumeConversation('0f0e0d0c-0b0a-4908-8706-050403020100');
+    session.transition('first_output');
+    session.transition('new_output');
+    const midTurn = await switchTo({ agent: 'claude-code', model: 'opus', options: [] });
+    assert.equal(midTurn?.ok, false);
+    assert.match(midTurn?.error ?? '', /mid-turn/);
+
+    session.transition('task_complete');
+    connection.send({ type: 'chat-send', id: session.id, text: 'Now add the index' });
+    const promptInFlight = await switchTo({ agent: 'claude-code', model: 'opus', options: [] });
+    assert.equal(promptInFlight?.ok, false);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(writes.at(-1), '\r');
+    session.transition('new_output');
+    session.transition('task_complete');
+
+    const otherAgent = await switchTo({ agent: 'codex', model: 'gpt-5', options: [] });
+    assert.equal(otherAgent?.ok, false);
+    assert.equal(reloads.length, 0);
+
+    const switched = await switchTo({ agent: 'claude-code', model: 'opus', options: [] });
+    assert.equal(switched?.type, 'switch-session-model-result');
+    assert.equal(switched?.ok, true);
+    const saved = reloads.at(-1)?.projects[0];
+    assert.deepEqual(saved?.agentSetup, { agent: 'claude-code', model: 'opus', options: [], instructions: 'Keep diffs small' });
+    assert.equal(saved?.resumeSessionId, '0f0e0d0c-0b0a-4908-8706-050403020100');
+  } finally {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});

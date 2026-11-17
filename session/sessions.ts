@@ -1505,6 +1505,7 @@ class Session extends EventEmitter {
 
 
   hasPendingPaste(): boolean { return this._output.hasPendingPaste(); }
+  isDeliveryInFlight(): boolean { return this._output.isDeliveryInFlight(); }
 
   _clearPendingPaste(): void { this._output.clearPendingPaste(); }
 
