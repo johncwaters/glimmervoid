@@ -1,6 +1,7 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { launchPlanFor } from '../shared/agent-models-core.ts';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import fs from 'node:fs';
@@ -429,6 +430,21 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
     });
     const grandchild = await fixture.spawn(child, { prompt: 'go deeper' });
     assert.equal(grandchild.status, 403);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('a spawn naming a model and effort launches the child on them, and a command-line-unsafe model is refused', async () => {
+  const fixture = wiringFixture();
+  try {
+    const reply = await fixture.spawn(fixture.parent, { prompt: 'plan the change', agent: 'claude-code', model: 'opus', effort: 'high' });
+    assert.equal(reply.status, 200);
+    assert.deepEqual(fixture.childProjects[0].agentSetup, { agent: 'claude-code', model: 'opus', options: [{ id: 'effort', value: 'high' }], instructions: '' });
+    assert.ok(launchPlanFor('claude-code', fixture.childProjects[0].agentSetup ?? null, process.platform).args.includes('opus'));
+    const unsafe = await fixture.spawn(fixture.parent, { prompt: 'x', model: 'opus --dangerously-skip-permissions' });
+    assert.equal(unsafe.status, 400);
+    assert.equal(fixture.childProjects.length, 1);
   } finally {
     fixture.destroyAll();
   }

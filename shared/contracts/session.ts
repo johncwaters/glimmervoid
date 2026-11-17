@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { STATES } from '../states.ts';
+import { SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
 import { AgentAccountId } from './agent-accounts.ts';
 import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
@@ -159,6 +160,8 @@ export const AgentSpawnRequest = z.object({
     .refine((prompt) => !prompt.trimStart().startsWith('-'), { message: 'prompt must not start with a dash, which the agent CLI would read as an option' }),
   name: z.string({ error: 'name must be a string' }).min(1, { error: 'name must not be empty' }).max(200, { error: 'name must be at most 200 characters' }).optional(),
   agent: z.string({ error: 'agent must be a string' }).min(1, { error: 'agent must not be empty' }).max(40, { error: 'agent must be at most 40 characters' }).optional(),
+  model: z.string({ error: 'model must be a string' }).max(200, { error: 'model must be at most 200 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'model uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
+  effort: z.string({ error: 'effort must be a string' }).max(40, { error: 'effort must be at most 40 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
 }).strict();
 
 const SessionTarget = z.string({ error: 'the session must be a string' }).min(1, { error: 'the session must not be empty' }).max(300, { error: 'the session must be at most 300 characters' });

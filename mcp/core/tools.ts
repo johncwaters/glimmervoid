@@ -122,6 +122,8 @@ const SESSION_TOOL: GroupedTool = {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),
     name: AgentSpawnRequest.shape.name.describe('spawn: a display name for the new session'),
     agent: AgentSpawnRequest.shape.agent.describe(`spawn: the agent to run, one of ${SPAWNABLE_AGENT_IDS} or a custom agent id; defaults to this session's`),
+    model: AgentSpawnRequest.shape.model.describe("spawn: the model the new session runs, by the agent's own model id; defaults to the agent's configured model"),
+    effort: AgentSpawnRequest.shape.effort.describe('spawn: the reasoning effort the new session runs at, where the agent takes one'),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
     discard: AgentCloseRequest.shape.discard.describe('close: drop the child\'s unpushed work instead of refusing'),
@@ -130,7 +132,7 @@ const SESSION_TOOL: GroupedTool = {
     path: AgentEditRequest.shape.path.optional().describe('edit: the file, absolute or relative to this session\'s directory'),
   },
   actions: {
-    spawn: routeTo('spawn', ['prompt', 'name', 'agent'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
+    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
     send: { verb: 'send', required: ['text'], accepts: ['child', 'text'], hints: WRITES, toPayload: sendPayload },
     read: routeTo('read', ['child'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),
