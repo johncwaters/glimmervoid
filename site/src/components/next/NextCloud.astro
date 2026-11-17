@@ -1,30 +1,24 @@
 ---
 import Wordmark from '../Wordmark.astro';
+import { ACCOUNT_PAGE_URL } from '../../lib/product-facts.ts';
 
-const WAITLIST_FORM_NAME = 'cloud-waitlist';
 const COMPARISON_ROWS = [
-  { label: 'Sessions run', onYourMachine: 'When your computer is on', inCloud: '150 hours included, about 7 every weekday' },
+  { label: 'Sessions run', onYourMachine: 'When your computer is on', inCloud: 'Whenever you open it, on a server of your own' },
   { label: 'Open it from', onYourMachine: 'Your network', inCloud: 'Any browser, any phone' },
   { label: 'Setup', onYourMachine: 'One install command', inCloud: 'Sign in with GitHub' },
   { label: 'Every feature', onYourMachine: 'Yes', inCloud: 'Yes' },
-  { label: 'Price', onYourMachine: 'Free, open source', inCloud: '$40 a month, flat' },
+  { label: 'Price', onYourMachine: 'Free, open source', inCloud: 'Free during the alpha' },
 ];
 ---
 <section id="cloud">
   <div class="section-head reveal">
-    <p class="coming-soon">Coming soon</p>
+    <p class="cloud-badge">Invite-only alpha</p>
     <h2 class="cloud-heading"><span class="cloud-name">Glimmervoid Cloud</span><span aria-hidden="true"><Wordmark isStacked productName="Cloud" /></span></h2>
     <p>Everything you run today, without keeping your computer on.</p>
-    <form class="waitlist" name={WAITLIST_FORM_NAME} method="POST" action="/next/#cloud" data-netlify="true" data-netlify-honeypot="bot-field" data-waitlist>
-      <input type="hidden" name="form-name" value={WAITLIST_FORM_NAME} />
-      <label class="bot-field">Leave this empty <input name="bot-field" tabindex="-1" autocomplete="off" /></label>
-      <label class="waitlist-label" for="waitlist-email">Email</label>
-      <input id="waitlist-email" class="waitlist-email" type="email" name="email" required autocomplete="email" placeholder="you@example.com" />
-      <div class="waitlist-actions">
-        <button type="submit" class="waitlist-join">Join the waitlist</button>
-        <p class="waitlist-status" role="status" aria-live="polite" data-waitlist-status></p>
-      </div>
-    </form>
+    <div class="waitlist">
+      <a class="waitlist-join" href={ACCOUNT_PAGE_URL} data-waitlist-link>Join the waitlist</a>
+      <p class="waitlist-note">Sign in with GitHub to take a place. Invites go out in small batches, and the alpha is free.</p>
+    </div>
   </div>
   <div class="cloud-compare reveal">
     <table>
@@ -33,33 +27,25 @@ const COMPARISON_ROWS = [
         {COMPARISON_ROWS.map(({ label, onYourMachine, inCloud }) => <tr><th scope="row">{label}</th><td>{onYourMachine}</td><td class="in-cloud">{inCloud}</td></tr>)}
       </tbody>
     </table>
-    <p class="top-offs">Used them up? Keep going with top-offs, or wait for your hours to refresh.</p>
+    <p class="hour-packs">After the alpha, a paid plan includes awake hours each month, and hour packs add more.</p>
   </div>
 </section>
 
 <style>
-  .coming-soon { width: fit-content; padding: 1px 10px; border: 1px solid var(--accent-dim); border-radius: 999px; color: var(--accent); font-size: var(--type-meta); letter-spacing: 0.1em; text-transform: uppercase; }
+  .cloud-badge { width: fit-content; padding: 1px 10px; border: 1px solid var(--accent-dim); border-radius: 999px; color: var(--accent); font-size: var(--type-meta); letter-spacing: 0.1em; text-transform: uppercase; }
   #cloud .section-head > .cloud-heading { position: static; font-size: 48px; margin: 4px 0 8px; padding: 0; border: 0; background: none; }
   .cloud-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .waitlist { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-  .waitlist-label { color: var(--text-dim); font-size: var(--type-meta); }
-  .waitlist-email { font: inherit; height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-surface); color: var(--text-head); }
-  .waitlist-email:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .waitlist-email::placeholder { color: var(--text-muted); }
-  .waitlist-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-  .waitlist-join { font: inherit; font-weight: 700; cursor: pointer; height: 44px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: var(--bg); }
-  .waitlist-join:disabled { cursor: progress; opacity: 0.6; }
-  .waitlist-status { font-size: var(--type-meta); color: var(--text-dim); }
-  .waitlist-status[data-outcome="joined"] { color: var(--state-complete); }
-  .waitlist-status[data-outcome="failed"] { color: var(--state-failed); }
-  .bot-field { display: none; }
+  .waitlist-join { align-self: flex-start; display: inline-flex; align-items: center; font-weight: 700; height: 44px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: var(--bg); text-decoration: none; }
+  .waitlist-join:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .waitlist-note { font-size: var(--type-meta); color: var(--text-dim); }
   .cloud-compare table { width: 100%; border-collapse: collapse; }
   .cloud-compare th, .cloud-compare td { text-align: left; font-weight: 400; padding: 14px 16px 14px 0; border-bottom: 1px solid var(--border-dim); vertical-align: top; }
   .cloud-compare thead th { color: var(--text-dim); font-size: var(--type-meta); letter-spacing: 0.1em; text-transform: uppercase; }
   .cloud-compare tbody th { color: var(--text-head); white-space: nowrap; }
   .cloud-compare td { color: var(--text-dim); }
   .cloud-compare td.in-cloud { color: var(--text-head); }
-  .top-offs { margin-top: 16px; color: var(--text-dim); font-size: var(--type-meta); }
+  .hour-packs { margin-top: 16px; color: var(--text-dim); font-size: var(--type-meta); }
   @media (max-width: 640px) {
     .cloud-compare thead th:first-child { display: none; }
     .cloud-compare thead tr { display: grid; grid-template-columns: 1fr 1fr; }
@@ -73,44 +59,7 @@ const COMPARISON_ROWS = [
 <script>
   import { captureSiteEvent } from '../../lib/analytics.ts';
 
-  const STATUS_TEXT_BY_OUTCOME = {
-    joined: 'You are on the list.',
-    failed: 'That did not go through. Try again.',
-  } as const;
-  type WaitlistOutcome = keyof typeof STATUS_TEXT_BY_OUTCOME;
-
-  const waitlistForm = document.querySelector<HTMLFormElement>('[data-waitlist]');
-  const waitlistStatus = document.querySelector<HTMLElement>('[data-waitlist-status]');
-  const joinButton = waitlistForm?.querySelector<HTMLButtonElement>('button[type="submit"]');
-
-  const showOutcome = (outcome: WaitlistOutcome) => {
-    if (!waitlistStatus) return;
-    waitlistStatus.dataset.outcome = outcome;
-    waitlistStatus.textContent = STATUS_TEXT_BY_OUTCOME[outcome];
-  };
-
-  const submitWaitlist = async (form: HTMLFormElement): Promise<WaitlistOutcome> => {
-    const formFields = new URLSearchParams();
-    for (const [fieldName, fieldValue] of new FormData(form)) {
-      if (typeof fieldValue === 'string') formFields.append(fieldName, fieldValue);
-    }
-    try {
-      const response = await fetch('/next/', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formFields.toString() });
-      return response.ok ? 'joined' : 'failed';
-    } catch {
-      return 'failed';
-    }
-  };
-
-  waitlistForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!joinButton) return;
-    joinButton.disabled = true;
-    const outcome = await submitWaitlist(waitlistForm);
-    joinButton.disabled = false;
-    showOutcome(outcome);
-    if (outcome !== 'joined') return;
-    waitlistForm.reset();
-    captureSiteEvent({ event: 'cloud_waitlist_joined', properties: { section: 'cloud' } });
+  document.querySelector<HTMLAnchorElement>('[data-waitlist-link]')?.addEventListener('click', () => {
+    captureSiteEvent({ event: 'cloud_waitlist_opened', properties: { section: 'cloud' } });
   });
 </script>

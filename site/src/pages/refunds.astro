@@ -4,16 +4,16 @@ import { SUPPORT_EMAIL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
 const REFUND_REQUEST_WINDOW_DAYS = 14;
 ---
-<PolicyPage heading="Refund policy" pageTitle="Refund policy for Glimmervoid Cloud | Glimmervoid" description="How to ask for a refund of a Glimmervoid Cloud charge, and what a refund ends." lastUpdated="15 November 2026">
-  <p>Glimmervoid Cloud is sold through Stripe Managed Payments, so your charge appears under Link and Stripe carries out every refund. This page says when we approve one and what it changes.</p>
+<PolicyPage heading="Refund policy" pageTitle="Refund policy for Glimmervoid Cloud | Glimmervoid" description="How refunds of Glimmervoid Cloud charges will work once paid plans start, and what a refund ends." lastUpdated="16 November 2026">
+  <p>Glimmervoid Cloud is in a free, invite-only alpha, so nothing is charged and there is nothing to refund yet. This policy applies once paid plans start. They will be sold through Stripe Managed Payments, so a charge appears under Link and Stripe carries out every refund. This page says when we approve one and what it changes.</p>
   <h2>How to ask</h2>
   <p>Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> with your GitHub login and the charge you want refunded, or ask Link support from your receipt email. Stripe sends us the request, we answer by email, and Stripe refunds the charge, including its tax, to the card that paid.</p>
   <h2>What we refund</h2>
-  <p>We approve a refund of a plan charge or a top-off asked for within {REFUND_REQUEST_WINDOW_DAYS} days of the charge. After that, we refund a charge when the service did not work as described, such as a server that would not wake. Stripe may also refund a charge within 60 days of purchase on its own, and applies any cooling-off period the law where you live gives you.</p>
+  <p>We approve a refund of a plan charge or an hour pack asked for within {REFUND_REQUEST_WINDOW_DAYS} days of the charge. After that, we refund a charge when the service did not work as described, such as a server that would not wake. Stripe may also refund a charge on its own within 60 days of it, to settle a dispute, and gives any cooling-off period the law where you live provides.</p>
   <h2>What a refund ends</h2>
-  <p>Refunding a plan charge ends the plan at once, along with the hours it included, and the server no longer wakes. The server and its data are deleted 30 days later unless you subscribe again. Refunding a top-off removes its hours and leaves the plan running.</p>
+  <p>Refunding a plan charge ends the plan at once, along with the hours it included, and the server no longer wakes. The server and its data are deleted 30 days later unless you subscribe again. Refunding an hour pack removes its unused hours and leaves the plan running.</p>
   <h2>Cancelling instead</h2>
-  <p>Cancelling stops the next renewal and keeps the server working to the end of the period already paid, with no refund for that period. Cancel from the account page.</p>
+  <p>Cancelling stops the next renewal and keeps the server working to the end of the period already paid, with no refund for that period. Cancel from the account page or from your Link account.</p>
   <h2>Disputes</h2>
   <p>A charge disputed with your bank pauses the server until the dispute settles. Asking us first is faster.</p>
   <p>These terms sit beside the <a href={sitePath('terms/')}>terms of service</a>.</p>

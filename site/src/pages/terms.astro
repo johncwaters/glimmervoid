@@ -1,29 +1,81 @@
 ---
 import PolicyPage from '../components/PolicyPage.astro';
-import { AUTHOR, CLOUD_PLAN, PACK_LIFETIME_MONTHS, SUPPORT_EMAIL } from '../lib/product-facts.ts';
+import { ABUSE_EMAIL, AUTHOR, CLOUD_PLAN, PACK_LIFETIME_MONTHS, SUPPORT_EMAIL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
+
+const GOOGLE_CLOUD_AUP_URL = 'https://cloud.google.com/terms/aup';
+const NOTICE_DAYS = 30;
+const LIABILITY_FLOOR_DOLLARS = 100;
 ---
-<PolicyPage heading="Terms of service" pageTitle="Terms of service for Glimmervoid Cloud | Glimmervoid" description="The terms for using Glimmervoid Cloud, the hosted Glimmervoid server." lastUpdated="15 November 2026">
-  <p>These terms cover Glimmervoid Cloud, a hosted Glimmervoid server run by {AUTHOR.name} ("we"). By subscribing you agree to them. The open-source Glimmervoid app you run yourself is covered by its MIT licence, not by these terms.</p>
-  <h2>The service</h2>
-  <p>Each subscription gets one Glimmervoid server on a virtual machine of its own, reached at its own address. The server sleeps when no session is running and wakes when its address is opened. The coding agents you run on it, and the accounts and API keys they use, are yours to provide and pay for.</p>
+<PolicyPage heading="Terms of service" pageTitle="Terms of service for Glimmervoid Cloud | Glimmervoid" description="The terms for the free, invite-only alpha of Glimmervoid Cloud, the hosted Glimmervoid server." lastUpdated="16 November 2026">
+  <p>These terms cover Glimmervoid Cloud, a hosted Glimmervoid server. During the alpha it is run by {AUTHOR.name} as an individual, not through a company ("we"). By signing in you agree to these terms. The open-source Glimmervoid app you run yourself is covered by its MIT licence, not by these terms.</p>
+
+  <h2>The alpha</h2>
+  <p>Glimmervoid Cloud is in a free, invite-only alpha. Anyone can join the waitlist by signing in with GitHub. Only accounts we invite get a server, and we decide whom to invite and how many. Nothing is charged during the alpha, and we never ask for payment details.</p>
+  <p>The alpha is a preview. It is provided as is, may be slow, may fail to wake, and may change or lose features without notice. It carries no uptime promise. We can end the alpha, withdraw an invite, or reset a server, which erases its data, with {NOTICE_DAYS} days' notice by email, or at once in the cases under Suspension.</p>
+  <p>An invite is for you alone: do not share your access, sell it, or let others use your server as their own.</p>
+  <p>If you send us feedback or ideas, we may use them for any purpose, without paying you or owing you anything for them.</p>
+
   <h2>Your account</h2>
-  <p>You sign in with GitHub. You must be old enough to enter a contract where you live, keep your GitHub account secure, and are responsible for what happens on your server. One account belongs to one person or one organization; do not share or resell access.</p>
-  <h2>Payment</h2>
-  <p>The plan costs ${CLOUD_PLAN.monthlyPriceDollars} a month plus any sales tax or VAT, and includes {CLOUD_PLAN.includedAwakeHours} awake hours each billing period. Top-offs add more hours while a plan is active and last {PACK_LIFETIME_MONTHS} months. Plan hours end 3 days after their billing period and do not roll over.</p>
-  <p>Payments are processed through Stripe Managed Payments: Stripe, through Link, sells the subscription to you as reseller, so your receipt and card statement name Link. The plan renews every month until you cancel. Cancel any time from the account page; the plan then runs to the end of the period already paid. We tell you by email at least 30 days before a price change takes effect.</p>
-  <h2>Awake hours</h2>
-  <p>Time the server is awake counts against your hours, including the minutes it waits before going back to sleep. When your hours run out, the server may not wake until the next billing period or until you buy a top-off.</p>
+  <p>You must be at least 18 and old enough to enter a contract where you live. You sign in with GitHub, keep your GitHub account secure, and are responsible for what happens on your server. One account belongs to one person.</p>
+
+  <h2>The service</h2>
+  <p>Each invited account gets one Glimmervoid server on a virtual machine of its own, reached at its own address. The server sleeps when no session is running and wakes when its address is opened.</p>
+
+  <h2>Your agents and their accounts</h2>
+  <p>You provide, pay for and are responsible for every third-party account, API key and sign-in you use on your server, such as your Anthropic or OpenAI account, and for following those providers' terms. Each coding agent signs in through its provider's own sign-in flow inside your server. We do not provide, pay for, resell or stand between you and any model provider's usage, and we never copy your credentials. Anything an agent does on your server, including with sudo, counts as your own act. Credential files stay in plain form on your server's disk and are deleted with it; revoke them with the provider when you leave.</p>
+
   <h2>Acceptable use</h2>
-  <p>Do not use the server to break the law, attack or scan other systems, send spam, mine cryptocurrency, host content you have no right to share, or get around the hour limits. We may suspend a server that does, and tell you why.</p>
+  <p>Do not use your server, or let anyone else use it, to:</p>
+  <ul>
+    <li>break the law, or store or share content that is illegal, including any material that sexually exploits children;</li>
+    <li>spread malware, phish, or send spam;</li>
+    <li>scan, probe, penetration test or attack any system you do not own or have written permission to test, or run a denial of service attack;</li>
+    <li>run an open proxy, a public VPN exit node, or public torrents, or share pirated material;</li>
+    <li>mine cryptocurrency, including proof-of-space and networks that pay tokens for compute;</li>
+    <li>get around hour limits, metering, or the isolation between servers;</li>
+    <li>evade sanctions or export controls;</li>
+    <li>run systems where a fault could cause death, injury or serious damage to property or the environment.</li>
+  </ul>
+  <p>Servers run on Google Cloud, so your use must also follow the <a href={GOOGLE_CLOUD_AUP_URL}>Google Cloud Acceptable Use Policy</a>, and the usage policies of the model providers whose agents you run. Report abuse of a Glimmervoid Cloud server to <a href={`mailto:${ABUSE_EMAIL}`}>{ABUSE_EMAIL}</a>.</p>
+
+  <h2>Suspension</h2>
+  <p>We may suspend a server or account at once, without notice, for abuse, a breach of these terms, a security risk, a legal requirement, or a demand from Google Cloud or another provider the service depends on. We tell you the reason before we suspend when we can, and otherwise as soon as practical. We may keep the data of a server suspended for abuse for as long as the law or an investigation requires.</p>
+
+  <h2>Sanctions and export</h2>
+  <p>You confirm that you are not located in, or ordinarily resident in, a country or region under a comprehensive US embargo, that you are not on a US government restricted-party list, and that you will not use the service in breach of US export control or sanctions law.</p>
+
   <h2>Your data</h2>
-  <p>What you put on your server is yours. We do not read it, except to keep the service running, to investigate a breach of these terms, or where the law requires. Keep your own copies of work that matters: push your branches to a remote. When a plan ends, the server and its data are deleted 30 days later unless you subscribe again.</p>
-  <h2>Suspension and ending</h2>
-  <p>A failed payment that Stripe cannot recover, a disputed charge, or a breach of these terms can suspend the server. You can end the service by cancelling. We can end it with 30 days' notice by email, and refund the unused part of the period already paid.</p>
+  <p>What you put on your server is yours. We do not read it, except to keep the service running, to investigate abuse or a breach of these terms, or where the law requires.</p>
+  <p>We keep no backups. A disk failure, a virtual machine fault, a reset or a deletion can lose your data, and Glimmervoid Cloud is not a backup product. Keep your own copies of work that matters: push your branches to a remote.</p>
+  <p>When your access ends, for any reason other than a suspension for abuse, your server stops and is deleted 30 days later, along with its disk and every credential file on it. During those 30 days, email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a> and we wake it so you can copy your work off.</p>
+  <p>If we learn of a security breach that affects your data, we tell you by email without undue delay. We secure the server image, the network edge, and the sign-in and control systems. You have sudo on your server, so you secure what runs inside it.</p>
+
+  <h2>Ending</h2>
+  <p>You can stop using the service at any time and ask us to delete your account and server by email. We can end your access with {NOTICE_DAYS} days' notice by email, or at once under Suspension.</p>
+
   <h2>No warranty</h2>
-  <p>The service is provided as is, with no promise that it is always available or free of faults. To the extent the law allows, our liability for any claim is limited to what you paid us in the 12 months before it.</p>
+  <p>To the extent the law allows, the service is provided as is and as available, without any warranty, including warranties of merchantability, fitness for a particular purpose and non-infringement. We do not promise any uptime or how quickly a server wakes, and we give no warranty for anything an agent produces.</p>
+
+  <h2>Liability</h2>
+  <p>To the extent the law allows, we are not liable for indirect, incidental, special or consequential damages, lost profits, or lost data, and our total liability for all claims is limited to the greater of what you paid us in the 12 months before the claim and US${LIABILITY_FLOOR_DOLLARS}.</p>
+  <p>You are responsible for third-party claims arising from what you or your agents put on or do from your server, and from a breach of the acceptable use rules, and you cover our reasonable costs of answering them.</p>
+  <p>If you are a consumer, nothing in these terms limits rights you have under the law where you live that cannot be limited by contract.</p>
+
+  <h2>Governing law</h2>
+  <p>These terms are governed by the law of the State of Arizona, USA, and disputes go to the state or federal courts located in Arizona. If you are a consumer, you also keep the protection of the mandatory law of the country where you live and can bring a claim in its courts. Disputes are settled in court, not by arbitration.</p>
+  <p>The sections on your agents, data, no warranty, liability and governing law continue after your access ends.</p>
+
+  <h2>Paid plans, not offered during the alpha</h2>
+  <p>Paid plans are not on sale. When they start, we will ask you to accept them before any charge, and these paragraphs describe how they will work.</p>
+  <p>The plan costs ${CLOUD_PLAN.monthlyPriceDollars} a month plus any sales tax or VAT, and includes {CLOUD_PLAN.includedAwakeHours} awake hours each billing period. Plan hours end 3 days after their billing period and do not roll over. Hour packs add more hours and last {PACK_LIFETIME_MONTHS} months. Pack hours work only while a plan is active, come back if you subscribe again within those {PACK_LIFETIME_MONTHS} months, and are refunded if we end the service while they are unused.</p>
+  <p>Payments are processed through Stripe Managed Payments: Stripe, through Link, sells the subscription to you as reseller, so your receipt and card statement name Link. Link may charge in your local currency, so the amount on your card can move with exchange rates. The plan renews every month until you cancel. Cancel any time from the account page or from your Link account; the plan then runs to the end of the period already paid. We email you {NOTICE_DAYS} days before a price change takes effect, with how to cancel. The new price applies from your first renewal after the notice.</p>
+  <p>Time the server is awake counts against your hours, including the minutes it waits before going back to sleep. When your hours run out, we may stop the server from waking until your next billing period starts or you buy an hour pack. We never charge for awake time beyond your hours.</p>
+  <p>A failed payment that Stripe cannot recover, or a disputed charge, can suspend the server. If we end a paid service, we give {NOTICE_DAYS} days' notice by email and refund the unused part of the period already paid.</p>
+
   <h2>Changes</h2>
   <p>We may update these terms. We tell you by email before a change that affects you takes effect, and the date above changes with them.</p>
+
   <h2>Contact</h2>
-  <p>Questions about these terms, or about your account: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. Refunds follow the <a href={sitePath('refunds/')}>refund policy</a>; what this site records is in the <a href={sitePath('privacy/')}>privacy notice</a>.</p>
+  <p>Questions about these terms, or about your account: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. Abuse reports: <a href={`mailto:${ABUSE_EMAIL}`}>{ABUSE_EMAIL}</a>. Refunds, once paid plans start, follow the <a href={sitePath('refunds/')}>refund policy</a>; what Glimmervoid Cloud and this site record is in the <a href={sitePath('privacy/')}>privacy notice</a>.</p>
 </PolicyPage>

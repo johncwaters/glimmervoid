@@ -15,7 +15,7 @@ type SiteEvent =
   | { event: 'github_star_clicked'; properties: { location: InstallLocation } }
   | { event: 'send_to_desktop'; properties: { location: InstallLocation; outcome: SendToDesktopOutcome } }
   | { event: 'easter_egg_found'; properties: { egg: 'animal_flight'; animal: string } }
-  | { event: 'cloud_waitlist_joined'; properties: { section: 'cloud' } };
+  | { event: 'cloud_waitlist_opened'; properties: { section: 'cloud' } };
 
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
 export const CONSENT_CHANGE_EVENT = 'glimmervoid:consent-change';

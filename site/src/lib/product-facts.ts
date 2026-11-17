@@ -62,6 +62,8 @@ export const ACCOUNT_PAGE_URL = 'https://small-wombat-359.convex.site/';
 
 export const SUPPORT_EMAIL = 'support@glimmervoid.dev';
 
+export const ABUSE_EMAIL = 'abuse@glimmervoid.dev';
+
 export const CLOUD_PLAN = { monthlyPriceDollars: 40, includedAwakeHours: 150 } as const;
 
 export const PACK_LIFETIME_MONTHS = 12;

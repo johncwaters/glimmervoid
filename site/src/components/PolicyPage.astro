@@ -60,6 +60,9 @@ const policyStructuredData = {
   .policy-body :global(h2:first-child) { margin-top: 0; }
   .policy-body :global(p) { color: var(--text); }
   .policy-body :global(p + p) { margin-top: 12px; }
+  .policy-body :global(ul) { margin: 12px 0; padding-left: 20px; color: var(--text); }
+  .policy-body :global(li + li) { margin-top: 6px; }
+  .policy-body :global(ul + p) { margin-top: 12px; }
 
   @media (min-width: 1180px) {
     .policy { padding-block: 200px; display: grid; grid-template-columns: 340px minmax(0, 1fr); column-gap: 64px; align-items: start; }

@@ -2,10 +2,11 @@
 import Base from '../layouts/Base.astro';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
-import { AUTHOR, REPOSITORY_URL } from '../lib/product-facts.ts';
+import { ACCOUNT_PAGE_URL, AUTHOR, REPOSITORY_URL, SUPPORT_EMAIL } from '../lib/product-facts.ts';
+import { sitePath } from '../lib/site-path.ts';
 
 const PRIVACY_TITLE = 'Privacy: what glimmervoid.dev records | Glimmervoid';
-const PRIVACY_DESCRIPTION = 'What glimmervoid.dev and the Glimmervoid app record, and how to choose.';
+const PRIVACY_DESCRIPTION = 'What glimmervoid.dev, Glimmervoid Cloud and the Glimmervoid app record, and how to choose.';
 const privacyStructuredData = {
   '@type': 'WebPage',
   name: PRIVACY_TITLE,
@@ -29,8 +30,33 @@ const privacyStructuredData = {
       <button type="button" class="btn" data-consent-choice="declined">Decline</button>
       <button type="button" class="btn" data-consent-choice="accepted">Accept</button>
     </div>
-    <h2>The Glimmervoid Cloud waitlist</h2>
-    <p>An email you give the waitlist is kept by Netlify, which hosts this site, and used only to tell you when Glimmervoid Cloud opens. It never goes to PostHog.</p>
+    <h2>The earlier Glimmervoid Cloud waitlist form</h2>
+    <p>An email you gave the earlier waitlist form on this site is kept by Netlify, which hosts this site, and used only to tell you when Glimmervoid Cloud opens. It never went to PostHog. The waitlist now works by signing in with GitHub, covered below.</p>
+    <h2>Glimmervoid Cloud</h2>
+    <p>This section covers the <a href={ACCOUNT_PAGE_URL}>account page</a>, the waitlist and the hosted servers. During the free alpha, Glimmervoid Cloud is run by {AUTHOR.name} as an individual, who decides how this data is used. Contact: <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.</p>
+    <h3>What is recorded</h3>
+    <ul>
+      <li>When you sign in: your GitHub account id, login and email address, and the id of your sign-in with WorkOS. Signing in puts you on the waitlist.</li>
+      <li>Whether and when you were invited, and the address of your server.</li>
+      <li>Metering: when your server wakes and sleeps, and how long it is awake.</li>
+      <li>Logs: the IP address and time of connections to your server's address and to the account page, and errors from the systems that run the service.</li>
+      <li>Emails you send to support.</li>
+      <li>Once paid plans start, and only then: your Stripe customer id, subscription state and payments. Your card details go to Stripe and Link, never to us. Nothing is charged during the alpha.</li>
+    </ul>
+    <p>What you put on your server stays on your server. We do not read it, except as the <a href={sitePath('terms/')}>terms</a> allow.</p>
+    <h3>Why</h3>
+    <p>To run the service you asked for, and to bill it once paid plans start (performance of a contract), and to keep it secure and stop abuse (legitimate interests). The account page keeps your sign-in in your browser's storage; that is needed for sign-in and is not used for tracking. Neither the account page nor your server's sign-in uses PostHog.</p>
+    <h3>Who handles it</h3>
+    <ul>
+      <li>On our behalf: WorkOS runs sign-in, Convex holds the account database and serves the account page, and Google Cloud runs the servers, the system that routes to them, and their logs.</li>
+      <li>On their own account: GitHub, when you sign in with it, and Stripe and Link, as seller of record once paid plans start.</li>
+      <li>The Glimmervoid app on your server sends anonymous usage and error data, as described under The Glimmervoid app below, and you can turn it off.</li>
+    </ul>
+    <p>We do not sell or share personal information. These providers store data in the United States; transfers from the EU and UK rely on the EU-US Data Privacy Framework where a provider is certified, and on standard contractual clauses otherwise.</p>
+    <h3>How long</h3>
+    <p>Account data is kept while your account exists and deleted within 30 days of your asking. A server and its disk are deleted 30 days after your access ends. Logs are kept for up to 30 days. The exception is a server or account suspended for abuse: its data and logs are kept for as long as the law or an investigation requires, as the terms say. Support emails are kept as long as needed to answer them and keep a record.</p>
+    <h3>Your rights</h3>
+    <p>You can ask to see, correct, export or delete your data, or object to how it is used, by emailing <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, and you can complain to the data protection authority where you live. Glimmervoid Cloud is for people aged 18 or over.</p>
     <h2>The Glimmervoid app</h2>
     <p>The app sends anonymous usage and error data under a random install id, never paths, repository names, prompts or terminal output. <a href={`${REPOSITORY_URL}/blob/main/docs/configuration.md#telemetry`}>What it sends and how to turn it off</a>.</p>
   </section>
@@ -69,6 +95,8 @@ const privacyStructuredData = {
   .privacy { max-width: 72ch; margin-inline: auto; padding-bottom: 48px; }
   .privacy h1 { margin-bottom: 20px; }
   .privacy h2 { margin-top: 32px; margin-bottom: 8px; font-size: var(--type-doc-h3); }
+  .privacy h3 { margin-top: 20px; margin-bottom: 6px; }
+  .privacy li { color: var(--text); margin-bottom: 6px; }
   .privacy p { color: var(--text); }
   .consent-status { color: var(--text-dim); }
   .consent-actions { display: flex; gap: 8px; margin-top: 12px; }
