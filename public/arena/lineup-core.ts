@@ -76,6 +76,13 @@ export function defaultSetup(catalog: AgentModelCatalog, agent: string): AgentSe
   return withEffort({ agent, model: model?.id ?? null, options: [], instructions: '' }, effort);
 }
 
+export function configuredSetup(catalog: AgentModelCatalog, agent: string): AgentSetup | null {
+  const configured = catalog.agents.find((agentModels) => agentModels.agent === agent)?.configuredDefault ?? null;
+  if (configured === null || configured.model === null) return null;
+  const base = withModel(catalog, { agent, model: configured.model, options: [], instructions: '' }, configured.model);
+  return configured.effort === null ? base : withEffort(base, configured.effort);
+}
+
 export function withModel(catalog: AgentModelCatalog, setup: AgentSetup, modelId: string): AgentSetup {
   const efforts = effortsOf(catalog, { ...setup, model: modelId });
   const currentEffort = effortOf(setup);

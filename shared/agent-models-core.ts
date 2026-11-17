@@ -1,5 +1,5 @@
 import { EFFORT_OPTION_ID, OPENROUTER_AGENT_IDS, OPENROUTER_KEY_NAME, SAFE_LAUNCH_ARGUMENT_PATTERN } from './contracts/agent-models.ts';
-import type { CatalogModel, ModelOption, ModelSelection } from './contracts/agent-models.ts';
+import type { CatalogModel, ConfiguredDefault, ModelOption, ModelSelection } from './contracts/agent-models.ts';
 
 const CLAUDE_DEFAULT_POINTER = 'default';
 const CODEX_HIDDEN_VISIBILITY = 'hide';
@@ -123,6 +123,55 @@ function parseKimiModels(configToml: string): CatalogModel[] | null {
   }
   if (models.length === 0 && hasUnreadModelTable) return null;
   return models.map((model) => ({ ...model, isDefault: model.id === defaultModelId }));
+}
+
+const NO_CONFIGURED_DEFAULT: ConfiguredDefault = { model: null, effort: null };
+const CONTEXT_WINDOW_SUFFIX = /\[[^\]]+\]$/;
+
+function namesOf(model: CatalogModel): string[] {
+  return [model.id, ...model.aliases];
+}
+
+function configuredModelOf(models: CatalogModel[], configuredModel: string | null): CatalogModel | null {
+  if (configuredModel === null) return models.find((model) => model.isDefault) ?? null;
+  const candidates = [configuredModel, configuredModel.replace(CONTEXT_WINDOW_SUFFIX, '')];
+  return models.find((model) => namesOf(model).some((name) => candidates.includes(name))) ?? null;
+}
+
+function listedEffortOf(model: CatalogModel, effort: string | null): string | null {
+  const choices = model.options.find((option) => option.id === EFFORT_OPTION_ID)?.choices ?? [];
+  return effort !== null && choices.includes(effort) ? effort : null;
+}
+
+function resolvedConfiguredDefault(models: CatalogModel[], configuredModel: string | null, effortFor: (model: CatalogModel) => string | null): ConfiguredDefault {
+  const model = configuredModelOf(models, configuredModel);
+  if (model === null) return NO_CONFIGURED_DEFAULT;
+  const effort = listedEffortOf(model, effortFor(model));
+  if (configuredModel === null && effort === null) return NO_CONFIGURED_DEFAULT;
+  return { model: model.id, effort };
+}
+
+function claudeConfiguredDefault(settingsJson: string, models: CatalogModel[]): ConfiguredDefault {
+  const settings = parseJsonLine(settingsJson);
+  if (!isRecord(settings)) return NO_CONFIGURED_DEFAULT;
+  const settingsByModel = isRecord(settings.modelSettings) ? settings.modelSettings : {};
+  const modelEffort = (model: CatalogModel) => {
+    const modelSettings = namesOf(model).map((name) => settingsByModel[name]).find(isRecord);
+    return modelSettings ? trimmedText(modelSettings.effortLevel) : null;
+  };
+  return resolvedConfiguredDefault(models, trimmedText(settings.model), modelEffort);
+}
+
+function codexConfiguredDefault(configToml: string, models: CatalogModel[]): ConfiguredDefault {
+  const topLevel = new Map<string, string>();
+  for (const rawLine of configToml.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.startsWith('[')) break;
+    const keyValue = TOML_STRING_KEY.exec(line);
+    if (keyValue) topLevel.set(keyValue[1], keyValue[2] ?? keyValue[3]);
+  }
+  const effort = trimmedText(topLevel.get('model_reasoning_effort'));
+  return resolvedConfiguredDefault(models, trimmedText(topLevel.get('model')), () => effort);
 }
 
 const OPENCODE_MODEL_LINE = /^[A-Za-z0-9._-]+\/\S+$/;
@@ -285,5 +334,5 @@ function choiceSelection(agent: string, choice: { model?: string | null; effort?
   return { agent, model, options: effort === null ? [] : [{ id: EFFORT_OPTION_ID, value: effort }] };
 }
 
-export { choiceSelection, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels, selectionArgs, unsafeLaunchValueOf };
+export { choiceSelection, claudeConfiguredDefault, codexConfiguredDefault, cleanHomeArgs, configModelOf, launchPlanFor, launchSecretNames, providerRefusalOf, parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels, selectionArgs, unsafeLaunchValueOf };
 export type { LaunchPlan };

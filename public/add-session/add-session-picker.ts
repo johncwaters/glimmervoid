@@ -27,7 +27,7 @@ import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup, ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { StartPicks } from '#shared/contracts/start-picks.ts';
 import { emptyStartPicks, rememberedSelectionFor } from '#shared/start-picks-core.ts';
-import { canRunOnOpenRouter, defaultSetup, modelsOf } from '../arena/lineup-core.ts';
+import { canRunOnOpenRouter, configuredSetup, defaultSetup, modelsOf } from '../arena/lineup-core.ts';
 import { setupControls } from '../arena/setup-controls.ts';
 
 function formatRelativeAge(receivedAt: number, now: number): string {
@@ -464,7 +464,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function shownSetup() {
-    return chosenSetup() ?? defaultSetup(agentModelCatalog, selectedAgentId);
+    return chosenSetup() ?? configuredSetup(agentModelCatalog, selectedAgentId) ?? defaultSetup(agentModelCatalog, selectedAgentId);
   }
 
   function showModelPick() {

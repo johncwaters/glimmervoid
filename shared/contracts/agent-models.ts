@@ -28,9 +28,13 @@ export const CatalogModel = z.strictObject({
 });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 
+export const ConfiguredDefault = z.strictObject({ model: z.string().nullable(), effort: z.string().nullable() });
+export type ConfiguredDefault = z.infer<typeof ConfiguredDefault>;
+
 export const AgentModels = z.strictObject({
   agent: CatalogAgentId,
   models: z.array(CatalogModel),
+  configuredDefault: ConfiguredDefault.optional(),
   error: z.string().nullable(),
   checkedAt: z.number().nullable(),
 });

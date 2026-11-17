@@ -3,9 +3,12 @@ import fs from 'node:fs/promises';
 import { execFileAsync } from '../child-process-safe.ts';
 import { commandFor, getAdapter } from '../../session/adapters/index.ts';
 import kimi from '../../session/adapters/kimi.ts';
-import { parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels } from '../../shared/agent-models-core.ts';
+import { claudeConfiguredDefault, codexConfiguredDefault, parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, parseOpenCodeModels, parseOpenRouterModels, parsePiModels } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS, NO_PROVIDER_MODELS } from '../../shared/contracts/agent-models.ts';
-import type { AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel, ProviderModels } from '../../shared/contracts/agent-models.ts';
+import path from 'node:path';
+import { realAgentHome } from '../../session/agent-home.ts';
+import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
+import type { ConfiguredDefault, AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel, ProviderModels } from '../../shared/contracts/agent-models.ts';
 import { clock } from '../../shared/clock.ts';
 
 const SCAN_FRESH_FOR_MS = 60_000;
@@ -31,6 +34,19 @@ async function runAgentCommand(agentId: string, agentArgs: string[], input: stri
   });
   return stdout;
 }
+
+async function readConfiguredDefault(filePath: string, models: CatalogModel[], parse: (text: string, models: CatalogModel[]) => ConfiguredDefault): Promise<ConfiguredDefault | undefined> {
+  try {
+    return parse(await fs.readFile(filePath, 'utf8'), models);
+  } catch {
+    return undefined;
+  }
+}
+
+const CONFIGURED_DEFAULT_READERS: Readonly<Partial<Record<CatalogAgentId, (models: CatalogModel[]) => Promise<ConfiguredDefault | undefined>>>> = Object.freeze({
+  'claude-code': (models) => readConfiguredDefault(path.join(realAgentHome(CLAUDE_HOME_PROFILE), 'settings.json'), models, claudeConfiguredDefault),
+  codex: (models) => readConfiguredDefault(path.join(realAgentHome(CODEX_HOME_PROFILE), 'config.toml'), models, codexConfiguredDefault),
+});
 
 const PROBES: Readonly<Record<CatalogAgentId, ModelProbe>> = Object.freeze({
   'claude-code': async () => parseClaudeInitialize(await runAgentCommand('claude-code', CLAUDE_PROBE_ARGS, CLAUDE_INITIALIZE_REQUEST)),
@@ -58,7 +74,9 @@ async function probedModels(agent: CatalogAgentId): Promise<{ models: CatalogMod
 async function probeAgent(agent: CatalogAgentId, nowMs: number): Promise<AgentModels> {
   const { models, error } = await probedModels(agent);
   const lastGoodModels = lastCatalog.agents.find((previous) => previous.agent === agent)?.models ?? [];
-  return { agent, models: models ?? lastGoodModels, error, checkedAt: nowMs };
+  const listedModels = models ?? lastGoodModels;
+  const configuredDefault = await CONFIGURED_DEFAULT_READERS[agent]?.(listedModels);
+  return { agent, models: listedModels, ...(configuredDefault ? { configuredDefault } : {}), error, checkedAt: nowMs };
 }
 
 async function fetchOpenRouterModels(): Promise<CatalogModel[] | null> {

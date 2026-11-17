@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs } from '../../shared/agent-models-core.ts';
+import { claudeConfiguredDefault, codexConfiguredDefault, parseAntigravityModels, parseClaudeInitialize, parseCodexModels, parseKimiModels, selectionArgs } from '../../shared/agent-models-core.ts';
 import { CATALOG_AGENT_IDS, EFFORT_OPTION_ID } from '../../shared/contracts/agent-models.ts';
 import type { ModelSelection } from '../../shared/contracts/agent-models.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
@@ -61,6 +61,21 @@ test('live-captured agent model lists parse into models with effort choices', ()
   for (const models of [claudeModels, codexModels]) {
     assert.ok(models.some((model) => model.options.some((option) => option.id === EFFORT_OPTION_ID)));
   }
+});
+
+test('the default model and effort shown are the ones the agent own settings start', () => {
+  const claudeModels = parseClaudeInitialize(fs.readFileSync(path.join(FIXTURES, 'claude-initialize.jsonl'), 'utf8')) ?? [];
+  const claudeStartsOn = (settings: unknown) => claudeConfiguredDefault(JSON.stringify(settings), claudeModels);
+  const opusHigh = { model: 'claude-opus-5-5', effort: 'high' };
+  assert.deepEqual(claudeStartsOn({ model: 'claude-opus-5-5[1m]', modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } }), opusHigh);
+  assert.deepEqual(claudeStartsOn({ model: 'opus', modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } }), opusHigh);
+  assert.deepEqual(claudeStartsOn({ modelSettings: { 'claude-opus-5-5': { effortLevel: 'high' } } }), opusHigh);
+  assert.deepEqual(claudeStartsOn({ effortLevel: 'high' }), { model: null, effort: null });
+  const codexModels = parseCodexModels(fs.readFileSync(path.join(FIXTURES, 'codex-debug-models.json'), 'utf8')) ?? [];
+  const pickedCodex = codexModels[codexModels.length - 1];
+  const pickedEffort = pickedCodex.options.find((option) => option.id === EFFORT_OPTION_ID)?.choices.at(-1) ?? null;
+  const codexToml = `model = "${pickedCodex.id}"\nmodel_reasoning_effort = "${pickedEffort}"\n\n[profiles.fast]\nmodel = "other"\n`;
+  assert.deepEqual(codexConfiguredDefault(codexToml, codexModels), { model: pickedCodex.id, effort: pickedEffort });
 });
 
 test('a live-captured agy model list parses every row into a launchable model', () => {
