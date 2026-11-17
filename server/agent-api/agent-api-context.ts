@@ -18,6 +18,7 @@ import type { WhyLookup } from '../why-lookup.ts';
 import type { ReviewPort } from '../review/review-wiring.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import type { FileClaims } from '../file-claims.ts';
+import type { SessionPreviews } from '../session/session-previews.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
@@ -63,6 +64,7 @@ interface AgentApiWiringOptions {
   wakesFilePath?: string | null;
   memoryFilePath?: string | null;
   fileClaims?: Pick<FileClaims, 'handle'> | null;
+  sessionPreviews?: Pick<SessionPreviews, 'handle'> | null;
   budgetHoldReason?: () => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;

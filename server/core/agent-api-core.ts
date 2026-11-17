@@ -13,6 +13,7 @@ import { AgentArenaRequest } from '../../shared/contracts/race.ts';
 import { AgentWakeRequest } from '../../shared/contracts/wakes.ts';
 import { AgentMemoryRequest } from '../../shared/contracts/memory.ts';
 import { AgentClaimRequest } from '../../shared/contracts/file-claims.ts';
+import { AgentPreviewRequest } from '../../shared/contracts/session-previews.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
@@ -81,6 +82,7 @@ interface AgentRequestByVerb {
   wake: AgentWakeRequest;
   memory: AgentMemoryRequest;
   claim: AgentClaimRequest;
+  preview: AgentPreviewRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -230,6 +232,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   wake: bodyParser(AgentWakeRequest),
   memory: bodyParser(AgentMemoryRequest),
   claim: bodyParser(AgentClaimRequest),
+  preview: bodyParser(AgentPreviewRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -595,6 +598,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it before editing a file another session in this project may also touch, to see who else is on it and to let them see you',
     summary: "Claim a file this session is editing so other sessions in this project see it (claim add <path>, claim release <path>, claim list); claims never block, they end with the session, and a claimed file another session changes shows as a collision in its change map",
     missingArgumentHint: 'this command needs an action, for example "glimmervoid claim add server/api.ts" or "glimmervoid claim list"',
+    isPassthrough: true,
+  },
+  preview: {
+    usage: 'preview <port>|clear',
+    whenToUse: 'Use it after starting a dev server, so the operator can watch the running app beside this session',
+    summary: "Show the app this session serves on a local port in the dashboard's Preview page (preview 5173), or close it (preview clear); serve the app under the base path the reply names, since only plain HTTP is forwarded",
+    missingArgumentHint: 'this command needs a port, for example "glimmervoid preview 5173" or "glimmervoid preview clear"',
     isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

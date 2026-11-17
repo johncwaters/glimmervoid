@@ -6,6 +6,7 @@ import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-
 import { announceSessionPageChange } from '../session-pages/session-pages.ts';
 import { getJSON, setJSON } from '../local-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { openDocEditor } from '../doc-editor/doc-editor.ts';
 import { CHANGES_ICON_PATH } from '../svg-dom.ts';
 import { renderChangeTour, renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { ReviewComment } from '#shared/contracts/review-state.ts';
@@ -610,6 +611,7 @@ function mountShownDiff(diff: HTMLElement, shown: { sessionId: string; file: Rea
   const head = el('div', 'review-reader-diff-head');
   head.append(el('span', 'review-file-path', file.path), fileCounts(file));
   if (isWideEnoughForSplit && file.status !== 'A' && file.status !== 'D' && !file.binary) head.append(layoutSwitch(shownLayout));
+  if (file.status !== 'D' && !file.binary) head.append(editFileButton(sessionId, file.path, notice));
   const viewed = viewedToggleFor(sessionId, file, notice);
   head.append(viewed.label);
   const updateNotice = updateNoticeRow();
@@ -623,6 +625,28 @@ function mountShownDiff(diff: HTMLElement, shown: { sessionId: string; file: Rea
   diff.append(body);
   shownDiff = { key, mounted: mountDiffBody(body, notice, sessionId, file, shownLayout, annotations), viewedToggle: viewed.box, updateNotice };
   diff.scrollTop = scrollTop;
+}
+
+function editFileButton(sessionId: string, filePath: string, notice: HTMLElement) {
+  const editButton = createPressable('review-edit-file', 'Edit');
+  editButton.addEventListener('click', () => {
+    editButton.disabled = true;
+    void sendControlRequest('session-doc-open', { id: sessionId, path: filePath }).then(
+      (reply) => {
+        if (reply.type === 'session-doc-open-result' && reply.ok) {
+          openDocEditor(sessionId);
+          return;
+        }
+        notice.textContent = `Could not open ${filePath}: ${reply.type === 'session-doc-open-result' ? reply.error ?? 'unknown error' : 'unexpected reply'}`;
+        notice.hidden = false;
+      },
+      (error: unknown) => {
+        notice.textContent = `Could not open ${filePath}: ${error instanceof Error ? error.message : String(error)}`;
+        notice.hidden = false;
+      },
+    ).finally(() => { editButton.disabled = false; });
+  });
+  return editButton;
 }
 
 function showAllWorthALook() {

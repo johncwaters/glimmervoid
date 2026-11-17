@@ -8,6 +8,7 @@ import type { RequestListener } from 'node:http';
 import type { Socket } from 'node:net';
 import path from 'node:path';
 import { pipeline } from 'node:stream';
+import { mountPreviewProxy } from '../preview-proxy.ts';
 import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
@@ -136,6 +137,7 @@ interface BackendHttpDependencies {
   githubUserCredential?: () => Promise<GithubUserGrant | null>;
   recordOutcome?: OutcomeRecorder;
   isPlanGateOn?: () => boolean;
+  previewPortOf?: (sessionId: string) => number | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -769,6 +771,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
     remoteAuth.mountPairRoutes(app);
   }
   mountFrameOpenRoute(app, frameSecret);
+  mountPreviewProxy(app, { previewPortOf: dependencies.previewPortOf ?? (() => null), glimmervoidPortsFor: (request) => listenerPortsFor(request.socket), logger });
 
   app.get('/control-token', (req, res) => {
     const origin = req.headers.origin;

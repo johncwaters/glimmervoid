@@ -79,6 +79,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
 import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, resolveFnoxPath } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
+import { createSessionPreviews } from '../session/session-previews.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
@@ -253,6 +254,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getPackFile: (packName, fingerprint, filePath) => laneAssembly.packStore.servableFile(packName, fingerprint, filePath),
     packPreviews: boardPackPreviews,
     getWhiteboardFiles: () => whiteboards.handleOperator,
+    previewPortOf: (sessionId) => sessionPreviews.portOf(sessionId),
     frameSecret,
   });
   agentIngressServer.on('request', createAgentIngressApp(agentIngressDependencies));
@@ -303,9 +305,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     void reviews.forgetSession(message.id);
     verification.forgetSession(message.id);
     laneAssembly.sessionReview.forgetSession(message.id);
+    sessionPreviews.forget(message.id);
     forgetSessionInSavedOrder(message.id);
   };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
+  const sessionPreviews = createSessionPreviews({ broadcastControl: broadcastControlFromWebSockets, isSessionLive: (sessionId) => getSessionAny(sessionId) !== null });
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -499,6 +503,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     wakesFilePath: path.join(glimmervoidHomeDir(), 'wakes.json'),
     memoryFilePath: path.join(glimmervoidHomeDir(), 'memory.json'),
     fileClaims,
+    sessionPreviews,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -884,6 +889,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
     readTracePage: traceWiring?.readTracePage ?? null,
     sessionDocs,
+    sessionPreviews,
     secrets: secretsBroker,
     testSecretSource,
     githubConnection,

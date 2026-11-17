@@ -59,11 +59,23 @@ function createInspectHandlers(context: ControlContext, deps: ControlHandlerDeps
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Save failed: ${errorMessage(error)}` }));
       }
     },
+    'session-doc-open': async (message: ClientMessageOf<'session-doc-open'>, ws: ControlSocket) => {
+      const reply = { type: 'session-doc-open-result', requestId: message.requestId ?? null, id: message.id, path: message.path };
+      const session = findSession(message);
+      if (!sessionDocs || !session) return ws.send(JSON.stringify({ ...reply, ok: false, error: 'Session not found' }));
+      try {
+        const opened = await sessionDocs.surface(session, { path: message.path });
+        ws.send(JSON.stringify(opened.ok ? { ...reply, ok: true } : { ...reply, ok: false, error: opened.error }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `Open failed: ${errorMessage(error)}` }));
+      }
+    },
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
     'session-doc-read': (msg, requestId, message) => ({ type: 'session-doc-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-asset-read': (msg, requestId, message) => ({ type: 'session-doc-asset-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', src: typeof msg?.src === 'string' ? msg.src : '', ok: false, error: message }),
+    'session-doc-open': (msg, requestId, message) => ({ type: 'session-doc-open-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
     'session-doc-save': (msg, requestId, message) => ({ type: 'session-doc-save-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', path: typeof msg?.path === 'string' ? msg.path : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 

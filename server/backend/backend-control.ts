@@ -110,6 +110,7 @@ interface BackendControlDependencies {
   usage: UsageControl;
   readTracePage: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs: SessionDocsPort;
+  sessionPreviews?: { snapshotMessage: () => Record<string, unknown> } | null;
   secrets: SecretsBroker;
   testSecretSource: (lookIn: string) => Promise<SecretSourceTestResult>;
   githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>;
@@ -231,6 +232,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   };
 
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
+  sendLaneSnapshotOnConnect('session-previews', () => dependencies.sessionPreviews ?? null);
   sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot() }) }));
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => ({ type: 'secret-approvals', projects: dependencies.secrets.approvalRows() }) }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
