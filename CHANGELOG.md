@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Walk a board's wires in the media viewer.** With a picture, video or page open full size, the arrow keys show the box wired to it in that direction, in the same viewer and at the same zoom, so a flow of screens can be stepped through and compared without closing each one. Boxes without a picture, video or page are skipped.
+
 - **Edit any changed file, and preview the running app beside a session.** The Changes panel has an Edit button on each changed text file that opens it in the session's doc editor. A session that starts a dev server can run `glimmervoid preview <port>` (or the preview tool) to show the app in a new Preview page on its card; Glimmervoid forwards plain HTTP to that local port under `/app-preview/<session>/`, in a sandboxed frame that never sees your dashboard sign-in.
 
 - **Lockfile conflicts get their own merge steps, and a waiting merge shows its place in line.** When a session's merge parks on a conflicting lockfile (npm, pnpm, yarn, bun, Cargo, Go, Poetry, uv and more), the merge prompt lists it apart from the other files with the command that regenerates it, instead of asking the agent to merge it by hand. A merge waiting behind other merges in the same repository shows how many merges are still ahead of it in the Changes panel, counting down as they finish.

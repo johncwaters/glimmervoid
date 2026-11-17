@@ -1613,6 +1613,24 @@ async function deselectAll({ page, panel }: OpenBoard): Promise<void> {
   await page.keyboard.press('Escape');
 }
 
+async function verifyViewerWalksWires(open: OpenBoard, videoBoxId: string, pageBoxId: string | null): Promise<void> {
+  const { page, boardId } = open;
+  assert.ok(pageBoxId, 'the page box names its id');
+  const wireId = 'viewer-walk-wire';
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'wire', id: wireId, from: videoBoxId, to: pageBoxId } }] });
+  await elementWhere(open, 'the walk wire', (element) => element.id === wireId);
+  const viewer = page.locator('.wb-image-viewer');
+  await page.keyboard.press('ArrowLeft');
+  assert.equal(await viewer.locator('iframe.wb-image-viewer-page').count(), 1, 'an arrow with no wired box that way keeps the shown page');
+  await page.keyboard.press('ArrowUp');
+  await viewer.locator('video.wb-image-viewer-video').waitFor({ timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('ArrowUp walks the wire to the video box drawn above'));
+  assert.deepEqual([await viewer.count(), await viewer.locator('iframe.wb-image-viewer-page').count(), await viewer.locator('.dialog-title').textContent()], [1, 0, 'clip.webm'], 'the walk swaps the media and title inside the same viewer');
+  await page.keyboard.press('ArrowDown');
+  await viewer.locator('iframe.wb-image-viewer-page').waitFor({ timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('ArrowDown walks the wire back to the page box'));
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: wireId }] });
+  await boardWithout(open, 'the walk check removes its wire', (element) => element.id === wireId);
+}
+
 async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   const { page, panel } = open;
   await page.evaluate(() => {
@@ -1672,6 +1690,7 @@ async function verifyLiveMedia(open: OpenBoard): Promise<void> {
   await viewer.waitFor({ state: 'detached', timeout: 5000 }).catch(() => assert.fail('Esc closes the full size page while focus is inside the page'));
   await page.mouse.click(idlePageBounds.x + idlePageBounds.width / 2, idlePageBounds.y + idlePageBounds.height / 2);
   await viewerPage.waitFor({ timeout: 5000 }).catch(() => assert.fail('a second click on the page opens it full size again'));
+  await verifyViewerWalksWires(open, clip.id, await pageMedia.getAttribute('data-box-id'));
   await page.keyboard.press('Escape');
   await viewer.waitFor({ state: 'detached', timeout: 5000 });
   assert.equal(await panel.locator('.wb-media button').count(), 0, 'a page box carries no overlay buttons');

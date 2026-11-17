@@ -38,7 +38,7 @@ const TOOL_BY_KEY: Readonly<Record<string, BoardTool>> = {
 };
 const NUDGE_UNITS = 1;
 const SHIFTED_NUDGE_UNITS = 5;
-const NUDGE_DIRECTION_BY_KEY: Readonly<Record<string, ViewPoint>> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } };
+export const NUDGE_DIRECTION_BY_KEY: Readonly<Record<string, ViewPoint>> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } };
 const KEY_ZOOM_STEP = 1.25;
 const ZOOM_FACTOR_BY_KEY: Readonly<Record<string, number>> = { '=': 1 / KEY_ZOOM_STEP, '+': 1 / KEY_ZOOM_STEP, '-': KEY_ZOOM_STEP, _: KEY_ZOOM_STEP };
 
