@@ -1,5 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import type { ChatPart, ChatPartKind } from './chat-part.ts';
+import { renderCard } from './chat-cards.ts';
 import { replyParagraphsOf } from './chat-parts-core.ts';
 import { renderEditCard, renderToolCard } from './tool-card.ts';
 
@@ -30,6 +31,7 @@ const RENDERER_BY_PART_KIND = {
   thinking: renderThinking,
   tool: renderToolCard,
   edit: renderEditCard,
+  card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;
 
 const rendererByPartKind: ChatPartRendererTable = RENDERER_BY_PART_KIND;

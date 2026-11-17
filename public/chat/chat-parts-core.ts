@@ -39,10 +39,15 @@ function storeToolPart(state: ChatPartsState, part: ToolPart): ToolPart {
   return part;
 }
 
+function noticeCardPartOf(id: string, text: string): ChatPart {
+  return { kind: 'card', id, card: { cardType: 'notice', cardId: id, data: { text }, resolution: null } };
+}
+
 function chatPartOf(state: ChatPartsState, record: TraceRecord, outcomeByToolUseId: ToolOutcomeLookup): ChatPart | null {
   if (record.kind === 'prompt') return { kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text };
   if (record.kind === 'assistant') return { kind: 'reply', id: nextPartId(state, 'reply'), text: record.text };
   if (record.kind === 'thinking') return { kind: 'thinking', id: nextPartId(state, 'thinking'), text: record.text };
+  if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   if (record.kind === 'tool_call') return storeToolPart(state, toolPartOf(record, outcomeByToolUseId));
   if (record.kind !== 'tool_result') return null;
   const calledPart = state.toolPartByUseId.get(record.toolUseId);

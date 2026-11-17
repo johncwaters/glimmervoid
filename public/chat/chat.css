@@ -56,8 +56,7 @@
 
 .chat-tool {
   min-width: 0;
-  border: 1px solid var(--border-dim);
-  border-left: 2px solid var(--chat-tool-color, var(--border));
+  border: 1px solid color-mix(in oklab, var(--chat-tool-color) 35%, var(--border-dim));
   border-radius: var(--radius);
   background: var(--bg-surface);
   font: var(--type-meta)/1.5 var(--font-mono);
@@ -65,7 +64,7 @@
 }
 
 .chat-tool[data-state="ok"] { --chat-tool-color: var(--state-done); }
-.chat-tool[data-state="failed"] { --chat-tool-color: var(--state-failed); }
+.chat-tool[data-state="failed"] { --chat-tool-color: var(--state-failed); background: color-mix(in oklab, var(--state-failed) 6%, var(--bg-surface)); }
 .chat-tool[data-state="no-result"] { --chat-tool-color: var(--text-muted); }
 
 .chat-tool-line {
@@ -109,6 +108,53 @@ summary.chat-tool-line::-webkit-details-marker { display: none; }
   max-height: 480px;
   overflow: auto;
   border-top: 1px solid var(--border-dim);
+}
+
+.chat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--state-waiting) 45%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--state-waiting) 6%, var(--bg-surface));
+}
+
+.chat-card[data-resolved="true"],
+.chat-notice { border-color: var(--border-dim); background: var(--bg-surface); }
+
+.chat-card-heading { color: var(--text-head); font-weight: 700; overflow-wrap: anywhere; }
+
+.chat-card-text { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+
+.chat-card-detail {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: var(--type-meta)/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-card-actions,
+.chat-card-options { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.chat-card-options { flex-direction: column; align-items: flex-start; }
+
+.chat-card-option { display: flex; align-items: baseline; gap: 10px; }
+
+.chat-card-option-note { color: var(--text-muted); font-size: var(--type-meta); }
+
+.chat-card-receipt { color: var(--text-muted); font-size: var(--type-meta); }
+
+.chat-notice {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
 }
 
 }
