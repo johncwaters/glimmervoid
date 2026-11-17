@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
 
-export type DisclosureMarker = 'chevron' | 'plus';
+type DisclosureMarker = 'chevron' | 'plus';
 
 type DisclosureContent = Node | string | readonly (Node | string)[];
 
