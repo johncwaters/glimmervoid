@@ -1455,6 +1455,64 @@ test('a server linked before its tenant connects GitHub asks for App grants as s
   assert.equal(notices.length, 2, 'a second refusal after a disconnect notifies again');
 });
 
+test('a GitHub token request the doorman refuses, or answers with no user grant, waits out a growing backoff and any longer Retry-After before the next one, however often callers ask, until a new GitHub connection or a fresh user grant', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const tokenAnswers: ({ retryAfter: string | null } | GithubTokenAnswer)[] = [{ retryAfter: null }, { retryAfter: '60' }, { retryAfter: null }, { grants: [], user: null }, { grants: [], user: { login: 'octo', token: 'user-token', expiresAtMs: clock.nowMs + 60 * 60_000 } }];
+  let tokenRequestCount = 0;
+  const connectedAnswer: GithubConnectionAnswer = { connection: { state: 'connected', login: 'octo', accounts: ['octo'], refreshTokenExpiresAtMs: clock.nowMs + 60 * 60_000, installUrl: 'https://github.com/apps/glimmervoid/installations/new' } };
+  const doormanStandIn = http.createServer((request, response) => {
+    if (request.url === GITHUB_CONNECTION_PATH) return void response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(connectedAnswer));
+    if (request.url !== GITHUB_TOKEN_PATH) return void response.writeHead(404).end();
+    tokenRequestCount += 1;
+    const tokenAnswer = tokenAnswers.shift();
+    if (tokenAnswer !== undefined && 'grants' in tokenAnswer) return void response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(tokenAnswer));
+    response.writeHead(503, tokenAnswer === undefined || tokenAnswer.retryAfter === null ? {} : { 'retry-after': tokenAnswer.retryAfter }).end();
+  });
+  const doormanPort = await listenOnLoopback(doormanStandIn);
+  let resolveLinked = () => {};
+  const linked = new Promise<void>((resolve) => { resolveLinked = resolve; });
+  const link = createWatcherLink({
+    linkSecret: crypto.randomBytes(32), now: () => clock.nowMs, log: QUIET_LOG,
+    credentials: () => ({ github: 'operator-read-token', posthog: null }),
+    startWatcher: ({ onListening }) => ({ start: () => onListening(`http://127.0.0.1:${doormanPort}`), stop: () => {}, checkNow: () => {} }),
+  });
+  link.whenLinked(() => resolveLinked());
+  t.after(async () => {
+    link.stop();
+    await new Promise((resolve) => doormanStandIn.close(resolve));
+  });
+  await link.start();
+  await linked;
+  const askFiveTimes = async () => {
+    for (let ask = 0; ask < 5; ask += 1) assert.equal(await link.githubUserCredential(), null);
+  };
+
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 1, 'callers right after a refusal send no new request');
+  clock.nowMs += 2_499;
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 1, 'the first backoff holds at least 2.5 s');
+  clock.nowMs += 2_501;
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 2, 'the first backoff ends within its 5 s base');
+  clock.nowMs += 59_000;
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 2, 'a Retry-After longer than the backoff holds the next request');
+  clock.nowMs += 1_000;
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 3, 'the request goes out once the Retry-After passes');
+  clock.nowMs += 9_999;
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 3, 'the third backoff holds at least 10 s');
+  clock.nowMs += 10_001;
+  await askFiveTimes();
+  assert.equal(tokenRequestCount, 4, 'the third backoff ends within 20 s, and an answer with no user grant holds the next request');
+  assert.equal((await link.githubConnection('read'))?.state, 'connected');
+  assert.equal((await link.githubUserCredential())?.login, 'octo', 'a newly connected account ends the hold');
+  await link.githubUserCredential();
+  assert.equal(tokenRequestCount, 5, 'a fresh user grant serves later callers with no request');
+});
+
 test('a tenant whose GitHub user reaches repositories in two installations gets a read-only grant per installation; a search probe runs once per grant, a repository probe runs only with the grant of its owner, a REST probe waits for the operator read token, and a lane gets only the grant of the owner of the repository it reads', async (t) => {
   const clock = { nowMs: Date.now() };
   const app = fakeGithubApp(clock, [], { personalRepositories: ['dotfiles'] });

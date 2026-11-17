@@ -51,6 +51,14 @@ const GITHUB_USER_TOKEN_MIN_LIFE_MS = 3 * 60_000;
 type GithubTokenState = { kind: 'unasked' } | { kind: 'no-app'; answeredAtMs: number } | { kind: 'minting'; grants: readonly GithubTokenGrant[] };
 
 const NO_GITHUB_APP_RECHECK_MS = 60 * 60_000;
+const GITHUB_TOKEN_RETRY_BASE_MS = 5_000;
+const GITHUB_TOKEN_RETRY_MAX_MS = GITHUB_TOKEN_CHECK_MS;
+
+function retryAfterMsOf(headerValue: string | null): number {
+  const seconds = Number(headerValue ?? '');
+  if (!headerValue || !Number.isFinite(seconds) || seconds <= 0) return 0;
+  return Math.min(seconds * 1000, NO_GITHUB_APP_RECHECK_MS);
+}
 
 function requestOf(probe: Probe): string {
   return JSON.stringify([probe.method, probe.url, probe.body, probe.credential, probe.answerField ?? null]);
@@ -141,6 +149,8 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   let githubUserGrant: GithubUserGrant | null = null;
   let connectedGithubAccounts = '';
   let githubUserRequest: Promise<void> | null = null;
+  let githubTokenFailureCount = 0;
+  let githubTokenRetryNotBeforeMs = 0;
 
   function hasCredentialFor(credential: Probe['credential'], heldCredentials: WatcherCredentials): boolean {
     return heldCredentials[credential] !== null || (credential === 'github' && githubTokenState.kind === 'minting');
@@ -165,7 +175,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
   }
 
   function freshGithubUserGrant(): GithubUserGrant | null {
-    return githubUserGrant !== null && githubUserGrant.expiresAtMs - now() >= GITHUB_USER_TOKEN_MIN_LIFE_MS ? githubUserGrant : null;
+    return isFreshUserGrant(githubUserGrant) ? githubUserGrant : null;
   }
 
   function forgetGithubUserGrantUnlessHeldBy(connection: GithubConnection): void {
@@ -178,6 +188,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     if (accounts === connectedGithubAccounts) return;
     connectedGithubAccounts = accounts;
     if (accounts === '') return;
+    releaseGithubTokenHold();
     if (githubTokenState.kind === 'no-app') githubTokenState = { kind: 'unasked' };
     void checkGithubToken();
   }
@@ -344,8 +355,23 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     }
   }
 
+  function holdGithubTokenRequests(retryAfterMs: number): void {
+    githubTokenFailureCount += 1;
+    const backoffMs = nextBackoffMs({ attempt: githubTokenFailureCount, baseMs: GITHUB_TOKEN_RETRY_BASE_MS, maxMs: GITHUB_TOKEN_RETRY_MAX_MS, jitter: 'half' });
+    githubTokenRetryNotBeforeMs = now() + Math.max(backoffMs, retryAfterMs);
+  }
+
+  function releaseGithubTokenHold(): void {
+    githubTokenFailureCount = 0;
+    githubTokenRetryNotBeforeMs = 0;
+  }
+
+  function isFreshUserGrant(grant: GithubUserGrant | null): boolean {
+    return grant !== null && grant.expiresAtMs - now() >= GITHUB_USER_TOKEN_MIN_LIFE_MS;
+  }
+
   async function requestGithubToken(): Promise<GithubTokenAnswer | null> {
-    if (watcherUrl === null) return null;
+    if (watcherUrl === null || now() < githubTokenRetryNotBeforeMs) return null;
     try {
       const response = await fetchFn(new URL(GITHUB_TOKEN_PATH, watcherUrl), {
         method: 'POST',
@@ -355,14 +381,24 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
       if (!response.ok) {
         await response.body?.cancel();
         log.warn(`[watcher] ${GITHUB_TOKEN_PATH} answered ${response.status}`);
+        holdGithubTokenRequests(retryAfterMsOf(response.headers.get('retry-after')));
         return null;
       }
       const answer = GithubTokenAnswer.safeParse(await response.json());
-      if (answer.success) return answer.data;
-      log.warn(`[watcher] the doorman answered ${GITHUB_TOKEN_PATH} in a shape this server does not read; run the same Glimmervoid version on both`);
-      return null;
+      if (!answer.success) {
+        log.warn(`[watcher] the doorman answered ${GITHUB_TOKEN_PATH} in a shape this server does not read; run the same Glimmervoid version on both`);
+        holdGithubTokenRequests(0);
+        return null;
+      }
+      if (!isFreshUserGrant(answer.data.user)) {
+        holdGithubTokenRequests(0);
+        return answer.data;
+      }
+      releaseGithubTokenHold();
+      return answer.data;
     } catch (tokenError) {
       log.warn(`[watcher] could not ask the doorman for a GitHub token: ${(tokenError as Error).message}`);
+      holdGithubTokenRequests(0);
       return null;
     }
   }
@@ -668,6 +704,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
         const isNewLink = watcherUrl !== listeningUrl;
         watcherUrl = listeningUrl;
         watcherStartCount += 1;
+        if (isNewLink) releaseGithubTokenHold();
         if (isNewLink) for (const listener of linkedListeners) listener();
         void deliver();
         void checkGithubToken();

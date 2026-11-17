@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A Glimmervoid Cloud GitHub token that GitHub refuses now says why in the doorman log.** The log line used to end at the status code, such as `GitHub answered 422`; it now carries GitHub's own reason, such as a permission the installation has not accepted yet or a repository it no longer reaches.
+- **A Glimmervoid Cloud server no longer floods its doorman when a GitHub token request fails.** Every git push, `gh` call and settings read used to ask again at once, several times a second; the server now waits a growing, slightly randomized interval of up to five minutes between attempts, and longer when the doorman sends a `Retry-After`.
 
 ## [0.62.4] - 2026-11-16
 
