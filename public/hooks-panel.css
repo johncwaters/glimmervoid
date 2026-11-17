@@ -292,6 +292,7 @@ html[data-layout="phone"] .hooks-content { width: 100%; max-width: none; gap: 16
 html[data-layout="phone"] .hooks-section-head,
 html[data-layout="phone"] .hooks-builtin-summary { flex-wrap: wrap; align-items: center; gap: 4px 10px; padding-bottom: 6px; }
 html[data-layout="phone"] .hooks-section-title { font-size: var(--type-body); color: var(--text-head); }
+html[data-layout="phone"] .hooks-builtin-summary > .hooks-section-title { flex: 1 1 0; min-width: 0; }
 html[data-layout="phone"] .hooks-section-hint { flex-basis: 100%; font-size: var(--type-meta); line-height: 1.3; }
 
 html[data-layout="phone"] .hooks-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
