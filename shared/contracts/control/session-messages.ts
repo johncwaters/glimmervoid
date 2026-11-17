@@ -4,6 +4,7 @@ import { MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../sessio
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
+import { StartPicks } from '../start-picks.ts';
 import { ManagerDecision } from '../question-manager.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
 import { ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSourceTestResult } from '../secrets.ts';
@@ -12,6 +13,7 @@ import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
 
 export const sessionClientVariants = [
+  loose('list-start-picks', { requestId }),
   loose('restart', restartClientShape),
   loose('force-restart', restartClientShape),
   loose('add-session', {
@@ -54,6 +56,7 @@ export const sessionServerVariants = [
     sessions: z.array(SessionSnapshot),
     serverBuild: nullableString,
   }),
+  loose('start-picks', { requestId, picks: StartPicks }),
   loose('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional(), sessionId: z.string().optional() }),
   loose('switch-session-account-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, needsSignIn: z.boolean().optional() }),
   loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),

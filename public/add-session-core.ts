@@ -1,7 +1,6 @@
 import { SESSION_NAME_PATTERN } from '#shared/contracts/session.ts';
+import type { StartPicks } from '#shared/contracts/start-picks.ts';
 
-type RememberedStart = { agentId: string; startedAtMs: number };
-export type RememberedStarts = Record<string, RememberedStart>;
 export type ScannedProject = { name: string; path: string; lastActivityMs?: number };
 export type LiveSession = { path: string; isRunning: boolean; isWaiting: boolean };
 type LiveCounts = { runningCount: number; waitingCount: number };
@@ -17,29 +16,8 @@ export type RecentRow = {
 type PermissionFields = { dangerouslySkipPermissions: true; saneYolo: true } | Record<string, never>;
 type PermissionChoice = { fields: PermissionFields; isUnprotectedHintShown: boolean };
 
-const MAX_REMEMBERED_STARTS = 50;
 const MAX_SESSION_NAME_BASE_LENGTH = 58;
 const FALLBACK_SESSION_NAME_BASE = 'session';
-
-export function parseRememberedStarts(value: unknown): RememberedStarts {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
-  const starts: RememberedStarts = {};
-  for (const [path, entry] of Object.entries(value)) {
-    if (typeof entry !== 'object' || entry === null) continue;
-    const { agentId, startedAtMs } = entry as { agentId?: unknown; startedAtMs?: unknown };
-    if (typeof agentId !== 'string' || !agentId) continue;
-    if (typeof startedAtMs !== 'number' || !Number.isFinite(startedAtMs)) continue;
-    starts[path] = { agentId, startedAtMs };
-  }
-  return starts;
-}
-
-export function rememberStart(starts: RememberedStarts, path: string, agentId: string, nowMs: number): RememberedStarts {
-  const newestFirst = Object.entries({ ...starts, [path]: { agentId, startedAtMs: nowMs } })
-    .sort(([, first], [, second]) => second.startedAtMs - first.startedAtMs)
-    .slice(0, MAX_REMEMBERED_STARTS);
-  return Object.fromEntries(newestFirst);
-}
 
 function countLiveByPath(live: readonly LiveSession[]): Map<string, LiveCounts> {
   const countsByPath = new Map<string, LiveCounts>();
@@ -58,7 +36,7 @@ function recencyOf(row: RecentRow): number {
 
 export function orderRecentRows(
   projects: readonly ScannedProject[],
-  starts: RememberedStarts,
+  starts: StartPicks['agentByPath'],
   live: readonly LiveSession[],
   pickAgentId: (rememberedAgentId: string | null) => string,
 ): RecentRow[] {

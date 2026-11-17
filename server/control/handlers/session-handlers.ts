@@ -15,6 +15,9 @@ import { resolveNewSessionAccount } from '../../../session/core/agent-account-co
 import { RESUME_ID_RE, resolveResumeTarget } from '../../../session/core/auto-resume.ts';
 import { claudeProjectsDir, listRepoConversations } from '../../../session/core/conversation-history.ts';
 import { planQuickSession } from '../../session/core/quick-session-core.ts';
+import { startToRemember, withRememberedStart } from '../../core/start-picks-request-core.ts';
+import { emptyStartPicks } from '../../../shared/start-picks-core.ts';
+import { currentAgentModelCatalog } from '../../agent-models/agent-models.ts';
 import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
 import { listDroppedRepoPaths, planWorkspaceMembers } from '../../../session/core/workspace-core.ts';
 import type { Session, SnoozeRefusal } from '../../../session/sessions.ts';
@@ -73,6 +76,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     packLaunchers = null,
     testSecretSource = null,
     readGithubIssue = null,
+    startPicks = null,
   } = deps;
 
   async function handleSecretDecision(msg: ClientMessageOf<'secret-decision'>, ws: ControlSocket): Promise<void> {
@@ -92,8 +96,23 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     replyTo(ws, msg, 'secret-source-test-result', await testSecretSource(msg.lookIn));
   }
 
-  function handleAddSession(request: AddSessionRequest, ws: ControlSocket): void {
-    addSession(request, socketReply(ws, request), {});
+  async function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> {
+    if (!startPicks) {
+      addSession(request, socketReply(ws, request), {});
+      return;
+    }
+    const picks = await startPicks.current();
+    const filled = withRememberedStart(request, picks, currentAgentModelCatalog(), { defaultAgentId: DEFAULT_AGENT_ID, isKnownAgentId });
+    const replyToSocket = socketReply(ws, filled);
+    addSession(filled, (outcome) => {
+      if (outcome.ok) void startPicks.record(startToRemember(filled, request.setup ?? null, DEFAULT_AGENT_ID));
+      replyToSocket(outcome);
+    }, {});
+  }
+
+  async function handleListStartPicks(msg: ClientMessageOf<'list-start-picks'>, ws: ControlSocket): Promise<void> {
+    const picks = startPicks ? await startPicks.current() : emptyStartPicks();
+    replyTo(ws, msg, 'start-picks', { picks });
   }
 
   function socketReply(ws: ControlSocket, msg: AddSessionRequest): AddSessionReply {
@@ -768,6 +787,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   const handlers = {
     'add-session': handleAddSession,
+    'list-start-picks': handleListStartPicks,
     'quick-session': handleQuickSession,
     'pack-launch': handlePackLaunch,
     'open-issue-session': handleOpenIssueSession,

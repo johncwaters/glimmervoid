@@ -1,3 +1,4 @@
+import type { StartPicksStore } from './start-picks-store.ts';
 import type { GithubAppGrants } from './lanes/core/lane-permissions-core.ts';
 import type { ReadGithubIssue } from './github/github-issue-reader.ts';
 import type { PackSources } from './packs/pack-sources.ts';
@@ -151,6 +152,7 @@ interface ControlHandlerDeps {
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];
   readGithubIssue?: ReadGithubIssue | null;
+  startPicks?: StartPicksStore | null;
   requestViewerTeams?: GithubLaneStore['requestViewerTeams'];
   serverBuild?: () => string | null;
   getUsageSessions?: (() => unknown) | null;

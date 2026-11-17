@@ -156,6 +156,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'pong', requestId: 'ping-1' },
   { type: 'agent-accounts', requestId: 'accounts-1', accounts: [{ accountId: 'claude-a1b2c3', agent: 'claude-code', label: 'Team Max', detail: null, login: { state: 'signed-in', verificationUrl: null, userCode: null, needsPastedCode: false, reason: null }, usedBy: [], isPending: false, isDefault: true, lanes: ['team-review'] }], error: null },
   { type: 'agents-listed', requestId: 'agents-1', agents: [{ id: 'claude-code', label: 'Claude Code', resolvable: true }] },
+  { type: 'start-picks', requestId: 'picks-1', picks: { version: 1, agentByPath: { '/repos/one': { agentId: 'codex', startedAtMs: 1761740000000 } }, selectionByAgent: { codex: { selection: { agent: 'codex', model: 'gpt-5.6', options: [{ id: 'effort', value: 'high' }] }, pickedAtMs: 1761740000000 } } } },
   { type: 'github-teams-listed', requestId: 'teams-1', viewer: 'octocat', teams: [{ org: 'PostHog', slug: 'team-devex', name: 'DevEx' }], orgs: ['PostHog'], error: null },
   { type: 'repo-roots-scanned', requestId: 'roots-1', directories: [{ root: '/repo', projects: [{ name: 'glimmervoid', path: '/repo/glimmervoid' }] }] },
   { type: 'repository-clones', requestId: 'clone-1', jobs: [{ source: 'https://github.com/owner/repo.git', name: 'owner/repo', state: 'cloning', progress: 'Receiving objects 45%' }] },

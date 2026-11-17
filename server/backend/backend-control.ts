@@ -7,6 +7,9 @@ import type { Session } from '../../session/sessions.ts';
 import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
+import path from 'node:path';
+import { glimmervoidHomeDir } from '../config-store.ts';
+import { createStartPicksStore } from '../start-picks-store.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
 import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, SessionWakesControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
@@ -190,6 +193,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     packLaunchers: laneAssembly.packLaunchers,
     races: laneAssembly.races,
     readGithubIssue: laneAssembly.readGithubIssue,
+    startPicks: createStartPicksStore({ filePath: path.join(glimmervoidHomeDir(), 'start-picks.json'), logger: console }),
     githubStore: laneAssembly.githubStore,
     requestViewer: laneAssembly.githubStore.laneStore.requestViewer,
     requestViewerTeams: laneAssembly.githubStore.laneStore.requestViewerTeams,

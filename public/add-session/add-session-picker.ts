@@ -17,8 +17,7 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { needsAttention } from '../focus-view/attention-core.ts';
 import { STATES } from '#shared/states.ts';
 import { elapsedText } from '#shared/display-text.ts';
-import { getAddSessionStarts, setAddSessionStarts } from '../ui-prefs.ts';
-import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, rememberStart, sessionNameBase } from '../add-session-core.ts';
+import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { clock } from '#shared/clock.ts';
@@ -26,6 +25,8 @@ import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messag
 import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import type { AgentSetup, ModelSelection } from '#shared/contracts/agent-models.ts';
+import type { StartPicks } from '#shared/contracts/start-picks.ts';
+import { emptyStartPicks, rememberedSelectionFor } from '#shared/start-picks-core.ts';
 import { canRunOnOpenRouter, defaultSetup, modelsOf } from '../arena/lineup-core.ts';
 import { setupControls } from '../arena/setup-controls.ts';
 
@@ -49,7 +50,7 @@ type AddSessionTarget =
   | { kind: 'workspace' }
   | { kind: 'folder' };
 
-type AddSessionRequest = { message: Record<string, unknown>; rememberedPath: string | null; requestType?: 'add-session' | 'pack-launch' | 'open-issue-session' };
+type AddSessionRequest = { message: Record<string, unknown>; requestType?: 'add-session' | 'pack-launch' | 'open-issue-session' };
 
 type AddSessionSlot = 'agent' | 'project';
 
@@ -148,7 +149,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const btnConfirm = button({ variant: 'primary', label: 'Start session' });
   query(dialog, '#add-session-actions').append(startStatus.element, ...cancelButtons(onCancel), btnConfirm);
 
-  const rememberedStarts = getAddSessionStarts();
+  let rememberedPicks: StartPicks = emptyStartPicks();
   let target: AddSessionTarget = NO_TARGET;
   let lastProjectTarget: AddSessionTarget = NO_TARGET;
   let scannedProjects: ScannedProject[] = [];
@@ -418,7 +419,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function rebuildRows() {
-    recentRows = orderRecentRows(scannedProjects, rememberedStarts, liveSessionsByPath(), pickAgentId);
+    recentRows = orderRecentRows(scannedProjects, rememberedPicks.agentByPath, liveSessionsByPath(), pickAgentId);
     const pickedPath = target.kind === 'project' ? target.row.path : null;
     const pickedRow = recentRows.find((row) => row.path === pickedPath) ?? null;
     if (pickedRow) setProjectTarget(pickedRow);
@@ -452,9 +453,18 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return modelsOf(agentModelCatalog, agentId).length > 0 || canRunOnOpenRouter(agentId);
   }
 
-  function shownSetup() {
+  function rememberedSetup(): AgentSetup | null {
+    const selection = rememberedSelectionFor(rememberedPicks, selectedAgentId, agentModelCatalog);
+    return selection === null ? null : { ...selection, instructions: '' };
+  }
+
+  function chosenSetup(): AgentSetup | null {
     if (operatorSetup?.agent === selectedAgentId) return operatorSetup;
-    return defaultSetup(agentModelCatalog, selectedAgentId);
+    return rememberedSetup();
+  }
+
+  function shownSetup() {
+    return chosenSetup() ?? defaultSetup(agentModelCatalog, selectedAgentId);
   }
 
   function showModelPick() {
@@ -472,8 +482,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function setupForTheStart(): ModelSelection | null {
-    if (modelEl.hidden || operatorSetup?.agent !== selectedAgentId) return null;
-    const { instructions: _instructions, ...selection } = operatorSetup;
+    const setup = modelEl.hidden ? null : chosenSetup();
+    if (setup === null) return null;
+    const { instructions: _instructions, ...selection } = setup;
     return selection;
   }
 
@@ -724,12 +735,12 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (refusesUnpickedAgent()) return null;
     const isShell = isShellChosen();
     const shared: Record<string, unknown> = { ...permissionFields() };
-    if (selectedAgentId !== NO_AGENT_ID && selectedAgentId !== DEFAULT_AGENT_ID) shared.agent = selectedAgentId;
+    if (selectedAgentId !== NO_AGENT_ID) shared.agent = selectedAgentId;
     if (!accountEl.hidden) shared.accountId = accountSelect.value === '' ? null : accountSelect.value;
     const setup = setupForTheStart();
     if (setup !== null) shared.setup = setup;
     if (target.kind === 'project') {
-      return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path }, rememberedPath: isShell ? null : target.row.path };
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(target.row.name)), path: target.row.path } };
     }
     if (target.kind === 'github') {
       const clonedPath = cloneJobOf(target.repo.cloneUrl)?.path ?? null;
@@ -737,7 +748,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         errorEl.textContent = 'The clone has no folder yet.';
         return null;
       }
-      return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(target.repo.fullName))), path: clonedPath }, rememberedPath: isShell ? null : clonedPath };
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(target.repo.fullName))), path: clonedPath } };
     }
     if (target.kind === 'workspace') {
       const repos = [...workspaceListEl.querySelectorAll<HTMLInputElement>('input:checked')].map((checkbox) => checkbox.value);
@@ -745,7 +756,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         errorEl.textContent = 'Check at least two repositories.';
         return null;
       }
-      return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(repos[0]))), path: repos[0], repos }, rememberedPath: null };
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(lastPathSegment(repos[0]))), path: repos[0], repos } };
     }
     if (target.kind === 'folder') {
       const folderPath = pathInput.value.trim();
@@ -753,7 +764,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
         errorEl.textContent = 'Enter a folder path.';
         return null;
       }
-      return { message: { ...shared, name: suggestSessionName(sessionNameBase(folderPath ? lastPathSegment(folderPath) : SHELL_AGENT_ID)), path: folderPath }, rememberedPath: null };
+      return { message: { ...shared, name: suggestSessionName(sessionNameBase(folderPath ? lastPathSegment(folderPath) : SHELL_AGENT_ID)), path: folderPath } };
     }
     errorEl.textContent = 'Pick a project.';
     return null;
@@ -785,7 +796,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       return null;
     }
     const { name: _name, ...sessionFields } = request.message;
-    return { message: { ...sessionFields, issueNumber }, rememberedPath: request.rememberedPath, requestType: 'open-issue-session' };
+    return { message: { ...sessionFields, issueNumber }, requestType: 'open-issue-session' };
   }
 
   function holdForWork(statusText: string) {
@@ -834,11 +845,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     }
   }
 
-  function rememberSuccessfulStart(rememberedPath: string | null) {
-    if (rememberedPath === null) return;
-    setAddSessionStarts(rememberStart(getAddSessionStarts(), rememberedPath, selectedAgentId === NO_AGENT_ID ? defaultAgentId : selectedAgentId, clock.nowMs()));
-  }
-
   function lockPicking(isLocked: boolean) {
     const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl, issueNumberInput];
     if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
@@ -853,7 +859,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     launchButton.addEventListener('click', () => {
       if (isSpawnBlocked || isAddPending) return;
       errorEl.textContent = '';
-      requestAddSession({ message: { pack: launcher.pack, launcherId: launcher.id }, rememberedPath: null, requestType: 'pack-launch' });
+      requestAddSession({ message: { pack: launcher.pack, launcherId: launcher.id }, requestType: 'pack-launch' });
     });
     launcherEl.append(launchButton, el('span', 'dialog-hint', launcher.disabledReason ?? `${launcher.agent} in ${launcher.project}`));
     return launcherEl;
@@ -865,14 +871,13 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     launchersEl.replaceChildren(...launchers.map(buildLauncher));
   }
 
-  function requestAddSession({ message, rememberedPath, requestType = 'add-session' }: AddSessionRequest) {
+  function requestAddSession({ message, requestType = 'add-session' }: AddSessionRequest) {
     holdForWork('Starting the session');
     const showRefusal = (text: string) => { errorEl.textContent = text; };
     const replyTimeoutMs = requestType === 'open-issue-session' ? ISSUE_REPLY_TIMEOUT_MS : DEFAULT_REPLY_TIMEOUT_MS;
     requestControl(requestType, message, replyTimeoutMs)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
-          rememberSuccessfulStart(rememberedPath);
           onStarted();
           revealAddedSession(reply.sessionId);
           return;
@@ -910,7 +915,18 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   advance();
   refresh();
 
+  function loadStartPicks() {
+    return requestControl('list-start-picks', {})
+      .then((message: ServerMessage) => {
+        if (message.type !== 'start-picks') return;
+        rememberedPicks = message.picks;
+        rebuildRows();
+      })
+      .catch(() => {});
+  }
+
   function refresh() {
+    void loadStartPicks();
     void fillProjectList();
     void loadGithubRepos();
     void loadAgents();

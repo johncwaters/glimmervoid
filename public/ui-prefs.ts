@@ -1,8 +1,6 @@
 import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flying-animals-core.ts';
 import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
-import { parseRememberedStarts } from './add-session-core.ts';
-import type { RememberedStarts } from './add-session-core.ts';
 import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
 import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '#shared/settings-ranges.ts';
 import { getJSON, setJSON } from './local-store.ts';
@@ -48,7 +46,6 @@ interface UiPrefs extends FlyingAnimalsOptions {
   communityAttentionAck: string;
   communityUnseenRows: string;
   usageAttentionAck: string;
-  addSessionStarts: RememberedStarts;
 }
 
 const asBoolean = (fallback: boolean) => (value: unknown): boolean => (typeof value === 'boolean' ? value : fallback);
@@ -108,7 +105,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   communityAttentionAck: asString(''),
   communityUnseenRows: asString(''),
   usageAttentionAck: asString(''),
-  addSessionStarts: parseRememberedStarts,
 };
 
 function normalizeInto<Key extends keyof UiPrefs>(prefs: Partial<UiPrefs>, key: Key, raw: unknown) {
@@ -254,6 +250,3 @@ export const getFlyingAnimalsEnteredValues = () => {
 };
 
 export const resetFlyingAnimalsAdvanced = () => setJSON(STORAGE_KEY, { ...load(), ...FLYING_ANIMALS_DEFAULTS });
-
-export const getAddSessionStarts = () => read('addSessionStarts');
-export const setAddSessionStarts = (starts: RememberedStarts) => write('addSessionStarts', starts);
