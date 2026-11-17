@@ -3,7 +3,6 @@ import type { ChatPart } from '../../../public/chat/chat-part.ts';
 import { appendChatRecords, createChatPartsState } from '../../../public/chat/chat-parts-core.ts';
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
 import { createChatView } from '../../../public/chat/chat-view.ts';
-import type { PathContext } from '../../../public/chat/tool-call-core.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
@@ -24,7 +23,7 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
 
 const chatHost = document.getElementById('chat-host');
 const traceResponse = await fetch('/trace-records.json');
-const { records: traceRecords, pathContext }: { records: TraceRecord[]; pathContext: PathContext } = await traceResponse.json();
+const { records: traceRecords }: { records: TraceRecord[] } = await traceResponse.json();
 const chatView = createChatView();
 chatHost?.appendChild(chatView.element);
 chatView.setTurnRunning(true);
@@ -33,18 +32,19 @@ const LIVE_PAGE_INTERVAL_MS = 20;
 
 async function playLive(): Promise<void> {
   let servedCount = Math.min(LIVE_PAGE_RECORDS, traceRecords.length);
-  let isWorking = true;
   const feed = createChatFeed({
     sessionId: 'harness',
-    pathContext,
     requestPage: async (payload) => {
       const start = 'after' in payload ? payload.after : 0;
       return { type: 'session-trace-response', id: 'harness', requestId: 'harness', records: traceRecords.slice(start, servedCount), start, next: servedCount, reset: false, path: '' };
     },
-    isSessionWorking: () => isWorking,
     onPartsChanged: (changedParts, droppedPartIds) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
+    },
+    onBeats: (beats) => {
+      document.body.dataset.beatCount = String(Number(document.body.dataset.beatCount ?? 0) + beats.length);
+      chatView.beat(beats);
     },
     onReset: () => {},
     onFailure: (failureText) => { if (failureText) document.body.dataset.feedFailure = failureText; },
@@ -56,13 +56,11 @@ async function playLive(): Promise<void> {
     feed.refresh();
   }
   await new Promise((resolve) => setTimeout(resolve, LIVE_PAGE_INTERVAL_MS));
-  isWorking = false;
-  chatView.setTurnRunning(false);
-  feed.noteSessionWorkingChanged();
+  if (!new URLSearchParams(location.search).has('working')) chatView.setTurnRunning(false);
 }
 
 if (new URLSearchParams(location.search).has('live')) await playLive();
-if (!new URLSearchParams(location.search).has('live')) chatView.upsert(appendChatRecords(createChatPartsState(pathContext), traceRecords, () => null));
+if (!new URLSearchParams(location.search).has('live')) chatView.upsert(appendChatRecords(createChatPartsState(), traceRecords).parts);
 if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);

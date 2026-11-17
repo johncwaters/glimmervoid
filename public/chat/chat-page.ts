@@ -218,13 +218,12 @@ function buildChat(sessionId: string): MountedChat {
 
   const feed = createChatFeed({
     sessionId,
-    pathContext: { cwd: sessionUIs.get(sessionId)?.path ?? null, home: null },
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
-    isSessionWorking: () => isSessionWorking(sessionId),
     onPartsChanged: (changedParts, droppedPartIds) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
     },
+    onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
       releaseTerminal();
       shownApproval = null;
@@ -281,7 +280,6 @@ export function applyChatSessionStatus(sessionId: string): void {
   if (isWorking === mountedChat.wasSessionWorking) return;
   mountedChat.wasSessionWorking = isWorking;
   mountedChat.setTurnRunning(isWorking);
-  mountedChat.feed.noteSessionWorkingChanged();
 }
 
 subscribeSettings((change) => {

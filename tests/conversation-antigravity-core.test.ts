@@ -27,3 +27,10 @@ test('an Antigravity transcript converts to schema-valid prompt, thinking, paire
   assert.equal(reply.kind === 'assistant' ? reply.text : '', 'done');
   assert.ok(records.every((record) => record.vendorSessionId === VENDOR_SESSION_ID && record.ts > 0));
 });
+
+test('an oversized Antigravity MCP call keeps its server and tool names in the cut input', () => {
+  const step = { step_index: 3, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '2026-11-17T18:12:19Z', thinking: '', tool_calls: [{ name: 'call_mcp_tool', args: { Arguments: { ops: 'x'.repeat(200000) }, ServerName: 'glimmervoid_glimmervoid', ToolName: 'whiteboard' } }] };
+  const [call] = antigravityRecordsFromLine(JSON.stringify(step), { vendorSessionId: VENDOR_SESSION_ID, now: 0 });
+  assert.ok(call?.kind === 'tool_call' && call.truncated === true && typeof call.input === 'string');
+  assert.match(call.input, /^\{"ServerName":"glimmervoid_glimmervoid","ToolName":"whiteboard"/);
+});

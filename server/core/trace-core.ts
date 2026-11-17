@@ -184,6 +184,19 @@ function boundedInputProperties(input: Record<string, unknown>): { input: Record
   };
 }
 
+const MAX_LEADING_PROPERTY_CHARS = 256;
+
+function isShortScalar(value: unknown): boolean {
+  if (typeof value === 'string') return value.length <= MAX_LEADING_PROPERTY_CHARS;
+  return value === null || typeof value !== 'object';
+}
+
+function withShortScalarPropertiesFirst(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const entries = Object.entries(input);
+  return Object.fromEntries([...entries.filter(([, value]) => isShortScalar(value)), ...entries.filter(([, value]) => !isShortScalar(value))]);
+}
+
 function boundedToolCallInput(input: unknown): { input: unknown; truncated?: true } {
   if (typeof input === 'string') {
     const bounded = boundedText(input);
@@ -196,7 +209,7 @@ function boundedToolCallInput(input: unknown): { input: unknown; truncated?: tru
     : boundedInputProperties(input as Record<string, unknown>);
   const serialized = serializedInputText(bounded.input);
   if (serialized.length > MAX_TRACE_CALL_INPUT_CHARS) {
-    return { input: serialized.slice(0, MAX_TRACE_BODY_CHARS), truncated: true };
+    return { input: serializedInputText(withShortScalarPropertiesFirst(bounded.input)).slice(0, MAX_TRACE_BODY_CHARS), truncated: true };
   }
   if (!bounded.hasCutProperty) return { input };
   return { input: bounded.input, truncated: true };

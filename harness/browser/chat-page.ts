@@ -32,6 +32,7 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
     const stop = [...document.querySelectorAll<HTMLButtonElement>('.session-chat .chat-composer button')].find((button) => button.textContent === 'Stop');
     return stop !== undefined && !stop.disabled;
   }, undefined, { timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-chat .chat-activity .chat-activity-mark').waitFor({ timeout: CARD_TIMEOUT_MS });
   await stopButton.click();
 }
 

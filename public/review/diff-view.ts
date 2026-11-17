@@ -134,12 +134,3 @@ export async function mountPatchDiff(host: HTMLElement, patch: string, layout: D
   if (!fileDiff) throw new Error('This file diff could not be read');
   return mountPlainDiff(diffs, host, fileDiff, layout);
 }
-
-export async function mountContentsDiff(host: HTMLElement, name: string, contents: DiffFileContents, layout: DiffLayout): Promise<MountedFileDiff> {
-  const diffs = await preloadDiffRenderer();
-  const fileDiff = diffs.parseDiffFromFile(
-    { name, contents: contents.oldContents ?? '' },
-    { name, contents: contents.newContents ?? '' },
-  );
-  return mountPlainDiff(diffs, host, fileDiff, layout);
-}

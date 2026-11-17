@@ -2,7 +2,6 @@ import { el } from '../dom-helpers.ts';
 import type { ChatPart, ChatPartKind } from './chat-part.ts';
 import { renderCard } from './chat-cards.ts';
 import { type InlineSpan, type ReplyBlock, replyBlocksOf } from './reply-text-core.ts';
-import { renderToolGroup } from './tool-calls.ts';
 
 type ChatPartByKind = { [Part in ChatPart as Part['kind']]: Part };
 type ChatPartRenderer<Kind extends ChatPartKind> = (part: ChatPartByKind[Kind]) => HTMLElement;
@@ -41,18 +40,9 @@ function renderReply(part: Extract<ChatPart, { kind: 'reply' }>): HTMLElement {
   return reply;
 }
 
-function renderThinking(part: Extract<ChatPart, { kind: 'thinking' }>): HTMLElement {
-  const thinking = el('details', 'chat-thinking');
-  thinking.appendChild(el('summary', 'chat-thinking-summary', 'Thinking'));
-  thinking.appendChild(el('div', 'chat-thinking-body', part.text));
-  return thinking;
-}
-
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   reply: renderReply,
-  thinking: renderThinking,
-  tools: renderToolGroup,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;
 
@@ -60,17 +50,6 @@ const rendererByPartKind: ChatPartRendererTable = RENDERER_BY_PART_KIND;
 
 function renderPartOfKind<Kind extends ChatPartKind>(kind: Kind, part: ChatPartByKind[Kind]): HTMLElement {
   return rendererByPartKind[kind](part);
-}
-
-function openKeysWithin(element: HTMLElement): Set<string> {
-  const openDetails = element.querySelectorAll<HTMLElement>('details[open][data-open-key]');
-  return new Set([...openDetails].map((details) => details.dataset.openKey ?? ''));
-}
-
-function reopen(element: HTMLElement, openKeys: ReadonlySet<string>): void {
-  for (const details of element.querySelectorAll<HTMLDetailsElement>('details[data-open-key]')) {
-    details.open = openKeys.has(details.dataset.openKey ?? '');
-  }
 }
 
 function renderPart(part: ChatPart): HTMLElement {
@@ -95,7 +74,6 @@ export function createChatLog(): ChatLog {
       const existing = elementByPartId.get(part.id);
       elementByPartId.set(part.id, rendered);
       if (existing) {
-        reopen(rendered, openKeysWithin(existing));
         existing.replaceWith(rendered);
         continue;
       }

@@ -1,12 +1,11 @@
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
-import { appendTraceRecords, chatToolOutcome, createTraceGrouping, nextTraceRequest, traceReplyOutcome, trimTraceGrouping } from '../trace-store-core.ts';
-import type { ChatToolOutcome, TraceGrouping, TraceRequest } from '../trace-store-core.ts';
+import { nextTraceRequest, traceReplyOutcome } from '../trace-store-core.ts';
+import type { TraceRequest } from '../trace-store-core.ts';
+import type { ActivityBeat } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
-import { appendChatRecords, createChatPartsState, refreshRunningCalls, trimChatParts } from './chat-parts-core.ts';
-import type { PathContext } from './tool-call-core.ts';
+import { appendChatRecords, createChatPartsState, trimChatParts } from './chat-parts-core.ts';
 
 const UNREADABLE_TRACE_TEXT = 'The conversation could not be read.';
-const NO_RESULT: ChatToolOutcome = { status: 'no-result' };
 
 type FeedPhase = 'seeking' | 'following' | 'closed';
 
@@ -14,17 +13,15 @@ type TracePagePayload = { id: string; after: number } | { id: string; endingAt: 
 
 interface ChatFeedOptions {
   sessionId: string;
-  pathContext: PathContext;
   requestPage: (payload: TracePagePayload) => Promise<ServerMessage>;
-  isSessionWorking: () => boolean;
   onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[]) => void;
+  onBeats: (beats: readonly ActivityBeat[]) => void;
   onReset: () => void;
   onFailure: (failureText: string | null) => void;
 }
 
 export interface ChatFeed {
   refresh(): void;
-  noteSessionWorkingChanged(): void;
   close(): void;
 }
 
@@ -40,33 +37,24 @@ function failureTextOf(reason: unknown): string {
 
 export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   const { sessionId } = options;
-  let grouping: TraceGrouping = createTraceGrouping();
-  let partsState = createChatPartsState(options.pathContext);
+  let partsState = createChatPartsState();
   let phase: FeedPhase = 'seeking';
   let nextOffset = 0;
   let pendingRequest: TraceRequest | null = null;
   let isRefreshNeeded = false;
 
-  const outcomeOf = (toolUseId: string): ChatToolOutcome | null => {
-    const toolCall = grouping.toolCallByUseId.get(toolUseId);
-    if (toolCall) return chatToolOutcome(grouping, toolCall, options.isSessionWorking());
-    return options.isSessionWorking() ? null : NO_RESULT;
-  };
-
   const restart = () => {
-    grouping = createTraceGrouping();
-    partsState = createChatPartsState(options.pathContext);
+    partsState = createChatPartsState();
     phase = 'seeking';
     nextOffset = 0;
     options.onReset();
   };
 
-  const showRecords = (reply: ServerMessage & { type: 'session-trace-response' }) => {
+  const showRecords = (reply: ServerMessage & { type: 'session-trace-response' }, isLive: boolean) => {
     nextOffset = reply.next;
-    appendTraceRecords(grouping, reply.records);
-    const changedParts = appendChatRecords(partsState, reply.records, outcomeOf);
-    trimTraceGrouping(grouping);
-    options.onPartsChanged(changedParts, trimChatParts(partsState));
+    const appended = appendChatRecords(partsState, reply.records);
+    options.onPartsChanged(appended.parts, trimChatParts(partsState));
+    if (isLive && appended.beats.length > 0) options.onBeats(appended.beats);
   };
 
   const applyReply = (request: TraceRequest, reply: ServerMessage) => {
@@ -88,7 +76,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
       return;
     }
     if (outcome === 'seed') phase = 'following';
-    if (outcome === 'seed' || outcome === 'append') showRecords(reply);
+    if (outcome === 'seed' || outcome === 'append') showRecords(reply, outcome === 'append');
     if (!isRefreshNeeded) return;
     isRefreshNeeded = false;
     refresh();
@@ -115,10 +103,6 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
 
   return {
     refresh,
-    noteSessionWorkingChanged: () => {
-      if (phase === 'closed') return;
-      options.onPartsChanged(refreshRunningCalls(partsState, outcomeOf), []);
-    },
     close: () => {
       phase = 'closed';
     },
