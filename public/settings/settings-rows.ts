@@ -1,13 +1,14 @@
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
+import { copyButton } from '../ui/copy-button.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, isExperimentalSetting } from '#shared/settings/registry.ts';
 import { hasUnsavedEdit, isAtDefault, pageScopeOf, pageSectionOf, resetConfirmationOf, resetValueOf, rowChipsOf, secretEnvironmentSource, shouldShowDangerWarning } from './settings-view-core.ts';
 import { settingsHash } from './settings-link.ts';
 import { contentEl, draftByControl, fieldErrorById, pageSettings, replaceSettingsHash, saveStatusById, sectionOfSetting, selectedPage, settingsPayload, storedValue, viewMap } from './settings-panel-state.ts';
-import { appendCopyControl, buildExperimentalTag, buildStatusSlot, renderReadout } from './settings-readouts.ts';
+import { buildExperimentalTag, buildStatusSlot, renderReadout } from './settings-readouts.ts';
 import { commitSetting } from './settings-save.ts';
 import { isTextField, renderControl } from './settings-controls.ts';
 
@@ -17,14 +18,16 @@ function renderSettingHeading(setting: SettingsSetting) {
   const heading = el('h2', 'settings-view-setting-title', setting.title);
   heading.id = setting.id;
   heading.addEventListener('click', () => replaceSettingsHash(section.id, setting.id));
-  const copy = button({ variant: 'quiet', size: 'small', label: '#', action: 'copy-setting-link' });
-  copy.setAttribute('aria-label', 'Copy link');
   row.appendChild(heading);
   if (isExperimentalSetting(setting) && !isExperimentalSection(pageSectionOf(viewMap, section.id) ?? section)) row.appendChild(buildExperimentalTag());
-  appendCopyControl(row, copy, {
-    copiedText: 'Link copied',
-    textToCopy: () => new URL(settingsHash(section.id, setting.id), location.href).href,
-  });
+  row.appendChild(copyButton({
+    variant: 'quiet',
+    size: 'small',
+    label: '#',
+    accessibleLabel: 'Copy link',
+    action: 'copy-setting-link',
+    text: () => new URL(settingsHash(section.id, setting.id), location.href).href,
+  }).element);
   return row;
 }
 

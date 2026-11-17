@@ -266,11 +266,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   min-width: 0;
 }
 
-.first-run-copy-status {
-  font-size: var(--type-meta);
-  color: var(--text-muted);
-}
-
 .first-run-step-actions {
   display: flex;
   flex-wrap: wrap;

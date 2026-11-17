@@ -2,7 +2,7 @@ import type { CustomAgentSummaryRow } from '#shared/contracts/control-messages.t
 import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { el, writeClipboardText } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
 import { checkbox } from '../ui/checkbox.ts';
@@ -24,7 +24,6 @@ import { confirmServerRestart, confirmServerShutdown, trackShutdownButton } from
 import { clock } from '#shared/clock.ts';
 
 const SAVED_STATUS_MS = 2200;
-const COPY_STATUS_MS = 1600;
 const TELEMETRY_DELETION_TIMEOUT_MS = 15000;
 const pendingWorkflowRuleIds = new Set<string>();
 
@@ -341,22 +340,4 @@ function buildExperimentalTag() {
   return element;
 }
 
-function clipboardCopyStatus(text: string, copiedText: string): Promise<string> {
-  const write = writeClipboardText(text);
-  if (!write) return Promise.resolve('Copy failed');
-  return write.then(() => copiedText, () => 'Copy failed');
-}
-
-function appendCopyControl(
-  container: HTMLElement, copyButton: HTMLButtonElement, { copiedText, textToCopy }: { copiedText: string; textToCopy: () => string },
-) {
-  const status = el('span', 'settings-view-copy-status');
-  status.setAttribute('role', 'status');
-  copyButton.addEventListener('click', async () => {
-    status.textContent = await clipboardCopyStatus(textToCopy(), copiedText);
-    setTimeout(() => { status.textContent = ''; }, COPY_STATUS_MS);
-  });
-  container.append(copyButton, status);
-}
-
-export { SAVED_STATUS_MS, appendCopyControl, buildExperimentalTag, buildStatusSlot, externalLink, renderReadout };
+export { SAVED_STATUS_MS, buildExperimentalTag, buildStatusSlot, externalLink, renderReadout };

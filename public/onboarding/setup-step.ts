@@ -1,5 +1,5 @@
-import { el, writeClipboardText } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
+import { el } from '../dom-helpers.ts';
+import { copyButton } from '../ui/copy-button.ts';
 
 type SetupStepState = 'done' | 'current' | 'upcoming';
 
@@ -37,13 +37,6 @@ export function buildCommandRow(command: string): HTMLElement {
   const row = el('div', 'first-run-command-row');
   row.append(el('code', 'first-run-command', command));
   if (!navigator.clipboard?.writeText) return row;
-  const copyButton = button({ variant: 'secondary', label: 'Copy' });
-  const copyStatus = el('span', 'first-run-copy-status');
-  copyStatus.setAttribute('role', 'status');
-  copyButton.addEventListener('click', async () => {
-    const write = writeClipboardText(command);
-    copyStatus.textContent = write ? await write.then(() => 'Copied', () => 'Copy failed') : 'Copy failed';
-  });
-  row.append(copyButton, copyStatus);
+  row.append(copyButton({ text: () => command }).element);
   return row;
 }

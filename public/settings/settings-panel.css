@@ -374,15 +374,9 @@
 }
 
 @media (hover: hover) {
-  .settings-view-setting:not(:hover) .settings-view-setting-heading:not(:focus-within) > [data-action="copy-setting-link"] {
+  .settings-view-setting:not(:hover) .settings-view-setting-heading:not(:focus-within) > .ui-copy > [data-action="copy-setting-link"] {
     opacity: 0;
   }
-}
-
-.settings-view-copy-status {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
 }
 
 .settings-view-setting-description {

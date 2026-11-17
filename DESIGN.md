@@ -160,6 +160,10 @@ A group of options with exactly one picked is `segmented()` from `public/ui/segm
 - **Keyboard:** a `radiogroup` of `radio` options with one tab stop; the arrow keys move the pick and focus together, wrapping at the ends.
 - **Layout belongs to the parent:** it takes no class; a container places and hides it.
 
+### Copy Button
+A button that copies text to the clipboard is `copyButton()` from `public/ui/copy-button.ts` (look in `public/ui/copy-button.css`): a `button()` with a `role="status"` line beside it that says Copied or Copy failed, then clears after `clearAfterMs` (1600 by default). The label never changes.
+- **Options:** `text` (read at click time), `label` (Copy by default), `accessibleLabel` for a glyph label such as `#`, `action`, `variant` (secondary or quiet), `size` (default or small). It returns the wrapper `element`, the `button`, and `clearStatus()` for a surface that reuses one control for new text.
+
 ### Inputs / Fields
 - **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-field` on phone).
 - **Focus:** border shifts to Glimmer Violet (no glow). Placeholders use Faint Ash.

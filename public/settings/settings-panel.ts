@@ -6,6 +6,7 @@ import { loadCustomSounds, resolveSoundId } from '../alert-sound.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
+import { copyButton } from '../ui/copy-button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
@@ -31,7 +32,7 @@ import { onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts
 import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
 import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
-import { appendCopyControl, buildExperimentalTag, externalLink } from './settings-readouts.ts';
+import { buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksTabLink } from '../packs/packs-catalog.ts';
 import { renderGithubPage, renderSecretsPage } from '../secrets/secrets-settings.ts';
 import { refreshHooksPage, renderHooksPage } from '../hooks-panel.ts';
@@ -355,7 +356,7 @@ function appendFileOnlyDetails(row: HTMLElement, setting: SettingsSetting) {
   );
   if (jsonFragment === null) return;
   const actions = el('div', 'settings-view-control-foot');
-  appendCopyControl(actions, button({ variant: 'quiet', size: 'small', label: 'Copy as JSON', action: 'copy-json' }), { copiedText: 'JSON copied', textToCopy: () => jsonFragment });
+  actions.appendChild(copyButton({ variant: 'quiet', size: 'small', label: 'Copy as JSON', action: 'copy-json', text: () => jsonFragment }).element);
   row.appendChild(actions);
 }
 

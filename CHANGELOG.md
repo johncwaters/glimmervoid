@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **More collapsible sections share one look.** Show details blocks, hook previews, the trace rows, the packs Sources section and the folded sections of a team review now share one marker (a plus or a chevron), a visible focus ring when reached by keyboard, and a 44px tap target on the phone.
 - **Checkboxes and radio choices look and behave the same across Settings and dialogs.** The Hooks page, workflow rules, the flying-animal gallery, the repository picker and the workspace, account, board export, remote setup and arena dialogs now share one choice row, as tall as a button beside it: a lavender focus ring on every box, a dimmed row while a choice is unavailable, and a 44px tap row with a larger box on the phone.
 - **Every pick-one switch now looks and works the same.** The Settings choice rows, the Usage period, range and measure switches, and the Reviews and Changes layout switches share one control: a framed row of uppercase options with the picked one washed in lavender, standing the same height as the buttons (the Settings rows at the regular size, the panel switches at the small one), and the arrow keys move the pick from one option to the next.
+- **Every Copy button now reports the same way.** The trace rows, setup command rows, banner commands and the Settings copy-link and Copy as JSON buttons all say Copied or Copy failed beside the button, and the word clears after a moment everywhere.
 
 ### Fixed
 

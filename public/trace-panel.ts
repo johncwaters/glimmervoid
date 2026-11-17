@@ -1,7 +1,8 @@
 import './trace-panel.css';
-import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
+import { buildPanelSection, el, isPanelHidden, query } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
+import { copyButton } from './ui/copy-button.ts';
 import { createPressable } from './ui/pressable.ts';
 import { disclosure } from './ui/disclosure.ts';
 import { createActionStatus } from './action-status.ts';
@@ -130,26 +131,6 @@ function buildHeader(): HTMLElement {
   return section;
 }
 
-function buildCopyControl(body: string): HTMLElement {
-  const wrap = el('div', 'trace-copy-wrap');
-  const status = el('span', 'trace-copy-status');
-  status.setAttribute('role', 'status');
-  const copyButton = button({ variant: 'secondary', size: 'small', label: 'Copy', action: 'copy-trace-body' });
-  copyButton.addEventListener('click', () => {
-    const write = writeClipboardText(body);
-    if (!write) {
-      status.textContent = 'Copy failed';
-      return;
-    }
-    write
-      .then(() => { status.textContent = 'Copied'; })
-      .catch(() => { status.textContent = 'Copy failed'; });
-    setTimeout(() => { status.textContent = ''; }, 1600);
-  });
-  wrap.append(copyButton, status);
-  return wrap;
-}
-
 function buildLoadEarlierControl(): HTMLElement {
   const wrap = el('div', 'trace-earlier-wrap');
   wrap.append(button({ variant: 'secondary', label: 'Load earlier', action: 'load-earlier-trace', onClick: () => requestEarlierTrace() }));
@@ -171,7 +152,7 @@ function buildExpandableRow(row: TraceViewRow, turnStartedAtMs: number | null, c
     ],
     body: () => {
       const text = traceRecordBody(row.record);
-      return [buildCopyControl(text), el('pre', 'trace-row-pre', text)];
+      return [copyButton({ size: 'small', action: 'copy-trace-body', text: () => text }).element, el('pre', 'trace-row-pre', text)];
     },
   });
   element.classList.add('trace-row');

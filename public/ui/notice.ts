@@ -1,8 +1,9 @@
 import type { InstallFailureKind, NoticeId, NoticeTone } from '#shared/contracts/control-messages.ts';
 import { reportNoticeShown } from '../control-ws.ts';
-import { el, queryTag, writeClipboardText } from '../dom-helpers.ts';
+import { el, queryTag } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from './button.ts';
+import { copyButton } from './copy-button.ts';
 
 export type { NoticeTone };
 
@@ -43,28 +44,16 @@ export function createNotice({ id, dismissLabel, isDismissIcon, onDismiss, leadi
   const textElement = el('span', 'notice-text');
   const actionsElement = el('span', 'notice-actions');
   const commandElement = el('code', 'notice-command');
-  const copyButton = button({ variant: 'secondary', size: 'small', label: 'Copy', action: 'copy-notice-command' });
-  const copyStatus = el('span', 'notice-copy-status');
-  copyStatus.setAttribute('role', 'status');
+  let shownCommand = '';
+  const commandCopy = copyButton({ size: 'small', action: 'copy-notice-command', text: () => shownCommand });
   const metaElement = el('span', 'notice-meta');
   const dismissButton = isDismissIcon
     ? button({ variant: 'icon', size: 'small', label: dismissLabel, icon: createLineIcon(CLOSE_ICON_PATH), action: 'dismiss-notice' })
     : button({ variant: 'secondary', size: 'small', label: dismissLabel, action: 'dismiss-notice' });
   dismissButton.classList.add('notice-dismiss');
   if (leading) element.append(leading);
-  element.append(textElement, actionsElement, commandElement, copyButton, copyStatus, metaElement, dismissButton);
+  element.append(textElement, actionsElement, commandElement, commandCopy.element, metaElement, dismissButton);
 
-  let shownCommand = '';
-  copyButton.addEventListener('click', () => {
-    const write = writeClipboardText(shownCommand);
-    if (!write) {
-      copyStatus.textContent = 'Copy failed';
-      return;
-    }
-    write
-      .then(() => { copyStatus.textContent = 'Copied'; })
-      .catch(() => { copyStatus.textContent = 'Copy failed'; });
-  });
   dismissButton.addEventListener('click', () => {
     element.hidden = true;
     onDismiss();
@@ -83,9 +72,8 @@ export function createNotice({ id, dismissLabel, isDismissIcon, onDismiss, leadi
     commandElement.textContent = command;
     const hasCommand = command !== '';
     commandElement.hidden = !hasCommand;
-    copyButton.hidden = !hasCommand;
-    copyStatus.hidden = !hasCommand;
-    copyStatus.textContent = '';
+    commandCopy.element.hidden = !hasCommand;
+    commandCopy.clearStatus();
     setMeta(meta);
     if (tone) element.dataset.tone = tone;
     if (!tone) delete element.dataset.tone;

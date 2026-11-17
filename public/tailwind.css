@@ -49,6 +49,7 @@
 @import "./ui/disclosure.css" layer(primitives);
 @import "./ui/checkbox.css" layer(primitives);
 @import "./ui/segmented.css" layer(primitives);
+@import "./ui/copy-button.css" layer(primitives);
 @import "./style.css" layer(components);
 @import "./session-card/session-card.css" layer(components);
 @import "./dialogs.css" layer(components);

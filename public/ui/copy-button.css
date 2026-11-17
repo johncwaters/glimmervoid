@@ -1,0 +1,17 @@
+.ui-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+}
+
+.ui-copy[hidden] { display: none; }
+
+.ui-copy-status {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  white-space: nowrap;
+}
+
+.ui-copy-status:not(:empty) { margin-left: 8px; }

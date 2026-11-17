@@ -86,7 +86,6 @@
   color: var(--accent);
 }
 
-.notice-copy-status,
 .notice-meta {
   flex-shrink: 0;
   color: var(--text-muted);
