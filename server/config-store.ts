@@ -309,6 +309,7 @@ function createConfigStore({
       slack: pickBlock('slack', config.slack),
       sessionReview: pickBlock('sessionReview', config.sessionReview),
       planGate: pickBlock('planGate', config.planGate),
+      sessionChat: pickBlock('sessionChat', config.sessionChat),
       agentRules: pickBlock('agentRules', config.agentRules),
       reactions: pickBlock('reactions', config.reactions),
     };
@@ -364,6 +365,8 @@ function createConfigStore({
     if (newConfig.sessionReview != null) config.sessionReview = newConfig.sessionReview;
     if (newConfig.planGate == null) delete config.planGate;
     if (newConfig.planGate != null) config.planGate = newConfig.planGate;
+    if (newConfig.sessionChat == null) delete config.sessionChat;
+    if (newConfig.sessionChat != null) config.sessionChat = newConfig.sessionChat;
     if (newConfig.agentRules == null) delete config.agentRules;
     if (newConfig.agentRules != null) config.agentRules = newConfig.agentRules;
     applyHandEditedBlocks(newConfig);

@@ -74,6 +74,14 @@ Hold a plan an agent proposes until you approve or reject it on the dashboard.
 |-----|---------|---------|-------|
 | `planGate.enabled` | Approve plans on the dashboard | `false` | Claude Code waits on its proposed plan until you decide on the card. Codex shows the plan on the card, and your decision is typed into it. Other agents keep approving in the terminal. |
 
+### Chat view
+
+Run a session from a chat page instead of its terminal.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `sessionChat.enabled` | Chat view for sessions | `false` | Adds a Chat page beside the terminal on every session. Still being built, so turning it on changes nothing yet. |
+
 ### Sane YOLO
 
 What agents may do without asking, and what Sane YOLO blocks.

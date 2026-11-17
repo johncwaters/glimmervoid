@@ -479,7 +479,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
     assert.ok(fileOnlyPaths.includes(settingPath), `${settingPath} should be file-only`);
   }
   const editable = settingsOf(SECTIONS).filter((setting) => setting.access === 'editable' || setting.access === 'advanced');
-  assert.ok(editable.length >= 60 && editable.length <= 80, `${editable.length} editable entries`);
+  assert.ok(editable.length >= 60 && editable.length <= 90, `${editable.length} editable entries`);
   assert.equal(settingById('file-team-review-team').group, 'lanes-team-review');
   assert.match(settingById('file-team-review-team').fileOnlyReason ?? '', /legacy/);
 });

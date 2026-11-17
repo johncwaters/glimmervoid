@@ -5,6 +5,12 @@ const TRACE_MAX_RESIDENT_ROWS = 5000;
 
 type ToolCallRecord = Extract<TraceRecord, { kind: 'tool_call' }>;
 type ExpansionRecord = Extract<TraceRecord, { kind: 'expansion' }>;
+type ToolResultRecord = Extract<TraceRecord, { kind: 'tool_result' }>;
+
+type ChatToolOutcome =
+  | { status: 'running' }
+  | { status: 'no-result' }
+  | { status: 'done'; isError: boolean; truncated: boolean };
 
 export interface TraceSessionSummary {
   id: string;
@@ -43,7 +49,9 @@ interface TraceTurnMetrics {
 export interface TraceGrouping {
   turns: TraceTurn[];
   toolCallByUseId: Map<string, ToolCallRecord>;
+  toolResultByUseId: Map<string, ToolResultRecord>;
   unresolvedToolUseCounts: Map<string, number>;
+  latestOperatorPromptTs: number | null;
 }
 
 export interface TraceTurnAppend {
@@ -194,7 +202,31 @@ function relabelRowsOfToolUseIds(grouping: TraceGrouping, toolUseIds: ReadonlySe
 }
 
 export function createTraceGrouping(): TraceGrouping {
-  return { turns: [], toolCallByUseId: new Map<string, ToolCallRecord>(), unresolvedToolUseCounts: new Map<string, number>() };
+  return {
+    turns: [],
+    toolCallByUseId: new Map<string, ToolCallRecord>(),
+    toolResultByUseId: new Map<string, ToolResultRecord>(),
+    unresolvedToolUseCounts: new Map<string, number>(),
+    latestOperatorPromptTs: null,
+  };
+}
+
+function isOperatorTurnStart(record: TraceRecord): boolean {
+  if (record.agentId) return false;
+  return record.kind === 'prompt' || isTypedCommandExpansion(record);
+}
+
+function noteLatestOperatorPrompt(grouping: TraceGrouping, promptTs: number): void {
+  if (grouping.latestOperatorPromptTs !== null && grouping.latestOperatorPromptTs >= promptTs) return;
+  grouping.latestOperatorPromptTs = promptTs;
+}
+
+export function chatToolOutcome(grouping: TraceGrouping, toolCall: ToolCallRecord, isSessionWorking: boolean): ChatToolOutcome {
+  const toolResult = grouping.toolResultByUseId.get(toolCall.toolUseId);
+  if (toolResult) return { status: 'done', isError: toolResult.isError, truncated: toolResult.truncated };
+  const hasLaterOperatorPrompt = grouping.latestOperatorPromptTs !== null && grouping.latestOperatorPromptTs > toolCall.ts;
+  if (hasLaterOperatorPrompt || !isSessionWorking) return { status: 'no-result' };
+  return { status: 'running' };
 }
 
 function emptyTraceTurnMetrics(): TraceTurnMetrics {
@@ -212,6 +244,8 @@ function updateTraceTurnMetrics(turn: TraceTurn, row: TraceViewRow, direction: 1
 export function appendTraceRecords(grouping: TraceGrouping, records: readonly TraceRecord[]): TraceTurnAppend[] {
   for (const record of records) {
     if (record.kind === 'tool_call') grouping.toolCallByUseId.set(record.toolUseId, record);
+    if (record.kind === 'tool_result') grouping.toolResultByUseId.set(record.toolUseId, record);
+    if (isOperatorTurnStart(record)) noteLatestOperatorPrompt(grouping, record.ts);
   }
 
   const appends: TraceTurnAppend[] = [];
@@ -261,6 +295,10 @@ export function prependTraceRecords(grouping: TraceGrouping, records: readonly T
     grouping.toolCallByUseId.set(toolUseId, toolCall);
     newlyMergedToolUseIds.add(toolUseId);
   }
+  for (const [toolUseId, toolResult] of earlier.toolResultByUseId) {
+    if (!grouping.toolResultByUseId.has(toolUseId)) grouping.toolResultByUseId.set(toolUseId, toolResult);
+  }
+  if (earlier.latestOperatorPromptTs !== null) noteLatestOperatorPrompt(grouping, earlier.latestOperatorPromptTs);
   const newlyResolvedToolUseIds = new Set<string>();
   for (const toolUseId of newlyMergedToolUseIds) {
     if (!grouping.unresolvedToolUseCounts.delete(toolUseId)) continue;
@@ -312,6 +350,7 @@ function forgetRowToolCalls(grouping: TraceGrouping, rows: readonly TraceViewRow
       grouping.toolCallByUseId.delete(row.record.toolUseId);
       continue;
     }
+    if (row.record.kind === 'tool_result') grouping.toolResultByUseId.delete(row.record.toolUseId);
     const toolUseId = referencedToolUseId(row.record);
     if (toolUseId) releaseUnresolvedToolUseId(grouping.unresolvedToolUseCounts, toolUseId);
   }

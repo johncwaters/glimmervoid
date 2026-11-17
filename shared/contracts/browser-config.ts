@@ -214,6 +214,10 @@ const PlanGateSettings = optionalObject('planGate', {
   enabled: optionalBoolean('planGate.enabled'),
 });
 
+const SessionChatSettings = optionalObject('sessionChat', {
+  enabled: optionalBoolean('sessionChat.enabled'),
+});
+
 const AgentRulesSettings = optionalObject('agentRules', AgentRulesBlock.shape);
 const ReactionsSettings = optionalObject('reactions', ReactionsBlock.shape);
 
@@ -324,6 +328,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   slack: SlackSettings,
   sessionReview: SessionReviewSettings,
   planGate: PlanGateSettings,
+  sessionChat: SessionChatSettings,
   agentRules: AgentRulesSettings,
   reactions: ReactionsSettings,
   telemetry: TelemetrySettings,

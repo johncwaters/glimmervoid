@@ -88,6 +88,21 @@ export const MACHINE_PLAN_GATE: SettingsSection = {
   ],
 };
 
+export const MACHINE_SESSION_CHAT: SettingsSection = {
+  id: 'machine-session-chat',
+  level: 'machine',
+  parent: 'machine-sessions',
+  title: 'Chat view',
+  description: 'Run a session from a chat page instead of its terminal.',
+  settings: [
+    {
+      id: 'session-chat-enabled', path: 'sessionChat.enabled', title: 'Chat view for sessions',
+      description: 'Adds a Chat page beside the terminal on every session. Still being built, so turning it on changes nothing yet.',
+      control: 'toggle', keywords: ['experimental', 'chat', 'conversation', 'messages', 'permissions'], defaultValue: false, ...MACHINE_NOW,
+    },
+  ],
+};
+
 export const MACHINE_SESSIONS: SettingsSection = {
   id: 'machine-sessions',
   level: 'machine',
