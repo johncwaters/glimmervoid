@@ -10,7 +10,7 @@ import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 import { DEFAULT_WAKE_LIMITS, nextCronFireAt } from '../core/wake-core.ts';
 import { loadJsonStateFile, loadedJsonValue, writeTextAtomic } from '../json-file.ts';
-import { decideScheduledFire, isRepositoryProject, launcherAddSession, resolveLauncherProject } from './core/launcher-core.ts';
+import { decideScheduledFire, isRepositoryProject, launcherAddSession, missedFireAt, resolveLauncherProject } from './core/launcher-core.ts';
 import type { LauncherProjectResolution } from './core/pack-core.ts';
 import type { ProjectOrigin } from './core/launcher-core.ts';
 import type { ScheduledPackLauncher } from './core/pack-core.ts';
@@ -22,6 +22,7 @@ type LaunchOutcome = { ok: true; request: LaunchRequest } | { ok: false; error: 
 type SessionStarter = (request: LaunchRequest) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
 
 const LONGEST_SCHEDULE_TIMER_MS = 24 * 60 * 60 * 1000;
+const RUNS_READ_RETRY_MS = 60 * 1000;
 
 function runKeyOf(scheduled: ScheduledPackLauncher): string {
   return JSON.stringify([scheduled.pack, scheduled.launcher.id]);
@@ -61,6 +62,8 @@ export function createPackLaunchers({
   let scheduleTimer: TimerHandle | null = null;
   const nextFireAtByKey = new Map<string, number>();
   const sessionIdByRunKey = new Map<string, string>();
+  const lastFiredAtByRunKey = new Map<string, number>();
+  let areRunsLoaded = false;
   let runsLoad: Promise<boolean> | null = null;
   let runWrites: Promise<void> = Promise.resolve();
   const alarmListeners = new Set<() => void>();
@@ -155,16 +158,21 @@ export function createPackLaunchers({
       for (const [runKey, sessionId] of Object.entries(loaded?.sessionIdByRun ?? {})) {
         if (!sessionIdByRunKey.has(runKey)) sessionIdByRunKey.set(runKey, sessionId);
       }
+      for (const [runKey, firedAtMs] of Object.entries(loaded?.lastFiredAtByRun ?? {})) {
+        if (!lastFiredAtByRunKey.has(runKey)) lastFiredAtByRunKey.set(runKey, firedAtMs);
+      }
       return true;
     });
     return runsLoad;
   }
 
-  function saveRuns(startedRunKey: string): void {
+  function saveRuns(startedRunKey: string | null): void {
     if (runsPath === null) return;
     const sessionIdByRun = Object.fromEntries([...sessionIdByRunKey].filter(([runKey, sessionId]) => runKey === startedRunKey || isSessionLive(sessionId)));
+    const scheduledRunKeys = new Set(packStore.scheduledLaunchersInUse().map(runKeyOf));
+    const lastFiredAtByRun = Object.fromEntries([...lastFiredAtByRunKey].filter(([runKey]) => scheduledRunKeys.has(runKey)));
     runWrites = runWrites
-      .then(() => writeTextAtomic(runsPath, `${JSON.stringify({ sessionIdByRun }, null, 2)}\n`, { mkdir: true }))
+      .then(() => writeTextAtomic(runsPath, `${JSON.stringify({ sessionIdByRun, lastFiredAtByRun }, null, 2)}\n`, { mkdir: true }))
       .catch((error: unknown) => log.warn(`[packs] could not save the scheduled launcher runs to ${runsPath}: ${errorMessage(error)}`));
   }
 
@@ -181,11 +189,14 @@ export function createPackLaunchers({
     if (!startSession) return;
     if (!await loadRuns()) return;
     const runKey = runKeyOf(scheduled);
+    lastFiredAtByRunKey.set(runKey, now());
+    saveRuns(null);
     const previousSessionId = sessionIdByRunKey.get(runKey);
     const resolution = await resolveFresh(scheduled.launcher.project);
     const decision = decideScheduledFire({
       lateByMs,
       missedGraceMs: DEFAULT_WAKE_LIMITS.missedGraceMs,
+      isCatchUp: scheduled.launcher.catchUp === true,
       isProjectResolved: resolution.ok,
       isPreviousRunLive: previousSessionId !== undefined && isSessionLive(previousSessionId),
       liveScheduledCount: liveScheduledSessionCount(),
@@ -235,13 +246,26 @@ export function createPackLaunchers({
     for (const entry of scheduled) {
       const key = fireKeyOf(entry, zone);
       if (nextFireAtByKey.has(key)) continue;
-      const fireAt = nextCronFireAt(entry.schedule, zone, armedAt);
+      if (entry.launcher.catchUp === true && !areRunsLoaded) continue;
+      const missedAt = entry.launcher.catchUp === true ? missedRunOf(entry, zone, armedAt) : null;
+      const fireAt = missedAt ?? nextCronFireAt(entry.schedule, zone, armedAt);
       if (fireAt !== null) nextFireAtByKey.set(key, fireAt);
     }
     noteAlarmsMayHaveChanged();
     if (nextFireAtByKey.size === 0) return;
     const delayMs = Math.min(Math.max(0, Math.min(...nextFireAtByKey.values()) - armedAt), LONGEST_SCHEDULE_TIMER_MS);
     scheduleTimer = unrefTimer(setTimeoutFn(() => void fireDueLaunchers(), delayMs));
+  }
+
+  function missedRunOf(entry: ScheduledPackLauncher, zone: string, armedAt: number): number | null {
+    const runKey = runKeyOf(entry);
+    const lastFiredAtMs = lastFiredAtByRunKey.get(runKey);
+    if (lastFiredAtMs === undefined) {
+      lastFiredAtByRunKey.set(runKey, armedAt);
+      saveRuns(null);
+      return null;
+    }
+    return missedFireAt({ lastFiredAtMs, nowMs: armedAt, nextFireAfter: (afterMs) => nextCronFireAt(entry.schedule, zone, afterMs) });
   }
 
   function alarms(): Alarm[] {
@@ -262,6 +286,18 @@ export function createPackLaunchers({
   function attachSessionStarter(starter: SessionStarter): void {
     startSession = starter;
     armSchedule();
+    settleRunsLoad();
+  }
+
+  function settleRunsLoad(): void {
+    void loadRuns().then((isLoaded) => {
+      if (!isLoaded) {
+        unrefTimer(setTimeoutFn(settleRunsLoad, RUNS_READ_RETRY_MS));
+        return;
+      }
+      areRunsLoaded = true;
+      armSchedule();
+    });
   }
 
   return { refresh, launchRequest, panelSessionRequest, panelMaySend, attachSessionStarter, alarms, onAlarm: armSchedule, onAlarmsMayHaveChanged };

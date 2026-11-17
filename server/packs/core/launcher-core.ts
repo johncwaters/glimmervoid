@@ -31,19 +31,25 @@ export function resolveLauncherProject(project: string, projectOrigins: readonly
 
 type ScheduledFireDecision = 'start' | 'skip-missed' | 'skip-running' | 'skip-cap' | 'skip-unresolved';
 
-export function decideScheduledFire({ lateByMs, missedGraceMs, isProjectResolved, isPreviousRunLive, liveScheduledCount, maxScheduledSessions }: {
+export function decideScheduledFire({ lateByMs, missedGraceMs, isCatchUp, isProjectResolved, isPreviousRunLive, liveScheduledCount, maxScheduledSessions }: {
   lateByMs: number;
+  isCatchUp: boolean;
   missedGraceMs: number;
   isProjectResolved: boolean;
   isPreviousRunLive: boolean;
   liveScheduledCount: number;
   maxScheduledSessions: number;
 }): ScheduledFireDecision {
-  if (lateByMs > missedGraceMs) return 'skip-missed';
+  if (lateByMs > missedGraceMs && !isCatchUp) return 'skip-missed';
   if (!isProjectResolved) return 'skip-unresolved';
   if (isPreviousRunLive) return 'skip-running';
   if (liveScheduledCount >= maxScheduledSessions) return 'skip-cap';
   return 'start';
+}
+
+export function missedFireAt({ lastFiredAtMs, nowMs, nextFireAfter }: { lastFiredAtMs: number; nowMs: number; nextFireAfter: (afterMs: number) => number | null }): number | null {
+  const firstFireAfterLast = nextFireAfter(lastFiredAtMs);
+  return firstFireAfterLast !== null && firstFireAfterLast <= nowMs ? firstFireAfterLast : null;
 }
 
 export function launcherAddSession({ launcher, sessions, projectPath, sessionNames, operatorSaneYolo }: {
