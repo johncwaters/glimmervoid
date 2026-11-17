@@ -4,6 +4,7 @@ import type { ActionStatus } from '../action-status.ts';
 import { requestWithStatus } from '../action-status.ts';
 import { agentAccountsOf, applyAgentAccounts } from '../agent-logins.ts';
 import { el } from '../dom-helpers.ts';
+import { select } from '../ui/select.ts';
 
 const LANE_TITLES: Readonly<Record<LaneAccountLane, string>> = Object.freeze({
   'team-review': 'Team review',
@@ -43,20 +44,17 @@ function buildLaneAccountRow(lane: LaneAccountLane, accounts: readonly AgentAcco
   const selectId = `settings-lane-account-${lane}`;
   const label = el('label', 'settings-readonly', LANE_TITLES[lane]);
   label.htmlFor = selectId;
-  const select = el('select', 'settings-view-input');
-  select.id = selectId;
   const defaultAccount = accounts.find((account) => account.isDefault);
-  const followsDefault = el('option', null, `Default account${defaultAccount ? ` (${defaultAccount.label})` : ''}`);
-  followsDefault.value = FOLLOWS_DEFAULT_VALUE;
-  select.appendChild(followsDefault);
-  for (const account of accounts) {
-    const option = el('option', null, account.label);
-    option.value = optionValueOf(account);
-    select.appendChild(option);
-  }
-  select.value = chosenValueOf(lane, accounts);
-  select.addEventListener('change', () => { void chooseLaneAccount(lane, select.value, status); });
-  row.append(label, select);
+  const laneSelect = select({
+    id: selectId,
+    options: [
+      { value: FOLLOWS_DEFAULT_VALUE, label: `Default account${defaultAccount ? ` (${defaultAccount.label})` : ''}` },
+      ...accounts.map((account) => ({ value: optionValueOf(account), label: account.label })),
+    ],
+    value: chosenValueOf(lane, accounts),
+    onChange: (value) => { void chooseLaneAccount(lane, value, status); },
+  });
+  row.append(label, laneSelect.element);
   return row;
 }
 

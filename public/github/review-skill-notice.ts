@@ -1,5 +1,6 @@
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { button } from '../ui/button.ts';
+import { select } from '../ui/select.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from '../settings/team-review-settings-core.ts';
@@ -16,13 +17,13 @@ export function createReviewSkillNotice() {
   const selectId = 'review-skill-notice-select';
   const label = el('label', 'review-skill-notice-label', 'Pick a review skill (optional)');
   label.htmlFor = selectId;
-  const select = el('select', 'dialog-input review-skill-notice-select');
-  select.id = selectId;
+  const skillSelect = select({ id: selectId, options: [], size: 'compact' });
+  skillSelect.element.classList.add('review-skill-notice-select');
   const saveButton = button({ variant: 'primary', label: 'Save skill' });
   const saveStatus = createActionStatus();
   const hint = el('p', 'first-run-step-hint review-skill-notice-hint', 'The instructions the reviewing agent follows. Reviews run without one. ');
   hint.append(createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SKILL_SETTING_ID, 'Review skill setting'));
-  element.append(label, select, saveButton, saveStatus.element, hint);
+  element.append(label, skillSelect.element, saveButton, saveStatus.element, hint);
   let renderedOptionsSignature = '';
 
   function syncOptions(): void {
@@ -32,13 +33,7 @@ export function createReviewSkillNotice() {
     const signature = JSON.stringify(options);
     if (signature === renderedOptionsSignature) return;
     renderedOptionsSignature = signature;
-    const selectedValue = select.value;
-    select.replaceChildren(...options.map((option) => {
-      const optionElement = el('option', '', option.value || option.label);
-      optionElement.value = option.value;
-      return optionElement;
-    }));
-    if (options.some((option) => option.value === selectedValue)) select.value = selectedValue;
+    skillSelect.setOptions(options.map((option) => ({ value: option.value, label: option.value || option.label })));
   }
 
   function sync(): void {
@@ -52,7 +47,7 @@ export function createReviewSkillNotice() {
     saveButton.disabled = true;
     saveStatus.show('busy', 'Saving');
     try {
-      const reply = await sendControlRequest('update-settings', { settings: { teamReview: { skill: select.value } } }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
+      const reply = await sendControlRequest('update-settings', { settings: { teamReview: { skill: skillSelect.element.value } } }, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS });
       if (reply.type === 'settings-error') {
         saveStatus.show('error', reply.message);
         return;

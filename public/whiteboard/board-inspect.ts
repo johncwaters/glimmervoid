@@ -9,6 +9,7 @@ import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
+import { select } from '../ui/select.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { isLinkableMediaKind } from '#shared/whiteboard-link-core.ts';
 import { iconGlyph, iconPicker } from './board-icon-picker.ts';
@@ -118,17 +119,9 @@ function angleField(angle: number, commit: (angle: number) => void): HTMLInputEl
 }
 
 function selectField(field: string, choices: readonly Choice[], value: string, commit: (value: string) => void, accessibleName?: string): HTMLSelectElement {
-  const select = el('select', 'wb-inspect-select');
-  select.dataset.field = field;
-  if (accessibleName) select.setAttribute('aria-label', accessibleName);
-  select.append(...choices.map((choice) => {
-    const option = el('option', null, choice.text);
-    option.value = choice.value;
-    option.selected = choice.value === value;
-    return option;
-  }));
-  select.addEventListener('change', () => commit(select.value));
-  return select;
+  const { element } = select({ options: choices.map((choice) => ({ value: choice.value, label: choice.text })), value, onChange: commit, label: accessibleName, size: 'compact' });
+  element.dataset.field = field;
+  return element;
 }
 
 function checkboxField(field: string, label: string, checked: boolean, commit: (checked: boolean) => void): HTMLElement {

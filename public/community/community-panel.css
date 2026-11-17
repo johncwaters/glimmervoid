@@ -3,7 +3,7 @@
 .community-question-body { color: var(--text-dim); }
 .community-actions { display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; }
 .community-action-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.community-session-picker { max-width: 24ch; }
+.community-session-picker { width: auto; max-width: 24ch; }
 .community-links { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .community-goal { margin: 0; }
 .community-badge[data-tone="ok"] { color: var(--state-complete); }

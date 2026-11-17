@@ -6,6 +6,7 @@ import { buildPanelSection, buildStatChip, el, isPanelHidden, markAsNotCredentia
 import { openConfirmDialog } from './session-card/modal.ts';
 import { button } from './ui/button.ts';
 import { createPressable } from './ui/pressable.ts';
+import { select } from './ui/select.ts';
 import { createLineIcon, PLUS_ICON_PATH } from './svg-dom.ts';
 import {
   ALL_PROJECTS_LABEL,
@@ -161,15 +162,7 @@ function eventDescription(events: HookEvent[], eventName: string): string {
 }
 
 function buildEventSelect(draft: HookDraft, events: HookEvent[], onChange: (value: string) => void) {
-  const select = el('select', 'settings-view-input hooks-select');
-  for (const entry of events) {
-    const option = el('option', null, entry.name);
-    option.value = entry.name;
-    if (entry.name === draft.event) option.selected = true;
-    select.append(option);
-  }
-  select.addEventListener('change', () => onChange(select.value));
-  return select;
+  return select({ options: events.map((entry) => ({ value: entry.name, label: entry.name })), value: draft.event, onChange }).element;
 }
 
 function buildTypeRow(draft: HookDraft, onChange: (value: string) => void) {

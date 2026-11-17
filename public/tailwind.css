@@ -43,6 +43,7 @@
 @import "./ui/button.css" layer(primitives);
 @import "./ui/switch.css" layer(primitives);
 @import "./ui/section-heading.css" layer(primitives);
+@import "./ui/select.css" layer(primitives);
 @import "./style.css" layer(components);
 @import "./session-card/session-card.css" layer(components);
 @import "./dialogs.css" layer(components);

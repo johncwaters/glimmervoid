@@ -3,6 +3,7 @@ import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { switchInput } from '../ui/switch.ts';
+import { select } from '../ui/select.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { notificationsSupported } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -287,16 +288,13 @@ function renderSegmented(setting: SettingsSetting) {
 }
 
 function renderSelect(setting: SettingsSetting) {
-  const select = el('select', 'settings-view-input');
-  select.setAttribute('aria-labelledby', setting.id);
-  for (const choice of setting.options ?? []) {
-    const option = el('option', null, choice.label);
-    option.value = choice.value;
-    select.appendChild(option);
-  }
-  select.value = String(storedValue(setting));
-  select.addEventListener('change', () => commitSetting(setting, select.value));
-  return select;
+  return select({
+    options: setting.options ?? [],
+    value: String(storedValue(setting)),
+    missingValue: 'blank',
+    labelledBy: setting.id,
+    onChange: (value) => commitSetting(setting, value),
+  }).element;
 }
 
 function listHintText(setting: SettingsSetting, entries: readonly string[]) {

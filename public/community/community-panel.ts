@@ -7,6 +7,7 @@ import type { ActionStatus } from '../action-status.ts';
 import { el, isPanelHidden, isRealInputOwningKey, writeClipboardText } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { select } from '../ui/select.ts';
 import { isExternalHttpUrl } from '../external-link-core.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { createPrQueueColumns } from '../github/pr-queue-columns.ts';
@@ -143,19 +144,17 @@ async function runAction(entry: CommunityStateEntry, action: CommunityAction, st
 }
 
 function createSessionPicker(): HTMLSelectElement {
-  const picker = el('select', 'community-session-picker');
-  picker.setAttribute('aria-label', 'Session to start from');
   const choices = startSessionCandidates();
   if (!choices.some((choice) => choice.id === chosenSessionId)) chosenSessionId = choices[0]?.id ?? '';
-  for (const choice of choices) {
-    const option = el('option', null, choice.name);
-    option.value = choice.id;
-    option.selected = choice.id === chosenSessionId;
-    picker.append(option);
-  }
-  picker.disabled = choices.length === 0;
-  picker.addEventListener('change', () => { chosenSessionId = picker.value; });
-  return picker;
+  const { element } = select({
+    options: choices.map((choice) => ({ value: choice.id, label: choice.name })),
+    value: chosenSessionId,
+    label: 'Session to start from',
+    disabled: choices.length === 0,
+    onChange: (sessionId) => { chosenSessionId = sessionId; },
+  });
+  element.classList.add('community-session-picker');
+  return element;
 }
 
 function createActions(entry: CommunityStateEntry): HTMLElement {

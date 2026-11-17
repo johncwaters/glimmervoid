@@ -1,5 +1,6 @@
 import type { AgentModelCatalog, AgentSetup } from '#shared/contracts/agent-models.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { select } from '../ui/select.ts';
 import { agentLabel, agentsWithModels, canRunOnOpenRouter, defaultSetup, effortOf, effortsOf, PROVIDER_CHOICES, providerOf, setupModelsOf, withEffortChoice, withModel, withProvider, withTypedModel } from './lineup-core.ts';
 
 interface SetupControlOptions {
@@ -11,16 +12,9 @@ interface SetupControlOptions {
 let modelListCount = 0;
 
 export function buildSelect(choices: readonly { value: string; label: string }[], selected: string | null, onChange: (value: string) => void, ariaLabel: string): HTMLSelectElement {
-  const select = el('select', 'settings-view-input arena-select');
-  select.setAttribute('aria-label', ariaLabel);
-  for (const choice of choices) {
-    const option = el('option', null, choice.label);
-    option.value = choice.value;
-    option.selected = choice.value === selected;
-    select.append(option);
-  }
-  select.addEventListener('change', () => onChange(select.value));
-  return select;
+  const { element } = select({ options: choices, value: selected, onChange, label: ariaLabel });
+  element.classList.add('arena-select');
+  return element;
 }
 
 function openRouterModelInput(catalog: AgentModelCatalog, setup: AgentSetup, onChange: (next: AgentSetup) => void): HTMLElement[] {

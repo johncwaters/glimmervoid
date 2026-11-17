@@ -296,7 +296,6 @@ html[data-layout="phone"] .hooks-agent-group-summary { min-height: 44px; display
   color: var(--text-muted);
 }
 
-.hooks-select { cursor: pointer; }
 .hooks-timeout { max-width: 120px; }
 .hooks-command { resize: vertical; min-height: 60px; }
 
