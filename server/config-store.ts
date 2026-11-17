@@ -293,6 +293,7 @@ function createConfigStore({
       slack: pickBlock('slack', config.slack),
       sessionReview: pickBlock('sessionReview', config.sessionReview),
       planGate: pickBlock('planGate', config.planGate),
+      agentRules: pickBlock('agentRules', config.agentRules),
     };
   }
 
@@ -339,6 +340,8 @@ function createConfigStore({
     if (newConfig.sessionReview != null) config.sessionReview = newConfig.sessionReview;
     if (newConfig.planGate == null) delete config.planGate;
     if (newConfig.planGate != null) config.planGate = newConfig.planGate;
+    if (newConfig.agentRules == null) delete config.agentRules;
+    if (newConfig.agentRules != null) config.agentRules = newConfig.agentRules;
     if (newConfig.loopGuard == null) delete config.loopGuard;
     if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;

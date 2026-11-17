@@ -121,6 +121,11 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'text', keywords: ['git', 'directory'], defaultValue: '', takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
+    id: 'file-agent-rules', path: 'agentRules.rules', title: 'Rules for every session', group: 'machine-detection-sessions',
+    description: 'Rules every agent session receives with its Glimmervoid tools, whichever agent runs it, one string per rule, up to 40. Sessions started after a change read it.',
+    control: 'list', keywords: ['rules', 'instructions', 'conventions', 'memory', 'agents.md'], defaultValue: [], takesEffect: 'new-sessions', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
+  },
+  {
     id: 'file-worktree-share', path: 'worktree.share', title: 'Shared worktree paths', group: 'machine-detection-sessions',
     description: 'Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it.',
     control: 'list', keywords: ['files', 'context', 'env'], defaultValue: ['.env*', '.claude'], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,

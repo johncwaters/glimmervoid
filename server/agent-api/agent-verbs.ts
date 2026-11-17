@@ -15,6 +15,7 @@ import type { AgentApiRuntime, AgentVerbHandlers } from './agent-api-context.ts'
 import type { ChildChannels } from './child-channels.ts';
 import type { AgentSpawner } from './agent-spawn.ts';
 import type { WakeWiring } from '../wakes/wake-wiring.ts';
+import type { MemoryStore } from '../memory-store.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
@@ -62,7 +63,7 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
   return { id: session.id, project: session.path, cwd: session.effectiveCwd() };
 }
 
-function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
+function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
@@ -407,6 +408,10 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     secrets: async (session) => (secrets ? { status: 200, body: await secrets.envFor(needingSessionOf(session)) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wake: (session, request) => wakes.handleAgent(session, request),
+    memory: async (session, request) => {
+      const outcome = await memory.handle({ projectPath: session.path, name: session.name }, request);
+      return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
+    },
     whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent(whiteboardCallerOf(session), request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
   };
 

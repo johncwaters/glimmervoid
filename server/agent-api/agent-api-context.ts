@@ -60,6 +60,7 @@ interface AgentApiWiringOptions {
   reviewComments?: Pick<ReviewPort, 'read' | 'reply' | 'resolve'> | null;
   repoClones?: Pick<GitWorkspaceInstance, 'originUrl' | 'cloneRepository'> | null;
   wakesFilePath?: string | null;
+  memoryFilePath?: string | null;
   budgetHoldReason?: () => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
