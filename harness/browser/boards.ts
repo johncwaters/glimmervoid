@@ -1622,8 +1622,14 @@ async function verifyViewerWalksWires(open: OpenBoard, videoBoxId: string, pageB
   const viewer = page.locator('.wb-image-viewer');
   await page.keyboard.press('ArrowLeft');
   assert.equal(await viewer.locator('iframe.wb-image-viewer-page').count(), 1, 'an arrow with no wired box that way keeps the shown page');
+  const shownPage = page.frameLocator('iframe.wb-image-viewer-page');
+  await shownPage.getByLabel('probe field').click();
   await page.keyboard.press('ArrowUp');
-  await viewer.locator('video.wb-image-viewer-video').waitFor({ timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('ArrowUp walks the wire to the video box drawn above'));
+  await page.waitForTimeout(200);
+  assert.equal(await viewer.locator('iframe.wb-image-viewer-page').count(), 1, 'an arrow typed in a field inside the page stays with the field');
+  await shownPage.locator('html').click({ position: { x: 3, y: 3 } });
+  await page.keyboard.press('ArrowUp');
+  await viewer.locator('video.wb-image-viewer-video').waitFor({ timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('ArrowUp pressed inside the page walks the wire to the video box drawn above'));
   assert.deepEqual([await viewer.count(), await viewer.locator('iframe.wb-image-viewer-page').count(), await viewer.locator('.dialog-title').textContent()], [1, 0, 'clip.webm'], 'the walk swaps the media and title inside the same viewer');
   await page.keyboard.press('ArrowDown');
   await viewer.locator('iframe.wb-image-viewer-page').waitFor({ timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('ArrowDown walks the wire back to the page box'));

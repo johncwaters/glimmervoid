@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, boardMediaOriginalFilename, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, boardMediaOriginalFilename, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -591,6 +591,7 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   const [servedDoctype, , servedPageBody] = servedPageMarkup.split(/((?:<style>.*?<\/style>|<script>.*?<\/script>)+)/);
   assert.deepEqual([servedDoctype, `${servedDoctype}${servedPageBody}`], ['<!doctype html>', '<!doctype html><html><body><p>hello board</p></body></html>'], 'a page is served with the base style, params bridge and input reporter right after its doctype, ahead of every style and script of the page');
   assert.ok(servedPageMarkup.includes(`postMessage("${BOARD_PAGE_ESCAPE_MESSAGE}"`));
+  assert.ok(servedPageMarkup.includes(`type:"${BOARD_PAGE_ARROW_MESSAGE}"`), 'the input reporter relays arrows the page leaves alone, so the viewer can walk wires from inside a page');
   assert.ok(servedPageMarkup.includes(`"${BOARD_PAGE_GESTURE_MESSAGE}"`), 'the input reporter relays pinch, pan, wheel and double tap to the dashboard');
   assert.ok(servedPageMarkup.includes(BOARD_PAGE_PARAMS_MESSAGE));
   assert.equal(servedPage.headers.get('cache-control'), 'no-store');

@@ -5,7 +5,7 @@ import { ElementInput } from '#shared/contracts/whiteboard.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control/control-fields.ts';
 import { noteBoxTextOf } from '#shared/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, BOARD_LINK_PATH_MAX_LENGTH, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BoardPageArrow, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, BOARD_LINK_PATH_MAX_LENGTH, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
@@ -818,11 +818,17 @@ function sheetGestureOf(gesture: BoardPageGesture, pageScale: number): BoardPage
   return { ...gesture, centerX: gesture.centerX * pageScale, centerY: gesture.centerY * pageScale };
 }
 
-function listenToViewerPage(pageFrame: HTMLIFrameElement, listening: AbortController, close: () => void, zoomControl: MediaZoomControl, viewerSizing: ViewerSizing): void {
+function listenToViewerPage(pageFrame: HTMLIFrameElement, listening: AbortController, close: () => void, zoomControl: MediaZoomControl, viewerSizing: ViewerSizing, walkToward: (direction: { x: number; y: number }) => void): void {
   window.addEventListener('message', (event) => {
     if (event.source !== pageFrame.contentWindow) return;
     if (event.data === BOARD_PAGE_ESCAPE_MESSAGE) {
       close();
+      return;
+    }
+    const pressedArrow = BoardPageArrow.safeParse(event.data);
+    const pressedDirection = pressedArrow.success ? NUDGE_DIRECTION_BY_KEY[pressedArrow.data.key] : undefined;
+    if (pressedDirection) {
+      walkToward(pressedDirection);
       return;
     }
     const pageWidths = BoardPageContentWidth.safeParse(event.data);
@@ -1088,7 +1094,7 @@ function openImageViewer(pressedImage: PressedImage): void {
     shown.enlargedMedia.classList.add('wb-image-viewer-media');
     mediaSheet.prepend(shown.enlargedMedia);
     titleEl.textContent = shown.pressedImage.alt || 'Picture';
-    if (shown.enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(shown.enlargedMedia, shown.listening, close, zoomControl, viewerSizing);
+    if (shown.enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(shown.enlargedMedia, shown.listening, close, zoomControl, viewerSizing, walkToward);
   }
 
   function walkToward(direction: { x: number; y: number }): boolean {

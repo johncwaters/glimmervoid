@@ -68,6 +68,8 @@ export const FRAME_ROUTE = '/frames';
 export const FRAME_OPEN_ROUTE = `${FRAME_ROUTE}/open`;
 export const BOARD_PAGE_ENTRY_PATH = 'index.html';
 export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
+export const BOARD_PAGE_ARROW_MESSAGE = 'glimmervoid-board-page-arrow';
+export const BOARD_PAGE_ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const;
 export const BOARD_PAGE_PARAMS_MESSAGE = 'glimmervoid-params';
 export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';
 export const BOARD_PAGE_THEME_MESSAGE = 'glimmervoid-theme';
@@ -83,6 +85,7 @@ export const BoardPageGesture = z.discriminatedUnion('gesture', [
 ]);
 export type BoardPageGesture = z.infer<typeof BoardPageGesture>;
 export const BOARD_PAGE_CONTENT_WIDTH_MESSAGE = 'glimmervoid-board-page-content-width';
+export const BoardPageArrow = z.object({ type: z.literal(BOARD_PAGE_ARROW_MESSAGE), key: z.enum(BOARD_PAGE_ARROW_KEYS) }).strict();
 export const BoardPageContentWidth = z.object({ type: z.literal(BOARD_PAGE_CONTENT_WIDTH_MESSAGE), contentWidth: z.number().finite().positive(), layoutWidth: z.number().finite().positive() }).strict();
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
