@@ -26,6 +26,16 @@ interface TracePage {
   path: string;
 }
 
+interface RefusalIssue {
+  path: readonly PropertyKey[];
+  message: string;
+}
+
+function vendorSessionIdOf(record: unknown): string | null {
+  if (typeof record !== 'object' || record === null || !('vendorSessionId' in record)) return null;
+  return typeof record.vendorSessionId === 'string' && record.vendorSessionId.length > 0 ? record.vendorSessionId : null;
+}
+
 function isRewoundCursor(request: TracePageRequest, next: number): boolean {
   if (request.endingAt !== undefined) return false;
   return next < request.after;
@@ -39,7 +49,7 @@ function clippedToTraceLimits(record: unknown): unknown {
 }
 
 function createTraceRecordStore(context: TraceWiringContext) {
-  const { traceDirectory, emitter, laneLog, nowFn, bindingByGlimmervoidSessionId, pendingRecordsBySessionId } = context;
+  const { traceDirectory, emitter, laneLog, nowFn, bindingByGlimmervoidSessionId, agentIdBySessionId, pendingRecordsBySessionId } = context;
   let hasEnsuredDirectory = false;
 
   function traceFilePath(glimmervoidSessionId: string): string | null {
@@ -79,17 +89,39 @@ function createTraceRecordStore(context: TraceWiringContext) {
   function queueRecord(glimmervoidSessionId: string, record: unknown): void {
     if (!traceFilePath(glimmervoidSessionId)) return;
     const deliveredValues = context.deliveredSecretValuesBySessionId.get(glimmervoidSessionId)?.() ?? [];
-    const parsed = TraceRecordSchema.safeParse(clippedToTraceLimits(maskSecretStrings(record, deliveredValues)));
+    const maskedRecord = maskSecretStrings(record, deliveredValues);
+    const parsed = TraceRecordSchema.safeParse(clippedToTraceLimits(maskedRecord));
     if (!parsed.success) {
       laneLog.warn('record refused', { session: glimmervoidSessionId });
+      const refusalNotice = refusalNoticeOf(glimmervoidSessionId, maskedRecord, parsed.error.issues[0]);
+      if (refusalNotice) appendPending(glimmervoidSessionId, refusalNotice);
       return;
     }
+    appendPending(glimmervoidSessionId, parsed.data);
+  }
+
+  function appendPending(glimmervoidSessionId: string, record: TraceRecord): void {
     const existing = pendingRecordsBySessionId.get(glimmervoidSessionId);
     if (existing) {
-      existing.push(parsed.data);
+      existing.push(record);
       return;
     }
-    pendingRecordsBySessionId.set(glimmervoidSessionId, [parsed.data]);
+    pendingRecordsBySessionId.set(glimmervoidSessionId, [record]);
+  }
+
+  function refusalNoticeOf(glimmervoidSessionId: string, record: unknown, issue: RefusalIssue | undefined): TraceRecord | null {
+    const vendorSessionId = vendorSessionIdOf(record) ?? bindingByGlimmervoidSessionId.get(glimmervoidSessionId)?.vendorSessionId ?? 'unknown';
+    const agentId = agentIdBySessionId.get(glimmervoidSessionId) ?? 'unknown agent';
+    const failingField = issue && issue.path.length > 0 ? issue.path.join('.') : 'record';
+    const notice = TraceRecordSchema.safeParse({
+      ts: nowFn(),
+      uuid: null,
+      parentUuid: null,
+      vendorSessionId,
+      kind: 'notice',
+      text: `${agentId} record refused at ${failingField}: ${issue?.message ?? 'not a trace record'}`.slice(0, MAX_RAW_LINE_CHARS),
+    });
+    return notice.success ? notice.data : null;
   }
 
   function requeueAtHead(glimmervoidSessionId: string, records: TraceRecord[]): void {

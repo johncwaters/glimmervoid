@@ -23,10 +23,12 @@ const PRUNE_MS = 24 * 60 * 60 * 1000;
 
 class TestTraceSession extends EventEmitter {
   id: string;
+  agentId: string;
 
-  constructor(id: string) {
+  constructor(id: string, agentId = 'claude-code') {
     super();
     this.id = id;
+    this.agentId = agentId;
   }
 }
 
@@ -1147,4 +1149,36 @@ test('the lane serves a byte page of its own trace file and refuses an unsafe se
 
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
+test('a relayed record that is not a trace record leaves one notice naming the agent and failing field', async () => {
+  const { configDirectory } = makeWorkspace('refused-record');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new TestTraceSession('refused-record-session', 'opencode');
+  harness.wiring.attachSession(session);
+
+  session.emit('conversation-records', { records: [{ ts: 1, uuid: null, parentUuid: null, kind: 'tool_call', name: 'bash', input: {} }] });
+  await harness.wiring.whenIdle();
+
+  const records = readTrace(harness.tracePath('refused-record-session'));
+  assert.deepEqual(records.map((record) => record.kind), ['notice']);
+  assert.equal(records[0].vendorSessionId, 'unknown');
+  assert.match(records[0].kind === 'notice' ? records[0].text : '', /^opencode record refused at vendorSessionId: /);
+});
+
+test('an agent without a transcript source binds no transcript it reports', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('sourceless-agent');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, mainPrompt('grok prompt', 'prompt-id'), 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new TestTraceSession('sourceless-session', 'grok');
+  harness.wiring.attachSession(session);
+
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  await harness.poll();
+
+  assert.equal(fs.existsSync(harness.tracePath('sourceless-session')), false);
 });

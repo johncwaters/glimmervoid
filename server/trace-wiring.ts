@@ -85,6 +85,7 @@ function createTraceWiring({
     laneLog,
     nowFn,
     deliveredSecretValuesBySessionId: new Map(),
+    agentIdBySessionId: new Map(),
     maxRememberedSubagents,
     bindingByGlimmervoidSessionId,
     awaitingTranscriptByGlimmervoidSessionId,

@@ -6,7 +6,9 @@ import { createJsonStateWriter } from '../json-file.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
-import { MAX_REMEMBERED_CLOSED_SESSIONS, projectsRoot, trimOldest } from './trace-wiring-context.ts';
+import { MAX_REMEMBERED_CLOSED_SESSIONS, trimOldest } from './trace-wiring-context.ts';
+import { transcriptSourceOf } from './conversation-sources.ts';
+import type { TranscriptConversationSource } from './conversation-sources.ts';
 import type { TraceBinding, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceRecordStore } from './trace-record-store.ts';
 import type { TraceCheckpoints } from './trace-checkpoints.ts';
@@ -15,6 +17,7 @@ import type { TraceSubagentCapture } from './trace-subagent-capture.ts';
 
 interface TraceSession {
   id: string;
+  agentId: string;
   deliveredSecretValues?(): readonly string[];
   on(event: string, listener: (payload: Record<string, unknown>) => void): unknown;
 }
@@ -41,6 +44,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     awaitingTranscriptByGlimmervoidSessionId,
     closedSessionIds,
     deliveredSecretValuesBySessionId,
+    agentIdBySessionId,
     chain,
     isStopped,
   } = context;
@@ -55,12 +59,13 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     glimmervoidSessionId: string,
     vendorSessionId: string,
     vendor: string,
+    source: TranscriptConversationSource,
     requestedTranscriptPath: string,
   ): Promise<void> {
     if (isStopped() || closedSessionIds.has(glimmervoidSessionId)) return;
     const checkpointPath = checkpointFilePath(glimmervoidSessionId);
     if (!checkpointPath) return;
-    const containedTranscript = await openContainedFile(requestedTranscriptPath, projectsRoot(), true);
+    const containedTranscript = await openContainedFile(requestedTranscriptPath, source.containmentRoot(), true);
     if (!containedTranscript.ok && containedTranscript.reason === 'missing') {
       awaitingTranscriptByGlimmervoidSessionId.set(glimmervoidSessionId, { id: vendorSessionId, vendor, transcriptPath: requestedTranscriptPath });
     }
@@ -68,7 +73,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       laneLog.warnOnce(`bind:${glimmervoidSessionId}:${containedTranscript.reason}`, 'transcript refused', {
         session: glimmervoidSessionId,
         path: requestedTranscriptPath,
-        root: projectsRoot(),
+        root: source.containmentRoot(),
         reason: containedTranscript.reason,
       });
       return;
@@ -91,6 +96,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       glimmervoidSessionId,
       vendorSessionId,
       vendor,
+      source,
       transcriptPath,
       requestedTranscriptPath,
       tailState,
@@ -116,8 +122,10 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   function noteVendorSession(glimmervoidSessionId: string, eventPayload: Record<string, unknown>): void {
     if (isStopped() || closedSessionIds.has(glimmervoidSessionId)) return;
     const vendorSessionId = typeof eventPayload.id === 'string' ? eventPayload.id : '';
-    const vendor = typeof eventPayload.vendor === 'string' ? eventPayload.vendor : 'claude';
-    if (!vendorSessionId || vendor !== 'claude') return;
+    const source = transcriptSourceOf(agentIdBySessionId.get(glimmervoidSessionId) ?? '');
+    if (!vendorSessionId || !source) return;
+    const vendor = typeof eventPayload.vendor === 'string' ? eventPayload.vendor : '';
+    if (!vendor) return;
     if (!traceFilePath(glimmervoidSessionId)) return;
     const rawPath = typeof eventPayload.transcriptPath === 'string' ? eventPayload.transcriptPath : '';
     if (!rawPath) return;
@@ -126,7 +134,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     if (bound
       && bound.vendorSessionId === vendorSessionId
       && bound.requestedTranscriptPath === requestedTranscriptPath) return;
-    chain(() => bindSession(glimmervoidSessionId, vendorSessionId, vendor, requestedTranscriptPath), 'binding failed');
+    chain(() => bindSession(glimmervoidSessionId, vendorSessionId, vendor, source, requestedTranscriptPath), 'binding failed');
   }
 
   function noteHookEvent(glimmervoidSessionId: string, eventRecord: Record<string, unknown>): void {
@@ -172,6 +180,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
         await drainClosingBinding(glimmervoidSessionId);
       } finally {
         deliveredSecretValuesBySessionId.delete(glimmervoidSessionId);
+        agentIdBySessionId.delete(glimmervoidSessionId);
       }
     }, 'final drain failed');
   }
@@ -211,6 +220,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     if (attachedSessions.has(session)) return;
     attachedSessions.add(session);
     deliveredSecretValuesBySessionId.set(session.id, () => session.deliveredSecretValues?.() ?? []);
+    agentIdBySessionId.set(session.id, session.agentId);
     session.on('claude-session-id', (payload) => { noteVendorSession(session.id, payload); });
     session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
     session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });

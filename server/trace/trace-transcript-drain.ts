@@ -4,7 +4,6 @@ import type { FileHandle } from 'node:fs/promises';
 
 import { openContainedFile } from '../contained-file.ts';
 import { applyRead, createTailState, isTailCurrent } from '../core/transcript-tail-core.ts';
-import { traceRecordsFromTranscriptLine } from '../core/trace-core.ts';
 import {
   MAX_TRANSCRIPT_READ_BYTES,
   completeLineBytes,
@@ -14,7 +13,7 @@ import {
 } from '../core/trace-tail-core.ts';
 import type { ContainmentRefusal } from '../core/trace-tail-core.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { MAX_REMEMBERED_FILE_REFUSALS, projectsRoot, trimOldest } from './trace-wiring-context.ts';
+import { MAX_REMEMBERED_FILE_REFUSALS, trimOldest } from './trace-wiring-context.ts';
 import type { LineContext, TraceBinding, TraceResumeState, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceRecordStore } from './trace-record-store.ts';
 import { committedOffsetOf } from './trace-checkpoints.ts';
@@ -98,7 +97,7 @@ function createTraceTranscriptDrain(
   }
 
   function mapAndAppend(rawLine: string, binding: TraceBinding, context: LineContext = {}): void {
-    const records = traceRecordsFromTranscriptLine(rawLine, {
+    const records = binding.source.recordsFromLine(rawLine, {
       vendorSessionId: binding.vendorSessionId,
       now: nowFn(),
       ...context,
@@ -159,7 +158,7 @@ function createTraceTranscriptDrain(
 
   async function drainBinding(binding: TraceBinding): Promise<void> {
     if (await isTranscriptUnchanged(binding)) return;
-    const opened = await openContainedFile(binding.transcriptPath, projectsRoot());
+    const opened = await openContainedFile(binding.transcriptPath, binding.source.containmentRoot());
     if (!opened.ok) {
       if (binding.bindingBeforeFirstOpen) await drainBinding(binding.bindingBeforeFirstOpen);
       if (!binding.hasOpenedTranscript) {

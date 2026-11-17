@@ -7,6 +7,7 @@ import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import type { TailState } from '../core/transcript-tail-core.ts';
 import type { JsonStateWriter } from '../json-file.ts';
 import type { LaneLog } from '../lanes/lane-log.ts';
+import type { TranscriptConversationSource } from './conversation-sources.ts';
 
 const MAX_REMEMBERED_FILE_REFUSALS = 64;
 const MAX_REMEMBERED_CLOSED_SESSIONS = 512;
@@ -17,6 +18,7 @@ interface TraceBinding {
   glimmervoidSessionId: string;
   vendorSessionId: string;
   vendor: string;
+  source: TranscriptConversationSource;
   transcriptPath: string;
   requestedTranscriptPath: string;
   tailState: TailState;
@@ -53,6 +55,7 @@ interface TraceWiringContext {
   laneLog: LaneLog;
   nowFn: () => number;
   deliveredSecretValuesBySessionId: Map<string, () => readonly string[]>;
+  agentIdBySessionId: Map<string, string>;
   maxRememberedSubagents: number;
   bindingByGlimmervoidSessionId: Map<string, TraceBinding>;
   awaitingTranscriptByGlimmervoidSessionId: Map<string, Record<string, unknown>>;
@@ -87,7 +90,6 @@ export {
   MAX_REMEMBERED_CLOSED_SESSIONS,
   MAX_REMEMBERED_FILE_REFUSALS,
   TRACE_SUFFIX,
-  projectsRoot,
   realProjectsRoot,
   trimOldest,
 };
