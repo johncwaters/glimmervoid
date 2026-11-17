@@ -3,11 +3,11 @@ import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
 
 const TRACE_MAX_RESIDENT_ROWS = 5000;
 
-type ToolCallRecord = Extract<TraceRecord, { kind: 'tool_call' }>;
+export type ToolCallRecord = Extract<TraceRecord, { kind: 'tool_call' }>;
 type ExpansionRecord = Extract<TraceRecord, { kind: 'expansion' }>;
 type ToolResultRecord = Extract<TraceRecord, { kind: 'tool_result' }>;
 
-type ChatToolOutcome =
+export type ChatToolOutcome =
   | { status: 'running' }
   | { status: 'no-result' }
   | { status: 'done'; isError: boolean; truncated: boolean };

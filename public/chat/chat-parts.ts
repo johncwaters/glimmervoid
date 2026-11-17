@@ -82,6 +82,7 @@ function renderPart(part: ChatPart): HTMLElement {
 interface ChatLog {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[]): void;
+  remove(partIds: readonly string[]): void;
 }
 
 export function createChatLog(): ChatLog {
@@ -101,5 +102,11 @@ export function createChatLog(): ChatLog {
       element.appendChild(rendered);
     }
   };
-  return { element, upsert };
+  const remove = (partIds: readonly string[]) => {
+    for (const partId of partIds) {
+      elementByPartId.get(partId)?.remove();
+      elementByPartId.delete(partId);
+    }
+  };
+  return { element, upsert, remove };
 }

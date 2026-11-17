@@ -1,3 +1,4 @@
+import { applyChatTraceChanged } from '../../chat/chat-page.ts';
 import { applySessionDocsChanged, applySessionDocsSnapshot } from '../../doc-editor/doc-editor.ts';
 import { applySessionPreviewChanged, applySessionPreviewsSnapshot } from '../../preview/preview-page.ts';
 import { addManagerDecision } from '../../session-card/card-problems.ts';
@@ -9,7 +10,7 @@ import { refreshRosterAndAttentionSurfaces } from '../session-frames.ts';
 
 const messageHandlers = {
   'session-trace-response': (msg) => applyTraceResponse(msg),
-  'session-trace-changed': (msg) => applyTraceChanged(msg),
+  'session-trace-changed': (msg) => { applyTraceChanged(msg); applyChatTraceChanged(msg.id); },
   'session-docs-changed': (msg) => applySessionDocsChanged(msg),
   'session-docs-snapshot': (msg) => applySessionDocsSnapshot(msg),
   'session-preview-changed': (msg) => applySessionPreviewChanged(msg),

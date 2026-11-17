@@ -12,6 +12,8 @@ export const STATES = Object.freeze({
 
 export type SessionState = (typeof STATES)[keyof typeof STATES];
 
+export const BETWEEN_TURN_STATES: readonly SessionState[] = [STATES.DORMANT, STATES.IDLE, STATES.COMPLETE, STATES.DONE, STATES.FAILED];
+
 export const BADGE_LABELS: Readonly<Record<SessionState, string>> = Object.freeze({
   [STATES.DORMANT]:      'Dormant',
   [STATES.INITIALIZING]: 'Starting',

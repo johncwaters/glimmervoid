@@ -1,3 +1,4 @@
+import { applyChatSnapshot } from '../../chat/chat-page.ts';
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { reportHeaderError } from '../../action-status.ts';
 import { applyAgentAccounts } from '../../agent-logins.ts';
@@ -17,7 +18,7 @@ import { applyClientTrust } from '../../server-power.ts';
 import { handleSnapshot, noteServerBuild } from '../session-frames.ts';
 
 const messageHandlers = {
-  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); },
+  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); applyChatSnapshot(); },
 
   'hooks-report':       (msg) => applyHooksReport(msg),
   'save-hook-result':   () => applyLateHookResult(),

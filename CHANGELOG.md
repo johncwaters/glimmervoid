@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **An experimental Chat page for sessions.** Turn on Settings, Sessions, Chat view and each session card gets a Chat page beside Changes and Preview: the session's prompts, replies, thinking and tool calls read as a conversation that grows while the agent works. A tool call whose result never arrives stops showing as running once the turn ends. The switch is off by default; sending messages and answering prompts from Chat come next.
+
 ## [0.62.5] - 2026-11-17
 
 ### Added

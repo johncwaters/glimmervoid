@@ -8,7 +8,7 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { CLIENT_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/control-messages.ts';
 import type { KeptWorkPath } from '../../../shared/contracts/control-messages.ts';
 import { SESSION_NAME_PATTERN, SESSION_NAME_RULE_TEXT, TASK_TITLE_MAX_LENGTH, TaskTitle } from '../../../shared/contracts/session.ts';
-import { KILLABLE_STATES, STATES } from '../../../shared/states.ts';
+import { BETWEEN_TURN_STATES, KILLABLE_STATES, STATES } from '../../../shared/states.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import { DEFAULT_AGENT_ID, canRunUnderAccount, getAdapter, isKnownAgentId } from '../../../session/adapters/index.ts';
 import { resolveNewSessionAccount } from '../../../session/core/agent-account-core.ts';
@@ -46,7 +46,6 @@ type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
-const BETWEEN_TURN_STATES: readonly string[] = [STATES.DORMANT, STATES.IDLE, STATES.COMPLETE, STATES.DONE, STATES.FAILED];
 
 async function runGitForConversationHistory(args: string[], cwd: string): Promise<string> {
   const result = await runGit(args, { cwd, timeoutMs: CONVERSATION_HISTORY_GIT_TIMEOUT_MS, trim: false });

@@ -1,3 +1,4 @@
+import { applyChatSessionStatus } from '../../chat/chat-page.ts';
 import { refreshFavicon } from '../../favicon.ts';
 import { forgetSessionInSavedOrder, setFocusMergeStatus } from '../../focus-view/focus-view.ts';
 import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
@@ -13,7 +14,7 @@ import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { forgetSession, handleSessionStatus, rebuildSessionCard, refreshAttentionSurfaces, refreshRosterAndAttentionSurfaces, syncTraceSessionsFromCards } from '../session-frames.ts';
 
 const messageHandlers = {
-  'session-status':     (msg) => handleSessionStatus(msg),
+  'session-status':     (msg) => { handleSessionStatus(msg); applyChatSessionStatus(msg.id); },
   'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },

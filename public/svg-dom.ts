@@ -35,6 +35,7 @@ export const FOCUS_ICON_PATH = 'M2.5 5.5v-3h3 M10.5 2.5h3v3 M13.5 10.5v3h-3 M5.5
 export const BOARDS_ICON_PATH = 'M3 1.5v12.5 M3 1.5h4a2.75 2.75 0 0 1 0 5.5H3 M3 7h5a3 3 0 0 1 0 6H5 M6.75 11.25L5 13l1.75 1.75';
 export const REVIEWS_ICON_PATH = 'M5 13V3M2.5 5.5L5 3l2.5 2.5 M11 3v10M8.5 10.5L11 13l2.5-2.5';
 export const RADAR_ICON_PATH = 'M2.5 8a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0z M8 8L11.5 4.5';
+export const CHAT_ICON_PATH = 'M2 3h9v6H6l-2.5 2V9H2z M11 6h3v5.5h-1.5V13L10 11.5H7.5V9';
 export const COMMUNITY_ICON_PATH = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
 export const TRACE_ICON_PATH = 'M2 8.5h3l2 -5l2 9l2 -4h3';
 export const ARENA_ICON_PATH = 'M3.5 9a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0z M8 9V6.5 M6.5 2h3';

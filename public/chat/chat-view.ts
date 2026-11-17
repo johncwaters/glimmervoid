@@ -7,6 +7,7 @@ import { stickToBottom } from './stick-to-bottom.ts';
 interface ChatView {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[]): void;
+  remove(partIds: readonly string[]): void;
   setTurnRunning(isTurnRunning: boolean): void;
 }
 
@@ -22,5 +23,5 @@ export function createChatView(): ChatView {
   const jumpBar = el('div', 'chat-jump-bar');
   jumpBar.appendChild(jumpSlot);
   element.append(scroller, jumpBar, composer.element);
-  return { element, upsert: chatLog.upsert, setTurnRunning: composer.setTurnRunning };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, setTurnRunning: composer.setTurnRunning };
 }

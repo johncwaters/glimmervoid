@@ -1,6 +1,7 @@
+import type { ChatToolOutcome } from '../trace-store-core.ts';
 import type { OutputExcerpt } from './tool-call-core.ts';
 
-export type ChatToolOutcome = { status: 'running' } | { status: 'no-result' } | { status: 'done'; isError: boolean; truncated: boolean };
+export type { ChatToolOutcome };
 
 export type ToolCategory = 'command' | 'edit' | 'read' | 'search' | 'web' | 'agent' | 'other';
 
