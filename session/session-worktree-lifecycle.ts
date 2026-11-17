@@ -507,7 +507,7 @@ function createSessionWorktreeLifecycle({
     return { sig, dirty: status.trim() !== "", ahead, behind, rebaseBehind, rebaseInProgress, headSha: head, targetSha, baseRef };
   }
 
-  async function computeGateTree(): Promise<{ sig: string; dirty: boolean } | null> {
+  async function computeGateTree(): Promise<{ sig: string; dirty: boolean; headSha: string } | null> {
     const worktreeDir = lifecycleState.worktreeDir;
     if (!worktreeDir) return null;
     const opts: RunGitOptions = { cwd: worktreeDir, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024 };
@@ -516,7 +516,7 @@ function createSessionWorktreeLifecycle({
       const changedFileStamps = await readChangedFileStamps(worktreeDir, status);
       const head = (await gitOut(["--no-optional-locks", "rev-parse", "HEAD"], opts)).trim();
       const sig = crypto.createHash("sha1").update(`${status} ${changedFileStamps} ${head}`).digest("hex");
-      return { sig, dirty: statusPathsOf(status).some((changedPath) => !isCoherenceJournalPath(changedPath)) };
+      return { sig, dirty: statusPathsOf(status).some((changedPath) => !isCoherenceJournalPath(changedPath)), headSha: head };
     } catch (error) {
       recordWorktreeCheckFailure(error);
       return null;
@@ -650,6 +650,7 @@ function createSessionWorktreeLifecycle({
     workspaceApi: GitWorkspace,
     workspace: Workspace,
     method: "mergeBack" | "mergeKeep",
+    expectedHeadSha: string | null,
     isolation?: GitIsolationOptions,
   ): Promise<MergeEngineOutcome> {
     setMergeStatus("merging");
@@ -659,6 +660,7 @@ function createSessionWorktreeLifecycle({
         workspace,
         targetBranch: effectiveIntegrationBranch(),
         onQueuePosition: announceQueuePosition,
+        expectedHeadSha,
       });
       if (isolation && !workspaceApi.withGitIsolation) throw new Error("Merge requires Git isolation");
       const mergeResult = await (isolation && workspaceApi.withGitIsolation ? workspaceApi.withGitIsolation(isolation, merge) : merge());
@@ -686,30 +688,31 @@ function createSessionWorktreeLifecycle({
     mergeGate = gate;
   }
 
-  async function refusalByMergeGate(gate: MergeGate): Promise<MergeResult | null> {
+  function refuseUnlessMerging(reason: string): { refusal: MergeResult } {
+    if (isMerging()) return { refusal: { merged: false, refused: true, reason: "merge-in-progress" } };
+    setMergeStatus("pending-review", { reason });
+    return { refusal: { merged: false, refused: true, reason } };
+  }
+
+  async function approvedHeadByMergeGate(gate: MergeGate): Promise<{ refusal: MergeResult } | { approvedHeadSha: string | null }> {
     const signature = await computeGateTree();
     const verdict = await gate(signature);
-    if (!verdict.allowed) {
-      setMergeStatus("pending-review", { reason: verdict.reason });
-      return { merged: false, refused: true, reason: verdict.reason };
-    }
+    if (!verdict.allowed) return refuseUnlessMerging(verdict.reason);
     const signatureAfterChecks = await computeGateTree();
     if (!signature || signatureAfterChecks?.sig !== signature.sig) {
-      const reason = "the tree changed while the checks ran, so push again to check what lands";
-      setMergeStatus("pending-review", { reason });
-      return { merged: false, refused: true, reason };
+      return refuseUnlessMerging("the tree changed while the checks ran, so push again to check what lands");
     }
-    if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
-    return null;
+    if (isMerging()) return { refusal: { merged: false, refused: true, reason: "merge-in-progress" } };
+    return { approvedHeadSha: signature.headSha };
   }
 
   async function mergeWorktree(isolation?: GitIsolationOptions): Promise<MergeResult> {
     if (!gitWorkspace || !lifecycleState.workspace) return { merged: false, refused: true, reason: "no-worktree" };
     const workspace = lifecycleState.workspace;
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
-    const gateRefusal = mergeGate ? await refusalByMergeGate(mergeGate) : null;
-    if (gateRefusal) return gateRefusal;
-    const { result: mergeResult, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeBack", isolation);
+    const gate = mergeGate ? await approvedHeadByMergeGate(mergeGate) : { approvedHeadSha: null };
+    if ("refusal" in gate) return gate.refusal;
+    const { result: mergeResult, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeBack", gate.approvedHeadSha, isolation);
     if (failure) return failure;
     if (!mergeResult.merged) return applyParkedOrPending(mergeResult);
     stopWatching();
@@ -727,9 +730,9 @@ function createSessionWorktreeLifecycle({
       return { merged: false, refused: true, reason: "not-continuable" };
     }
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
-    const gateRefusal = mergeGate ? await refusalByMergeGate(mergeGate) : null;
-    if (gateRefusal) return gateRefusal;
-    const { result, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeKeep");
+    const gate = mergeGate ? await approvedHeadByMergeGate(mergeGate) : { approvedHeadSha: null };
+    if ("refusal" in gate) return gate.refusal;
+    const { result, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeKeep", gate.approvedHeadSha);
     if (failure) return failure;
     if (result.merged) {
       if (result.baseSha) {

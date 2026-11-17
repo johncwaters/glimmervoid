@@ -7,6 +7,7 @@ import type { BaseSyncResult, GitWorkspaceContext, LandedRange, MergeOutcome, Re
 import type { OriginOps } from './origin-ops.ts';
 
 const fsp = fs.promises;
+const BRANCH_MOVED_AFTER_CHECKS_REASON = 'the branch moved after the checks passed, so push again to check what lands';
 
 function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
   const { run, runUntrusted, rerereEnabled, rebaseSigningArgs } = context;
@@ -104,11 +105,18 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     return { ok: false, steps };
   }
 
-  async function rebaseFfBranch({ projectPath, wt, branch, target }: {
+  async function hasBranchMovedSinceChecks(projectPath: string, branch: string, expectedHeadSha: string | null | undefined): Promise<boolean> {
+    if (!expectedHeadSha) return false;
+    const branchHead = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
+    return !branchHead.ok || branchHead.out !== expectedHeadSha;
+  }
+
+  async function rebaseFfBranch({ projectPath, wt, branch, target, approvedHeadSha }: {
     projectPath: string;
     wt: string;
     branch: string;
     target: string;
+    approvedHeadSha: string | null;
   }): Promise<{
     committed: boolean;
     merged: boolean;
@@ -120,6 +128,9 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     landedRange?: LandedRange | null;
   }> {
 
+    if (await hasBranchMovedSinceChecks(projectPath, branch, approvedHeadSha)) {
+      return { committed: true, merged: false, reason: BRANCH_MOVED_AFTER_CHECKS_REASON, parked: false };
+    }
     const ahead = await run(['rev-list', '--count', `${target}..${branch}`], projectPath);
     if (!ahead.ok || ahead.out === '' || ahead.out === '0') {
       return { committed: false, merged: false, reason: 'nothing-to-commit' };
@@ -141,9 +152,16 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
       rerereReplayed = true;
     }
 
+    const rebasedHead = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
+    const rebasedAhead = await run(['rev-list', '--count', `${target}..${rebasedHead.out}`], projectPath);
+    if (approvedHeadSha && (!rebasedHead.ok || !rebasedAhead.ok || rebasedAhead.out !== ahead.out)) {
+      await restoreSavedWork(wt, savedWork);
+      return { committed: true, merged: false, reason: BRANCH_MOVED_AFTER_CHECKS_REASON, parked: false, rerereReplayed };
+    }
+    const landingSource = approvedHeadSha ? rebasedHead.out : `refs/heads/${branch}`;
     const head = (await run(['rev-parse', '--abbrev-ref', 'HEAD'], projectPath)).out;
     const targetShaBeforeLanding = (await run(['rev-parse', '--verify', '--quiet', `refs/heads/${target}`], projectPath)).out;
-    const merged = await fastForwardTarget(projectPath, `refs/heads/${branch}`, target, head === target);
+    const merged = await fastForwardTarget(projectPath, landingSource, target, head === target);
     if (!merged.ok) {
       await restoreSavedWork(wt, savedWork);
       return { committed: true, merged: false, reason: 'not-fast-forward', parked: true, rerereReplayed };
@@ -210,10 +228,24 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     return committed.ok;
   }
 
-  async function mergeBackBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<MergeOutcome> {
+  async function approvedHeadAfterJournalCommit(projectPath: string, branch: string, approvedHeadSha: string | null): Promise<string | null> {
+    if (!approvedHeadSha) return null;
+    const branchHead = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
+    if (!branchHead.ok || branchHead.out === approvedHeadSha) return approvedHeadSha;
+    const parent = await run(['rev-parse', '--verify', '--quiet', `${branchHead.out}^`], projectPath);
+    if (!parent.ok || parent.out !== approvedHeadSha) return approvedHeadSha;
+    const journalCommitPaths = await run(['diff', '--name-only', '--no-renames', '-z', approvedHeadSha, branchHead.out], projectPath);
+    if (!journalCommitPaths.ok || !journalCommitPaths.out.split('\0').filter(Boolean).every(isCoherenceJournalPath)) return approvedHeadSha;
+    return branchHead.out;
+  }
+
+  async function mergeBackBody({ projectPath, workspace, targetBranch, expectedHeadSha }: WorktreeArgs): Promise<MergeOutcome> {
     const g = await resolveMergeBack({ projectPath, workspace, targetBranch });
     if (g.error) return g.error;
     const { wt = '', branch = '', target = '' } = g;
+    if (await hasBranchMovedSinceChecks(projectPath, branch, expectedHeadSha)) {
+      return { merged: false, committed: false, branch, base: target, reason: BRANCH_MOVED_AFTER_CHECKS_REASON };
+    }
 
     const baseSync = await synchronizeBaseWithOrigin(projectPath, target);
     if (baseSync.state === 'diverged') {
@@ -226,7 +258,8 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
       return includeWarning({ merged: false, committed: false, branch, base: target, reason: 'uncommitted-changes', parked: true }, warning);
     }
 
-    const r = await rebaseFfBranch({ projectPath, wt, branch, target });
+    const approvedHeadSha = await approvedHeadAfterJournalCommit(projectPath, branch, expectedHeadSha ?? null);
+    const r = await rebaseFfBranch({ projectPath, wt, branch, target, approvedHeadSha });
     if (!r.committed) {
 
       await tearDownWorktree(projectPath, wt, branch);
@@ -234,7 +267,7 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     }
     if (!r.merged) {
 
-      return includeWarning({ merged: false, committed: true, branch, base: target, reason: r.reason, parked: true, conflicts: r.conflicts || [] }, warning);
+      return includeWarning({ merged: false, committed: true, branch, base: target, reason: r.reason, parked: r.parked !== false, conflicts: r.conflicts || [] }, warning);
     }
     await tearDownWorktree(projectPath, wt, branch);
     const push = await pushBaseToOrigin(projectPath, target);
@@ -250,10 +283,13 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     }, joinWarnings(warning, push.warning));
   }
 
-  async function mergeKeepBody({ projectPath, workspace, targetBranch }: WorktreeArgs): Promise<MergeOutcome> {
+  async function mergeKeepBody({ projectPath, workspace, targetBranch, expectedHeadSha }: WorktreeArgs): Promise<MergeOutcome> {
     const g = await resolveMergeBack({ projectPath, workspace, targetBranch });
     if (g.error) return g.error;
     const { wt = '', branch = '', target = '' } = g;
+    if (await hasBranchMovedSinceChecks(projectPath, branch, expectedHeadSha)) {
+      return { merged: false, committed: false, branch, base: target, reason: BRANCH_MOVED_AFTER_CHECKS_REASON };
+    }
 
     const baseSync = await synchronizeBaseWithOrigin(projectPath, target);
     if (baseSync.state === 'diverged') {
@@ -261,13 +297,13 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
     }
     const warning = mergeSyncWarning(baseSync, target);
 
-    const r = await rebaseFfBranch({ projectPath, wt, branch, target });
+    const r = await rebaseFfBranch({ projectPath, wt, branch, target, approvedHeadSha: expectedHeadSha ?? null });
     if (!r.committed) {
 
       return includeWarning({ merged: false, committed: false, branch, base: target, reason: 'nothing-to-commit', kept: true }, warning);
     }
     if (!r.merged) {
-      return includeWarning({ merged: false, committed: true, branch, base: target, reason: r.reason, parked: true, conflicts: r.conflicts || [] }, warning);
+      return includeWarning({ merged: false, committed: true, branch, base: target, reason: r.reason, parked: r.parked !== false, conflicts: r.conflicts || [] }, warning);
     }
 
     const baseSha = (await run(['rev-parse', target], projectPath)).out || workspace?.baseSha || null;

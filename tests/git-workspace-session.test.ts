@@ -185,6 +185,60 @@ test('mergeKeep (real git): lands on develop yet keeps the worktree alive for a 
   }
 });
 
+test('mergeKeep (real git): a commit made after the checks passed never lands with the checked head', { skip: !GIT }, async () => {
+  const repo = initRepoOnDevelop();
+  try {
+    const gw = createGitWorkspace();
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'moved', baseBranch: 'develop' });
+    fs.writeFileSync(path.join(ws.cwd, 'checked.js'), 'checked\n', 'utf8');
+    git(['add', '-A'], ws.cwd); git(['commit', '-m', 'checked'], ws.cwd);
+    const checkedHeadSha = git(['rev-parse', 'HEAD'], ws.cwd).trim();
+    fs.writeFileSync(path.join(ws.cwd, 'unchecked.js'), 'unchecked\n', 'utf8');
+    git(['add', '-A'], ws.cwd); git(['commit', '-m', 'unchecked'], ws.cwd);
+    const developTipBefore = git(['rev-parse', 'develop'], repo).trim();
+
+    const refused = await gw.mergeKeep({ projectPath: repo, workspace: ws, targetBranch: 'develop', expectedHeadSha: checkedHeadSha });
+    assert.equal(refused.merged, false);
+    assert.match(String(refused.reason), /branch moved after the checks passed/);
+    assert.equal(git(['rev-parse', 'develop'], repo).trim(), developTipBefore);
+
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test('mergeKeep (real git): a commit made while the merge fetches origin never lands with the checked head', { skip: !GIT || process.platform === 'win32' }, async () => {
+  const repo = initRepoOnDevelop();
+  const originPath = `${repo}-origin.git`;
+  try {
+    git(['clone', '--quiet', '--bare', repo, originPath], path.dirname(repo));
+    git(['remote', 'add', 'origin', originPath], repo);
+    git(['fetch', '--quiet', 'origin'], repo);
+    const gw = createGitWorkspace();
+    const ws = await gw.create({ owner: 'lane:test', projectPath: repo, teamId: 'session', label: 'fetching', baseBranch: 'develop' });
+    fs.writeFileSync(path.join(ws.cwd, 'checked.js'), 'checked\n', 'utf8');
+    git(['add', '-A'], ws.cwd); git(['commit', '-m', 'checked'], ws.cwd);
+    const checkedHeadSha = git(['rev-parse', 'HEAD'], ws.cwd).trim();
+    const commitDuringFetch = path.join(path.dirname(repo), `${path.basename(repo)}-upload-pack.sh`);
+    fs.writeFileSync(commitDuringFetch, `#!/bin/sh\n(cd '${ws.cwd}' && echo unchecked > unchecked.js && git add -A && git -c user.name=t -c user.email=t@t commit --quiet -m unchecked) >/dev/null 2>&1\nexec git-upload-pack "$@"\n`, { mode: 0o755 });
+    git(['config', 'remote.origin.uploadpack', commitDuringFetch], repo);
+    const developTipBefore = git(['rev-parse', 'develop'], repo).trim();
+
+    const refused = await gw.mergeKeep({ projectPath: repo, workspace: ws, targetBranch: 'develop', expectedHeadSha: checkedHeadSha });
+    assert.notEqual(git(['rev-parse', 'HEAD'], ws.cwd).trim(), checkedHeadSha);
+    assert.equal(refused.merged, false);
+    assert.match(String(refused.reason), /branch moved after the checks passed/);
+    assert.equal(git(['rev-parse', 'develop'], repo).trim(), developTipBefore);
+
+    await gw.discard({ projectPath: repo, workspace: ws, cause: 'session' });
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+    fs.rmSync(originPath, { recursive: true, force: true });
+    fs.rmSync(`${repo}-upload-pack.sh`, { force: true });
+  }
+});
+
 test('mergeKeep (real git): committed work merges; uncommitted work is preserved, never landed on develop', { skip: !GIT }, async () => {
   const repo = initRepoOnDevelop();
   try {
@@ -321,7 +375,7 @@ test('mergeBack (real git): Coherence journals land with committed work, other u
     git(['config', 'core.hooksPath', hooksDirectory], repo);
 
     const developBeforeMerge = git(['rev-parse', 'develop'], repo).trim();
-    const merged = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop' });
+    const merged = await gw.mergeBack({ projectPath: repo, workspace: ws, targetBranch: 'develop', expectedHeadSha: sessionCommit });
     assert.equal(merged.reason, null);
     assert.equal(merged.merged, true);
     assert.deepEqual(merged.landedRange, { fromSha: developBeforeMerge, toSha: git(['rev-parse', 'develop'], repo).trim() });

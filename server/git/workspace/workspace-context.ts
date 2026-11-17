@@ -43,6 +43,7 @@ type WorktreeArgs = {
   projectPath: string;
   admissionTimeoutMs?: number;
   onQueuePosition?: (mergesAheadCount: number) => void;
+  expectedHeadSha?: string | null;
   workspace?: WorkspaceHandle | null;
   targetBranch?: string | null;
   integrationBranch?: string | null;

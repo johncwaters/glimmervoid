@@ -90,7 +90,8 @@ test('a push is refused until the required checks pass on the current tree, nami
   execFileSync('git', ['init', '--quiet'], { cwd: run.projectPath });
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'start'], { cwd: run.projectPath });
   let mergeKeepCalls = 0;
-  run.gitWorkspace.mergeKeep = async () => { mergeKeepCalls += 1; return { merged: true }; };
+  let landedExpectedHeadSha: string | null | undefined;
+  run.gitWorkspace.mergeKeep = async (args) => { mergeKeepCalls += 1; landedExpectedHeadSha = args.expectedHeadSha; return { merged: true }; };
   let checkCommand = 'node does-not-exist.js';
   const verification = createVerificationWiring({
     getVerificationConfig: () => ({ repos: { [run.projectPath]: { checks: [{ id: 'unit', command: checkCommand }], gate: { enabled: true } } } }),
@@ -122,6 +123,33 @@ test('a push is refused until the required checks pass on the current tree, nami
   const landed = await run.lifecycle.mergeAndContinue({ force: true });
   assert.equal(landed.merged, true);
   assert.equal(mergeKeepCalls, 1);
+  assert.equal(landedExpectedHeadSha, execFileSync('git', ['rev-parse', 'HEAD'], { cwd: run.projectPath }).toString().trim());
+  run.cleanup();
+});
+
+test('a gate refusal that settles while another push merges leaves that merge marked as merging', async () => {
+  const run = lifecycleWithHeldMerge();
+  execFileSync('git', ['init', '--quiet'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'start'], { cwd: run.projectPath });
+  let mergeKeepCalls = 0;
+  const heldMergeKeep = run.gitWorkspace.mergeKeep;
+  run.gitWorkspace.mergeKeep = (args) => { mergeKeepCalls += 1; return heldMergeKeep(args); };
+  const verdictReleases: Array<(verdict: { allowed: true } | { allowed: false; reason: string }) => void> = [];
+  run.lifecycle.setMergeGate(() => new Promise((resolve) => { verdictReleases.push(resolve); }));
+  const untilGatesOpened = async (count: number) => { while (verdictReleases.length < count) await new Promise((resolve) => setImmediate(resolve)); };
+  const firstPush = run.lifecycle.mergeAndContinue();
+  const secondPush = run.lifecycle.mergeAndContinue();
+  await untilGatesOpened(2);
+  verdictReleases[0]({ allowed: true });
+  while (run.lifecycle.snapshot().mergeStatus !== 'merging') await new Promise((resolve) => setImmediate(resolve));
+  verdictReleases[1]({ allowed: false, reason: 'checks failed: unit' });
+  assert.equal((await secondPush).reason, 'merge-in-progress');
+  assert.equal(run.lifecycle.snapshot().mergeStatus, 'merging');
+  const thirdPush = await run.lifecycle.mergeAndContinue();
+  assert.equal(thirdPush.reason, 'merge-in-progress');
+  assert.equal(mergeKeepCalls, 1);
+  run.releaseMerge({ merged: true });
+  await firstPush;
   run.cleanup();
 });
 
