@@ -188,6 +188,12 @@ function createGitWorkspace(opts: {
   const removalGuard = resolveRemovalGuard(opts.removalGuard, glimmervoidHome);
 
   const queueByRepository = createKeyedSerialQueue();
+  const waitingMergesByRepository = new Map<string, { reportPosition: ((mergesAheadCount: number) => void) | null; reportedPosition: number }[]>();
+  const queuePositionListenerOf = (args: unknown): ((mergesAheadCount: number) => void) | null => {
+    if (typeof args !== 'object' || args === null) return null;
+    const listener: unknown = Reflect.get(args, 'onQueuePosition');
+    return typeof listener === 'function' ? (mergesAheadCount: number) => Reflect.apply(listener, undefined, [mergesAheadCount]) : null;
+  };
   const isolatedCall = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs) => (): Promise<TResult> =>
     isolationContext.run({ ...opts.isolation, ...isolationContext.getStore(), ...args }, () => body(args));
   const queuedPathOf = (args: unknown): string => {
@@ -212,6 +218,26 @@ function createGitWorkspace(opts: {
     const repositoryKey = await keyReadBefore(repositoryKeyOf(args), admission.admissionTimeoutMs);
     const remainingAdmission = admissionDeadlineMs === undefined ? {} : { admissionTimeoutMs: Math.max(0, admissionDeadlineMs - clock.nowMs()) };
     return queueByRepository.run(repositoryKey, isolatedCall(body, args), remainingAdmission);
+  };
+  const runMergeInRepositoryQueue = async <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>, args: TArgs): Promise<TResult> => {
+    const repositoryKey = await repositoryKeyOf(args);
+    const waitingMerges = waitingMergesByRepository.get(repositoryKey) ?? [];
+    waitingMergesByRepository.set(repositoryKey, waitingMerges);
+    const waitingMerge = { reportPosition: queuePositionListenerOf(args), reportedPosition: 0 };
+    waitingMerges.push(waitingMerge);
+    const announcePositions = () => waitingMerges.forEach((merge, mergesAheadCount) => {
+      if (merge.reportedPosition === mergesAheadCount) return;
+      merge.reportedPosition = mergesAheadCount;
+      merge.reportPosition?.(mergesAheadCount);
+    });
+    announcePositions();
+    try {
+      return await queueByRepository.run(repositoryKey, isolatedCall(body, args));
+    } finally {
+      waitingMerges.splice(waitingMerges.indexOf(waitingMerge), 1);
+      if (waitingMerges.length === 0) waitingMergesByRepository.delete(repositoryKey);
+      announcePositions();
+    }
   };
   const serialized = <TArgs, TResult>(body: (args: TArgs) => Promise<TResult>) => (args: TArgs): Promise<TResult> => runInRepositoryQueue(body, args);
   const admitted = <TArgs extends { admissionTimeoutMs?: number }, TResult>(
@@ -643,8 +669,8 @@ function createGitWorkspace(opts: {
     removeWorkspaceMember: serialized(removeWorkspaceMemberBody),
     listOwnedPaths,
     discard: serialized(discardBody),
-    mergeBack: serialized(mergeBackBody),
-    mergeKeep: serialized(mergeKeepBody),
+    mergeBack: (args: WorktreeArgs) => runMergeInRepositoryQueue(mergeBackBody, args),
+    mergeKeep: (args: WorktreeArgs) => runMergeInRepositoryQueue(mergeKeepBody, args),
     rebaseOnly: serialized(rebaseOnlyBody),
     resolveRebaseTarget,
     populate: serialized(populateShare),

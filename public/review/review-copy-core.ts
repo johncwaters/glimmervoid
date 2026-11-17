@@ -34,7 +34,7 @@ export function reviewHeadline({
 }): ReviewHeadline {
   if (status === 'parked' && mergeReason === 'base-diverged') return { text: 'Parked: base branch diverged' };
   if (status === 'parked') return { text: 'Parked: merge conflict' };
-  if (status === 'merging') return { text: 'Merging' };
+  if (status === 'merging') return { text: mergeReason ? `Merging: ${mergeReason}` : 'Merging' };
   if (status === 'merged') return { text: 'Merged' };
   if (hasDiffError) return { text: 'Could not read changes' };
   if (!fetched) return { text: 'Checking for changes' };

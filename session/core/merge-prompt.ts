@@ -1,3 +1,6 @@
+import path from "node:path";
+import { classifyConflicts } from "../../server/git/core/conflict-classify-core.ts";
+
 interface MergePromptInputs {
   branch?: string;
   target?: string;
@@ -38,10 +41,20 @@ function buildMergePrompt(
   );
   lines.push("");
   lines.push(`Why it parked: ${reasonText(reason, tgt)}`);
-  if (files.length) {
+  const { lockfiles, others } = classifyConflicts(files);
+  if (others.length) {
     lines.push("");
     lines.push("Conflicting files:");
-    for (const f of files) lines.push(`  - ${f}`);
+    for (const conflictPath of others) lines.push(`  - ${conflictPath}`);
+  }
+  if (lockfiles.length) {
+    lines.push("");
+    lines.push(`Conflicting lockfiles; never merge one by hand. Once the rebase stops on it, take ${tgt}'s copy (during a rebase that is --ours), regenerate it, and git add it:`);
+    for (const lockfile of lockfiles) {
+      const folder = path.posix.dirname(lockfile.path.replaceAll("\\", "/"));
+      const where = folder === "." ? "at the repository root" : `in ${folder}`;
+      lines.push(`  - ${lockfile.path}: git checkout --ours -- ${lockfile.path}, then run ${lockfile.regenerateCommand} ${where}`);
+    }
   }
   lines.push("");
   lines.push("Only rebase this session branch; do not force-push or rewrite any shared history.");
