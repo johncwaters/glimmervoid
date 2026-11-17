@@ -28,6 +28,8 @@ export const MEMORY_RESERVE_MB_RANGE = Object.freeze({ min: 0, max: 65536 });
 export const PACK_SCHEDULED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 20 });
 export const PACK_SCHEDULED_SESSIONS_DEFAULT = 3;
 export const SPAWNED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 10 });
+export const LOOP_GUARD_TURNS_RANGE = Object.freeze({ min: 1, max: 100 });
+export const LOOP_GUARD_ON_STUCK = Object.freeze(['flag', 'stop'] as const);
 export const SPAWNED_SESSIONS_DEFAULT = 3;
 export const SKIP_PERMISSIONS_BY_DEFAULT = true;
 export const PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
@@ -94,6 +96,7 @@ export const SETTINGS_RANGES = Object.freeze({
   MEMORY_RESERVE_MB_RANGE,
   PACK_SCHEDULED_SESSIONS_RANGE,
   SPAWNED_SESSIONS_RANGE,
+  LOOP_GUARD_TURNS_RANGE,
   TASK_TITLE_TIMEOUT_RANGE,
   USAGE_BUDGET_RANGE,
   USAGE_RETAIN_DAYS_RANGE,

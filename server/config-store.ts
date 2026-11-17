@@ -289,6 +289,7 @@ function createConfigStore({
 
       usage: pickBlock('usage', config.usage),
       telegram: pickBlock('telegram', config.telegram),
+      loopGuard: pickBlock('loopGuard', config.loopGuard),
     };
   }
 
@@ -329,6 +330,8 @@ function createConfigStore({
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.vault != null) config.vault = { ...config.vault, ...newConfig.vault };
+    if (newConfig.loopGuard == null) delete config.loopGuard;
+    if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;
     if (newConfig.workflows != null) config.workflows = newConfig.workflows;
     if (newConfig.coder == null) delete config.coder;

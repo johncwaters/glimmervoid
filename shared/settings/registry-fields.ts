@@ -93,6 +93,7 @@ const MS_PER_HOUR = MS_PER_MINUTE * MINUTES_PER_HOUR;
 
 export const INVESTIGATIONS: SettingsUnit = { label: 'investigations', storedPerDisplay: 1 };
 export const SESSIONS: SettingsUnit = { label: 'sessions', storedPerDisplay: 1 };
+export const TURNS: SettingsUnit = { label: 'turns', storedPerDisplay: 1 };
 export const RECURRENCES: SettingsUnit = { label: 'recurrences', storedPerDisplay: 1 };
 export const ACTIONS: SettingsUnit = { label: 'actions', storedPerDisplay: 1 };
 export const SECONDS: SettingsUnit = { label: 'seconds', storedPerDisplay: 1 };

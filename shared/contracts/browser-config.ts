@@ -263,6 +263,10 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   packScheduledSessionsMax: optionalWholeNumber('packScheduledSessionsMax', ranges.PACK_SCHEDULED_SESSIONS_RANGE),
   spawnedSessionsMax: optionalWholeNumber('spawnedSessionsMax', ranges.SPAWNED_SESSIONS_RANGE),
+  loopGuard: optionalObject('loopGuard', {
+    maxTurnsWithoutProgress: optionalWholeNumber('loopGuard.maxTurnsWithoutProgress', ranges.LOOP_GUARD_TURNS_RANGE).nullable(),
+    onStuck: z.enum(ranges.LOOP_GUARD_ON_STUCK, { error: 'loopGuard.onStuck must be flag or stop' }).optional(),
+  }),
   cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   linkPreviews: optionalBoolean('linkPreviews'),

@@ -719,7 +719,7 @@ test('an agent lists, answers and resolves the review comments the operator sent
   const reviews = createReviewWiring({
     reviewsRoot,
     broadcastControl: () => {},
-    findSession: (sessionId) => (sessionId === 'parent' ? { deliver: (text) => { pastedTexts.push(text); return { ok: true, kind: 'pasted' }; } } : null),
+    findSession: (sessionId) => (sessionId === 'parent' ? { noteOperatorDraft: () => {}, deliver: (text) => { pastedTexts.push(text); return { ok: true, kind: 'pasted' }; } } : null),
   });
   const fixture = wiringFixture({ reviewComments: reviews });
   try {

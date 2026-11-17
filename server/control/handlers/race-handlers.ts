@@ -48,6 +48,7 @@ function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, {
     }
     const winner = sessions.get(picked.winnerSessionId);
     if (msg.sendNotes && picked.notes && winner) {
+      winner.noteOperatorDraft();
       const pasted = winner.deliver(winnerNotesPrompt(picked.notes), { when: 'ready', submit: true, timeoutMs: CONTESTANT_PROMPT_TIMEOUT_MS });
       if (!pasted.ok) problems.push(`Could not send the judge's notes (${pasted.reason})`);
     }

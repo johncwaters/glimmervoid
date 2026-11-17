@@ -189,7 +189,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'community', 'questionManager', 'posthog', 'usage', 'telegram',
-  'telemetry', 'vault', 'workflows', 'worktree',
+  'telemetry', 'vault', 'workflows', 'worktree', 'loopGuard',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

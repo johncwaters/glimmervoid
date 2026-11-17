@@ -92,6 +92,7 @@ import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
 import { createVerificationWiring } from '../verification/verification-wiring.ts';
+import { createLoopGuardWiring } from '../session/loop-guard-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -324,6 +325,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl: broadcastControlFromWebSockets,
     logger: console,
   });
+  const loopGuard = createLoopGuardWiring({ getLoopGuardConfig: () => configStore.config.loopGuard, logger: console });
   const health = createBackendHealth({
     sessions,
     getAllSessions: () => allLiveSessions(),
@@ -513,6 +515,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     attachSessionPrLink,
     traceWiring,
     verification,
+    loopGuard,
     commitSessions: createCommitSessions({
       storeRoot: configSiblingPath(configStore.configPath, COMMIT_SESSIONS_FOLDER_NAME),
       logger: console,
