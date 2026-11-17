@@ -85,6 +85,7 @@ function terminalVariantsFor(task: string) {
   import { countAttentionByKind, orderAttentionLine } from '../../../public/focus-view/attention-core.ts';
   import { resolveDashboardShortcut, shortcutChord, shortcutHint, shortcutPlatformFor } from '../../../public/shortcuts-core.ts';
   import { markWhileOnScreen } from '../lib/dom.ts';
+  import { keyChord } from '../../../public/ui/keycap.ts';
 
   type UnseenOutcome = 'finished' | 'failed';
 
@@ -116,13 +117,7 @@ function terminalVariantsFor(task: string) {
   }
 
   function buildJumpKeys() {
-    const keys = document.createElement('span');
-    keys.className = 'shortcut-keys';
-    shortcutChord('next-attention', platform).forEach((caption, keyIndex) => {
-      if (keyIndex > 0) keys.append(Object.assign(document.createElement('span'), { className: 'shortcut-sep', textContent: '+' }));
-      keys.append(Object.assign(document.createElement('kbd'), { className: 'kbd', textContent: caption }));
-    });
-    return keys;
+    return keyChord(shortcutChord('next-attention', platform));
   }
 
   function mountJumpDemo(boardElement: HTMLElement, slot: HTMLElement, queueQuestionButton: HTMLElement) {
@@ -195,7 +190,7 @@ function terminalVariantsFor(task: string) {
 <style>
   .attention-board { margin: 0; max-width: 560px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); padding: 16px; }
   .attention-board :global(.attention-banner) { position: relative; margin-bottom: 0; }
-  .attention-board :global(.attention-banner-jump .kbd) { font-family: var(--font-mono); font-weight: 700; line-height: 1; color: var(--text-head); }
+  .attention-board :global(.attention-banner-jump .ui-keycap) { font-family: var(--font-mono); font-weight: 700; line-height: 1; color: var(--text-head); }
   .callout-stack { display: grid; margin: 10px 0 8px; }
   .callout-stack > * { grid-area: 1 / 1; margin: 0; }
   .all-clear-hint { font-size: var(--type-body); color: var(--text-dim); opacity: 0; transition: opacity var(--transition-fast); }

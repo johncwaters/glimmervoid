@@ -168,16 +168,3 @@
 .review-line-del { background: color-mix(in oklab, var(--state-failed) 12%, transparent); }
 .review-line-del .review-line-gutter { color: var(--state-failed); }
 .review-line-meta { color: var(--text-muted); }
-.review-shortcut {
-  display: inline-block;
-  margin-left: 6px;
-  font: inherit;
-  font-size: var(--type-meta);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 0 4px;
-  vertical-align: middle;
-  user-select: none;
-  pointer-events: none;
-}

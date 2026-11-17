@@ -20,7 +20,8 @@ import { createSettingsLink, parseSettingsSearchHash, settingsSearchHash } from 
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
-import { appendShortcutChord, currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { keyChord } from '../ui/keycap.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
@@ -80,7 +81,7 @@ function renderShortcutGroups(container: HTMLElement) {
       const keys = el('dd', 'shortcut-keys');
       item.combos.forEach((chord, chordIndex) => {
         if (chordIndex > 0) keys.appendChild(el('span', 'shortcut-sep', '/'));
-        appendShortcutChord(keys, chord);
+        keys.appendChild(keyChord(chord));
       });
       rows.append(el('dt', 'shortcut-label', item.label), keys);
     }

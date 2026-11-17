@@ -2,6 +2,7 @@ import { paintActionStatus } from '../action-status.ts';
 import { button } from '../ui/button.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import type { Disclosure } from '../ui/disclosure.ts';
+import { keycap } from '../ui/keycap.ts';
 import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, HandCheck, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
@@ -453,7 +454,7 @@ function createDecisionBar(draft: Pick<ReviewDraft, 'status' | 'postedEvent' | '
 function createFindingKeysHint(): HTMLElement {
   const hint = el('span', 'pr-finding-keys');
   hint.setAttribute('aria-hidden', 'true');
-  hint.append(el('kbd', 'review-shortcut', 'N'), el('kbd', 'review-shortcut', 'P'), ' move', el('kbd', 'review-shortcut', 'Enter'), ' open', el('kbd', 'review-shortcut', 'X'), ' post or drop');
+  hint.append(keycap('N'), keycap('P'), ' move', keycap('Enter'), ' open', keycap('X'), ' post or drop');
   return hint;
 }
 
@@ -462,7 +463,7 @@ let _noteFieldCount = 0;
 function createNoteKeysHint(postChordText: string): HTMLElement {
   const hint = el('span', 'pr-finding-keys');
   hint.setAttribute('aria-hidden', 'true');
-  hint.append(el('kbd', 'review-shortcut', postChordText), ' posts', el('kbd', 'review-shortcut', 'Esc'), ' cancels');
+  hint.append(keycap(postChordText), ' posts', keycap('Esc'), ' cancels');
   return hint;
 }
 

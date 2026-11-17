@@ -54,6 +54,7 @@
 @import "./ui/field.css" layer(primitives);
 @import "./ui/popup-menu.css" layer(primitives);
 @import "./ui/meter.css" layer(primitives);
+@import "./ui/keycap.css" layer(primitives);
 @import "./style.css" layer(components);
 @import "./session-card/session-card.css" layer(components);
 @import "./dialogs.css" layer(components);

@@ -28,7 +28,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `theme.ts` | Theme definitions applied as CSS custom properties; terminal theme derived at runtime |
 | `ui-prefs.ts` / `local-store.ts` | THE localStorage home for UI state (sound, theme, active view, rail width, Focus pane layout), over quota-safe wrappers. Each key is declared once in `ui-prefs.ts`'s `PREFS` table with its default and normalizer; the accessors are one line each |
 | `shortcuts-core.ts` | Pure catalog of dashboard shortcuts matched by `KeyboardEvent.code` under Cmd (Mac) or Alt, plus the help list groups; `boot/shortcuts-dispatch.ts`, the xterm pass-through and the help list all read it |
-| `shortcuts.ts` | DOM shell for `shortcuts-core.ts`: platform detection from the user agent, `kbd` chord rendering |
+| `shortcuts.ts` | DOM shell for `shortcuts-core.ts`: platform detection from the user agent, chords drawn through `ui/keycap.ts` |
 | `form-factor-core.ts` | Pure `decideLayout({ coarse, narrowWidth })` -> `'phone' \| 'desktop'`: the one predicate choosing between the two first-class layouts |
 | `form-factor.ts` | Its IO shell: evaluates the two media queries, stamps `<html data-layout>`, notifies subscribers on a live flip |
 | `card-host.ts` | THE session-card re-parenting seam (`borrowCard` / `releaseCard`), one borrower per slot (`terminal`, `shell`) and a card in one slot at a time; shared by the Focus center and the phone Terminal screen |

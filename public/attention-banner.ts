@@ -369,7 +369,7 @@ export function pressAttentionBanner(banner: HTMLElement) {
   motion.pressAnimations.push(banner.animate(eased([{ opacity: 0 }, { opacity: 0.07, offset: 0.3 }, { opacity: 0 }]), { ...pressTiming, pseudoElement: '::after' }));
   if (prefersReducedMotion()) return;
   motion.pressAnimations.push(banner.animate(eased([{ transform: 'none' }, { transform: 'scale(0.97) translateY(1px)', offset: 0.3 }, { transform: 'none' }]), pressTiming));
-  for (const keycap of banner.querySelectorAll<HTMLElement>('.attention-banner-jump .kbd')) {
+  for (const keycap of banner.querySelectorAll<HTMLElement>('.attention-banner-jump .ui-keycap')) {
     motion.pressAnimations.push(
       keycap.animate(eased([{ transform: 'none' }, { transform: `translateY(${KEYCAP_TRAVEL_PX}px)`, offset: 0.3 }, { transform: 'none' }]), pressTiming),
       keycap.animate(eased([{ transform: 'none' }, { transform: `translateY(-${KEYCAP_TRAVEL_PX}px)`, offset: 0.3 }, { transform: 'none' }]), { ...pressTiming, pseudoElement: '::after' }),

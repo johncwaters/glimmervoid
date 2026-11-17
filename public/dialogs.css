@@ -364,7 +364,7 @@ html[data-layout="phone"] .dialog-overlay {
   margin-left: auto;
 }
 
-.review-board-column-heading .shortcut-keys .kbd {
+.review-board-column-heading .shortcut-keys .ui-keycap {
   padding-block: 2px;
 }
 
@@ -376,19 +376,6 @@ html[data-layout="phone"] .dialog-overlay {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
-}
-
-.kbd {
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  line-height: 1;
-  color: var(--text-head);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 3px 5px;
-  white-space: nowrap;
 }
 
 .status-legend {

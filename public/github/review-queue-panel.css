@@ -140,8 +140,7 @@ html:not([data-layout="phone"]) .pr-desk > .pr-decision-bar { align-self: end; }
 .pr-posts-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .pr-posts-heading h3, .pr-steps h3 { padding: 0; }
 .pr-posts-heading > span { color: var(--text-muted); font-size: var(--type-meta); }
-.pr-finding-keys { margin-left: auto; }
-.pr-finding-keys > .review-shortcut:first-child { margin-left: 0; }
+.pr-finding-keys { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-left: auto; }
 
 .pr-disclosure {
   min-width: 0;
