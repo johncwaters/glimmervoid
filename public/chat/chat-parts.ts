@@ -41,7 +41,7 @@ function renderPart(part: ChatPart): HTMLElement {
   return element;
 }
 
-export interface ChatLog {
+interface ChatLog {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[]): void;
 }

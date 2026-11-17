@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import type { ChatPart } from './chat-part.ts';
 
-export interface ChatPartsState {
+interface ChatPartsState {
   nextPartNumber: number;
 }
 
