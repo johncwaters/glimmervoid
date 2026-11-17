@@ -2,6 +2,7 @@ import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import type { ChatPart } from '../../../public/chat/chat-part.ts';
 import { appendChatRecords, createChatPartsState } from '../../../public/chat/chat-parts-core.ts';
 import { createChatView } from '../../../public/chat/chat-view.ts';
+import type { PathContext } from '../../../public/chat/tool-call-core.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
@@ -22,11 +23,11 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
 
 const chatHost = document.getElementById('chat-host');
 const traceResponse = await fetch('/trace-records.json');
-const traceRecords: TraceRecord[] = await traceResponse.json();
+const { records: traceRecords, pathContext }: { records: TraceRecord[]; pathContext: PathContext } = await traceResponse.json();
 const chatView = createChatView();
 chatHost?.appendChild(chatView.element);
 chatView.setTurnRunning(true);
-chatView.upsert(appendChatRecords(createChatPartsState(), traceRecords, new Map()));
+chatView.upsert(appendChatRecords(createChatPartsState(pathContext), traceRecords, new Map()));
 if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);

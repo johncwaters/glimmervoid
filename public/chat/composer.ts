@@ -25,9 +25,9 @@ export function createComposer(): ChatComposer {
   input.rows = 1;
   input.placeholder = 'Message the agent';
   input.setAttribute('aria-label', 'Message the agent');
-  const sendButton = button({ variant: 'primary', size: 'small', label: 'Send', disabled: true });
+  const sendButton = button({ variant: 'primary', textCase: 'sentence', label: 'Send', disabled: true });
   sendButton.type = 'submit';
-  const stopButton = button({ variant: 'secondary', size: 'small', label: 'Stop', disabled: true });
+  const stopButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Stop', disabled: true });
   const actions = el('div', 'chat-composer-actions');
   actions.append(stopButton, sendButton);
   element.append(input, actions);

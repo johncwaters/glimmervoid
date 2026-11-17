@@ -15,6 +15,7 @@ type BuildButtonOptions = { variant: ButtonVariant | 'outline-icon'; label: stri
 
 type CommonButtonOptions = {
   size?: ButtonSize;
+  textCase?: 'upper' | 'sentence';
   action?: string;
   shortcutKey?: string;
   onClick?: (event: MouseEvent) => void;
@@ -72,6 +73,7 @@ function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   const element = createPressable('ui-button');
   element.dataset.variant = options.variant;
   element.dataset.size = options.size ?? 'default';
+  if (options.textCase === 'sentence') element.dataset.textCase = 'sentence';
   if (options.action) element.dataset.action = options.action;
   if (options.icon) element.append(options.icon);
   if (options.variant === 'icon' || options.variant === 'outline-icon') {

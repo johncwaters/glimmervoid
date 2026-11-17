@@ -30,7 +30,7 @@ function hasSelectionInside(scroller: HTMLElement): boolean {
 export function stickToBottom(scroller: HTMLElement, content: HTMLElement): StickToBottom {
   let mode: FollowMode = 'following';
   let lastScrollTop = scroller.scrollTop;
-  const jumpButton = button({ variant: 'secondary', size: 'small', label: 'Jump to latest', hidden: true });
+  const jumpButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Jump to latest', hidden: true });
 
   const scrollToBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;

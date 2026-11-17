@@ -33,8 +33,8 @@ function renderPermissionCard(card: ChatCardByType['permission']): HTMLElement {
     return shell;
   }
   const actions = el('div', 'chat-card-actions');
-  actions.appendChild(button({ variant: 'primary', size: 'small', label: 'Allow', onClick: () => dispatchCardAction(shell, card, 'decide', 'allow') }));
-  actions.appendChild(button({ variant: 'secondary', size: 'small', label: 'Deny', onClick: () => dispatchCardAction(shell, card, 'decide', 'deny') }));
+  actions.appendChild(button({ variant: 'primary', textCase: 'sentence', label: 'Allow', onClick: () => dispatchCardAction(shell, card, 'decide', 'allow') }));
+  actions.appendChild(button({ variant: 'secondary', textCase: 'sentence', label: 'Deny', onClick: () => dispatchCardAction(shell, card, 'decide', 'deny') }));
   shell.appendChild(actions);
   return shell;
 }
@@ -49,7 +49,7 @@ function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
   const options = el('div', 'chat-card-options');
   for (const option of card.data.options) {
     const optionRow = el('div', 'chat-card-option');
-    optionRow.appendChild(button({ variant: 'secondary', size: 'small', label: option.label, onClick: () => dispatchCardAction(shell, card, 'answer', option.label) }));
+    optionRow.appendChild(button({ variant: 'secondary', textCase: 'sentence', label: option.label, onClick: () => dispatchCardAction(shell, card, 'answer', option.label) }));
     if (option.note) optionRow.appendChild(el('span', 'chat-card-option-note', option.note));
     options.appendChild(optionRow);
   }

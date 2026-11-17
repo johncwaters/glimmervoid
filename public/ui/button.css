@@ -35,6 +35,13 @@
 
 .ui-button[hidden] { display: none; }
 
+.ui-button[data-text-case="sentence"] {
+  font-family: var(--font-ui);
+  font-size: var(--type-body);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .ui-button .line-icon {
   flex: none;
   width: var(--button-glyph-size);
