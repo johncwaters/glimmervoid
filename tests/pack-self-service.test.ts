@@ -396,6 +396,8 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     endedSessionIds.add(config.projects[0]?.id ?? '');
     await fireArmedTimer(firstFireAt + 48 * hourMs);
     assert.deepEqual(config.projects.map((project) => project.name), ['Nightly checks', 'Nightly checks (2)']);
+    const secondRunSessionId = config.projects[1]?.id ?? '';
+    await waitFor(() => fs.existsSync(packLauncherRunsPath(homeDir)) && fs.readFileSync(packLauncherRunsPath(homeDir), 'utf8').includes(secondRunSessionId), 'the second run is saved before the restart');
 
     nowMs = firstFireAt + 96 * hourMs + hourMs / 2;
     const restarted = createPackLaunchers(launcherDeps);
