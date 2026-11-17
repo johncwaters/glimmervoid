@@ -3,6 +3,8 @@ import { isKnownAgentId } from '../../session/adapters/index.ts';
 import { projectSessionCard } from '../../session/core/snapshot-projection.ts';
 import type { Session } from '../../session/sessions.ts';
 import type { AgentSpawnRequest } from '../../shared/contracts/session.ts';
+import type { AgentSetup } from '../../shared/contracts/agent-models.ts';
+import { choiceSelection } from '../../shared/agent-models-core.ts';
 import type { ProjectEntry } from '../config-store.ts';
 import { decideSpawnAllowance, deriveChildSessionName } from '../core/agent-api-core.ts';
 import type { ChildWorktree } from '../core/agent-api-core.ts';
@@ -22,6 +24,11 @@ const BYTES_PER_MEGABYTE = 1024 * 1024;
 type SpawnOutcome =
   | { ok: true; sessionId: string; name: string }
   | { ok: false; status: number; error: string };
+
+function spawnAgentSetup(agentId: string, request: AgentSpawnRequest): AgentSetup | undefined {
+  const selection = choiceSelection(agentId, { model: request.model, effort: request.effort });
+  return selection ? { ...selection, instructions: '' } : undefined;
+}
 
 function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
   const { config, agentSessions, listAllSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane, memoryAdmission, budgetHoldReason, logger } = runtime;
@@ -84,6 +91,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
       path: parent.path,
       dangerouslySkipPermissions: parent.dangerouslySkipPermissions,
       saneYolo: parent.saneYolo,
+      agentSetup: spawnAgentSetup(agentId, request),
     };
 
     let child: Session | null = null;

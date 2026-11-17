@@ -120,9 +120,14 @@ function packsBody({ positionals: [command, packArgument] }: ParsedArguments): R
 }
 
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
-  spawn: ({ positionals }) => {
+  spawn: ({ positionals, values }) => {
     const prompt = joinedText(positionals);
-    return prompt ? { prompt } : null;
+    if (!prompt) return null;
+    return {
+      prompt,
+      ...(typeof values.model === 'string' ? { model: values.model } : {}),
+      ...(typeof values.effort === 'string' ? { effort: values.effort } : {}),
+    };
   },
   send: ({ positionals }) => (joinedText(positionals) ? { words: positionals } : null),
   read: ({ positionals }) => {

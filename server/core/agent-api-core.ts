@@ -438,6 +438,10 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'An option beside an in-process subagent when the work should run in its own supervised session and worktree',
     usage: 'spawn <prompt>',
     positionals: requiredText('<prompt>'),
+    options: [
+      { name: 'model', type: 'string', valueName: 'model', summary: "The model the new session runs, by the agent's own model id; defaults to the agent's configured model" },
+      { name: 'effort', type: 'string', valueName: 'level', summary: 'The reasoning effort the new session runs at, where the agent takes one' },
+    ],
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',
   },
