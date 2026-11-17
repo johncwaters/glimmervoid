@@ -3,7 +3,8 @@ import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { RaceCheck, RaceContestant, RaceReviewCase, ReviewCaseEntry } from '#shared/contracts/race.ts';
 import { RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
+import { textArea, textInput } from '../ui/text-input.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { button } from '../ui/button.ts';
 import { checkbox } from '../ui/checkbox.ts';
@@ -64,15 +65,12 @@ function buildCheckField(): HTMLElement {
   command.querySelector('input')?.setAttribute('placeholder', 'npm test');
   const timeout = el('label', 'arena-field');
   timeout.append(el('span', 'arena-field-label', 'Check time limit in seconds'));
-  const timeoutInput = markAsNotCredential(el('input', 'settings-view-input'));
-  timeoutInput.type = 'number';
+  const timeoutInput = textInput({ type: 'number', value: String(draft.checkTimeoutSeconds), onInput: (value) => {
+    draft.checkTimeoutSeconds = Number(value) || DEFAULT_CHECK_TIMEOUT_SECONDS;
+    if (draft.check) draft.check = { ...draft.check, timeoutSeconds: draft.checkTimeoutSeconds };
+  } });
   timeoutInput.min = '5';
   timeoutInput.max = '3600';
-  timeoutInput.value = String(draft.checkTimeoutSeconds);
-  timeoutInput.addEventListener('input', () => {
-    draft.checkTimeoutSeconds = Number(timeoutInput.value) || DEFAULT_CHECK_TIMEOUT_SECONDS;
-    if (draft.check) draft.check = { ...draft.check, timeoutSeconds: draft.checkTimeoutSeconds };
-  });
   timeout.append(timeoutInput);
   field.append(command, timeout);
   return field;
@@ -81,15 +79,12 @@ function buildCheckField(): HTMLElement {
 function buildTimeLimitField(): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', 'Time limit in minutes, empty for none'));
-  const input = markAsNotCredential(el('input', 'settings-view-input'));
-  input.type = 'number';
+  const input = textInput({ type: 'number', value: draft.timeLimitMinutes === null ? '' : String(draft.timeLimitMinutes), onInput: (value) => {
+    const minutes = Number(value);
+    draft.timeLimitMinutes = value.trim() === '' || !Number.isInteger(minutes) || minutes < 1 ? null : Math.min(minutes, 720);
+  } });
   input.min = '1';
   input.max = '720';
-  input.value = draft.timeLimitMinutes === null ? '' : String(draft.timeLimitMinutes);
-  input.addEventListener('input', () => {
-    const minutes = Number(input.value);
-    draft.timeLimitMinutes = input.value.trim() === '' || !Number.isInteger(minutes) || minutes < 1 ? null : Math.min(minutes, 720);
-  });
   field.append(input);
   return field;
 }
@@ -97,15 +92,12 @@ function buildTimeLimitField(): HTMLElement {
 function buildRoundsField(): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', `Rounds, 1 to ${RACE_MAX_ROUNDS}, run one after another`));
-  const input = markAsNotCredential(el('input', 'settings-view-input'));
-  input.type = 'number';
+  const input = textInput({ type: 'number', value: String(draft.rounds), onInput: (value) => {
+    const rounds = Number(value);
+    draft.rounds = Number.isInteger(rounds) ? Math.min(Math.max(rounds, 1), RACE_MAX_ROUNDS) : 1;
+  } });
   input.min = '1';
   input.max = String(RACE_MAX_ROUNDS);
-  input.value = String(draft.rounds);
-  input.addEventListener('input', () => {
-    const rounds = Number(input.value);
-    draft.rounds = Number.isInteger(rounds) ? Math.min(Math.max(rounds, 1), RACE_MAX_ROUNDS) : 1;
-  });
   field.append(input);
   return field;
 }
@@ -113,10 +105,13 @@ function buildRoundsField(): HTMLElement {
 function textField(label: string, value: string, onInput: (value: string) => void, isMultiline = false): HTMLElement {
   const field = el('label', 'arena-field');
   field.append(el('span', 'arena-field-label', label));
-  const input = isMultiline ? el('textarea', 'settings-view-input arena-prompt') : markAsNotCredential(el('input', 'settings-view-input'));
-  input.value = value;
-  input.addEventListener('input', () => onInput(input.value));
-  field.append(input);
+  if (!isMultiline) {
+    field.append(textInput({ value, onInput }));
+    return field;
+  }
+  const prompt = textArea({ value, onInput });
+  prompt.classList.add('arena-prompt');
+  field.append(prompt);
   return field;
 }
 
@@ -144,13 +139,9 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
       draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, home: AgentHomeKind.parse(home) } : existing)));
       onChanged();
     }, 'Home'));
-    const instructions = el('textarea', 'settings-view-input');
-    instructions.placeholder = 'Extra instructions for this contestant';
-    instructions.rows = 3;
-    instructions.value = contestant.setup.instructions;
-    instructions.addEventListener('input', () => {
-      draft.contestants = draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: { ...existing.setup, instructions: instructions.value } } : existing));
-    });
+    const instructions = textArea({ value: contestant.setup.instructions, placeholder: 'Extra instructions for this contestant', label: 'Extra instructions for this contestant', onInput: (value) => {
+      draft.contestants = draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: { ...existing.setup, instructions: value } } : existing));
+    } });
     column.append(instructions);
     column.append(button({ variant: 'quiet', size: 'small', label: 'Remove', onClick: () => {
       draft.contestants = relabel(draft.contestants.filter((_existing, position) => position !== index));
@@ -265,10 +256,7 @@ function openCasePicker(onPicked: () => void): void {
       })
       .catch((reason: unknown) => { statusEl.textContent = `Could not list the review cases: ${reason instanceof Error ? reason.message : String(reason)}`; });
   };
-  const repoInput = markAsNotCredential(el('input', 'settings-view-input'));
-  repoInput.placeholder = 'owner/repo';
-  repoInput.setAttribute('aria-label', 'Repository to mine merged pull requests from');
-  repoInput.value = draft.reviewCase?.repo ?? '';
+  const repoInput = textInput({ value: draft.reviewCase?.repo ?? '', placeholder: 'owner/repo', label: 'Repository to mine merged pull requests from' });
   const mineButton = button({ variant: 'secondary', size: 'small', label: 'Mine cases', onClick: () => {
     mineButton.disabled = true;
     statusEl.textContent = `Mining merged pull requests of ${repoInput.value.trim()}.`;
@@ -322,8 +310,8 @@ export function buildNewRace(onStarted: () => void): HTMLElement {
   const body = el('div', 'arena-new-body');
   const statusEl = el('span', 'arena-status');
   statusEl.setAttribute('role', 'status');
-  const fileText = el('textarea', 'settings-view-input arena-file');
-  fileText.setAttribute('aria-label', 'Race spec JSON');
+  const fileText = textArea({ label: 'Race spec JSON', spellcheck: false });
+  fileText.classList.add('arena-file');
   const paint = () => {
     body.replaceChildren();
     fileText.hidden = !isEditingAsFile;

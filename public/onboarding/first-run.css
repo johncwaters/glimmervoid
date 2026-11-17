@@ -443,10 +443,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   gap: 8px;
 }
 
-.repo-roots-adder-input {
-  min-width: 0;
-}
-
 [data-layout="phone"] .github-connect-stacked-actions {
   flex-direction: column;
   align-items: stretch;

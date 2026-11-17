@@ -1,0 +1,45 @@
+.ui-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  background: var(--bg-surface);
+  color: var(--text-head);
+  font-family: var(--font-mono);
+  font-size: var(--type-body);
+  transition: border-color var(--transition-fast);
+}
+
+.ui-input[data-size="compact"] {
+  padding: 6px 10px;
+  font-size: var(--type-meta);
+}
+
+textarea.ui-input {
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.ui-input::placeholder {
+  color: var(--text-muted);
+}
+
+.ui-input:focus,
+.ui-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.ui-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+html[data-layout="phone"] .ui-input {
+  min-height: 44px;
+  font-size: var(--type-field);
+}

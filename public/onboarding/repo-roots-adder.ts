@@ -1,6 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
 import { checkbox } from '../ui/checkbox.ts';
@@ -43,11 +44,7 @@ function buildInputRow(placeholder: string, actionLabel: string) {
   adderSequence += 1;
   const inputId = `repo-roots-adder-input-${adderSequence}`;
   const row = el('div', 'repo-roots-adder-row');
-  const input = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
-  input.id = inputId;
-  input.type = 'text';
-  input.placeholder = placeholder;
-  input.spellcheck = false;
+  const input = textInput({ id: inputId, placeholder });
   const actionButton = button({ variant: 'secondary', label: actionLabel });
   actionButton.disabled = true;
   row.append(input, actionButton);
@@ -59,13 +56,8 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
 
   const githubSection = el('div', 'repo-roots-adder-github');
   const githubLabel = el('span', 'repo-roots-adder-label', 'GITHUB');
-  const githubFilter = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
   adderSequence += 1;
-  githubFilter.id = `repo-roots-adder-github-filter-${adderSequence}`;
-  githubFilter.setAttribute('aria-label', 'Filter your GitHub repositories');
-  githubFilter.type = 'text';
-  githubFilter.placeholder = 'filter your repos';
-  githubFilter.spellcheck = false;
+  const githubFilter = textInput({ id: `repo-roots-adder-github-filter-${adderSequence}`, placeholder: 'filter your repos', label: 'Filter your GitHub repositories' });
   githubFilter.hidden = true;
   const githubList = el('ul', 'repo-roots-adder-list');
   const githubHint = el('p', 'repo-roots-adder-status');

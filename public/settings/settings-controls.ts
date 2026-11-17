@@ -1,5 +1,6 @@
 import type { SettingsRange } from '#shared/settings-ranges.ts';
-import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
+import { textArea, textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
 import { switchInput } from '../ui/switch.ts';
 import { select } from '../ui/select.ts';
@@ -188,8 +189,7 @@ function commitFieldDraft(setting: SettingsSetting, field: HTMLInputElement | HT
 }
 
 function renderInput(setting: SettingsSetting) {
-  const input = el('input', 'settings-view-input');
-  input.type = setting.control === 'password' ? 'password' : 'text';
+  const input = textInput({ type: setting.control === 'password' ? 'password' : 'text', labelledBy: setting.id });
   const stored = () => String(storedValue(setting) ?? '');
   input.value = stored();
   if (setting.control === 'password') {
@@ -201,10 +201,6 @@ function renderInput(setting: SettingsSetting) {
     input.disabled = true;
     input.setAttribute('aria-description', `Supplied by ${environmentSource}`);
   }
-  input.autocomplete = 'off';
-  if (setting.control !== 'password') markAsNotCredential(input);
-  input.spellcheck = false;
-  input.setAttribute('aria-labelledby', setting.id);
   attachSuggestions(setting, input);
   trackDraft(setting, input);
   const commitInputDraft = () => {
@@ -222,16 +218,14 @@ function renderInput(setting: SettingsSetting) {
 }
 
 function renderNumber(setting: SettingsSetting) {
-  const input = markAsNotCredential(el('input', 'settings-view-input'));
+  const input = textInput({ type: 'number', labelledBy: setting.id });
   const range = displayRange(setting);
-  input.type = 'number';
   const stored = () => numberDraftOf(storedValue(setting));
   input.value = stored();
   input.step = setting.integer === false ? String(setting.step ?? 'any') : '1';
   const minimum = range ? inputMinimum(setting, range) : undefined;
   if (minimum != null) input.min = String(minimum);
   if (range?.max != null) input.max = String(range.max);
-  input.setAttribute('aria-labelledby', setting.id);
   trackDraft(setting, input);
   bindDraftCommit(input, () => commitFieldDraft(setting, input, stored(), input.validity.badInput), () => restoreFieldDraft(setting, input, stored()));
   const unitLabel = setting.unit?.label;
@@ -277,15 +271,10 @@ function listHintText(setting: SettingsSetting, entries: readonly string[]) {
 }
 
 function renderList(setting: SettingsSetting) {
-  const input = el('textarea', 'settings-view-input settings-view-list-input');
   const storedEntries = () => listValue(storedValue(setting));
   const storedText = () => storedEntries().join('\n');
-  input.rows = 3;
-  input.value = storedText();
-  input.autocomplete = 'off';
-  input.spellcheck = false;
-  input.placeholder = setting.listPlaceholder ?? '';
-  input.setAttribute('aria-labelledby', setting.id);
+  const input = textArea({ value: storedText(), placeholder: setting.listPlaceholder ?? '', labelledBy: setting.id, spellcheck: false });
+  input.classList.add('settings-view-list-input');
   trackDraft(setting, input);
   input.addEventListener('blur', () => commitFieldDraft(setting, input, storedText()));
   input.addEventListener('keydown', (event) => {

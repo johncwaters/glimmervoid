@@ -1,6 +1,8 @@
 import type { AgentModelCatalog, AgentSetup } from '#shared/contracts/agent-models.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { select } from '../ui/select.ts';
+import { el } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
 import { agentLabel, agentsWithModels, canRunOnOpenRouter, defaultSetup, effortOf, effortsOf, PROVIDER_CHOICES, providerOf, setupModelsOf, withEffortChoice, withModel, withProvider, withTypedModel } from './lineup-core.ts';
 
 interface SetupControlOptions {
@@ -28,12 +30,9 @@ function openRouterModelInput(catalog: AgentModelCatalog, setup: AgentSetup, onC
     option.label = model.label;
     modelList.append(option);
   }
-  const input = markAsNotCredential(el('input', 'settings-view-input arena-model-input'));
-  input.setAttribute('aria-label', 'OpenRouter model');
+  const input = textInput({ value: setup.model ?? '', placeholder: 'vendor/model', label: 'OpenRouter model', onChange: (value) => onChange(withTypedModel(setup, value)) });
+  input.classList.add('arena-model-input');
   input.setAttribute('list', listId);
-  input.placeholder = 'vendor/model';
-  input.value = setup.model ?? '';
-  input.addEventListener('change', () => onChange(withTypedModel(setup, input.value)));
   return [input, modelList];
 }
 

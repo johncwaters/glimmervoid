@@ -5,6 +5,9 @@ import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { emptyState } from '../ui/empty-state.ts';
+import { el } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
+import { buildChip } from '../settings/settings-readouts.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
@@ -93,16 +96,11 @@ function sourceArticle(source: PackSourceRow): HTMLElement {
 
 function addSourceForm(): HTMLElement {
   const form = el('div', 'settings-view-pack-source-add');
-  const input = markAsNotCredential(el('input', 'settings-view-input'));
-  input.type = 'url';
-  input.placeholder = 'https://github.com/owner/packs';
-  input.value = draftSourceUrl;
-  input.setAttribute('aria-label', 'Git URL of a pack source');
+  const input = textInput({ type: 'url', value: draftSourceUrl, placeholder: 'https://github.com/owner/packs', label: 'Git URL of a pack source', onInput: (value) => { draftSourceUrl = value; } });
   const addSource = () => {
     if (draftSourceUrl.trim() === '' || isSourceBusy(SOURCES_STATUS_KEY)) return;
     void changeSource(SOURCES_STATUS_KEY, { type: 'pack-source-add', url: draftSourceUrl.trim() });
   };
-  input.addEventListener('input', () => { draftSourceUrl = input.value; });
   input.addEventListener('keydown', (event) => { if (event.key === 'Enter') addSource(); });
   const addButton = button({ variant: 'secondary', label: 'Add source', action: 'pack-source-add', disabled: isSourceBusy(SOURCES_STATUS_KEY), onClick: addSource });
   form.append(input, addButton, statusLine(SOURCES_STATUS_KEY));
@@ -310,14 +308,11 @@ function mountPacksView(parent: HTMLElement): void {
   if (packsBody) return;
   const root = el('div', 'packs-content');
   const header = el('div', 'packs-header');
-  const search = markAsNotCredential(el('input', 'settings-view-input packs-search'));
-  search.type = 'search';
-  search.placeholder = 'Search packs';
-  search.setAttribute('aria-label', 'Search packs');
-  search.addEventListener('input', () => {
-    searchText = search.value;
+  const search = textInput({ type: 'search', size: 'compact', placeholder: 'Search packs', label: 'Search packs', onInput: (value) => {
+    searchText = value;
     repaintPacks();
-  });
+  } });
+  search.classList.add('packs-search');
   header.append(el('h1', 'packs-title', 'Packs'), el('span', 'packs-section-spacer'), search);
   packsBody = el('div', 'packs-body');
   root.append(header, el('p', 'packs-note', PACKS_TRUST_LINE), packsBody);

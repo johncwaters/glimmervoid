@@ -2,7 +2,8 @@ import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -42,17 +43,6 @@ function savedCommunitySettings(): { projectId: number; skill: string; discordCh
   };
 }
 
-function textInput(id: string, value: string, placeholder: string, type: string): HTMLInputElement {
-  const input = el('input', 'dialog-input repo-roots-adder-input');
-  input.id = id;
-  input.type = type;
-  input.autocomplete = 'off';
-  if (type !== 'password') markAsNotCredential(input);
-  input.value = value;
-  input.placeholder = placeholder;
-  input.spellcheck = false;
-  return input;
-}
 
 export function createCommunitySetupCard({ onFinish }: { onFinish: () => void }) {
   const element = el('section', 'first-run-checklist review-setup');
@@ -111,7 +101,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
   }
 
   function fieldStepBody(field: FieldStep): HTMLElement[] {
-    const input = textInput(field.inputId, field.initialValue, field.placeholder, field.inputType);
+    const input = textInput({ id: field.inputId, value: field.initialValue, placeholder: field.placeholder, type: field.inputType });
     const label = el('label', 'repo-roots-adder-label', field.label);
     label.htmlFor = input.id;
     const actions = el('div', 'first-run-step-actions');

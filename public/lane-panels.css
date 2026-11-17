@@ -35,7 +35,7 @@
   letter-spacing: 0.08em; font-weight: 700;
 }
 
-.hooks-filter { max-width: 360px; font-size: var(--type-meta); padding: 6px 10px; }
+.hooks-filter { max-width: 360px; }
 
 .hooks-builtin { display: flex; flex-direction: column; gap: 10px; }
 .hooks-form .settings-view-input:disabled { opacity: 0.45; cursor: not-allowed; }

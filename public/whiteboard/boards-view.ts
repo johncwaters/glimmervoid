@@ -9,6 +9,7 @@ import { BoardPageArrow, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, Boar
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import { createActionStatus } from '../action-status.ts';
 import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { SHEET_WIDTH_HANDLE_PX, sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { button, menuButton } from '../ui/button.ts';
@@ -167,12 +168,8 @@ let historyQueue: Promise<unknown> = Promise.resolve();
 
 function openTextDialog(options: TextDialogOptions): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: options.title });
-  const input = markAsNotCredential(el('input', 'dialog-input'));
-  input.type = 'text';
-  input.placeholder = options.placeholder;
+  const input = textInput({ placeholder: options.placeholder, value: options.initialValue ?? '', label: options.label });
   input.maxLength = options.maxLength;
-  input.value = options.initialValue ?? '';
-  input.setAttribute('aria-label', options.label);
   const errorEl = el('div', 'dialog-error');
   errorEl.setAttribute('role', 'alert');
   const btnConfirm = button({ variant: 'primary', label: options.confirmLabel, action: 'confirm-board-dialog' });

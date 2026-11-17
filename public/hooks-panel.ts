@@ -2,7 +2,8 @@ import './hooks-panel.css';
 import { sendControlRequest } from './control-ws.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
-import { buildPanelSection, buildStatChip, el, isPanelHidden, markAsNotCredential, projectsOf } from './dom-helpers.ts';
+import { buildPanelSection, buildStatChip, el, isPanelHidden, projectsOf } from './dom-helpers.ts';
+import { textArea, textInput } from './ui/text-input.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
@@ -142,21 +143,12 @@ function buildField(label: string, control: HTMLElement, hint: string | null) {
 }
 
 function buildInput(value: string, placeholder: string, onInput: (value: string) => void) {
-  const input = markAsNotCredential(el('input', 'settings-view-input'));
-  input.type = 'text';
-  input.value = value;
-  input.spellcheck = false;
-  if (placeholder) input.placeholder = placeholder;
-  input.addEventListener('input', () => onInput(input.value));
-  return input;
+  return textInput({ value, placeholder, onInput });
 }
 
 function buildTextarea(value: string, onInput: (value: string) => void) {
-  const area = el('textarea', 'settings-view-input hooks-command');
-  area.rows = 3;
-  area.value = value;
-  area.spellcheck = false;
-  area.addEventListener('input', () => onInput(area.value));
+  const area = textArea({ value, spellcheck: false, onInput });
+  area.classList.add('hooks-command');
   return area;
 }
 
@@ -265,13 +257,11 @@ function buildEditor(draft: HookDraft) {
   };
   syncMatcher();
 
-  const timeoutInput = markAsNotCredential(el('input', 'settings-view-input hooks-timeout'));
-  timeoutInput.type = 'number';
+  const timeoutInput = textInput({ type: 'number', value: draft.timeout, onInput: (value) => { draft.timeout = value; } });
+  timeoutInput.classList.add('hooks-timeout');
   timeoutInput.inputMode = 'numeric';
   timeoutInput.min = '1';
   timeoutInput.max = String(maxTimeoutOf(_hooks.report));
-  timeoutInput.value = draft.timeout;
-  timeoutInput.addEventListener('input', () => { draft.timeout = timeoutInput.value; });
 
   const eventHint = el('span', 'hooks-field-hint', eventDescription(events, draft.event));
   const eventField = buildField('Event', buildEventSelect(draft, events, (value) => { draft.event = value; eventHint.textContent = eventDescription(events, value); syncMatcher(); }), null);
@@ -438,16 +428,12 @@ function buildTotalsSection() {
 }
 
 function buildFilter() {
-  const input = markAsNotCredential(el('input', 'settings-view-input hooks-filter'));
-  input.type = 'search';
-  input.value = _filter;
-  input.placeholder = FILTER_PLACEHOLDER;
-  input.setAttribute('aria-label', FILTER_PLACEHOLDER);
-  input.addEventListener('input', () => {
-    _filter = input.value;
+  const input = textInput({ type: 'search', size: 'compact', value: _filter, placeholder: FILTER_PLACEHOLDER, label: FILTER_PLACEHOLDER, onInput: (value) => {
+    _filter = value;
     const list = _root?.querySelector('.hooks-list-yours');
     if (list) list.replaceWith(buildYoursList());
-  });
+  } });
+  input.classList.add('hooks-filter');
   return input;
 }
 

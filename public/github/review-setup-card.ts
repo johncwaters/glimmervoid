@@ -3,7 +3,8 @@ import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
 import { button } from '../ui/button.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
 import { buildCommandRow, buildSetupStep } from '../onboarding/setup-step.ts';
 import { buildGithubConnectSection, isConnectOffered } from '../secrets/github-connect.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -21,12 +22,7 @@ function reportReviewSetupAction(action: OperatorActionOf<'onboarding'>): void {
 }
 
 function typedTextInput(inputId: string, placeholder: string): HTMLInputElement {
-  const input = markAsNotCredential(el('input', 'dialog-input repo-roots-adder-input'));
-  input.id = inputId;
-  input.type = 'text';
-  input.placeholder = placeholder;
-  input.spellcheck = false;
-  return input;
+  return textInput({ id: inputId, placeholder });
 }
 
 function githubStepBadgeOf(connection: GithubConnection): string {

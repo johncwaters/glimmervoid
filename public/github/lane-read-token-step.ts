@@ -2,6 +2,7 @@ import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el, externalLink } from '../dom-helpers.ts';
+import { textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
 import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
 
@@ -33,12 +34,7 @@ function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSave
   const inputId = 'lane-read-token-input';
   const label = el('label', 'repo-roots-adder-label', 'READ-ONLY TOKEN');
   label.htmlFor = inputId;
-  const input = el('input', 'dialog-input repo-roots-adder-input');
-  input.id = inputId;
-  input.type = 'password';
-  input.placeholder = 'github_pat_';
-  input.autocomplete = 'off';
-  input.spellcheck = false;
+  const input = textInput({ id: inputId, type: 'password', placeholder: 'github_pat_' });
   const actions = el('div', 'first-run-step-actions');
   const saveButton = button({ variant: 'primary', label: 'Save token', action: READ_TOKEN_ACTION });
   const status = createActionStatus();
