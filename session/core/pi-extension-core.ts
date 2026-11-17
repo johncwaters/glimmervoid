@@ -117,6 +117,7 @@ export default function (pi) {
   const skillPaths = Array.isArray(launch.skillPaths) ? launch.skillPaths.filter((entry) => typeof entry === "string") : [];
   const pendingPromptContexts = [];
   let sessionId = null;
+  let sessionFile = null;
   const openPhases = new Set();
 
   pi.registerFlag(SKIP_PERMISSIONS_FLAG, { description: "Run bash, write and edit without asking", type: "boolean", default: false });
@@ -127,11 +128,12 @@ export default function (pi) {
 
   function payload(fields = {}) {
     const sessionTitle = pi.getSessionName();
-    return { session_id: sessionId, ...(sessionTitle ? { session_title: sessionTitle } : {}), ...fields };
+    return { session_id: sessionId, ...(sessionFile ? { transcript_path: sessionFile } : {}), ...(sessionTitle ? { session_title: sessionTitle } : {}), ...fields };
   }
 
   function rememberSession(ctx) {
     sessionId = ctx.sessionManager.getSessionId() ?? sessionId;
+    sessionFile = ctx.sessionManager.getSessionFile?.() ?? sessionFile;
   }
 
   pi.on("session_start", async (event, ctx) => {

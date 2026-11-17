@@ -9,6 +9,8 @@ import { codexRecordsFromLine } from '../core/conversation/codex-core.ts';
 import { codexRolloutRoots } from '../../session/adapters/codex.ts';
 import { kimiRecordsFromLine } from '../core/conversation/kimi-core.ts';
 import { kimiSessionRoots, locateKimiWire } from '../../session/adapters/kimi.ts';
+import { piRecordsFromLine } from '../core/conversation/pi-core.ts';
+import { piSessionRoots } from '../../session/adapters/pi.ts';
 import { isPathInside } from '../../shared/paths.ts';
 
 type TranscriptLineContext = Parameters<typeof traceRecordsFromTranscriptLine>[1];
@@ -45,7 +47,11 @@ const conversationSourceByAgentId = {
     locateTranscript: locateKimiWire,
   },
   opencode: { kind: 'none', reason: CONVERTER_NOT_BUILT },
-  pi: { kind: 'none', reason: CONVERTER_NOT_BUILT },
+  pi: {
+    kind: 'transcript',
+    containmentRoots: piSessionRoots,
+    recordsFromLine: piRecordsFromLine,
+  },
   antigravity: { kind: 'none', reason: CONVERTER_NOT_BUILT },
 } satisfies Record<CatalogAgentId, ConversationSource>;
 

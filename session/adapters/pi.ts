@@ -17,6 +17,7 @@ import type {
   GeneratedHomeLaunch,
 } from "./index.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
+import { expandTilde } from "../../server/usage/core/usage-scan-core.ts";
 
 const ID = "pi";
 const COMMAND_NAME = "pi";
@@ -175,4 +176,18 @@ const pi = {
   },
 } satisfies AgentAdapterShape;
 
+function piEnvDir(agentEnv: Record<string, string | undefined>, name: string): string {
+  const configured = agentEnv[name]?.trim() ?? "";
+  if (!configured) return "";
+  const expanded = expandTilde(configured, agentEnv, os.homedir());
+  return expanded ? path.resolve(expanded) : "";
+}
+
+function piSessionRoots(agentEnv: Record<string, string | undefined>): string[] {
+  const agentDir = piEnvDir(agentEnv, "PI_CODING_AGENT_DIR") || path.join(agentEnv.HOME?.trim() || os.homedir(), ".pi", "agent");
+  const sessionDirOverride = piEnvDir(agentEnv, "PI_CODING_AGENT_SESSION_DIR");
+  return [...(sessionDirOverride ? [sessionDirOverride] : []), path.join(agentDir, "sessions")];
+}
+
 export default pi;
+export { piSessionRoots };
