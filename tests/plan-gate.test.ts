@@ -23,6 +23,11 @@ test('the dashboard approves or rejects a held Claude plan only while the plan g
   const config: GlimmervoidConfig = { projects: [{ id: 'planner', name: 'planner', path: projectPath }], planGate: { enabled: false } };
   const planGateFrames: unknown[] = [];
   const currentPlanGate = () => session.planGate;
+  const typedIntoSession: string[] = [];
+  session.deliver = (text) => {
+    typedIntoSession.push(text);
+    return { ok: true, kind: 'queued' };
+  };
   createSessionEventWiring({
     configStore: { save: (mutate) => { mutate(config); return config; } }, config, recordLane: () => {},
     usage: { refreshSessions: () => {}, nudgeSession: () => {} },
@@ -68,8 +73,11 @@ test('the dashboard approves or rejects a held Claude plan only while the plan g
 
     const approved = postPlan();
     await new Promise((resolve) => setTimeout(resolve, 50));
-    connection.send({ type: 'plan-decision', id: session.id, decision: 'approve' });
+    connection.send({ type: 'plan-decision', id: session.id, decision: 'approve', feedback: 'Keep the store in memory' });
     assert.deepEqual((await (await approved).json()).hookSpecificOutput.decision, { behavior: 'allow' });
+    assert.deepEqual(typedIntoSession, [], 'approval feedback waits while the plan dialog may still hold the keyboard');
+    session.emit('hook-event', { event: 'PostToolUse', payload: { tool_name: 'ExitPlanMode', tool_input: PLAN_REQUEST.tool_input } });
+    assert.deepEqual(typedIntoSession, ['The operator approved your plan with this feedback: Keep the store in memory'], 'only approval feedback is typed, since a rejection carries it in the hook reply');
 
     connection.send({ type: 'plan-decision', id: session.id, decision: 'approve' });
     assert.equal(connection.sent.at(-1)?.type, 'error');

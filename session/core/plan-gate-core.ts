@@ -4,6 +4,7 @@ import type { ClaudeHookReply } from './claude-approval-core.ts';
 
 const REJECTED_PLAN_MESSAGE = 'The operator rejected this plan. Revise it and propose it again.';
 const CODEX_APPROVAL_TEXT = 'Approved. Implement the plan.';
+const HELD_APPROVAL_FEEDBACK_TEXT = 'The operator approved your plan with this feedback:';
 
 type PlanGateEvent =
   | { kind: 'plan-proposed'; planText: string }
@@ -54,5 +55,18 @@ function codexPlanDecisionText(decision: Exclude<PlanDecision, 'terminal'>, feed
   return feedback ? `${REJECTED_PLAN_MESSAGE} Feedback: ${feedback}` : REJECTED_PLAN_MESSAGE;
 }
 
-export { claudePlanDecisionReply, codexPlanDecisionText, isExitPlanModeTool, isPlanGateEnabled, nextPlanGate, planTextOfToolInput, shouldClearPlanGate };
+function planDecisionFollowUpText({ agentId, isHeld, decision, feedback }: { agentId: string; isHeld: boolean; decision: Exclude<PlanDecision, 'terminal'>; feedback: string | null }): string | null {
+  if (isHeld) return decision === 'approve' && feedback ? `${HELD_APPROVAL_FEEDBACK_TEXT} ${feedback}` : null;
+  if (agentId !== 'codex') return null;
+  return codexPlanDecisionText(decision, feedback);
+}
+
+function heldFollowUpStepAfterHook(event: string, payload: Record<string, unknown>): 'deliver' | 'drop' | 'wait' {
+  const normalizedEvent = event.toLowerCase();
+  if (normalizedEvent === 'posttooluse' && isExitPlanModeTool(String(payload.tool_name ?? ''))) return 'deliver';
+  if (normalizedEvent === 'userpromptsubmit' || normalizedEvent === 'sessionend' || normalizedEvent === 'stop') return 'drop';
+  return 'wait';
+}
+
+export { claudePlanDecisionReply, heldFollowUpStepAfterHook, planDecisionFollowUpText, isExitPlanModeTool, isPlanGateEnabled, nextPlanGate, planTextOfToolInput, shouldClearPlanGate };
 export type { PlanGateEvent };

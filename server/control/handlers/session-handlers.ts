@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { codexPlanDecisionText } from '../../../session/core/plan-gate-core.ts';
+import { heldFollowUpStepAfterHook, planDecisionFollowUpText } from '../../../session/core/plan-gate-core.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
@@ -636,8 +636,24 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       sendError(ws, `The plan decision was not applied: ${outcome.reason}.`, { id: session.id });
       return;
     }
-    if (outcome.isHeld || msg.decision === 'terminal' || session.agentId !== 'codex') return;
-    const delivery = session.deliver(codexPlanDecisionText(msg.decision, session.planGate?.feedback ?? null), { when: 'ready', submit: true });
+    if (msg.decision === 'terminal') return;
+    const followUp = planDecisionFollowUpText({ agentId: session.agentId, isHeld: outcome.isHeld, decision: msg.decision, feedback: session.planGate?.feedback ?? null });
+    if (followUp === null) return;
+    if (!outcome.isHeld) {
+      typePlanFollowUp(session, followUp, ws);
+      return;
+    }
+    const typeOnceThePlanDialogCloses = ({ event, payload }: { event: string; payload: Record<string, unknown> }) => {
+      const step = heldFollowUpStepAfterHook(event, payload);
+      if (step === 'wait') return;
+      session.off('hook-event', typeOnceThePlanDialogCloses);
+      if (step === 'deliver') typePlanFollowUp(session, followUp, ws);
+    };
+    session.on('hook-event', typeOnceThePlanDialogCloses);
+  }
+
+  function typePlanFollowUp(session: Session, followUp: string, ws: ControlSocket): void {
+    const delivery = session.deliver(followUp, { when: 'ready', submit: true });
     if (!delivery.ok) sendError(ws, `The plan decision could not be typed into the session: ${delivery.reason}.`, { id: session.id });
   }
 
