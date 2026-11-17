@@ -17,6 +17,9 @@ import {
 import { CO_CHANGE_LOG_ARGS, computeCoChange, parseCoChangeLog } from '../core/co-change-core.ts';
 import type { CommitFiles } from '../core/co-change-core.ts';
 import { collisionCandidates, computeCollisions, computeSubsystems, parseZeroContextDiff, readAgentsTitle } from './core/change-ownership-core.ts';
+import { claimCollisions } from '../core/file-claims-core.ts';
+import { IS_CASE_INSENSITIVE_FILESYSTEM } from '../file-claims.ts';
+import type { FileClaim } from '../core/file-claims-core.ts';
 import type { FileEditsByPath } from './core/change-ownership-core.ts';
 import { buildImportGraph, computeBlastRadius, extractImportSpecifiers, extractPythonImportSpecifiers } from '../core/import-graph-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
@@ -63,6 +66,7 @@ interface ChangeMapServiceOptions {
   sessions: ChangeMapSessionSource;
   runGit?: (args: string[], cwd: string) => Promise<string>;
   nowFn?: () => number;
+  claimsByOthersOf?: (sessionId: string) => readonly FileClaim[];
 }
 
 interface CachedFileFact<Value> {
@@ -207,6 +211,7 @@ export function createChangeMapService({
   sessions,
   runGit = runGitAsync,
   nowFn = clock.nowMs,
+  claimsByOthersOf = () => [],
 }: ChangeMapServiceOptions) {
   const specifierCache = createFileFactCache(extractImportSpecifiers, []);
   const pythonSpecifierCache = createFileFactCache(extractPythonImportSpecifiers, []);
@@ -337,7 +342,7 @@ export function createChangeMapService({
       ]);
       editsByOtherSessionId.set(otherSession.id, { selfEditsByPath, otherEditsByPath });
     }));
-    return computeCollisions({
+    const editCollisions = computeCollisions({
       repoName: scope.name,
       candidates,
       editsFor: (candidate) => {
@@ -345,6 +350,7 @@ export function createChangeMapService({
         return { selfEdits: edits?.selfEditsByPath?.get(candidate.path), otherEdits: edits?.otherEditsByPath?.get(candidate.path) };
       },
     });
+    return [...editCollisions, ...claimCollisions({ repoName: scope.name, sessionPathPrefix: scope.sessionPathPrefix, changedPaths, claimsByOthers: claimsByOthersOf(selfId), knownCollisions: editCollisions, isCaseInsensitive: IS_CASE_INSENSITIVE_FILESYSTEM })];
   }
 
   async function repoFactsFor(scope: ChangeScope, files: ChangedFile[], commonDir: string, inputs: RepoInputs): Promise<RepoChangeMap> {

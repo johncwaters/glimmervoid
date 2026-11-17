@@ -64,9 +64,9 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
-  const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
+  const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
     return {
@@ -192,8 +192,18 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
   }
 
-  function send(session: Session, { words }: AgentSendRequest): AgentReplyOf<'send'> {
+  function sendToSibling(session: Session, target: string, text: string): AgentReplyOf<'send'> {
+    if (!text) return refusal(400, 'send needs text, for example glimmervoid send --to <sibling> I am editing server/api.ts');
+    const sibling = findSiblingOf(session, target);
+    if (!sibling.ok) return refusal(404, sibling.error);
+    if (!agentSessions.has(sibling.channel.childId)) return refusal(409, `${sibling.channel.childName} has ended, so nothing was sent`);
+    post(sibling.channel.childId, 'toChild', { author: 'sibling', text: `${session.name} (${session.id}): ${text}`, at: clock.nowMs(), wakes: true });
+    return { status: 200, body: { ok: true } };
+  }
+
+  function send(session: Session, { words, to }: AgentSendRequest): AgentReplyOf<'send'> {
     const at = clock.nowMs();
+    if (to !== undefined) return sendToSibling(session, to, words.join(' ').trim());
     if (channelsByChildId.has(session.id)) {
       post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
       return { status: 200, body: { ok: true } };
@@ -408,6 +418,11 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     secrets: async (session) => (secrets ? { status: 200, body: await secrets.envFor(needingSessionOf(session)) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
     wake: (session, request) => wakes.handleAgent(session, request),
+    claim: (session, request) => {
+      if (!fileClaims) return refusal(503, 'file claims are not available in this Glimmervoid');
+      const outcome = fileClaims.handle({ id: session.id, name: session.name, projectPath: session.path, rootDir: session.worktreeDir ?? session.path, cwd: session.effectiveCwd() }, request);
+      return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
+    },
     memory: async (session, request) => {
       const outcome = await memory.handle({ projectPath: session.path, name: session.name }, request);
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);

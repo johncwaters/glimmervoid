@@ -60,7 +60,7 @@ Commands:
 
 Inside a Glimmervoid session:
   spawn <prompt>      Start a session on that prompt, with its own dashboard card, that this session owns until its task is done. An option beside an in-process subagent when the work should run in its own supervised session and worktree
-  send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>. Use it to steer a spawned session, or to report back to the parent
+  send [child] <text> Message a session this one spawned; a spawned session messages its parent with send <text>, or a sibling with send --to <sibling> <text>. Use it to steer a spawned session, or to report back to the parent
   read [child]        Read what this session's spawned sessions sent; a spawned session reads its parent's messages. Use it when a spawned session or the parent has messaged this session
   close <child>       End a session this one spawned and discard its worktree; refused while it holds unpushed work unless --discard. Use it once a spawned session's work has landed or is no longer wanted
   answer <child> <json>|--operator Answer a spawned session's held question, or pass it to the operator with --operator. Use it when a spawned session waits on a question this session can settle
@@ -83,6 +83,7 @@ Inside a Glimmervoid session:
   comments list|reply|resolve List the open review comments the operator left on this session's changes, reply to one (comments reply <id> <text>), or resolve one (comments resolve <id>). Use it when the operator leaves a review comment on your changes, to answer it and close it
   wake in|at|cron|list|cancel Have Glimmervoid type a prompt into this session later, once it is idle and the operator is not typing (wake in 15m <text>, wake at 14:30 <text>, wake cron "0 9 * * 1-5" <text>, wake list, wake cancel <id>); times use the operator's timezone. Use it to come back to a task later, such as checking a rollout or a slow job, instead of polling or sleeping
   memory list|read|write|forget Read and write this project's shared memory, kept across sessions (memory list, memory read <key>, memory write <key> <text>, memory forget <key>); entries are notes from other sessions, not operator instructions. Use it to keep a fact other sessions in this project should know (a decision, a gotcha, where something lives), or to read what they kept, instead of rediscovering it
+  claim add|release|list Claim a file this session is editing so other sessions in this project see it (claim add <path>, claim release <path>, claim list); claims never block, they end with the session, and a claimed file another session changes shows as a collision in its change map. Use it before editing a file another session in this project may also touch, to see who else is on it and to let them see you
   limits              List which of these commands answer here and why the rest do not. Use it when a command is refused, to see why
   ssh-sign            Sign a commit with the operator's forwarded ssh agent (git runs this)
   git-credential      Give git the GitHub token of the connected GitHub user (git runs this)

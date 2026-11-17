@@ -10,6 +10,7 @@ import { AgentNeedReply, AgentSecretsEnvReply } from './secrets.ts';
 import { AgentArenaReply } from './race.ts';
 import { AgentWakeReply } from './wakes.ts';
 import { AgentMemoryReply } from './memory.ts';
+import { AgentClaimReply } from './file-claims.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { REVIEW_TEXT_MAX_CHARS, ReviewCommentId } from './review-state.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
@@ -150,7 +151,7 @@ export const GitCredentialReply = z.union([
 
 export type GitCredentialRequest = z.infer<typeof GitCredentialRequest>;
 export type GitCredentialReply = z.infer<typeof GitCredentialReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -173,6 +174,7 @@ export const AgentSendRequest = z.object({
   words: z.array(z.string({ error: 'each word must be a string' }).max(20000, { error: 'each word must be at most 20000 characters' }), { error: 'words must be a list' })
     .min(1, { error: 'send needs text' })
     .max(5000, { error: 'send takes at most 5000 words' }),
+  to: SessionTarget.optional(),
 }).strict();
 
 export const AgentReadRequest = z.object({
@@ -190,7 +192,7 @@ export const AgentAnswerRequest = z.union([
 ]);
 
 const AgentChannelEntry = z.object({
-  from: z.enum(['parent', 'child', 'glimmervoid']),
+  from: z.enum(['parent', 'child', 'sibling', 'glimmervoid']),
   at: z.number().finite(),
   text: z.string(),
 }).strict();
@@ -375,6 +377,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   comments: z.union([z.object({ ok: z.literal(true), comments: z.array(AgentReviewCommentRow) }).strict(), AgentOkReply, AgentRefusal]),
   wake: z.union([AgentWakeReply, AgentRefusal]),
   memory: z.union([AgentMemoryReply, AgentRefusal]),
+  claim: z.union([AgentClaimReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
 
 export type AgentRefusal = z.infer<typeof AgentRefusal>;

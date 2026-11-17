@@ -139,6 +139,11 @@ function memoryRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot use shared memory, because a lane runs on input the operator has not vetted and could plant notes other sessions trust' };
 }
 
+function claimRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot claim files, because a lane works in a throwaway folder no other session edits' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -166,6 +171,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   comments: commentsRoute,
   wake: wakeRoute,
   memory: memoryRoute,
+  claim: claimRoute,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';
