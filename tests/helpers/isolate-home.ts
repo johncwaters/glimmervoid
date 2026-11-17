@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ENV_SECRET_BINDINGS } from '../../server/core/config-secrets-core.ts';
 import { GIT_CREDENTIAL_URL_ENV } from '../../shared/contracts/session.ts';
+import { VENDOR_HOME_VARS } from './transcript-homes.ts';
 
 const REMOVAL_ATTEMPTS_WHILE_A_LATE_WRITER_FINISHES = 40;
 const DELAY_BETWEEN_REMOVAL_ATTEMPTS_MS = 25;
@@ -47,6 +48,7 @@ for (const binding of ENV_SECRET_BINDINGS) delete process.env[binding.environmen
 
 process.env.GLIMMERVOID_HOME = resolveIsolatedTestHome();
 process.env.CLAUDE_CONFIG_DIR = path.join(process.env.GLIMMERVOID_HOME, 'claude-config');
+for (const vendorHomeVariable of VENDOR_HOME_VARS.filter((name) => name !== 'CLAUDE_CONFIG_DIR')) process.env[vendorHomeVariable] = path.join(process.env.GLIMMERVOID_HOME, vendorHomeVariable.toLowerCase());
 
 const isolatedTestTemp = mintFolderRemovedOnExit('glimmervoid-test-tmp-');
 for (const temporaryFolderVariable of ['TMPDIR', 'TEMP', 'TMP']) process.env[temporaryFolderVariable] = isolatedTestTemp;
@@ -61,3 +63,40 @@ if (!fs.existsSync(isolatedGitConfig)) fs.writeFileSync(isolatedGitConfig, '[use
 process.env.GIT_CONFIG_GLOBAL = isolatedGitConfig;
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.GIT_TERMINAL_PROMPT = '0';
+
+function commandNameOf(entryName: string): string {
+  return process.platform === 'win32' ? path.parse(entryName).name : entryName;
+}
+
+function listFolderEntries(folder: string): string[] {
+  try {
+    return fs.readdirSync(folder);
+  } catch {
+    return [];
+  }
+}
+
+function linkEntry(target: string, linkPath: string): void {
+  try {
+    fs.symlinkSync(target, linkPath);
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'EPERM') || !fs.statSync(target).isFile()) throw error;
+    fs.copyFileSync(target, linkPath);
+  }
+}
+
+function agentFreeCopyOf(folder: string, agentCommandNames: ReadonlySet<string>): string {
+  const entries = listFolderEntries(folder);
+  if (!entries.some((entryName) => agentCommandNames.has(commandNameOf(entryName)))) return folder;
+  const agentFreeFolder = mintFolderRemovedOnExit('glimmervoid-test-bin-');
+  for (const entryName of entries.filter((candidate) => !agentCommandNames.has(commandNameOf(candidate)))) linkEntry(path.join(folder, entryName), path.join(agentFreeFolder, entryName));
+  return agentFreeFolder;
+}
+
+if (process.env.GLIMMERVOID_TEST_PATH_WITHOUT_AGENTS !== '1') {
+  const { BUILT_IN_AGENTS } = await import('../../session/adapters/index.ts');
+  const agentCommandNames = new Set(BUILT_IN_AGENTS.filter(({ tier }) => tier !== 'shell').map(({ adapter }) => adapter.commandName));
+  const pathFolders = (process.env.PATH ?? '').split(path.delimiter).filter((folder) => folder !== '');
+  process.env.PATH = pathFolders.map((folder) => agentFreeCopyOf(folder, agentCommandNames)).join(path.delimiter);
+  process.env.GLIMMERVOID_TEST_PATH_WITHOUT_AGENTS = '1';
+}
