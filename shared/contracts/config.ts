@@ -141,6 +141,7 @@ const FILE_CONFIG_SHAPE = {
   usage: optionalLooseObject('usage'),
   telegram: optionalLooseObject('telegram'),
   slack: optionalLooseObject('slack'),
+  sessionReview: optionalLooseObject('sessionReview'),
   workflows: optionalLooseObject('workflows'),
   prFlows: optionalLooseObject('prFlows'),
   packs: z.array(z.string({ error: 'packs must list pack directory paths' }).min(1, { error: 'packs must list pack directory paths' }), { error: 'packs must be an array of pack directory paths' }).optional(),
@@ -190,7 +191,7 @@ export const Config = z.object({
 
 export const CONFIG_BLOCK_KEYS = Object.freeze([
   'taskTitle', 'branchGc', 'github', 'lanes', 'teamReview', 'community', 'questionManager', 'posthog', 'usage', 'telegram',
-  'telemetry', 'vault', 'workflows', 'worktree', 'loopGuard', 'slack',
+  'telemetry', 'vault', 'workflows', 'worktree', 'loopGuard', 'slack', 'sessionReview',
 ]);
 export const CONFIG_SCALAR_KEYS = Object.freeze(Object.keys(BROWSER_CONFIG_SHAPE).filter((key) => {
   if (CONFIG_BLOCK_KEYS.includes(key)) return false;

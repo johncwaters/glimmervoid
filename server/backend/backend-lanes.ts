@@ -31,6 +31,7 @@ import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace
 import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
+import { createSessionReviewWiring } from '../review/session-review-wiring.ts';
 import { createQuestionManagerLane, QUESTION_MANAGER_LANE_TOOLS } from '../question-manager/question-manager.ts';
 import { createRadarWiring } from '../radar/radar-wiring.ts';
 import { createCommunityWiring } from '../community/community-wiring.ts';
@@ -79,6 +80,7 @@ import { clock as timeClock } from '../../shared/clock.ts';
 import { PACK_SCHEDULED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
 
 const RACE_JUDGE_TOOLS = Object.freeze(['Read', 'Glob', 'Grep', 'Write']);
+const SESSION_REVIEW_TOOLS = RACE_JUDGE_TOOLS;
 const RACE_CHECK_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 interface BackendLaneOptions {
@@ -373,6 +375,20 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const sessionReview = createSessionReviewWiring({
+    getSessionReviewConfig: () => configStore.config.sessionReview,
+    broadcastControl,
+    logger,
+    spawnReviewer: ({ reviewer, readPaths, ...request }) => createLaneSpawn({
+      sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+      replayBufferKB: config.replayBufferKB, laneName: 'session-review', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      allowTools: SESSION_REVIEW_TOOLS,
+    })({
+      ...request, agent: reviewer.agent, model: reviewer.model,
+      extraArgs: reviewer.agent === 'claude-code' ? ['--allowedTools', ...readPaths.flatMap((readPath) => ['Read', 'Glob', 'Grep'].map((tool) => absolutePathReadRule(readPath).replace(/^Read/, tool)))] : [],
+    }),
+  });
+
   const isTraceEnabled = config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled;
   const traceWiring = isTraceEnabled
     ? createTraceWiring({
@@ -535,6 +551,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     uploadsWiring,
     traceChangeBroadcast,
     usage,
+    sessionReview,
   };
 }
 

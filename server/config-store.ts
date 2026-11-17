@@ -307,6 +307,7 @@ function createConfigStore({
       telegram: pickBlock('telegram', config.telegram),
       loopGuard: pickBlock('loopGuard', config.loopGuard),
       slack: pickBlock('slack', config.slack),
+      sessionReview: pickBlock('sessionReview', config.sessionReview),
     };
   }
 
@@ -349,6 +350,8 @@ function createConfigStore({
     if (newConfig.vault != null) config.vault = { ...config.vault, ...newConfig.vault };
     if (newConfig.slack == null) delete config.slack;
     if (newConfig.slack != null) config.slack = newConfig.slack;
+    if (newConfig.sessionReview == null) delete config.sessionReview;
+    if (newConfig.sessionReview != null) config.sessionReview = newConfig.sessionReview;
     if (newConfig.loopGuard == null) delete config.loopGuard;
     if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;

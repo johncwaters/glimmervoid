@@ -53,6 +53,26 @@ export const MACHINE_SLACK: SettingsSection = {
   ],
 };
 
+export const MACHINE_SESSION_REVIEW: SettingsSection = {
+  id: 'machine-session-review',
+  level: 'machine',
+  parent: 'machine-sessions',
+  title: 'Session review',
+  description: 'The read-only reviewer the Review button in Changes starts on a session diff.',
+  settings: [
+    {
+      id: 'session-review-agent', path: 'sessionReview.agent', title: 'Reviewer agent',
+      description: 'Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout.',
+      control: 'select', options: [{ value: 'claude-code', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }], keywords: ['review', 'second opinion', 'lane'], defaultValue: 'claude-code', ...MACHINE_NOW,
+    },
+    {
+      id: 'session-review-model', path: 'sessionReview.model', title: 'Reviewer model',
+      description: 'Model name passed to the reviewer agent. Empty uses that agent default.',
+      control: 'text', keywords: ['review', 'model'], defaultValue: '', ...MACHINE_NOW,
+    },
+  ],
+};
+
 export const MACHINE_SESSIONS: SettingsSection = {
   id: 'machine-sessions',
   level: 'machine',

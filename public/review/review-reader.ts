@@ -16,9 +16,10 @@ import {
   effectiveDiffLayout, fileReadStateOf, findReaderFile, groupReaderFiles, isCommentOutdated, lineTextAt, readerStateOf, shouldHoldUpdate, stepReaderFile,
 } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
-import { onReviewChange, refreshReview, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
+import { onReviewChange, refreshReview, reviewOf, runSessionReview, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
 import type { CheckOutcome } from '#shared/contracts/verification.ts';
+import type { SessionReviewResult } from '#shared/contracts/session-review.ts';
 import { clock } from '#shared/clock.ts';
 
 const CHANGES_PAGE_ID = 'changes';
@@ -203,6 +204,7 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
   }
   if (review.statusLine) fileColumn.append(el('p', 'review-reader-status', review.statusLine));
   appendVerificationGroup(fileColumn, review);
+  appendReviewerGroup(fileColumn, review);
   fileColumn.append(scopeMenu());
   if (review.totals.files > 0) fileColumn.append(totalsLine(review.totals));
   const { newFiles, viewedFiles, generatedFiles } = groupReaderFiles(review.files, viewedHashByPathOf(review), scope);
@@ -238,6 +240,44 @@ function appendVerificationGroup(fileColumn: HTMLElement, review: SessionReview)
     list.append(row);
     if (check.status !== 'pass' && check.outputTail.trim()) list.append(el('pre', 'review-check-output', check.outputTail));
   }
+  fileColumn.append(list);
+}
+
+const REVIEWER_AGENT_NAMES: Record<SessionReviewResult['reviewer']['agent'], string> = { 'claude-code': 'Claude Code', codex: 'Codex' };
+
+function reviewerStatusText(result: SessionReviewResult | null): string {
+  if (!result) return 'A read-only reviewer on another agent or model reads this diff and reports what it finds.';
+  const reviewerName = result.reviewer.model ? `${REVIEWER_AGENT_NAMES[result.reviewer.agent]} (${result.reviewer.model})` : REVIEWER_AGENT_NAMES[result.reviewer.agent];
+  if (result.status === 'running') return `${reviewerName} is reviewing this diff.`;
+  if (result.status === 'failed') return result.error ?? 'The review did not finish.';
+  const findingCount = result.findings.length;
+  return `${reviewerName}: ${result.verdict ?? 'no verdict'}, ${findingCount} finding${findingCount === 1 ? '' : 's'}.`;
+}
+
+function reviewerFindingRow(finding: SessionReviewResult['findings'][number]) {
+  const row = createPressable('review-look-line', `${finding.severity} ${finding.line === null ? finding.path : `${finding.path}:${finding.line}`}`);
+  row.dataset.severity = finding.severity;
+  row.append(el('span', 'review-look-detail', finding.body));
+  row.addEventListener('click', () => openFileFromWorthALook(finding.path));
+  return row;
+}
+
+function appendReviewerGroup(fileColumn: HTMLElement, review: SessionReview) {
+  const result = review.reviewerResult;
+  const sessionId = review.sessionId;
+  const header = el('div', 'review-reviewer-header');
+  const runButton = createPressable('review-run-reviewer', 'Review');
+  runButton.disabled = result?.status === 'running';
+  runButton.addEventListener('click', () => runSessionReview(sessionId));
+  header.append(el('p', 'review-reader-group', 'Reviewer'), runButton, el('span', 'review-reviewer-status', reviewerStatusText(result)));
+  fileColumn.append(header);
+  if (result?.status !== 'done') return;
+  if (result.summary.trim()) fileColumn.append(el('p', 'review-look-text', result.summary));
+  if (result.findings.length === 0) return;
+  const list = el('div', 'review-look-list');
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Reviewer findings');
+  for (const finding of result.findings) list.append(reviewerFindingRow(finding));
   fileColumn.append(list);
 }
 

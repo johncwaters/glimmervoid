@@ -118,6 +118,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-diff', id: 'session-1', patch: 'patch', contentHashByPath: { 'a.ts': 'db44dc0c', 'gone.ts': null }, generatedPaths: ['package-lock.json'], hasCommits: true, commits: [{ member: null, sha: 'db44dc0c9a0f4b1b8f0f6b1c2d3e4f5a6b7c8d9e', subject: 'Fix dashboard', isSigned: true }], bases: [{ member: null, ref: 'origin/main', sha: 'db44dc0c', verified: true }] },
   { type: 'session-diff-error', id: 'session-1', message: 'git diff HEAD timed out after 15000ms' },
   { type: 'change-map', id: 'session-1', map: { sessionId: 'session-1', sig: 'sig-1', generatedAt: NOW, repos: [] } },
+  { type: 'session-review', id: 'session-1', result: { sessionId: 'session-1', sig: 'sig-1', reviewer: { agent: 'codex', model: null }, status: 'done', verdict: 'REQUEST CHANGES', summary: 'One defect blocks.', findings: [{ path: 'src/a.ts', line: 3, side: 'RIGHT', severity: 'HIGH', reviewer: 'logic', disposition: 'ACTIONABLE', body: 'Off by one.' }], error: null, startedAt: NOW, finishedAt: NOW } },
   { type: 'verification-run', id: 'session-1', run: { sessionId: 'session-1', sig: 'sig-1', status: 'failed', checks: [{ id: 'test', command: 'npm test', status: 'fail', exitCode: 1, outputTail: 'not ok 1' }], finishedAt: NOW } },
   { type: 'branch-sync-status', id: 'session-1', branch: 'develop', upstream: 'origin/develop', state: 'ahead', ahead: 1, behind: 0, fetched: true },
   { type: 'session-changed', id: 'session-1', sig: 'sha' },

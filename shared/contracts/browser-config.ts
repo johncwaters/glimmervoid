@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SESSION_REVIEW_AGENTS } from './session-review.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
@@ -202,6 +203,11 @@ const SlackSettings = optionalObject('slack', {
     .optional(),
 });
 
+const SessionReviewSettings = optionalObject('sessionReview', {
+  agent: z.enum(SESSION_REVIEW_AGENTS, { error: `sessionReview.agent must be one of ${SESSION_REVIEW_AGENTS.join(', ')}` }).optional(),
+  model: optionalString('sessionReview.model', true),
+});
+
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
@@ -307,6 +313,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   usage: createUsageSettings(isAbsolutePath),
   telegram: TelegramSettings,
   slack: SlackSettings,
+  sessionReview: SessionReviewSettings,
   telemetry: TelemetrySettings,
   vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),

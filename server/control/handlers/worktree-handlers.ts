@@ -63,6 +63,16 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
       if (!s) return;
       ws.send(JSON.stringify({ type: 'verification-run', id: s.id, run: deps.verification?.latestRun(s.id) ?? null }));
     },
+    'request-session-review': (msg: ClientMessageOf<'request-session-review'>, ws: ControlSocket) => {
+      const s = findSession(msg);
+      if (!s) return;
+      ws.send(JSON.stringify({ type: 'session-review', id: s.id, result: deps.sessionReview?.latest(s.id) ?? null }));
+    },
+    'run-session-review': (msg: ClientMessageOf<'run-session-review'>) => {
+      const s = findSession(msg);
+      if (!s || !deps.sessionReview) return;
+      void deps.sessionReview.run(s);
+    },
     'request-branch-sync': async (msg: ClientMessageOf<'request-branch-sync'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;
