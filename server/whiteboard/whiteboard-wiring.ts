@@ -93,6 +93,8 @@ interface WhiteboardCaller {
   cwd?: string;
 }
 
+type BoardAgentRequest = Exclude<WhiteboardAgentRequest, { sub: 'run' }>;
+
 interface WhiteboardReply {
   status: number;
   body: AgentReplyBodyOf<'whiteboard'>;
@@ -163,7 +165,8 @@ interface CodeContext {
 interface WhiteboardPort {
   loaded: Promise<void>;
   assets: WhiteboardAssetStore;
-  handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply>;
+  handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply>;
+  readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
   handleOperator: {
     create(title: string): Promise<OperatorReply>;
     put(boardId: string, ops: readonly Op[]): Promise<OperatorReply>;
@@ -1312,7 +1315,18 @@ function createWhiteboardWiring({
     return importBoardFile(read.bytes);
   }
 
-  async function handleAgent(caller: WhiteboardCaller, request: WhiteboardAgentRequest): Promise<WhiteboardReply> {
+  async function readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }> {
+    await loaded;
+    const found = findBoardId(boardRef, caller.project);
+    if (!found.ok) return found;
+    await adoptIfUnfiled(found.boardId, caller.project);
+    const board = await loadedBoardOf(found.boardId);
+    const record = recordsByBoardId.get(found.boardId);
+    if (board === null || !record) return { ok: false, reply: refusal(404, DELETED_BOARD_TEXT) };
+    return { ok: true, board, summary: summaryOf(record, now()) };
+  }
+
+  async function handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
     if (request.sub === 'new') return createUnlessAttached(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
@@ -1401,8 +1415,8 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };
-export type { ProvisionalBoardNaming, WhiteboardLayouts, WhiteboardPort };
+export type { ProvisionalBoardNaming, WhiteboardLayouts, WhiteboardPort, WhiteboardReply };

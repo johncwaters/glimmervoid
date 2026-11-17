@@ -471,7 +471,8 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   }).strict(),
   z.object({ sub: z.literal('export'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('import'), path: z.string().min(1, { error: 'import needs the board file path' }).max(4096) }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach, show, export or import' });
+  z.object({ sub: z.literal('run'), board: BoardRef }).strict(),
+], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach, show, export, import or run' });
 
 export const WorthALookPath = z.object({ path: z.string(), reason: z.string() }).strict();
 

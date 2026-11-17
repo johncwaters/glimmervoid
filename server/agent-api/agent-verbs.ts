@@ -23,6 +23,10 @@ import { clock } from '../../shared/clock.ts';
 import { githubRepoSlugFromRemote, remoteMatchesGithubRepo } from '../github/core/team-review-core.ts';
 import { repoParts } from '../../shared/contracts/github-ids.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
+import { createPlanRuns } from '../plan-run-wiring.ts';
+import type { PlanRunPorts } from '../plan-run-wiring.ts';
+import type { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import { COMMAND_ROUTES } from '../../session/core/session-routes.ts';
 
 const CHECKOUT_DEADLINE_MS = 240_000;
 const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
@@ -66,6 +70,7 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
+  const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
@@ -183,6 +188,40 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const reply = await sessionDocs.surface(session, request);
     if (!reply.ok) return { status: 400, body: reply };
     return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
+  }
+
+  function planRunPortsOf(session: Session, boards: NonNullable<typeof whiteboards>): PlanRunPorts {
+    const caller = whiteboardCallerOf(session);
+    return {
+      readPlanBoard: (boardRef) => boards.readPlanBoard(caller, boardRef),
+      setStepStatus: async (boardId, stepId, status) => {
+        const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops: [{ op: 'set', id: stepId, fields: { step: { status } } }] });
+        if (!reply.body.ok) throw new Error(`could not mark ${stepId} ${status}: ${reply.body.error}`);
+      },
+      spawnStep: async (name, prompt) => {
+        const outcome = await spawn(session, { prompt, name });
+        if (!outcome.ok) return { ok: false, error: outcome.error };
+        return {
+          ok: true,
+          childId: outcome.sessionId,
+          childName: outcome.name,
+          onLanded: (listener) => { agentSessions.get(outcome.sessionId)?.once('commits-landed', listener); },
+        };
+      },
+      isLive: (sessionId) => agentSessions.has(sessionId),
+      tellRunner: (text) => {
+        runtime.logger?.warn(`[plan run] ${text}`);
+        if (!session._destroyed) session.raiseAttention('agent', text);
+      },
+    };
+  }
+
+  function whiteboard(session: Session, request: WhiteboardAgentRequest): Promise<AgentReplyOf<'whiteboard'>> | AgentReplyOf<'whiteboard'> {
+    if (!whiteboards) return refusal(503, 'whiteboards are not available in this Glimmervoid');
+    if (request.sub !== 'run') return whiteboards.handleAgent(whiteboardCallerOf(session), request);
+    const spawnVerdict = COMMAND_ROUTES.spawn(roleFactsOf(session));
+    if (!spawnVerdict.answers) return refusal(403, `whiteboard run spawns a session per ready step, and ${spawnVerdict.reason}`);
+    return planRuns.run(request.board, planRunPortsOf(session, whiteboards));
   }
 
   async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
@@ -427,7 +466,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
       const outcome = await memory.handle({ projectPath: session.path, name: session.name }, request);
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
     },
-    whiteboard: (session, request) => (whiteboards ? whiteboards.handleAgent(whiteboardCallerOf(session), request) : refusal(503, 'whiteboards are not available in this Glimmervoid')),
+    whiteboard,
   };
 
   return { handlers, roleFactsOf };
