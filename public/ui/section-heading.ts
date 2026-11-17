@@ -13,7 +13,7 @@ type SectionHeadingOptions = {
   actions?: readonly HTMLElement[];
 };
 
-export type SectionHeading = {
+type SectionHeading = {
   readonly element: HTMLDivElement;
   setCount(count: SectionHeadingCount): void;
 };
