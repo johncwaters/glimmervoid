@@ -32,7 +32,7 @@ test('Chat reads a held question from the session status and answers it and send
     attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
     logger: { error: () => {}, log: () => {}, warn: () => {} },
   })(session);
-  const connection = connectControl<{ type: string; message?: string }>(createControlServer(controlDeps(config, { sessions: new Map([[session.id, session]]) })));
+  const connection = connectControl<{ type: string; message?: string; ok?: boolean; error?: string }>(createControlServer(controlDeps(config, { sessions: new Map([[session.id, session]]) })));
   try {
     await session.start();
     session.transition('first_output');
@@ -60,6 +60,13 @@ test('Chat reads a held question from the session status and answers it and send
     await new Promise((resolve) => setTimeout(resolve, 1000));
     assert.match(writes.join(''), /Now add the index/);
     assert.equal(writes.at(-1), '\r');
+    assert.equal(connection.sent.at(-1)?.type, 'chat-send-result');
+
+    connection.send({ type: 'chat-send', id: 'gone-session', text: 'Hello?', requestId: 'send-gone' });
+    const refused = connection.sent.at(-1);
+    assert.equal(refused?.type, 'chat-send-result');
+    assert.equal(refused?.ok, false);
+    assert.match(refused?.error ?? '', /no longer exists/);
   } finally {
     session.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });

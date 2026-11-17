@@ -14,7 +14,7 @@ type TracePagePayload = { id: string; after: number } | { id: string; endingAt: 
 interface ChatFeedOptions {
   sessionId: string;
   requestPage: (payload: TracePagePayload) => Promise<ServerMessage>;
-  onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[]) => void;
+  onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => void;
   onBeats: (beats: readonly ActivityBeat[]) => void;
   onReset: () => void;
   onFailure: (failureText: string | null) => void;
@@ -53,7 +53,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   const showRecords = (reply: ServerMessage & { type: 'session-trace-response' }, isLive: boolean) => {
     nextOffset = reply.next;
     const appended = appendChatRecords(partsState, reply.records);
-    options.onPartsChanged(appended.parts, trimChatParts(partsState));
+    options.onPartsChanged(appended.parts, trimChatParts(partsState), isLive);
     if (isLive && appended.beats.length > 0) options.onBeats(appended.beats);
   };
 

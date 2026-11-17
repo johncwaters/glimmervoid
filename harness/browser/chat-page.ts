@@ -30,31 +30,70 @@ async function waitForModelCatalog(page: Page): Promise<void> {
 
 async function verifyChatModelSwitch(page: Page): Promise<void> {
   await waitForModelCatalog(page);
-  const modelSelect = page.locator('.session-chat .chat-model-control select[aria-label="Model"]');
+  const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await composerInput.fill('draft kept across the switch');
+  await page.locator('button[data-action="session-menu"]:visible').click();
+  await page.getByRole('menuitem', { name: 'Change model' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Change model' });
+  const modelSelect = dialog.locator('select[aria-label="Model"]');
   await modelSelect.waitFor({ timeout: CARD_TIMEOUT_MS });
   const choices = await modelSelect.locator('option').evaluateAll((options) => options.map((option) => (option instanceof HTMLOptionElement ? option.value : '')));
   const shownModel = await modelSelect.inputValue();
   const otherModel = choices.find((choice) => choice !== shownModel);
   assert.ok(otherModel, `the Model control lists more than the shown model (${choices.join(', ')})`);
-  await page.waitForFunction(() => document.querySelector<HTMLFieldSetElement>('.session-chat .chat-model-control')?.disabled === false, undefined, { timeout: CARD_TIMEOUT_MS });
-  const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
-  await composerInput.fill('draft kept across the switch');
   await modelSelect.selectOption(otherModel);
-  await page.waitForFunction((model) => {
-    const select = document.querySelector<HTMLSelectElement>('.session-chat .chat-model-control select[aria-label="Model"]');
-    const status = document.querySelector('.session-chat .chat-model-status');
-    return select?.value === model && status?.textContent === '';
-  }, otherModel, { timeout: CARD_TIMEOUT_MS });
-  const failureText = await page.locator('.session-chat .session-chat-failure').textContent();
-  assert.equal(failureText ?? '', '', 'switching the model from Chat reports no failure');
+  await page.waitForFunction(() => {
+    const stop = [...document.querySelectorAll<HTMLButtonElement>('.session-chat .chat-composer button')].find((button) => button.textContent === 'Stop');
+    return stop?.disabled === true;
+  }, undefined, { timeout: CARD_TIMEOUT_MS });
+  await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
+  await dialog.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('button[data-action="session-menu"]:visible').click();
+  await page.getByRole('menuitem', { name: 'Change model' }).click();
+  assert.equal(await page.getByRole('dialog', { name: 'Change model' }).locator('select[aria-label="Model"]').inputValue(), otherModel, 'the dialog shows the model the session switched to');
+  await page.keyboard.press('Escape');
   assert.equal(await composerInput.inputValue(), 'draft kept across the switch', 'an unsent draft survives the restart a model switch causes');
   await composerInput.fill('');
+}
+
+async function verifyComposerKeepsFollowing(page: Page): Promise<void> {
+  const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await page.locator('.session-chat .chat-log').evaluate((chatLog) => {
+    const tallReply = document.createElement('div');
+    tallReply.className = 'chat-reply chat-test-filler';
+    tallReply.style.height = '1600px';
+    chatLog.append(tallReply);
+  });
+  await composerInput.click();
+  for (let line = 0; line < 8; line += 1) {
+    await page.keyboard.type(`line ${line}`);
+    await page.keyboard.press('Shift+Enter');
+  }
+  const jumpButton = page.locator('.session-chat').getByRole('button', { name: 'Jump to latest' });
+  assert.equal(await jumpButton.isVisible(), false, 'growing the composer does not offer Jump to latest');
+  await composerInput.fill('');
+  assert.equal(await jumpButton.isVisible(), false, 'shrinking the composer does not offer Jump to latest');
+  await page.locator('.session-chat .chat-test-filler').evaluate((filler) => filler.remove());
+  await page.locator('.session-chat .chat-scroller').evaluate((scroller) => {
+    scroller.scrollTop = 0;
+    scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+  });
+}
+
+async function verifySendFollowsLatest(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const scroller = document.querySelector('.session-chat .chat-scroller');
+    return scroller !== null && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2;
+  }, undefined, { timeout: CARD_TIMEOUT_MS });
 }
 
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
   await verifyChatModelSwitch(page);
+  await verifyComposerKeepsFollowing(page);
   await sendFromComposer(page, 'ask-chat');
+  await verifySendFollowsLatest(page);
   const openCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="false"]');
   await openCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await openCard.innerText(), /Bash/, 'the permission card names the tool');

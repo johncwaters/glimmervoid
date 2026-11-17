@@ -10,6 +10,8 @@ import { AgentAccountId } from '../agent-accounts.ts';
 import { AgeFileRemove, ProjectApprovals, SecretDecision, SecretName, SecretRequestCard, SecretRevoke, SecretSourceTestResult } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
+export const CHAT_SEND_MAX_CHARS = 4000;
+
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
 
 export const sessionClientVariants = [
@@ -47,7 +49,7 @@ export const sessionClientVariants = [
   loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional() }),
   loose('answer-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), answers: ConversationAnswers }),
   loose('decide-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), decision: PermissionDecision }),
-  loose('chat-send', { id: sessionId, text: z.string().trim().min(1).max(4000) }),
+  loose('chat-send', { id: sessionId, text: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS), requestId }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('switch-session-model', { id: sessionId, setup: ModelSelection, requestId }),
   loose('secret-decision', SecretDecision.shape),
@@ -65,6 +67,7 @@ export const sessionServerVariants = [
   loose('add-session-result', { requestId, ok: z.boolean(), error: optionalError, reason: z.enum(['not-git']).optional(), sessionId: z.string().optional() }),
   loose('switch-session-account-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, needsSignIn: z.boolean().optional() }),
   loose('switch-session-model-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
+  loose('chat-send-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, acceptedAt: z.number().finite() }),
   loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),
   loose('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),

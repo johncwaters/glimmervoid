@@ -16,9 +16,10 @@ import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 import { applyDashboardSettings } from '../dashboard-settings.ts';
 import { applyClientTrust } from '../../server-power.ts';
 import { handleSnapshot, noteServerBuild } from '../session-frames.ts';
+import { resetSessionModelSelections } from '../../session-card/card-model.ts';
 
 const messageHandlers = {
-  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); applyChatSnapshot(msg.sessions); },
+  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); applyChatSnapshot(msg.sessions); resetSessionModelSelections(msg.sessions); },
 
   'hooks-report':       (msg) => applyHooksReport(msg),
   'save-hook-result':   () => applyLateHookResult(),

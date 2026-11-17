@@ -31,7 +31,8 @@ function noticeCardPartOf(id: string, text: string): ChatPart {
 }
 
 function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
-  if (record.kind === 'prompt') return { kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text };
+  if (record.agentId !== undefined) return null;
+  if (record.kind === 'prompt') return { kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text, at: record.ts };
   if (record.kind === 'assistant') return { kind: 'reply', id: nextPartId(state, 'reply'), text: record.text };
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   return null;

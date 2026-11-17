@@ -15,6 +15,7 @@ const NEXT_MODE_BY_SIGNAL: Record<FollowSignal, FollowMode> = {
 
 interface StickToBottom {
   jumpButton: HTMLButtonElement;
+  followLatest(): void;
 }
 
 function distanceFromBottom(scroller: HTMLElement): number {
@@ -30,11 +31,13 @@ function hasSelectionInside(scroller: HTMLElement): boolean {
 export function stickToBottom(scroller: HTMLElement, content: HTMLElement): StickToBottom {
   let mode: FollowMode = 'following';
   let lastScrollTop = scroller.scrollTop;
+  let lastClientHeight = scroller.clientHeight;
   const jumpButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Jump to latest', hidden: true });
 
   const scrollToBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;
     lastScrollTop = scroller.scrollTop;
+    lastClientHeight = scroller.clientHeight;
   };
   const receive = (signal: FollowSignal) => {
     mode = NEXT_MODE_BY_SIGNAL[signal];
@@ -45,8 +48,14 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
     if (event.deltaY < 0) receive('wheel-up');
   }, { passive: true });
   scroller.addEventListener('scroll', () => {
+    const hasResized = scroller.clientHeight !== lastClientHeight;
     const scrolledUp = scroller.scrollTop < lastScrollTop - 1;
     lastScrollTop = scroller.scrollTop;
+    lastClientHeight = scroller.clientHeight;
+    if (hasResized && mode === 'following') {
+      scrollToBottom();
+      return;
+    }
     const distance = distanceFromBottom(scroller);
     if (scrolledUp && distance > 1) {
       receive('scroll-up');
@@ -57,14 +66,15 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   document.addEventListener('selectionchange', () => {
     if (mode === 'following' && hasSelectionInside(scroller)) receive('select-text');
   });
-  jumpButton.addEventListener('click', () => {
+  const followLatest = () => {
     receive('jump-to-latest');
     scrollToBottom();
-  });
+  };
+  jumpButton.addEventListener('click', followLatest);
   const followObserver = new ResizeObserver(() => {
     if (mode === 'following') scrollToBottom();
   });
   followObserver.observe(content);
   followObserver.observe(scroller);
-  return { jumpButton };
+  return { jumpButton, followLatest };
 }

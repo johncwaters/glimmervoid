@@ -1,6 +1,6 @@
-import type { ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { ConversationApproval } from '#shared/contracts/session.ts';
 import { BETWEEN_TURN_STATES, STATES } from '#shared/states.ts';
+import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
@@ -12,12 +12,12 @@ import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
-import { createChatModelControl } from './chat-model-control.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
+const CHAT_SEND_TIMEOUT_MS = 130000;
 const BETWEEN_TURN_STATE_SET: ReadonlySet<string> = new Set(BETWEEN_TURN_STATES);
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
@@ -31,26 +31,34 @@ interface ShownApproval {
   answers: Map<string, string>;
 }
 
+interface QueuedMessage {
+  text: string;
+  acceptedAt: number | null;
+}
+
 interface MountedChat {
   sessionId: string;
   root: HTMLElement;
   feed: ChatFeed;
   wasSessionWorking: boolean;
   setTurnRunning(isTurnRunning: boolean): void;
-  renderModelControl(): void;
   syncWaitingCards(): void;
   close(): void;
 }
 
 const approvalBySessionId = new Map<string, ConversationApproval | null>();
-const modelSelectionBySessionId = new Map<string, ModelSelection | null>();
 const draftBySessionId = new Map<string, string>();
+const queuedBySessionId = new Map<string, QueuedMessage[]>();
 let mountedChat: MountedChat | null = null;
 let wasChatEnabled = false;
 
 function isChatEnabled(): boolean {
   const sessionChat = settingsPayloadSnapshot().sessionChat;
   return typeof sessionChat === 'object' && sessionChat !== null && 'enabled' in sessionChat && sessionChat.enabled === true;
+}
+
+function queuedKeyOf(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 function isSessionWorking(sessionId: string): boolean {
@@ -100,16 +108,31 @@ function buildChat(sessionId: string): MountedChat {
   failureLine.hidden = true;
   let chatView = createChatView();
   chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
+  const queued = queuedBySessionId.get(sessionId) ?? [];
+  queuedBySessionId.set(sessionId, queued);
+  const showQueued = () => chatView.showQueued(queued.map((message) => message.text));
+  showQueued();
+  const dropQueued = (message: QueuedMessage) => {
+    const queuedIndex = queued.indexOf(message);
+    if (queuedIndex >= 0) queued.splice(queuedIndex, 1);
+    showQueued();
+  };
+  const settleQueued = (parts: readonly ChatPart[], isLive: boolean) => {
+    for (const part of parts) {
+      if (part.kind !== 'prompt' || queued.length === 0) continue;
+      const isRecordedAfter = (message: QueuedMessage) => (message.acceptedAt === null ? isLive : part.at >= message.acceptedAt);
+      const candidates = queued.filter(isRecordedAfter);
+      const delivered = candidates.find((message) => queuedKeyOf(message.text) === queuedKeyOf(part.text)) ?? (isLive ? candidates[0] : undefined);
+      if (delivered) queued.splice(queued.indexOf(delivered), 1);
+    }
+    showQueued();
+  };
   const showFailure = (failureText: string | null) => {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
   };
-  const modelControl = createChatModelControl(sessionId, showFailure);
-  const renderModelControl = () => modelControl.render(sessionUIs.get(sessionId)?.agent ?? null, modelSelectionBySessionId.get(sessionId) ?? null);
-  renderModelControl();
-  root.append(modelControl.element, failureLine, chatView.element);
+  root.append(failureLine, chatView.element);
   chatView.setTurnRunning(isSessionWorking(sessionId));
-  modelControl.setTurnRunning(isSessionWorking(sessionId));
   let shownApproval: ShownApproval | null = null;
   let terminalCardState: TerminalCardState = 'hidden';
   let terminalCardSerial = 0;
@@ -215,7 +238,21 @@ function buildChat(sessionId: string): MountedChat {
   root.addEventListener('chat-send', (event) => {
     const text = sendTextOf(event);
     if (text === null) return;
-    if (!sendControlMsg({ type: 'chat-send', id: sessionId, text })) showFailure(NOT_SENT_TEXT);
+    const message: QueuedMessage = { text, acceptedAt: null };
+    queued.push(message);
+    showQueued();
+    sendControlRequest('chat-send', { id: sessionId, text }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
+      .then((reply) => {
+        if (reply.type !== 'chat-send-result') return;
+        message.acceptedAt = reply.acceptedAt;
+        if (reply.ok) return;
+        dropQueued(message);
+        showFailure(reply.error ?? NOT_SENT_TEXT);
+      })
+      .catch((reason: unknown) => {
+        dropQueued(message);
+        showFailure(`Could not confirm the message was sent: ${errorMessage(reason)}`);
+      });
   });
   root.addEventListener('chat-stop', () => {
     sendTerminalInput(sessionUIs.get(sessionId), ESCAPE_KEY);
@@ -228,9 +265,10 @@ function buildChat(sessionId: string): MountedChat {
   const feed = createChatFeed({
     sessionId,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
-    onPartsChanged: (changedParts, droppedPartIds) => {
+    onPartsChanged: (changedParts, droppedPartIds, isLive) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
+      settleQueued(changedParts, isLive);
     },
     onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
@@ -238,6 +276,7 @@ function buildChat(sessionId: string): MountedChat {
       shownApproval = null;
       const freshView = createChatView();
       freshView.restoreDraft(chatView.readDraft());
+      freshView.showQueued(queued.map((message) => message.text));
       freshView.setTurnRunning(isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
@@ -250,11 +289,7 @@ function buildChat(sessionId: string): MountedChat {
     root,
     feed,
     wasSessionWorking: isSessionWorking(sessionId),
-    setTurnRunning: (isTurnRunning) => {
-      chatView.setTurnRunning(isTurnRunning);
-      modelControl.setTurnRunning(isTurnRunning);
-    },
-    renderModelControl,
+    setTurnRunning: (isTurnRunning) => chatView.setTurnRunning(isTurnRunning),
     syncWaitingCards,
     close: () => {
       draftBySessionId.set(sessionId, chatView.readDraft());
@@ -280,20 +315,10 @@ export function applyChatTraceChanged(sessionId: string): void {
   mountedChat.feed.refresh();
 }
 
-export function applyChatModelSelection(sessionId: string, modelSelection: ModelSelection | null): void {
-  modelSelectionBySessionId.set(sessionId, modelSelection);
-  if (mountedChat?.sessionId === sessionId) mountedChat.renderModelControl();
-}
-
-export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; modelSelection?: ModelSelection | null }[]): void {
+export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null }[]): void {
   approvalBySessionId.clear();
-  modelSelectionBySessionId.clear();
-  for (const row of rows) {
-    noteChatApproval(row.id, row.conversationApproval ?? null);
-    modelSelectionBySessionId.set(row.id, row.modelSelection ?? null);
-  }
+  for (const row of rows) noteChatApproval(row.id, row.conversationApproval ?? null);
   if (!mountedChat) return;
-  mountedChat.renderModelControl();
   applyChatSessionStatus(mountedChat.sessionId);
   mountedChat.feed.refresh();
 }
@@ -312,7 +337,6 @@ subscribeSettings((change) => {
   const isEnabled = isChatEnabled();
   const hasJustEnabled = isEnabled && !wasChatEnabled;
   wasChatEnabled = isEnabled;
-  mountedChat?.renderModelControl();
   if (!isEnabled && mountedChat && isSessionPageOpen(CHAT_PAGE_ID, mountedChat.sessionId)) closeSessionPage();
   announceSessionPageChange(CHAT_PAGE_ID, null);
   if (hasJustEnabled && getSessionView() === 'chat') openSessionPageOnShownSession(CHAT_PAGE_ID);

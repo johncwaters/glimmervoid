@@ -1,3 +1,4 @@
+import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { el } from '../dom-helpers.ts';
 import { isImeProcessingKeydown } from '../session-card/ime-core.ts';
 import { button } from '../ui/button.ts';
@@ -25,6 +26,7 @@ export function createComposer(): ChatComposer {
   const element = el('form', 'chat-composer');
   const input = el('textarea', 'chat-composer-input');
   input.rows = 1;
+  input.maxLength = CHAT_SEND_MAX_CHARS;
   input.placeholder = 'Message the agent';
   input.setAttribute('aria-label', 'Message the agent');
   const sendButton = button({ variant: 'primary', textCase: 'sentence', label: 'Send', disabled: true });

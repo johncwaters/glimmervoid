@@ -6,6 +6,7 @@ import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { buildMenuItem } from '../menu.ts';
 import { CLOSE_ICON_PATH, SWITCH_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { openSwitchAccountDialog } from './card-account.ts';
+import { canSwitchSessionModel, openSwitchModelDialog } from './card-model.ts';
 import type { CardOptions } from './card-options-core.ts';
 import { buildDialogShell, openConfirmDialog } from './modal.ts';
 import { findSessionUi } from './card-registry.ts';
@@ -123,6 +124,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const paintMenuItems = () => {
     btnWakes.classList.toggle('visible', hasPendingWakes(sessionId));
+    btnSwitchModelMenuItem.classList.toggle('visible', canSwitchSessionModel(sessionId));
   };
   btnSessionMenu.onclick = paintMenuItems;
   btnSessionMenu.onkeydown = paintMenuItems;
@@ -141,6 +143,13 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
     btnSessionMenu.setAttribute('aria-expanded', 'false');
     openSwitchAccountDialog(sessionId);
   };
+  const btnSwitchModelMenuItem = buildMenuItem('Change model', 'overflow-switch-model');
+  btnSwitchModelMenuItem.setAttribute('aria-haspopup', 'dialog');
+  btnSwitchModelMenuItem.onclick = () => {
+    sessionMenu.classList.remove('open');
+    btnSessionMenu.setAttribute('aria-expanded', 'false');
+    openSwitchModelDialog(sessionId);
+  };
   const btnSnooze = buildMenuItem('Snooze', 'overflow-snooze');
   btnSnooze.onclick = () => {
     sessionMenu.classList.remove('open');
@@ -149,7 +158,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   };
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
-  sessionMenu.append(btnWorkspaceRepos, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnDebug, btnTrace, btnSnooze, btnRestart);
+  sessionMenu.append(btnWorkspaceRepos, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnSwitchModelMenuItem, btnDebug, btnTrace, btnSnooze, btnRestart);
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });

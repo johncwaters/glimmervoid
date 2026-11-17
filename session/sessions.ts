@@ -2275,10 +2275,10 @@ class Session extends EventEmitter {
     this._titleQuiet = false;
   }
 
-  deliverOperatorText(text: string): ReturnType<Session["deliver"]> {
+  deliverOperatorText(text: string, onSettled?: DeliverOptions["onSettled"]): ReturnType<Session["deliver"]> {
     this._approvals.yieldManagerDecisions();
     this.emit("operator-input");
-    return this.deliver(text, { when: "ready", submit: true });
+    return this.deliver(text, { when: "ready", submit: true, onSettled });
   }
 
   noteOperatorDraft(): void {

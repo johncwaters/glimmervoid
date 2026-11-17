@@ -706,3 +706,11 @@
   pointer-events: none;
 }
 .session-pr-chip-unlink .line-icon { width: 10px; height: 10px; }
+
+.session-model-controls > .arena-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}

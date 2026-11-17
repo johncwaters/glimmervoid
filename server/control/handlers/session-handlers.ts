@@ -21,6 +21,7 @@ import { currentAgentModelCatalog } from '../../agent-models/agent-models.ts';
 import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
 import { listDroppedRepoPaths, planWorkspaceMembers } from '../../../session/core/workspace-core.ts';
 import type { Session, SnoozeRefusal } from '../../../session/sessions.ts';
+import type { DeliverySettlement } from '../../../session/core/input-delivery-core.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
 import type { ProjectEntry } from '../../config-store.ts';
@@ -46,6 +47,7 @@ type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
+const DELIVERED_SETTLEMENTS: ReadonlySet<DeliverySettlement> = new Set<DeliverySettlement>(['submitted', 'pasted']);
 
 async function runGitForConversationHistory(args: string[], cwd: string): Promise<string> {
   const result = await runGit(args, { cwd, timeoutMs: CONVERSATION_HISTORY_GIT_TIMEOUT_MS, trim: false });
@@ -178,13 +180,17 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   }
 
   function handleChatSend(msg: ClientMessageOf<'chat-send'>, ws: ControlSocket): void {
+    const acceptedAt = clock.nowMs();
+    const replyWith = (error: string | null) => replyTo(ws, msg, 'chat-send-result', { id: msg.id, ok: error === null, acceptedAt, ...(error === null ? {} : { error }) });
     const session = findSession(msg);
     if (!session) {
-      sendError(ws, SESSION_GONE_TEXT);
+      replyWith(SESSION_GONE_TEXT);
       return;
     }
-    const delivery = session.deliverOperatorText(msg.text);
-    if (!delivery.ok) sendError(ws, `The message could not be typed into the session: ${delivery.reason}.`, { id: session.id });
+    const delivery = session.deliverOperatorText(msg.text, (settlement) => {
+      replyWith(DELIVERED_SETTLEMENTS.has(settlement) ? null : `The agent did not take the message (${settlement}).`);
+    });
+    if (!delivery.ok) replyWith(`The message could not be typed into the session: ${delivery.reason}.`);
   }
 
   function handleAnswerApproval(msg: ClientMessageOf<'answer-approval'>, ws: ControlSocket): void {

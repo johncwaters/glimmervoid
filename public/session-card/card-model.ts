@@ -1,0 +1,109 @@
+import { AgentModelCatalog, type AgentSetup, type ModelSelection } from '#shared/contracts/agent-models.ts';
+import { errorMessage } from '#shared/text.ts';
+import { agentsWithModels, configuredSetup, defaultSetup, setupModelsOf } from '../arena/lineup-core.ts';
+import { setupControls } from '../arena/setup-controls.ts';
+import { sendControlRequest } from '../control-ws.ts';
+import { el } from '../dom-helpers.ts';
+import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { button } from '../ui/button.ts';
+import { findSessionUi } from './card-registry.ts';
+import { buildDialogShell } from './modal.ts';
+
+const SWITCH_TIMEOUT_MS = 10000;
+const AGENT_DEFAULT_MODEL_LABEL = "Agent's default";
+
+const modelSelectionBySessionId = new Map<string, ModelSelection | null>();
+
+function currentCatalog(): AgentModelCatalog | null {
+  const parsed = AgentModelCatalog.safeParse(settingsPayloadSnapshot().agentModels);
+  return parsed.success ? parsed.data : null;
+}
+
+function catalogListing(agent: string | null): AgentModelCatalog | null {
+  const catalog = currentCatalog();
+  if (catalog === null || agent === null || !agentsWithModels(catalog).includes(agent)) return null;
+  return catalog;
+}
+
+export function canSwitchSessionModel(sessionId: string): boolean {
+  const ui = findSessionUi(sessionId);
+  return ui !== undefined && ui.card.dataset.ephemeral === undefined && catalogListing(ui.agent ?? null) !== null;
+}
+
+export function setSessionModelSelection(sessionId: string, modelSelection: ModelSelection | null): void {
+  modelSelectionBySessionId.set(sessionId, modelSelection);
+}
+
+export function resetSessionModelSelections(rows: readonly { id: string; modelSelection?: ModelSelection | null }[]): void {
+  modelSelectionBySessionId.clear();
+  for (const row of rows) setSessionModelSelection(row.id, row.modelSelection ?? null);
+}
+
+function shownSetupOf(catalog: AgentModelCatalog, agent: string, selection: ModelSelection | null): AgentSetup {
+  if (selection && selection.agent === agent) return { ...selection, instructions: '' };
+  return configuredSetup(catalog, agent) ?? defaultSetup(catalog, agent);
+}
+
+function showUnlistedModel(controls: HTMLElement, catalog: AgentModelCatalog, setup: AgentSetup): void {
+  const isListed = setup.model !== null && setupModelsOf(catalog, setup).some((model) => model.id === setup.model);
+  const modelSelect = controls.querySelector<HTMLSelectElement>('select[aria-label="Model"]');
+  if (isListed || !modelSelect) return;
+  const currentOption = el('option', null, `${setup.model ?? AGENT_DEFAULT_MODEL_LABEL} (current)`);
+  currentOption.value = setup.model ?? '';
+  currentOption.selected = true;
+  modelSelect.prepend(currentOption);
+  modelSelect.value = currentOption.value;
+}
+
+function selectionOf({ instructions: _instructions, ...selection }: AgentSetup): ModelSelection {
+  return selection;
+}
+
+export function openSwitchModelDialog(sessionId: string): void {
+  const agent = findSessionUi(sessionId)?.agent ?? null;
+  const catalog = catalogListing(agent);
+  if (catalog === null || agent === null) return;
+  const { overlay, dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Change model' });
+  const hint = el('p', 'dialog-message', 'Switching restarts the agent on the model you pick and resumes its conversation. Your default for new sessions stays as it is.');
+  const controlsSlot = el('div', 'session-model-controls');
+  const statusEl = el('div', 'dialog-hint');
+  statusEl.setAttribute('role', 'status');
+  const errorEl = el('div', 'dialog-error');
+  const btnSwitch = button({ variant: 'primary', label: 'Switch' });
+  actions.append(btnSwitch);
+  dialog.append(hint, controlsSlot, statusEl, errorEl, actions);
+
+  let pickedSetup = shownSetupOf(catalog, agent, modelSelectionBySessionId.get(sessionId) ?? null);
+  const renderControls = () => {
+    const controls = setupControls(catalog, pickedSetup, (next) => {
+      pickedSetup = next;
+      renderControls();
+    }, { showsAgent: false });
+    showUnlistedModel(controls, catalog, pickedSetup);
+    controlsSlot.replaceChildren(controls);
+  };
+  renderControls();
+
+  const showRefusal = (refusalText: string) => {
+    if (!overlay.isConnected) return;
+    btnSwitch.disabled = false;
+    statusEl.textContent = '';
+    errorEl.textContent = refusalText;
+  };
+  btnCancel.addEventListener('click', close);
+  btnSwitch.addEventListener('click', () => {
+    errorEl.textContent = '';
+    btnSwitch.disabled = true;
+    statusEl.textContent = 'Restarting the agent on the new model.';
+    sendControlRequest('switch-session-model', { id: sessionId, setup: selectionOf(pickedSetup) }, { timeoutMs: SWITCH_TIMEOUT_MS })
+      .then((reply) => {
+        if (reply.type === 'switch-session-model-result' && reply.ok) {
+          close();
+          return;
+        }
+        showRefusal(reply.type === 'switch-session-model-result' ? reply.error ?? 'The model was not switched.' : 'Unexpected reply');
+      })
+      .catch((error: unknown) => showRefusal(`The model was not switched: ${errorMessage(error)}`));
+  });
+  requestAnimationFrame(() => btnCancel.focus());
+}
