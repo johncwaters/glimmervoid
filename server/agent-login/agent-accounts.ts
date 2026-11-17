@@ -92,6 +92,7 @@ async function isFolderPresent(folder: string): Promise<boolean> {
 function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSessionNamesUsing, onConfigSaved, onChange }: AgentAccountsOptions) {
   const identityByKey = new Map<string, AccountIdentity>();
   const pendingById = new Map<string, PendingAccount>();
+  const stopProbes = new AbortController();
 
   function configuredAccounts(): AgentAccount[] {
     return configStore.config.agentAccounts ?? [];
@@ -159,7 +160,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     const launch = launchFor(agent, recipe.statusArgs);
     if (launch === null) return { isChecked: false, isSignedIn: false, label: null, detail: `The ${recipe.displayName} command could not be found on this machine.` };
     const statusLaunch = folder === null ? launch : accountLaunch(agent, launch, folder);
-    const outcome = await runCommandSafely(statusLaunch.file, statusLaunch.args, { cwd: folder ?? accountsRoot, env: statusLaunch.env, timeoutMs: STATUS_TIMEOUT_MS, maxBufferBytes: STATUS_OUTPUT_LIMIT_BYTES });
+    const outcome = await runCommandSafely(statusLaunch.file, statusLaunch.args, { cwd: folder ?? accountsRoot, env: statusLaunch.env, timeoutMs: STATUS_TIMEOUT_MS, maxBufferBytes: STATUS_OUTPUT_LIMIT_BYTES, signal: stopProbes.signal });
     return readAccountIdentity(agent, outcome.stdout, outcome.exitCode);
   }
 
@@ -170,8 +171,10 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       ...configuredAccounts().filter((account) => account.agent === agent).map((account) => ({ agent, accountId: account.id, folder: account.folder })),
     ]);
     await Promise.all(checks.map(async ({ agent, accountId, folder }) => {
-      identityByKey.set(identityKey(agent, accountId), await readIdentity(agent, folder));
+      const identity = await readIdentity(agent, folder);
+      if (!stopProbes.signal.aborted) identityByKey.set(identityKey(agent, accountId), identity);
     }));
+    if (stopProbes.signal.aborted) return list();
     announce();
     return list();
   }
@@ -408,6 +411,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
   }
 
   function stop(): void {
+    stopProbes.abort();
     for (const pending of pendingById.values()) pending.connect.stop();
   }
 
