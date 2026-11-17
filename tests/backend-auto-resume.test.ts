@@ -1,5 +1,5 @@
 import './helpers/isolate-home.ts';
-import test, { after } from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -23,6 +23,7 @@ import { UNREACHABLE_PID, fakePty } from './helpers/fake-pty.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { waitFor } from './helpers/wait-for.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
+import { isolateTranscriptHomes } from './helpers/transcript-homes.ts';
 
 interface SpawnCall {
   id?: string;
@@ -30,11 +31,19 @@ interface SpawnCall {
   args: string[];
 }
 
-const claudeConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-backend-auto-resume-'));
-const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
-process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+const restoreVendorHomesAfterTest: { restore: () => void } = { restore: () => {} };
+
+beforeEach(() => {
+  restoreVendorHomesAfterTest.restore = isolateTranscriptHomes(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-backend-auto-resume-')));
+});
+
+afterEach(() => {
+  restoreVendorHomesAfterTest.restore();
+});
 
 function writeClaudeTranscript(cwd: string, resumeSessionId: string): void {
+  const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  assert.ok(claudeConfigDir, 'beforeEach gives every test its own CLAUDE_CONFIG_DIR');
   const transcriptPath = path.join(
     claudeConfigDir,
     'projects',
@@ -44,12 +53,6 @@ function writeClaudeTranscript(cwd: string, resumeSessionId: string): void {
   fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
   fs.writeFileSync(transcriptPath, '', 'utf8');
 }
-
-after(() => {
-  if (previousClaudeConfigDir == null) delete process.env.CLAUDE_CONFIG_DIR;
-  if (previousClaudeConfigDir != null) process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
-  fs.rmSync(claudeConfigDir, { recursive: true, force: true });
-});
 
 async function withStoreAsync<T>(
   cfg: Record<string, unknown>,
