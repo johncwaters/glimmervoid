@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The Glimmervoid Cloud terms now name Montana law and courts in place of Arizona.** Consumers still keep the protection of the law where they live, and disputes are still settled in court, not by arbitration.
 
+### Fixed
+
+- **A scheduled pack launcher no longer starts the same run twice after a restart.** The record of a scheduled run is now saved before the next run is scheduled, and shutdown waits for it, so restarting Glimmervoid right after a run can no longer lose the record and start a second session for it.
+
 ## [0.62.3] - 2026-11-16
 
 ### Changed

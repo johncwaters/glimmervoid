@@ -160,12 +160,13 @@ export function createPackLaunchers({
     return runsLoad;
   }
 
-  function saveRuns(startedRunKey: string): void {
-    if (runsPath === null) return;
+  function saveRuns(startedRunKey: string): Promise<void> {
+    if (runsPath === null) return Promise.resolve();
     const sessionIdByRun = Object.fromEntries([...sessionIdByRunKey].filter(([runKey, sessionId]) => runKey === startedRunKey || isSessionLive(sessionId)));
     runWrites = runWrites
       .then(() => writeTextAtomic(runsPath, `${JSON.stringify({ sessionIdByRun }, null, 2)}\n`, { mkdir: true }))
       .catch((error: unknown) => log.warn(`[packs] could not save the scheduled launcher runs to ${runsPath}: ${errorMessage(error)}`));
+    return runWrites;
   }
 
   function skipNoteOf(decision: ReturnType<typeof decideScheduledFire>, resolution: LauncherProjectResolution, lateByMs: number): string | null {
@@ -203,7 +204,7 @@ export function createPackLaunchers({
       return;
     }
     sessionIdByRunKey.set(runKey, started.sessionId);
-    saveRuns(runKey);
+    await saveRuns(runKey);
   }
 
   async function fireDueLaunchers(): Promise<void> {
@@ -264,7 +265,13 @@ export function createPackLaunchers({
     armSchedule();
   }
 
-  return { refresh, launchRequest, panelSessionRequest, panelMaySend, attachSessionStarter, alarms, onAlarm: armSchedule, onAlarmsMayHaveChanged };
+  function stop(): Promise<void> {
+    if (scheduleTimer) clearTimeoutFn(scheduleTimer);
+    scheduleTimer = null;
+    return runWrites;
+  }
+
+  return { refresh, launchRequest, panelSessionRequest, panelMaySend, attachSessionStarter, alarms, onAlarm: armSchedule, onAlarmsMayHaveChanged, stop };
 }
 
 export type PackLaunchers = ReturnType<typeof createPackLaunchers>;

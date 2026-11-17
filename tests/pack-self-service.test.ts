@@ -350,7 +350,7 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
   const hourMs = 60 * 60 * 1000;
   const firstFireAt = Date.parse('2026-11-13T03:00:00Z');
   let nowMs = firstFireAt - hourMs;
-  const armedTimers: { fire: () => void; delayMs: number }[] = [];
+  const armedTimers: { fire: () => void; delayMs: number; savedRunsAtArm: string }[] = [];
   const endedSessionIds = new Set<string>();
   let operatorTimezone = 'UTC';
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
@@ -362,7 +362,8 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     liveSessionNames: () => config.projects.map((project) => project.name), maxScheduledSessions: () => 3, timezone: () => operatorTimezone,
     now: () => nowMs,
     setTimeoutFn: (fire: () => void, delayMs: number) => {
-      armedTimers.push({ fire, delayMs });
+      const runsPathNow = packLauncherRunsPath(homeDir);
+      armedTimers.push({ fire, delayMs, savedRunsAtArm: fs.statSync(runsPathNow, { throwIfNoEntry: false })?.isFile() ? fs.readFileSync(runsPathNow, 'utf8') : '' });
       return setTimeout(() => {}, 0);
     },
   };
@@ -397,7 +398,7 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     await fireArmedTimer(firstFireAt + 48 * hourMs);
     assert.deepEqual(config.projects.map((project) => project.name), ['Nightly checks', 'Nightly checks (2)']);
     const secondRunSessionId = config.projects[1]?.id ?? '';
-    await waitFor(() => fs.existsSync(packLauncherRunsPath(homeDir)) && fs.readFileSync(packLauncherRunsPath(homeDir), 'utf8').includes(secondRunSessionId), 'the second run is saved before the restart');
+    assert.ok(armedTimers.at(-1)?.savedRunsAtArm.includes(secondRunSessionId), 'the run is saved before the next run is armed, so a restart cannot start it again');
 
     nowMs = firstFireAt + 96 * hourMs + hourMs / 2;
     const restarted = createPackLaunchers(launcherDeps);

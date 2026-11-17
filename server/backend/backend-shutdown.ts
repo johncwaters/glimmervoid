@@ -35,6 +35,7 @@ interface BackendShutdownDependencies {
   myPrs?: { stopPoller: () => unknown } | null;
   packStore?: { stop: () => unknown } | null;
   packSources?: { stop: () => unknown } | null;
+  packLaunchers?: { stop: () => unknown } | null;
   community?: { stopPoller: () => unknown } | null;
   workflows?: { stopPoller: () => unknown } | null;
   races?: { stopWatching: () => unknown } | null;
@@ -115,6 +116,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (dependencies.myPrs) stoppers.add('my-prs', () => dependencies.myPrs?.stopPoller());
     if (dependencies.packStore) stoppers.add('packs', () => dependencies.packStore?.stop());
     if (dependencies.packSources) stoppers.add('pack-sources', () => dependencies.packSources?.stop());
+    if (dependencies.packLaunchers) stoppers.add('pack-launchers', () => dependencies.packLaunchers?.stop());
     if (dependencies.community) stoppers.add('community', () => dependencies.community?.stopPoller());
     const workflows = dependencies.workflows;
     if (workflows) stoppers.add('workflows', () => workflows.stopPoller());
