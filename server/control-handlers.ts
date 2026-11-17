@@ -58,6 +58,7 @@ import { createSettingsHandlers } from './control/handlers/settings-handlers.ts'
 import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers.ts';
 import { createReviewHandlers } from './control/handlers/review-handlers.ts';
 import type { VerificationWiring } from './verification/verification-wiring.ts';
+import type { SessionReviewWiring } from './review/session-review-wiring.ts';
 import { createWorktreeHandlers } from './control/handlers/worktree-handlers.ts';
 
 type ControlRequest = ClientMessage;
@@ -104,6 +105,7 @@ interface ControlHandlerDeps {
   agentSessions?: Map<string, Session>;
   changeMaps?: ChangeMapService;
   verification?: Pick<VerificationWiring, 'latestRun'> | null;
+  sessionReview?: Pick<SessionReviewWiring, 'latest' | 'run'> | null;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
   sessionWakes?: SessionWakesControl | null;
   githubAppGrants?: GithubAppGrants;

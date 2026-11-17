@@ -297,6 +297,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     void whiteboards.forgetSession(message.id);
     void reviews.forgetSession(message.id);
     verification.forgetSession(message.id);
+    laneAssembly.sessionReview.forgetSession(message.id);
     forgetSessionInSavedOrder(message.id);
   };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
@@ -882,6 +883,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     reviews,
     changeMaps,
     verification,
+    sessionReview: laneAssembly.sessionReview,
     serverBuild: () => serverBuild,
     telemetry,
     logger: console,

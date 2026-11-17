@@ -2,6 +2,7 @@ import { CHANGES_POLL_INTERVAL_MS } from '#shared/contracts/control-messages.ts'
 import { ChangeMap } from '#shared/contracts/change-map.ts';
 import { ReviewState } from '#shared/contracts/review-state.ts';
 import { VerificationRun } from '#shared/contracts/verification.ts';
+import { SessionReviewResult } from '#shared/contracts/session-review.ts';
 import type { ChangeMapView } from '#shared/change-map-view-core.ts';
 import { buildChangeMapView } from '#shared/change-map-view-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
@@ -21,6 +22,7 @@ export interface SessionReview extends ReviewView {
   isWorkspace: boolean;
   reviewState: ReviewState | null;
   verification: VerificationRun | null;
+  reviewerResult: SessionReviewResult | null;
 }
 
 const statusById = new Map<string, string>();
@@ -30,6 +32,7 @@ const diffErrorById = new Map<string, string>();
 const mapById = new Map<string, ChangeMap | null>();
 const reviewStateById = new Map<string, ReviewState>();
 const verificationById = new Map<string, VerificationRun>();
+const reviewerResultById = new Map<string, SessionReviewResult>();
 const filesByPayload = new WeakMap<SessionDiffPayload, ReaderFile[]>();
 const changeMapViewByMap = new WeakMap<ChangeMap, ChangeMapView>();
 const listeners = new Set<(sessionId: string) => void>();
@@ -95,6 +98,7 @@ export function reviewOf(sessionId: string): SessionReview | null {
     isWorkspace: isWorkspaceSession(sessionId),
     reviewState: reviewStateById.get(sessionId) ?? null,
     verification: verificationById.get(sessionId) ?? null,
+    reviewerResult: reviewerResultById.get(sessionId) ?? null,
   };
 }
 
@@ -107,6 +111,7 @@ function requestDiff(sessionId: string) {
   sendControlMsg({ type: 'request-session-diff', id: sessionId });
   sendControlMsg({ type: 'request-review-state', id: sessionId });
   sendControlMsg({ type: 'request-verification', id: sessionId });
+  sendControlMsg({ type: 'request-session-review', id: sessionId });
   requestChangeMap(sessionId);
 }
 
@@ -178,6 +183,24 @@ export function setVerificationRun(id: unknown, run: unknown) {
   }
   verificationById.set(sessionId, parsed.data);
   announce(sessionId);
+}
+
+export function setSessionReviewResult(id: unknown, result: unknown) {
+  const sessionId = sessionIdOf(id);
+  if (!sessionId) return;
+  const parsed = SessionReviewResult.nullable().safeParse(result);
+  if (!parsed.success) return;
+  if (parsed.data === null || parsed.data.sessionId !== sessionId) {
+    reviewerResultById.delete(sessionId);
+    announce(sessionId);
+    return;
+  }
+  reviewerResultById.set(sessionId, parsed.data);
+  announce(sessionId);
+}
+
+export function runSessionReview(sessionId: string) {
+  sendControlMsg({ type: 'run-session-review', id: sessionId });
 }
 
 export function noteWorktreeChanged(id: unknown) {

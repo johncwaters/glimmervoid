@@ -56,7 +56,7 @@ export type { OnboardingStepReport, OperatorSurface, OperatorAction, OperatorAct
 
 const idOnlyClientTypes = [
   'kill', 'start-session', 'snooze-session',
-  'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-verification', 'request-branch-sync', 'resync-branch', 'debug-state',
+  'resolve-session-merge', 'request-session-diff', 'request-change-map', 'request-verification', 'request-session-review', 'run-session-review', 'request-branch-sync', 'resync-branch', 'debug-state',
 ] as const;
 
 function idOnlyClientVariant<const Type extends string>(type: Type) {

@@ -30,6 +30,7 @@ import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import type { GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
 import type { CommitSigning } from '../commit-signing.ts';
 import type { VerificationWiring } from '../verification/verification-wiring.ts';
+import type { SessionReviewWiring } from '../review/session-review-wiring.ts';
 import type { HostReadyReader } from '../ready-host.ts';
 
 interface SnapshotLane {
@@ -118,6 +119,7 @@ interface BackendControlDependencies {
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
   verification: Pick<VerificationWiring, 'latestRun'>;
+  sessionReview: Pick<SessionReviewWiring, 'latest' | 'run'>;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
   logger: Pick<Console, 'warn'>;
@@ -207,6 +209,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
     verification: dependencies.verification,
+    sessionReview: dependencies.sessionReview,
     agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,
   });

@@ -57,6 +57,15 @@ How sessions start, where projects are found, and branch cleanup.
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `packScheduledSessionsMax` | Scheduled pack sessions | `3` | Most sessions that pack launcher schedules keep live at once; a scheduled run past it is skipped. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
+### Session review
+
+The read-only reviewer the Review button in Changes starts on a session diff.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `sessionReview.agent` | Reviewer agent | `"claude-code"` | Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout. |
+| `sessionReview.model` | Reviewer model | `""` | Model name passed to the reviewer agent. Empty uses that agent default. |
+
 ### Sane YOLO
 
 What agents may do without asking, and what Sane YOLO blocks.
