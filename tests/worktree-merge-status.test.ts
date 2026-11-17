@@ -143,13 +143,14 @@ test('a gate refusal that settles while another push merges leaves that merge ma
   verdictReleases[0]({ allowed: true });
   while (run.lifecycle.snapshot().mergeStatus !== 'merging') await new Promise((resolve) => setImmediate(resolve));
   verdictReleases[1]({ allowed: false, reason: 'checks failed: unit' });
-  assert.equal((await secondPush).reason, 'merge-in-progress');
+  const pushRefusedByTheGate = await Promise.race([firstPush, secondPush]);
+  assert.equal(pushRefusedByTheGate.reason, 'merge-in-progress');
   assert.equal(run.lifecycle.snapshot().mergeStatus, 'merging');
   const thirdPush = await run.lifecycle.mergeAndContinue();
   assert.equal(thirdPush.reason, 'merge-in-progress');
   assert.equal(mergeKeepCalls, 1);
   run.releaseMerge({ merged: true });
-  await firstPush;
+  await Promise.all([firstPush, secondPush]);
   run.cleanup();
 });
 
