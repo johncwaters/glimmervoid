@@ -26,10 +26,13 @@ export function isCredentialLikePath(filePath: string): boolean {
   return CREDENTIAL_LIKE_FILE_NAMES.some((pattern) => pattern.test(fileName));
 }
 
-export const COHERENCE_JOURNAL_DIRECTORY = '.coherence';
-export const COHERENCE_BOOKKEEPING_PATHSPEC = ['--', '.', `:(exclude)${COHERENCE_JOURNAL_DIRECTORY}`];
+const COHERENCE_RECORD_STORE_DIRECTORIES = ['.coherence/journal', '.coherence/runs', '.coherence/work'];
+const COHERENCE_RECORD_EXTENSIONS = ['jsonl', 'jsonseq'];
+const COHERENCE_RECORD_FILE_PATTERN = /^\.coherence\/(?:journal|runs|work)\/[^/]+\.(?:jsonl|jsonseq)$/;
+const COHERENCE_RECORD_GLOBS = COHERENCE_RECORD_STORE_DIRECTORIES.flatMap((directory) => COHERENCE_RECORD_EXTENSIONS.map((extension) => `${directory}/*.${extension}`));
+export const COHERENCE_RECORD_PATHSPECS = COHERENCE_RECORD_GLOBS.map((recordGlob) => `:(glob)${recordGlob}`);
+export const COHERENCE_BOOKKEEPING_PATHSPEC = ['--', '.', ...COHERENCE_RECORD_GLOBS.map((recordGlob) => `:(exclude,glob)${recordGlob}`)];
 
 export function isCoherenceJournalPath(journalPath: string): boolean {
-  const segments = journalPath.split('/');
-  return segments.length >= 2 && segments[0] === COHERENCE_JOURNAL_DIRECTORY && segments.every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+  return COHERENCE_RECORD_FILE_PATTERN.test(journalPath);
 }

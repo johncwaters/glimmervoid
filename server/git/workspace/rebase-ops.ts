@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { COHERENCE_BOOKKEEPING_PATHSPEC, COHERENCE_JOURNAL_DIRECTORY, isCoherenceJournalPath } from '../core/git-changed-paths-core.ts';
+import { COHERENCE_BOOKKEEPING_PATHSPEC, COHERENCE_RECORD_PATHSPECS, isCoherenceJournalPath } from '../core/git-changed-paths-core.ts';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { WORKTREE_STATUS_ARGS } from './workspace-context.ts';
@@ -194,9 +194,9 @@ function createRebaseOps(context: GitWorkspaceContext, origin: OriginOps) {
   }
 
   async function recordCoherenceJournals(worktreePath: string): Promise<boolean> {
-    const modifiedFiles = await run(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', COHERENCE_JOURNAL_DIRECTORY], worktreePath);
+    const modifiedFiles = await run(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', ...COHERENCE_RECORD_PATHSPECS], worktreePath);
     if (!modifiedFiles.ok) return false;
-    const stagedFiles = await run(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', COHERENCE_JOURNAL_DIRECTORY], worktreePath);
+    const stagedFiles = await run(['diff', '--cached', '--name-only', '--no-renames', '-z', '--', ...COHERENCE_RECORD_PATHSPECS], worktreePath);
     if (!stagedFiles.ok) return false;
     const journalPaths = [...new Set([...modifiedFiles.out.split('\0'), ...stagedFiles.out.split('\0')].filter(Boolean))];
     if (journalPaths.length === 0) return true;

@@ -160,24 +160,23 @@ test('a spawned child session push is refused while a required check fails', asy
 test('a pending Coherence journal does not count as uncommitted work at the merge gate', async () => {
   const { run, landing } = gatedRepo([{ id: 'unit', command: 'node --version' }]);
   fs.mkdirSync(path.join(run.projectPath, '.coherence', 'journal'), { recursive: true });
-  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'journal', 'turn.json'), '{}\n');
+  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'journal', 'turn.jsonl'), '{}\n');
   const landed = await run.lifecycle.mergeAndContinue({ force: true });
   assert.equal(landed.merged, true);
   assert.equal(landing.mergeKeepCalls, 1);
   run.cleanup();
 });
 
-test('a check edited under .coherence after a passing push runs again before the next push lands', async () => {
+test('an uncommitted edit under .coherence outside its record stores counts as uncommitted work at the merge gate', async () => {
   const { run, landing } = gatedRepo([{ id: 'gate', command: 'node .coherence/gate.js' }]);
   fs.mkdirSync(path.join(run.projectPath, '.coherence'), { recursive: true });
-  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'gate.js'), 'process.exit(0);\n');
+  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'gate.js'), 'process.exit(1);\n');
   execFileSync('git', ['add', '.'], { cwd: run.projectPath });
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'gate'], { cwd: run.projectPath });
-  assert.equal((await run.lifecycle.mergeAndContinue({ force: true })).merged, true);
-  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'gate.js'), 'process.exit(1);\n');
+  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'gate.js'), 'process.exit(0);\n');
   const refused = await run.lifecycle.mergeAndContinue({ force: true });
-  assert.equal(refused.reason, 'checks failed: gate');
-  assert.equal(landing.mergeKeepCalls, 1);
+  assert.match(String(refused.reason), /^uncommitted changes/);
+  assert.equal(landing.mergeKeepCalls, 0);
   run.cleanup();
 });
 
