@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
+import { VerificationRun } from '../verification.ts';
 import { MergeStatus } from '../session.ts';
 import { sessionId, requestId, loose, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
 
@@ -62,6 +63,7 @@ export const worktreeServerVariants = [
     error: optionalError,
   }),
   loose('change-map', { id: sessionId, map: ChangeMap }),
+  loose('verification-run', { id: sessionId, run: VerificationRun.nullable() }),
   loose('branch-sync-status', {
     id: sessionId,
     branch: nullableString,

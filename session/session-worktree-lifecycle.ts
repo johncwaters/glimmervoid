@@ -13,6 +13,7 @@ import { createIntegrationRefWatcher } from "../detection/integration-ref-watch.
 import { createRerereWatcher } from "../detection/rerere-watch.ts";
 import { buildMergePrompt } from "./core/merge-prompt.ts";
 import { decideSignatureDemotion } from "./core/merge-gate.ts";
+import type { StandardsGateVerdict } from "./core/merge-gate.ts";
 import { decideAutoRebase, decideRerereCooldownClear, AUTO_REBASE_STATES, SPAWN_GAP_TRIGGER } from "./core/rebase-gate.ts";
 import { nextMergeState } from "./core/worktree-state.ts";
 import type { MergeStatus } from "./core/worktree-state.ts";
@@ -28,6 +29,8 @@ import { createWorktreeProvisioning } from "./worktree/worktree-provisioning.ts"
 import { createWorktreeDiffScopes } from "./worktree/worktree-diff-scopes.ts";
 import { createWorktreeBranchSync } from "./worktree/worktree-branch-sync.ts";
 import { clock } from '../shared/clock.ts';
+
+type MergeGate = (tree: { sig: string; dirty: boolean } | null) => Promise<StandardsGateVerdict> | StandardsGateVerdict;
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
@@ -648,10 +651,35 @@ function createSessionWorktreeLifecycle({
     return mergeResult;
   }
 
+  let mergeGate: MergeGate | null = null;
+
+  function setMergeGate(gate: MergeGate | null): void {
+    mergeGate = gate;
+  }
+
+  async function refusalByMergeGate(gate: MergeGate): Promise<MergeResult | null> {
+    const signature = await computeWorktreeSignature();
+    const verdict = await gate(signature ? { sig: signature.sig, dirty: signature.dirty } : null);
+    if (!verdict.allowed) {
+      setMergeStatus("pending-review", { reason: verdict.reason });
+      return { merged: false, refused: true, reason: verdict.reason };
+    }
+    const signatureAfterChecks = await computeWorktreeSignature();
+    if (!signature || signatureAfterChecks?.sig !== signature.sig) {
+      const reason = "the tree changed while the checks ran, so push again to check what lands";
+      setMergeStatus("pending-review", { reason });
+      return { merged: false, refused: true, reason };
+    }
+    if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
+    return null;
+  }
+
   async function mergeWorktree(isolation?: GitIsolationOptions): Promise<MergeResult> {
     if (!gitWorkspace || !lifecycleState.workspace) return { merged: false, refused: true, reason: "no-worktree" };
     const workspace = lifecycleState.workspace;
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
+    const gateRefusal = mergeGate ? await refusalByMergeGate(mergeGate) : null;
+    if (gateRefusal) return gateRefusal;
     const { result: mergeResult, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeBack", isolation);
     if (failure) return failure;
     if (!mergeResult.merged) return applyParkedOrPending(mergeResult);
@@ -670,6 +698,8 @@ function createSessionWorktreeLifecycle({
       return { merged: false, refused: true, reason: "not-continuable" };
     }
     if (isMerging()) return { merged: false, refused: true, reason: "merge-in-progress" };
+    const gateRefusal = mergeGate ? await refusalByMergeGate(mergeGate) : null;
+    if (gateRefusal) return gateRefusal;
     const { result, failure } = await runMergeEngine(gitWorkspace, workspace, "mergeKeep");
     if (failure) return failure;
     if (result.merged) {
@@ -721,6 +751,7 @@ function createSessionWorktreeLifecycle({
     stopWatching,
     mergeWorktree,
     mergeAndContinue,
+    setMergeGate,
     adoptWorktree,
     discardWorktree,
     releaseDroppedWorkspaceMembers,

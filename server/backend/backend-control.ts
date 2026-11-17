@@ -29,6 +29,7 @@ import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import type { GithubConnection, GithubConnectionAction } from '../../shared/contracts/watcher-link.ts';
 import type { CommitSigning } from '../commit-signing.ts';
+import type { VerificationWiring } from '../verification/verification-wiring.ts';
 import type { HostReadyReader } from '../ready-host.ts';
 
 interface SnapshotLane {
@@ -115,6 +116,7 @@ interface BackendControlDependencies {
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
+  verification: Pick<VerificationWiring, 'latestRun'>;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;
   logger: Pick<Console, 'warn'>;
@@ -202,6 +204,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     whiteboards: dependencies.whiteboards,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
+    verification: dependencies.verification,
     agentAccounts: dependencies.agentAccounts,
     remoteSetup: dependencies.remoteSetup,
   });

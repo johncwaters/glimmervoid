@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { createSessionWorktreeLifecycle } from '../session/session-worktree-lifecycle.ts';
 import { STATES, type SessionState } from '../shared/states.ts';
 import type { GitWorkspace, MergeResult } from '../session/worktree/worktree-lifecycle-context.ts';
+import { createVerificationWiring } from '../server/verification/verification-wiring.ts';
 
 function lifecycleWithHeldMerge(hasUnmergedWork = true) {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-merge-status-'));
@@ -38,6 +40,8 @@ function lifecycleWithHeldMerge(hasUnmergedWork = true) {
   lifecycle.adoptWorktree({ worktreeDir: projectPath, branch: 'session-branch', base: 'main', watch: false, emit: false });
   return {
     lifecycle,
+    projectPath,
+    gitWorkspace,
     exitAgent: () => { sessionState = STATES.DONE; },
     releaseMerge: (outcome: MergeResult) => releaseMerge(outcome),
     cleanup: () => fs.rmSync(projectPath, { recursive: true, force: true }),
@@ -79,4 +83,44 @@ test('a merge outcome lands whether the agent stays alive or exits while the mer
   await liveMerge;
   assert.equal(liveRun.lifecycle.snapshot().mergeStatus, 'merged');
   liveRun.cleanup();
+});
+
+test('a push is refused until the required checks pass on the current tree, naming the failing check', async () => {
+  const run = lifecycleWithHeldMerge();
+  execFileSync('git', ['init', '--quiet'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'start'], { cwd: run.projectPath });
+  let mergeKeepCalls = 0;
+  run.gitWorkspace.mergeKeep = async () => { mergeKeepCalls += 1; return { merged: true }; };
+  let checkCommand = 'node does-not-exist.js';
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => ({ repos: { [run.projectPath]: { checks: [{ id: 'unit', command: checkCommand }], gate: { enabled: true } } } }),
+    isSessionSandboxOn: () => false,
+    broadcastControl: () => {},
+    logger: console,
+  });
+  verification.attachSession({
+    id: 'merge-status-test',
+    path: run.projectPath,
+    ephemeral: false,
+    hasOwnWorktree: true,
+    worktreeDir: run.projectPath,
+    on: () => {},
+    worktreeLifecycle: run.lifecycle,
+  });
+
+  const refused = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.equal(refused.merged, false);
+  assert.equal(refused.reason, 'checks failed: unit');
+  assert.equal(mergeKeepCalls, 0);
+
+  checkCommand = 'node --version';
+  fs.writeFileSync(path.join(run.projectPath, 'changed.txt'), 'new tree\n');
+  const dirtyRefusal = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.match(String(dirtyRefusal.reason), /^uncommitted changes/);
+  execFileSync('git', ['add', '.'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'change'], { cwd: run.projectPath });
+  const landed = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.equal(landed.merged, true);
+  assert.equal(mergeKeepCalls, 1);
+  run.cleanup();
 });

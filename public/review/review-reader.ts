@@ -18,6 +18,7 @@ import {
 import type { SessionReview } from './review-store.ts';
 import { onReviewChange, refreshReview, reviewOf, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
+import type { CheckOutcome } from '#shared/contracts/verification.ts';
 import { clock } from '#shared/clock.ts';
 
 const CHANGES_PAGE_ID = 'changes';
@@ -199,6 +200,7 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
     return;
   }
   if (review.statusLine) fileColumn.append(el('p', 'review-reader-status', review.statusLine));
+  appendVerificationGroup(fileColumn, review);
   fileColumn.append(scopeMenu());
   if (review.totals.files > 0) fileColumn.append(totalsLine(review.totals));
   const { newFiles, viewedFiles, generatedFiles } = groupReaderFiles(review.files, viewedHashByPathOf(review), scope);
@@ -213,6 +215,26 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
     : null;
   if (worthALook) fileColumn.append(worthALook);
   fileColumn.scrollTop = scrollTop;
+}
+
+const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
+
+function appendVerificationGroup(fileColumn: HTMLElement, review: SessionReview) {
+  const run = review.verification;
+  if (!run) return;
+  fileColumn.append(el('p', 'review-reader-group', run.status === 'running' ? 'Checks running' : `Checks ${String.fromCharCode(183)} ${run.status}`));
+  const list = el('div', 'review-reader-check-list');
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Checks');
+  for (const check of run.checks) {
+    const row = el('div', 'review-reader-check');
+    row.setAttribute('role', 'listitem');
+    row.dataset.status = check.status;
+    row.append(el('span', 'review-check-id', check.id), el('span', 'review-check-status', CHECK_STATUS_WORDS[check.status]));
+    list.append(row);
+    if (check.status !== 'pass' && check.outputTail.trim()) list.append(el('pre', 'review-check-output', check.outputTail));
+  }
+  fileColumn.append(list);
 }
 
 function appendCommitGroup(fileColumn: HTMLElement, review: SessionReview) {

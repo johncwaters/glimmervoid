@@ -52,6 +52,7 @@ interface SessionEventDependencies {
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
+  verification?: { attachSession: (session: Session) => void } | null;
   starHint?: { attachSession: (session: Session) => void } | null;
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
   pushProvenanceNotes?: (repoDir: string) => Promise<void>;
@@ -105,6 +106,7 @@ function persistSessionField(
 function createSessionEventWiring(dependencies: SessionEventDependencies): (session: Session) => void {
   return function wireSessionEvents(session: Session): void {
     dependencies.traceWiring?.attachSession(session);
+    dependencies.verification?.attachSession(session);
     dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.starHint?.attachSession(session);
     let pendingPromptKind: string | null = null;

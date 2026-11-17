@@ -9,6 +9,13 @@
 .review-reader-file-list { display: grid; margin-bottom: 16px; }
 .review-reader-group { margin: 0; padding: 0 var(--review-row-pad) 4px; color: var(--text-muted); font: 700 var(--type-meta) var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
 .review-reader-commit-list { margin-bottom: 12px; }
+.review-reader-check-list { margin-bottom: 12px; }
+.review-reader-check { display: flex; align-items: baseline; gap: 8px; padding: 3px var(--review-row-pad); color: var(--text); font: var(--type-meta)/1.5 var(--font-mono); }
+.review-check-id { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-check-status { flex: none; color: var(--text-muted); }
+.review-reader-check[data-status="pass"] .review-check-status { color: var(--state-done); }
+.review-reader-check[data-status="fail"] .review-check-status, .review-reader-check[data-status="timeout"] .review-check-status { color: var(--state-failed); }
+.review-check-output { margin: 0 var(--review-row-pad) 6px; padding: 6px 8px; max-height: 180px; overflow: auto; color: var(--text-muted); background: var(--bg-card); border: 1px solid var(--border-dim); border-radius: 4px; font: var(--type-meta)/1.4 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .review-reader-commit { display: flex; align-items: baseline; gap: 8px; padding: 3px var(--review-row-pad); color: var(--text); font: var(--type-meta)/1.5 var(--font-mono); }
 .review-commit-sha { flex: none; color: var(--text-muted); }
 .review-commit-subject { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -91,6 +91,7 @@ import { SecretSource } from '../../shared/contracts/secrets.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
+import { createVerificationWiring } from '../verification/verification-wiring.ts';
 import { legacyVaultCompanionPath, legacyWatcherLinkKeyPath, vaultCompanionPath, watcherLinkKeyPath } from '../secrets/core/secret-files-core.ts';
 
 interface CreateBackendOptions extends BackendLaneOptions {
@@ -294,6 +295,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     if (message.type !== 'session-removed' || typeof message.id !== 'string') return;
     void whiteboards.forgetSession(message.id);
     void reviews.forgetSession(message.id);
+    verification.forgetSession(message.id);
     forgetSessionInSavedOrder(message.id);
   };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
@@ -316,6 +318,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
   const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => configStore.config.verification,
+    isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
+    broadcastControl: broadcastControlFromWebSockets,
+    logger: console,
+  });
   const health = createBackendHealth({
     sessions,
     getAllSessions: () => allLiveSessions(),
@@ -503,6 +511,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     notificationManager,
     attachSessionPrLink,
     traceWiring,
+    verification,
     commitSessions: createCommitSessions({
       storeRoot: configSiblingPath(configStore.configPath, COMMIT_SESSIONS_FOLDER_NAME),
       logger: console,
@@ -867,6 +876,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     reviews,
     changeMaps,
+    verification,
     serverBuild: () => serverBuild,
     telemetry,
     logger: console,
