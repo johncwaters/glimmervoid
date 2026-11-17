@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.4] - 2026-11-16
+
 ### Changed
 
 - **The Glimmervoid Cloud terms now name Montana law and courts in place of Arizona.** Consumers still keep the protection of the law where they live, and disputes are still settled in court, not by arbitration.
