@@ -7,20 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Answer permission prompts from Chat.** With the experimental Chat view switch on, a session launched without skip permissions holds each permission prompt from Claude Code, Codex, Kimi Code, OpenCode, pi and Antigravity for an Allow or Deny answer from the dashboard; read-only shell commands are never held. Unanswered, the agent shows its own prompt as before. On Kimi Code, Deny from Chat blocks the tool, while Allow still needs Kimi's own prompt answered, because Kimi takes only a deny from a hook. Turning the Chat switch off stops new holds at once, without restarting sessions. With Chat on, Claude Code questions from the main session are held for an answer too. Skip permissions plus Sane YOLO stays the default launch.
-- **An experimental Chat view switch.** Settings, Sessions, Chat view adds the switch for the Chat page being built as an alternative to a session's terminal. It is off by default and changes nothing yet.
-
-### Fixed
-
-- **Session Trace shows what a tool printed when its output was too large.** Claude, Kimi, pi and Antigravity save a large result to a file and hand back a note pointing at it; Trace now shows the kept preview, marked as cut, instead of that note.
-- **A pack panel that types into a session now presses Enter.** Text a panel sent with its sessions act was pasted into the agent's input box and left there unsent.
-
 ## [0.62.5] - 2026-11-17
 
 ### Added
 
+- **Answer permission prompts from Chat.** With the experimental Chat view switch on, a session launched without skip permissions holds each permission prompt from Claude Code, Codex, Kimi Code, OpenCode, pi and Antigravity for an Allow or Deny answer from the dashboard; read-only shell commands are never held. Unanswered, the agent shows its own prompt as before. On Kimi Code, Deny from Chat blocks the tool, while Allow still needs Kimi's own prompt answered, because Kimi takes only a deny from a hook. Turning the Chat switch off stops new holds at once, without restarting sessions. With Chat on, Claude Code questions from the main session are held for an answer too. Skip permissions plus Sane YOLO stays the default launch.
+- **An experimental Chat view switch.** Settings, Sessions, Chat view adds the switch for the Chat page being built as an alternative to a session's terminal. It is off by default and changes nothing yet.
 - **Trace shows the conversation for every first-class agent.** Codex, Kimi Code, OpenCode, pi and Antigravity sessions now fill the session's Trace with the prompt, thinking, replies and each tool call with its result, as Claude Code sessions already did. Glimmervoid reads each agent's own session log, or for OpenCode receives the turn from its plugin when the turn ends. A record that does not fit the shared trace format is refused and a notice names the agent and the field.
 - **Walk a board's wires in the media viewer.** With a picture, video or page open full size, the arrow keys show the box wired to it in that direction, in the same viewer and at the same zoom, so a flow of screens can be stepped through and compared without closing each one. Boxes without a picture, video or page are skipped, and inside a page an arrow first scrolls the page or moves through a field before it walks on.
 - **Add session reads as one sentence that holds still: Start [agent] as [account] on [model] in [project].** The whole sentence shows from the first open, with the words not picked yet dimmed, so picking never moves the dialog; the list starts in the same place on every screen, with a title such as Agents or Opus 5.5 effort where a screen has no search, and All models or All projects as the first row of the list. Every word opens the same searchable list of rows. The model word shows the model and its effort, such as Opus 5.5 medium; its list holds the agent's own models with an OpenRouter group under them, and any typed model id is accepted. Picking a model that has efforts lists them as rows, Default first with the effort your agent settings name. The account word opens a list when the agent has more than one account. Several repos keeps a search box, lists picked repos first, and ticks rows instead of checkboxes. The GitHub issue field is gone: type an issue number such as #128 in the project search and pick Issue #128 in the project you want, the project already in the sentence listed first. The dialog has no dropdowns, tabs or chips left.
@@ -54,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every notice under the dashboard header is now recorded, not only errors and warnings.** An available update, old reports left in a repository and the telemetry notice now each write a line to the server log when they appear, and send one `notice_shown` usage event with their text. That event replaces `header_error_shown`, which errors and warnings now send as `notice_shown` too.
 
 ### Fixed
+
+- **Session Trace shows what a tool printed when its output was too large.** Claude, Kimi, pi and Antigravity save a large result to a file and hand back a note pointing at it; Trace now shows the kept preview, marked as cut, instead of that note.
+- **A pack panel that types into a session now presses Enter.** Text a panel sent with its sessions act was pasted into the agent's input box and left there unsent.
 
 - **Wakes stay with the Glimmervoid that set them.** Scheduled wakes were kept in one wakes.json in the Glimmervoid home folder, so two instances started with different `--config` files shared it, and one marked the other's wakes as missed or wrote over them. Wakes now live in wakes.json beside your config. An instance with its own config folder starts with no wakes, so set its wakes again.
 
