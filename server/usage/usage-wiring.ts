@@ -5,8 +5,9 @@ import { decideTelegramNotification } from '../../notifications/channels/telegra
 import { USAGE_INTEGER_RANGES } from '../../shared/settings-ranges.ts';
 import { USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../../shared/usage-config.ts';
 import type { UsageVendorKey } from '../../shared/usage-config.ts';
-import { evaluateBudget, markFired, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
-import type { BudgetAlert, BudgetConfig, BudgetFiredState } from './core/usage-budget-core.ts';
+import { budgetScopesAtLimit, evaluateBudget, markFired, pausedPeriodsAfter, pausedScopesInPeriod, readPausedPeriods, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
+import type { BudgetAlert, BudgetConfig, BudgetFiredState, BudgetPausedPeriods } from './core/usage-budget-core.ts';
+import type { BudgetHoldPhase } from '../session/session-budget-pause.ts';
 import { planWindowStartsMs } from './core/usage-lane-core.ts';
 import { continuationDelayMs, shouldEvaluateDespiteIoFailures } from './core/usage-scan-core.ts';
 import type { PassOutcome } from './core/usage-scan-core.ts';
@@ -50,7 +51,7 @@ const DEFAULT_USAGE_CONFIG = Object.freeze({
   costMode: 'auto',
   extraProjectsDirs: [],
 
-  budget: { dailyUsd: null, monthlyUsd: null },
+  budget: { dailyUsd: null, monthlyUsd: null, pauseAtLimit: false },
 
   vendors: { codex: true, grok: true, kimi: true },
 });
@@ -128,6 +129,7 @@ interface UsageWiringOptions {
   snapshotPath?: string | null;
   appVersion?: string;
   budgetStatePath?: string | null;
+  onBudgetHold?: (phase: BudgetHoldPhase) => string[];
   laneMap?: (() => Map<string, string>) | null;
   telemetry?: Pick<Telemetry, 'captureAiGenerations'> | null;
   sendTelegram?: typeof sendTelegramMessage;
@@ -184,7 +186,7 @@ function resolveUsageConfig(usage: unknown): UsageLaneConfig {
     costMode: typeof source.costMode === 'string' && COST_MODES.has(source.costMode) ? source.costMode : DEFAULT_USAGE_CONFIG.costMode,
     extraProjectsDirs: absoluteDirList(source.extraProjectsDirs),
     vendors: resolveVendors(source.vendors),
-    budget: normalizeBudgetConfig(source.budget as { dailyUsd?: unknown; monthlyUsd?: unknown } | null),
+    budget: normalizeBudgetConfig(source.budget as { dailyUsd?: unknown; monthlyUsd?: unknown; pauseAtLimit?: unknown } | null),
   };
 }
 
@@ -219,6 +221,7 @@ function createUsageWiring({
   appVersion = '',
 
   budgetStatePath = null,
+  onBudgetHold = () => [],
 
   laneMap = null,
   telemetry = null,
@@ -241,6 +244,9 @@ function createUsageWiring({
   const laneLog = createLaneLog({ prefix: '[usage]', logger, debugFlag: debug });
   const readKimiLimits = readKimiPlanLimits ?? createKimiPlanLimitsReader({ logger }).readPlanLimits;
   let cfg = resolveUsageConfig(config.usage);
+  let budgetHold: { kind: 'unread' } | { kind: 'read'; holdReason: string | null } = { kind: 'unread' };
+  let lastPassOutcome: PassOutcome | null = null;
+  let budgetPausedPeriods: BudgetPausedPeriods = { daily: null, monthly: null };
   let lastKey = usageCfgKey(config);
   let scanner: UsageScannerApi | null = null;
   let pricing: PricingResult | null = null;
@@ -268,18 +274,21 @@ function createUsageWiring({
     | { kind: 'running'; settled: Promise<void> }
     | { kind: 'running-queued'; settled: Promise<void>; queued: Promise<void> } = { kind: 'idle' };
 
-  const budgetStateStore = createJsonStateStore<BudgetFiredState>({
+  const budgetStateStore = createJsonStateStore<{ fired: BudgetFiredState; paused: BudgetPausedPeriods }>({
     name: 'budget state',
     filePath: budgetStatePath,
     fsPromises,
     nowMs: nowFn,
     warn: laneLog.warn,
     parse: (raw) => {
-      const fired = raw && typeof raw === 'object' ? (raw as { fired?: unknown }).fired : null;
-      return fired && typeof fired === 'object' ? fired as BudgetFiredState : { daily: {}, monthly: {} };
+      const stored = raw && typeof raw === 'object' ? raw as { fired?: unknown; paused?: unknown } : {};
+      const fired = stored.fired && typeof stored.fired === 'object' ? stored.fired as BudgetFiredState : { daily: {}, monthly: {} };
+      return { fired, paused: readPausedPeriods(stored.paused) };
     },
-    adopt: (loadedFiredState) => {
-      budgetFiredState = mergeFiredState(budgetFiredState, loadedFiredState ?? {});
+    adopt: (loaded) => {
+      budgetFiredState = mergeFiredState(budgetFiredState, loaded?.fired ?? {});
+      const loadedPaused = loaded?.paused ?? { daily: null, monthly: null };
+      budgetPausedPeriods = { daily: budgetPausedPeriods.daily ?? loadedPaused.daily, monthly: budgetPausedPeriods.monthly ?? loadedPaused.monthly };
     },
   });
 
@@ -316,6 +325,7 @@ function createUsageWiring({
       return Promise.resolve();
     }
     startPromise = (async () => {
+      if (budgetStatePath) await loadBudgetState();
       const loadedPricing = await loadPricingSafely();
       pricing = loadedPricing;
       if (stopped) return;
@@ -376,6 +386,7 @@ function createUsageWiring({
         { ioFailures: result.ioFailures, files: result.files },
       );
     }
+    if (result) lastPassOutcome = result.outcome;
     if (result?.outcome === 'complete') {
       if (ioFailureStreak > 0) ioFailureStreakId += 1;
       ioFailureStreak = 0;
@@ -560,10 +571,8 @@ function createUsageWiring({
   }
 
   async function saveBudgetState(): Promise<void> {
-    await budgetStateStore.write(
-      budgetFiredState,
-      () => `${JSON.stringify({ version: 1, fired: budgetFiredState }, null, 2)}\n`,
-    );
+    const stored = { fired: budgetFiredState, paused: budgetPausedPeriods };
+    await budgetStateStore.write(stored, () => `${JSON.stringify({ version: 1, ...stored }, null, 2)}\n`);
   }
 
   async function deliverBudgetTelegram(alert: BudgetAlert): Promise<boolean> {
@@ -596,9 +605,13 @@ function createUsageWiring({
   async function evaluateBudgetsOnce(): Promise<void> {
     if (stopped || !scanner || !budgetStatePath) return;
 
-    if (cfg.budget.dailyUsd === null && cfg.budget.monthlyUsd === null) return;
+    if (cfg.budget.dailyUsd === null && cfg.budget.monthlyUsd === null) {
+      releaseHold();
+      return;
+    }
     await loadBudgetState();
     const spend = scanner.budgetSpend();
+    if (lastPassOutcome === 'complete') holdAtLimit(spend);
     const { alerts, firedState } = evaluateBudget({
       budget: cfg.budget,
       todayUsd: spend.todayUsd,
@@ -622,6 +635,41 @@ function createUsageWiring({
     }
     budgetFiredState = firedState;
     await saveBudgetState();
+  }
+
+  function isHeld(): boolean {
+    return budgetHold.kind === 'read' && budgetHold.holdReason !== null;
+  }
+
+  function releaseHold(): void {
+    const wasHeld = isHeld();
+    budgetHold = { kind: 'read', holdReason: null };
+    if (wasHeld) onBudgetHold('end');
+  }
+
+  function holdAtLimit(spend: { todayUsd: unknown; monthUsd: unknown; todayKey: string; monthKey: string }): void {
+    const rowsAtLimit = budgetScopesAtLimit({ budget: cfg.budget, todayUsd: spend.todayUsd, monthUsd: spend.monthUsd });
+    if (rowsAtLimit.length === 0) {
+      releaseHold();
+      return;
+    }
+    const holdReason = `the ${rowsAtLimit.map((row) => `${row.scope} spend ${formatBudgetUsd(row.spentUsd)} reached its ${formatBudgetUsd(row.budgetUsd)} budget`).join(' and the ')}, so sessions are paused until the period rolls over`;
+    budgetHold = { kind: 'read', holdReason };
+    const next = pausedPeriodsAfter(rowsAtLimit, budgetPausedPeriods, { daily: spend.todayKey, monthly: spend.monthKey });
+    budgetPausedPeriods = next.paused;
+    const phase: BudgetHoldPhase = next.isNewPause ? 'start' : 'continue';
+    const pausedNames = onBudgetHold(phase);
+    if (phase === 'continue' && pausedNames.length === 0) return;
+    laneLog.warn('budget reached, paused sessions', { holdReason, pausedSessions: pausedNames.join(', ') });
+  }
+
+  function budgetHoldReason(): string | null {
+    if (stopped || !cfg.budget.pauseAtLimit) return null;
+    if (budgetHold.kind === 'read') return budgetHold.holdReason;
+    const todayKey = clock.dayKeyOf(nowFn());
+    const scopes = pausedScopesInPeriod(budgetPausedPeriods, { daily: todayKey, monthly: todayKey.slice(0, 7) });
+    if (scopes.length === 0) return null;
+    return `the ${scopes.join(' and ')} budget was reached earlier this period, so sessions stay paused until it rolls over`;
   }
 
   function startBudgetEvaluation(): Promise<void> {
@@ -766,6 +814,7 @@ function createUsageWiring({
     requestReport,
     ingestStatusline,
     getPlanLimitsMessage,
+    budgetHoldReason,
   };
 }
 
