@@ -4,6 +4,7 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el, externalLink } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
+import { field } from '../ui/field.ts';
 import { applySettingsBroadcast, settingsPayloadSnapshot } from '../settings/settings-store.ts';
 
 const READ_TOKEN_PATH = 'github.readToken' as const;
@@ -31,10 +32,7 @@ function hasLaneReadToken(): boolean {
 }
 
 function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSaved: () => void }): HTMLElement[] {
-  const inputId = 'lane-read-token-input';
-  const label = el('label', 'repo-roots-adder-label', 'READ-ONLY TOKEN');
-  label.htmlFor = inputId;
-  const input = textInput({ id: inputId, type: 'password', placeholder: 'github_pat_' });
+  const input = textInput({ id: 'lane-read-token-input', type: 'password', placeholder: 'github_pat_' });
   const actions = el('div', 'first-run-step-actions');
   const saveButton = button({ variant: 'primary', label: 'Save token', action: READ_TOKEN_ACTION });
   const status = createActionStatus();
@@ -83,7 +81,7 @@ function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSave
       el('dd', 'lane-token-setting-note', setting.note),
     );
   }
-  return [advice, settingsList, label, input, actions];
+  return [advice, settingsList, field({ label: 'Read-only token', control: input }).element, actions];
 }
 
 export { hasConfiguredSecret, hasLaneReadToken, laneReadTokenStepBody };

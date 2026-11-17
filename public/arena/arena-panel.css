@@ -609,17 +609,6 @@
   border-top: 1px solid var(--border-dim);
 }
 
-.arena-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.arena-field-label {
-  color: var(--text-muted);
-  font-size: var(--type-meta);
-}
-
 .arena-select {
   width: auto;
 }
@@ -676,7 +665,7 @@
 
 .arena-form-group-body > button,
 .arena-vary > button,
-.arena-vary > .arena-select {
+.arena-vary .ui-field > .arena-select {
   align-self: flex-start;
 }
 

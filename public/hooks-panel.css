@@ -241,22 +241,7 @@
   border-bottom: 1px solid var(--border-dim);
 }
 
-.hooks-field {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  gap: 4px 12px;
-  align-items: center;
-}
-
-.hooks-field[hidden] { display: none; }
-
-.hooks-field-label {
-  font-size: var(--type-meta);
-  color: var(--text-dim);
-}
-
 .hooks-field-hint {
-  grid-column: 2;
   font-size: var(--type-meta);
   color: var(--text-muted);
 }
@@ -322,9 +307,6 @@ html[data-layout="phone"] .hooks-row-actions {
 html[data-layout="phone"] .hooks-row-builtin .hooks-row-main { flex-direction: column; gap: 2px; }
 html[data-layout="phone"] .hooks-preview-code { font-size: var(--type-meta); }
 html[data-layout="phone"] .hooks-form { padding: 12px 10px; gap: 14px; }
-html[data-layout="phone"] .hooks-field { grid-template-columns: 1fr; gap: 6px; }
-html[data-layout="phone"] .hooks-field-label { font-size: var(--type-meta); }
-html[data-layout="phone"] .hooks-field-hint { grid-column: 1; }
 html[data-layout="phone"] .hooks-command { min-height: 96px; }
 html[data-layout="phone"] .hooks-timeout { max-width: 160px; }
 html[data-layout="phone"] .hooks-editor-footer {

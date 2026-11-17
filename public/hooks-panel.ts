@@ -11,6 +11,7 @@ import { checkbox, radio } from './ui/checkbox.ts';
 import { createPressable } from './ui/pressable.ts';
 import { select } from './ui/select.ts';
 import { disclosure } from './ui/disclosure.ts';
+import { field } from './ui/field.ts';
 import { createLineIcon, PLUS_ICON_PATH } from './svg-dom.ts';
 import {
   ALL_PROJECTS_LABEL,
@@ -135,11 +136,8 @@ async function runRowRequest(hookId: string, type: 'save-hook' | 'delete-hook', 
   requestHooksReport();
 }
 
-function buildField(label: string, control: HTMLElement, hint: string | null) {
-  const field = el('label', 'hooks-field');
-  field.append(el('span', 'hooks-field-label', label), control);
-  if (hint) field.append(el('span', 'hooks-field-hint', hint));
-  return field;
+function buildField(label: string, control: HTMLElement, hint = '') {
+  return field({ label, control, hint, layout: 'grid' });
 }
 
 function buildInput(value: string, placeholder: string, onInput: (value: string) => void) {
@@ -237,21 +235,19 @@ function buildEditor(draft: HookDraft) {
   });
   if (!draft.id) form.append(buildTemplateRow(events));
 
-  const matcherHintEl = el('span', 'hooks-field-hint', matcherHint(events, draft.event));
   const matcherInput = buildInput(draft.matcher, '', (value) => { draft.matcher = value; });
-  const commandField = buildField('Command', buildTextarea(draft.command, (value) => { draft.command = value; }), 'Runs through the shell with the event JSON on stdin. Exit 2 blocks the action where the event allows it.');
-  const urlField = buildField('URL', buildInput(draft.url, 'http://127.0.0.1:8080/hook', (value) => { draft.url = value; }), 'Claude Code POSTs the event JSON to it.');
+  const commandField = buildField('Command', buildTextarea(draft.command, (value) => { draft.command = value; }), 'Runs through the shell with the event JSON on stdin. Exit 2 blocks the action where the event allows it.').element;
+  const urlField = buildField('URL', buildInput(draft.url, 'http://127.0.0.1:8080/hook', (value) => { draft.url = value; }), 'Claude Code POSTs the event JSON to it.').element;
   const syncType = () => {
     commandField.hidden = draft.type !== 'command';
     urlField.hidden = draft.type !== 'http';
   };
   syncType();
 
-  const matcherField = buildField('Matcher', matcherInput, null);
-  matcherField.append(matcherHintEl);
+  const matcherField = buildField('Matcher', matcherInput);
   const syncMatcher = () => {
     const entry = events.find((candidate) => candidate.name === draft.event);
-    matcherHintEl.textContent = matcherHint(events, draft.event);
+    matcherField.setHint(matcherHint(events, draft.event));
     matcherInput.disabled = !!entry && !entry.matcher;
     if (matcherInput.disabled) { matcherInput.value = ''; draft.matcher = ''; }
   };
@@ -263,22 +259,20 @@ function buildEditor(draft: HookDraft) {
   timeoutInput.min = '1';
   timeoutInput.max = String(maxTimeoutOf(_hooks.report));
 
-  const eventHint = el('span', 'hooks-field-hint', eventDescription(events, draft.event));
-  const eventField = buildField('Event', buildEventSelect(draft, events, (value) => { draft.event = value; eventHint.textContent = eventDescription(events, value); syncMatcher(); }), null);
-  eventField.append(eventHint);
+  const eventField = buildField('Event', buildEventSelect(draft, events, (value) => { draft.event = value; eventField.setHint(eventDescription(events, value)); syncMatcher(); }), eventDescription(events, draft.event));
 
   const enabledLabel = checkbox({ label: 'Enabled', checked: draft.enabled, onChange: (checked) => { draft.enabled = checked; } }).element;
 
   form.append(
-    buildField('Name', buildInput(draft.name, 'Lint after edits', (value) => { draft.name = value; }), null),
-    eventField,
-    matcherField,
-    buildField('Type', buildTypeRow(draft, (value) => { draft.type = value; syncType(); }), HOOK_TYPE_OPTIONS.map((option) => `${option.label}: ${option.hint}`).join(' ')),
+    buildField('Name', buildInput(draft.name, 'Lint after edits', (value) => { draft.name = value; })).element,
+    eventField.element,
+    matcherField.element,
+    buildField('Type', buildTypeRow(draft, (value) => { draft.type = value; syncType(); }), HOOK_TYPE_OPTIONS.map((option) => `${option.label}: ${option.hint}`).join(' ')).element,
     commandField,
     urlField,
-    buildField('Timeout (seconds)', timeoutInput, DEFAULT_TIMEOUT_TEXT),
-    buildField('Projects', buildProjectPicker(draft, projects), null),
-    buildField('', enabledLabel, null),
+    buildField('Timeout (seconds)', timeoutInput, DEFAULT_TIMEOUT_TEXT).element,
+    buildField('Projects', buildProjectPicker(draft, projects)).element,
+    buildField('', enabledLabel).element,
   );
 
   _editorStatus = createActionStatus('hooks-editor-status');

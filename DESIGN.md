@@ -177,6 +177,7 @@ A boolean setting that takes effect at once is `switchInput()` from `public/ui/s
 - **Options:** `checked`, `onChange(checked)`, an accessible name as `label` or `labelledBy` (one of the two), and `disabled`. It returns the input, so a caller that must undo a change (a danger confirm) sets `checked` back.
 - **Look:** a pill track in Rule on Inset Graphite with an Ash knob; on, the track takes a lavender border and 28% lavender fill and the knob slides right in lavender. Focus is the 2px lavender outline, disabled drops to 40% opacity, and reduced motion stops the slide. The 36px by 20px track sits centered in a `--control-height` box (28px), so a switch row stands level with a button beside it. On phone it grows to a 56px by 44px target (the phone `--control-height`) with a 30px track.
 - **Layout belongs to the parent:** it takes no class; alignment and spacing come from the row.
+- **Field row:** `field()` from `public/ui/field.ts` (look in `public/ui/field.css`) wraps any control in the label, an optional hint and an error line set with `setError()`, linked by `for` or `aria-labelledby` and `aria-describedby`; `labelTarget` names the input inside a composite control. Layout `stacked` (default, label above), `grid` (140px label column, one column on phone) or `inline`. It takes no class: spacing between fields belongs to the parent.
 
 ### Cards / Containers
 - **Corner style:** `--radius-lg` (the large step).

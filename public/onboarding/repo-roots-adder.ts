@@ -5,6 +5,7 @@ import { textInput } from '../ui/text-input.ts';
 import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
 import { checkbox } from '../ui/checkbox.ts';
+import { field } from '../ui/field.ts';
 import { buildGithubConnectSection } from '../secrets/github-connect.ts';
 import { githubRepoListHintOf } from '../secrets/github-connect-core.ts';
 import { MAX_CLONE_SOURCES_PER_REQUEST } from '#shared/contracts/control/settings-messages.ts';
@@ -90,9 +91,7 @@ export function createRepoRootsAdder({ onAdded }: { onAdded: (source: RepoRootSo
 
   const folderSection = el('div', 'repo-roots-adder-folder');
   const folderRow = buildInputRow('~/', 'Add');
-  const folderLabel = el('label', 'repo-roots-adder-label', 'OPEN A FOLDER');
-  folderLabel.htmlFor = folderRow.input.id;
-  folderSection.append(folderLabel, folderRow.row);
+  folderSection.append(field({ label: 'Open a folder', control: folderRow.row, labelTarget: folderRow.input }).element);
   const folderCompletions = el('datalist', 'repo-roots-adder-completions');
   folderCompletions.id = `${folderRow.input.id}-completions`;
   folderRow.input.setAttribute('list', folderCompletions.id);

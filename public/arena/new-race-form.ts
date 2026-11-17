@@ -8,6 +8,7 @@ import { textArea, textInput } from '../ui/text-input.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { button } from '../ui/button.ts';
 import { checkbox } from '../ui/checkbox.ts';
+import { field as uiField } from '../ui/field.ts';
 import { buildDialogShell } from '../session-card/modal.ts';
 import { agentsWithModels, contestantsFor, defaultSetup, VARY_SETTINGS, varyChoices, varyLineup } from './lineup-core.ts';
 import { buildSelect, setupControls } from './setup-controls.ts';
@@ -61,58 +62,42 @@ function parseCheckCommand(text: string): RaceCheck | null {
 
 function buildCheckField(): HTMLElement {
   const field = el('div', 'arena-check');
-  const command = textField('Check command, run in each checkout once it finishes', draft.check ? [draft.check.program, ...draft.check.args].join(' ') : '', (value) => { draft.check = parseCheckCommand(value); });
+  const command = textField('Check command', draft.check ? [draft.check.program, ...draft.check.args].join(' ') : '', (value) => { draft.check = parseCheckCommand(value); }, { hint: 'Runs in each checkout once it finishes.' });
   command.querySelector('input')?.setAttribute('placeholder', 'npm test');
-  const timeout = el('label', 'arena-field');
-  timeout.append(el('span', 'arena-field-label', 'Check time limit in seconds'));
   const timeoutInput = textInput({ type: 'number', value: String(draft.checkTimeoutSeconds), onInput: (value) => {
     draft.checkTimeoutSeconds = Number(value) || DEFAULT_CHECK_TIMEOUT_SECONDS;
     if (draft.check) draft.check = { ...draft.check, timeoutSeconds: draft.checkTimeoutSeconds };
   } });
   timeoutInput.min = '5';
   timeoutInput.max = '3600';
-  timeout.append(timeoutInput);
-  field.append(command, timeout);
+  field.append(command, uiField({ label: 'Check time limit (seconds)', control: timeoutInput }).element);
   return field;
 }
 
 function buildTimeLimitField(): HTMLElement {
-  const field = el('label', 'arena-field');
-  field.append(el('span', 'arena-field-label', 'Time limit in minutes, empty for none'));
   const input = textInput({ type: 'number', value: draft.timeLimitMinutes === null ? '' : String(draft.timeLimitMinutes), onInput: (value) => {
     const minutes = Number(value);
     draft.timeLimitMinutes = value.trim() === '' || !Number.isInteger(minutes) || minutes < 1 ? null : Math.min(minutes, 720);
   } });
   input.min = '1';
   input.max = '720';
-  field.append(input);
-  return field;
+  return uiField({ label: 'Time limit (minutes)', control: input, hint: 'Empty for none.' }).element;
 }
 
 function buildRoundsField(): HTMLElement {
-  const field = el('label', 'arena-field');
-  field.append(el('span', 'arena-field-label', `Rounds, 1 to ${RACE_MAX_ROUNDS}, run one after another`));
   const input = textInput({ type: 'number', value: String(draft.rounds), onInput: (value) => {
     const rounds = Number(value);
     draft.rounds = Number.isInteger(rounds) ? Math.min(Math.max(rounds, 1), RACE_MAX_ROUNDS) : 1;
   } });
   input.min = '1';
   input.max = String(RACE_MAX_ROUNDS);
-  field.append(input);
-  return field;
+  return uiField({ label: 'Rounds', control: input, hint: `1 to ${RACE_MAX_ROUNDS}, run one after another.` }).element;
 }
 
-function textField(label: string, value: string, onInput: (value: string) => void, isMultiline = false): HTMLElement {
-  const field = el('label', 'arena-field');
-  field.append(el('span', 'arena-field-label', label));
-  if (!isMultiline) {
-    field.append(textInput({ value, onInput }));
-    return field;
-  }
-  const prompt = textArea({ value, onInput });
-  prompt.classList.add('arena-prompt');
-  field.append(prompt);
-  return field;
+function textField(label: string, value: string, onInput: (value: string) => void, { isMultiline = false, hint = '' }: { isMultiline?: boolean; hint?: string } = {}): HTMLElement {
+  const control = isMultiline ? textArea({ value, onInput }) : textInput({ value, onInput });
+  if (isMultiline) control.classList.add('arena-prompt');
+  return uiField({ label, control, hint }).element;
 }
 
 const OPERATOR_HOME_CHOICE = { value: 'operator', label: 'Your setup' };
@@ -154,7 +139,6 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
 
 function buildJudgesEditor(onChanged: () => void): HTMLElement {
   const judges = el('div', 'arena-judges');
-  judges.append(el('span', 'arena-field-label', draft.judges.length === 0 ? 'Judges: none, the race is not judged' : `Judges: ${draft.judges.length} of ${RACE_MAX_JUDGES}`));
   draft.judges.forEach((judge, index) => {
     const row = el('div', 'arena-judge');
     row.append(setupControls(catalog, judge, (next) => {
@@ -171,7 +155,7 @@ function buildJudgesEditor(onChanged: () => void): HTMLElement {
     draft.judges = [...draft.judges, draft.judges.at(-1) ?? defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
     onChanged();
   } }));
-  return judges;
+  return uiField({ label: 'Judges', control: judges, hint: draft.judges.length === 0 ? 'None, the race is not judged.' : `${draft.judges.length} of ${RACE_MAX_JUDGES}.` }).element;
 }
 
 function buildVaryBuilder(onChanged: () => void): HTMLElement {
@@ -189,11 +173,11 @@ function buildVaryBuilder(onChanged: () => void): HTMLElement {
   const paintBase = () => {
     baseEl.replaceChildren(setupControls(catalog, base, (next) => { base = next; paintBase(); paintChoices(); }));
   };
-  builder.append(el('span', 'arena-field-label', 'Start from'), baseEl);
-  builder.append(el('span', 'arena-field-label', 'Vary'), buildSelect(VARY_SETTINGS.map((value) => ({ value, label: value })), setting, (value) => {
+  const settingSelect = buildSelect(VARY_SETTINGS.map((value) => ({ value, label: value })), setting, (value) => {
     setting = VARY_SETTINGS.find((candidate) => candidate === value) ?? 'model';
     paintChoices();
-  }, 'Setting to vary'));
+  }, 'Setting to vary');
+  builder.append(uiField({ label: 'Start from', control: baseEl }).element, uiField({ label: 'Vary', control: settingSelect }).element);
   builder.append(choicesEl);
   builder.append(button({ variant: 'secondary', size: 'small', label: 'Use these', onClick: () => {
     const values = [...choicesEl.querySelectorAll('input:checked')].map((input) => (input instanceof HTMLInputElement ? input.value : '')).filter(Boolean);
@@ -280,19 +264,17 @@ function openCasePicker(onPicked: () => void): void {
 }
 
 function buildReviewCaseField(onChanged: () => void): HTMLElement {
-  const field = el('div', 'arena-field arena-review-case');
   const reviewCase = draft.reviewCase;
-  field.append(el('span', 'arena-field-label', reviewCase
-    ? `Review case: ${reviewCase.repo} ${reviewCase.caseId} at ${reviewCase.headSha.slice(0, SHORT_SHA_LENGTH)}, ${reviewCase.references.length} review comments. Contestants review it and are ranked by recall.`
-    : 'Review case: none, contestants work on the prompt'));
+  const hint = reviewCase
+    ? `${reviewCase.repo} ${reviewCase.caseId} at ${reviewCase.headSha.slice(0, SHORT_SHA_LENGTH)}, ${reviewCase.references.length} review comments. Contestants review it and are ranked by recall.`
+    : 'None, contestants work on the prompt.';
   const controls = el('div', 'arena-actions');
   controls.append(button({ variant: 'quiet', size: 'small', label: 'Start from case', onClick: () => openCasePicker(onChanged) }));
   if (reviewCase) controls.append(button({ variant: 'quiet', size: 'small', label: 'Clear case', onClick: () => {
     draft.reviewCase = null;
     onChanged();
   } }));
-  field.append(controls);
-  return field;
+  return uiField({ label: 'Review case', control: controls, hint }).element;
 }
 
 function formGroup(title: string, hint: string, ...fields: HTMLElement[]): HTMLElement {
@@ -340,7 +322,7 @@ export function buildNewRace(onStarted: () => void): HTMLElement {
     body.append(
       formGroup('Task', 'What every contestant works on, from the same commit of the integration branch.',
         textField('Title', draft.raceTitle, (value) => { draft.raceTitle = value; }), repoField, knownPaths, buildReviewCaseField(paint),
-        textField('Prompt', draft.prompt, (value) => { draft.prompt = value; }, true)),
+        textField('Prompt', draft.prompt, (value) => { draft.prompt = value; }, { isMultiline: true })),
       formGroup('Lineup', 'Each contestant runs in its own session and worktree. Fill the lineup by varying one setting, or set each column by hand.',
         buildVaryBuilder(paint), buildLineupEditor(paint), lineupActions),
       formGroup('Judging', 'Judges rank the contestants that changed something. A check command runs in each checkout before they read it.',

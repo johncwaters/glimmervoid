@@ -9,6 +9,7 @@ import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
 import { radio } from './ui/checkbox.ts';
+import { field } from './ui/field.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { mountAddSessionPicker } from './add-session/add-session-picker.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
@@ -143,15 +144,15 @@ export function openAgentAccountDialog(agent: ConnectableAgent, existingAccountI
 export function openRemoteSetupDialog() {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Set up a remote host' });
   const warning = el('p', 'dialog-hint', 'The setup session uses your ssh keys. It runs commands on the remote host over ssh and asks before each one. Glimmervoid deletes its working folder when the session ends.');
-  const agentLabel = el('p', 'dialog-label', 'Agent');
   const agentChoices = el('div', 'hooks-type-row');
   agentChoices.setAttribute('role', 'radiogroup');
+  const agentField = field({ label: 'Agent', control: agentChoices });
   const status = createActionStatus();
   const startButton = button({ variant: 'primary', label: 'Start setup' });
   startButton.disabled = true;
   btnCancel.addEventListener('click', close);
   actions.append(startButton);
-  dialog.append(warning, agentLabel, agentChoices, status.element, actions);
+  dialog.append(warning, agentField.element, status.element, actions);
   let installedAgents: { id: ConnectableAgent; label: string }[] = [];
   let chosenAgent: ConnectableAgent | null = null;
   let isStarting = false;

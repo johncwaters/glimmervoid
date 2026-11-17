@@ -16,6 +16,7 @@ import { button, menuButton } from '../ui/button.ts';
 import { createDeckFrame, forwardDeckKey } from './deck-frame.ts';
 import { emptyState } from '../ui/empty-state.ts';
 import { radio } from '../ui/checkbox.ts';
+import { field } from '../ui/field.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
@@ -168,26 +169,25 @@ let historyQueue: Promise<unknown> = Promise.resolve();
 
 function openTextDialog(options: TextDialogOptions): void {
   const { dialog, close, actions, btnCancel } = buildDialogShell({ title: options.title });
-  const input = textInput({ placeholder: options.placeholder, value: options.initialValue ?? '', label: options.label });
+  const input = textInput({ placeholder: options.placeholder, value: options.initialValue ?? '' });
   input.maxLength = options.maxLength;
-  const errorEl = el('div', 'dialog-error');
-  errorEl.setAttribute('role', 'alert');
+  const inputField = field({ label: options.label, control: input });
   const btnConfirm = button({ variant: 'primary', label: options.confirmLabel, action: 'confirm-board-dialog' });
   actions.append(btnConfirm);
   if (options.message) dialog.append(el('p', 'dialog-message', options.message));
-  dialog.append(el('label', 'dialog-label', options.label), input, errorEl, actions);
+  dialog.append(inputField.element, actions);
 
   async function submit(): Promise<void> {
     const value = input.value.trim();
     if (!value) {
-      errorEl.textContent = `${options.label} is empty.`;
+      inputField.setError(`${options.label} is empty.`);
       return;
     }
     btnConfirm.disabled = true;
     const error = await options.onSubmit(value);
     btnConfirm.disabled = false;
     if (error) {
-      errorEl.textContent = error;
+      inputField.setError(error);
       return;
     }
     close();
