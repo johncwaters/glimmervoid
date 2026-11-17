@@ -93,6 +93,11 @@ function brokerOver(world: FakeWorld) {
       world.valueByName[name] = value;
       return null;
     },
+    removeFromAgeFile: async (name) => {
+      delete world.valueByName[name];
+      return null;
+    },
+    listAgeFileNames: async () => Object.keys(world.valueByName).sort(),
     writeEnvFile: async (_directory, valuesByName) => {
       world.envFileWrites.push({ ...valuesByName });
       return { ok: true, envFile: '/projects/app/.env.local' };
@@ -130,7 +135,7 @@ test('Allow once reads names in request order, stops at the first missing one wi
   assert.deepEqual(world.readNames, ['FIRST_KEY', 'MISSING_KEY'], 'a delivered name answers from memory without a second read');
 });
 
-test('a name the age file lacks asks for its value on the card, refuses Allow until it is typed, then saves it trimmed once for every card asking', async () => {
+test('a name the age file lacks asks for its value on the card, refuses Allow until it is typed, then saves it trimmed once for every card asking, and Settings lists and removes it', async () => {
   const world = freshWorld({ source: { manager: 'age' } });
   const { broker } = brokerOver(world);
   await broker.need(NEEDING_SESSION, ['NEW_KEY']);
@@ -159,6 +164,10 @@ test('a name the age file lacks asks for its value on the card, refuses Allow un
   assert.equal(await broker.decide({ id: otherSession.id, choice: 'allow-once', names: ['NEW_KEY'] }), null);
   await waitFor(() => broker.requestsSnapshot()[otherSession.id] === undefined, 'the other card delivers the saved value without retyping it');
   assert.deepEqual(world.savedNames, ['NEW_KEY']);
+  await waitFor(() => broker.approvalsMessage().ageFileNames.includes('NEW_KEY'), 'Settings lists the saved name');
+
+  assert.equal(await broker.removeAgeFileName({ name: 'NEW_KEY' }), null);
+  assert.deepEqual(broker.approvalsMessage().ageFileNames, []);
 });
 
 test('with no source chosen the agent gets no-source, the card asks for a source, and Allow is refused until one is set', async () => {
@@ -181,6 +190,26 @@ test('with no source chosen the agent gets no-source, the card asks for a source
   const otherReply = await broker.need(otherSession, ['API_KEY']);
   assert.deepEqual(otherReply.results.map((result) => result.status), ['delivered']);
   assert.deepEqual(broker.requestsSnapshot(), {}, 'an always-allowed name reads without a card in another session');
+});
+
+test('a failed read of the age file names keeps no empty list, and the next Settings snapshot reads it again', async () => {
+  let listCalls = 0;
+  const warnings: string[] = [];
+  const broker = createSecretsBroker({
+    readSecrets: () => ({}),
+    writeSecrets: async () => false,
+    currentSource: () => ({ manager: 'age' }),
+    readSecret: async () => ({ value: '' }),
+    listAgeFileNames: async () => {
+      listCalls += 1;
+      if (listCalls === 1) throw new Error('EMFILE: too many open files');
+      return ['PRE_EXISTING'];
+    },
+    warn: (message) => warnings.push(message),
+  });
+  await waitFor(() => warnings.length === 1, 'the first read fails');
+  assert.deepEqual(broker.approvalsMessage().ageFileNames, []);
+  await waitFor(() => broker.approvalsMessage().ageFileNames.includes('PRE_EXISTING'), 'the next snapshot reads the list again');
 });
 
 test('a value another session approved for the project is masked in the session that runs a command with it', async () => {

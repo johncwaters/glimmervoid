@@ -56,12 +56,24 @@ function fnoxSaveArguments(storePath: string, name: SecretName): string[] {
   return ['-c', storePath, '--no-daemon', '--non-interactive', 'set', '--provider', AGE_PROVIDER_NAME, name];
 }
 
-function saveFailureOf(result: FnoxRunResult, name: SecretName): SaveFailure | null {
+type AgeFileChange = 'save' | 'remove';
+
+const AGE_FILE_CHANGE_WORDING: Readonly<Record<AgeFileChange, { doing: string; verb: string; preposition: string }>> = Object.freeze({
+  save: { doing: 'Saving', verb: 'save', preposition: 'to' },
+  remove: { doing: 'Removing', verb: 'remove', preposition: 'from' },
+});
+
+function ageFileChangeFailureOf(result: FnoxRunResult, change: AgeFileChange, name: SecretName): SaveFailure | null {
   if (result.ok) return null;
   const detail = cleanDetail(result.stderr);
-  if (result.wasKilled) return { message: `Saving ${name} to the age file did not finish in time`, detail };
+  const { doing, verb, preposition } = AGE_FILE_CHANGE_WORDING[change];
+  if (result.wasKilled) return { message: `${doing} ${name} ${preposition} the age file did not finish in time`, detail };
   if (result.failureCode !== null) return { message: `Glimmervoid could not start its age file writer (${result.failureCode})`, detail };
-  return { message: `Glimmervoid could not save ${name} to the age file`, detail };
+  return { message: `Glimmervoid could not ${verb} ${name} ${preposition} the age file`, detail };
+}
+
+function fnoxRemoveArguments(storePath: string, name: SecretName): string[] {
+  return ['-c', storePath, '--no-daemon', '--non-interactive', 'remove', name];
 }
 
 function fnoxTestArguments(configPath: string): string[] {
@@ -141,5 +153,5 @@ function testOutcomeOf(result: FnoxRunResult, source: OnePasswordSource): Secret
   return { ok: false, message: `${label} did not sign in`, detail };
 }
 
-export { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, missingFromAgeFile, fnoxReadArguments, fnoxSaveArguments, fnoxTestArguments, readOutcomeOf, saveFailureOf, testOutcomeOf };
+export { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, missingFromAgeFile, ageFileChangeFailureOf, fnoxReadArguments, fnoxRemoveArguments, fnoxSaveArguments, fnoxTestArguments, readOutcomeOf, testOutcomeOf };
 export type { FnoxRunResult, ReadOutcome, SaveFailure };

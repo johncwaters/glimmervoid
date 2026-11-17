@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { execFile, spawn } from '../child-process-safe.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
-import { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxSaveArguments, fnoxTestArguments, missingFromAgeFile, readOutcomeOf, saveFailureOf, testOutcomeOf } from './core/fnox-core.ts';
+import { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, ageFileChangeFailureOf, fnoxReadArguments, fnoxRemoveArguments, fnoxSaveArguments, fnoxTestArguments, missingFromAgeFile, readOutcomeOf, testOutcomeOf } from './core/fnox-core.ts';
 import type { FnoxRunResult, ReadOutcome, SaveFailure } from './core/fnox-core.ts';
 import type { OnePasswordSource, SecretName, SecretSource, SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 
@@ -18,6 +18,7 @@ interface AgeFile {
   storePath: string;
   keyPath: string;
   ensureCreated(): Promise<void>;
+  storedNames(): Promise<string[]>;
 }
 
 interface FnoxRunnerOptions {
@@ -32,6 +33,7 @@ interface FnoxRunner {
   read(source: SecretSource, name: SecretName): Promise<ReadOutcome>;
   test(source: OnePasswordSource): Promise<SecretSourceTestResult>;
   saveToAgeFile(name: SecretName, value: string): Promise<SaveFailure | null>;
+  removeFromAgeFile(name: SecretName): Promise<SaveFailure | null>;
 }
 
 interface FnoxLaunch {
@@ -173,14 +175,24 @@ function createFnoxRunner({ fnoxPath, runsRoot, ageFile, environment, readTimeou
     } catch (error) {
       return { message: `Glimmervoid could not prepare the age file to save ${name}`, detail: error instanceof Error ? error.message : String(error) };
     }
-    return saveFailureOf(await runAgainstAgeFile(fnoxSaveArguments(ageFile.storePath, name), value, false), name);
+    return ageFileChangeFailureOf(await runAgainstAgeFile(fnoxSaveArguments(ageFile.storePath, name), value, false), 'save', name);
   }
 
   function saveToAgeFile(name: SecretName, value: string): Promise<SaveFailure | null> {
     return queue.run(() => saveCreatingAgeFile(name, value));
   }
 
-  return { read, test, saveToAgeFile };
+  async function removeStoredName(name: SecretName): Promise<SaveFailure | null> {
+    const storedNames = await ageFile.storedNames().catch(() => [name]);
+    if (!storedNames.includes(name)) return null;
+    return ageFileChangeFailureOf(await runAgainstAgeFile(fnoxRemoveArguments(ageFile.storePath, name), '', false), 'remove', name);
+  }
+
+  function removeFromAgeFile(name: SecretName): Promise<SaveFailure | null> {
+    return queue.run(() => removeStoredName(name));
+  }
+
+  return { read, test, saveToAgeFile, removeFromAgeFile };
 }
 
 export { createFnoxRunner };

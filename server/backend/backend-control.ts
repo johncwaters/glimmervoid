@@ -238,7 +238,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('session-docs', () => dependencies.sessionDocs);
   sendLaneSnapshotOnConnect('session-previews', () => dependencies.sessionPreviews ?? null);
   sendLaneSnapshotOnConnect('secret-requests', () => ({ snapshotMessage: () => ({ type: 'secret-requests-snapshot', requests: dependencies.secrets.requestsSnapshot() }) }));
-  sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => ({ type: 'secret-approvals', projects: dependencies.secrets.approvalRows() }) }));
+  sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => dependencies.secrets.approvalsMessage() }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
   return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher };

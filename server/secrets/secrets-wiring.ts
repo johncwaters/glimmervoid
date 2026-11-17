@@ -43,7 +43,7 @@ function wireSecretsBroker({ broker, findSession, broadcastControl, warn = conso
     session.maskDeliveredSecretValues(broker.deliveredValuesOf(sessionId));
     forgetOnTeardown(session);
   });
-  broker.events.on('approvals-changed', () => broadcastControl({ type: 'secret-approvals', projects: broker.approvalRows() }));
+  broker.events.on('approvals-changed', () => broadcastControl(broker.approvalsMessage()));
 
   const seededDirectoryBySession = new WeakMap<Session, string>();
   function seedFromCurrentDirectory(session: Session): void {

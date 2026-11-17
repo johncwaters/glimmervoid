@@ -166,7 +166,7 @@ interface ControlHandlerDeps {
   conversationProjectsDir?: string;
   readTracePage?: ((glimmervoidSessionId: string, request: TracePageRequest) => Promise<TracePage>) | null;
   sessionDocs?: SessionDocsPort | null;
-  secrets?: Pick<SecretsBroker, 'decide' | 'revoke'> | null;
+  secrets?: Pick<SecretsBroker, 'decide' | 'revoke' | 'removeAgeFileName'> | null;
   testSecretSource?: ((lookIn: string) => Promise<SecretSourceTestResult>) | null;
   githubConnection?: ((action: GithubConnectionAction) => Promise<GithubConnection | null>) | null;
   commitSigning?: Pick<CommitSigning, 'act'> | null;

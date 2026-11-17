@@ -88,7 +88,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-renamed', id: 'session-1', oldName: 'old', newName: 'glimmervoid' },
   { type: 'session-secret-request', id: 'session-1', card: { names: ['OPENAI_API_KEY'], reason: 'To call the model', phase: 'asking', readingName: null, missingNames: [], from: '1Password, vault Dev', failure: null } },
   { type: 'secret-requests-snapshot', requests: { 'session-1': { names: ['OPENAI_API_KEY'], reason: null, phase: 'needs-source', readingName: null, missingNames: [], from: null, failure: null } } },
-  { type: 'secret-approvals', projects: [{ project: '/repo/glimmervoid', approvals: [{ name: 'OPENAI_API_KEY', isAllowed: true }] }] },
+  { type: 'secret-approvals', projects: [{ project: '/repo/glimmervoid', approvals: [{ name: 'OPENAI_API_KEY', isAllowed: true }] }], ageFileNames: ['GH_TOKEN'] },
   { type: 'secret-source-test-result', requestId: 'r1', ok: false, message: '1Password did not sign in', detail: '[ERROR] not signed in' },
   { type: 'github-connection-result', requestId: 'r1', connection: { state: 'awaiting-code', userCode: 'WDJB-MJHT', verificationUri: 'https://github.com/login/device', expiresAtMs: NOW + 900_000 } },
   { type: 'commit-signing-result', requestId: 'r1', status: { state: 'registered', fingerprint: 'SHA256:2ab9wBZAGTUKqm6V2WXzZXnPb0Bd9cpyAEXrbUuZ3hQ', publicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl', login: 'octo-carbon', canRegister: true, problem: null, identity: { name: 'Octo Carbon', email: '7+octo-carbon@users.noreply.github.com' } } },

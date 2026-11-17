@@ -49,7 +49,7 @@ function makeFakeOpWorld(readTimeoutMs?: number) {
   for (const folder of [runsRoot, glimmervoidHome, path.dirname(glimmervoidHome), plantedGlobal]) fs.writeFileSync(path.join(folder, 'fnox.toml'), plantedConfig);
   fs.writeFileSync(path.join(plantedGlobal, 'config.toml'), plantedConfig);
   const environment = { PATH: `${fakeBin}:/usr/bin:/bin`, HOME: path.join(world, 'home'), FNOX_CONFIG_DIR: plantedGlobal, FNOX_PROFILE: 'planted' };
-  const ageFile = { storePath: path.join(world, 'no-age-store.toml'), keyPath: path.join(world, 'no-age-key.txt'), ensureCreated: async () => undefined };
+  const ageFile = { storePath: path.join(world, 'no-age-store.toml'), keyPath: path.join(world, 'no-age-key.txt'), ensureCreated: async () => undefined, storedNames: async () => [] };
   const runner = createFnoxRunner({ fnoxPath: pinnedFnoxPath, runsRoot, ageFile, environment, readTimeoutMs });
   const opCalls = () => fs.readFileSync(path.join(fakeBin, 'op.log'), 'utf8').trim().split('\n');
   const leftoverRunFolders = () => fs.readdirSync(runsRoot).filter((entry) => entry !== 'fnox.toml');
@@ -120,7 +120,7 @@ test('a connection test opens the Look in vault the way a read signs in, reads n
   }
 });
 
-test('an age file Glimmervoid created reads back an allowed name through the pinned fnox, saves a value it then reads back, names a missing value or key, never mints a key the age file cannot use, and Test connection counts names without the key', { skip: cannotRunFnox }, async () => {
+test('an age file Glimmervoid created reads back an allowed name through the pinned fnox, saves a value it then reads back, removes one it no longer serves, names a missing value or key, never mints a key the age file cannot use, and Test connection counts names without the key', { skip: cannotRunFnox }, async () => {
   const world = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-age-file-'));
   try {
     const glimmervoidHome = path.join(world, '.glimmervoid');
@@ -143,6 +143,13 @@ test('an age file Glimmervoid created reads back an allowed name through the pin
     assert.equal(missing.failure.kind, 'not-found');
     assert.equal(missing.failure.message, 'The age file has no OTHER_TOKEN');
     assert.deepEqual(await ageStore.test(), { ok: true, message: 'The age key is in place and the age file holds 1 name', detail: '' });
+    assert.equal(await runner.saveToAgeFile('DROPPED_TOKEN', 'dropped-value'), null);
+    assert.deepEqual(await ageStore.storedNames(), ['DROPPED_TOKEN', 'GH_TOKEN']);
+    assert.deepEqual(await Promise.all([runner.removeFromAgeFile('DROPPED_TOKEN'), runner.removeFromAgeFile('DROPPED_TOKEN')]), [null, null]);
+    assert.deepEqual(await ageStore.storedNames(), ['GH_TOKEN']);
+    const removed = await runner.read(source, 'DROPPED_TOKEN');
+    assert.ok('failure' in removed);
+    assert.equal(removed.failure.kind, 'not-found');
     if (process.platform !== 'win32') assert.equal(fs.statSync(ageStore.keyPath).mode & 0o777, 0o600);
 
     fs.rmSync(ageStore.keyPath);

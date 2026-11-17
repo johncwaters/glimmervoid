@@ -91,6 +91,12 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (refusal) sendError(ws, refusal);
   }
 
+  async function handleAgeFileRemove(msg: ClientMessageOf<'age-file-remove'>, ws: ControlSocket): Promise<void> {
+    if (!secrets) return sendError(ws, 'Secret approvals are unavailable on this host.');
+    const refusal = await secrets.removeAgeFileName(msg);
+    if (refusal) sendError(ws, refusal);
+  }
+
   async function handleSecretSourceTest(msg: ClientMessageOf<'secret-source-test'>, ws: ControlSocket): Promise<void> {
     if (!testSecretSource) return replyTo(ws, msg, 'secret-source-test-result', { ok: false, message: 'Secrets are unavailable on this host.', detail: '' });
     replyTo(ws, msg, 'secret-source-test-result', await testSecretSource(msg.lookIn));
@@ -894,6 +900,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     },
     'secret-decision': handleSecretDecision,
     'secret-revoke': handleSecretRevoke,
+    'age-file-remove': handleAgeFileRemove,
     'secret-source-test': handleSecretSourceTest,
     'manager-seen': (msg: ClientMessageOf<'manager-seen'>) => {
       findSession(msg)?.markManagerDecisionsSeen(msg.throughSeq);

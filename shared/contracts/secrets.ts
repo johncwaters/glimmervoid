@@ -88,6 +88,10 @@ export const SecretRequestCard = z.object({
   failure: z.object({ message: z.string(), detail: z.string() }).strict().nullable(),
 }).strict();
 
+export const AgeFileRemove = z.object({
+  name: SecretName,
+}).strict();
+
 export const SecretRevoke = z.object({
   project: z.string().min(1),
   name: SecretName,
@@ -114,6 +118,7 @@ export type AgentNeedReply = z.infer<typeof AgentNeedReply>;
 export type AgentSecretsEnvReply = z.infer<typeof AgentSecretsEnvReply>;
 export type SecretApproval = z.infer<typeof SecretApproval>;
 export type SecretDecision = z.infer<typeof SecretDecision>;
+export type AgeFileRemove = z.infer<typeof AgeFileRemove>;
 export type WrittenSecretNames = z.infer<typeof WrittenSecretNames>;
 export type SecretRequestCard = z.infer<typeof SecretRequestCard>;
 export type SecretRevoke = z.infer<typeof SecretRevoke>;

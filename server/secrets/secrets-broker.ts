@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-import type { AgentNeedReply, AgentSecretsEnvReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSource } from '../../shared/contracts/secrets.ts';
+import type { AgeFileRemove, AgentNeedReply, AgentSecretsEnvReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSource } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { EnvFileWrite } from './env-file.ts';
 import type { ReadOutcome, SaveFailure } from './core/fnox-core.ts';
@@ -52,6 +52,9 @@ interface SecretsBrokerOptions {
   currentSource: () => SecretSource | null;
   readSecret: (source: SecretSource, name: string) => Promise<ReadOutcome>;
   saveToAgeFile?: (name: string, value: string) => Promise<SaveFailure | null>;
+  removeFromAgeFile?: (name: string) => Promise<SaveFailure | null>;
+  listAgeFileNames?: () => Promise<string[]>;
+  warn?: (message: string) => void;
   writeEnvFile?: (directory: string, valuesByName: Readonly<Record<string, string>>) => Promise<EnvFileWrite>;
   readEnvValues?: (directory: string) => Promise<Readonly<Record<string, string>>>;
   writtenNames?: { remember(directory: string, names: readonly string[]): Promise<void>; namesIn(directory: string): Promise<readonly string[]> };
@@ -82,7 +85,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSecret, saveToAgeFile = async () => ({ message: 'Glimmervoid cannot save values on this host', detail: '' }), writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), writtenNames = { remember: async () => undefined, namesIn: async () => [] }, now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSecret, saveToAgeFile = async () => ({ message: 'Glimmervoid cannot save values on this host', detail: '' }), removeFromAgeFile = async () => ({ message: 'Glimmervoid cannot remove values on this host', detail: '' }), listAgeFileNames = async () => [], warn = console.warn, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), writtenNames = { remember: async () => undefined, namesIn: async () => [] }, now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, RequestCard>();
@@ -91,6 +94,26 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
   const deliveriesBySession = new Map<string, Map<string, DeliveredName>>();
   const deliveredValuesBySession = new Map<string, Set<string>>();
   const launchHoldsBySession = new Map<string, LaunchHold>();
+  let ageFileNames: string[] = [];
+  let isAgeFileListStale = true;
+  let pendingAgeFileList: Promise<void> | null = null;
+
+  async function readAgeFileNames(): Promise<void> {
+    try {
+      ageFileNames = await listAgeFileNames();
+      isAgeFileListStale = false;
+      events.emit('approvals-changed');
+    } catch (error) {
+      isAgeFileListStale = true;
+      warn(`[vault] could not list the names in the age file: ${errorText(error)}`);
+    }
+  }
+
+  function refreshAgeFileNames(): Promise<void> {
+    pendingAgeFileList ??= readAgeFileNames().finally(() => { pendingAgeFileList = null; });
+    return pendingAgeFileList;
+  }
+  void refreshAgeFileNames();
 
   function deliveredNamesFor(session: NeedingSession): Map<string, string> {
     const deliveries = deliveriesBySession.get(session.id) ?? new Map<string, DeliveredName>();
@@ -376,6 +399,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
       if (failure !== null) return failure.detail === '' ? `${failure.message}.` : `${failure.message}: ${failure.detail}`;
       forgetMissingName(name);
     }
+    if (missingNames.length > 0) void refreshAgeFileNames();
     return null;
   }
 
@@ -434,8 +458,16 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     return Object.fromEntries([...cardsBySession].map(([sessionId, card]) => [sessionId, cardView(card)]));
   }
 
-  function approvalRows(): ProjectApprovals[] {
-    return approvalRowsOf(readSecrets());
+  function approvalsMessage(): { type: 'secret-approvals'; projects: ProjectApprovals[]; ageFileNames: string[] } {
+    if (isAgeFileListStale) void refreshAgeFileNames();
+    return { type: 'secret-approvals', projects: approvalRowsOf(readSecrets()), ageFileNames: [...ageFileNames] };
+  }
+
+  async function removeAgeFileName({ name }: AgeFileRemove): Promise<string | null> {
+    const failure = await removeFromAgeFile(name);
+    await refreshAgeFileNames();
+    if (failure === null) return null;
+    return failure.detail === '' ? `${failure.message}.` : `${failure.message}: ${failure.detail}`;
   }
 
   function deliveredValuesOf(sessionId: string): string[] {
@@ -450,7 +482,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     closeCard(sessionId);
   }
 
-  return { events, need, holdForLaunch, envFor, decide, revoke, requestsSnapshot, approvalRows, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
+  return { events, need, holdForLaunch, envFor, decide, revoke, requestsSnapshot, approvalsMessage, removeAgeFileName, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

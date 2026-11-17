@@ -16,7 +16,10 @@ const SECRETS_NOTE = 'Secrets agents may read from your password manager, per pr
 const VAULT_SOURCE_SETTING_ID = 'vault-source';
 const SOURCE_TEST_TIMEOUT_MS = 130_000;
 
+const AGE_FILE_NOTE = 'Names whose values Glimmervoid keeps encrypted in the age file on this machine. Removing one deletes its value; an agent that asks again gets a field on its card to type a new one.';
+
 let approvalsByProject: readonly ProjectApprovals[] | null = null;
+let ageFileNames: readonly string[] = [];
 let secretsContainer: HTMLElement | null = null;
 
 function approvalArticle(project: string, approval: ProjectApprovals['approvals'][number]): HTMLElement {
@@ -31,6 +34,23 @@ function approvalArticle(project: string, approval: ProjectApprovals['approvals'
   return article;
 }
 
+function ageFileArticle(name: string): HTMLElement {
+  const article = el('article', 'settings-view-setting');
+  const text = el('div', 'settings-view-setting-text');
+  const heading = el('div', 'settings-view-setting-heading');
+  heading.append(el('h2', 'settings-view-setting-title', name));
+  text.append(heading, el('p', 'settings-view-setting-description', 'Saved in the age file'));
+  const control = el('div', 'settings-view-setting-control');
+  control.append(button({ variant: 'secondary', label: 'Remove', action: 'age-file-remove', onClick: () => { sendControlMsg({ type: 'age-file-remove', name }); } }));
+  article.append(text, control);
+  return article;
+}
+
+function ageFileGroup(): HTMLElement[] {
+  if (ageFileNames.length === 0) return [];
+  return [el('h2', 'settings-view-subsection-title', 'Age file'), el('p', 'settings-view-setting-description', AGE_FILE_NOTE), ...ageFileNames.map(ageFileArticle)];
+}
+
 function projectGroup(row: ProjectApprovals): HTMLElement[] {
   return [el('h2', 'settings-view-subsection-title', row.project), ...row.approvals.map((approval) => approvalArticle(row.project, approval))];
 }
@@ -38,8 +58,8 @@ function projectGroup(row: ProjectApprovals): HTMLElement[] {
 function secretsContent(): HTMLElement[] {
   const intro = el('p', 'settings-view-section-description', SECRETS_NOTE);
   if (!approvalsByProject) return [intro, el('p', 'settings-view-setting-description', 'Waiting for the server to list approvals.')];
-  if (approvalsByProject.length === 0) return [intro, el('p', 'settings-view-setting-description', 'No approvals yet. An agent that runs glimmervoid need asks on its session card first.')];
-  return [intro, ...approvalsByProject.flatMap(projectGroup)];
+  if (approvalsByProject.length === 0) return [intro, el('p', 'settings-view-setting-description', 'No approvals yet. An agent that runs glimmervoid need asks on its session card first.'), ...ageFileGroup()];
+  return [intro, ...approvalsByProject.flatMap(projectGroup), ...ageFileGroup()];
 }
 
 function repaintSecrets(): void {
@@ -49,6 +69,7 @@ function repaintSecrets(): void {
 
 function applySecretApprovals(message: ServerMessageOf<'secret-approvals'>): void {
   approvalsByProject = message.projects;
+  ageFileNames = message.ageFileNames;
   repaintSecrets();
 }
 

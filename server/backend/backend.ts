@@ -456,6 +456,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
     readSecret: fnoxRunner.read,
     saveToAgeFile: fnoxRunner.saveToAgeFile,
+    removeFromAgeFile: fnoxRunner.removeFromAgeFile,
+    listAgeFileNames: ageStore.storedNames,
     writeEnvFile,
     readEnvValues,
     writtenNames: createWrittenSecretNames({ filePath: path.join(glimmervoidHomeDir(), 'env-file-names.json') }),
@@ -924,7 +926,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   stopConfigWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();
-    broadcastControl?.({ type: 'secret-approvals', projects: secretsBroker.approvalRows() });
+    broadcastControl?.(secretsBroker.approvalsMessage());
     secretsBroker.refreshCards();
   }, { reloadDebounceMs: options.configReloadDebounceMs });
   updateCheck.start();
