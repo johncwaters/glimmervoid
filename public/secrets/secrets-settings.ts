@@ -1,19 +1,19 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { ProjectApprovals } from '#shared/contracts/secrets.ts';
-import { SECRET_MANAGER_LABELS } from '#shared/contracts/secrets.ts';
+import { SECRET_MANAGER_LABELS, SecretManager } from '#shared/contracts/secrets.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { createActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { storedValue } from '../settings/settings-panel-state.ts';
+import { settingById, storedValue } from '../settings/settings-panel-state.ts';
 import { button } from '../ui/button.ts';
 import { buildGithubConnectSection } from './github-connect.ts';
 import { buildCommitSigningSection } from './commit-signing.ts';
 
 const SECRETS_NOTE = 'Secrets agents may read from your password manager, per project. Revoking one makes the next request ask again.';
 
-const PASSWORD_MANAGER_LABEL = SECRET_MANAGER_LABELS['1password'];
+const VAULT_SOURCE_SETTING_ID = 'vault-source';
 const SOURCE_TEST_TIMEOUT_MS = 130_000;
 
 let approvalsByProject: readonly ProjectApprovals[] | null = null;
@@ -72,8 +72,20 @@ function showVaultTest(view: VaultTestView): void {
   repaintVaultTest?.();
 }
 
+function chosenSourceLabel(): string {
+  const sourceSetting = settingById(VAULT_SOURCE_SETTING_ID);
+  const manager = SecretManager.safeParse(sourceSetting === null ? undefined : storedValue(sourceSetting));
+  return SECRET_MANAGER_LABELS[manager.success ? manager.data : '1password'];
+}
+
+function busyTestMessage(): string {
+  const sourceLabel = chosenSourceLabel();
+  if (sourceLabel === SECRET_MANAGER_LABELS.age) return 'Checking the age file.';
+  return `Waiting on ${sourceLabel}. Confirm there if it asks.`;
+}
+
 async function runVaultTest(lookIn: string): Promise<void> {
-  showVaultTest({ tone: 'busy', message: `Waiting on ${PASSWORD_MANAGER_LABEL}. Confirm there if it asks.`, detail: '' });
+  showVaultTest({ tone: 'busy', message: busyTestMessage(), detail: '' });
   try {
     const reply = await sendControlRequest('secret-source-test', { lookIn }, { timeoutMs: SOURCE_TEST_TIMEOUT_MS });
     if (reply.type !== 'secret-source-test-result') return showVaultTest({ tone: 'error', message: 'The server sent an unexpected reply.', detail: '' });
@@ -99,7 +111,7 @@ function buildVaultConnectionSlot(lookInSetting: SettingsSetting): HTMLElement {
   paint();
   const testRow = el('div', 'settings-telegram-test');
   testRow.append(testButton, testStatus.element);
-  slot.append(el('p', 'settings-view-setting-description', `Password manager: ${PASSWORD_MANAGER_LABEL}`), testRow, detailHolder);
+  slot.append(el('p', 'settings-view-setting-description', `Source: ${chosenSourceLabel()}`), testRow, detailHolder);
   return slot;
 }
 

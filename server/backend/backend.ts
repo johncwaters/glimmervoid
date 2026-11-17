@@ -89,6 +89,7 @@ import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-cor
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
+import { createAgeStore } from '../secrets/age-store.ts';
 import { createFnoxRunner } from '../secrets/fnox-runner.ts';
 import { createWrittenSecretNames } from '../secrets/written-secret-names.ts';
 import { SecretSource } from '../../shared/contracts/secrets.ts';
@@ -432,16 +433,21 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
-  const vaultSourceFor = (lookIn: unknown) => SecretSource.safeParse({ manager: config.vault?.manager ?? '1password', lookIn });
+  const vaultSourceFor = (lookIn: unknown) => {
+    const manager = config.vault?.manager ?? '1password';
+    return SecretSource.safeParse(manager === 'age' ? { manager } : { manager, lookIn });
+  };
+  const ageStore = createAgeStore({ glimmervoidHome: glimmervoidHomeDir() });
   const testSecretSource = async (lookIn: string): Promise<SecretSourceTestResult> => {
     const source = vaultSourceFor(lookIn);
     if (!source.success) return { ok: false, message: source.error.issues[0]?.message ?? 'Glimmervoid cannot use that vault', detail: '' };
+    if (source.data.manager === 'age') return ageStore.test();
     return fnoxRunner.test(source.data);
   };
   for (const retiredCompanionFile of [vaultCompanionPath(glimmervoidHomeDir()), legacyVaultCompanionPath(glimmervoidHomeDir())]) {
     fs.promises.rm(retiredCompanionFile, { force: true }).catch((error: unknown) => console.warn(`[vault] could not remove the retired companion file ${retiredCompanionFile}: ${errorMessage(error)}`));
   }
-  const fnoxRunner = createFnoxRunner({ fnoxPath: resolveFnoxPath(), runsRoot: path.join(glimmervoidHomeDir(), 'fnox-runs'), environment: process.env });
+  const fnoxRunner = createFnoxRunner({ fnoxPath: resolveFnoxPath(), runsRoot: path.join(glimmervoidHomeDir(), 'fnox-runs'), ageFile: ageStore, environment: process.env });
   const secretsBroker = createSecretsBroker({
     readSecrets: () => config.secrets,
     currentSource: () => {

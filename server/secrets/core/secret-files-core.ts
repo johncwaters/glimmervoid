@@ -4,6 +4,8 @@ const VAULT_COMPANION_FILENAME = 'vault-companion.json';
 const WATCHER_LINK_KEY_FILENAME = 'watcher-link.key';
 const SECRETS_DIRNAME = 'secrets';
 const CONFIG_SECRETS_FILENAME = 'config-secrets.json';
+const AGE_STORE_FILENAME = 'age-store.toml';
+const AGE_KEY_FILENAME = 'age-key.txt';
 
 function configBackupPath(configPath: string): string {
   return `${configPath}.bak`;
@@ -35,6 +37,11 @@ function watcherLinkKeyPath(glimmervoidHome: string): string {
   return path.join(glimmervoidHome, SECRETS_DIRNAME, WATCHER_LINK_KEY_FILENAME);
 }
 
+function ageStorePaths(glimmervoidHome: string): { storePath: string; keyPath: string } {
+  const secretsFolder = path.join(glimmervoidHome, SECRETS_DIRNAME);
+  return { storePath: path.join(secretsFolder, AGE_STORE_FILENAME), keyPath: path.join(secretsFolder, AGE_KEY_FILENAME) };
+}
+
 function legacyWatcherLinkKeyPath(glimmervoidHome: string): string {
   return path.join(glimmervoidHome, WATCHER_LINK_KEY_FILENAME);
 }
@@ -54,4 +61,4 @@ function glimmervoidSecretPaths({ glimmervoidHome, configPath }: { glimmervoidHo
   ])];
 }
 
-export { configBackupPath, configSecretsPath, glimmervoidSecretPaths, legacyVaultCompanionPath, legacyWatcherLinkKeyPath, movedSecretPath, retiredConfigBackupPaths, vaultCompanionPath, watcherLinkKeyPath };
+export { ageStorePaths, configBackupPath, configSecretsPath, glimmervoidSecretPaths, legacyVaultCompanionPath, legacyWatcherLinkKeyPath, movedSecretPath, retiredConfigBackupPaths, vaultCompanionPath, watcherLinkKeyPath };

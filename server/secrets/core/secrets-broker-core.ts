@@ -67,6 +67,7 @@ function needExitCode(statusByName: Readonly<Record<string, NeedStatus>>): NeedE
 }
 
 function sourceLabel(source: SecretSource): string {
+  if (source.manager === 'age') return `${SECRET_MANAGER_LABELS.age} on this machine`;
   return `${SECRET_MANAGER_LABELS[source.manager]}, vault ${source.lookIn}`;
 }
 

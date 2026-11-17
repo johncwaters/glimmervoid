@@ -5,11 +5,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { execFileSync } from '../server/child-process-safe.ts';
 import { resolveFnoxPath } from '../server/runtime-paths.ts';
+import { createAgeStore } from '../server/secrets/age-store.ts';
 import { createFnoxRunner } from '../server/secrets/fnox-runner.ts';
 
 const pinnedFnoxPath = resolveFnoxPath();
 const cannotRunFakeOp = process.platform === 'win32' || !fs.existsSync(pinnedFnoxPath);
+const cannotRunFnox = !fs.existsSync(pinnedFnoxPath);
 
 const FAKE_OP_SCRIPT = `#!/bin/sh
 log="$(dirname "$0")/op.log"
@@ -47,7 +50,8 @@ function makeFakeOpWorld(readTimeoutMs?: number) {
   for (const folder of [runsRoot, glimmervoidHome, path.dirname(glimmervoidHome), plantedGlobal]) fs.writeFileSync(path.join(folder, 'fnox.toml'), plantedConfig);
   fs.writeFileSync(path.join(plantedGlobal, 'config.toml'), plantedConfig);
   const environment = { PATH: `${fakeBin}:/usr/bin:/bin`, HOME: path.join(world, 'home'), FNOX_CONFIG_DIR: plantedGlobal, FNOX_PROFILE: 'planted' };
-  const runner = createFnoxRunner({ fnoxPath: pinnedFnoxPath, runsRoot, environment, readTimeoutMs });
+  const ageFile = { storePath: path.join(world, 'no-age-store.toml'), keyPath: path.join(world, 'no-age-key.txt') };
+  const runner = createFnoxRunner({ fnoxPath: pinnedFnoxPath, runsRoot, ageFile, environment, readTimeoutMs });
   const opCalls = () => fs.readFileSync(path.join(fakeBin, 'op.log'), 'utf8').trim().split('\n');
   const leftoverRunFolders = () => fs.readdirSync(runsRoot).filter((entry) => entry !== 'fnox.toml');
   return { world, runner, opCalls, leftoverRunFolders };
@@ -112,6 +116,46 @@ test('a connection test opens the Look in vault the way a read signs in, reads n
     assert.equal(missingVault.ok, false);
     assert.equal(missingVault.message, '1Password has no vault Attic. Check Look in');
     assert.deepEqual(opCalls(), ['start --vault=Shelf', 'end --vault=Shelf', 'start --vault=Attic', 'end --vault=Attic']);
+  } finally {
+    fs.rmSync(world, { recursive: true, force: true });
+  }
+});
+
+test('an age file Glimmervoid created reads back an allowed name through the pinned fnox, names a missing value or key, never mints a key the age file cannot use, and Test connection counts names without the key', { skip: cannotRunFnox }, async () => {
+  const world = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-age-file-'));
+  try {
+    const glimmervoidHome = path.join(world, '.glimmervoid');
+    const ageStore = createAgeStore({ glimmervoidHome });
+    const emptyConfigFolder = path.join(world, 'empty-global');
+    fs.mkdirSync(emptyConfigFolder);
+    const environment = { PATH: process.env.PATH ?? '', HOME: world, FNOX_CONFIG_DIR: path.join(world, 'planted-global') };
+    const runner = createFnoxRunner({ fnoxPath: pinnedFnoxPath, runsRoot: path.join(glimmervoidHome, 'fnox-runs'), ageFile: ageStore, environment });
+    const source = { manager: 'age' } as const;
+
+    const beforeAnything = await runner.read(source, 'GH_TOKEN');
+    assert.ok('failure' in beforeAnything);
+    assert.equal(beforeAnything.failure.message, 'The age file has no GH_TOKEN');
+    assert.deepEqual(await ageStore.test(), { ok: true, message: 'The age file is empty. The first value you save on a request card creates it', detail: '' });
+
+    await ageStore.ensureCreated();
+    execFileSync(pinnedFnoxPath, ['-c', ageStore.storePath, '--no-daemon', '--non-interactive', 'set', '-p', 'source', 'GH_TOKEN'], { input: 'age-held-value', env: { ...environment, FNOX_CONFIG_DIR: emptyConfigFolder } });
+
+    assert.deepEqual(await runner.read(source, 'GH_TOKEN'), { value: 'age-held-value' });
+    assert.doesNotMatch(fs.readFileSync(ageStore.storePath, 'utf8'), /age-held-value/);
+    const missing = await runner.read(source, 'OTHER_TOKEN');
+    assert.ok('failure' in missing);
+    assert.equal(missing.failure.kind, 'not-found');
+    assert.equal(missing.failure.message, 'The age file has no OTHER_TOKEN');
+    assert.deepEqual(await ageStore.test(), { ok: true, message: 'The age key is in place and the age file holds 1 name', detail: '' });
+    if (process.platform !== 'win32') assert.equal(fs.statSync(ageStore.keyPath).mode & 0o777, 0o600);
+
+    fs.rmSync(ageStore.keyPath);
+    const withoutKey = await runner.read(source, 'GH_TOKEN');
+    assert.ok('failure' in withoutKey);
+    assert.equal(withoutKey.failure.message, 'The age key is missing or unreadable, so Glimmervoid cannot read GH_TOKEN');
+    assert.equal((await ageStore.test()).ok, false);
+    await assert.rejects(ageStore.ensureCreated(), /is missing while the age file/);
+    assert.equal(fs.existsSync(ageStore.keyPath), false);
   } finally {
     fs.rmSync(world, { recursive: true, force: true });
   }

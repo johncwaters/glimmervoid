@@ -12,7 +12,7 @@ import { repoParts } from './github-ids.ts';
 import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
 import { QuestionManagerSettings } from './question-manager.ts';
 import { isKnownTimezone } from '../clock.ts';
-import { SecretLookIn } from './secrets.ts';
+import { SecretLookIn, SecretManager } from './secrets.ts';
 
 export const optionalBoolean = (field: string) => z.boolean({ error: `${field} must be a boolean` }).optional();
 const optionalString = (field: string, trim = false) => {
@@ -270,6 +270,7 @@ export const TelemetryFileSettings = z.object(telemetryShape, { error: 'telemetr
 
 const vaultShape = {
   lookIn: SecretLookIn.optional(),
+  manager: SecretManager.optional(),
 };
 const VaultSettings = z.object(vaultShape, { error: 'vault must be an object' }).strict().optional();
 export const VaultFileSettings = z.object({ ...vaultShape, manager: z.string().optional() }, { error: 'vault must be an object' }).passthrough().optional();

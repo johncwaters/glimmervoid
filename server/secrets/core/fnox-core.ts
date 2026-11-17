@@ -1,5 +1,5 @@
 import { SECRET_MANAGER_LABELS } from '../../../shared/contracts/secrets.ts';
-import type { SecretManager, SecretName, SecretSource, SecretSourceTestResult } from '../../../shared/contracts/secrets.ts';
+import type { OnePasswordSource, SecretName, SecretSource, SecretSourceTestResult } from '../../../shared/contracts/secrets.ts';
 
 type ReadFailureKind = 'not-found' | 'refused' | 'timed-out' | 'unavailable';
 
@@ -19,32 +19,23 @@ interface FnoxRunResult {
   wasKilled: boolean;
 }
 
-interface ProviderFields {
-  type: string;
-  lookInKey: string;
-}
-
-const PROVIDER_FIELDS_BY_MANAGER: Record<SecretManager, ProviderFields> = {
-  '1password': { type: '1password', lookInKey: 'vault' },
-};
-
 const FNOX_PROVIDER_NAME = 'source';
 const MAX_DETAIL_LENGTH = 4000;
 const NOT_FOUND_MARKERS = ['fnox::secret::not_found', "isn't an item", 'does not have a field', 'no item'];
 const MISSING_VAULT_MARKERS = ["isn't a vault"];
 const REFUSED_MARKERS = ['dismissed', 'denied', 'not authorized', 'cancel'];
+const AGE_KEY_MISSING_MARKERS = ['fnox::encryption::age::identity_not_found', 'fnox::encryption::age::identity_read_failed'];
 const TERMINAL_ESCAPES = new RegExp(`${String.fromCharCode(27)}(\\[[0-9;?]*[A-Za-z]|\\][^${String.fromCharCode(7)}${String.fromCharCode(27)}]*(${String.fromCharCode(7)}|${String.fromCharCode(27)}\\\\))`, 'g');
 
 function tomlString(text: string): string {
   return JSON.stringify(text);
 }
 
-function fnoxConfigText(source: SecretSource, name: SecretName | null): string {
-  const provider = PROVIDER_FIELDS_BY_MANAGER[source.manager];
+function fnoxConfigText(source: OnePasswordSource, name: SecretName | null): string {
   const providerLines = [
     `[providers.${FNOX_PROVIDER_NAME}]`,
-    `type = ${tomlString(provider.type)}`,
-    `${provider.lookInKey} = ${tomlString(source.lookIn)}`,
+    `type = ${tomlString('1password')}`,
+    `vault = ${tomlString(source.lookIn)}`,
   ];
   if (name === null) return `${providerLines.join('\n')}\n`;
   const secretLines = ['[secrets]', `${name} = { provider = ${tomlString(FNOX_PROVIDER_NAME)}, value = ${tomlString(name)} }`];
@@ -64,6 +55,10 @@ function fnoxEnvironment(baseEnvironment: NodeJS.ProcessEnv, emptyConfigDirector
   return { ...Object.fromEntries(keptEntries), FNOX_CONFIG_DIR: emptyConfigDirectory };
 }
 
+function fnoxAgeEnvironment(baseEnvironment: NodeJS.ProcessEnv, emptyConfigDirectory: string, keyPath: string): NodeJS.ProcessEnv {
+  return { ...fnoxEnvironment(baseEnvironment, emptyConfigDirectory), FNOX_AGE_KEY_FILE: keyPath };
+}
+
 function cleanDetail(stderr: string): string {
   return stderr.replace(TERMINAL_ESCAPES, '').trim().slice(0, MAX_DETAIL_LENGTH);
 }
@@ -78,7 +73,22 @@ function includesAny(text: string, markers: readonly string[]): boolean {
   return markers.some((marker) => text.includes(marker));
 }
 
+function ageFailureOf(result: FnoxRunResult, name: SecretName): ReadFailure {
+  const detail = cleanDetail(result.stderr);
+  const lowerDetail = detail.replace(/[\s\u2502]+/g, ' ').toLowerCase();
+  if (result.wasKilled) return { kind: 'timed-out', message: `Reading ${name} from the age file did not finish in time`, detail };
+  if (result.failureCode !== null) return { kind: 'unavailable', message: `Glimmervoid could not start its age file reader (${result.failureCode})`, detail };
+  if (includesAny(lowerDetail, AGE_KEY_MISSING_MARKERS)) return { kind: 'unavailable', message: `The age key is missing or unreadable, so Glimmervoid cannot read ${name}`, detail };
+  if (lowerDetail.includes('fnox::secret::not_found')) return missingFromAgeFile(name, detail);
+  return { kind: 'unavailable', message: `Glimmervoid could not read ${name} from the age file`, detail };
+}
+
+function missingFromAgeFile(name: SecretName, detail: string): ReadFailure {
+  return { kind: 'not-found', message: `The age file has no ${name}`, detail };
+}
+
 function failureOf(result: FnoxRunResult, source: SecretSource, name: SecretName): ReadFailure {
+  if (source.manager === 'age') return ageFailureOf(result, name);
   const label = SECRET_MANAGER_LABELS[source.manager];
   const detail = cleanDetail(result.stderr);
   const lowerDetail = detail.replace(/[\s\u2502]+/g, ' ').toLowerCase();
@@ -95,11 +105,12 @@ function readOutcomeOf(result: FnoxRunResult, source: SecretSource, name: Secret
   if (!result.ok) return { failure: failureOf(result, source, name) };
   const value = withoutTrailingNewline(result.stdout);
   if (value.length > 0) return { value };
+  if (source.manager === 'age') return { failure: { kind: 'not-found', message: `The age file holds an empty ${name}`, detail: cleanDetail(result.stderr) } };
   const label = SECRET_MANAGER_LABELS[source.manager];
   return { failure: { kind: 'not-found', message: `${label} holds an empty ${name} in ${source.lookIn}`, detail: cleanDetail(result.stderr) } };
 }
 
-function testOutcomeOf(result: FnoxRunResult, source: SecretSource): SecretSourceTestResult {
+function testOutcomeOf(result: FnoxRunResult, source: OnePasswordSource): SecretSourceTestResult {
   const label = SECRET_MANAGER_LABELS[source.manager];
   const detail = cleanDetail(result.stderr);
   const lowerDetail = detail.replace(/[\s\u2502]+/g, ' ').toLowerCase();
@@ -112,5 +123,5 @@ function testOutcomeOf(result: FnoxRunResult, source: SecretSource): SecretSourc
   return { ok: false, message: `${label} did not sign in`, detail };
 }
 
-export { fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxTestArguments, readOutcomeOf, testOutcomeOf };
+export { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, missingFromAgeFile, fnoxReadArguments, fnoxTestArguments, readOutcomeOf, testOutcomeOf };
 export type { FnoxRunResult, ReadOutcome };

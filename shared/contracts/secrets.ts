@@ -8,18 +8,22 @@ export const SecretName = z.string({ error: 'a secret name must be a string' })
 
 const MAX_LOOK_IN_LENGTH = 200;
 
-export const SecretManager = z.enum(['1password']);
+export const SecretManager = z.enum(['1password', 'age'], { error: 'vault.manager must be 1password or age' });
 
-export const SECRET_MANAGER_LABELS: Readonly<Record<z.infer<typeof SecretManager>, string>> = Object.freeze({ '1password': '1Password' });
+export const SECRET_MANAGER_LABELS: Readonly<Record<z.infer<typeof SecretManager>, string>> = Object.freeze({ '1password': '1Password', age: 'Age file' });
 
 export const SecretLookIn = z.string({ error: 'vault.lookIn must be a string' }).trim()
   .max(MAX_LOOK_IN_LENGTH, { error: `vault.lookIn must be at most ${MAX_LOOK_IN_LENGTH} characters` })
   .regex(/^\P{Cc}*$/u, { error: 'vault.lookIn cannot hold control characters' });
 
-export const SecretSource = z.object({
-  manager: SecretManager,
+export const OnePasswordSource = z.object({
+  manager: z.literal('1password'),
   lookIn: SecretLookIn.min(1, { error: 'Type the vault to look in first' }),
 }).strict();
+
+const AgeFileSource = z.object({ manager: z.literal('age') }).strict();
+
+export const SecretSource = z.discriminatedUnion('manager', [OnePasswordSource, AgeFileSource]);
 
 export const SecretSourceTestResult = z.object({ ok: z.boolean(), message: z.string(), detail: z.string() }).strict();
 
@@ -99,6 +103,7 @@ export const ProjectApprovals = z.object({
 export type SecretName = z.infer<typeof SecretName>;
 export type SecretManager = z.infer<typeof SecretManager>;
 export type SecretSource = z.infer<typeof SecretSource>;
+export type OnePasswordSource = z.infer<typeof OnePasswordSource>;
 export type SecretSourceTestResult = z.infer<typeof SecretSourceTestResult>;
 export type NeedStatus = z.infer<typeof NeedStatus>;
 export type AgentNeedRequest = z.infer<typeof AgentNeedRequest>;

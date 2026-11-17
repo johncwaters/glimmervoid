@@ -99,7 +99,8 @@ Where agents read secrets from, the names they may read, and the tokens Glimmerv
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `vault.lookIn` | Look in | `""` | The 1Password vault agents read secrets from, only for the names you allow. Opening Settings never asks 1Password; Test connection does. |
+| `vault.manager` | Source | `"1password"` | Where agents read the secrets you allow. Age file keeps them encrypted on this machine and needs no password manager; you type each value on the request card the first time an agent asks. |
+| `vault.lookIn` | Look in | `""` | The 1Password vault agents read secrets from, only for the names you allow. Unused with Age file. Opening Settings never asks 1Password; Test connection does. |
 | `github.readToken` | GitHub read token | `""` | Read-only fine-grained GitHub token lanes use for gh. Team review and community research need it. |
 
 ### Updates

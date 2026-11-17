@@ -224,8 +224,13 @@ export const MACHINE_VAULT: SettingsSection = {
   legacyIds: ['machine-secrets', 'lanes-github-access'],
   settings: [
     {
+      id: 'vault-source', path: 'vault.manager', title: 'Source',
+      description: 'Where agents read the secrets you allow. Age file keeps them encrypted on this machine and needs no password manager; you type each value on the request card the first time an agent asks.',
+      control: 'select', options: [{ value: '1password', label: '1Password' }, { value: 'age', label: 'Age file on this machine' }], keywords: ['1password', 'age', 'password manager', 'secrets', 'headless', 'linux'], defaultValue: '1password', ...MACHINE_NOW,
+    },
+    {
       id: 'vault-look-in', path: 'vault.lookIn', title: 'Look in',
-      description: 'The 1Password vault agents read secrets from, only for the names you allow. Opening Settings never asks 1Password; Test connection does.',
+      description: 'The 1Password vault agents read secrets from, only for the names you allow. Unused with Age file. Opening Settings never asks 1Password; Test connection does.',
       control: 'text', keywords: ['1password', 'password manager', 'secrets', 'source', 'op'], defaultValue: '', status: 'vault-connection', ...MACHINE_NOW,
     },
     {

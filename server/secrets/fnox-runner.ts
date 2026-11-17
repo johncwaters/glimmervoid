@@ -3,9 +3,9 @@ import path from 'node:path';
 
 import { execFile, spawn } from '../child-process-safe.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
-import { fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxTestArguments, readOutcomeOf, testOutcomeOf } from './core/fnox-core.ts';
+import { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxTestArguments, missingFromAgeFile, readOutcomeOf, testOutcomeOf } from './core/fnox-core.ts';
 import type { FnoxRunResult, ReadOutcome } from './core/fnox-core.ts';
-import type { SecretName, SecretSource, SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
+import type { OnePasswordSource, SecretName, SecretSource, SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 
 const FNOX_READ_TIMEOUT_MS = 120_000;
 const FNOX_OUTPUT_LIMIT_BYTES = 1024 * 1024;
@@ -14,16 +14,22 @@ const PRIVATE_FILE_MODE = 0o600;
 const STDIN_CONFIG_PATH = '/dev/stdin';
 const UNCREATABLE_CONFIG_FOLDER = '/dev/null/fnox';
 
+interface AgeFilePaths {
+  storePath: string;
+  keyPath: string;
+}
+
 interface FnoxRunnerOptions {
   fnoxPath: string;
   runsRoot: string;
+  ageFile: AgeFilePaths;
   environment: NodeJS.ProcessEnv;
   readTimeoutMs?: number;
 }
 
 interface FnoxRunner {
   read(source: SecretSource, name: SecretName): Promise<ReadOutcome>;
-  test(source: SecretSource): Promise<SecretSourceTestResult>;
+  test(source: OnePasswordSource): Promise<SecretSourceTestResult>;
 }
 
 interface FnoxLaunch {
@@ -49,7 +55,7 @@ function killProcessTree(pid: number | undefined): void {
   }
 }
 
-function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNOX_READ_TIMEOUT_MS }: FnoxRunnerOptions): FnoxRunner {
+function createFnoxRunner({ fnoxPath, runsRoot, ageFile, environment, readTimeoutMs = FNOX_READ_TIMEOUT_MS }: FnoxRunnerOptions): FnoxRunner {
   const queue = createSerialQueue();
 
   function runFnoxProcess({ args, cwd, env, stdinText, isStdoutKept }: FnoxLaunch): Promise<FnoxRunResult> {
@@ -121,11 +127,31 @@ function createFnoxRunner({ fnoxPath, runsRoot, environment, readTimeoutMs = FNO
     return runFnoxProcess({ args: argumentsFor(STDIN_CONFIG_PATH), cwd: path.parse(runsRoot).root, env: fnoxEnvironment(environment, UNCREATABLE_CONFIG_FOLDER), stdinText: configText, isStdoutKept });
   }
 
+  async function runAgainstAgeFile(args: string[], stdinText: string, isStdoutKept: boolean): Promise<FnoxRunResult> {
+    if (!isWindows) return runFnoxProcess({ args, cwd: path.parse(runsRoot).root, env: fnoxAgeEnvironment(environment, UNCREATABLE_CONFIG_FOLDER, ageFile.keyPath), stdinText, isStdoutKept });
+    await fs.mkdir(runsRoot, { recursive: true, mode: PRIVATE_FOLDER_MODE });
+    const emptyConfigFolder = await fs.mkdtemp(path.join(runsRoot, 'global-'));
+    try {
+      return await runFnoxProcess({ args, cwd: emptyConfigFolder, env: fnoxAgeEnvironment(environment, emptyConfigFolder, ageFile.keyPath), stdinText, isStdoutKept });
+    } finally {
+      await fs.rm(emptyConfigFolder, { recursive: true, force: true });
+    }
+  }
+
+  async function readFromAgeFile(source: SecretSource, name: SecretName): Promise<ReadOutcome> {
+    const storeProblem = await fs.stat(ageFile.storePath).then(() => null, (error: NodeJS.ErrnoException) => error);
+    if (storeProblem?.code === 'ENOENT') return { failure: missingFromAgeFile(name, '') };
+    if (storeProblem !== null) return { failure: { kind: 'unavailable', message: `Glimmervoid could not open the age file to read ${name}`, detail: storeProblem.code ?? storeProblem.message } };
+    const result = await runAgainstAgeFile(fnoxReadArguments(ageFile.storePath, name), '', true);
+    return readOutcomeOf(result, source, name);
+  }
+
   function read(source: SecretSource, name: SecretName): Promise<ReadOutcome> {
+    if (source.manager === 'age') return queue.run(() => readFromAgeFile(source, name));
     return queue.run(async () => readOutcomeOf(await runFnox(fnoxConfigText(source, name), (configPath) => fnoxReadArguments(configPath, name), true), source, name));
   }
 
-  function test(source: SecretSource): Promise<SecretSourceTestResult> {
+  function test(source: OnePasswordSource): Promise<SecretSourceTestResult> {
     return runFnox(fnoxConfigText(source, null), fnoxTestArguments, false).then((result) => testOutcomeOf(result, source));
   }
 
