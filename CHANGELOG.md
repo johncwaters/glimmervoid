@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.3] - 2026-11-16
+
 ### Changed
 
 - **Glimmervoid Cloud opens as a free, invite-only alpha with a waitlist.** The Cloud section on glimmervoid.dev/next/ now sends you to sign in with GitHub, which puts you on the waitlist, in place of the email form, and the site nav always shows Sign in. Nothing is for sale during the alpha. The terms add alpha terms, an acceptable use list that includes the Google Cloud Acceptable Use Policy, an abuse contact, suspension, 18 and over, sanctions, no backups, a 30-day window to copy your work off, breach notice, your responsibility for your agents and their accounts, a liability cap with a consumer carve-out, and Arizona law with no arbitration. The privacy notice gains a Glimmervoid Cloud section. The paid-plan wording, kept for later, now says hour pack, gives 30 days' notice of a price change with how to cancel, and corrects the Stripe refund sentence.
