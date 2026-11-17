@@ -3,6 +3,7 @@ import { emptyState } from '../ui/empty-state.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { segmented } from '../ui/segmented.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
 import { reportUsageAction } from './usage-store.ts';
 import { DEFAULT_DAY_SORT, DEFAULT_PERIOD_VIEW, HEATMAP_DAY_LABELS, LANE_SCOPE_HINT, OVERHEAD_SCOPE_HINT, PERIOD_VIEWS, blockHistoryRows, blockLabel, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, claudeOnlyHint, formatPercent, formatTokens, formatUsd, glimmervoidOverhead, hasLaneAttribution, heatmapCells, heatmapCellText, historyNote, laneLabel, laneRows, laneSessionsText, modelLabel, nextSortState, overheadLanesText, overheadPlanText, percentOfTotal, periodLabel, periodRows, reportDayKey, sortDailyRows, sortModelRows } from './usage-view-core.ts';
@@ -200,23 +201,19 @@ function buildDailySection() {
 }
 
 function buildPeriodSwitch() {
-  const group = el('div', 'usage-period');
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', 'Period');
-  for (const view of PERIOD_VIEWS) {
-    const periodOption = createPressable('usage-period-button', view.label);
-    periodOption.dataset.periodView = view.value;
-    periodOption.setAttribute('aria-pressed', view.value === _periodView ? 'true' : 'false');
-    periodOption.addEventListener('click', () => {
-      if (_periodView === view.value) return;
+  const control = segmented({
+    label: 'Period',
+    options: PERIOD_VIEWS,
+    value: _periodView,
+    onChange: (value) => {
       reportUsageAction('period');
-      _periodView = view.value;
-      setFocusAfterRender({ kind: 'period', view: view.value });
+      _periodView = value;
+      setFocusAfterRender({ kind: 'period', view: value });
       render();
-    });
-    group.append(periodOption);
-  }
-  return group;
+    },
+  });
+  control.element.dataset.usageSwitch = 'period';
+  return control.element;
 }
 
 function buildPeriodCell(row: UsageWireRow, periodView: string) {

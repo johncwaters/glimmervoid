@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Empty panels share one look.** The Usage, Pull requests, Community, Arena, Packs, Hooks, Trace and Boards placeholders for "nothing here yet" now draw the same muted line, dashed box or centered title, and the Boards empty state puts its new board and import board buttons side by side.
 - **More collapsible sections share one look.** Show details blocks, hook previews, the trace rows, the packs Sources section and the folded sections of a team review now share one marker (a plus or a chevron), a visible focus ring when reached by keyboard, and a 44px tap target on the phone.
 - **Checkboxes and radio choices look and behave the same across Settings and dialogs.** The Hooks page, workflow rules, the flying-animal gallery, the repository picker and the workspace, account, board export, remote setup and arena dialogs now share one choice row, as tall as a button beside it: a lavender focus ring on every box, a dimmed row while a choice is unavailable, and a 44px tap row with a larger box on the phone.
+- **Every pick-one switch now looks and works the same.** The Settings choice rows, the Usage period, range and measure switches, and the Reviews and Changes layout switches share one control: a framed row of uppercase options with the picked one washed in lavender, and the arrow keys move the pick from one option to the next.
 
 ### Fixed
 
@@ -96,6 +97,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The doorman logs a wake whose host never answers, and tags every failure line with its kind.** A tenant host that started but did not answer before the doorman stopped holding requests used to leave no log line, so no alert could notice it. It now logs `kind=wake-timed-out`. Every doorman failure line that needs your attention now starts with a fixed `kind=` field (`wake-failed`, `wake-timed-out`, `forward-after-wake-failed`, `github-token-refused`, `github-token-mint-failed`, `github-token-repos-dropped`), so log alerts can match the kind and keep working when the wording changes.
 - **Terminals on a phone show all their text after you return to the dashboard.** The phone browser can discard the glyphs a terminal draws from while the dashboard is in the background, and the old recovery redrew into those same discarded glyphs, so returning often left only a few scattered characters on screen. Coming back to the dashboard now rebuilds every terminal's renderer from fresh glyphs.
+- **The Changes diff layout switch keeps its own place and look after you open Reviews or Community.** Opening either view restyled the Unified and Split switch with the Reviews layout switch's spacing.
+- **Terminals on an iPhone show all their text after you return to the app.** iOS discards the glyphs a terminal draws from while the dashboard is in the background, and Safari never says so, so returning often left only a few scattered characters on screen. Coming back to the dashboard now rebuilds every terminal's renderer from fresh glyphs.
 
 ## [0.62.6] - 2026-11-17
 

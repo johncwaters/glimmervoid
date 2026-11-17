@@ -153,6 +153,13 @@ A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`
 - **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is at least 44px tall (the phone `--control-height`) in `--type-body` with a 20px box.
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
 
+### Segmented Control
+A group of options with exactly one picked is `segmented()` from `public/ui/segmented.ts` (look in `public/ui/segmented.css`): the Settings choice rows, the Usage period, range and measure switches, and the Reviews and Changes layout switches.
+- **Look:** one 1px Dim Rule frame at `--radius`, options split by the same rule, uppercase tracked mono `--type-meta` at 700 like a button; the picked option takes Paper text on a 14% lavender wash, never a heavier weight, so picking never shifts layout. 44px tall on phone.
+- **Options:** `label` (or `labelledBy` an existing heading id) names the group; `options` are `{ value, label }`; `value` is the picked one; `onChange` fires on a pick; `width: 'fill'` stretches the options across the parent, the default `auto` sizes to its labels. The handle's `setValue` repaints the pick (a refused save puts the stored one back) and `focus` moves focus to it, for a caller that rebuilds the control on change.
+- **Keyboard:** a `radiogroup` of `radio` options with one tab stop; the arrow keys move the pick and focus together, wrapping at the ends.
+- **Layout belongs to the parent:** it takes no class; a container places and hides it.
+
 ### Inputs / Fields
 - **Style:** Inset Graphite fill, 1px Rule, `--radius`, padding 8px 12px, Paper text, mono `--type-body` (`--type-field` on phone).
 - **Focus:** border shifts to Glimmer Violet (no glow). Placeholders use Faint Ash.

@@ -921,7 +921,7 @@ async function verifyReviewingNowPull(page: Page): Promise<void> {
   assert.equal((await nowColumn.locator('.review-group-count').textContent())?.trim(), '1 / 5');
   assert.deepEqual(await page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsPulledKeys?: unknown }).reviewsPulledKeys), ['team:Acme/app#1']);
   await writeUiPrefs(page, { reviewsTurnLimit: 1 });
-  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await page.getByRole('radio', { name: 'List', exact: true }).click();
   await waitForText(page, REVIEWING_NOW_COUNT, '1 / 1');
   const otherReadyRow = page.locator('.pr-queue-section[data-group="turn"] .pr-queue-row').first();
   const otherReadyKey = await otherReadyRow.getAttribute('data-queue-key');
@@ -1072,7 +1072,7 @@ async function verifyBoard(page: Page): Promise<void> {
   const detail = root.locator('.pr-detail-host');
   const card = page.locator('.review-board .pr-queue-row[data-review-key="Acme/app#1"]');
   assert.equal(await root.getAttribute('data-reviews-layout'), 'board');
-  assert.equal(await page.getByRole('button', { name: 'Board', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.getByRole('radio', { name: 'Board', exact: true }).getAttribute('aria-checked'), 'true');
   const titles = await page.locator('.review-board-column .review-board-column-title').allTextContents();
   assert.deepEqual(titles, ['Queued', 'Agent working', 'Ready', 'Reviewing now', 'Waiting on others', 'Merged', 'Parked']);
   await detail.waitFor({ state: 'visible' });
@@ -1183,7 +1183,7 @@ export async function verifyTeamReviewRows(page: Page, layout: Layout, sessionId
   if (layout === 'desktop') await verifyBoard(page);
   if (layout === 'phone') {
     assert.equal(await page.locator('.review-queue').getAttribute('data-reviews-layout'), 'list');
-    assert.equal(await page.locator('.review-layout-switch').isVisible(), false);
+    assert.equal(await page.getByRole('radiogroup', { name: 'Reviews layout' }).isVisible(), false);
     await verifyPhoneReviewingNowAfterReturn(page);
   }
   await page.getByRole('button', { name: 'Parked', exact: true }).click();

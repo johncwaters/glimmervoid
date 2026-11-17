@@ -504,38 +504,6 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   border-radius: 2px;
 }
 
-.usage-period {
-  display: inline-flex;
-  gap: 0;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  overflow: hidden;
-  align-self: flex-start;
-}
-
-.usage-period-button {
-  border: 0;
-  border-right: 1px solid var(--border-dim);
-  padding: 3px 12px;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--type-meta);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer; font-weight: 700;
-}
-
-.usage-period-button:last-child { border-right: 0; }
-@media (hover: hover) {
-  .usage-period-button:hover { color: var(--text); }
-}
-
-.usage-period-button[aria-pressed="true"] {
-  color: var(--text-head);
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-}
-
 .usage-period-cell {
   display: inline-flex;
   align-items: baseline;
@@ -774,7 +742,6 @@ html[data-layout="phone"] .usage-meta,
 html[data-layout="phone"] .usage-warning,
 html[data-layout="phone"] .usage-empty { font-size: var(--type-meta); }
 
-html[data-layout="phone"] .usage-period-button { min-height: 44px; padding: 4px 14px; font-size: var(--type-meta); }
 html[data-layout="phone"] .usage-heatmap,
 html[data-layout="phone"] .usage-heatmap-days { grid-template-rows: repeat(7, 13px); }
 html[data-layout="phone"] .usage-heatmap-cell { width: 13px; height: 13px; }

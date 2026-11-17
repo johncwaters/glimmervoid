@@ -1,5 +1,7 @@
 import './review-queue-panel.css';
 import { createPressable } from '../ui/pressable.ts';
+import { segmented } from '../ui/segmented.ts';
+import type { Segmented } from '../ui/segmented.ts';
 import { button } from '../ui/button.ts';
 import { createAvatar, el, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { pullRequestLabel } from './github-store-core.ts';
@@ -48,6 +50,7 @@ let mineDetail: HTMLElement | null = null;
 let pollingControls: ReturnType<typeof createGithubPollingControls> | null = null;
 let setupCard: ReturnType<typeof createReviewSetupCard> | null = null;
 let skillNotice: ReturnType<typeof createReviewSkillNotice> | null = null;
+let layoutSwitch: Segmented<ReviewsLayout> | null = null;
 let currentGroups: QueueGroup[] = [];
 let displayGroups: DisplayGroup[] = [];
 let selectedKey: string | null = null;
@@ -609,7 +612,7 @@ function syncLayout(): void {
   if (!root) return;
   const layout = shownLayout();
   root.dataset.reviewsLayout = layout;
-  for (const option of root.querySelectorAll<HTMLButtonElement>('.review-layout-option')) option.setAttribute('aria-pressed', String(option.dataset.reviewsLayout === layout));
+  layoutSwitch?.setValue(layout);
 }
 
 function chooseLayout(layout: ReviewsLayout): void {
@@ -620,16 +623,13 @@ function chooseLayout(layout: ReviewsLayout): void {
 }
 
 function createLayoutSwitch(): HTMLElement {
-  const group = el('div', 'review-layout-switch');
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', 'Reviews layout');
-  for (const layout of ['list', 'board'] as const) {
-    const option = createPressable('review-layout-option', REVIEWS_LAYOUT_LABELS[layout]);
-    option.dataset.reviewsLayout = layout;
-    option.addEventListener('click', () => chooseLayout(layout));
-    group.append(option);
-  }
-  return group;
+  layoutSwitch = segmented({
+    label: 'Reviews layout',
+    options: (['list', 'board'] as const).map((layout) => ({ value: layout, label: REVIEWS_LAYOUT_LABELS[layout] })),
+    value: shownLayout(),
+    onChange: chooseLayout,
+  });
+  return layoutSwitch.element;
 }
 
 function syncSetupCard(): boolean {

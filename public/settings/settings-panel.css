@@ -350,43 +350,6 @@
 }
 
 
-.settings-view-segmented {
-  display: inline-flex;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-surface);
-  overflow: hidden;
-}
-
-.settings-view-segment {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 7px 8px;
-  border: none;
-  border-right: 1px solid var(--border-dim);
-  background: transparent;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
-
-.settings-view-segment:last-child {
-  border-right: none;
-}
-
-@media (hover: hover) {
-  .settings-view-segment:hover {
-    color: var(--text-head);
-  }
-}
-
-.settings-view-segment[aria-checked="true"] {
-  color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 12%, transparent);
-}
-
 .settings-view-setting-title {
   margin: 0;
   color: var(--text);

@@ -61,12 +61,12 @@ async function verifyModifiedFileDiff(page: Page, worktreePath: string): Promise
   assert.equal(await contextRow.locator('.review-file-status').textContent(), 'M', 'a file the base has reads as modified');
   await contextRow.click();
   await reader.locator(ADDED_DIFF_LINE, { hasText: EDITED_CONTEXT_LINE }).waitFor({ timeout: READER_TIMEOUT_MS });
-  const layoutGroup = reader.getByRole('group', { name: 'Diff layout' });
-  await layoutGroup.getByRole('button', { name: 'Split', exact: true }).click();
+  const layoutGroup = reader.getByRole('radiogroup', { name: 'Diff layout' });
+  await layoutGroup.getByRole('radio', { name: 'Split', exact: true }).click();
   await reader.locator('.review-reader-diff pre[data-diff-type="split"]').waitFor();
   assert.equal(await page.evaluate(() => localStorage.getItem('glimmervoid-review-diff-layout')), '"split"', 'the chosen layout is remembered');
-  assert.equal(await layoutGroup.getByRole('button', { name: 'Split', exact: true }).getAttribute('aria-pressed'), 'true');
-  await layoutGroup.getByRole('button', { name: 'Unified', exact: true }).click();
+  assert.equal(await layoutGroup.getByRole('radio', { name: 'Split', exact: true }).getAttribute('aria-checked'), 'true');
+  await layoutGroup.getByRole('radio', { name: 'Unified', exact: true }).click();
   await reader.locator('.review-reader-diff pre[data-diff-type="single"]').waitFor();
   const firstLine = reader.locator('.review-reader-diff [data-line]', { hasText: /^line 1$/ });
   assert.equal(await firstLine.count(), 0, 'unchanged lines far from the edit start collapsed');

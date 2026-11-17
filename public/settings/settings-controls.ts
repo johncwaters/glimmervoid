@@ -1,9 +1,9 @@
 import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { createPressable } from '../ui/pressable.ts';
 import { switchInput } from '../ui/switch.ts';
 import { select } from '../ui/select.ts';
+import { segmented } from '../ui/segmented.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { notificationsSupported } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -24,7 +24,6 @@ import { paintAgentMark } from '../session-card/agent-mark.ts';
 const MOVE_UP_ICON_PATH = 'M4 10L8 6L12 10';
 const MOVE_DOWN_ICON_PATH = 'M4 6L8 10L12 6';
 const GRIP_ICON_PATH = 'M6 4h0.01M10 4h0.01M6 8h0.01M10 8h0.01M6 12h0.01M10 12h0.01';
-const SEGMENT_STEP_BY_KEY: Readonly<Record<string, number>> = Object.freeze({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 });
 
 function inputMinimum(setting: SettingsSetting, range: SettingsRange) {
   if (!range.exclusiveMin) return range.min;
@@ -245,46 +244,18 @@ function renderNumber(setting: SettingsSetting) {
   return field;
 }
 
-function selectSegment(group: HTMLElement, selectedValue: string) {
-  const segments = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-  const hasSelection = segments.some((segment) => segment.dataset.value === selectedValue);
-  for (const [index, segment] of segments.entries()) {
-    const isSelected = segment.dataset.value === selectedValue;
-    segment.setAttribute('aria-checked', String(isSelected));
-    segment.tabIndex = isSelected || (!hasSelection && index === 0) ? 0 : -1;
-  }
-}
-
-function chooseSegment(setting: SettingsSetting, group: HTMLElement, value: string) {
-  if (value === String(storedValue(setting))) return;
-  selectSegment(group, value);
-  commitSetting(setting, value);
-  selectSegment(group, String(storedValue(setting)));
-}
-
 function renderSegmented(setting: SettingsSetting) {
-  const group = el('div', 'settings-view-segmented');
-  group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-labelledby', setting.id);
-  const choices = setting.options ?? [];
-  for (const choice of choices) {
-    const segment = createPressable('settings-view-segment', choice.label);
-    segment.dataset.value = choice.value;
-    segment.setAttribute('role', 'radio');
-    segment.addEventListener('click', () => chooseSegment(setting, group, choice.value));
-    group.appendChild(segment);
-  }
-  group.addEventListener('keydown', (event) => {
-    const step = SEGMENT_STEP_BY_KEY[event.key];
-    if (!step || choices.length === 0) return;
-    event.preventDefault();
-    const currentIndex = Math.max(0, choices.findIndex((choice) => choice.value === String(storedValue(setting))));
-    const next = choices[(currentIndex + step + choices.length) % choices.length];
-    chooseSegment(setting, group, next.value);
-    group.querySelector<HTMLElement>(`[data-value="${CSS.escape(next.value)}"]`)?.focus();
+  const control = segmented({
+    labelledBy: setting.id,
+    options: setting.options ?? [],
+    value: String(storedValue(setting)),
+    width: 'fill',
+    onChange: (value) => {
+      commitSetting(setting, value);
+      control.setValue(String(storedValue(setting)));
+    },
   });
-  selectSegment(group, String(storedValue(setting)));
-  return group;
+  return control.element;
 }
 
 function renderSelect(setting: SettingsSetting) {

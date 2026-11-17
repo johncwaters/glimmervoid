@@ -3,6 +3,7 @@ import { emptyState } from '../ui/empty-state.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { segmented } from '../ui/segmented.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { reportUsageAction, requestUsageReport, setUsageMetric, setUsageRange } from './usage-store.ts';
 import { METRIC_OPTIONS, PERIOD_VIEWS, RANGE_OPTIONS, SESSION_ROW_LIMIT, USAGE_CAVEAT_SHORT, dayRangeLabel, formatMetric, formatPercent, formatTokens, formatUsd, isGlimmervoidSessionRow, modelRowPrefix, modelTokenMix, percentOfTotal, periodAverageText, periodDayKeys, periodDeltaText, periodSummary, rangeDays, rangeLabel, rankedModels, rankedSessions, reportDayKey, reportInsights, sessionOverflowText, sessionsSummary, shareBasis, shareLabel, tokenTotals, vendorSplitText, vendorTokenRows, visibleSessionRows, yourDayHint } from './usage-view-core.ts';
@@ -16,43 +17,35 @@ const _expandedModels = new Set<string>();
 let _sessionsExpanded = false;
 
 function buildRangeSwitch() {
-  const group = el('div', 'usage-period');
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', 'Report period');
-  for (const option of RANGE_OPTIONS) {
-    const rangeOption = createPressable('usage-period-button', PERIOD_VIEWS.find((view) => view.value === option.value)?.label || option.label);
-    rangeOption.dataset.usageRange = option.value;
-    rangeOption.setAttribute('aria-pressed', option.value === _usage.rangeValue ? 'true' : 'false');
-    rangeOption.addEventListener('click', () => {
-      if (_usage.rangeValue === option.value) return;
+  const control = segmented({
+    label: 'Report period',
+    options: RANGE_OPTIONS.map((option) => ({ value: option.value, label: PERIOD_VIEWS.find((view) => view.value === option.value)?.label || option.label })),
+    value: _usage.rangeValue,
+    onChange: (value) => {
       reportUsageAction('period');
-      setUsageRange(option.value);
-      setFocusAfterRender({ kind: 'range', value: option.value });
+      setUsageRange(value);
+      setFocusAfterRender({ kind: 'range', value });
       requestUsageReport();
       render();
-    });
-    group.append(rangeOption);
-  }
-  return group;
+    },
+  });
+  control.element.dataset.usageSwitch = 'range';
+  return control.element;
 }
 
 function buildMetricSwitch() {
-  const group = el('div', 'usage-period');
-  group.setAttribute('role', 'group');
-  group.setAttribute('aria-label', 'Primary measure');
-  for (const option of METRIC_OPTIONS) {
-    const metricOption = createPressable('usage-period-button', option.label);
-    metricOption.dataset.usageMetric = option.value;
-    metricOption.setAttribute('aria-pressed', option.value === _usage.metric ? 'true' : 'false');
-    metricOption.addEventListener('click', () => {
-      if (_usage.metric === option.value) return;
-      setUsageMetric(option.value);
-      setFocusAfterRender({ kind: 'metric', value: option.value });
+  const control = segmented({
+    label: 'Primary measure',
+    options: METRIC_OPTIONS,
+    value: _usage.metric,
+    onChange: (value) => {
+      setUsageMetric(value);
+      setFocusAfterRender({ kind: 'metric', value });
       render();
-    });
-    group.append(metricOption);
-  }
-  return group;
+    },
+  });
+  control.element.dataset.usageSwitch = 'metric';
+  return control.element;
 }
 
 function buildReportSwitches() {

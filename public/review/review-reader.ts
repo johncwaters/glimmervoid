@@ -1,5 +1,7 @@
 import { repoNameForPath } from '#shared/change-map-view-core.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { segmented } from '../ui/segmented.ts';
+import type { Segmented } from '../ui/segmented.ts';
 import { shortSha } from '#shared/git-text.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
 import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-pages/session-pages.ts';
@@ -35,9 +37,9 @@ const STATUS_NAME_BY_LETTER: Record<ReaderFile['status'], string> = { A: 'Added'
 
 const DIFF_LAYOUT_KEY = 'glimmervoid-review-diff-layout';
 
-const DIFF_LAYOUTS: readonly { layout: DiffLayout; label: string }[] = [
-  { layout: 'unified', label: 'Unified' },
-  { layout: 'split', label: 'Split' },
+const DIFF_LAYOUTS: readonly { value: DiffLayout; label: string }[] = [
+  { value: 'unified', label: 'Unified' },
+  { value: 'split', label: 'Split' },
 ];
 
 const REVIEW_SCOPES: readonly { scope: ReviewScope; label: string }[] = [
@@ -69,6 +71,7 @@ let requestedPath: string | null = null;
 let isWorthALookShowingAll = false;
 let isTourOpen = false;
 let shownDiff: ShownDiff | null = null;
+let diffLayoutSwitch: Segmented<DiffLayout> | null = null;
 let diffWidthPx = 0;
 let chosenLayout: DiffLayout = getJSON<unknown>(DIFF_LAYOUT_KEY, 'unified') === 'split' ? 'split' : 'unified';
 let scope: ReviewScope = 'all';
@@ -366,22 +369,15 @@ function destroyShownDiff() {
 }
 
 function chooseLayout(layout: DiffLayout) {
+  const hadFocus = diffLayoutSwitch?.element.contains(document.activeElement) ?? false;
   chosenLayout = layout;
   setJSON(DIFF_LAYOUT_KEY, layout);
   render();
+  if (hadFocus) diffLayoutSwitch?.focus();
 }
 
 function layoutSwitch(shownLayout: DiffLayout) {
-  const layoutGroup = el('div', 'review-layout-switch');
-  layoutGroup.setAttribute('role', 'group');
-  layoutGroup.setAttribute('aria-label', 'Diff layout');
-  for (const { layout, label } of DIFF_LAYOUTS) {
-    const layoutButton = createPressable('review-layout-option', label);
-    layoutButton.setAttribute('aria-pressed', String(layout === shownLayout));
-    layoutButton.addEventListener('click', () => chooseLayout(layout));
-    layoutGroup.append(layoutButton);
-  }
-  return layoutGroup;
+  return segmented({ label: 'Diff layout', options: DIFF_LAYOUTS, value: shownLayout, onChange: chooseLayout });
 }
 
 async function loadDiffFileContents(sessionId: string, file: ReaderFile): Promise<DiffFileContents> {
@@ -610,7 +606,8 @@ function mountShownDiff(diff: HTMLElement, shown: { sessionId: string; file: Rea
   notice.hidden = true;
   const head = el('div', 'review-reader-diff-head');
   head.append(el('span', 'review-file-path', file.path), fileCounts(file));
-  if (isWideEnoughForSplit && file.status !== 'A' && file.status !== 'D' && !file.binary) head.append(layoutSwitch(shownLayout));
+  diffLayoutSwitch = isWideEnoughForSplit && file.status !== 'A' && file.status !== 'D' && !file.binary ? layoutSwitch(shownLayout) : null;
+  if (diffLayoutSwitch) head.append(diffLayoutSwitch.element);
   if (file.status !== 'D' && !file.binary) head.append(editFileButton(sessionId, file.path, notice));
   const viewed = viewedToggleFor(sessionId, file, notice);
   head.append(viewed.label);
