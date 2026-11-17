@@ -14,7 +14,7 @@ const TURN_END_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE, 
 const ENDED_STATES: readonly SessionState[] = [STATES.DONE, STATES.FAILED];
 const WAKEABLE_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE];
 
-type ChannelAuthor = 'parent' | 'child' | 'glimmervoid';
+type ChannelAuthor = 'parent' | 'child' | 'sibling' | 'glimmervoid';
 type ChannelSide = 'toParent' | 'toChild';
 
 interface ChannelEntry {
@@ -100,6 +100,18 @@ function findOwnedChild(channels: readonly AgentChannel[], parentId: string, tar
   return { ok: false, error: `${wanted} is not a session this one spawned; its spawned sessions are ${ownedNames}` };
 }
 
+function findSibling(channels: readonly AgentChannel[], senderChildId: string, target: string): ChildTarget {
+  const sender = channels.find((channel) => channel.childId === senderChildId);
+  if (!sender) return { ok: false, error: 'only a spawned session has siblings to message' };
+  const wanted = target.trim();
+  const siblings = channels.filter((channel) => channel.parentId === sender.parentId && channel.childId !== senderChildId);
+  const match = siblings.find((channel) => channel.childId === wanted) ?? siblings.find((channel) => channel.childName === wanted);
+  if (match) return { ok: true, channel: match };
+  if (siblings.length === 0) return { ok: false, error: 'this session has no sibling sessions spawned by the same parent' };
+  const siblingNames = siblings.map((channel) => `"${channel.childName}" (${channel.childId})`).join(', ');
+  return { ok: false, error: `${wanted} is not a sibling of this session; its siblings are ${siblingNames}` };
+}
+
 function hasWakingUnread(mailbox: Mailbox): boolean {
   return mailbox.unread.some((entry) => entry.wakes);
 }
@@ -162,7 +174,7 @@ function describeQuestionNote(childName: string, childRef: string, approval: Con
 
 function describeWakeLine(channel: AgentChannel, side: ChannelSide): string {
   if (side === 'toParent') return `Glimmervoid: ${channel.childName}, the session you spawned, has news. Run glimmervoid read ${channel.childId} and act on it.`;
-  return 'Glimmervoid: the session that spawned you sent a message. Run glimmervoid read and act on it.';
+  return 'Glimmervoid: the session that spawned you, or a sibling it spawned, sent a message. Run glimmervoid read and act on it.';
 }
 
 function describeWakeCapNote(channel: AgentChannel): string {
@@ -186,7 +198,7 @@ function decideWake(facts: WakeFacts): WakeDecision {
 }
 
 export {
-  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, hasWakingUnread,
+  WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
   isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
 };
 export type { AgentChannel, ChannelEntry, ChannelSide };

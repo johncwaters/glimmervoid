@@ -19,6 +19,8 @@ import { isPlanGateEnabled } from '../../session/core/plan-gate-core.ts';
 import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
+import { createFileClaims } from '../file-claims.ts';
+import { STATES } from '../../shared/states.ts';
 import { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME } from '../whiteboard/whiteboard-wiring.ts';
 import { createReviewWiring, REVIEWS_FOLDER_NAME } from '../review/review-wiring.ts';
 import type { ProvisionalBoardNaming } from '../whiteboard/whiteboard-wiring.ts';
@@ -321,7 +323,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
-  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
+  const fileClaims = createFileClaims({ findLiveSession: (sessionId) => allLiveSessions().find((session) => session.id === sessionId && session.state !== STATES.DONE && session.state !== STATES.FAILED) ?? null });
+  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), claimsByOthersOf: fileClaims.claimsByOthersOf });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
     isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
@@ -493,6 +496,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
     wakesFilePath: path.join(glimmervoidHomeDir(), 'wakes.json'),
     memoryFilePath: path.join(glimmervoidHomeDir(), 'memory.json'),
+    fileClaims,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({

@@ -120,6 +120,12 @@ function memoryBody({ positionals: [sub, key, ...textWords] }: ParsedArguments):
   return { sub, key: key ?? '' };
 }
 
+function claimBody({ positionals: [sub, claimPath] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'list') return { sub };
+  return { sub, path: claimPath === undefined ? '' : path.resolve(claimPath) };
+}
+
 function packsBody({ positionals: [command, packArgument] }: ParsedArguments): Record<string, unknown> {
   if (packArgument === undefined) return { command };
   if (command === 'add' || command === 'update') return { command, url: packArgument };
@@ -136,7 +142,10 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
       ...(typeof values.effort === 'string' ? { effort: values.effort } : {}),
     };
   },
-  send: ({ positionals }) => (joinedText(positionals) ? { words: positionals } : null),
+  send: ({ positionals, values }) => {
+    if (!joinedText(positionals)) return null;
+    return typeof values.to === 'string' ? { words: positionals, to: values.to } : { words: positionals };
+  },
   read: ({ positionals }) => {
     const child = joinedText(positionals);
     return child ? { child } : {};
@@ -172,6 +181,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
   wake: wakeBody,
   memory: memoryBody,
+  claim: claimBody,
   checkout: ({ positionals: [repo] }) => (repo ? { repo: checkoutRepoArgument(repo) } : null),
 };
 

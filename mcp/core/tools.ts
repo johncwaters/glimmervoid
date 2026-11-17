@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
+  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
 } from '../../shared/contracts/session.ts';
 import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
@@ -73,7 +73,8 @@ function routeTo(verb: AgentApiVerb, keys: readonly string[], { required = [], h
 function sendPayload(toolArguments: ToolArguments): Record<string, unknown> {
   const text = typeof toolArguments.text === 'string' ? toolArguments.text : '';
   const child = typeof toolArguments.child === 'string' ? toolArguments.child : null;
-  return { words: child === null ? [text] : [child, text] };
+  const words = child === null ? [text] : [child, text];
+  return typeof toolArguments.to === 'string' ? { words, to: toolArguments.to } : { words };
 }
 
 function answerPayload(toolArguments: ToolArguments): Record<string, unknown> {
@@ -117,7 +118,7 @@ function boardRenderRoute(): ActionRoute {
 const SESSION_TOOL: GroupedTool = {
   name: 'session',
   title: 'Glimmervoid sessions',
-  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; limits reports what this session may do.',
+  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; limits reports what this session may do.',
   loadsUpfront: true,
   fields: {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),
@@ -127,6 +128,7 @@ const SESSION_TOOL: GroupedTool = {
     effort: AgentSpawnRequest.shape.effort.describe('spawn: the reasoning effort the new session runs at, where the agent takes one'),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
+    to: AgentSendRequest.shape.to.describe('send, from a spawned session: a sibling the same parent spawned, by id or name, to message instead of the parent'),
     discard: AgentCloseRequest.shape.discard.describe('close: drop the child\'s unpushed work instead of refusing'),
     answers: z.record(z.string(), z.string().min(1)).optional().describe('answer: each question text mapped to the chosen answer'),
     toOperator: z.literal(true).optional().describe('answer: pass the child\'s question to the operator instead'),
@@ -134,7 +136,7 @@ const SESSION_TOOL: GroupedTool = {
   },
   actions: {
     spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
-    send: { verb: 'send', required: ['text'], accepts: ['child', 'text'], hints: WRITES, toPayload: sendPayload },
+    send: { verb: 'send', required: ['text'], accepts: ['child', 'text', 'to'], hints: WRITES, toPayload: sendPayload },
     read: routeTo('read', ['child'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),
     answer: { verb: 'answer', required: ['child'], accepts: ['child', 'answers', 'toOperator'], hints: WRITES, toPayload: answerPayload },
@@ -358,7 +360,22 @@ const MEMORY_TOOL: GroupedTool = {
   },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL, MEMORY_TOOL]);
+const CLAIM_TOOL: GroupedTool = {
+  name: 'claim',
+  title: 'Glimmervoid file claims',
+  description: "Advisory file claims shared by every session in this project. add claims a file this session is editing and names any session that already claimed it; release drops a claim; list shows every claim in the project. Claims never block anyone and end with the session; a claimed file another session changes shows as a collision in its change map.",
+  loadsUpfront: false,
+  fields: {
+    path: z.string().min(1).max(1000).optional().describe("add, release: the file, absolute or relative to this session's directory"),
+  },
+  actions: {
+    add: subcommandRoute('claim', 'add', ['path'], { required: ['path'], hints: WRITES }),
+    release: subcommandRoute('claim', 'release', ['path'], { required: ['path'], hints: WRITES }),
+    list: subcommandRoute('claim', 'list', [], { hints: READS }),
+  },
+};
+
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL, MEMORY_TOOL, CLAIM_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);
