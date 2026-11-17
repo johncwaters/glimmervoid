@@ -98,6 +98,7 @@ function selfServiceFixture() {
         const board = { id: 'board-1', title: 'Packs', version: 1, updatedAt: 0, project: null, isArchived: false, connectedSessionIds: [], queuedBySessionId: {}, link: null };
         return { status: 200, body: { ok: true as const, board, note: 'showed the page as box b1 on board "Packs"' } };
       },
+      readPlanBoard: async () => ({ ok: false as const, reply: { status: 404, body: { ok: false as const, error: 'no plan boards in this fixture' } } }),
     },
     logger: { warn: () => {} },
   });

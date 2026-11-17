@@ -25,6 +25,9 @@ import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.t
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
+import { createPlanRuns } from '../server/plan-run-wiring.ts';
+import type { PlanRunPorts } from '../server/plan-run-wiring.ts';
+import { EventEmitter } from 'node:events';
 import { parseSheetText, serializeEditedSheet } from '../shared/sheet-csv-core.ts';
 import { decideShownKind } from '../server/core/shown-files-core.ts';
 import { boardIndexOf, copyOfElements, dropElement } from '../shared/whiteboard-board-index.ts';
@@ -2125,4 +2128,81 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal((changed.body as { error?: string }).error, 'op 1: only the operator changes strokes; an agent may read or remove one, so nothing changed');
   const removed = await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'ink' }]) });
   assert.equal(removed.status, 200);
+});
+
+test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'plan-run-'));
+  const project = path.join(boardsRoot, 'app');
+  const runner = { id: 'plan-runner', name: 'runner', project };
+  const wiring = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const boardId = ((await wiring.handleAgent(runner, { sub: 'new', title: 'Ship it' })).body as { board: { id: string } }).board.id;
+  const stepOp = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: `Build ${id}`, place: 'plan', step: { status: 'planned' }, lines: [{ text: `details of ${id}` }] } });
+  const wireOp = (from: string, to: string) => ({ op: 'add', element: { kind: 'wire', id: `${from}-to-${to}`, from, to } });
+  const putOps = async (ops: unknown[]) => assert.equal((await wiring.handleAgent(runner, { sub: 'put', board: boardId, ops: z.array(Op).parse(ops) })).status, 200);
+  await putOps([stepOp('a'), stepOp('b'), stepOp('c'), wireOp('a', 'c'), wireOp('b', 'c')]);
+
+  const childEvents = new Map<string, EventEmitter>();
+  const prompts: string[] = [];
+  const toldRunner: string[] = [];
+  let refuseSpawnsAfter = Number.POSITIVE_INFINITY;
+  const portsFor = (): PlanRunPorts => ({
+    readPlanBoard: (boardRef) => wiring.readPlanBoard(runner, boardRef),
+    setStepStatus: async (id, stepId, status) => {
+      const reply = await wiring.handleAgent(runner, { sub: 'put', board: id, ops: [{ op: 'set', id: stepId, fields: { step: { status } } }] });
+      assert.equal(reply.status, 200);
+    },
+    spawnStep: async (name, prompt) => {
+      if (prompts.length >= refuseSpawnsAfter) return { ok: false, error: 'this session already runs 3 spawned sessions' };
+      prompts.push(prompt);
+      const childId = `child-${prompts.length}`;
+      const events = new EventEmitter();
+      childEvents.set(childId, events);
+      return { ok: true, childId, childName: name, onLanded: (listener) => { events.once('commits-landed', listener); } };
+    },
+    isLive: (sessionId) => childEvents.has(sessionId),
+    tellRunner: (text) => { toldRunner.push(text); },
+  });
+  const ports = portsFor();
+  const runs = createPlanRuns({ warn: (message) => assert.fail(message) });
+  const statuses = async () => planSteps(Board.parse(((await wiring.handleAgent(runner, { sub: 'get', board: boardId })).body as { board: unknown }).board)).map((step) => `${step.boxId}:${step.status}`);
+  const untilStatus = async (status: string) => {
+    for (let attempt = 0; attempt < 200 && !(await statuses()).includes(status); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  };
+  const childOfPrompt = (stepTitle: string) => `child-${prompts.findLastIndex((prompt) => prompt.includes(`"${stepTitle}"`)) + 1}`;
+
+  assert.equal((await runs.run('Ship it', ports)).status, 200);
+  assert.deepEqual(await statuses(), ['a:building', 'b:building', 'c:planned']);
+  assert.match(prompts[0] ?? '', /Build a.*\n- details of a\n.*glimmervoid push/s);
+
+  await putOps([stepOp('late')]);
+  childEvents.get(childOfPrompt('Build a'))?.emit('commits-landed');
+  await untilStatus('a:landed');
+  assert.deepEqual(await statuses(), ['a:landed', 'b:building', 'late:planned', 'c:planned'], 'a step added after the run waits for another run');
+
+  childEvents.delete(childOfPrompt('Build b'));
+  refuseSpawnsAfter = prompts.length;
+  const refused = await runs.run(boardId, ports);
+  assert.match(String((refused.body as { note?: string }).note), /2 ready steps wait because the spawn was refused \(this session already runs 3 spawned sessions\)/);
+  assert.deepEqual(await statuses(), ['a:landed', 'b:planned', 'late:planned', 'c:planned'], 'a step whose session ended is reopened');
+
+  refuseSpawnsAfter = Number.POSITIVE_INFINITY;
+  await runs.run(boardId, ports);
+  refuseSpawnsAfter = prompts.length;
+  childEvents.get(childOfPrompt('Build b'))?.emit('commits-landed');
+  await untilStatus('b:landed');
+  for (let attempt = 0; attempt < 200 && toldRunner.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(toldRunner[0] ?? '', /b landed, but the steps after it did not all start: this session already runs 3 spawned sessions/);
+
+  refuseSpawnsAfter = Number.POSITIVE_INFINITY;
+  await runs.run(boardId, ports);
+  assert.deepEqual(await statuses(), ['a:landed', 'b:landed', 'late:building', 'c:building']);
+  const promptsBeforeRestart = prompts.length;
+  childEvents.clear();
+  await createPlanRuns({ warn: (message) => assert.fail(message) }).run(boardId, portsFor());
+  assert.deepEqual([await statuses(), prompts.length - promptsBeforeRestart], [['a:landed', 'b:landed', 'late:building', 'c:building'], 2], 'a restart reopens and restarts the steps it no longer tracks');
+
+  await putOps([wireOp('c', 'b')]);
+  const looped = await runs.run(boardId, ports);
+  assert.equal(looped.status, 409);
+  assert.match(String((looped.body as { error?: string }).error), /never finishes/);
 });

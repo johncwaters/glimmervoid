@@ -53,7 +53,7 @@ interface AgentApiWiringOptions {
   sessionDocs: SessionDocsPort;
   memoryAdmission?: Pick<MemoryAdmission, 'describeShortfallNow'> | null;
   operatorState?: AgentOperatorStatePort | null;
-  whiteboards?: Pick<WhiteboardPort, 'handleAgent'> | null;
+  whiteboards?: Pick<WhiteboardPort, 'handleAgent' | 'readPlanBoard'> | null;
   lookupWhy?: ((request: { target: string; cwd: string }) => Promise<WhyLookup>) | null;
   secrets?: Pick<SecretsBroker, 'need' | 'envFor'> | null;
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
