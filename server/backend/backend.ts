@@ -501,7 +501,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     races: laneAssembly.races,
     startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
     wakesFilePath: path.join(glimmervoidHomeDir(), 'wakes.json'),
-    memoryFilePath: path.join(glimmervoidHomeDir(), 'memory.json'),
+    memoryFilePath: configSiblingPath(configStore.configPath, 'memory.json'),
     fileClaims,
     sessionPreviews,
     logger: console,
