@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createPressable } from '../ui/pressable.ts';
@@ -37,15 +38,13 @@ function buildBudgetsScreen() {
 
 function buildNoOverhead() {
   const section = buildSection('Glimmervoid overhead', '');
-  section.append(el('p', 'usage-empty', 'Glimmervoid spawned no sessions of its own in this range.'));
+  section.append(emptyState({ text: 'Glimmervoid spawned no sessions of its own in this range.' }));
   return section;
 }
 
 function buildNoBudgets() {
   const section = buildSection('Budgets', 'your own ceilings');
-  const empty = el('p', 'usage-empty', 'No budgets set. ');
-  empty.append(createSettingsLink('machine-usage', 'usage-daily-budget', 'Budget settings'));
-  section.append(empty);
+  section.append(emptyState({ text: ['No budgets set. ', createSettingsLink('machine-usage', 'usage-daily-budget', 'Budget settings')] }));
   return section;
 }
 
@@ -158,7 +157,7 @@ function buildDailySection() {
   const section = buildSection('Over time', hints.join(', '));
   section.append(buildPeriodSwitch());
   if (rows.length === 0) {
-    section.append(el('p', 'usage-empty', 'No usage.'));
+    section.append(emptyState({ text: 'No usage.' }));
     return section;
   }
   const heatmap = buildHeatmap(daily);

@@ -49,17 +49,6 @@
 
 .hooks-warning { color: var(--state-waiting); }
 
-.hooks-empty-state {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 14px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-}
-
-.hooks-empty-state .hooks-empty { font-size: var(--type-meta); color: var(--text-dim); }
-
 .hooks-templates {
   display: flex;
   flex-wrap: wrap;

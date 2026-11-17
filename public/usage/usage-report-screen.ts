@@ -1,4 +1,5 @@
 import { el } from '../dom-helpers.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createPressable } from '../ui/pressable.ts';
@@ -186,7 +187,7 @@ function buildModelsSection() {
   const section = buildSection('By model', shareLabel(shareBasis(totals, _usage.metric)));
   const ranked = rankedModels(_usage.report, _usage.metric);
   if (ranked.length === 0) {
-    section.append(el('p', 'usage-empty', 'No models in this period.'));
+    section.append(emptyState({ text: 'No models in this period.' }));
     return section;
   }
   const list = el('ul', 'usage-ranks');
@@ -237,7 +238,7 @@ function buildSessionsSection() {
   const section = buildSection('By session', shareLabel(shareBasis(totals, _usage.metric)));
   const ranked = rankedSessions(_usage.report, _usage.metric);
   if (ranked.length === 0) {
-    section.append(el('p', 'usage-empty', 'No sessions in this period.'));
+    section.append(emptyState({ text: 'No sessions in this period.' }));
     return section;
   }
   const visible = visibleSessionRows(ranked, _sessionsExpanded);

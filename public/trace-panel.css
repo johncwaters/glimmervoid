@@ -87,14 +87,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.trace-empty {
-  margin: 0;
-  padding: 16px 14px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-}
-
 .trace-earlier-wrap {
   display: flex;
   justify-content: center;

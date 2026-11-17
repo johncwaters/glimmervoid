@@ -341,12 +341,6 @@ html[data-layout="phone"] .dialog-overlay {
   font-size: var(--type-meta);
 }
 
-.dialog-trail-empty {
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  color: var(--text-muted);
-}
-
 .shortcut-keys {
   display: inline-flex;
   align-items: center;

@@ -158,6 +158,11 @@ A boolean setting that takes effect at once is `switchInput()` from `public/ui/s
 - **State:** session cards drive their entire treatment from a `data-state` attribute, layering a state-colored border and, for WAITING, a tinted fill, never a glow (RUNNING, WAITING, COMPLETE, FAILED, etc.). Never nest a card inside a card.
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
+### Empty State
+Every "nothing here yet" placeholder is `emptyState()` from `public/ui/empty-state.ts` (look in `public/ui/empty-state.css`): mono `--type-meta` in Faint Ash, held to a 78ch measure, with an optional bold Paper `title` above the text and optional `actions` (buttons, chips) in a wrapping row below it. It says what is missing and the one way to fill it; it is never a loading or failure message.
+- **Variants:** inline (the default, one muted line in the flow of a panel), boxed (a 1px dashed Rule box with 16px 14px padding, for a list or canvas that has nothing yet), centered (centered in its region in Ash, with 24px padding and a 44ch measure, for a pane whose whole job is the missing thing).
+- **Layout belongs to the parent:** `emptyState()` takes no class, so a caller adds its own placement class for padding or grid position.
+
 ### Navigation
 - **Primary view tabs:** mono `--type-meta`, Ash at rest. Each tab leads with its view's line icon, the same one the phone bar and More menu draw, so a view looks the same on every device. The tabs sit bare in the header with no track; the selected tab takes the Settings nav selection (lavender text and icon, a faint lavender wash, a full 1px lavender-tinted border) and never a glow or a heavier weight, so selection never shifts layout. An optional activity dot shows steady lavender when a tab has something new; it never pulses, because a tab dot that animates for minutes reads as noise.
 
@@ -214,7 +219,7 @@ Process (motion, inline feedback, failure and empty states) comes from the `desi
 
 | Situation | Pattern |
 |---|---|
-| Empty panel | `.usage-empty` (`public/usage/usage-panel.ts`); other panels' `*-empty` classes converge on it |
+| Empty panel | `emptyState()` (`public/ui/empty-state.ts`); the remaining panels' own `*-empty` classes converge on it |
 | Error inside a dialog or form | `.dialog-error`, or `settings-view-field-error` on a field, beside the cause |
 | Error with no local home | an inline line in the panel or card that owns the failed work |
 | Limit or budget | `.usage-warning` with the count and the reset time |

@@ -17,6 +17,7 @@ import { buildSessionRow, paintSessionRowStatus } from '../session-row.ts';
 import { formatAgo, formatDuration } from '../poll-ago.ts';
 import { writeAttributeIfChanged, writeTextIfChanged } from '../status-paint.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
+import { createPrEmptyState } from './team-review-queue-row.ts';
 import { myPrStackRowsOf, stackBadgeOf } from './github-store-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import type { MyPrStackRow } from './github-store-core.ts';
@@ -578,7 +579,7 @@ function createStackMapRow(row: MyPrStackRow, isOpenPr: boolean): HTMLElement {
 function renderDetail(pr: MyPr | undefined): void {
   if (!detail) return;
   if (!pr) {
-    detail.replaceChildren(el('p', 'pr-empty', emptyStateText(latest)));
+    detail.replaceChildren(createPrEmptyState(emptyStateText(latest)));
     return;
   }
   const handled = myPrsSnapshot().handledByPr[pr.key] ?? [];

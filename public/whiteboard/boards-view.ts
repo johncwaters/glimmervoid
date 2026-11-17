@@ -13,6 +13,7 @@ import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { SHEET_WIDTH_HANDLE_PX, sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { button, menuButton } from '../ui/button.ts';
 import { createDeckFrame, forwardDeckKey } from './deck-frame.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
@@ -1672,16 +1673,18 @@ export function mountBoardHost(): HTMLElement {
   stylePopover = createBoardStylePopover({ host: topRightStack, currentBoard: selectedBoard, sendOps });
   const emptyBoardHint = el('div', 'wb-empty-board');
   emptyBoardHint.hidden = true;
-  const emptyBoardHow = el('p', 'wb-empty-board-desc');
-  emptyBoardHow.append(
-    el('span', 'wb-empty-board-keys', 'Pick box (R) and click the board to place one, or ask a session to draw here.'),
-    el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
-  );
-  emptyBoardHint.append(el('p', 'wb-empty-board-title', 'This board is empty.'), emptyBoardHow);
+  emptyBoardHint.append(emptyState({
+    title: 'This board is empty.',
+    text: [
+      el('span', 'wb-empty-board-keys', 'Pick box (R) and click the board to place one, or ask a session to draw here.'),
+      el('span', 'wb-empty-board-touch', 'Ask a session to draw here.'),
+    ],
+    variant: 'centered',
+  }));
   canvas.append(viewport, emptyBoardHint, topChrome, bottomLeftStack, glNotice);
-  const emptyText = el('p', 'wb-empty-text', EMPTY_TEXT);
-  const empty = el('div', 'wb-empty');
-  empty.append(emptyText, button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element);
+  const emptyText = el('span', null, EMPTY_TEXT);
+  const empty = emptyState({ text: emptyText, actions: [button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element], variant: 'boxed' });
+  empty.classList.add('wb-empty');
 
   host.replaceChildren(canvas, empty);
   parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer };

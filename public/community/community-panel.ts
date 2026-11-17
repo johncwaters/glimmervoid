@@ -13,7 +13,7 @@ import { openExternalUrl } from '../external-link.ts';
 import { createPrQueueColumns } from '../github/pr-queue-columns.ts';
 import { chooseQueueSelection, communityActivityEntry, queueItemByKey, reviewKeyActionOf, steppedRowKey, turnItems } from '../github/review-queue-core.ts';
 import type { CommunityQueueGroup, CommunityQueueItem } from '../github/review-queue-core.ts';
-import { createCaughtUpBanner } from '../github/team-review-queue-row.ts';
+import { createCaughtUpBanner, createPrEmptyState } from '../github/team-review-queue-row.ts';
 import { reviewQueueNavigation } from '../github/review-queue-store.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
@@ -193,7 +193,7 @@ function showSelectedDetail(): void {
   const hasAnyItem = currentGroups.some((group) => group.items.length > 0);
   detailHost.replaceChildren(hasAnyItem
     ? createCaughtUpBanner({ title: 'All caught up', detail: communityCaughtUpText(currentGroups) })
-    : el('p', 'pr-empty', communityEmptyText(communityStatusView())));
+    : createPrEmptyState(communityEmptyText(communityStatusView())));
 }
 
 function markSeen(item: CommunityQueueItem, row: HTMLButtonElement): void {
@@ -310,7 +310,7 @@ function render(): void {
     const laneError = communityStatusView()?.error || watcherProblemNotice(communityStatusView());
     const notices = laneError ? [el('p', 'my-pr-note', laneError)] : [];
     const sections = currentGroups.filter((group) => group.items.length > 0).map(createGroupSection);
-    queueElement.replaceChildren(...notices, ...(sections.length > 0 ? sections : [el('p', 'pr-empty', communityEmptyText(communityStatusView()))]));
+    queueElement.replaceChildren(...notices, ...(sections.length > 0 ? sections : [createPrEmptyState(communityEmptyText(communityStatusView()))]));
   }
   showSelectedDetail();
 }

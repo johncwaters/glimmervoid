@@ -7,6 +7,7 @@ import { agentAccountOf, agentAccountSummary, applyAgentAccounts, CONNECTABLE_AG
 import { el, markAsNotCredential, query, queryTag, writeClipboardText } from './dom-helpers.ts';
 import { createSandboxedFrame } from './sandboxed-frame.ts';
 import { button } from './ui/button.ts';
+import { emptyState } from './ui/empty-state.ts';
 import { applyDialogAria, buildDialogShell, createModalOverlay } from './session-card/modal.ts';
 import { mountAddSessionPicker } from './add-session/add-session-picker.ts';
 import { onSessionTick } from './session-card/session-tick.ts';
@@ -325,7 +326,7 @@ export function createInvestigationDialog({ issueTitle, projectLabel, onOpenRepo
   const statusEl = el('p', 'dialog-trail-status');
   const summaryEl = el('p', 'dialog-trail-summary');
   const listEl = el('ol', 'dialog-trail-steps');
-  const emptyEl = el('p', 'dialog-trail-empty', 'No tool calls yet; the session is reading the issue.');
+  const emptyEl = emptyState({ text: 'No tool calls yet; the session is reading the issue.' });
   const btnReport = button({ variant: 'secondary', label: 'Open report', hidden: true });
   btnReport.addEventListener('click', () => { close(); onOpenReport(); });
   actions.prepend(btnReport);

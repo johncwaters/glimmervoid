@@ -365,26 +365,10 @@
   inset: 0;
   display: grid;
   place-content: center;
-  padding: 24px;
-  text-align: center;
-  color: var(--text-dim);
   pointer-events: none;
 }
 
 .wb-empty-board[hidden] { display: none; }
-
-.wb-empty-board-title {
-  margin: 0 0 4px;
-  color: var(--text-head);
-  font-size: var(--type-body);
-  font-weight: 700;
-}
-
-.wb-empty-board-desc {
-  max-width: 44ch;
-  margin: 0;
-  font-size: var(--type-meta);
-}
 
 .wb-empty-board-touch { display: none; }
 
@@ -573,22 +557,6 @@
   transition: none;
   font-family: var(--wb-font);
 }
-
-.wb-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  margin: 0;
-  padding: 24px 14px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-}
-
-.wb-empty[hidden] { display: none; }
-
-.wb-empty-text { margin: 0; }
 
 .wb-title-input {
   position: absolute;

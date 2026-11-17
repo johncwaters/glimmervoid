@@ -3,6 +3,7 @@ import { createActionStatus } from '../action-status.ts';
 import { borrowCard, getBorrowedCardId, releaseCard } from '../card-host.ts';
 import { adoptElement, el, queryTag, releaseElement } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { isRenameInProgress, makeTitleEditable, paintTaskTitle, startInlineRename, startInlineTitleEdit } from '../session-card/card-titles.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
@@ -53,9 +54,7 @@ export function createTerminalScreen({ onBack }: { onBack?: () => void }) {
 
   const cardSlot = el('div', 'phone-card-slot');
 
-  const emptyEl = el('div', 'phone-empty');
-  emptyEl.innerHTML = '<p class="phone-empty-title">No session selected</p>'
-    + '<p class="phone-empty-desc">Select a session from the board to watch it here.</p>';
+  const emptyEl = emptyState({ title: 'No session selected', text: 'Select a session from the board to watch it here.', variant: 'centered' });
 
   const keyStatus = createActionStatus('phone-key-status m-0 px-3 py-1');
   const { element: keyStrip, takeModifiedCharacter, setKeyboardOpen, setContext: setStripContext } = createMobileKeyStrip({

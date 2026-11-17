@@ -3,6 +3,7 @@ import { winnerNotesOf } from '#shared/race-core.ts';
 import { clock } from '#shared/clock.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { mountPatchDiff } from '../review/diff-view.ts';
 import type { MountedFileDiff } from '../review/diff-view.ts';
 import { paintStatusIcon } from '../status-icon.ts';
@@ -187,7 +188,7 @@ export function createRaceCard(initial: RaceRecord, deps: RaceCardDeps): RaceCar
     clearDiff(drawer);
     const files = splitUnifiedDiff(text);
     if (files.length === 0) {
-      drawer.diffFiles.replaceChildren(el('p', 'arena-empty', text.trim() === '' ? 'No changes yet.' : text));
+      drawer.diffFiles.replaceChildren(emptyState({ text: text.trim() === '' ? 'No changes yet.' : text }));
       return;
     }
     drawer.diffFiles.replaceChildren();
@@ -204,7 +205,7 @@ export function createRaceCard(initial: RaceRecord, deps: RaceCardDeps): RaceCar
         .then((mounted) => { drawer.mounted.push(mounted); })
         .catch((reason: unknown) => host.replaceChildren(el('pre', 'arena-raw-diff', file.patch), el('p', 'arena-error', `Could not draw this diff: ${errorText(reason)}`)));
     }
-    if (files.length > MAX_DIFF_FILES) drawer.diffFiles.append(el('p', 'arena-empty', `${files.length - MAX_DIFF_FILES} more files are not shown. Open the session to read them in Changes.`));
+    if (files.length > MAX_DIFF_FILES) drawer.diffFiles.append(emptyState({ text: `${files.length - MAX_DIFF_FILES} more files are not shown. Open the session to read them in Changes.` }));
   }
 
   function loadDiff(contestantId: string, drawer: Drawer): void {

@@ -5,6 +5,7 @@ import { NOT_CONNECTED_TEXT } from './updates-view-core.ts';
 import { buildPanelSection, buildStatChip, el, isPanelHidden, markAsNotCredential, projectsOf } from './dom-helpers.ts';
 import { openConfirmDialog } from './session-card/modal.ts';
 import { button } from './ui/button.ts';
+import { emptyState } from './ui/empty-state.ts';
 import { createPressable } from './ui/pressable.ts';
 import { select } from './ui/select.ts';
 import { createLineIcon, PLUS_ICON_PATH } from './svg-dom.ts';
@@ -461,9 +462,7 @@ function buildFilter() {
 }
 
 function buildEmptyState() {
-  const empty = el('div', 'hooks-empty-state');
-  empty.append(buildLine('hooks-empty', HOOKS_EMPTY_TEXT), buildTemplateRow(eventsOf(_hooks.report)));
-  return empty;
+  return emptyState({ text: HOOKS_EMPTY_TEXT, actions: [buildTemplateRow(eventsOf(_hooks.report))], variant: 'boxed' });
 }
 
 function buildYoursList() {
@@ -475,7 +474,7 @@ function buildYoursList() {
   }
   const shown = filterHooks(sortHooks(hooks, eventsOf(_hooks.report)), _filter);
   if (shown.length === 0) {
-    wrap.append(buildLine('hooks-empty', FILTER_EMPTY_TEXT));
+    wrap.append(emptyState({ text: FILTER_EMPTY_TEXT }));
     return wrap;
   }
   for (const group of groupHooksByEvent(shown)) {

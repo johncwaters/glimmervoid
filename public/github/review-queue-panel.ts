@@ -31,7 +31,7 @@ import {
   subscribeReviewQueue, takePendingReveal,
 } from './review-queue-store.ts';
 import type { ReviewQueueChange } from './review-queue-store.ts';
-import { createCaughtUpBanner, createTeamQueueRow, paintQueueRowTitle } from './team-review-queue-row.ts';
+import { createCaughtUpBanner, createPrEmptyState, createTeamQueueRow, paintQueueRowTitle } from './team-review-queue-row.ts';
 import {
   mountTeamReviewDetail, refreshTeamReviewAges, releaseTeamReviewSelection, resetTeamQueueTickers, runTeamReviewKey, showTeamReview, takePostedReceipt, teamReviewEmptyState,
   teamReviewLaneNotices,
@@ -129,7 +129,7 @@ function showSelectedDetail(receiptMode: 'keep' | 'clear'): void {
   if (!item) {
     caughtUpReceipt = takePostedReceipt() ?? caughtUpReceipt;
     releaseTeamReviewSelection();
-    if (detailHost) detailHost.replaceChildren(isCaughtUp ? caughtUpElement(caughtUpReceipt) : el('p', 'pr-empty', 'Pick a pull request from the queue.'));
+    if (detailHost) detailHost.replaceChildren(isCaughtUp ? caughtUpElement(caughtUpReceipt) : createPrEmptyState('Pick a pull request from the queue.'));
     return;
   }
   if (item.source === 'team' && teamDetail) {
@@ -569,7 +569,7 @@ function queueNoticeElements(): HTMLElement[] {
 }
 
 function emptyQueueElements(): HTMLElement[] {
-  return [teamReviewEmptyState(), el('p', 'pr-empty', myPrsEmptyStateText(myPrsSnapshot().status))];
+  return [teamReviewEmptyState(), createPrEmptyState(myPrsEmptyStateText(myPrsSnapshot().status))];
 }
 
 function rowsSignature(groups: readonly DisplayGroup[], sessionsByPrKey: ReadonlyMap<string, LinkedLiveSession[]>): string {

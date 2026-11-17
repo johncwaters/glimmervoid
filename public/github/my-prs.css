@@ -33,12 +33,7 @@
 .my-pr-automation > .pr-section-heading { padding-left: 0; }
 .my-pr-automation > .my-pr-merge { margin-top: 8px; }
 
-.pr-empty {
-  padding: 24px;
-  color: var(--text-muted);
-  font-size: var(--type-meta);
-  line-height: 1.55;
-}
+.pr-empty { padding: 24px; }
 
 .pr-columns {
   display: grid;

@@ -10,7 +10,7 @@ import type { TeamReviewSections } from './team-review-view-core.ts';
 import type { ReviewDetailKeyAction } from './review-queue-core.ts';
 import { _ageTicker, _detailProgressTicker, _otherDetails, _pendingActions, _postedReceipt, _progressTicker, _queueHooks, _readyDetails, _root, _sessionOpenByKey, _view, setPostedReceipt, setQueueHooks, setRoot, setView } from './team-review-panel-state.ts';
 import type { TeamReviewQueueHooks } from './team-review-panel-state.ts';
-import { trackAges } from './team-review-queue-row.ts';
+import { createPrEmptyState, trackAges } from './team-review-queue-row.ts';
 import { otherDetailSignature, settleSessionOpen, showSettledSessionOpen } from './team-review-detail-parts.ts';
 import { createInReviewDetail, createQueuedDetail, otherDetailFor, readyDetailFor } from './team-review-detail-views.ts';
 
@@ -81,7 +81,7 @@ function renderSelectedDetail(sections: TeamReviewSections): void {
 }
 
 function teamReviewEmptyState(): HTMLElement {
-  const empty = el('p', 'pr-empty', emptyStateText(_view));
+  const empty = createPrEmptyState(emptyStateText(_view));
   if (_view && !_view.configured) empty.append(' ', createSettingsLink(TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, 'Open Reviews settings'));
   return empty;
 }

@@ -1,5 +1,6 @@
 import type { FindingSeverity, InFlightReview, QueuedReview, ReviewDraft } from '#shared/contracts/team-review.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { createAuthorOrgTag, createAvatar, createReviewerStack, el, externalLink } from '../dom-helpers.ts';
 import { formatAgo, formatDuration } from '../poll-ago.ts';
 import { createPrStatusIcon } from './pr-status-icon.ts';
@@ -220,4 +221,10 @@ function createCaughtUpBanner({ title, detail }: { title: string; detail: string
   return banner;
 }
 
-export { createAgeReadout, createAuthor, createCaughtUpBanner, createGithubReviewSummary, createQuestionGlyph, createSeverityMeter, createTeamQueueRow, createVerdictSeal, formatTimestampAge, paintQueueRowTitle, pullRequestLink, trackAges };
+function createPrEmptyState(text: string | readonly (string | Node)[]): HTMLElement {
+  const empty = emptyState({ text });
+  empty.classList.add('pr-empty');
+  return empty;
+}
+
+export { createAgeReadout, createAuthor, createCaughtUpBanner, createPrEmptyState, createGithubReviewSummary, createQuestionGlyph, createSeverityMeter, createTeamQueueRow, createVerdictSeal, formatTimestampAge, paintQueueRowTitle, pullRequestLink, trackAges };

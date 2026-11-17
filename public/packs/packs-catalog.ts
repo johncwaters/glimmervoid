@@ -4,6 +4,7 @@ import { paintActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatusTone } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
@@ -256,7 +257,7 @@ function packsSectionHeading(title: string, count: number): HTMLElement {
 }
 
 function grid(cards: HTMLElement[], emptyText: string): HTMLElement {
-  if (cards.length === 0) return el('p', 'packs-empty', emptyText);
+  if (cards.length === 0) return emptyState({ text: emptyText });
   const cardGrid = el('div', 'packs-grid');
   cardGrid.append(...cards);
   return cardGrid;

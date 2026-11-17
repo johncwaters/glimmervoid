@@ -5,6 +5,7 @@ import { clock } from '#shared/clock.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import './arena-panel.css';
 import { el } from '../dom-helpers.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
@@ -239,7 +240,7 @@ function buildPastRace(race: RaceRecord): HTMLElement {
 function buildHistory(history: RaceHistory): HTMLElement[] {
   const parts: HTMLElement[] = [el('h2', 'arena-section-title', `Standings, ${history.judgedRaces} judged ${history.judgedRaces === 1 ? 'race' : 'races'}`)];
   if (history.standings.length === 0) {
-    parts.push(el('p', 'arena-empty', 'No judged races yet. A race shows here once its judges rank it.'));
+    parts.push(emptyState({ text: 'No judged races yet. A race shows here once its judges rank it.' }));
     return parts;
   }
   parts.push(el('p', 'arena-status', 'One row per setup: agent, model, effort, home and instructions. A split criterion counts half.'));
@@ -299,9 +300,9 @@ function mountArenaView(parent: HTMLElement): void {
   root = el('div', 'arena-content');
   const racesPanel = el('section', 'arena-tab-panel');
   racesEl = el('div', 'arena-races');
-  racesEmptyEl = el('p', 'arena-empty', isPhoneLayout()
+  racesEmptyEl = emptyState({ text: isPhoneLayout()
     ? 'No races yet. Start one from New race on the desktop dashboard, or have an agent run glimmervoid arena start.'
-    : 'No races yet. Start one from New race, or have an agent run glimmervoid arena start.');
+    : 'No races yet. Start one from New race, or have an agent run glimmervoid arena start.' });
   racesPanel.append(racesEmptyEl, racesEl);
   tabPanels.set('races', racesPanel);
   if (!isPhoneLayout()) tabPanels.set('new', buildNewRace(() => selectTab('races')));

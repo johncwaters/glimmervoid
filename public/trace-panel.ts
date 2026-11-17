@@ -1,6 +1,7 @@
 import './trace-panel.css';
 import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
+import { emptyState } from './ui/empty-state.ts';
 import { createPressable } from './ui/pressable.ts';
 import { createActionStatus } from './action-status.ts';
 import { formatTrailOffset } from './radar/radar-core.ts';
@@ -241,7 +242,7 @@ function buildPanelContent(): void {
   const session = selectedSession();
   const turns = traceSnapshot().selectedTrace?.grouping.turns ?? [];
   if (!session || turns.length === 0) {
-    content.append(el('p', 'trace-empty', emptyStateText(session)));
+    content.append(emptyState({ text: emptyStateText(session), variant: 'boxed' }));
     rootElement.replaceChildren(content);
     isRenderedTraceStale = false;
     return;
