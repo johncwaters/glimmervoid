@@ -2,7 +2,6 @@ import path from 'node:path';
 
 const CLAUDE_CONFIG_LOCK_SUFFIX = '.lock';
 const CLAUDE_CONFIG_LOCK_STALE_MS = 10_000;
-const CLAUDE_CONFIG_LOCK_RETRY_DELAYS_MS = Object.freeze([200, 400, 800, 1600]);
 
 type FolderTrustDecision =
   | { kind: 'trusted' }
@@ -46,7 +45,6 @@ function decideFolderTrust(configText: string, repositoryRoot: string, platform:
 }
 
 export {
-  CLAUDE_CONFIG_LOCK_RETRY_DELAYS_MS,
   CLAUDE_CONFIG_LOCK_STALE_MS,
   CLAUDE_CONFIG_LOCK_SUFFIX,
   decideFolderTrust,

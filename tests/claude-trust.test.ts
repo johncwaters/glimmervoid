@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { execFileSync } from '../server/child-process-safe.ts';
 import { createClaudeFolderTrust } from '../session/adapters/claude-trust.ts';
 import { CLAUDE_CONFIG_LOCK_STALE_MS } from '../session/core/claude-trust-core.ts';
 
@@ -12,13 +13,19 @@ const REPOSITORY_ROOT = '/work/seeded-repo';
 const OTHER_ROOT = '/work/other-repo';
 const GRANTED_ENTRY_KEYS = { hasTrustDialogAccepted: true };
 
-async function prepareClaudeConfig(t: test.TestContext, configText: string | null, platform?: NodeJS.Platform) {
+async function prepareClaudeConfig(t: test.TestContext, configText: string | null, platform?: NodeJS.Platform, { holderKeepsLockFresh = false } = {}) {
   const configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-claude-trust-'));
   t.after(() => fs.rm(configDir, { recursive: true, force: true }));
   const configPath = path.join(configDir, '.claude.json');
   if (configText !== null) await fs.writeFile(configPath, configText, { mode: 0o600 });
   const waits: number[] = [];
-  const trust = createClaudeFolderTrust({ env: { CLAUDE_CONFIG_DIR: configDir }, platform, sleep: async (durationMs) => { waits.push(durationMs); } });
+  let clockMs = Date.now();
+  const sleep = async (durationMs: number) => {
+    waits.push(durationMs);
+    clockMs += durationMs;
+    if (holderKeepsLockFresh) await fs.utimes(`${configPath}.lock`, new Date(clockMs), new Date(clockMs));
+  };
+  const trust = createClaudeFolderTrust({ env: { CLAUDE_CONFIG_DIR: configDir }, platform, now: () => clockMs, sleep });
   return { configDir, configPath, trust, waits };
 }
 
@@ -98,16 +105,16 @@ test('a Windows folder is looked up under the forward-slash key Claude Code stor
   assert.equal(await fs.readFile(configPath, 'utf8'), trustedText);
 });
 
-test('a held config lock is waited on and never broken, also beside a symlinked config, and only a stale one is taken over', async (t) => {
+test('a config lock its holder keeps fresh is never broken, also beside a symlinked config, and only a stale one is taken over', async (t) => {
   const untrustedText = JSON.stringify({ projects: {} }, null, 2);
-  const held = await prepareClaudeConfig(t, untrustedText);
+  const held = await prepareClaudeConfig(t, untrustedText, undefined, { holderKeepsLockFresh: true });
   await fs.mkdir(`${held.configPath}.lock`);
   await assert.rejects(held.trust.ensureTrusted(REPOSITORY_ROOT), /another process holds its lock/);
   assert.equal(await fs.readFile(held.configPath, 'utf8'), untrustedText);
   assert.ok((await fs.stat(`${held.configPath}.lock`)).isDirectory());
   assert.ok(held.waits.length > 0);
 
-  const symlinked = await prepareClaudeConfig(t, null);
+  const symlinked = await prepareClaudeConfig(t, null, undefined, { holderKeepsLockFresh: true });
   const linkTargetPath = path.join(symlinked.configDir, 'linked-claude.json');
   await fs.writeFile(linkTargetPath, untrustedText);
   await fs.symlink(linkTargetPath, symlinked.configPath);
@@ -122,4 +129,16 @@ test('a held config lock is waited on and never broken, also beside a symlinked 
   await fs.utimes(`${stale.configPath}.lock`, longAgo, longAgo);
   assert.equal(await stale.trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
   assert.deepEqual(await fs.readdir(stale.configDir), ['.claude.json']);
+});
+
+test('a config lock left behind by a Claude process that exited is waited out to its stale point and then taken, so a session started right after boot is trusted', async (t) => {
+  const untrustedText = JSON.stringify({ projects: {} }, null, 2);
+  const orphaned = await prepareClaudeConfig(t, untrustedText);
+  execFileSync(process.execPath, ['-e', 'require("node:fs").mkdirSync(process.argv[1])', `${orphaned.configPath}.lock`]);
+
+  assert.equal(await orphaned.trust.ensureTrusted(REPOSITORY_ROOT), 'granted');
+
+  assert.ok(orphaned.waits.reduce((total, waitMs) => total + waitMs, 0) > CLAUDE_CONFIG_LOCK_STALE_MS - 1_000);
+  assert.deepEqual(JSON.parse(await fs.readFile(orphaned.configPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], ...GRANTED_ENTRY_KEYS } } });
+  assert.deepEqual(await fs.readdir(orphaned.configDir), ['.claude.json']);
 });
