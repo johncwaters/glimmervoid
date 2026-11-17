@@ -114,7 +114,7 @@
   min-width: 44px;
 }
 
-[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea) {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .settings-view-segment, .dialog-advanced-toggle, input, select, textarea):where(:not(.ui-switch)) {
   width: 100%;
 }
 
@@ -167,13 +167,7 @@
   min-height: 44px;
 }
 
-[data-layout="phone"] .settings-view .settings-view-switch {
-  --switch-track-inset: 7px;
-  --switch-knob-size: 24px;
-  --switch-travel: 26px;
-  width: 56px;
-  min-width: 56px;
-  height: 44px;
+[data-layout="phone"] .settings-view .ui-switch {
   align-self: flex-end;
 }
 

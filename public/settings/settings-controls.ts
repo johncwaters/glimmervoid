@@ -2,6 +2,7 @@ import type { SettingsRange } from '#shared/settings-ranges.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { switchInput } from '../ui/switch.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { notificationsSupported } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -32,29 +33,25 @@ function inputMinimum(setting: SettingsSetting, range: SettingsRange) {
 
 function renderToggle(setting: SettingsSetting) {
   const wrapper = el('div', 'settings-view-toggle-wrap');
-  const input = el('input', 'settings-view-switch');
-  input.type = 'checkbox';
-  input.setAttribute('role', 'switch');
-  input.checked = storedValue(setting) === true;
-  if (setting.id === 'desktop-notifications' && !notificationsSupported()) {
-    input.checked = false;
-    input.disabled = true;
-  }
-  input.setAttribute('aria-labelledby', setting.id);
-  input.addEventListener('change', () => {
-    const next = input.checked;
-    if (needsDangerConfirmation(setting, next)) {
-      input.checked = false;
-      openConfirmDialog({
-        title: setting.title,
-        message: setting.warning ?? '',
-        confirmLabel: 'Turn on',
-        danger: true,
-        onConfirm: () => commitSetting(setting, true),
-      });
-      return;
-    }
-    commitSetting(setting, next);
+  const unsupported = setting.id === 'desktop-notifications' && !notificationsSupported();
+  const input = switchInput({
+    labelledBy: setting.id,
+    checked: !unsupported && storedValue(setting) === true,
+    disabled: unsupported,
+    onChange: (next) => {
+      if (needsDangerConfirmation(setting, next)) {
+        input.checked = false;
+        openConfirmDialog({
+          title: setting.title,
+          message: setting.warning ?? '',
+          confirmLabel: 'Turn on',
+          danger: true,
+          onConfirm: () => commitSetting(setting, true),
+        });
+        return;
+      }
+      commitSetting(setting, next);
+    },
   });
   wrapper.appendChild(input);
   return wrapper;
@@ -431,15 +428,14 @@ function buildAgentVisibilityItem(setting: SettingsSetting, agent: ListedAgent) 
   paintAgentMark(mark, agent.id, agent.label);
   const label = el('span', 'settings-view-agent-visibility-label', agent.label);
   label.id = `${setting.id}-${agent.id}`;
-  const input = el('input', 'settings-view-switch');
-  input.type = 'checkbox';
-  input.setAttribute('role', 'switch');
-  input.setAttribute('aria-labelledby', label.id);
-  input.checked = !listValue(storedValue(setting)).includes(agent.id);
-  input.disabled = agent.id === DEFAULT_AGENT_ID;
-  input.addEventListener('change', () => {
-    const otherHiddenIds = listValue(storedValue(setting)).filter((hiddenId) => hiddenId !== agent.id);
-    commitSetting(setting, input.checked ? otherHiddenIds : [...otherHiddenIds, agent.id]);
+  const input = switchInput({
+    labelledBy: label.id,
+    checked: !listValue(storedValue(setting)).includes(agent.id),
+    disabled: agent.id === DEFAULT_AGENT_ID,
+    onChange: (checked) => {
+      const otherHiddenIds = listValue(storedValue(setting)).filter((hiddenId) => hiddenId !== agent.id);
+      commitSetting(setting, checked ? otherHiddenIds : [...otherHiddenIds, agent.id]);
+    },
   });
   item.append(mark, label, input);
   return item;

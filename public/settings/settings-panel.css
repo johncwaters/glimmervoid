@@ -303,72 +303,6 @@
   justify-content: flex-end;
 }
 
-.settings-view-switch {
-  --switch-track-inset: 0px;
-  --switch-knob-size: 14px;
-  --switch-travel: 16px;
-  position: relative;
-  flex-shrink: 0;
-  width: 36px;
-  height: 20px;
-  margin: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  appearance: none;
-}
-
-.settings-view-switch::after {
-  content: "";
-  position: absolute;
-  inset: var(--switch-track-inset) 0;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-surface);
-  transition: background-color var(--transition-fast), border-color var(--transition-fast);
-}
-
-.settings-view-switch::before {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 3px;
-  width: var(--switch-knob-size);
-  height: var(--switch-knob-size);
-  border-radius: 50%;
-  background: var(--text-muted);
-  transform: translateY(-50%);
-  transition: transform var(--transition-fast), background-color var(--transition-fast);
-}
-
-.settings-view-switch:checked::after {
-  border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 28%, transparent);
-}
-
-.settings-view-switch:checked::before {
-  background: var(--accent);
-  transform: translate(var(--switch-travel), -50%);
-}
-
-.settings-view-switch:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.settings-view-switch:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .settings-view-switch::after,
-  .settings-view-switch::before {
-    transition: none;
-  }
-}
-
 .settings-view-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1048,23 +982,23 @@
   gap: 8px 16px;
 }
 
-[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) {
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .ui-switch) {
   grid-template-columns: minmax(0, 1fr) 56px;
 }
 
-[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > :is(.settings-view-setting-text, .settings-view-setting-control) {
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .ui-switch) > :is(.settings-view-setting-text, .settings-view-setting-control) {
   display: contents;
 }
 
-[data-layout="phone"] .settings-view-setting-control > .settings-view-toggle-wrap:has(> .settings-view-switch) {
+[data-layout="phone"] .settings-view-setting-control > .settings-view-toggle-wrap:has(> .ui-switch) {
   grid-column: 2;
   grid-row: 1;
   align-self: center;
 }
 
-[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > :not(.settings-view-setting-text, .settings-view-setting-control),
-[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .settings-view-switch) > .settings-view-setting-text > :not(.settings-view-setting-heading),
-[data-layout="phone"] .settings-view-setting-control:has(> .settings-view-toggle-wrap > .settings-view-switch) > :not(.settings-view-toggle-wrap) {
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .ui-switch) > :not(.settings-view-setting-text, .settings-view-setting-control),
+[data-layout="phone"] .settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .ui-switch) > .settings-view-setting-text > :not(.settings-view-setting-heading),
+[data-layout="phone"] .settings-view-setting-control:has(> .settings-view-toggle-wrap > .ui-switch) > :not(.settings-view-toggle-wrap) {
   grid-column: 1 / -1;
 }
 
