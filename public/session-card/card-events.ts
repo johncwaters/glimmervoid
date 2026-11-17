@@ -7,7 +7,8 @@ import type { SessionUi } from './card-registry.ts';
 import { sessionUIs } from './card-registry.ts';
 import { requestSessionRemoval } from '../session-actions.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
-import { wirePopupMenuKeys } from '../menu.ts';
+import { popupMenu } from '../ui/popup-menu.ts';
+import type { PopupMenu } from '../ui/popup-menu.ts';
 import { loadResumeDialog } from './deferred-loads.ts';
 import { SHELL_AGENT_ID } from './agent-core.ts';
 import { sendSessionAction } from './card-actions.ts';
@@ -15,9 +16,10 @@ import { openConfirmDialog } from './modal.ts';
 import { runRestartChoice } from './restart-menu-core.ts';
 import { STATES } from '#shared/states.ts';
 
+const sessionMenus = new WeakMap<SessionUi, PopupMenu>();
+
 function closeSessionMenu(ui: SessionUi) {
-  ui.sessionMenu.classList.remove('open');
-  ui.btnSessionMenu.setAttribute('aria-expanded', 'false');
+  sessionMenus.get(ui)?.close();
 }
 
 function restartShell(ui: SessionUi, sessionId: string) {
@@ -77,37 +79,18 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
     requestSessionRemoval(sessionId);
   });
 
-  function openSessionMenu() {
-    for (const [, other] of sessionUIs) {
-      if (other !== ui) closeSessionMenu(other);
-    }
-    ui.sessionMenu.classList.add('open');
-    ui.btnSessionMenu.setAttribute('aria-expanded', 'true');
-  }
+  ui.btnSessionMenu.addEventListener('click', (event) => event.stopPropagation(), { signal: ui.abortController.signal });
 
-  ui.btnSessionMenu.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (ui.sessionMenu.classList.contains('open')) {
-      closeSessionMenu(ui);
-      return;
-    }
-    openSessionMenu();
-  });
-
-  wirePopupMenuKeys({
+  sessionMenus.set(ui, popupMenu({
     trigger: ui.btnSessionMenu,
     menu: ui.sessionMenu,
-    menuItems: () => [...ui.sessionMenu.querySelectorAll<HTMLElement>('.popup-menu-item.visible')].filter((item) => item.checkVisibility()),
-    isOpen: () => ui.sessionMenu.classList.contains('open'),
-    open: openSessionMenu,
-    close: () => closeSessionMenu(ui),
+    onOpen: () => {
+      for (const [, other] of sessionUIs) {
+        if (other !== ui) closeSessionMenu(other);
+      }
+    },
     signal: ui.abortController.signal,
-  });
-
-  document.addEventListener('click', (event) => {
-    const clicked = event.target instanceof Node ? event.target : null;
-    if (!ui.sessionMenu.contains(clicked) && clicked !== ui.btnSessionMenu) closeSessionMenu(ui);
-  }, { signal: ui.abortController.signal });
+  }));
 
   ui.btnDebug.addEventListener('click', (e) => {
     e.stopPropagation();

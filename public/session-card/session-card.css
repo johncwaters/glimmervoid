@@ -565,8 +565,7 @@
 .settings-view-search-open:focus-visible,
 .settings-view-checkbox:focus-visible,
 .dialog-advanced-toggle:focus-visible,
-.menu-item:focus-visible,
-.popup-menu-item:focus-visible {
+.menu-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -596,17 +595,7 @@
   align-items: stretch;
 }
 
-.popup-menu {
-  min-width: 140px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xl);
-  padding: 4px 0;
-}
-
 .session-overflow-menu {
-  display: none;
   position: absolute;
   top: 100%;
   right: 0;
@@ -614,50 +603,8 @@
   margin-top: 4px;
 }
 
-.session-overflow-menu.open {
-  display: flex;
-  flex-direction: column;
-}
-
-.popup-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 400;
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-  transition: background var(--transition-fast);
-}
-
-@media (hover: hover) {
-  .popup-menu-item:hover {
-    background: color-mix(in srgb, var(--text) 6%, transparent);
-  }
-}
-
 .session-overflow-menu > .popup-menu-item:not(.visible) {
   display: none;
-}
-
-.popup-menu-item[role='menuitemcheckbox']::after {
-  content: '';
-  width: 4px;
-  height: 8px;
-  margin-left: auto;
-  border: solid transparent;
-  border-width: 0 1.5px 1.5px 0;
-  transform: translateY(-1px) rotate(45deg);
-}
-
-.popup-menu-item[role='menuitemcheckbox'][aria-checked='true']::after {
-  border-color: var(--accent);
 }
 
 .overflow-restart-fresh {

@@ -4,7 +4,7 @@ import { STATES } from '#shared/states.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
-import { buildMenuItem } from '../menu.ts';
+import { buildMenuItem } from '../ui/popup-menu.ts';
 import { CLOSE_ICON_PATH, SWITCH_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { openSwitchAccountDialog } from './card-account.ts';
 import { canSwitchSessionModel, openSwitchModelDialog } from './card-model.ts';
@@ -99,11 +99,9 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
 
   const sessionMenuWrap = el('div', 'session-overflow');
   const btnSessionMenu = menuButton({ label: 'Session actions', action: 'session-menu' });
-  btnSessionMenu.setAttribute('aria-haspopup', 'menu');
-  btnSessionMenu.setAttribute('aria-expanded', 'false');
   const sessionMenu = el('div', 'popup-menu session-overflow-menu');
   sessionMenu.id = `session-menu-${sessionId}`;
-  sessionMenu.setAttribute('role', 'menu');
+  sessionMenu.hidden = true;
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
   const btnRestart = buildMenuItem('Restart', 'overflow-restart');
@@ -111,18 +109,10 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnWorkspaceRepos = buildMenuItem('Edit repositories', 'overflow-workspace-repos');
   const btnLinkPr = buildMenuItem('Pull requests', 'overflow-link-pr visible');
   btnLinkPr.setAttribute('aria-haspopup', 'dialog');
-  btnLinkPr.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    openLinkPullRequestDialog(sessionId);
-  };
+  btnLinkPr.onclick = () => openLinkPullRequestDialog(sessionId);
   const btnWakes = buildMenuItem('Wakes', 'overflow-wakes');
   btnWakes.setAttribute('aria-haspopup', 'dialog');
-  btnWakes.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    openSessionWakes(sessionId);
-  };
+  btnWakes.onclick = () => openSessionWakes(sessionId);
   const paintMenuItems = () => {
     btnWakes.classList.toggle('visible', hasPendingWakes(sessionId));
     btnSwitchModelMenuItem.classList.toggle('visible', canSwitchSessionModel(sessionId));
@@ -132,31 +122,15 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   const btnQuestionManager = buildMenuItem('Question manager', 'overflow-question-manager');
   btnQuestionManager.setAttribute('role', 'menuitemcheckbox');
   paintQuestionManager(card, btnQuestionManager, options.isQuestionManagerOn ?? null);
-  btnQuestionManager.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    sendControlMsg({ type: 'set-session-question-manager', id: sessionId, isOn: sessionQuestionManagerOf(card) !== true });
-  };
+  btnQuestionManager.onclick = () => sendControlMsg({ type: 'set-session-question-manager', id: sessionId, isOn: sessionQuestionManagerOf(card) !== true });
   const btnSwitchAccountMenuItem = buildMenuItem('Switch account', 'overflow-switch-account');
   btnSwitchAccountMenuItem.setAttribute('aria-haspopup', 'dialog');
-  btnSwitchAccountMenuItem.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    openSwitchAccountDialog(sessionId);
-  };
+  btnSwitchAccountMenuItem.onclick = () => openSwitchAccountDialog(sessionId);
   const btnSwitchModelMenuItem = buildMenuItem('Change model', 'overflow-switch-model');
   btnSwitchModelMenuItem.setAttribute('aria-haspopup', 'dialog');
-  btnSwitchModelMenuItem.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    openSwitchModelDialog(sessionId);
-  };
+  btnSwitchModelMenuItem.onclick = () => openSwitchModelDialog(sessionId);
   const btnSnooze = buildMenuItem('Snooze', 'overflow-snooze');
-  btnSnooze.onclick = () => {
-    sessionMenu.classList.remove('open');
-    btnSessionMenu.setAttribute('aria-expanded', 'false');
-    snoozeSession(sessionId);
-  };
+  btnSnooze.onclick = () => snoozeSession(sessionId);
   const btnDebug = buildMenuItem('Debug state', 'overflow-debug');
   const btnTrace = buildMenuItem('Trace', 'overflow-trace');
   sessionMenu.append(btnWorkspaceRepos, btnWakes, btnQuestionManager, btnLinkPr, btnSwitchAccountMenuItem, btnSwitchModelMenuItem, btnDebug, btnTrace, btnSnooze, btnRestart);

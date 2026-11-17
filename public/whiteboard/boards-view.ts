@@ -18,7 +18,7 @@ import { emptyState } from '../ui/empty-state.ts';
 import { radio } from '../ui/checkbox.ts';
 import { field } from '../ui/field.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
-import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
+import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
 import { buildDialogShell, isModalOpen, openConfirmDialog } from '../session-card/modal.ts';
 import { onSessionTick } from '../session-card/session-tick.ts';
@@ -457,33 +457,6 @@ function startTitleRename(): void {
   });
 }
 
-function attachPopupMenu(menuRoot: HTMLElement, trigger: HTMLButtonElement, menu: HTMLElement, beforeToggle: () => void = () => {}): void {
-  const isOpen = () => menu.classList.contains('open');
-  const setOpen = (shouldOpen: boolean) => {
-    beforeToggle();
-    menu.classList.toggle('open', shouldOpen);
-    trigger.setAttribute('aria-expanded', String(shouldOpen));
-  };
-  trigger.setAttribute('aria-haspopup', 'menu');
-  trigger.setAttribute('aria-expanded', 'false');
-  trigger.addEventListener('click', () => setOpen(!isOpen()));
-  menu.addEventListener('click', (event) => {
-    if (event.target instanceof HTMLElement && event.target.closest('[role^="menuitem"]')) setOpen(false);
-  });
-  menuRoot.append(trigger, menu);
-  wirePopupMenuKeys({
-    trigger,
-    menu,
-    menuItems: () => [...menu.querySelectorAll<HTMLElement>('.visible[role^="menuitem"]')],
-    isOpen,
-    open: () => setOpen(true),
-    close: () => setOpen(false),
-  });
-  document.addEventListener('click', (event) => {
-    if (isOpen() && event.target instanceof Node && !menuRoot.contains(event.target)) setOpen(false);
-  });
-}
-
 function buildMoreToolsMenu() {
   const menuRoot = el('div', 'session-overflow wb-more-tools');
   const menu = el('div', 'popup-menu session-overflow-menu');
@@ -494,7 +467,8 @@ function buildMoreToolsMenu() {
   trigger.append(createLineIcon(MORE_ICON_PATH, '2'));
   const itemsByTool = new Map(MORE_TOOLS.map((tool) => [tool, moreToolItem(tool)]));
   menu.append(...itemsByTool.values());
-  attachPopupMenu(menuRoot, trigger, menu);
+  menuRoot.append(trigger, menu);
+  popupMenu({ trigger, menu });
   return { menuRoot, trigger, itemsByTool };
 }
 
@@ -537,9 +511,14 @@ function buildBoardMenu(onBoardSettings: () => void) {
     boardSettingsItem,
     actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
   ];
-  attachPopupMenu(menuRoot, trigger, menu, () => {
-    boardSettingsItem.classList.toggle('visible', !isPhoneLayout());
-    unlinkItem.classList.toggle('visible', Boolean(selectedSummary()?.link));
+  menuRoot.append(trigger, menu);
+  popupMenu({
+    trigger,
+    menu,
+    onOpen: () => {
+      boardSettingsItem.classList.toggle('visible', !isPhoneLayout());
+      unlinkItem.classList.toggle('visible', Boolean(selectedSummary()?.link));
+    },
   });
   menu.append(...actionItems);
   return { menuRoot, trigger };

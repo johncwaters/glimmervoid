@@ -1,6 +1,6 @@
-import { nextRovingIndex } from './roving-keys-core.ts';
-import { isModalOpen } from './session-card/modal.ts';
-import { createPressable } from './ui/pressable.ts';
+import { nextRovingIndex } from '../roving-keys-core.ts';
+import { isModalOpen } from '../session-card/modal.ts';
+import { createPressable } from './pressable.ts';
 
 export function buildMenuItem(label: string, className: string) {
   const menuItem = createPressable(`popup-menu-item ${className}`, label);
@@ -34,7 +34,7 @@ function isFocusLeaving(event: FocusEvent, menu: HTMLElement, trigger: HTMLEleme
   return !menu.contains(nextFocused) && !trigger.contains(nextFocused);
 }
 
-export function wirePopupMenuKeys({ trigger, menu, menuItems, isOpen, open, close, signal }: {
+function wirePopupMenuKeys({ trigger, menu, menuItems, isOpen, open, close, signal }: {
   trigger: HTMLElement;
   menu: HTMLElement;
   menuItems: () => HTMLElement[];
@@ -70,4 +70,61 @@ export function wirePopupMenuKeys({ trigger, menu, menuItems, isOpen, open, clos
       close();
     }, { signal });
   }
+}
+
+type PopupMenuOptions = {
+  trigger: HTMLElement;
+  menu: HTMLElement;
+  onOpen?: () => void;
+  onClose?: () => void;
+  signal?: AbortSignal;
+};
+
+export type PopupMenu = {
+  open: () => void;
+  close: () => void;
+  toggle: () => void;
+  isOpen: () => boolean;
+};
+
+function shownMenuItems(menu: HTMLElement) {
+  return [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')].filter((item) => item.checkVisibility());
+}
+
+function isMenuItemClick(event: MouseEvent) {
+  return event.target instanceof Element && event.target.closest('[role^="menuitem"]') !== null;
+}
+
+export function popupMenu({ trigger, menu, onOpen, onClose, signal }: PopupMenuOptions): PopupMenu {
+  const isOpen = () => !menu.hidden;
+  const setOpen = (shouldOpen: boolean) => {
+    menu.hidden = !shouldOpen;
+    trigger.setAttribute('aria-expanded', String(shouldOpen));
+  };
+  const open = () => {
+    if (isOpen()) return;
+    onOpen?.();
+    setOpen(true);
+  };
+  const close = () => {
+    if (!isOpen()) return;
+    setOpen(false);
+    onClose?.();
+  };
+  const toggle = () => (isOpen() ? close() : open());
+  menu.classList.add('popup-menu');
+  menu.setAttribute('role', 'menu');
+  setOpen(false);
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.addEventListener('click', toggle, { signal });
+  menu.addEventListener('click', (event) => {
+    if (isMenuItemClick(event)) close();
+  }, { signal });
+  document.addEventListener('click', (event) => {
+    if (!isOpen() || !(event.target instanceof Node)) return;
+    if (menu.contains(event.target) || trigger.contains(event.target)) return;
+    close();
+  }, { signal });
+  wirePopupMenuKeys({ trigger, menu, menuItems: () => shownMenuItems(menu), isOpen, open, close, signal });
+  return { open, close, toggle, isOpen };
 }

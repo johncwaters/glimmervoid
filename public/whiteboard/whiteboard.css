@@ -622,13 +622,7 @@
   top: 100%;
   right: 0;
   z-index: 3;
-  display: none;
   margin-top: 4px;
-}
-
-.wb-line-style-menu.open {
-  display: flex;
-  flex-direction: column;
 }
 
 .wb-line-style-menu > .popup-menu-item[role='menuitemradio']::after {

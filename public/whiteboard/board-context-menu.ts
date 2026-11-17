@@ -1,5 +1,5 @@
 import { el } from '../dom-helpers.ts';
-import { buildMenuItem } from '../menu.ts';
+import { buildMenuItem } from '../ui/popup-menu.ts';
 import { nextRovingIndex } from '../roving-keys-core.ts';
 
 export type AlignEdge = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';

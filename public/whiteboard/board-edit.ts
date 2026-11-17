@@ -5,7 +5,7 @@ import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { BODY_LINE_HEIGHT } from '#shared/whiteboard-svg-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
-import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
+import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
 import { menuButton } from '../ui/button.ts';
 import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
 import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
@@ -1743,21 +1743,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function lineStyleMenu(chooseStyle: (style: BoxLine['style']) => void, toggleMuted: () => void, signal: AbortSignal) {
     const menu = el('div', 'popup-menu wb-line-style-menu');
-    menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', 'Line style');
-    const isOpen = () => menu.classList.contains('open');
-    const setOpen = (shouldOpen: boolean) => {
-      menu.classList.toggle('open', shouldOpen);
-      trigger.setAttribute('aria-expanded', String(shouldOpen));
-    };
-    const trigger = menuButton({ label: 'Line style', action: 'line-style', onClick: () => setOpen(!isOpen()) });
-    trigger.setAttribute('aria-haspopup', 'menu');
-    trigger.setAttribute('aria-expanded', 'false');
+    const trigger = menuButton({ label: 'Line style', action: 'line-style' });
+    const { close } = popupMenu({ trigger, menu, signal });
     const styleItems = LINE_STYLES.map((style) => {
       const item = buildMenuItem(LINE_STYLE_LABELS[style], 'wb-line-style-item');
       item.setAttribute('role', 'menuitemradio');
       item.addEventListener('click', () => {
-        setOpen(false);
+        close();
         chooseStyle(style);
       }, { signal });
       return { style, item };
@@ -1765,11 +1758,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const mutedItem = buildMenuItem('Muted', 'wb-line-style-item');
     mutedItem.setAttribute('role', 'menuitemcheckbox');
     mutedItem.addEventListener('click', () => {
-      setOpen(false);
+      close();
       toggleMuted();
     }, { signal });
     menu.append(...styleItems.map(({ item }) => item), mutedItem);
-    wirePopupMenuKeys({ trigger, menu, menuItems: () => [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')], isOpen, open: () => setOpen(true), close: () => setOpen(false), signal });
     const paint = (line: BoxLine) => {
       for (const { style, item } of styleItems) item.setAttribute('aria-checked', String(style === line.style));
       mutedItem.setAttribute('aria-checked', String(line.muted));
