@@ -68,6 +68,7 @@ interface FakeWorld {
   valueByName: Record<string, string>;
   readNames: string[];
   envFileWrites: Record<string, string>[];
+  savedNames: string[];
 }
 
 function brokerOver(world: FakeWorld) {
@@ -87,6 +88,11 @@ function brokerOver(world: FakeWorld) {
       if (value === undefined) return { failure: { kind: 'not-found', message: `No ${name} in 1Password, vault Agents`, detail: `"${name}" isn't an item in the "Agents" vault` } };
       return { value };
     },
+    saveToAgeFile: async (name, value) => {
+      world.savedNames.push(name);
+      world.valueByName[name] = value;
+      return null;
+    },
     writeEnvFile: async (_directory, valuesByName) => {
       world.envFileWrites.push({ ...valuesByName });
       return { ok: true, envFile: '/projects/app/.env.local' };
@@ -97,7 +103,7 @@ function brokerOver(world: FakeWorld) {
 }
 
 function freshWorld(overrides: Partial<FakeWorld> = {}): FakeWorld {
-  return { source: SOURCE, savedSecrets: {}, valueByName: {}, readNames: [], envFileWrites: [], ...overrides };
+  return { source: SOURCE, savedSecrets: {}, valueByName: {}, readNames: [], envFileWrites: [], savedNames: [], ...overrides };
 }
 
 test('Allow once reads names in request order, stops at the first missing one with its detail on the card, and saves no approval', async () => {
@@ -122,6 +128,37 @@ test('Allow once reads names in request order, stops at the first missing one wi
   const again = await broker.need(NEEDING_SESSION, ['FIRST_KEY']);
   assert.deepEqual(again.results.map((result) => result.status), ['delivered']);
   assert.deepEqual(world.readNames, ['FIRST_KEY', 'MISSING_KEY'], 'a delivered name answers from memory without a second read');
+});
+
+test('a name the age file lacks asks for its value on the card, refuses Allow until it is typed, then saves it trimmed once for every card asking', async () => {
+  const world = freshWorld({ source: { manager: 'age' } });
+  const { broker } = brokerOver(world);
+  await broker.need(NEEDING_SESSION, ['NEW_KEY']);
+  assert.deepEqual(broker.requestsSnapshot()[NEEDING_SESSION.id]?.missingNames, []);
+
+  assert.equal(await broker.decide({ id: NEEDING_SESSION.id, choice: 'allow-once', names: ['NEW_KEY'] }), null);
+  await waitFor(() => broker.requestsSnapshot()[NEEDING_SESSION.id]?.phase === 'failed', 'the card shows the failed read');
+  assert.deepEqual(broker.requestsSnapshot()[NEEDING_SESSION.id]?.missingNames, ['NEW_KEY']);
+
+  const unfilled = await broker.decide({ id: NEEDING_SESSION.id, choice: 'allow-once', names: ['NEW_KEY'], newValuesByName: { NEW_KEY: '   ' } });
+  assert.match(unfilled ?? '', /Type a value for NEW_KEY first/);
+  assert.deepEqual(world.savedNames, []);
+
+  const otherSession = { id: 'other-session', project: '/projects/other', cwd: '/projects/other' };
+  await broker.need(otherSession, ['NEW_KEY']);
+  assert.equal(await broker.decide({ id: otherSession.id, choice: 'allow-once', names: ['NEW_KEY'] }), null);
+  await waitFor(() => broker.requestsSnapshot()[otherSession.id]?.phase === 'failed', 'the other card shows the failed read');
+
+  assert.equal(await broker.decide({ id: NEEDING_SESSION.id, choice: 'allow-once', names: ['NEW_KEY'], newValuesByName: { NEW_KEY: '  typed-on-the-card\n' } }), null);
+  await waitFor(() => broker.requestsSnapshot()[NEEDING_SESSION.id] === undefined, 'the card closes once the saved value is delivered');
+  assert.deepEqual(world.savedNames, ['NEW_KEY']);
+  assert.deepEqual(world.envFileWrites, [{ NEW_KEY: 'typed-on-the-card' }]);
+  assert.deepEqual(broker.deliveredValuesOf(NEEDING_SESSION.id), ['typed-on-the-card']);
+  assert.deepEqual(world.savedSecrets, {});
+  assert.deepEqual(broker.requestsSnapshot()[otherSession.id]?.missingNames, [], 'a value saved from one card stops every card asking for it');
+  assert.equal(await broker.decide({ id: otherSession.id, choice: 'allow-once', names: ['NEW_KEY'] }), null);
+  await waitFor(() => broker.requestsSnapshot()[otherSession.id] === undefined, 'the other card delivers the saved value without retyping it');
+  assert.deepEqual(world.savedNames, ['NEW_KEY']);
 });
 
 test('with no source chosen the agent gets no-source, the card asks for a source, and Allow is refused until one is set', async () => {

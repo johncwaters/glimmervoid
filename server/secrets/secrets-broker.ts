@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import type { AgentNeedReply, AgentSecretsEnvReply, NeedStatus, ProjectApprovals, SecretDecision, SecretRequestCard, SecretRevoke, SecretSource } from '../../shared/contracts/secrets.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { EnvFileWrite } from './env-file.ts';
-import type { ReadOutcome } from './core/fnox-core.ts';
+import type { ReadOutcome, SaveFailure } from './core/fnox-core.ts';
 import { unwritableEnvNames } from './core/env-file-core.ts';
 import { approvalRowsOf, approvalsOf, decideNeed, denialEndsAtMs, sourceLabel, withAllowedNames, withoutApproval } from './core/secrets-broker-core.ts';
 import type { ProjectSecretState } from './core/secrets-broker-core.ts';
@@ -23,6 +23,7 @@ interface RequestCard {
   reason: string | null;
   phase: 'asking' | 'reading' | 'failed';
   readingName: string | null;
+  missingNames: string[];
   failure: CardFailure | null;
 }
 
@@ -50,6 +51,7 @@ interface SecretsBrokerOptions {
   writeSecrets: (mutate: (rawSecrets: unknown) => Record<string, unknown> | null) => Promise<boolean>;
   currentSource: () => SecretSource | null;
   readSecret: (source: SecretSource, name: string) => Promise<ReadOutcome>;
+  saveToAgeFile?: (name: string, value: string) => Promise<SaveFailure | null>;
   writeEnvFile?: (directory: string, valuesByName: Readonly<Record<string, string>>) => Promise<EnvFileWrite>;
   readEnvValues?: (directory: string) => Promise<Readonly<Record<string, string>>>;
   writtenNames?: { remember(directory: string, names: readonly string[]): Promise<void>; namesIn(directory: string): Promise<readonly string[]> };
@@ -80,7 +82,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSecret, writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), writtenNames = { remember: async () => undefined, namesIn: async () => [] }, now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
+function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSecret, saveToAgeFile = async () => ({ message: 'Glimmervoid cannot save values on this host', detail: '' }), writeEnvFile = async () => ({ ok: false, reason: 'no env file writer' }), readEnvValues = async () => ({}), writtenNames = { remember: async () => undefined, namesIn: async () => [] }, now = clock.nowMs, telemetry = null }: SecretsBrokerOptions) {
   const events = new EventEmitter();
   const deniedUntilMsByProject = new Map<string, Record<string, number>>();
   const cardsBySession = new Map<string, RequestCard>();
@@ -108,7 +110,8 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
   function cardView(card: RequestCard): SecretRequestCard {
     const source = currentSource();
     const phase = card.phase === 'asking' && source === null ? 'needs-source' : card.phase;
-    return { names: [...card.names], reason: card.reason, phase, readingName: card.readingName, from: source === null ? null : sourceLabel(source), failure: card.failure };
+    const missingNames = source?.manager === 'age' ? card.missingNames.filter((name) => card.names.includes(name)) : [];
+    return { names: [...card.names], reason: card.reason, phase, readingName: card.readingName, missingNames, from: source === null ? null : sourceLabel(source), failure: card.failure };
   }
 
   function emitCard(sessionId: string, newNames: readonly string[]): void {
@@ -118,7 +121,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
 
   function raiseCard(session: NeedingSession, names: readonly string[], reason: string | null): void {
     if (names.length === 0) return;
-    const card = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'asking', readingName: null, failure: null };
+    const card: RequestCard = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'asking', readingName: null, missingNames: [], failure: null };
     const newNames = names.filter((name) => !card.names.includes(name));
     const isReasonNew = reason !== null && reason !== card.reason;
     if (newNames.length === 0 && !isReasonNew) return;
@@ -160,9 +163,10 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
   }
 
   function startReading(session: NeedingSession, names: readonly string[]): RequestCard {
-    const card = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'reading', readingName: null, failure: null };
+    const card: RequestCard = cardsBySession.get(session.id) ?? { session, names: [], reason: null, phase: 'reading', readingName: null, missingNames: [], failure: null };
     card.names = [...names, ...card.names.filter((name) => !names.includes(name))];
     card.phase = 'reading';
+    card.missingNames = card.missingNames.filter((name) => !names.includes(name));
     card.failure = null;
     cardsBySession.set(session.id, card);
     return card;
@@ -191,6 +195,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     for (const name of names) {
       showReading(card, name);
       const outcome = await readSecret(source, name).catch((error: unknown): ReadOutcome => ({ failure: { kind: 'unavailable', message: READER_CRASHED_MESSAGE, detail: errorText(error) } }));
+      if ('failure' in outcome && outcome.failure.kind === 'not-found' && source.manager === 'age') card.missingNames = [...card.missingNames, name];
       if ('failure' in outcome) return { valuesByName, failedName: name, failure: { message: outcome.failure.message, detail: outcome.failure.detail } };
       if (unwritableEnvNames({ [name]: outcome.value }).length > 0) return { valuesByName, failedName: name, failure: { message: `${name} holds every kind of quote, so no env file reader would get it back unchanged`, detail: '' } };
       valuesByName[name] = outcome.value;
@@ -358,7 +363,31 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     emitCard(card.session.id, []);
   }
 
-  async function decide({ id, choice, names: shownNames }: SecretDecision): Promise<string | null> {
+  async function saveTypedValues(card: RequestCard, names: readonly string[], newValuesByName: Readonly<Record<string, string>>): Promise<string | null> {
+    if (currentSource()?.manager !== 'age') return null;
+    const missingNames = card.missingNames.filter((name) => names.includes(name));
+    const typedValuesByName = Object.fromEntries(missingNames.map((name) => [name, (newValuesByName[name] ?? '').trim()]));
+    const unfilledNames = missingNames.filter((name) => typedValuesByName[name] === '');
+    if (unfilledNames.length > 0) return `Type a value for ${unfilledNames.join(', ')} first, so Glimmervoid can save it to the age file.`;
+    const unwritableNames = unwritableEnvNames(typedValuesByName);
+    if (unwritableNames.length > 0) return `${unwritableNames.join(', ')} holds every kind of quote, so no env file reader would get it back unchanged.`;
+    for (const name of missingNames) {
+      const failure = await saveToAgeFile(name, typedValuesByName[name] ?? '');
+      if (failure !== null) return failure.detail === '' ? `${failure.message}.` : `${failure.message}: ${failure.detail}`;
+      forgetMissingName(name);
+    }
+    return null;
+  }
+
+  function forgetMissingName(savedName: string): void {
+    for (const [sessionId, card] of cardsBySession) {
+      if (!card.missingNames.includes(savedName)) continue;
+      card.missingNames = card.missingNames.filter((name) => name !== savedName);
+      emitCard(sessionId, []);
+    }
+  }
+
+  async function decide({ id, choice, names: shownNames, newValuesByName = {} }: SecretDecision): Promise<string | null> {
     const card = cardsBySession.get(id);
     if (!card) return 'This secret request was already answered.';
     if (card.phase === 'reading' || decidingSessionIds.has(id)) return 'This secret request is already being read.';
@@ -374,6 +403,8 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     if (currentSource() === null) return 'Choose the vault Glimmervoid reads secrets from first: type it in Look in under Settings > Vault.';
     decidingSessionIds.add(id);
     try {
+      const saveRefusal = await saveTypedValues(card, names, newValuesByName);
+      if (saveRefusal !== null) return saveRefusal;
       if (choice === 'allow-once') allowOnce(id, names);
       const refusal = choice === 'allow-always' ? await allowAlways(session.project, names) : null;
       if (refusal !== null) return refusal;

@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import { execFile, spawn } from '../child-process-safe.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
-import { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxTestArguments, missingFromAgeFile, readOutcomeOf, testOutcomeOf } from './core/fnox-core.ts';
-import type { FnoxRunResult, ReadOutcome } from './core/fnox-core.ts';
+import { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, fnoxReadArguments, fnoxSaveArguments, fnoxTestArguments, missingFromAgeFile, readOutcomeOf, saveFailureOf, testOutcomeOf } from './core/fnox-core.ts';
+import type { FnoxRunResult, ReadOutcome, SaveFailure } from './core/fnox-core.ts';
 import type { OnePasswordSource, SecretName, SecretSource, SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 
 const FNOX_READ_TIMEOUT_MS = 120_000;
@@ -14,15 +14,16 @@ const PRIVATE_FILE_MODE = 0o600;
 const STDIN_CONFIG_PATH = '/dev/stdin';
 const UNCREATABLE_CONFIG_FOLDER = '/dev/null/fnox';
 
-interface AgeFilePaths {
+interface AgeFile {
   storePath: string;
   keyPath: string;
+  ensureCreated(): Promise<void>;
 }
 
 interface FnoxRunnerOptions {
   fnoxPath: string;
   runsRoot: string;
-  ageFile: AgeFilePaths;
+  ageFile: AgeFile;
   environment: NodeJS.ProcessEnv;
   readTimeoutMs?: number;
 }
@@ -30,6 +31,7 @@ interface FnoxRunnerOptions {
 interface FnoxRunner {
   read(source: SecretSource, name: SecretName): Promise<ReadOutcome>;
   test(source: OnePasswordSource): Promise<SecretSourceTestResult>;
+  saveToAgeFile(name: SecretName, value: string): Promise<SaveFailure | null>;
 }
 
 interface FnoxLaunch {
@@ -165,7 +167,20 @@ function createFnoxRunner({ fnoxPath, runsRoot, ageFile, environment, readTimeou
     return runFnox(fnoxConfigText(source, null), fnoxTestArguments, false).then((result) => testOutcomeOf(result, source));
   }
 
-  return { read, test };
+  async function saveCreatingAgeFile(name: SecretName, value: string): Promise<SaveFailure | null> {
+    try {
+      await ageFile.ensureCreated();
+    } catch (error) {
+      return { message: `Glimmervoid could not prepare the age file to save ${name}`, detail: error instanceof Error ? error.message : String(error) };
+    }
+    return saveFailureOf(await runAgainstAgeFile(fnoxSaveArguments(ageFile.storePath, name), value, false), name);
+  }
+
+  function saveToAgeFile(name: SecretName, value: string): Promise<SaveFailure | null> {
+    return queue.run(() => saveCreatingAgeFile(name, value));
+  }
+
+  return { read, test, saveToAgeFile };
 }
 
 export { createFnoxRunner };

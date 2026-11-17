@@ -1,4 +1,5 @@
 import { SECRET_MANAGER_LABELS } from '../../../shared/contracts/secrets.ts';
+import { AGE_PROVIDER_NAME } from './age-key-core.ts';
 import type { OnePasswordSource, SecretName, SecretSource, SecretSourceTestResult } from '../../../shared/contracts/secrets.ts';
 
 type ReadFailureKind = 'not-found' | 'refused' | 'timed-out' | 'unavailable';
@@ -10,6 +11,11 @@ interface ReadFailure {
 }
 
 type ReadOutcome = { value: string } | { failure: ReadFailure };
+
+interface SaveFailure {
+  message: string;
+  detail: string;
+}
 
 interface FnoxRunResult {
   ok: boolean;
@@ -44,6 +50,18 @@ function fnoxConfigText(source: OnePasswordSource, name: SecretName | null): str
 
 function fnoxReadArguments(configPath: string, name: SecretName): string[] {
   return ['-c', configPath, '--no-daemon', '--non-interactive', '--if-missing', 'error', 'get', name];
+}
+
+function fnoxSaveArguments(storePath: string, name: SecretName): string[] {
+  return ['-c', storePath, '--no-daemon', '--non-interactive', 'set', '--provider', AGE_PROVIDER_NAME, name];
+}
+
+function saveFailureOf(result: FnoxRunResult, name: SecretName): SaveFailure | null {
+  if (result.ok) return null;
+  const detail = cleanDetail(result.stderr);
+  if (result.wasKilled) return { message: `Saving ${name} to the age file did not finish in time`, detail };
+  if (result.failureCode !== null) return { message: `Glimmervoid could not start its age file writer (${result.failureCode})`, detail };
+  return { message: `Glimmervoid could not save ${name} to the age file`, detail };
 }
 
 function fnoxTestArguments(configPath: string): string[] {
@@ -123,5 +141,5 @@ function testOutcomeOf(result: FnoxRunResult, source: OnePasswordSource): Secret
   return { ok: false, message: `${label} did not sign in`, detail };
 }
 
-export { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, missingFromAgeFile, fnoxReadArguments, fnoxTestArguments, readOutcomeOf, testOutcomeOf };
-export type { FnoxRunResult, ReadOutcome };
+export { fnoxAgeEnvironment, fnoxConfigText, fnoxEnvironment, missingFromAgeFile, fnoxReadArguments, fnoxSaveArguments, fnoxTestArguments, readOutcomeOf, saveFailureOf, testOutcomeOf };
+export type { FnoxRunResult, ReadOutcome, SaveFailure };

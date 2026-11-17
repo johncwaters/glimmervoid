@@ -455,6 +455,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return source.success ? source.data : null;
     },
     readSecret: fnoxRunner.read,
+    saveToAgeFile: fnoxRunner.saveToAgeFile,
     writeEnvFile,
     readEnvValues,
     writtenNames: createWrittenSecretNames({ filePath: path.join(glimmervoidHomeDir(), 'env-file-names.json') }),

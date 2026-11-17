@@ -11,6 +11,8 @@ import './secret-request-face.css';
 
 const cardBySessionId = new Map<string, SecretRequestCard>();
 const requestElementBySessionId = new Map<string, HTMLElement>();
+const typedValuesBySessionId = new Map<string, Map<string, string>>();
+const fieldErrorBySessionId = new Map<string, HTMLElement>();
 
 const VAULT_SETTINGS_SECTION_ID = 'machine-vault';
 const WAITING_TEXT = 'Waiting on your password manager. Confirm there if it asks.';
@@ -19,9 +21,35 @@ const ALWAYS_ALLOW_HINT = 'Always allow skips this card for these names in this 
 
 type Choice = 'deny' | 'allow-once' | 'allow-always';
 
+function typedValuesOf(sessionId: string): Map<string, string> {
+  const typedValues = typedValuesBySessionId.get(sessionId) ?? new Map<string, string>();
+  typedValuesBySessionId.set(sessionId, typedValues);
+  return typedValues;
+}
+
+function showFieldError(sessionId: string, message: string): void {
+  const fieldError = fieldErrorBySessionId.get(sessionId);
+  if (!fieldError) return;
+  fieldError.textContent = message;
+  fieldError.hidden = message === '';
+}
+
 function sendChoice(sessionId: string, choice: Choice): void {
-  const names = cardBySessionId.get(sessionId)?.names ?? [];
-  sendControlMsg({ type: 'secret-decision', id: sessionId, choice, names });
+  const card = cardBySessionId.get(sessionId);
+  const names = card?.names ?? [];
+  if (choice === 'deny' || !card || card.missingNames.length === 0) {
+    sendControlMsg({ type: 'secret-decision', id: sessionId, choice, names });
+    return;
+  }
+  const typedValues = typedValuesOf(sessionId);
+  const unfilledNames = card.missingNames.filter((name) => (typedValues.get(name) ?? '').trim() === '');
+  if (unfilledNames.length > 0) {
+    showFieldError(sessionId, `Type a value for ${namesText(unfilledNames)} first.`);
+    return;
+  }
+  const newValuesByName = Object.fromEntries(card.missingNames.map((name) => [name, typedValues.get(name) ?? '']));
+  showFieldError(sessionId, '');
+  sendControlMsg({ type: 'secret-decision', id: sessionId, choice, names, newValuesByName });
 }
 
 function namesText(names: readonly string[]): string {
@@ -84,6 +112,33 @@ function failureLine(failure: NonNullable<SecretRequestCard['failure']>): HTMLEl
   return block;
 }
 
+function valueField(sessionId: string, name: string): HTMLElement {
+  const field = el('label', 'secret-request-field');
+  const input = el('input', 'dialog-input secret-request-field-input');
+  input.type = 'password';
+  input.autocomplete = 'new-password';
+  input.spellcheck = false;
+  input.value = typedValuesOf(sessionId).get(name) ?? '';
+  input.addEventListener('input', () => {
+    typedValuesOf(sessionId).set(name, input.value);
+    showFieldError(sessionId, '');
+  });
+  field.append(el('span', 'secret-request-key', name), input);
+  return field;
+}
+
+function missingValueFields(sessionId: string, card: SecretRequestCard): HTMLElement[] {
+  if (card.missingNames.length === 0 || card.phase === 'reading') return [];
+  const intro = el('div', 'secret-request-line', 'Type the value to save it to the age file, then allow. Surrounding spaces and line breaks are dropped.');
+  const fields = el('div', 'secret-request-fields');
+  fields.append(...card.missingNames.map((name) => valueField(sessionId, name)));
+  const fieldError = el('div', 'secret-request-field-error');
+  fieldError.setAttribute('role', 'alert');
+  fieldError.hidden = true;
+  fieldErrorBySessionId.set(sessionId, fieldError);
+  return [intro, fields, fieldError];
+}
+
 function statusLine(card: SecretRequestCard): HTMLElement {
   if (card.phase === 'needs-source') return el('div', 'secret-request-line', NEEDS_SOURCE_TEXT);
   if (card.phase === 'reading') return waitingLine(card.readingName);
@@ -109,7 +164,7 @@ function buildRequest(sessionId: string, card: SecretRequestCard): HTMLElement {
   const actions = card.phase === 'needs-source' ? sourceActions(sessionId) : choiceButtons(sessionId, card.phase === 'reading');
   const detail = detailLine(card);
   const hint = card.phase === 'needs-source' ? [] : [el('div', 'secret-request-hint', ALWAYS_ALLOW_HINT)];
-  layout.append(icon, title, actions, statusLine(card), ...(detail === null ? [] : [detail]), ...hint);
+  layout.append(icon, title, actions, statusLine(card), ...(detail === null ? [] : [detail]), ...missingValueFields(sessionId, card), ...hint);
   request.append(layout);
   return request;
 }
@@ -130,6 +185,8 @@ function paintSecretRequest(sessionId: string) {
   requestElementBySessionId.get(sessionId)?.remove();
   requestElementBySessionId.delete(sessionId);
   const card = cardBySessionId.get(sessionId);
+  if (!card) typedValuesBySessionId.delete(sessionId);
+  if (!card) fieldErrorBySessionId.delete(sessionId);
   if (!card || !ui) return;
   const request = buildRequest(sessionId, card);
   request.dataset.card = cardKey(card);
@@ -137,7 +194,16 @@ function paintSecretRequest(sessionId: string) {
   ui.termWrap.before(request);
 }
 
+function keepTypedValuesStillMissing(sessionId: string, card: SecretRequestCard | null): void {
+  const typedValues = typedValuesBySessionId.get(sessionId);
+  if (!typedValues) return;
+  for (const name of typedValues.keys()) {
+    if (!card?.missingNames.includes(name)) typedValues.delete(name);
+  }
+}
+
 function applySecretRequest(message: ServerMessageOf<'session-secret-request'>) {
+  keepTypedValuesStillMissing(message.id, message.card);
   if (message.card === null) cardBySessionId.delete(message.id);
   if (message.card !== null) cardBySessionId.set(message.id, message.card);
   paintSecretRequest(message.id);
@@ -147,7 +213,10 @@ function applySecretRequestsSnapshot(message: ServerMessageOf<'secret-requests-s
   const previousSessionIds = [...cardBySessionId.keys()];
   cardBySessionId.clear();
   for (const [sessionId, card] of Object.entries(message.requests)) cardBySessionId.set(sessionId, card);
-  for (const sessionId of new Set([...previousSessionIds, ...cardBySessionId.keys()])) paintSecretRequest(sessionId);
+  for (const sessionId of new Set([...previousSessionIds, ...cardBySessionId.keys()])) {
+    keepTypedValuesStillMissing(sessionId, cardBySessionId.get(sessionId) ?? null);
+    paintSecretRequest(sessionId);
+  }
 }
 
 export { applySecretRequest, applySecretRequestsSnapshot, paintSecretRequest };

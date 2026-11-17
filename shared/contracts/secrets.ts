@@ -7,6 +7,7 @@ export const SecretName = z.string({ error: 'a secret name must be a string' })
   .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, { error: 'a secret name must be an environment variable name in capitals, for example OPENAI_API_KEY' });
 
 const MAX_LOOK_IN_LENGTH = 200;
+const MAX_SAVED_VALUE_LENGTH = 65_536;
 
 export const SecretManager = z.enum(['1password', 'age'], { error: 'vault.manager must be 1password or age' });
 
@@ -72,6 +73,7 @@ export const SecretDecision = z.object({
   id: z.string().min(1),
   choice: z.enum(['deny', 'allow-once', 'allow-always']),
   names: z.array(SecretName).min(1).max(MAX_NAMES_PER_NEED),
+  newValuesByName: z.record(SecretName, z.string().min(1, { error: 'a saved value must not be empty' }).max(MAX_SAVED_VALUE_LENGTH, { error: `a saved value must be at most ${MAX_SAVED_VALUE_LENGTH} characters` })).optional(),
 }).strict();
 
 const SECRET_REQUEST_PHASES = ['needs-source', 'asking', 'reading', 'failed'] as const;
@@ -81,6 +83,7 @@ export const SecretRequestCard = z.object({
   reason: z.string().nullable(),
   phase: z.enum(SECRET_REQUEST_PHASES),
   readingName: SecretName.nullable(),
+  missingNames: z.array(SecretName),
   from: z.string().nullable(),
   failure: z.object({ message: z.string(), detail: z.string() }).strict().nullable(),
 }).strict();

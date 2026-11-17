@@ -87,4 +87,4 @@ function storedNamesOf(storeText: string): string[] {
   return names.sort();
 }
 
-export { ageIdentityFileText, ageStoreConfigText, recipientInIdentityFile, storedNamesOf };
+export { AGE_PROVIDER_NAME, ageIdentityFileText, ageStoreConfigText, recipientInIdentityFile, storedNamesOf };
