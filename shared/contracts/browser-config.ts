@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AgentRulesBlock } from './memory.ts';
 import { SESSION_REVIEW_AGENTS } from './session-review.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
@@ -212,6 +213,8 @@ const PlanGateSettings = optionalObject('planGate', {
   enabled: optionalBoolean('planGate.enabled'),
 });
 
+const AgentRulesSettings = optionalObject('agentRules', AgentRulesBlock.shape);
+
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
@@ -319,6 +322,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   slack: SlackSettings,
   sessionReview: SessionReviewSettings,
   planGate: PlanGateSettings,
+  agentRules: AgentRulesSettings,
   telemetry: TelemetrySettings,
   vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),

@@ -11,6 +11,8 @@ import { createAgentSpawner } from './agent-api/agent-spawn.ts';
 import { createAgentVerbHandlers } from './agent-api/agent-verbs.ts';
 import { createWakeWiring } from './wakes/wake-wiring.ts';
 import type { WakeWiring } from './wakes/wake-wiring.ts';
+import { createMemoryStore } from './memory-store.ts';
+import { readAgentRules } from './core/memory-core.ts';
 import { clock } from '../shared/clock.ts';
 
 interface AgentWireReply {
@@ -29,6 +31,7 @@ interface AgentApiPort {
   markChildWorktreeDiscard(childId: string): void;
   watchSessionWakes(session: Session): void;
   sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator' | 'alarms' | 'onAlarm' | 'onAlarmsMayHaveChanged'>;
+  operatorRules(): string[];
 }
 
 function createAgentApiWiring({
@@ -45,6 +48,7 @@ function createAgentApiWiring({
   reviewComments = null,
   repoClones = null,
   wakesFilePath = null,
+  memoryFilePath = null,
   budgetHoldReason = () => null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
@@ -53,7 +57,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, reviewComments, repoClones, wakesFilePath, budgetHoldReason,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, reviewComments, repoClones, wakesFilePath, memoryFilePath, budgetHoldReason,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),
@@ -78,7 +82,8 @@ function createAgentApiWiring({
     logger,
   });
   void wakes.start();
-  const { handlers, roleFactsOf } = createAgentVerbHandlers(runtime, channels, createAgentSpawner(runtime, channels), wakes);
+  const memory = createMemoryStore({ filePath: memoryFilePath, logger });
+  const { handlers, roleFactsOf } = createAgentVerbHandlers(runtime, channels, createAgentSpawner(runtime, channels), wakes, memory);
 
   function dispatch<V extends AgentApiVerb>(session: Session, verb: V, request: AgentRequestOf<V>): AgentReplyOf<V> | Promise<AgentReplyOf<V>> {
     const handler: AgentVerbHandlers[V] = handlers[verb];
@@ -106,7 +111,7 @@ function createAgentApiWiring({
     return describeRoleRefusal(verb, roleFactsOf(session));
   }
 
-  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession, sessionWakes: wakes };
+  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession, sessionWakes: wakes, operatorRules: () => readAgentRules(config.agentRules) };
 }
 
 export { createAgentApiWiring };

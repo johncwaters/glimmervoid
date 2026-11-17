@@ -9,6 +9,7 @@ import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
 import { AgentNeedReply, AgentSecretsEnvReply } from './secrets.ts';
 import { AgentArenaReply } from './race.ts';
 import { AgentWakeReply } from './wakes.ts';
+import { AgentMemoryReply } from './memory.ts';
 import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { REVIEW_TEXT_MAX_CHARS, ReviewCommentId } from './review-state.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
@@ -149,7 +150,7 @@ export const GitCredentialReply = z.union([
 
 export type GitCredentialRequest = z.infer<typeof GitCredentialRequest>;
 export type GitCredentialReply = z.infer<typeof GitCredentialReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -373,6 +374,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   arena: z.union([AgentArenaReply, AgentRefusal]),
   comments: z.union([z.object({ ok: z.literal(true), comments: z.array(AgentReviewCommentRow) }).strict(), AgentOkReply, AgentRefusal]),
   wake: z.union([AgentWakeReply, AgentRefusal]),
+  memory: z.union([AgentMemoryReply, AgentRefusal]),
 }) satisfies { readonly [V in AgentApiVerb]: z.ZodType };
 
 export type AgentRefusal = z.infer<typeof AgentRefusal>;

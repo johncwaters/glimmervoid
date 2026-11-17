@@ -134,6 +134,11 @@ function wakeRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot schedule a wake, because a lane runs to a fixed end and has no card to show the wake on' };
 }
 
+function memoryRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot use shared memory, because a lane runs on input the operator has not vetted and could plant notes other sessions trust' };
+}
+
 const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
   push: pushRoute,
   spawn: spawnRoute,
@@ -160,6 +165,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   arena: arenaRoute,
   comments: commentsRoute,
   wake: wakeRoute,
+  memory: memoryRoute,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';
