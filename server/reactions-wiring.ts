@@ -1,6 +1,6 @@
 import type { Session } from '../session/sessions.ts';
 import { clock } from '../shared/clock.ts';
-import type { ReactionTrigger } from '../shared/contracts/reactions.ts';
+import type { Reaction, ReactionTrigger } from '../shared/contracts/reactions.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { reactionsToFire, readReactionSettings } from './core/reactions-core.ts';
@@ -20,34 +20,69 @@ const TRIGGER_TEXT: Record<ReactionTrigger, string> = {
   'commits-landed': 'landed commits',
 };
 
+const IDLE_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE];
+const RUN_ENDED_STATES: readonly SessionState[] = [STATES.DONE, STATES.FAILED, STATES.DORMANT];
+
 function createReactionsWiring({ readReactions, logger }: { readReactions: () => unknown; logger: Pick<Console, 'warn'> }) {
   function attachSession(session: ReactingSession): void {
     if (session.ephemeral) return;
     const lastFiredAtByReactionId = new Map<string, number>();
+    const waitingWakeTriggerByReactionId = new Map<string, ReactionTrigger>();
     let submittedReactionWakeCount = 0;
     let isTurnFromReactionWake = false;
 
+    function typeWake(reactionId: string, text: string, trigger: ReactionTrigger): void {
+      const delivery = session.deliver(text, {
+        when: 'idle',
+        submit: true,
+        onSettled: (settlement) => {
+          if (settlement === 'submitted') submittedReactionWakeCount += 1;
+        },
+      });
+      if (delivery.ok) {
+        waitingWakeTriggerByReactionId.delete(reactionId);
+        lastFiredAtByReactionId.set(reactionId, clock.nowMs());
+        return;
+      }
+      if (delivery.reason === 'not-idle') {
+        waitingWakeTriggerByReactionId.set(reactionId, trigger);
+        return;
+      }
+      waitingWakeTriggerByReactionId.delete(reactionId);
+      logger.warn(`[reactions] ${reactionId} could not wake ${session.name}: ${delivery.reason}`);
+    }
+
+    function fire(reaction: Reaction, trigger: ReactionTrigger, nowMs: number): void {
+      if (reaction.action === 'wake') {
+        typeWake(reaction.id, reaction.text ?? '', trigger);
+        return;
+      }
+      lastFiredAtByReactionId.set(reaction.id, nowMs);
+      const raised = session.raiseAttention('reaction', `${session.name} ${TRIGGER_TEXT[trigger]} (reaction ${reaction.id})`);
+      if (!raised.ok) logger.warn(`[reactions] ${reaction.id} could not notify about ${session.name}: ${raised.error}`);
+    }
+
+    function dueReactions(trigger: ReactionTrigger, nowMs: number): Reaction[] {
+      return reactionsToFire({ settings: readReactionSettings(readReactions()), trigger, projectPath: session.path, isTurnFromReactionWake, lastFiredAtByReactionId, nowMs });
+    }
+
     function react(trigger: ReactionTrigger): void {
       const nowMs = clock.nowMs();
-      const due = reactionsToFire({ settings: readReactionSettings(readReactions()), trigger, projectPath: session.path, isTurnFromReactionWake, lastFiredAtByReactionId, nowMs });
-      for (const reaction of due) {
-        lastFiredAtByReactionId.set(reaction.id, nowMs);
-        if (reaction.action === 'notify') {
-          const raised = session.raiseAttention('reaction', `${session.name} ${TRIGGER_TEXT[trigger]} (reaction ${reaction.id})`);
-          if (!raised.ok) logger.warn(`[reactions] ${reaction.id} could not notify about ${session.name}: ${raised.error}`);
-          continue;
-        }
-        session.deliver(reaction.text ?? '', {
-          when: 'idle',
-          submit: true,
-          onSettled: (settlement) => {
-            if (settlement === 'submitted') submittedReactionWakeCount += 1;
-          },
-        });
+      for (const reaction of dueReactions(trigger, nowMs)) fire(reaction, trigger, nowMs);
+    }
+
+    function typeWaitingWakes(): void {
+      const waiting = [...waitingWakeTriggerByReactionId];
+      waitingWakeTriggerByReactionId.clear();
+      for (const [reactionId, trigger] of waiting) {
+        const reaction = dueReactions(trigger, clock.nowMs()).find((due) => due.id === reactionId && due.action === 'wake');
+        if (reaction) typeWake(reaction.id, reaction.text ?? '', trigger);
       }
     }
 
     session.on('state-change', ({ to }: { to: SessionState }) => {
+      if (RUN_ENDED_STATES.includes(to)) waitingWakeTriggerByReactionId.clear();
+      if (IDLE_STATES.includes(to)) typeWaitingWakes();
       const trigger = TRIGGER_BY_STATE[to];
       if (trigger !== undefined) react(trigger);
     });

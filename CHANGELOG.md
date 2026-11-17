@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Lockfile conflicts get their own merge steps, and a waiting merge shows its place in line.** When a session's merge parks on a conflicting lockfile (npm, pnpm, yarn, bun, Cargo, Go, Poetry, uv and more), the merge prompt lists it apart from the other files with the command that regenerates it, instead of asking the agent to merge it by hand. A merge waiting behind other merges in the same repository shows how many merges are still ahead of it in the Changes panel, counting down as they finish.
 
-- **Reactions to session events.** A `reactions` block in the config file reacts to a session failing, ending, needing input or landing commits, by raising a note on its card or, for needing input and landed commits, typing a set text into it once idle. Each reaction can be limited to one project folder and waits `cooldownMinutes` (default 10) before reacting to the same session again.
+- **Reactions to session events.** A `reactions` block in the config file reacts to a session failing, ending, needing input or landing commits, by raising a note on its card or, for needing input and landed commits, typing a set text into it the next time it is idle, even when the event came while it was busy or waiting on you. Each reaction can be limited to one project folder and waits `cooldownMinutes` (default 10) before reacting to the same session again.
 
 - **Scheduled pack launchers can catch up a missed run.** A launcher with `catchUp: true` starts one run at once when a scheduled run fell while Glimmervoid was down or the host slept, instead of skipping it.
 
