@@ -7,7 +7,7 @@ import { announceSessionPageChange } from '../session-pages/session-pages.ts';
 import { getJSON, setJSON } from '../local-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { CHANGES_ICON_PATH } from '../svg-dom.ts';
-import { renderFileHints, renderWorthALook } from './change-map-view.ts';
+import { renderChangeTour, renderFileHints, renderWorthALook } from './change-map-view.ts';
 import type { ReviewComment } from '#shared/contracts/review-state.ts';
 import type { DiffAnnotation, DiffFileContents, DiffLineClick, DiffSide, MountedFileDiff } from './diff-view.ts';
 import { mountFileDiff, preloadDiffRenderer } from './diff-view.ts';
@@ -65,6 +65,7 @@ let shownSessionId: string | null = null;
 let selectedPath: string | null = null;
 let requestedPath: string | null = null;
 let isWorthALookShowingAll = false;
+let isTourOpen = false;
 let shownDiff: ShownDiff | null = null;
 let diffWidthPx = 0;
 let chosenLayout: DiffLayout = getJSON<unknown>(DIFF_LAYOUT_KEY, 'unified') === 'split' ? 'split' : 'unified';
@@ -91,6 +92,7 @@ function buildReader(): ReaderParts {
   onSelectionChange(() => {
     selectedPath = null;
     isWorthALookShowingAll = false;
+    isTourOpen = false;
     render();
     announceLevel();
   });
@@ -214,6 +216,8 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
     ? renderWorthALook(review.changeMapView, { isShowingAll: isWorthALookShowingAll, onShowAll: showAllWorthALook, onOpenFile: openFileFromWorthALook })
     : null;
   if (worthALook) fileColumn.append(worthALook);
+  const tour = review.changeMapView ? renderChangeTour(review.changeMapView, { isOpen: isTourOpen, onToggle: (isOpen) => { isTourOpen = isOpen; }, onOpenFile: openFileFromWorthALook }) : null;
+  if (tour) fileColumn.append(tour);
   fileColumn.scrollTop = scrollTop;
 }
 
