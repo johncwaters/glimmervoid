@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every Copy button now reports the same way.** The trace rows, setup command rows, banner commands and the Settings copy-link and Copy as JSON buttons all say Copied or Copy failed beside the button, and the word clears after a moment everywhere.
 - **Text fields across the dashboard now share one look.** Settings, Hooks, Arena, Packs, onboarding and dialog fields draw the same border, focus color and placeholder, fields stand the same height as the buttons beside them, search filters use one small size, disabled fields dim, and on the phone every field is 44px tall with type large enough that the browser does not zoom in.
 - **Form field labels share one look.** The hook editor, the new race form, the whiteboard name dialogs, the remote host setup dialog and the onboarding folder and token fields now label each field with the same small uppercase label, with any hint and error on their own line below it. The new race form moves its long label sentences into hints, and screen readers now hear each label and hint with its field.
+- **Usage bars draw from one shared meter.** The budget, share, ranked and recent block bars in Usage share one bar component, and the budget bar now reads to a screen reader as a meter with its percentage.
 
 ### Fixed
 

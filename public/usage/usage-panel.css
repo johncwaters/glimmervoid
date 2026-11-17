@@ -353,22 +353,6 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
 
 .usage-tile[data-tone="crit"] .usage-tile-value { color: var(--state-failed); }
 
-.usage-meter {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border-dim);
-  overflow: hidden;
-}
-
-.usage-meter-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-
-.usage-meter[data-tone="warn"] .usage-meter-fill { background: var(--state-waiting); }
-.usage-meter[data-tone="crit"] .usage-meter-fill { background: var(--state-failed); }
-
 .usage-table-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -497,11 +481,6 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   font-size: var(--type-meta);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-}
-
-.usage-budget .usage-meter {
-  height: 6px;
-  border-radius: 2px;
 }
 
 .usage-period-cell {
@@ -660,19 +639,9 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   gap: 6px;
 }
 
-.usage-share-bar {
+.usage-share > .ui-meter {
   flex: 0 0 auto;
   width: 44px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border-dim);
-  overflow: hidden;
-}
-
-.usage-share-fill {
-  display: block;
-  height: 100%;
-  background: var(--text-dim);
 }
 
 .usage-share-text {
@@ -705,19 +674,9 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
   font-variant-numeric: tabular-nums;
 }
 
-.usage-block-bar {
+.usage-block > .ui-meter {
   flex: 1 1 auto;
   min-width: 0;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border-dim);
-  overflow: hidden;
-}
-
-.usage-block-fill {
-  display: block;
-  height: 100%;
-  background: var(--text-dim);
 }
 
 .usage-block-value {
@@ -729,10 +688,6 @@ html[data-layout="phone"] .usage-content:not([data-screen="overview"]) .usage-ov
 .usage-block[data-active="true"] .usage-block-label,
 .usage-block[data-active="true"] .usage-block-value {
   color: var(--text-head);
-}
-
-.usage-block[data-active="true"] .usage-block-fill {
-  background: var(--accent);
 }
 
 html[data-layout="phone"] .usage-content { gap: 24px; }
@@ -752,7 +707,7 @@ html[data-layout="phone"] .usage-toggle { min-height: 44px; font-size: var(--typ
 html[data-layout="phone"] .usage-table th { padding-bottom: 8px; }
 html[data-layout="phone"] .usage-table td { padding-top: 7px; padding-bottom: 7px; }
 
-html[data-layout="phone"] .usage-share-bar { display: none; }
+html[data-layout="phone"] .usage-share > .ui-meter { display: none; }
 html[data-layout="phone"] .usage-block-label { min-width: 11ch; }
 
 .usage-period-card {
@@ -906,18 +861,8 @@ button.usage-rank-head { cursor: pointer; }
   font-variant-numeric: tabular-nums;
 }
 
-.usage-rank-bar {
+.usage-rank-head > .ui-meter {
   grid-area: bar;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--border-dim);
-  overflow: hidden;
-}
-
-.usage-rank-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
 }
 
 .usage-rank-ago {

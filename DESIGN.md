@@ -152,6 +152,12 @@ A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`
 - **Options:** `label` (text or a node), `checked`, `disabled`, `value`, `hint`, `accessibleName` (when the visible label is not the name), plus `onChange(checked)` for a checkbox, and `name`, `value` and `onSelect()` for a radio. Each returns `{ element, input }`.
 - **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is at least 44px tall (the phone `--control-height`) in `--type-body` with a 20px box.
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
+### Meter
+A horizontal track and fill showing one value from 0 to 1 is `meter()` from `public/ui/meter.ts` (look in `public/ui/meter.css`); it returns `{ element, setValue, setTone }`.
+- **Look:** a `--border-dim` track with 2px corners and a flat fill, no glow, no animation.
+- **Options:** `value` (clamped to 0..1), `label` (the accessible name; given, the bar is a `role="meter"` with `aria-valuenow` in percent and an optional `valueText`; omitted, it is `aria-hidden` and the text beside it must carry the number), `tone` (accent by default; muted for a neutral share; waiting and failed only for a real limit state, per the Earned Signal Rule), `thickness` (hair 2px, thin 4px, default 6px, thick 8px).
+- **Layout belongs to the parent:** the container sizes and places it, as `.usage-share > .ui-meter` sets its width.
+- **One value only:** a bar with several segments, a projection or a marker (the Usage pace bar, the Arena row track with its finish flag) is its own component.
 
 ### Segmented Control
 A group of options with exactly one picked is `segmented()` from `public/ui/segmented.ts` (look in `public/ui/segmented.css`): the Settings choice rows, the Usage period, range and measure switches, and the Reviews and Changes layout switches.

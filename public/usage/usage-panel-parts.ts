@@ -1,5 +1,7 @@
 import { buildPanelSection, el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { meter } from '../ui/meter.ts';
+import type { MeterTone } from '../ui/meter.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { reportUsageAction } from './usage-store.ts';
@@ -40,24 +42,13 @@ function clampPct(pct: unknown) {
 }
 
 function buildMeter(pct: unknown, tone: unknown, label: string) {
-  const meter = el('div', 'usage-meter');
-  meter.dataset.tone = String(tone);
-  meter.setAttribute('role', 'progressbar');
-  meter.setAttribute('aria-valuemin', '0');
-  meter.setAttribute('aria-valuemax', '100');
-  meter.setAttribute('aria-label', label);
-  const fill = el('span', 'usage-meter-fill');
-  meter.append(fill);
-  paintMeter(meter, pct);
-  return meter;
+  return meter({ value: clampPct(pct) / 100, label, tone: budgetMeterTone(tone) }).element;
 }
 
-function paintMeter(meter: HTMLElement | null, pct: unknown) {
-  if (!meter) return;
-  const value = clampPct(pct);
-  meter.setAttribute('aria-valuenow', String(Math.round(value)));
-  const fill = meter.querySelector<HTMLElement>('.usage-meter-fill');
-  if (fill) fill.style.width = `${value}%`;
+function budgetMeterTone(tone: unknown): MeterTone {
+  if (tone === 'crit') return 'failed';
+  if (tone === 'warn') return 'waiting';
+  return 'accent';
 }
 
 function buildTable(headings: TableHeading[], sort: SortState | null, onSort: (key: string) => void, tableId: string) {
@@ -108,11 +99,8 @@ function buildShareCell(pct: number | null) {
     wrap.append(el('span', 'usage-share-text', formatPercent(pct)));
     return wrap;
   }
-  const bar = el('span', 'usage-share-bar');
-  const fill = el('span', 'usage-share-fill');
-  fill.style.width = `${clampPct(pct)}%`;
-  bar.append(fill);
-  wrap.append(bar, el('span', 'usage-share-text', formatPercent(pct)));
+  const bar = meter({ value: clampPct(pct) / 100, tone: 'muted', thickness: 'thin' });
+  wrap.append(bar.element, el('span', 'usage-share-text', formatPercent(pct)));
   return wrap;
 }
 

@@ -2,6 +2,7 @@ import { el } from '../dom-helpers.ts';
 import { emptyState } from '../ui/empty-state.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
+import { meter } from '../ui/meter.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { segmented } from '../ui/segmented.ts';
 import { createSettingsLink } from '../settings/settings-link.ts';
@@ -115,11 +116,7 @@ function buildBlockHistorySection() {
     const item = el('div', 'usage-block');
     if (row.isActive) item.dataset.active = 'true';
     item.append(el('span', 'usage-block-label', blockLabel(row.startTs)));
-    const bar = el('span', 'usage-block-bar');
-    const fill = el('span', 'usage-block-fill');
-    fill.style.width = `${clampPct(percentOfTotal(row.tokens, peak) ?? 0)}%`;
-    bar.append(fill);
-    item.append(bar);
+    item.append(meter({ value: clampPct(percentOfTotal(row.tokens, peak) ?? 0) / 100, tone: row.isActive ? 'accent' : 'muted', thickness: 'thin' }).element);
     item.append(el('span', 'usage-block-value', `${formatTokens(row.tokens)} ${formatUsd(row.costUSD)}`));
     list.append(item);
   }

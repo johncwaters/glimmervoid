@@ -2,6 +2,7 @@ import { el } from '../dom-helpers.ts';
 import { emptyState } from '../ui/empty-state.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
+import { meter } from '../ui/meter.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { segmented } from '../ui/segmented.ts';
 import { formatAgo } from '../poll-ago.ts';
@@ -169,11 +170,7 @@ function buildInsightsSection() {
 }
 
 function buildRankedBar(sharePct: number | null, barPct: number) {
-  const bar = el('span', 'usage-rank-bar');
-  bar.setAttribute('aria-hidden', 'true');
-  const fill = el('span', 'usage-rank-fill');
-  fill.style.width = `${clampPct(barPct)}%`;
-  bar.append(fill);
+  const bar = meter({ value: clampPct(barPct) / 100 }).element;
   return { bar, shareText: sharePct === null ? '' : formatPercent(sharePct) };
 }
 
