@@ -67,3 +67,4 @@
 @import "./github/reviews-refresh.css" layer(components);
 @import "./onboarding/first-run.css" layer(components);
 @import "./chart-readout.css" layer(components);
+@import "./chat/chat.css" layer(components);
