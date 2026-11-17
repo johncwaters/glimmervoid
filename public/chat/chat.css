@@ -306,3 +306,11 @@ div.chat-call-row { padding-left: 18px; }
 .chat-composer-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 
 }
+
+.chat-terminal-slot {
+  display: flex;
+  height: min(24rem, 50vh);
+  margin-top: var(--space-2);
+  border-radius: var(--radius-sm);
+  overflow: clip;
+}

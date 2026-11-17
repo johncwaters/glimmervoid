@@ -63,10 +63,17 @@ function renderNoticeCard(card: ChatCardByType['notice']): HTMLElement {
   return shell;
 }
 
+function renderLiveTerminalCard(card: ChatCardByType['live-terminal']): HTMLElement {
+  const shell = cardShell(card, card.data.heading);
+  shell.appendChild(el('div', 'chat-terminal-slot'));
+  return shell;
+}
+
 const RENDERER_BY_CARD_TYPE = {
   permission: renderPermissionCard,
   question: renderQuestionCard,
   notice: renderNoticeCard,
+  'live-terminal': renderLiveTerminalCard,
 } satisfies ChatCardRendererTable;
 
 const rendererByCardType: ChatCardRendererTable = RENDERER_BY_CARD_TYPE;

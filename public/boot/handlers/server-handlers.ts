@@ -18,7 +18,7 @@ import { applyClientTrust } from '../../server-power.ts';
 import { handleSnapshot, noteServerBuild } from '../session-frames.ts';
 
 const messageHandlers = {
-  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); applyChatSnapshot(); },
+  'snapshot':           (msg) => { noteServerBuild(msg.serverBuild); handleSnapshot(msg.sessions); applyChatSnapshot(msg.sessions); },
 
   'hooks-report':       (msg) => applyHooksReport(msg),
   'save-hook-result':   () => applyLateHookResult(),

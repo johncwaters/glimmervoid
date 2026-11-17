@@ -13,6 +13,8 @@ export type Step =
   | { kind: 'assert-board-scale'; viewer?: ViewerId }
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-changes'; viewer?: ViewerId }
+  | { kind: 'assert-chat-approvals'; viewer?: ViewerId }
+  | { kind: 'assert-chat-terminal'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
   | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
   | { kind: 'assert-fullscreen-app-row'; viewer?: ViewerId }
@@ -78,6 +80,7 @@ export interface Scenario {
   proveFailure?: boolean;
   runsOnlyWhenNamed?: boolean;
   agent?: string;
+  skipsPermissions?: boolean;
 }
 
 export interface ResolvedScenario extends Omit<Scenario, 'steps'> {
@@ -257,6 +260,17 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'review-changes',
     viewports: ['desktop-1280'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-review-changes' }, { kind: 'shot', name: 'changes' }],
+  },
+  {
+    name: 'chat-approvals',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-approvals' }, { kind: 'shot', name: 'chat-approvals' }],
+  },
+  {
+    name: 'chat-terminal',
+    viewports: ['desktop-1280'],
+    skipsPermissions: true,
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-terminal' }, { kind: 'shot', name: 'chat-terminal' }],
   },
   {
     name: 'rename-repaints-roster',
@@ -742,6 +756,10 @@ export function needsSocketRoute(scenario: Pick<Scenario, 'steps'>): boolean {
 
 export function needsTeamReview(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'assert-team-review');
+}
+
+export function needsSessionChat(scenario: Scenario): boolean {
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-terminal');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {

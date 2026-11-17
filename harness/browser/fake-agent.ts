@@ -189,6 +189,12 @@ function dispatch(command: string): void {
     postHook('permissionrequest', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } });
     return;
   }
+  if (command === 'ask-chat') {
+    const permissionRequest = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'touch chat-approved.txt' } };
+    postHook('permissionrequest', permissionRequest);
+    postHook('permissionrequest-conversation', permissionRequest);
+    return;
+  }
   if (command === 'work') {
     postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
     setTitle(WORKING_GLYPH, 'working');

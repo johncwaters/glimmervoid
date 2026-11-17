@@ -11,6 +11,7 @@ import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from 
 import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, verifyKeyStripContexts } from './key-strip.ts';
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
+import { verifyChatApprovals, verifyChatTerminal } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1240,6 +1241,14 @@ export async function runCase({
     if (step.kind === 'assert-review-changes') {
       await verifyReviewChanges(viewer.page, projectDirectory);
       return passedOutcome('review-changes', 'the change reader opens with no Merge or Discard, j steps files, and the Changes button and Escape both close it');
+    }
+    if (step.kind === 'assert-chat-approvals') {
+      await verifyChatApprovals(viewer.page);
+      return passedOutcome('chat-approvals', 'a prompt sent from the Chat composer reaches the agent, its permission prompt shows as a card, and Allow answers it');
+    }
+    if (step.kind === 'assert-chat-terminal') {
+      await verifyChatTerminal(viewer.page);
+      return passedOutcome('chat-terminal', 'a prompt Chat cannot answer shows the live terminal inline, and the terminal goes home once the wait ends');
     }
     if (step.kind === 'assert-phone-changes') {
       await verifyPhoneChanges(viewer.page, projectDirectory);

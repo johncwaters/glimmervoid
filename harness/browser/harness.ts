@@ -14,7 +14,7 @@ import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts'
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
-import { casesFor, needsGitOrigin, needsTeamReview } from './cases-core.ts';
+import { casesFor, needsGitOrigin, needsSessionChat, needsTeamReview } from './cases-core.ts';
 import { deviceLogPlugin, withoutIpv4MappedPrefix } from './device-log.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
@@ -181,13 +181,14 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     name: `${harnessCase.viewport.name}-${harnessCase.scenario.name}`,
     path: projectDirs[index],
     agent: harnessCase.scenario.agent ?? 'claude-code',
-    dangerouslySkipPermissions: false,
+    dangerouslySkipPermissions: harnessCase.scenario.skipsPermissions === true,
   }));
   const configDocument = {
     port,
     projects,
     teams: [],
     teamReview: { enabled: cases.some((harnessCase) => needsTeamReview(harnessCase.scenario)) },
+    sessionChat: { enabled: cases.some((harnessCase) => needsSessionChat(harnessCase.scenario)) },
     repoRoots: [],
     autoResume: false,
     worktree: { autoRebase: false, syncOnStart: false },
