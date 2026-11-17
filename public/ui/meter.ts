@@ -1,7 +1,7 @@
 import { el } from '../dom-helpers.ts';
 
 export type MeterTone = 'accent' | 'muted' | 'waiting' | 'failed';
-export type MeterThickness = 'hair' | 'thin' | 'default' | 'thick';
+type MeterThickness = 'hair' | 'thin' | 'default' | 'thick';
 
 type MeterOptions = {
   value: number;
@@ -11,7 +11,7 @@ type MeterOptions = {
   thickness?: MeterThickness;
 };
 
-export type Meter = {
+type Meter = {
   readonly element: HTMLSpanElement;
   setValue(value: number, valueText?: string): void;
   setTone(tone: MeterTone): void;
