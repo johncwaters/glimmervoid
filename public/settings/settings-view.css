@@ -137,7 +137,7 @@
   visibility: hidden;
 }
 
-[data-layout="phone"] .settings-view label {
+[data-layout="phone"] .settings-view label:where(:not(.ui-field-label)) {
   width: 100%;
   min-height: 44px;
 }
