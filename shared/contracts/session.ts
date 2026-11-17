@@ -32,7 +32,7 @@ export const ASK_USER_QUESTION_TOOL_NAME = 'AskUserQuestion';
 export const REQUEST_USER_INPUT_TOOL_NAME = 'request_user_input';
 
 export const CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS = 4000;
-export const CONVERSATION_PERMISSION_HOOK_EVENT = 'permissionrequest-conversation';
+export { CONVERSATION_PERMISSION_HOOK_EVENT } from '../question-tool-hold.ts';
 export const CONVERSATION_TOOL_RESULT_HOOK_EVENT = 'posttooluse-conversation';
 const CONVERSATION_QUESTION_MAX_CHARS = 1000;
 const CONVERSATION_ANSWER_MAX_CHARS = 2000;
@@ -49,11 +49,14 @@ export const ConversationQuestion = z.object({
 
 export const ConversationApproval = z.object({
   requestId: z.union([z.string().min(1).max(128), z.number().int()]),
-  kind: z.literal('question'),
+  kind: z.enum(['question', 'permission']),
+  toolName: z.string().min(1).max(200).optional(),
   summary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
   isSummaryTruncated: z.boolean(),
   questions: z.array(ConversationQuestion).min(1).max(4).optional(),
 });
+
+export const PermissionDecision = z.enum(['allow', 'deny']);
 
 export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION_MAX_CHARS), z.string().max(CONVERSATION_ANSWER_MAX_CHARS));
 
@@ -118,6 +121,8 @@ export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;
 export type ConversationAnswers = z.infer<typeof ConversationAnswers>;
+export type PermissionDecision = z.infer<typeof PermissionDecision>;
+export type ChatApprovalMode = 'off' | 'questions' | 'questions-and-permissions';
 
 export const AGENT_URL_ENV = 'GLIMMERVOID_AGENT_URL';
 export const SIGN_URL_ENV = 'GLIMMERVOID_SIGN_URL';

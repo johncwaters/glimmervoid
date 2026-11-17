@@ -1,4 +1,5 @@
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
+import type { ChatApprovalMode } from '../../shared/contracts/session.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 import type { SessionAgentHomeChoice } from "../agent-home.ts";
 import claudeCode from "./claude-code.ts";
@@ -69,6 +70,7 @@ interface ArgvConfigInjection {
     hookTools?: ResolvedHookTool[];
     userHooks?: readonly UserHook[];
     observeToolCalls?: boolean;
+    chatApprovals?: ChatApprovalMode;
     hasHomeHooks?: boolean;
   }): string[] | null;
   projectConfigCandidates: readonly ProjectConfigCandidate[];

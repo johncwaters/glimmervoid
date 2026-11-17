@@ -191,6 +191,16 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     sendError(ws, 'That question was already answered or is no longer waiting.', { id: session.id });
   }
 
+  function handleDecideApproval(msg: ClientMessageOf<'decide-approval'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    if (session.decideConversationApproval(msg.requestId, msg.decision)) return;
+    sendError(ws, 'That permission prompt was already answered or is no longer waiting.', { id: session.id });
+  }
+
   function handlePackSessionSend(msg: ClientMessageOf<'pack-session-send'>, ws: ControlSocket): void {
     if (!packLaunchers?.panelMaySend(msg.pack, msg.panelId)) {
       replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No approved panel ${msg.panelId} in pack ${msg.pack} lists sessions under acts` });
@@ -838,6 +848,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'set-session-question-manager': handleSetSessionQuestionManager,
     'plan-decision': handlePlanDecision,
     'answer-approval': handleAnswerApproval,
+    'decide-approval': handleDecideApproval,
     'chat-send': handleChatSend,
     'switch-session-account': handleSwitchSessionAccount,
     'link-session-pr': handleLinkSessionPr,

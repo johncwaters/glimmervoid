@@ -9,6 +9,7 @@ import { Session } from '../session/sessions.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
+import { permissionRequestDecisionOf } from './helpers/permission-reply.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
 const QUESTION_REQUEST = {
@@ -36,7 +37,7 @@ test('Chat reads a held question from the session status and answers it and send
     await session.start();
     session.transition('first_output');
     session.transition('new_output');
-    const held = session.holdClaudePermission(QUESTION_REQUEST, new AbortController().signal);
+    const held = session.holdConversationPermission(QUESTION_REQUEST, new AbortController().signal);
     assert.ok(held);
     const approval = session.toSnapshot().conversationApproval;
     assert.equal(approval?.kind, 'question');
@@ -45,7 +46,7 @@ test('Chat reads a held question from the session status and answers it and send
 
     connection.send({ type: 'answer-approval', id: session.id, requestId: approval?.requestId, answers: { 'Which store?': 'postgres' } });
     const reply = await held;
-    assert.deepEqual(reply?.hookSpecificOutput.decision.behavior, 'allow');
+    assert.deepEqual(permissionRequestDecisionOf(reply)?.behavior, 'allow');
     assert.match(JSON.stringify(reply), /postgres/);
     assert.equal(session.toSnapshot().conversationApproval, null);
     await new Promise((resolve) => setImmediate(resolve));

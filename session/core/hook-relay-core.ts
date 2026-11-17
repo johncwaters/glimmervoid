@@ -1,5 +1,5 @@
 import { isLoopbackHostname } from "../../shared/loopback-hosts.ts";
-import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/question-tool-hold.ts";
+import { HELD_RELAY_HOOK_EVENTS, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/question-tool-hold.ts";
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 
 const MAX_PAYLOAD_BYTES = 65536;
@@ -70,7 +70,7 @@ function decideRelayPost(
   if (payloadBytes > MAX_PAYLOAD_BYTES) return refusedPost("payload-too-large");
   const target = resolveHookTarget(baseUrl, name);
   if (!target.url) return refusedPost(target.reason);
-  const postTimeoutMs = name === QUESTION_TOOL_HOLD_HOOK_EVENT ? QUESTION_TOOL_HOLD_TIMEOUT_MS : POST_TIMEOUT_MS;
+  const postTimeoutMs = HELD_RELAY_HOOK_EVENTS.has(name) ? QUESTION_TOOL_HOLD_TIMEOUT_MS : POST_TIMEOUT_MS;
   return { post: true, url: target.url, event: name, postTimeoutMs, reason: "ok" };
 }
 

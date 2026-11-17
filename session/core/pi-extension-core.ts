@@ -1,6 +1,7 @@
 import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
-import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
+import { READ_ONLY_COMMAND } from "../../shared/read-only-command.ts";
 
 const SAFE_LAUNCH_PART_RE = /^[^\0\r\n]+$/;
 const PI_LAUNCH_ENV_NAME = "GLIMMERVOID_PI_LAUNCH";
@@ -16,7 +17,8 @@ const QUESTION_TOOL_NAME = "${ASK_USER_QUESTION_TOOL_NAME}";
 const GATED_TOOL_NAMES = { bash: "Bash", powershell: "PowerShell", write: "Write", edit: "Edit" };
 const RELAYED_TOOL_INPUT_MAX_CHARACTERS = 16000;
 const SESSION_START_SOURCES = { new: "clear" };
-const READ_ONLY_COMMAND = /^(?:git branch|(?:ls|pwd|cat|head|tail|wc|stat|which|git (?:status|diff|log|show|rev-parse))(?: (?!--output)[\\w./:@,+-]+)*)$/;
+const READ_ONLY_COMMAND = ${READ_ONLY_COMMAND};
+const PERMISSION_HOLD_EVENT = "${CONVERSATION_PERMISSION_HOOK_EVENT}";
 const OWN_ANSWER_CHOICE = "Type my own answer";
 const QUESTION_PARAMETERS = {
   type: "object",
@@ -62,6 +64,28 @@ function parsedReply(output) {
   } catch {
     return null;
   }
+}
+
+function heldRelay(event, payload, signal) {
+  if (!process.env[HOOK_URL_ENV]) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const child = spawn(RELAY_LAUNCH[0], [...RELAY_LAUNCH.slice(1), event], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+    let output = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", () => resolve(parsedReply(output)));
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify({ hook_event_name: event, ...payload }));
+    signal.addEventListener("abort", () => child.kill(), { once: true });
+  });
+}
+
+function heldBehavior(reply) {
+  const behavior = reply?.hookSpecificOutput?.decision?.behavior;
+  return behavior === "allow" || behavior === "deny" ? behavior : null;
 }
 
 function relayForReply(event, payload) {
@@ -198,9 +222,17 @@ export default function (pi) {
     const toolPayload = payload({ tool_name: gatedToolName, tool_input: relayedToolInput(event.input) });
     relay("PermissionRequest", toolPayload);
     openPhases.add("ownPrompt");
-    const isAllowed = await ctx.ui.confirm("Allow " + event.toolName + "?", permissionSummary(event.toolName, event.input)).finally(() => {
+    const ownPrompt = new AbortController();
+    const chatHold = new AbortController();
+    const chatAnswer = heldRelay(PERMISSION_HOLD_EVENT, toolPayload, chatHold.signal).then(heldBehavior);
+    void chatAnswer.then((behavior) => {
+      if (behavior !== null) ownPrompt.abort();
+    });
+    const isAllowedInTerminal = await ctx.ui.confirm("Allow " + event.toolName + "?", permissionSummary(event.toolName, event.input), { signal: ownPrompt.signal }).finally(() => {
       openPhases.delete("ownPrompt");
     });
+    const isAllowed = ownPrompt.signal.aborted ? (await chatAnswer) === "allow" : isAllowedInTerminal;
+    chatHold.abort();
     relay("PermissionResult", toolPayload);
     if (isAllowed) return;
     return { block: true, reason: "The operator denied this " + event.toolName + " call." };

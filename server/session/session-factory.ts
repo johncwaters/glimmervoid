@@ -1,4 +1,5 @@
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
+import { chatApprovalModeFor } from '../../session/core/claude-approval-core.ts';
 import path from 'node:path';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
@@ -97,6 +98,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       path: project.path,
       workspaceRepos: project.repos,
       dangerouslySkipPermissions: skipPermissions,
+      readChatApprovals: () => chatApprovalModeFor((dependencies.getConfig?.() ?? config).sessionChat?.enabled === true, skipPermissions),
       agent: project.agent,
       agentSetup: project.agentSetup ?? null,
       isCleanHome: project.agentHome === 'clean',

@@ -51,8 +51,8 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor, hookProfileOf } from "./adapters/index.ts";
-import type { AttentionOwner, ConversationAnswers, ConversationApproval, UnseenOutcome } from "../shared/contracts/session.ts";
-import type { ClaudeHookReply } from "./core/claude-approval-core.ts";
+import type { AttentionOwner, ChatApprovalMode, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome } from "../shared/contracts/session.ts";
+import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
 import {
@@ -195,6 +195,7 @@ interface SessionOptions {
   adapter?: AgentAdapter | null;
   bypassHookTrust?: boolean;
   holdsQuestionsForParent?: boolean;
+  readChatApprovals?: () => ChatApprovalMode;
   questionManager?: QuestionManagerPort | null;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
@@ -364,6 +365,7 @@ class Session extends EventEmitter {
   _isSaneYoloActive: boolean;
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
+  _readChatApprovals: () => ChatApprovalMode;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
@@ -429,6 +431,7 @@ class Session extends EventEmitter {
 
     bypassHookTrust = false,
     holdsQuestionsForParent = false,
+    readChatApprovals = () => "off",
     questionManager = null,
 
     titleQuietFallbackMs = 30000,
@@ -558,10 +561,12 @@ class Session extends EventEmitter {
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
     this._questionManager = isFirstClassAgent(this.agentId) && !ephemeral && !holdsQuestionsForParent ? questionManager : null;
+    this._readChatApprovals = isFirstClassAgent(this.agentId) ? readChatApprovals : () => "off";
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
       questionDenyReply: this._adapter.questionDenyReply ?? "hook-specific-output",
       holdsQuestionsForParent,
+      readChatApprovals: this._readChatApprovals,
       questionManager: this._questionManager,
       port: {
         emit: (event, detail) => this.emit(event, detail),
@@ -641,6 +646,7 @@ class Session extends EventEmitter {
       settingsPermissions,
       detectScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
+      readChatApprovals: this._readChatApprovals,
       enableProjectMcp: !!enableProjectMcp,
       hookTools: this._hookTools,
       planLimits: this._planLimits,
@@ -1276,7 +1282,7 @@ class Session extends EventEmitter {
     return this._approvals.conversationApproval;
   }
 
-  holdClaudePermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
+  holdConversationPermission(payload: unknown, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null {
     return this._approvals.hold(payload, abandoned);
   }
 
@@ -1302,6 +1308,10 @@ class Session extends EventEmitter {
 
   answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {
     return this._approvals.answer(requestId, answers);
+  }
+
+  decideConversationApproval(requestId: number | string, decision: PermissionDecision): boolean {
+    return this._approvals.decide(requestId, decision);
   }
 
   releaseQuestionHold(requestId: string): boolean {

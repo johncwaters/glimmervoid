@@ -7,7 +7,8 @@ import path from "node:path";
 import { execFileSync } from "../../server/child-process-safe.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
-import { REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { CONVERSATION_PERMISSION_HOOK_EVENT, REQUEST_USER_INPUT_TOOL_NAME } from "../../shared/contracts/session.ts";
+import type { ChatApprovalMode } from "../../shared/contracts/session.ts";
 import { classifyAgentTitle, isBrailleChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
@@ -218,6 +219,7 @@ function buildHookArgs({
   hookTools = [],
   userHooks = [],
   observeToolCalls = false,
+  chatApprovals = "off",
   hasHomeHooks = false,
 }: {
   relayLaunch?: readonly string[];
@@ -228,6 +230,7 @@ function buildHookArgs({
   hookTools?: ResolvedHookTool[];
   userHooks?: readonly UserHook[];
   observeToolCalls?: boolean;
+  chatApprovals?: ChatApprovalMode;
   hasHomeHooks?: boolean;
 } = {}): string[] | null {
   const args = bypassHookTrust ? [TRUST_BYPASS_FLAG] : [];
@@ -262,6 +265,11 @@ function buildHookArgs({
     const questionHoldCommand = buildHookCommand(relayLaunch, QUESTION_TOOL_HOLD_HOOK_EVENT);
     if (!questionHoldCommand) return null;
     preToolUseGroups.push(`{matcher='${QUESTION_HOLD_MATCHER}',hooks=[{type='command',command='${questionHoldCommand}'}]}`);
+  }
+  if (chatApprovals === "questions-and-permissions" && !hasHomeHooks) {
+    const permissionHoldCommand = buildHookCommand(relayLaunch, CONVERSATION_PERMISSION_HOOK_EVENT);
+    if (!permissionHoldCommand) return null;
+    groupsByEvent.set("PermissionRequest", [...(groupsByEvent.get("PermissionRequest") ?? []), `{hooks=[{type='command',command='${permissionHoldCommand}'}]}`]);
   }
   const groups = argvHookTools.flatMap((tool) => {
     const group = HOOK_TOOLS[tool.id].codexGroup(tool);
@@ -339,6 +347,11 @@ function codexHomeHooks(plan: CodexHookPlan = hookPlanForInstalledCodex()): Code
     if (!questionHoldCommand) return null;
     hooks.push({ event: "PreToolUse", matcher: QUESTION_HOLD_MATCHER, command: questionHoldCommand });
   }
+  if (plan.events.includes("PermissionRequest")) {
+    const permissionHoldCommand = buildHookCommand(RELAY_LAUNCH, CONVERSATION_PERMISSION_HOOK_EVENT);
+    if (!permissionHoldCommand) return null;
+    hooks.push({ event: "PermissionRequest", matcher: null, command: permissionHoldCommand });
+  }
   const saneYoloCommand = saneYoloHookCommand();
   if (!saneYoloCommand) return null;
   hooks.push({ event: "PreToolUse", matcher: "Bash", command: saneYoloCommand });
@@ -352,6 +365,7 @@ function saneYoloHookCommand(): string | null {
 function installedHookRoute(command: string, saneYoloCommand: string | null, questionHoldCommand: string | null): string | null {
   if (command === saneYoloCommand) return "saneYolo";
   if (command === questionHoldCommand) return QUESTION_TOOL_HOLD_HOOK_EVENT;
+  if (command === buildHookCommand(RELAY_LAUNCH, CONVERSATION_PERMISSION_HOOK_EVENT)) return CONVERSATION_PERMISSION_HOOK_EVENT;
   return null;
 }
 

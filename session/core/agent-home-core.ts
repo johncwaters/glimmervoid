@@ -16,6 +16,7 @@ interface KimiHooksBlockOptions {
   toolEvents: readonly string[];
   matchedToolNames: readonly string[];
   questionHold: { toolName: string; event: string; timeoutSeconds: number };
+  permissionHold: { toolNames: readonly string[]; event: string; timeoutSeconds: number };
   saneYolo: { relayLaunch: readonly string[]; toolNames: readonly string[]; agentFlavor: string };
 }
 
@@ -55,6 +56,9 @@ function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
   const questionHoldCommand = buildHookCommand(options.relayLaunch, options.questionHold.event);
   if (!questionHoldCommand) return null;
   lines.push(...hookTable("PreToolUse", questionHoldCommand, `^${options.questionHold.toolName}$`, options.questionHold.timeoutSeconds));
+  const permissionHoldCommand = buildHookCommand(options.relayLaunch, options.permissionHold.event);
+  if (!permissionHoldCommand) return null;
+  lines.push(...hookTable("PreToolUse", permissionHoldCommand, `^(?:${options.permissionHold.toolNames.join("|")})$`, options.permissionHold.timeoutSeconds));
   const saneYoloCommand = buildHookCommand(options.saneYolo.relayLaunch, "saneYolo", [options.saneYolo.agentFlavor]);
   if (!saneYoloCommand) return null;
   for (const toolName of options.saneYolo.toolNames) lines.push(...hookTable("PreToolUse", saneYoloCommand, `^${toolName}$`));

@@ -3,7 +3,7 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 
 import { hookLaunch } from "../../server/runtime-paths.ts";
-import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
 import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
@@ -48,6 +48,7 @@ const MATCHED_TOOL_NAMES: readonly string[] = Object.freeze([ASK_USER_QUESTION_T
 const HOOKS_BLOCK_REFUSAL = "the hook relay path cannot be written into a kimi hooks block";
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 const SANE_YOLO_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Read", "ReadMediaFile", "Write", "Edit", "Glob", "Grep"]);
+const PERMISSION_GATED_TOOL_NAMES: readonly string[] = Object.freeze(["Bash", "Write", "Edit"]);
 
 const envProfile: AgentEnvProfile = {
   scrub: [],
@@ -147,6 +148,7 @@ function expectedHooksBlock(): string | null {
     toolEvents: TOOL_EVENTS,
     matchedToolNames: MATCHED_TOOL_NAMES,
     questionHold: { toolName: ASK_USER_QUESTION_TOOL_NAME, event: QUESTION_TOOL_HOLD_HOOK_EVENT, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS },
+    permissionHold: { toolNames: PERMISSION_GATED_TOOL_NAMES, event: CONVERSATION_PERMISSION_HOOK_EVENT, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS },
     saneYolo: { relayLaunch: HOOK_TOOL_RELAY_LAUNCH, toolNames: SANE_YOLO_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
   });
 }
@@ -156,8 +158,9 @@ function describeInstalledHooks(): InstalledHooks {
   const relayedHooks = HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null }));
   const matchedToolHooks = TOOL_EVENTS.flatMap((event) => MATCHED_TOOL_NAMES.map((toolName) => ({ event, matcher: `^${toolName}$`, route: null })));
   const questionHoldHook = { event: "PreToolUse", matcher: `^${ASK_USER_QUESTION_TOOL_NAME}$`, route: QUESTION_TOOL_HOLD_HOOK_EVENT };
+  const permissionHoldHook = { event: "PreToolUse", matcher: `^(?:${PERMISSION_GATED_TOOL_NAMES.join("|")})$`, route: CONVERSATION_PERMISSION_HOOK_EVENT };
   const saneYoloHooks = SANE_YOLO_TOOL_NAMES.map((toolName) => ({ event: "PreToolUse", matcher: `^${toolName}$`, route: "saneYolo" }));
-  return { version: null, isBestEffort: false, hooks: [...relayedHooks, ...matchedToolHooks, questionHoldHook, ...saneYoloHooks] };
+  return { version: null, isBestEffort: false, hooks: [...relayedHooks, ...matchedToolHooks, questionHoldHook, permissionHoldHook, ...saneYoloHooks] };
 }
 
 function readTextOrNull(filePath: string): string | null {

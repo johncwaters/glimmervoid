@@ -1,11 +1,11 @@
 import { ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME } from "../shared/contracts/session.ts";
-import type { ConversationAnswers, ConversationApproval, ConversationQuestion } from "../shared/contracts/session.ts";
+import type { ChatApprovalMode, ConversationAnswers, ConversationApproval, ConversationQuestion, PermissionDecision } from "../shared/contracts/session.ts";
 import { MANAGER_DECISION_AUDIT_KIND, MANAGER_DECISION_EVENT, QUESTION_TOOL_HOLD_HOOK_EVENT } from "../shared/contracts/question-manager.ts";
 import type { ManagerAnswer, ManagerDecision, ManagerVerdict } from "../shared/contracts/question-manager.ts";
 import type { QuestionDenyReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
-import { claudeAnswerReply, claudeApprovalFor, isHoldReleasedByHookEvent, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
-import type { ClaudeHookReply, ClaudePermissionRequest } from "./core/claude-approval-core.ts";
+import { claudeAnswerReply, claudeApprovalFor, claudePermissionApprovalFor, isHoldReleasedByHookEvent, isReadOnlyCommandRequest, permissionReplyFor, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
+import type { ClaudeHookReply, ClaudePermissionRequest, PermissionHookReply } from "./core/claude-approval-core.ts";
 import { clock } from '../shared/clock.ts';
 import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { claudePlanDecisionReply, isExitPlanModeTool, nextPlanGate, planTextOfToolInput, shouldClearPlanGate } from "./core/plan-gate-core.ts";
@@ -14,7 +14,7 @@ import type { PlanGateEvent } from "./core/plan-gate-core.ts";
 interface ClaudeApprovalHold {
   request: ClaudePermissionRequest;
   approval: ConversationApproval;
-  resolve: (reply: ClaudeHookReply | null) => void;
+  resolve: (reply: PermissionHookReply | null) => void;
 }
 
 interface ApprovalPort<Signal extends QuestionStatusSignal> {
@@ -53,6 +53,7 @@ interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
   agentId: string;
   questionDenyReply: QuestionDenyReply;
   holdsQuestionsForParent: boolean;
+  readChatApprovals: () => ChatApprovalMode;
   questionManager: QuestionManagerPort | null;
   port: ApprovalPort<Signal>;
 }
@@ -76,17 +77,18 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   proposePlan(planText: string): void;
   decidePlan(decision: PlanDecision, feedback: string | null): { ok: true; isHeld: boolean } | { ok: false; reason: string };
   readonly latestManagerDecisionSeq: number;
-  hold(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null;
+  hold(payload: unknown, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null;
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
   parksQuestionStatus(signal: Signal): boolean;
   releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void;
   releaseAll(): void;
   yieldManagerDecisions(): void;
   answer(requestId: number | string, answers: ConversationAnswers): boolean;
+  decide(requestId: number | string, decision: PermissionDecision): boolean;
   release(requestId: string): boolean;
 }
 
-function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agentId, questionDenyReply, holdsQuestionsForParent, questionManager, port }: SessionApprovalHoldsOptions<Signal>): SessionApprovalHolds<Signal> {
+function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agentId, questionDenyReply, holdsQuestionsForParent, readChatApprovals, questionManager, port }: SessionApprovalHoldsOptions<Signal>): SessionApprovalHolds<Signal> {
   let conversationApproval: ConversationApproval | null = null;
   let holds: ClaudeApprovalHold[] = [];
   let nextApprovalNumber = 1;
@@ -335,17 +337,31 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     port.emit("conversation-change", { conversationApproval });
   }
 
-  function hold(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
-    if (agentId !== "claude-code") return null;
+  function hold(payload: unknown, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null {
     const request = parseClaudePermissionRequest(payload);
     if (!request) return null;
-    if (request.toolName !== ASK_USER_QUESTION_TOOL_NAME) return null;
-    if (!holdsQuestionsForParent) return questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned, (approval, verdict) => replyFromVerdict(request, approval, verdict)) : null;
+    if (request.toolName === ASK_USER_QUESTION_TOOL_NAME) return holdQuestion(request, abandoned);
+    if (readChatApprovals() !== "questions-and-permissions" || isExitPlanModeTool(request.toolName) || isReadOnlyCommandRequest(request)) return null;
+    return holdForChat(request, (requestId) => claudePermissionApprovalFor(request, requestId), abandoned);
+  }
+
+
+  function holdQuestion(request: ClaudePermissionRequest, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null {
+    if (agentId !== "claude-code") return null;
+    if (holdsQuestionsForParent) return holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned);
+    const managerReply = questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned, (approval, verdict) => replyFromVerdict(request, approval, verdict)) : null;
+    if (readChatApprovals() === "off") return managerReply;
+    const holdQuestionForChat = () => holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned);
+    if (managerReply === null) return holdQuestionForChat();
+    return managerReply.then((reply) => (reply !== null || abandoned.aborted ? reply : holdQuestionForChat()));
+  }
+
+  function holdForChat(request: ClaudePermissionRequest, approvalFor: (requestId: string) => ConversationApproval, abandoned: AbortSignal): Promise<PermissionHookReply | null> {
     releaseHolds((hold) => hold.request.agentKey === request.agentKey);
     const requestId = `claude-${nextApprovalNumber}`;
     nextApprovalNumber += 1;
     return new Promise((resolve) => {
-      const hold: ClaudeApprovalHold = { request, approval: claudeApprovalFor(request, requestId), resolve };
+      const hold: ClaudeApprovalHold = { request, approval: approvalFor(requestId), resolve };
       holds.push(hold);
       abandoned.addEventListener("abort", () => releaseHolds((candidate) => candidate === hold), { once: true });
       showFirstApproval();
@@ -384,6 +400,15 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     return true;
   }
 
+  function decide(requestId: number | string, decision: PermissionDecision): boolean {
+    const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
+    if (hold?.approval.kind !== "permission") return false;
+    holds = holds.filter((candidate) => candidate !== hold);
+    hold.resolve(permissionReplyFor(agentId, decision));
+    showFirstApproval();
+    return true;
+  }
+
   function release(requestId: string): boolean {
     const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
     if (!hold) return false;
@@ -412,6 +437,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     releaseAfterHookEvent,
     releaseAll,
     answer,
+    decide,
     release,
   };
 }

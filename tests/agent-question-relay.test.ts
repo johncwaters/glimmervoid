@@ -23,6 +23,7 @@ import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
+import { permissionRequestDecisionOf } from './helpers/permission-reply.ts';
 
 test('a parent reads and answers held child questions through the agent API or releases them to the operator', async (context) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-relay-'));
@@ -72,7 +73,7 @@ test('a parent reads and answers held child questions through the agent API or r
     assert.equal(spawned.status, 200);
     const child = [...agentSessions.values()][0];
     assert.ok(child);
-    assert.equal(child.holdClaudePermission({ tool_name: 'Bash', tool_input: { command: 'pwd' } }, new AbortController().signal), null);
+    assert.equal(child.holdConversationPermission({ tool_name: 'Bash', tool_input: { command: 'pwd' } }, new AbortController().signal), null);
     child.transition('first_output');
     child.transition('new_output');
     const questions = [
@@ -80,7 +81,7 @@ test('a parent reads and answers held child questions through the agent API or r
       { question: 'Add an index?', options: [{ label: 'yes' }, { label: 'no' }] },
     ];
     const payload = { tool_name: 'AskUserQuestion', tool_input: { questions } };
-    const held = child.holdClaudePermission(payload, new AbortController().signal);
+    const held = child.holdConversationPermission(payload, new AbortController().signal);
     assert.ok(held);
     assert.match(parentWrites.join(''), new RegExp(`glimmervoid read ${child.id}`));
     child.transition('prompt_detected');
@@ -122,7 +123,7 @@ test('a parent reads and answers held child questions through the agent API or r
     });
     assert.equal(child._conversationApproval, null);
     child.transition('new_output');
-    const handedOff = child.holdClaudePermission(payload, new AbortController().signal);
+    const handedOff = child.holdConversationPermission(payload, new AbortController().signal);
     assert.ok(handedOff);
     assert.equal(await runAgentApiCli(['answer', child.name, '--operator']), 0);
     assert.equal(await handedOff, null);
@@ -135,7 +136,7 @@ test('a parent reads and answers held child questions through the agent API or r
     child.transition('new_output');
     child.transition('prompt_detected');
     assert.equal(child.state, STATES.WAITING);
-    const heldAfterWaiting = child.holdClaudePermission(payload, new AbortController().signal);
+    const heldAfterWaiting = child.holdConversationPermission(payload, new AbortController().signal);
     assert.ok(heldAfterWaiting);
     const waitingFirstRead = await post('read', { child: child.id });
     const waitingFirstNotes = AgentReadReply.parse(await waitingFirstRead.json()).channels[0].entries;
@@ -143,7 +144,7 @@ test('a parent reads and answers held child questions through the agent API or r
     assert.equal(await runAgentApiCli(['answer', child.id, '--operator']), 0);
     assert.equal(await heldAfterWaiting, null);
     const tooManyQuestions = [1, 2, 3, 4, 5].map((number) => ({ question: `Question ${number}?`, options: [{ label: 'yes' }, { label: 'no' }] }));
-    const heldUnparsed = child.holdClaudePermission({ tool_name: 'AskUserQuestion', tool_input: { questions: tooManyQuestions } }, new AbortController().signal);
+    const heldUnparsed = child.holdConversationPermission({ tool_name: 'AskUserQuestion', tool_input: { questions: tooManyQuestions } }, new AbortController().signal);
     assert.ok(heldUnparsed);
     const unparsedRead = await post('read', { child: child.id });
     const unparsedNote = AgentReadReply.parse(await unparsedRead.json()).channels[0].entries[0].text;
@@ -154,7 +155,7 @@ test('a parent reads and answers held child questions through the agent API or r
     assert.match((await unparsedRefused.json()).error, /toOperator set/);
     assert.equal(await runAgentApiCli(['answer', child.id, '--operator']), 0);
     assert.equal(await heldUnparsed, null);
-    assert.equal(parent.holdClaudePermission(payload, new AbortController().signal), null);
+    assert.equal(parent.holdConversationPermission(payload, new AbortController().signal), null);
     assert.equal(parent.releaseQuestionHold('missing'), false);
   } finally {
     if (previousAgentUrl === undefined) delete process.env[AGENT_URL_ENV];
@@ -185,8 +186,8 @@ test('the question manager answers a covered question only in a session switched
     session.transition('new_output');
     const runningState = session.state;
     session.ingestHookSignal(questionStatus('Which store?'));
-    const answered = await session.holdClaudePermission(askPayload('Which store?'), new AbortController().signal);
-    assert.deepEqual(answered?.hookSpecificOutput.decision, {
+    const answered = await session.holdConversationPermission(askPayload('Which store?'), new AbortController().signal);
+    assert.deepEqual(permissionRequestDecisionOf(answered), {
       behavior: 'allow',
       updatedInput: { questions: askPayload('Which store?').tool_input.questions, answers: { 'Which store?': 'sqlite' } },
     });
@@ -195,7 +196,7 @@ test('the question manager answers a covered question only in a session switched
     const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
     assert.deepEqual(managerEntries().map((entry) => [entry.outcome, entry.rule]), [['answered', 'store choice']]);
     session.ingestHookSignal(questionStatus('Delete the sqlite store?'));
-    assert.equal(await session.holdClaudePermission(askPayload('Delete the sqlite store?'), new AbortController().signal), null);
+    assert.equal(await session.holdConversationPermission(askPayload('Delete the sqlite store?'), new AbortController().signal), null);
     assert.equal(session.state, STATES.WAITING);
     assert.match(String(managerEntries().at(-1)?.reason), /delete/i);
     assert.equal(session.passedQuestionSeq, managerEntries().at(-1)?.seq);
@@ -203,7 +204,7 @@ test('the question manager answers a covered question only in a session switched
     assert.equal(session.passedQuestionSeq, managerEntries().at(-1)?.seq);
     session.ingestHookSignal({ signal: 'working', source: 'hook', ts: Date.now(), event: 'PostToolUse', payload: askPayload('Delete the sqlite store?') });
     assert.equal(session.passedQuestionSeq, 0);
-    assert.equal(await switchedOff.holdClaudePermission(askPayload('Which store?'), new AbortController().signal), null);
+    assert.equal(await switchedOff.holdConversationPermission(askPayload('Which store?'), new AbortController().signal), null);
     const codexAsk = { tool_name: 'request_user_input', tool_input: { questions: [{ header: 'Store', id: 'store', question: 'Which store?', options: [{ label: 'sqlite', description: '' }, { label: 'postgres', description: '' }] }] } };
     codex.transition('user_start');
     codex.transition('spawn_success', { spawnCwdExists: true });
@@ -219,14 +220,14 @@ test('the question manager answers a covered question only in a session switched
     assert.equal(session.holdQuestionTool(codexAsk, new AbortController().signal), null);
     const unconfigured = factory.makeSession({ id: 'unconfigured', name: 'unconfigured', path: projectPath, questionManager: createQuestionManager({ getSettings: () => undefined }).forSession({ projectPath, isOn: true }) });
     const recommendedAsk = (labels: string[]) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which layout?', options: labels.map((label) => ({ label })) }] } });
-    const answeredByDefault = await unconfigured.holdClaudePermission(recommendedAsk(['Grid (Recommended)', 'List']), new AbortController().signal);
-    assert.deepEqual(answeredByDefault?.hookSpecificOutput.decision, {
+    const answeredByDefault = await unconfigured.holdConversationPermission(recommendedAsk(['Grid (Recommended)', 'List']), new AbortController().signal);
+    assert.deepEqual(permissionRequestDecisionOf(answeredByDefault), {
       behavior: 'allow',
       updatedInput: { questions: recommendedAsk(['Grid (Recommended)', 'List']).tool_input.questions, answers: { 'Which layout?': 'Grid (Recommended)' } },
     });
     assert.equal(unconfigured.auditLog.filter((entry) => entry.kind === 'question-manager').at(-1)?.rule, 'Take recommended');
-    assert.equal(await unconfigured.holdClaudePermission(recommendedAsk(['Grid (Recommended)', 'List (Recommended)']), new AbortController().signal), null);
-    assert.equal(await unconfigured.holdClaudePermission(recommendedAsk(['Grid', 'List']), new AbortController().signal), null);
+    assert.equal(await unconfigured.holdConversationPermission(recommendedAsk(['Grid (Recommended)', 'List (Recommended)']), new AbortController().signal), null);
+    assert.equal(await unconfigured.holdConversationPermission(recommendedAsk(['Grid', 'List']), new AbortController().signal), null);
   } finally {
     for (const created of factory.created) created.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });
@@ -256,7 +257,7 @@ test('the operator switches the question manager per session over the control ch
   })(session);
   const connection = connectControl<{ type: string; message?: string }>(createControlServer(controlDeps(config, { sessions: new Map(factory.created.map((created) => [created.id, created])) })));
   const askPayload = { tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which store?', options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } };
-  const answerOf = async () => (await session.holdClaudePermission(askPayload, new AbortController().signal))?.hookSpecificOutput.decision.behavior ?? null;
+  const answerOf = async () => permissionRequestDecisionOf(await session.holdConversationPermission(askPayload, new AbortController().signal))?.behavior ?? null;
   try {
     session.transition('user_start');
     session.transition('spawn_success', { spawnCwdExists: true });
@@ -311,30 +312,30 @@ test('the manager lane answers from a plain-language rule only with exact labels
   const askPayload = (question: string) => ({ tool_name: 'AskUserQuestion', tool_input: { questions: [{ question, options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } });
   const managerEntries = () => session.auditLog.filter((entry) => entry.kind === 'question-manager');
   try {
-    const answered = await session.holdClaudePermission(askPayload('Which store?'), new AbortController().signal);
-    assert.deepEqual(answered?.hookSpecificOutput.decision, {
+    const answered = await session.holdConversationPermission(askPayload('Which store?'), new AbortController().signal);
+    assert.deepEqual(permissionRequestDecisionOf(answered), {
       behavior: 'allow',
       updatedInput: { questions: askPayload('Which store?').tool_input.questions, answers: { 'Which store?': 'postgres' } },
     });
     assert.match(laneQuestionTexts[0] ?? '', /Which store\?/);
     assert.deepEqual(managerEntries().map((entry) => [entry.outcome, entry.by]), [['answered', 'manager']]);
     assert.match(String(managerEntries()[0]?.rule), /^rule 1: Prefer the database/);
-    assert.equal(await session.holdClaudePermission(askPayload('Which cache?'), new AbortController().signal), null);
+    assert.equal(await session.holdConversationPermission(askPayload('Which cache?'), new AbortController().signal), null);
     assert.match(String(managerEntries().at(-1)?.reason), /exact option labels/);
     const readmeQuestion = { question: 'How long should the README be?', options: [{ label: 'short' }, { label: 'long' }] };
     const mixedAsk = { tool_name: 'AskUserQuestion', tool_input: { questions: [readmeQuestion, ...askPayload('Which store?').tool_input.questions] } };
-    const mixed = await session.holdClaudePermission(mixedAsk, new AbortController().signal);
-    assert.deepEqual(mixed?.hookSpecificOutput.decision, {
+    const mixed = await session.holdConversationPermission(mixedAsk, new AbortController().signal);
+    assert.deepEqual(permissionRequestDecisionOf(mixed), {
       behavior: 'allow',
       updatedInput: { questions: mixedAsk.tool_input.questions, answers: { 'How long should the README be?': 'short', 'Which store?': 'sqlite' } },
     });
     assert.doesNotMatch(laneQuestionTexts[2] ?? '', /README/);
-    const heldUntilTyping = session.holdClaudePermission(askPayload('Which queue?'), new AbortController().signal);
+    const heldUntilTyping = session.holdConversationPermission(askPayload('Which queue?'), new AbortController().signal);
     await new Promise((resolve) => setImmediate(resolve));
     session.noteOperatorInput('a');
     assert.equal(await heldUntilTyping, null);
     assert.match(String(managerEntries().at(-1)?.reason), /typed/);
-    const heldUntilPaste = session.holdClaudePermission(askPayload('Which broker?'), new AbortController().signal);
+    const heldUntilPaste = session.holdConversationPermission(askPayload('Which broker?'), new AbortController().signal);
     await new Promise((resolve) => setImmediate(resolve));
     session.noteOperatorDraft();
     assert.equal(await heldUntilPaste, null);

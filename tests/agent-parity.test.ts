@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { STATES } from '../shared/states.ts';
@@ -10,6 +11,11 @@ import { TraceRecord } from '../shared/contracts/trace.ts';
 import { relaySourceOf, transcriptSourceOf } from '../server/trace/conversation-sources.ts';
 import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
+import { getAdapter, hookProfileOf } from '../session/adapters/index.ts';
+import { Session } from '../session/sessions.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
+import type { HookPayload, PermissionDecision } from '../shared/contracts/index.ts';
+import { capturingPty } from './helpers/fake-pty.ts';
 
 type FirstClassAgent = 'claude-code' | 'codex' | 'kimi' | 'opencode' | 'pi' | 'antigravity';
 type WaitingExpectation = 'required' | 'forbidden' | 'allowed';
@@ -289,5 +295,62 @@ for (const agent of FIRST_CLASS_AGENTS) {
     assert.doesNotMatch(toolResult?.content ?? '', SPILL_WRAPPER_TEXT);
     assert.match(toolResult?.content ?? '', /\d+\r?\n\d+\r?\n/);
     assert.equal(toolResult?.truncated, true);
+  });
+}
+
+function firstHookPayload(fixtureFile: string, event: string): HookPayload {
+  const record = fs.readFileSync(path.join(FIXTURE_DIRECTORY, fixtureFile), 'utf8').split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line)).find((line) => line.type === 'hook' && line.event === event);
+  assert.ok(record, `${fixtureFile} has no ${event} record`);
+  return record.payload;
+}
+
+function openCodeHeldRequest(): HookPayload {
+  const { props } = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIRECTORY, 'opencode-permission-asked.json'), 'utf8'));
+  return { tool_name: props.action, tool_input: { resources: props.resources } };
+}
+
+function antigravityHeldRequest(): HookPayload {
+  const adapter = getAdapter('antigravity');
+  assert.ok(adapter, 'Antigravity has no adapter');
+  const enrich = hookProfileOf(adapter)?.createPayloadEnricher?.();
+  assert.ok(enrich, 'Antigravity has no payload enricher');
+  return enrich(CONVERSATION_PERMISSION_HOOK_EVENT, firstHookPayload('v2-antigravity-approval-turn.jsonl', 'pretooluse'));
+}
+
+type ReplyPath = readonly string[];
+const PERMISSION_REQUEST_BEHAVIOR: ReplyPath = ['hookSpecificOutput', 'decision', 'behavior'];
+const CHAT_PERMISSION_BY_AGENT: Record<FirstClassAgent, { heldRequest: () => HookPayload; decisionAt: ReplyPath }> = {
+  'claude-code': { heldRequest: () => firstHookPayload('v2-claude-code-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR },
+  codex: { heldRequest: () => firstHookPayload('v2-codex-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR },
+  kimi: { heldRequest: () => firstHookPayload('v2-kimi-approval-turn.jsonl', 'permissionrequest'), decisionAt: ['hookSpecificOutput', 'permissionDecision'] },
+  opencode: { heldRequest: openCodeHeldRequest, decisionAt: PERMISSION_REQUEST_BEHAVIOR },
+  pi: { heldRequest: () => firstHookPayload('v2-pi-approval-turn.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR },
+  antigravity: { heldRequest: antigravityHeldRequest, decisionAt: ['decision'] },
+};
+
+function valueAt(reply: unknown, replyPath: ReplyPath): unknown {
+  return replyPath.reduce<unknown>((value, key) => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined), reply);
+}
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  test(`a permission prompt is held for Chat and answered with the agent's own reply on ${agent}`, async () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-permission-'));
+    const session = new Session({ id: `chat-permission-${agent}`, name: agent, path: projectPath, agent, readChatApprovals: () => 'questions-and-permissions', ptySpawn: () => capturingPty([]) });
+    const { heldRequest, decisionAt } = CHAT_PERMISSION_BY_AGENT[agent];
+    try {
+      for (const decision of ['allow', 'deny'] satisfies PermissionDecision[]) {
+        const held = session.holdConversationPermission(heldRequest(), new AbortController().signal);
+        assert.ok(held, 'the permission prompt was not held');
+        const approval = session.toSnapshot().conversationApproval;
+        assert.equal(approval?.kind, 'permission');
+        assert.ok(approval?.toolName, 'the held approval names no tool');
+        assert.ok(session.decideConversationApproval(approval.requestId, decision));
+        assert.equal(valueAt(await held, decisionAt), decision);
+        assert.equal(session.toSnapshot().conversationApproval, null);
+      }
+    } finally {
+      session.destroy();
+      fs.rmSync(projectPath, { recursive: true, force: true });
+    }
   });
 }

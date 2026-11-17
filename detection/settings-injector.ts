@@ -12,6 +12,7 @@ import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../session/core/user-hooks-core.ts';
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
+import type { ChatApprovalMode } from '../shared/contracts/session.ts';
 import { EXIT_PLAN_MODE_TOOL_NAME, PLAN_GATE_HOOK_EVENT } from '../shared/contracts/plan-gate.ts';
 import { RESUME_NOTE_HOOK_EVENT, REWAKE_RELAY_MODE } from '../shared/contracts/refocus.ts';
 import { safePathSegment } from '../shared/paths.ts';
@@ -65,6 +66,7 @@ interface BuildHookSettingsOptions {
   permissions?: SessionPermissions | null;
   detectScheduledWakeups?: boolean;
   observeToolCalls?: boolean;
+  chatApprovals?: ChatApprovalMode;
   enableProjectMcp?: boolean;
   hookTools?: ResolvedHookTool[];
   planLimits?: boolean;
@@ -195,7 +197,7 @@ function buildSessionStartCommand(
   return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -221,7 +223,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   const permissionRequestEntries = hooks.PermissionRequest;
   if (permissionRequestEntries) {
     permissionRequestEntries.push({
-      matcher: ASK_USER_QUESTION_TOOL_NAME,
+      ...(chatApprovals === 'questions-and-permissions' ? {} : { matcher: ASK_USER_QUESTION_TOOL_NAME }),
       hooks: [{ type: 'http', url: hookUrl(CONVERSATION_PERMISSION_HOOK_EVENT), timeout: HELD_HOOK_TIMEOUT_SEC }],
     });
     permissionRequestEntries.push({

@@ -1,4 +1,5 @@
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
+import type { ChatApprovalMode } from '../shared/contracts/session.ts';
 import fs from "node:fs";
 import path from "node:path";
 import { writeSessionSettings, generateToken } from "../detection/settings-injector.ts";
@@ -54,6 +55,7 @@ interface SessionHookOptions {
   settingsPermissions: Record<string, unknown> | null;
   detectScheduledWakeups: boolean;
   observeToolCalls: boolean;
+  readChatApprovals: () => ChatApprovalMode;
   enableProjectMcp: boolean;
   hookTools: ResolvedHookTool[];
   planLimits: boolean;
@@ -227,6 +229,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       hookTools: options.hookTools,
       userHooks: glimmervoidSuppliedHooks(),
       observeToolCalls: options.observeToolCalls,
+      chatApprovals: options.readChatApprovals(),
       hasHomeHooks: hookedHome !== null,
     });
     if (!args) {
@@ -358,6 +361,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         permissions: options.settingsPermissions,
         detectScheduledWakeups: options.detectScheduledWakeups,
         observeToolCalls: options.observeToolCalls,
+        chatApprovals: options.readChatApprovals(),
         enableProjectMcp: options.enableProjectMcp,
         carryOperatorPermissions: options.isCleanHome ?? false,
         agentSandboxSetting: options.isOsSandboxed ? { enabled: false } : null,

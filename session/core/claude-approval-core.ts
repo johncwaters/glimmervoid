@@ -6,10 +6,12 @@ import {
   ConversationQuestion,
 } from '../../shared/contracts/session.ts';
 import { PLAN_GATE_HOOK_EVENT } from '../../shared/contracts/plan-gate.ts';
-import type { ConversationAnswers, ConversationApproval } from '../../shared/contracts/session.ts';
+import { READ_ONLY_COMMAND } from '../../shared/read-only-command.ts';
+import type { ChatApprovalMode, ConversationAnswers, ConversationApproval, PermissionDecision } from '../../shared/contracts/session.ts';
 
 const MAIN_AGENT_KEY = '';
 const HOLD_KEEPING_HOOK_EVENTS: ReadonlySet<string> = new Set([
+  'agentstate',
   'notification',
   'permissionrequest',
   'permissionrequest-plan',
@@ -31,6 +33,14 @@ export interface ClaudePermissionRequest {
 }
 
 export type ClaudeHookReply = { hookSpecificOutput: { hookEventName: 'PermissionRequest'; decision: Record<string, unknown> } };
+type PreToolDecisionReply = { decision: PermissionDecision; reason: string };
+type PreToolUseReply = { hookSpecificOutput: { hookEventName: 'PreToolUse'; permissionDecision: PermissionDecision; permissionDecisionReason: string } };
+export type PermissionHookReply = ClaudeHookReply | PreToolDecisionReply | PreToolUseReply;
+
+const DENIED_FROM_CHAT = 'The operator denied this from Chat.';
+const ALLOWED_FROM_CHAT = 'The operator allowed this from Chat.';
+const RELEASE_ON_SAME_CALL_EVENTS: ReadonlySet<string> = new Set([...TOOL_RESULT_HOOK_EVENTS, 'permissionresult']);
+const COMMAND_INPUT_KEYS = ['command', 'CommandLine'];
 
 function agentKeyOf(payload: Record<string, unknown>): string {
   const agentId = payload.agent_id;
@@ -72,6 +82,36 @@ export function claudeApprovalFor(request: ClaudePermissionRequest, requestId: s
   return { requestId, kind: 'question', summary: questions.data[0].question, isSummaryTruncated: false, questions: questions.data };
 }
 
+export function chatApprovalModeFor(isChatOn: boolean, skipsPermissions: boolean): ChatApprovalMode {
+  if (!isChatOn) return 'off';
+  return skipsPermissions ? 'questions' : 'questions-and-permissions';
+}
+
+export function claudePermissionApprovalFor(request: ClaudePermissionRequest, requestId: string): ConversationApproval {
+  return { requestId, kind: 'permission', toolName: request.toolName, ...boundedSummary(describeToolInput(request.toolInput)) };
+}
+
+function reasonFor(decision: PermissionDecision): string {
+  return decision === 'allow' ? ALLOWED_FROM_CHAT : DENIED_FROM_CHAT;
+}
+
+const PERMISSION_REPLY_BY_AGENT: Record<string, (decision: PermissionDecision, reason: string) => PermissionHookReply> = {
+  antigravity: (decision, reason) => ({ decision, reason }),
+  kimi: (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: reason } }),
+};
+
+export function permissionReplyFor(agentId: string, decision: PermissionDecision): PermissionHookReply {
+  const replyFor = PERMISSION_REPLY_BY_AGENT[agentId];
+  if (replyFor) return replyFor(decision, reasonFor(decision));
+  if (decision === 'allow') return hookReply({ behavior: 'allow' });
+  return hookReply({ behavior: 'deny', message: DENIED_FROM_CHAT });
+}
+
+export function isReadOnlyCommandRequest(request: ClaudePermissionRequest): boolean {
+  const command = COMMAND_INPUT_KEYS.map((key) => request.toolInput[key]).find((value) => typeof value === 'string');
+  return typeof command === 'string' && READ_ONLY_COMMAND.test(command.trim());
+}
+
 function hookReply(decision: Record<string, unknown>): ClaudeHookReply {
   return { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } };
 }
@@ -98,6 +138,6 @@ export function isHoldReleasedByHookEvent(request: ClaudePermissionRequest, even
   if (HOLD_KEEPING_HOOK_EVENTS.has(normalizedEvent)) return false;
   if (normalizedEvent === 'sessionend') return true;
   if (agentKeyOf(payload) !== request.agentKey) return false;
-  if (TOOL_RESULT_HOOK_EVENTS.has(normalizedEvent)) return isSameToolCall(request, payload);
-  return true;
+  if (RELEASE_ON_SAME_CALL_EVENTS.has(normalizedEvent)) return isSameToolCall(request, payload);
+  return !isSameToolCall(request, payload);
 }

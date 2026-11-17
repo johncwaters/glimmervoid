@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
-import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
 
 const ANTIGRAVITY_PLUGIN_NAME = "glimmervoid";
@@ -10,6 +10,7 @@ const PLAIN_HOOK_EVENTS = ["SessionStart", "PreInvocation", "PostInvocation", "S
 const TOOL_HOOK_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 const ANTIGRAVITY_QUESTION_TOOL_NAME = "ask_question";
 const ANTIGRAVITY_SUBAGENT_TOOL_NAME = "invoke_subagent";
+const ANTIGRAVITY_GATED_TOOL_NAMES: readonly string[] = ["run_command", "write_file", "edit_file", "create_file", "delete_file", "apply_patch"];
 const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "isTurnOpen", "pendingToolName", "source", "tool_name", "tool_input"];
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
@@ -44,6 +45,9 @@ function hooksByEvent(relayLaunch: readonly string[]): Record<string, unknown[]>
   const questionHoldHook = commandHook(relayLaunch, QUESTION_TOOL_HOLD_HOOK_EVENT);
   if (questionHoldHook === null) return null;
   hooks.PreToolUse?.push({ matcher: `^${ANTIGRAVITY_QUESTION_TOOL_NAME}$`, hooks: [{ ...questionHoldHook, timeout: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS }] });
+  const permissionHoldHook = commandHook(relayLaunch, CONVERSATION_PERMISSION_HOOK_EVENT);
+  if (permissionHoldHook === null) return null;
+  hooks.PreToolUse?.push({ matcher: `^(?:${ANTIGRAVITY_GATED_TOOL_NAMES.join("|")})$`, hooks: [{ ...permissionHoldHook, timeout: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS }] });
   return hooks;
 }
 
@@ -92,6 +96,17 @@ function askUserQuestionInputOf(questionArgs: unknown): Record<string, unknown> 
   return { questions };
 }
 
+function withToolCallFields(payload: HookPayloadRecord): HookPayloadRecord {
+  const { name, args } = toolCallOf(payload);
+  if (name === null || typeof args !== "object" || args === null) return payload;
+  return { ...payload, tool_name: name, tool_input: args };
+}
+
+function heldPayloadFor(normalizedEvent: string, payload: HookPayloadRecord): HookPayloadRecord {
+  if (normalizedEvent === QUESTION_TOOL_HOLD_HOOK_EVENT) return withAskUserQuestionFields(payload);
+  return withToolCallFields(payload);
+}
+
 function withAskUserQuestionFields(payload: HookPayloadRecord): HookPayloadRecord {
   const { name, args } = toolCallOf(payload);
   const toolInput = name === ANTIGRAVITY_QUESTION_TOOL_NAME ? askUserQuestionInputOf(args) : null;
@@ -128,7 +143,7 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
     const normalizedEvent = event.toLowerCase();
     if (normalizedEvent === "agentstate") return tagAgentState(payload);
     const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : null;
-    const questionPayload = normalizedEvent === QUESTION_TOOL_HOLD_HOOK_EVENT ? withAskUserQuestionFields(payload) : payload;
+    const questionPayload = heldPayloadFor(normalizedEvent, payload);
     if (conversationId === null) return questionPayload;
     if (normalizedEvent === "sessionstart" && pendingSubagentStarts > 0) {
       pendingSubagentStarts -= 1;

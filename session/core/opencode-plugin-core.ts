@@ -1,6 +1,6 @@
 import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
-import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { CONVERSATION_EVENTS_HOOK_EVENT } from "../../shared/contracts/trace.ts";
 
 const SAFE_LAUNCH_PART_RE = /^[^\0\r\n]+$/;
@@ -9,6 +9,8 @@ const PLUGIN_SOURCE = `const RELAY_LAUNCH = __RELAY_LAUNCH__;
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 const QUESTION_HOLD_EVENT = "${QUESTION_TOOL_HOLD_HOOK_EVENT}";
 const QUESTION_TOOL_NAME = "${ASK_USER_QUESTION_TOOL_NAME}";
+const PERMISSION_HOLD_EVENT = "${CONVERSATION_PERMISSION_HOOK_EVENT}";
+const PERMISSION_DECISIONS = { allow: "once", deny: "reject" };
 const OPENCODE_QUESTION_TOOL = "question";
 const SHELL_TOOL_NAME = "Bash";
 const BACKGROUND_SHELL_ENVELOPE = /<shell id="([^"]+)" state="([^"]+)"/;
@@ -56,6 +58,15 @@ function parsedReply(output) {
   } catch {
     return null;
   }
+}
+
+function heldRelay(event, payload) {
+  if (!process.env[HOOK_URL_ENV]) return { reply: Promise.resolve(null), stop: () => {} };
+  const child = Bun.spawn([...RELAY_LAUNCH, event], { stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true });
+  child.stdin.write(JSON.stringify({ hook_event_name: event, ...payload }));
+  child.stdin.end();
+  const reply = Promise.all([new Response(child.stdout).text(), child.exited]).then(([output]) => parsedReply(output), () => null);
+  return { reply, stop: () => child.kill() };
 }
 
 function relayForReply(event, payload) {
@@ -131,6 +142,7 @@ export default {
     const pendingPromptContexts = [];
     const runningBackgroundShellIds = new Set();
     const conversationBySession = new Map();
+    const permissionHoldById = new Map();
     let rootSessionId = null;
     let rootSessionTitle = null;
     let executionPhase = null;
@@ -202,6 +214,31 @@ export default {
       const fields = FORM_EVENT_TYPES.has(type) ? questionFields(sessionID) : actionFields;
       if (type !== "form.created" && FORM_EVENT_TYPES.has(type)) questionInputBySession.delete(sessionID);
       relay(eventName, await payloadFor(sessionID, fields));
+      if (type === "permission.asked") await holdPermissionForChat(properties, sessionID);
+      if (type === "permission.replied") stopPermissionHold(properties?.requestID);
+    }
+
+    async function holdPermissionForChat(properties, sessionID) {
+      const requestID = typeof properties?.id === "string" ? properties.id : null;
+      const action = typeof properties?.action === "string" ? properties.action : null;
+      if (!requestID || !action) return;
+      const toolInput = { resources: Array.isArray(properties.resources) ? properties.resources : [] };
+      const hold = heldRelay(PERMISSION_HOLD_EVENT, await payloadFor(sessionID, { tool_name: action, tool_input: toolInput }));
+      permissionHoldById.set(requestID, hold);
+      void hold.reply.then((reply) => {
+        if (permissionHoldById.get(requestID) !== hold) return;
+        permissionHoldById.delete(requestID);
+        const decision = PERMISSION_DECISIONS[reply?.hookSpecificOutput?.decision?.behavior];
+        if (!decision) return;
+        return ctx.permission.reply({ sessionID, requestID, decision });
+      }).catch(() => {});
+    }
+
+    function stopPermissionHold(requestID) {
+      const hold = permissionHoldById.get(requestID);
+      if (!hold) return;
+      permissionHoldById.delete(requestID);
+      hold.stop();
     }
 
     function formSessionIdOf(type, properties) {
