@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PlanGate } from './plan-gate.ts';
 
 import { STATES } from '../states.ts';
 import { SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
@@ -102,6 +103,7 @@ export const SessionSnapshot = z.object({
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   attentionNotes: z.array(AttentionNote).default([]),
+  planGate: PlanGate.nullable().default(null),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 

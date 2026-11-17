@@ -5,6 +5,7 @@ import {
   CONVERSATION_TOOL_RESULT_HOOK_EVENT,
   ConversationQuestion,
 } from '../../shared/contracts/session.ts';
+import { PLAN_GATE_HOOK_EVENT } from '../../shared/contracts/plan-gate.ts';
 import type { ConversationAnswers, ConversationApproval } from '../../shared/contracts/session.ts';
 
 const MAIN_AGENT_KEY = '';
@@ -14,6 +15,7 @@ const HOLD_KEEPING_HOOK_EVENTS: ReadonlySet<string> = new Set([
   'permissionrequest-plan',
   'statusline',
   CONVERSATION_PERMISSION_HOOK_EVENT,
+  PLAN_GATE_HOOK_EVENT,
 ]);
 export const TOOL_RESULT_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
 const PermissionRequestPayload = z.object({

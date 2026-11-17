@@ -13,7 +13,8 @@ import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { buildHookCommand } from "../core/hook-command-core.ts";
 import { codexHomes, codexSessionIdFromPath } from "../../server/usage/core/usage-scan-core.ts";
 import { openContainedFile } from "../../server/contained-file.ts";
-import { isRelevantRolloutLine, isTurnStartLine, turnEndedWithProposedPlan } from "../core/codex-plan-rollout-core.ts";
+import { isRelevantRolloutLine, isTurnStartLine, proposedPlanOfTurn } from "../core/codex-plan-rollout-core.ts";
+import { PROPOSED_PLAN_TEXT_FIELD } from "../../shared/contracts/plan-gate.ts";
 import { codexHookPlanFor, LEGACY_HOOK_EVENTS, parseCodexVersion } from "../core/codex-version-core.ts";
 import { CODEX_HOME_PROFILE, renderCodexHookTables, renderCodexHooksBlock } from "../core/agent-home-core.ts";
 import type { CodexHomeHook, ProjectHookTrust } from "../core/agent-home-core.ts";
@@ -133,8 +134,9 @@ async function enrichHookPayload(event: string, payload: HookPayload, agentEnv: 
   if (typeof transcriptPath !== "string" || typeof sessionId !== "string" || typeof turnId !== "string") return payload;
   if (codexSessionIdFromPath(transcriptPath) !== sessionId) return payload;
   const rolloutLines = await readTurnRolloutLinesFromCodexHome(transcriptPath, turnId, agentEnv);
-  if (!rolloutLines || !turnEndedWithProposedPlan(rolloutLines, turnId)) return payload;
-  return { ...payload, [PLAN_PROPOSED_FIELD]: true };
+  const planText = rolloutLines ? proposedPlanOfTurn(rolloutLines, turnId) : null;
+  if (planText === null) return payload;
+  return { ...payload, [PLAN_PROPOSED_FIELD]: true, [PROPOSED_PLAN_TEXT_FIELD]: planText };
 }
 
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {

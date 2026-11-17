@@ -208,6 +208,10 @@ const SessionReviewSettings = optionalObject('sessionReview', {
   model: optionalString('sessionReview.model', true),
 });
 
+const PlanGateSettings = optionalObject('planGate', {
+  enabled: optionalBoolean('planGate.enabled'),
+});
+
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
   chatId: optionalString('telegram.chatId', true),
@@ -314,6 +318,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   telegram: TelegramSettings,
   slack: SlackSettings,
   sessionReview: SessionReviewSettings,
+  planGate: PlanGateSettings,
   telemetry: TelemetrySettings,
   vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),

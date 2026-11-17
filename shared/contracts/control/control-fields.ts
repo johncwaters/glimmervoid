@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PlanGate } from '../plan-gate.ts';
 import { GH_SEGMENT } from '../github-ids.ts';
 import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
 import { AttentionNote, AttentionOwner, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
@@ -128,6 +129,7 @@ export const SessionStatusFields = z.object({
   accountId: AgentAccountId.nullable().optional(),
   pendingPromptKind: nullableString.optional(),
   attentionNotes: z.array(AttentionNote).optional(),
+  planGate: PlanGate.nullable().optional(),
 });
 export type SessionStatusFields = z.infer<typeof SessionStatusFields>;
 

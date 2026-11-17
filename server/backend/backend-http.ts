@@ -13,6 +13,7 @@ import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
+import { PLAN_GATE_HOOK_EVENT } from '../../shared/contracts/plan-gate.ts';
 import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
 import type { Session } from '../../session/sessions.ts';
 import { refocusReplyFor, toolHookContextReplyOf } from '../../session/core/refocus-core.ts';
@@ -61,7 +62,7 @@ import { clock } from '../../shared/clock.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
-const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { permissionrequest: 512 * 1024 };
+const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { permissionrequest: 512 * 1024, [PLAN_GATE_HOOK_EVENT]: 512 * 1024 };
 const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
 const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
@@ -73,6 +74,7 @@ const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   'statusline',
   CONVERSATION_PERMISSION_HOOK_EVENT,
   CONVERSATION_TOOL_RESULT_HOOK_EVENT,
+  PLAN_GATE_HOOK_EVENT,
   RESUME_NOTE_HOOK_EVENT,
 ]);
 
@@ -133,6 +135,7 @@ interface BackendHttpDependencies {
   sshSigner?: Pick<SshSigner, 'sign'> | null;
   githubUserCredential?: () => Promise<GithubUserGrant | null>;
   recordOutcome?: OutcomeRecorder;
+  isPlanGateOn?: () => boolean;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -223,7 +226,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'isPlanGateOn' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -449,6 +452,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     getWhiteboardAssets = () => null,
     getWhiteboardLayouts = () => null,
     recordOutcome = () => {},
+    isPlanGateOn = () => false,
     logger = console,
   } = dependencies;
 
@@ -514,8 +518,10 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       const abandonedByClaudeCode = new AbortController();
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
       const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
+      const isPlanGateHold = output.status === 200 && req.params.event.toLowerCase() === PLAN_GATE_HOOK_EVENT && isPlanGateOn();
       const heldDecision = (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdClaudePermission(payload, abandonedByClaudeCode.signal) ?? null : null)
-        || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null);
+        || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null)
+        || (isPlanGateHold ? getSession(req.params.glimmervoidId)?.holdPlanPermission(payload, abandonedByClaudeCode.signal) ?? null : null);
       if (!heldDecision) {
         answer(null);
         return;

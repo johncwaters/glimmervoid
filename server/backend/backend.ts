@@ -15,6 +15,7 @@ import type { GlimmervoidConfig } from '../config-store.ts';
 import { createLifecycle } from '../server-lifecycle.ts';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { createAgentIngressApp, createBackendHttpApp } from './backend-http.ts';
+import { isPlanGateEnabled } from '../../session/core/plan-gate-core.ts';
 import { createLinkPreviewFetcher } from '../link-preview-fetcher.ts';
 import { createHostUrlOpener } from '../host-url-opener.ts';
 import { createAgentApiWiring } from '../agent-api-wiring.ts';
@@ -228,6 +229,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sshSigner,
     githubUserCredential: () => githubUserCredentialOfLink(),
     recordOutcome,
+    isPlanGateOn: () => isPlanGateEnabled(configStore.config.planGate),
     logger: console,
   };
   const frameSecret = crypto.randomBytes(32);

@@ -308,6 +308,7 @@ function createConfigStore({
       loopGuard: pickBlock('loopGuard', config.loopGuard),
       slack: pickBlock('slack', config.slack),
       sessionReview: pickBlock('sessionReview', config.sessionReview),
+      planGate: pickBlock('planGate', config.planGate),
     };
   }
 
@@ -352,6 +353,8 @@ function createConfigStore({
     if (newConfig.slack != null) config.slack = newConfig.slack;
     if (newConfig.sessionReview == null) delete config.sessionReview;
     if (newConfig.sessionReview != null) config.sessionReview = newConfig.sessionReview;
+    if (newConfig.planGate == null) delete config.planGate;
+    if (newConfig.planGate != null) config.planGate = newConfig.planGate;
     if (newConfig.loopGuard == null) delete config.loopGuard;
     if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;
