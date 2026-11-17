@@ -1,6 +1,7 @@
 import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
+import { CONVERSATION_EVENTS_HOOK_EVENT } from "../../shared/contracts/trace.ts";
 
 const SAFE_LAUNCH_PART_RE = /^[^\0\r\n]+$/;
 
@@ -32,6 +33,12 @@ const ANY_SESSION_EVENT_NAMES = {
 };
 const FORM_EVENT_TYPES = new Set(["form.created", "form.replied", "form.cancelled"]);
 const GLOBAL_FORM_SESSION_ID = "global";
+const CONVERSATION_EVENTS_EVENT = "${CONVERSATION_EVENTS_HOOK_EVENT}";
+const CONVERSATION_EVENT_TYPES = new Set(["session.inbox.enqueued", "session.reasoning.ended", "session.text.ended", "session.tool.called", "session.tool.success", "session.tool.failed"]);
+const CONVERSATION_ITEM_TYPES = new Set(["user", "synthetic"]);
+const CONVERSATION_CHUNK_BYTES = 48000;
+const CONVERSATION_STRING_CHARS = [12000, 1000];
+const utf8 = new TextEncoder();
 
 let relayQueue = Promise.resolve(null);
 
@@ -72,6 +79,44 @@ function denialReason(reply) {
   return output?.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string" ? output.permissionDecisionReason : null;
 }
 
+function cutStrings(value, maxChars) {
+  if (typeof value === "string") return value.length > maxChars ? value.slice(0, maxChars) : value;
+  if (Array.isArray(value)) return value.map((item) => cutStrings(item, maxChars));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cutStrings(item, maxChars)]));
+  return value;
+}
+
+function jsonBytes(value) {
+  return utf8.encode(JSON.stringify(value)).length;
+}
+
+function fittedConversationEvent(event) {
+  if (jsonBytes(event) <= CONVERSATION_CHUNK_BYTES) return event;
+  for (const maxChars of CONVERSATION_STRING_CHARS) {
+    const cutEvent = { ...cutStrings(event, maxChars), cut: true };
+    if (jsonBytes(cutEvent) <= CONVERSATION_CHUNK_BYTES) return cutEvent;
+  }
+  return null;
+}
+
+function conversationChunks(events) {
+  const chunks = [];
+  let chunk = [];
+  let chunkBytes = 0;
+  for (const event of events) {
+    const eventBytes = jsonBytes(event);
+    if (chunk.length > 0 && chunkBytes + eventBytes > CONVERSATION_CHUNK_BYTES) {
+      chunks.push(chunk);
+      chunk = [];
+      chunkBytes = 0;
+    }
+    chunk.push(event);
+    chunkBytes += eventBytes + 1;
+  }
+  if (chunk.length > 0) chunks.push(chunk);
+  return chunks;
+}
+
 function taskNotificationPrompt(shellId, state) {
   return "<task-notification>\\n<task-id>" + shellId + "</task-id>\\n<status>" + state + "</status>\\n</task-notification>";
 }
@@ -85,6 +130,7 @@ export default {
     const backgroundShellByCall = new Map();
     const pendingPromptContexts = [];
     const runningBackgroundShellIds = new Set();
+    const conversationBySession = new Map();
     let rootSessionId = null;
     let rootSessionTitle = null;
     let executionPhase = null;
@@ -118,6 +164,32 @@ export default {
     function questionFields(sessionID) {
       const toolInput = questionInputBySession.get(sessionID);
       return toolInput ? { tool_name: QUESTION_TOOL_NAME, tool_input: toolInput } : { tool_name: null };
+    }
+
+    function conversationOf(sessionID) {
+      if (!conversationBySession.has(sessionID)) conversationBySession.set(sessionID, { events: [], toolNameByCallId: new Map() });
+      return conversationBySession.get(sessionID);
+    }
+
+    function noteConversationEvent(type, properties, sessionID) {
+      if (type === "session.tool.input.started" && typeof properties.id === "string" && typeof properties.name === "string") {
+        conversationOf(sessionID).toolNameByCallId.set(properties.id, properties.name);
+        return;
+      }
+      if (!CONVERSATION_EVENT_TYPES.has(type)) return;
+      if (type === "session.inbox.enqueued" && !CONVERSATION_ITEM_TYPES.has(properties.item?.type)) return;
+      const { native: _native, ...keptProperties } = properties;
+      const conversation = conversationOf(sessionID);
+      const toolName = type === "session.tool.called" ? conversation.toolNameByCallId.get(properties.id) : undefined;
+      const event = fittedConversationEvent({ type, properties: toolName ? { ...keptProperties, name: toolName } : keptProperties });
+      if (event) conversation.events.push(event);
+    }
+
+    function flushConversation(sessionID) {
+      const conversation = conversationBySession.get(sessionID);
+      if (!conversation) return;
+      conversationBySession.delete(sessionID);
+      for (const chunk of conversationChunks(conversation.events)) relay(CONVERSATION_EVENTS_EVENT, rootPayload(sessionID, { events: chunk }));
     }
 
     async function relayAnySessionEvent(type, properties, sessionID) {
@@ -164,6 +236,7 @@ export default {
         return;
       }
       if (type === "session.created") {
+        if (rootSessionId) flushConversation(rootSessionId);
         const source = rootSessionId ? "clear" : "startup";
         rootSessionId = sessionID;
         rootSessionTitle = null;
@@ -177,6 +250,7 @@ export default {
         return;
       }
       rootSessionId = sessionID;
+      noteConversationEvent(type, properties, sessionID);
       relayBackgroundShellEvent(type, properties, sessionID);
       relayRootExecutionEvent(type, sessionID);
     }
@@ -235,6 +309,7 @@ export default {
       }
       const endEvent = EXECUTION_END_EVENT_NAMES[type];
       if (!endEvent) return;
+      flushConversation(sessionID);
       const wasCompactionOnly = executionPhase === "compacting";
       executionPhase = null;
       if (wasCompactionOnly) return;

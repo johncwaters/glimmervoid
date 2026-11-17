@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
+import { CONVERSATION_EVENTS_HOOK_EVENT } from '../../shared/contracts/trace.ts';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import type { CatalogAgentId } from '../../shared/contracts/agent-models.ts';
 import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
@@ -11,6 +12,7 @@ import { kimiRecordsFromLine } from '../core/conversation/kimi-core.ts';
 import { kimiSessionRoots, locateKimiWire } from '../../session/adapters/kimi.ts';
 import { piRecordsFromLine } from '../core/conversation/pi-core.ts';
 import { piSessionRoots } from '../../session/adapters/pi.ts';
+import { opencodeRecordsFromPayload } from '../core/conversation/opencode-core.ts';
 import { isPathInside } from '../../shared/paths.ts';
 
 type TranscriptLineContext = Parameters<typeof traceRecordsFromTranscriptLine>[1];
@@ -22,9 +24,15 @@ interface TranscriptConversationSource {
   locateTranscript?(vendorSessionId: string, agentEnv: Record<string, string | undefined>): Promise<string | null>;
 }
 
+interface RelayConversationSource {
+  kind: 'relay';
+  hookEvent: string;
+  recordsFromPayload(payload: unknown, now: number): TraceRecord[];
+}
+
 type ConversationSource =
   | TranscriptConversationSource
-  | { kind: 'relay' }
+  | RelayConversationSource
   | { kind: 'none'; reason: string };
 
 const CONVERTER_NOT_BUILT = 'conversation converter not built yet';
@@ -46,7 +54,11 @@ const conversationSourceByAgentId = {
     recordsFromLine: kimiRecordsFromLine,
     locateTranscript: locateKimiWire,
   },
-  opencode: { kind: 'none', reason: CONVERTER_NOT_BUILT },
+  opencode: {
+    kind: 'relay',
+    hookEvent: CONVERSATION_EVENTS_HOOK_EVENT,
+    recordsFromPayload: opencodeRecordsFromPayload,
+  },
   pi: {
     kind: 'transcript',
     containmentRoots: piSessionRoots,
@@ -71,10 +83,15 @@ function transcriptSourceOf(agentId: string): TranscriptConversationSource | nul
   return source.kind === 'transcript' ? source : null;
 }
 
+function relaySourceOf(agentId: string): RelayConversationSource | null {
+  const source = conversationSourceOf(agentId);
+  return source.kind === 'relay' ? source : null;
+}
+
 function containmentRootFor(source: TranscriptConversationSource, agentEnv: Record<string, string | undefined>, candidatePath: string): string {
   const roots = source.containmentRoots(agentEnv);
   return roots.find((root) => isPathInside(path.resolve(root), candidatePath, { allowEqual: false })) ?? roots[0];
 }
 
-export { containmentRootFor, transcriptSourceOf };
+export { containmentRootFor, relaySourceOf, transcriptSourceOf };
 export type { TranscriptConversationSource };

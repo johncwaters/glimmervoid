@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const MAX_RAW_LINE_CHARS = 4000;
+export const CONVERSATION_EVENTS_HOOK_EVENT = 'ConversationEvents';
 
 const TraceRecordBase = z.object({
   ts: z.number().finite(),

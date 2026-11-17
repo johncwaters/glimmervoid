@@ -7,7 +7,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
 import { MAX_REMEMBERED_CLOSED_SESSIONS, trimOldest } from './trace-wiring-context.ts';
-import { containmentRootFor, transcriptSourceOf } from './conversation-sources.ts';
+import { containmentRootFor, relaySourceOf, transcriptSourceOf } from './conversation-sources.ts';
 import type { TranscriptConversationSource } from './conversation-sources.ts';
 import type { TraceBinding, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceRecordStore } from './trace-record-store.ts';
@@ -48,6 +48,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     agentIdBySessionId,
     chain,
     isStopped,
+    nowFn,
   } = context;
   const { traceFilePath, queueRecord, flushSession } = deps.recordStore;
   const { checkpointFilePath, resumeStateFor } = deps.checkpoints;
@@ -168,8 +169,13 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       noteVendorSession(glimmervoidSessionId, awaitedTranscript);
     }
     const hookEvent = typeof eventRecord.event === 'string' ? eventRecord.event.toLowerCase() : '';
-    if (hookEvent !== 'subagentstop') return;
     const payload = eventRecord.payload;
+    const relaySource = relaySourceOf(agentIdBySessionId.get(glimmervoidSessionId) ?? '');
+    if (relaySource && hookEvent === relaySource.hookEvent.toLowerCase()) {
+      appendConversationRecords(glimmervoidSessionId, relaySource.recordsFromPayload(payload, nowFn()));
+      return;
+    }
+    if (hookEvent !== 'subagentstop') return;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
     chain(
       () => readSubagentTranscript(glimmervoidSessionId, payload as Record<string, unknown>),
