@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.5] - 2026-11-17
+
 ### Added
 
 - **Trace shows the conversation for every first-class agent.** Codex, Kimi Code, OpenCode, pi and Antigravity sessions now fill the session's Trace with the prompt, thinking, replies and each tool call with its result, as Claude Code sessions already did. Glimmervoid reads each agent's own session log, or for OpenCode receives the turn from its plugin when the turn ends. A record that does not fit the shared trace format is refused and a notice names the agent and the field.
