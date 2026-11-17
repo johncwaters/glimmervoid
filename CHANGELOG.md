@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Codex sessions on GPT-6 models are priced offline.** The bundled price list now carries GPT-6 Sol, Luna, Astra, Astra Law, Cyber and Rosalind, GPT-6.1 Sol and Terra, and GPT-6.2 Sol, Astra and Astra Law at OpenAI list price, so the Usage tab no longer reports them as having no price, and counts their cost, when the live price list cannot be fetched.
+
 - **A Claude Code session started right after Glimmervoid starts gets folder trust.** The sign-in check Glimmervoid runs at start can leave Claude Code's config lock behind for up to 10 seconds, and a session started in that window was refused with "another process holds its lock". Glimmervoid now waits as Claude Code itself does: it takes the lock the moment its holder lets go, takes over a lock nobody has touched for 10 seconds, and refuses only when another Claude Code keeps holding it.
 - **Add session shows the model and effort your agent will actually start on.** The model picker read only the agent's built-in defaults, so Claude Code could show effort low while the session started on the effort set in your settings. Add session now reads the model and per-model effort from Claude Code's `settings.json` and the model and reasoning effort from Codex's `config.toml`, without running the agent and without writing either file.
 
