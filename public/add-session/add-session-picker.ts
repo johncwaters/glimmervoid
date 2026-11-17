@@ -122,8 +122,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const workspacePanel = query(dialog, '#add-session-workspace');
   const workspaceListEl = query(dialog, '#add-session-workspace-list');
   const workspaceFindInput = markAsNotCredential(queryTag(dialog, '#add-session-workspace-find', 'input'));
-  const modelWordsEl = query(dialog, '#add-session-model-words');
-  const accountWordsEl = query(dialog, '#add-session-account-words');
+  const slotTitleEl = query(dialog, '#add-session-slot-title');
+  const folderListEl = query(dialog, '#add-session-folder-list');
   const folderPanel = query(dialog, '#add-session-folder');
   const pathInput = markAsNotCredential(queryTag(dialog, '#add-session-path', 'input'));
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
@@ -144,12 +144,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const accountWord = createPressable('add-session-word');
   query(dialog, '#add-session-account-word-slot').replaceWith(accountWord);
   const wordBySlot: Record<AddSessionSlot, HTMLButtonElement> = { agent: agentWord, account: accountWord, model: modelWord, project: repoWord };
-  const workspaceBackButton = createPressable('add-session-back', 'All projects');
-  query(dialog, '#add-session-workspace-back-slot').replaceWith(workspaceBackButton);
-  const folderBackButton = createPressable('add-session-back', 'All projects');
-  query(dialog, '#add-session-folder-back-slot').replaceWith(folderBackButton);
-  const effortBackButton = createPressable('add-session-back', 'All models');
-  query(dialog, '#add-session-effort-back-slot').replaceWith(effortBackButton);
   const startStatus = createActionStatus('dialog-hint');
   const btnConfirm = button({ variant: 'primary', label: 'Start session' });
   query(dialog, '#add-session-actions').append(startStatus.element, ...cancelButtons(onCancel), btnConfirm);
@@ -213,7 +207,11 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       folder: lastPathSegment(pathInput.value.trim()) || 'a folder',
     };
     repoWord.textContent = wordByKind[target.kind];
+    repoWord.dataset.placeholder = String(target.kind === 'none');
     agentWordTextEl.textContent = agentLabelOf(selectedAgentId) ?? 'an agent';
+    agentWord.dataset.placeholder = String(selectedAgentId === NO_AGENT_ID);
+    agentWord.disabled = isAddPending;
+    repoWord.disabled = isAddPending;
     renderModelWords();
     renderAccountWord();
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].setAttribute('aria-expanded', String(openSlot === slot));
@@ -247,6 +245,14 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const focusedRowKey = document.activeElement instanceof HTMLElement && listElement.contains(document.activeElement) ? document.activeElement.dataset.key ?? null : null;
     render();
     if (focusedRowKey !== null) [...listElement.querySelectorAll<HTMLElement>('.add-session-row')].find((rowEl) => rowEl.dataset.key === focusedRowKey)?.focus();
+  }
+
+  function buildBackRow(label: string, onBack: () => void) {
+    const row = createPressable('add-session-row add-session-row-back');
+    row.dataset.key = `back:${label}`;
+    row.append(el('span', 'add-session-row-chevron'), el('span', 'add-session-row-name', label));
+    row.addEventListener('click', onBack);
+    return row;
   }
 
   function buildChoiceRow(label: string, onPick: () => void) {
@@ -344,8 +350,13 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function renderModelWords() {
-    modelWordsEl.hidden = !isModelPickable(selectedAgentId);
-    if (modelWordsEl.hidden) return;
+    const isPickable = isModelPickable(selectedAgentId);
+    modelWord.disabled = isAddPending || !isPickable;
+    modelWord.dataset.placeholder = String(!isPickable);
+    if (!isPickable) {
+      modelWord.textContent = selectedAgentId === NO_AGENT_ID ? 'a model' : 'no model';
+      return;
+    }
     const setup = shownSetup();
     const effort = effortsOf(agentModelCatalog, setup).length === 0 ? null : effortOf(setup);
     modelWord.textContent = effort === null ? modelLabelOf(setup) : `${modelLabelOf(setup)} ${effort}`;
@@ -440,7 +451,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const defaultEffort = agentDefaultEffort(setup);
     const defaultRow = buildSlotRow('default', defaultEffort === null ? 'Default' : `Default (${defaultEffort})`, effortOf(setup) === null, () => pickEffort(null));
     const effortRows = effortsOf(agentModelCatalog, setup).map((effort) => buildSlotRow(effort, effort, effortOf(setup) === effort, () => pickEffort(effort)));
-    return [buildListLabel(`${modelLabelOf(setup)} effort`), defaultRow, ...effortRows];
+    return [buildBackRow('All models', backToModels), defaultRow, ...effortRows];
   }
 
   function buildAccountRows() {
@@ -463,10 +474,16 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     project: buildProjectRows,
   };
 
+  function slotTitleOf(slot: AddSessionSlot) {
+    if (slot === 'model' && effortStepModelId !== null) return `${modelLabelOf(shownSetup())} effort`;
+    return LIST_LABEL_BY_SLOT[slot];
+  }
+
   function renderList() {
     renderSentence();
     const slot = openSlot;
     if (slot === null) return;
+    slotTitleEl.textContent = slotTitleOf(slot);
     listEl.setAttribute('aria-label', LIST_LABEL_BY_SLOT[slot]);
     keepingRowFocus(listEl, () => listEl.replaceChildren(...rowsBySlot[slot]()));
   }
@@ -600,7 +617,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
 
   function renderWorkspaceRows() {
     const { picked, others } = orderWorkspaceRows(scannedProjects, pickedRepoPaths, workspaceFindInput.value);
-    const rows = picked.length === 0 ? others.map(buildRepoRow) : [...workspaceGroup('Picked', picked), ...workspaceGroup('Repositories', others)];
+    const repoRows = picked.length === 0 ? others.map(buildRepoRow) : [...workspaceGroup('Picked', picked), ...workspaceGroup('Repositories', others)];
+    const rows = [buildBackRow('All projects', backToProjects), ...repoRows];
     keepingRowFocus(workspaceListEl, () => workspaceListEl.replaceChildren(...rows));
   }
 
@@ -694,9 +712,18 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function renderAccountWord() {
-    accountWordsEl.hidden = !isAccountPickable();
-    if (accountWordsEl.hidden) return;
-    accountWord.textContent = pickableAccounts().find((account) => (account.accountId ?? '') === shownAccountValue)?.label ?? 'its default account';
+    const accounts = pickableAccounts();
+    accountWord.disabled = isAddPending || !isAccountPickable();
+    accountWord.dataset.placeholder = String(selectedAgentId === NO_AGENT_ID || isShellChosen());
+    if (selectedAgentId === NO_AGENT_ID) {
+      accountWord.textContent = 'an account';
+      return;
+    }
+    if (isShellChosen()) {
+      accountWord.textContent = 'no account';
+      return;
+    }
+    accountWord.textContent = accounts.find((account) => (account.accountId ?? '') === shownAccountValue)?.label ?? 'default';
   }
 
   function accountForTheStart() {
@@ -808,17 +835,18 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (openSlot === 'project') renderList();
   });
 
-  effortBackButton.addEventListener('click', () => {
+  function backToModels() {
     effortStepModelId = null;
     renderList();
     focusOpenSlot();
-  });
-  for (const backButton of [workspaceBackButton, folderBackButton]) {
-    backButton.addEventListener('click', () => {
-      returnToProjects();
-      focusOpenSlot();
-    });
   }
+
+  function backToProjects() {
+    returnToProjects();
+    focusOpenSlot();
+  }
+
+  folderListEl.replaceChildren(buildBackRow('All projects', backToProjects));
   pathInput.addEventListener('input', renderSentence);
 
   function showWarning(text: string) {
@@ -1034,7 +1062,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl];
     if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
     for (const region of pickingRegions) region.inert = isLocked;
-    for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].disabled = isLocked;
+    renderSentence();
   }
 
   function buildLauncher(launcher: ApprovedPackLauncher) {

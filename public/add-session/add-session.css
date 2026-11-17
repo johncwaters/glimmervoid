@@ -8,6 +8,7 @@
   font-family: var(--font-mono);
   font-size: var(--type-body);
   color: var(--text-dim);
+  min-height: calc(2 * 1.9em);
 }
 
 .add-session-word {
@@ -51,6 +52,16 @@
 .add-session-word:focus-visible {
   border-bottom-color: var(--accent);
   outline: none;
+}
+
+.add-session-word:disabled {
+  border-bottom-color: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.add-session-word[data-placeholder="true"] {
+  color: var(--text-muted);
 }
 
 html[data-layout="phone"] .add-session-overlay {
@@ -122,22 +133,43 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
 }
 
 .add-session-pick:not(:has(> .dialog-repo-roots:not([hidden]))),
-#add-session-workspace {
+#add-session-workspace,
+#add-session-folder {
   height: 352px;
 }
 
-.add-session-pick[data-slot="agent"] > :not(.add-session-list, .add-session-scan),
-.add-session-pick[data-slot="account"] > :not(.add-session-list, .add-session-scan),
-.add-session-pick[data-slot="model"] > :not(.add-session-list, .add-session-scan, .add-session-find),
-.add-session-pick[data-slot="effort"] > :not(.add-session-list, .add-session-scan, .add-session-back),
-.add-session-pick:not([data-slot="effort"]) > .add-session-back {
+.add-session-pick:not([data-slot="project"]) > .dialog-repo-roots {
   display: none;
 }
 
-.add-session-word[hidden],
-#add-session-account-words[hidden],
-#add-session-model-words[hidden] {
-  display: none;
+.add-session-top {
+  display: grid;
+  flex: none;
+}
+
+.add-session-top > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.add-session-slot-title {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.add-session-pick:is([data-slot="project"], [data-slot="model"]) .add-session-slot-title,
+.add-session-pick:is([data-slot="agent"], [data-slot="account"], [data-slot="effort"]) .add-session-find {
+  visibility: hidden;
 }
 
 .add-session-row-tick {
@@ -254,15 +286,14 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   background: var(--state-waiting);
 }
 
-.add-session-back {
-  align-self: flex-start;
-  border: 0;
-  background: none;
-  padding: 4px 0;
+.add-session-row-back {
   color: var(--accent);
-  font-family: var(--font-mono);
   font-size: var(--type-meta);
-  cursor: pointer;
+}
+
+.add-session-row-back .add-session-row-chevron {
+  border-color: var(--accent);
+  transform: rotate(-135deg);
 }
 
 .add-session-actions {
