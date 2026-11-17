@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PLAN_GATE_FEEDBACK_MAX_CHARS, PlanDecision } from '../plan-gate.ts';
-import { MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
+import { ConversationAnswers, MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
@@ -45,6 +45,8 @@ export const sessionClientVariants = [
   loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
   loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional() }),
+  loose('answer-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), answers: ConversationAnswers }),
+  loose('chat-send', { id: sessionId, text: z.string().trim().min(1).max(4000) }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('secret-decision', SecretDecision.shape),
   loose('secret-revoke', SecretRevoke.shape),

@@ -1588,6 +1588,7 @@ class Session extends EventEmitter {
       pendingPromptKind: this._pendingPromptKind,
       attentionNotes: this.attentionNotes,
       planGate: this.planGate,
+      conversationApproval: this._conversationApproval,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,
@@ -2260,6 +2261,12 @@ class Session extends EventEmitter {
     if (isComposerSubmit(text, this.state)) this._output.forgetUnsubmittedComposerPaste();
     this._observeCompaction("resume");
     this._titleQuiet = false;
+  }
+
+  deliverOperatorText(text: string): ReturnType<Session["deliver"]> {
+    this._approvals.yieldManagerDecisions();
+    this.emit("operator-input");
+    return this.deliver(text, { when: "ready", submit: true });
   }
 
   noteOperatorDraft(): void {

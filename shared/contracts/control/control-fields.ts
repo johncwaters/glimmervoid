@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PlanGate } from '../plan-gate.ts';
 import { GH_SEGMENT } from '../github-ids.ts';
 import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
-import { AttentionNote, AttentionOwner, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
+import { AttentionNote, AttentionOwner, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
@@ -130,6 +130,7 @@ export const SessionStatusFields = z.object({
   pendingPromptKind: nullableString.optional(),
   attentionNotes: z.array(AttentionNote).optional(),
   planGate: PlanGate.nullable().optional(),
+  conversationApproval: ConversationApproval.nullable().optional(),
 });
 export type SessionStatusFields = z.infer<typeof SessionStatusFields>;
 

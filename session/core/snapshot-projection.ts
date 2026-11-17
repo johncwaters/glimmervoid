@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { AttentionNote, AttentionOwner, UnseenOutcome } from "../../shared/contracts/session.ts";
+import type { AttentionNote, AttentionOwner, ConversationApproval, UnseenOutcome } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 import type { PlanGate } from "../../shared/contracts/plan-gate.ts";
 
@@ -81,6 +81,7 @@ interface SnapshotSource {
   pendingPromptKind: string | null;
   attentionNotes: AttentionNote[];
   planGate: PlanGate | null;
+  conversationApproval: ConversationApproval | null;
   mergeStatus: string;
   mergeReason: string | null;
   worktreeNotice: string | null;
@@ -121,6 +122,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     pendingPromptKind: source.pendingPromptKind,
     attentionNotes: source.attentionNotes,
     planGate: source.planGate,
+    conversationApproval: source.conversationApproval,
     mergeStatus: source.mergeStatus,
     mergeReason: source.mergeReason,
     worktreeNotice: source.worktreeNotice,

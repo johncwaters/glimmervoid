@@ -8,7 +8,7 @@ import type { UnseenOutcome } from '../../shared/contracts/session.ts';
 import type { InstallDetail, InstallFailureKind, SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_NOTIFY_CATEGORY } from '../../shared/contracts/session.ts';
-import type { AttentionNote } from '../../shared/contracts/session.ts';
+import type { AttentionNote, ConversationApproval } from '../../shared/contracts/session.ts';
 import { decideExitClose } from '../../session/core/exit-close.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -363,6 +363,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
 
     session.on('account-change', ({ accountId }: { accountId: string | null }) => noteStatus({ accountId }));
     session.on('plan-gate-change', ({ planGate }: { planGate: PlanGate | null }) => noteStatus({ planGate }));
+    session.on('conversation-change', ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => noteStatus({ conversationApproval }));
     session.on('plan-proposed', ({ planText }: { planText: string }) => {
       if (isPlanGateEnabled(dependencies.config.planGate)) session.proposePlan(planText);
     });

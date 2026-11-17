@@ -107,6 +107,7 @@ export const SessionSnapshot = z.object({
   linkedPrs: z.array(LinkedPr).default([]),
   attentionNotes: z.array(AttentionNote).default([]),
   planGate: PlanGate.nullable().default(null),
+  conversationApproval: ConversationApproval.nullable().default(null),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 

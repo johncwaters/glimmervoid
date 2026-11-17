@@ -171,6 +171,26 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     addSession(request, socketReply(ws, request), {});
   }
 
+  function handleChatSend(msg: ClientMessageOf<'chat-send'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    const delivery = session.deliverOperatorText(msg.text);
+    if (!delivery.ok) sendError(ws, `The message could not be typed into the session: ${delivery.reason}.`, { id: session.id });
+  }
+
+  function handleAnswerApproval(msg: ClientMessageOf<'answer-approval'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    if (session.answerConversationApproval(msg.requestId, msg.answers)) return;
+    sendError(ws, 'That question was already answered or is no longer waiting.', { id: session.id });
+  }
+
   function handlePackSessionSend(msg: ClientMessageOf<'pack-session-send'>, ws: ControlSocket): void {
     if (!packLaunchers?.panelMaySend(msg.pack, msg.panelId)) {
       replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No approved panel ${msg.panelId} in pack ${msg.pack} lists sessions under acts` });
@@ -181,8 +201,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
       return;
     }
-    session.noteOperatorDraft();
-    const pasted = session.deliver(msg.text, { when: 'ready', submit: true });
+    const pasted = session.deliverOperatorText(msg.text);
     console.log(`[control] pack-session-send: ${msg.pack}/${msg.panelId} -> ${session.id} ok=${pasted.ok}`);
     replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
   }
@@ -818,6 +837,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'set-session-title': handleSetSessionTitle,
     'set-session-question-manager': handleSetSessionQuestionManager,
     'plan-decision': handlePlanDecision,
+    'answer-approval': handleAnswerApproval,
+    'chat-send': handleChatSend,
     'switch-session-account': handleSwitchSessionAccount,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
