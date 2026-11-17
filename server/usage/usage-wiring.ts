@@ -611,7 +611,7 @@ function createUsageWiring({
     }
     await loadBudgetState();
     const spend = scanner.budgetSpend();
-    if (lastPassOutcome === 'complete') holdAtLimit(spend);
+    holdAtLimit(spend, lastPassOutcome === 'complete');
     const { alerts, firedState } = evaluateBudget({
       budget: cfg.budget,
       todayUsd: spend.todayUsd,
@@ -647,10 +647,10 @@ function createUsageWiring({
     if (wasHeld) onBudgetHold('end');
   }
 
-  function holdAtLimit(spend: { todayUsd: unknown; monthUsd: unknown; todayKey: string; monthKey: string }): void {
+  function holdAtLimit(spend: { todayUsd: unknown; monthUsd: unknown; todayKey: string; monthKey: string }, isSpendComplete: boolean): void {
     const rowsAtLimit = budgetScopesAtLimit({ budget: cfg.budget, todayUsd: spend.todayUsd, monthUsd: spend.monthUsd });
     if (rowsAtLimit.length === 0) {
-      releaseHold();
+      if (isSpendComplete) releaseHold();
       return;
     }
     const holdReason = `the ${rowsAtLimit.map((row) => `${row.scope} spend ${formatBudgetUsd(row.spentUsd)} reached its ${formatBudgetUsd(row.budgetUsd)} budget`).join(' and the ')}, so sessions are paused until the period rolls over`;

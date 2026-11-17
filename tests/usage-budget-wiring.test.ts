@@ -493,6 +493,25 @@ test('a standing io failure evaluates budgets once the streak passes its bound, 
   await h.wiring.stop();
 });
 
+test('a standing io failure still pauses at the budget once its spend reaches it', async () => {
+  const root = await makeTempRoot();
+  const phases: string[] = [];
+  const h = harness({
+    root,
+    usage: { budget: { dailyUsd: 16, pauseAtLimit: true } },
+    spend: { todayUsd: 16.5, monthUsd: 16.5 },
+    outcome: 'io-failed',
+    onBudgetHold: (phase) => { phases.push(phase); return []; },
+  });
+
+  await h.wiring.start();
+  await h.wiring.requestReport({ force: true });
+  await h.wiring.requestReport({ force: true });
+  assert.match(String(h.wiring.budgetHoldReason()), /daily spend \$16\.50 reached its \$16\.00 budget/);
+  assert.deepEqual(phases, ['start']);
+  await h.wiring.stop();
+});
+
 test('byLane, planWindowLanes and budget reach the wire on a pulled report', async () => {
   const root = await makeTempRoot();
   const h = harness({ root });
