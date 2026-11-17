@@ -56,6 +56,7 @@ interface BackendShutdownDependencies {
   idleStop?: Stoppable | null;
   awakeUsageAlerts?: Stoppable | null;
   githubConnectionAlerts?: Stoppable | null;
+  telegramInbound?: Stoppable | null;
   remoteListenerPortFile?: Stoppable | null;
   controlWss: { close: () => void };
   dataWss: { close: () => void };
@@ -106,6 +107,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     if (awakeUsageAlerts) stoppers.add('awake-usage-alerts', () => awakeUsageAlerts.stop());
     const githubConnectionAlerts = dependencies.githubConnectionAlerts;
     if (githubConnectionAlerts) stoppers.add('github-connection-alerts', () => githubConnectionAlerts.stop());
+    const telegramInbound = dependencies.telegramInbound;
+    if (telegramInbound) stoppers.add('telegram-inbound', () => telegramInbound.stop());
     const remoteListenerPortFile = dependencies.remoteListenerPortFile;
     if (remoteListenerPortFile) stoppers.add('remote-listener-port-file', () => remoteListenerPortFile.stop());
     stoppers.add('branch-gc', () => dependencies.branchGc.stop());
