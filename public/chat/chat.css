@@ -8,10 +8,31 @@
   color: var(--text);
   font-family: var(--font-ui);
   font-size: var(--type-body);
+}
+
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+
+.chat-scroller {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
 }
+
+.chat-jump-bar {
+  position: relative;
+  height: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.chat-jump-slot { position: absolute; bottom: 8px; border-radius: var(--radius); background: var(--bg-surface); }
 
 .chat-prompt {
   align-self: flex-end;

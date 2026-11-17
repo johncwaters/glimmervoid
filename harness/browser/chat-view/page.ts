@@ -1,8 +1,7 @@
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import type { ChatPart } from '../../../public/chat/chat-part.ts';
 import { appendChatRecords, createChatPartsState } from '../../../public/chat/chat-parts-core.ts';
-import { createChatLog } from '../../../public/chat/chat-parts.ts';
-import { createComposer } from '../../../public/chat/composer.ts';
+import { createChatView } from '../../../public/chat/chat-view.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
@@ -24,12 +23,11 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
 const chatHost = document.getElementById('chat-host');
 const traceResponse = await fetch('/trace-records.json');
 const traceRecords: TraceRecord[] = await traceResponse.json();
-const chatLog = createChatLog();
-const composer = createComposer();
-chatHost?.append(chatLog.element, composer.element);
-composer.setTurnRunning(true);
-chatLog.upsert(appendChatRecords(createChatPartsState(), traceRecords, new Map()));
-if (new URLSearchParams(location.search).has('cards')) chatLog.upsert(EXAMPLE_CARD_PARTS);
+const chatView = createChatView();
+chatHost?.appendChild(chatView.element);
+chatView.setTurnRunning(true);
+chatView.upsert(appendChatRecords(createChatPartsState(), traceRecords, new Map()));
+if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);
 });
