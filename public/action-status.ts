@@ -1,7 +1,7 @@
 import type { HeaderNoticeTone, InstallFailureKind, ServerMessage } from '#shared/contracts/control-messages.ts';
 import { COMPACT_FLOORED_AGO, elapsedText } from '#shared/display-text.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
-import { reportHeaderErrorToServer, sendControlMsg, sendControlRequest } from './control-ws.ts';
+import { sendControlMsg, sendControlRequest } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
 import { createNotice, noticeStack } from './ui/notice.ts';
@@ -151,7 +151,6 @@ function paintHeaderErrorAge() {
 }
 
 export function reportHeaderError({ source, sessionId, message, kind, tone = 'error', action }: HeaderError) {
-  reportHeaderErrorToServer(source, message, tone, kind);
   const notice = ensureHeaderErrorNotice();
   shownHeaderError = { source, sessionId: sessionId ?? null, raisedAt: clock.nowMs() };
   headerAgeTimer ??= window.setInterval(paintHeaderErrorAge, HEADER_ERROR_AGE_REPAINT_MS);
@@ -160,6 +159,7 @@ export function reportHeaderError({ source, sessionId, message, kind, tone = 'er
     tone: NOTICE_TONE_BY_HEADER_TONE[tone],
     actions: action ? [button({ variant: 'secondary', size: 'small', label: action.label, action: 'header-status-action', onClick: action.run })] : [],
     meta: headerErrorAgeText(),
+    reported: { source, ...(kind ? { kind } : {}) },
   });
 }
 

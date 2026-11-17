@@ -212,6 +212,11 @@ export const InstallFailureKind = z.enum(INSTALL_FAILURE_KINDS);
 export type InstallFailureKind = z.infer<typeof InstallFailureKind>;
 export const HeaderNoticeTone = z.enum(['error', 'warning']);
 export type HeaderNoticeTone = z.infer<typeof HeaderNoticeTone>;
+const NOTICE_IDS = Object.freeze(['header-error-notice', 'update-notice', 'post-turn-leftovers-notice', 'telemetry-notice'] as const);
+export const NoticeId = z.enum(NOTICE_IDS);
+export type NoticeId = z.infer<typeof NoticeId>;
+export const NoticeTone = z.enum(['failed', 'warning']);
+export type NoticeTone = z.infer<typeof NoticeTone>;
 export const INSTALL_DETAIL_MAX_FOLDERS = 20;
 export const INSTALL_DETAIL_MAX_OUTPUT_LINES = 20;
 export const InstallDetail = z.object({
@@ -223,7 +228,7 @@ export const InstallDetail = z.object({
 });
 export type InstallDetail = z.infer<typeof InstallDetail>;
 
-export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'header_error_shown', 'board_graphics_reset'] as const);
+export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'board_graphics_reset'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'trace', 'benchmarks', 'packs', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],

@@ -2,9 +2,9 @@ import { nextReconnectDelayMs } from './reconnect-backoff.ts';
 import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
-import type { HeaderNoticeTone, InstallFailureKind } from '#shared/contracts/control-messages.ts';
 import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
-import { createClientLogReporter, createHeaderErrorTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
+import { createClientLogReporter, createNoticeTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
+import type { NoticeShownReport } from './client-error-core.ts';
 
 type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
@@ -214,7 +214,7 @@ const localClient = createControlClient({
   onUnreadableMessage: () => _unreadableServerMessageListener?.(),
   onOpened: () => {
     clientLogReporter.flushUnsent();
-    headerErrorTelemetryReporter.flushUnsent();
+    noticeTelemetryReporter.flushUnsent();
   },
 });
 
@@ -239,16 +239,16 @@ export function sendControlMsg(msg: Record<string, unknown>): boolean {
 }
 
 const clientLogReporter = createClientLogReporter(localClient.send);
-const headerErrorTelemetryReporter = createHeaderErrorTelemetryReporter(localClient.send);
+const noticeTelemetryReporter = createNoticeTelemetryReporter(localClient.send);
 
 export function reportToServerLog(scope: string, text: string): void {
   console.warn(`[${scope}] ${text}`);
   clientLogReporter.report(scope, text);
 }
 
-export function reportHeaderErrorToServer(source: string, text: string, tone: HeaderNoticeTone, kind?: InstallFailureKind): void {
-  clientLogReporter.report(`header ${tone}`, `${source}: ${text}`);
-  headerErrorTelemetryReporter.report(source, text, tone, kind);
+export function reportNoticeShown(report: NoticeShownReport): void {
+  clientLogReporter.report(`notice ${report.notice}`, report.message);
+  noticeTelemetryReporter.report(report);
 }
 
 export function sendControlRequest(type: string, payload?: Record<string, unknown>, options: { timeoutMs?: number } = {}): Promise<ServerMessage> {

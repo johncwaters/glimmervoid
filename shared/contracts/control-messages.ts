@@ -45,6 +45,8 @@ export {
   BoardGraphicsResetProperties,
   InstallFailureKind,
   HeaderNoticeTone,
+  NoticeId,
+  NoticeTone,
   InstallDetail,
   DASHBOARD_VIEWS,
   OPERATOR_ACTIONS_BY_SURFACE,

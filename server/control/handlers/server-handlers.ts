@@ -43,9 +43,9 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     const report = DashboardTelemetryReport.safeParse(msg);
     if (!report.success) return;
     noteStarHintReport(report.data);
-    if (report.data.event === 'header_error_shown') {
-      const { source, message, tone, kind } = report.data.properties;
-      deps.telemetry?.capture?.('header_error_shown', { source, message: showHomeAsTilde(message, os.homedir()), tone, ...(kind ? { kind } : {}) });
+    if (report.data.event === 'notice_shown') {
+      const { message, ...noticeFields } = report.data.properties;
+      deps.telemetry?.capture?.('notice_shown', { ...noticeFields, message: showHomeAsTilde(message, os.homedir()) });
       return;
     }
     deps.telemetry?.capture?.(report.data.event, report.data.properties);

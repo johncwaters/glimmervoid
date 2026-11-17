@@ -1,5 +1,5 @@
 import { CLIENT_ERROR_NAME_MAX_CHARS, CLIENT_ERROR_STACK_MAX_CHARS, CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS, TELEMETRY_TEXT_MAX_CHARS } from '#shared/contracts/control-messages.ts';
-import type { ClientErrorReport, HeaderNoticeTone, InstallFailureKind } from '#shared/contracts/control-messages.ts';
+import type { ClientErrorReport, InstallFailureKind, NoticeId, NoticeTone } from '#shared/contracts/control-messages.ts';
 
 const MAX_REPORTS_PER_PAGE = 32;
 const STACK_FRAME_LINE = /^\s*at .+:\d+:\d+\)?$|^[^@\s]*@.+:\d+:\d+$/;
@@ -91,18 +91,36 @@ function createClientLogReporter(sendReport: SendReport): { report: (scope: stri
   };
 }
 
-function createHeaderErrorTelemetryReporter(sendReport: SendReport): { report: (source: string, message: string, tone: HeaderNoticeTone, kind?: InstallFailureKind) => void; flushUnsent: () => void } {
+export type NoticeShownReport = {
+  notice: NoticeId;
+  message: string;
+  tone?: NoticeTone;
+  source?: string;
+  kind?: InstallFailureKind;
+};
+
+function noticeShownProperties({ notice, message, tone, source, kind }: NoticeShownReport) {
+  return {
+    notice,
+    message: message.slice(0, TELEMETRY_TEXT_MAX_CHARS),
+    ...(tone ? { tone } : {}),
+    ...(source ? { source: source.slice(0, TELEMETRY_TEXT_MAX_CHARS) } : {}),
+    ...(kind ? { kind } : {}),
+  };
+}
+
+function createNoticeTelemetryReporter(sendReport: SendReport): { report: (report: NoticeShownReport) => void; flushUnsent: () => void } {
   const holdingSender = createHoldingSender(sendReport);
-  const limitNotice = { source: 'dashboard', message: `More than ${MAX_REPORTS_PER_PAGE} distinct header errors on this page; later ones were not sent.`, tone: 'error' };
-  const sendLimitNotice = () => holdingSender.sendOrHold({ type: 'dashboard-telemetry', event: 'header_error_shown', properties: limitNotice });
+  const limitNotice = noticeShownProperties({ notice: 'header-error-notice', source: 'dashboard', message: `More than ${MAX_REPORTS_PER_PAGE} distinct notices on this page; later ones were not sent.`, tone: 'failed' });
+  const sendLimitNotice = () => holdingSender.sendOrHold({ type: 'dashboard-telemetry', event: 'notice_shown', properties: limitNotice });
   const sendOnce = createOncePerKeySender(holdingSender.sendOrHold, MAX_REPORTS_PER_PAGE, sendLimitNotice);
   return {
-    report(source, message, tone, kind) {
-      const properties = { source: source.slice(0, TELEMETRY_TEXT_MAX_CHARS), message: message.slice(0, TELEMETRY_TEXT_MAX_CHARS), tone, ...(kind ? { kind } : {}) };
-      sendOnce(`${properties.source}\n${properties.message}`, { type: 'dashboard-telemetry', event: 'header_error_shown', properties });
+    report(report) {
+      const properties = noticeShownProperties(report);
+      sendOnce(`${properties.notice}\n${properties.message}`, { type: 'dashboard-telemetry', event: 'notice_shown', properties });
     },
     flushUnsent: holdingSender.flushUnsent,
   };
 }
 
-export { createClientErrorReporter, createClientLogReporter, createHeaderErrorTelemetryReporter, describeFailure, describeSchemaIssues, frameTypeOf };
+export { createClientErrorReporter, createClientLogReporter, createNoticeTelemetryReporter, describeFailure, describeSchemaIssues, frameTypeOf };

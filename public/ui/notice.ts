@@ -1,11 +1,13 @@
+import type { InstallFailureKind, NoticeId, NoticeTone } from '#shared/contracts/control-messages.ts';
+import { reportNoticeShown } from '../control-ws.ts';
 import { el, queryTag, writeClipboardText } from '../dom-helpers.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from './button.ts';
 
-export type NoticeTone = 'failed' | 'warning';
+export type { NoticeTone };
 
 type NoticeOptions = {
-  id: string;
+  id: NoticeId;
   dismissLabel: string;
   isDismissIcon: boolean;
   onDismiss: () => void;
@@ -18,6 +20,7 @@ type NoticeContent = {
   actions?: readonly HTMLElement[];
   command?: string;
   meta?: string;
+  reported?: { source: string; kind?: InstallFailureKind };
 };
 
 export type Notice = {
@@ -72,7 +75,7 @@ export function createNotice({ id, dismissLabel, isDismissIcon, onDismiss, leadi
     metaElement.hidden = metaText === '';
   };
 
-  const show = ({ text, tone, actions = [], command = '', meta = '' }: NoticeContent) => {
+  const show = ({ text, tone, actions = [], command = '', meta = '', reported }: NoticeContent) => {
     textElement.replaceChildren(...(typeof text === 'string' ? [text] : text));
     actionsElement.replaceChildren(...actions);
     actionsElement.hidden = actions.length === 0;
@@ -87,6 +90,7 @@ export function createNotice({ id, dismissLabel, isDismissIcon, onDismiss, leadi
     if (tone) element.dataset.tone = tone;
     if (!tone) delete element.dataset.tone;
     element.hidden = false;
+    reportNoticeShown({ notice: id, message: textElement.textContent ?? '', ...(tone ? { tone } : {}), ...reported });
   };
 
   const hide = () => {

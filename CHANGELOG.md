@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sibling sessions message each other and claim files.** A session another session spawned can message a sibling the same parent spawned with `glimmervoid send --to <sibling> <text>` (or the session tool's `to`), with the same mailbox caps and wake limits as parent mail. Any session can claim a file it is editing with `glimmervoid claim add <path>` or the claim tool; a claim never blocks, names who already holds the file, ends with the session, and shows in the other session's change map as a collision when it changes that file.
 - **Second-opinion review of a session.** The Changes panel has a Reviewer section with a Review button that starts a read-only reviewer on the session's diff and lists what it finds, each finding opening its file. Pick the reviewer's agent (Claude Code or Codex) and model in Settings > Sessions > Session review, so the review comes from a different model than the one that wrote the code. The reviewer cannot edit the session's files; a Claude Code reviewer also reads the checkout, while a Codex reviewer sees only the diff. A diff too large to send whole is marked as a partial review and never approved, and a result is reused until the worktree changes.
 
+### Changed
+
+- **Every notice under the dashboard header is now recorded, not only errors and warnings.** An available update, old reports left in a repository and the telemetry notice now each write a line to the server log when they appear, and send one `notice_shown` usage event with their text. That event replaces `header_error_shown`, which errors and warnings now send as `notice_shown` too.
+
 ### Fixed
 
 - **The dashboard no longer jumps when a notice appears under the header.** Update, telemetry, old report and error notices now float over the top of the dashboard instead of pushing every session down, and dismissing one leaves everything where it was.

@@ -779,7 +779,7 @@
     },
     {
       "name": "tone",
-      "definition": "Whether a header notice on the dashboard is an error (Failed red) or a warning (Needs Input amber); carried as tone on header_error_shown telemetry"
+      "definition": "Whether a notice under the dashboard header is an error (Failed red) or a warning (Needs Input amber); carried as tone on notice_shown telemetry"
     },
     {
       "name": "saved name",
