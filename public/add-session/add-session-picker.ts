@@ -55,7 +55,7 @@ type QueriedSlot = 'project' | 'model';
 
 const ISSUE_REPLY_TIMEOUT_MS = 90_000;
 const ADD_SESSION_SLOTS: readonly AddSessionSlot[] = ['agent', 'account', 'model', 'project'];
-const FIND_PLACEHOLDER_BY_SLOT: Readonly<Record<QueriedSlot, string>> = { project: 'Find a project', model: 'Find or type a model' };
+const FIND_PLACEHOLDER_BY_SLOT: Readonly<Record<QueriedSlot, string>> = { project: 'Find a project, or #128 for an issue', model: 'Find or type a model' };
 const LIST_LABEL_BY_SLOT: Readonly<Record<AddSessionSlot, string>> = { agent: 'Agents', account: 'Accounts', model: 'Models', project: 'Projects' };
 const NO_TARGET: AddSessionTarget = { kind: 'none' };
 const UNPROTECTED_ASKS_TEXT = 'Sane YOLO is not available here, so the agent asks before acting.';
@@ -126,7 +126,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const accountWordsEl = query(dialog, '#add-session-account-words');
   const folderPanel = query(dialog, '#add-session-folder');
   const pathInput = markAsNotCredential(queryTag(dialog, '#add-session-path', 'input'));
-  const issueNumberInput = markAsNotCredential(queryTag(dialog, '#add-session-issue-number', 'input'));
   const unprotectedHintEl = query(dialog, '#add-session-unprotected');
   const signInHintEl = query(dialog, '#add-session-sign-in');
   const errorEl = query(dialog, '#add-session-error');
@@ -312,8 +311,26 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     return rowEl;
   }
 
+  function issueNumberOf(query: string) {
+    const digits = /^#?([0-9]+)$/.exec(query.trim())?.[1];
+    const issueNumber = Number(digits);
+    return digits !== undefined && Number.isSafeInteger(issueNumber) && issueNumber >= 1 ? issueNumber : null;
+  }
+
+  function issueProjects() {
+    if (isShellChosen()) return [];
+    const { picked, others } = orderWorkspaceRows(scannedProjects, target.kind === 'project' ? [target.row.path] : [], '');
+    return [...picked, ...others];
+  }
+
+  function buildIssueRows(issueNumber: number) {
+    return issueProjects().map((project) => buildSlotRow(`issue:${project.path}`, `Issue #${issueNumber} in ${project.name}`, false, () => startIssue(project, issueNumber)));
+  }
+
   function buildProjectRows() {
-    const rows: HTMLElement[] = filterRows(recentRows, queryBySlot.project).map(buildProjectRow);
+    const issueNumber = issueNumberOf(queryBySlot.project);
+    const issueRows = issueNumber === null ? [] : buildIssueRows(issueNumber);
+    const rows: HTMLElement[] = [...issueRows, ...filterRows(recentRows, queryBySlot.project).map(buildProjectRow)];
     if (!isShellChosen() && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
     rows.push(buildChoiceRow('Any folder', pickFolder));
     rows.push(...buildGithubGroup());
@@ -950,25 +967,21 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       return;
     }
     const request = buildRequest();
-    if (!request) return;
-    const issueRequest = withIssue(request);
-    if (issueRequest) requestAddSession(issueRequest);
+    if (request) requestAddSession(request);
   }
 
-  function withIssue(request: AddSessionRequest): AddSessionRequest | null {
-    const typedIssue = issueNumberInput.value.trim().replace(/^#/, '');
-    if (typedIssue === '') return request;
-    const issueNumber = Number(typedIssue);
-    if (!/^[0-9]+$/.test(typedIssue) || !Number.isSafeInteger(issueNumber) || issueNumber < 1) {
-      errorEl.textContent = 'Enter the issue as a number, such as 128.';
-      return null;
-    }
-    if (target.kind === 'workspace' || isShellChosen()) {
-      errorEl.textContent = 'An issue starts an agent in one repository, so pick a project or folder.';
-      return null;
-    }
+  function startIssue(project: ScannedProject, issueNumber: number) {
+    if (isSpawnBlocked || isAddPending) return;
+    errorEl.textContent = '';
+    const row = recentRows.find((recentRow) => recentRow.path === project.path);
+    if (row) setProjectTarget(row);
+    queryBySlot.project = '';
+    showFindFor('project');
+    renderList();
+    const request = buildRequest();
+    if (!request) return;
     const { name: _name, ...sessionFields } = request.message;
-    return { message: { ...sessionFields, issueNumber }, requestType: 'open-issue-session' };
+    requestAddSession({ message: { ...sessionFields, path: project.path, issueNumber }, requestType: 'open-issue-session' });
   }
 
   function holdForWork(statusText: string) {
@@ -1018,7 +1031,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function lockPicking(isLocked: boolean) {
-    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl, issueNumberInput];
+    const pickingRegions = [pickEl, workspacePanel, folderPanel, launchersEl];
     if (isLocked && pickingRegions.some((region) => region.contains(document.activeElement))) dialog.focus();
     for (const region of pickingRegions) region.inert = isLocked;
     for (const slot of ADD_SESSION_SLOTS) wordBySlot[slot].disabled = isLocked;
@@ -1067,9 +1080,6 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   pathInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') submit();
   });
-  issueNumberInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') submit();
-  });
   findInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     if (openSlot === 'model') {
@@ -1078,6 +1088,13 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
       const typed = typedModelId();
       if (firstGroup) pickModel(firstGroup.provider, firstGroup.models[0].id);
       if (!firstGroup && typed !== null) pickTypedModel('native', typed);
+      return;
+    }
+    const issueNumber = issueNumberOf(queryBySlot.project);
+    const firstIssueProject = issueNumber === null ? undefined : issueProjects()[0];
+    if (issueNumber !== null && firstIssueProject) {
+      event.preventDefault();
+      startIssue(firstIssueProject, issueNumber);
       return;
     }
     if (target.kind !== 'project' && target.kind !== 'github') return;
