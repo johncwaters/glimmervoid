@@ -7,6 +7,8 @@ import { retryAfterMsFromHeaders } from '../watcher/core/probe-core.ts';
 import { githubAppJwt, installationTokenRequestBody } from './doorman-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { createGcpRest } from './gcp-rest.ts';
+import { parseJsonOrNull } from '../../server/core/json-core.ts';
+import { sanitizeOneLine } from '../../server/core/text-core.ts';
 
 type MintOutcome =
   | { kind: 'minted'; token: string; expiresAtMs: number }
@@ -18,7 +20,18 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const GITHUB_API_VERSION = '2022-11-28';
 const USER_AGENT = 'glimmervoid-doorman';
 
+const MAX_REFUSAL_MESSAGE_CHARS = 200;
+
 const InstallationToken = z.object({ token: z.string().min(1), expires_at: z.iso.datetime() });
+const GithubErrorAnswer = z.object({ message: z.string().min(1) });
+
+async function refusalReasonOf(response: Response): Promise<string> {
+  const statusReason = `GitHub answered ${response.status}`;
+  const errorAnswer = GithubErrorAnswer.safeParse(parseJsonOrNull(await response.text().catch(() => '')));
+  if (!errorAnswer.success) return statusReason;
+  const message = sanitizeOneLine(errorAnswer.data.message, MAX_REFUSAL_MESSAGE_CHARS);
+  return message === '' ? statusReason : `${statusReason}: ${message}`;
+}
 
 function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = clock.nowMs }: {
   app: DoormanGithubApp;
@@ -53,13 +66,13 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (response.status !== 201) {
-      await response.body?.cancel();
+      const reason = await refusalReasonOf(response);
       const retryAfterMs = retryAfterMsFromHeaders({ status: response.status, hasErrorInAnswer: false }, {
         retryAfter: response.headers.get('retry-after'),
         rateLimitRemaining: response.headers.get('x-ratelimit-remaining'),
         rateLimitReset: response.headers.get('x-ratelimit-reset'),
       }, now());
-      return { kind: 'failed', reason: `GitHub answered ${response.status}`, retryAfterMs };
+      return { kind: 'failed', reason, retryAfterMs };
     }
     const minted = InstallationToken.parse(await response.json());
     return { kind: 'minted', token: minted.token, expiresAtMs: Date.parse(minted.expires_at) };

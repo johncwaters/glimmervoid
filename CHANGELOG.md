@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Glimmervoid Cloud GitHub token that GitHub refuses now says why in the doorman log.** The log line used to end at the status code, such as `GitHub answered 422`; it now carries GitHub's own reason, such as a permission the installation has not accepted yet or a repository it no longer reaches.
+
 ## [0.62.4] - 2026-11-16
 
 ### Changed
