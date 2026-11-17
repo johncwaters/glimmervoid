@@ -57,6 +57,7 @@ interface SessionEventDependencies {
   traceWiring?: { attachSession: (session: Session) => void } | null;
   verification?: { attachSession: (session: Session) => void } | null;
   loopGuard?: { attachSession: (session: Session) => void } | null;
+  reactions?: { attachSession: (session: Session) => void } | null;
   starHint?: { attachSession: (session: Session) => void } | null;
   commitSessions?: Pick<CommitSessions, 'noteHeadChange'> | null;
   pushProvenanceNotes?: (repoDir: string) => Promise<void>;
@@ -112,6 +113,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     dependencies.traceWiring?.attachSession(session);
     dependencies.verification?.attachSession(session);
     dependencies.loopGuard?.attachSession(session);
+    dependencies.reactions?.attachSession(session);
     dependencies.taskTitleRefiner?.attachSession(session);
     dependencies.starHint?.attachSession(session);
     let pendingPromptKind: string | null = null;

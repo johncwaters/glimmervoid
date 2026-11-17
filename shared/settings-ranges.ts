@@ -29,6 +29,7 @@ export const PACK_SCHEDULED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 20 });
 export const PACK_SCHEDULED_SESSIONS_DEFAULT = 3;
 export const SPAWNED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 10 });
 export const LOOP_GUARD_TURNS_RANGE = Object.freeze({ min: 1, max: 100 });
+export const REACTION_COOLDOWN_MINUTES_RANGE = Object.freeze({ min: 1, max: 1440 });
 export const LOOP_GUARD_ON_STUCK = Object.freeze(['flag', 'stop'] as const);
 export const SPAWNED_SESSIONS_DEFAULT = 3;
 export const SKIP_PERMISSIONS_BY_DEFAULT = true;

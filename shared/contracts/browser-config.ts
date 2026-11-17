@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AgentRulesBlock } from './memory.ts';
+import { ReactionsBlock } from './reactions.ts';
 import { SESSION_REVIEW_AGENTS } from './session-review.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
@@ -214,6 +215,7 @@ const PlanGateSettings = optionalObject('planGate', {
 });
 
 const AgentRulesSettings = optionalObject('agentRules', AgentRulesBlock.shape);
+const ReactionsSettings = optionalObject('reactions', ReactionsBlock.shape);
 
 const TelegramSettings = optionalObject('telegram', {
   botToken: optionalString('telegram.botToken', true),
@@ -323,6 +325,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   sessionReview: SessionReviewSettings,
   planGate: PlanGateSettings,
   agentRules: AgentRulesSettings,
+  reactions: ReactionsSettings,
   telemetry: TelemetrySettings,
   vault: VaultSettings,
   workflows: WorkflowsSettings.nullable().optional(),

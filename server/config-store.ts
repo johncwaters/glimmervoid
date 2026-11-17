@@ -310,6 +310,7 @@ function createConfigStore({
       sessionReview: pickBlock('sessionReview', config.sessionReview),
       planGate: pickBlock('planGate', config.planGate),
       agentRules: pickBlock('agentRules', config.agentRules),
+      reactions: pickBlock('reactions', config.reactions),
     };
   }
 
@@ -358,6 +359,8 @@ function createConfigStore({
     if (newConfig.planGate != null) config.planGate = newConfig.planGate;
     if (newConfig.agentRules == null) delete config.agentRules;
     if (newConfig.agentRules != null) config.agentRules = newConfig.agentRules;
+    if (newConfig.reactions == null) delete config.reactions;
+    if (newConfig.reactions != null) config.reactions = newConfig.reactions;
     if (newConfig.loopGuard == null) delete config.loopGuard;
     if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;
