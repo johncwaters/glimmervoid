@@ -3,6 +3,21 @@
   flex-direction: column;
 }
 
+.app-shell > .notice-stack {
+  position: fixed;
+  top: var(--header-h);
+  left: 0;
+  right: 0;
+  z-index: 99;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.app-shell > .notice-stack:has(.notice:not([hidden])) {
+  box-shadow: var(--shadow-lg);
+}
+
 .notice {
   display: flex;
   flex-wrap: wrap;
