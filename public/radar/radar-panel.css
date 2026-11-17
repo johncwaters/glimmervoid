@@ -44,34 +44,8 @@
 }
 
 .radar-tier-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border-dim);
-}
-
-.radar-tier-name {
-  margin: 0;
-  font-size: var(--type-meta);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-head);
-}
-
-.radar-tier[data-tier="NOW"] .radar-tier-name { color: var(--state-waiting); }
-
-.radar-tier-count {
-  font-size: var(--type-meta);
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.radar-tier-hint {
-  font-size: var(--type-meta);
-  color: var(--text-muted);
 }
 
 .radar-actions {
@@ -80,8 +54,6 @@
   flex-wrap: wrap;
   gap: 6px;
 }
-
-.radar-tier-head .radar-actions { margin-left: auto; }
 
 .radar-tier-rows {
   display: flex;
@@ -384,7 +356,6 @@
 html[data-layout="phone"] .radar-content { gap: 22px; }
 html[data-layout="phone"] .radar-queue-layout { display: block; }
 html[data-layout="phone"] .radar-pane-slot { display: none; }
-html[data-layout="phone"] .radar-tier-hint { flex: 1 1 100%; }
 html[data-layout="phone"] .radar-tier-rows {
   --radar-open-card-bg: color-mix(in oklab, var(--accent) 8%, var(--bg-card));
   gap: 8px;

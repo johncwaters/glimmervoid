@@ -8,6 +8,7 @@ import { buildChip } from '../settings/settings-readouts.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
+import { sectionHeading } from '../ui/section-heading.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { openPackDetail } from './pack-approval-content.ts';
 import { openFirstPackPanel, packTabIcon } from './pack-views.ts';
@@ -248,9 +249,9 @@ function matchesSearch(...texts: (string | null)[]): boolean {
   return texts.some((text) => text?.toLowerCase().includes(needle) ?? false);
 }
 
-function sectionHeading(title: string, count: number): HTMLElement {
-  const heading = el('div', 'packs-section-heading');
-  heading.append(el('h2', 'packs-section-title', title), el('span', 'packs-section-count', String(count)));
+function packsSectionHeading(title: string, count: number): HTMLElement {
+  const heading = sectionHeading({ title, level: 2, count }).element;
+  heading.classList.add('packs-section-heading');
   return heading;
 }
 
@@ -286,9 +287,9 @@ function packsContent(): HTMLElement[] {
   const installedEmptyText = status.packs.length === 0 ? 'No packs yet. Enable one under Discover, or copy a pack folder into ~/.glimmervoid/packs/.' : 'No installed pack matches.';
   return [
     ...warnings,
-    sectionHeading('Installed', installedRows.length),
+    packsSectionHeading('Installed', installedRows.length),
     grid(installedRows.map((row) => installedCard(row, status)), installedEmptyText),
-    sectionHeading('Discover', discoverCards.length),
+    packsSectionHeading('Discover', discoverCards.length),
     grid(discoverCards, status.sources.length === 0 ? 'No pack sources yet. Add one under Sources.' : 'Every pack from your sources is installed.'),
     sourcesSection(status.sources),
   ];

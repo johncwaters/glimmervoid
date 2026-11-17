@@ -3,6 +3,7 @@ import './radar-panel.css';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { buildPanelSection, el, externalLink, isPanelHidden, projectsOf } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { sectionHeading } from '../ui/section-heading.ts';
 import { attachChartReadout } from '../chart-readout.ts';
 import type { ChartReadoutCell } from '../chart-readout.ts';
 import { createInvestigationDialog, createRadarReportDialog } from '../dialogs.ts';
@@ -603,10 +604,16 @@ function buildArchiveTransientControl(queue: RadarQueue) {
 function buildTier(tier: QueueTier, queue: RadarQueue) {
   const block = el('div', 'radar-tier');
   block.dataset.tier = tier.name;
-  const head = el('div', 'radar-tier-head');
-  head.append(el('h3', 'radar-tier-name', tier.name), el('span', 'radar-tier-count', String(tier.items.length)), el('span', 'radar-tier-hint', TIER_HINTS[tier.name]));
   const archiveControl = tier.name === 'LATER' ? buildArchiveTransientControl(queue) : null;
-  if (archiveControl) head.append(archiveControl);
+  const head = sectionHeading({
+    title: tier.name,
+    level: 3,
+    count: tier.items.length,
+    tone: tier.name === 'NOW' ? 'waiting' : 'strong',
+    hint: TIER_HINTS[tier.name],
+    actions: archiveControl ? [archiveControl] : [],
+  }).element;
+  head.classList.add('radar-tier-head');
   block.append(head);
   const list = el('div', 'radar-tier-rows');
   for (const item of tier.items) list.append(buildQueueRow(item));
