@@ -311,5 +311,9 @@ function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineConte
 
 export {
   MAX_TRACE_BODY_CHARS,
+  boundedText,
+  boundedToolCallInput,
+  parseTimestamp,
   traceRecordsFromTranscriptLine,
 };
+export type { TraceLineContext };

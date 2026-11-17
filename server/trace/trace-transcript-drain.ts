@@ -158,7 +158,7 @@ function createTraceTranscriptDrain(
 
   async function drainBinding(binding: TraceBinding): Promise<void> {
     if (await isTranscriptUnchanged(binding)) return;
-    const opened = await openContainedFile(binding.transcriptPath, binding.source.containmentRoot());
+    const opened = await openContainedFile(binding.transcriptPath, binding.containmentRoot);
     if (!opened.ok) {
       if (binding.bindingBeforeFirstOpen) await drainBinding(binding.bindingBeforeFirstOpen);
       if (!binding.hasOpenedTranscript) {

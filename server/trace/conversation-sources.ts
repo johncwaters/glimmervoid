@@ -1,15 +1,19 @@
 import os from 'node:os';
+import path from 'node:path';
 
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import type { CatalogAgentId } from '../../shared/contracts/agent-models.ts';
 import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import { traceRecordsFromTranscriptLine } from '../core/trace-core.ts';
+import { codexRecordsFromLine } from '../core/conversation/codex-core.ts';
+import { codexRolloutRoots } from '../../session/adapters/codex.ts';
+import { isPathInside } from '../../shared/paths.ts';
 
 type TranscriptLineContext = Parameters<typeof traceRecordsFromTranscriptLine>[1];
 
 interface TranscriptConversationSource {
   kind: 'transcript';
-  containmentRoot(): string;
+  containmentRoots(agentEnv: Record<string, string | undefined>): string[];
   recordsFromLine(rawLine: string, context: TranscriptLineContext): TraceRecord[];
 }
 
@@ -23,10 +27,14 @@ const CONVERTER_NOT_BUILT = 'conversation converter not built yet';
 const conversationSourceByAgentId = {
   'claude-code': {
     kind: 'transcript',
-    containmentRoot: () => claudeProjectsDir(process.env, os.homedir()),
+    containmentRoots: () => [claudeProjectsDir(process.env, os.homedir())],
     recordsFromLine: traceRecordsFromTranscriptLine,
   },
-  codex: { kind: 'none', reason: CONVERTER_NOT_BUILT },
+  codex: {
+    kind: 'transcript',
+    containmentRoots: codexRolloutRoots,
+    recordsFromLine: codexRecordsFromLine,
+  },
   kimi: { kind: 'none', reason: CONVERTER_NOT_BUILT },
   opencode: { kind: 'none', reason: CONVERTER_NOT_BUILT },
   pi: { kind: 'none', reason: CONVERTER_NOT_BUILT },
@@ -49,5 +57,10 @@ function transcriptSourceOf(agentId: string): TranscriptConversationSource | nul
   return source.kind === 'transcript' ? source : null;
 }
 
-export { transcriptSourceOf };
+function containmentRootFor(source: TranscriptConversationSource, agentEnv: Record<string, string | undefined>, candidatePath: string): string {
+  const roots = source.containmentRoots(agentEnv);
+  return roots.find((root) => isPathInside(path.resolve(root), candidatePath, { allowEqual: false })) ?? roots[0];
+}
+
+export { containmentRootFor, transcriptSourceOf };
 export type { TranscriptConversationSource };

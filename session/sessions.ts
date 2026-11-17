@@ -783,6 +783,10 @@ class Session extends EventEmitter {
     this._updateTaskTitle();
   }
 
+  launchEnv(): SpawnEnv {
+    return this._launch.buildEnv();
+  }
+
   get agentSetup(): AgentSetup | null {
     return this._agentSetup;
   }

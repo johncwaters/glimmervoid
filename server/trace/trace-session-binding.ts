@@ -7,7 +7,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { MAX_RAW_LINE_CHARS } from '../../shared/contracts/trace.ts';
 import { MAX_REMEMBERED_CLOSED_SESSIONS, trimOldest } from './trace-wiring-context.ts';
-import { transcriptSourceOf } from './conversation-sources.ts';
+import { containmentRootFor, transcriptSourceOf } from './conversation-sources.ts';
 import type { TranscriptConversationSource } from './conversation-sources.ts';
 import type { TraceBinding, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceRecordStore } from './trace-record-store.ts';
@@ -18,6 +18,7 @@ import type { TraceSubagentCapture } from './trace-subagent-capture.ts';
 interface TraceSession {
   id: string;
   agentId: string;
+  launchEnv(): Record<string, string | undefined>;
   deliveredSecretValues?(): readonly string[];
   on(event: string, listener: (payload: Record<string, unknown>) => void): unknown;
 }
@@ -54,6 +55,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   const { readSubagentTranscript } = deps.subagentCapture;
   const attachedSessions = new WeakSet<object>();
   const conversationVendorSessionIdByGlimmervoidSessionId = new Map<string, string>();
+  const launchEnvByGlimmervoidSessionId = new Map<string, () => Record<string, string | undefined>>();
 
   async function bindSession(
     glimmervoidSessionId: string,
@@ -65,7 +67,9 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     if (isStopped() || closedSessionIds.has(glimmervoidSessionId)) return;
     const checkpointPath = checkpointFilePath(glimmervoidSessionId);
     if (!checkpointPath) return;
-    const containedTranscript = await openContainedFile(requestedTranscriptPath, source.containmentRoot(), true);
+    const launchEnv = launchEnvByGlimmervoidSessionId.get(glimmervoidSessionId)?.() ?? process.env;
+    const containmentRoot = containmentRootFor(source, launchEnv, requestedTranscriptPath);
+    const containedTranscript = await openContainedFile(requestedTranscriptPath, containmentRoot, true);
     if (!containedTranscript.ok && containedTranscript.reason === 'missing') {
       awaitingTranscriptByGlimmervoidSessionId.set(glimmervoidSessionId, { id: vendorSessionId, vendor, transcriptPath: requestedTranscriptPath });
     }
@@ -73,7 +77,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       laneLog.warnOnce(`bind:${glimmervoidSessionId}:${containedTranscript.reason}`, 'transcript refused', {
         session: glimmervoidSessionId,
         path: requestedTranscriptPath,
-        root: source.containmentRoot(),
+        root: containmentRoot,
         reason: containedTranscript.reason,
       });
       return;
@@ -97,6 +101,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       vendorSessionId,
       vendor,
       source,
+      containmentRoot,
       transcriptPath,
       requestedTranscriptPath,
       tailState,
@@ -181,6 +186,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       } finally {
         deliveredSecretValuesBySessionId.delete(glimmervoidSessionId);
         agentIdBySessionId.delete(glimmervoidSessionId);
+        launchEnvByGlimmervoidSessionId.delete(glimmervoidSessionId);
       }
     }, 'final drain failed');
   }
@@ -221,6 +227,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     attachedSessions.add(session);
     deliveredSecretValuesBySessionId.set(session.id, () => session.deliveredSecretValues?.() ?? []);
     agentIdBySessionId.set(session.id, session.agentId);
+    launchEnvByGlimmervoidSessionId.set(session.id, () => session.launchEnv());
     session.on('claude-session-id', (payload) => { noteVendorSession(session.id, payload); });
     session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
     session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });

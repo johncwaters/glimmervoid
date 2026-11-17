@@ -30,6 +30,10 @@ class TestTraceSession extends EventEmitter {
     this.id = id;
     this.agentId = agentId;
   }
+
+  launchEnv(): Record<string, string | undefined> {
+    return process.env;
+  }
 }
 
 function silentLogger(): Pick<Console, 'log' | 'warn'> {

@@ -113,10 +113,14 @@ async function readTurnRolloutLines(handle: fs.promises.FileHandle, fileSize: nu
   return relevantLines;
 }
 
-async function readTurnRolloutLinesFromCodexHome(transcriptPath: string, turnId: string, agentEnv: Record<string, string | undefined>): Promise<string[] | null> {
+function codexRolloutRoots(agentEnv: Record<string, string | undefined>): string[] {
   const rolloutHomes = [...codexHomes(agentEnv, null), generatedAgentHomePath(CODEX_HOME_PROFILE, agentEnv), generatedAgentHomePath(CODEX_HOME_PROFILE, agentEnv, undefined, true)];
-  for (const codexHome of rolloutHomes) {
-    const opened = await openContainedFile(path.resolve(transcriptPath), path.join(codexHome, "sessions"));
+  return rolloutHomes.map((codexHome) => path.join(codexHome, "sessions"));
+}
+
+async function readTurnRolloutLinesFromCodexHome(transcriptPath: string, turnId: string, agentEnv: Record<string, string | undefined>): Promise<string[] | null> {
+  for (const rolloutRoot of codexRolloutRoots(agentEnv)) {
+    const opened = await openContainedFile(path.resolve(transcriptPath), rolloutRoot);
     if (!opened.ok) continue;
     const { handle, stat } = opened.file;
     try {
@@ -529,3 +533,4 @@ const codex = {
 } satisfies AgentAdapterShape;
 
 export default codex;
+export { codexRolloutRoots };

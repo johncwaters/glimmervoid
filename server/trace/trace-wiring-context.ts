@@ -19,6 +19,7 @@ interface TraceBinding {
   vendorSessionId: string;
   vendor: string;
   source: TranscriptConversationSource;
+  containmentRoot: string;
   transcriptPath: string;
   requestedTranscriptPath: string;
   tailState: TailState;
