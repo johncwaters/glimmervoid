@@ -29,6 +29,13 @@ interface HookEndpoint {
   query: string;
 }
 
+const CLAUDE_MODEL_PROBE_FIXTURE = new URL('../../tests/fixtures/agent-models/claude-initialize.jsonl', import.meta.url);
+
+if (process.argv.includes('--input-format')) {
+  process.stdout.write(fs.readFileSync(CLAUDE_MODEL_PROBE_FIXTURE, 'utf8'));
+  process.exit(0);
+}
+
 const screen = { cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tick: 0 };
 let motionReportsSinceLinkPaint = 0;
 

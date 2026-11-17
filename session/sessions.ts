@@ -1609,6 +1609,7 @@ class Session extends EventEmitter {
       passedQuestionSeq: this.passedQuestionSeq,
       isQuestionManagerOn: this.isQuestionManagerOn,
       accountId: this.accountId,
+      agentSetup: this._agentSetup,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       auditLog: this.auditLog,

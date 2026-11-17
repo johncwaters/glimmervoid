@@ -6,6 +6,7 @@ import { AttentionNote, AttentionOwner, ConversationApproval, SESSION_DOC_PATH_M
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
+import { ModelSelection } from '../agent-models.ts';
 
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 export const CHANGES_WATCH_LEASE_MS = 10_000;
@@ -104,6 +105,7 @@ export const SessionCardFields = z.object({
   ownerId: sessionId.optional(),
   attentionOwner: AttentionOwner.optional(),
   linkedPrs: z.array(LinkedPr).optional(),
+  modelSelection: ModelSelection.nullable().optional(),
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
 

@@ -7,6 +7,8 @@ const MAX_INPUT_HEIGHT_PX = 240;
 interface ChatComposer {
   element: HTMLElement;
   setTurnRunning(isTurnRunning: boolean): void;
+  readDraft(): string;
+  restoreDraft(text: string): void;
 }
 
 function isSubmitKeydown(event: KeyboardEvent): boolean {
@@ -59,5 +61,10 @@ export function createComposer(): ChatComposer {
   const setTurnRunning = (isTurnRunning: boolean) => {
     stopButton.disabled = !isTurnRunning;
   };
-  return { element, setTurnRunning };
+  const restoreDraft = (text: string) => {
+    input.value = text;
+    sendButton.disabled = text.trim().length === 0;
+    fitInputHeight(input);
+  };
+  return { element, setTurnRunning, readDraft: () => input.value, restoreDraft };
 }

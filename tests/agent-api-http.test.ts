@@ -676,6 +676,8 @@ test('the shared session card projection carries exactly the session-added paylo
   assert.equal(operatorCard.ephemeral, false, 'an operator card carries the flag its own session owns');
   const flaglessCard = projectSessionCard({ ...source, ephemeral: undefined }, { id: 'plain-id', name: 'plain name' });
   assert.equal('ephemeral' in flaglessCard, false, 'a source without the flag leaves it off the wire');
+  const pickedModelCard = projectSessionCard({ ...source, agentSetup: { agent: 'codex', model: 'gpt-5', options: [], instructions: 'Keep diffs small' } }, { id: 'picked-id', name: 'picked name' });
+  assert.deepEqual(pickedModelCard.modelSelection, { agent: 'codex', model: 'gpt-5', options: [] }, 'a session started on a picked model tells Chat which one, without its instructions');
 });
 
 test('limits tells a session which commands answer', async () => {

@@ -16,8 +16,44 @@ async function sendFromComposer(page: Page, text: string): Promise<void> {
   await input.press('Enter');
 }
 
+async function waitForModelCatalog(page: Page): Promise<void> {
+  await page.waitForFunction(async () => {
+    const controlWsUrl = '/control-ws.ts';
+    const { sendControlRequest } = await import(controlWsUrl);
+    const reply = await sendControlRequest('get-settings', {});
+    const agents: unknown = reply?.settings?.agentModels?.agents;
+    return Array.isArray(agents) && agents.some((entry) => entry?.agent === 'claude-code' && Array.isArray(entry.models) && entry.models.length > 1);
+  }, undefined, { timeout: CARD_TIMEOUT_MS, polling: 500 });
+  await page.reload();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+}
+
+async function verifyChatModelSwitch(page: Page): Promise<void> {
+  await waitForModelCatalog(page);
+  const modelSelect = page.locator('.session-chat .chat-model-control select[aria-label="Model"]');
+  await modelSelect.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const choices = await modelSelect.locator('option').evaluateAll((options) => options.map((option) => (option instanceof HTMLOptionElement ? option.value : '')));
+  const shownModel = await modelSelect.inputValue();
+  const otherModel = choices.find((choice) => choice !== shownModel);
+  assert.ok(otherModel, `the Model control lists more than the shown model (${choices.join(', ')})`);
+  await page.waitForFunction(() => document.querySelector<HTMLFieldSetElement>('.session-chat .chat-model-control')?.disabled === false, undefined, { timeout: CARD_TIMEOUT_MS });
+  const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await composerInput.fill('draft kept across the switch');
+  await modelSelect.selectOption(otherModel);
+  await page.waitForFunction((model) => {
+    const select = document.querySelector<HTMLSelectElement>('.session-chat .chat-model-control select[aria-label="Model"]');
+    const status = document.querySelector('.session-chat .chat-model-status');
+    return select?.value === model && status?.textContent === '';
+  }, otherModel, { timeout: CARD_TIMEOUT_MS });
+  const failureText = await page.locator('.session-chat .session-chat-failure').textContent();
+  assert.equal(failureText ?? '', '', 'switching the model from Chat reports no failure');
+  assert.equal(await composerInput.inputValue(), 'draft kept across the switch', 'an unsent draft survives the restart a model switch causes');
+  await composerInput.fill('');
+}
+
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
+  await verifyChatModelSwitch(page);
   await sendFromComposer(page, 'ask-chat');
   const openCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="false"]');
   await openCard.waitFor({ timeout: CARD_TIMEOUT_MS });

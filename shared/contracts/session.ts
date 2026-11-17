@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PlanGate } from './plan-gate.ts';
 
 import { STATES } from '../states.ts';
-import { SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
+import { ModelSelection, SAFE_LAUNCH_ARGUMENT_PATTERN } from './agent-models.ts';
 import { LinkedPr, MyPr } from './my-prs.ts';
 import { AgentAccountId } from './agent-accounts.ts';
 import { QUESTION_ANSWERED_NOTIFY_CATEGORY } from './question-manager.ts';
@@ -106,6 +106,7 @@ export const SessionSnapshot = z.object({
   passedQuestionSeq: z.number().int().nonnegative().default(0),
   isQuestionManagerOn: z.boolean().nullable().default(null),
   accountId: AgentAccountId.nullable().default(null),
+  modelSelection: ModelSelection.nullable().default(null),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),
   attentionNotes: z.array(AttentionNote).default([]),

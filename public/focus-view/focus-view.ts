@@ -832,7 +832,10 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
   const centeredId = getFocusedSessionId();
   const ui = centeredId ? sessionUIs.get(centeredId) : undefined;
   const isNewlyCentered = centeredId !== null && ui !== undefined && ui.card.parentElement !== cardSlotEl;
-  if (isNewlyCentered) borrowToCenter(ui, centeredId);
+  if (isNewlyCentered) {
+    closeSessionPage();
+    borrowToCenter(ui, centeredId);
+  }
   paintShellPane(centeredBoardId ? null : centeredId);
   pageButtons?.showSession(centeredBoardId ? null : centeredId);
   if (isNewlyCentered && getSessionView() === 'chat') openSessionPage('chat', centeredId);

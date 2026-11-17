@@ -12,6 +12,8 @@ interface ChatView {
   remove(partIds: readonly string[]): void;
   setTurnRunning(isTurnRunning: boolean): void;
   beat(beats: readonly ActivityBeat[]): void;
+  readDraft(): string;
+  restoreDraft(text: string): void;
 }
 
 export function createChatView(): ChatView {
@@ -31,5 +33,5 @@ export function createChatView(): ChatView {
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, setTurnRunning, beat: activity.beat };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft };
 }

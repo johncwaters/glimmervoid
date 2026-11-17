@@ -1,3 +1,4 @@
+import type { ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { ConversationApproval } from '#shared/contracts/session.ts';
 import { BETWEEN_TURN_STATES, STATES } from '#shared/states.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -11,6 +12,7 @@ import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
+import { createChatModelControl } from './chat-model-control.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
 
@@ -35,11 +37,14 @@ interface MountedChat {
   feed: ChatFeed;
   wasSessionWorking: boolean;
   setTurnRunning(isTurnRunning: boolean): void;
+  renderModelControl(): void;
   syncWaitingCards(): void;
   close(): void;
 }
 
 const approvalBySessionId = new Map<string, ConversationApproval | null>();
+const modelSelectionBySessionId = new Map<string, ModelSelection | null>();
+const draftBySessionId = new Map<string, string>();
 let mountedChat: MountedChat | null = null;
 let wasChatEnabled = false;
 
@@ -94,19 +99,23 @@ function buildChat(sessionId: string): MountedChat {
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
   let chatView = createChatView();
-  root.append(failureLine, chatView.element);
+  chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
+  const showFailure = (failureText: string | null) => {
+    failureLine.hidden = failureText === null;
+    failureLine.textContent = failureText ?? '';
+  };
+  const modelControl = createChatModelControl(sessionId, showFailure);
+  const renderModelControl = () => modelControl.render(sessionUIs.get(sessionId)?.agent ?? null, modelSelectionBySessionId.get(sessionId) ?? null);
+  renderModelControl();
+  root.append(modelControl.element, failureLine, chatView.element);
   chatView.setTurnRunning(isSessionWorking(sessionId));
+  modelControl.setTurnRunning(isSessionWorking(sessionId));
   let shownApproval: ShownApproval | null = null;
   let terminalCardState: TerminalCardState = 'hidden';
   let terminalCardSerial = 0;
   let terminalCardId: string | null = null;
   let terminalHome: HTMLElement | null = null;
   let strayChildWatcher: MutationObserver | null = null;
-
-  const showFailure = (failureText: string | null) => {
-    failureLine.hidden = failureText === null;
-    failureLine.textContent = failureText ?? '';
-  };
 
   const releaseTerminal = () => {
     if (terminalCardState !== 'borrowed') return;
@@ -228,6 +237,7 @@ function buildChat(sessionId: string): MountedChat {
       releaseTerminal();
       shownApproval = null;
       const freshView = createChatView();
+      freshView.restoreDraft(chatView.readDraft());
       freshView.setTurnRunning(isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
@@ -240,9 +250,14 @@ function buildChat(sessionId: string): MountedChat {
     root,
     feed,
     wasSessionWorking: isSessionWorking(sessionId),
-    setTurnRunning: (isTurnRunning) => chatView.setTurnRunning(isTurnRunning),
+    setTurnRunning: (isTurnRunning) => {
+      chatView.setTurnRunning(isTurnRunning);
+      modelControl.setTurnRunning(isTurnRunning);
+    },
+    renderModelControl,
     syncWaitingCards,
     close: () => {
+      draftBySessionId.set(sessionId, chatView.readDraft());
       releaseTerminal();
       feed.close();
     },
@@ -265,10 +280,20 @@ export function applyChatTraceChanged(sessionId: string): void {
   mountedChat.feed.refresh();
 }
 
-export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null }[]): void {
+export function applyChatModelSelection(sessionId: string, modelSelection: ModelSelection | null): void {
+  modelSelectionBySessionId.set(sessionId, modelSelection);
+  if (mountedChat?.sessionId === sessionId) mountedChat.renderModelControl();
+}
+
+export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; modelSelection?: ModelSelection | null }[]): void {
   approvalBySessionId.clear();
-  for (const row of rows) noteChatApproval(row.id, row.conversationApproval ?? null);
+  modelSelectionBySessionId.clear();
+  for (const row of rows) {
+    noteChatApproval(row.id, row.conversationApproval ?? null);
+    modelSelectionBySessionId.set(row.id, row.modelSelection ?? null);
+  }
   if (!mountedChat) return;
+  mountedChat.renderModelControl();
   applyChatSessionStatus(mountedChat.sessionId);
   mountedChat.feed.refresh();
 }
@@ -287,6 +312,7 @@ subscribeSettings((change) => {
   const isEnabled = isChatEnabled();
   const hasJustEnabled = isEnabled && !wasChatEnabled;
   wasChatEnabled = isEnabled;
+  mountedChat?.renderModelControl();
   if (!isEnabled && mountedChat && isSessionPageOpen(CHAT_PAGE_ID, mountedChat.sessionId)) closeSessionPage();
   announceSessionPageChange(CHAT_PAGE_ID, null);
   if (hasJustEnabled && getSessionView() === 'chat') openSessionPageOnShownSession(CHAT_PAGE_ID);

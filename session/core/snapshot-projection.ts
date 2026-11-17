@@ -2,6 +2,7 @@ import type { SessionCardFields } from "../../shared/contracts/control-messages.
 import type { AttentionNote, AttentionOwner, ConversationApproval, UnseenOutcome } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 import type { PlanGate } from "../../shared/contracts/plan-gate.ts";
+import type { AgentSetup, ModelSelection } from "../../shared/contracts/agent-models.ts";
 
 interface SessionCardSource {
   taskTitle?: string | null;
@@ -22,11 +23,18 @@ interface SessionCardSource {
   ownerId?: string | null;
   attentionOwner?: AttentionOwner;
   linkedPrs?: LinkedPr[];
+  agentSetup?: AgentSetup | null;
 }
 
 interface SessionCardIdentity {
   id: string;
   name: string;
+}
+
+function modelSelectionOf(agentSetup: AgentSetup | null | undefined): ModelSelection | null {
+  if (!agentSetup) return null;
+  const { agent, provider, model, options } = agentSetup;
+  return { agent, model, options, ...(provider ? { provider } : {}) };
 }
 
 function projectSessionCard(
@@ -53,6 +61,7 @@ function projectSessionCard(
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
     ...(source.accountId ? { accountId: source.accountId } : {}),
+    ...(source.agentSetup ? { modelSelection: modelSelectionOf(source.agentSetup) } : {}),
   };
   if (source.ephemeral === undefined) return card;
   return { ...card, ephemeral: source.ephemeral };
@@ -91,6 +100,7 @@ interface SnapshotSource {
   passedQuestionSeq?: number;
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
+  agentSetup?: AgentSetup | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
   auditLog: Record<string, unknown>[];
@@ -132,6 +142,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     passedQuestionSeq: source.passedQuestionSeq ?? 0,
     isQuestionManagerOn: source.isQuestionManagerOn ?? null,
     accountId: source.accountId ?? null,
+    modelSelection: modelSelectionOf(source.agentSetup),
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
     auditLog: source.auditLog.slice(-100),

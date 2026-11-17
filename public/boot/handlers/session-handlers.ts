@@ -1,4 +1,4 @@
-import { applyChatSessionStatus, noteChatApproval } from '../../chat/chat-page.ts';
+import { applyChatModelSelection, applyChatSessionStatus, noteChatApproval } from '../../chat/chat-page.ts';
 import { refreshFavicon } from '../../favicon.ts';
 import { forgetSessionInSavedOrder, setFocusMergeStatus } from '../../focus-view/focus-view.ts';
 import { setSessionLinkedPrs } from '../../github/session-pr-chips.ts';
@@ -19,7 +19,7 @@ const messageHandlers = {
     if (msg.conversationApproval !== undefined) noteChatApproval(msg.id, msg.conversationApproval);
     applyChatSessionStatus(msg.id);
   },
-  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { applyChatModelSelection(msg.id, msg.modelSelection ?? null); setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },
@@ -32,6 +32,7 @@ const messageHandlers = {
     refreshFavicon(attentionTally.counts);
     refreshRosterAndAttentionSurfaces();
     syncTraceSessionsFromCards();
+    applyChatModelSelection(msg.id, msg.modelSelection ?? null);
   },
   'session-git':        (msg) => setSessionWorktree(msg.id, !!msg.worktree),
 
