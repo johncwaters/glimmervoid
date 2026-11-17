@@ -1,6 +1,7 @@
 import { el } from '../dom-helpers.ts';
 import type { ChatPart, ChatPartKind } from './chat-part.ts';
 import { replyParagraphsOf } from './chat-parts-core.ts';
+import { renderEditCard, renderToolCard } from './tool-card.ts';
 
 type ChatPartByKind = { [Part in ChatPart as Part['kind']]: Part };
 type ChatPartRenderer<Kind extends ChatPartKind> = (part: ChatPartByKind[Kind]) => HTMLElement;
@@ -27,6 +28,8 @@ const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   reply: renderReply,
   thinking: renderThinking,
+  tool: renderToolCard,
+  edit: renderEditCard,
 } satisfies ChatPartRendererTable;
 
 const rendererByPartKind: ChatPartRendererTable = RENDERER_BY_PART_KIND;

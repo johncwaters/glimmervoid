@@ -111,10 +111,7 @@ export async function mountFileDiff(host: HTMLElement, options: MountFileDiffOpt
   };
 }
 
-export async function mountPatchDiff(host: HTMLElement, patch: string, layout: DiffLayout): Promise<MountedFileDiff> {
-  const diffs = await preloadDiffRenderer();
-  const fileDiff = diffs.processFile(patch, { isGitDiff: true });
-  if (!fileDiff) throw new Error('This file diff could not be read');
+function mountPlainDiff(diffs: DiffsModule, host: HTMLElement, fileDiff: FileDiffMetadata, layout: DiffLayout): MountedFileDiff {
   const renderer = new diffs.FileDiff<string>({
     theme: DIFF_THEME_NAME,
     diffStyle: layout,
@@ -129,4 +126,20 @@ export async function mountPatchDiff(host: HTMLElement, patch: string, layout: D
     setAnnotations: () => {},
     destroy: () => renderer.cleanUp(),
   };
+}
+
+export async function mountPatchDiff(host: HTMLElement, patch: string, layout: DiffLayout): Promise<MountedFileDiff> {
+  const diffs = await preloadDiffRenderer();
+  const fileDiff = diffs.processFile(patch, { isGitDiff: true });
+  if (!fileDiff) throw new Error('This file diff could not be read');
+  return mountPlainDiff(diffs, host, fileDiff, layout);
+}
+
+export async function mountContentsDiff(host: HTMLElement, name: string, contents: DiffFileContents, layout: DiffLayout): Promise<MountedFileDiff> {
+  const diffs = await preloadDiffRenderer();
+  const fileDiff = diffs.parseDiffFromFile(
+    { name, contents: contents.oldContents ?? '' },
+    { name, contents: contents.newContents ?? '' },
+  );
+  return mountPlainDiff(diffs, host, fileDiff, layout);
 }

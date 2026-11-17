@@ -7,5 +7,5 @@ const traceResponse = await fetch('/trace-records.json');
 const traceRecords: TraceRecord[] = await traceResponse.json();
 const chatLog = createChatLog();
 chatHost?.appendChild(chatLog.element);
-chatLog.upsert(appendChatRecords(createChatPartsState(), traceRecords));
+chatLog.upsert(appendChatRecords(createChatPartsState(), traceRecords, new Map()));
 document.body.dataset.rendered = 'true';
