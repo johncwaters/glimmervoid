@@ -40,6 +40,7 @@ interface BackendShutdownDependencies {
   workflows?: { stopPoller: () => unknown } | null;
   races?: { stopWatching: () => unknown } | null;
   usage: Stoppable;
+  verification?: Stoppable | null;
   starHint?: Stoppable | null;
   traceWiring?: Stoppable | null;
   uploadsWiring?: Stoppable | null;
@@ -124,6 +125,8 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     const workflows = dependencies.workflows;
     if (workflows) stoppers.add('workflows', () => workflows.stopPoller());
     stoppers.add('usage', () => dependencies.usage.stop());
+    const verification = dependencies.verification;
+    if (verification) stoppers.add('verification', () => verification.stop());
     const starHint = dependencies.starHint;
     if (starHint) stoppers.add('star-hint', () => starHint.stop());
     destroySessions([dependencies.investigationSessions], pendingReaps);

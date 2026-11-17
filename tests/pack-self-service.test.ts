@@ -354,9 +354,11 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
   const armedTimers: { fire: () => void; delayMs: number; savedRunsAtArm: string }[] = [];
   const endedSessionIds = new Set<string>();
   let operatorTimezone = 'UTC';
+  let budgetHoldReason: string | null = null;
   const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
   const config: GlimmervoidConfig = { projects: [] };
   const launcherDeps = {
+    budgetHoldReason: () => budgetHoldReason,
     packStore, projectPaths: () => [projectDir], originUrl: async () => 'git@github.com:example-org/other.git',
     operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: () => {} }, runsPath: packLauncherRunsPath(homeDir),
     isSessionLive: (sessionId: string) => config.projects.some((project) => project.id === sessionId) && !endedSessionIds.has(sessionId),
@@ -432,6 +434,13 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
     operatorTimezone = 'Europe/Berlin';
     await restarted.refresh();
     assert.equal(armedTimers.at(-1)?.delayMs, hourMs, 'a timezone change moves the next run to 03:00 in the new timezone');
+
+    budgetHoldReason = 'the daily budget was reached';
+    await fireArmedTimer(firstFireAt + 192 * hourMs - hourMs);
+    assert.deepEqual(startedAfterRestart, [], 'a run that comes due while the spend budget holds sessions does not start');
+    budgetHoldReason = null;
+    await fireArmedTimer(firstFireAt + 216 * hourMs - hourMs);
+    assert.equal(startedAfterRestart.length, 1, 'the next run after the hold lifts starts');
   } finally {
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });

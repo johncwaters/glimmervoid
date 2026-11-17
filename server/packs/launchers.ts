@@ -38,7 +38,7 @@ function fireKeyOf(scheduled: ScheduledPackLauncher, timezone: string): string {
 
 export function createPackLaunchers({
   packStore, projectPaths, originUrl, operatorSaneYolo, onResolved, log,
-  runsPath, isSessionLive, liveSessionNames, maxScheduledSessions, timezone, now = clock.nowMs, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
+  runsPath, isSessionLive, liveSessionNames, maxScheduledSessions, timezone, budgetHoldReason = () => null, now = clock.nowMs, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
 }: {
   packStore: PackStore;
   projectPaths: () => readonly string[];
@@ -51,6 +51,7 @@ export function createPackLaunchers({
   liveSessionNames: () => readonly string[];
   maxScheduledSessions: () => number;
   timezone: () => string;
+  budgetHoldReason?: () => string | null | Promise<string | null>;
   now?: () => number;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
@@ -218,6 +219,11 @@ export function createPackLaunchers({
     if (decision !== 'start' || !resolution.ok) return;
     const approved = packStore.launcherInUse(scheduled.pack, scheduled.launcher.id);
     if (!approved || approved.launcher.schedule !== scheduled.schedule) return;
+    const holdReason = await budgetHoldReason();
+    if (holdReason !== null) {
+      log.warn(`[packs] skipped the scheduled run of ${scheduled.launcher.label} in pack ${scheduled.pack}: ${holdReason}`);
+      return;
+    }
     const request = launcherAddSession({ launcher: approved.launcher, sessions: approved.sessions, projectPath: resolution.path, sessionNames: liveSessionNames(), operatorSaneYolo: operatorSaneYolo() });
     const started = await startSession(request);
     if (!started.ok) {

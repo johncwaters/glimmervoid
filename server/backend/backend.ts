@@ -786,6 +786,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     races: laneAssembly.races,
     starHint: laneAssembly.starHint,
     usage,
+    verification,
     traceWiring,
     uploadsWiring,
     whiteboards,

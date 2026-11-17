@@ -124,3 +124,90 @@ test('a push is refused until the required checks pass on the current tree, nami
   assert.equal(mergeKeepCalls, 1);
   run.cleanup();
 });
+
+function gatedRepo(checks: Array<{ id: string; command: string }>, { ephemeral = false, timeoutSeconds = 300 } = {}) {
+  const run = lifecycleWithHeldMerge();
+  execFileSync('git', ['init', '--quiet'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'start'], { cwd: run.projectPath });
+  const landing = { mergeKeepCalls: 0 };
+  run.gitWorkspace.mergeKeep = async () => { landing.mergeKeepCalls += 1; return { merged: true }; };
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => ({ repos: { [run.projectPath]: { checks, timeoutSeconds, gate: { enabled: true } } } }),
+    isSessionSandboxOn: () => false,
+    broadcastControl: () => {},
+    logger: console,
+  });
+  verification.attachSession({
+    id: 'merge-status-test',
+    path: run.projectPath,
+    ephemeral,
+    hasOwnWorktree: true,
+    worktreeDir: run.projectPath,
+    on: () => {},
+    worktreeLifecycle: run.lifecycle,
+  });
+  return { run, landing, verification };
+}
+
+test('a spawned child session push is refused while a required check fails', async () => {
+  const { run, landing } = gatedRepo([{ id: 'unit', command: 'node does-not-exist.js' }], { ephemeral: true });
+  const refused = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.equal(refused.reason, 'checks failed: unit');
+  assert.equal(landing.mergeKeepCalls, 0);
+  run.cleanup();
+});
+
+test('a pending Coherence journal does not count as uncommitted work at the merge gate', async () => {
+  const { run, landing } = gatedRepo([{ id: 'unit', command: 'node --version' }]);
+  fs.mkdirSync(path.join(run.projectPath, '.coherence', 'journal'), { recursive: true });
+  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'journal', 'turn.json'), '{}\n');
+  const landed = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.equal(landed.merged, true);
+  assert.equal(landing.mergeKeepCalls, 1);
+  run.cleanup();
+});
+
+test('a check edited under .coherence after a passing push runs again before the next push lands', async () => {
+  const { run, landing } = gatedRepo([{ id: 'gate', command: 'node .coherence/gate.js' }]);
+  fs.mkdirSync(path.join(run.projectPath, '.coherence'), { recursive: true });
+  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'gate.js'), 'process.exit(0);\n');
+  execFileSync('git', ['add', '.'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'gate'], { cwd: run.projectPath });
+  assert.equal((await run.lifecycle.mergeAndContinue({ force: true })).merged, true);
+  fs.writeFileSync(path.join(run.projectPath, '.coherence', 'gate.js'), 'process.exit(1);\n');
+  const refused = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.equal(refused.reason, 'checks failed: gate');
+  assert.equal(landing.mergeKeepCalls, 1);
+  run.cleanup();
+});
+
+test('a check that outlives its timeout through a grandchild is reported as timed out without waiting for the grandchild', { skip: process.platform === 'win32' }, async () => {
+  const { run, landing } = gatedRepo([{ id: 'slow', command: 'node slow-check.js' }], { timeoutSeconds: 5 });
+  fs.writeFileSync(path.join(run.projectPath, 'slow-check.js'), "require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'inherit' });\nsetTimeout(() => {}, 60000);\n");
+  execFileSync('git', ['add', '.'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'slow check'], { cwd: run.projectPath });
+  const startedAtMs = Date.now();
+  const refused = await run.lifecycle.mergeAndContinue({ force: true });
+  assert.ok(Date.now() - startedAtMs < 15000, `the gate waited ${Date.now() - startedAtMs} ms`);
+  assert.match(String(refused.reason), /slow/);
+  assert.equal(landing.mergeKeepCalls, 0);
+  run.cleanup();
+});
+
+test('stopping verification kills a running check and the processes it started', { skip: process.platform === 'win32' }, async () => {
+  const { run, verification } = gatedRepo([{ id: 'slow', command: 'node slow-check.js' }]);
+  const grandchildPidFile = path.join(run.projectPath, 'grandchild.pid');
+  fs.writeFileSync(path.join(run.projectPath, 'slow-check.js'), `const grandchild = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'inherit' });\nrequire('node:fs').writeFileSync(${JSON.stringify(grandchildPidFile)}, String(grandchild.pid));\nsetTimeout(() => {}, 60000);\n`);
+  fs.writeFileSync(path.join(run.projectPath, '.gitignore'), 'grandchild.pid\n');
+  execFileSync('git', ['add', '.'], { cwd: run.projectPath });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'slow check'], { cwd: run.projectPath });
+  const pendingPush = run.lifecycle.mergeAndContinue({ force: true });
+  const deadlineMs = Date.now() + 10000;
+  while (!fs.existsSync(grandchildPidFile) && Date.now() < deadlineMs) await new Promise((resolve) => setTimeout(resolve, 50));
+  const grandchildPid = Number(fs.readFileSync(grandchildPidFile, 'utf8'));
+  verification.stop();
+  await pendingPush;
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.throws(() => process.kill(grandchildPid, 0), { code: 'ESRCH' });
+  run.cleanup();
+});

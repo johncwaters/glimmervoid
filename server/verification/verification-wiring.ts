@@ -1,4 +1,4 @@
-import { spawn } from '../child-process-safe.ts';
+import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
@@ -25,7 +25,7 @@ interface VerifiableSession {
   worktreeDir: string | null;
   on(event: 'post-turn-check', listener: () => void): unknown;
   worktreeLifecycle: {
-    computeWorktreeSignature(): Promise<WorktreeTree | null>;
+    computeGateTree(): Promise<WorktreeTree | null>;
     setMergeGate(gate: ((tree: WorktreeTree | null) => Promise<StandardsGateVerdict>) | null): void;
   };
 }
@@ -42,6 +42,7 @@ interface VerificationWiring {
   attachSession(session: VerifiableSession): void;
   latestRun(sessionId: string): VerificationRun | null;
   forgetSession(sessionId: string): void;
+  stop(): void;
 }
 
 interface CachedRun {
@@ -62,28 +63,47 @@ function secretEnvValues(): string[] {
     .map(([, value]) => value ?? '');
 }
 
-function runCheckProcess(program: string, args: string[], cwd: string, env: Record<string, string>, timeoutMs: number): Promise<CheckProcessResult> {
+function killCheckTree(pid: number | undefined, platform: string): void {
+  if (pid === undefined) return;
+  if (platform === 'win32') {
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], () => undefined);
+    return;
+  }
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error;
+  }
+}
+
+function runCheckProcess(program: string, args: string[], cwd: string, env: Record<string, string>, timeoutMs: number, platform: string, liveCheckPids: Set<number>): Promise<CheckProcessResult> {
   return new Promise((resolve) => {
     let tail = Buffer.alloc(0);
-    let timedOut = false;
+    let isSettled = false;
+    const settle = (result: CheckProcessResult) => {
+      if (isSettled) return;
+      isSettled = true;
+      clearTimeout(timer);
+      if (child.pid !== undefined) liveCheckPids.delete(child.pid);
+      resolve(result);
+    };
     const keepTail = (chunk: Buffer) => {
       const joined = Buffer.concat([tail, chunk]);
       tail = joined.length > VERIFICATION_OUTPUT_TAIL_BYTES ? joined.subarray(joined.length - VERIFICATION_OUTPUT_TAIL_BYTES) : joined;
     };
-    const child = spawn(program, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(program, args, { cwd, env, windowsHide: true, detached: platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    if (child.pid !== undefined) liveCheckPids.add(child.pid);
     const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
+      killCheckTree(child.pid, platform);
+      settle({ exitCode: null, timedOut: true, launchError: null, outputTail: tail.toString('utf8') });
     }, timeoutMs);
     child.stdout?.on('data', keepTail);
     child.stderr?.on('data', keepTail);
     child.on('error', (error) => {
-      clearTimeout(timer);
-      resolve({ exitCode: null, timedOut: false, launchError: errorMessage(error), outputTail: '' });
+      settle({ exitCode: null, timedOut: false, launchError: errorMessage(error), outputTail: '' });
     });
     child.on('close', (exitCode) => {
-      clearTimeout(timer);
-      resolve({ exitCode, timedOut, launchError: null, outputTail: tail.toString('utf8') });
+      settle({ exitCode, timedOut: false, launchError: null, outputTail: tail.toString('utf8') });
     });
   });
 }
@@ -99,6 +119,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const cachedRunBySession = new Map<string, CachedRun>();
   const inFlightBySession = new Map<string, { key: string; promise: Promise<VerificationRun> }>();
   const warnedInvalidRepos = new Set<string>();
+  const liveCheckPids = new Set<number>();
 
   function publish(run: VerificationRun): void {
     dependencies.broadcastControl({ type: 'verification-run', id: run.sessionId, run });
@@ -114,7 +135,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     if (!argv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
     const env = buildAllowlistedChildEnv(process.env, platform);
     const { program, args } = launchArgvFor(argv, platform, env.ComSpec ?? env.COMSPEC ?? 'cmd.exe');
-    const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs);
+    const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs, platform, liveCheckPids);
     const output = result.launchError ?? result.outputTail;
     return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
   }
@@ -160,7 +181,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   async function verifyAtTurnEnd(session: VerifiableSession): Promise<void> {
     const lookup = lookupSettings(session);
     if (lookup.kind !== 'ok' || !session.hasOwnWorktree) return;
-    const tree = await session.worktreeLifecycle.computeWorktreeSignature();
+    const tree = await session.worktreeLifecycle.computeGateTree();
     if (!tree) return;
     await ensureRun(session, lookup.settings, tree.sig, { reuseFailed: true });
   }
@@ -181,8 +202,8 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function attachSession(session: VerifiableSession): void {
-    if (session.ephemeral) return;
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
+    if (session.ephemeral) return;
     session.on('post-turn-check', () => {
       verifyAtTurnEnd(session).catch((error: unknown) => {
         dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);
@@ -196,6 +217,10 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     forgetSession: (sessionId) => {
       cachedRunBySession.delete(sessionId);
       inFlightBySession.delete(sessionId);
+    },
+    stop: () => {
+      for (const pid of liveCheckPids) killCheckTree(pid, platform);
+      liveCheckPids.clear();
     },
   };
 }

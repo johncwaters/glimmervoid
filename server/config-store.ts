@@ -320,6 +320,13 @@ function createConfigStore({
     return value === effectiveDefaults[key];
   }
 
+  function applyHandEditedBlocks(newConfig: Partial<GlimmervoidConfig>): void {
+    if (newConfig.reactions == null) delete config.reactions;
+    if (newConfig.reactions != null) config.reactions = newConfig.reactions;
+    if (newConfig.verification == null) delete config.verification;
+    if (newConfig.verification != null) config.verification = newConfig.verification;
+  }
+
   function applySettings(newConfig: Partial<GlimmervoidConfig>): void {
     for (const key of RUNTIME_CONFIG_SCALAR_KEYS) {
       if (newConfig[key] == null) {
@@ -359,8 +366,7 @@ function createConfigStore({
     if (newConfig.planGate != null) config.planGate = newConfig.planGate;
     if (newConfig.agentRules == null) delete config.agentRules;
     if (newConfig.agentRules != null) config.agentRules = newConfig.agentRules;
-    if (newConfig.reactions == null) delete config.reactions;
-    if (newConfig.reactions != null) config.reactions = newConfig.reactions;
+    applyHandEditedBlocks(newConfig);
     if (newConfig.loopGuard == null) delete config.loopGuard;
     if (newConfig.loopGuard != null) config.loopGuard = newConfig.loopGuard;
     if (newConfig.workflows == null) delete config.workflows;
@@ -410,6 +416,7 @@ function createConfigStore({
       _lastAppliedContent = data;
 
       _lastWrittenContent = null;
+      applyHandEditedBlocks(newConfig);
       callback(newConfig);
       console.log('[config] Reloaded config.json');
     }

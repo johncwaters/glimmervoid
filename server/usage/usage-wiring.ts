@@ -665,11 +665,16 @@ function createUsageWiring({
 
   function budgetHoldReason(): string | null {
     if (stopped || !cfg.budget.pauseAtLimit) return null;
-    if (budgetHold.kind === 'read') return budgetHold.holdReason;
     const todayKey = clock.dayKeyOf(nowFn());
     const scopes = pausedScopesInPeriod(budgetPausedPeriods, { daily: todayKey, monthly: todayKey.slice(0, 7) });
     if (scopes.length === 0) return null;
+    if (budgetHold.kind === 'read') return budgetHold.holdReason;
     return `the ${scopes.join(' and ')} budget was reached earlier this period, so sessions stay paused until it rolls over`;
+  }
+
+  async function readBudgetHoldReason(): Promise<string | null> {
+    if (budgetStatePath && cfg.budget.pauseAtLimit) await loadBudgetState();
+    return budgetHoldReason();
   }
 
   function startBudgetEvaluation(): Promise<void> {
@@ -815,6 +820,7 @@ function createUsageWiring({
     ingestStatusline,
     getPlanLimitsMessage,
     budgetHoldReason,
+    readBudgetHoldReason,
   };
 }
 

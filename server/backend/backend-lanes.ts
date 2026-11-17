@@ -294,6 +294,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     liveSessionNames: () => [...sessions.values(), ...agentSessions.values()].map((session) => session.name),
     maxScheduledSessions: () => configStore.config.packScheduledSessionsMax ?? PACK_SCHEDULED_SESSIONS_DEFAULT,
     timezone: () => timeClock.timezone(),
+    budgetHoldReason: () => usage.readBudgetHoldReason(),
   });
   const prFlows = createPrFlowsWiring({
     statePath: path.join(glimmervoidHome, 'pr-flows-state.json'), openPrs: () => myPrs.getStatus().prs.filter((pr) => pr.state === 'OPEN'),

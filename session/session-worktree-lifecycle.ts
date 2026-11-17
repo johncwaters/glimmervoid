@@ -29,6 +29,7 @@ import { createWorktreeProvisioning } from "./worktree/worktree-provisioning.ts"
 import { createWorktreeDiffScopes } from "./worktree/worktree-diff-scopes.ts";
 import { createWorktreeBranchSync } from "./worktree/worktree-branch-sync.ts";
 import { clock } from '../shared/clock.ts';
+import { isCoherenceJournalPath } from "../server/git/core/git-changed-paths-core.ts";
 
 type MergeGate = (tree: { sig: string; dirty: boolean } | null) => Promise<StandardsGateVerdict> | StandardsGateVerdict;
 
@@ -506,6 +507,22 @@ function createSessionWorktreeLifecycle({
     return { sig, dirty: status.trim() !== "", ahead, behind, rebaseBehind, rebaseInProgress, headSha: head, targetSha, baseRef };
   }
 
+  async function computeGateTree(): Promise<{ sig: string; dirty: boolean } | null> {
+    const worktreeDir = lifecycleState.worktreeDir;
+    if (!worktreeDir) return null;
+    const opts: RunGitOptions = { cwd: worktreeDir, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024 };
+    try {
+      const status = await gitOut(["--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"], opts);
+      const changedFileStamps = await readChangedFileStamps(worktreeDir, status);
+      const head = (await gitOut(["--no-optional-locks", "rev-parse", "HEAD"], opts)).trim();
+      const sig = crypto.createHash("sha1").update(`${status} ${changedFileStamps} ${head}`).digest("hex");
+      return { sig, dirty: statusPathsOf(status).some((changedPath) => !isCoherenceJournalPath(changedPath)) };
+    } catch (error) {
+      recordWorktreeCheckFailure(error);
+      return null;
+    }
+  }
+
   async function runAutoRebase(trigger: string, signature: WorktreeSignature): Promise<void> {
     if (lifecycleState.autoRebasing) return;
     const session = port.state();
@@ -670,13 +687,13 @@ function createSessionWorktreeLifecycle({
   }
 
   async function refusalByMergeGate(gate: MergeGate): Promise<MergeResult | null> {
-    const signature = await computeWorktreeSignature();
-    const verdict = await gate(signature ? { sig: signature.sig, dirty: signature.dirty } : null);
+    const signature = await computeGateTree();
+    const verdict = await gate(signature);
     if (!verdict.allowed) {
       setMergeStatus("pending-review", { reason: verdict.reason });
       return { merged: false, refused: true, reason: verdict.reason };
     }
-    const signatureAfterChecks = await computeWorktreeSignature();
+    const signatureAfterChecks = await computeGateTree();
     if (!signature || signatureAfterChecks?.sig !== signature.sig) {
       const reason = "the tree changed while the checks ran, so push again to check what lands";
       setMergeStatus("pending-review", { reason });
@@ -757,6 +774,7 @@ function createSessionWorktreeLifecycle({
     getBranchSync,
     resyncBranch,
     computeWorktreeSignature,
+    computeGateTree,
     checkWorktreeChange,
     scheduleCheck,
     startWatching,

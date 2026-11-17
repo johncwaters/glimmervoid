@@ -8,6 +8,8 @@ import { clock } from '../shared/clock.ts';
 import assert from 'node:assert/strict';
 
 import { createUsageWiring, } from '../server/usage/usage-wiring.ts';
+import { createBudgetSessionPauser } from '../server/session/session-budget-pause.ts';
+import { STATES } from '../shared/states.ts';
 import type { UsageWiringOptions } from '../server/usage/usage-wiring.ts';
 import { sendTelegramMessage } from '../server/telegram-transport.ts';
 import type { PassOutcome } from '../server/usage/core/usage-scan-core.ts';
@@ -126,7 +128,7 @@ function harness({ root, usage = {}, telegram = null, telegramNotifications = fa
   const sent: Record<string, unknown>[] = [];
   const telegrams: { text?: string; botToken?: string; chatId?: string }[] = [];
   const warnings: string[] = [];
-  const state = { spend, outcome };
+  const state = { spend, outcome, nowMs: 1_800_000_000_000 };
   const spendCalls = { count: 0 };
   const scanner = fakeScanner({
     outcomeOf: () => state.outcome,
@@ -143,7 +145,7 @@ function harness({ root, usage = {}, telegram = null, telegramNotifications = fa
     controlClientCount: () => connections,
     createScanner: () => scanner,
     loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
-    nowFn: () => 1_800_000_000_000,
+    nowFn: () => state.nowMs,
     setIntervalFn: inertInterval,
     clearIntervalFn: (handle) => clearTimeout(handle),
     logger: { warn: (message) => { warnings.push(String(message)); }, log: () => {} },
@@ -224,6 +226,28 @@ test('pausing at the budget pauses sessions once per period, across a restart an
   await second.wiring.requestReport({ force: true });
   assert.equal(second.wiring.budgetHoldReason(), null);
   assert.equal(phases.at(-1), 'end');
+});
+
+test('a budget hold ends when the period rolls over even while usage passes keep failing', async () => {
+  const root = await makeTempRoot();
+  const held = harness({ root, usage: { budget: { dailyUsd: 16, pauseAtLimit: true } }, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold: () => [] });
+  await held.wiring.start();
+  assert.notEqual(held.wiring.budgetHoldReason(), null);
+  held.state.outcome = 'io-failed';
+  held.state.nowMs += 24 * 60 * 60 * 1000;
+  await held.wiring.requestReport({ force: true });
+  assert.equal(held.wiring.budgetHoldReason(), null);
+  await held.wiring.stop();
+});
+
+test('a budget hold saved before a restart is read before any dashboard connects', async () => {
+  const root = await makeTempRoot();
+  const usage = { budget: { dailyUsd: 16, pauseAtLimit: true } };
+  const first = harness({ root, usage, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold: () => [] });
+  await first.wiring.start();
+  await first.wiring.stop();
+  const restarted = harness({ root, usage, spend: { todayUsd: 16.5, monthUsd: 16.5 }, onBudgetHold: () => [] });
+  assert.match(String(await restarted.wiring.readBudgetHoldReason()), /daily budget was reached earlier this period/);
 });
 
 test('an unreadable budget state warns, keeps its bytes, and never rewrites them', async () => {
@@ -481,4 +505,25 @@ test('byLane, planWindowLanes and budget reach the wire on a pulled report', asy
   assert.ok(cached, 'a pulled report is cached for the next connect');
   assert.deepEqual(blockAt(cached, 'budget'), BUDGET_BLOCK);
   assert.deepEqual(cached.byLane, report.byLane);
+});
+
+test('reaching the budget pauses a spawned child session as well as its parent, and never a lane', () => {
+  const snoozedIds: string[] = [];
+  const sessionNamed = (id: string, ephemeral: boolean, ownerId: string | null) => ({
+    id,
+    name: id,
+    ephemeral,
+    ownerId,
+    state: STATES.RUNNING,
+    _lastOperatorInputAt: 0,
+    snooze: () => { snoozedIds.push(id); return { ok: true as const }; },
+    killSession: () => false,
+  });
+  const pauseAtPhase = createBudgetSessionPauser(() => [
+    sessionNamed('parent', false, null),
+    sessionNamed('spawned-child', true, 'parent'),
+    sessionNamed('review-lane', true, null),
+  ], () => 1);
+  assert.deepEqual(pauseAtPhase('start'), ['parent', 'spawned-child']);
+  assert.deepEqual(snoozedIds, ['parent', 'spawned-child']);
 });
