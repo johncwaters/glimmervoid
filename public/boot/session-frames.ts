@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import { setSessionPlanGate } from '../plan/plan-gate-panel.ts';
 import { STATES } from '#shared/states.ts';
 import { clearHeaderErrorsForSession } from '../action-status.ts';
 import { refreshFavicon } from '../favicon.ts';
@@ -83,6 +84,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionWakes(s.id, []);
     setSessionFailureReason(s.id, s.failureReason);
     setSessionAttentionNotes(s.id, s.attentionNotes);
+    setSessionPlanGate(s.id, s.planGate);
 
     setSessionTaskTitle(s.id, s.taskTitle, s.taskTitleIsCustom);
     setSessionAgent(s.id, s.agent, s.agentDrawsAlternateScreen);
@@ -204,6 +206,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
   if (msg.passedQuestionSeq === 0) closeAnsweredPassedLine(msg.id);
   if (msg.attentionNotes !== undefined) setSessionAttentionNotes(msg.id, msg.attentionNotes);
+  if (msg.planGate !== undefined) setSessionPlanGate(msg.id, msg.planGate);
   if (msg.isQuestionManagerOn !== undefined) setSessionQuestionManager(msg.id, msg.isQuestionManagerOn);
   if (msg.accountId !== undefined) setSessionAccount(msg.id, msg.accountId);
   if (msg.unseenOutcome !== undefined) updateAttentionTitle();

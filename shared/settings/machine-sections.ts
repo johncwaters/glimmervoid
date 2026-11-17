@@ -73,6 +73,21 @@ export const MACHINE_SESSION_REVIEW: SettingsSection = {
   ],
 };
 
+export const MACHINE_PLAN_GATE: SettingsSection = {
+  id: 'machine-plan-gate',
+  level: 'machine',
+  parent: 'machine-sessions',
+  title: 'Plan approval',
+  description: 'Hold a plan an agent proposes until you approve or reject it on the dashboard.',
+  settings: [
+    {
+      id: 'plan-gate-enabled', path: 'planGate.enabled', title: 'Approve plans on the dashboard',
+      description: 'Claude Code waits on its proposed plan until you decide on the card. Codex shows the plan on the card, and your decision is typed into it. Other agents keep approving in the terminal.',
+      control: 'toggle', keywords: ['plan mode', 'approve', 'reject', 'exit plan mode'], defaultValue: false, ...MACHINE_NOW,
+    },
+  ],
+};
+
 export const MACHINE_SESSIONS: SettingsSection = {
   id: 'machine-sessions',
   level: 'machine',

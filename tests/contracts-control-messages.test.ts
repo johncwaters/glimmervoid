@@ -62,6 +62,7 @@ const SESSION = {
   activeAgents: 0,
   awaitingBackgroundTasks: false,
   pendingPromptKind: null,
+  planGate: null,
   mergeStatus: 'none',
   mergeReason: null,
   worktreeNotice: null,

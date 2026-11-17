@@ -66,6 +66,14 @@ The read-only reviewer the Review button in Changes starts on a session diff.
 | `sessionReview.agent` | Reviewer agent | `"claude-code"` | Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout. |
 | `sessionReview.model` | Reviewer model | `""` | Model name passed to the reviewer agent. Empty uses that agent default. |
 
+### Plan approval
+
+Hold a plan an agent proposes until you approve or reject it on the dashboard.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `planGate.enabled` | Approve plans on the dashboard | `false` | Claude Code waits on its proposed plan until you decide on the card. Codex shows the plan on the card, and your decision is typed into it. Other agents keep approving in the terminal. |
+
 ### Sane YOLO
 
 What agents may do without asking, and what Sane YOLO blocks.

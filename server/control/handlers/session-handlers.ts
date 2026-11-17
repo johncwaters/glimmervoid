@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { codexPlanDecisionText } from '../../../session/core/plan-gate-core.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { SHELL_AGENT_ID } from '../../../shared/contracts/index.ts';
@@ -605,6 +606,22 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     replyTo(ws, msg, 'switch-session-account-result', { id: msg.id, ok: refusal === null, ...(refusal ?? {}) });
   }
 
+  function handlePlanDecision(msg: ClientMessageOf<'plan-decision'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      sendError(ws, SESSION_GONE_TEXT);
+      return;
+    }
+    const outcome = session.decidePlan(msg.decision, msg.feedback ?? null);
+    if (!outcome.ok) {
+      sendError(ws, `The plan decision was not applied: ${outcome.reason}.`, { id: session.id });
+      return;
+    }
+    if (outcome.isHeld || msg.decision === 'terminal' || session.agentId !== 'codex') return;
+    const delivery = session.deliver(codexPlanDecisionText(msg.decision, session.planGate?.feedback ?? null), { when: 'ready', submit: true });
+    if (!delivery.ok) sendError(ws, `The plan decision could not be typed into the session: ${delivery.reason}.`, { id: session.id });
+  }
+
   function handleSetSessionQuestionManager(msg: ClientMessageOf<'set-session-question-manager'>, ws: ControlSocket): void {
     const session = findSession(msg);
     if (!session) {
@@ -764,6 +781,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'set-workspace-repos': handleSetWorkspaceRepos,
     'set-session-title': handleSetSessionTitle,
     'set-session-question-manager': handleSetSessionQuestionManager,
+    'plan-decision': handlePlanDecision,
     'switch-session-account': handleSwitchSessionAccount,
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,

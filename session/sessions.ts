@@ -39,6 +39,8 @@ import { unrefTimer } from "../shared/timer-deps.ts";
 import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
 import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply, type AttentionNote, type AttentionOrigin } from "../shared/contracts/session.ts";
+import { PROPOSED_PLAN_TEXT_FIELD } from "../shared/contracts/plan-gate.ts";
+import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttention } from "./core/session-attention-core.ts";
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
@@ -1013,6 +1015,8 @@ class Session extends EventEmitter {
     if (raw && raw.signal === "awaiting-input") {
       const isNotificationInSameWaitingEpisode = String(raw.event || "").toLowerCase() === "notification" && this.state === STATES.WAITING;
       this._setPendingPromptKind(raw.promptKind || null, raw.promptToolName ?? null, isNotificationInSameWaitingEpisode);
+      const proposedPlanText = raw.payload?.[PROPOSED_PLAN_TEXT_FIELD];
+      if (raw.promptKind === "plan" && typeof proposedPlanText === "string") this.emit("plan-proposed", { planText: proposedPlanText });
     }
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
@@ -1274,6 +1278,22 @@ class Session extends EventEmitter {
 
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null {
     return this._approvals.holdQuestionTool(payload, abandoned);
+  }
+
+  get planGate(): PlanGate | null {
+    return this._approvals.planGate;
+  }
+
+  holdPlanPermission(payload: unknown, abandoned: AbortSignal): Promise<ClaudeHookReply | null> | null {
+    return this._approvals.holdPlan(payload, abandoned);
+  }
+
+  proposePlan(planText: string): void {
+    this._approvals.proposePlan(planText);
+  }
+
+  decidePlan(decision: PlanDecision, feedback: string | null): { ok: true; isHeld: boolean } | { ok: false; reason: string } {
+    return this._approvals.decidePlan(decision, feedback);
   }
 
   answerConversationApproval(requestId: number | string, answers: ConversationAnswers): boolean {
@@ -1557,6 +1577,7 @@ class Session extends EventEmitter {
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingPromptKind: this._pendingPromptKind,
       attentionNotes: this.attentionNotes,
+      planGate: this.planGate,
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,

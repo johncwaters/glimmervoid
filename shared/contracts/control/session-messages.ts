@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PLAN_GATE_FEEDBACK_MAX_CHARS, PlanDecision } from '../plan-gate.ts';
 import { MergeStatus, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
@@ -41,6 +42,7 @@ export const sessionClientVariants = [
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
+  loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional() }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('secret-decision', SecretDecision.shape),
   loose('secret-revoke', SecretRevoke.shape),
