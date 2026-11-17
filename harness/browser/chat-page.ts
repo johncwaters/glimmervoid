@@ -5,7 +5,8 @@ const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
 
 async function openChat(page: Page): Promise<void> {
-  await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
+  const isChatOpen = (await page.locator('.session-chat').count()) > 0;
+  if (!isChatOpen) await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
 }
 
@@ -65,4 +66,28 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   });
   assert.ok(isTerminalHome, 'the terminal returns to its session card once the wait ends');
   assert.equal(await page.locator('.session-card > .session-attention-note').count(), 1, 'the note outlives the inline terminal');
+}
+
+export async function verifyChatStaysDefault(page: Page): Promise<void> {
+  await openChat(page);
+  await page.reload();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
+  await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await page.reload();
+  await page.locator('#focus-pane-terminal .session-card .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await page.locator('.session-chat').count(), 0, 'closing Chat makes the terminal the first view again');
+}
+
+export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
+  await page.locator('button[data-action="show-chat"]:visible').first().click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('button[data-action="back-to-terminal"]:visible').click();
+  await page.locator('button[data-action="back-to-board"]:visible').click();
+  await page.locator('.phone-board-list button.session-row').first().click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.goBack();
+  await page.goBack();
+  await page.locator('.phone-board-list button.session-row').first().click();
+  await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
 }

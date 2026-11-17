@@ -8,6 +8,7 @@ import { addActivityRenderer } from '../session-card/activity.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
 import type { SessionPage, SessionPageHost } from '../session-pages/session-pages.ts';
+import { getSessionView } from '../ui-prefs.ts';
 import { canStepBackInSessionPage, closeSessionPage, isSessionPageOpen, onSessionPageChange, openSessionPage, releaseSessionPageHost, sessionPages, setSessionPageHost, stepBackInSessionPage } from '../session-pages/session-pages.ts';
 import { BACK_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, MORE_ICON_PATH, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { uiState } from '../ui-state-core.ts';
@@ -284,6 +285,7 @@ function openSession(sessionId: string) {
   terminalScreen.show(sessionId);
   isBoardStale = true;
   showScreen(TERMINAL);
+  if (getSessionView() === 'chat') openSessionPage('chat', sessionId);
 }
 
 interface PhoneHistoryState {

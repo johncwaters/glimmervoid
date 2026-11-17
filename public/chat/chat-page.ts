@@ -4,10 +4,11 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
-import { announceSessionPageChange, closeSessionPage, isSessionPageOpen } from '../session-pages/session-pages.ts';
+import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../session-pages/session-pages.ts';
 import type { SessionPage } from '../session-pages/session-pages.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
+import { getSessionView, setSessionView } from '../ui-prefs.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
@@ -40,6 +41,7 @@ interface MountedChat {
 
 const approvalBySessionId = new Map<string, ConversationApproval | null>();
 let mountedChat: MountedChat | null = null;
+let wasChatEnabled = false;
 
 function isChatEnabled(): boolean {
   const sessionChat = settingsPayloadSnapshot().sessionChat;
@@ -284,8 +286,12 @@ export function applyChatSessionStatus(sessionId: string): void {
 
 subscribeSettings((change) => {
   if (change.kind !== 'broadcast') return;
-  if (!isChatEnabled() && mountedChat && isSessionPageOpen(CHAT_PAGE_ID, mountedChat.sessionId)) closeSessionPage();
+  const isEnabled = isChatEnabled();
+  const hasJustEnabled = isEnabled && !wasChatEnabled;
+  wasChatEnabled = isEnabled;
+  if (!isEnabled && mountedChat && isSessionPageOpen(CHAT_PAGE_ID, mountedChat.sessionId)) closeSessionPage();
   announceSessionPageChange(CHAT_PAGE_ID, null);
+  if (hasJustEnabled && getSessionView() === 'chat') openSessionPageOnShownSession(CHAT_PAGE_ID);
 });
 
 export const chatPage: SessionPage = {
@@ -296,12 +302,14 @@ export const chatPage: SessionPage = {
   hasUnreadFor: () => false,
   mount(host, sessionId) {
     unmountChat();
+    setSessionView('chat');
     mountedChat = buildChat(sessionId);
     host.append(mountedChat.root);
     mountedChat.syncWaitingCards();
     mountedChat.feed.refresh();
   },
   unmount: unmountChat,
+  didCloseByOperator: () => setSessionView('terminal'),
   canStepBack: () => false,
   stepBack: () => {},
 };

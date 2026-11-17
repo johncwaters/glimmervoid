@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **An experimental Chat page for sessions.** Turn on Settings, Sessions, Chat view and each session card gets a Chat page beside Changes and Preview: the session's prompts, replies, thinking and tool calls read as a conversation that grows while the agent works. A tool call whose result never arrives stops showing as running once the turn ends. From Chat you send messages, stop the agent mid-turn, and answer permission prompts and questions on cards in the conversation. When the agent waits on a screen Chat has no card for, such as a menu or a login screen, its live terminal shows inline in the conversation until the wait ends. The switch is off by default.
+- **An experimental Chat page for sessions.** Turn on Settings, Sessions, Chat view and each session card gets a Chat page beside Changes and Preview: the session's prompts, replies, thinking and tool calls read as a conversation that grows while the agent works. A tool call whose result never arrives stops showing as running once the turn ends. From Chat you send messages, stop the agent mid-turn, and answer permission prompts and questions on cards in the conversation. When the agent waits on a screen Chat has no card for, such as a menu or a login screen, its live terminal shows inline in the conversation until the wait ends. Once you open Chat, it is the first view of every session you open, desktop and phone, even after a reload; close it to make the terminal first again. The switch is off by default.
 
 ## [0.62.5] - 2026-11-17
 

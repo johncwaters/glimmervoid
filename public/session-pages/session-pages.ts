@@ -14,6 +14,7 @@ export interface SessionPage {
   unmount(): void;
   canStepBack(): boolean;
   stepBack(): void;
+  didCloseByOperator?(): void;
   attachButton?(button: HTMLElement, style: ButtonStyle): void;
 }
 
@@ -70,6 +71,12 @@ export function releaseSessionPageHost(hostToRelease: SessionPageHost) {
   host = null;
 }
 
+export function openSessionPageOnShownSession(pageId: string) {
+  if (openPage) return;
+  const shownSessionId = host?.sessionId() ?? null;
+  if (shownSessionId) openSessionPage(pageId, shownSessionId);
+}
+
 export function isSessionPageOpen(pageId: string, sessionId: string) {
   return openPage?.page.id === pageId && openPage.sessionId === sessionId;
 }
@@ -116,7 +123,9 @@ function listenForEscape(element: HTMLElement) {
   hostsWithEscape.add(element);
   element.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isRealInputOwningKey(event)) return;
-    if (!stepBackInSessionPage()) return;
+    if (!openPage) return;
+    if (!openPage.page.canStepBack()) openPage.page.didCloseByOperator?.();
+    stepBackInSessionPage();
     event.preventDefault();
   });
 }
@@ -140,6 +149,7 @@ export function createSessionPageButtons({ style }: { style: ButtonStyle }) {
     control.addEventListener('click', () => {
       if (!shownSessionId) return;
       if (isHeader && isSessionPageOpen(page.id, shownSessionId)) {
+        page.didCloseByOperator?.();
         closeSessionPage();
         return;
       }

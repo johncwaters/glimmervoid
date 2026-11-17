@@ -12,6 +12,7 @@ import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './short
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
 
 export type ReviewsLayout = 'board' | 'list';
+type SessionView = 'terminal' | 'chat';
 
 interface UiPrefs extends FlyingAnimalsOptions {
   soundEnabled: boolean;
@@ -32,6 +33,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   splitShellBySession: SplitBoardBySession;
   prsQueueWidth: number | null;
   reviewsLayout: ReviewsLayout;
+  sessionView: SessionView;
   reviewsBoardDetailWidth: number | null;
   reviewsTurnLimit: number;
   reviewsPulledKeys: string[];
@@ -91,6 +93,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   splitShellBySession: parseSplitBoardBySession,
   prsQueueWidth: asNullableNumber,
   reviewsLayout: (value: unknown): ReviewsLayout => (value === 'list' ? 'list' : 'board'),
+  sessionView: (value: unknown): SessionView => (value === 'chat' ? 'chat' : 'terminal'),
   reviewsBoardDetailWidth: asNullableNumber,
   reviewsTurnLimit: normalizeReviewsTurnLimit,
   reviewsPulledKeys: asStringList,
@@ -182,6 +185,9 @@ export const setPrsQueueWidth = (px: number | null) => write('prsQueueWidth', px
 
 export const getReviewsLayout = () => read('reviewsLayout');
 export const setReviewsLayout = (layout: ReviewsLayout) => write('reviewsLayout', layout);
+
+export const getSessionView = () => read('sessionView');
+export const setSessionView = (view: SessionView) => write('sessionView', view);
 
 export const getReviewsTurnLimit = () => read('reviewsTurnLimit');
 export const setReviewsTurnLimit = (limit: number) => write('reviewsTurnLimit', limit);

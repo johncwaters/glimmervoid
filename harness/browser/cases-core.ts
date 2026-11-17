@@ -15,6 +15,8 @@ export type Step =
   | { kind: 'assert-review-changes'; viewer?: ViewerId }
   | { kind: 'assert-chat-approvals'; viewer?: ViewerId }
   | { kind: 'assert-chat-terminal'; viewer?: ViewerId }
+  | { kind: 'assert-chat-default'; viewer?: ViewerId }
+  | { kind: 'assert-chat-default-phone'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
   | { kind: 'assert-key-strip-contexts'; viewer?: ViewerId }
   | { kind: 'assert-fullscreen-app-row'; viewer?: ViewerId }
@@ -264,7 +266,12 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     name: 'chat-approvals',
     viewports: ['desktop-1280'],
-    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-approvals' }, { kind: 'shot', name: 'chat-approvals' }],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-approvals' }, { kind: 'shot', name: 'chat-approvals' }, { kind: 'assert-chat-default' }],
+  },
+  {
+    name: 'chat-default-phone',
+    viewports: ['phone-393'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-chat-default-phone' }],
   },
   {
     name: 'chat-terminal',
@@ -759,7 +766,7 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-terminal');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {

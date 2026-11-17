@@ -16,7 +16,7 @@ import { placeRowsInOrder, writeAttributeIfChanged, writeDataIfChanged, writeHid
 import { onLiveSessionTick, sessionElapsedText } from '../session-card/session-tick.ts';
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { SHELL_AGENT_ID } from '../session-card/agent-core.ts';
-import { getRailFoldedProjectKeys, getRailWidth, getSplitBoardBySession, getSplitShellBySession, isRailStatusKeyOpen, setRailFoldedProjectKeys, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession, setSplitShellBySession } from '../ui-prefs.ts';
+import { getRailFoldedProjectKeys, getRailWidth, getSessionView, getSplitBoardBySession, getSplitShellBySession, isRailStatusKeyOpen, setRailFoldedProjectKeys, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession, setSplitShellBySession } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
 import type { AttentionTile, SessionRow } from './attention-core.ts';
 import { canDropRow, countAttentionByKind, dropAnchorId, orderAttentionLine, orderRoster, pickAdjacent, sessionOrderAfterDrop, sessionOrderOf } from './attention-core.ts';
@@ -830,12 +830,12 @@ export function refreshFocusRoster(dirtySessionIds?: ReadonlySet<string>) {
 
   updateCenter();
   const centeredId = getFocusedSessionId();
-  if (centeredId) {
-    const ui = sessionUIs.get(centeredId);
-    if (ui && ui.card.parentElement !== cardSlotEl) borrowToCenter(ui, centeredId);
-  }
+  const ui = centeredId ? sessionUIs.get(centeredId) : undefined;
+  const isNewlyCentered = centeredId !== null && ui !== undefined && ui.card.parentElement !== cardSlotEl;
+  if (isNewlyCentered) borrowToCenter(ui, centeredId);
   paintShellPane(centeredBoardId ? null : centeredId);
   pageButtons?.showSession(centeredBoardId ? null : centeredId);
+  if (isNewlyCentered && getSessionView() === 'chat') openSessionPage('chat', centeredId);
   paintBoardPane();
   paintUnsplitSlot();
   updateRailHead(attentionRows, attentionTiles);
