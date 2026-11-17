@@ -161,6 +161,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replyTo(ws, msg, 'pack-session-send-result', { ok: false, error: `No live session ${msg.id}` });
       return;
     }
+    session.noteOperatorDraft();
     const pasted = session.deliver(msg.text, { when: 'ready', submit: true });
     console.log(`[control] pack-session-send: ${msg.pack}/${msg.panelId} -> ${session.id} ok=${pasted.ok}`);
     replyTo(ws, msg, 'pack-session-send-result', pasted.ok ? { ok: true, error: null } : { ok: false, error: pasted.reason ?? `${session.name} did not take the text` });
