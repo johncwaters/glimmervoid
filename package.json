@@ -69,6 +69,7 @@
     "site:record": "node harness/site-capture/record.ts",
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
+    "site:preview": "npm run site:build && npm --prefix site run preview",
     "test:container": "docker build -f harness/container/Dockerfile -t glimmervoid-remote-test . && docker run --rm glimmervoid-remote-test",
     "predev": "node scripts/fetch-fnox.ts",
     "dev": "vite",
