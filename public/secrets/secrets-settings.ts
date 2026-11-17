@@ -8,6 +8,7 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { settingById, storedValue } from '../settings/settings-panel-state.ts';
 import { button } from '../ui/button.ts';
+import { detailsBlock } from '../ui/disclosure.ts';
 import { buildGithubConnectSection } from './github-connect.ts';
 import { buildCommitSigningSection } from './commit-signing.ts';
 
@@ -74,8 +75,8 @@ function applySecretApprovals(message: ServerMessageOf<'secret-approvals'>): voi
 }
 
 function testDetails(detail: string): HTMLElement {
-  const details = el('details', 'settings-vault-test-details');
-  details.append(el('summary', 'settings-vault-test-details-summary', 'Show details'), el('pre', 'settings-vault-test-details-text', detail));
+  const details = detailsBlock(detail);
+  details.classList.add('settings-vault-test-details');
   return details;
 }
 

@@ -1,5 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { disclosure } from '../ui/disclosure.ts';
 import { formatAgo } from '../poll-ago.ts';
 import { requestUpdateApply, requestUpdateCheck, restartServer, settingsUpdateState } from './settings-store.ts';
 import { installedUpdateText, isVersionManaged, lastUpdateCheckText, latestUpdateDetails, projectUpdateProgress, shouldAutoCheckUpdates, shouldShowLatestUpdate, updateControls, updateSummary } from '../updates-view-core.ts';
@@ -97,11 +98,11 @@ function buildUpdateProgress() {
 }
 
 function buildUpdateFailureDetails(panel: HTMLElement, failureDetail: string | null) {
-  const details = el('details', 'settings-update-details');
-  details.appendChild(el('summary', 'settings-update-details-summary', 'Show details'));
-  if (failureDetail) details.appendChild(el('div', 'settings-update-failure-detail', failureDetail));
-  panel.appendChild(details);
-  return details;
+  const details = disclosure({ summary: 'Show details', body: failureDetail ? el('div', 'settings-update-failure-detail', failureDetail) : [] });
+  details.summary.classList.add('settings-update-details-summary');
+  details.body.classList.add('settings-update-details');
+  panel.appendChild(details.element);
+  return details.body;
 }
 
 function buildLatestUpdateFact() {

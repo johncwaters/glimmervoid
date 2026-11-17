@@ -8,6 +8,7 @@ import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
 import { createPressable } from './ui/pressable.ts';
 import { select } from './ui/select.ts';
+import { disclosure } from './ui/disclosure.ts';
 import { createLineIcon, PLUS_ICON_PATH } from './svg-dom.ts';
 import {
   ALL_PROJECTS_LABEL,
@@ -361,16 +362,18 @@ async function submitEditor() {
 }
 
 function buildPreview(hook: HookRecord) {
-  const details = el('details', 'hooks-preview');
-  details.open = _openPreviews.has(hook.id);
-  details.addEventListener('toggle', () => {
-    if (details.open) { _openPreviews.add(hook.id); return; }
-    _openPreviews.delete(hook.id);
+  const preview = disclosure({
+    summary: PREVIEW_LABEL,
+    body: [el('p', 'hooks-field-hint', PREVIEW_HINT), el('pre', 'hooks-preview-code', settingsEntryPreview(hook))],
+    open: _openPreviews.has(hook.id),
+    onToggle: (isOpen) => {
+      if (isOpen) { _openPreviews.add(hook.id); return; }
+      _openPreviews.delete(hook.id);
+    },
   });
-  const summary = el('summary', 'hooks-preview-summary', PREVIEW_LABEL);
-  const code = el('pre', 'hooks-preview-code', settingsEntryPreview(hook));
-  details.append(summary, el('p', 'hooks-field-hint', PREVIEW_HINT), code);
-  return details;
+  preview.element.classList.add('hooks-preview');
+  preview.summary.classList.add('hooks-preview-summary');
+  return preview.element;
 }
 
 function buildRow(hook: HookRecord, { grouped = false }: { grouped?: boolean } = {}) {
@@ -499,23 +502,25 @@ function buildYoursSection() {
 }
 
 function buildAgentGroup(group: AgentHookGroup) {
-  const details = el('details', 'hooks-agent-group');
-  details.append(el('summary', 'hooks-agent-group-summary', agentGroupTitle(group)));
   const list = el('div', 'hooks-list');
   if (group.unavailableReason !== null) list.append(el('p', 'hooks-row-meta', group.unavailableReason));
   for (const entry of group.rows) list.append(buildBuiltinRow(entry));
-  details.append(list);
-  return details;
+  const agentGroup = disclosure({ summary: agentGroupTitle(group), body: list });
+  agentGroup.summary.classList.add('hooks-agent-group-summary');
+  return agentGroup.element;
+}
+
+function buildBuiltinDisclosure(title: string, hint: string, content: HTMLElement) {
+  const section = disclosure({ summary: [el('span', 'hooks-section-title', title), el('span', 'hooks-section-hint', hint)], body: content });
+  section.element.classList.add('hooks-builtin');
+  section.summary.classList.add('hooks-builtin-summary');
+  return section.element;
 }
 
 function buildBuiltinSection() {
-  const details = el('details', 'hooks-builtin');
-  const summary = el('summary', 'hooks-builtin-summary');
-  summary.append(el('span', 'hooks-section-title', `${BUILTIN_TITLE} (${builtinCountOf(_hooks.report)})`), el('span', 'hooks-section-hint', BUILTIN_HINT));
   const groups = el('div', 'hooks-agent-groups');
   for (const group of builtinGroupsOf(_hooks.report)) groups.append(buildAgentGroup(group));
-  details.append(summary, groups);
-  return details;
+  return buildBuiltinDisclosure(`${BUILTIN_TITLE} (${builtinCountOf(_hooks.report)})`, BUILTIN_HINT, groups);
 }
 
 function buildAgentNoteRow(note: AgentNote) {
@@ -527,14 +532,10 @@ function buildAgentNoteRow(note: AgentNote) {
 }
 
 function buildAgentNotesSection() {
-  const details = el('details', 'hooks-builtin');
-  const summary = el('summary', 'hooks-builtin-summary');
   const notes = agentNotesOf(_hooks.report);
-  summary.append(el('span', 'hooks-section-title', `${AGENT_NOTES_TITLE} (${notes.length})`), el('span', 'hooks-section-hint', AGENT_NOTES_HINT));
   const list = el('div', 'hooks-list');
   for (const note of notes) list.append(buildAgentNoteRow(note));
-  details.append(summary, list);
-  return details;
+  return buildBuiltinDisclosure(`${AGENT_NOTES_TITLE} (${notes.length})`, AGENT_NOTES_HINT, list);
 }
 
 function buildBody() {

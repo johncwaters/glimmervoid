@@ -6,6 +6,7 @@ import { settingsHash } from '../settings/settings-link.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { createLineIcon, KEY_ICON_PATH } from '../svg-dom.ts';
 import { button, linkButton } from '../ui/button.ts';
+import { detailsBlock } from '../ui/disclosure.ts';
 import { sessionUIs } from './card-registry.ts';
 import './secret-request-face.css';
 
@@ -106,8 +107,8 @@ function failureLine(failure: NonNullable<SecretRequestCard['failure']>): HTMLEl
   block.setAttribute('role', 'alert');
   block.append(el('span', 'secret-request-failure-text', failure.message));
   if (failure.detail === '') return block;
-  const details = el('details', 'secret-request-details');
-  details.append(el('summary', 'secret-request-details-summary', 'Show details'), el('pre', 'secret-request-details-text', failure.detail));
+  const details = detailsBlock(failure.detail);
+  details.classList.add('secret-request-details');
   block.append(details);
   return block;
 }

@@ -26,7 +26,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['public/session-card/webgl-pool.ts', 8],
   ['public/settings/settings-panel.ts', 4],
   ['public/settings/settings-view-core.ts', 3],
-  ['public/trace-panel.ts', 3],
+  ['public/trace-panel.ts', 2],
   ['public/trace-store.ts', 3],
   ['public/usage/usage-store.ts', 3],
   ['public/whiteboard/board-edit.ts', 4],

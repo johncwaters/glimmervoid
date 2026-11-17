@@ -1,5 +1,7 @@
 import { paintActionStatus } from '../action-status.ts';
 import { button } from '../ui/button.ts';
+import { disclosure } from '../ui/disclosure.ts';
+import type { Disclosure } from '../ui/disclosure.ts';
 import type { DiffExcerptLine, DraftComment, EarlierReview, FindingSeverity, HandCheck, InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction, TeamReviewActionRequest } from '#shared/contracts/team-review.ts';
 import { nextRequestId, sendControlMsg } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
@@ -115,15 +117,12 @@ function createDetailHeading(review: ReviewDraft | InFlightReview, { hasDeskFact
 function createReviewHistory(draft: ReviewDraft): HTMLElement[] {
   const items = githubReviewHistoryItems(draft);
   if (items.length === 0) return [];
-  const section = el('details', 'pr-disclosure pr-review-history');
-  section.append(el('summary', 'pr-disclosure-summary', `Older GitHub reviews (${items.length})`));
   const list = el('ul', 'pr-review-history-list');
   for (const item of items) {
     const age = formatTimestampAge(item.submittedAt);
     list.append(el('li', 'pr-review-history-item', age ? `${item.text}, ${age}` : item.text));
   }
-  section.append(list);
-  return [section];
+  return [reviewDisclosure('pr-review-history', `Older GitHub reviews (${items.length})`, list).element];
 }
 
 function refreshDetailHeading(detail: HTMLElement, draft: ReviewDraft, options: { hasDeskFacts?: boolean } = {}): HTMLElement {
@@ -322,19 +321,24 @@ function earlierFindingCard(content: FindingContent, isDropped: boolean): HTMLEl
 
 function createEarlierReviewDetails(review: EarlierReview, isOpen: boolean, dropped: DroppedEarlierFindings = { comments: new Set(), general: new Set() }): HTMLElement {
   const droppedCount = dropped.comments.size + dropped.general.size;
-  const details = el('details', 'pr-disclosure pr-earlier-review');
-  const summary = el('summary', 'pr-disclosure-summary');
-  summary.append(el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review, droppedCount)));
-  const body = el('div', 'pr-earlier-review-body');
+  const details = reviewDisclosure('pr-earlier-review', [el('span', 'pr-disclosure-label', 'Earlier review'), el('span', 'pr-disclosure-preview', earlierReviewPreview(review, droppedCount))]);
+  const { body } = details;
+  body.classList.add('pr-earlier-review-body');
   const verdictLine = el('div', 'pr-verdict-line');
   verdictLine.append(createVerdictSeal(review));
   body.append(verdictLine);
   if (review.summary.trim()) body.append(appendInlineText(el('p', 'pr-verdict-summary'), review.summary));
   for (const [index, comment] of review.comments.entries()) body.append(earlierFindingCard(commentFindingContent(comment), dropped.comments.has(index)));
   for (const [index, finding] of generalFindingsOf(review.body).entries()) body.append(earlierFindingCard(generalFindingContent(finding), dropped.general.has(index)));
-  details.append(summary, body);
-  details.open = isOpen || droppedCount > 0;
-  return details;
+  details.element.open = isOpen || droppedCount > 0;
+  return details.element;
+}
+
+export function reviewDisclosure(className: string, summary: HTMLElement[] | string, body?: HTMLElement): Disclosure {
+  const section = disclosure({ summary, body, marker: 'chevron' });
+  section.element.classList.add('pr-disclosure', className);
+  section.summary.classList.add('pr-disclosure-summary');
+  return section;
 }
 
 function createDraftEarlierReviewDetails(draft: ReviewDraft, earlierReview: EarlierReview, isOpen: boolean): HTMLElement {

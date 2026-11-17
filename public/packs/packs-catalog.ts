@@ -10,6 +10,7 @@ import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
 import { tag } from '../ui/tag.ts';
+import { disclosure } from '../ui/disclosure.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { openPackDetail } from './pack-approval-content.ts';
 import { openFirstPackPanel, packTabIcon } from './pack-views.ts';
@@ -265,15 +266,17 @@ function grid(cards: HTMLElement[], emptyText: string): HTMLElement {
 
 function sourcesSection(sources: readonly PackSourceRow[]): HTMLElement {
   if (sources.some((source) => source.error !== null)) isSourcesOpen = true;
-  const section = el('details', 'packs-sources');
-  section.open = isSourcesOpen;
-  section.addEventListener('toggle', () => { isSourcesOpen = section.open; });
-  const summary = el('summary', 'packs-sources-summary');
-  summary.append(el('h2', 'packs-section-title', 'Sources'), el('span', 'packs-section-count', String(sources.length)));
-  const sourcesBody = el('div', 'packs-sources-body');
-  sourcesBody.append(addSourceForm(), ...sources.map(sourceArticle));
-  section.append(summary, sourcesBody);
-  return section;
+  const section = disclosure({
+    summary: [el('h2', 'packs-section-title', 'Sources'), el('span', 'packs-section-count', String(sources.length))],
+    body: [addSourceForm(), ...sources.map(sourceArticle)],
+    open: isSourcesOpen,
+    marker: 'chevron',
+    onToggle: (isOpen) => { isSourcesOpen = isOpen; },
+  });
+  section.element.classList.add('packs-sources');
+  section.summary.classList.add('packs-sources-summary');
+  section.body.classList.add('packs-sources-body');
+  return section.element;
 }
 
 function packsContent(): HTMLElement[] {

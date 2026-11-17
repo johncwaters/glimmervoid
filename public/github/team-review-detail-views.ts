@@ -12,7 +12,7 @@ import type { ReviewDetailKeyAction } from './review-queue-core.ts';
 import { _detailProgressTicker, _otherDetails, _pendingActions, _readyDetails } from './team-review-panel-state.ts';
 import type { ActionDetailHandle, SettleAction } from './team-review-panel-state.ts';
 import { createAgeReadout, createAuthor, pullRequestLink } from './team-review-queue-row.ts';
-import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionButton, createOpenSessionControl, createOpenSessionStatus, createTickableFinding, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
+import { FOLLOW_UP_APPROVAL_HINT, commentFindingContent, createAboutPr, createChangedSinceReview, createDecisionBar, createDetailHeading, createDraftEarlierReviewDetails, createFindingKeysHint, createHandChecks, createNotMineFooter, createNoteField, createOpenSessionButton, createOpenSessionControl, createOpenSessionStatus, createTickableFinding, reviewDisclosure, createVerdictBlock, generalFindingContent, inReviewEarlierDetails, otherDetailSignature, refreshDeskFacts, refreshDetailHeading, sendAction } from './team-review-detail-parts.ts';
 import { clock } from '#shared/clock.ts';
 
 const READY_DESK_SHORTCUTS: Partial<Readonly<Record<TeamReviewAction, string>>> = Object.freeze({
@@ -326,14 +326,11 @@ function createThreadDetails(draft: ReviewDraft): HTMLElement[] {
 function createOtherReviewItems(draft: ReviewDraft, isOpen: boolean): HTMLElement[] {
   const rows = otherReviewRows(draft);
   if (rows.length === 0) return [];
-  const section = el('details', 'pr-disclosure pr-other-reviewers');
-  const summary = el('summary', 'pr-disclosure-summary');
   const reviewerNames = [...new Set([...(draft.otherReviewItems ?? []), ...(draft.resolvedOtherReviewItems ?? [])].flatMap((item) => item.sources.map((source) => source.name)))];
   const resolvedCount = rows.filter((row) => row.isResolved).length;
   const countText = resolvedCount === 0 ? `${rows.length}` : `${rows.length - resolvedCount} open, ${resolvedCount} resolved`;
-  summary.append(el('span', 'pr-disclosure-label', `Other reviewers (${countText})`), el('span', 'pr-disclosure-preview', reviewerNames.join(', ')));
-  section.append(summary);
-  section.open = isOpen;
+  const section = reviewDisclosure('pr-other-reviewers', [el('span', 'pr-disclosure-label', `Other reviewers (${countText})`), el('span', 'pr-disclosure-preview', reviewerNames.join(', '))]);
+  section.element.open = isOpen;
   const list = el('div', 'my-pr-threads');
   for (const row of rows) {
     const card = el('div', row.isResolved ? 'my-pr-thread pr-thread-card is-resolved' : 'my-pr-thread pr-thread-card');
@@ -343,8 +340,8 @@ function createOtherReviewItems(draft: ReviewDraft, isOpen: boolean): HTMLElemen
     card.append(heading, createThreadBody(row.excerpt, false, false, row.url));
     list.append(card);
   }
-  section.append(list);
-  return [section];
+  section.body.append(list);
+  return [section.element];
 }
 
 function createOtherDetail(draft: ReviewDraft): HTMLElement {

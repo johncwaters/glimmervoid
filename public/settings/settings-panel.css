@@ -773,37 +773,11 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.settings-update-details:not([open]) {
-  gap: 0;
+  margin-top: 8px;
 }
 
 .settings-update-details-summary {
-  width: fit-content;
-  color: var(--text-muted);
   font-size: var(--type-meta);
-  cursor: pointer;
-  list-style: none;
-}
-
-.settings-update-details-summary::-webkit-details-marker {
-  display: none;
-}
-
-.settings-update-details-summary::before {
-  content: "+";
-  margin-inline-end: 1ch;
-}
-
-.settings-update-details[open] > .settings-update-details-summary::before {
-  content: "-";
-}
-
-@media (hover: hover) {
-  .settings-update-details-summary:hover {
-    color: var(--text-head);
-  }
 }
 
 .settings-update-failure-detail {
@@ -1039,11 +1013,6 @@
 
 .settings-vault-test-details {
   margin-top: 8px;
-}
-
-.settings-vault-test-details-summary {
-  cursor: pointer;
-  color: var(--text-dim);
 }
 
 .settings-vault-test-details-text {

@@ -46,6 +46,7 @@
 @import "./ui/select.css" layer(primitives);
 @import "./ui/tag.css" layer(primitives);
 @import "./ui/empty-state.css" layer(primitives);
+@import "./ui/disclosure.css" layer(primitives);
 @import "./style.css" layer(components);
 @import "./session-card/session-card.css" layer(components);
 @import "./dialogs.css" layer(components);

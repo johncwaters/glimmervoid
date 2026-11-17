@@ -3,6 +3,7 @@ import { buildPanelSection, el, isPanelHidden, query, writeClipboardText } from 
 import { button } from './ui/button.ts';
 import { emptyState } from './ui/empty-state.ts';
 import { createPressable } from './ui/pressable.ts';
+import { disclosure } from './ui/disclosure.ts';
 import { createActionStatus } from './action-status.ts';
 import { formatTrailOffset } from './radar/radar-core.ts';
 import {
@@ -156,31 +157,31 @@ function buildLoadEarlierControl(): HTMLElement {
 }
 
 function buildExpandableRow(row: TraceViewRow, turnStartedAtMs: number | null, className = ''): HTMLDetailsElement {
-  const details = el('details', `trace-row${className ? ` ${className}` : ''}`);
-  details.dataset.kind = row.kind;
-  details.dataset.tone = row.tone;
-  applyHiddenKindToRow(details);
-  const summary = el('summary', 'trace-row-summary');
-  summary.append(
-    el('span', 'trace-offset', formatTrailOffset(turnStartedAtMs, row.record.ts)),
-    el('span', 'trace-kind', row.tag),
-    el('span', 'trace-row-label', row.text),
-  );
-  for (const badge of row.badges) {
+  const badges = row.badges.map((badge) => {
     const badgeElement = el('span', 'trace-badge', badge);
     badgeElement.dataset.badge = badge;
-    summary.append(badgeElement);
-  }
-  const body = el('div', 'trace-row-body');
-  details.append(summary, body);
-  let hasBody = false;
-  details.addEventListener('toggle', () => {
-    if (!details.open || hasBody) return;
-    hasBody = true;
-    const text = traceRecordBody(row.record);
-    body.append(buildCopyControl(text), el('pre', 'trace-row-pre', text));
+    return badgeElement;
   });
-  return details;
+  const { element, summary, body } = disclosure({
+    summary: [
+      el('span', 'trace-offset', formatTrailOffset(turnStartedAtMs, row.record.ts)),
+      el('span', 'trace-kind', row.tag),
+      el('span', 'trace-row-label', row.text),
+      ...badges,
+    ],
+    body: () => {
+      const text = traceRecordBody(row.record);
+      return [buildCopyControl(text), el('pre', 'trace-row-pre', text)];
+    },
+  });
+  element.classList.add('trace-row');
+  if (className) element.classList.add(className);
+  element.dataset.kind = row.kind;
+  element.dataset.tone = row.tone;
+  applyHiddenKindToRow(element);
+  summary.classList.add('trace-row-summary');
+  body.classList.add('trace-row-body');
+  return element;
 }
 
 function buildTurnMetrics(turn: TraceTurn): HTMLElement {
