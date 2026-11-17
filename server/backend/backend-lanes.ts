@@ -43,6 +43,7 @@ import { createTeamReviewWiring } from '../github/team-review-wiring.ts';
 import { sweepLeftoverCheckouts } from '../github/team-review-checkouts.ts';
 import { createPrGh } from '../github/pr-gh.ts';
 import { createGithubIssueReader } from '../github/github-issue-reader.ts';
+import { createBudgetSessionPauser } from '../session/session-budget-pause.ts';
 import { createGithubUsageLedger } from '../github/github-usage-ledger.ts';
 import { createRepoCache } from '../git/repo-cache.ts';
 import { createPrFlowsWiring } from '../github/pr-flows-wiring.ts';
@@ -418,6 +419,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     laneMap: () => laneLedger.laneMap(),
     telemetry,
     budgetStatePath: configSiblingPath(configStore.configPath, 'usage-budget-state.json'),
+    onBudgetHold: createBudgetSessionPauser(allLiveSessions, timeClock.nowMs),
     logger,
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
@@ -505,6 +507,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     questionManagerSessions,
     current,
     starHint,
+    budgetHoldReason: () => usage.budgetHoldReason(),
     readGithubIssue: createGithubIssueReader(githubStore.laneStore),
     gitWorkspace,
     gitWorkspaceSync,

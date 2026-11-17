@@ -24,7 +24,7 @@ type SpawnOutcome =
   | { ok: false; status: number; error: string };
 
 function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
-  const { config, agentSessions, listAllSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane, memoryAdmission, logger } = runtime;
+  const { config, agentSessions, listAllSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane, memoryAdmission, budgetHoldReason, logger } = runtime;
   const { noteEndCause, forgetLink, openChildChannel, settleChildWorktree } = channels;
 
   async function describeMemoryShortfall(): Promise<string | null> {
@@ -40,6 +40,8 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
   }
 
   function refuseByBudget(parent: Session): SpawnOutcome | null {
+    const holdReason = budgetHoldReason();
+    if (holdReason !== null) return { ok: false, status: 429, error: `no new sessions: ${holdReason}` };
     const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), maxLiveChildren: config.spawnedSessionsMax ?? SPAWNED_SESSIONS_DEFAULT });
     if (allowance.ok) return null;
     return { ok: false, status: allowance.status, error: allowance.reason };

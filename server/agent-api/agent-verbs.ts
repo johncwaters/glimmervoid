@@ -63,7 +63,7 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const { noteEndCause, post, drain, ownedChannels, findChildOf } = channels;
 
@@ -348,6 +348,8 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const unsafeLaunchArgument = unsafeLaunchArgumentOf(raceSpec);
     if (unsafeLaunchArgument !== null) return refusal(400, `an agent cannot race the model or option value "${unsafeLaunchArgument}", because it reaches the agent's command line; use letters, digits and . _ : / [ ] -`);
     if (!startRace) return refusal(503, 'Arena is not running in this Glimmervoid');
+    const holdReason = budgetHoldReason();
+    if (holdReason !== null) return refusal(429, `no new sessions: ${holdReason}`);
     const unfinishedRefusal = refuseUnfinishedRace();
     if (unfinishedRefusal) return unfinishedRefusal;
     isAgentRaceStarting = true;

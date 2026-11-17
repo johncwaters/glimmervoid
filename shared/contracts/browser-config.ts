@@ -176,7 +176,7 @@ const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => 
   sessionBlockHours: optionalInteger('usage.sessionBlockHours', ranges.USAGE_INTEGER_RANGES.sessionBlockHours),
   costMode: z.enum(USAGE_COST_MODES, { error: usageCostModeMessage }).optional(),
   vendors: optionalObject('usage.vendors', usageVendorShape),
-  budget: optionalObject('usage.budget', usageBudgetShape),
+  budget: optionalObject('usage.budget', { ...usageBudgetShape, pauseAtLimit: optionalBoolean('usage.budget.pauseAtLimit') }),
   extraProjectsDirs: z.array(z.string({ error: 'usage.extraProjectsDirs must be an array of absolute paths' }), { error: 'usage.extraProjectsDirs must be an array of absolute paths' })
     .transform((directories) => directories.map((directory) => directory.trim()))
     .refine((directories) => directories.every((directory) => directory && isAbsolutePath(directory)), { message: 'usage.extraProjectsDirs entries must be absolute paths' })

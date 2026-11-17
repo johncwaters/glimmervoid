@@ -229,6 +229,11 @@ export const MACHINE_USAGE: SettingsSection = {
       control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
       integer: false, nullable: true, zeroIsNull: true, step: 0.01, ...MACHINE_NOW,
     },
+    {
+      id: 'usage-budget-pause', path: 'usage.budget.pauseAtLimit', title: 'Pause at budget',
+      description: 'At 100% of a budget, snooze live sessions and hold agent spawns and wakes until the day or month rolls over.',
+      control: 'toggle', keywords: ['spend', 'stop', 'limit', 'cap'], defaultValue: false, ...MACHINE_NOW,
+    },
   ],
 };
 

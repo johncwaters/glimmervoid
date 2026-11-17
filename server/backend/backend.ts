@@ -463,6 +463,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     broadcastControl,
     spawnGate,
     memoryAdmission: laneAssembly.memoryAdmission,
+    budgetHoldReason: laneAssembly.budgetHoldReason,
     recordLane,
     sessionDocs,
     operatorState: {

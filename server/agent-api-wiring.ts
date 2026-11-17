@@ -45,6 +45,7 @@ function createAgentApiWiring({
   reviewComments = null,
   repoClones = null,
   wakesFilePath = null,
+  budgetHoldReason = () => null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
@@ -52,7 +53,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, reviewComments, repoClones, wakesFilePath,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, reviewComments, repoClones, wakesFilePath, budgetHoldReason,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),
@@ -69,6 +70,7 @@ function createAgentApiWiring({
     findLiveSession: (sessionId) => listAllSessions().find((session) => session.id === sessionId && !session._destroyed) ?? null,
     budget: channels,
     spawnGate,
+    budgetHoldReason,
     onSessionWakesChange: (sessionId, sessionWakes) => broadcastControl({ type: 'session-wakes', id: sessionId, wakes: sessionWakes }),
     setTimeoutFn,
     clearTimeoutFn,

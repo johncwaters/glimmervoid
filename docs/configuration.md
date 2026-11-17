@@ -84,6 +84,7 @@ Token accounting and estimated-cost budgets.
 | `usage.retainDays` | Retain transcript detail | `90` | How long detailed usage is kept. |
 | `usage.budget.dailyUsd` | Daily budget | `null` | Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero. |
 | `usage.budget.monthlyUsd` | Monthly budget | `null` | Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero. |
+| `usage.budget.pauseAtLimit` | Pause at budget | `false` | At 100% of a budget, snooze live sessions and hold agent spawns and wakes until the day or month rolls over. |
 | `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.kimi` | Track Kimi Code usage | `true` | Include local Kimi Code transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
