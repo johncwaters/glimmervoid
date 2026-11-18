@@ -78,11 +78,7 @@ function returnFocusAfterClose(opener: Element | null) {
     return;
   }
   const topmostDialog = openModals.at(-1)?.dialog;
-  if (topmostDialog) {
-    focusFirstWithin(topmostDialog);
-    return;
-  }
-  document.getElementById('app-main')?.focus();
+  if (topmostDialog) focusFirstWithin(topmostDialog);
 }
 
 export function createModalOverlay({ dialogClass = 'dialog', closeOnBackdrop = true, onEscape }: {
