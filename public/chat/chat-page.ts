@@ -1,5 +1,5 @@
 import type { ChatOutboxEntry, ConversationApproval } from '#shared/contracts/session.ts';
-import { BETWEEN_TURN_STATES, STATES } from '#shared/states.ts';
+import { STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
@@ -19,7 +19,7 @@ import { uploadFilesToSession } from '../session-upload.ts';
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
-const BETWEEN_TURN_STATE_SET: ReadonlySet<string> = new Set(BETWEEN_TURN_STATES);
+const MID_TURN_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const LIVE_TERMINAL_HEADING = 'The agent is waiting on its terminal';
@@ -64,7 +64,7 @@ function draftWithRestoredText(restoredText: string, draft: string): string {
 function isSessionWorking(sessionId: string): boolean {
   const state = sessionUIs.get(sessionId)?.currentState;
   if (state === undefined) return false;
-  return !BETWEEN_TURN_STATE_SET.has(state);
+  return MID_TURN_STATES.has(state);
 }
 
 function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
