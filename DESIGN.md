@@ -152,6 +152,7 @@ A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`
 - **Options:** `label` (text or a node), `checked`, `disabled`, `value`, `hint`, `accessibleName` (when the visible label is not the name), plus `onChange(checked)` for a checkbox, and `name`, `value` and `onSelect()` for a radio. Each returns `{ element, input }`.
 - **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is at least 44px tall (the phone `--control-height`) in `--type-body` with a 20px box.
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
+
 ### Meter
 A horizontal track and fill showing one value from 0 to 1 is `meter()` from `public/ui/meter.ts` (look in `public/ui/meter.css`); it returns `{ element, setValue, setTone }`.
 - **Look:** a `--border-dim` track with 2px corners and a flat fill, no glow, no animation.
