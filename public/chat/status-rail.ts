@@ -2,6 +2,20 @@ import { el } from '../dom-helpers.ts';
 import { railFillPctOf, railTextOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
 
+type RailGroup = 'identity' | 'limits' | 'work';
+
+const RAIL_GROUP_ORDER: readonly RailGroup[] = ['identity', 'limits', 'work'];
+
+const RAIL_GROUP_BY_KIND: Readonly<Record<RailField['kind'], RailGroup>> = {
+  model: 'identity',
+  plan: 'limits',
+  context: 'limits',
+  callCost: 'work',
+  sessionCost: 'work',
+  subagents: 'work',
+  mode: 'work',
+};
+
 interface StatusRail {
   element: HTMLElement;
   show(fields: readonly RailField[]): void;
@@ -21,11 +35,22 @@ function railFieldElementOf(field: RailField): HTMLElement {
   return fieldElement;
 }
 
+function railGroupElementsOf(fields: readonly RailField[]): HTMLElement[] {
+  return RAIL_GROUP_ORDER.flatMap((group) => {
+    const fieldsInGroup = fields.filter((field) => RAIL_GROUP_BY_KIND[field.kind] === group);
+    if (fieldsInGroup.length === 0) return [];
+    const groupElement = el('span', 'chat-rail-group');
+    groupElement.dataset.group = group;
+    groupElement.append(...fieldsInGroup.map(railFieldElementOf));
+    return [groupElement];
+  });
+}
+
 export function createStatusRail(): StatusRail {
   const element = el('div', 'chat-rail');
   element.setAttribute('aria-label', 'Session status');
   const show = (fields: readonly RailField[]) => {
-    element.replaceChildren(...fields.map(railFieldElementOf));
+    element.replaceChildren(...railGroupElementsOf(fields));
   };
   return { element, show };
 }

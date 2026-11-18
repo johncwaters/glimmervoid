@@ -257,7 +257,8 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 18px;
   padding: 0 6px;
   border-top: 1px solid var(--border);
   overflow: hidden;
@@ -270,16 +271,8 @@
 .chat-rail-field[data-kind="subagents"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chat-rail-field[data-kind="subagents"] .chat-rail-text { overflow: hidden; text-overflow: ellipsis; }
 .chat-rail-field[data-kind="model"] { color: var(--text); }
-.chat-rail-field + .chat-rail-field::before {
-  content: '';
-  width: 3px;
-  height: 3px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: var(--border-hover);
-}
-.chat-rail-field[data-kind="mode"]::before { display: none; }
-.chat-rail-field[data-kind="mode"] { margin-left: auto; }
+.chat-rail-group { display: inline-flex; align-items: center; gap: 18px; flex: 0 0 auto; }
+.chat-rail-group[data-group="work"] { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 
 .chat-rail-meter {
   width: 28px;
