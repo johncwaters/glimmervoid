@@ -251,4 +251,3 @@ function buildSeatbeltProfile(policy: SeatbeltPolicy): string {
 }
 
 export { buildSeatbeltProfile };
-export type { SeatbeltPolicy };
