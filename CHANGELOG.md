@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.7] - 2026-11-18
+
 ### Changed
 
 - **Sane YOLO catches more risky commands and blocks fewer safe ones.** The bundled cc-safety-net moves to 2.7.15. It now blocks secret reads hidden behind `env`, `sudo` or `command` options, recursive deletes with a variable or wildcard target run from your home folder, `docker compose config` printing your project `.env`, and PowerShell `Remove-Item -Recurse` outside the working folder without `-Force`. It stops blocking `ssh`, `scp` and `sftp` with an `-i` key, commit messages and heredocs that only mention a file such as `.env`, and file deletes inside a container that cannot reach your files. `curl` and `wget` requests that send a body to a remote host stay blocked, as before, even though the new cc-safety-net stops blocking them by default.
