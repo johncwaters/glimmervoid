@@ -828,6 +828,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       now: clock.nowMs(),
       randomSuffix: crypto.randomBytes(4).toString('hex'),
       extension: typeVerdict.extension,
+      isChatUpload: isStoreOnly,
     });
     const savedPath = path.join(dir, filename);
     let abortedBeforeReceive = false;

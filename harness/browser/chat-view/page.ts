@@ -2,6 +2,8 @@ import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import type { ChatPart } from '../../../public/chat/chat-part.ts';
 import { appendChatRecords, createChatPartsState, endChatTurn } from '../../../public/chat/chat-parts-core.ts';
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
+import { railFieldsOf } from '../../../public/chat/status-rail-core.ts';
+import type { RunningSubagent } from '../../../public/chat/status-rail-core.ts';
 import { createChatView } from '../../../public/chat/chat-view.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
@@ -28,6 +30,13 @@ const { records: traceRecords }: { records: TraceRecord[] } = await traceRespons
 const chatView = createChatView((fileName) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`));
 chatHost?.appendChild(chatView.element);
 chatView.setTurnRunning(true);
+const HARNESS_NOW_MS = Date.now();
+const EXAMPLE_METER = { model: 'Example Large 2', effort: 'medium', contextTokens: 167_000, contextWindow: 300_000, callCostUSD: 0.0334, outputStyle: 'Explanatory' };
+const EXAMPLE_PLAN_LIMITS = { fiveHour: { pct: 12, resetsAtMs: HARNESS_NOW_MS + 2 * 3_600_000 }, sevenDay: { pct: 44, resetsAtMs: HARNESS_NOW_MS + 3.4 * 86_400_000 } };
+function showExampleRail(subagents: readonly RunningSubagent[]): void {
+  chatView.showRail(railFieldsOf({ meter: EXAMPLE_METER, selection: null, planLimits: EXAMPLE_PLAN_LIMITS, sessionCostUSD: 186.39, subagents, nowMs: HARNESS_NOW_MS }));
+}
+showExampleRail([]);
 const LIVE_PAGE_RECORDS = 25;
 const LIVE_PAGE_INTERVAL_MS = 20;
 
@@ -44,6 +53,7 @@ async function playLive(): Promise<void> {
       chatView.remove(droppedPartIds);
     },
     onTurnMarks: (marks) => chatView.markTurn(marks),
+    onSubagents: showExampleRail,
     isTurnOver: () => false,
     onBeats: (beats) => {
       document.body.dataset.beatCount = String(Number(document.body.dataset.beatCount ?? 0) + beats.length);
@@ -84,6 +94,13 @@ function showRecordsAtRest(): void {
 if (new URLSearchParams(location.search).has('live')) await playLive();
 if (!new URLSearchParams(location.search).has('live')) showRecordsAtRest();
 if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
+if (new URLSearchParams(location.search).has('rail-updates')) {
+  const railStates: readonly RunningSubagent[][] = [[{ type: 'Explore', model: 'example-small' }, { type: 'reviewer', model: null }], [], [{ type: 'Explore', model: null }], []];
+  for (const subagents of railStates) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    showExampleRail(subagents);
+  }
+}
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);
 });

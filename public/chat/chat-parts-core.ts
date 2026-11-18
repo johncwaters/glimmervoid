@@ -2,6 +2,8 @@ import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, loadedSkillOf } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
+import type { RunningSubagent } from './status-rail-core.ts';
+import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 
 interface ChatTurn {
   promptAt: number | null;
@@ -19,6 +21,7 @@ interface ChatPartsState {
   turn: ChatTurn;
   pendingAttachments: SentAttachments | null;
   latestPrompt: PromptPart | null;
+  runningSubagentByToolUseId: Map<string, RunningSubagent>;
 }
 
 export interface TurnMarks {
@@ -30,13 +33,14 @@ interface AppendedChat {
   parts: ChatPart[];
   beats: ActivityBeat[];
   marks: TurnMarks;
+  runningSubagents: RunningSubagent[];
 }
 
 const MAX_RESIDENT_PARTS = 2000;
 const TRIM_BATCH_PARTS = 200;
 
 export function createChatPartsState(): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, runningSubagentByToolUseId: new Map() };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -122,6 +126,23 @@ function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart |
   return null;
 }
 
+function textFieldOf(input: unknown, field: string): string | null {
+  if (typeof input !== 'object' || input === null || !(field in input)) return null;
+  const value: unknown = Reflect.get(input, field);
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function noteSubagentRecord(state: ChatPartsState, record: TraceRecord): void {
+  if (record.agentId !== undefined) return;
+  if (record.kind === 'tool_result') {
+    state.runningSubagentByToolUseId.delete(record.toolUseId);
+    return;
+  }
+  if (record.kind !== 'tool_call' || !SUBAGENT_TOOL_NAMES.has(record.name)) return;
+  const type = textFieldOf(record.input, 'subagent_type') ?? record.name;
+  state.runningSubagentByToolUseId.set(record.toolUseId, { type, model: textFieldOf(record.input, 'model') });
+}
+
 export function appendChatRecords(state: ChatPartsState, appended: readonly TraceRecord[]): AppendedChat {
   const parts: ChatPart[] = [];
   const beats: ActivityBeat[] = [];
@@ -130,10 +151,11 @@ export function appendChatRecords(state: ChatPartsState, appended: readonly Trac
     const part = chatPartOf(state, record);
     if (part) parts.push(part);
     noteTurnRecord(state, record, part, marks);
+    noteSubagentRecord(state, record);
     const beat = beatOfRecord(record);
     if (beat) beats.push(beat);
   }
-  return { parts, beats, marks };
+  return { parts, beats, marks, runningSubagents: [...state.runningSubagentByToolUseId.values()] };
 }
 
 export function trimChatParts(state: ChatPartsState, maxResidentParts = MAX_RESIDENT_PARTS): string[] {

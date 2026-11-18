@@ -399,3 +399,26 @@ test('a store-only upload needs no live terminal, pastes nothing, and its sweep 
     ctx().session.cancelChatMessage(ctx().session.chatOutboxEntries[0]?.entryId ?? '');
   }
 });
+
+test('a file staged in the Chat composer survives bursts of terminal drops and other Chat uploads on the same session', async () => {
+  fs.rmSync(uploadsDirFor(SESSION_ID), { recursive: true, force: true });
+  detachFakePty();
+  const staged = await fetch(`${ctx().base}/upload/${SESSION_ID}`, {
+    method: 'POST', body: Buffer.from('gif87a'), headers: { 'content-type': 'image/gif', 'x-glimmervoid-upload-mode': 'store' },
+  });
+  assert.equal(staged.status, 200);
+  const { fileName: stagedFileName } = await staged.json();
+  attachFakePty();
+  for (let dropIndex = 0; dropIndex < 21; dropIndex += 1) {
+    const dropped = await fetch(`${ctx().base}/upload/${SESSION_ID}`, { method: 'POST', body: Buffer.from('gif87a'), headers: { 'content-type': 'image/gif' } });
+    assert.equal(dropped.status, 200);
+  }
+  await waitForUploadCount(SESSION_ID, 21);
+  assert.ok(listUploads(SESSION_ID).includes(stagedFileName), 'the staged file is still there to send');
+  for (let attachIndex = 0; attachIndex < 21; attachIndex += 1) {
+    const attached = await fetch(`${ctx().base}/upload/${SESSION_ID}`, { method: 'POST', body: Buffer.from('gif87a'), headers: { 'content-type': 'image/gif', 'x-glimmervoid-upload-mode': 'store' } });
+    assert.equal(attached.status, 200);
+  }
+  await waitForUploadCount(SESSION_ID, 42);
+  assert.ok(listUploads(SESSION_ID).includes(stagedFileName), 'later Chat uploads from another tab leave it too');
+});

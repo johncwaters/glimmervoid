@@ -3,7 +3,7 @@ import { applyCommunityStatus } from '../../community/community-store.ts';
 import { showDesktopNotification } from '../../notifications.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from '../../radar/radar-store.ts';
 import { refreshSettingsStatus } from '../../settings/settings-store.ts';
-import { applyPlanLimits, applyUsageReport, applyUsageSessions } from '../../usage/usage-store.ts';
+import { applyPlanLimits, applySessionMeter, applyUsageReport, applyUsageSessions } from '../../usage/usage-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 
 const messageHandlers = {
@@ -17,6 +17,7 @@ const messageHandlers = {
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 
   'plan-limits':        (msg) => applyPlanLimits(msg),
+  'session-meter':      (msg) => applySessionMeter(msg),
 
   'usage-budget-alert': (msg) => showDesktopNotification({
     session: `budget-${msg.scope}-${msg.periodKey}`,

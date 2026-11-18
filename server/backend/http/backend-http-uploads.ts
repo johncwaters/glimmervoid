@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { Request, Response } from 'express';
 import type { Session } from '../../../session/sessions.ts';
+import { clock } from '../../../shared/clock.ts';
 import { MAX_UPLOAD_BYTES, exceedsUploadCap, planUploadRetention } from '../../core/upload-core.ts';
 
 async function sweepSessionUploads(dir: string, justWritten: string, sess: Session): Promise<void> {
@@ -13,7 +14,7 @@ async function sweepSessionUploads(dir: string, justWritten: string, sess: Sessi
     return;
   }
   const heldNames = sess.chatOutboxEntries.flatMap((entry) => entry.attachments);
-  for (const name of planUploadRetention(entries, { justWritten, heldNames })) {
+  for (const name of planUploadRetention(entries, { justWritten, heldNames, nowMs: clock.nowMs() })) {
     try {
       await fsp.unlink(path.join(dir, name));
     } catch {}

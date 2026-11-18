@@ -8,6 +8,7 @@ import type { TurnMarks } from './chat-parts-core.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
+import type { RailField } from './status-rail-core.ts';
 
 interface ChatView {
   element: HTMLElement;
@@ -21,6 +22,7 @@ interface ChatView {
   readAttachments(): string[];
   showQueued(entries: readonly ChatOutboxEntry[]): void;
   showAttachment(fileName: string): void;
+  showRail(fields: readonly RailField[]): void;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -80,5 +82,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
 }

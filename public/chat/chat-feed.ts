@@ -5,6 +5,7 @@ import type { ActivityBeat } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
 import { appendChatRecords, createChatPartsState, endChatTurn, trimChatParts } from './chat-parts-core.ts';
 import type { TurnMarks } from './chat-parts-core.ts';
+import type { RunningSubagent } from './status-rail-core.ts';
 
 const UNREADABLE_TRACE_TEXT = 'The conversation could not be read.';
 
@@ -18,6 +19,7 @@ interface ChatFeedOptions {
   onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => void;
   onBeats: (beats: readonly ActivityBeat[]) => void;
   onTurnMarks: (marks: TurnMarks) => void;
+  onSubagents: (runningSubagents: readonly RunningSubagent[]) => void;
   isTurnOver: () => boolean;
   onReset: () => void;
   onFailure: (failureText: string | null) => void;
@@ -59,6 +61,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     const appended = appendChatRecords(partsState, reply.records);
     options.onPartsChanged(appended.parts, trimChatParts(partsState), isLive);
     options.onTurnMarks(appended.marks);
+    options.onSubagents(appended.runningSubagents);
     if (options.isTurnOver()) options.onTurnMarks(endChatTurn(partsState));
     if (isLive && appended.beats.length > 0) options.onBeats(appended.beats);
   };

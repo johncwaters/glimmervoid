@@ -1,6 +1,7 @@
 import { AGENT_API_VERBS, SESSION_COMMANDS } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
 import { isRecord } from '../../shared/coerce.ts';
+import { SUBAGENT_TOOL_NAMES } from '../../shared/subagent-tools.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 
 const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
@@ -207,7 +208,6 @@ interface CommandHint {
 const SHOWABLE_PATH = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)(?=$|[\s'"`)|;&,])/i;
 const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit']);
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash']);
-const SUBAGENT_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task']);
 const GIT_PUSH = /\bgit\s+push\b/;
 const PR_REVIEW = /\bgh\s+pr\s+review\b/;
 const NEW_CHECKOUT = /\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--?[\w-]+(?:=\S+)?))*\s+(?:worktree\s+add|clone)\b/;
@@ -230,7 +230,7 @@ function namesShowableFile(facts: ToolHookFacts): boolean {
 }
 
 function startsSubagent(facts: ToolHookFacts): boolean {
-  return facts.event === 'posttooluse' && SUBAGENT_TOOLS.has(facts.toolName);
+  return facts.event === 'posttooluse' && SUBAGENT_TOOL_NAMES.has(facts.toolName);
 }
 
 function failsGitPush(facts: ToolHookFacts): boolean {

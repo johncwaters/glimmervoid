@@ -13,6 +13,7 @@ const SWITCH_TIMEOUT_MS = 10000;
 const AGENT_DEFAULT_MODEL_LABEL = "Agent's default";
 
 const modelSelectionBySessionId = new Map<string, ModelSelection | null>();
+const accountIdBySessionId = new Map<string, string | null>();
 
 function currentCatalog(): AgentModelCatalog | null {
   const parsed = AgentModelCatalog.safeParse(settingsPayloadSnapshot().agentModels);
@@ -34,9 +35,25 @@ export function setSessionModelSelection(sessionId: string, modelSelection: Mode
   modelSelectionBySessionId.set(sessionId, modelSelection);
 }
 
-export function resetSessionModelSelections(rows: readonly { id: string; modelSelection?: ModelSelection | null }[]): void {
+export function setSessionAccountId(sessionId: string, accountId: string | null): void {
+  accountIdBySessionId.set(sessionId, accountId);
+}
+
+export function sessionAccountIdOf(sessionId: string): string | null {
+  return accountIdBySessionId.get(sessionId) ?? null;
+}
+
+export function sessionModelSelectionOf(sessionId: string): ModelSelection | null {
+  return modelSelectionBySessionId.get(sessionId) ?? null;
+}
+
+export function resetSessionModelSelections(rows: readonly { id: string; modelSelection?: ModelSelection | null; accountId?: string | null }[]): void {
   modelSelectionBySessionId.clear();
-  for (const row of rows) setSessionModelSelection(row.id, row.modelSelection ?? null);
+  accountIdBySessionId.clear();
+  for (const row of rows) {
+    setSessionModelSelection(row.id, row.modelSelection ?? null);
+    setSessionAccountId(row.id, row.accountId ?? null);
+  }
 }
 
 function shownSetupOf(catalog: AgentModelCatalog, agent: string, selection: ModelSelection | null): AgentSetup {

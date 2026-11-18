@@ -15,14 +15,22 @@ import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
 import { storeFilesForChat } from '../session-upload.ts';
+import { sessionAccountIdOf, sessionModelSelectionOf } from '../session-card/card-model.ts';
+import { clock } from '#shared/clock.ts';
+import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
+import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
+import type { RunningSubagent } from './status-rail-core.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
 const MID_TURN_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
+const RAIL_TICK_MS = 30_000;
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
+const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
+const uploadingCountBySessionId = new Map<string, number>();
 const LIVE_TERMINAL_HEADING = 'The agent is waiting on its terminal';
 
 type TerminalCardState = 'hidden' | 'borrowed' | 'released';
@@ -44,6 +52,7 @@ interface MountedChat {
   restoreAttachments(fileNames: readonly string[]): void;
   showFailure(failureText: string | null): void;
   syncWaitingCards(): void;
+  showRail(): void;
   close(): void;
 }
 
@@ -154,6 +163,10 @@ function sendChatText(sessionId: string, text: string, attachments: readonly str
     restoreAttachmentsToSession(sessionId, attachments);
     showSessionFailure(sessionId, failureText);
   };
+  if (attachments.length > CHAT_SEND_MAX_ATTACHMENTS) {
+    failSend(TOO_MANY_TO_SEND_TEXT);
+    return;
+  }
   sendControlRequest('chat-send', { id: sessionId, text, attachments: [...attachments] }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
     .then((reply) => {
       if (reply.type !== 'chat-send-result' || reply.ok) return;
@@ -185,6 +198,21 @@ function buildChat(sessionId: string): MountedChat {
     failureLine.textContent = failureText ?? '';
   };
   root.append(failureLine, chatView.element);
+  let runningSubagents: readonly RunningSubagent[] = [];
+  const showRail = () => {
+    const isMachineLogin = sessionAccountIdOf(sessionId) === null;
+    const vendor = isMachineLogin ? planVendorOfAgent(sessionUIs.get(sessionId)?.agent) : null;
+    chatView.showRail(railFieldsOf({
+      meter: sessionMeterOf(sessionId),
+      selection: sessionModelSelectionOf(sessionId),
+      planLimits: vendor === null ? null : planLimitsOf(vendor),
+      sessionCostUSD: sessionCostOf(sessionId),
+      subagents: runningSubagents,
+      nowMs: clock.nowMs(),
+    }));
+  };
+  showRail();
+  const railTimer = setInterval(showRail, RAIL_TICK_MS);
   chatView.setTurnRunning(isSessionWorking(sessionId));
   let shownApproval: ShownApproval | null = null;
   let terminalCardState: TerminalCardState = 'hidden';
@@ -298,11 +326,20 @@ function buildChat(sessionId: string): MountedChat {
 
   root.addEventListener('chat-attach', (event) => {
     const files = attachedFilesOf(event);
-    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length);
+    const uploadingCount = uploadingCountBySessionId.get(sessionId) ?? 0;
+    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length - uploadingCount);
     if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
-    void storeFilesForChat(sessionId, files.slice(0, openSlots)).then((storedFileNames) => {
-      for (const fileName of storedFileNames) chatView.showAttachment(fileName);
-    });
+    const filesToStore = files.slice(0, openSlots);
+    if (filesToStore.length === 0) return;
+    uploadingCountBySessionId.set(sessionId, uploadingCount + filesToStore.length);
+    const releaseSlots = () => uploadingCountBySessionId.set(sessionId, Math.max(0, (uploadingCountBySessionId.get(sessionId) ?? 0) - filesToStore.length));
+    void storeFilesForChat(sessionId, filesToStore).then(
+      (storedFileNames) => {
+        releaseSlots();
+        restoreAttachmentsToSession(sessionId, storedFileNames);
+      },
+      releaseSlots,
+    );
   });
 
   root.addEventListener('chat-send', (event) => {
@@ -337,6 +374,10 @@ function buildChat(sessionId: string): MountedChat {
       chatView.remove(droppedPartIds);
     },
     onTurnMarks: (marks) => chatView.markTurn(marks),
+    onSubagents: (subagents) => {
+      runningSubagents = subagents;
+      showRail();
+    },
     isTurnOver: () => !isSessionWorking(sessionId),
     onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
@@ -349,6 +390,8 @@ function buildChat(sessionId: string): MountedChat {
       freshView.setTurnRunning(isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
+      runningSubagents = [];
+      showRail();
       syncWaitingCards();
     },
     onFailure: showFailure,
@@ -366,7 +409,9 @@ function buildChat(sessionId: string): MountedChat {
     },
     showFailure,
     syncWaitingCards,
+    showRail,
     close: () => {
+      clearInterval(railTimer);
       draftBySessionId.set(sessionId, chatView.readDraft());
       draftAttachmentsBySessionId.set(sessionId, chatView.readAttachments());
       releaseTerminal();
@@ -417,6 +462,11 @@ export function applyChatSessionStatus(sessionId: string): void {
   mountedChat.setTurnRunning(isWorking);
   if (!isWorking) mountedChat.feed.endTurn();
 }
+
+subscribeUsage((change) => {
+  if (change === 'refresh-status' || change === 'report') return;
+  mountedChat?.showRail();
+});
 
 subscribeSettings((change) => {
   if (change.kind !== 'broadcast') return;

@@ -240,7 +240,7 @@ async function verifyComposerAttachesImage(page: Page): Promise<void> {
   const scrollerBoxOf = () => scroller.evaluate((element) => JSON.stringify(element.getBoundingClientRect()));
   const scrollerBoxBefore = await scrollerBoxOf();
   await page.locator('.session-chat .chat-composer-file-picker').setInputFiles({ name: 'screen.png', mimeType: 'image/png', buffer: ONE_PIXEL_PNG });
-  await page.locator('.session-chat .chat-composer-attachment img[alt="screen.png"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-chat .chat-composer-attachment img.chat-prompt-thumbnail-image').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await scrollerBoxOf(), scrollerBoxBefore, 'an attachment leaves the conversation where it is');
 }
 

@@ -4,6 +4,8 @@ import { isImeProcessingKeydown } from '../session-card/ime-core.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button, outlineIconButton } from '../ui/button.ts';
 import { renderAttachmentThumbnail } from './chat-parts.ts';
+import { createStatusRail } from './status-rail.ts';
+import type { RailField } from './status-rail-core.ts';
 
 const MAX_INPUT_HEIGHT_PX = 240;
 const ATTACH_ICON_PATH = 'M10.5 4.5L5.8 9.2a1.4 1.4 0 0 0 2 2l5-5a2.8 2.8 0 0 0-4-4l-5 5a4.2 4.2 0 0 0 6 6l4.2-4.2';
@@ -18,6 +20,7 @@ interface ChatComposer {
   restoreDraft(text: string): void;
   readAttachments(): string[];
   showAttachment(fileName: string): void;
+  showRail(fields: readonly RailField[]): void;
 }
 
 function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
@@ -68,7 +71,8 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
   sendStopSlot.append(sendButton, stopButton);
   const inputRow = el('div', 'chat-composer-row');
   inputRow.append(attachButton, input, sendStopSlot);
-  element.append(attachments, inputRow, filePicker);
+  const rail = createStatusRail();
+  element.append(attachments, inputRow, rail.element, filePicker);
 
   const attachFiles = (files: readonly File[]) => {
     if (files.length === 0) return;
@@ -157,5 +161,5 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
     attachments.append(preview);
     updateSendButton();
   };
-  return { element, setTurnRunning, readDraft: () => input.value, restoreDraft, readAttachments: () => [...attachedFileNames], showAttachment };
+  return { element, setTurnRunning, readDraft: () => input.value, restoreDraft, readAttachments: () => [...attachedFileNames], showAttachment, showRail: rail.show };
 }

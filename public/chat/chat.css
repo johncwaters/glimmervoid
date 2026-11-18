@@ -252,6 +252,36 @@
 
 .chat-composer-row { display: flex; align-items: flex-end; gap: 8px; }
 
+.chat-rail {
+  height: 26px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 4px;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font: var(--type-meta)/1 var(--font-mono);
+}
+
+.chat-rail-field { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.chat-rail-field[data-kind="subagents"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chat-rail-field[data-kind="subagents"] .chat-rail-text { overflow: hidden; text-overflow: ellipsis; }
+.chat-rail-field[data-kind="model"] { color: var(--text); }
+.chat-rail-field[data-kind="mode"] { margin-left: auto; }
+
+.chat-rail-meter {
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.chat-rail-meter-fill { display: block; height: 100%; background: var(--text-muted); }
+
 .chat-composer-slot {
   position: relative;
   flex: none;

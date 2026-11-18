@@ -24,11 +24,13 @@ const REFRESH_STATUS_TIMEOUT_MS = 20000;
 const USAGE_METRIC_STORAGE_KEY = 'glimmervoid-usage-metric';
 
 type UsageSessionsPush = ServerMessageOf<'usage-sessions'>;
-export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'refresh-status';
+type SessionMeterPush = ServerMessageOf<'session-meter'>;
+export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'session-meter' | 'refresh-status';
 
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
 let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null };
+const sessionMeterBySessionId = new Map<string, SessionMeterPush>();
 let activityCallback: ((isActive: boolean) => void) | null = null;
 let sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
 let latestRequestId: string | null = null;
@@ -147,6 +149,25 @@ export function applyUsageConnectionState(connected: boolean): void {
 export function applyUsageSessions(msg: UsageSessionsPush): void {
   sessions = msg;
   notifySubscribers('sessions');
+}
+
+export function applySessionMeter(msg: SessionMeterPush): void {
+  sessionMeterBySessionId.set(msg.id, msg);
+  notifySubscribers('session-meter');
+}
+
+export function sessionMeterOf(sessionId: string): SessionMeterPush | null {
+  return sessionMeterBySessionId.get(sessionId) ?? null;
+}
+
+export function sessionCostOf(sessionId: string): number | null {
+  const row = sessions?.sessions.find((sessionRow) => sessionRow.id === sessionId);
+  if (!row) return null;
+  return row.officialCostUSD ?? row.costUSD;
+}
+
+export function planLimitsOf(vendor: PlanLimitsVendor): PlanLimits | null {
+  return planLimitsByVendor[vendor];
 }
 
 export function applyPlanLimits(msg: unknown): void {
