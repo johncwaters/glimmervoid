@@ -655,9 +655,10 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (drag.mode !== 'move' || !drag.hasMoved || !layout) return false;
     const offset = dragOffsetOf(drag);
     if (!drag.preview || drag.previewLayout !== layout) {
-      const laidOutBox = layout.elements.find((element) => element.kind === 'box' && element.id === drag.boxId);
-      const laidOutStart = laidOutBox?.kind === 'box' ? laidOutBox : null;
-      drag.laidOutOffset = laidOutStart ? { x: laidOutStart.x - drag.start.x, y: laidOutStart.y - drag.start.y } : { x: 0, y: 0 };
+      const anchorBox = drag.movingBoxes.find((movingBox) => movingBox.boxId === drag.boxId) ?? drag.movingBoxes[0];
+      const laidOutBox = layout.elements.find((element) => element.kind === 'box' && element.id === anchorBox?.boxId);
+      const laidOutOffset = laidOutBox?.kind === 'box' && anchorBox ? { x: laidOutBox.x - anchorBox.start.x, y: laidOutBox.y - anchorBox.start.y } : null;
+      drag.laidOutOffset = laidOutOffset ?? { x: 0, y: 0 };
       const movingBoxIds = new Set(drag.movingBoxes.map((movingBox) => movingBox.boxId));
       const carriedWireIds = new Set(carriedWiresOf(board.elements.values(), selectedIds, movingBoxIds).map((wire) => wire.id));
       drag.preview = createDragPreview(board, layout, movingBoxIds, carriedWireIds, drag.laidOutOffset);
@@ -718,7 +719,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function pruneSelection(board: Board | null): void {
-    if (gesture?.kind === 'drag' && board?.elements.get(gesture.boxId)?.kind !== 'box') gesture = null;
+    if (gesture?.kind === 'drag' && !board?.elements.get(gesture.boxId)) gesture = null;
     if (gesture?.kind === 'drag' && gesture.hasMoved) gesture.movingBoxes = gesture.movingBoxes.filter((movingBox) => board?.elements.get(movingBox.boxId)?.kind === 'box');
     const surviving = new Set([...selectedIds].filter((elementId) => board?.elements.get(elementId)));
     if (surviving.size === selectedIds.size) return;
@@ -826,17 +827,26 @@ export function createBoardEditor(options: BoardEditorOptions) {
     gesture = { kind: 'marquee', pointerId: event.pointerId, origin, latest: origin, hasMoved: false, isAdditive, baseSelection: isAdditive ? new Set(selectedIds) : new Set(), outline, placementTool };
   }
 
+  function boxIdsMovedBy(board: Board, elementId: string): string[] {
+    const element = board.elements.get(elementId);
+    if (element?.kind === 'box') return [elementId];
+    if (element?.kind !== 'frame') return [];
+    return element.collapsed ? element.contains.slice(0, 1) : element.contains;
+  }
+
   function stackTopped(boxId: string): Frame | undefined {
     const board = options.currentBoard();
     return board ? stacksByTopBoxIdOf(board).get(boxId) : undefined;
   }
 
-  function movingBoxesFor(pressedBoxId: string, pressedRect: Rect, isAdditive: boolean): MovingBox[] {
-    if (isAdditive || !selectedIds.has(pressedBoxId)) return [{ boxId: pressedBoxId, start: pressedRect }];
+  function movingBoxesFor(pressedId: string, isAdditive: boolean): MovingBox[] {
     const board = options.currentBoard();
-    return [...selectedIds].flatMap((elementId) => {
-      const start = board?.elements.get(elementId)?.kind === 'box' ? renderer.boundsOf(elementId) : null;
-      return start ? [{ boxId: elementId, start }] : [];
+    if (!board) return [];
+    const draggedIds = isAdditive || !selectedIds.has(pressedId) ? [pressedId] : [...selectedIds];
+    const movedBoxIds = new Set(draggedIds.flatMap((elementId) => boxIdsMovedBy(board, elementId)));
+    return [...movedBoxIds].flatMap((boxId) => {
+      const start = renderer.boundsOf(boxId);
+      return start ? [{ boxId, start }] : [];
     });
   }
 
@@ -886,7 +896,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     const resizeHandle = hit?.part === 'resize' ? hit.handle : null;
     if (hit && hitBoxRect && resizeHandle) {
       const origin = toViewPoint(event.clientX, event.clientY);
-      const movingBoxes = movingBoxesFor(hit.id, hitBoxRect, false);
+      const movingBoxes = movingBoxesFor(hit.id, false);
       const board = options.currentBoard();
       const boxAngleById = new Map(movingBoxes.map((movingBox) => {
         const box = board?.elements.get(movingBox.boxId);
@@ -908,11 +918,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
       startWire(event.pointerId, hitBoxRect && hit ? hit.id : null, pressedPoint, toViewPoint(event.clientX, event.clientY), activeTool, null);
       return;
     }
-    const boxRect = isPhoneLayout() ? null : hitBoxRect;
+    const frameRect = hit?.kind === 'frame' ? renderer.boundsOf(hit.id) : null;
+    const boxRect = isPhoneLayout() ? null : hitBoxRect ?? frameRect;
     if (hit && boxRect) {
       const origin = toViewPoint(event.clientX, event.clientY);
       const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, boxRect, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null, resize: null };
+      gesture = { kind: 'drag', mode: 'move', pointerId: event.pointerId, boxId: hit.id, origin, start: boxRect, movingBoxes: movingBoxesFor(hit.id, event.shiftKey), pinnedOffsetY, latest: origin, hasMoved: false, isAdditive: event.shiftKey, pressedImage: pressedImageOf(hit), preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: event.altKey, snapTargets: null, resize: null };
       return;
     }
     if (hit && !isPhoneLayout()) {
@@ -936,7 +947,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (gesture !== pan || pan.hasMoved || !boxRect) return;
     setSelection(new Set([boxId]));
     const pinnedOffsetY = renderer.layout()?.pinnedOffsetY ?? 0;
-    gesture = { kind: 'drag', mode: 'move', pointerId: pan.pointerId, boxId, origin: pressedAt, start: boxRect, movingBoxes: movingBoxesFor(boxId, boxRect, false), pinnedOffsetY, latest: pressedAt, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: null };
+    gesture = { kind: 'drag', mode: 'move', pointerId: pan.pointerId, boxId, origin: pressedAt, start: boxRect, movingBoxes: movingBoxesFor(boxId, false), pinnedOffsetY, latest: pressedAt, hasMoved: false, isAdditive: false, pressedImage: null, preview: null, previewLayout: null, laidOutOffset: { x: 0, y: 0 }, isDuplicating: false, snapTargets: null, resize: null };
     navigator.vibrate?.(10);
   }
 
@@ -1255,7 +1266,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function stackTargetOf(drag: Extract<Gesture, { kind: 'drag' }>): string | null {
-    if (drag.mode !== 'move' || drag.movingBoxes.length !== 1 || stackTopped(drag.boxId)) return null;
+    const isFrameDrag = drag.movingBoxes[0]?.boxId !== drag.boxId;
+    if (drag.mode !== 'move' || drag.movingBoxes.length !== 1 || isFrameDrag || stackTopped(drag.boxId)) return null;
     return renderer.boxIdsAt(drag.latest).find((boxId) => boxId !== drag.boxId) ?? null;
   }
 

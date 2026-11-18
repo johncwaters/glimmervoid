@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Drag a frame to move everything inside it.** Press a frame's title or edge on the board and drag: the frame moves with every box in it, and wires between those boxes keep their bends. The outline follows your pointer during the drag. A click without dragging still just selects the frame.
+
 - **PowerPoint decks on the board.** Agents can `show` a `.pptx` file, and you can attach one yourself. It goes on the board as a deck card. Open the card to read it one slide at a time: the arrow keys, Page Up, Page Down, Home and End move between slides, the counter shows where you are, and Download saves the original file to send on. Past the first or last slide, the arrow keys carry on to the next wired card. Decks render in your browser inside a sandboxed frame that fetches nothing over the network.
 
 - **Deny a tool call in Chat and tell the agent what to do instead.** A permission card in Chat now has a message field beside Allow and Deny. Type what you want instead and press Deny with message, and the agent gets your words as the reason it was refused, on every first-class agent.

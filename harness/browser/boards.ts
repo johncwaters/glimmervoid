@@ -354,6 +354,43 @@ async function verifyClipboard(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'the clipboard check cleans up', (element) => leftoverIds.includes(element.id));
 }
 
+async function verifyFrameDrag(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  await panel.locator('.wb-viewport').focus();
+  await page.keyboard.press('r');
+  const left = await placeBoxWithTool(open, { x: 80, y: 600 }, 'Framed left');
+  await page.keyboard.press('r');
+  const right = await placeBoxWithTool(open, { x: 420, y: 600 }, 'Framed right');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'frame', id: 'drag-frame', title: 'Drag frame', contains: [left.id, right.id] } }] });
+  await elementWhere(open, 'the frame lands', (element) => element.id === 'drag-frame');
+  const placesBefore = [left, right].map((box) => (box.kind === 'box' ? pointOfBox(box) : null));
+  const frameRect = await screenRectOf(open, 'drag-frame');
+  const scale = (await cameraOf(open)).scale;
+  const grab = { x: frameRect.x + 8, y: frameRect.y + 8 };
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.keyboard.down('Control');
+  await page.mouse.move(grab.x + 60, grab.y + 40, { steps: 4 });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'frame-drag-bystander', title: 'Bystander', place: { at: { x: -2000, y: -2000 } } } }] });
+  await elementWhere(open, 'an agent edits the board mid frame drag', (element) => element.id === 'frame-drag-bystander');
+  await page.mouse.move(grab.x + 120, grab.y + 80, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  const shifted = { x: Math.round(120 / scale), y: Math.round(80 / scale) };
+  for (const [index, box] of [left, right].entries()) {
+    const before = placesBefore[index];
+    assert.ok(before, `${box.id} has a point`);
+    await elementWhere(open, `dragging the frame moves ${box.id} with it`, (element) => {
+      const after = element.id === box.id && element.kind === 'box' ? pointOfBox(element) : null;
+      return after !== null && Math.abs(after.x - before.x - shifted.x) <= 2 && Math.abs(after.y - before.y - shifted.y) <= 2;
+    });
+  }
+  const frame = await elementWhere(open, 'the dragged frame keeps both boxes', (element) => element.id === 'drag-frame');
+  assert.ok(frame.kind === 'frame' && frame.contains.length === 2, 'a dragged frame keeps every box it held');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'drag-frame' }, { op: 'remove', id: left.id }, { op: 'remove', id: right.id }, { op: 'remove', id: 'frame-drag-bystander' }] });
+  await boardWithout(open, 'the frame drag check cleans up', (element) => [left.id, right.id, 'drag-frame', 'frame-drag-bystander'].includes(element.id));
+}
+
 async function verifySnapping(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   await panel.locator('.wb-viewport').focus();
@@ -2216,6 +2253,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifyDragPlacement(open);
     if (desktopBoard) await verifyClipboard(open);
     if (desktopBoard) await verifySnapping(open);
+    if (desktopBoard) await verifyFrameDrag(open);
     if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
     if (desktopBoard) await verifyStylePopover(open, parseFeed.id);
     if (desktopBoard) await verifyEllipseAndEraser(open, parseFeed.id);

@@ -846,7 +846,13 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
     if (element.kind === 'frame') stillSoftObstacles.push(titleObstacleOf(element, storedBoard.elements.get(element.id)));
   }
   const movingBoxes = [...movingIds].flatMap((elementId) => boxesById.get(elementId) ?? []);
-  const wires = [...storedBoard.elements.values()].flatMap((element) => {
+  const carriedFrames = layout.elements.flatMap((element) => {
+    const stored = element.kind === 'frame' ? storedBoard.elements.get(element.id) : undefined;
+    if (element.kind !== 'frame' || stored?.kind !== 'frame') return [];
+    const laidOutMemberIds = stored.contains.filter((boxId) => boxesById.has(boxId));
+    return laidOutMemberIds.length > 0 && laidOutMemberIds.every((boxId) => movingIds.has(boxId)) ? [element] : [];
+  });
+  const wires =[...storedBoard.elements.values()].flatMap((element) => {
     if (element.kind !== 'wire') return [];
     const isTouchingDraggedBox = boxIdsOfWire(element).some((boxId) => movingIds.has(boxId));
     return isTouchingDraggedBox || carriedWireIds.has(element.id) ? [wireShiftedBy(element, layout.pinnedOffsetY)] : [];
@@ -856,7 +862,11 @@ function createDragPreview(storedBoard: Board, layout: BoardLayout, draggedBoxId
     const moved = movingBoxes.map((box) => movedBox(box, offsetX, offsetY));
     for (const box of moved) boxesById.set(box.id, box);
     const draggedWires = wires.map((wire) => (carriedWireIds.has(wire.id) ? wirePointsShiftedBy(wire, offsetX + storedToLaidOutOffset.x, offsetY + storedToLaidOutOffset.y) : wire));
-    return [...moved, ...previewWires({ wires: draggedWires, boxesById, softObstacles: stillSoftObstacles, contentTop })];
+    const movedFrames = carriedFrames.map((frame) => ({
+      ...frame, x: frame.x + offsetX, y: frame.y + offsetY,
+      titleObstacle: { ...frame.titleObstacle, x: frame.titleObstacle.x + offsetX, y: frame.titleObstacle.y + offsetY },
+    }));
+    return [...movedFrames, ...moved, ...previewWires({ wires: draggedWires, boxesById, softObstacles: stillSoftObstacles, contentTop })];
   };
 }
 
