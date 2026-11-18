@@ -1441,6 +1441,18 @@
       "definition": "A PowerPoint (PPTX) file on a board: a read-only labelled card that opens one slide at a time in a sandboxed viewer, rendered in the browser"
     },
     {
+      "name": "page up",
+      "definition": "The Page Up key: in a deck viewer or Present it steps back one slide or card"
+    },
+    {
+      "name": "page down",
+      "definition": "The Page Down key: in a deck viewer or Present it steps forward one slide or card"
+    },
+    {
+      "name": "present",
+      "definition": "The whiteboard mode the Present button starts: full screen with the toolbars hidden, it fits the board on one wired box at a time and the arrow keys follow the wires to the next or previous box, note cards skipped"
+    },
+    {
       "name": "find",
       "definition": "The Find a project field in New session and onboarding: typing filters the project list (local projects and GitHub repositories not yet on this host), and Enter starts the session in the top match"
     },
