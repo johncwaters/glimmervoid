@@ -485,7 +485,9 @@ function createWhiteboardWiring({
     linkWatchByBoardId.delete(board.id);
     if (target === null) return;
     const watcher = createWatchDebounce({ onChange: () => void syncLinkedFolder(board.id), debounceMs: LINK_WATCH_DEBOUNCE_MS });
-    if (watcher.watch(target.folder)) linkWatchByBoardId.set(board.id, { ...target, watcher });
+    if (!watcher.watch(target.folder)) return;
+    linkWatchByBoardId.set(board.id, { ...target, watcher });
+    watcher.fire();
   }
 
   async function followLinkedFolders(): Promise<void> {
