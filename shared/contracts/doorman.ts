@@ -63,6 +63,9 @@ export const AwakeEvent = z.strictObject({
 });
 export type AwakeEvent = z.infer<typeof AwakeEvent>;
 
+export const DoormanFailureKind = z.enum(['wake-failed', 'wake-timed-out', 'forward-after-wake-failed', 'github-token-refused', 'github-token-mint-failed', 'github-token-repos-dropped']);
+export type DoormanFailureKind = z.infer<typeof DoormanFailureKind>;
+
 export const DOORMAN_WAKE_POLL_HEADER = 'x-glimmervoid-wake-poll';
 export const DoormanWakeStatus = z.strictObject({ state: z.literal('waking') });
 export type DoormanWakeStatus = z.infer<typeof DoormanWakeStatus>;

@@ -32,7 +32,7 @@ import { startGithubConnectionAlerts } from '../server/github-connection-alerts.
 import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server/core/awake-usage-core.ts';
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
-import { DoormanWakeStatus } from '../shared/contracts/doorman.ts';
+import { DoormanFailureKind, DoormanWakeStatus } from '../shared/contracts/doorman.ts';
 import { AWAKE_USAGE_PATH, AwakeUsageAnswer, DEVICE_PAIRING_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { GithubConnection, Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
@@ -1012,7 +1012,8 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
     },
   };
   const tunables = { holdTimeoutMs: 300, wakeCooldownMs: 0, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000, maxEdgeWakesPerHour: 1 };
-  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables, log: QUIET_LOG });
+  const warnLines: string[] = [];
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables, log: { log: () => {}, warn: (line: string) => warnLines.push(line) } });
   const doormanPort = await doorman.listen(0);
   t.after(async () => {
     await doorman.close();
@@ -1058,12 +1059,30 @@ test('a hosted doorman answers a browser opening a sleeping tenant with a waking
   assert.match(limitedPage.body, /Woken too often this hour/);
   assert.doesNotMatch(limitedPage.body, /http-equiv="refresh"/);
   assert.deepEqual(wakeCalls, ['limitedtenant001', 'limitedtenant001']);
+  assert.deepEqual(warnLines, ['[doorman] kind=wake-failed waking limitedtenant001 failed: ZONE_RESOURCE_POOL_EXHAUSTED'], 'a failed wake call is one failure line, never a second timed-out line');
 
   const restartedDoorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables, log: QUIET_LOG });
   const restartedPort = await restartedDoorman.listen(0);
   t.after(() => restartedDoorman.close());
   assert.match((await requestThroughDoorman(restartedPort, { host: tenantHost, path: '/', headers: browserHeaders })).body, /Woken too often this hour/);
   assert.deepEqual(wakeCalls, ['limitedtenant001', 'limitedtenant001']);
+});
+
+test('a woken host that never answers logs kind=wake-timed-out, and the failure kinds the cloud doorman health alert matches stay exactly these', async (t) => {
+  assert.deepEqual(DoormanFailureKind.options, ['wake-failed', 'wake-timed-out', 'forward-after-wake-failed', 'github-token-refused', 'github-token-mint-failed', 'github-token-repos-dropped']);
+  const silentServer = http.createServer();
+  const silentPort = await listenOnLoopback(silentServer);
+  await new Promise((resolve) => silentServer.close(resolve));
+  const { tenant } = await doormanTenant(t, 'silenttenant001', `http://127.0.0.1:${silentPort}`);
+  const warnLines: string[] = [];
+  const hostAdapter = { wake: async () => {}, stop: async () => {} };
+  const tunables = { holdTimeoutMs: 200, wakeCooldownMs: 30_000, maxHeldPerTenant: 8, readinessPollMs: 20, meterTickMs: 60_000, maxEdgeWakesPerHour: 4 };
+  const doorman = createDoorman({ table: { tenantDomain: 'tenants.example', tenants: [{ ...tenant, host: TEST_GCP_HOST }] }, hostAdapter, tunables, log: { log: () => {}, warn: (line: string) => warnLines.push(line) } });
+  const doormanPort = await doorman.listen(0);
+  t.after(() => doorman.close());
+
+  assert.equal((await requestThroughDoorman(doormanPort, { host: 'silenttenant001.tenants.example', path: '/api/state' })).status, 503);
+  assert.deepEqual(warnLines, ['[doorman] kind=wake-timed-out tenant silenttenant001 did not answer within 200 ms of waking it']);
 });
 
 function fakeWorkos(authkitClientId: string) {
@@ -1631,7 +1650,7 @@ test('a stored repository the installation no longer reaches is dropped from the
   assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
   assert.deepEqual(app.mints.map((mint) => mint.body.repositories ?? null), [['glimmervoid', 'renamed-away', 'site'], null, ['glimmervoid', 'site']]);
   assert.deepEqual(app.mints[1].body.permissions, { metadata: 'read' }, 'the listing token reads metadata only');
-  assert.deepEqual(warnLines, ['[doorman] tenant staletenant0001 GitHub installation 4242 (octo-org) no longer reaches renamed-away; minted for the other 2 repositories']);
+  assert.deepEqual(warnLines, ['[doorman] kind=github-token-repos-dropped tenant staletenant0001 GitHub installation 4242 (octo-org) no longer reaches renamed-away; minted for the other 2 repositories']);
 });
 
 test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, the server notifies once two weeks before the connection ends and once when a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {

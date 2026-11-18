@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import { githubApiOrigin } from '../../shared/contracts/watcher-link.ts';
-import type { DoormanGithubApp } from '../../shared/contracts/doorman.ts';
+import type { DoormanFailureKind, DoormanGithubApp } from '../../shared/contracts/doorman.ts';
 import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import { retryAfterMsFromHeaders } from '../watcher/core/probe-core.ts';
 import { githubAppJwt, installationTokenRequestBody, reachabilityTokenRequestBody, reachableSubset } from './doorman-core.ts';
@@ -13,7 +13,9 @@ import { sanitizeOneLine } from '../../server/core/text-core.ts';
 
 type MintOutcome =
   | { kind: 'minted'; token: string; expiresAtMs: number; droppedRepositories: readonly string[] }
-  | { kind: 'failed'; reason: string; retryAfterMs: number | null };
+  | { kind: 'failed'; failureKind: MintFailureKind; reason: string; retryAfterMs: number | null };
+
+type MintFailureKind = Extract<DoormanFailureKind, 'github-token-refused' | 'github-token-mint-failed'>;
 
 type TokenAttempt =
   | { kind: 'minted'; token: string; expiresAtMs: number }
@@ -106,8 +108,12 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
     return null;
   }
 
+  function mintFailureKindOf(status: number): MintFailureKind {
+    return status === UNREACHABLE_REPOSITORY_STATUS ? 'github-token-refused' : 'github-token-mint-failed';
+  }
+
   function failedOutcomeOf(attempt: Extract<TokenAttempt, { kind: 'failed' }>): MintOutcome {
-    return { kind: 'failed', reason: attempt.reason, retryAfterMs: attempt.retryAfterMs };
+    return { kind: 'failed', failureKind: mintFailureKindOf(attempt.status), reason: attempt.reason, retryAfterMs: attempt.retryAfterMs };
   }
 
   async function mintWithReachableRepositories(installation: GithubInstallationBinding, privateKey: crypto.KeyObject): Promise<MintOutcome> {
@@ -115,11 +121,11 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
     if (scoped.kind === 'minted') return { ...scoped, droppedRepositories: [] };
     if (scoped.status !== UNREACHABLE_REPOSITORY_STATUS) return failedOutcomeOf(scoped);
     const reachableNames = await reachableRepositoryNames(installation.installationId, privateKey).catch((listingError: unknown) => new Error(sanitizeOneLine(listingError instanceof Error ? listingError.message : String(listingError), MAX_REFUSAL_MESSAGE_CHARS)));
-    if (reachableNames instanceof Error) return { kind: 'failed', reason: `${scoped.reason}; listing the repositories the installation reaches failed: ${reachableNames.message}`, retryAfterMs: scoped.retryAfterMs };
+    if (reachableNames instanceof Error) return { kind: 'failed', failureKind: mintFailureKindOf(scoped.status), reason: `${scoped.reason}; listing the repositories the installation reaches failed: ${reachableNames.message}`, retryAfterMs: scoped.retryAfterMs };
     if (reachableNames === null) return failedOutcomeOf(scoped);
     const { kept, dropped } = reachableSubset(installation.repositories, reachableNames);
     if (dropped.length === 0) return failedOutcomeOf(scoped);
-    if (kept.length === 0) return { kind: 'failed', reason: `${scoped.reason}; the installation reaches none of its ${dropped.length} bound repositories`, retryAfterMs: scoped.retryAfterMs };
+    if (kept.length === 0) return { kind: 'failed', failureKind: mintFailureKindOf(scoped.status), reason: `${scoped.reason}; the installation reaches none of its ${dropped.length} bound repositories`, retryAfterMs: scoped.retryAfterMs };
     const retried = await requestToken(installation.installationId, installationTokenRequestBody(kept), privateKey);
     if (retried.kind === 'failed') return failedOutcomeOf(retried);
     return { ...retried, droppedRepositories: dropped };
@@ -129,7 +135,7 @@ function createGithubAppMinter({ app, privateKeySecret, fetchFn = fetch, now = c
     try {
       return await mintWithReachableRepositories(installation, await readPrivateKey());
     } catch (mintError) {
-      return { kind: 'failed', reason: mintError instanceof Error ? mintError.message : String(mintError), retryAfterMs: null };
+      return { kind: 'failed', failureKind: 'github-token-mint-failed', reason: mintError instanceof Error ? mintError.message : String(mintError), retryAfterMs: null };
     }
   }
 

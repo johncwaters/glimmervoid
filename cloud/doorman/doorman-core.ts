@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { IncomingHttpHeaders } from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { DEVICE_PAIRING_PATH, NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
-import type { AwakeEvent, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
+import type { AwakeEvent, DoormanFailureKind, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
 import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 
 type DoormanRoute =
@@ -210,5 +210,9 @@ function isOverCap(usage: AwakeUsage): boolean {
   return usage.capMs !== null && usage.usedMs >= usage.capMs;
 }
 
-export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, reachabilityTokenRequestBody, reachableSubset, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
+function doormanFailureLine(kind: DoormanFailureKind, message: string): string {
+  return `[doorman] kind=${kind} ${message}`;
+}
+
+export { awakeUsageAt, doormanFailureLine, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, reachabilityTokenRequestBody, reachableSubset, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
 export type { DoormanRoute, EdgeAction, ForwardState, GceWakeAction, MeterTotal, WakePageState };

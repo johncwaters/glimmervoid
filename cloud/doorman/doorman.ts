@@ -23,7 +23,7 @@ import { parseCookieHeader, serializeSetCookie } from '../../server/core/cookie.
 import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
 import type { AwakeMeter } from './awake-meter.ts';
-import { edgeWakeRetryAfterMs, headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage } from './doorman-core.ts';
+import { doormanFailureLine, edgeWakeRetryAfterMs, headersAtEdge, isConnectFailure, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage } from './doorman-core.ts';
 import { createGcpHostAdapter } from './gcp-host.ts';
 import type { HostAdapter } from './gcp-host.ts';
 import { createGithubAppMinter } from './github-app.ts';
@@ -238,10 +238,15 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   async function runWake(entry: TenantEntry, adapter: HostAdapter, startedBy: WakeStartedBy): Promise<WakeOutcome> {
-    await adapter.wake(entry.tenant).then(() => noteHostWoke(entry, startedBy), (wakeError: unknown) => {
-      log.warn(`[doorman] waking ${entry.tenant.slug} failed: ${errorMessage(wakeError)}`);
+    const didWakeCallSucceed = await adapter.wake(entry.tenant).then(() => {
+      noteHostWoke(entry, startedBy);
+      return true;
+    }, (wakeError: unknown) => {
+      log.warn(doormanFailureLine('wake-failed', `waking ${entry.tenant.slug} failed: ${errorMessage(wakeError)}`));
+      return false;
     });
     const isAnswering = await waitUntilAnswering(entry.tenant.serverUrl, now() + tunables.holdTimeoutMs);
+    if (!isAnswering && didWakeCallSucceed) log.warn(doormanFailureLine('wake-timed-out', `tenant ${entry.tenant.slug} did not answer within ${tunables.holdTimeoutMs} ms of waking it`));
     if (!isAnswering) noteHostDown(entry);
     entry.gate.didLastWakeFail = !isAnswering;
     entry.gate.state = nextForwardState(entry.gate.state, isAnswering ? 'connected' : 'holdTimedOut');
@@ -365,7 +370,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     if (response.destroyed) return;
     forwardedFor(entry, request);
     await proxy.web(request, response, { target: entry.tenant.serverUrl, buffer: bodyless }).catch((forwardError: unknown) => {
-      log.warn(`[doorman] forwarding to ${entry.tenant.slug} failed after waking it: ${errorMessage(forwardError)}`);
+      log.warn(doormanFailureLine('forward-after-wake-failed', `forwarding to ${entry.tenant.slug} failed after waking it: ${errorMessage(forwardError)}`));
       answerStatus(response, 502);
     });
   }
@@ -564,10 +569,10 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     if (isClosed || entriesBySlug.get(entry.tenant.slug) !== entry) return null;
     for (const { installation, outcome } of outcomes) {
       if (outcome.kind !== 'minted' || outcome.droppedRepositories.length === 0) continue;
-      log.warn(`[doorman] tenant ${entry.tenant.slug} GitHub installation ${installation.installationId} (${installation.accountLogin}) no longer reaches ${outcome.droppedRepositories.join(', ')}; minted for the other ${installation.repositories.length - outcome.droppedRepositories.length} repositories`);
+      log.warn(doormanFailureLine('github-token-repos-dropped', `tenant ${entry.tenant.slug} GitHub installation ${installation.installationId} (${installation.accountLogin}) no longer reaches ${outcome.droppedRepositories.join(', ')}; minted for the other ${installation.repositories.length - outcome.droppedRepositories.length} repositories`));
     }
     const minted = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'minted' ? [{ installationId: installation.installationId, accountLogin: installation.accountLogin, token: outcome.token, expiresAtMs: outcome.expiresAtMs }] : []);
-    const failures = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'failed' ? [{ installationId: installation.installationId, reason: outcome.reason, retryAfterMs: outcome.retryAfterMs }] : []);
+    const failures = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'failed' ? [{ installationId: installation.installationId, failureKind: outcome.failureKind, reason: outcome.reason, retryAfterMs: outcome.retryAfterMs }] : []);
     const failedInstallationIds = new Set(failures.map((failure) => failure.installationId));
     const carried = unexpiredGithubTokens(entry).filter((held) => failedInstallationIds.has(held.installationId));
     entry.github.held = [...minted, ...carried];
@@ -584,7 +589,8 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     const retryDelayMs = Math.min(backoffDelayMs, ...entry.github.held.map((held) => Math.max(0, held.expiresAtMs - now())));
     entry.github.nextMintAllowedAtMs = now() + retryDelayMs;
     const reasons = [...new Set(failures.map((failure) => failure.reason))].join('; ');
-    log.warn(`[doorman] tenant ${entry.tenant.slug} GitHub token mint failed for ${failures.length} of ${installations.length} installations (${reasons}), retrying in ${Math.round(retryDelayMs / 1000)} s`);
+    const mintFailureKind = failures.some((failure) => failure.failureKind === 'github-token-refused') ? 'github-token-refused' : 'github-token-mint-failed';
+    log.warn(doormanFailureLine(mintFailureKind, `tenant ${entry.tenant.slug} GitHub token mint failed for ${failures.length} of ${installations.length} installations (${reasons}), retrying in ${Math.round(retryDelayMs / 1000)} s`));
     scheduleGithubMint(entry, retryDelayMs);
     return entry.github.held;
   }
