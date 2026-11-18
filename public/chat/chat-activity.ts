@@ -1,7 +1,7 @@
 import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX, type BrandMarkSide } from '#shared/brand-mark.ts';
 import { el } from '../dom-helpers.ts';
 import { createSvgShape } from '../svg-dom.ts';
-import { type ActivityBeat, THINKING_BEAT, verbChoicesFor } from './chat-activity-core.ts';
+import { type ActivityBeat, BUSY_BEAT, verbChoicesFor } from './chat-activity-core.ts';
 
 interface ChatActivity {
   element: HTMLElement;
@@ -102,7 +102,7 @@ export function createChatActivity(): ChatActivity {
     ], { duration: DIAL_SPIN_MS });
   };
 
-  const show = (beat: ActivityBeat) => {
+  const show = (beat: ActivityBeat, hasGlimmervoidCall: boolean) => {
     element.dataset.workKind = beat.glimmervoidTool === null ? beat.workKind : 'glimmervoid';
     const key = beatKey(beat);
     if (key !== shownBeatKey) {
@@ -110,7 +110,7 @@ export function createChatActivity(): ChatActivity {
       showVerb(pickedVerb(beat));
     }
     if (prefersReducedMotion()) return;
-    if (beat.glimmervoidTool !== null) {
+    if (hasGlimmervoidCall) {
       playDialSpin();
       return;
     }
@@ -127,12 +127,12 @@ export function createChatActivity(): ChatActivity {
         shownBeatKey = '';
         return;
       }
-      show(THINKING_BEAT);
+      show(BUSY_BEAT, false);
     },
     beat: (beats) => {
-      const shownBeat = beats.findLast((beat) => beat.glimmervoidTool !== null) ?? beats.at(-1);
+      const shownBeat = beats.at(-1);
       if (element.hidden || shownBeat === undefined) return;
-      show(shownBeat);
+      show(shownBeat, beats.some((beat) => beat.glimmervoidTool !== null));
     },
   };
 }

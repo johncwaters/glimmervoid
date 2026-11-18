@@ -97,6 +97,15 @@
   overflow-wrap: anywhere;
 }
 
+.chat-reply + .chat-reply { margin-top: 8px; }
+
+.chat-reply + .chat-reply::before {
+  content: '';
+  width: 32px;
+  height: 1px;
+  background: var(--border);
+}
+
 .chat-reply-paragraph,
 .chat-reply-heading { margin: 0; white-space: pre-wrap; }
 
@@ -141,6 +150,7 @@ ol.chat-reply-list { list-style: decimal; }
 .chat-activity[hidden] { visibility: hidden; }
 .chat-activity[data-work-kind="reading"] { --activity-hue: #8fbcff; }
 .chat-activity[data-work-kind="editing"] { --activity-hue: #f4a6d7; }
+.chat-activity[data-work-kind="busy"],
 .chat-activity[data-work-kind="running"],
 .chat-activity[data-work-kind="working"] { --activity-hue: var(--text-head); }
 

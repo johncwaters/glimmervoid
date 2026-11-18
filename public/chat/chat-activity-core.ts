@@ -1,6 +1,6 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 
-type WorkKind = 'thinking' | 'reading' | 'editing' | 'running' | 'working';
+type WorkKind = 'busy' | 'thinking' | 'reading' | 'editing' | 'running' | 'working';
 
 export interface ActivityBeat {
   workKind: WorkKind;
@@ -44,6 +44,7 @@ const WORK_KIND_BY_TOOL_NAME = new Map<string, WorkKind>(Object.entries({
 } satisfies Record<string, WorkKind>));
 
 const VERBS_BY_WORK_KIND: Record<Exclude<WorkKind, 'working'>, readonly string[]> = {
+  busy: ['Working', 'Working on it', 'On it', 'Still at it', 'Busy, apparently'],
   thinking: ['Thinking, allegedly', 'Staring into the void', 'Overthinking it', 'Having a little think', 'Weighing options it will ignore'],
   reading: ['Reading, regrettably', 'Skimming, mostly', 'Reading quietly', 'Looking things up', 'Reading the fine print'],
   editing: ['Editing a file', 'Moving semicolons around', 'Editing with confidence', 'Changing a file, carefully', 'Typing very fast'],
@@ -70,7 +71,8 @@ const VERB_BY_GLIMMERVOID_TOOL = new Map<string, string>(Object.entries({
 
 const GLIMMERVOID_FALLBACK_VERB = 'Talking to Glimmervoid, as one does';
 
-export const THINKING_BEAT: ActivityBeat = { workKind: 'thinking', glimmervoidTool: null, toolName: null };
+export const BUSY_BEAT: ActivityBeat = { workKind: 'busy', glimmervoidTool: null, toolName: null };
+const THINKING_BEAT: ActivityBeat = { workKind: 'thinking', glimmervoidTool: null, toolName: null };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -135,6 +137,8 @@ export function loadedSkillOf(record: TraceRecord): string | null {
 export function beatOfRecord(record: TraceRecord): ActivityBeat | null {
   if (record.kind === 'tool_call') return beatOfToolCall(record.name, record.input);
   if (record.kind === 'thinking' && record.text.trim().length > 0) return THINKING_BEAT;
+  if (record.kind === 'tool_result') return BUSY_BEAT;
+  if (record.kind === 'assistant' && record.text.trim().length > 0) return BUSY_BEAT;
   return null;
 }
 
