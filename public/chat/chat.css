@@ -253,12 +253,12 @@
 .chat-composer-row { display: flex; align-items: flex-end; gap: 8px; }
 
 .chat-rail {
-  height: 26px;
+  height: 30px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 4px;
+  gap: 12px;
+  padding: 0 6px;
   border-top: 1px solid var(--border);
   overflow: hidden;
   white-space: nowrap;
@@ -270,6 +270,15 @@
 .chat-rail-field[data-kind="subagents"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chat-rail-field[data-kind="subagents"] .chat-rail-text { overflow: hidden; text-overflow: ellipsis; }
 .chat-rail-field[data-kind="model"] { color: var(--text); }
+.chat-rail-field + .chat-rail-field::before {
+  content: '';
+  width: 3px;
+  height: 3px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--border-hover);
+}
+.chat-rail-field[data-kind="mode"]::before { display: none; }
 .chat-rail-field[data-kind="mode"] { margin-left: auto; }
 
 .chat-rail-meter {
