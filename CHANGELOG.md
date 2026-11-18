@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Sane YOLO catches more risky commands and blocks fewer safe ones.** The bundled cc-safety-net moves to 2.7.15. It now blocks secret reads hidden behind `env`, `sudo` or `command` options, recursive deletes with a variable or wildcard target run from your home folder, `docker compose config` printing your project `.env`, and PowerShell `Remove-Item -Recurse` outside the working folder without `-Force`. It stops blocking `ssh`, `scp` and `sftp` with an `-i` key, commit messages and heredocs that only mention a file such as `.env`, and file deletes inside a container that cannot reach your files. `curl` and `wget` requests that send a body to a remote host stay blocked, as before, even though the new cc-safety-net stops blocking them by default.
+
 ### Fixed
 
 - **Terminals on a phone show all their text after you return to the dashboard.** The phone browser can discard the glyphs a terminal draws from while the dashboard is in the background, and the old recovery redrew into those same discarded glyphs, so returning often left only a few scattered characters on screen. Coming back to the dashboard now rebuilds every terminal's renderer from fresh glyphs.

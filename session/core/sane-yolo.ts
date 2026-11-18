@@ -69,6 +69,7 @@ function saneYoloPolicy(sessionTempRoots: readonly string[], unreadablePaths: re
         'git.branch-force-delete': 'off',
         'git.merge-abort': 'off',
         'git.rebase-abort': 'off',
+        'network.upload-remote': 'on',
         'rm.recursive-force-dynamic-target': 'on',
       },
       allow_paths: [...sessionTempRoots],
