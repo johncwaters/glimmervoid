@@ -132,22 +132,25 @@ A section eyebrow above a list or grid is `sectionHeading()` from `public/ui/sec
 - **Look:** the title is a Label (the `.ui-label` utility, which also serves any plain eyebrow), Faint Ash by default; a count follows in Ash tabular figures, then an optional Faint Ash hint, which takes its own line on the phone, then optional actions pushed to the right edge; every part sits 8px from the next.
 - **Options:** `title`, `level` (2, 3, 4, or `'none'` for a div), `count` (a number or text such as `1 / 5`; `setCount` updates it in place and hides it when null), `tone` (`muted`, `strong` for Paper, `waiting` for the Needs Input amber), `hint`, `actions`.
 - **Layout belongs to the parent:** rules, borders and outer spacing come from the container or a placement class the caller adds.
+
 ### Tags
 A static label (a scope, an effect, EXPERIMENTAL, a pack state, Winner) is `tag()` from `public/ui/tag.ts` (look in `public/ui/tag.css`). It is not a button and not a status: a session or pull request status is a State Badge from `public/signal.ts`.
 - **Look:** uppercase tracked mono `--type-meta`, 700, `--chip-height` tall with `--chip-padding-inline` each side (the key cap's size), a full 1px border at the 2px pill radius, no fill, so it reads lighter than a button beside it. An empty tag hides itself.
 - **Options:** `text`, `tone` (muted by default; neutral in `--text-dim`; accent in lavender; warning in Needs Input amber; failed in Failed red, each with a 55% border), and `shape` (box by default, pill for the Packs cards). It takes no `title`: a hover tip is banned (`tests/gates/no-tooltips.test.ts`), so the text says it all.
 - **Layout belongs to the parent:** `tag()` takes no class; a caller that needs a spacing hook adds its own class to the returned element.
+
 ### Disclosures
 Every collapsible section is `disclosure()` from `public/ui/disclosure.ts` (look in `public/ui/disclosure.css`), a native `details`/`summary` pair, so keyboard and screen reader behavior come from the platform.
 - **Options:** `summary` (text or nodes), `body` (nodes, or a function the first open renders, for heavy content), `open`, `marker` and `onToggle(open)`; it returns the `details` element, its `summary` and its `body` for the caller to class and fill.
 - **Markers:** `plus` (the default, a mono plus that turns to a minus, for inline reveals such as Show details and trace rows) and `chevron` (a small border-drawn chevron that turns down, for a boxed or headed section). The marker is muted and lifts to the head color on hover; the summary sits 8px from its marker, carries the lavender focus ring, and is at least `--control-height-small` tall (22px), `--control-height` (44px) on the phone for the tap target.
 - **Show details:** `detailsBlock(text)` is the one Show details fold over a bordered, scrolling `pre` for a raw error or command output.
 - **Layout belongs to the parent:** spacing, borders and full-width rows come from the caller's class on the returned elements.
+
 ### Checkboxes and Radios
 A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`, both from `public/ui/checkbox.ts` (look in `public/ui/checkbox.css`). A boolean setting stays a `role="switch"`; these are for picking items and choices.
-- **Look:** the box (lavender `accent-color`) then its label in Ash mono `--type-meta`, 8px apart, at least 24px tall; the whole row is the hit target. An optional hint sits under the label in Faint Ash, tied to the box by `aria-describedby`.
+- **Look:** the box (lavender `accent-color`) then its label in Ash mono `--type-meta`, 8px apart, at least `--control-height` tall (28px, the height of a button beside it); the whole row is the hit target. An optional hint sits under the label in Faint Ash, tied to the box by `aria-describedby`.
 - **Options:** `label` (text or a node), `checked`, `disabled`, `value`, `hint`, `accessibleName` (when the visible label is not the name), plus `onChange(checked)` for a checkbox, and `name`, `value` and `onSelect()` for a radio. Each returns `{ element, input }`.
-- **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is 44px tall in `--type-body` with a 20px box.
+- **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is at least 44px tall (the phone `--control-height`) in `--type-body` with a 20px box.
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
 
 ### Inputs / Fields

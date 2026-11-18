@@ -5,8 +5,8 @@
   justify-content: start;
   align-items: center;
   column-gap: 8px;
-  row-gap: 2px;
-  min-height: 24px;
+  row-gap: 0;
+  min-height: var(--control-height);
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: var(--type-meta);
@@ -52,6 +52,5 @@
 
 html[data-layout="phone"] .ui-checkbox {
   --checkbox-glyph-size: 20px;
-  min-height: 44px;
   font-size: var(--type-body);
 }

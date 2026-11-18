@@ -61,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Small labels in Settings, Packs and Arena share one tag look.** The scope, effect and On/Off chips, the EXPERIMENTAL tag, the pack state chips and the arena Winner tag now draw with the same size, border and colors.
 - **Empty panels share one look.** The Usage, Pull requests, Community, Arena, Packs, Hooks, Trace and Boards placeholders for "nothing here yet" now draw the same muted line, dashed box or centered title, and the Boards empty state puts its new board and import board buttons side by side.
 - **More collapsible sections share one look.** Show details blocks, hook previews, the trace rows, the packs Sources section and the folded sections of a team review now share one marker (a plus or a chevron), a visible focus ring when reached by keyboard, and a 44px tap target on the phone.
-- **Checkboxes and radio choices look and behave the same across Settings and dialogs.** The Hooks page, workflow rules, the flying-animal gallery, the repository picker and the workspace, account, board export, remote setup and arena dialogs now share one choice row: a lavender focus ring on every box, a dimmed row while a choice is unavailable, and a 44px tap row with a larger box on the phone.
+- **Checkboxes and radio choices look and behave the same across Settings and dialogs.** The Hooks page, workflow rules, the flying-animal gallery, the repository picker and the workspace, account, board export, remote setup and arena dialogs now share one choice row, as tall as a button beside it: a lavender focus ring on every box, a dimmed row while a choice is unavailable, and a 44px tap row with a larger box on the phone.
 
 ### Fixed
 
