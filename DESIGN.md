@@ -129,12 +129,12 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 
 ### Section Heading
 A section eyebrow above a list or grid is `sectionHeading()` from `public/ui/section-heading.ts` (look in `public/ui/section-heading.css`).
-- **Look:** the title is a Label (the `.ui-label` utility, which also serves any plain eyebrow), Faint Ash by default; a count follows in Ash tabular figures, then an optional Faint Ash hint, which takes its own line on the phone, then optional actions pushed to the right edge; every part sits 8px from the next.
+- **Look:** the title is a Label (the `.ui-label` utility, which also serves any plain eyebrow), `--text-muted` by default; a count follows in `--text-dim` tabular figures, then an optional `--text-muted` hint, which takes its own line on the phone, then optional actions pushed to the right edge; every part sits 8px from the next.
 - **Options:** `title`, `level` (2, 3, 4, or `'none'` for a div), `count` (a number or text such as `1 / 5`; `setCount` updates it in place and hides it when null), `tone` (`muted`, `strong` for Paper, `waiting` for the Needs Input amber), `hint`, `actions`.
 - **Layout belongs to the parent:** rules, borders and outer spacing come from the container or a placement class the caller adds.
 
 ### Tags
-A static label (a scope, an effect, EXPERIMENTAL, a pack state, Winner) is `tag()` from `public/ui/tag.ts` (look in `public/ui/tag.css`). It is not a button and not a status: a session or pull request status is a State Badge from `public/signal.ts`.
+A static label (a scope, an effect, EXPERIMENTAL, a pack state, the arena's winning contestant) is `tag()` from `public/ui/tag.ts` (look in `public/ui/tag.css`). It is not a button and not a status: a session or pull request status is a State Badge from `public/signal.ts`.
 - **Look:** uppercase tracked mono `--type-meta`, 700, `--chip-height` tall with `--chip-padding-inline` each side (the key cap's size), a full 1px border at the 2px pill radius, no fill, so it reads lighter than a button beside it. An empty tag hides itself.
 - **Options:** `text`, `tone` (muted by default; neutral in `--text-dim`; accent in lavender; warning in Needs Input amber; failed in Failed red, each with a 55% border), and `shape` (box by default, pill for the Packs cards). It takes no `title`: a hover tip is banned (`tests/gates/no-tooltips.test.ts`), so the text says it all.
 - **Layout belongs to the parent:** `tag()` takes no class; a caller that needs a spacing hook adds its own class to the returned element.
@@ -148,7 +148,7 @@ Every collapsible section is `disclosure()` from `public/ui/disclosure.ts` (look
 
 ### Checkboxes and Radios
 A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`, both from `public/ui/checkbox.ts` (look in `public/ui/checkbox.css`). A boolean setting stays a `role="switch"`; these are for picking items and choices.
-- **Look:** the box (lavender `accent-color`) then its label in Ash mono `--type-meta`, 8px apart, at least `--control-height` tall (28px, the height of a button beside it); the whole row is the hit target. An optional hint sits under the label in Faint Ash, tied to the box by `aria-describedby`.
+- **Look:** the box (lavender `accent-color`) then its label in `--text-dim` mono `--type-meta`, 8px apart, at least `--control-height` tall (28px, the height of a button beside it); the whole row is the hit target. An optional hint sits under the label in `--text-muted`, tied to the box by `aria-describedby`.
 - **Options:** `label` (text or a node), `checked`, `disabled`, `value`, `hint`, `accessibleName` (when the visible label is not the name), plus `onChange(checked)` for a checkbox, and `name`, `value` and `onSelect()` for a radio. Each returns `{ element, input }`.
 - **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is at least 44px tall (the phone `--control-height`) in `--type-body` with a 20px box.
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
@@ -187,7 +187,7 @@ Every single-line field is `textInput()` and every multi-line one `textArea()` f
 ### Switch
 A boolean setting that takes effect at once is `switchInput()` from `public/ui/switch.ts` (look in `public/ui/switch.css`): a checkbox with `role="switch"`.
 - **Options:** `checked`, `onChange(checked)`, an accessible name as `label` or `labelledBy` (one of the two), and `disabled`. It returns the input, so a caller that must undo a change (a danger confirm) sets `checked` back.
-- **Look:** a pill track in Rule on Inset Graphite with an Ash knob; on, the track takes a lavender border and 28% lavender fill and the knob slides right in lavender. Focus is the 2px lavender outline, disabled drops to 40% opacity, and reduced motion stops the slide. The 36px by 20px track sits centered in a `--control-height` box (28px), so a switch row stands level with a button beside it. On phone it grows to a 56px by 44px target (the phone `--control-height`) with a 30px track.
+- **Look:** a pill track in Rule on Inset Graphite with a `--text-dim` knob; on, the track takes a lavender border and 28% lavender fill and the knob slides right in lavender. Focus is the 2px lavender outline, disabled drops to 40% opacity, and reduced motion stops the slide. The 36px by 20px track sits centered in a `--control-height` box (28px), so a switch row stands level with a button beside it. On phone it grows to a 56px by 44px target (the phone `--control-height`) with a 30px track.
 - **Layout belongs to the parent:** it takes no class; alignment and spacing come from the row.
 - **Field row:** `field()` from `public/ui/field.ts` (look in `public/ui/field.css`) wraps any control in the label, an optional hint and an error line set with `setError()`, linked by `for` or `aria-labelledby` and `aria-describedby`; `labelTarget` names the input inside a composite control. Layout `stacked` (default, label above), `grid` (140px label column, one column on phone) or `inline`. It takes no class: spacing between fields belongs to the parent.
 
@@ -199,7 +199,7 @@ A boolean setting that takes effect at once is `switchInput()` from `public/ui/s
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Empty State
-Every "nothing here yet" placeholder is `emptyState()` from `public/ui/empty-state.ts` (look in `public/ui/empty-state.css`): mono `--type-meta` in Faint Ash, held to a 78ch measure, with an optional bold Paper `title` above the text and optional `actions` (buttons, chips) in a wrapping row below it, each 8px apart. It says what is missing and the one way to fill it; it is never a loading or failure message.
+Every "nothing here yet" placeholder is `emptyState()` from `public/ui/empty-state.ts` (look in `public/ui/empty-state.css`): mono `--type-meta` in `--text-muted`, held to a 78ch measure, with an optional bold Paper `title` above the text and optional `actions` (buttons, chips) in a wrapping row below it, each 8px apart. It says what is missing and the one way to fill it; it is never a loading or failure message.
 - **Variants:** inline (the default, one muted line in the flow of a panel), boxed (a 1px dashed Rule box with 16px 12px padding, for a list or canvas that has nothing yet), centered (centered in its region in Ash, with 24px padding and a 44ch measure, for a pane whose whole job is the missing thing).
 - **Layout belongs to the parent:** `emptyState()` takes no class, so a caller adds its own placement class for padding or grid position.
 
