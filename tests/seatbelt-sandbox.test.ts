@@ -5,6 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import type { ChildProcess } from 'node:child_process';
 import { spawn } from '../server/child-process-safe.ts';
 import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, srtSettingsPathIn } from '../server/sandbox/core/sandbox-policy-core.ts';
 
@@ -61,7 +62,17 @@ function portOf(server: net.Server): number {
   return address.port;
 }
 
-test('a process under the generated Seatbelt profile reaches only its allowed loopback port and writes only inside its worktree', { skip: process.platform !== 'darwin' && 'Seatbelt runs only on macOS' }, async () => {
+interface SandboxedProbeRun {
+  launcher: ChildProcess;
+  worktree: string;
+  outsideFolder: string;
+  secretFile: string;
+  settingsPath: string;
+  ingressPort: number;
+  removeFolders: () => void;
+}
+
+async function launchSandboxedProbe(probeSource: string, probeArguments: (run: Omit<SandboxedProbeRun, 'launcher' | 'removeFolders'>) => string[], { detached }: { detached: boolean }): Promise<SandboxedProbeRun> {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-')));
   const homeDir = path.join(root, 'home');
   const glimmervoidHome = path.join(homeDir, '.glimmervoid');
@@ -72,7 +83,7 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
   for (const folder of [worktree, sessionTempFolder, outsideFolder, path.dirname(secretFile)]) fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(secretFile, 'secret');
   const probePath = path.join(root, 'probe.mjs');
-  fs.writeFileSync(probePath, PROBE_SOURCE);
+  fs.writeFileSync(probePath, probeSource);
   const settings = buildSrtSettings({
     homeDir,
     glimmervoidHome,
@@ -94,16 +105,44 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
   const settingsPath = srtSettingsPathIn(launcherFolder);
   fs.writeFileSync(settingsPath, JSON.stringify(settings));
   const ingress = await listeningOnLoopback();
+  const ingressPort = portOf(ingress);
+  const extraArguments = probeArguments({ worktree, outsideFolder, secretFile, settingsPath, ingressPort });
+  const launcher = spawn(process.execPath, [LAUNCHER_PATH, settingsPath, String(ingressPort), sessionTempFolder, '0', process.execPath, probePath, ...extraArguments], { cwd: worktree, env: { ...process.env, TMPDIR: launcherFolder }, stdio: ['ignore', 'pipe', 'inherit'], timeout: 60_000, detached });
+  launcher.on('exit', () => ingress.close());
+  const removeFolders = () => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(launcherFolder, { recursive: true, force: true });
+  };
+  return { launcher, worktree, outsideFolder, secretFile, settingsPath, ingressPort, removeFolders };
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitUntilGone(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return !isAlive(pid);
+}
+
+test('a process under the generated Seatbelt profile reaches only its allowed loopback port and writes only inside its worktree', { skip: process.platform !== 'darwin' && 'Seatbelt runs only on macOS' }, async () => {
   const dashboard = await listeningOnLoopback();
-  const probeArguments = [String(portOf(ingress)), String(portOf(dashboard)), path.join(worktree, 'written.txt'), path.join(outsideFolder, 'escaped.txt'), secretFile, settingsPath];
-  const launcher = spawn(process.execPath, [LAUNCHER_PATH, settingsPath, String(portOf(ingress)), sessionTempFolder, '0', process.execPath, probePath, ...probeArguments], { cwd: worktree, env: { ...process.env, TMPDIR: launcherFolder }, stdio: ['ignore', 'pipe', 'inherit'], timeout: 60_000 });
+  const run = await launchSandboxedProbe(PROBE_SOURCE, (paths) => [String(paths.ingressPort), String(portOf(dashboard)), path.join(paths.worktree, 'written.txt'), path.join(paths.outsideFolder, 'escaped.txt'), paths.secretFile, paths.settingsPath], { detached: false });
   let stdout = '';
-  launcher.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
+  run.launcher.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
     stdout += chunk;
-    if (chunk.includes('interrupt the launcher')) launcher.kill('SIGINT');
+    if (chunk.includes('interrupt the launcher')) run.launcher.kill('SIGINT');
   });
-  const exitCode = await new Promise<number | null>((resolve) => launcher.on('exit', resolve));
-  ingress.close();
+  const exitCode = await new Promise<number | null>((resolve) => run.launcher.on('exit', resolve));
   dashboard.close();
   assert.equal(exitCode, 0);
   assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1) ?? ''), {
@@ -118,7 +157,49 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
     protectedFolderRenamedIntoPlace: 'EPERM',
     proxyAfterInterrupt: 'connected',
   });
-  assert.equal(fs.existsSync(path.join(outsideFolder, 'escaped.txt')), false);
-  fs.rmSync(root, { recursive: true, force: true });
-  fs.rmSync(launcherFolder, { recursive: true, force: true });
+  assert.equal(fs.existsSync(path.join(run.outsideFolder, 'escaped.txt')), false);
+  run.removeFolders();
+});
+
+const ESCAPEE_PROBE_SOURCE = `
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+const [forkChainGenerationFile] = process.argv.slice(2);
+fs.writeFileSync(forkChainGenerationFile + '.sh', 'echo "$1" > "$2"\\nsh "$0" $(( $1 + 1 )) "$2" &\\nexit 0\\n');
+const escapee = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' });
+escapee.unref();
+spawn('/bin/sh', [forkChainGenerationFile + '.sh', '0', forkChainGenerationFile], { detached: true, stdio: 'ignore' }).unref();
+process.stdout.write(JSON.stringify({ escapeePid: escapee.pid }) + '\\n');
+setInterval(() => {}, 1000);
+`;
+
+test('killing a sandboxed session process group the way the reaper does also stops what it detached, and nothing outside the sandbox', { skip: process.platform !== 'darwin' && 'Seatbelt runs only on macOS' }, async () => {
+  const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const run = await launchSandboxedProbe(ESCAPEE_PROBE_SOURCE, (paths) => [path.join(paths.worktree, 'fork-chain-generation')], { detached: true });
+  try {
+    const escapeePid = await new Promise<number>((resolve, reject) => {
+      let stdout = '';
+      run.launcher.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
+        stdout += chunk;
+        const line = stdout.split('\n').find((candidate) => candidate.includes('escapeePid'));
+        if (line) resolve(JSON.parse(line).escapeePid);
+      });
+      run.launcher.on('exit', (exitCode, signal) => reject(new Error(`the launcher exited (${exitCode ?? signal}) before the probe reported its escapee`)));
+    });
+    assert.equal(isAlive(escapeePid), true);
+    const launcherPid = run.launcher.pid;
+    assert.ok(launcherPid !== undefined);
+    process.kill(-launcherPid, 'SIGKILL');
+    const isEscapeeGone = await waitUntilGone(escapeePid, 5000);
+    if (!isEscapeeGone) process.kill(escapeePid, 'SIGKILL');
+    const forkChainGenerationFile = path.join(run.worktree, 'fork-chain-generation');
+    const generationAfterTeardown = fs.readFileSync(forkChainGenerationFile, 'utf8');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(isEscapeeGone, true);
+    assert.equal(fs.readFileSync(forkChainGenerationFile, 'utf8'), generationAfterTeardown);
+    assert.equal(bystander.pid !== undefined && isAlive(bystander.pid), true);
+  } finally {
+    bystander.kill('SIGKILL');
+    run.removeFolders();
+  }
 });
