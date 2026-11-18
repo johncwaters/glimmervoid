@@ -152,6 +152,7 @@ A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`
 - **Options:** `label` (text or a node), `checked`, `disabled`, `value`, `hint`, `accessibleName` (when the visible label is not the name), plus `onChange(checked)` for a checkbox, and `name`, `value` and `onSelect()` for a radio. Each returns `{ element, input }`.
 - **States:** a 2px lavender focus ring on the box, Paper text on hover, and the row dimmed while the box is disabled. On phone the row is at least 44px tall (the phone `--control-height`) in `--type-body` with a 20px box.
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
+
 ### Key Caps
 A keyboard key is `keycap(text)` from `public/ui/keycap.ts` (look in `public/ui/keycap.css`), and a chord of keys is `keyChord(keys)`, the caps joined by a muted `+`; `setKeyChordKeys(chord, keys)` redraws a chord in place when its binding changes. Platform naming (Cmd or Alt) stays in `public/shortcuts.ts`, which draws through them.
 - **Look:** bold mono `--type-meta` in Paper on the surface fill, `--chip-height` tall with `--chip-padding-inline` each side (a tag's size), a 1px Rule border at the 2px pill radius, so a key reads as a key and not as a chip or a button. The caps of a chord sit 6px apart.
