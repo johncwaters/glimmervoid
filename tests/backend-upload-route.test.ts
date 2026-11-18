@@ -372,3 +372,30 @@ test('dashboard files are sent as their brotli sibling when br is accepted and h
   assert.doesNotMatch(shell.headers.get('cache-control') ?? '', /immutable/);
   assert.match(await shell.text(), /<p>shell<\/p>/);
 });
+
+test('a store-only upload needs no live terminal, pastes nothing, and its sweep keeps files a held Chat message still names', async () => {
+  detachFakePty();
+  fs.mkdirSync(uploadsDirFor(SESSION_ID), { recursive: true });
+  const heldFileName = '2000-01-01T00-00-00-000Z-0a1b2c3d.png';
+  fs.writeFileSync(path.join(uploadsDirFor(SESSION_ID), heldFileName), 'held');
+  const queued = ctx().session.queueChatMessage('', [heldFileName]);
+  assert.equal(queued.ok, true);
+  const heldEntry = ctx().session.chatOutboxEntries[0];
+  assert.ok(heldEntry);
+  assert.equal(ctx().session.chatAttachmentPrefixOf(heldEntry), path.join(uploadsDirFor(SESSION_ID), heldFileName));
+  try {
+    for (let uploadIndex = 0; uploadIndex < 21; uploadIndex += 1) {
+      const res = await fetch(`${ctx().base}/upload/${SESSION_ID}`, {
+        method: 'POST', body: Buffer.from('gif87a'), headers: { 'content-type': 'image/gif', 'x-glimmervoid-upload-mode': 'store' },
+      });
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      assert.equal(body.fileName, path.basename(body.path));
+    }
+    await waitForUploadCount(SESSION_ID, 21);
+    assert.ok(listUploads(SESSION_ID).includes(heldFileName), 'the sweep spares a file a held message will paste');
+    assert.deepEqual(ptyWrites, []);
+  } finally {
+    ctx().session.cancelChatMessage(ctx().session.chatOutboxEntries[0]?.entryId ?? '');
+  }
+});

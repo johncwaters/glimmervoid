@@ -1,0 +1,6 @@
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "attachments", "files": ["2026-11-18T10-00-00-000Z-0a1b2c3d.png", "2026-11-18T10-00-01-000Z-0a1b2c3e.png"], "ts": 1795000000000, "pastedPrefix": "/Users/op/.glimmervoid/uploads/s1/2026-11-18T10-00-00-000Z-0a1b2c3d.png /Users/op/.glimmervoid/uploads/s1/2026-11-18T10-00-01-000Z-0a1b2c3e.png"}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "prompt", "text": "/Users/op/.glimmervoid/uploads/s1/2026-11-18T10-00-00-000Z-0a1b2c3d.png /Users/op/.glimmervoid/uploads/s1/2026-11-18T10-00-01-000Z-0a1b2c3e.png why does the card overflow here", "ts": 1795000000500}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "text": "The title has no min-width, so it pushes the actions out.", "ts": 1795000004000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "prompt", "text": "[Image #1]", "ts": 1795000060000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "attachments", "files": ["2026-11-18T10-00-02-000Z-0a1b2c3f.jpg"], "ts": 1795000060500, "pastedPrefix": "/Users/op/.glimmervoid/uploads/s1/2026-11-18T10-00-02-000Z-0a1b2c3f.jpg"}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "text": "That one is pruned, so only its name shows.", "ts": 1795000064000}

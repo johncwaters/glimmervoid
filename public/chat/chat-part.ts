@@ -7,7 +7,7 @@ export type ChatCard =
 export type ChatCardType = ChatCard['cardType'];
 
 export type ChatPart =
-  | { kind: 'prompt'; id: string; text: string; at: number }
+  | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[] }
   | { kind: 'reply'; id: string; text: string }
   | { kind: 'skill'; id: string; skillName: string }
   | { kind: 'card'; id: string; card: ChatCard };

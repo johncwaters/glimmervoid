@@ -18,7 +18,8 @@ const RESTARTED_TEXT = "The session restarted before the message was sent.";
 interface ChatOutboxPort {
   canTakeMessage(): boolean;
   isDeliveryInFlight(): boolean;
-  deliver(text: string, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
+  deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
+  noteSubmitted(entry: ChatOutboxEntry): void;
   emitChange(entries: ChatOutboxEntry[]): void;
 }
 
@@ -26,9 +27,9 @@ type QueueOutcome = { ok: true; entryId: string } | { ok: false; error: string }
 
 interface ChatOutbox {
   entries(): ChatOutboxEntry[];
-  queue(text: string): QueueOutcome;
+  queue(text: string, attachments: readonly string[]): QueueOutcome;
   adopt(carriedEntries: readonly ChatOutboxEntry[]): void;
-  cancel(entryId: string): string[];
+  cancel(entryId: string): ChatOutboxEntry[];
   drain(): void;
   dispose(): void;
 }
@@ -48,6 +49,8 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
 
   function settle(entryId: string, settlement: DeliverySettlement): void {
     if (settlement === "submitted") {
+      const submittedEntry = outboxEntries.find((entry) => entry.entryId === entryId);
+      if (submittedEntry) port.noteSubmitted(submittedEntry);
       publish(outboxEntries.filter((entry) => entry.entryId !== entryId));
       drain();
       return;
@@ -72,26 +75,26 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
       return;
     }
     replaceEntry(nextEntry.entryId, { state: "sending" });
-    const delivery = port.deliver(nextEntry.text, (settlement) => settle(nextEntry.entryId, settlement));
+    const delivery = port.deliver(nextEntry, (settlement) => settle(nextEntry.entryId, settlement));
     if (!delivery.ok) replaceEntry(nextEntry.entryId, { state: "failed", failure: `The message could not be typed into the session: ${delivery.reason ?? "unknown reason"}.` });
   }
 
-  function queue(text: string): QueueOutcome {
+  function queue(text: string, attachments: readonly string[]): QueueOutcome {
     if (outboxEntries.length >= CHAT_OUTBOX_MAX_ENTRIES) return { ok: false, error: OUTBOX_FULL_TEXT };
     const entryId = randomUUID();
-    publish([...outboxEntries, { entryId, text, state: "held", failure: null }]);
+    publish([...outboxEntries, { entryId, text, attachments: [...attachments], state: "held", failure: null }]);
     drain();
     return { ok: true, entryId };
   }
 
-  function cancel(entryId: string): string[] {
+  function cancel(entryId: string): ChatOutboxEntry[] {
     const cancelIndex = outboxEntries.findIndex((entry) => entry.entryId === entryId);
     const cancelledEntry = outboxEntries[cancelIndex];
     if (!cancelledEntry || cancelledEntry.state === "sending") return [];
     const cancelledEntries = cancelledEntry.state === "failed" ? outboxEntries.slice(cancelIndex) : [cancelledEntry];
     publish(outboxEntries.filter((entry) => !cancelledEntries.includes(entry)));
     drain();
-    return cancelledEntries.map((entry) => entry.text);
+    return cancelledEntries;
   }
 
   function adopt(carriedEntries: readonly ChatOutboxEntry[]): void {

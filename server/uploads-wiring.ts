@@ -47,7 +47,7 @@ function createUploadsWiring({
   setIntervalFn?: SetIntervalFn;
   clearIntervalFn?: ClearIntervalFn;
 }) {
-  const uploadsRoot = configSiblingPath(configPath, 'uploads');
+  const uploadsRoot = uploadsRootOf(configPath);
   let timer: NodeJS.Timeout | null = null;
   async function prune(): Promise<void> {
     const retainedSessionIds = liveSessionIds();
@@ -76,4 +76,12 @@ function createUploadsWiring({
   return { start, stop, prune };
 }
 
-export { createUploadsWiring };
+function uploadsRootOf(configPath: string | null | undefined): string {
+  return configSiblingPath(configPath, 'uploads');
+}
+
+function sessionUploadsDirectory(configPath: string | null | undefined, sessionId: string): string {
+  return path.join(uploadsRootOf(configPath), sessionId);
+}
+
+export { createUploadsWiring, sessionUploadsDirectory };

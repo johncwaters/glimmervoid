@@ -1,4 +1,4 @@
-import type { ChatOutboxEntry, ConversationApproval } from '#shared/contracts/session.ts';
+import { CHAT_SEND_MAX_ATTACHMENTS, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -14,7 +14,7 @@ import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
-import { uploadFilesToSession } from '../session-upload.ts';
+import { storeFilesForChat } from '../session-upload.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -22,6 +22,7 @@ const CHAT_SEND_TIMEOUT_MS = 10000;
 const MID_TURN_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
+const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const LIVE_TERMINAL_HEADING = 'The agent is waiting on its terminal';
 
 type TerminalCardState = 'hidden' | 'borrowed' | 'released';
@@ -40,6 +41,7 @@ interface MountedChat {
   setTurnRunning(isTurnRunning: boolean): void;
   showOutbox(): void;
   restoreText(text: string): void;
+  restoreAttachments(fileNames: readonly string[]): void;
   showFailure(failureText: string | null): void;
   syncWaitingCards(): void;
   close(): void;
@@ -47,6 +49,7 @@ interface MountedChat {
 
 const approvalBySessionId = new Map<string, ConversationApproval | null>();
 const draftBySessionId = new Map<string, string>();
+const draftAttachmentsBySessionId = new Map<string, string[]>();
 const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
 let mountedChat: MountedChat | null = null;
 let wasChatEnabled = false;
@@ -109,6 +112,15 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
+function restoreAttachmentsToSession(sessionId: string, fileNames: readonly string[]): void {
+  if (fileNames.length === 0) return;
+  if (mountedChat?.sessionId === sessionId) {
+    mountedChat.restoreAttachments(fileNames);
+    return;
+  }
+  draftAttachmentsBySessionId.set(sessionId, [...(draftAttachmentsBySessionId.get(sessionId) ?? []), ...fileNames]);
+}
+
 function restoreTextToSession(sessionId: string, text: string): void {
   if (text.length === 0) return;
   if (mountedChat?.sessionId === sessionId) {
@@ -127,16 +139,22 @@ function cancelOutboxEntry(sessionId: string, entryId: string): void {
     .then((reply) => {
       if (reply.type !== 'chat-cancel-result') return;
       restoreTextToSession(sessionId, reply.cancelledTexts.join('\n\n'));
+      restoreAttachmentsToSession(sessionId, reply.cancelledAttachments);
     })
     .catch((reason: unknown) => showSessionFailure(sessionId, `Could not cancel the message: ${errorMessage(reason)}`));
 }
 
-function sendChatText(sessionId: string, text: string): void {
+function uploadUrlFor(sessionId: string): (fileName: string) => string {
+  return (fileName) => `/upload/${encodeURIComponent(sessionId)}/${encodeURIComponent(fileName)}`;
+}
+
+function sendChatText(sessionId: string, text: string, attachments: readonly string[]): void {
   const failSend = (failureText: string) => {
     restoreTextToSession(sessionId, text);
+    restoreAttachmentsToSession(sessionId, attachments);
     showSessionFailure(sessionId, failureText);
   };
-  sendControlRequest('chat-send', { id: sessionId, text }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
+  sendControlRequest('chat-send', { id: sessionId, text, attachments: [...attachments] }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
     .then((reply) => {
       if (reply.type !== 'chat-send-result' || reply.ok) return;
       failSend(reply.error ?? NOT_SENT_TEXT);
@@ -144,19 +162,22 @@ function sendChatText(sessionId: string, text: string): void {
     .catch((reason: unknown) => failSend(`Could not confirm the message was queued: ${errorMessage(reason)}`));
 }
 
-function sendTextOf(event: Event): string | null {
+function chatSendOf(event: Event): { text: string; attachments: string[] } | null {
   if (!(event instanceof CustomEvent)) return null;
   const detail: unknown = event.detail;
   if (typeof detail !== 'object' || detail === null || !('text' in detail) || typeof detail.text !== 'string') return null;
-  return detail.text;
+  const attachments = 'attachments' in detail && Array.isArray(detail.attachments) ? detail.attachments.filter((fileName): fileName is string => typeof fileName === 'string') : [];
+  return { text: detail.text, attachments };
 }
 
 function buildChat(sessionId: string): MountedChat {
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
-  let chatView = createChatView();
+  let chatView = createChatView(uploadUrlFor(sessionId));
   chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
+  for (const fileName of draftAttachmentsBySessionId.get(sessionId) ?? []) chatView.showAttachment(fileName);
+  draftAttachmentsBySessionId.delete(sessionId);
   const showOutbox = () => chatView.showQueued(outboxBySessionId.get(sessionId) ?? []);
   showOutbox();
   const showFailure = (failureText: string | null) => {
@@ -269,16 +290,18 @@ function buildChat(sessionId: string): MountedChat {
 
   root.addEventListener('chat-attach', (event) => {
     const files = attachedFilesOf(event);
-    void uploadFilesToSession(sessionId, files).then((uploadedFiles) => {
-      for (const file of uploadedFiles) chatView.showAttachment(file);
+    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length);
+    if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
+    void storeFilesForChat(sessionId, files.slice(0, openSlots)).then((storedFileNames) => {
+      for (const fileName of storedFileNames) chatView.showAttachment(fileName);
     });
   });
 
   root.addEventListener('chat-send', (event) => {
-    const text = sendTextOf(event);
-    if (text === null) return;
+    const chatSend = chatSendOf(event);
+    if (chatSend === null) return;
     showFailure(null);
-    sendChatText(sessionId, text);
+    sendChatText(sessionId, chatSend.text, chatSend.attachments);
   });
   root.addEventListener('chat-cancel', (event) => {
     const entryId = cancelledEntryIdOf(event);
@@ -311,8 +334,9 @@ function buildChat(sessionId: string): MountedChat {
     onReset: () => {
       releaseTerminal();
       shownApproval = null;
-      const freshView = createChatView();
+      const freshView = createChatView(uploadUrlFor(sessionId));
       freshView.restoreDraft(chatView.readDraft());
+      for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
       freshView.showQueued(outboxBySessionId.get(sessionId) ?? []);
       freshView.setTurnRunning(isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
@@ -329,10 +353,14 @@ function buildChat(sessionId: string): MountedChat {
     setTurnRunning: (isTurnRunning) => chatView.setTurnRunning(isTurnRunning),
     showOutbox,
     restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),
+    restoreAttachments: (fileNames) => {
+      for (const fileName of fileNames) chatView.showAttachment(fileName);
+    },
     showFailure,
     syncWaitingCards,
     close: () => {
       draftBySessionId.set(sessionId, chatView.readDraft());
+      draftAttachmentsBySessionId.set(sessionId, chatView.readAttachments());
       releaseTerminal();
       feed.close();
     },

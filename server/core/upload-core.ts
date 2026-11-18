@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { UPLOAD_FILENAME_PATTERN } from '../../shared/contracts/session.ts';
 
 const IMAGE_EXTENSION_BY_MIME: Readonly<Record<string, string>> = Object.freeze({
   'image/png': '.png',
@@ -14,8 +15,6 @@ const UPLOAD_RETAIN_FILES = 20;
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 
 const CLIENT_NAME_EXTENSION_RE = /\.([A-Za-z0-9]{1,16})$/;
-
-const UPLOAD_FILENAME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}(\.[a-z0-9]{1,16})?$/;
 
 type UploadTypeVerdict =
   | { ok: true; extension: string }
@@ -72,18 +71,18 @@ function buildUploadFilename({ now, randomSuffix, extension }: { now: number; ra
 
 function planUploadRetention(
   filenames: unknown,
-  { keep = UPLOAD_RETAIN_FILES, justWritten = null }: { keep?: number; justWritten?: string | null } = {},
+  { keep = UPLOAD_RETAIN_FILES, justWritten = null, heldNames = [] }: { keep?: number; justWritten?: string | null; heldNames?: readonly string[] } = {},
 ): string[] {
   if (!Array.isArray(filenames) || keep <= 0) return [];
   const uploads: string[] = filenames.filter((name): name is string => isUploadFilename(name));
   if (justWritten && !uploads.includes(justWritten)) uploads.push(justWritten);
   uploads.sort().reverse();
-  return uploads.slice(keep).filter((name) => name !== justWritten);
+  return uploads.slice(keep).filter((name) => name !== justWritten && !heldNames.includes(name));
 }
 
 function isUploadFilename(name: unknown): boolean {
   if (typeof name !== 'string') return false;
-  return UPLOAD_FILENAME_RE.test(name);
+  return UPLOAD_FILENAME_PATTERN.test(name);
 }
 
 function imageMimeForUploadFilename(name: string): string | null {

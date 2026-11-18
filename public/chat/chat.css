@@ -257,24 +257,40 @@
 
 .chat-composer-attachments:empty { display: none; }
 
-.chat-composer-attachment {
+.chat-composer-attachment { position: relative; }
+
+.chat-composer-attachment-remove { position: absolute; top: 2px; right: 2px; background: color-mix(in oklab, var(--bg) 80%, transparent); }
+
+.chat-prompt-with-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  align-self: flex-end;
+  max-width: 80%;
+  margin-top: 8px;
+}
+
+.chat-prompt-with-attachments > .chat-prompt { max-width: 100%; margin-top: 0; }
+
+.chat-prompt-thumbnails { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+
+.chat-prompt-thumbnail {
+  position: relative;
   display: flex;
   align-items: center;
-  height: 56px;
-  max-width: 200px;
-  padding: 0 8px;
+  justify-content: center;
+  width: 96px;
+  height: 72px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
-  color: var(--text-muted);
-  font-size: var(--type-meta);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  background: var(--bg-surface);
 }
 
-.chat-composer-attachment:has(img) { padding: 0; }
+.chat-prompt-thumbnail-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--bg-surface); }
 
-.chat-composer-attachment-image { height: 100%; width: auto; max-width: 200px; object-fit: cover; }
+.chat-prompt-thumbnail-name { padding: 0 6px; overflow: hidden; color: var(--text-muted); font-size: var(--type-meta); white-space: nowrap; text-overflow: ellipsis; }
 
 }
 

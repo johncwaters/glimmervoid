@@ -198,6 +198,7 @@ interface SessionOptions {
   bypassHookTrust?: boolean;
   holdsQuestionsForParent?: boolean;
   readChatApprovals?: () => ChatApprovalMode;
+  chatUploadsDirectory?: string | null;
   questionManager?: QuestionManagerPort | null;
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
@@ -369,6 +370,7 @@ class Session extends EventEmitter {
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
   _readChatApprovals: () => ChatApprovalMode;
+  _chatUploadsDirectory: string | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
@@ -435,6 +437,7 @@ class Session extends EventEmitter {
     bypassHookTrust = false,
     holdsQuestionsForParent = false,
     readChatApprovals = () => "off",
+    chatUploadsDirectory = null,
     questionManager = null,
 
     titleQuietFallbackMs = 30000,
@@ -554,7 +557,11 @@ class Session extends EventEmitter {
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && (this.state === STATES.IDLE || this.state === STATES.COMPLETE),
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
-      deliver: (text, onSettled) => this.deliverOperatorText(text, onSettled),
+      deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
+      noteSubmitted: (entry) => {
+        const pastedPrefix = this.chatAttachmentPrefixOf(entry);
+        if (pastedPrefix !== null) this.emit("chat-attachments-sent", { files: entry.attachments, pastedPrefix, ts: clock.nowMs() });
+      },
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
     this.on("state-change", () => this._chatOutbox.drain());
@@ -571,6 +578,7 @@ class Session extends EventEmitter {
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
     this._questionManager = isFirstClassAgent(this.agentId) && !ephemeral && !holdsQuestionsForParent ? questionManager : null;
+    this._chatUploadsDirectory = chatUploadsDirectory;
     this._readChatApprovals = isFirstClassAgent(this.agentId) ? readChatApprovals : () => "off";
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
@@ -2286,13 +2294,28 @@ class Session extends EventEmitter {
     this._titleQuiet = false;
   }
 
-  queueChatMessage(text: string) { return this._chatOutbox.queue(text); }
+  queueChatMessage(text: string, attachments: readonly string[] = []) { return this._chatOutbox.queue(text, attachments); }
 
-  cancelChatMessage(entryId: string): string[] { return this._chatOutbox.cancel(entryId); }
+  cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
 
   get chatOutboxEntries() { return this._chatOutbox.entries(); }
 
   adoptChatOutbox(carriedEntries: readonly ChatOutboxEntry[]): void { this._chatOutbox.adopt(carriedEntries); }
+
+  get chatUploadsDirectory(): string | null { return this._chatUploadsDirectory; }
+
+  chatAttachmentPrefixOf(entry: ChatOutboxEntry): string | null {
+    const uploadsDirectory = this._chatUploadsDirectory;
+    if (entry.attachments.length === 0 || uploadsDirectory === null) return null;
+    return entry.attachments.map((fileName) => path.join(uploadsDirectory, fileName)).join(" ");
+  }
+
+  deliverChatEntry(entry: ChatOutboxEntry, onSettled: DeliverOptions["onSettled"]): { ok: boolean; reason?: string } {
+    if (entry.attachments.length === 0) return this.deliverOperatorText(entry.text, onSettled);
+    const pastedPrefix = this.chatAttachmentPrefixOf(entry);
+    if (pastedPrefix === null) return { ok: false, reason: "this session keeps no uploads" };
+    return this.deliverOperatorText([pastedPrefix, entry.text].filter((part) => part.length > 0).join(" "), onSettled);
+  }
 
   deliverOperatorText(text: string, onSettled?: DeliverOptions["onSettled"]): ReturnType<Session["deliver"]> {
     this._approvals.yieldManagerDecisions();

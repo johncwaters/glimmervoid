@@ -5,7 +5,7 @@ import type { ActivityBeat } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
 import type { TurnMarks } from './chat-parts-core.ts';
-import { createChatLog } from './chat-parts.ts';
+import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
 
@@ -18,8 +18,9 @@ interface ChatView {
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
   restoreDraft(text: string): void;
+  readAttachments(): string[];
   showQueued(entries: readonly ChatOutboxEntry[]): void;
-  showAttachment(file: File): void;
+  showAttachment(fileName: string): void;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -34,7 +35,7 @@ function queuedStatusOf(entry: ChatOutboxEntry): string {
   return QUEUED_STATUS_TEXT[entry.state];
 }
 
-function queuedRowOf(entry: ChatOutboxEntry): HTMLElement {
+function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => string): HTMLElement {
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
   const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
@@ -44,22 +45,24 @@ function queuedRowOf(entry: ChatOutboxEntry): HTMLElement {
   });
   const meta = el('div', 'chat-queued-meta');
   meta.append(status, cancelButton);
-  row.append(el('div', 'chat-prompt chat-prompt-queued', entry.text), meta);
+  const queuedPrompt = renderPromptBubble(entry.text, entry.attachments, uploadUrlOf);
+  queuedPrompt.classList.add('chat-prompt-queued');
+  row.append(queuedPrompt, meta);
   return row;
 }
 
-export function createChatView(): ChatView {
+export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
-  const chatLog = createChatLog();
-  const composer = createComposer();
+  const chatLog = createChatLog(uploadUrlOf);
+  const composer = createComposer(uploadUrlOf);
   const activity = createChatActivity();
   const queuedList = el('div', 'chat-queued-list');
   const scrollContent = el('div', 'chat-scroll-content');
   scrollContent.append(chatLog.element, queuedList, activity.element);
   scroller.append(scrollContent);
   const showQueued = (entries: readonly ChatOutboxEntry[]) => {
-    queuedList.replaceChildren(...entries.map(queuedRowOf));
+    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf)));
   };
   const { jumpButton, followLatest } = stickToBottom(scroller, scrollContent);
   composer.element.addEventListener('chat-send', followLatest);
@@ -77,5 +80,5 @@ export function createChatView(): ChatView {
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, showQueued, showAttachment: composer.showAttachment };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment };
 }

@@ -3,34 +3,33 @@ import { el } from '../dom-helpers.ts';
 import { isImeProcessingKeydown } from '../session-card/ime-core.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button, outlineIconButton } from '../ui/button.ts';
+import { renderAttachmentThumbnail } from './chat-parts.ts';
 
 const MAX_INPUT_HEIGHT_PX = 240;
 const ATTACH_ICON_PATH = 'M10.5 4.5L5.8 9.2a1.4 1.4 0 0 0 2 2l5-5a2.8 2.8 0 0 0-4-4l-5 5a4.2 4.2 0 0 0 6 6l4.2-4.2';
 const SEND_ICON_PATH = 'M8 13V3M3.5 7.5L8 3l4.5 4.5';
 const STOP_ICON_PATH = 'M5 5h6v6H5z';
+const REMOVE_ICON_PATH = 'M4.5 4.5l7 7M11.5 4.5l-7 7';
 
 interface ChatComposer {
   element: HTMLElement;
   setTurnRunning(isTurnRunning: boolean): void;
   readDraft(): string;
   restoreDraft(text: string): void;
-  showAttachment(file: File): void;
+  readAttachments(): string[];
+  showAttachment(fileName: string): void;
 }
 
 function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
   return transfer !== null && Array.from(transfer.types).includes('Files');
 }
 
-function attachmentPreviewOf(file: File): HTMLElement {
+function attachmentPreviewOf(fileName: string, uploadUrlOf: (fileName: string) => string, onRemove: () => void): HTMLElement {
   const attachment = el('div', 'chat-composer-attachment');
-  if (!file.type.startsWith('image/')) {
-    attachment.textContent = file.name;
-    return attachment;
-  }
-  const preview = el('img', 'chat-composer-attachment-image');
-  preview.alt = file.name;
-  preview.src = URL.createObjectURL(file);
-  attachment.append(preview);
+  const removeButton = button({ variant: 'icon', size: 'small', label: 'Remove', icon: createLineIcon(REMOVE_ICON_PATH, '1.6') });
+  removeButton.classList.add('chat-composer-attachment-remove');
+  removeButton.addEventListener('click', onRemove);
+  attachment.append(renderAttachmentThumbnail(fileName, uploadUrlOf), removeButton);
   return attachment;
 }
 
@@ -46,7 +45,7 @@ function fitInputHeight(input: HTMLTextAreaElement): void {
   input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_HEIGHT_PX)}px`;
 }
 
-export function createComposer(): ChatComposer {
+export function createComposer(uploadUrlOf: (fileName: string) => string): ChatComposer {
   const element = el('form', 'chat-composer');
   const input = el('textarea', 'chat-composer-input');
   input.rows = 1;
@@ -75,9 +74,13 @@ export function createComposer(): ChatComposer {
     if (files.length === 0) return;
     element.dispatchEvent(new CustomEvent('chat-attach', { bubbles: true, composed: true, detail: { files } }));
   };
+  let attachedFileNames: string[] = [];
+  const updateSendButton = () => {
+    sendButton.disabled = input.value.trim().length === 0 && attachedFileNames.length === 0;
+  };
   const clearAttachments = () => {
-    for (const preview of attachments.querySelectorAll('img')) URL.revokeObjectURL(preview.src);
     attachments.replaceChildren();
+    attachedFileNames = [];
   };
   attachButton.addEventListener('click', () => filePicker.click());
   filePicker.addEventListener('change', () => {
@@ -103,15 +106,15 @@ export function createComposer(): ChatComposer {
 
   const submit = () => {
     const text = input.value.trim();
-    if (text.length === 0) return;
-    element.dispatchEvent(new CustomEvent('chat-send', { bubbles: true, composed: true, detail: { text } }));
+    if (text.length === 0 && attachedFileNames.length === 0) return;
+    element.dispatchEvent(new CustomEvent('chat-send', { bubbles: true, composed: true, detail: { text, attachments: [...attachedFileNames] } }));
     input.value = '';
     clearAttachments();
-    sendButton.disabled = true;
+    updateSendButton();
     fitInputHeight(input);
   };
   input.addEventListener('input', () => {
-    sendButton.disabled = input.value.trim().length === 0;
+    updateSendButton();
     fitInputHeight(input);
   });
   input.addEventListener('focus', () => fitInputHeight(input));
@@ -140,9 +143,19 @@ export function createComposer(): ChatComposer {
   };
   const restoreDraft = (text: string) => {
     input.value = text;
-    sendButton.disabled = text.trim().length === 0;
+    updateSendButton();
     fitInputHeight(input);
   };
-  const showAttachment = (file: File) => attachments.append(attachmentPreviewOf(file));
-  return { element, setTurnRunning, readDraft: () => input.value, restoreDraft, showAttachment };
+  const showAttachment = (fileName: string) => {
+    if (attachedFileNames.includes(fileName)) return;
+    attachedFileNames = [...attachedFileNames, fileName];
+    const preview = attachmentPreviewOf(fileName, uploadUrlOf, () => {
+      attachedFileNames = attachedFileNames.filter((attachedFileName) => attachedFileName !== fileName);
+      preview.remove();
+      updateSendButton();
+    });
+    attachments.append(preview);
+    updateSendButton();
+  };
+  return { element, setTurnRunning, readDraft: () => input.value, restoreDraft, readAttachments: () => [...attachedFileNames], showAttachment };
 }

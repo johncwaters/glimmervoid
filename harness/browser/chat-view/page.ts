@@ -24,7 +24,7 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
 const chatHost = document.getElementById('chat-host');
 const traceResponse = await fetch('/trace-records.json');
 const { records: traceRecords }: { records: TraceRecord[] } = await traceResponse.json();
-const chatView = createChatView();
+const chatView = createChatView((fileName) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`));
 chatHost?.appendChild(chatView.element);
 chatView.setTurnRunning(true);
 const LIVE_PAGE_RECORDS = 25;

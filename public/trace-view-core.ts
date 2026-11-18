@@ -10,6 +10,7 @@ export function traceRecordBody(record: TraceRecord): string {
   if (record.kind === 'prompt' || record.kind === 'expansion' || record.kind === 'thinking' || record.kind === 'assistant' || record.kind === 'notice') return record.text;
   if (record.kind === 'tool_result') return record.content;
   if (record.kind === 'raw') return record.line;
+  if (record.kind === 'attachments') return record.files.join('\n');
   if (record.kind === 'tool_call') return JSON.stringify(record.input, null, 2) ?? String(record.input ?? '');
   return [
     `${record.vendor} ${record.vendorSessionId}`,

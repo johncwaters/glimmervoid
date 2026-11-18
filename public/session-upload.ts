@@ -16,8 +16,33 @@ export async function uploadFilesToSession(sessionId: string, files: readonly Fi
   return uploadedFiles;
 }
 
+export async function storeFilesForChat(sessionId: string, files: readonly File[]): Promise<string[]> {
+  clearHeaderError(UPLOAD_ERROR_SOURCE, sessionId);
+  const storedFileNames: string[] = [];
+  for (const file of files) {
+    const fileName = await storedFileNameOf(await postUpload(sessionId, file, { 'x-glimmervoid-upload-mode': 'store' }));
+    if (fileName !== null) storedFileNames.push(fileName);
+  }
+  return storedFileNames;
+}
+
+async function storedFileNameOf(res: Response | null): Promise<string | null> {
+  if (!res?.ok) return null;
+  try {
+    const body = (await res.json()) as { fileName?: unknown } | null;
+    return body && typeof body.fileName === 'string' ? body.fileName : null;
+  } catch {
+    return null;
+  }
+}
+
 async function attemptFileUpload(sessionId: string, file: File): Promise<boolean> {
-  const headers: Record<string, string> = { 'x-glimmervoid-upload-name': encodeURIComponent(file.name) };
+  const res = await postUpload(sessionId, file, {});
+  return res?.ok === true;
+}
+
+async function postUpload(sessionId: string, file: File, extraHeaders: Record<string, string>): Promise<Response | null> {
+  const headers: Record<string, string> = { 'x-glimmervoid-upload-name': encodeURIComponent(file.name), ...extraHeaders };
   if (file.type) headers['content-type'] = file.type;
   try {
     const res = await fetch(`/upload/${encodeURIComponent(sessionId)}`, {
@@ -25,12 +50,11 @@ async function attemptFileUpload(sessionId: string, file: File): Promise<boolean
       body: file,
       headers,
     });
-    if (res.ok) return true;
-    reportHeaderError({ source: UPLOAD_ERROR_SOURCE, sessionId, message: await uploadErrorText(res, file.name) });
-    return false;
+    if (!res.ok) reportHeaderError({ source: UPLOAD_ERROR_SOURCE, sessionId, message: await uploadErrorText(res, file.name) });
+    return res;
   } catch {
     reportHeaderError({ source: UPLOAD_ERROR_SOURCE, sessionId, message: `${file.name} was not uploaded because the server did not answer. Check that Glimmervoid is running, then drop the file again.` });
-    return false;
+    return null;
   }
 }
 

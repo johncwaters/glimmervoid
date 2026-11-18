@@ -5,14 +5,15 @@ import type { Request, Response } from 'express';
 import type { Session } from '../../../session/sessions.ts';
 import { MAX_UPLOAD_BYTES, exceedsUploadCap, planUploadRetention } from '../../core/upload-core.ts';
 
-async function sweepSessionUploads(dir: string, justWritten: string): Promise<void> {
+async function sweepSessionUploads(dir: string, justWritten: string, sess: Session): Promise<void> {
   let entries: string[] | null = null;
   try {
     entries = await fsp.readdir(dir);
   } catch {
     return;
   }
-  for (const name of planUploadRetention(entries, { justWritten })) {
+  const heldNames = sess.chatOutboxEntries.flatMap((entry) => entry.attachments);
+  for (const name of planUploadRetention(entries, { justWritten, heldNames })) {
     try {
       await fsp.unlink(path.join(dir, name));
     } catch {}
@@ -82,13 +83,14 @@ const UPLOAD_FAILURE_REPLIES = {
   aborted: { status: 400, error: 'upload failed' },
 } as const;
 
-function receiveUpload({ req, res, sess, dir, filename, savedPath, logger }: {
+function receiveUpload({ req, res, sess, dir, filename, savedPath, isStoreOnly, logger }: {
   req: Request;
   res: Response;
   sess: Session;
   dir: string;
   filename: string;
   savedPath: string;
+  isStoreOnly: boolean;
   logger: Pick<Console, 'warn'>;
 }): void {
   const answer = (status: number, body: Record<string, unknown>) => {
@@ -101,6 +103,11 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath, logger }: {
       answer(failure.status, { error: failure.error });
       return;
     }
+    if (isStoreOnly) {
+      answer(200, { ok: true, path: savedPath, fileName: filename });
+      void sweepSessionUploads(dir, filename, sess);
+      return;
+    }
     if (!sess.deliver(`${savedPath} `, { when: 'now', submit: false }).ok) {
       logger.warn(`[upload] session ${sess.id} refused: session has no live terminal, after ${outcome.sizeBytes} bytes`);
       answer(409, { error: 'session has no live terminal' });
@@ -109,7 +116,7 @@ function receiveUpload({ req, res, sess, dir, filename, savedPath, logger }: {
     }
     sess.noteOperatorDraft();
     answer(200, { ok: true, path: savedPath });
-    void sweepSessionUploads(dir, filename);
+    void sweepSessionUploads(dir, filename, sess);
   });
 }
 

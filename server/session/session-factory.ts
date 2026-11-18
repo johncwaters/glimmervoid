@@ -1,6 +1,7 @@
 import type { ResolvedHookTool } from '../../session/core/hook-tools.ts';
 import { chatApprovalModeFor } from '../../session/core/claude-approval-core.ts';
 import path from 'node:path';
+import { sessionUploadsDirectory } from '../uploads-wiring.ts';
 
 import type { HookRouter } from '../../detection/hook-source.ts';
 import type { UserHook } from '../../session/core/user-hooks-core.ts';
@@ -98,6 +99,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       path: project.path,
       workspaceRepos: project.repos,
       dangerouslySkipPermissions: skipPermissions,
+      chatUploadsDirectory: sessionUploadsDirectory(dependencies.configStore.configPath, project.id),
       readChatApprovals: () => chatApprovalModeFor((dependencies.getConfig?.() ?? config).sessionChat?.enabled === true, skipPermissions),
       agent: project.agent,
       agentSetup: project.agentSetup ?? null,

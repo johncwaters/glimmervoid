@@ -233,12 +233,22 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     return `Question manager answered ${answered} (${decision.rule})`;
   }
 
+  function knownVendorSessionId(glimmervoidSessionId: string): unknown {
+    return bindingByGlimmervoidSessionId.get(glimmervoidSessionId)?.vendorSessionId
+      ?? awaitingTranscriptByGlimmervoidSessionId.get(glimmervoidSessionId)?.id
+      ?? conversationVendorSessionIdByGlimmervoidSessionId.get(glimmervoidSessionId);
+  }
+
+  function appendSentAttachments(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
+    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
+    if (!vendorSessionId) return;
+    appendConversationRecords(glimmervoidSessionId, [{ ts: payload.ts, uuid: null, parentUuid: null, vendorSessionId, kind: 'attachments', files: payload.files, pastedPrefix: payload.pastedPrefix }]);
+  }
+
   function appendManagerDecisionNotice(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = ManagerDecision.safeParse(payload.decision);
     if (!parsed.success) return;
-    const vendorSessionId = bindingByGlimmervoidSessionId.get(glimmervoidSessionId)?.vendorSessionId
-      ?? awaitingTranscriptByGlimmervoidSessionId.get(glimmervoidSessionId)?.id
-      ?? conversationVendorSessionIdByGlimmervoidSessionId.get(glimmervoidSessionId);
+    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
     if (!vendorSessionId) return;
     appendConversationRecords(glimmervoidSessionId, [{
       ts: parsed.data.ts,
@@ -261,6 +271,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     session.on('hook-event', (record) => { noteHookEvent(session.id, record); });
     session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });
     session.on(MANAGER_DECISION_EVENT, (payload) => { appendManagerDecisionNotice(session.id, payload); });
+    session.on('chat-attachments-sent', (payload) => { appendSentAttachments(session.id, payload); });
     session.on('exit', () => { detachSession(session.id); });
     session.on('teardown', () => { closeSession(session.id); });
   }

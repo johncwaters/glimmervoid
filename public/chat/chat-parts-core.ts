@@ -10,10 +10,15 @@ interface ChatTurn {
   finalReplyAt: number;
 }
 
+type PromptPart = Extract<ChatPart, { kind: 'prompt' }>;
+type SentAttachments = Pick<Extract<TraceRecord, { kind: 'attachments' }>, 'files' | 'pastedPrefix'>;
+
 interface ChatPartsState {
   nextPartNumber: number;
   residentPartIds: string[];
   turn: ChatTurn;
+  pendingAttachments: SentAttachments | null;
+  latestPrompt: PromptPart | null;
 }
 
 export interface TurnMarks {
@@ -31,7 +36,7 @@ const MAX_RESIDENT_PARTS = 2000;
 const TRIM_BATCH_PARTS = 200;
 
 export function createChatPartsState(): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null) };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -81,9 +86,35 @@ function noticeCardPartOf(id: string, text: string): ChatPart {
   return { kind: 'card', id, card: { cardType: 'notice', cardId: id, data: { text }, resolution: null } };
 }
 
+function promptWithAttachments(prompt: PromptPart, sent: SentAttachments | null): PromptPart {
+  if (sent === null) return prompt;
+  const text = prompt.text.startsWith(sent.pastedPrefix) ? prompt.text.slice(sent.pastedPrefix.length).trimStart() : prompt.text;
+  return { ...prompt, text, attachments: sent.files };
+}
+
+function attachedPromptOf(state: ChatPartsState, sent: SentAttachments): PromptPart | null {
+  const latestPrompt = state.latestPrompt;
+  if (latestPrompt === null || latestPrompt.attachments.length > 0) {
+    state.pendingAttachments = sent;
+    return null;
+  }
+  state.latestPrompt = promptWithAttachments(latestPrompt, sent);
+  return state.latestPrompt;
+}
+
 function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
   if (record.agentId !== undefined) return null;
-  if (record.kind === 'prompt') return { kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text, at: record.ts };
+  if (record.kind === 'attachments') return attachedPromptOf(state, record);
+  const part = nonPromptPartOf(state, record);
+  if (part !== null) state.latestPrompt = null;
+  if (record.kind !== 'prompt') return part;
+  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text, at: record.ts, attachments: [] }, state.pendingAttachments);
+  state.pendingAttachments = null;
+  state.latestPrompt = prompt;
+  return prompt;
+}
+
+function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
   if (record.kind === 'assistant') return { kind: 'reply', id: nextPartId(state, 'reply'), text: record.text };
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   const skillName = loadedSkillOf(record);

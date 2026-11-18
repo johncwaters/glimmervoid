@@ -17,10 +17,15 @@ const QUESTION_REQUEST = {
   tool_input: { questions: [{ question: 'Which store?', options: [{ label: 'sqlite' }, { label: 'postgres' }] }] },
 };
 
+const ATTACHED_FILE = '2026-11-18T10-00-00-000Z-0a1b2c3d.png';
+const SECOND_ATTACHED_FILE = '2026-11-18T10-00-01-000Z-0a1b2c3e.png';
+
 test('Chat reads a held question from the session status and answers it and sends prompts over the control channel', async () => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-chat-'));
   const writes: string[] = [];
-  const session = new Session({ id: 'chatty', name: 'chatty', path: projectPath, holdsQuestionsForParent: true, ptySpawn: () => capturingPty(writes) });
+  const session = new Session({ id: 'chatty', name: 'chatty', path: projectPath, holdsQuestionsForParent: true, chatUploadsDirectory: projectPath, ptySpawn: () => capturingPty(writes) });
+  const sentAttachments: string[][] = [];
+  session.on('chat-attachments-sent', (sent: { files: string[] }) => sentAttachments.push(sent.files));
   const config: GlimmervoidConfig = { projects: [] };
   const approvalFrames: unknown[] = [];
   const outboxFrames: string[][] = [];
@@ -63,9 +68,9 @@ test('Chat reads a held question from the session status and answers it and send
     const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
     const settle = () => new Promise((resolve) => setTimeout(resolve, 1000));
     const writesBeforeHeldSend = writes.length;
-    connection.send({ type: 'chat-send', id: session.id, text: 'Mid-turn thought' });
+    connection.send({ type: 'chat-send', id: session.id, text: 'Mid-turn thought', attachments: [ATTACHED_FILE] });
     assert.equal(connection.sent.at(-1)?.ok, true);
-    connection.send({ type: 'chat-send', id: session.id, text: 'Second thought' });
+    connection.send({ type: 'chat-send', id: session.id, text: 'Second thought', attachments: [SECOND_ATTACHED_FILE] });
     assert.deepEqual(outboxOf(), ['Mid-turn thought:held', 'Second thought:held']);
     assert.equal(writes.length, writesBeforeHeldSend);
     await new Promise((resolve) => setImmediate(resolve));
@@ -73,10 +78,12 @@ test('Chat reads a held question from the session status and answers it and send
 
     connection.send({ type: 'chat-cancel', id: session.id, entryId: session.toSnapshot().chatOutbox[1]?.entryId, requestId: 'cancel-second' });
     assert.deepEqual((connection.sent.at(-1) as { cancelledTexts?: string[] }).cancelledTexts, ['Second thought']);
+    assert.deepEqual((connection.sent.at(-1) as { cancelledAttachments?: string[] }).cancelledAttachments, [SECOND_ATTACHED_FILE]);
 
     session.transition('task_complete');
     await settle();
-    assert.match(writes.join(''), /Mid-turn thought/);
+    assert.ok(writes.join('').includes(`${path.join(projectPath, ATTACHED_FILE)} Mid-turn thought`));
+    assert.deepEqual(sentAttachments, [[ATTACHED_FILE]]);
     assert.doesNotMatch(writes.join(''), /Second thought/);
     assert.equal(writes.at(-1), '\r');
     assert.deepEqual(outboxOf(), []);

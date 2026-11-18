@@ -45,7 +45,7 @@ import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { decideByteRange, resolveCustomSoundsDir } from '../core/custom-sounds-core.ts';
 import { mountCustomSoundRoutes } from '../custom-sounds-routes.ts';
-import { configSiblingPath } from '../pairings-store.ts';
+import { sessionUploadsDirectory } from '../uploads-wiring.ts';
 import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts, WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
@@ -796,7 +796,6 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
 
   mountPrActionReportRoute(app, { getPrActionReports: dependencies.getPrActionReports ?? (() => null), remoteListenerPort, logger });
 
-  const uploadsRoot = configSiblingPath(configStore.configPath, 'uploads');
   app.post('/upload/:sessionId', (req, res) => {
     const declaredBytes = declaredContentLength(req);
     const refuse = (sessionLabel: string, status: number, error: string) => {
@@ -813,7 +812,8 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       refuse(sess.id, typeVerdict.status, typeVerdict.error);
       return;
     }
-    if (!sess.hasLivePty) {
+    const isStoreOnly = req.headers['x-glimmervoid-upload-mode'] === 'store';
+    if (!isStoreOnly && !sess.hasLivePty) {
       refuse(sess.id, 409, 'session has no live terminal');
       return;
     }
@@ -823,7 +823,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       return;
     }
 
-    const dir = path.join(uploadsRoot, sess.id);
+    const dir = sessionUploadsDirectory(configStore.configPath, sess.id);
     const filename = buildUploadFilename({
       now: clock.nowMs(),
       randomSuffix: crypto.randomBytes(4).toString('hex'),
@@ -840,7 +840,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
           return;
         }
         req.off('error', markAbortedBeforeReceive);
-        receiveUpload({ req, res, sess, dir, filename, savedPath, logger });
+        receiveUpload({ req, res, sess, dir, filename, savedPath, isStoreOnly, logger });
       })
       .catch(() => {
         logger.warn(`[upload] session ${sess.id} refused: could not create ${dir}`);
@@ -855,7 +855,7 @@ function createBackendHttpApp(dependencies: BackendHttpDependencies): Express {
       res.status(404).end();
       return;
     }
-    const savedPath = path.join(uploadsRoot, sessionId, filename);
+    const savedPath = path.join(sessionUploadsDirectory(configStore.configPath, sessionId), filename);
     fsp.lstat(savedPath)
       .then((savedStat) => {
         if (!savedStat.isFile()) {

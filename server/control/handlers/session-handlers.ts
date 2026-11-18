@@ -185,13 +185,13 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       replyTo(ws, msg, 'chat-send-result', { id: msg.id, ok: false, acceptedAt, error: SESSION_GONE_TEXT });
       return;
     }
-    const queued = session.queueChatMessage(msg.text);
+    const queued = session.queueChatMessage(msg.text, msg.attachments);
     replyTo(ws, msg, 'chat-send-result', { id: msg.id, ok: queued.ok, acceptedAt, ...(queued.ok ? {} : { error: queued.error }) });
   }
 
   function handleChatCancel(msg: ClientMessageOf<'chat-cancel'>, ws: ControlSocket): void {
-    const cancelledTexts = findSession(msg)?.cancelChatMessage(msg.entryId) ?? [];
-    replyTo(ws, msg, 'chat-cancel-result', { id: msg.id, cancelledTexts });
+    const cancelledEntries = findSession(msg)?.cancelChatMessage(msg.entryId) ?? [];
+    replyTo(ws, msg, 'chat-cancel-result', { id: msg.id, cancelledTexts: cancelledEntries.map((entry) => entry.text), cancelledAttachments: cancelledEntries.flatMap((entry) => entry.attachments) });
   }
 
   function handleAnswerApproval(msg: ClientMessageOf<'answer-approval'>, ws: ControlSocket): void {

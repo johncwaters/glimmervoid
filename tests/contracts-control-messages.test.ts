@@ -268,7 +268,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'switch-session-account-result', requestId: 'r7', id: 's1', ok: false, error: 'Team Max is signed out.', needsSignIn: true },
   { type: 'switch-session-model-result', requestId: 'r8', id: 's1', ok: false, error: 'The agent is mid-turn. Switch the model once it finishes.' },
   { type: 'chat-send-result', requestId: 'r9', id: 's1', ok: false, error: '20 messages are already waiting, so this one was not queued.', acceptedAt: 1794958999757 },
-  { type: 'chat-cancel-result', requestId: 'r10', id: 's1', cancelledTexts: ['Typed over', 'Waits behind the failure'] },
+  { type: 'chat-cancel-result', requestId: 'r10', id: 's1', cancelledTexts: ['Typed over', 'Waits behind the failure'], cancelledAttachments: [] },
   { type: 'start-remote-setup-result', requestId: 'r8', ok: true, error: null, sessionId: 'remote-setup-0b1c', sessionName: 'Remote host setup' },
   { type: 'remove-session-result', requestId: 'r7', ok: false, error: 'Branch feature in Coder workspace gv-0123456789ab has commits that are not pushed', canDiscardWork: true },
   { type: 'delete-hook-result', requestId: 'r3', ok: false, error: 'Unknown hook' },
