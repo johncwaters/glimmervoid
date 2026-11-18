@@ -1328,8 +1328,8 @@ class Session extends EventEmitter {
     return this._approvals.answer(requestId, answers);
   }
 
-  decideConversationApproval(requestId: number | string, decision: PermissionDecision): boolean {
-    return this._approvals.decide(requestId, decision);
+  decideConversationApproval(requestId: number | string, decision: PermissionDecision, denyMessage: string | null = null): boolean {
+    return this._approvals.decide(requestId, decision, denyMessage);
   }
 
   releaseQuestionHold(requestId: string): boolean {

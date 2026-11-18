@@ -8,6 +8,8 @@ import { pathToFileURL } from 'node:url';
 
 import pi from '../session/adapters/pi.ts';
 import { renderPiExtension } from '../session/core/pi-extension-core.ts';
+import { permissionReplyFor } from '../session/core/claude-approval-core.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
 import { parsePiModels } from '../shared/agent-models-core.ts';
 import type { GeneratedHomeInjection } from '../session/adapters/index.ts';
 
@@ -16,14 +18,17 @@ type PiHandler = (event: Record<string, unknown>, context: FakePiContext) => Pro
 interface FakePiContext {
   hasUI: boolean;
   sessionManager: { getSessionId(): string };
-  ui: { confirm(): Promise<boolean> };
+  ui: { confirm(title: string, body: string, options: { signal: AbortSignal }): Promise<boolean> };
 }
 
 const RELAY_STUB_SOURCE = `import fs from "node:fs";
 let body = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => (body += chunk));
-process.stdin.on("end", () => fs.appendFileSync(process.env.RELAY_LOG, process.argv[2] + "\\n"));
+process.stdin.on("end", () => {
+  fs.appendFileSync(process.env.RELAY_LOG, process.argv[2] + "\\n");
+  if (process.env.RELAY_HELD_REPLY && process.argv[2] === process.env.RELAY_HELD_EVENT) process.stdout.write(process.env.RELAY_HELD_REPLY);
+});
 `;
 
 async function loadExtensionWithRelayLog(folder: string): Promise<{ handlers: Map<string, PiHandler>; relayedEvents(): string[] }> {
@@ -75,6 +80,22 @@ test('a pi turn with a denied bash call relays events the pi adapter reads as Cl
   assert.deepEqual(powershellDecision, { block: true, reason: 'The operator denied this powershell call.' });
   const statuses = (await waitForRelayedCount(relayedEvents, 8)).map((event) => pi.mapHookToSignal(event));
   assert.deepEqual(statuses, ['session-start', 'resume', 'working', 'awaiting-input', 'working', 'awaiting-input', 'working', 'ready']);
+});
+
+test('a pi bash call denied from Chat with a message is blocked with the operator words as its reason', async (t) => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-extension-'));
+  t.after(() => {
+    delete process.env.RELAY_HELD_EVENT;
+    delete process.env.RELAY_HELD_REPLY;
+    fs.rmSync(folder, { recursive: true, force: true });
+  });
+  process.env.RELAY_HELD_EVENT = CONVERSATION_PERMISSION_HOOK_EVENT;
+  process.env.RELAY_HELD_REPLY = JSON.stringify(permissionReplyFor('pi', 'deny', 'Run npm run clean instead'));
+  const { handlers } = await loadExtensionWithRelayLog(folder);
+  const waitForChat = (_title: string, _body: string, { signal }: { signal: AbortSignal }) => new Promise<boolean>((resolve) => signal.addEventListener('abort', () => resolve(false), { once: true }));
+  const context: FakePiContext = { hasUI: true, sessionManager: { getSessionId: () => 'pi-session' }, ui: { confirm: waitForChat } };
+  const decision = await handlers.get('tool_call')?.({ toolName: 'bash', input: { command: 'rm -rf build' } }, context);
+  assert.deepEqual(decision, { block: true, reason: 'Run npm run clean instead' });
 });
 
 test('pi launches the extension file its generated home writes', (t) => {

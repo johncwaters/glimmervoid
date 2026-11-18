@@ -8,6 +8,7 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
   { kind: 'card', id: 'example-permission', card: { cardType: 'permission', cardId: 'example-permission', data: { title: 'Run Bash', detail: 'npm run typecheck' }, resolution: null } },
   { kind: 'card', id: 'example-permission-allowed', card: { cardType: 'permission', cardId: 'example-permission-allowed', data: { title: 'Edit public/chat/chat.css', detail: '' }, resolution: { decision: 'allow' } } },
+  { kind: 'card', id: 'example-permission-denied', card: { cardType: 'permission', cardId: 'example-permission-denied', data: { title: 'Run Bash', detail: 'rm -rf build' }, resolution: { decision: 'deny', message: 'Run npm run clean instead' } } },
   {
     kind: 'card',
     id: 'example-question',

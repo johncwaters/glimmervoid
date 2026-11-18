@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Deny a tool call in Chat and tell the agent what to do instead.** A permission card in Chat now has a message field beside Allow and Deny. Type what you want instead and press Deny with message, and the agent gets your words as the reason it was refused, on every first-class agent.
+
 ### Changed
 
 - **Chat's composer and activity line read truer.** Between tools the activity line now just says the agent is working, instead of keeping the last tool's remark. Attach images with the paperclip, and while the agent works the Stop button takes Send's place in the same spot.

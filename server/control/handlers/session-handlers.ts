@@ -210,7 +210,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       sendError(ws, SESSION_GONE_TEXT);
       return;
     }
-    if (session.decideConversationApproval(msg.requestId, msg.decision)) return;
+    if (session.decideConversationApproval(msg.requestId, msg.decision, msg.message ?? null)) return;
     sendError(ws, 'That permission prompt was already answered or is no longer waiting.', { id: session.id });
   }
 

@@ -48,7 +48,7 @@ export const sessionClientVariants = [
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
   loose('plan-decision', { id: sessionId, decision: PlanDecision, feedback: z.string().max(PLAN_GATE_FEEDBACK_MAX_CHARS).optional() }),
   loose('answer-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), answers: ConversationAnswers }),
-  loose('decide-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), decision: PermissionDecision }),
+  loose('decide-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), decision: PermissionDecision, message: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS).optional() }),
   loose('chat-send', { id: sessionId, text: z.string().trim().max(CHAT_SEND_MAX_CHARS), attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]), requestId })
     .refine((send) => send.text.length > 0 || send.attachments.length > 0, { message: 'chat-send needs text or an attachment' }),
   loose('chat-cancel', { id: sessionId, entryId: z.string().min(1).max(64), requestId }),

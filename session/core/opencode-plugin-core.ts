@@ -230,6 +230,8 @@ export default {
         permissionHoldById.delete(requestID);
         const decision = PERMISSION_DECISIONS[reply?.hookSpecificOutput?.decision?.behavior];
         if (!decision) return;
+        const message = reply?.hookSpecificOutput?.decision?.message;
+        if (decision === "reject" && typeof message === "string") return ctx.permission.reply({ sessionID, requestID, decision, message });
         return ctx.permission.reply({ sessionID, requestID, decision });
       }).catch(() => {});
     }

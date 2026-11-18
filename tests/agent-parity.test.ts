@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { STATES } from '../shared/states.ts';
 import { TraceRecord } from '../shared/contracts/trace.ts';
@@ -13,6 +14,8 @@ import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
 import { getAdapter, hookProfileOf } from '../session/adapters/index.ts';
 import { Session } from '../session/sessions.ts';
+import { permissionReplyFor } from '../session/core/claude-approval-core.ts';
+import { openCodePluginFiles } from '../session/core/opencode-plugin-core.ts';
 import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
 import type { HookPayload, PermissionDecision } from '../shared/contracts/index.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
@@ -319,13 +322,14 @@ function antigravityHeldRequest(): HookPayload {
 
 type ReplyPath = readonly string[];
 const PERMISSION_REQUEST_BEHAVIOR: ReplyPath = ['hookSpecificOutput', 'decision', 'behavior'];
-const CHAT_PERMISSION_BY_AGENT: Record<FirstClassAgent, { heldRequest: () => HookPayload; decisionAt: ReplyPath }> = {
-  'claude-code': { heldRequest: () => firstHookPayload('v2-claude-code-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR },
-  codex: { heldRequest: () => firstHookPayload('v2-codex-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR },
-  kimi: { heldRequest: () => firstHookPayload('v2-kimi-approval-turn.jsonl', 'permissionrequest'), decisionAt: ['hookSpecificOutput', 'permissionDecision'] },
-  opencode: { heldRequest: openCodeHeldRequest, decisionAt: PERMISSION_REQUEST_BEHAVIOR },
-  pi: { heldRequest: () => firstHookPayload('v2-pi-approval-turn.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR },
-  antigravity: { heldRequest: antigravityHeldRequest, decisionAt: ['decision'] },
+const PERMISSION_REQUEST_MESSAGE: ReplyPath = ['hookSpecificOutput', 'decision', 'message'];
+const CHAT_PERMISSION_BY_AGENT: Record<FirstClassAgent, { heldRequest: () => HookPayload; decisionAt: ReplyPath; reasonAt: ReplyPath }> = {
+  'claude-code': { heldRequest: () => firstHookPayload('v2-claude-code-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR, reasonAt: PERMISSION_REQUEST_MESSAGE },
+  codex: { heldRequest: () => firstHookPayload('v2-codex-permission-wait.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR, reasonAt: PERMISSION_REQUEST_MESSAGE },
+  kimi: { heldRequest: () => firstHookPayload('v2-kimi-approval-turn.jsonl', 'permissionrequest'), decisionAt: ['hookSpecificOutput', 'permissionDecision'], reasonAt: ['hookSpecificOutput', 'permissionDecisionReason'] },
+  opencode: { heldRequest: openCodeHeldRequest, decisionAt: PERMISSION_REQUEST_BEHAVIOR, reasonAt: PERMISSION_REQUEST_MESSAGE },
+  pi: { heldRequest: () => firstHookPayload('v2-pi-approval-turn.jsonl', 'permissionrequest'), decisionAt: PERMISSION_REQUEST_BEHAVIOR, reasonAt: PERMISSION_REQUEST_MESSAGE },
+  antigravity: { heldRequest: antigravityHeldRequest, decisionAt: ['decision'], reasonAt: ['reason'] },
 };
 
 function valueAt(reply: unknown, replyPath: ReplyPath): unknown {
@@ -336,7 +340,7 @@ for (const agent of FIRST_CLASS_AGENTS) {
   test(`a permission prompt is held for Chat and answered with the agent's own reply on ${agent}`, async () => {
     const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-permission-'));
     const session = new Session({ id: `chat-permission-${agent}`, name: agent, path: projectPath, agent, readChatApprovals: () => 'questions-and-permissions', ptySpawn: () => capturingPty([]) });
-    const { heldRequest, decisionAt } = CHAT_PERMISSION_BY_AGENT[agent];
+    const { heldRequest, decisionAt, reasonAt } = CHAT_PERMISSION_BY_AGENT[agent];
     try {
       for (const decision of ['allow', 'deny'] satisfies PermissionDecision[]) {
         const held = session.holdConversationPermission(heldRequest(), new AbortController().signal);
@@ -348,9 +352,60 @@ for (const agent of FIRST_CLASS_AGENTS) {
         assert.equal(valueAt(await held, decisionAt), decision);
         assert.equal(session.toSnapshot().conversationApproval, null);
       }
+      const heldForMessage = session.holdConversationPermission(heldRequest(), new AbortController().signal);
+      assert.ok(heldForMessage, 'the permission prompt was not held');
+      const approvalForMessage = session.toSnapshot().conversationApproval;
+      assert.ok(approvalForMessage);
+      assert.ok(session.decideConversationApproval(approvalForMessage.requestId, 'deny', 'Run npm run clean instead'));
+      const wordedDeny = await heldForMessage;
+      assert.equal(valueAt(wordedDeny, decisionAt), 'deny');
+      assert.equal(valueAt(wordedDeny, reasonAt), 'Run npm run clean instead');
     } finally {
       session.destroy();
       fs.rmSync(projectPath, { recursive: true, force: true });
     }
   });
 }
+
+test('an OpenCode permission denied from Chat with a message is rejected with the operator words', async (t) => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-plugin-'));
+  const heldReplyText = JSON.stringify(permissionReplyFor('opencode', 'deny', 'Run npm run clean instead'));
+  const previousHookUrl = process.env.GLIMMERVOID_HOOK_URL;
+  process.env.GLIMMERVOID_HOOK_URL = 'http://127.0.0.1:1/hook/test';
+  Reflect.set(globalThis, 'Bun', {
+    spawn: (argv: string[]) => ({
+      stdin: { write: () => {}, end: () => {} },
+      stdout: new Response(argv.at(-1) === CONVERSATION_PERMISSION_HOOK_EVENT ? heldReplyText : '').body,
+      exited: Promise.resolve(0),
+      kill: () => {},
+    }),
+  });
+  t.after(() => {
+    Reflect.deleteProperty(globalThis, 'Bun');
+    if (previousHookUrl === undefined) delete process.env.GLIMMERVOID_HOOK_URL;
+    if (previousHookUrl !== undefined) process.env.GLIMMERVOID_HOOK_URL = previousHookUrl;
+    fs.rmSync(folder, { recursive: true, force: true });
+  });
+  const pluginFiles = openCodePluginFiles(['relay']);
+  assert.ok(pluginFiles);
+  const pluginPath = path.join(folder, 'index.mjs');
+  fs.writeFileSync(pluginPath, pluginFiles['index.js']);
+  const { default: plugin } = await import(pathToFileURL(pluginPath).href);
+  const { props } = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIRECTORY, 'opencode-permission-asked.json'), 'utf8'));
+  let resolvePermissionReply: (reply: Record<string, unknown>) => void = () => {};
+  const permissionReply = new Promise<Record<string, unknown>>((resolve) => {
+    resolvePermissionReply = resolve;
+  });
+  async function* permissionAskedThenIdle({ signal }: { signal: AbortSignal }) {
+    yield { type: 'permission.asked', properties: props };
+    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+  }
+  const stopPlugin = plugin.setup({
+    event: { subscribe: permissionAskedThenIdle },
+    session: { get: async () => ({ parentID: null }), hook: () => {} },
+    tool: { hook: () => {} },
+    permission: { reply: resolvePermissionReply },
+  });
+  t.after(stopPlugin);
+  assert.deepEqual(await permissionReply, { sessionID: props.sessionID, requestID: props.id, decision: 'reject', message: 'Run npm run clean instead' });
+});

@@ -1,3 +1,4 @@
+import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import type { ChatCard, ChatCardType } from './chat-part.ts';
@@ -29,14 +30,37 @@ function renderPermissionCard(card: ChatCardByType['permission']): HTMLElement {
   const shell = cardShell(card, card.data.title);
   if (card.data.detail) shell.appendChild(el('pre', 'chat-card-detail', card.data.detail));
   if (card.resolution) {
-    shell.appendChild(receipt(DECISION_RECEIPT_BY_DECISION[card.resolution.decision]));
+    const decisionReceipt = DECISION_RECEIPT_BY_DECISION[card.resolution.decision];
+    shell.appendChild(receipt(card.resolution.message ? `${decisionReceipt}: ${card.resolution.message}` : decisionReceipt));
     return shell;
   }
   const actions = el('div', 'chat-card-actions');
   actions.appendChild(button({ variant: 'primary', textCase: 'sentence', label: 'Allow', onClick: () => dispatchCardAction(shell, card, 'decide', 'allow') }));
   actions.appendChild(button({ variant: 'secondary', textCase: 'sentence', label: 'Deny', onClick: () => dispatchCardAction(shell, card, 'decide', 'deny') }));
-  shell.appendChild(actions);
+  shell.append(actions, denyMessageRowOf(shell, card));
   return shell;
+}
+
+function denyMessageRowOf(shell: HTMLElement, card: ChatCardByType['permission']): HTMLElement {
+  const row = el('form', 'chat-card-deny-message');
+  const messageInput = el('input', 'chat-card-message');
+  messageInput.type = 'text';
+  messageInput.maxLength = CHAT_SEND_MAX_CHARS;
+  messageInput.placeholder = 'Tell the agent what to do instead';
+  messageInput.setAttribute('aria-label', 'Message for the agent');
+  const denyWithMessageButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Deny with message', disabled: true });
+  denyWithMessageButton.type = 'submit';
+  messageInput.addEventListener('input', () => {
+    denyWithMessageButton.disabled = messageInput.value.trim().length === 0;
+  });
+  row.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const message = messageInput.value.trim();
+    if (message.length === 0) return;
+    dispatchCardAction(shell, card, 'deny-with-message', message);
+  });
+  row.append(messageInput, denyWithMessageButton);
+  return row;
 }
 
 function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {

@@ -88,6 +88,11 @@ function heldBehavior(reply) {
   return behavior === "allow" || behavior === "deny" ? behavior : null;
 }
 
+function heldDenyMessage(reply) {
+  const message = reply?.hookSpecificOutput?.decision?.message;
+  return typeof message === "string" && message.length > 0 ? message : null;
+}
+
 function relayForReply(event, payload) {
   if (!process.env[HOOK_URL_ENV]) return Promise.resolve(null);
   relayQueue = relayQueue.then(() => runRelay(event, payload)).then(parsedReply, () => null);
@@ -224,7 +229,8 @@ export default function (pi) {
     openPhases.add("ownPrompt");
     const ownPrompt = new AbortController();
     const chatHold = new AbortController();
-    const chatAnswer = heldRelay(PERMISSION_HOLD_EVENT, toolPayload, chatHold.signal).then(heldBehavior);
+    const chatReply = heldRelay(PERMISSION_HOLD_EVENT, toolPayload, chatHold.signal);
+    const chatAnswer = chatReply.then(heldBehavior);
     void chatAnswer.then((behavior) => {
       if (behavior !== null) ownPrompt.abort();
     });
@@ -235,7 +241,8 @@ export default function (pi) {
     chatHold.abort();
     relay("PermissionResult", toolPayload);
     if (isAllowed) return;
-    return { block: true, reason: "The operator denied this " + event.toolName + " call." };
+    const chatDenyMessage = ownPrompt.signal.aborted ? heldDenyMessage(await chatReply) : null;
+    return { block: true, reason: chatDenyMessage ?? "The operator denied this " + event.toolName + " call." };
   });
 
   pi.registerTool({

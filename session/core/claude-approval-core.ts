@@ -91,20 +91,28 @@ export function claudePermissionApprovalFor(request: ClaudePermissionRequest, re
   return { requestId, kind: 'permission', toolName: request.toolName, ...boundedSummary(describeToolInput(request.toolInput)) };
 }
 
-function reasonFor(decision: PermissionDecision): string {
-  return decision === 'allow' ? ALLOWED_FROM_CHAT : DENIED_FROM_CHAT;
+function reasonFor(decision: PermissionDecision, denyMessage: string | null): string {
+  if (decision === 'allow') return ALLOWED_FROM_CHAT;
+  return denyMessage ?? DENIED_FROM_CHAT;
 }
 
-const PERMISSION_REPLY_BY_AGENT: Record<string, (decision: PermissionDecision, reason: string) => PermissionHookReply> = {
+const PERMISSION_REPLY_BY_AGENT: Record<string, (decision: PermissionDecision, reason: string, denyMessage: string | null) => PermissionHookReply> = {
   antigravity: (decision, reason) => ({ decision, reason }),
   kimi: (decision, reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: reason } }),
+  opencode: (decision, _reason, denyMessage) => operatorWordedReply(decision, denyMessage),
+  pi: (decision, _reason, denyMessage) => operatorWordedReply(decision, denyMessage),
 };
 
-export function permissionReplyFor(agentId: string, decision: PermissionDecision): PermissionHookReply {
+function operatorWordedReply(decision: PermissionDecision, denyMessage: string | null): ClaudeHookReply {
+  if (decision === 'deny' && denyMessage !== null) return hookReply({ behavior: decision, message: denyMessage });
+  return hookReply({ behavior: decision });
+}
+
+export function permissionReplyFor(agentId: string, decision: PermissionDecision, denyMessage: string | null = null): PermissionHookReply {
   const replyFor = PERMISSION_REPLY_BY_AGENT[agentId];
-  if (replyFor) return replyFor(decision, reasonFor(decision));
+  if (replyFor) return replyFor(decision, reasonFor(decision, denyMessage), denyMessage);
   if (decision === 'allow') return hookReply({ behavior: 'allow' });
-  return hookReply({ behavior: 'deny', message: DENIED_FROM_CHAT });
+  return hookReply({ behavior: 'deny', message: reasonFor(decision, denyMessage) });
 }
 
 export function isReadOnlyCommandRequest(request: ClaudePermissionRequest): boolean {

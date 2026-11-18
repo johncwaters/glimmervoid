@@ -192,6 +192,21 @@
 
 .chat-card-option-note { color: var(--text-muted); font-size: var(--type-meta); }
 
+.chat-card-deny-message { display: flex; gap: 8px; }
+
+.chat-card-message {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.chat-card-message:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .chat-card-receipt { color: var(--text-muted); font-size: var(--type-meta); }
 
 .chat-card.chat-notice {

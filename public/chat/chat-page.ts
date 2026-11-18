@@ -274,6 +274,14 @@ function buildChat(sessionId: string): MountedChat {
       resolveCard({ ...card, resolution: { decision: value } });
       return;
     }
+    if (card.cardType === 'permission' && action === 'deny-with-message') {
+      if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value })) {
+        showFailure(NOT_SENT_TEXT);
+        return;
+      }
+      resolveCard({ ...card, resolution: { decision: 'deny', message: value } });
+      return;
+    }
     if (card.cardType !== 'question' || action !== 'answer') return;
     shown.answers.set(card.data.question, value);
     if (shown.answers.size < shown.cards.length) {

@@ -84,7 +84,7 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   releaseAll(): void;
   yieldManagerDecisions(): void;
   answer(requestId: number | string, answers: ConversationAnswers): boolean;
-  decide(requestId: number | string, decision: PermissionDecision): boolean;
+  decide(requestId: number | string, decision: PermissionDecision, denyMessage: string | null): boolean;
   release(requestId: string): boolean;
 }
 
@@ -400,11 +400,11 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     return true;
   }
 
-  function decide(requestId: number | string, decision: PermissionDecision): boolean {
+  function decide(requestId: number | string, decision: PermissionDecision, denyMessage: string | null): boolean {
     const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
     if (hold?.approval.kind !== "permission") return false;
     holds = holds.filter((candidate) => candidate !== hold);
-    hold.resolve(permissionReplyFor(agentId, decision));
+    hold.resolve(permissionReplyFor(agentId, decision, denyMessage));
     showFirstApproval();
     return true;
   }
