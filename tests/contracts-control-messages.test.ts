@@ -219,6 +219,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'my-prs-status', ts: NOW, configured: true, viewer: 'alice', prs: [], error: null },
   { type: 'github-prs', ts: NOW, prs: {}, freshness: { lastRefreshedAt: null, error: null } },
   { type: 'usage-sessions', ts: NOW, pricingSource: 'bundled', sessions: [{ id: 'session-1', tokens: 123, costUSD: 0.5, officialCostUSD: null }] },
+  { type: 'session-meter', id: 'session-1', ts: NOW, model: 'Opus 5.5', effort: 'medium', contextTokens: 38710, contextWindow: 1000000, callCostUSD: 0.0193, outputStyle: 'default' },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, pricing: {}, scan: {}, warning: null, error: null },
   { type: 'plan-limits', ts: NOW, fiveHour: { pct: 10, resetsAtMs: NOW + 1000 }, sevenDay: null, source: 'statusline' },
   { type: 'usage-budget-alert', scope: 'daily', periodKey: '2026-08-26', threshold: 50, spentUsd: 5, budgetUsd: 10, text: 'budget crossed', ts: NOW },

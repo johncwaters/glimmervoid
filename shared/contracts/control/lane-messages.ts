@@ -2,6 +2,16 @@ import { z } from 'zod';
 import { YourDay } from '../your-day.ts';
 import { requestId, sessionId, loose, openObject, nullableString, timestamp, optionalTimestamp, optionalError, opaqueObject, opaqueArray, PlanLimitsVendor } from './control-fields.ts';
 
+export const SessionMeterReading = z.object({
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
+  contextTokens: z.number().nonnegative().nullable(),
+  contextWindow: z.number().positive().nullable(),
+  callCostUSD: z.number().nonnegative().nullable(),
+  outputStyle: z.string().nullable(),
+});
+export type SessionMeterReading = z.infer<typeof SessionMeterReading>;
+
 export const laneClientVariants = [
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
 ] as const;
@@ -46,6 +56,7 @@ export const laneServerVariants = [
     source: z.string(),
     vendor: PlanLimitsVendor.optional(),
   }),
+  loose('session-meter', { id: sessionId, ts: timestamp, ...SessionMeterReading.shape }),
   loose('usage-budget-alert', {
     scope: z.string(),
     periodKey: z.string(),

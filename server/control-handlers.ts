@@ -159,6 +159,7 @@ interface ControlHandlerDeps {
   getUsageReport?: (() => unknown) | null;
   requestUsageReport?: ((args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<unknown>) | null;
   getPlanLimits?: (() => readonly unknown[]) | null;
+  getSessionMeters?: (() => readonly unknown[]) | null;
   controlReplayLog?: ReplayLog | null;
   telegramDelivery?: TelegramDeliveryControl | null;
   conversationFs?: typeof fs;

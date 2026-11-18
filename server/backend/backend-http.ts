@@ -122,7 +122,7 @@ interface BackendHttpDependencies {
     enrich?: (input: { glimmervoidId: string; event: string; token: string | null; payload: Record<string, unknown> }) => Promise<Record<string, unknown>>;
   };
   getSession: (id: string) => Session | null;
-  getUsage: () => { ingestStatusline: (payload: object) => void };
+  getUsage: () => { ingestStatusline: (payload: object, glimmervoidId: string) => void };
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
@@ -495,7 +495,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
         payload,
       });
       if (output.status === 200 && isStatuslineEvent(req.params.event)) {
-        getUsage().ingestStatusline(payload);
+        getUsage().ingestStatusline(payload, req.params.glimmervoidId);
       }
       const refocusReply = refocusReplyFor({
         accepted: output.status === 200,

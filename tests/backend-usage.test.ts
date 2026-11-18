@@ -698,3 +698,21 @@ test('kimi plan limits poll /usages read-only while a kimi session is live, rare
   await settle();
   assert.equal(requests.length, 3);
 });
+
+test('a session meter taken before pricing loads gets its call cost once pricing arrives', async () => {
+  const meters: unknown[] = [];
+  const wiring = createUsageWiring({
+    config: {},
+    sessions: new Map(),
+    broadcast: (message) => {
+      if (message.type === 'session-meter') meters.push(message.callCostUSD);
+    },
+    createScanner: () => scriptedScanner([], [COMPLETE_PASS]),
+    loadPricingFn: async () => ({ table: new Map([['claude-opus-4-5', { cache_read_input_token_cost: 5e-7 }]]), source: 'snapshot', fetchedAt: null }),
+    logger: { warn: () => {}, log: () => {} },
+  });
+  wiring.ingestStatusline({ model: { id: 'claude-opus-4-5' }, context_window: { current_usage: { input_tokens: 0, cache_read_input_tokens: 40_000 } } }, 'card-a');
+  await wiring.start();
+  assert.deepEqual(meters, [null, 0.02]);
+  await wiring.stop();
+});

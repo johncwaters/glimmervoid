@@ -12,6 +12,7 @@ function createLaneHandlers(_context: ControlContext, deps: ControlHandlerDeps):
     getUsageReport = null,
     requestUsageReport = null,
     getPlanLimits = null,
+    getSessionMeters = null,
   } = deps;
 
   async function handleRequestUsageReport(msg: ClientMessageOf<'request-usage-report'>, ws: ControlSocket): Promise<void> {
@@ -35,6 +36,7 @@ function createLaneHandlers(_context: ControlContext, deps: ControlHandlerDeps):
     for (const planLimits of planLimitsMessages) {
       if (planLimits) frames.push(planLimits);
     }
+    if (typeof getSessionMeters === 'function') frames.push(...getSessionMeters());
     return frames;
   }
 

@@ -1,5 +1,6 @@
-import { isRecord, numberOr } from '../../../shared/coerce.ts';
+import { isRecord, numberOr, positiveNumberOr, textOr } from '../../../shared/coerce.ts';
 import type { PlanLimitsVendor } from '../../../shared/contracts/control-messages.ts';
+import type { SessionMeterReading } from '../../../shared/contracts/control/lane-messages.ts';
 
 const PCT_DECIMALS = 1;
 
@@ -115,10 +116,48 @@ function buildPlanLimitsMessage(
   };
 }
 
+type CallCostOf = (modelId: string, contextTokens: number) => number | null;
+
+function contextTokensOf(context: Record<string, unknown> | null): number | null {
+  const currentUsage = context?.current_usage;
+  if (!isRecord(currentUsage)) return null;
+  const promptParts = [currentUsage.input_tokens, currentUsage.cache_creation_input_tokens, currentUsage.cache_read_input_tokens].map((tokens) => numberOr(tokens, 0));
+  return Math.max(0, promptParts.reduce((total, tokens) => total + tokens, 0));
+}
+
+function effortOf(effort: unknown): string | null {
+  if (isRecord(effort)) return textOr(effort.level, null);
+  return textOr(effort, null);
+}
+
+interface MeteredStatusline {
+  reading: SessionMeterReading;
+  pricingModelId: string | null;
+}
+
+function sessionMeterOf(payload: unknown, callCostOf: CallCostOf): MeteredStatusline | null {
+  if (!isRecord(payload)) return null;
+  const model = isRecord(payload.model) ? payload.model : null;
+  const modelId = textOr(model?.id, null);
+  const context = isRecord(payload.context_window) ? payload.context_window : null;
+  const contextTokens = contextTokensOf(context);
+  const callCostUSD = modelId !== null && contextTokens !== null ? callCostOf(modelId, contextTokens) : null;
+  const reading: SessionMeterReading = {
+    model: textOr(model?.display_name, modelId),
+    effort: effortOf(payload.effort),
+    contextTokens,
+    contextWindow: positiveNumberOr(context?.context_window_size, null),
+    callCostUSD,
+    outputStyle: isRecord(payload.output_style) ? textOr(payload.output_style.name, null) : null,
+  };
+  if (Object.values(reading).every((field) => field === null)) return null;
+  return { reading, pricingModelId: modelId };
+}
+
 function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | null | undefined): number | null {
   if (costMode === 'calculate') return null;
   return recordedCostUSD ?? null;
 }
 
-export { normalizeStatuslinePayload, rateLimitWindow, shouldBroadcastPlanLimits, buildPlanLimitsMessage, selectOfficialSessionCost };
+export { normalizeStatuslinePayload, rateLimitWindow, sessionMeterOf, shouldBroadcastPlanLimits, buildPlanLimitsMessage, selectOfficialSessionCost };
 export type { PlanLimitsVendor };

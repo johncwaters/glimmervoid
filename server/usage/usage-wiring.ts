@@ -16,6 +16,7 @@ import {
   buildPlanLimitsMessage,
   normalizeStatuslinePayload,
   selectOfficialSessionCost,
+  sessionMeterOf,
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
 import type { PlanLimitsVendor, RateLimitWindows, StatuslineSnapshot } from './core/usage-statusline-core.ts';
@@ -26,6 +27,9 @@ import { createJsonStateStore } from '../json-file.ts';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { loadPricing } from './usage-pricing.ts';
+import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
+import type { SessionMeterReading } from '../../shared/contracts/control/lane-messages.ts';
+import type { ServerMessageOf } from '../../shared/contracts/index.ts';
 import type { PricingResult } from './usage-pricing.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { createUsageScanner } from './usage-scanner.ts';
@@ -57,6 +61,7 @@ const DEFAULT_USAGE_CONFIG = Object.freeze({
 });
 
 const OFFICIAL_COST_CAP = 200;
+const SESSION_METER_CAP = 200;
 
 const NUDGE_DEBOUNCE_MS = 2000;
 
@@ -210,6 +215,16 @@ function budgetAlertText(
   return `Usage budget: ${period} spend ${formatBudgetUsd(spentUsd)} reached ${threshold}% of ${formatBudgetUsd(budgetUsd)}`;
 }
 
+interface StoredSessionMeter {
+  message: ServerMessageOf<'session-meter'>;
+  pricingModelId: string | null;
+}
+
+function meterReadingOf(message: ServerMessageOf<'session-meter'>): SessionMeterReading {
+  const { type: _type, id: _id, ts: _ts, ...reading } = message;
+  return reading;
+}
+
 function createUsageWiring({
   config,
   sessions = new Map(),
@@ -268,6 +283,7 @@ function createUsageWiring({
   let lastKimiPollMs: number | null = null;
   let kimiPollInFlight: Promise<void> | null = null;
   const officialCostByClaudeId = new Map<string, number>();
+  const sessionMeterById = new Map<string, StoredSessionMeter>();
   let budgetFiredState: BudgetFiredState = { daily: {}, monthly: {} };
   let budgetEvaluation:
     | { kind: 'idle' }
@@ -328,6 +344,7 @@ function createUsageWiring({
       if (budgetStatePath) await loadBudgetState();
       const loadedPricing = await loadPricingSafely();
       pricing = loadedPricing;
+      repriceSessionMeters();
       if (stopped) return;
       scanner = createScanner({
         pricingTable: loadedPricing.table,
@@ -511,9 +528,46 @@ function createUsageWiring({
     if (!oldest.done) officialCostByClaudeId.delete(oldest.value);
   }
 
-  function ingestStatusline(payload: unknown): void {
+  function callCostOf(modelId: string, contextTokens: number): number | null {
+    const resolved = lookupModelPrice(pricing?.table, modelId);
+    if (!resolved) return null;
+    return costForEntry({ model: modelId, cacheRead: contextTokens }, resolved.price, { costMode: 'calculate' }).costUSD;
+  }
 
-    if (stopped || !cfg.enabled || !cfg.planLimits) return;
+  function publishSessionMeter(glimmervoidId: string, reading: SessionMeterReading, pricingModelId: string | null): void {
+    const stored = sessionMeterById.get(glimmervoidId);
+    if (stored && JSON.stringify(meterReadingOf(stored.message)) === JSON.stringify(reading)) return;
+    const message: ServerMessageOf<'session-meter'> = { type: 'session-meter', id: glimmervoidId, ts: nowFn(), ...reading };
+    sessionMeterById.delete(glimmervoidId);
+    sessionMeterById.set(glimmervoidId, { message, pricingModelId });
+    if (sessionMeterById.size > SESSION_METER_CAP) {
+      const oldest = sessionMeterById.keys().next();
+      if (!oldest.done) sessionMeterById.delete(oldest.value);
+    }
+    broadcast(message);
+  }
+
+  function rememberSessionMeter(payload: unknown, glimmervoidId: string): void {
+    const metered = sessionMeterOf(payload, callCostOf);
+    if (metered) publishSessionMeter(glimmervoidId, metered.reading, metered.pricingModelId);
+  }
+
+  function repriceSessionMeters(): void {
+    for (const [glimmervoidId, { message, pricingModelId }] of [...sessionMeterById]) {
+      const reading = meterReadingOf(message);
+      const callCostUSD = pricingModelId !== null && reading.contextTokens !== null ? callCostOf(pricingModelId, reading.contextTokens) : null;
+      publishSessionMeter(glimmervoidId, { ...reading, callCostUSD }, pricingModelId);
+    }
+  }
+
+  function getSessionMeterMessages(): ServerMessageOf<'session-meter'>[] {
+    return [...sessionMeterById.values()].map((stored) => stored.message);
+  }
+
+  function ingestStatusline(payload: unknown, glimmervoidId: string): void {
+    if (stopped) return;
+    rememberSessionMeter(payload, glimmervoidId);
+    if (!cfg.enabled || !cfg.planLimits) return;
     const snapshot = normalizeStatuslinePayload(payload, nowFn());
     if (!snapshot) return;
     rememberOfficialCost(snapshot);
@@ -819,6 +873,7 @@ function createUsageWiring({
     requestReport,
     ingestStatusline,
     getPlanLimitsMessage,
+    getSessionMeterMessages,
     budgetHoldReason,
     readBudgetHoldReason,
   };
