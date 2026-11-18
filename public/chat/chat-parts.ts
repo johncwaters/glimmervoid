@@ -191,7 +191,7 @@ interface ChatLog {
   toggleTurn(turnElement: HTMLElement): void;
 }
 
-export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns): ChatLog {
+export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
   const element = el('div', 'chat-log');
   element.setAttribute('role', 'log');
   const elementByPartId = new Map<string, HTMLElement>();
@@ -269,8 +269,10 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns): C
     const partId = turnElement.dataset.partId;
     const view = partId === undefined ? undefined : turnViewByPartId.get(partId);
     if (partId === undefined || !view || !view.isOver || !view.isFoldable) return;
-    isOpenedByOperatorByPartId.set(partId, view.element.hasAttribute('data-collapsed'));
-    showCollapse(partId);
+    keepTurnInPlace(view.element, () => {
+      isOpenedByOperatorByPartId.set(partId, view.element.hasAttribute('data-collapsed'));
+      showCollapse(partId);
+    });
   };
   element.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;

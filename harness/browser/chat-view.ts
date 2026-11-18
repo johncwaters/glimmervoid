@@ -1,6 +1,7 @@
 import '../support/disable-telemetry.ts';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Page } from 'playwright-core';
 import type { Plugin } from 'vite';
 import { TraceRecord } from '../../shared/contracts/trace.ts';
 import { browserTypeOf } from '../support/browser-engines.ts';
@@ -73,6 +74,37 @@ function traceRecordsPlugin(traceRecords: readonly TraceRecord[]): Plugin {
   };
 }
 
+async function checkTurnKeys(page: Page): Promise<string> {
+  await page.setViewportSize({ width: 900, height: 640 });
+  await page.evaluate(() => window.dispatchEvent(new Event('harness-remount-chat')));
+  await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined));
+  const isScrolled = await page.evaluate(() => {
+    const scroller = document.querySelector('.chat-scroller');
+    return scroller !== null && scroller.scrollHeight > scroller.clientHeight;
+  });
+  if (!isScrolled) throw new Error('the turn keys check needs a Chat taller than its viewport');
+  const turnCount = await page.locator('.chat-turn').count();
+  if (turnCount < 3) return 'turn keys: not checked, fewer than 3 turns';
+  for (const key of ['[', '[', '[']) await page.keyboard.press(key);
+  const focusedTurnIndex = await page.evaluate(() => [...document.querySelectorAll('.chat-turn')].indexOf(document.activeElement as Element));
+  if (focusedTurnIndex !== turnCount - 3) throw new Error(`[ three times focused turn ${focusedTurnIndex}, not ${turnCount - 3}`);
+  const turnTopsBefore = await page.locator('.chat-turn').evaluateAll((turns) => turns.map((turn) => turn.getBoundingClientRect().top));
+  const wasCollapsed = await page.evaluate(() => document.activeElement?.hasAttribute('data-collapsed') ?? false);
+  await page.keyboard.press('Space');
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const isCollapsed = await page.evaluate(() => document.activeElement?.hasAttribute('data-collapsed') ?? false);
+  if (wasCollapsed && isCollapsed) throw new Error('Space did not open the focused turn');
+  const turnTopsAfter = await page.locator('.chat-turn').evaluateAll((turns) => turns.map((turn) => turn.getBoundingClientRect().top));
+  const movedAboveCount = turnTopsBefore.slice(0, focusedTurnIndex + 1).filter((top, index) => Math.abs(top - (turnTopsAfter[index] ?? top)) > 0.5).length;
+  if (movedAboveCount > 0) throw new Error(`opening a turn moved ${movedAboveCount} turns at or above it`);
+  await page.keyboard.press('b');
+  const isBriefOff = await page.evaluate(() => document.documentElement.hasAttribute('data-chat-brief-off'));
+  await page.keyboard.press('b');
+  const isBriefBack = await page.evaluate(() => !document.documentElement.hasAttribute('data-chat-brief-off'));
+  if (!isBriefOff || !isBriefBack) throw new Error('B did not switch Brief off and back on');
+  return `turn keys on a remounted, scrolled Chat: [ stepped to turn ${focusedTurnIndex}, Space ${wasCollapsed ? 'opened' : 'kept open'} it with 0 turns above moving, B switched Brief off and on`;
+}
+
 async function captureScreenshot(url: string, screenshotPath: string, executablePath: string | null): Promise<void> {
   const chromium = await browserTypeOf('chromium');
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
@@ -84,10 +116,11 @@ async function captureScreenshot(url: string, screenshotPath: string, executable
   await page.screenshot({ path: screenshotPath });
   const turnEndShiftPx = await page.evaluate(() => document.body.dataset.turnEndShiftPx ?? null);
   const turnMetaRows = await page.locator('.chat-turn[data-foldable] .chat-turn-meta').allInnerTexts();
+  const turnKeysReport = await checkTurnKeys(page);
   await browser.close();
   if (pageErrors.length > 0) throw new Error(`the chat view threw: ${pageErrors.join('; ')}`);
   if (turnEndShiftPx !== null && turnEndShiftPx !== '0') throw new Error(`ending the turn moved the conversation by ${turnEndShiftPx}px`);
-  console.log(`turn end shift: ${turnEndShiftPx === null ? 'not measured' : `${turnEndShiftPx}px`}; turn meta rows: ${JSON.stringify(turnMetaRows)}`);
+  console.log(`turn end shift: ${turnEndShiftPx === null ? 'not measured' : `${turnEndShiftPx}px`}; turn meta rows: ${JSON.stringify(turnMetaRows)}; ${turnKeysReport}`);
 }
 
 async function main(): Promise<void> {

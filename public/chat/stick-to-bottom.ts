@@ -17,6 +17,7 @@ const NEXT_MODE_BY_SIGNAL: Record<FollowSignal, FollowMode> = {
 interface StickToBottom {
   jumpButton: HTMLButtonElement;
   followLatest(): void;
+  keepInPlace(anchor: HTMLElement, change: () => void): void;
 }
 
 function distanceFromBottom(scroller: HTMLElement): number {
@@ -69,6 +70,13 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
     scrollToBottom();
   };
   jumpButton.addEventListener('click', followLatest);
+  const keepInPlace = (anchor: HTMLElement, change: () => void) => {
+    const anchorTopBefore = anchor.getBoundingClientRect().top;
+    change();
+    scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTopBefore;
+    lastScrollTop = scroller.scrollTop;
+    if (distanceFromBottom(scroller) > BOTTOM_THRESHOLD_PX) receive('scroll-up');
+  };
   const followObserver = new ResizeObserver(() => {
     if (mode === 'following') {
       scrollToBottom();
@@ -78,5 +86,5 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   });
   followObserver.observe(content, { box: 'border-box' });
   followObserver.observe(scroller);
-  return { jumpButton, followLatest };
+  return { jumpButton, followLatest, keepInPlace };
 }

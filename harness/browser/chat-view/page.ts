@@ -29,7 +29,8 @@ const traceResponse = await fetch('/trace-records.json');
 const { records: traceRecords }: { records: TraceRecord[] } = await traceResponse.json();
 let harnessSeenTurnKey: number | null = null;
 const harnessSeenTurns = { readSeenTurnKey: () => harnessSeenTurnKey, markSeen: (turnKey: number) => { harnessSeenTurnKey = turnKey; } };
-const chatView = createChatView((fileName) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`), harnessSeenTurns);
+const harnessUploadUrlOf = (fileName: string) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`);
+const chatView = createChatView(harnessUploadUrlOf, harnessSeenTurns);
 chatHost?.appendChild(chatView.element);
 chatView.setTurnRunning(true);
 const HARNESS_NOW_MS = Date.now();
@@ -88,8 +89,13 @@ function partTops(): number[] {
 function showRecordsAtRest(): void {
   const partsState = createChatPartsState();
   const appended = appendChatRecords(partsState, traceRecords);
-  chatView.upsert(appended.parts);
-  chatView.upsert(endChatTurn(partsState));
+  const restingParts = [...appended.parts, ...endChatTurn(partsState)];
+  chatView.upsert(restingParts);
+  window.addEventListener('harness-remount-chat', () => {
+    const remountedView = createChatView(harnessUploadUrlOf, harnessSeenTurns);
+    remountedView.upsert(restingParts);
+    document.querySelector('.chat-view')?.replaceWith(remountedView.element);
+  });
 }
 
 if (new URLSearchParams(location.search).has('live')) await playLive();

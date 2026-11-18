@@ -46,11 +46,13 @@ function railGroupElementsOf(fields: readonly RailField[]): HTMLElement[] {
   });
 }
 
-export function createStatusRail(): StatusRail {
+export function createStatusRail(trailingControl: HTMLElement): StatusRail {
   const element = el('div', 'chat-rail');
   element.setAttribute('aria-label', 'Session status');
+  const fieldsElement = el('div', 'chat-rail-fields');
+  element.append(fieldsElement, trailingControl);
   const show = (fields: readonly RailField[]) => {
-    element.replaceChildren(...railGroupElementsOf(fields));
+    fieldsElement.replaceChildren(...railGroupElementsOf(fields));
   };
   return { element, show };
 }

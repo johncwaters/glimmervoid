@@ -42,6 +42,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   traceHiddenKinds: string[];
   dismissedUpdate: string | null;
   telemetryNoticeDismissed: boolean;
+  isChatBriefOff: boolean;
   radarAttentionAck: string;
   prsAttentionAck: string;
   prsUnseenRows: string;
@@ -102,6 +103,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   traceHiddenKinds: asStringList,
   dismissedUpdate: asNullableString,
   telemetryNoticeDismissed: asBoolean(false),
+  isChatBriefOff: asBoolean(false),
   radarAttentionAck: asString(''),
   prsAttentionAck: asString(''),
   prsUnseenRows: asString(''),
@@ -211,6 +213,8 @@ export const setDismissedUpdate = (key: string | null) => write('dismissedUpdate
 
 export const isTelemetryNoticeDismissed = () => read('telemetryNoticeDismissed');
 export const setTelemetryNoticeDismissed = (dismissed: boolean) => write('telemetryNoticeDismissed', dismissed);
+export const isChatBriefOff = () => read('isChatBriefOff');
+export const setChatBriefOff = (isOff: boolean) => write('isChatBriefOff', isOff);
 
 export const getRadarAttentionAck = () => read('radarAttentionAck');
 export const setRadarAttentionAck = (signature: string) => write('radarAttentionAck', signature);

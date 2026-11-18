@@ -8,6 +8,7 @@ import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import type { SeenTurns } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
+import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
 import type { RailField } from './status-rail-core.ts';
 
 interface ChatView {
@@ -33,6 +34,99 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
 };
 
 const DOCK_CLEARANCE_PX = 4;
+const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
+const TURN_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['[', -1], [']', 1]]);
+
+interface KeyedChat {
+  element: HTMLElement;
+  logElement: HTMLElement;
+  toggleTurn(turnElement: HTMLElement): void;
+}
+
+let keyedChat: KeyedChat | null = null;
+const keyedChatByElement = new WeakMap<Element, KeyedChat>();
+let isChatKeyListenerInstalled = false;
+
+function showBriefState(isBriefOff: boolean): void {
+  document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isBriefOff);
+  for (const briefToggle of document.querySelectorAll('.chat-brief-toggle')) briefToggle.setAttribute('aria-pressed', String(!isBriefOff));
+}
+
+function toggleBrief(): void {
+  const isBriefOff = !document.documentElement.hasAttribute(BRIEF_OFF_ATTRIBUTE);
+  setChatBriefOff(isBriefOff);
+  showBriefState(isBriefOff);
+}
+
+function isEditableFocused(): boolean {
+  const focused = document.activeElement;
+  return focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement || (focused instanceof HTMLElement && focused.isContentEditable);
+}
+
+function isShown(chat: KeyedChat): boolean {
+  return chat.element.isConnected && chat.element.offsetParent !== null;
+}
+
+function shownKeyedChat(): KeyedChat | null {
+  if (keyedChat !== null && isShown(keyedChat)) return keyedChat;
+  const shownChats = [...document.querySelectorAll('.chat-view')].flatMap((chatElement) => {
+    const chat = keyedChatByElement.get(chatElement);
+    return chat !== undefined && isShown(chat) ? [chat] : [];
+  });
+  keyedChat = shownChats[0] ?? null;
+  return keyedChat;
+}
+
+function stepTurnFocus(chat: KeyedChat, step: number): void {
+  const turnElements = [...chat.logElement.querySelectorAll<HTMLElement>('.chat-turn')];
+  const focusedIndex = turnElements.findIndex((turnElement) => turnElement === document.activeElement);
+  const targetIndex = focusedIndex < 0 ? turnElements.length - 1 : Math.min(turnElements.length - 1, Math.max(0, focusedIndex + step));
+  const targetTurn = turnElements[targetIndex];
+  if (!targetTurn) return;
+  targetTurn.focus({ preventScroll: true });
+  targetTurn.scrollIntoView({ block: 'nearest' });
+}
+
+function focusedTurnOf(chat: KeyedChat): HTMLElement | null {
+  const focused = document.activeElement;
+  if (!(focused instanceof HTMLElement) || !focused.classList.contains('chat-turn') || !chat.logElement.contains(focused)) return null;
+  return focused;
+}
+
+function handleChatKey(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.isComposing || isEditableFocused()) return;
+  const chat = shownKeyedChat();
+  if (chat === null) return;
+  if (event.code === 'KeyB' && !event.shiftKey) {
+    event.preventDefault();
+    toggleBrief();
+    return;
+  }
+  const step = TURN_STEP_BY_KEY.get(event.key);
+  if (step !== undefined) {
+    event.preventDefault();
+    stepTurnFocus(chat, step);
+    return;
+  }
+  const focusedTurn = event.key === ' ' ? focusedTurnOf(chat) : null;
+  if (focusedTurn === null) return;
+  event.preventDefault();
+  chat.toggleTurn(focusedTurn);
+}
+
+function keepChatKeyed(chat: KeyedChat): void {
+  const markKeyed = () => {
+    keyedChat = chat;
+  };
+  chat.element.addEventListener('pointerdown', markKeyed);
+  chat.element.addEventListener('focusin', markKeyed);
+  keyedChatByElement.set(chat.element, chat);
+  keyedChat = chat;
+  if (isChatKeyListenerInstalled) return;
+  isChatKeyListenerInstalled = true;
+  document.addEventListener('keydown', handleChatKey);
+  window.addEventListener('storage', () => showBriefState(isChatBriefOff()));
+}
 
 function queuedStatusOf(entry: ChatOutboxEntry): string {
   if (entry.state === 'failed') return entry.failure ?? 'Not sent.';
@@ -58,17 +152,22 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
 export function createChatView(uploadUrlOf: (fileName: string) => string, seenTurns: SeenTurns): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
-  const chatLog = createChatLog(uploadUrlOf, seenTurns);
-  const composer = createComposer(uploadUrlOf);
+
+  const briefToggle = button({ variant: 'quiet', size: 'small', label: 'Brief', shortcutKey: 'B', onClick: toggleBrief });
+  briefToggle.classList.add('chat-brief-toggle');
+  briefToggle.setAttribute('aria-pressed', String(!isChatBriefOff()));
+  document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isChatBriefOff());
+  const composer = createComposer(uploadUrlOf, briefToggle);
   const activity = createChatActivity();
   const queuedList = el('div', 'chat-queued-list');
   const scrollContent = el('div', 'chat-scroll-content');
+  const { jumpButton, followLatest, keepInPlace } = stickToBottom(scroller, scrollContent);
+  const chatLog = createChatLog(uploadUrlOf, seenTurns, keepInPlace);
   scrollContent.append(chatLog.element, queuedList, activity.element);
   scroller.append(scrollContent);
   const showQueued = (entries: readonly ChatOutboxEntry[]) => {
     queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf)));
   };
-  const { jumpButton, followLatest } = stickToBottom(scroller, scrollContent);
   composer.element.addEventListener('chat-send', followLatest);
   const jumpSlot = el('div', 'chat-jump-slot');
   jumpSlot.appendChild(jumpButton);
@@ -80,6 +179,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string, seenTu
   new ResizeObserver(() => {
     scrollContent.style.paddingBottom = `${dock.offsetHeight + DOCK_CLEARANCE_PX}px`;
   }).observe(dock, { box: 'border-box' });
+  keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
   const setTurnRunning = (isTurnRunning: boolean) => {
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
