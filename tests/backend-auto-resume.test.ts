@@ -118,9 +118,10 @@ function fakeIPty(): pty.IPty {
   };
 }
 
-function fakeSession(id: string, resumeSessionId: string | null, calls: SpawnCall[]): Session {
+function fakeSession(id: string, resumeSessionId: string | null, calls: SpawnCall[], agent?: string): Session {
   return new Session({
     id,
+    ...(agent ? { agent } : {}),
     name: id,
     path: process.cwd(),
     spawnCommand: { path: process.execPath, kind: 'exe' },
@@ -136,7 +137,7 @@ function autoResumeConfig(projects: Record<string, unknown>[], autoResume: boole
   };
 }
 
-test('runAutoResume spawns a picked session with --resume <id>, even when its transcript sits under a former worktree, continues one that was mid-turn, and leaves non-picked ones alone', async () => {
+test('runAutoResume spawns a picked session with --resume <id>, even when its transcript sits under a former worktree, continues one that was mid-turn, restarts a live shell however long it sat idle, and leaves non-picked ones alone', async () => {
   const calls: SpawnCall[] = [];
   const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
   writeClaudeTranscript(process.cwd(), resumeSessionId);
@@ -147,12 +148,14 @@ test('runAutoResume spawns a picked session with --resume <id>, even when its tr
   const working = fakeSession('working', resumeSessionId, calls);
   const dormantNoFlag = fakeSession('not-active', null, calls);
   const noId = fakeSession('no-id', null, calls);
+  const shell = fakeSession('shell', null, calls, 'shell');
   const sessionsMap = new Map([
     ['picked', picked],
     ['moved', moved],
     ['working', working],
     ['not-active', dormantNoFlag],
     ['no-id', noId],
+    ['shell', shell],
   ]);
   const cfg = autoResumeConfig([
     { id: 'picked', wasActive: true, wasWorking: false, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' },
@@ -160,10 +163,11 @@ test('runAutoResume spawns a picked session with --resume <id>, even when its tr
     { id: 'working', wasActive: true, wasWorking: true, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' },
     { id: 'not-active', wasActive: false, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' },
     { id: 'no-id', wasActive: true },
+    { id: 'shell', agent: 'shell', wasActive: true, wasWorking: true, lastWorkedAt: 0 },
   ], true);
   try {
     await runAutoResume(sessionsMap, cfg, createSpawnGate());
-    assert.deepEqual(calls.map((call) => call.id).sort(), ['moved', 'picked', 'working'], 'only the picked sessions spawned');
+    assert.deepEqual(calls.map((call) => call.id).sort(), ['moved', 'picked', 'shell', 'working'], 'only the picked sessions spawned');
     const argsOf = (id: string) => calls.find((call) => call.id === id)?.args ?? [];
     const resumeIdOf = (id: string) => {
       const resumeFlagIndex = argsOf(id).indexOf('--resume');
@@ -176,10 +180,11 @@ test('runAutoResume spawns a picked session with --resume <id>, even when its tr
     assert.equal(working.pendingResumeNote(), null, 'no hook will fetch the note, so none is held back');
     assert.ok(!argsOf('picked').includes(AUTO_CONTINUE_PROMPT), 'an idle session resumes without a prompt');
     assert.equal(picked.state, STATES.STARTING);
+    assert.ok(!argsOf('shell').includes(AUTO_CONTINUE_PROMPT), 'a shell is never typed the continue prompt');
     assert.equal(dormantNoFlag.state, STATES.DORMANT, 'not-active session never spawned');
     assert.equal(noId.state, STATES.DORMANT, 'no-id session never spawned');
   } finally {
-    picked.destroy(); moved.destroy(); working.destroy(); dormantNoFlag.destroy(); noId.destroy();
+    picked.destroy(); moved.destroy(); working.destroy(); dormantNoFlag.destroy(); noId.destroy(); shell.destroy();
   }
 });
 

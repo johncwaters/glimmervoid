@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { SHELL_AGENT_ID } from "../../shared/contracts/config.ts";
 import { encodeProjectDir } from "./conversation-history.ts";
 
 const RESUME_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
@@ -29,6 +30,7 @@ interface ReportedResumeId {
 
 interface AutoResumeProject {
   id: string;
+  agent?: string;
   wasActive?: boolean;
   wasWorking?: boolean;
   lastWorkedAt?: number;
@@ -56,6 +58,10 @@ function pickAutoResume(
   const picked: string[] = [];
   for (const project of projects) {
     if (!project || !project.wasActive) continue;
+    if (project.agent === SHELL_AGENT_ID) {
+      picked.push(project.id);
+      continue;
+    }
     if (!project.resumeSessionId) continue;
     if (hasBeenIdleTooLong(project, nowMs)) continue;
     picked.push(project.id);

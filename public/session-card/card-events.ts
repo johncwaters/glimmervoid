@@ -9,10 +9,27 @@ import { requestSessionRemoval } from '../session-actions.ts';
 import { openWorkspaceReposDialog } from './workspace-repos-dialog.ts';
 import { wirePopupMenuKeys } from '../menu.ts';
 import { loadResumeDialog } from './deferred-loads.ts';
+import { SHELL_AGENT_ID } from './agent-core.ts';
+import { sendSessionAction } from './card-actions.ts';
+import { openConfirmDialog } from './modal.ts';
+import { runRestartChoice } from './restart-menu-core.ts';
+import { STATES } from '#shared/states.ts';
 
 function closeSessionMenu(ui: SessionUi) {
   ui.sessionMenu.classList.remove('open');
   ui.btnSessionMenu.setAttribute('aria-expanded', 'false');
+}
+
+function restartShell(ui: SessionUi, sessionId: string) {
+  if (ui.currentState === STATES.DORMANT) {
+    sendSessionAction(ui, { type: 'start-session', id: sessionId });
+    return;
+  }
+  runRestartChoice('restart', sessionId, {
+    readState: () => ui.currentState,
+    send: (message) => { sendSessionAction(ui, message); },
+    confirm: openConfirmDialog,
+  });
 }
 
 function wireCardEvents(ui: SessionUi, sessionId: string) {
@@ -36,6 +53,7 @@ function wireCardEvents(ui: SessionUi, sessionId: string) {
 
   ui.btnRestart.addEventListener('click', () => {
     closeSessionMenu(ui);
+    if (ui.agent === SHELL_AGENT_ID) { restartShell(ui, sessionId); return; }
     void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: ui.card.dataset.ephemeral === undefined }));
   });
 
