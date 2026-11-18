@@ -124,6 +124,14 @@ async function verifyComposerKeepsFollowing(page: Page): Promise<void> {
   assert.equal(await jumpButton.isVisible(), false, 'a small scroll up near the bottom keeps Chat following');
   await page.mouse.wheel(0, -600);
   await jumpButton.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const readingTop = await scroller.evaluate((element) => element.scrollTop);
+  const chatPageButton = page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true });
+  await chatPageButton.click();
+  await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await openChat(page);
+  await jumpButton.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await scroller.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await scroller.evaluate((element) => element.scrollTop), readingTop, 'leaving Chat and coming back keeps the reading place');
   await jumpButton.click();
   await jumpButton.waitFor({ state: 'hidden', timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-chat .chat-test-filler').evaluate((filler) => filler.remove());
