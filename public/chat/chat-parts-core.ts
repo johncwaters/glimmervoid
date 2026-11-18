@@ -1,5 +1,5 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
-import { type ActivityBeat, beatOfRecord } from './chat-activity-core.ts';
+import { type ActivityBeat, beatOfRecord, loadedSkillOf } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
 
 interface ChatPartsState {
@@ -35,6 +35,8 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   if (record.kind === 'prompt') return { kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text, at: record.ts };
   if (record.kind === 'assistant') return { kind: 'reply', id: nextPartId(state, 'reply'), text: record.text };
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
+  const skillName = loadedSkillOf(record);
+  if (skillName !== null) return { kind: 'skill', id: nextPartId(state, 'skill'), skillName };
   return null;
 }
 

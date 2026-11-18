@@ -7,9 +7,13 @@ export async function uploadFileToSession(sessionId: string, file: File): Promis
   return attemptFileUpload(sessionId, file);
 }
 
-export async function uploadFilesToSession(sessionId: string, files: readonly File[]) {
+export async function uploadFilesToSession(sessionId: string, files: readonly File[]): Promise<File[]> {
   clearHeaderError(UPLOAD_ERROR_SOURCE, sessionId);
-  for (const file of files) await attemptFileUpload(sessionId, file);
+  const uploadedFiles: File[] = [];
+  for (const file of files) {
+    if (await attemptFileUpload(sessionId, file)) uploadedFiles.push(file);
+  }
+  return uploadedFiles;
 }
 
 async function attemptFileUpload(sessionId: string, file: File): Promise<boolean> {

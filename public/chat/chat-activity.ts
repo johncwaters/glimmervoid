@@ -34,7 +34,8 @@ function pickedVerb(beat: ActivityBeat): string {
 }
 
 function beatKey(beat: ActivityBeat): string {
-  return beat.glimmervoidTool === null ? beat.workKind : `glimmervoid:${beat.glimmervoidTool}`;
+  if (beat.glimmervoidTool !== null) return `glimmervoid:${beat.glimmervoidTool}`;
+  return beat.workKind === 'working' ? `working:${beat.toolName}` : beat.workKind;
 }
 
 export function createChatActivity(): ChatActivity {

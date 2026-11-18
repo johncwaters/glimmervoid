@@ -74,7 +74,7 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   const followObserver = new ResizeObserver(() => {
     if (mode === 'following') scrollToBottom();
   });
-  followObserver.observe(content);
+  followObserver.observe(content, { box: 'border-box' });
   followObserver.observe(scroller);
   return { jumpButton, followLatest };
 }

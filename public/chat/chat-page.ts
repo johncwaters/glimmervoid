@@ -14,6 +14,7 @@ import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
+import { uploadFilesToSession } from '../session-upload.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -93,6 +94,13 @@ function cardDetailOf(event: Event): { cardId: string; action: string; value: st
   const { cardId, action, value } = detail;
   if (typeof cardId !== 'string' || typeof action !== 'string' || typeof value !== 'string') return null;
   return { cardId, action, value };
+}
+
+function attachedFilesOf(event: Event): File[] {
+  if (!(event instanceof CustomEvent)) return [];
+  const detail: unknown = event.detail;
+  if (typeof detail !== 'object' || detail === null || !('files' in detail) || !Array.isArray(detail.files)) return [];
+  return detail.files.filter((file): file is File => file instanceof File);
 }
 
 function sendTextOf(event: Event): string | null {
@@ -234,6 +242,13 @@ function buildChat(sessionId: string): MountedChat {
     }
     resolveCard({ ...card, resolution: { answer: value } });
   };
+
+  root.addEventListener('chat-attach', (event) => {
+    const files = attachedFilesOf(event);
+    void uploadFilesToSession(sessionId, files).then((uploadedFiles) => {
+      for (const file of uploadedFiles) chatView.showAttachment(file);
+    });
+  });
 
   root.addEventListener('chat-send', (event) => {
     const text = sendTextOf(event);

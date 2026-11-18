@@ -1,10 +1,11 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 
-type WorkKind = 'thinking' | 'reading' | 'editing' | 'running';
+type WorkKind = 'thinking' | 'reading' | 'editing' | 'running' | 'working';
 
 export interface ActivityBeat {
   workKind: WorkKind;
   glimmervoidTool: string | null;
+  toolName: string | null;
 }
 
 const MCP_TOOL_NAME = /^mcp__(.+?)__(.+)$/;
@@ -33,13 +34,20 @@ const WORK_KIND_BY_TOOL_NAME = new Map<string, WorkKind>(Object.entries({
   write: 'editing',
   apply_patch: 'editing',
   patch: 'editing',
+  bash: 'running',
+  shell: 'running',
+  exec: 'running',
+  exec_command: 'running',
+  local_shell: 'running',
+  run_command: 'running',
+  run_shell_command: 'running',
 } satisfies Record<string, WorkKind>));
 
-const VERBS_BY_WORK_KIND: Record<WorkKind, readonly string[]> = {
+const VERBS_BY_WORK_KIND: Record<Exclude<WorkKind, 'working'>, readonly string[]> = {
   thinking: ['Thinking, allegedly', 'Staring into the void', 'Overthinking it', 'Having a little think', 'Weighing options it will ignore'],
-  reading: ['Reading your code, regrettably', 'Skimming, mostly', 'Judging quietly', 'Reading the docs, for once', 'Looking for the bug you made'],
-  editing: ['Fixing what it broke', 'Moving semicolons around', 'Improving things, probably', 'Editing with confidence', 'Rewriting it, again'],
-  running: ['Pressing buttons', 'Running it to see what happens', 'Hoping the tests pass', 'Poking the shell', 'Waiting on a computer'],
+  reading: ['Reading, regrettably', 'Skimming, mostly', 'Reading quietly', 'Looking things up', 'Reading the fine print'],
+  editing: ['Editing a file', 'Moving semicolons around', 'Editing with confidence', 'Changing a file, carefully', 'Typing very fast'],
+  running: ['Running a command', 'Poking the shell', 'Waiting on a command', 'Pressing enter, bravely', 'Running a command, nervously'],
 };
 
 const VERB_BY_GLIMMERVOID_TOOL = new Map<string, string>(Object.entries({
@@ -62,7 +70,7 @@ const VERB_BY_GLIMMERVOID_TOOL = new Map<string, string>(Object.entries({
 
 const GLIMMERVOID_FALLBACK_VERB = 'Talking to Glimmervoid, as one does';
 
-export const THINKING_BEAT: ActivityBeat = { workKind: 'thinking', glimmervoidTool: null };
+export const THINKING_BEAT: ActivityBeat = { workKind: 'thinking', glimmervoidTool: null, toolName: null };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -91,8 +99,37 @@ function glimmervoidToolOf(name: string, input: unknown): string | null {
 
 function beatOfToolCall(name: string, input: unknown): ActivityBeat {
   const glimmervoidTool = glimmervoidToolOf(name, input);
-  const workKind = WORK_KIND_BY_TOOL_NAME.get(name.toLowerCase()) ?? 'running';
-  return { workKind, glimmervoidTool };
+  const workKind = WORK_KIND_BY_TOOL_NAME.get(name.toLowerCase()) ?? 'working';
+  return { workKind, glimmervoidTool, toolName: name };
+}
+
+const SKILL_TOOL_NAME = 'skill';
+const FILE_READ_TOOL_NAMES: ReadonlySet<string> = new Set(['read', 'read_file', 'view_file']);
+const SKILL_FILE_PATH = /(?:^|[\\/\s"'])skills[\\/]+([A-Za-z0-9._:-]+)[\\/]+SKILL\.md/;
+const SHELL_SKILL_READ = /(?:^|[\s;&|("'])(?:cat|head|bat|less|more|type|Get-Content|gc)\s+(?:-\S+\s+)*["']?([^\s;&|"']*SKILL\.md)/;
+
+function skillNameFromInput(input: unknown): string | null {
+  if (!isRecord(input)) return null;
+  const named = input.skill ?? input.name;
+  return typeof named === 'string' && named.trim().length > 0 ? named.trim() : null;
+}
+
+function inputTextOf(input: unknown): string {
+  return typeof input === 'string' ? input : JSON.stringify(input ?? null).replaceAll('\\\\', '\\');
+}
+
+function skillFileNameOf(pathText: string): string | null {
+  return SKILL_FILE_PATH.exec(pathText)?.[1] ?? null;
+}
+
+export function loadedSkillOf(record: TraceRecord): string | null {
+  if (record.kind !== 'tool_call') return null;
+  if (record.name.toLowerCase() === SKILL_TOOL_NAME) return skillNameFromInput(record.input);
+  const inputText = inputTextOf(record.input);
+  if (FILE_READ_TOOL_NAMES.has(record.name.toLowerCase())) return skillFileNameOf(inputText);
+  if (beatOfToolCall(record.name, record.input).workKind !== 'running') return null;
+  const shellReadPath = SHELL_SKILL_READ.exec(inputText)?.[1];
+  return shellReadPath === undefined ? null : skillFileNameOf(` ${shellReadPath}`);
 }
 
 export function beatOfRecord(record: TraceRecord): ActivityBeat | null {
@@ -102,6 +139,7 @@ export function beatOfRecord(record: TraceRecord): ActivityBeat | null {
 }
 
 export function verbChoicesFor(beat: ActivityBeat): readonly string[] {
-  if (beat.glimmervoidTool === null) return VERBS_BY_WORK_KIND[beat.workKind];
-  return [VERB_BY_GLIMMERVOID_TOOL.get(beat.glimmervoidTool) ?? GLIMMERVOID_FALLBACK_VERB];
+  if (beat.glimmervoidTool !== null) return [VERB_BY_GLIMMERVOID_TOOL.get(beat.glimmervoidTool) ?? GLIMMERVOID_FALLBACK_VERB];
+  if (beat.workKind === 'working') return [`Using ${beat.toolName ?? 'a tool'}`];
+  return VERBS_BY_WORK_KIND[beat.workKind];
 }

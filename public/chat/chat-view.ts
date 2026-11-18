@@ -15,7 +15,10 @@ interface ChatView {
   readDraft(): string;
   restoreDraft(text: string): void;
   showQueued(texts: readonly string[]): void;
+  showAttachment(file: File): void;
 }
+
+const DOCK_CLEARANCE_PX = 4;
 
 export function createChatView(): ChatView {
   const element = el('section', 'chat-view');
@@ -28,11 +31,7 @@ export function createChatView(): ChatView {
   scrollContent.append(chatLog.element, queuedList, activity.element);
   scroller.append(scrollContent);
   const showQueued = (texts: readonly string[]) => {
-    queuedList.replaceChildren(...texts.map((text) => {
-      const queued = el('div', 'chat-prompt chat-prompt-queued');
-      queued.append(el('span', 'chat-prompt-queued-label', 'Queued'), el('span', null, text));
-      return queued;
-    }));
+    queuedList.replaceChildren(...texts.map((text) => el('div', 'chat-prompt chat-prompt-queued', text)));
   };
   const { jumpButton, followLatest } = stickToBottom(scroller, scrollContent);
   composer.element.addEventListener('chat-send', followLatest);
@@ -40,10 +39,15 @@ export function createChatView(): ChatView {
   jumpSlot.appendChild(jumpButton);
   const jumpBar = el('div', 'chat-jump-bar');
   jumpBar.appendChild(jumpSlot);
-  element.append(scroller, jumpBar, composer.element);
+  const dock = el('div', 'chat-dock');
+  dock.append(jumpBar, composer.element);
+  element.append(scroller, dock);
+  new ResizeObserver(() => {
+    scrollContent.style.paddingBottom = `${dock.offsetHeight + DOCK_CLEARANCE_PX}px`;
+  }).observe(dock, { box: 'border-box' });
   const setTurnRunning = (isTurnRunning: boolean) => {
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, showQueued };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, showQueued, showAttachment: composer.showAttachment };
 }

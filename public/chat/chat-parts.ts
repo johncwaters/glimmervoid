@@ -40,9 +40,16 @@ function renderReply(part: Extract<ChatPart, { kind: 'reply' }>): HTMLElement {
   return reply;
 }
 
+function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
+  const skillLine = el('div', 'chat-skill');
+  skillLine.append('Loaded skill ', el('code', null, part.skillName));
+  return skillLine;
+}
+
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   reply: renderReply,
+  skill: renderSkill,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;
 

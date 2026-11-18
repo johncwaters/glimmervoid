@@ -9,6 +9,7 @@ export type ChatCardType = ChatCard['cardType'];
 export type ChatPart =
   | { kind: 'prompt'; id: string; text: string; at: number }
   | { kind: 'reply'; id: string; text: string }
+  | { kind: 'skill'; id: string; skillName: string }
   | { kind: 'card'; id: string; card: ChatCard };
 
 export type ChatPartKind = ChatPart['kind'];

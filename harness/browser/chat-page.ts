@@ -57,6 +57,16 @@ async function verifyChatModelSwitch(page: Page): Promise<void> {
   await composerInput.fill('');
 }
 
+async function verifyComposerHeightSteady(page: Page): Promise<void> {
+  const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  const emptyComposerHeight = await composerInput.evaluate((input) => input.getBoundingClientRect().height);
+  await composerInput.click();
+  await page.keyboard.type('h');
+  const typedComposerHeight = await composerInput.evaluate((input) => input.getBoundingClientRect().height);
+  assert.equal(typedComposerHeight, emptyComposerHeight, 'typing the first character keeps the composer height');
+  await composerInput.fill('');
+}
+
 async function verifyComposerKeepsFollowing(page: Page): Promise<void> {
   const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
   await page.locator('.session-chat .chat-log').evaluate((chatLog) => {
@@ -65,11 +75,23 @@ async function verifyComposerKeepsFollowing(page: Page): Promise<void> {
     tallReply.style.height = '1600px';
     chatLog.append(tallReply);
   });
+  const scroller = page.locator('.session-chat .chat-scroller');
+  const scrollerBoxOf = () => scroller.evaluate((element) => JSON.stringify(element.getBoundingClientRect()));
+  const scrollerBoxBefore = await scrollerBoxOf();
   await composerInput.click();
   for (let line = 0; line < 8; line += 1) {
     await page.keyboard.type(`line ${line}`);
     await page.keyboard.press('Shift+Enter');
   }
+  assert.equal(await scrollerBoxOf(), scrollerBoxBefore, 'growing the composer leaves the conversation where it is');
+  await page.waitForFunction(() => {
+    const scroller = document.querySelector('.session-chat .chat-scroller');
+    const lastEntry = document.querySelector('.session-chat .chat-log > :last-child');
+    const dock = document.querySelector('.session-chat .chat-dock');
+    if (!scroller || !lastEntry || !dock) return false;
+    scroller.scrollTop = scroller.scrollHeight;
+    return lastEntry.getBoundingClientRect().bottom <= dock.getBoundingClientRect().top;
+  }, undefined, { timeout: CARD_TIMEOUT_MS });
   const jumpButton = page.locator('.session-chat').getByRole('button', { name: 'Jump to latest' });
   assert.equal(await jumpButton.isVisible(), false, 'growing the composer does not offer Jump to latest');
   await composerInput.fill('');
@@ -109,10 +131,23 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   }, undefined, { timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-chat .chat-activity .chat-activity-mark').waitFor({ timeout: CARD_TIMEOUT_MS });
   await stopButton.click();
+  await verifyComposerAttachesImage(page);
+}
+
+const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+
+async function verifyComposerAttachesImage(page: Page): Promise<void> {
+  const scroller = page.locator('.session-chat .chat-scroller');
+  const scrollerBoxOf = () => scroller.evaluate((element) => JSON.stringify(element.getBoundingClientRect()));
+  const scrollerBoxBefore = await scrollerBoxOf();
+  await page.locator('.session-chat .chat-composer-file-picker').setInputFiles({ name: 'screen.png', mimeType: 'image/png', buffer: ONE_PIXEL_PNG });
+  await page.locator('.session-chat .chat-composer-attachment img[alt="screen.png"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await scrollerBoxOf(), scrollerBoxBefore, 'an attachment leaves the conversation where it is');
 }
 
 export async function verifyChatTerminal(page: Page): Promise<void> {
   await openChat(page);
+  await verifyComposerHeightSteady(page);
   await sendFromComposer(page, 'ask');
   const terminalInCard = page.locator('.session-chat .chat-card[data-card-type="live-terminal"] .terminal-wrap');
   await terminalInCard.waitFor({ timeout: CARD_TIMEOUT_MS });
