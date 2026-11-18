@@ -114,3 +114,12 @@ test('GitHub issue text keeps intraword underscores, links bare URLs and shows i
     ],
   });
 });
+
+test('agent reply markdown keeps short-delimiter tables and loose ordered lists whole with their start number', () => {
+  const blocks = parsePlanMarkdown(['| Option | Change |', '|---|:-:|', '| A | hairline |', '', '3. three', '', '4. four', '', 'after'].join('\n'));
+  assert.deepEqual(blocks.map((block) => block.type), ['table', 'list', 'paragraph']);
+  const list = blocks[1];
+  assert.ok(list?.type === 'list');
+  assert.equal(list.start, 3);
+  assert.equal(list.items.length, 2);
+});

@@ -40,7 +40,7 @@ export interface PlanListItem {
 export type PlanBlock =
   | { type: 'heading'; level: number; id: string; children: PlanInline[] }
   | { type: 'paragraph'; children: PlanInline[] }
-  | { type: 'list'; ordered: boolean; items: PlanListItem[] }
+  | { type: 'list'; ordered: boolean; start: number; items: PlanListItem[] }
   | { type: 'code'; language: string; text: string }
   | { type: 'table'; header: PlanInline[][]; rows: PlanInline[][][] }
   | { type: 'blockquote'; blocks: PlanBlock[] }
@@ -53,6 +53,7 @@ interface ParseContext {
 interface ListLine {
   indent: number;
   ordered: boolean;
+  number: number;
   content: string;
 }
 
@@ -68,7 +69,7 @@ const MAX_BLOCK_NESTING_DEPTH = 8;
 const fencePattern = /^ {0,3}(`{3,}|~{3,})([^`]*)$/;
 const listPattern = /^(\s*)(?:([-+*])|(\d+)[.)])\s+(.+)$/;
 const rulePattern = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/;
-const tableDividerCellPattern = /^:?-{3,}:?$/;
+const tableDividerCellPattern = /^:?-+:?$/;
 const fenceLanguagePattern = /^[A-Za-z0-9_+#.-]{1,32}$/;
 
 function headingLine(line: string) {
@@ -312,8 +313,15 @@ function listLine(line: string): ListLine | null {
   return {
     indent: match[1].replace(/\t/g, '    ').length,
     ordered: !!match[3],
+    number: match[3] ? Number(match[3]) : 1,
     content: match[4],
   };
+}
+
+function nextNonBlankIndex(lines: readonly string[], index: number) {
+  let nonBlankIndex = index;
+  while (nonBlankIndex < lines.length && lines[nonBlankIndex].trim() === '') nonBlankIndex++;
+  return nonBlankIndex;
 }
 
 function parseList(lines: readonly string[], start: number, context: ParseContext, depth: number) {
@@ -325,8 +333,10 @@ function parseList(lines: readonly string[], start: number, context: ParseContex
   let index = start;
 
   while (index < lines.length) {
-    const current = listLine(lines[index]);
+    const itemIndex = nextNonBlankIndex(lines, index);
+    const current = listLine(lines[itemIndex] ?? '');
     if (!current || current.indent < baseIndent) break;
+    index = itemIndex;
     if (current.indent > baseIndent) {
       if (depth >= MAX_BLOCK_NESTING_DEPTH) break;
       const nested = parseList(lines, index, context, depth + 1);
@@ -340,7 +350,7 @@ function parseList(lines: readonly string[], start: number, context: ParseContex
     index++;
   }
 
-  return { block: { type: 'list', ordered, items } satisfies PlanBlock, next: index };
+  return { block: { type: 'list', ordered, start: first.number, items } satisfies PlanBlock, next: index };
 }
 
 function isBlockStart(lines: readonly string[], index: number) {

@@ -55,6 +55,7 @@ function appendBlocks(parent: HTMLElement, blocks: readonly PlanBlock[]) {
     }
     if (block.type === 'list') {
       const list = block.ordered ? el('ol', 'plan-list') : el('ul', 'plan-list');
+      if (block.ordered && block.start !== 1) list.setAttribute('start', String(block.start));
       list.append(...block.items.map(renderListItem));
       parent.append(list);
       continue;
