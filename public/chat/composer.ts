@@ -51,6 +51,7 @@ function fitInputHeight(input: HTMLTextAreaElement): void {
 export function createComposer(uploadUrlOf: (fileName: string) => string): ChatComposer {
   const element = el('form', 'chat-composer');
   const input = el('textarea', 'chat-composer-input');
+  input.dataset.dashboardShortcuts = 'allowed';
   input.rows = 1;
   input.maxLength = CHAT_SEND_MAX_CHARS;
   input.placeholder = 'Message the agent';

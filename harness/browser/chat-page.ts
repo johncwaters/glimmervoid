@@ -308,8 +308,20 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   assert.equal(await page.locator('.session-card > .session-attention-note').count(), 1, 'the note outlives the inline terminal');
 }
 
+async function verifyComposerPassesDashboardShortcuts(page: Page): Promise<void> {
+  await page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' }).click();
+  const isShortcutHandled = page.evaluate(() => new Promise<boolean>((resolve) => {
+    window.addEventListener('keydown', (event) => {
+      if (event.code === 'KeyJ') resolve(event.defaultPrevented);
+    });
+  }));
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+KeyJ' : 'Alt+KeyJ');
+  assert.equal(await isShortcutHandled, true, 'the next-session shortcut runs while the Chat message box has focus');
+}
+
 export async function verifyChatStaysDefault(page: Page): Promise<void> {
   await openChat(page);
+  await verifyComposerPassesDashboardShortcuts(page);
   await page.reload();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();

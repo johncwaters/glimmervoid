@@ -190,7 +190,11 @@ export function releaseElement(element: AdoptableElement | null | undefined, fal
 
 const CURSOR_MOVEMENT_KEYS: ReadonlySet<string> = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
 
+const COMPOSER_KEPT_KEYS: ReadonlySet<string> = new Set(['Escape']);
+const COMPOSER_KEPT_CODES: ReadonlySet<string> = new Set(['KeyZ']);
+
 function isComposerOwningKey(composer: HTMLTextAreaElement, event: KeyboardEvent): boolean {
+  if (COMPOSER_KEPT_KEYS.has(event.key) || COMPOSER_KEPT_CODES.has(event.code)) return true;
   return composer.value !== '' && CURSOR_MOVEMENT_KEYS.has(event.key);
 }
 
