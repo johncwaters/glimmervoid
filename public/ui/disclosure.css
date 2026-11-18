@@ -1,8 +1,9 @@
 .ui-disclosure-summary {
   display: flex;
   align-items: center;
-  gap: 1ch;
+  gap: 8px;
   width: fit-content;
+  min-height: var(--control-height-small);
   max-width: 100%;
   border-radius: var(--radius);
   color: var(--text-muted);
@@ -42,7 +43,7 @@
 }
 
 .ui-details-block-text {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   max-height: 160px;
   overflow: auto;
   padding: 6px 8px;
@@ -53,4 +54,4 @@
   overflow-wrap: anywhere;
 }
 
-html[data-layout="phone"] .ui-disclosure-summary { min-height: 44px; }
+html[data-layout="phone"] .ui-disclosure-summary { min-height: var(--control-height); }

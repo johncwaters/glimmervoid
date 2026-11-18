@@ -224,7 +224,6 @@
 .hooks-agent-group-summary {
   font-size: var(--type-meta);
   font-weight: 700;
-  padding: 4px 0;
 }
 
 .hooks-form {

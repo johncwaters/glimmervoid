@@ -140,7 +140,7 @@ A static label (a scope, an effect, EXPERIMENTAL, a pack state, Winner) is `tag(
 ### Disclosures
 Every collapsible section is `disclosure()` from `public/ui/disclosure.ts` (look in `public/ui/disclosure.css`), a native `details`/`summary` pair, so keyboard and screen reader behavior come from the platform.
 - **Options:** `summary` (text or nodes), `body` (nodes, or a function the first open renders, for heavy content), `open`, `marker` and `onToggle(open)`; it returns the `details` element, its `summary` and its `body` for the caller to class and fill.
-- **Markers:** `plus` (the default, a mono plus that turns to a minus, for inline reveals such as Show details and trace rows) and `chevron` (a small border-drawn chevron that turns down, for a boxed or headed section). The marker is muted and lifts to the head color on hover; the summary carries the lavender focus ring and a 44px tap height on the phone.
+- **Markers:** `plus` (the default, a mono plus that turns to a minus, for inline reveals such as Show details and trace rows) and `chevron` (a small border-drawn chevron that turns down, for a boxed or headed section). The marker is muted and lifts to the head color on hover; the summary sits 8px from its marker, carries the lavender focus ring, and is at least `--control-height-small` tall (22px), `--control-height` (44px) on the phone for the tap target.
 - **Show details:** `detailsBlock(text)` is the one Show details fold over a bordered, scrolling `pre` for a raw error or command output.
 - **Layout belongs to the parent:** spacing, borders and full-width rows come from the caller's class on the returned elements.
 
