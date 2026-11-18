@@ -159,8 +159,8 @@ A boolean setting that takes effect at once is `switchInput()` from `public/ui/s
 - **Internal padding:** 20px to 28px on large panels; the session-card header and terminal pane carry their own rhythm.
 
 ### Empty State
-Every "nothing here yet" placeholder is `emptyState()` from `public/ui/empty-state.ts` (look in `public/ui/empty-state.css`): mono `--type-meta` in Faint Ash, held to a 78ch measure, with an optional bold Paper `title` above the text and optional `actions` (buttons, chips) in a wrapping row below it. It says what is missing and the one way to fill it; it is never a loading or failure message.
-- **Variants:** inline (the default, one muted line in the flow of a panel), boxed (a 1px dashed Rule box with 16px 14px padding, for a list or canvas that has nothing yet), centered (centered in its region in Ash, with 24px padding and a 44ch measure, for a pane whose whole job is the missing thing).
+Every "nothing here yet" placeholder is `emptyState()` from `public/ui/empty-state.ts` (look in `public/ui/empty-state.css`): mono `--type-meta` in Faint Ash, held to a 78ch measure, with an optional bold Paper `title` above the text and optional `actions` (buttons, chips) in a wrapping row below it, each 8px apart. It says what is missing and the one way to fill it; it is never a loading or failure message.
+- **Variants:** inline (the default, one muted line in the flow of a panel), boxed (a 1px dashed Rule box with 16px 12px padding, for a list or canvas that has nothing yet), centered (centered in its region in Ash, with 24px padding and a 44ch measure, for a pane whose whole job is the missing thing).
 - **Layout belongs to the parent:** `emptyState()` takes no class, so a caller adds its own placement class for padding or grid position.
 
 ### Navigation

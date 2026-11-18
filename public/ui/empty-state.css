@@ -17,7 +17,7 @@ p.ui-empty-state,
 }
 
 .ui-empty-state-title {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
   color: var(--text-head);
   font-size: var(--type-body);
   font-weight: 700;
@@ -28,11 +28,11 @@ p.ui-empty-state,
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .ui-empty-state[data-variant="boxed"] {
-  padding: 16px 14px;
+  padding: 16px 12px;
   border: 1px dashed var(--border);
   border-radius: var(--radius);
 }
