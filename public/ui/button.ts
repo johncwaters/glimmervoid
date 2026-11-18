@@ -2,14 +2,15 @@ import { el } from '../dom-helpers.ts';
 import { createLineIcon, MENU_ICON_PATH } from '../svg-dom.ts';
 import { createPressable } from './pressable.ts';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon';
-type ButtonSize = 'default' | 'small';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon' | 'primary-icon';
+type ButtonSize = 'default' | 'small' | 'large';
 
 type OutlineState = 'idle' | 'pressed' | 'off' | 'attention';
 type ToggledOutlineState = Extract<OutlineState, 'pressed' | 'off'>;
 
-type LabelledButtonOptions = { variant: Exclude<ButtonVariant, 'icon'>; label: string; icon?: SVGElement };
-type IconButtonOptions = { variant: 'icon'; label: string; icon: SVGElement };
+type IconVariant = 'icon' | 'primary-icon' | 'outline-icon';
+type LabelledButtonOptions = { variant: Exclude<ButtonVariant, IconVariant>; label: string; icon?: SVGElement };
+type IconButtonOptions = { variant: Exclude<IconVariant, 'outline-icon'>; label: string; icon: SVGElement };
 type OutlineIconOptions = { variant: 'outline-icon'; label: string; icon: SVGElement };
 type BuildButtonOptions = { variant: ButtonVariant | 'outline-icon'; label: string; icon?: SVGElement } & CommonButtonOptions;
 
@@ -32,7 +33,7 @@ export type OutlineIconButton<State extends Exclude<OutlineState, 'idle'>> = {
   setState(state: 'idle' | State): void;
 };
 
-type LinkButtonOptions = { variant: Exclude<ButtonVariant, 'icon'>; label: string; href: string; size?: ButtonSize };
+type LinkButtonOptions = { variant: Exclude<ButtonVariant, IconVariant>; label: string; href: string; size?: ButtonSize };
 
 export function linkButton(options: LinkButtonOptions): HTMLAnchorElement {
   const element = el('a', 'ui-button', options.label);
@@ -69,6 +70,10 @@ function isToggledState(state: OutlineState): state is ToggledOutlineState {
   return state === 'pressed' || state === 'off';
 }
 
+function isIconVariant(variant: BuildButtonOptions['variant']): variant is IconVariant {
+  return variant === 'icon' || variant === 'primary-icon' || variant === 'outline-icon';
+}
+
 function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   const element = createPressable('ui-button');
   element.dataset.variant = options.variant;
@@ -76,10 +81,8 @@ function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   if (options.textCase === 'sentence') element.dataset.textCase = 'sentence';
   if (options.action) element.dataset.action = options.action;
   if (options.icon) element.append(options.icon);
-  if (options.variant === 'icon' || options.variant === 'outline-icon') {
-    element.setAttribute('aria-label', options.label);
-  }
-  if (options.variant !== 'icon' && options.variant !== 'outline-icon') element.append(options.label);
+  if (isIconVariant(options.variant)) element.setAttribute('aria-label', options.label);
+  if (!isIconVariant(options.variant)) element.append(options.label);
   if (options.shortcutKey) appendShortcutKey(element, options.shortcutKey);
   element.disabled = options.disabled ?? false;
   element.hidden = options.hidden ?? false;

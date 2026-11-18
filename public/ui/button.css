@@ -33,6 +33,11 @@
   --button-glyph-size: 12px;
 }
 
+.ui-button[data-size="large"] {
+  --button-height: 32px;
+  --button-glyph-size: 16px;
+}
+
 .ui-button[hidden] { display: none; }
 
 .ui-button[data-text-case="sentence"] {
@@ -67,7 +72,7 @@
   color: var(--text-muted);
 }
 
-.ui-button:is([data-variant="icon"], [data-variant="outline-icon"]) {
+.ui-button:is([data-variant="icon"], [data-variant="primary-icon"], [data-variant="outline-icon"]) {
   width: var(--button-height);
   padding: 0;
 }
@@ -76,12 +81,26 @@
   border-color: var(--border-hover);
 }
 
+.ui-button[data-variant="primary-icon"]:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.ui-button[data-variant="primary-icon"]:disabled {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-muted);
+}
+
 html:not([data-layout="phone"]) .ui-button[data-size="small"]:is([data-variant="icon"], [data-variant="outline-icon"]) {
   --button-height: 28px;
   --button-glyph-size: 14px;
 }
 
 @media (hover: hover) {
+  .ui-button[data-variant="primary-icon"]:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--accent) 85%, var(--text-head));
+  }
+
   .ui-button[data-variant="primary"]:hover:not(:disabled) {
     border-color: var(--accent);
     background: color-mix(in oklab, var(--accent) 10%, transparent);
@@ -117,7 +136,7 @@ html:not([data-layout="phone"]) .ui-button[data-size="small"]:is([data-variant="
   background: color-mix(in oklab, var(--state-failed) 14%, transparent);
 }
 
-.ui-button:is([data-variant="icon"], [data-variant="outline-icon"]):active:not(:disabled) {
+.ui-button:is([data-variant="icon"], [data-variant="primary-icon"], [data-variant="outline-icon"]):active:not(:disabled) {
   transform: scale(0.93);
 }
 

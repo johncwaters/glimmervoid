@@ -2,7 +2,7 @@ import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.
 import { el } from '../dom-helpers.ts';
 import { isImeProcessingKeydown } from '../session-card/ime-core.ts';
 import { createLineIcon } from '../svg-dom.ts';
-import { button } from '../ui/button.ts';
+import { button, outlineIconButton } from '../ui/button.ts';
 
 const MAX_INPUT_HEIGHT_PX = 240;
 const ATTACH_ICON_PATH = 'M10.5 4.5L5.8 9.2a1.4 1.4 0 0 0 2 2l5-5a2.8 2.8 0 0 0-4-4l-5 5a4.2 4.2 0 0 0 6 6l4.2-4.2';
@@ -53,12 +53,12 @@ export function createComposer(): ChatComposer {
   input.maxLength = CHAT_SEND_MAX_CHARS;
   input.placeholder = 'Message the agent';
   input.setAttribute('aria-label', 'Message the agent');
-  const sendButton = button({ variant: 'icon', label: 'Send', icon: createLineIcon(SEND_ICON_PATH, '1.8'), disabled: true });
+  const sendButton = button({ variant: 'primary-icon', size: 'large', label: 'Send', icon: createLineIcon(SEND_ICON_PATH, '1.8'), disabled: true });
   sendButton.type = 'submit';
   sendButton.classList.add('chat-composer-send');
-  const stopButton = button({ variant: 'icon', label: 'Stop', icon: createLineIcon(STOP_ICON_PATH, '1.8'), disabled: true });
+  const stopButton = outlineIconButton({ label: 'Stop', icon: createLineIcon(STOP_ICON_PATH, '1.8'), size: 'large', disabled: true, states: ['idle'] }).element;
   stopButton.classList.add('chat-composer-stop');
-  const attachButton = button({ variant: 'icon', label: 'Attach', icon: createLineIcon(ATTACH_ICON_PATH, '1.4') });
+  const attachButton = button({ variant: 'icon', size: 'large', label: 'Attach', icon: createLineIcon(ATTACH_ICON_PATH, '1.4') });
   const filePicker = el('input', 'chat-composer-file-picker');
   filePicker.type = 'file';
   filePicker.multiple = true;
