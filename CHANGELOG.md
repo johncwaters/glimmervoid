@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Terminals on an iPhone show all their text after you return to the app.** iOS discards the glyphs a terminal draws from while the dashboard is in the background, and Safari never says so, so returning often left only a few scattered characters on screen. Coming back to the dashboard now rebuilds every terminal's renderer from fresh glyphs.
+
 ## [0.62.6] - 2026-11-17
 
 ### Added

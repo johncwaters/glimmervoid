@@ -53,33 +53,25 @@ export function reacquireWebglIfStale(ui: SessionUi | null | undefined) {
   tryLoadWebGL(ui, { isForced: true });
 }
 
-export function rebuildWebglGlyphAtlases() {
-  for (const ui of _webglLru.keys()) {
-    const term = ui.term;
-    if (!ui.webglAddon || !term) continue;
-    try {
-      term.clearTextureAtlas();
-      term.refresh(0, term.rows - 1);
-    } catch {
-      releaseWebgl(ui);
-      ui.needsWebGLReload = true;
-    }
-  }
+export function reloadEveryWebglAddon() {
+  const liveUis = [..._webglLru.keys()];
+  for (const ui of liveUis) releaseWebgl(ui);
+  for (const ui of liveUis) tryLoadWebGL(ui, { isForced: true });
 }
 
-let isGlyphAtlasRebuildScheduled = false;
+let isWebglReloadScheduled = false;
 
-function scheduleGlyphAtlasRebuild() {
-  if (isGlyphAtlasRebuildScheduled) return;
-  isGlyphAtlasRebuildScheduled = true;
+function scheduleWebglReload() {
+  if (isWebglReloadScheduled) return;
+  isWebglReloadScheduled = true;
   requestAnimationFrame(() => {
-    isGlyphAtlasRebuildScheduled = false;
-    rebuildWebglGlyphAtlases();
+    isWebglReloadScheduled = false;
+    reloadEveryWebglAddon();
   });
 }
 
-function rebuildWhenGlyphAtlasCanvasRestores(glyphAtlasCanvas: HTMLCanvasElement | undefined) {
-  glyphAtlasCanvas?.addEventListener('contextrestored', scheduleGlyphAtlasRebuild);
+function reloadWhenGlyphAtlasCanvasRestores(glyphAtlasCanvas: HTMLCanvasElement | undefined) {
+  glyphAtlasCanvas?.addEventListener('contextrestored', scheduleWebglReload);
 }
 
 export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}) {
@@ -107,9 +99,9 @@ export function tryLoadWebGL(ui: SessionUi, options: { isForced?: boolean } = {}
     const term = ui.term;
     if (!term) throw new Error('webgl: the terminal was disposed before the addon loaded');
     term.loadAddon(addon);
-    addon.onChangeTextureAtlas(rebuildWhenGlyphAtlasCanvasRestores);
-    addon.onAddTextureAtlasCanvas(rebuildWhenGlyphAtlasCanvasRestores);
-    rebuildWhenGlyphAtlasCanvasRestores(addon.textureAtlas);
+    addon.onChangeTextureAtlas(reloadWhenGlyphAtlasCanvasRestores);
+    addon.onAddTextureAtlasCanvas(reloadWhenGlyphAtlasCanvasRestores);
+    reloadWhenGlyphAtlasCanvasRestores(addon.textureAtlas);
     ui.webglAddon = addon;
     ui.needsWebGLReload = false;
     ui.webglAttachedWithoutLayout = !hasLayoutBox(ui.termWrap);

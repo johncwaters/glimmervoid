@@ -3,7 +3,7 @@ import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
 import { findSessionUi } from '../session-card/card-registry.ts';
 import { markSessionSeen } from '../session-card/lifecycle.ts';
 import { syncGridOnEngagementEdge } from '../session-card/terminal.ts';
-import { rebuildWebglGlyphAtlases } from '../session-card/webgl-pool.ts';
+import { reloadEveryWebglAddon } from '../session-card/webgl-pool.ts';
 
 function markShownPhoneSessionSeen() {
   const shownPhoneSessionId = getPhoneSessionId();
@@ -24,11 +24,11 @@ function wireViewerFocus() {
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;
-    rebuildWebglGlyphAtlases();
+    reloadEveryWebglAddon();
   });
   window.addEventListener('pageshow', (event) => {
     if (!event.persisted) return;
-    rebuildWebglGlyphAtlases();
+    reloadEveryWebglAddon();
   });
 }
 
