@@ -562,6 +562,10 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   async function runGithubMints(entry: TenantEntry, minter: GithubAppMinter, installations: readonly GithubInstallationBinding[]): Promise<readonly HeldGithubToken[] | null> {
     const outcomes = await Promise.all(installations.map(async (installation) => ({ installation, outcome: await minter.mint(installation) })));
     if (isClosed || entriesBySlug.get(entry.tenant.slug) !== entry) return null;
+    for (const { installation, outcome } of outcomes) {
+      if (outcome.kind !== 'minted' || outcome.droppedRepositories.length === 0) continue;
+      log.warn(`[doorman] tenant ${entry.tenant.slug} GitHub installation ${installation.installationId} (${installation.accountLogin}) no longer reaches ${outcome.droppedRepositories.join(', ')}; minted for the other ${installation.repositories.length - outcome.droppedRepositories.length} repositories`);
+    }
     const minted = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'minted' ? [{ installationId: installation.installationId, accountLogin: installation.accountLogin, token: outcome.token, expiresAtMs: outcome.expiresAtMs }] : []);
     const failures = outcomes.flatMap(({ installation, outcome }) => outcome.kind === 'failed' ? [{ installationId: installation.installationId, reason: outcome.reason, retryAfterMs: outcome.retryAfterMs }] : []);
     const failedInstallationIds = new Set(failures.map((failure) => failure.installationId));

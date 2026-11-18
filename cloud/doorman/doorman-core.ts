@@ -3,7 +3,6 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
 import { DEVICE_PAIRING_PATH, NUDGES_PATH, WATCHER_PATH_PREFIX } from '../../shared/contracts/watcher-link.ts';
 import type { AwakeEvent, DoormanTenant, DoormanTenantTable } from '../../shared/contracts/doorman.ts';
-import type { GithubInstallationBinding } from '../../shared/contracts/github-connection.ts';
 import type { AwakeUsage } from '../../shared/contracts/watcher-link.ts';
 
 type DoormanRoute =
@@ -119,6 +118,7 @@ const INSTALLATION_TOKEN_PERMISSIONS = Object.freeze({
   pull_requests: 'read',
   statuses: 'read',
 });
+const REACHABILITY_TOKEN_PERMISSIONS = Object.freeze({ metadata: 'read' });
 const JWT_BACKDATE_SECONDS = 60;
 const JWT_LIFETIME_SECONDS = 540;
 const TOKEN_REFRESH_LEAD_MS = 10 * 60_000;
@@ -136,8 +136,19 @@ function githubAppJwt(clientId: string, privateKey: crypto.KeyObject, nowMs: num
   return `${signedPart}.${crypto.sign('sha256', Buffer.from(signedPart), privateKey).toString('base64url')}`;
 }
 
-function installationTokenRequestBody(installation: Pick<GithubInstallationBinding, 'repositories'>): string {
-  return JSON.stringify({ repositories: installation.repositories, permissions: INSTALLATION_TOKEN_PERMISSIONS });
+function installationTokenRequestBody(repositories: readonly string[]): string {
+  return JSON.stringify({ repositories, permissions: INSTALLATION_TOKEN_PERMISSIONS });
+}
+
+function reachabilityTokenRequestBody(): string {
+  return JSON.stringify({ permissions: REACHABILITY_TOKEN_PERMISSIONS });
+}
+
+function reachableSubset(boundRepositories: readonly string[], reachableRepositories: ReadonlySet<string>): { kept: string[]; dropped: string[] } {
+  return {
+    kept: boundRepositories.filter((name) => reachableRepositories.has(name)),
+    dropped: boundRepositories.filter((name) => !reachableRepositories.has(name)),
+  };
 }
 
 function tokenRefreshDelayMs(expiresAtMs: number, nowMs: number): number {
@@ -199,5 +210,5 @@ function isOverCap(usage: AwakeUsage): boolean {
   return usage.capMs !== null && usage.usedMs >= usage.capMs;
 }
 
-export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
+export { awakeUsageAt, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, reachabilityTokenRequestBody, reachableSubset, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
 export type { DoormanRoute, EdgeAction, ForwardState, GceWakeAction, MeterTotal, WakePageState };

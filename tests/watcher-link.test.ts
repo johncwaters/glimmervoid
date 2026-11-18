@@ -1271,7 +1271,7 @@ test('a server starts one local doorman found by its port file, replaces it when
   await eventually(async () => fetch(new URL(HEALTH_PATH, replacementUrl)).then(() => undefined, () => true), 20_000);
 });
 
-function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { personalRepositories = [] }: { personalRepositories?: string[] } = {}) {
+function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { personalRepositories = [], orgRepositories = ['site', 'glimmervoid'], orgInstallationReaches = orgRepositories }: { personalRepositories?: string[]; orgRepositories?: string[]; orgInstallationReaches?: string[] } = {}) {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const privateKeyPem = privateKey.export({ type: 'pkcs1', format: 'pem' });
   const secretName = 'projects/glimmervoid-test/secrets/github-app-private-key';
@@ -1323,16 +1323,23 @@ function fakeGithubApp(clock: { nowMs: number }, tokenLifetimesMs: number[], { p
         return Response.json({ id: 7, login: 'octo' });
       }
       if (pathname === '/user/installations') return Response.json({ total_count: 2, installations: [{ id: 4242, account: { login: 'octo-org' } }, { id: 5151, account: { login: 'octo' } }] });
-      if (pathname === '/user/installations/4242/repositories') return Response.json({ total_count: 2, repositories: [{ name: 'site' }, { name: 'glimmervoid' }] });
+      if (pathname === '/user/installations/4242/repositories') return Response.json({ total_count: orgRepositories.length, repositories: orgRepositories.map((name) => ({ name })) });
       if (pathname === '/user/installations/5151/repositories') return Response.json({ total_count: personalRepositories.length, repositories: personalRepositories.map((name) => ({ name })) });
       return Response.json({ message: 'Not Found' }, { status: 404 });
+    }
+    if (url.startsWith('https://api.github.com/installation/repositories?')) {
+      assert.equal(headers.get('authorization'), 'Bearer ghs_listing');
+      return Response.json({ total_count: orgInstallationReaches.length, repositories: orgInstallationReaches.map((name) => ({ name })) });
     }
     const mintedInstallations = personalRepositories.length > 0 ? ['4242', '5151'] : ['4242'];
     const mintedInstallation = /^https:\/\/api\.github\.com\/app\/installations\/(\d+)\/access_tokens$/.exec(url)?.[1] ?? '';
     assert.ok(mintedInstallations.includes(mintedInstallation), 'only an installation the user token reaches with at least one repository is minted');
     const [header, payload, signature] = (headers.get('authorization') ?? '').replace('Bearer ', '').split('.');
     assert.ok(crypto.verify('sha256', Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, 'base64url')), 'the JWT is signed with the App key');
-    mints.push({ claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')), body: JSON.parse(String(init?.body)), atMs: clock.nowMs });
+    const mintBody = JSON.parse(String(init?.body));
+    mints.push({ claims: JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')), body: mintBody, atMs: clock.nowMs });
+    if (mintBody.repositories === undefined) return Response.json({ token: 'ghs_listing', expires_at: new Date(clock.nowMs + 60 * 60_000).toISOString() }, { status: 201 });
+    if (mintedInstallation === '4242' && mintBody.repositories.some((name: string) => !orgInstallationReaches.includes(name))) return Response.json({ message: 'There is at least one repository that does not exist or is not accessible to the parent installation.' }, { status: 422 });
     const lifetimeMs = tokenLifetimesMs[mints.length - 1] ?? 60 * 60_000;
     return Response.json({ token: mintedInstallation === '5151' ? `ghs_personal${mints.length}` : `ghs_minted${mints.length}`, expires_at: new Date(clock.nowMs + lifetimeMs).toISOString() }, { status: 201 });
   };
@@ -1602,6 +1609,29 @@ test('a tenant record read that fails answers the server as a failed mint and re
   const answer = await askForToken();
   assert.equal(answer.status, 200);
   assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
+});
+
+test('a stored repository the installation no longer reaches is dropped from the mint and named in the doorman log, so the tenant still gets its token', async (t) => {
+  const clock = { nowMs: Date.now() };
+  const app = fakeGithubApp(clock, [], { orgRepositories: ['site', 'glimmervoid', 'renamed-away'], orgInstallationReaches: ['site', 'glimmervoid'] });
+  const { linkSecret, tenant } = await doormanTenant(t, 'staletenant0001', 'http://127.0.0.1:9');
+  const warnLines: string[] = [];
+  const doorman = createDoorman({
+    table: { tenantDomain: null, githubApp: app.githubApp, tenants: [tenant] },
+    githubAppFetch: app.appFetch, now: () => clock.nowMs, log: { log: () => {}, warn: (line: string) => warnLines.push(line) },
+  });
+  t.after(() => doorman.close());
+  const doormanPort = await doorman.listen(0);
+  await signedWatcherCall(doormanPort, linkSecret, 'POST', GITHUB_CONNECT_PATH, clock.nowMs);
+  app.user.isAuthorized = true;
+  await eventually(async () => ((await signedWatcherCall(doormanPort, linkSecret, 'GET', GITHUB_CONNECTION_PATH, clock.nowMs)).state === 'connected' ? true : undefined));
+
+  const answer = await fetch(`http://127.0.0.1:${doormanPort}${GITHUB_TOKEN_PATH}`, { method: 'POST', headers: signedHeaders(directionKey(linkSecret, 'server-to-watcher'), { method: 'POST', path: GITHUB_TOKEN_PATH, body: '' }, clock.nowMs), body: '' });
+  assert.equal(answer.status, 200);
+  assert.match(GithubTokenAnswer.parse(await answer.json()).grants[0]?.token ?? '', /^ghs_minted\d$/);
+  assert.deepEqual(app.mints.map((mint) => mint.body.repositories ?? null), [['glimmervoid', 'renamed-away', 'site'], null, ['glimmervoid', 'site']]);
+  assert.deepEqual(app.mints[1].body.permissions, { metadata: 'read' }, 'the listing token reads metadata only');
+  assert.deepEqual(warnLines, ['[doorman] tenant staletenant0001 GitHub installation 4242 (octo-org) no longer reaches renamed-away; minted for the other 2 repositories']);
 });
 
 test('only one refresh of a tenant GitHub user token runs at a time, a doorman restart refreshes from the newest stored refresh token, the server notifies once two weeks before the connection ends and once when a refused refresh asks for a reconnect, a disconnect outlasts a sign-in still finishing, and a disabled device flow reads as unavailable', async (t) => {
