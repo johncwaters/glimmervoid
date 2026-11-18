@@ -6,7 +6,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-xl);
-  padding: 4px 0;
+  padding: 6px 0;
 }
 
 .popup-menu[hidden] {
@@ -15,9 +15,12 @@
 
 .popup-menu-item {
   display: flex;
+  box-sizing: border-box;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  min-height: var(--control-height);
+  margin: 0;
+  padding: 0 var(--control-padding-inline);
   border: none;
   background: transparent;
   color: var(--text);
