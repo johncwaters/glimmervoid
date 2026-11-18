@@ -30,7 +30,7 @@ const renamesIntoPlace = (stagedFolder, protectedFolder) => {
   } catch (error) { return error.code; }
 };
 const reachesProxyAfterTheLauncherIsInterrupted = async () => {
-  process.stdout.write('interrupt the launcher\n');
+  process.stdout.write('interrupt the launcher\\n');
   await new Promise((resolve) => setTimeout(resolve, 1000));
   return connects(new URL(process.env.HTTP_PROXY).port);
 };
@@ -46,7 +46,7 @@ process.stdout.write(JSON.stringify({
   protectedFileInOtherCase: writes(path.dirname(worktreeFile) + '/.MCP.JSON'),
   protectedFolderRenamedIntoPlace: renamesIntoPlace(path.dirname(worktreeFile) + '/staged', path.dirname(worktreeFile) + '/.claude'),
   proxyAfterInterrupt: await reachesProxyAfterTheLauncherIsInterrupted(),
-}) + '\n');
+}) + '\\n');
 `;
 
 async function listeningOnLoopback(): Promise<net.Server> {
