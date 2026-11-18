@@ -92,11 +92,13 @@
 .chat-reply {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: -8px;
+  gap: 6px;
+  margin-top: 8px;
   color: var(--text-head);
   overflow-wrap: anywhere;
 }
+
+:is(.chat-prompt, .chat-prompt-with-attachments) + .chat-reply { margin-top: -8px; }
 
 .chat-work-row {
   display: flex;
