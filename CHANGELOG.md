@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Every pick-one switch now looks and works the same.** The Settings choice rows, the Usage period, range and measure switches, and the Reviews and Changes layout switches share one control: a framed row of uppercase options with the picked one washed in lavender, standing the same height as the buttons (the Settings rows at the regular size, the panel switches at the small one), and the arrow keys move the pick from one option to the next.
 - **Every Copy button now reports the same way.** The trace rows, setup command rows, banner commands and the Settings copy-link and Copy as JSON buttons all say Copied or Copy failed beside the button, and the word clears after a moment everywhere.
 - **Text fields across the dashboard now share one look.** Settings, Hooks, Arena, Packs, onboarding and dialog fields draw the same border, focus color and placeholder, search filters use one compact size, disabled fields dim, and on the phone every field is 44px tall with type large enough that the browser does not zoom in.
+- **Text fields across the dashboard now share one look.** Settings, Hooks, Arena, Packs, onboarding and dialog fields draw the same border, focus color and placeholder, fields stand the same height as the buttons beside them, search filters use one small size, disabled fields dim, and on the phone every field is 44px tall with type large enough that the browser does not zoom in.
 
 ### Fixed
 

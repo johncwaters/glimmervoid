@@ -428,7 +428,7 @@ function buildTotalsSection() {
 }
 
 function buildFilter() {
-  const input = textInput({ type: 'search', size: 'compact', value: _filter, placeholder: FILTER_PLACEHOLDER, label: FILTER_PLACEHOLDER, onInput: (value) => {
+  const input = textInput({ type: 'search', size: 'small', value: _filter, placeholder: FILTER_PLACEHOLDER, label: FILTER_PLACEHOLDER, onInput: (value) => {
     _filter = value;
     const list = _root?.querySelector('.hooks-list-yours');
     if (list) list.replaceWith(buildYoursList());

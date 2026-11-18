@@ -1,7 +1,7 @@
 import { el, markAsNotCredential } from '../dom-helpers.ts';
 
 type TextInputType = 'text' | 'search' | 'number' | 'url' | 'password';
-type TextInputSize = 'default' | 'compact';
+type TextInputSize = 'default' | 'small';
 
 type FieldOptions = {
   id?: string;

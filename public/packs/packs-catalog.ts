@@ -308,7 +308,7 @@ function mountPacksView(parent: HTMLElement): void {
   if (packsBody) return;
   const root = el('div', 'packs-content');
   const header = el('div', 'packs-header');
-  const search = textInput({ type: 'search', size: 'compact', placeholder: 'Search packs', label: 'Search packs', onInput: (value) => {
+  const search = textInput({ type: 'search', size: 'small', placeholder: 'Search packs', label: 'Search packs', onInput: (value) => {
     searchText = value;
     repaintPacks();
   } });

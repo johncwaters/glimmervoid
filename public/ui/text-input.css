@@ -1,9 +1,12 @@
 .ui-input {
+  --input-height: var(--control-height);
+  --input-padding-inline: var(--control-padding-inline);
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
+  height: var(--input-height);
   margin: 0;
-  padding: 8px 12px;
+  padding: 0 var(--input-padding-inline);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   outline: none;
@@ -14,12 +17,16 @@
   transition: border-color var(--transition-fast);
 }
 
-.ui-input[data-size="compact"] {
-  padding: 6px 10px;
+.ui-input[data-size="small"] {
+  --input-height: var(--control-height-small);
+  --input-padding-inline: var(--control-padding-inline-small);
   font-size: var(--type-meta);
 }
 
 textarea.ui-input {
+  height: auto;
+  min-height: var(--control-height);
+  padding: 6px var(--input-padding-inline);
   line-height: 1.4;
   resize: vertical;
 }
@@ -40,6 +47,6 @@ textarea.ui-input {
 }
 
 html[data-layout="phone"] .ui-input {
-  min-height: 44px;
+  --input-height: var(--control-height);
   font-size: var(--type-field);
 }
