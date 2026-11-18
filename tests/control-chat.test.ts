@@ -23,10 +23,15 @@ test('Chat reads a held question from the session status and answers it and send
   const session = new Session({ id: 'chatty', name: 'chatty', path: projectPath, holdsQuestionsForParent: true, ptySpawn: () => capturingPty(writes) });
   const config: GlimmervoidConfig = { projects: [] };
   const approvalFrames: unknown[] = [];
+  const outboxFrames: string[][] = [];
   createSessionEventWiring({
     configStore: { save: (mutate) => { mutate(config); return config; } }, config, recordLane: () => {},
     usage: { refreshSessions: () => {}, nudgeSession: () => {} },
-    broadcastControl: (message) => { if (message.type === 'session-status' && 'conversationApproval' in message) approvalFrames.push(message.conversationApproval); },
+    broadcastControl: (message) => {
+      if (message.type !== 'session-status') return;
+      if ('conversationApproval' in message) approvalFrames.push(message.conversationApproval);
+      if ('chatOutbox' in message && Array.isArray(message.chatOutbox)) outboxFrames.push(message.chatOutbox.map((entry: { text: string; state: string }) => `${entry.text}:${entry.state}`));
+    },
     telegramChannel: { noteStateChange: () => {}, recheck: () => {} },
     notificationManager: { acknowledge: () => {}, trigger: () => {}, noteOperatorActivity: () => {} },
     attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
@@ -55,12 +60,56 @@ test('Chat reads a held question from the session status and answers it and send
     connection.send({ type: 'answer-approval', id: session.id, requestId: approval?.requestId, answers: { 'Which store?': 'sqlite' } });
     assert.equal(connection.sent.at(-1)?.type, 'error');
 
+    const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 1000));
+    const writesBeforeHeldSend = writes.length;
+    connection.send({ type: 'chat-send', id: session.id, text: 'Mid-turn thought' });
+    assert.equal(connection.sent.at(-1)?.ok, true);
+    connection.send({ type: 'chat-send', id: session.id, text: 'Second thought' });
+    assert.deepEqual(outboxOf(), ['Mid-turn thought:held', 'Second thought:held']);
+    assert.equal(writes.length, writesBeforeHeldSend);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(outboxFrames.at(-1), outboxOf());
+
+    connection.send({ type: 'chat-cancel', id: session.id, entryId: session.toSnapshot().chatOutbox[1]?.entryId, requestId: 'cancel-second' });
+    assert.deepEqual((connection.sent.at(-1) as { cancelledTexts?: string[] }).cancelledTexts, ['Second thought']);
+
     session.transition('task_complete');
-    connection.send({ type: 'chat-send', id: session.id, text: 'Now add the index' });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    assert.match(writes.join(''), /Now add the index/);
+    await settle();
+    assert.match(writes.join(''), /Mid-turn thought/);
+    assert.doesNotMatch(writes.join(''), /Second thought/);
     assert.equal(writes.at(-1), '\r');
-    assert.equal(connection.sent.at(-1)?.type, 'chat-send-result');
+    assert.deepEqual(outboxOf(), []);
+    session.transition('new_output');
+    session.transition('task_complete');
+
+    connection.send({ type: 'chat-send', id: session.id, text: 'Typed over' });
+    session.noteOperatorInput('x');
+    await settle();
+    assert.match(session.toSnapshot().chatOutbox[0]?.failure ?? '', /typed in the terminal/);
+    connection.send({ type: 'chat-send', id: session.id, text: 'Waits behind the failure' });
+    await settle();
+    assert.deepEqual(outboxOf(), ['Typed over:failed', 'Waits behind the failure:held']);
+    connection.send({ type: 'chat-cancel', id: session.id, entryId: session.toSnapshot().chatOutbox[0]?.entryId, requestId: 'cancel-failed' });
+    assert.deepEqual((connection.sent.at(-1) as { cancelledTexts?: string[] }).cancelledTexts, ['Typed over', 'Waits behind the failure']);
+
+    connection.send({ type: 'chat-send', id: session.id, text: 'Lands in a held input box' });
+    await settle();
+    assert.equal(session.toSnapshot().chatOutbox[0]?.state, 'failed');
+    assert.match(session.toSnapshot().chatOutbox[0]?.failure ?? '', /input box/);
+
+    session.cancelChatMessage(session.toSnapshot().chatOutbox[0]?.entryId ?? '');
+    session.transition('new_output');
+    connection.send({ type: 'chat-send', id: session.id, text: 'Held while snoozed' });
+    session.setResumeConversation('0f0e0d0c-0b0a-4908-8706-050403020100');
+    assert.equal(session.snooze().ok, true);
+    await settle();
+    assert.equal(session.state, 'DORMANT');
+    assert.deepEqual(outboxOf(), ['Held while snoozed:held']);
+    const replacement = new Session({ id: 'chatty', name: 'chatty', path: projectPath, ptySpawn: () => capturingPty([]) });
+    replacement.adoptChatOutbox(session.chatOutboxEntries);
+    assert.deepEqual(replacement.toSnapshot().chatOutbox.map((entry) => entry.text), ['Held while snoozed']);
+    replacement.destroy();
 
     connection.send({ type: 'chat-send', id: 'gone-session', text: 'Hello?', requestId: 'send-gone' });
     const refused = connection.sent.at(-1);
@@ -97,8 +146,12 @@ test('Chat switches the model between turns, keeping the conversation and the se
     assert.equal(midTurn?.ok, false);
     assert.match(midTurn?.error ?? '', /mid-turn/);
 
+    const writesBeforeHeldSend = writes.length;
+    connection.send({ type: 'chat-send', id: session.id, text: 'Mid-turn thought' });
+    assert.equal(connection.sent.at(-1)?.ok, true);
+    assert.equal(writes.length, writesBeforeHeldSend);
+
     session.transition('task_complete');
-    connection.send({ type: 'chat-send', id: session.id, text: 'Now add the index' });
     const promptInFlight = await switchTo({ agent: 'claude-code', model: 'opus', options: [] });
     assert.equal(promptInFlight?.ok, false);
     await new Promise((resolve) => setTimeout(resolve, 1000));

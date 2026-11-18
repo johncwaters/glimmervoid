@@ -1,4 +1,4 @@
-import { applyChatSessionStatus, noteChatApproval } from '../../chat/chat-page.ts';
+import { applyChatSessionStatus, noteChatApproval, noteChatOutbox } from '../../chat/chat-page.ts';
 import { setSessionModelSelection } from '../../session-card/card-model.ts';
 import { refreshFavicon } from '../../favicon.ts';
 import { forgetSessionInSavedOrder, setFocusMergeStatus } from '../../focus-view/focus-view.ts';
@@ -18,6 +18,7 @@ const messageHandlers = {
   'session-status':     (msg) => {
     handleSessionStatus(msg);
     if (msg.conversationApproval !== undefined) noteChatApproval(msg.id, msg.conversationApproval);
+    if (msg.chatOutbox !== undefined) noteChatOutbox(msg.id, msg.chatOutbox);
     applyChatSessionStatus(msg.id);
   },
   'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } setSessionModelSelection(msg.id, msg.modelSelection ?? null); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },

@@ -51,7 +51,7 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor, hookProfileOf } from "./adapters/index.ts";
-import type { AttentionOwner, ChatApprovalMode, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome } from "../shared/contracts/session.ts";
+import type { AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
@@ -78,6 +78,8 @@ import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { createSessionObservability } from "./session-observability.ts";
 import { createSessionOutput } from "./session-output.ts";
+import { createChatOutbox } from "./chat-outbox.ts";
+import type { ChatOutbox } from "./chat-outbox.ts";
 import type { ScreenSnapshot } from "./session-output.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
 import { createSessionHookLifecycle } from "./session-hook-lifecycle.ts";
@@ -323,6 +325,7 @@ class Session extends EventEmitter {
   _recorder: SessionRecorderPort | null;
   _deliveredSecretValues: readonly string[] = [];
   _output: ReturnType<typeof createSessionOutput>;
+  _chatOutbox: ChatOutbox;
   _adapter: AgentAdapter;
   _observability: ReturnType<typeof createSessionObservability>;
   _titleQuietFallbackMs: number;
@@ -548,6 +551,13 @@ class Session extends EventEmitter {
       screenKeeperFactory,
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
+    this._chatOutbox = createChatOutbox({
+      canTakeMessage: () => this.hasLivePty && (this.state === STATES.IDLE || this.state === STATES.COMPLETE),
+      isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
+      deliver: (text, onSettled) => this.deliverOperatorText(text, onSettled),
+      emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
+    });
+    this.on("state-change", () => this._chatOutbox.drain());
 
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
@@ -1600,6 +1610,7 @@ class Session extends EventEmitter {
       attentionNotes: this.attentionNotes,
       planGate: this.planGate,
       conversationApproval: this._conversationApproval,
+      chatOutbox: this._chatOutbox.entries(),
       mergeStatus: this.mergeStatus,
       mergeReason: this.mergeReason,
       worktreeNotice: this.worktreeNotice,
@@ -2275,6 +2286,14 @@ class Session extends EventEmitter {
     this._titleQuiet = false;
   }
 
+  queueChatMessage(text: string) { return this._chatOutbox.queue(text); }
+
+  cancelChatMessage(entryId: string): string[] { return this._chatOutbox.cancel(entryId); }
+
+  get chatOutboxEntries() { return this._chatOutbox.entries(); }
+
+  adoptChatOutbox(carriedEntries: readonly ChatOutboxEntry[]): void { this._chatOutbox.adopt(carriedEntries); }
+
   deliverOperatorText(text: string, onSettled?: DeliverOptions["onSettled"]): ReturnType<Session["deliver"]> {
     this._approvals.yieldManagerDecisions();
     this.emit("operator-input");
@@ -2474,6 +2493,7 @@ class Session extends EventEmitter {
 
   destroy(cause: SessionEndCause = "removed"): void {
     if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
+    this._chatOutbox.dispose();
     this._agentToken = null;
     this._commitSigningToken = null;
     this._gitCredentialToken = null;

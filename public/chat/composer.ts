@@ -116,6 +116,13 @@ export function createComposer(): ChatComposer {
   });
   input.addEventListener('focus', () => fitInputHeight(input));
   input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      const escapeRequest = new CustomEvent('chat-escape', { bubbles: true, composed: true, cancelable: true });
+      if (element.dispatchEvent(escapeRequest)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (!isSubmitKeydown(event)) return;
     event.preventDefault();
     submit();

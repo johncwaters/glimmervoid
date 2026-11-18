@@ -291,11 +291,13 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.closeSessionDataClients(project.id);
       dependencies.notificationManager.acknowledge(project.id);
 
+      const carriedChatOutbox = oldSession.chatOutboxEntries;
       oldSession.destroy('replaced');
       const newSession = dependencies.makeSession(project, newConfig);
       sessions.set(project.id, newSession);
       captureAgentFingerprint(project);
       dependencies.wireSessionEvents(newSession);
+      newSession.adoptChatOutbox(carriedChatOutbox);
       dependencies.carryWorktreeAcrossRecreate(oldSession, newSession, getSession);
       dependencies.broadcastControl({
         type: 'session-modified',

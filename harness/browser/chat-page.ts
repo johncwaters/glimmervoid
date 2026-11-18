@@ -72,6 +72,9 @@ async function verifyChatModelSwitch(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
   assert.equal(await composerInput.inputValue(), 'draft kept across the switch', 'an unsent draft survives the restart a model switch causes');
   await composerInput.fill('');
+  await waitForTurnRunning(page, true);
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  await waitForTurnRunning(page, false);
 }
 
 async function verifyComposerHeightSteady(page: Page): Promise<void> {
@@ -140,6 +143,8 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   const answeredCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]');
   await answeredCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await answeredCard.innerText(), /Allowed/, 'the answered card reads Allowed');
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  await waitForTurnRunning(page, false);
   const dock = page.locator('.session-chat .chat-dock');
   const dockBoxOf = () => dock.evaluate((element) => JSON.stringify(element.getBoundingClientRect()));
   const idleDockBox = await dockBoxOf();
@@ -154,10 +159,58 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   await verifyGlimmervoidCallSpinsMark(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await dockBoxOf(), idleDockBox, 'starting a turn swaps Send for Stop without moving the composer');
+  await verifyHeldMessageWaitsForTurnEnd(page);
   await stopButton.click();
   await page.locator('.session-chat .chat-composer button[aria-label="Send"]:visible').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await dockBoxOf(), idleDockBox, 'ending a turn swaps Stop for Send without moving the composer');
   await verifyComposerAttachesImage(page);
+}
+
+async function waitForTurnRunning(page: Page, isTurnRunning: boolean): Promise<void> {
+  await page.waitForFunction((expected) => {
+    const stop = document.querySelector<HTMLButtonElement>('.session-chat .chat-composer button[aria-label="Stop"]');
+    return stop !== null && stop.disabled === !expected;
+  }, isTurnRunning, { timeout: CARD_TIMEOUT_MS });
+}
+
+async function waitForDraft(page: Page, expectedDraft: string, reason: string): Promise<void> {
+  const input = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await page.waitForFunction((expected) => {
+    const textbox = document.querySelector<HTMLTextAreaElement>('.session-chat .chat-composer textarea');
+    return textbox !== null && textbox.value === expected;
+  }, expectedDraft, { timeout: CARD_TIMEOUT_MS }).catch(() => undefined);
+  assert.equal(await input.inputValue(), expectedDraft, reason);
+}
+
+async function verifyHeldMessageWaitsForTurnEnd(page: Page): Promise<void> {
+  const chat = page.locator('.session-chat');
+  const input = chat.getByRole('textbox', { name: 'Message the agent' });
+  const heldRow = chat.locator('.chat-queued-row').filter({ hasText: 'Queued until the turn ends' });
+  await sendFromComposer(page, 'work');
+  await heldRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const secondTab = await page.context().newPage();
+  try {
+    await secondTab.goto(page.url());
+    const secondTabRow = secondTab.locator('.session-chat .chat-queued-row').filter({ hasText: 'Queued until the turn ends' });
+    await secondTabRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+    await heldRow.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await secondTabRow.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  } finally {
+    await secondTab.close();
+  }
+  await heldRow.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await waitForDraft(page, 'work', 'Cancel puts the held message back in the composer');
+  await input.press('Enter');
+  await heldRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await input.press('Escape');
+  await heldRow.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await waitForDraft(page, 'work', 'Esc puts the held message back in the composer');
+  await waitForTurnRunning(page, true);
+  await input.press('Enter');
+  await heldRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await chat.getByRole('button', { name: 'Stop', exact: true }).click();
+  await waitForTurnRunning(page, false);
+  await waitForTurnRunning(page, true);
 }
 
 async function verifyGlimmervoidCallSpinsMark(page: Page): Promise<void> {

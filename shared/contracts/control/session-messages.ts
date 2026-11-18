@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PLAN_GATE_FEEDBACK_MAX_CHARS, PlanDecision } from '../plan-gate.ts';
-import { ConversationAnswers, MergeStatus, PermissionDecision, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
+import { CHAT_OUTBOX_TEXT_MAX_CHARS, ConversationAnswers, MergeStatus, PermissionDecision, SessionSnapshot, SessionState, TaskTitle } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
@@ -10,7 +10,7 @@ import { AgentAccountId } from '../agent-accounts.ts';
 import { AgeFileRemove, ProjectApprovals, SecretDecision, SecretName, SecretRequestCard, SecretRevoke, SecretSourceTestResult } from '../secrets.ts';
 import { requestId, sessionId, KeptWorkPath, PullRequestKey, loose, openObject, nullableString, timestamp, optionalError, SessionCardFields, NotifyAlertGroup, SessionStatusFields } from './control-fields.ts';
 
-export const CHAT_SEND_MAX_CHARS = 4000;
+export const CHAT_SEND_MAX_CHARS = CHAT_OUTBOX_TEXT_MAX_CHARS;
 
 const restartClientShape = { id: sessionId, force: z.unknown().optional(), fresh: z.unknown().optional(), conversationId: z.string().optional() };
 
@@ -50,6 +50,7 @@ export const sessionClientVariants = [
   loose('answer-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), answers: ConversationAnswers }),
   loose('decide-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), decision: PermissionDecision }),
   loose('chat-send', { id: sessionId, text: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS), requestId }),
+  loose('chat-cancel', { id: sessionId, entryId: z.string().min(1).max(64), requestId }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('switch-session-model', { id: sessionId, setup: ModelSelection, requestId }),
   loose('secret-decision', SecretDecision.shape),
@@ -68,6 +69,7 @@ export const sessionServerVariants = [
   loose('switch-session-account-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, needsSignIn: z.boolean().optional() }),
   loose('switch-session-model-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
   loose('chat-send-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, acceptedAt: z.number().finite() }),
+  loose('chat-cancel-result', { requestId, id: sessionId, cancelledTexts: z.array(z.string().max(CHAT_SEND_MAX_CHARS)) }),
   loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),
   loose('set-workspace-repos-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),

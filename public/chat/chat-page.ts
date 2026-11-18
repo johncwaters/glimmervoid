@@ -1,4 +1,4 @@
-import type { ConversationApproval } from '#shared/contracts/session.ts';
+import type { ChatOutboxEntry, ConversationApproval } from '#shared/contracts/session.ts';
 import { BETWEEN_TURN_STATES, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -18,7 +18,7 @@ import { uploadFilesToSession } from '../session-upload.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
-const CHAT_SEND_TIMEOUT_MS = 130000;
+const CHAT_SEND_TIMEOUT_MS = 10000;
 const BETWEEN_TURN_STATE_SET: ReadonlySet<string> = new Set(BETWEEN_TURN_STATES);
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
@@ -32,24 +32,22 @@ interface ShownApproval {
   answers: Map<string, string>;
 }
 
-interface QueuedMessage {
-  text: string;
-  acceptedAt: number | null;
-}
-
 interface MountedChat {
   sessionId: string;
   root: HTMLElement;
   feed: ChatFeed;
   wasSessionWorking: boolean;
   setTurnRunning(isTurnRunning: boolean): void;
+  showOutbox(): void;
+  restoreText(text: string): void;
+  showFailure(failureText: string | null): void;
   syncWaitingCards(): void;
   close(): void;
 }
 
 const approvalBySessionId = new Map<string, ConversationApproval | null>();
 const draftBySessionId = new Map<string, string>();
-const queuedBySessionId = new Map<string, QueuedMessage[]>();
+const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
 let mountedChat: MountedChat | null = null;
 let wasChatEnabled = false;
 
@@ -58,8 +56,9 @@ function isChatEnabled(): boolean {
   return typeof sessionChat === 'object' && sessionChat !== null && 'enabled' in sessionChat && sessionChat.enabled === true;
 }
 
-function queuedKeyOf(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+function draftWithRestoredText(restoredText: string, draft: string): string {
+  if (draft.trim().length === 0) return restoredText;
+  return `${restoredText}\n\n${draft}`;
 }
 
 function isSessionWorking(sessionId: string): boolean {
@@ -103,6 +102,48 @@ function attachedFilesOf(event: Event): File[] {
   return detail.files.filter((file): file is File => file instanceof File);
 }
 
+function cancelledEntryIdOf(event: Event): string | null {
+  if (!(event instanceof CustomEvent)) return null;
+  const detail: unknown = event.detail;
+  if (typeof detail !== 'object' || detail === null || !('entryId' in detail) || typeof detail.entryId !== 'string') return null;
+  return detail.entryId;
+}
+
+function restoreTextToSession(sessionId: string, text: string): void {
+  if (text.length === 0) return;
+  if (mountedChat?.sessionId === sessionId) {
+    mountedChat.restoreText(text);
+    return;
+  }
+  draftBySessionId.set(sessionId, draftWithRestoredText(text, draftBySessionId.get(sessionId) ?? ''));
+}
+
+function showSessionFailure(sessionId: string, failureText: string): void {
+  if (mountedChat?.sessionId === sessionId) mountedChat.showFailure(failureText);
+}
+
+function cancelOutboxEntry(sessionId: string, entryId: string): void {
+  sendControlRequest('chat-cancel', { id: sessionId, entryId }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'chat-cancel-result') return;
+      restoreTextToSession(sessionId, reply.cancelledTexts.join('\n\n'));
+    })
+    .catch((reason: unknown) => showSessionFailure(sessionId, `Could not cancel the message: ${errorMessage(reason)}`));
+}
+
+function sendChatText(sessionId: string, text: string): void {
+  const failSend = (failureText: string) => {
+    restoreTextToSession(sessionId, text);
+    showSessionFailure(sessionId, failureText);
+  };
+  sendControlRequest('chat-send', { id: sessionId, text }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'chat-send-result' || reply.ok) return;
+      failSend(reply.error ?? NOT_SENT_TEXT);
+    })
+    .catch((reason: unknown) => failSend(`Could not confirm the message was queued: ${errorMessage(reason)}`));
+}
+
 function sendTextOf(event: Event): string | null {
   if (!(event instanceof CustomEvent)) return null;
   const detail: unknown = event.detail;
@@ -116,25 +157,8 @@ function buildChat(sessionId: string): MountedChat {
   failureLine.hidden = true;
   let chatView = createChatView();
   chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
-  const queued = queuedBySessionId.get(sessionId) ?? [];
-  queuedBySessionId.set(sessionId, queued);
-  const showQueued = () => chatView.showQueued(queued.map((message) => message.text));
-  showQueued();
-  const dropQueued = (message: QueuedMessage) => {
-    const queuedIndex = queued.indexOf(message);
-    if (queuedIndex >= 0) queued.splice(queuedIndex, 1);
-    showQueued();
-  };
-  const settleQueued = (parts: readonly ChatPart[], isLive: boolean) => {
-    for (const part of parts) {
-      if (part.kind !== 'prompt' || queued.length === 0) continue;
-      const isRecordedAfter = (message: QueuedMessage) => (message.acceptedAt === null ? isLive : part.at >= message.acceptedAt);
-      const candidates = queued.filter(isRecordedAfter);
-      const delivered = candidates.find((message) => queuedKeyOf(message.text) === queuedKeyOf(part.text)) ?? (isLive ? candidates[0] : undefined);
-      if (delivered) queued.splice(queued.indexOf(delivered), 1);
-    }
-    showQueued();
-  };
+  const showOutbox = () => chatView.showQueued(outboxBySessionId.get(sessionId) ?? []);
+  showOutbox();
   const showFailure = (failureText: string | null) => {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
@@ -253,21 +277,18 @@ function buildChat(sessionId: string): MountedChat {
   root.addEventListener('chat-send', (event) => {
     const text = sendTextOf(event);
     if (text === null) return;
-    const message: QueuedMessage = { text, acceptedAt: null };
-    queued.push(message);
-    showQueued();
-    sendControlRequest('chat-send', { id: sessionId, text }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
-      .then((reply) => {
-        if (reply.type !== 'chat-send-result') return;
-        message.acceptedAt = reply.acceptedAt;
-        if (reply.ok) return;
-        dropQueued(message);
-        showFailure(reply.error ?? NOT_SENT_TEXT);
-      })
-      .catch((reason: unknown) => {
-        dropQueued(message);
-        showFailure(`Could not confirm the message was sent: ${errorMessage(reason)}`);
-      });
+    showFailure(null);
+    sendChatText(sessionId, text);
+  });
+  root.addEventListener('chat-cancel', (event) => {
+    const entryId = cancelledEntryIdOf(event);
+    if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
+  });
+  root.addEventListener('chat-escape', (event) => {
+    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => entry.state !== 'sending');
+    if (!newestCancellable) return;
+    event.preventDefault();
+    cancelOutboxEntry(sessionId, newestCancellable.entryId);
   });
   root.addEventListener('chat-stop', () => {
     sendTerminalInput(sessionUIs.get(sessionId), ESCAPE_KEY);
@@ -280,10 +301,9 @@ function buildChat(sessionId: string): MountedChat {
   const feed = createChatFeed({
     sessionId,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
-    onPartsChanged: (changedParts, droppedPartIds, isLive) => {
+    onPartsChanged: (changedParts, droppedPartIds) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
-      settleQueued(changedParts, isLive);
     },
     onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
@@ -291,7 +311,7 @@ function buildChat(sessionId: string): MountedChat {
       shownApproval = null;
       const freshView = createChatView();
       freshView.restoreDraft(chatView.readDraft());
-      freshView.showQueued(queued.map((message) => message.text));
+      freshView.showQueued(outboxBySessionId.get(sessionId) ?? []);
       freshView.setTurnRunning(isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
@@ -305,6 +325,9 @@ function buildChat(sessionId: string): MountedChat {
     feed,
     wasSessionWorking: isSessionWorking(sessionId),
     setTurnRunning: (isTurnRunning) => chatView.setTurnRunning(isTurnRunning),
+    showOutbox,
+    restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),
+    showFailure,
     syncWaitingCards,
     close: () => {
       draftBySessionId.set(sessionId, chatView.readDraft());
@@ -325,14 +348,23 @@ export function noteChatApproval(sessionId: string, approval: ConversationApprov
   approvalBySessionId.set(sessionId, approval);
 }
 
+export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
+  outboxBySessionId.set(sessionId, entries);
+  if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
+}
+
 export function applyChatTraceChanged(sessionId: string): void {
   if (mountedChat?.sessionId !== sessionId) return;
   mountedChat.feed.refresh();
 }
 
-export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null }[]): void {
+export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[] }[]): void {
   approvalBySessionId.clear();
-  for (const row of rows) noteChatApproval(row.id, row.conversationApproval ?? null);
+  outboxBySessionId.clear();
+  for (const row of rows) {
+    noteChatApproval(row.id, row.conversationApproval ?? null);
+    noteChatOutbox(row.id, row.chatOutbox ?? []);
+  }
   if (!mountedChat) return;
   applyChatSessionStatus(mountedChat.sessionId);
   mountedChat.feed.refresh();

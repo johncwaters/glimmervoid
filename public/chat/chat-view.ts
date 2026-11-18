@@ -1,4 +1,6 @@
+import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
+import { button } from '../ui/button.ts';
 import type { ActivityBeat } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
@@ -14,11 +16,35 @@ interface ChatView {
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
   restoreDraft(text: string): void;
-  showQueued(texts: readonly string[]): void;
+  showQueued(entries: readonly ChatOutboxEntry[]): void;
   showAttachment(file: File): void;
 }
 
+const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
+  held: 'Queued until the turn ends',
+  sending: 'Sending',
+};
+
 const DOCK_CLEARANCE_PX = 4;
+
+function queuedStatusOf(entry: ChatOutboxEntry): string {
+  if (entry.state === 'failed') return entry.failure ?? 'Not sent.';
+  return QUEUED_STATUS_TEXT[entry.state];
+}
+
+function queuedRowOf(entry: ChatOutboxEntry): HTMLElement {
+  const row = el('div', 'chat-queued-row');
+  row.dataset.state = entry.state;
+  const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
+  const cancelButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Cancel', disabled: entry.state === 'sending' });
+  cancelButton.addEventListener('click', () => {
+    row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
+  });
+  const meta = el('div', 'chat-queued-meta');
+  meta.append(status, cancelButton);
+  row.append(el('div', 'chat-prompt chat-prompt-queued', entry.text), meta);
+  return row;
+}
 
 export function createChatView(): ChatView {
   const element = el('section', 'chat-view');
@@ -30,8 +56,8 @@ export function createChatView(): ChatView {
   const scrollContent = el('div', 'chat-scroll-content');
   scrollContent.append(chatLog.element, queuedList, activity.element);
   scroller.append(scrollContent);
-  const showQueued = (texts: readonly string[]) => {
-    queuedList.replaceChildren(...texts.map((text) => el('div', 'chat-prompt chat-prompt-queued', text)));
+  const showQueued = (entries: readonly ChatOutboxEntry[]) => {
+    queuedList.replaceChildren(...entries.map(queuedRowOf));
   };
   const { jumpButton, followLatest } = stickToBottom(scroller, scrollContent);
   composer.element.addEventListener('chat-send', followLatest);

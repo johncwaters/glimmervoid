@@ -58,6 +58,15 @@ export const ConversationApproval = z.object({
 
 export const PermissionDecision = z.enum(['allow', 'deny']);
 
+export const CHAT_OUTBOX_TEXT_MAX_CHARS = 4000;
+export const CHAT_OUTBOX_MAX_ENTRIES = 20;
+export const ChatOutboxEntry = z.object({
+  entryId: z.string().min(1).max(64),
+  text: z.string().max(CHAT_OUTBOX_TEXT_MAX_CHARS),
+  state: z.enum(['held', 'sending', 'failed']),
+  failure: z.string().max(500).nullable(),
+}).strict();
+
 export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION_MAX_CHARS), z.string().max(CONVERSATION_ANSWER_MAX_CHARS));
 
 
@@ -112,6 +121,7 @@ export const SessionSnapshot = z.object({
   attentionNotes: z.array(AttentionNote).default([]),
   planGate: PlanGate.nullable().default(null),
   conversationApproval: ConversationApproval.nullable().default(null),
+  chatOutbox: z.array(ChatOutboxEntry).max(CHAT_OUTBOX_MAX_ENTRIES).default([]),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
@@ -120,6 +130,7 @@ export type SessionState = z.infer<typeof SessionState>;
 export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
+export type ChatOutboxEntry = z.infer<typeof ChatOutboxEntry>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;
 export type ConversationAnswers = z.infer<typeof ConversationAnswers>;
 export type PermissionDecision = z.infer<typeof PermissionDecision>;
