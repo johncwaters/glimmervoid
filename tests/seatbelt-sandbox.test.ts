@@ -15,6 +15,7 @@ const PROBE_SOURCE = `
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 const [allowedPort, dashboardPort, worktreeFile, outsideFile, secretFile, launcherSettingsFile] = process.argv.slice(2);
 const connects = (port) => new Promise((resolve) => {
   const socket = net.connect(Number(port), '127.0.0.1');
@@ -35,6 +36,10 @@ const reachesProxyAfterTheLauncherIsInterrupted = async () => {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   return connects(new URL(process.env.HTTP_PROXY).port);
 };
+const fetchesOverHttps = (command, args) => {
+  if (!process.env.GH_TOKEN) return 'skipped without GH_TOKEN';
+  try { execFileSync(command, args, { stdio: ['ignore', 'ignore', 'pipe'], timeout: 15000 }); return 'ok'; } catch (error) { return String(error.stderr ?? '').trim().split('\\n').at(-1) || [error.code, error.signal, error.message].filter(Boolean).join(' '); }
+};
 const reads = (filePath) => { try { fs.readFileSync(filePath, 'utf8'); return 'read'; } catch (error) { return error.code; } };
 process.stdout.write(JSON.stringify({
   allowedPort: await connects(allowedPort),
@@ -46,6 +51,8 @@ process.stdout.write(JSON.stringify({
   secretReadInOtherCase: reads(secretFile.toUpperCase()),
   protectedFileInOtherCase: writes(path.dirname(worktreeFile) + '/.MCP.JSON'),
   protectedFolderRenamedIntoPlace: renamesIntoPlace(path.dirname(worktreeFile) + '/staged', path.dirname(worktreeFile) + '/.claude'),
+  gitOverHttps: fetchesOverHttps('git', ['ls-remote', 'https://github.com/git/git.git', 'HEAD']),
+  ghOverHttps: fetchesOverHttps('gh', ['api', '/zen']),
   proxyAfterInterrupt: await reachesProxyAfterTheLauncherIsInterrupted(),
 }) + '\\n');
 `;
@@ -155,6 +162,8 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
     secretReadInOtherCase: 'EPERM',
     protectedFileInOtherCase: 'EPERM',
     protectedFolderRenamedIntoPlace: 'EPERM',
+    gitOverHttps: process.env.GH_TOKEN ? 'ok' : 'skipped without GH_TOKEN',
+    ghOverHttps: process.env.GH_TOKEN ? 'ok' : 'skipped without GH_TOKEN',
     proxyAfterInterrupt: 'connected',
   });
   assert.equal(fs.existsSync(path.join(run.outsideFolder, 'escaped.txt')), false);

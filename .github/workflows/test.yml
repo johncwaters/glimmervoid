@@ -43,6 +43,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node --test tests/seatbelt-sandbox.test.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   pack:
     timeout-minutes: 15
