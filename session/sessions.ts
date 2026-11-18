@@ -64,7 +64,7 @@ import {
   nextStateClock,
 } from "./core/state-machine.ts";
 import { mapSignalToEvent } from "./core/status-mapper.ts";
-import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, LONE_ESCAPE } from "./core/waiting-input-core.ts";
+import { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, isWaitingOnHookRaisedPrompt, LONE_ESCAPE } from "./core/waiting-input-core.ts";
 import { decideExitTransition } from "./core/exit-transition.ts";
 import { decideTeardown, NO_TEARDOWN } from "./core/session-teardown.ts";
 import type { Teardown, TeardownAction } from "./core/session-teardown.ts";
@@ -2383,6 +2383,10 @@ class Session extends EventEmitter {
     this._setUnseenOutcome(null);
     this._dispatchAttention({ type: "dismiss" });
     if (!DISMISSIBLE_STATES.has(this.state)) return hadUnseenOutcome || hadAttentionNotes;
+    if (this.state === STATES.WAITING && isWaitingOnHookRaisedPrompt(this._can("hooks") && this._can("awaitingInput"), this._pendingPromptKind)) {
+      this.emit("waiting-input-acknowledged");
+      return true;
+    }
     return this.transition("user_dismiss");
   }
 

@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A session waiting on your answer keeps saying so after you look at it.** Opening a session that was asking a question used to flip its card back to working while the agent still waited, so it lost its needs-you mark and looked busy and stuck. Looking now only quiets the alert; the card stays waiting until you answer.
 - **No empty space beside the session menu.** The Focus header kept a blank button-sized gap between Changes and the menu for the Preview button, which only appears while a session runs a dev server. Preview now comes first, so it takes no space until it appears, and Chat and Changes stay put when it does.
 - **A board picks up folder edits made right after it links.** When a board linked to a folder, or moved to a new code session worktree, an edit to `board.jsonl` made in the moment before the board started watching that folder never reached the board until something else changed there. The board now reads the folder once more as soon as it starts watching, so that edit arrives.
 - **Dashboard shortcuts work while you type in Chat.** Alt+J (Cmd+J on a Mac) and the other dashboard shortcuts did nothing while the Chat message box had focus; they now run from there too. Escape and Cmd+Z (Ctrl+Z elsewhere) stay with the box, and arrow keys still move the cursor in a message you are writing.

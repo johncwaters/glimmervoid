@@ -43,13 +43,16 @@ function isPromptClosingKeystroke(input: string, isQuestionPrompt: boolean): boo
   return input.endsWith("\r") || OPTION_DIGIT_SHORTCUT_PATTERN.test(input);
 }
 
+function isWaitingOnHookRaisedPrompt(hasHookAwaitingInput: boolean, pendingPromptKind: string | null): boolean {
+  return hasHookAwaitingInput && pendingPromptKind !== null && HOOK_RAISED_PROMPT_KINDS.has(pendingPromptKind);
+}
+
 function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, isQuestionPrompt, input }: WaitingInputContext): WaitingInputDecision {
   if (state !== STATES.WAITING) return "ignore";
   if (!isOperatorKeystroke(input)) return "ignore";
-  const isHookRaisedPrompt = pendingPromptKind !== null && HOOK_RAISED_PROMPT_KINDS.has(pendingPromptKind);
-  if (!hasHookAwaitingInput || !isHookRaisedPrompt) return "end-waiting";
+  if (!isWaitingOnHookRaisedPrompt(hasHookAwaitingInput, pendingPromptKind)) return "end-waiting";
   if (isPromptClosingKeystroke(input, isQuestionPrompt)) return "end-waiting";
   return "acknowledge";
 }
 
-export { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, LONE_ESCAPE };
+export { decideWaitingInput, isComposerSubmit, isOperatorKeystroke, isPromptSubmit, isWaitingOnHookRaisedPrompt, LONE_ESCAPE };

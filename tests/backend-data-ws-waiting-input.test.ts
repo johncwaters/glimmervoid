@@ -175,14 +175,15 @@ test('Escape at a Claude Code permission prompt leaves WAITING, and the idle tit
   }
 });
 
-test('Escape after dismissing a Claude Code question whose title already went idle completes the card', async () => {
+test('looking at a Claude Code question whose title already went idle keeps it WAITING, and Escape then completes the card', async () => {
   const harness = await bootHarness(claudeCodeAtPermissionPrompt(ASK_USER_QUESTION_TOOL_NAME, WORKING_TITLE));
   try {
     harness.session._titleSource.feed(IDLE_TITLE);
     await waitUntil(() => harness.session._lastSignal?.signal === 'ready');
     assert.equal(harness.session.state, STATES.WAITING);
     harness.session.dismiss();
-    assert.equal(harness.session.state, STATES.RUNNING);
+    assert.equal(harness.session.state, STATES.WAITING);
+    assert.deepEqual(harness.acknowledgedIds, [SESSION_ID]);
     await harness.sendInput(ESCAPE);
     await waitUntil(() => harness.session.state === STATES.COMPLETE);
     assert.equal(harness.session.state, STATES.COMPLETE);
