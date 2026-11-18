@@ -129,7 +129,7 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 
 ### Section Heading
 A section eyebrow above a list or grid is `sectionHeading()` from `public/ui/section-heading.ts` (look in `public/ui/section-heading.css`).
-- **Look:** the title is a Label (the `.ui-label` utility, which also serves any plain eyebrow), Faint Ash by default; a count follows in Ash tabular figures, then an optional Faint Ash hint, which takes its own line on the phone, then optional actions pushed to the right edge.
+- **Look:** the title is a Label (the `.ui-label` utility, which also serves any plain eyebrow), Faint Ash by default; a count follows in Ash tabular figures, then an optional Faint Ash hint, which takes its own line on the phone, then optional actions pushed to the right edge; every part sits 8px from the next.
 - **Options:** `title`, `level` (2, 3, 4, or `'none'` for a div), `count` (a number or text such as `1 / 5`; `setCount` updates it in place and hides it when null), `tone` (`muted`, `strong` for Paper, `waiting` for the Needs Input amber), `hint`, `actions`.
 - **Layout belongs to the parent:** rules, borders and outer spacing come from the container or a placement class the caller adds.
 
