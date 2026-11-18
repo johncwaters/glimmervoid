@@ -83,7 +83,7 @@ export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, sub
   return fields.filter((field): field is RailField => field !== null);
 }
 
-export function countdownText(remainingMs: number): string {
+function countdownText(remainingMs: number): string {
   if (remainingMs >= DAY_MS) return `${Math.floor(remainingMs / DAY_MS)}d${Math.floor((remainingMs % DAY_MS) / HOUR_MS)}h`;
   if (remainingMs >= HOUR_MS) return `${Math.floor(remainingMs / HOUR_MS)}h${Math.floor((remainingMs % HOUR_MS) / MINUTE_MS)}m`;
   return `${Math.max(1, Math.ceil(remainingMs / MINUTE_MS))}m`;
