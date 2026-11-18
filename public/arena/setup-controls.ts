@@ -1,5 +1,4 @@
 import type { AgentModelCatalog, AgentSetup } from '#shared/contracts/agent-models.ts';
-import { el, markAsNotCredential } from '../dom-helpers.ts';
 import { select } from '../ui/select.ts';
 import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
