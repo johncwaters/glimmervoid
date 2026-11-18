@@ -1,0 +1,6 @@
+{"type":"header","version":2,"agent":"claude-code","session":"compaction-interrupt","startedAt":0,"config":{},"cols":80,"rows":24}
+{"type":"hook","ts":1,"event":"UserPromptSubmit","payload":{"hook_event_name":"UserPromptSubmit"}}
+{"type":"data","ts":30,"data":"\u001b]0;⠂ Claude Code\u0007"}
+{"type":"hook","ts":40,"event":"PreCompact","payload":{"hook_event_name":"PreCompact","trigger":"auto"}}
+{"type":"data","ts":2000,"data":"\u001b]0;✳ Claude Code\u0007"}
+{"type":"hook","ts":6000,"event":"SubagentStop","payload":{"hook_event_name":"SubagentStop","agent_id":"abcbb8e550e27d504","agent_type":"","stop_hook_active":false}}

@@ -1175,11 +1175,12 @@ class Session extends EventEmitter {
     });
   }
 
-  _finishCompaction(): void {
+  _finishCompaction(): boolean {
     const finished = finishCompaction(this._compaction, this.state);
     this._compaction = finished.tracking;
+    const isTurnStillOpen = finished.tracking.hasPromptInFlight;
     if (finished.shouldResetDetectionSources) {
-      this._resetDetectionSources({ quiet: true });
+      this._resetDetectionSources({ quiet: !isTurnStillOpen });
       this.backgroundTracking.clearGateHeldReady();
     }
     if (finished.event) {
@@ -1187,6 +1188,7 @@ class Session extends EventEmitter {
       this._setPendingPromptKind(finished.returnState?.pendingPromptKind ?? null, finished.returnState?.pendingPromptToolName ?? null);
     }
     this._emitSessionDetail();
+    return isTurnStillOpen;
   }
 
   _pushAuditEntry(entry: Record<string, unknown>): void {
@@ -1218,15 +1220,18 @@ class Session extends EventEmitter {
     this._setPendingPromptKind(null);
   }
 
+  _isSignalConsumedByCompactionEnd(s: ResolvedStatusSignal): boolean {
+    if (!isCompactionEndingSignal(this._compaction, s.signal, s.source, this._hooksReportPrompts)) return false;
+    const isTurnStillOpen = this._finishCompaction();
+    return !isTurnStillOpen;
+  }
+
   _onStatus(s: ResolvedStatusSignal): void {
     if (this._destroyed) return;
     this._lastSignal = { signal: s.signal, source: s.source, confidence: s.confidence, ts: s.ts };
 
     this._observeCompaction(s.signal, s.source);
-    if (isCompactionEndingSignal(this._compaction, s.signal, s.source, this._hooksReportPrompts)) {
-      this._finishCompaction();
-      return;
-    }
+    if (this._isSignalConsumedByCompactionEnd(s)) return;
     if (suppressCompactionSignal(this._compaction, s.signal)) return;
 
     const signalSeq = this.backgroundTracking.noteStatus(s.signal);

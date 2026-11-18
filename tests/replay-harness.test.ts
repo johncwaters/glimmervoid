@@ -227,6 +227,14 @@ for (const [fixture, expectedState, expectedNotifications] of [
   });
 }
 
+for (const fixture of ['v2-mid-turn-compaction-interrupt.jsonl', 'v2-mid-turn-compaction-then-interrupt.jsonl']) {
+  test(`${fixture}: the idle title after an Esc with no Stop completes a turn that auto-compacted`, (t) => {
+    const outcome = replayThroughSession(fixture, t);
+    assert.deepEqual(outcome.transitions, [STATES.RUNNING, STATES.COMPLETE]);
+    assert.deepEqual(outcome.notifications, ['complete']);
+  });
+}
+
 for (const fixture of ['v2-kimi-approval-turn.jsonl', 'v2-kimi-ask-question.jsonl']) {
   test(`kimi fixture ${fixture}: the prompt reaches the card as awaiting-input before the Stop completes the turn`, async () => {
     const { version, agent, records } = load(fixture);

@@ -176,6 +176,8 @@ const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
   'v2-question-answered.jsonl',
   'v2-idle-compaction.jsonl',
   'v2-mid-turn-compaction.jsonl',
+  'v2-mid-turn-compaction-interrupt.jsonl',
+  'v2-mid-turn-compaction-then-interrupt.jsonl',
   'v2-sessionstart-clear.jsonl',
 ]);
 
