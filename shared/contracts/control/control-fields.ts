@@ -106,6 +106,7 @@ export const SessionCardFields = z.object({
   attentionOwner: AttentionOwner.optional(),
   linkedPrs: z.array(LinkedPr).optional(),
   modelSelection: ModelSelection.nullable().optional(),
+  workingDirectory: z.string().optional(),
 });
 export type SessionCardFields = z.infer<typeof SessionCardFields>;
 

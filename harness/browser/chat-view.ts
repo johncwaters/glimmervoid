@@ -83,11 +83,11 @@ async function captureScreenshot(url: string, screenshotPath: string, executable
   await page.waitForSelector('body[data-rendered="true"]');
   await page.screenshot({ path: screenshotPath });
   const turnEndShiftPx = await page.evaluate(() => document.body.dataset.turnEndShiftPx ?? null);
-  const workedForRows = await page.locator('.chat-reply[data-worked-for] .chat-work-row').allTextContents();
+  const turnMetaRows = await page.locator('.chat-turn[data-foldable] .chat-turn-meta').allInnerTexts();
   await browser.close();
   if (pageErrors.length > 0) throw new Error(`the chat view threw: ${pageErrors.join('; ')}`);
   if (turnEndShiftPx !== null && turnEndShiftPx !== '0') throw new Error(`ending the turn moved the conversation by ${turnEndShiftPx}px`);
-  console.log(`turn end shift: ${turnEndShiftPx === null ? 'not measured' : `${turnEndShiftPx}px`}; worked-for rows: ${JSON.stringify(workedForRows)}`);
+  console.log(`turn end shift: ${turnEndShiftPx === null ? 'not measured' : `${turnEndShiftPx}px`}; turn meta rows: ${JSON.stringify(turnMetaRows)}`);
 }
 
 async function main(): Promise<void> {

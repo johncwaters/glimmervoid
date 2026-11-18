@@ -1,16 +1,24 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
-import { type ActivityBeat, beatOfRecord, loadedSkillOf } from './chat-activity-core.ts';
-import type { ChatPart } from './chat-part.ts';
+import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
+import type { ChatPart, TurnPart } from './chat-part.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
+import { fileEditsOf, truncatedFileEditsOf, toolLabelOf } from './turn-digest-core.ts';
+import type { FileEdit, FileEditTally, TurnSegment } from './turn-digest-core.ts';
 
 interface ChatTurn {
   promptAt: number | null;
-  hasToolWork: boolean;
-  finalReplyPartId: string | null;
-  finalReplyAt: number;
+  firstAt: number | null;
+  partId: string | null;
+  segments: TurnSegment[];
+  droppedSegmentCount: number;
+  toolCount: number;
+  editedPaths: Set<string>;
+  fileEdits: FileEditTally;
+  lastAt: number;
+  isOver: boolean;
 }
 
 type PromptPart = Extract<ChatPart, { kind: 'prompt' }>;
@@ -23,61 +31,114 @@ interface ChatPartsState {
   pendingAttachments: SentAttachments | null;
   latestPrompt: PromptPart | null;
   runningSubagentByToolUseId: Map<string, RunningSubagent>;
-}
-
-export interface TurnMarks {
-  supersededPartIds: string[];
-  workedFor: { partId: string; text: string | null }[];
+  workingDirectory: string | null;
 }
 
 interface AppendedChat {
   parts: ChatPart[];
   beats: ActivityBeat[];
-  marks: TurnMarks;
   runningSubagents: RunningSubagent[];
 }
 
 const MAX_RESIDENT_PARTS = 2000;
+const MAX_TURN_SEGMENTS = 400;
+const MAX_TOOL_LABELS_PER_SEGMENT = 50;
 const TRIM_BATCH_PARTS = 200;
 
-export function createChatPartsState(): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, runningSubagentByToolUseId: new Map() };
+export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, runningSubagentByToolUseId: new Map(), workingDirectory };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, hasToolWork: false, finalReplyPartId: null, finalReplyAt: 0 };
+  return { promptAt, firstAt: null, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, lastAt: 0, isOver: false };
 }
 
-function workedForText(workedForMs: number): string {
-  const workedForSeconds = Math.max(1, Math.floor(workedForMs / 1000));
-  return `Worked for ${twoUnitDurationText(workedForSeconds, { smallestUnit: 's', dropsZeroRemainder: false })}`;
+function durationTextOf(turn: ChatTurn): string | null {
+  if (turn.promptAt === null || turn.lastAt <= turn.promptAt) return null;
+  return twoUnitDurationText(Math.max(1, Math.floor((turn.lastAt - turn.promptAt) / 1000)), { smallestUnit: 's', dropsZeroRemainder: false });
 }
 
-export function endChatTurn(state: ChatPartsState): TurnMarks {
-  const { promptAt, hasToolWork, finalReplyPartId, finalReplyAt } = state.turn;
-  if (finalReplyPartId === null || promptAt === null || !hasToolWork || finalReplyAt <= promptAt) return { supersededPartIds: [], workedFor: [] };
-  return { supersededPartIds: [], workedFor: [{ partId: finalReplyPartId, text: workedForText(finalReplyAt - promptAt) }] };
+function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
+  return {
+    kind: 'turn',
+    id: partId,
+    turnKey: turn.promptAt ?? turn.firstAt,
+    segments: turn.segments,
+    droppedSegmentCount: turn.droppedSegmentCount,
+    toolCount: turn.toolCount,
+    fileEdits: { ...turn.fileEdits },
+    durationText: turn.isOver ? durationTextOf(turn) : null,
+    isOver: turn.isOver,
+  };
 }
 
-function noteTurnRecord(state: ChatPartsState, record: TraceRecord, part: ChatPart | null, marks: TurnMarks): void {
+export function endChatTurn(state: ChatPartsState): ChatPart[] {
+  const { turn } = state;
+  if (turn.partId === null || turn.isOver) return [];
+  turn.isOver = true;
+  return [turnPartOf(turn, turn.partId)];
+}
+
+function pushSegment(turn: ChatTurn, segment: TurnSegment): void {
+  turn.segments.push(segment);
+  if (turn.segments.length <= MAX_TURN_SEGMENTS) return;
+  turn.segments.shift();
+  turn.droppedSegmentCount += 1;
+}
+
+function tallyFileEdits(turn: ChatTurn, edits: readonly FileEdit[]): void {
+  for (const edit of edits) {
+    turn.editedPaths.add(edit.path);
+    turn.fileEdits.added += edit.added;
+    turn.fileEdits.removed += edit.removed;
+    turn.fileEdits.hasLineCounts &&= edit.hasLineCounts;
+  }
+  turn.fileEdits.fileCount = turn.editedPaths.size;
+}
+
+function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): void {
+  const { turn } = state;
+  turn.toolCount += 1;
+  const label = toolLabelOf(record.name, record.input, state.workingDirectory);
+  const lastSegment = turn.segments.at(-1);
+  const hasRoomForLabel = lastSegment?.kind === 'tools' && lastSegment.labels.length < MAX_TOOL_LABELS_PER_SEGMENT;
+  if (hasRoomForLabel) lastSegment.labels.push(label);
+  if (!hasRoomForLabel) pushSegment(turn, { kind: 'tools', labels: [label] });
+  if (!isEditingTool(record.name)) return;
+  tallyFileEdits(turn, record.truncated === true ? truncatedFileEditsOf(record.input, state.workingDirectory) : fileEditsOf(record.input, state.workingDirectory));
+}
+
+type TurnTouch = 'grew' | 'ran' | 'untouched';
+
+function turnTouchOf(state: ChatPartsState, record: TraceRecord): TurnTouch {
+  if (record.kind === 'tool_call') {
+    noteToolCall(state, record);
+    return 'grew';
+  }
+  if (record.kind === 'assistant' && record.text.trim().length > 0) {
+    pushSegment(state.turn, { kind: 'text', text: record.text });
+    return 'grew';
+  }
+  return record.kind === 'tool_result' ? 'ran' : 'untouched';
+}
+
+function noteTurnRecord(state: ChatPartsState, record: TraceRecord, emit: (part: ChatPart) => void): void {
   if (record.agentId !== undefined) return;
   if (opensOperatorTurn(record)) {
-    marks.workedFor.push(...endChatTurn(state).workedFor);
+    for (const endedPart of endChatTurn(state)) emit(endedPart);
     state.turn = freshTurn(record.ts);
     return;
   }
-  if (record.kind === 'tool_call') {
-    state.turn.hasToolWork = true;
-    return;
-  }
-  if (part?.kind !== 'reply') return;
-  const supersededPartId = state.turn.finalReplyPartId;
-  if (supersededPartId !== null) {
-    marks.supersededPartIds.push(supersededPartId);
-    marks.workedFor.push({ partId: supersededPartId, text: null });
-  }
-  state.turn.finalReplyPartId = part.id;
-  state.turn.finalReplyAt = record.ts;
+  const touch = turnTouchOf(state, record);
+  if (touch === 'untouched') return;
+  const { turn } = state;
+  const wasOver = turn.isOver;
+  turn.firstAt ??= record.ts;
+  turn.lastAt = Math.max(turn.lastAt, record.ts);
+  turn.isOver = false;
+  if (turn.segments.length === 0 || (touch === 'ran' && !wasOver)) return;
+  turn.partId ??= nextPartId(state, 'turn');
+  emit(turnPartOf(turn, turn.partId));
 }
 
 function nextPartId(state: ChatPartsState, kind: string): string {
@@ -111,7 +172,7 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   if (record.agentId !== undefined) return null;
   if (record.kind === 'attachments') return attachedPromptOf(state, record);
   const part = nonPromptPartOf(state, record);
-  if (part !== null) state.latestPrompt = null;
+  if (part !== null || record.kind === 'assistant') state.latestPrompt = null;
   if (record.kind !== 'prompt') return part;
   const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text, at: record.ts, attachments: [] }, state.pendingAttachments);
   state.pendingAttachments = null;
@@ -120,7 +181,6 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
 }
 
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
-  if (record.kind === 'assistant') return { kind: 'reply', id: nextPartId(state, 'reply'), text: record.text };
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   const skillName = loadedSkillOf(record);
   if (skillName !== null) return { kind: 'skill', id: nextPartId(state, 'skill'), skillName };
@@ -147,16 +207,25 @@ function noteSubagentRecord(state: ChatPartsState, record: TraceRecord): void {
 export function appendChatRecords(state: ChatPartsState, appended: readonly TraceRecord[]): AppendedChat {
   const parts: ChatPart[] = [];
   const beats: ActivityBeat[] = [];
-  const marks: TurnMarks = { supersededPartIds: [], workedFor: [] };
+  const partIndexById = new Map<string, number>();
+  const emit = (part: ChatPart) => {
+    const existingIndex = partIndexById.get(part.id);
+    if (existingIndex !== undefined) {
+      parts[existingIndex] = part;
+      return;
+    }
+    partIndexById.set(part.id, parts.length);
+    parts.push(part);
+  };
   for (const record of appended) {
     const part = chatPartOf(state, record);
-    if (part) parts.push(part);
-    noteTurnRecord(state, record, part, marks);
+    if (part) emit(part);
+    noteTurnRecord(state, record, emit);
     noteSubagentRecord(state, record);
     const beat = beatOfRecord(record);
     if (beat) beats.push(beat);
   }
-  return { parts, beats, marks, runningSubagents: [...state.runningSubagentByToolUseId.values()] };
+  return { parts, beats, runningSubagents: [...state.runningSubagentByToolUseId.values()] };
 }
 
 export function trimChatParts(state: ChatPartsState, maxResidentParts = MAX_RESIDENT_PARTS): string[] {

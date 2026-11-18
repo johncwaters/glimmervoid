@@ -34,6 +34,9 @@ const WORK_KIND_BY_TOOL_NAME = new Map<string, WorkKind>(Object.entries({
   write: 'editing',
   apply_patch: 'editing',
   patch: 'editing',
+  write_to_file: 'editing',
+  replace_file_content: 'editing',
+  multi_replace_file_content: 'editing',
   bash: 'running',
   shell: 'running',
   exec: 'running',
@@ -97,6 +100,10 @@ function glimmervoidToolOf(name: string, input: unknown): string | null {
   const mcpMatch = MCP_TOOL_NAME.exec(name);
   if (!mcpMatch || !GLIMMERVOID_SERVER.test(mcpMatch[1] ?? '')) return null;
   return mcpMatch[2] ?? null;
+}
+
+export function isEditingTool(name: string): boolean {
+  return WORK_KIND_BY_TOOL_NAME.get(name.toLowerCase()) === 'editing';
 }
 
 function beatOfToolCall(name: string, input: unknown): ActivityBeat {

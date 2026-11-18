@@ -27,7 +27,9 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
 const chatHost = document.getElementById('chat-host');
 const traceResponse = await fetch('/trace-records.json');
 const { records: traceRecords }: { records: TraceRecord[] } = await traceResponse.json();
-const chatView = createChatView((fileName) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`));
+let harnessSeenTurnKey: number | null = null;
+const harnessSeenTurns = { readSeenTurnKey: () => harnessSeenTurnKey, markSeen: (turnKey: number) => { harnessSeenTurnKey = turnKey; } };
+const chatView = createChatView((fileName) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`), harnessSeenTurns);
 chatHost?.appendChild(chatView.element);
 chatView.setTurnRunning(true);
 const HARNESS_NOW_MS = Date.now();
@@ -44,6 +46,7 @@ async function playLive(): Promise<void> {
   let servedCount = Math.min(LIVE_PAGE_RECORDS, traceRecords.length);
   const feed = createChatFeed({
     sessionId: 'harness',
+    workingDirectory: null,
     requestPage: async (payload) => {
       const start = 'after' in payload ? payload.after : 0;
       return { type: 'session-trace-response', id: 'harness', requestId: 'harness', records: traceRecords.slice(start, servedCount), start, next: servedCount, reset: false, path: '' };
@@ -52,7 +55,6 @@ async function playLive(): Promise<void> {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
     },
-    onTurnMarks: (marks) => chatView.markTurn(marks),
     onSubagents: showExampleRail,
     isTurnOver: () => false,
     onBeats: (beats) => {
@@ -87,8 +89,7 @@ function showRecordsAtRest(): void {
   const partsState = createChatPartsState();
   const appended = appendChatRecords(partsState, traceRecords);
   chatView.upsert(appended.parts);
-  chatView.markTurn(appended.marks);
-  chatView.markTurn(endChatTurn(partsState));
+  chatView.upsert(endChatTurn(partsState));
 }
 
 if (new URLSearchParams(location.search).has('live')) await playLive();

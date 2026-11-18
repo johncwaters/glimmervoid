@@ -91,7 +91,7 @@ async function verifyComposerKeepsFollowing(page: Page): Promise<void> {
   const composerInput = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
   await page.locator('.session-chat .chat-log').evaluate((chatLog) => {
     const tallReply = document.createElement('div');
-    tallReply.className = 'chat-reply chat-test-filler';
+    tallReply.className = 'chat-turn chat-test-filler';
     tallReply.style.height = '1600px';
     chatLog.append(tallReply);
   });

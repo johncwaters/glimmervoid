@@ -8,6 +8,7 @@ interface SessionCardSource {
   taskTitle?: string | null;
   taskTitleIsCustom?: boolean;
   path: string;
+  workingDirectory?: string;
   agentId: string;
   agentDrawsAlternateScreen?: boolean;
   state: SessionCardFields["state"];
@@ -47,6 +48,7 @@ function projectSessionCard(
     taskTitle: source.taskTitle ?? null,
     taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
+    ...(source.workingDirectory ? { workingDirectory: source.workingDirectory } : {}),
     agent: source.agentId,
     agentDrawsAlternateScreen: !!source.agentDrawsAlternateScreen,
     state: source.state,
@@ -73,6 +75,7 @@ interface SnapshotSource {
   id: string;
   name: string;
   path: string;
+  workingDirectory?: string | null;
   agent: string;
   agentDrawsAlternateScreen?: boolean;
   state: string;
@@ -116,6 +119,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     taskTitle: source.taskTitle ?? null,
     taskTitleIsCustom: source.taskTitleIsCustom ?? false,
     path: source.path,
+    workingDirectory: source.workingDirectory ?? null,
     agent: source.agent,
     agentDrawsAlternateScreen: !!source.agentDrawsAlternateScreen,
     state: source.state,

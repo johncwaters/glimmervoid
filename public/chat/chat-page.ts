@@ -14,8 +14,10 @@ import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
+import type { SeenTurns } from './chat-parts.ts';
+import { getJSON, setJSON } from '../local-store.ts';
 import { storeFilesForChat } from '../session-upload.ts';
-import { sessionAccountIdOf, sessionModelSelectionOf } from '../session-card/card-model.ts';
+import { sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
 import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
@@ -31,6 +33,31 @@ const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
 const uploadingCountBySessionId = new Map<string, number>();
+const SEEN_TURNS_STORAGE_KEY = 'glimmervoid-chat-seen-turns';
+const MAX_SESSIONS_WITH_SEEN_TURNS = 200;
+
+function seenTurnKeyBySessionId(): Record<string, unknown> {
+  const stored: unknown = getJSON(SEEN_TURNS_STORAGE_KEY, {});
+  return typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? { ...stored } : {};
+}
+
+function seenTurnsFor(sessionId: string): SeenTurns {
+  return {
+    readSeenTurnKey: () => {
+      const seenTurnKey = seenTurnKeyBySessionId()[sessionId];
+      return typeof seenTurnKey === 'number' ? seenTurnKey : null;
+    },
+    markSeen: (turnKey) => {
+      const seenByKey = seenTurnKeyBySessionId();
+      const formerTurnKey = seenByKey[sessionId];
+      if (typeof formerTurnKey === 'number' && formerTurnKey >= turnKey) return;
+      delete seenByKey[sessionId];
+      const keptEntries = Object.entries(seenByKey).slice(-(MAX_SESSIONS_WITH_SEEN_TURNS - 1));
+      setJSON(SEEN_TURNS_STORAGE_KEY, Object.fromEntries([...keptEntries, [sessionId, turnKey]]));
+    },
+  };
+}
+
 const LIVE_TERMINAL_HEADING = 'The agent is waiting on its terminal';
 
 type TerminalCardState = 'hidden' | 'borrowed' | 'released';
@@ -197,7 +224,7 @@ function buildChat(sessionId: string): MountedChat {
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
-  let chatView = createChatView(uploadUrlFor(sessionId));
+  let chatView = createChatView(uploadUrlFor(sessionId), seenTurnsFor(sessionId));
   chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
   for (const fileName of draftAttachmentsBySessionId.get(sessionId) ?? []) chatView.showAttachment(fileName);
   draftAttachmentsBySessionId.delete(sessionId);
@@ -413,13 +440,13 @@ function buildChat(sessionId: string): MountedChat {
 
   const feed = createChatFeed({
     sessionId,
+    workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
     onPartsChanged: (changedParts, droppedPartIds) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
       keepPendingPartsLast();
     },
-    onTurnMarks: (marks) => chatView.markTurn(marks),
     onSubagents: (subagents) => {
       runningSubagents = subagents;
       showRail();
@@ -429,7 +456,7 @@ function buildChat(sessionId: string): MountedChat {
     onReset: () => {
       releaseTerminal();
       shownApproval = null;
-      const freshView = createChatView(uploadUrlFor(sessionId));
+      const freshView = createChatView(uploadUrlFor(sessionId), seenTurnsFor(sessionId));
       freshView.restoreDraft(chatView.readDraft());
       for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
       freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => entry.state !== 'submitted'));

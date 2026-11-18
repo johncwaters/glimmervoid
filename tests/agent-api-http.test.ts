@@ -561,6 +561,7 @@ test('a spawned child reaches the dashboard as one session-added card naming its
       id: reply.body.sessionId,
       session: reply.body.name,
       path: fixture.parent.path,
+      workingDirectory: fixture.parent.path,
       agent: fixture.parent.agentId,
       agentDrawsAlternateScreen: true,
       state: STATES.DORMANT,

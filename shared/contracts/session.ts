@@ -95,6 +95,7 @@ export const SessionSnapshot = z.object({
   taskTitle: TaskTitle.nullable().default(null),
   taskTitleIsCustom: z.boolean().default(false),
   path: z.string(),
+  workingDirectory: z.string().nullable().default(null),
   agent: z.string(),
   agentDrawsAlternateScreen: z.boolean().default(false),
   state: SessionState,

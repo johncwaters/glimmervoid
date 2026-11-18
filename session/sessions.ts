@@ -1503,6 +1503,7 @@ class Session extends EventEmitter {
   refreshGitContext() { return this.worktreeLifecycle.refreshGitContext(); }
 
   effectiveCwd(): string { return this.worktreeLifecycle.effectiveCwd(); }
+  get workingDirectory(): string { return this.effectiveCwd(); }
 
   _provisionWorktree({ fresh = false }: { fresh?: boolean } = {}) { return this.worktreeLifecycle.provision({ fresh }); }
 
@@ -1605,6 +1606,7 @@ class Session extends EventEmitter {
       taskTitle: this.taskTitle,
       taskTitleIsCustom: this.taskTitleIsCustom,
       path: this.path,
+      workingDirectory: this.effectiveCwd(),
       agent: this.agentId,
       agentDrawsAlternateScreen: this.agentDrawsAlternateScreen,
       state: this.state,

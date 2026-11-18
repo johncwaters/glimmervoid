@@ -4,8 +4,8 @@ import { button } from '../ui/button.ts';
 import type { ActivityBeat } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
-import type { TurnMarks } from './chat-parts-core.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
+import type { SeenTurns } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
 import type { RailField } from './status-rail-core.ts';
@@ -14,7 +14,7 @@ interface ChatView {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[]): void;
   remove(partIds: readonly string[]): void;
-  markTurn(marks: TurnMarks): void;
+  toggleTurn(turnElement: HTMLElement): void;
   keepLast(partIds: readonly string[]): void;
   setTurnRunning(isTurnRunning: boolean): void;
   beat(beats: readonly ActivityBeat[]): void;
@@ -55,10 +55,10 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
   return row;
 }
 
-export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
+export function createChatView(uploadUrlOf: (fileName: string) => string, seenTurns: SeenTurns): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
-  const chatLog = createChatLog(uploadUrlOf);
+  const chatLog = createChatLog(uploadUrlOf, seenTurns);
   const composer = createComposer(uploadUrlOf);
   const activity = createChatActivity();
   const queuedList = el('div', 'chat-queued-list');
@@ -84,5 +84,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, keepLast: chatLog.keepLast, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
 }

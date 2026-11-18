@@ -4,7 +4,6 @@ import type { TraceRequest } from '../trace-store-core.ts';
 import type { ActivityBeat } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
 import { appendChatRecords, createChatPartsState, endChatTurn, trimChatParts } from './chat-parts-core.ts';
-import type { TurnMarks } from './chat-parts-core.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 
 const UNREADABLE_TRACE_TEXT = 'The conversation could not be read.';
@@ -15,10 +14,10 @@ type TracePagePayload = { id: string; after: number } | { id: string; endingAt: 
 
 interface ChatFeedOptions {
   sessionId: string;
+  workingDirectory: string | null;
   requestPage: (payload: TracePagePayload) => Promise<ServerMessage>;
   onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => void;
   onBeats: (beats: readonly ActivityBeat[]) => void;
-  onTurnMarks: (marks: TurnMarks) => void;
   onSubagents: (runningSubagents: readonly RunningSubagent[]) => void;
   isTurnOver: () => boolean;
   onReset: () => void;
@@ -44,7 +43,7 @@ function failureTextOf(reason: unknown): string {
 
 export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   const { sessionId } = options;
-  let partsState = createChatPartsState();
+  let partsState = createChatPartsState(options.workingDirectory);
   let phase: FeedPhase = 'seeking';
   let nextOffset = 0;
   let pendingRequest: TraceRequest | null = null;
@@ -64,7 +63,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   };
 
   const restart = () => {
-    partsState = createChatPartsState();
+    partsState = createChatPartsState(options.workingDirectory);
     phase = 'seeking';
     nextOffset = 0;
     options.onReset();
@@ -73,10 +72,11 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   const showRecords = (reply: ServerMessage & { type: 'session-trace-response' }, isLive: boolean) => {
     nextOffset = reply.next;
     const appended = appendChatRecords(partsState, reply.records);
-    options.onPartsChanged(appended.parts, trimChatParts(partsState), isLive);
-    options.onTurnMarks(appended.marks);
+    const endedTurnParts = options.isTurnOver() ? endChatTurn(partsState) : [];
+    const changedParts = appended.parts.map((part) => endedTurnParts.find((ended) => ended.id === part.id) ?? part);
+    const endedTurnPartsNotChanged = endedTurnParts.filter((ended) => !appended.parts.some((part) => part.id === ended.id));
+    options.onPartsChanged([...changedParts, ...endedTurnPartsNotChanged], trimChatParts(partsState), isLive);
     options.onSubagents(appended.runningSubagents);
-    if (options.isTurnOver()) options.onTurnMarks(endChatTurn(partsState));
     if (isLive && appended.beats.length > 0) options.onBeats(appended.beats);
   };
 
@@ -141,7 +141,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     },
     endTurn: () => {
       if (phase === 'closed') return;
-      options.onTurnMarks(endChatTurn(partsState));
+      options.onPartsChanged(endChatTurn(partsState), [], true);
     },
     close: () => {
       phase = 'closed';

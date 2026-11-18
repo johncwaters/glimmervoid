@@ -14,6 +14,7 @@ const AGENT_DEFAULT_MODEL_LABEL = "Agent's default";
 
 const modelSelectionBySessionId = new Map<string, ModelSelection | null>();
 const accountIdBySessionId = new Map<string, string | null>();
+const workingDirectoryBySessionId = new Map<string, string>();
 
 function currentCatalog(): AgentModelCatalog | null {
   const parsed = AgentModelCatalog.safeParse(settingsPayloadSnapshot().agentModels);
@@ -39,6 +40,15 @@ export function setSessionAccountId(sessionId: string, accountId: string | null)
   accountIdBySessionId.set(sessionId, accountId);
 }
 
+export function setSessionWorkingDirectory(sessionId: string, workingDirectory: string | null | undefined): void {
+  if (!workingDirectory) return;
+  workingDirectoryBySessionId.set(sessionId, workingDirectory);
+}
+
+export function sessionWorkingDirectoryOf(sessionId: string): string | null {
+  return workingDirectoryBySessionId.get(sessionId) ?? null;
+}
+
 export function sessionAccountIdOf(sessionId: string): string | null {
   return accountIdBySessionId.get(sessionId) ?? null;
 }
@@ -47,10 +57,12 @@ export function sessionModelSelectionOf(sessionId: string): ModelSelection | nul
   return modelSelectionBySessionId.get(sessionId) ?? null;
 }
 
-export function resetSessionModelSelections(rows: readonly { id: string; modelSelection?: ModelSelection | null; accountId?: string | null }[]): void {
+export function resetSessionModelSelections(rows: readonly { id: string; modelSelection?: ModelSelection | null; accountId?: string | null; workingDirectory?: string | null }[]): void {
   modelSelectionBySessionId.clear();
   accountIdBySessionId.clear();
+  workingDirectoryBySessionId.clear();
   for (const row of rows) {
+    setSessionWorkingDirectory(row.id, row.workingDirectory);
     setSessionModelSelection(row.id, row.modelSelection ?? null);
     setSessionAccountId(row.id, row.accountId ?? null);
   }

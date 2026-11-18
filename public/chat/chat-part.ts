@@ -1,3 +1,5 @@
+import type { FileEditTally, TurnSegment } from './turn-digest-core.ts';
+
 export type ChatCard =
   | { cardType: 'permission'; cardId: string; data: { title: string; detail: string }; resolution: { decision: 'allow' | 'deny'; message?: string } | null }
   | { cardType: 'question'; cardId: string; data: { question: string; detail: string; options: { label: string; note: string }[] }; resolution: { answer: string } | null }
@@ -8,8 +10,10 @@ export type ChatCardType = ChatCard['cardType'];
 
 export type ChatPart =
   | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[] }
-  | { kind: 'reply'; id: string; text: string }
+  | TurnPart
   | { kind: 'skill'; id: string; skillName: string }
   | { kind: 'card'; id: string; card: ChatCard };
+
+export type TurnPart = { kind: 'turn'; id: string; turnKey: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; fileEdits: FileEditTally; durationText: string | null; isOver: boolean };
 
 export type ChatPartKind = ChatPart['kind'];
