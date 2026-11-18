@@ -98,6 +98,7 @@ const SRT_MACOS_BASELINE_RULES: readonly string[] = Object.freeze([
   ')',
   '(allow distributed-notification-post)',
   '(allow mach-lookup (global-name "com.apple.SecurityServer"))',
+  '(allow mach-lookup (global-name "com.apple.trustd.agent"))',
   '(allow file-ioctl (literal "/dev/null"))',
   '(allow file-ioctl (literal "/dev/zero"))',
   '(allow file-ioctl (literal "/dev/random"))',

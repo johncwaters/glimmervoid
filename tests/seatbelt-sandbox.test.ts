@@ -202,6 +202,7 @@ test('killing a sandboxed session process group the way the reaper does also sto
     const isEscapeeGone = await waitUntilGone(escapeePid, 5000);
     if (!isEscapeeGone) process.kill(escapeePid, 'SIGKILL');
     const forkChainGenerationFile = path.join(run.worktree, 'fork-chain-generation');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     const generationAfterTeardown = fs.readFileSync(forkChainGenerationFile, 'utf8');
     await new Promise((resolve) => setTimeout(resolve, 1000));
     assert.equal(isEscapeeGone, true);
