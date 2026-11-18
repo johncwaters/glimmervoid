@@ -2,13 +2,13 @@ import { el } from '../dom-helpers.ts';
 import { createLineIcon, MENU_ICON_PATH } from '../svg-dom.ts';
 import { createPressable } from './pressable.ts';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon' | 'primary-icon';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet' | 'icon' | 'primary-icon' | 'floating-icon';
 type ButtonSize = 'default' | 'small' | 'large';
 
 type OutlineState = 'idle' | 'pressed' | 'off' | 'attention';
 type ToggledOutlineState = Extract<OutlineState, 'pressed' | 'off'>;
 
-type IconVariant = 'icon' | 'primary-icon' | 'outline-icon';
+type IconVariant = 'icon' | 'primary-icon' | 'outline-icon' | 'floating-icon';
 type LabelledButtonOptions = { variant: Exclude<ButtonVariant, IconVariant>; label: string; icon?: SVGElement };
 type IconButtonOptions = { variant: Exclude<IconVariant, 'outline-icon'>; label: string; icon: SVGElement };
 type OutlineIconOptions = { variant: 'outline-icon'; label: string; icon: SVGElement };
@@ -71,7 +71,7 @@ function isToggledState(state: OutlineState): state is ToggledOutlineState {
 }
 
 function isIconVariant(variant: BuildButtonOptions['variant']): variant is IconVariant {
-  return variant === 'icon' || variant === 'primary-icon' || variant === 'outline-icon';
+  return variant === 'icon' || variant === 'primary-icon' || variant === 'outline-icon' || variant === 'floating-icon';
 }
 
 function buildButton(options: BuildButtonOptions): HTMLButtonElement {

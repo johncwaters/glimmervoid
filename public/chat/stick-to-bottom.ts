@@ -1,13 +1,14 @@
+import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 
 type FollowMode = 'following' | 'escaped';
-type FollowSignal = 'scroll-up' | 'wheel-up' | 'select-text' | 'reach-bottom' | 'jump-to-latest';
+type FollowSignal = 'scroll-up' | 'select-text' | 'reach-bottom' | 'jump-to-latest';
 
 const BOTTOM_THRESHOLD_PX = 70;
+const JUMP_ICON_PATH = 'M8 3v10M3.5 8.5L8 13l4.5-4.5';
 
 const NEXT_MODE_BY_SIGNAL: Record<FollowSignal, FollowMode> = {
   'scroll-up': 'escaped',
-  'wheel-up': 'escaped',
   'select-text': 'escaped',
   'reach-bottom': 'following',
   'jump-to-latest': 'following',
@@ -32,7 +33,7 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   let mode: FollowMode = 'following';
   let lastScrollTop = scroller.scrollTop;
   let lastClientHeight = scroller.clientHeight;
-  const jumpButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Jump to latest', hidden: true });
+  const jumpButton = button({ variant: 'floating-icon', label: 'Jump to latest', icon: createLineIcon(JUMP_ICON_PATH, '1.8'), hidden: true });
 
   const scrollToBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;
@@ -44,9 +45,6 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
     jumpButton.hidden = mode === 'following';
   };
 
-  scroller.addEventListener('wheel', (event) => {
-    if (event.deltaY < 0) receive('wheel-up');
-  }, { passive: true });
   scroller.addEventListener('scroll', () => {
     const hasResized = scroller.clientHeight !== lastClientHeight;
     const scrolledUp = scroller.scrollTop < lastScrollTop - 1;
@@ -57,11 +55,11 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
       return;
     }
     const distance = distanceFromBottom(scroller);
-    if (scrolledUp && distance > 1) {
-      receive('scroll-up');
+    if (distance <= BOTTOM_THRESHOLD_PX) {
+      receive('reach-bottom');
       return;
     }
-    if (distance <= BOTTOM_THRESHOLD_PX) receive('reach-bottom');
+    if (scrolledUp) receive('scroll-up');
   }, { passive: true });
   document.addEventListener('selectionchange', () => {
     if (mode === 'following' && hasSelectionInside(scroller)) receive('select-text');

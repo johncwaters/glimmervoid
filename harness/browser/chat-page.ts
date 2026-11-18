@@ -116,11 +116,22 @@ async function verifyComposerKeepsFollowing(page: Page): Promise<void> {
   assert.equal(await jumpButton.isVisible(), false, 'growing the composer does not offer Jump to latest');
   await composerInput.fill('');
   assert.equal(await jumpButton.isVisible(), false, 'shrinking the composer does not offer Jump to latest');
+  const scrollerCenter = await scroller.boundingBox();
+  assert.ok(scrollerCenter, 'the chat scroller has a box');
+  await page.mouse.move(scrollerCenter.x + scrollerCenter.width / 2, scrollerCenter.y + scrollerCenter.height / 2);
+  await page.mouse.wheel(0, -20);
+  await page.waitForTimeout(300);
+  assert.equal(await jumpButton.isVisible(), false, 'a small scroll up near the bottom keeps Chat following');
+  await page.mouse.wheel(0, -600);
+  await jumpButton.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await jumpButton.click();
+  await jumpButton.waitFor({ state: 'hidden', timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-chat .chat-test-filler').evaluate((filler) => filler.remove());
   await page.locator('.session-chat .chat-scroller').evaluate((scroller) => {
     scroller.scrollTop = 0;
     scroller.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
   });
+  assert.equal(await jumpButton.isVisible(), false, 'a wheel the chat cannot take does not offer Jump to latest');
 }
 
 async function verifySendFollowsLatest(page: Page): Promise<void> {

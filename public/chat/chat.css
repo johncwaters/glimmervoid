@@ -62,7 +62,7 @@
   justify-content: center;
 }
 
-.chat-jump-slot { position: absolute; bottom: 8px; border-radius: var(--radius); background: var(--bg-surface); }
+.chat-jump-slot { position: absolute; bottom: 10px; }
 
 .chat-prompt {
   align-self: flex-end;

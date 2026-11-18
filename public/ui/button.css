@@ -72,13 +72,21 @@
   color: var(--text-muted);
 }
 
-.ui-button:is([data-variant="icon"], [data-variant="primary-icon"], [data-variant="outline-icon"]) {
+.ui-button:is([data-variant="icon"], [data-variant="primary-icon"], [data-variant="outline-icon"], [data-variant="floating-icon"]) {
   width: var(--button-height);
   padding: 0;
 }
 
 .ui-button[data-variant="outline-icon"] {
   border-color: var(--border-hover);
+}
+
+.ui-button[data-variant="floating-icon"] {
+  border-color: var(--border-hover);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-head);
+  box-shadow: var(--shadow-md);
 }
 
 .ui-button[data-variant="primary-icon"]:not(:disabled) {
