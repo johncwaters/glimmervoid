@@ -47,6 +47,7 @@ const SESSION = {
   id: 'session-1',
   name: 'glimmervoid',
   path: '/repo/glimmervoid',
+  workingDirectory: '/repo/glimmervoid',
   agent: 'claude-code',
   agentDrawsAlternateScreen: true,
   state: STATES.RUNNING,
