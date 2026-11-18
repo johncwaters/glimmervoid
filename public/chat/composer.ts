@@ -80,7 +80,9 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
   };
   let attachedFileNames: string[] = [];
   const updateSendButton = () => {
-    sendButton.disabled = input.value.trim().length === 0 && attachedFileNames.length === 0;
+    const hasDraft = input.value.trim().length > 0 || attachedFileNames.length > 0;
+    sendButton.disabled = !hasDraft;
+    sendStopSlot.dataset.hasDraft = String(hasDraft);
   };
   const clearAttachments = () => {
     attachments.replaceChildren();

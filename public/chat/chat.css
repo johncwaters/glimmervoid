@@ -295,8 +295,9 @@
 
 .chat-composer-slot > * { position: absolute; inset: 0; }
 
-.chat-composer-slot[data-turn-running="true"] > .chat-composer-send,
-.chat-composer-slot:not([data-turn-running="true"]) > .chat-composer-stop { visibility: hidden; }
+.chat-composer-slot[data-turn-running="true"]:not([data-has-draft="true"]) > .chat-composer-send,
+.chat-composer-slot:not([data-turn-running="true"]) > .chat-composer-stop,
+.chat-composer-slot[data-has-draft="true"] > .chat-composer-stop { visibility: hidden; }
 
 .chat-composer-attachments {
   display: flex;
