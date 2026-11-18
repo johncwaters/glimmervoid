@@ -346,11 +346,20 @@ function parseList(lines: readonly string[], start: number, context: ParseContex
       continue;
     }
     if (current.ordered !== ordered) break;
-    items.push({ children: [{ type: 'paragraph', children: parsePlanInline(current.content) }] });
+    const itemLines = [current.content];
     index++;
+    while (index < lines.length && isListContinuation(lines[index])) {
+      itemLines.push(lines[index].trim());
+      index++;
+    }
+    items.push({ children: [{ type: 'paragraph', children: parsePlanInline(itemLines.join('\n')) }] });
   }
 
   return { block: { type: 'list', ordered, start: first.number, items } satisfies PlanBlock, next: index };
+}
+
+function isListContinuation(line: string) {
+  return /^\s+\S/.test(line) && !listLine(line);
 }
 
 function isBlockStart(lines: readonly string[], index: number) {
@@ -437,7 +446,7 @@ function parseBlocks(lines: readonly string[], context: ParseContext, depth: num
       paragraphLines.push(lines[index].trim());
       index++;
     }
-    blocks.push({ type: 'paragraph', children: parsePlanInline(paragraphLines.join(' ')) });
+    blocks.push({ type: 'paragraph', children: parsePlanInline(paragraphLines.join('\n')) });
   }
   return blocks;
 }

@@ -305,6 +305,8 @@ function buildChat(sessionId: string): MountedChat {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
     },
+    onTurnMarks: (marks) => chatView.markTurn(marks),
+    isTurnOver: () => !isSessionWorking(sessionId),
     onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
       releaseTerminal();
@@ -377,6 +379,7 @@ export function applyChatSessionStatus(sessionId: string): void {
   if (isWorking === mountedChat.wasSessionWorking) return;
   mountedChat.wasSessionWorking = isWorking;
   mountedChat.setTurnRunning(isWorking);
+  if (!isWorking) mountedChat.feed.endTurn();
 }
 
 subscribeSettings((change) => {

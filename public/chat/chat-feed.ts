@@ -3,7 +3,8 @@ import { nextTraceRequest, traceReplyOutcome } from '../trace-store-core.ts';
 import type { TraceRequest } from '../trace-store-core.ts';
 import type { ActivityBeat } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
-import { appendChatRecords, createChatPartsState, trimChatParts } from './chat-parts-core.ts';
+import { appendChatRecords, createChatPartsState, endChatTurn, trimChatParts } from './chat-parts-core.ts';
+import type { TurnMarks } from './chat-parts-core.ts';
 
 const UNREADABLE_TRACE_TEXT = 'The conversation could not be read.';
 
@@ -16,12 +17,15 @@ interface ChatFeedOptions {
   requestPage: (payload: TracePagePayload) => Promise<ServerMessage>;
   onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => void;
   onBeats: (beats: readonly ActivityBeat[]) => void;
+  onTurnMarks: (marks: TurnMarks) => void;
+  isTurnOver: () => boolean;
   onReset: () => void;
   onFailure: (failureText: string | null) => void;
 }
 
 export interface ChatFeed {
   refresh(): void;
+  endTurn(): void;
   close(): void;
 }
 
@@ -54,6 +58,8 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     nextOffset = reply.next;
     const appended = appendChatRecords(partsState, reply.records);
     options.onPartsChanged(appended.parts, trimChatParts(partsState), isLive);
+    options.onTurnMarks(appended.marks);
+    if (options.isTurnOver()) options.onTurnMarks(endChatTurn(partsState));
     if (isLive && appended.beats.length > 0) options.onBeats(appended.beats);
   };
 
@@ -103,6 +109,10 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
 
   return {
     refresh,
+    endTurn: () => {
+      if (phase === 'closed') return;
+      options.onTurnMarks(endChatTurn(partsState));
+    },
     close: () => {
       phase = 'closed';
     },

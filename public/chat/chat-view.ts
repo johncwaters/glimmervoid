@@ -4,6 +4,7 @@ import { button } from '../ui/button.ts';
 import type { ActivityBeat } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
+import type { TurnMarks } from './chat-parts-core.ts';
 import { createChatLog } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
@@ -12,6 +13,7 @@ interface ChatView {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[]): void;
   remove(partIds: readonly string[]): void;
+  markTurn(marks: TurnMarks): void;
   setTurnRunning(isTurnRunning: boolean): void;
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
@@ -75,5 +77,5 @@ export function createChatView(): ChatView {
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, showQueued, showAttachment: composer.showAttachment };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, showQueued, showAttachment: composer.showAttachment };
 }

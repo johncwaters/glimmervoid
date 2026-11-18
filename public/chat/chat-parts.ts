@@ -1,7 +1,9 @@
 import { el } from '../dom-helpers.ts';
 import type { ChatPart, ChatPartKind } from './chat-part.ts';
 import { renderCard } from './chat-cards.ts';
-import { type InlineSpan, type ReplyBlock, replyBlocksOf } from './reply-text-core.ts';
+import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
+import { renderPlanBlocks } from '../plan/plan-render.ts';
+import type { TurnMarks } from './chat-parts-core.ts';
 
 type ChatPartByKind = { [Part in ChatPart as Part['kind']]: Part };
 type ChatPartRenderer<Kind extends ChatPartKind> = (part: ChatPartByKind[Kind]) => HTMLElement;
@@ -11,32 +13,11 @@ function renderPrompt(part: Extract<ChatPart, { kind: 'prompt' }>): HTMLElement 
   return el('div', 'chat-prompt', part.text);
 }
 
-const INLINE_TAG_BY_STYLE = { plain: null, code: 'code', strong: 'strong' } as const;
-
-function appendSpans(parent: HTMLElement, spans: readonly InlineSpan[]): HTMLElement {
-  for (const span of spans) {
-    const tag = INLINE_TAG_BY_STYLE[span.style];
-    parent.append(tag === null ? span.text : el(tag, `chat-inline-${span.style}`, span.text));
-  }
-  return parent;
-}
-
-function renderList(block: Extract<ReplyBlock, { kind: 'list' }>): HTMLElement {
-  const list = block.isOrdered ? Object.assign(el('ol', 'chat-reply-list'), { start: block.start }) : el('ul', 'chat-reply-list');
-  for (const item of block.items) list.appendChild(appendSpans(el('li', 'chat-reply-item'), item));
-  return list;
-}
-
-function renderReplyBlock(block: ReplyBlock): HTMLElement {
-  if (block.kind === 'code') return el('pre', 'chat-reply-code', block.text);
-  if (block.kind === 'list') return renderList(block);
-  if (block.kind === 'heading') return appendSpans(el('p', 'chat-reply-heading'), block.spans);
-  return appendSpans(el('p', 'chat-reply-paragraph'), block.spans);
-}
-
 function renderReply(part: Extract<ChatPart, { kind: 'reply' }>): HTMLElement {
   const reply = el('div', 'chat-reply');
-  for (const block of replyBlocksOf(part.text)) reply.appendChild(renderReplyBlock(block));
+  const replyBody = renderPlanBlocks(parsePlanMarkdown(part.text));
+  for (const anchoredHeading of replyBody.querySelectorAll('[id]')) anchoredHeading.removeAttribute('id');
+  reply.append(el('div', 'chat-work-row'), replyBody);
   return reply;
 }
 
@@ -69,6 +50,7 @@ interface ChatLog {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[]): void;
   remove(partIds: readonly string[]): void;
+  markTurn(marks: TurnMarks): void;
 }
 
 export function createChatLog(): ChatLog {
@@ -93,5 +75,15 @@ export function createChatLog(): ChatLog {
       elementByPartId.delete(partId);
     }
   };
-  return { element, upsert, remove };
+  const markTurn = (marks: TurnMarks) => {
+    for (const partId of marks.supersededPartIds) elementByPartId.get(partId)?.setAttribute('data-superseded', 'true');
+    for (const { partId, text } of marks.workedFor) {
+      const reply = elementByPartId.get(partId);
+      const workRow = reply?.querySelector('.chat-work-row');
+      if (!reply || !workRow) continue;
+      workRow.textContent = text ?? '';
+      reply.toggleAttribute('data-worked-for', text !== null);
+    }
+  };
+  return { element, upsert, remove, markTurn };
 }

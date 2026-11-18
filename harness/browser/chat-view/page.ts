@@ -1,6 +1,6 @@
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import type { ChatPart } from '../../../public/chat/chat-part.ts';
-import { appendChatRecords, createChatPartsState } from '../../../public/chat/chat-parts-core.ts';
+import { appendChatRecords, createChatPartsState, endChatTurn } from '../../../public/chat/chat-parts-core.ts';
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
 import { createChatView } from '../../../public/chat/chat-view.ts';
 
@@ -42,6 +42,8 @@ async function playLive(): Promise<void> {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
     },
+    onTurnMarks: (marks) => chatView.markTurn(marks),
+    isTurnOver: () => false,
     onBeats: (beats) => {
       document.body.dataset.beatCount = String(Number(document.body.dataset.beatCount ?? 0) + beats.length);
       chatView.beat(beats);
@@ -56,11 +58,30 @@ async function playLive(): Promise<void> {
     feed.refresh();
   }
   await new Promise((resolve) => setTimeout(resolve, LIVE_PAGE_INTERVAL_MS));
-  if (!new URLSearchParams(location.search).has('working')) chatView.setTurnRunning(false);
+  if (new URLSearchParams(location.search).has('working')) return;
+  const partTopsBefore = partTops();
+  chatView.setTurnRunning(false);
+  feed.endTurn();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  const partTopsAfter = partTops();
+  const turnEndShiftPx = Math.max(0, ...partTopsBefore.map((top, partIndex) => Math.abs(top - (partTopsAfter[partIndex] ?? top))));
+  document.body.dataset.turnEndShiftPx = String(turnEndShiftPx);
+}
+
+function partTops(): number[] {
+  return Array.from(chatView.element.querySelectorAll('[data-part-id]'), (part) => part.getBoundingClientRect().top);
+}
+
+function showRecordsAtRest(): void {
+  const partsState = createChatPartsState();
+  const appended = appendChatRecords(partsState, traceRecords);
+  chatView.upsert(appended.parts);
+  chatView.markTurn(appended.marks);
+  chatView.markTurn(endChatTurn(partsState));
 }
 
 if (new URLSearchParams(location.search).has('live')) await playLive();
-if (!new URLSearchParams(location.search).has('live')) chatView.upsert(appendChatRecords(createChatPartsState(), traceRecords).parts);
+if (!new URLSearchParams(location.search).has('live')) showRecordsAtRest();
 if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);

@@ -1,0 +1,10 @@
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "prompt", "text": "why is the queued message stuck", "ts": 1795000000000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "text": "Checking the delivery path first.", "ts": 1795000003000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "tool_call", "toolUseId": "t1", "name": "Read", "input": {"file_path": "session/session-output.ts"}, "ts": 1795000004000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "tool_result", "toolUseId": "t1", "content": "ok", "isError": false, "truncated": false, "ts": 1795000005000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "text": "Found it. How each settlement was counted:\n\n| Settlement | Counted as |\n|---|:-:|\n| `submitted` | delivered |\n| `pasted` | delivered |\n| `withheld` | failed |", "ts": 1795000060000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "tool_call", "toolUseId": "t2", "name": "Edit", "input": {"file_path": "session/chat-outbox.ts"}, "ts": 1795000070000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "tool_result", "toolUseId": "t2", "content": "ok", "isError": false, "truncated": false, "ts": 1795000080000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "text": "Fix:\n\n3. only `submitted` removes the entry\n\n4. anything else marks it failed and keeps the text", "ts": 1795000134000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "prompt", "text": "thanks", "ts": 1795000200000}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "text": "Anytime.", "ts": 1795000202000}

@@ -122,4 +122,9 @@ test('agent reply markdown keeps short-delimiter tables and loose ordered lists 
   assert.ok(list?.type === 'list');
   assert.equal(list.start, 3);
   assert.equal(list.items.length, 2);
+  const wrapped = parsePlanMarkdown(['1. first item that wraps', '   onto a second line', '2. second', 'Changed:', 'foo.ts'].join('\n'));
+  assert.deepEqual(wrapped.map((block) => block.type), ['list', 'paragraph']);
+  assert.ok(wrapped[0]?.type === 'list');
+  assert.equal(wrapped[0].items.length, 2);
+  assert.deepEqual(wrapped[1], { type: 'paragraph', children: [{ type: 'text', text: 'Changed:\nfoo.ts' }] });
 });

@@ -92,48 +92,26 @@
 .chat-reply {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 2px;
+  margin-top: -8px;
   color: var(--text-head);
   overflow-wrap: anywhere;
 }
 
-.chat-reply + .chat-reply { margin-top: 8px; }
-
-.chat-reply + .chat-reply::before {
-  content: '';
-  width: 32px;
-  height: 1px;
-  background: var(--border);
+.chat-work-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 16px;
+  visibility: hidden;
+  color: var(--text-muted);
+  font: var(--type-meta)/1 var(--font-mono);
+  white-space: nowrap;
 }
 
-.chat-reply-paragraph,
-.chat-reply-heading { margin: 0; white-space: pre-wrap; }
+.chat-work-row::after { content: ''; flex: 1; height: 1px; background: var(--border-dim); }
 
-.chat-reply-heading { font-weight: 700; }
-
-.chat-reply-list { margin: 0; padding-left: 22px; list-style: disc; display: flex; flex-direction: column; gap: 4px; }
-
-.chat-reply-code {
-  margin: 0;
-  padding: 10px 12px;
-  overflow-x: auto;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
-  background: var(--bg);
-  font: var(--type-meta)/1.55 var(--font-mono);
-}
-
-.chat-inline-code {
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--text) 10%, transparent);
-  font-family: var(--font-mono);
-  font-size: var(--type-body);
-}
-
-ol.chat-reply-list { list-style: decimal; }
-
-.chat-inline-strong { color: var(--text-head); font-weight: 700; }
+.chat-reply[data-worked-for] .chat-work-row { visibility: visible; }
 
 .chat-activity {
   --activity-hue: var(--accent);
@@ -361,3 +339,15 @@ ol.chat-reply-list { list-style: decimal; }
 }
 
 .chat-queued-status { overflow-wrap: anywhere; }
+
+.chat-reply[data-superseded] .plan-document { opacity: 0.62; }
+
+.chat-reply .plan-document { max-width: none; margin: 0; }
+
+.chat-reply .plan-document > :last-child { margin-bottom: 0; }
+
+.chat-reply .plan-code { padding: 10px 12px; background: var(--bg); font: var(--type-meta)/1.55 var(--font-mono); }
+
+.chat-reply .plan-inline-code { font-family: var(--font-mono); font-size: var(--type-body); }
+
+.chat-reply .plan-paragraph { white-space: pre-line; }
