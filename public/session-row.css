@@ -372,6 +372,7 @@
 .session-page-bar { flex: 1 1 auto; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .session-page-button { position: relative; display: inline-flex; }
 .session-page-button[data-slot-held] { visibility: hidden; }
+.session-page-button[data-slot-held]:not(.session-page-button:not([data-slot-held]) ~ *) { display: none; }
 .session-page-bar-phone { flex: 0 0 auto; }
 .session-page-bar-phone .session-page-button[data-slot-held] { display: none; }
 .session-page-dot { position: absolute; top: 2px; right: 1px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); pointer-events: none; }

@@ -4,7 +4,7 @@ import { previewPage } from '../preview/preview-page.ts';
 import { registerSessionPage } from './session-pages.ts';
 
 export function registerSessionPages() {
+  registerSessionPage(previewPage);
   registerSessionPage(chatPage);
   registerSessionPage(changesPage);
-  registerSessionPage(previewPage);
 }
