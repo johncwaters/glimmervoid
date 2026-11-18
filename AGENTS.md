@@ -110,4 +110,4 @@ Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Buil
 
 `croner` parses wake times and cron patterns.
 
-`@anthropic-ai/sandbox-runtime` sandboxes sessions on hosted Linux (`sessionSandbox`), keeping the server's home, vault and credentials from agents.
+`@anthropic-ai/sandbox-runtime` sandboxes sessions (`sessionSandbox`; on macOS only its proxy), keeping the server's home, vault and credentials from agents.

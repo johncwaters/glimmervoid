@@ -5,8 +5,8 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { execFileAsync } from '../server/child-process-safe.ts';
-import { buildSrtSettings } from '../server/sandbox/core/sandbox-policy-core.ts';
+import { spawn } from '../server/child-process-safe.ts';
+import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, srtSettingsPathIn } from '../server/sandbox/core/sandbox-policy-core.ts';
 
 const LAUNCHER_PATH = path.join(import.meta.dirname, '..', 'server', 'sandbox', 'seatbelt-launcher.ts');
 
@@ -14,7 +14,7 @@ const PROBE_SOURCE = `
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
-const [allowedPort, dashboardPort, worktreeFile, outsideFile, secretFile] = process.argv.slice(2);
+const [allowedPort, dashboardPort, worktreeFile, outsideFile, secretFile, launcherSettingsFile] = process.argv.slice(2);
 const connects = (port) => new Promise((resolve) => {
   const socket = net.connect(Number(port), '127.0.0.1');
   socket.once('connect', () => { socket.destroy(); resolve('connected'); });
@@ -29,9 +29,9 @@ const renamesIntoPlace = (stagedFolder, protectedFolder) => {
     return 'renamed';
   } catch (error) { return error.code; }
 };
-const interruptsLauncherThenReachesProxy = async () => {
-  process.kill(process.ppid, 'SIGINT');
-  await new Promise((resolve) => setTimeout(resolve, 500));
+const reachesProxyAfterTheLauncherIsInterrupted = async () => {
+  process.stdout.write('interrupt the launcher\n');
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   return connects(new URL(process.env.HTTP_PROXY).port);
 };
 const reads = (filePath) => { try { fs.readFileSync(filePath, 'utf8'); return 'read'; } catch (error) { return error.code; } };
@@ -40,12 +40,13 @@ process.stdout.write(JSON.stringify({
   dashboardPort: await connects(dashboardPort),
   worktreeWrite: writes(worktreeFile),
   outsideWrite: writes(outsideFile),
+  launcherSettingsWrite: writes(launcherSettingsFile),
   secretRead: reads(secretFile),
   secretReadInOtherCase: reads(secretFile.toUpperCase()),
   protectedFileInOtherCase: writes(path.dirname(worktreeFile) + '/.MCP.JSON'),
   protectedFolderRenamedIntoPlace: renamesIntoPlace(path.dirname(worktreeFile) + '/staged', path.dirname(worktreeFile) + '/.claude'),
-  proxyAfterInterrupt: await interruptsLauncherThenReachesProxy(),
-}));
+  proxyAfterInterrupt: await reachesProxyAfterTheLauncherIsInterrupted(),
+}) + '\n');
 `;
 
 async function listeningOnLoopback(): Promise<net.Server> {
@@ -89,18 +90,28 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
     extraAllowedHosts: [],
     credentialProxy: null,
   });
-  const settingsPath = path.join(sessionTempFolder, 'srt.json');
+  const launcherFolder = fs.mkdtempSync(SHORT_SOCKET_FOLDER_PREFIX);
+  const settingsPath = srtSettingsPathIn(launcherFolder);
   fs.writeFileSync(settingsPath, JSON.stringify(settings));
   const ingress = await listeningOnLoopback();
   const dashboard = await listeningOnLoopback();
-  const probeArguments = [String(portOf(ingress)), String(portOf(dashboard)), path.join(worktree, 'written.txt'), path.join(outsideFolder, 'escaped.txt'), secretFile];
-  const launch = execFileAsync(process.execPath, [LAUNCHER_PATH, settingsPath, String(portOf(ingress)), sessionTempFolder, '0', process.execPath, probePath, ...probeArguments], { cwd: worktree, encoding: 'utf8', timeout: 60_000 });
-  const { stdout } = await launch.finally(() => { ingress.close(); dashboard.close(); });
-  assert.deepEqual(JSON.parse(stdout), {
+  const probeArguments = [String(portOf(ingress)), String(portOf(dashboard)), path.join(worktree, 'written.txt'), path.join(outsideFolder, 'escaped.txt'), secretFile, settingsPath];
+  const launcher = spawn(process.execPath, [LAUNCHER_PATH, settingsPath, String(portOf(ingress)), sessionTempFolder, '0', process.execPath, probePath, ...probeArguments], { cwd: worktree, env: { ...process.env, TMPDIR: launcherFolder }, stdio: ['ignore', 'pipe', 'inherit'], timeout: 60_000 });
+  let stdout = '';
+  launcher.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
+    stdout += chunk;
+    if (chunk.includes('interrupt the launcher')) launcher.kill('SIGINT');
+  });
+  const exitCode = await new Promise<number | null>((resolve) => launcher.on('exit', resolve));
+  ingress.close();
+  dashboard.close();
+  assert.equal(exitCode, 0);
+  assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1) ?? ''), {
     allowedPort: 'connected',
     dashboardPort: 'EPERM',
     worktreeWrite: 'written',
     outsideWrite: 'EPERM',
+    launcherSettingsWrite: 'EPERM',
     secretRead: 'EPERM',
     secretReadInOtherCase: 'EPERM',
     protectedFileInOtherCase: 'EPERM',
@@ -109,4 +120,5 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
   });
   assert.equal(fs.existsSync(path.join(outsideFolder, 'escaped.txt')), false);
   fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(launcherFolder, { recursive: true, force: true });
 });

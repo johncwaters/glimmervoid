@@ -13,15 +13,17 @@ import { errorMessage } from '../../shared/text.ts';
 import type { PrepareSandbox, SandboxLaunchFacts } from '../../session/sessions.ts';
 import type { SpawnEnv } from '../../session/core/spawn-env.ts';
 import type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink } from './core/sandbox-policy-core.ts';
-import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
+import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, seatbeltCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
 import { CREDENTIALED_HOSTS, everyModelLoginEntry, withoutInheritedCredentials, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
 import { placeholderEnv } from '../../session/core/agent-home-core.ts';
 import type { CredentialProxies } from './credential-proxy.ts';
 
+type SandboxLauncher = { kind: 'bubblewrap'; socatPath: string } | { kind: 'seatbelt'; seatbeltLauncherPath: string };
+
 interface SandboxTools {
   nodePath: string;
   srtCliPath: string;
-  socatPath: string;
+  launcher: SandboxLauncher;
 }
 
 interface SessionSandboxDependencies {
@@ -198,7 +200,6 @@ function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTemp
 
 async function launchWithin(dependencies: SessionSandboxDependencies, sessionTempFolder: string, facts: SandboxLaunchFacts, tools: SandboxTools, ingressPort: number, credentialProxy: HeldCredentialProxy): ReturnType<PrepareSandbox> {
   const trustEnv = await writeProxyTrustFiles(sessionTempFolder, await dependencies.proxyCertificatePem(), facts.env);
-  const settingsPath = srtSettingsPathIn(sessionTempFolder);
   const loginEntries = await modelLoginEntriesOf(dependencies, facts.accountFolder);
   const hiddenLoginEntries = await existingRealPaths(loginEntries);
   const { restoredLinks, ...sealedLoginHomes } = await sealedLoginHomesFor(dependencies, facts, loginEntries, hiddenLoginEntries);
@@ -218,7 +219,32 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     extraAllowedHosts: dependencies.getExtraAllowedHosts(),
     credentialProxy: credentialProxy.route,
   });
-  await writeTextAtomic(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  const settingsText = `${JSON.stringify(settings, null, 2)}\n`;
+  const env = { ...withoutInheritedCredentials(facts.env, facts.launchSetEnvNames), ...trustEnv, ...placeholderEnv(facts.agent) };
+  if (tools.launcher.kind === 'seatbelt') {
+    const launcherFolder = await fsp.mkdtemp(SHORT_SOCKET_FOLDER_PREFIX);
+    const removeLauncherFolder = () => fsp.rm(launcherFolder, { recursive: true, force: true });
+    const launcherSettingsPath = srtSettingsPathIn(launcherFolder);
+    const written = await writeTextAtomic(launcherSettingsPath, settingsText).then(() => null, (error: unknown) => ({ refusal: `the sandbox settings could not be written: ${errorMessage(error)}` }));
+    if (written !== null) {
+      await removeLauncherFolder();
+      return { ok: false, reason: written.refusal };
+    }
+    const command = seatbeltCommand({ nodePath: tools.nodePath, seatbeltLauncherPath: tools.launcher.seatbeltLauncherPath, settingsPath: launcherSettingsPath, ingressPort, agentTempFolder: sessionTempFolder, restoredLinks, file: facts.file, args: facts.args });
+    return {
+      ok: true,
+      launch: {
+        ...command,
+        env: { ...env, TMPDIR: launcherFolder },
+        dispose: async () => {
+          credentialProxy.release();
+          await removeLauncherFolder();
+        },
+      },
+    };
+  }
+  const settingsPath = srtSettingsPathIn(sessionTempFolder);
+  await writeTextAtomic(settingsPath, settingsText);
   const socketFolder = await fsp.mkdtemp(SHORT_SOCKET_FOLDER_PREFIX);
   const ingressSocketPath = ingressSocketPathIn(socketFolder);
   const removeSocketFolder = () => fsp.rm(socketFolder, { recursive: true, force: true });
@@ -228,12 +254,12 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     await removeSocketFolder();
     return { ok: false, reason: ingressSocket.refusal };
   }
-  const command = sandboxedCommand({ ...tools, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, restoredLinks, file: facts.file, args: facts.args });
+  const command = sandboxedCommand({ nodePath: tools.nodePath, srtCliPath: tools.srtCliPath, socatPath: tools.launcher.socatPath, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, restoredLinks, file: facts.file, args: facts.args });
   return {
     ok: true,
     launch: {
       ...command,
-      env: { ...withoutInheritedCredentials(facts.env, facts.launchSetEnvNames), ...trustEnv, ...placeholderEnv(facts.agent), TMPDIR: socketFolder },
+      env: { ...env, TMPDIR: socketFolder },
       dispose: async () => {
         credentialProxy.release();
         await ingressSocket.close();
@@ -244,4 +270,4 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
 }
 
 export { sessionSandboxFor };
-export type { SandboxTools };
+export type { SandboxLauncher, SandboxTools };

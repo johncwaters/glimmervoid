@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import type { RequestListener, Server } from 'node:http';
-import { findNodeLauncherPath, resolvePackageBin } from '../runtime-paths.ts';
+import { findNodeLauncherPath, resolvePackageBin, seatbeltLauncherPath } from '../runtime-paths.ts';
 import { firstCommandOnPath } from '../stable-node-path.ts';
 import type { PrepareSandbox } from '../../session/sessions.ts';
 import { sessionSandboxFor } from './sandbox-launch.ts';
@@ -8,7 +8,7 @@ import { createCredentialProxies } from './credential-proxy.ts';
 import { createLoginRefresher } from './login-refresh.ts';
 import type { ModelLogin } from './credential-proxy.ts';
 import { modelTokenFrom } from './core/credential-decider-core.ts';
-import type { SandboxTools } from './sandbox-launch.ts';
+import type { SandboxLauncher, SandboxTools } from './sandbox-launch.ts';
 
 interface SessionSandboxWiring {
   isOn: boolean;
@@ -40,14 +40,23 @@ async function readModelToken(login: ModelLogin): Promise<string | null> {
   return loginFileText === null ? null : modelTokenFrom(login.agent, loginFileText);
 }
 
-async function findSandboxTools(): Promise<SandboxTools | { refusal: string }> {
-  const srtCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
-  if (srtCliPath === null) return { refusal: 'the sandbox runtime (srt) is not installed' };
+const SANDBOXED_PLATFORMS: readonly NodeJS.Platform[] = Object.freeze(['linux', 'darwin']);
+
+async function findSandboxLauncher(platform: NodeJS.Platform): Promise<SandboxLauncher | { refusal: string }> {
+  if (platform === 'darwin') return { kind: 'seatbelt', seatbeltLauncherPath };
   const socatPath = await firstCommandOnPath('socat');
   if (socatPath === null) return { refusal: 'socat is not on PATH' };
+  return { kind: 'bubblewrap', socatPath };
+}
+
+async function findSandboxTools(platform: NodeJS.Platform): Promise<SandboxTools | { refusal: string }> {
+  const srtCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
+  if (srtCliPath === null) return { refusal: 'the sandbox runtime (srt) is not installed' };
+  const launcher = await findSandboxLauncher(platform);
+  if ('refusal' in launcher) return launcher;
   const nodePath = await findNodeLauncherPath();
   if (nodePath === null) return { refusal: 'node is not on PATH' };
-  return { nodePath, srtCliPath, socatPath };
+  return { nodePath, srtCliPath, launcher };
 }
 
 function refusingSandbox(reason: string): PrepareSandbox {
@@ -61,7 +70,7 @@ interface SessionSandbox {
 
 function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | null {
   if (!wiring.isOn) return null;
-  if (wiring.platform !== 'linux') throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux (this machine is ${wiring.platform})`);
+  if (!SANDBOXED_PLATFORMS.includes(wiring.platform)) throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux and macOS (this machine is ${wiring.platform})`);
   let foundTools: SandboxTools | null = null;
   let certificateAuthority: Promise<ProxyCertificateAuthority> | null = null;
   const proxyCertificateAuthority = () => {
@@ -70,7 +79,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
   };
   const resolveTools = async () => {
     if (foundTools !== null) return foundTools;
-    const tools = await findSandboxTools();
+    const tools = await findSandboxTools(wiring.platform);
     if (!('refusal' in tools)) foundTools = tools;
     return tools;
   };

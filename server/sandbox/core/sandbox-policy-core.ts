@@ -154,6 +154,28 @@ function sandboxedCommand(input: SandboxedCommandInput): { file: string; args: s
   };
 }
 
+interface SeatbeltCommandInput {
+  nodePath: string;
+  seatbeltLauncherPath: string;
+  settingsPath: string;
+  ingressPort: number;
+  agentTempFolder: string;
+  restoredLinks: readonly SealedHomeLink[];
+  file: string;
+  args: readonly string[];
+}
+
+function seatbeltCommand(input: SeatbeltCommandInput): { file: string; args: string[] } {
+  return {
+    file: input.nodePath,
+    args: [
+      input.seatbeltLauncherPath, input.settingsPath, String(input.ingressPort), input.agentTempFolder,
+      String(input.restoredLinks.length), ...input.restoredLinks.map((link) => link.linkPath),
+      input.file, ...input.args,
+    ],
+  };
+}
+
 function srtSettingsPathIn(sessionTempFolder: string): string {
   return path.join(sessionTempFolder, SRT_SETTINGS_NAME);
 }
@@ -171,4 +193,4 @@ function proxyTrustEnv(trustFiles: { trustBundlePath: string; proxyCertificatePa
 }
 
 export type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink };
-export { CREDENTIAL_PROXIES_FOLDER_PREFIX, SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, srtSettingsPathIn };
+export { CREDENTIAL_PROXIES_FOLDER_PREFIX, SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, seatbeltCommand, srtSettingsPathIn };

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sandboxed sessions on macOS.** `sessionSandbox` now works on macOS as well as Linux. Each session runs under a Seatbelt profile Glimmervoid builds for it, with the same file and network limits as on Linux: the Glimmervoid home, the vault and your credentials stay out of reach, writes stay inside the session's worktree and agent folders, and outbound traffic goes through the same allowed hosts. On loopback the session can reach only the agent endpoint Glimmervoid hooks use, not the dashboard. Sessions cannot listen on a TCP port on macOS, so a dev server started inside one fails to bind. Windows still refuses to start with `sessionSandbox` on.
+
 - **Drag a frame to move everything inside it.** Press a frame's title or edge on the board and drag: the frame moves with every box in it, and wires between those boxes keep their bends. The outline follows your pointer during the drag. A click without dragging still just selects the frame.
 
 - **PowerPoint decks on the board.** Agents can `show` a `.pptx` file, and you can attach one yourself. It goes on the board as a deck card. Open the card to read it one slide at a time: the arrow keys, Page Up, Page Down, Home and End move between slides, the counter shows where you are, and Download saves the original file to send on. Past the first or last slide, the arrow keys carry on to the next wired card. Decks render in your browser inside a sandboxed frame that fetches nothing over the network.
