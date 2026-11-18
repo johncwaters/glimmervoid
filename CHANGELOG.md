@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.6] - 2026-11-17
+
 ### Added
 
 - **An experimental Chat page for sessions.** Turn on Settings, Sessions, Chat view and each session card gets a Chat page beside Changes and Preview: the session's prompts and replies read as a conversation that grows while the agent works. Tool calls and thinking stay out of the way: while a turn runs, the Glimmervoid mark under the last reply breathes, beats on each one, its light tinted by the kind of work (violet thinking, blue reading, pink editing, white running or using another tool) beside a remark that stays true to what it is doing, and a call to Glimmervoid's own tools spins the mark once instead. Each skill the agent loads shows as a Loaded skill line. The beat stops when the turn ends. From Chat you send messages, which show as queued until the agent takes them, attach images by pasting, dropping or Attach, stop the agent mid-turn, and answer permission prompts and questions on cards in the conversation. When the agent waits on a screen Chat has no card for, such as a menu or a login screen, its live terminal shows inline in the conversation until the wait ends. Once you open Chat, it is the first view of every session you open, desktop and phone, even after a reload; close it to make the terminal first again. The switch is off by default.
