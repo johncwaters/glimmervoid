@@ -6,6 +6,11 @@ export { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from '..
 
 const RULE_SHAPE_ERROR = 'questionManager.rules entries must be a plain-language rule, an object with name, question and pick, or an object with name and pick "recommended"';
 export const RECOMMENDED_PICK = 'recommended';
+const RECOMMENDED_LABEL_SUFFIX = '(recommended)';
+
+export function isRecommendedOptionLabel(label: string): boolean {
+  return label.trim().toLowerCase().endsWith(RECOMMENDED_LABEL_SUFFIX);
+}
 
 const RuleName = z.string({ error: 'questionManager.rules[].name must be a string' }).trim().min(1).max(80);
 

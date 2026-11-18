@@ -1,5 +1,5 @@
 import type { ConversationAnswers, ConversationQuestion } from '../../../shared/contracts/session.ts';
-import { DEFAULT_QUESTION_RULES, ManagerLaneResult, RECOMMENDED_PICK } from '../../../shared/contracts/question-manager.ts';
+import { DEFAULT_QUESTION_RULES, ManagerLaneResult, RECOMMENDED_PICK, isRecommendedOptionLabel } from '../../../shared/contracts/question-manager.ts';
 import type { ManagerAnswer, ManagerVerdict, QuestionManagerSettings, QuestionMatchRule, QuestionRecommendedRule, QuestionRule } from '../../../shared/contracts/question-manager.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
@@ -19,7 +19,6 @@ const HIGH_RISK_STEMS = [
   'credential', 'reset', 'revert', 'rebas', 'destro', 'wip', 'purg', 'truncat', 'overwrit', 'production', 'rm',
   'discard', 'clean', 'clear', 'eras', 'kill', 'squash', 'amend', 'stash', 'uninstall', 'prun', 'nuke', 'abandon',
 ];
-const RECOMMENDED_LABEL_SUFFIX = '(recommended)';
 const HIGH_RISK_PATTERN = new RegExp(`\\b(?:${HIGH_RISK_STEMS.join('|')})\\w*`, 'i');
 
 export function rulesOf(settings: QuestionManagerSettings | null | undefined): readonly QuestionRule[] {
@@ -62,7 +61,7 @@ function exactLabels(question: ConversationQuestion, picks: readonly string[]): 
 }
 
 function recommendedLabels(question: ConversationQuestion): string[] | null {
-  const recommended = question.options.filter((option) => option.label.trim().toLowerCase().endsWith(RECOMMENDED_LABEL_SUFFIX));
+  const recommended = question.options.filter((option) => isRecommendedOptionLabel(option.label));
   if (recommended.length !== 1) return null;
   return [recommended[0].label];
 }
