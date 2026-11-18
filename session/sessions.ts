@@ -36,7 +36,7 @@ import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
-import { hintFor, permitsHelpCommand, promptHintFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
+import { hintFor, permitsHelpCommand, promptHintsFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
 import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply, type AttentionNote, type AttentionOrigin } from "../shared/contracts/session.ts";
 import { PROPOSED_PLAN_TEXT_FIELD } from "../shared/contracts/plan-gate.ts";
@@ -1984,10 +1984,10 @@ class Session extends EventEmitter {
   }
 
   _queuePromptHint(prompt: unknown): void {
-    const hint = promptHintFor(prompt, { hintedCommands: this._hintedCommands, ranCommands: this._ranCommands });
-    if (hint === null) return;
-    this._hintedCommands.add(hint.command);
-    this._queuedCommandHints.push(hint);
+    for (const hint of promptHintsFor(prompt, { hintedCommands: this._hintedCommands, ranCommands: this._ranCommands })) {
+      this._hintedCommands.add(hint.command);
+      this._queuedCommandHints.push(hint);
+    }
   }
 
   _dropResumeNote(): void {

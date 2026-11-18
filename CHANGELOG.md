@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Agents put decks, talks and explainers on your board, not in a Claude artifact.** The Glimmervoid MCP instructions now tell agents that anything made for you or your team to look at (slides, a talk, an explainer, a report, a page) goes on your board with `show`, even when another tool's instructions say to publish it, unless you name another place. A prompt asking for slides, a talk, a presentation, an explainer or a report now also gets that reminder once per conversation, even in a session that already used the whiteboard, which used to get no reminder at all.
 - **Chat's composer and activity line read truer.** Between tools the activity line now just says the agent is working, instead of keeping the last tool's remark. Attach images with the paperclip, and while the agent works the Stop button takes Send's place in the same spot.
 
 ### Fixed

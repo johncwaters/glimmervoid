@@ -389,7 +389,7 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
   const firstReply = await postToolHook('PostToolUse', screenshotCall);
   assert.deepEqual(firstReply.hookSpecificOutput, {
     hookEventName: 'PostToolUse',
-    additionalContext: 'Glimmervoid: the glimmervoid show tool puts an image, video or HTML file on a whiteboard the operator is watching; use it instead of an artifact or asking the operator to open the file.',
+    additionalContext: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML or Markdown file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place.",
   });
   assert.equal((await postToolHook('PostToolUse', screenshotCall)).hookSpecificOutput, undefined);
   ctx().session.noteCommandRan('show');
@@ -451,7 +451,10 @@ test('a Kimi agent that starts a subagent gets the spawn hint with its next prom
   const diagramPrompt = { ...recordedNextPrompt, prompt: [{ type: 'text', text: 'create a graph showing how state can transition' }] };
   assert.match(String((await postKimiHook('UserPromptSubmit', diagramPrompt)).message), /glimmervoid whiteboard new <title>/);
   assert.equal((await postKimiHook('UserPromptSubmit', diagramPrompt)).message, undefined);
-  assert.deepEqual(commandHintOutcomes, ['spawn shown', 'whiteboard shown']);
+  const talkPrompt = { ...recordedNextPrompt, prompt: [{ type: 'text', text: "use the board to create a brief 'talk' or explanation of the architecture for my team" }] };
+  assert.match(String((await postKimiHook('UserPromptSubmit', talkPrompt)).message), /never publish a Claude artifact/);
+  assert.equal((await postKimiHook('UserPromptSubmit', talkPrompt)).message, undefined);
+  assert.deepEqual(commandHintOutcomes, ['spawn shown', 'whiteboard shown', 'show shown']);
 });
 
 test('a Claude conversation gets the Glimmervoid start line with its first prompt after /clear, once, whatever its launch arguments', async () => {

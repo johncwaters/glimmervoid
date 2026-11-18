@@ -254,7 +254,7 @@ function makesOwnCheckout(facts: ToolHookFacts): boolean {
 }
 
 const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
-  show: { firesOn: namesShowableFile, text: 'Glimmervoid: the glimmervoid show tool puts an image, video or HTML file on a whiteboard the operator is watching; use it instead of an artifact or asking the operator to open the file.' },
+  show: { firesOn: namesShowableFile, text: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML or Markdown file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place." },
   spawn: { firesOn: startsSubagent, text: 'Glimmervoid: glimmervoid spawn <prompt> is also available, giving the work its own supervised session and dashboard card.' },
   push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
   settings: { firesOn: touchesGlimmervoidConfig, text: "Glimmervoid: glimmervoid settings get <key> reads Glimmervoid's settings without opening config.json." },
@@ -266,16 +266,23 @@ const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as ToolHintedCommand[];
 const DRAWING_REQUEST = /\b(?:(?:graph|diagram|flowchart|whiteboard|drawing|architecture|state machine|chart|flow|map|layout)s?|draw(?:s|n)?|sketch(?:es|ing)?|visuali[sz](?:e|es|ing)|mapping|mermaid)\b/i;
 const WHITEBOARD_HINT_TEXT = "Glimmervoid: glimmervoid whiteboard new <title> draws a graph or diagram on a shared board on the operator's dashboard, where the operator can see and edit it; prefer it to a diagram in chat.";
 
+const PRESENTING_REQUEST = /\b(?:slides?|slideshow|decks?|talks?|presentations?|explainers?|explanations?|write-?ups?|one-?pagers?|mockups?|artifacts?|reports?)\b/i;
+const PROMPT_HINTS: readonly { command: HintedCommand; request: RegExp; text: string }[] = [
+  { command: 'show', request: PRESENTING_REQUEST, text: COMMAND_HINTS.show.text },
+  { command: 'whiteboard', request: DRAWING_REQUEST, text: WHITEBOARD_HINT_TEXT },
+];
+
 function promptTextOf(prompt: unknown): string {
   if (typeof prompt === 'string') return prompt;
   if (!Array.isArray(prompt)) return '';
   return prompt.filter((part) => isRecord(part) && part.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('\n');
 }
 
-function promptHintFor(prompt: unknown, gate: Omit<HintGate, 'answers'>): PromptHint | null {
-  if (gate.hintedCommands.has('whiteboard') || gate.ranCommands.has('whiteboard')) return null;
-  if (!DRAWING_REQUEST.test(promptTextOf(prompt))) return null;
-  return { command: 'whiteboard', text: WHITEBOARD_HINT_TEXT };
+function promptHintsFor(prompt: unknown, gate: Omit<HintGate, 'answers'>): PromptHint[] {
+  const promptText = promptTextOf(prompt);
+  return PROMPT_HINTS
+    .filter(({ command, request }) => !gate.hintedCommands.has(command) && !gate.ranCommands.has(command) && request.test(promptText))
+    .map(({ command, text }) => ({ command, text }));
 }
 
 const KIMI_MAIN_AGENT_ID = 'main';
@@ -322,7 +329,7 @@ function formatSessionLimits(limits: SessionLimits): string[] {
 const NEXT_PROMPT_FALLBACK = ', or the next UserPromptSubmit where the agent has no tool hook context';
 
 const COMMAND_HINT_TRIGGERS: Readonly<Record<ToolHintedCommand, { carriedBy: string; firesWhen: string }>> = Object.freeze({
-  show: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a tool call names an image, video or HTML file' },
+  show: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}, or UserPromptSubmit for a prompt`, firesWhen: 'a tool call names an image, video or HTML file, or a prompt asks for slides, a talk, an explainer or a report' },
   spawn: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent starts an in-process subagent' },
   push: { carriedBy: `PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a git push fails' },
   settings: { carriedBy: `PostToolUse or PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: "a tool call touches Glimmervoid's config.json" },
@@ -338,5 +345,5 @@ function routeAgentNotes(): AgentNote[] {
 }
 
 export type { CommandHint, HintedCommand, PromptHint };
-export { routeAgentNotes, supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, promptHintFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export { routeAgentNotes, supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, promptHintsFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
 export type { SessionRoleFacts };
