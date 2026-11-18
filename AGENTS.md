@@ -59,7 +59,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 - Before claiming completion, run `npm run typecheck` and the tests covering the changed files (`npm run test:files -- <files>`). The full `npm test` and `npm run build` run only when the operator asks: the dev host runs out of memory and kills them.
 - Detection changes must pass the replay fixtures.
-- Tests pin behavior better than prose: when a rule matters, add the test rather than a paragraph here.
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
 
 ### Common Patterns
@@ -99,7 +98,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ## Dependencies
 
-Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`, `@pierre/diffs` (the Changes diff, lazy-loaded), and `@revolist/revogrid` (the board sheet grid, lazy-loaded).
+Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Build Tools on Windows), and browser-only `@xterm/xterm` with `@xterm/addon-fit` and `@xterm/addon-webgl`, `@pierre/diffs` (the Changes diff, lazy-loaded), `@revolist/revogrid` (the board sheet grid, lazy-loaded), and `@aiden0z/pptx-renderer` (board decks, only inside the sandboxed deck frame).
 
 `@xterm/headless` with `@xterm/addon-serialize` and `@xterm/addon-unicode11` keeps a server-side screen per live session (`session/screen-keeper.ts`). `zod` defines every wire and persisted shape. `cc-safety-net` backs Sane YOLO, the risky-command catcher. `sharp` and `ffmpeg-static` make the small WebP previews of whiteboard media. `@stackline/xlsx` reads an XLSX workbook into the CSV per sheet a board shows.
 

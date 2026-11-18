@@ -36,6 +36,9 @@ const LINKED_DOC_BOX_ID = 'linked-doc';
 const LINKED_DOC_PATH = 'docs/linked-card.md';
 const LINKED_SHEET_BOX_ID = 'linked-sheet';
 const WORKBOOK_BOX_ID = 'workbook';
+const DECK_BOX_ID = 'deck';
+const WIRED_DECK_BOX_ID = 'deck-next';
+const DECK_FIXTURE_PATH = path.join(import.meta.dirname, '../../tests/fixtures/board-deck.pptx');
 const LINKED_SHEET_PATH = 'docs/linked-sheet.csv';
 const LINKED_SHEET_REPO_TEXT = 'team,q1\r\n"Platform, core",900\r\ninfra,1200\r\n"said ""hi""",3\r\n';
 const SHEET_AT_CAP_HEADER = 'name,digits,letters\n';
@@ -1390,13 +1393,13 @@ async function verifyLinkedBoardSheet(open: OpenBoard, worktreePath: string): Pr
   await sheetCard.waitFor({ state: 'detached' });
 }
 
-async function uploadBoardWorkbook(page: Page, workbookBase64: string, uploadName: string) {
+async function uploadBoardFile(page: Page, fileBase64: string, uploadName: string) {
   const uploadReply: unknown = await page.evaluate(async ({ assetRoute, base64, name }) => {
     const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
     const response = await fetch(assetRoute, { method: 'POST', body: bytes, headers: { 'content-type': 'application/octet-stream', 'x-glimmervoid-upload-name': name } });
     const reply: unknown = await response.json();
     return reply;
-  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, base64: workbookBase64, name: uploadName });
+  }, { assetRoute: WHITEBOARD_ASSET_ROUTE, base64: fileBase64, name: uploadName });
   return BoardMediaUploadReply.parse(uploadReply).media;
 }
 
@@ -1407,7 +1410,7 @@ async function verifyBoardWorkbook(open: OpenBoard): Promise<void> {
   workbookUtils.book_append_sheet(workbook, workbookUtils.aoa_to_sheet([['note'], ['ship it']]), 'Notes');
   const workbookBase64: unknown = writeWorkbook(workbook, { type: 'base64', bookType: 'xlsx' });
   assert.ok(typeof workbookBase64 === 'string');
-  const workbookMedia = await uploadBoardWorkbook(page, workbookBase64, 'book.xlsx');
+  const workbookMedia = await uploadBoardFile(page, workbookBase64, 'book.xlsx');
   assert.deepEqual([workbookMedia.kind, workbookMedia.sheets], ['sheet', ['Budget', 'Notes']], 'the board keeps an XLSX upload as a sheet with its sheet names');
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'add', element: { kind: 'box', id: WORKBOOK_BOX_ID, title: 'Workbook', place: { at: { x: 40, y: 700 } }, media: workbookMedia } }] });
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
@@ -1425,6 +1428,49 @@ async function verifyBoardWorkbook(open: OpenBoard): Promise<void> {
   await sheetEditor.waitFor({ state: 'detached' });
   await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: WORKBOOK_BOX_ID }] });
   await boardWithout(open, 'the workbook check cleans up', (element) => element.id === WORKBOOK_BOX_ID);
+}
+
+async function verifyBoardDeck(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const deckMedia = await uploadBoardFile(page, fs.readFileSync(DECK_FIXTURE_PATH).toString('base64'), 'board-deck.pptx');
+  assert.deepEqual([deckMedia.kind, deckMedia.width, deckMedia.height], ['deck', 960, 540], 'the board keeps a PPTX upload as a 16:9 deck');
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: DECK_BOX_ID, title: 'Deck', place: { at: { x: 40, y: 1300 } }, media: deckMedia } },
+    { op: 'add', element: { kind: 'box', id: WIRED_DECK_BOX_ID, title: 'Next deck', place: { at: { x: 1200, y: 1300 } }, media: deckMedia } },
+    { op: 'add', element: { kind: 'wire', id: 'deck-wire', from: DECK_BOX_ID, to: WIRED_DECK_BOX_ID } },
+  ] });
+  await panel.getByRole('button', { name: 'Fit', exact: true }).click();
+  await deselectAll(open);
+  const deckRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.frame() !== page.mainFrame()) deckRequests.push(request.url());
+  });
+  await clickElement(open, DECK_BOX_ID);
+  const deckFrame = page.frameLocator('iframe.wb-image-viewer-deck');
+  const counter = deckFrame.locator('#deck-counter');
+  await counter.filter({ hasText: /^1 \/ 3$/ }).waitFor();
+  await deckFrame.getByText('Board deck', { exact: true }).waitFor();
+  const steps: [string, string][] = [['ArrowRight', '2 / 3'], ['End', '3 / 3'], ['ArrowLeft', '2 / 3'], ['Home', '1 / 3'], ['PageDown', '2 / 3'], ['PageUp', '1 / 3']];
+  for (const [key, expectedCounter] of steps) {
+    await page.keyboard.press(key);
+    await counter.filter({ hasText: new RegExp(`^${expectedCounter}$`) }).waitFor();
+  }
+  const download = page.waitForEvent('download');
+  await page.locator('.wb-image-viewer').getByRole('button', { name: 'Download', exact: true }).click();
+  assert.equal((await download).suggestedFilename(), 'board-deck.pptx', 'Download saves the original deck under its file name');
+  assert.deepEqual(deckRequests.filter((url) => !url.startsWith('blob:') && !url.startsWith('data:') && url !== 'about:srcdoc'), [], 'the deck frame fetches nothing over the network');
+  await deckFrame.locator('#deck-stage').click();
+  await page.keyboard.press('ArrowRight');
+  await counter.filter({ hasText: /^2 \/ 3$/ }).waitFor();
+  await page.keyboard.press('End');
+  await counter.filter({ hasText: /^3 \/ 3$/ }).waitFor();
+  await page.keyboard.press('ArrowRight');
+  await page.locator('.wb-image-viewer .dialog-title', { hasText: 'Next deck' }).waitFor();
+  await page.frameLocator('iframe.wb-image-viewer-deck').locator('#deck-counter').filter({ hasText: /^1 \/ 3$/ }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.wb-image-viewer').waitFor({ state: 'detached' });
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [{ op: 'remove', id: 'deck-wire' }, { op: 'remove', id: DECK_BOX_ID }, { op: 'remove', id: WIRED_DECK_BOX_ID }] });
+  await boardWithout(open, 'the deck check cleans up', (element) => element.id === DECK_BOX_ID || element.id === WIRED_DECK_BOX_ID);
 }
 
 function drawnMediaUrlOf(element: BoardElement): string {
@@ -2502,6 +2548,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await verifyLinkedBoardDoc(open, worktreePath);
   await verifyLinkedBoardSheet(open, worktreePath);
   await verifyBoardWorkbook(open);
+  await verifyBoardDeck(open);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId);
 }

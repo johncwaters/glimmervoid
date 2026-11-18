@@ -389,7 +389,7 @@ test('a tool hook names a Glimmervoid command once per conversation to the main 
   const firstReply = await postToolHook('PostToolUse', screenshotCall);
   assert.deepEqual(firstReply.hookSpecificOutput, {
     hookEventName: 'PostToolUse',
-    additionalContext: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML or Markdown file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place.",
+    additionalContext: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML, Markdown or PowerPoint file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place.",
   });
   assert.equal((await postToolHook('PostToolUse', screenshotCall)).hookSpecificOutput, undefined);
   ctx().session.noteCommandRan('show');

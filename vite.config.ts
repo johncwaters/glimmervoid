@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import { build, defineConfig } from 'vite';
 import type { Plugin, ViteDevServer } from 'vite';
 
 type GlimmervoidBackend = ReturnType<typeof import('./server/backend/backend.ts').createBackend>;
@@ -14,6 +14,44 @@ type GlimmervoidBackend = ReturnType<typeof import('./server/backend/backend.ts'
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')) as { version: string };
+
+const DECK_VIEWER_SOURCE_ID = 'virtual:deck-viewer-source';
+const RESOLVED_DECK_VIEWER_SOURCE_ID = `\0${DECK_VIEWER_SOURCE_ID}`;
+const DECK_VIEWER_ENTRY = path.resolve(__dirname, 'public/whiteboard/deck-viewer.ts');
+
+async function bundledDeckViewer(): Promise<{ code: string; moduleIds: string[] }> {
+  const builds = await build({
+    configFile: false,
+    root: __dirname,
+    logLevel: 'warn',
+    define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+    build: {
+      write: false,
+      minify: true,
+      lib: { entry: DECK_VIEWER_ENTRY, formats: ['es'], fileName: 'deck-viewer' },
+      rolldownOptions: { output: { codeSplitting: false } },
+    },
+  });
+  const outputs = (Array.isArray(builds) ? builds : [builds]).flatMap((built) => ('output' in built ? built.output : []));
+  const entryChunk = outputs.find((output) => output.type === 'chunk' && output.isEntry);
+  if (entryChunk?.type !== 'chunk') throw new Error('the deck viewer build produced no entry chunk');
+  return { code: entryChunk.code, moduleIds: entryChunk.moduleIds };
+}
+
+function deckViewerSourcePlugin(): Plugin {
+  return {
+    name: 'glimmervoid-deck-viewer-source',
+    resolveId: (id) => (id === DECK_VIEWER_SOURCE_ID ? RESOLVED_DECK_VIEWER_SOURCE_ID : null),
+    async load(id) {
+      if (id !== RESOLVED_DECK_VIEWER_SOURCE_ID) return null;
+      const deckViewer = await bundledDeckViewer();
+      for (const moduleId of deckViewer.moduleIds) {
+        if (path.isAbsolute(moduleId)) this.addWatchFile(moduleId);
+      }
+      return `export default ${JSON.stringify(deckViewer.code)};`;
+    },
+  };
+}
 
 function glimmervoidBackendPlugin(): Plugin {
   let backend: GlimmervoidBackend | null = null;
@@ -89,6 +127,7 @@ export default defineConfig({
   plugins: [
     tailwindcss(),
     glimmervoidBackendPlugin(),
+    deckViewerSourcePlugin(),
     brotliOutputPlugin(),
   ],
 

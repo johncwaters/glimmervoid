@@ -12,6 +12,7 @@ import { el, isRealInputOwningKey, markAsNotCredential } from '../dom-helpers.ts
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { SHEET_WIDTH_HANDLE_PX, sheetWidthHandle, wireSheetWidth } from '../sheet-width.ts';
 import { button, menuButton } from '../ui/button.ts';
+import { createDeckFrame, forwardDeckKey } from './deck-frame.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { buildMenuItem, wirePopupMenuKeys } from '../menu.ts';
 import { findSessionUi, sessionName } from '../session-card/card-registry.ts';
@@ -785,9 +786,10 @@ function pressedMediaOf({ boxId }: PressedImage): BoxMedia | null {
   return pressedBox?.kind === 'box' ? pressedBox.media : null;
 }
 
-function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null): HTMLElement {
+function enlargedMediaOf(pressedImage: PressedImage, media: BoxMedia | null, listening: AbortSignal): HTMLElement {
   const boxTitle = pressedBoxTitleOf(pressedImage);
   const originalHref = media ? boardMediaNamedPath(media, boxTitle) : pressedImage.href;
+  if (media?.kind === 'deck') return createDeckFrame(originalHref, pressedImage.alt || boxTitle || 'deck', listening);
   if (media?.kind === 'page') {
     const savedNameQuery = `${BOARD_PAGE_SAVED_NAME_QUERY}=${encodeURIComponent(boardMediaSavedName(media, boxTitle))}`;
     const pageFrame = createSandboxedFrame({ source: { kind: 'url', url: `${boardPagePath(media)}?${BOARD_PAGE_TUNED_QUERY}&${savedNameQuery}` }, className: 'wb-image-viewer-page', title: pressedImage.alt || 'page', allowsScripts: true });
@@ -854,7 +856,7 @@ function abortWhenOverlayLeaves(overlay: HTMLElement, abortShownMedia: () => voi
   overlayWatcher.observe(document.body, { childList: true });
 }
 
-const VIEWABLE_MEDIA_KINDS: ReadonlySet<BoxMedia['kind']> = new Set(['image', 'video', 'page']);
+const VIEWABLE_MEDIA_KINDS: ReadonlySet<BoxMedia['kind']> = new Set(['image', 'video', 'page', 'deck']);
 
 function walkableBoundsOf(board: Board, boxId: string): { x: number; y: number; width: number; height: number } | null {
   const box = board.elements.get(boxId);
@@ -1057,6 +1059,15 @@ function wireViewerWidth(zoomStage: HTMLElement, mediaSheet: HTMLElement, widthH
   });
 }
 
+function downloadOriginalOf(pressedImage: PressedImage, media: BoxMedia | null): void {
+  if (!media) return;
+  const boxTitle = pressedBoxTitleOf(pressedImage);
+  const download = el('a');
+  download.href = boardMediaNamedPath(media, boxTitle);
+  download.download = boardMediaSavedName(media, boxTitle);
+  download.click();
+}
+
 function openImageViewer(pressedImage: PressedImage): void {
   const media = pressedMediaOf(pressedImage);
   if (!media && !pressedImage.href) return;
@@ -1084,7 +1095,11 @@ function openImageViewer(pressedImage: PressedImage): void {
   dialog.append(zoomStage);
   const viewerSizing = createViewerSizing(zoomStage, mediaSheet);
   wireViewerWidth(zoomStage, mediaSheet, widthHandle, viewerSizing);
-  let shown = { pressedImage, enlargedMedia: enlargedMediaOf(pressedImage, media), listening: new AbortController() };
+  const firstListening = new AbortController();
+  let shown = { pressedImage, media, enlargedMedia: enlargedMediaOf(pressedImage, media, firstListening.signal), listening: firstListening };
+  const btnDownload = button({ variant: 'secondary', label: 'Download' });
+  btnDownload.addEventListener('click', () => downloadOriginalOf(shown.pressedImage, shown.media));
+  header.insertBefore(btnDownload, btnCancel);
   const zoomControl = attachMediaZoom(zoomStage, mediaSheet, (isZoomed) => {
     zoomStage.classList.toggle('is-zoomed', isZoomed);
     if (shown.enlargedMedia instanceof HTMLIFrameElement) postZoomedState(shown.enlargedMedia, isZoomed);
@@ -1094,6 +1109,7 @@ function openImageViewer(pressedImage: PressedImage): void {
     shown.enlargedMedia.classList.add('wb-image-viewer-media');
     mediaSheet.prepend(shown.enlargedMedia);
     titleEl.textContent = shown.pressedImage.alt || 'Picture';
+    btnDownload.hidden = shown.media?.kind !== 'deck';
     if (shown.enlargedMedia instanceof HTMLIFrameElement) listenToViewerPage(shown.enlargedMedia, shown.listening, close, zoomControl, viewerSizing, walkToward);
   }
 
@@ -1102,13 +1118,20 @@ function openImageViewer(pressedImage: PressedImage): void {
     if (!neighbour) return false;
     shown.listening.abort();
     shown.enlargedMedia.remove();
-    shown = { pressedImage: neighbour, enlargedMedia: enlargedMediaOf(neighbour, pressedMediaOf(neighbour)), listening: new AbortController() };
+    const neighbourMedia = pressedMediaOf(neighbour);
+    const neighbourListening = new AbortController();
+    shown = { pressedImage: neighbour, media: neighbourMedia, enlargedMedia: enlargedMediaOf(neighbour, neighbourMedia, neighbourListening.signal), listening: neighbourListening };
     viewerSizing.takeNewPage();
     showEnlargedMedia();
     return true;
   }
 
   overlay.addEventListener('keydown', (event) => {
+    const shownDeckFrame = shown.media?.kind === 'deck' && shown.enlargedMedia instanceof HTMLIFrameElement ? shown.enlargedMedia : null;
+    if (shownDeckFrame && !isWalkKeyOwnedElsewhere(event) && forwardDeckKey(shownDeckFrame, event.key)) {
+      event.preventDefault();
+      return;
+    }
     const direction = NUDGE_DIRECTION_BY_KEY[event.key];
     if (!direction || isWalkKeyOwnedElsewhere(event)) return;
     if (walkToward(direction)) event.preventDefault();

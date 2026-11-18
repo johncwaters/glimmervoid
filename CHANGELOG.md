@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **PowerPoint decks on the board.** Agents can `show` a `.pptx` file, and you can attach one yourself. It goes on the board as a deck card. Open the card to read it one slide at a time: the arrow keys, Page Up, Page Down, Home and End move between slides, the counter shows where you are, and Download saves the original file to send on. Past the first or last slide, the arrow keys carry on to the next wired card. Decks render in your browser inside a sandboxed frame that fetches nothing over the network.
+
 - **Deny a tool call in Chat and tell the agent what to do instead.** A permission card in Chat now has a message field beside Allow and Deny. Type what you want instead and press Deny with message, and the agent gets your words as the reason it was refused, on every first-class agent.
 
 - **Chat shows the session's vitals under the composer.** A fixed line under the message box shows the model and effort, the tighter of your 5-hour and weekly plan windows with time to reset, context used out of the window, an estimated cost of the next call and the session's cost so far, and the output style when it is not the default. While subagents run, the costs give way to which subagents are running. The line never changes height, so nothing above it moves.

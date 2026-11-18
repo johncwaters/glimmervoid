@@ -1437,6 +1437,10 @@
       "definition": "An XLSX file on a board: a read-only sheet card with one CSV per sheet, derived on the server at ingest"
     },
     {
+      "name": "deck",
+      "definition": "A PowerPoint (PPTX) file on a board: a read-only labelled card that opens one slide at a time in a sandboxed viewer, rendered in the browser"
+    },
+    {
       "name": "find",
       "definition": "The Find a project field in New session and onboarding: typing filters the project list (local projects and GitHub repositories not yet on this host), and Enter starts the session in the top match"
     },

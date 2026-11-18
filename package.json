@@ -82,6 +82,7 @@
     "dist": "node scripts/build.mjs --binary --binary-out ."
   },
   "dependencies": {
+    "@aiden0z/pptx-renderer": "1.4.0",
     "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",

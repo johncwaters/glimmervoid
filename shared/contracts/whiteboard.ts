@@ -85,14 +85,20 @@ export const BoardPageGesture = z.discriminatedUnion('gesture', [
 ]);
 export type BoardPageGesture = z.infer<typeof BoardPageGesture>;
 export const BOARD_PAGE_CONTENT_WIDTH_MESSAGE = 'glimmervoid-board-page-content-width';
+export const BOARD_DECK_READY_MESSAGE = 'glimmervoid-board-deck-ready';
+export const BOARD_DECK_BYTES_MESSAGE = 'glimmervoid-board-deck-bytes';
+export const BOARD_DECK_KEY_MESSAGE = 'glimmervoid-board-deck-key';
+export const BOARD_DECK_KEYS = ['ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End'] as const;
+export const BoardDeckReady = z.object({ type: z.literal(BOARD_DECK_READY_MESSAGE) }).strict();
 export const BoardPageArrow = z.object({ type: z.literal(BOARD_PAGE_ARROW_MESSAGE), key: z.enum(BOARD_PAGE_ARROW_KEYS) }).strict();
 export const BoardPageContentWidth = z.object({ type: z.literal(BOARD_PAGE_CONTENT_WIDTH_MESSAGE), contentWidth: z.number().finite().positive(), layoutWidth: z.number().finite().positive() }).strict();
 
 const AssetId = z.string().regex(/^[0-9a-f]{64}$/, { error: 'an asset is the 64 hex character id whiteboard attach returned' }).meta({ id: 'AssetId' });
 
-const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc', 'sheet'] as const;
+const BOARD_MEDIA_KINDS = ['image', 'video', 'page', 'doc', 'sheet', 'deck'] as const;
 export const BOARD_WORKBOOK_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/x-fountain', 'text/csv', 'text/tab-separated-values', BOARD_WORKBOOK_MIME] as const;
+export const BOARD_DECK_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+const BOARD_MEDIA_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'video/mp4', 'video/webm', 'text/html', 'text/markdown', 'text/x-fountain', 'text/csv', 'text/tab-separated-values', BOARD_WORKBOOK_MIME, BOARD_DECK_MIME] as const;
 export const BOARD_MEDIA_MAX_EDGE_PX = 16384;
 export const BOARD_DOC_CAP_BYTES = 256 * 1024;
 export const BOARD_SHEET_CAP_BYTES = 256 * 1024;
@@ -571,7 +577,7 @@ function withoutDefaults(schema: z.core.$ZodType, value: unknown): unknown {
 }
 
 export const BOARD_MEDIA_EXTENSION_BY_MIME: Record<BoxMedia['mime'], string> = {
-  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/x-fountain': '.fountain', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv', [BOARD_WORKBOOK_MIME]: '.xlsx',
+  'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/svg+xml': '.svg', 'video/mp4': '.mp4', 'video/webm': '.webm', 'text/html': '.html', 'text/markdown': '.md', 'text/x-fountain': '.fountain', 'text/csv': '.csv', 'text/tab-separated-values': '.tsv', [BOARD_WORKBOOK_MIME]: '.xlsx', [BOARD_DECK_MIME]: '.pptx',
 };
 
 export function boardMediaOriginalFilename(media: Pick<BoxMedia, 'asset' | 'mime'>): string {

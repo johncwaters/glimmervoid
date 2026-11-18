@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-type ShownFileKind = 'image' | 'video' | 'page' | 'doc' | 'sheet';
+type ShownFileKind = 'image' | 'video' | 'page' | 'doc' | 'sheet' | 'deck';
 
 type ShownKindVerdict =
   | { ok: true; kind: ShownFileKind; mime: string; extension: string }
@@ -14,7 +14,7 @@ interface ShownFormat {
 
 const SHOWN_SNIFF_BYTES = 64 * 1024;
 const PAGE_TITLE_MAX_CHARS = 200;
-const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV or XLSX';
+const ACCEPTED_KINDS_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX';
 
 const PNG: ShownFormat = { kind: 'image', mime: 'image/png', extension: '.png' };
 const JPEG: ShownFormat = { kind: 'image', mime: 'image/jpeg', extension: '.jpg' };
@@ -30,6 +30,8 @@ const TSV: ShownFormat = { kind: 'sheet', mime: 'text/tab-separated-values; char
 const SCREENPLAY: ShownFormat = { kind: 'doc', mime: 'text/x-fountain; charset=utf-8', extension: '.fountain' };
 const DOC_FORMAT_BY_NAME_EXTENSION: Readonly<Record<string, ShownFormat>> = { '.md': DOC, '.markdown': DOC, '.fountain': SCREENPLAY };
 const XLSX: ShownFormat = { kind: 'sheet', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extension: '.xlsx' };
+const PPTX: ShownFormat = { kind: 'deck', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', extension: '.pptx' };
+const OFFICE_FORMAT_BY_NAME_EXTENSION: Readonly<Record<string, ShownFormat>> = { '.xlsx': XLSX, '.pptx': PPTX };
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
 const SHEET_FORMAT_BY_NAME_EXTENSION: Readonly<Record<string, ShownFormat>> = { '.csv': CSV, '.tsv': TSV, '.tab': TSV };
@@ -90,16 +92,21 @@ function sniffDocFormat(chunk: Buffer, declaredName: string): ShownFormat | null
   return chunk.includes(NUL_BYTE) ? null : docFormat;
 }
 
+function sniffOfficeFormat(chunk: Buffer, declaredName: string): ShownFormat | null {
+  const officeFormat = OFFICE_FORMAT_BY_NAME_EXTENSION[path.extname(declaredName).toLowerCase()];
+  if (!officeFormat) return null;
+  return startsWithBytes(chunk, ZIP_MAGIC) ? officeFormat : null;
+}
+
 function sniffSheetFormat(chunk: Buffer, declaredName: string): ShownFormat | null {
   const nameExtension = path.extname(declaredName).toLowerCase();
-  if (nameExtension === XLSX.extension) return chunk.subarray(0, ZIP_MAGIC.length).equals(ZIP_MAGIC) ? XLSX : null;
   const sheetFormat = SHEET_FORMAT_BY_NAME_EXTENSION[nameExtension];
   if (!sheetFormat) return null;
   return chunk.includes(NUL_BYTE) ? null : sheetFormat;
 }
 
 function decideShownKind(firstChunk: Buffer, declaredName: string): ShownKindVerdict {
-  const format = sniffSheetFormat(firstChunk, declaredName) ?? sniffBinaryFormat(firstChunk) ?? sniffMarkupFormat(firstChunk, declaredName) ?? sniffDocFormat(firstChunk, declaredName);
+  const format = sniffOfficeFormat(firstChunk, declaredName) ?? sniffSheetFormat(firstChunk, declaredName) ?? sniffBinaryFormat(firstChunk) ?? sniffMarkupFormat(firstChunk, declaredName) ?? sniffDocFormat(firstChunk, declaredName);
   if (!format) return { ok: false, error: `${declaredName} is not a file show takes; show takes ${ACCEPTED_KINDS_TEXT} files` };
   return { ok: true, kind: format.kind, mime: format.mime, extension: format.extension };
 }

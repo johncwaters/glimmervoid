@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { createBackend } from '../server/backend/backend.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { runAgentApiCli } from '../server/agent-api-cli.ts';
-import { Board, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, boardMediaOriginalFilename, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Board, BOARD_DECK_MIME, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, boardMediaOriginalFilename, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_FILE_VERSION, BOARD_PAGE_PARAMS_MESSAGE, BoardOutline, BoardRegion, BoxMedia, BOARD_SHEET_CAP_BYTES, Element, Op, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import type { Backend } from './helpers/lanes.ts';
@@ -2052,6 +2052,15 @@ test('an agent links a CSV or TSV sheet from its worktree and reads it back verb
   fs.writeFileSync(path.join(worktree, 'bomb.xlsx'), zipOfOneEntry('xl/worksheets/sheet1.xml', Buffer.alloc(BOARD_WORKBOOK_UNPACKED_CAP_BYTES + 1024 * 1024, 0x20)));
   const bombBook = await wiring.assets.ingestFile(path.join(worktree, 'bomb.xlsx'));
   assert.deepEqual([bombBook.ok, !bombBook.ok && bombBook.status], [false, 413], 'a workbook that unpacks past its budget is refused before it is parsed');
+  fs.writeFileSync(path.join(worktree, 'talk.pptx'), zipOfOneEntry('ppt/presentation.xml', Buffer.from('<p:presentation/>')));
+  const deckShown = await wiring.handleAgent(linker, { sub: 'show', path: 'talk.pptx' });
+  assert.equal(deckShown.status, 200, JSON.stringify(deckShown.body));
+  const deckMedia = await cardMedia('shown-4');
+  assert.deepEqual([deckMedia?.kind, deckMedia?.mime, deckMedia?.width, deckMedia?.height], ['deck', BOARD_DECK_MIME, 960, 540], 'a PowerPoint file goes on the board as a 16:9 deck card');
+  assert.notEqual(deckMedia && wiring.assets.servableOf(`${deckMedia.asset}.pptx`), null, 'the board serves the original deck for the viewer and its download');
+  fs.writeFileSync(path.join(worktree, 'broken.pptx'), Buffer.from('not a deck'));
+  const brokenDeck = await wiring.assets.ingestFile(path.join(worktree, 'broken.pptx'));
+  assert.deepEqual([brokenDeck.ok, !brokenDeck.ok && brokenDeck.status], [false, 415], 'a .pptx that is not a ZIP is refused');
 
   const sameBytesPaths = ['same.md', 'same.csv', 'same.tsv'].map((name) => path.join(worktree, name));
   for (const sameBytesPath of sameBytesPaths) fs.writeFileSync(sameBytesPath, 'name,qty\nbolt,4\n', 'utf8');

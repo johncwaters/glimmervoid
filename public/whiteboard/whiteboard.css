@@ -779,6 +779,10 @@
   background: #fff;
 }
 
+.wb-image-viewer-page.wb-image-viewer-deck {
+  background: transparent;
+}
+
 .wb-image-viewer-picture {
   user-select: none;
 }

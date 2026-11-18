@@ -205,7 +205,7 @@ interface CommandHint {
   text: string;
 }
 
-const SHOWABLE_PATH = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)(?=$|[\s'"`)|;&,])/i;
+const SHOWABLE_PATH = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?|pptx)(?=$|[\s'"`)|;&,])/i;
 const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit']);
 const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash']);
 const GIT_PUSH = /\bgit\s+push\b/;
@@ -254,7 +254,7 @@ function makesOwnCheckout(facts: ToolHookFacts): boolean {
 }
 
 const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
-  show: { firesOn: namesShowableFile, text: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML or Markdown file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place." },
+  show: { firesOn: namesShowableFile, text: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML, Markdown or PowerPoint file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place." },
   spawn: { firesOn: startsSubagent, text: 'Glimmervoid: glimmervoid spawn <prompt> is also available, giving the work its own supervised session and dashboard card.' },
   push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
   settings: { firesOn: touchesGlimmervoidConfig, text: "Glimmervoid: glimmervoid settings get <key> reads Glimmervoid's settings without opening config.json." },
@@ -329,7 +329,7 @@ function formatSessionLimits(limits: SessionLimits): string[] {
 const NEXT_PROMPT_FALLBACK = ', or the next UserPromptSubmit where the agent has no tool hook context';
 
 const COMMAND_HINT_TRIGGERS: Readonly<Record<ToolHintedCommand, { carriedBy: string; firesWhen: string }>> = Object.freeze({
-  show: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}, or UserPromptSubmit for a prompt`, firesWhen: 'a tool call names an image, video or HTML file, or a prompt asks for slides, a talk, an explainer or a report' },
+  show: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}, or UserPromptSubmit for a prompt`, firesWhen: 'a tool call names an image, video, HTML or PowerPoint file, or a prompt asks for slides, a talk, an explainer or a report' },
   spawn: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent starts an in-process subagent' },
   push: { carriedBy: `PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a git push fails' },
   settings: { carriedBy: `PostToolUse or PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: "a tool call touches Glimmervoid's config.json" },

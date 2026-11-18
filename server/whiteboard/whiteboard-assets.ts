@@ -8,7 +8,7 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { decideShownKind, SHOWN_SNIFF_BYTES } from '../core/shown-files-core.ts';
 import { resolveFfmpegPath } from '../runtime-paths.ts';
 import { SHOWN_FILE_CAP_BYTES } from '../../shared/contracts/session.ts';
-import { BOARD_DOC_CAP_BYTES, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, BOARD_SHEET_CAP_BYTES, BOARD_WORKBOOK_CAP_BYTES, BOARD_WORKBOOK_MIME, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, BOARD_WORKBOOK_SHEETS_MAX, WHITEBOARD_LIMITS, boardWorkbookSheetFilename } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_DECK_MIME, BOARD_DOC_CAP_BYTES, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, BOARD_SHEET_CAP_BYTES, BOARD_WORKBOOK_CAP_BYTES, BOARD_WORKBOOK_MIME, BOARD_WORKBOOK_UNPACKED_CAP_BYTES, BOARD_WORKBOOK_SHEETS_MAX, WHITEBOARD_LIMITS, boardWorkbookSheetFilename } from '../../shared/contracts/whiteboard.ts';
 import type { BoxMedia, Dial } from '../../shared/contracts/whiteboard.ts';
 import { DIAL_MANIFEST_SCAN_BYTES, dialManifestOf } from '../core/dial-manifest-core.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -29,12 +29,14 @@ const DOC_WIDTH_PX = 800;
 const DOC_HEIGHT_PX = 1000;
 const SHEET_WIDTH_PX = 960;
 const SHEET_HEIGHT_PX = 600;
+const DECK_WIDTH_PX = 960;
+const DECK_HEIGHT_PX = 540;
 const UNPOSTERED_VIDEO_WIDTH_PX = 1280;
 const UNPOSTERED_VIDEO_HEIGHT_PX = 720;
 const VIDEO_POSTER_TIMEOUT_MS = 15_000;
 const ASSET_FILE_MODE = 0o600;
 const PREVIEW_SUFFIX = '.preview.webp';
-const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md|\.fountain|\.csv|\.tsv|\.xlsx)$/;
+const ORIGINAL_FILENAME_RE = /^([0-9a-f]{64})(\.png|\.jpg|\.gif|\.webp|\.svg|\.mp4|\.webm|\.html|\.md|\.fountain|\.csv|\.tsv|\.xlsx|\.pptx)$/;
 const WORKBOOK_SHEET_FILENAME_RE = /^([0-9a-f]{64})\.sheet(\d{1,2})\.csv$/;
 const SHEET_NAMES_FILENAME_RE = /^([0-9a-f]{64})\.sheets\.json$/;
 const SHEET_NAMES_SUFFIX = '.sheets.json';
@@ -49,7 +51,7 @@ const INCOMING_PREFIX = '.incoming-';
 const ATTACH_HOLD_MS = 10 * 60_000;
 const STILL_IMAGE_FTYP_BRANDS = new Set(['mif1', 'msf1', 'mif2', 'avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'avci', 'avcs', 'jpeg', 'j2ki', 'j2is', 'crx ']);
 const FTYP_BRANDS_OFFSET = 16;
-const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV or XLSX';
+const ACCEPTED_TEXT = 'PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX';
 const OPEN_WITHOUT_BLOCKING_ON_A_PIPE = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
 interface MediaFormat {
@@ -73,6 +75,7 @@ const MEDIA_FORMAT_BY_EXTENSION: Record<string, MediaFormat> = {
   '.csv': { kind: 'sheet', mime: 'text/csv', contentType: 'text/csv; charset=utf-8', hasLargeRasterPreview: false },
   '.tsv': { kind: 'sheet', mime: 'text/tab-separated-values', contentType: 'text/tab-separated-values; charset=utf-8', hasLargeRasterPreview: false },
   '.xlsx': { kind: 'sheet', mime: BOARD_WORKBOOK_MIME, contentType: BOARD_WORKBOOK_MIME, hasLargeRasterPreview: false },
+  '.pptx': { kind: 'deck', mime: BOARD_DECK_MIME, contentType: BOARD_DECK_MIME, hasLargeRasterPreview: false },
 };
 
 interface StoredAsset {
@@ -308,6 +311,7 @@ function fixedViewportSizeOf(format: MediaFormat): MediaSize | null {
   if (format.kind === 'page') return { width: PAGE_WIDTH_PX, height: PAGE_HEIGHT_PX, hasPreview: false };
   if (format.kind === 'doc') return { width: DOC_WIDTH_PX, height: DOC_HEIGHT_PX, hasPreview: false };
   if (format.kind === 'sheet') return { width: SHEET_WIDTH_PX, height: SHEET_HEIGHT_PX, hasPreview: false };
+  if (format.kind === 'deck') return { width: DECK_WIDTH_PX, height: DECK_HEIGHT_PX, hasPreview: false };
   return null;
 }
 
