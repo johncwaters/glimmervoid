@@ -141,12 +141,13 @@
   position: relative;
   isolation: isolate;
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
   justify-content: center;
   min-width: 24px;
-  height: 21px;
+  height: var(--chip-height);
   margin-bottom: 3px;
-  padding: 0 7px;
+  padding: 0 var(--chip-padding-inline);
   font-size: var(--type-meta);
   background: transparent;
   border-color: transparent;

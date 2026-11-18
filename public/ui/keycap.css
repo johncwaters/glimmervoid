@@ -1,5 +1,10 @@
 .ui-keycap {
-  padding: 3px 5px;
+  display: inline-flex;
+  box-sizing: border-box;
+  flex: none;
+  align-items: center;
+  height: var(--chip-height);
+  padding: 0 var(--chip-padding-inline);
   border: 1px solid var(--border);
   border-radius: 2px;
   background: var(--bg-surface);
@@ -14,7 +19,7 @@
 .ui-key-chord {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .ui-key-chord-sep {

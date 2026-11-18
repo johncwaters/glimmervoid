@@ -364,10 +364,6 @@ html[data-layout="phone"] .dialog-overlay {
   margin-left: auto;
 }
 
-.review-board-column-heading .shortcut-keys .ui-keycap {
-  padding-block: 2px;
-}
-
 @container review-board-column (max-width: 299px) {
   .review-board-column-heading .shortcut-keys { display: none; }
 }
