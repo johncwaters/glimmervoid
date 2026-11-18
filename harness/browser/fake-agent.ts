@@ -238,6 +238,10 @@ function dispatch(command: string): void {
 let pending = '';
 
 function onInput(chunk: string): void {
+  if (chunk === ESC) {
+    dispatch('stop');
+    return;
+  }
   pending += chunk.replace(BRACKETED_PASTE_MARKER, '').replace(OUT_OF_BAND_COMMAND, (_sequence, command: string) => {
     dispatch(command);
     return '';

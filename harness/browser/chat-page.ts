@@ -60,8 +60,8 @@ async function verifyChatModelSwitch(page: Page): Promise<void> {
   assert.ok(otherModel, `the Model control lists more than the shown model (${choices.join(', ')})`);
   await modelSelect.selectOption(otherModel);
   await page.waitForFunction(() => {
-    const stop = [...document.querySelectorAll<HTMLButtonElement>('.session-chat .chat-composer button')].find((button) => button.textContent === 'Stop');
-    return stop?.disabled === true;
+    const stop = document.querySelector<HTMLButtonElement>('.session-chat .chat-composer button[aria-label="Stop"]');
+    return stop !== null && stop.disabled;
   }, undefined, { timeout: CARD_TIMEOUT_MS });
   await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
   await dialog.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
@@ -140,17 +140,23 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   const answeredCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]');
   await answeredCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await answeredCard.innerText(), /Allowed/, 'the answered card reads Allowed');
+  const dock = page.locator('.session-chat .chat-dock');
+  const dockBoxOf = () => dock.evaluate((element) => JSON.stringify(element.getBoundingClientRect()));
+  const idleDockBox = await dockBoxOf();
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await sendFromComposer(page, 'work-glimmervoid');
   const stopButton = page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true });
   await page.waitForFunction(() => {
-    const stop = [...document.querySelectorAll<HTMLButtonElement>('.session-chat .chat-composer button')].find((button) => button.textContent === 'Stop');
-    return stop !== undefined && !stop.disabled;
+    const stop = document.querySelector<HTMLButtonElement>('.session-chat .chat-composer button[aria-label="Stop"]');
+    return stop !== null && !stop.disabled;
   }, undefined, { timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-chat .chat-activity .chat-activity-mark').waitFor({ timeout: CARD_TIMEOUT_MS });
   await verifyGlimmervoidCallSpinsMark(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await dockBoxOf(), idleDockBox, 'starting a turn swaps Send for Stop without moving the composer');
   await stopButton.click();
+  await page.locator('.session-chat .chat-composer button[aria-label="Send"]:visible').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await dockBoxOf(), idleDockBox, 'ending a turn swaps Stop for Send without moving the composer');
   await verifyComposerAttachesImage(page);
 }
 

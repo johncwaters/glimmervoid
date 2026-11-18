@@ -1,9 +1,13 @@
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { el } from '../dom-helpers.ts';
 import { isImeProcessingKeydown } from '../session-card/ime-core.ts';
+import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 
 const MAX_INPUT_HEIGHT_PX = 240;
+const ATTACH_ICON_PATH = 'M10.5 4.5L5.8 9.2a1.4 1.4 0 0 0 2 2l5-5a2.8 2.8 0 0 0-4-4l-5 5a4.2 4.2 0 0 0 6 6l4.2-4.2';
+const SEND_ICON_PATH = 'M8 13V3M3.5 7.5L8 3l4.5 4.5';
+const STOP_ICON_PATH = 'M5 5h6v6H5z';
 
 interface ChatComposer {
   element: HTMLElement;
@@ -49,20 +53,22 @@ export function createComposer(): ChatComposer {
   input.maxLength = CHAT_SEND_MAX_CHARS;
   input.placeholder = 'Message the agent';
   input.setAttribute('aria-label', 'Message the agent');
-  const sendButton = button({ variant: 'primary', textCase: 'sentence', label: 'Send', disabled: true });
+  const sendButton = button({ variant: 'icon', label: 'Send', icon: createLineIcon(SEND_ICON_PATH, '1.8'), disabled: true });
   sendButton.type = 'submit';
-  const stopButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Stop', disabled: true });
-  const attachButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Attach' });
+  sendButton.classList.add('chat-composer-send');
+  const stopButton = button({ variant: 'icon', label: 'Stop', icon: createLineIcon(STOP_ICON_PATH, '1.8'), disabled: true });
+  stopButton.classList.add('chat-composer-stop');
+  const attachButton = button({ variant: 'icon', label: 'Attach', icon: createLineIcon(ATTACH_ICON_PATH, '1.4') });
   const filePicker = el('input', 'chat-composer-file-picker');
   filePicker.type = 'file';
   filePicker.multiple = true;
   filePicker.accept = 'image/*';
   filePicker.hidden = true;
   const attachments = el('div', 'chat-composer-attachments');
-  const actions = el('div', 'chat-composer-actions');
-  actions.append(attachButton, stopButton, sendButton);
+  const sendStopSlot = el('div', 'chat-composer-slot');
+  sendStopSlot.append(sendButton, stopButton);
   const inputRow = el('div', 'chat-composer-row');
-  inputRow.append(input, actions);
+  inputRow.append(attachButton, input, sendStopSlot);
   element.append(attachments, inputRow, filePicker);
 
   const attachFiles = (files: readonly File[]) => {
@@ -123,6 +129,7 @@ export function createComposer(): ChatComposer {
   });
   const setTurnRunning = (isTurnRunning: boolean) => {
     stopButton.disabled = !isTurnRunning;
+    sendStopSlot.dataset.turnRunning = String(isTurnRunning);
   };
   const restoreDraft = (text: string) => {
     input.value = text;
