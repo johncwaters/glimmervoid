@@ -377,7 +377,7 @@ function chooseLayout(layout: DiffLayout) {
 }
 
 function layoutSwitch(shownLayout: DiffLayout) {
-  return segmented({ label: 'Diff layout', options: DIFF_LAYOUTS, value: shownLayout, onChange: chooseLayout });
+  return segmented({ label: 'Diff layout', size: 'small', options: DIFF_LAYOUTS, value: shownLayout, onChange: chooseLayout });
 }
 
 async function loadDiffFileContents(sessionId: string, file: ReaderFile): Promise<DiffFileContents> {

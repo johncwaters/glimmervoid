@@ -1,10 +1,19 @@
 .ui-segmented {
+  --segmented-height: var(--control-height);
+  --segmented-padding-inline: var(--control-padding-inline);
   box-sizing: border-box;
   display: inline-flex;
+  align-items: stretch;
   width: fit-content;
+  height: var(--segmented-height);
   max-width: 100%;
   border: 1px solid var(--border-dim);
   border-radius: var(--radius);
+}
+
+.ui-segmented[data-size="small"] {
+  --segmented-height: var(--control-height-small);
+  --segmented-padding-inline: var(--control-padding-inline-small);
 }
 
 .ui-segmented[data-width="fill"] {
@@ -14,7 +23,8 @@
 
 .ui-segmented-option {
   box-sizing: border-box;
-  padding: 3px 12px;
+  margin: 0;
+  padding: 0 var(--segmented-padding-inline);
   border: 0;
   border-right: 1px solid var(--border-dim);
   background: transparent;
@@ -22,7 +32,7 @@
   font-family: var(--font-mono);
   font-size: var(--type-meta);
   font-weight: 700;
-  line-height: inherit;
+  line-height: 1;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -42,7 +52,6 @@
 .ui-segmented[data-width="fill"] > .ui-segmented-option {
   flex: 1 1 0;
   min-width: 0;
-  padding: 7px 8px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -63,6 +72,5 @@
 }
 
 html[data-layout="phone"] .ui-segmented-option {
-  min-height: 44px;
-  padding: 4px 14px;
+  font-size: var(--type-title);
 }

@@ -19,6 +19,7 @@ let _sessionsExpanded = false;
 function buildRangeSwitch() {
   const control = segmented({
     label: 'Report period',
+    size: 'small',
     options: RANGE_OPTIONS.map((option) => ({ value: option.value, label: PERIOD_VIEWS.find((view) => view.value === option.value)?.label || option.label })),
     value: _usage.rangeValue,
     onChange: (value) => {
@@ -36,6 +37,7 @@ function buildRangeSwitch() {
 function buildMetricSwitch() {
   const control = segmented({
     label: 'Primary measure',
+    size: 'small',
     options: METRIC_OPTIONS,
     value: _usage.metric,
     onChange: (value) => {

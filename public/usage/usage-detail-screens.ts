@@ -203,6 +203,7 @@ function buildDailySection() {
 function buildPeriodSwitch() {
   const control = segmented({
     label: 'Period',
+    size: 'small',
     options: PERIOD_VIEWS,
     value: _periodView,
     onChange: (value) => {

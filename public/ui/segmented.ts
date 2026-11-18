@@ -10,6 +10,7 @@ type SegmentedOptions<V extends string> = SegmentedName & {
   value: V;
   onChange: (value: V) => void;
   width?: 'auto' | 'fill';
+  size?: 'default' | 'small';
 };
 
 export type Segmented<V extends string> = {
@@ -26,6 +27,7 @@ export function segmented<const V extends string>(options: SegmentedOptions<V>):
   if (options.label !== undefined) element.setAttribute('aria-label', options.label);
   if (options.labelledBy !== undefined) element.setAttribute('aria-labelledby', options.labelledBy);
   element.dataset.width = options.width ?? 'auto';
+  element.dataset.size = options.size ?? 'default';
   const choices = options.options;
   const segments = choices.map((choice) => {
     const segment = createPressable('ui-segmented-option', choice.label);

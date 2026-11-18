@@ -625,6 +625,7 @@ function chooseLayout(layout: ReviewsLayout): void {
 function createLayoutSwitch(): HTMLElement {
   layoutSwitch = segmented({
     label: 'Reviews layout',
+    size: 'small',
     options: (['list', 'board'] as const).map((layout) => ({ value: layout, label: REVIEWS_LAYOUT_LABELS[layout] })),
     value: shownLayout(),
     onChange: chooseLayout,
