@@ -67,7 +67,7 @@ export const ChatOutboxEntry = z.object({
   entryId: z.string().min(1).max(64),
   text: z.string().max(CHAT_OUTBOX_TEXT_MAX_CHARS),
   attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]),
-  state: z.enum(['held', 'sending', 'failed']),
+  state: z.enum(['held', 'sending', 'submitted', 'failed']),
   failure: z.string().max(500).nullable(),
 }).strict();
 

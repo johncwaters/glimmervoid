@@ -24,7 +24,6 @@ import type { RunningSubagent } from './status-rail-core.ts';
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
-const SENT_STAND_IN_MAX_MS = 10000;
 const MID_TURN_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
 const RAIL_TICK_MS = 30_000;
 const ESCAPE_KEY = String.fromCharCode(27);
@@ -49,7 +48,6 @@ interface MountedChat {
   wasSessionWorking: boolean;
   setTurnRunning(isTurnRunning: boolean): void;
   showOutbox(): void;
-  resyncOutbox(): void;
   restoreText(text: string): void;
   restoreAttachments(fileNames: readonly string[]): void;
   showFailure(failureText: string | null): void;
@@ -203,34 +201,38 @@ function buildChat(sessionId: string): MountedChat {
   chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
   for (const fileName of draftAttachmentsBySessionId.get(sessionId) ?? []) chatView.showAttachment(fileName);
   draftAttachmentsBySessionId.delete(sessionId);
-  let shownOutbox: readonly ChatOutboxEntry[] = [];
-  let sentStandIn: ChatPart | null = null;
-  const shownPromptIds = new Set<string>();
-  let sentStandInTimer: ReturnType<typeof setTimeout> | null = null;
-  const dropSentStandIn = () => {
-    if (sentStandInTimer !== null) clearTimeout(sentStandInTimer);
-    sentStandInTimer = null;
-    if (sentStandIn) chatView.remove([sentStandIn.id]);
-    sentStandIn = null;
+  const standInByEntryId = new Map<string, ChatPart>();
+  const entryIdsAwaitingFeed = new Set<string>();
+  const removeStandIns = (entryIds: readonly string[]) => {
+    for (const entryId of entryIds) {
+      const standIn = standInByEntryId.get(entryId);
+      if (standIn) chatView.remove([standIn.id]);
+      standInByEntryId.delete(entryId);
+      entryIdsAwaitingFeed.delete(entryId);
+    }
   };
-  const showSentStandIn = (submittedEntry: ChatOutboxEntry) => {
-    dropSentStandIn();
-    sentStandIn = { kind: 'prompt', id: `sent-${submittedEntry.entryId}`, text: submittedEntry.text, at: clock.nowMs(), attachments: [...submittedEntry.attachments] };
-    chatView.upsert([sentStandIn]);
-    sentStandInTimer = setTimeout(dropSentStandIn, SENT_STAND_IN_MAX_MS);
-  };
-  const resyncOutbox = () => {
-    shownOutbox = outboxBySessionId.get(sessionId) ?? [];
-    chatView.showQueued(shownOutbox);
+  const keepStandInsLast = () => {
+    const standIns = [...standInByEntryId.values()];
+    if (standIns.length === 0) return;
+    chatView.remove(standIns.map((standIn) => standIn.id));
+    chatView.upsert(standIns);
   };
   const showOutbox = () => {
     const entries = outboxBySessionId.get(sessionId) ?? [];
-    const submittedEntry = shownOutbox.find((shown) => shown.state === 'sending' && !entries.some((entry) => entry.entryId === shown.entryId));
-    shownOutbox = entries;
-    if (submittedEntry) showSentStandIn(submittedEntry);
-    chatView.showQueued(entries);
+    const submittedEntries = entries.filter((entry) => entry.state === 'submitted');
+    for (const entry of submittedEntries) {
+      if (standInByEntryId.has(entry.entryId)) continue;
+      const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: clock.nowMs(), attachments: [...entry.attachments] };
+      standInByEntryId.set(entry.entryId, standIn);
+      chatView.upsert([standIn]);
+    }
+    const recordedEntryIds = [...standInByEntryId.keys()].filter((entryId) => !entryIdsAwaitingFeed.has(entryId) && !submittedEntries.some((entry) => entry.entryId === entryId));
+    chatView.showQueued(entries.filter((entry) => entry.state !== 'submitted'));
+    if (recordedEntryIds.length === 0) return;
+    for (const entryId of recordedEntryIds) entryIdsAwaitingFeed.add(entryId);
+    feed.whenCaughtUp(() => removeStandIns(recordedEntryIds));
+    feed.refresh();
   };
-  resyncOutbox();
   const showFailure = (failureText: string | null) => {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
@@ -395,7 +397,7 @@ function buildChat(sessionId: string): MountedChat {
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
   });
   root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => entry.state !== 'sending');
+    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => entry.state === 'held' || entry.state === 'failed');
     if (!newestCancellable) return;
     event.preventDefault();
     cancelOutboxEntry(sessionId, newestCancellable.entryId);
@@ -412,12 +414,9 @@ function buildChat(sessionId: string): MountedChat {
     sessionId,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
     onPartsChanged: (changedParts, droppedPartIds) => {
-      const newPrompts = changedParts.filter((part) => part.kind === 'prompt' && !shownPromptIds.has(part.id));
-      for (const prompt of newPrompts) shownPromptIds.add(prompt.id);
-      for (const droppedPartId of droppedPartIds) shownPromptIds.delete(droppedPartId);
-      if (newPrompts.length > 0) dropSentStandIn();
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
+      keepStandInsLast();
     },
     onTurnMarks: (marks) => chatView.markTurn(marks),
     onSubagents: (subagents) => {
@@ -429,12 +428,11 @@ function buildChat(sessionId: string): MountedChat {
     onReset: () => {
       releaseTerminal();
       shownApproval = null;
-      shownPromptIds.clear();
       const freshView = createChatView(uploadUrlFor(sessionId));
       freshView.restoreDraft(chatView.readDraft());
       for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
-      freshView.showQueued(outboxBySessionId.get(sessionId) ?? []);
-      if (sentStandIn) freshView.upsert([sentStandIn]);
+      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => entry.state !== 'submitted'));
+      freshView.upsert([...standInByEntryId.values()]);
       freshView.setTurnRunning(isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
@@ -444,6 +442,7 @@ function buildChat(sessionId: string): MountedChat {
     },
     onFailure: showFailure,
   });
+  showOutbox();
   return {
     sessionId,
     root,
@@ -451,7 +450,6 @@ function buildChat(sessionId: string): MountedChat {
     wasSessionWorking: isSessionWorking(sessionId),
     setTurnRunning: (isTurnRunning) => chatView.setTurnRunning(isTurnRunning),
     showOutbox,
-    resyncOutbox,
     restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),
     restoreAttachments: (fileNames) => {
       for (const fileName of fileNames) chatView.showAttachment(fileName);
@@ -470,7 +468,6 @@ function buildChat(sessionId: string): MountedChat {
     },
     close: () => {
       stopRail();
-      dropSentStandIn();
       draftBySessionId.set(sessionId, chatView.readDraft());
       draftAttachmentsBySessionId.set(sessionId, chatView.readAttachments());
       releaseTerminal();
@@ -519,11 +516,6 @@ export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): v
   if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
 }
 
-function resyncChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
-  outboxBySessionId.set(sessionId, entries);
-  if (mountedChat?.sessionId === sessionId) mountedChat.resyncOutbox();
-}
-
 export function applyChatTraceChanged(sessionId: string): void {
   if (mountedChat?.sessionId !== sessionId) return;
   mountedChat.feed.refresh();
@@ -534,7 +526,7 @@ export function applyChatSnapshot(rows: readonly { id: string; conversationAppro
   outboxBySessionId.clear();
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
-    resyncChatOutbox(row.id, row.chatOutbox ?? []);
+    noteChatOutbox(row.id, row.chatOutbox ?? []);
   }
   if (!mountedChat) return;
   applyChatSessionStatus(mountedChat.sessionId);
@@ -581,7 +573,7 @@ export const chatPage: SessionPage = {
     keptChatBySessionId.delete(sessionId);
     mountedChat = keptChat ?? buildChat(sessionId);
     host.append(mountedChat.root);
-    mountedChat.resyncOutbox();
+    mountedChat.showOutbox();
     mountedChat.resumeRail();
     applyChatSessionStatus(sessionId);
     mountedChat.feed.refresh();

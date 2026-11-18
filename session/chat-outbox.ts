@@ -5,6 +5,7 @@ import { unrefTimer } from "../shared/timer-deps.ts";
 import type { DeliverySettlement } from "./core/input-delivery-core.ts";
 
 const IN_FLIGHT_RECHECK_MS = 500;
+const SUBMITTED_UNRECORDED_MAX_MS = 15_000;
 const OUTBOX_FULL_TEXT = `${CHAT_OUTBOX_MAX_ENTRIES} messages are already waiting, so this one was not queued.`;
 
 const UNDELIVERED_TEXT_BY_SETTLEMENT: Record<Exclude<DeliverySettlement, "submitted">, string> = {
@@ -31,12 +32,14 @@ interface ChatOutbox {
   adopt(carriedEntries: readonly ChatOutboxEntry[]): void;
   cancel(entryId: string): ChatOutboxEntry[];
   drain(): void;
+  notePromptRecorded(): void;
   dispose(): void;
 }
 
 function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   let outboxEntries: ChatOutboxEntry[] = [];
   let recheckTimer: ReturnType<typeof setTimeout> | null = null;
+  let unrecordedTimer: ReturnType<typeof setTimeout> | null = null;
 
   function publish(nextEntries: ChatOutboxEntry[]): void {
     outboxEntries = nextEntries;
@@ -51,11 +54,29 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (settlement === "submitted") {
       const submittedEntry = outboxEntries.find((entry) => entry.entryId === entryId);
       if (submittedEntry) port.noteSubmitted(submittedEntry);
-      publish(outboxEntries.filter((entry) => entry.entryId !== entryId));
+      replaceEntry(entryId, { state: "submitted" });
+      armUnrecordedTimer();
       drain();
       return;
     }
     replaceEntry(entryId, { state: "failed", failure: UNDELIVERED_TEXT_BY_SETTLEMENT[settlement] });
+  }
+
+  function stopUnrecordedTimer(): void {
+    if (unrecordedTimer) clearTimeout(unrecordedTimer);
+    unrecordedTimer = null;
+  }
+
+  function armUnrecordedTimer(): void {
+    stopUnrecordedTimer();
+    unrecordedTimer = unrefTimer(setTimeout(notePromptRecorded, SUBMITTED_UNRECORDED_MAX_MS));
+  }
+
+  function notePromptRecorded(): void {
+    stopUnrecordedTimer();
+    if (!outboxEntries.some((entry) => entry.state === "submitted")) return;
+    publish(outboxEntries.filter((entry) => entry.state !== "submitted"));
+    drain();
   }
 
   function recheckSoon(): void {
@@ -67,8 +88,8 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   }
 
   function drain(): void {
-    if (outboxEntries.some((entry) => entry.state !== "held")) return;
-    const nextEntry = outboxEntries[0];
+    if (outboxEntries.some((entry) => entry.state === "sending" || entry.state === "failed")) return;
+    const nextEntry = outboxEntries.find((entry) => entry.state === "held");
     if (!nextEntry || !port.canTakeMessage()) return;
     if (port.isDeliveryInFlight()) {
       recheckSoon();
@@ -90,7 +111,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   function cancel(entryId: string): ChatOutboxEntry[] {
     const cancelIndex = outboxEntries.findIndex((entry) => entry.entryId === entryId);
     const cancelledEntry = outboxEntries[cancelIndex];
-    if (!cancelledEntry || cancelledEntry.state === "sending") return [];
+    if (!cancelledEntry || cancelledEntry.state === "sending" || cancelledEntry.state === "submitted") return [];
     const cancelledEntries = cancelledEntry.state === "failed" ? outboxEntries.slice(cancelIndex) : [cancelledEntry];
     publish(outboxEntries.filter((entry) => !cancelledEntries.includes(entry)));
     drain();
@@ -99,16 +120,18 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
 
   function adopt(carriedEntries: readonly ChatOutboxEntry[]): void {
     if (carriedEntries.length === 0) return;
-    publish(carriedEntries.map((entry) => (entry.state === "sending" ? { ...entry, state: "failed", failure: RESTARTED_TEXT } : entry)));
+    const unsentEntries = carriedEntries.filter((entry) => entry.state !== "submitted");
+    publish(unsentEntries.map((entry) => (entry.state === "sending" ? { ...entry, state: "failed", failure: RESTARTED_TEXT } : entry)));
     drain();
   }
 
   function dispose(): void {
     if (recheckTimer) clearTimeout(recheckTimer);
     recheckTimer = null;
+    stopUnrecordedTimer();
   }
 
-  return { entries: () => outboxEntries, queue, adopt, cancel, drain, dispose };
+  return { entries: () => outboxEntries, queue, adopt, cancel, drain, notePromptRecorded, dispose };
 }
 
 export { createChatOutbox };

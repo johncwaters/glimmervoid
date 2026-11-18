@@ -5,6 +5,12 @@ import type { FileHandle } from 'node:fs/promises';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS, TraceRecord as TraceRecordSchema } from '../../shared/contracts/trace.ts';
 import { maskSecretStrings } from '../../shared/secret-patterns.ts';
+import { opensOperatorTurn } from '../../shared/trace-turn.ts';
+
+export interface TraceAppended {
+  id: string;
+  opensOperatorTurn: boolean;
+}
 import { containmentRefusalReason } from '../core/trace-tail-core.ts';
 import { readSessionTracePage } from '../session/core/session-trace-core.ts';
 import { isSafePathSegment } from '../core/upload-core.ts';
@@ -137,7 +143,8 @@ function createTraceRecordStore(context: TraceWiringContext) {
     try {
       await appendJsonLines(filePath, records, { mkdir: !hasEnsuredDirectory, mode: 0o600 });
       hasEnsuredDirectory = true;
-      emitter.emit('trace-appended', { id: glimmervoidSessionId });
+      const appended: TraceAppended = { id: glimmervoidSessionId, opensOperatorTurn: records.some(opensOperatorTurn) };
+      emitter.emit('trace-appended', appended);
       return true;
     } catch (error) {
       laneLog.warn('append failed', { session: glimmervoidSessionId, error: errorMessage(error) });

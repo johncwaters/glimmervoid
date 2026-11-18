@@ -2297,6 +2297,7 @@ class Session extends EventEmitter {
   queueChatMessage(text: string, attachments: readonly string[] = []) { return this._chatOutbox.queue(text, attachments); }
 
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
+  noteChatPromptRecorded() { this._chatOutbox.notePromptRecorded(); }
 
   get chatOutboxEntries() { return this._chatOutbox.entries(); }
 

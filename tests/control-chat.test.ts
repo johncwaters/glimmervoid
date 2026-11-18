@@ -86,6 +86,8 @@ test('Chat reads a held question from the session status and answers it and send
     assert.deepEqual(sentAttachments, [[ATTACHED_FILE]]);
     assert.doesNotMatch(writes.join(''), /Second thought/);
     assert.equal(writes.at(-1), '\r');
+    assert.deepEqual(outboxOf(), ['Mid-turn thought:submitted']);
+    session.noteChatPromptRecorded();
     assert.deepEqual(outboxOf(), []);
     session.transition('new_output');
     session.transition('task_complete');

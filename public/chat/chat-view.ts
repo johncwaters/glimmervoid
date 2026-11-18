@@ -28,6 +28,7 @@ interface ChatView {
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
   held: 'Queued until the turn ends',
   sending: 'Sending',
+  submitted: 'Sent',
 };
 
 const DOCK_CLEARANCE_PX = 4;

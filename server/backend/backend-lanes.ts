@@ -405,6 +405,9 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const traceChangeBroadcast = traceWiring
     ? createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl })
     : null;
+  traceWiring?.on('trace-appended', ({ id, opensOperatorTurn }) => {
+    if (opensOperatorTurn) sessions.get(id)?.noteChatPromptRecorded();
+  });
   const taskTitleSessions = new Map<string, Session>();
   const taskTitleRefiner = createTaskTitleRefiner({
     getConfig: () => configStore.config,

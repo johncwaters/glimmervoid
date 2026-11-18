@@ -27,6 +27,7 @@ interface ChatFeedOptions {
 
 export interface ChatFeed {
   refresh(): void;
+  whenCaughtUp(callback: () => void): void;
   endTurn(): void;
   close(): void;
 }
@@ -48,6 +49,19 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   let nextOffset = 0;
   let pendingRequest: TraceRequest | null = null;
   let isRefreshNeeded = false;
+  let callbacksAwaitingRequest: (() => void)[] = [];
+  let callbacksOfPendingRequest: (() => void)[] = [];
+
+  const deferCallbacksOfPendingRequest = () => {
+    callbacksAwaitingRequest = [...callbacksOfPendingRequest, ...callbacksAwaitingRequest];
+    callbacksOfPendingRequest = [];
+  };
+
+  const runCallbacksOfPendingRequest = () => {
+    const callbacks = callbacksOfPendingRequest;
+    callbacksOfPendingRequest = [];
+    for (const callback of callbacks) callback();
+  };
 
   const restart = () => {
     partsState = createChatPartsState();
@@ -71,6 +85,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     pendingRequest = null;
     if (reply.type !== 'session-trace-response') {
       options.onFailure(reply.type === 'error' ? reply.message : UNREADABLE_TRACE_TEXT);
+      deferCallbacksOfPendingRequest();
       return;
     }
     options.onFailure(null);
@@ -80,12 +95,14 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
       reply: { id: reply.id, start: reply.start, next: reply.next, reset: reply.reset },
     });
     if (outcome === 'reset') {
+      deferCallbacksOfPendingRequest();
       restart();
       refresh();
       return;
     }
     if (outcome === 'seed') phase = 'following';
     if (outcome === 'seed' || outcome === 'append') showRecords(reply, outcome === 'append');
+    runCallbacksOfPendingRequest();
     if (!isRefreshNeeded) return;
     isRefreshNeeded = false;
     refresh();
@@ -96,6 +113,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     pendingRequest = null;
     isRefreshNeeded = false;
     options.onFailure(failureTextOf(reason));
+    deferCallbacksOfPendingRequest();
   };
 
   function refresh(): void {
@@ -105,13 +123,22 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
       return;
     }
     const request = nextTraceRequest({ selectedSessionId: sessionId, isPanelVisible: true, hasPendingRequest: false, hasLoadedOnce: phase === 'following', nextOffset });
-    if (!request) return;
+    callbacksOfPendingRequest = callbacksAwaitingRequest;
+    callbacksAwaitingRequest = [];
+    if (!request) {
+      runCallbacksOfPendingRequest();
+      return;
+    }
     pendingRequest = request;
     options.requestPage(payloadOf(request)).then((reply) => applyReply(request, reply), applyFailure);
   }
 
   return {
     refresh,
+    whenCaughtUp: (callback) => {
+      if (phase === 'closed') return;
+      callbacksAwaitingRequest.push(callback);
+    },
     endTurn: () => {
       if (phase === 'closed') return;
       options.onTurnMarks(endChatTurn(partsState));

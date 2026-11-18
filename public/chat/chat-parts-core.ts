@@ -4,6 +4,7 @@ import { type ActivityBeat, beatOfRecord, loadedSkillOf } from './chat-activity-
 import type { ChatPart } from './chat-part.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
+import { opensOperatorTurn } from '#shared/trace-turn.ts';
 
 interface ChatTurn {
   promptAt: number | null;
@@ -60,7 +61,7 @@ export function endChatTurn(state: ChatPartsState): TurnMarks {
 
 function noteTurnRecord(state: ChatPartsState, record: TraceRecord, part: ChatPart | null, marks: TurnMarks): void {
   if (record.agentId !== undefined) return;
-  if (record.kind === 'prompt' || (record.kind === 'expansion' && record.toolUseId === undefined)) {
+  if (opensOperatorTurn(record)) {
     marks.workedFor.push(...endChatTurn(state).workedFor);
     state.turn = freshTurn(record.ts);
     return;

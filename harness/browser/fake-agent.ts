@@ -212,6 +212,7 @@ function dispatch(command: string): void {
     return;
   }
   if (command === 'ask-chat') {
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
     const permissionRequest = { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'touch chat-approved.txt' } };
     postHook('permissionrequest', permissionRequest);
     postHook('permissionrequest-conversation', permissionRequest);

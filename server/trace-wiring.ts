@@ -12,7 +12,7 @@ import { createSerialQueue } from './spawn-gate.ts';
 import { CHECKPOINT_SUFFIX, TRACE_SUFFIX } from './trace/trace-wiring-context.ts';
 import type { TraceBinding, TraceWiringContext } from './trace/trace-wiring-context.ts';
 import { createTraceRecordStore } from './trace/trace-record-store.ts';
-import type { TracePage, TracePageRequest } from './trace/trace-record-store.ts';
+import type { TraceAppended, TracePage, TracePageRequest } from './trace/trace-record-store.ts';
 import { createTraceCheckpoints } from './trace/trace-checkpoints.ts';
 import { createTraceTranscriptDrain } from './trace/trace-transcript-drain.ts';
 import { createTraceSubagentCapture } from './trace/trace-subagent-capture.ts';
@@ -163,7 +163,7 @@ function createTraceWiring({
 
   return {
     attachSession,
-    on: emitter.on.bind(emitter),
+    on: (event: 'trace-appended', listener: (payload: TraceAppended) => void) => emitter.on(event, listener),
     readTracePage,
     start,
     stop,

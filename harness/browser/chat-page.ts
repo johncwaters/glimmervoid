@@ -167,6 +167,7 @@ async function verifySentPromptNeverBlinks(page: Page): Promise<void> {
   const shownFrom = counts.findIndex((count) => count > 0);
   assert.ok(shownFrom >= 0, 'the sent message shows');
   assert.deepEqual([...new Set(counts.slice(shownFrom))], [1], 'the sent message shows once in every frame from send until the conversation has it');
+  await page.waitForFunction(() => document.querySelector('.session-chat [data-part-id^="sent-"]') === null, undefined, { timeout: CARD_TIMEOUT_MS });
 }
 
 export async function verifyChatApprovals(page: Page): Promise<void> {

@@ -1,10 +1,11 @@
 import type { ControlBroadcast } from './backend/backend-websockets.ts';
 import { unrefTimer } from '../shared/timer-deps.ts';
+import type { TraceAppended } from './trace/trace-record-store.ts';
 
 const TRACE_CHANGE_COALESCE_MS = 250;
 
 interface TraceAppendSource {
-  on(event: 'trace-appended', listener: (payload: { id: string }) => void): unknown;
+  on(event: 'trace-appended', listener: (payload: TraceAppended) => void): unknown;
 }
 
 interface TraceChangeBroadcastOptions {
