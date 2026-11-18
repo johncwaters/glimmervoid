@@ -149,15 +149,37 @@ async function verifySendFollowsLatest(page: Page): Promise<void> {
   }, undefined, { timeout: CARD_TIMEOUT_MS });
 }
 
+async function startCountingSentPrompts(page: Page, sentText: string): Promise<void> {
+  await page.evaluate((text) => {
+    const counts: number[] = [];
+    Object.assign(window, { sentPromptCounts: counts });
+    const countFrame = () => {
+      const prompts = document.querySelectorAll('.session-chat .chat-scroll-content .chat-prompt');
+      counts.push([...prompts].filter((prompt) => prompt.textContent === text).length);
+      if (counts.length < 600) requestAnimationFrame(countFrame);
+    };
+    requestAnimationFrame(countFrame);
+  }, sentText);
+}
+
+async function verifySentPromptNeverBlinks(page: Page): Promise<void> {
+  const counts = await page.evaluate(() => Reflect.get(window, 'sentPromptCounts') as number[]);
+  const shownFrom = counts.findIndex((count) => count > 0);
+  assert.ok(shownFrom >= 0, 'the sent message shows');
+  assert.deepEqual([...new Set(counts.slice(shownFrom))], [1], 'the sent message shows once in every frame from send until the conversation has it');
+}
+
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
   await verifyChatModelSwitch(page);
   await verifyComposerKeepsFollowing(page);
+  await startCountingSentPrompts(page, 'ask-chat');
   await sendFromComposer(page, 'ask-chat');
   await verifySendFollowsLatest(page);
   const openCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="false"]');
   await openCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await openCard.innerText(), /Bash/, 'the permission card names the tool');
+  await verifySentPromptNeverBlinks(page);
   await openCard.getByRole('button', { name: 'Allow', exact: true }).click();
   const answeredCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]');
   await answeredCard.waitFor({ timeout: CARD_TIMEOUT_MS });

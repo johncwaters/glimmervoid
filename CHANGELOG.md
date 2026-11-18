@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A message sent from Chat no longer blinks.** It used to vanish for a moment between leaving the queue and showing up in the conversation; it now stays in place the whole way.
 - **Chat keeps your place when you look at another session.** If you scrolled up to read and then switched to another session or page, coming back put Chat at the bottom again. It now opens where you left it, with the button back to the newest output still showing, and catches up on anything that arrived while you were away.
 - **Chat keeps following while you read, and its button back to the newest output stands out.** A small or stray scroll, such as a wheel over a long prompt bubble or a nudge of a few pixels, used to stop Chat following the agent and leave that button showing even at the very bottom. Chat now keeps following until you scroll clearly away from the bottom, and the button is a round raised down arrow above the composer that no longer blends into the text under it.
 - **Chat no longer looks busy while a session is still starting.** Opening Chat on a session that was still booting showed the working activity line and an enabled Stop button, as if the agent were already in a turn. Chat now shows a running turn only once the agent is actually working or waiting on you, and a message sent during startup still waits until the agent is ready.
