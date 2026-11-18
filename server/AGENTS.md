@@ -67,7 +67,8 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - Every held hook fails OPEN and its reply is written AT MOST ONCE, never after the socket closed: a fired hook timeout destroys the socket in silence, so a late write is a no-op.
 - A child's AskUserQuestion, held for its parent, has its own URLs (`permissionrequest-conversation`, released by a matching `posttooluse-conversation`) (`session/core/claude-approval-core.ts`).
-- ExitPlanMode is held only while `planGate.enabled` is on, on its own URL (`permissionrequest-plangate`), so a dashboard Approve or Reject answers it; off, it answers in the agent's own terminal (`session/core/plan-gate-core.ts`). No other tool is held.
+- ExitPlanMode is held only while `planGate.enabled` is on, on its own URL (`permissionrequest-plangate`), so a dashboard Approve or Reject answers it; off, it answers in the agent's own terminal (`session/core/plan-gate-core.ts`).
+- With Chat approvals at `questions-and-permissions`, any other tool's permission prompt is held on `permissionrequest-conversation` for a dashboard Allow or Deny, except ExitPlanMode and read-only shell commands (`session/session-approval-holds.ts`).
 
 ### Security: Trust Boundary
 
