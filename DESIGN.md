@@ -136,7 +136,7 @@ Every action button is `button()` from `public/ui/button.ts`, and a link drawn a
 ### Switch
 A boolean setting that takes effect at once is `switchInput()` from `public/ui/switch.ts` (look in `public/ui/switch.css`): a checkbox with `role="switch"`.
 - **Options:** `checked`, `onChange(checked)`, an accessible name as `label` or `labelledBy` (one of the two), and `disabled`. It returns the input, so a caller that must undo a change (a danger confirm) sets `checked` back.
-- **Look:** a pill track in Rule on Inset Graphite with an Ash knob; on, the track takes a lavender border and 28% lavender fill and the knob slides right in lavender. Focus is the 2px lavender outline, disabled drops to 40% opacity, and reduced motion stops the slide. On phone it grows to a 56px by 44px target.
+- **Look:** a pill track in Rule on Inset Graphite with an Ash knob; on, the track takes a lavender border and 28% lavender fill and the knob slides right in lavender. Focus is the 2px lavender outline, disabled drops to 40% opacity, and reduced motion stops the slide. The 36px by 20px track sits centered in a `--control-height` box (28px), so a switch row stands level with a button beside it. On phone it grows to a 56px by 44px target (the phone `--control-height`) with a 30px track.
 - **Layout belongs to the parent:** it takes no class; alignment and spacing come from the row.
 
 ### Cards / Containers

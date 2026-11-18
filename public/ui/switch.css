@@ -1,11 +1,12 @@
 .ui-switch {
-  --switch-track-inset: 0px;
+  --switch-track-height: 20px;
+  --switch-track-inset: calc((var(--control-height) - var(--switch-track-height)) / 2);
   --switch-knob-size: 14px;
   --switch-travel: 16px;
   position: relative;
   flex-shrink: 0;
   width: 36px;
-  height: 20px;
+  height: var(--control-height);
   margin: 0;
   border: none;
   background: transparent;
@@ -58,12 +59,11 @@
 }
 
 html[data-layout="phone"] .ui-switch {
-  --switch-track-inset: 7px;
+  --switch-track-height: 30px;
   --switch-knob-size: 24px;
   --switch-travel: 26px;
   width: 56px;
   min-width: 56px;
-  height: 44px;
 }
 
 @media (prefers-reduced-motion: reduce) {
