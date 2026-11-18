@@ -620,6 +620,32 @@ test('a transcript bound before file creation starts tracing when the file appea
   fs.rmSync(configDirectory, { recursive: true, force: true });
 });
 
+test('a session replaced under the same id keeps tracing its transcript', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('replaced');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, mainPrompt('before replace', 'prompt-one'), 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const replacedSession = new TestTraceSession('glimmervoid-session-id');
+  harness.wiring.attachSession(replacedSession);
+  replacedSession.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.poll();
+
+  replacedSession.emit('teardown', { id: replacedSession.id, cause: 'replaced' });
+  const replacementSession = new TestTraceSession('glimmervoid-session-id');
+  harness.wiring.attachSession(replacementSession);
+  replacementSession.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  fs.appendFileSync(transcriptPath, mainPrompt('after replace', 'prompt-two'), 'utf8');
+  await harness.poll();
+
+  const prompts = readTrace(harness.tracePath('glimmervoid-session-id')).flatMap((record) => record.kind === 'prompt' ? [record.text] : []);
+  assert.deepEqual(prompts, ['before replace', 'after replace']);
+
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
 test('a nonexistent transcript outside the Claude projects root is refused', async () => {
   const configDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-missing-outside-'));
   const strayDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-missing-stray-'));

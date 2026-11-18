@@ -195,7 +195,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   async function drainClosingBinding(glimmervoidSessionId: string): Promise<void> {
     const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
     if (!binding) return;
-    binding.isClosing = true;
+    binding.isClosing = closedSessionIds.has(glimmervoidSessionId);
     await drainBinding(binding);
   }
 
@@ -208,11 +208,15 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       try {
         await drainClosingBinding(glimmervoidSessionId);
       } finally {
-        deliveredSecretValuesBySessionId.delete(glimmervoidSessionId);
-        agentIdBySessionId.delete(glimmervoidSessionId);
-        launchEnvByGlimmervoidSessionId.delete(glimmervoidSessionId);
+        if (closedSessionIds.has(glimmervoidSessionId)) forgetSessionInputs(glimmervoidSessionId);
       }
     }, 'final drain failed');
+  }
+
+  function forgetSessionInputs(glimmervoidSessionId: string): void {
+    deliveredSecretValuesBySessionId.delete(glimmervoidSessionId);
+    agentIdBySessionId.delete(glimmervoidSessionId);
+    launchEnvByGlimmervoidSessionId.delete(glimmervoidSessionId);
   }
 
   function appendConversationRecords(glimmervoidSessionId: string, records: unknown): void {
@@ -249,6 +253,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   function attachSession(session: TraceSession): void {
     if (attachedSessions.has(session)) return;
     attachedSessions.add(session);
+    closedSessionIds.delete(session.id);
     deliveredSecretValuesBySessionId.set(session.id, () => session.deliveredSecretValues?.() ?? []);
     agentIdBySessionId.set(session.id, session.agentId);
     launchEnvByGlimmervoidSessionId.set(session.id, () => session.launchEnv());

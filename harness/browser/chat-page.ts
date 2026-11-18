@@ -16,15 +16,32 @@ async function sendFromComposer(page: Page, text: string): Promise<void> {
   await input.press('Enter');
 }
 
+const CATALOG_POLL_MS = 250;
+
+async function waitUntilPageReports(page: Page, isReady: () => Promise<boolean>, awaitedState: string): Promise<void> {
+  const deadline = Date.now() + CARD_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await page.evaluate(isReady)) return;
+    await page.waitForTimeout(CATALOG_POLL_MS);
+  }
+  throw new Error(`timed out waiting for ${awaitedState}`);
+}
+
 async function waitForModelCatalog(page: Page): Promise<void> {
-  await page.waitForFunction(async () => {
+  await waitUntilPageReports(page, async () => {
     const controlWsUrl = '/control-ws.ts';
     const { sendControlRequest } = await import(controlWsUrl);
     const reply = await sendControlRequest('get-settings', {});
     const agents: unknown = reply?.settings?.agentModels?.agents;
     return Array.isArray(agents) && agents.some((entry) => entry?.agent === 'claude-code' && Array.isArray(entry.models) && entry.models.length > 1);
-  }, undefined, { timeout: CARD_TIMEOUT_MS, polling: 500 });
+  }, 'the server model catalog');
   await page.reload();
+  await waitUntilPageReports(page, async () => {
+    const settingsStoreUrl = '/settings/settings-store.ts';
+    const { settingsPayloadSnapshot } = await import(settingsStoreUrl);
+    const agents: unknown = settingsPayloadSnapshot()?.agentModels?.agents;
+    return Array.isArray(agents) && agents.some((entry) => entry?.agent === 'claude-code' && Array.isArray(entry.models) && entry.models.length > 1);
+  }, 'the dashboard model catalog');
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
 }
 
@@ -123,15 +140,27 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   const answeredCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]');
   await answeredCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await answeredCard.innerText(), /Allowed/, 'the answered card reads Allowed');
-  await sendFromComposer(page, 'work');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await sendFromComposer(page, 'work-glimmervoid');
   const stopButton = page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true });
   await page.waitForFunction(() => {
     const stop = [...document.querySelectorAll<HTMLButtonElement>('.session-chat .chat-composer button')].find((button) => button.textContent === 'Stop');
     return stop !== undefined && !stop.disabled;
   }, undefined, { timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-chat .chat-activity .chat-activity-mark').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await verifyGlimmervoidCallSpinsMark(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await stopButton.click();
   await verifyComposerAttachesImage(page);
+}
+
+async function verifyGlimmervoidCallSpinsMark(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const mark = document.querySelector('.session-chat .chat-activity .chat-activity-mark');
+    if (mark === null) return false;
+    const rotationSine = Number(getComputedStyle(mark).transform.match(/^matrix\(([^,]+), ([^,]+)/)?.[2] ?? 0);
+    return Math.abs(rotationSine) > 0.01;
+  }, undefined, { timeout: CARD_TIMEOUT_MS, polling: 'raf' });
 }
 
 const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');

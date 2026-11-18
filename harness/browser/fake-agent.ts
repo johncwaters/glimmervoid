@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
 const ESC = String.fromCharCode(0x1b);
@@ -103,6 +105,19 @@ function postHook(event: string, payload: Record<string, unknown>): void {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ session_id: SESSION_ID, cwd: process.cwd(), ...payload }),
   }).catch(() => {});
+}
+
+const transcriptPath = process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'fake-agent', `${SESSION_ID}.jsonl`) : null;
+
+function appendTranscriptLine(entry: Record<string, unknown>): void {
+  if (!transcriptPath) return;
+  fs.appendFileSync(transcriptPath, `${JSON.stringify({ uuid: randomUUID(), parentUuid: null, isSidechain: false, sessionId: SESSION_ID, timestamp: new Date().toISOString(), ...entry })}\n`);
+}
+
+function callGlimmervoidTool(): void {
+  const toolUseId = `toolu_${randomUUID().replaceAll('-', '')}`;
+  appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'mcp__glimmervoid__whiteboard', input: { action: 'list' } }] } });
+  appendTranscriptLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok' }] } });
 }
 
 function setTitle(glyph: string, label: string): void {
@@ -212,6 +227,11 @@ function dispatch(command: string): void {
     setTitle(IDLE_GLYPH, 'idle');
     return;
   }
+  if (command === 'work-glimmervoid') {
+    dispatch('work');
+    setTimeout(callGlimmervoidTool, 500);
+    return;
+  }
   if (command === 'exit') process.exit(0);
 }
 
@@ -240,7 +260,8 @@ function onInput(chunk: string): void {
   }
 }
 
-postHook('sessionstart', { hook_event_name: 'SessionStart', source: 'startup' });
+if (transcriptPath) fs.mkdirSync(path.dirname(transcriptPath), { recursive: true });
+postHook('sessionstart', { hook_event_name: 'SessionStart', source: 'startup', ...(transcriptPath ? { transcript_path: transcriptPath } : {}) });
 setTitle(WORKING_GLYPH, 'working');
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 process.stdin.setEncoding('utf8');

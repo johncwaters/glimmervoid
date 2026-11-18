@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **A renamed or deleted repository no longer cuts a Cloud tenant off from GitHub.** When a tenant's saved repository list still named a repository the GitHub App installation no longer reaches, GitHub refused every installation token for it and the tenant's watcher and sessions went without GitHub access until the list refreshed. The doorman now asks GitHub which repositories the installation reaches, mints the token for the rest, and logs the names it dropped.
+- **Chat keeps up after you change a session's model or settings.** Changing either restarts the session, and from then on its conversation stopped reaching Chat and the session trace until Glimmervoid itself restarted, so the Chat page sat frozen while the agent worked. The restarted session now picks its conversation back up.
 - **1Password secrets reach agents on Linux.** Every secret read and Test connection failed on Linux with a config read error, because the vault reader could not reopen its input there. Reads now pass the vault settings through a private file Glimmervoid deletes as soon as the read ends.
 
 ## [0.62.5] - 2026-11-17
