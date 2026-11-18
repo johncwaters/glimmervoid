@@ -22,6 +22,7 @@ import type { BoardClipboard } from './board-clipboard-core.ts';
 import { rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
 import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
 import { alignedRectsOf, distributedRectsOf } from './board-context-menu.ts';
+import { firstPresentedBoxId, presentedBoxIdAfter } from './media-walk-core.ts';
 import type { AlignEdge, ArrangedRect, DistributeAxis } from './board-context-menu.ts';
 
 const DRAG_THRESHOLD_PX = 4;
@@ -98,6 +99,7 @@ interface BoardEditorOptions {
   onToolLockChange: (isToolLocked: boolean) => void;
   onClipboardNotice: (notice: ClipboardNotice) => void;
   onContextMenu: (clientX: number, clientY: number, target: ContextMenuTarget) => void;
+  onPresentChange: (isPresenting: boolean) => void;
 }
 
 export interface PressedImage {
@@ -289,6 +291,9 @@ const STACK_ORDER_BY_KEY_CODE: Readonly<Record<string, { plain: StackOrder; with
   BracketLeft: { plain: 'backward', withShift: 'back' },
 };
 const WHOLE_BOARD_ZOOM_OUT_MARGIN = 1.25;
+const PRESENT_MAX_ZOOM = 8;
+const PRESENT_MARGIN_RATIO = 0.06;
+const PRESENT_STEP_BY_KEY: Readonly<Record<string, 1 | -1>> = { ArrowRight: 1, ArrowDown: 1, ' ': 1, PageDown: 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 };
 
 function unitsPerPixelShowing(area: { width: number; height: number }, canvasWidth: number, canvasHeight: number): number {
   return Math.max(area.width / canvasWidth, area.height / Math.max(1, canvasHeight));
@@ -313,6 +318,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let nudgeRun: NudgeRun | null = null;
   let pendingTitleEditId: string | null = null;
   let isFitOwedOnceSized = false;
+  let presentedBoxId: string | null = null;
 
   function setTool(tool: BoardTool): void {
     activeTool = tool;
@@ -1948,8 +1954,68 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (isHeld) viewport.style.cursor = '';
   }
 
+  function slideBoundsOf(boxId: string): Rect | null {
+    const element = options.currentBoard()?.elements.get(boxId);
+    if (element?.kind !== 'box' || element.shape === 'note') return null;
+    return renderer.boundsOf(boxId);
+  }
+
+  function wiresOfBoard(): Wire[] {
+    const board = options.currentBoard();
+    if (!board) return [];
+    return [...board.elements.values()].filter((element) => element.kind === 'wire');
+  }
+
+  function showPresentedBox(): void {
+    const bounds = presentedBoxId ? slideBoundsOf(presentedBoxId) : null;
+    if (!bounds) return;
+    const marginUnits = Math.max(bounds.width, bounds.height) * PRESENT_MARGIN_RATIO;
+    fitArea({ x: bounds.x - marginUnits, y: bounds.y - marginUnits, width: bounds.width + marginUnits * 2, height: bounds.height + marginUnits * 2 }, PRESENT_MAX_ZOOM);
+  }
+
+  function startPresenting(): boolean {
+    const [onlySelectedId, ...otherSelectedIds] = selectedIds;
+    const selectedStartId = onlySelectedId && otherSelectedIds.length === 0 && slideBoundsOf(onlySelectedId) ? onlySelectedId : null;
+    const startBoxId = selectedStartId ?? firstPresentedBoxId(wiresOfBoard(), slideBoundsOf);
+    if (!startBoxId) return false;
+    closeInlineEditor();
+    setSelection(new Set());
+    presentedBoxId = startBoxId;
+    options.onPresentChange(true);
+    viewport.focus();
+    showPresentedBox();
+    return true;
+  }
+
+  function stepPresenting(step: 1 | -1): void {
+    if (!presentedBoxId) return;
+    const nextBoxId = presentedBoxIdAfter(presentedBoxId, step, wiresOfBoard(), slideBoundsOf);
+    if (!nextBoxId) return;
+    presentedBoxId = nextBoxId;
+    showPresentedBox();
+  }
+
+  function endPresenting(): void {
+    if (!presentedBoxId) return;
+    presentedBoxId = null;
+    options.onPresentChange(false);
+  }
+
+  function presentKeyAction(event: KeyboardEvent): (() => void) | null {
+    if (event.key === 'Escape') return endPresenting;
+    const step = PRESENT_STEP_BY_KEY[event.key];
+    return step ? () => stepPresenting(step) : null;
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
     if (event.target !== viewport || event.altKey) return;
+    if (presentedBoxId) {
+      const presentAction = presentKeyAction(event);
+      if (!presentAction) return;
+      event.preventDefault();
+      presentAction();
+      return;
+    }
     const action = event.metaKey || event.ctrlKey ? commandKeyAction(event) : plainKeyAction(event);
     if (!action) return;
     event.preventDefault();
@@ -1984,11 +2050,14 @@ export function createBoardEditor(options: BoardEditorOptions) {
     viewport.dataset.hoverKind = '';
   });
   new ResizeObserver(() => {
+    if (presentedBoxId) return showPresentedBox();
     if (isFitOwedOnceSized && viewport.clientWidth > 0 && viewport.clientHeight > 0) fit();
   }).observe(viewport);
 
   return {
     fit,
+    startPresenting,
+    endPresenting,
     selectedIds: (): ReadonlySet<string> => selectedIds,
     clearSelection: () => setSelection(new Set()),
     pruneSelection,

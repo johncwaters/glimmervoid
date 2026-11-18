@@ -1066,3 +1066,6 @@
   color: var(--text-dim);
   font-size: var(--type-meta);
 }
+
+.wb-canvas[data-presenting='true'] > :is(.wb-top, .wb-bottom-left, .wb-empty-board) { display: none; }
+.wb-canvas[data-presenting='true'] { position: fixed; inset: 0; z-index: 150; border: 0; border-radius: 0; }

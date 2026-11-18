@@ -1517,6 +1517,51 @@ function drawnMediaUrlOf(element: BoardElement): string {
   return `${WHITEBOARD_ASSET_ROUTE}/${drawnFilename}`;
 }
 
+const PRESENTED_BOX_IDS = ['present-first', 'present-second', 'present-third'] as const;
+const PRESENT_NOTE_ID = 'present-note';
+
+async function presentedBoxIsCentred(open: OpenBoard, boxId: string): Promise<void> {
+  const viewportBox = await open.panel.locator('.wb-viewport').boundingBox();
+  assert.ok(viewportBox, 'the presenting viewport has a box');
+  const viewportCentre = { x: viewportBox.x + viewportBox.width / 2, y: viewportBox.y + viewportBox.height / 2 };
+  await pollFor(`Present fits the camera on ${boxId}`, BOARD_TIMEOUT_MS, async () => {
+    const boxCentre = centerOf(await screenRectOf(open, boxId));
+    return Math.abs(boxCentre.x - viewportCentre.x) < 4 && Math.abs(boxCentre.y - viewportCentre.y) < 4 ? true : null;
+  });
+}
+
+async function verifyPresentWiredCards(open: OpenBoard): Promise<void> {
+  const { page, panel, boardId } = open;
+  const [firstId, secondId, thirdId] = PRESENTED_BOX_IDS;
+  const wireIds = ['present-wire-one', 'present-wire-two', 'present-note-wire'];
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [
+    { op: 'add', element: { kind: 'box', id: firstId, title: 'First slide', place: { at: { x: 40, y: -6000 } } } },
+    { op: 'add', element: { kind: 'box', id: secondId, title: 'Second slide', place: { at: { x: 900, y: -6000 } } } },
+    { op: 'add', element: { kind: 'box', id: thirdId, title: 'Third slide', place: { at: { x: 40, y: -5400 } } } },
+    { op: 'add', element: { kind: 'wire', id: wireIds[0], from: firstId, to: secondId } },
+    { op: 'add', element: { kind: 'wire', id: wireIds[1], from: secondId, to: thirdId } },
+    { op: 'add', element: { kind: 'box', id: PRESENT_NOTE_ID, title: 'Note on the second slide', shape: 'note', place: { at: { x: 1300, y: -6000 } } } },
+    { op: 'add', element: { kind: 'wire', id: wireIds[2], from: PRESENT_NOTE_ID, to: secondId, dashed: true } },
+  ] });
+  await elementWhere(open, 'the slideshow boxes reach the board', (element) => element.id === thirdId);
+  await deselectAll(open);
+  const canvas = panel.locator('.wb-canvas');
+  await panel.getByRole('button', { name: 'Present', exact: true }).click();
+  await canvas.and(page.locator('[data-presenting="true"]')).waitFor();
+  assert.equal(await panel.locator('.wb-top').isVisible(), false, 'Present hides the board toolbars');
+  await presentedBoxIsCentred(open, firstId);
+  const steps: [string, string][] = [['ArrowRight', secondId], ['Space', thirdId], ['ArrowRight', thirdId], ['ArrowLeft', secondId], ['PageUp', firstId], ['ArrowDown', secondId]];
+  for (const [key, expectedBoxId] of steps) {
+    await page.keyboard.press(key);
+    await presentedBoxIsCentred(open, expectedBoxId);
+  }
+  await page.keyboard.press('Escape');
+  await canvas.and(page.locator('[data-presenting="false"]')).waitFor();
+  await panel.locator('.wb-top').waitFor();
+  await controlReplyOf(page, 'whiteboard-op', { boardId, ops: [...wireIds, ...PRESENTED_BOX_IDS, PRESENT_NOTE_ID].map((id) => ({ op: 'remove', id })) });
+  await boardWithout(open, 'the Present check cleans up', (element) => PRESENTED_BOX_IDS.some((boxId) => boxId === element.id));
+}
+
 async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
   const { page, panel } = open;
   await panel.locator('.wb-canvas').evaluate(async (canvas) => {
@@ -2587,6 +2632,7 @@ export async function verifyBoardPane(page: Page, sessionId: string, projectDire
   await verifyLinkedBoardSheet(open, worktreePath);
   await verifyBoardWorkbook(open);
   await verifyBoardDeck(open);
+  await verifyPresentWiredCards(open);
   await verifyBoardSplitFollowsPicks(page, panel, sessionId, boardTitle);
   await verifyBoardRowsInRail(page, panel, sessionId);
 }

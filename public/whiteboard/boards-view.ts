@@ -68,6 +68,7 @@ const BOARD_DOC_UNREAD_TEXT = 'This document could not be read from the board.';
 const BOARD_DOC_NOT_MARKDOWN_TEXT = 'Not saved: this text starts like a picture or an HTML page, so the board would not keep it as a document.';
 const BOARD_MEDIA_FILE_TYPES = new Set(['video/mp4', 'video/webm', 'text/html']);
 const BOARD_MEDIA_FILE_NAME_RE = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?)$/i;
+const PRESENT_ICON_PATH = 'M2 3h12v8H2z M8 11v2.5 M5.5 13.5h5 M6.5 5.5v3l2.5-1.5z';
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const TOO_BIG_TO_UNDO_TEXT = 'Saved, but that change is too big to undo.';
 const CLIPBOARD_NOTICE_TEXT = {
@@ -750,6 +751,7 @@ function pickBoard(boardId: string): void {
 
 function selectBoard(boardId: string): void {
   if (selectedBoardId === boardId) return;
+  editor?.endPresenting();
   gatherClickOpenedStacksOfSelectedBoard();
   selectedBoardId = boardId;
   shouldFitOnNextRender = true;
@@ -1066,6 +1068,31 @@ function downloadOriginalOf(pressedImage: PressedImage, media: BoxMedia | null):
   download.href = boardMediaNamedPath(media, boxTitle);
   download.download = boardMediaSavedName(media, boxTitle);
   download.click();
+}
+
+const UNWIRED_PRESENT_TEXT = 'Wire boxes in order, from each slide to the next, to present them.';
+
+function presentBoard(): void {
+  if (!editor || editor.startPresenting()) return;
+  status.show('error', UNWIRED_PRESENT_TEXT);
+}
+
+let presentingListening: AbortController | null = null;
+
+function showPresenting(canvas: HTMLElement, isPresenting: boolean): void {
+  canvas.dataset.presenting = String(isPresenting);
+  presentingListening?.abort();
+  presentingListening = null;
+  if (!isPresenting) {
+    if (document.fullscreenElement === document.documentElement) void document.exitFullscreen();
+    return;
+  }
+  if (!document.fullscreenEnabled) return;
+  presentingListening = new AbortController();
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) editor?.endPresenting();
+  }, { signal: presentingListening.signal });
+  document.documentElement.requestFullscreen().catch(() => editor?.focusCanvas());
 }
 
 function openImageViewer(pressedImage: PressedImage): void {
@@ -1413,7 +1440,7 @@ function createBoardFromDialog(onCreated: (boardId: string) => void): void {
   });
 }
 
-function iconButton(label: string, shortcutKey: string, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
+function iconButton(label: string, shortcutKey: string | undefined, iconPath: string, action: string, onClick: () => void): HTMLButtonElement {
   const iconOnlyButton = button({ variant: 'icon', label, icon: createLineIcon(iconPath, '1.5'), action, onClick });
   labelIconPressable(iconOnlyButton, label, shortcutKey);
   return iconOnlyButton;
@@ -1594,6 +1621,7 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.append(lockButton, ...toolButtons.values(), moreTools.menuRoot);
   const buttons = {
     fit: iconButton('Fit', 'Shift+1', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
+    present: iconButton('Present', undefined, PRESENT_ICON_PATH, 'present-board', presentBoard),
     undo: iconButton('Undo', commandChord('Z'), UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
     redo: iconButton('Redo', commandChord('Shift+Z'), REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
   };
@@ -1602,7 +1630,7 @@ export function mountBoardHost(): HTMLElement {
   const toolHint = el('p', 'wb-tool-hint');
   toolHint.setAttribute('aria-live', 'polite');
   toolHint.hidden = true;
-  const viewIsland = island('wb-island-view', 'View', buttons.fit, buttons.undo, buttons.redo);
+  const viewIsland = island('wb-island-view', 'View', buttons.fit, buttons.present, buttons.undo, buttons.redo);
 
   const canvas = el('div', 'wb-canvas');
   const viewport = el('div', 'wb-viewport');
@@ -1698,6 +1726,7 @@ export function mountBoardHost(): HTMLElement {
     onToolLockChange: paintToolLock,
     onClipboardNotice: (notice) => status.show(notice === 'cut' ? 'ok' : 'error', CLIPBOARD_NOTICE_TEXT[notice]),
     onContextMenu: openBoardContextMenu,
+    onPresentChange: (isPresenting) => showPresenting(canvas, isPresenting),
   });
   contextMenu = createBoardContextMenu(canvas, viewport);
 
