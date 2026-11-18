@@ -9,6 +9,13 @@ spacing:
   md: 12
   lg: 16
   xl: 24
+controls:
+  control-height: { px: 28, phonePx: 44 }
+  control-height-small: { px: 22, phonePx: 32 }
+  control-padding-inline: { px: 12, phonePx: 16 }
+  control-padding-inline-small: { px: 8, phonePx: 12 }
+  chip-height: { px: 20, phonePx: 20 }
+  chip-padding-inline: { px: 6, phonePx: 6 }
 shadows:
   shadow-sm: 0 2px 8px color-mix(in srgb, var(--shadow-tint) 55%, transparent)
   shadow-md: 0 4px 12px color-mix(in srgb, var(--shadow-tint) 55%, transparent)

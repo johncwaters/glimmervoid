@@ -1,6 +1,6 @@
 .ui-button {
-  --button-height: 28px;
-  --button-padding-inline: 12px;
+  --button-height: var(--control-height);
+  --button-padding-inline: var(--control-padding-inline);
   --button-glyph-size: 14px;
   position: relative;
   box-sizing: border-box;
@@ -28,8 +28,8 @@
 }
 
 .ui-button[data-size="small"] {
-  --button-height: 22px;
-  --button-padding-inline: 8px;
+  --button-height: var(--control-height-small);
+  --button-padding-inline: var(--control-padding-inline-small);
   --button-glyph-size: 12px;
 }
 
@@ -100,7 +100,7 @@
 }
 
 html:not([data-layout="phone"]) .ui-button[data-size="small"]:is([data-variant="icon"], [data-variant="outline-icon"]) {
-  --button-height: 28px;
+  --button-height: var(--control-height);
   --button-glyph-size: 14px;
 }
 
@@ -201,17 +201,10 @@ html:not([data-layout="phone"]) .ui-button[data-size="small"]:is([data-variant="
 }
 
 html[data-layout="phone"] .ui-button {
-  --button-height: 44px;
-  --button-padding-inline: 16px;
   font-size: var(--type-title);
 }
 
 html[data-layout="phone"] .ui-button-shortcut { display: none; }
-
-html[data-layout="phone"] .ui-button[data-size="small"] {
-  --button-height: 32px;
-  --button-padding-inline: 12px;
-}
 
 .ui-button::after {
   all: initial !important;

@@ -133,6 +133,12 @@
   --type-doc-h2:  22px;
   --type-doc-h3:  18px;
   --type-doc-body: 16px;
+  --control-height: 28px;
+  --control-height-small: 22px;
+  --control-padding-inline: 12px;
+  --control-padding-inline-small: 8px;
+  --chip-height: 20px;
+  --chip-padding-inline: 6px;
 
   --header-h:  52px;
   --content-max: none;
@@ -146,6 +152,10 @@ html[data-layout="phone"] {
   --type-body:    13px;
   --type-title:   15px;
   --type-display: 18px;
+  --control-height: 44px;
+  --control-height-small: 32px;
+  --control-padding-inline: 16px;
+  --control-padding-inline-small: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

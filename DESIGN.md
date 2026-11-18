@@ -113,6 +113,11 @@ Shadows exist for one job: lifting true overlays (dialogs, menus) off the plane.
 
 Every interactive element ships default, hover, focus-visible, active, and disabled states. Focus is always a visible 2px lavender outline with an offset; it is never removed without replacement.
 
+### Control sizes
+One size scale for every control, set in `public/style.css` and mirrored in `brand-bible/shape.yaml` `controls`: `--control-height` (28px, 44px on phone), `--control-height-small` (22px, 32px on phone), `--control-padding-inline` (12px, 16px on phone), `--control-padding-inline-small` (8px, 12px on phone), `--chip-height` (20px) and `--chip-padding-inline` (6px).
+- **The rule:** every control primitive in `public/ui/` draws its height and inline padding from these tokens, so a button, a field and a switch row in one line stand the same height. The one exception: a text field stays 44px tall with `--type-field` on phone at either size, because iOS zooms into any smaller focused field.
+- **Gate:** `tests/gates/ui-size-scale.test.ts` fails on a `public/ui/*.css` font size off the type tokens, on padding, margin or gap off the 0, 6, 8, 12, 16, 24 px scale, and on tokens that drift from the brand bible.
+
 ### Buttons
 Every action button is `button()` from `public/ui/button.ts`, and a link drawn as a button is `linkButton()` beside it (look in `public/ui/button.css`); `tests/gates/ui-primitives.test.ts` fails on a hand-rolled one.
 - **Look:** flat, nearly square (`--radius`), uppercase tracked mono like the card face tabs, so an action reads as an instrument control, not a web link.
