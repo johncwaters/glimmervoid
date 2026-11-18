@@ -42,6 +42,7 @@ interface MountedChat {
   restoreText(text: string): void;
   showFailure(failureText: string | null): void;
   syncWaitingCards(): void;
+  park(): void;
   close(): void;
 }
 
@@ -49,6 +50,7 @@ const approvalBySessionId = new Map<string, ConversationApproval | null>();
 const draftBySessionId = new Map<string, string>();
 const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
 let mountedChat: MountedChat | null = null;
+const keptChatBySessionId = new Map<string, MountedChat>();
 let wasChatEnabled = false;
 
 function isChatEnabled(): boolean {
@@ -109,17 +111,23 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
+function builtChatOf(sessionId: string): MountedChat | null {
+  if (mountedChat?.sessionId === sessionId) return mountedChat;
+  return keptChatBySessionId.get(sessionId) ?? null;
+}
+
 function restoreTextToSession(sessionId: string, text: string): void {
   if (text.length === 0) return;
-  if (mountedChat?.sessionId === sessionId) {
-    mountedChat.restoreText(text);
+  const builtChat = builtChatOf(sessionId);
+  if (builtChat) {
+    builtChat.restoreText(text);
     return;
   }
   draftBySessionId.set(sessionId, draftWithRestoredText(text, draftBySessionId.get(sessionId) ?? ''));
 }
 
 function showSessionFailure(sessionId: string, failureText: string): void {
-  if (mountedChat?.sessionId === sessionId) mountedChat.showFailure(failureText);
+  builtChatOf(sessionId)?.showFailure(failureText);
 }
 
 function cancelOutboxEntry(sessionId: string, entryId: string): void {
@@ -331,6 +339,10 @@ function buildChat(sessionId: string): MountedChat {
     restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),
     showFailure,
     syncWaitingCards,
+    park: () => {
+      draftBySessionId.set(sessionId, chatView.readDraft());
+      releaseTerminal();
+    },
     close: () => {
       draftBySessionId.set(sessionId, chatView.readDraft());
       releaseTerminal();
@@ -339,11 +351,30 @@ function buildChat(sessionId: string): MountedChat {
   };
 }
 
+function isReaderAwayFromLatest(chat: MountedChat): boolean {
+  return chat.root.querySelector<HTMLButtonElement>('.chat-jump-slot button')?.hidden === false;
+}
+
 function unmountChat(): void {
   if (!mountedChat) return;
-  mountedChat.close();
-  mountedChat.root.remove();
+  const shownChat = mountedChat;
   mountedChat = null;
+  const shouldKeepPlace = isReaderAwayFromLatest(shownChat);
+  shownChat.root.remove();
+  if (!shouldKeepPlace) {
+    shownChat.close();
+    return;
+  }
+  shownChat.park();
+  keptChatBySessionId.set(shownChat.sessionId, shownChat);
+}
+
+function dropKeptChatsOfGoneSessions(): void {
+  for (const [sessionId, keptChat] of keptChatBySessionId) {
+    if (sessionUIs.has(sessionId)) continue;
+    keptChat.close();
+    keptChatBySessionId.delete(sessionId);
+  }
 }
 
 export function noteChatApproval(sessionId: string, approval: ConversationApproval | null): void {
@@ -400,10 +431,14 @@ export const chatPage: SessionPage = {
   hasUnreadFor: () => false,
   mount(host, sessionId) {
     unmountChat();
+    dropKeptChatsOfGoneSessions();
     setSessionView('chat');
-    mountedChat = buildChat(sessionId);
+    const keptChat = keptChatBySessionId.get(sessionId);
+    keptChatBySessionId.delete(sessionId);
+    mountedChat = keptChat ?? buildChat(sessionId);
     host.append(mountedChat.root);
-    mountedChat.syncWaitingCards();
+    mountedChat.showOutbox();
+    applyChatSessionStatus(sessionId);
     mountedChat.feed.refresh();
   },
   unmount: unmountChat,
