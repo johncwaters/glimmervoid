@@ -211,12 +211,6 @@ function buildChat(sessionId: string): MountedChat {
       entryIdsAwaitingFeed.delete(entryId);
     }
   };
-  const keepStandInsLast = () => {
-    const standIns = [...standInByEntryId.values()];
-    if (standIns.length === 0) return;
-    chatView.remove(standIns.map((standIn) => standIn.id));
-    chatView.upsert(standIns);
-  };
   const showOutbox = () => {
     const entries = outboxBySessionId.get(sessionId) ?? [];
     const submittedEntries = entries.filter((entry) => entry.state === 'submitted');
@@ -264,6 +258,13 @@ function buildChat(sessionId: string): MountedChat {
   let terminalCardId: string | null = null;
   let terminalHome: HTMLElement | null = null;
   let strayChildWatcher: MutationObserver | null = null;
+
+  const keepPendingPartsLast = () => {
+    const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
+    const terminalCardIds = terminalCardId === null ? [] : [terminalCardId];
+    const standInIds = [...standInByEntryId.values()].map((standIn) => standIn.id);
+    chatView.keepLast([...openCardIds, ...terminalCardIds, ...standInIds]);
+  };
 
   const releaseTerminal = () => {
     if (terminalCardState !== 'borrowed') return;
@@ -416,7 +417,7 @@ function buildChat(sessionId: string): MountedChat {
     onPartsChanged: (changedParts, droppedPartIds) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
-      keepStandInsLast();
+      keepPendingPartsLast();
     },
     onTurnMarks: (marks) => chatView.markTurn(marks),
     onSubagents: (subagents) => {

@@ -15,6 +15,7 @@ interface ChatView {
   upsert(parts: readonly ChatPart[]): void;
   remove(partIds: readonly string[]): void;
   markTurn(marks: TurnMarks): void;
+  keepLast(partIds: readonly string[]): void;
   setTurnRunning(isTurnRunning: boolean): void;
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
@@ -83,5 +84,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     composer.setTurnRunning(isTurnRunning);
     activity.setRunning(isTurnRunning);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, markTurn: chatLog.markTurn, keepLast: chatLog.keepLast, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
 }

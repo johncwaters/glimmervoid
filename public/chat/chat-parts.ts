@@ -73,6 +73,7 @@ interface ChatLog {
   upsert(parts: readonly ChatPart[]): void;
   remove(partIds: readonly string[]): void;
   markTurn(marks: TurnMarks): void;
+  keepLast(partIds: readonly string[]): void;
 }
 
 export function createChatLog(uploadUrlOf: UploadUrlOf): ChatLog {
@@ -107,5 +108,18 @@ export function createChatLog(uploadUrlOf: UploadUrlOf): ChatLog {
       reply.toggleAttribute('data-worked-for', text !== null);
     }
   };
-  return { element, upsert, remove, markTurn };
+  const keepLast = (partIds: readonly string[]) => {
+    const pinnedElements = partIds.flatMap((partId) => elementByPartId.get(partId) ?? []);
+    const pinnedSet = new Set<Element>(pinnedElements);
+    const children = [...element.children];
+    const firstPinnedIndex = children.findIndex((child) => pinnedSet.has(child));
+    if (firstPinnedIndex < 0) return;
+    const partsAfterPinned = children.slice(firstPinnedIndex).filter((child) => !pinnedSet.has(child));
+    children[firstPinnedIndex]?.before(...partsAfterPinned);
+    const tailElements = [...element.children].slice(-pinnedElements.length);
+    const firstMisplacedIndex = pinnedElements.findIndex((pinned, index) => tailElements[index] !== pinned);
+    if (firstMisplacedIndex < 0) return;
+    element.append(...pinnedElements.slice(firstMisplacedIndex));
+  };
+  return { element, upsert, remove, markTurn, keepLast };
 }

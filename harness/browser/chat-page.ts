@@ -170,6 +170,25 @@ async function verifySentPromptNeverBlinks(page: Page): Promise<void> {
   await page.waitForFunction(() => document.querySelector('.session-chat [data-part-id^="sent-"]') === null, undefined, { timeout: CARD_TIMEOUT_MS });
 }
 
+async function verifyOpenCardStaysLastAcrossRemount(page: Page): Promise<void> {
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
+  await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await openChat(page);
+  const openCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="false"]');
+  await openCard.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-chat .chat-log .chat-prompt').first().waitFor({ timeout: CARD_TIMEOUT_MS });
+  const isOpenCardLast = await page.locator('.session-chat .chat-log').evaluate((log) => log.lastElementChild?.matches('.chat-card[data-card-type="permission"][data-resolved="false"]') === true);
+  assert.ok(isOpenCardLast, 'a card already open when Chat opens sits below the history it loads');
+  const isOpenCardInView = await openCard.evaluate((card) => {
+    const scroller = card.closest('.chat-scroller');
+    if (!scroller) return false;
+    const cardBox = card.getBoundingClientRect();
+    const scrollerBox = scroller.getBoundingClientRect();
+    return cardBox.bottom > scrollerBox.top && cardBox.top < scrollerBox.bottom;
+  });
+  assert.ok(isOpenCardInView, 'the open card is in view without scrolling');
+}
+
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
   await verifyChatModelSwitch(page);
@@ -181,6 +200,7 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   await openCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await openCard.innerText(), /Bash/, 'the permission card names the tool');
   await verifySentPromptNeverBlinks(page);
+  await verifyOpenCardStaysLastAcrossRemount(page);
   await openCard.getByRole('button', { name: 'Allow', exact: true }).click();
   const answeredCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]');
   await answeredCard.waitFor({ timeout: CARD_TIMEOUT_MS });
