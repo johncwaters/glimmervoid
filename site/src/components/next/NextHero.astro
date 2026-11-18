@@ -25,7 +25,7 @@ const NAV_LINKS = siteNavLinks('');
   </nav>
 
   <div class="hero-grid" id="top">
-    <h1 class="hero-wordmark"><Wordmark isStacked /></h1>
+    <h1 class="hero-wordmark"><Wordmark isStacked /><span class="hero-category">Open-source ADE for agents.</span></h1>
     <div class="hero-side">
       <p class="tagline">See it before it's built.</p>
       <p>Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
@@ -69,6 +69,7 @@ const NAV_LINKS = siteNavLinks('');
 
   .hero-grid { position: relative; display: grid; grid-template-columns: 1.5fr 1fr; gap: 40px; padding-top: 56px; align-items: start; }
   .hero-wordmark { margin: 0; font-size: clamp(56px, 9.4vw, 120px); line-height: .9; }
+  .hero-category { display: block; margin-top: 24px; font-size: var(--type-title); font-weight: 400; line-height: 1.4; letter-spacing: normal; color: var(--text-dim); }
   .hero-side { padding-top: 20px; }
   .tagline { font-size: clamp(24px, 3vw, 32px); line-height: 1.2; color: var(--text-head); }
   .tagline em { font-style: normal; color: var(--state-waiting); }
