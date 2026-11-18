@@ -1,7 +1,12 @@
 .ui-select {
+  --select-height: var(--control-height);
+  --select-padding-inline: var(--control-padding-inline);
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: 8px 12px;
+  height: var(--select-height);
+  margin: 0;
+  padding: 0 var(--select-padding-inline);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   outline: none;
@@ -13,9 +18,9 @@
   transition: border-color var(--transition-fast);
 }
 
-.ui-select[data-size="compact"] {
-  height: 26px;
-  padding: 0 6px;
+.ui-select[data-size="small"] {
+  --select-height: var(--control-height-small);
+  --select-padding-inline: var(--control-padding-inline-small);
   font-size: var(--type-meta);
 }
 
@@ -37,6 +42,6 @@
 }
 
 html[data-layout="phone"] .ui-select {
-  min-height: 44px;
+  --select-height: var(--control-height);
   font-size: var(--type-field);
 }

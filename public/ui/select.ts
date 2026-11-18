@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
 
-type SelectSize = 'default' | 'compact';
+type SelectSize = 'default' | 'small';
 
 type SelectChoice<V extends string> = { readonly value: V; readonly label: string };
 

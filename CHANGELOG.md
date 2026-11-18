@@ -57,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chat's composer and activity line read truer.** Between tools the activity line now just says the agent is working, instead of keeping the last tool's remark. Attach images with the paperclip, and while the agent works the Stop button takes Send's place in the same spot, until you type a message or attach a file: then Send comes back so you can queue it with a click.
 ### Changed
 
-- **Dropdowns share one look.** The Settings, Hooks, Arena, review skill, whiteboard properties and Community dropdowns now draw the same field style with a hover border, and the Community session picker no longer shows the browser's default dropdown.
+- **Dropdowns share one look.** The Settings, Hooks, Arena, review skill, whiteboard properties and Community dropdowns now draw the same field style with a hover border and stand the same height as the buttons beside them, and the Community session picker no longer shows the browser's default dropdown.
 
 ### Fixed
 

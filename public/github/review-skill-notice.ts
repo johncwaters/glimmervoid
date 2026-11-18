@@ -17,7 +17,7 @@ export function createReviewSkillNotice() {
   const selectId = 'review-skill-notice-select';
   const label = el('label', 'review-skill-notice-label', 'Pick a review skill (optional)');
   label.htmlFor = selectId;
-  const skillSelect = select({ id: selectId, options: [], size: 'compact' });
+  const skillSelect = select({ id: selectId, options: [], size: 'small' });
   skillSelect.element.classList.add('review-skill-notice-select');
   const saveButton = button({ variant: 'primary', label: 'Save skill' });
   const saveStatus = createActionStatus();

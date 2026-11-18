@@ -119,7 +119,7 @@ function angleField(angle: number, commit: (angle: number) => void): HTMLInputEl
 }
 
 function selectField(field: string, choices: readonly Choice[], value: string, commit: (value: string) => void, accessibleName?: string): HTMLSelectElement {
-  const { element } = select({ options: choices.map((choice) => ({ value: choice.value, label: choice.text })), value, onChange: commit, label: accessibleName, size: 'compact' });
+  const { element } = select({ options: choices.map((choice) => ({ value: choice.value, label: choice.text })), value, onChange: commit, label: accessibleName, size: 'small' });
   element.dataset.field = field;
   return element;
 }
