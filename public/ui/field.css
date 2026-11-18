@@ -39,7 +39,7 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 8px;
+  gap: 6px 8px;
 }
 
 .ui-field[data-layout="inline"] > :is(.ui-field-hint, .ui-field-error) {
@@ -49,7 +49,7 @@
 .ui-field[data-layout="grid"] {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
-  gap: 4px 12px;
+  gap: 6px 12px;
   align-items: center;
 }
 
