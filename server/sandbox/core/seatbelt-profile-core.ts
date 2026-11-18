@@ -98,7 +98,6 @@ const SRT_MACOS_BASELINE_RULES: readonly string[] = Object.freeze([
   ')',
   '(allow distributed-notification-post)',
   '(allow mach-lookup (global-name "com.apple.SecurityServer"))',
-  '(allow mach-lookup (global-name "com.apple.trustd.agent"))',
   '(allow file-ioctl (literal "/dev/null"))',
   '(allow file-ioctl (literal "/dev/zero"))',
   '(allow file-ioctl (literal "/dev/random"))',
@@ -138,7 +137,10 @@ interface SeatbeltPolicy {
   denyWrite: readonly string[];
   worktree: string;
   loopbackPorts: readonly number[];
+  enableWeakerNetworkIsolation: boolean;
 }
+
+const TRUSTD_LOOKUP_RULE = '(allow mach-lookup (global-name "com.apple.trustd.agent"))';
 
 function quoted(text: string): string {
   return JSON.stringify(text);
@@ -243,6 +245,7 @@ function buildSeatbeltProfile(policy: SeatbeltPolicy): string {
     '(version 1)',
     '(deny default)',
     ...SRT_MACOS_BASELINE_RULES,
+    ...(policy.enableWeakerNetworkIsolation ? [TRUSTD_LOOKUP_RULE] : []),
     ...loopbackRules(policy.loopbackPorts),
     ...unixSocketRules(policy),
     ...readRules(policy),

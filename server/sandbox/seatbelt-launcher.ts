@@ -95,6 +95,7 @@ async function launch(argv: readonly string[]): Promise<void> {
     denyWrite: spellingsOf(filesystem.denyWrite),
     worktree: nearestRealPath(process.cwd()),
     loopbackPorts: [launcherArguments.ingressPort, httpProxyPort, ...(socksProxyPort === undefined ? [] : [socksProxyPort])],
+    enableWeakerNetworkIsolation: settings.enableWeakerNetworkIsolation === true,
   });
   const proxyEnv = envFromAssignments(generateProxyEnvVars(httpProxyPort, socksProxyPort, undefined, SandboxManager.getProxyAuthToken(), true));
   const child = spawn(SANDBOX_EXEC_PATH, ['-p', profile, process.execPath, import.meta.filename, INSIDE_SANDBOX_FLAG, String(process.pid), launcherArguments.file, ...launcherArguments.args], {

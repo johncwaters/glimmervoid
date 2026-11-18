@@ -93,6 +93,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     agentIngressServer,
     getIngressPort: getHookPort,
     getExtraAllowedHosts: () => dependencies.configStore.config.sandboxAllowedHosts ?? [],
+    isWeakerNetworkIsolationOn: () => dependencies.configStore.config.sandboxWeakerNetworkIsolation === true,
     getAgentAccountFolders: () => (dependencies.configStore.config.agentAccounts ?? []).map((account) => account.folder),
     githubUserToken: dependencies.githubUserToken,
     logger: dependencies.logger,

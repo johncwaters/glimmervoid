@@ -213,6 +213,13 @@ export const MACHINE_SAFETY: SettingsSection = {
       control: 'list', keywords: ['sandbox', 'network', 'egress', 'domains', 'allow list', 'hosted'], defaultValue: [],
       listPlaceholder: 'example.com or *.example.com', listEmptyText: 'Only the built-in hosts are reachable.', ...MACHINE_NEW_SESSIONS,
     },
+    {
+      id: 'sandbox-weaker-network-isolation', path: 'sandboxWeakerNetworkIsolation', title: 'Sandbox certificate checks on macOS',
+      description: 'Lets a sandboxed macOS session ask trustd, the macOS certificate service, to verify TLS. While off, gh and other Go tools fail TLS certificate checks inside a macOS session. Only used when sessionSandbox is on.',
+      control: 'toggle', keywords: ['sandbox', 'trustd', 'tls', 'certificate', 'gh', 'go', 'macos', 'enableWeakerNetworkIsolation'], danger: true,
+      warning: 'Enabling this opens a data exfiltration path: trustd runs outside the sandbox and fetches the certificate status URLs a session hands it, on any host, past the sandbox allowed hosts.',
+      defaultValue: false, ...MACHINE_NEW_SESSIONS,
+    },
   ],
 };
 

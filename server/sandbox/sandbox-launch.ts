@@ -33,6 +33,7 @@ interface SessionSandboxDependencies {
   getIngressPort: () => number | null;
   resolveTools: () => Promise<SandboxTools | { refusal: string }>;
   getExtraAllowedHosts: () => readonly string[];
+  isWeakerNetworkIsolationOn: () => boolean;
   getAgentAccountFolders: () => readonly string[];
   credentialProxies: Pick<CredentialProxies, 'acquire'>;
   proxyCertificatePem: () => Promise<string>;
@@ -217,6 +218,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     sessionTempFolder,
     readableFiles: readableFilesIn(facts.env),
     extraAllowedHosts: dependencies.getExtraAllowedHosts(),
+    enableWeakerNetworkIsolation: dependencies.isWeakerNetworkIsolationOn(),
     credentialProxy: credentialProxy.route,
   });
   const settingsText = `${JSON.stringify(settings, null, 2)}\n`;

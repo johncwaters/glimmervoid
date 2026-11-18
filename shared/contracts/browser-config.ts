@@ -310,6 +310,7 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   saneYolo: optionalBoolean('saneYolo'),
   saneYoloUnreadablePaths: absoluteOrHomePathList('saneYoloUnreadablePaths', isAbsolutePath),
   sandboxAllowedHosts: sandboxHostList('sandboxAllowedHosts'),
+  sandboxWeakerNetworkIsolation: optionalBoolean('sandboxWeakerNetworkIsolation'),
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
   autoResume: optionalBoolean('autoResume'),

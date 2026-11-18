@@ -79,7 +79,7 @@ interface SandboxedProbeRun {
   removeFolders: () => void;
 }
 
-async function launchSandboxedProbe(probeSource: string, probeArguments: (run: Omit<SandboxedProbeRun, 'launcher' | 'removeFolders'>) => string[], { detached }: { detached: boolean }): Promise<SandboxedProbeRun> {
+async function launchSandboxedProbe(probeSource: string, probeArguments: (run: Omit<SandboxedProbeRun, 'launcher' | 'removeFolders'>) => string[], { detached, enableWeakerNetworkIsolation = false }: { detached: boolean; enableWeakerNetworkIsolation?: boolean }): Promise<SandboxedProbeRun> {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'seatbelt-')));
   const homeDir = path.join(root, 'home');
   const glimmervoidHome = path.join(homeDir, '.glimmervoid');
@@ -106,6 +106,7 @@ async function launchSandboxedProbe(probeSource: string, probeArguments: (run: O
     sessionTempFolder,
     readableFiles: [],
     extraAllowedHosts: [],
+    enableWeakerNetworkIsolation,
     credentialProxy: null,
   });
   const launcherFolder = fs.mkdtempSync(SHORT_SOCKET_FOLDER_PREFIX);
@@ -152,7 +153,9 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
   const exitCode = await new Promise<number | null>((resolve) => run.launcher.on('exit', resolve));
   dashboard.close();
   assert.equal(exitCode, 0);
-  assert.deepEqual(JSON.parse(stdout.trim().split('\n').at(-1) ?? ''), {
+  const { ghOverHttps, ...probeResults } = JSON.parse(stdout.trim().split('\n').at(-1) ?? '');
+  if (process.env.GH_TOKEN) assert.match(ghOverHttps, /tls: failed to verify certificate/);
+  assert.deepEqual(probeResults, {
     allowedPort: 'connected',
     dashboardPort: 'EPERM',
     worktreeWrite: 'written',
@@ -163,11 +166,25 @@ test('a process under the generated Seatbelt profile reaches only its allowed lo
     protectedFileInOtherCase: 'EPERM',
     protectedFolderRenamedIntoPlace: 'EPERM',
     gitOverHttps: process.env.GH_TOKEN ? 'ok' : 'skipped without GH_TOKEN',
-    ghOverHttps: process.env.GH_TOKEN ? 'ok' : 'skipped without GH_TOKEN',
     proxyAfterInterrupt: 'connected',
   });
   assert.equal(fs.existsSync(path.join(run.outsideFolder, 'escaped.txt')), false);
   run.removeFolders();
+});
+
+const GH_PROBE_SOURCE = `
+import { execFileSync } from 'node:child_process';
+try { execFileSync('gh', ['api', '/zen'], { stdio: ['ignore', 'ignore', 'pipe'], timeout: 15000 }); process.stdout.write('ok\\n'); } catch (error) { process.stdout.write(String(error.stderr ?? error.message).trim().split('\\n').at(-1) + '\\n'); }
+`;
+
+test('with weaker network isolation on, gh verifies TLS through trustd inside the Seatbelt sandbox', { skip: (process.platform !== 'darwin' && 'Seatbelt runs only on macOS') || (!process.env.GH_TOKEN && 'needs GH_TOKEN') }, async () => {
+  const run = await launchSandboxedProbe(GH_PROBE_SOURCE, () => [], { detached: false, enableWeakerNetworkIsolation: true });
+  let stdout = '';
+  run.launcher.stdout?.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
+  const exitCode = await new Promise<number | null>((resolve) => run.launcher.on('exit', resolve));
+  run.removeFolders();
+  assert.equal(exitCode, 0);
+  assert.equal(stdout.trim().split('\n').at(-1), 'ok');
 });
 
 const ESCAPEE_PROBE_SOURCE = `

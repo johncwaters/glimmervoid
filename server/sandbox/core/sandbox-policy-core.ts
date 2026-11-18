@@ -65,6 +65,7 @@ interface SandboxPolicyInput {
   sessionTempFolder: string;
   readableFiles: readonly string[];
   extraAllowedHosts: readonly string[];
+  enableWeakerNetworkIsolation: boolean;
   credentialProxy: CredentialProxyRoute | null;
 }
 
@@ -82,6 +83,7 @@ interface CredentialProxyRoute {
 interface SrtSettings {
   network: { allowedDomains: string[]; deniedDomains: string[]; deniedResolvedAddresses: string[]; allowAllUnixSockets: boolean; mitmProxy?: { socketPath: string; domains: string[] } };
   filesystem: { denyRead: string[]; allowRead: string[]; allowWrite: string[]; denyWrite: string[] };
+  enableWeakerNetworkIsolation: boolean;
 }
 
 interface SandboxedCommandInput {
@@ -138,6 +140,7 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
       ],
       denyWrite: [...new Set(input.gitRepositories.flatMap(gitMetadataDeniedWrites))],
     },
+    enableWeakerNetworkIsolation: input.enableWeakerNetworkIsolation,
   };
 }
 
