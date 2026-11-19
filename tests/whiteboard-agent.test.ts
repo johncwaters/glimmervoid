@@ -304,6 +304,7 @@ test('a dashboard viewing one region of a board past the incremental layout floo
   type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number }; record?: { title?: string } }[]; removedIds: string[] }; toVersion?: number; change?: { author: { id: string }; boxes: { id: string; title: string; rect: { x: number } }[] } };
   const client = await dashboardClient(boundPort(running().server));
   const control = await openRecordingSocket<TileFrame>(client);
+  const chatOnly = await openRecordingSocket<TileFrame>(await dashboardClient(boundPort(running().server)));
   try {
     control.ws.send(JSON.stringify({ type: 'whiteboard-view', boardId, view: { x: 0, y: 0, width: 1200, height: 800 }, lod: 'full', knownVersion: null }));
     const tiles = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tiles' && frame.boardId === boardId, 'the first tiles');
@@ -318,6 +319,8 @@ test('a dashboard viewing one region of a board past the incremental layout floo
     assert.deepEqual(renameDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.titleLines?.join(' '), painted.record?.title]), [['near', 'Near now', 'Near now']]);
     const renameLocator = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-agent-change' && frame.version === renamed.body.version, 'the rename agent change');
     assert.deepEqual([renameLocator.change?.author.id, renameLocator.change?.boxes.map((box) => [box.id, box.title, box.rect.x])], [PLANNER_ID, [['near', 'Near now', 40], ['far', 'Far now', 40000]]]);
+    const unviewedLocator = await waitForMessage(chatOnly.received, (frame) => frame.type === 'whiteboard-agent-change' && frame.version === renamed.body.version, 'the rename agent change on a dashboard not viewing the board');
+    assert.deepEqual(unviewedLocator.change, renameLocator.change);
 
     control.ws.send(JSON.stringify({ type: 'whiteboard-op', boardId, ops: [{ op: 'set', id: 'near', fields: { title: 'Near by hand' } }], requestId: 'operator-rename' }));
     const operatorDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === renamed.body.version, 'the operator rename diff');
@@ -327,9 +330,10 @@ test('a dashboard viewing one region of a board past the incremental layout floo
     const moveDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === operatorDiff.toVersion, 'the move diff');
     assert.deepEqual(moveDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.x]), [['far', 400]]);
     await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-agent-change' && frame.version === movedIn.body.version, 'the move agent change');
-    assert.equal(control.received.some((frame) => frame.type === 'whiteboard-agent-change' && frame.version === operatorDiff.toVersion), false);
+    assert.equal([...control.received, ...chatOnly.received].some((frame) => frame.type === 'whiteboard-agent-change' && frame.version === operatorDiff.toVersion), false);
   } finally {
     await closeSocket(control.ws);
+    await closeSocket(chatOnly.ws);
   }
 });
 

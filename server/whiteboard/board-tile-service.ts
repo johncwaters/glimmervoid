@@ -15,7 +15,7 @@ import type { ChangedElement } from './layout-client.ts';
 import type { LayoutAnswer, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 
 interface TileViewer {
-  send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'> | ServerMessageOf<'whiteboard-agent-change'>): void;
+  send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
 }
 
 interface ViewerState {
@@ -99,9 +99,10 @@ interface TileServiceOptions {
   layoutCachePath: string | null;
   logger: Pick<Console, 'warn'>;
   onSavedLayoutWritten: (written: SavedLayoutWrite) => void;
+  broadcastAgentChange: (message: ServerMessageOf<'whiteboard-agent-change'>) => void;
 }
 
-function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, logger, onSavedLayoutWritten }: TileServiceOptions): BoardTileService {
+function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, logger, onSavedLayoutWritten, broadcastAgentChange }: TileServiceOptions): BoardTileService {
   const layouts = createLayoutClient({ cachePath: layoutCachePath, onSavedLayoutWritten });
   const stateByViewer = new Map<TileViewer, ViewerState>();
   const viewerById = new Map<number, TileViewer>();
@@ -129,12 +130,6 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
         continue;
       }
       viewer.send({ type: 'whiteboard-tiles', boardId, version, head, elementCount, chrome: message.chrome, tiles: message.tiles });
-    }
-  }
-
-  function sendToBoardViewers(boardId: string, message: ServerMessageOf<'whiteboard-agent-change'>): void {
-    for (const [viewer, state] of stateByViewer) {
-      if (state.boardId === boardId) viewer.send(message);
     }
   }
 
@@ -202,7 +197,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
       logger.warn(`[whiteboard] board ${board.id} could not locate the boxes an agent changed: ${errorMessage(error)}`);
       return null;
     });
-    if (agentChange) sendToBoardViewers(board.id, { type: 'whiteboard-agent-change', boardId: board.id, version: board.version, change: agentChange });
+    if (agentChange) broadcastAgentChange({ type: 'whiteboard-agent-change', boardId: board.id, version: board.version, change: agentChange });
   }
 
   async function advance(board: Board, changes: readonly ChangedElement[] | null, author: Author | null): Promise<LayoutSummary | null> {
@@ -211,7 +206,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     try {
       const answer = changes ? await layouts.advance(board, changes, viewers) : await layouts.refresh(board, viewers);
       deliver(board, answer.viewerMessages ?? []);
-      if (changes && viewers.length > 0) await sendAgentChange(board, changes, author);
+      if (changes) await sendAgentChange(board, changes, author);
       return summaryOfAnswer(board, answer);
     } catch (error) {
       setViewerVersions(board.id, null);

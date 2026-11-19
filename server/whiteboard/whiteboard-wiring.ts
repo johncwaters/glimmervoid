@@ -322,6 +322,7 @@ function createWhiteboardWiring({
     layoutCachePath: path.join(boardsRoot, LAYOUT_CACHE_FILENAME),
     logger,
     onSavedLayoutWritten: openStepLogs.logSavedLayoutWritten,
+    broadcastAgentChange: (message) => broadcastControl(message),
   });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
