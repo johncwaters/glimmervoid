@@ -66,6 +66,7 @@ const SESSION = {
   planGate: null,
   conversationApproval: null,
   chatOutbox: [],
+  doneMeans: [],
   mergeStatus: 'none',
   mergeReason: null,
   worktreeNotice: null,

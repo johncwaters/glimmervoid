@@ -124,6 +124,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
         holdsQuestionsForParent: true,
         ephemeral: true,
         initialPrompt: request.prompt,
+        doneMeans: request.done ?? [],
       });
       child = spawned;
       detachFromParent = openChildChannel(parent, spawned, name);
