@@ -18,6 +18,7 @@ import type { WhyLookup } from '../why-lookup.ts';
 import type { ReviewPort } from '../review/review-wiring.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
 import type { FileClaims } from '../file-claims.ts';
+import type { VerificationWiring } from '../verification/verification-wiring.ts';
 import type { SessionPreviews } from '../session/session-previews.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
@@ -65,6 +66,7 @@ interface AgentApiWiringOptions {
   memoryFilePath?: string | null;
   fileClaims?: Pick<FileClaims, 'handle'> | null;
   sessionPreviews?: Pick<SessionPreviews, 'handle'> | null;
+  verification?: Pick<VerificationWiring, 'checkNow'> | null;
   budgetHoldReason?: () => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;

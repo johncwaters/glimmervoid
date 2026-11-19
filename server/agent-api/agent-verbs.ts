@@ -28,8 +28,10 @@ import type { PlanRunPorts } from '../plan-run-wiring.ts';
 import type { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { COMMAND_ROUTES } from '../../session/core/session-routes.ts';
 import { checkCommand } from 'cc-safety-net/api';
+import { agentDoneCheckIdOf } from '../../shared/contracts/verification.ts';
 
 const UNUSABLE_DIRECTORY_RULE_ID = 'cwd.requested-unusable';
+const CHECK_REPLY_WAIT_LIMIT_MS = 240_000;
 const CHECKOUT_DEADLINE_MS = 240_000;
 const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
 
@@ -70,7 +72,7 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
@@ -203,8 +205,18 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     }
     session.setAgentDoneLines(request.lines);
     const lineCount = request.lines.length;
-    const runNote = session.hasOwnWorktree ? ` Glimmervoid runs ${lineCount === 1 ? 'its command' : 'their commands'} at each turn end once the worktree has changed enough, and sends any failure back to you.` : '';
+    const runNote = session.hasOwnWorktree ? ` Run session check (glimmervoid check) before you end a turn: it runs ${lineCount === 1 ? 'its command' : 'their commands'} and the repo checks and returns each result.` : '';
     return { status: 200, body: { ok: true, note: `The Checked at turn end panel now lists ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} from you.${runNote}` } };
+  }
+
+  async function check(session: Session): Promise<AgentReplyOf<'check'>> {
+    if (!verification) return refusal(503, 'checks are not available in this Glimmervoid');
+    const outcome = await verification.checkNow(session.id, CHECK_REPLY_WAIT_LIMIT_MS);
+    if (!outcome.ok) return refusal(409, outcome.reason);
+    if (outcome.run === null) return { status: 200, body: { ok: true, finished: false, passed: false, lines: [], note: 'the checks are still running; call check again to wait for them' } };
+    const textByCheckId = new Map(session.agentDoneLines.map((line, index) => [agentDoneCheckIdOf(index), line.text]));
+    const lines = outcome.run.checks.map((outcomeOfCheck) => ({ line: textByCheckId.get(outcomeOfCheck.id) ?? outcomeOfCheck.id, command: outcomeOfCheck.command, status: outcomeOfCheck.status, output: outcomeOfCheck.status === 'pass' ? '' : outcomeOfCheck.outputTail }));
+    return { status: 200, body: { ok: true, finished: true, passed: lines.every((line) => line.status === 'pass'), lines } };
   }
 
   function planRunPortsOf(session: Session, boards: NonNullable<typeof whiteboards>): PlanRunPorts {
@@ -461,6 +473,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     push,
     edit,
     done,
+    check,
     limits: (session) => ({ status: 200, body: limits(session) }),
     review: (_session, { pullRequestKey }) => review(pullRequestKey),
     reviews: (_session, { pullRequestKey }) => reviews(pullRequestKey),

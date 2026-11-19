@@ -9,7 +9,7 @@ const SERVER_INSTRUCTIONS = [
   'Use memory to keep a fact later sessions in this project should know and to read what earlier sessions kept.',
 ].join(' ');
 
-const DONE_INSTRUCTION = "Once you understand the operator's request, call session done with what finished means for it, one line each with the command that proves it, a plain program and arguments that exits 0 when the line holds (such as the repo's test or typecheck script); Glimmervoid runs them at turn end and sends any failure back to you; call it again when the plan changes.";
+const DONE_INSTRUCTION = "Once you understand the operator's request, call session done with what finished means for it, one line each with the command that proves it, a plain program and arguments that exits 0 when the line holds (such as the repo's test or typecheck script); call it again when the plan changes. Before you end a turn, call session check, which runs the repo checks and those commands now and returns each result; fix what fails and check again.";
 
 function serverInstructionsWith(operatorRules: readonly string[], { asksForDone }: { asksForDone: boolean }): string {
   const instructions = asksForDone ? `${SERVER_INSTRUCTIONS} ${DONE_INSTRUCTION}` : SERVER_INSTRUCTIONS;

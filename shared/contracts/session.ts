@@ -204,7 +204,7 @@ export const GitCredentialReply = z.union([
 
 export type GitCredentialRequest = z.infer<typeof GitCredentialRequest>;
 export type GitCredentialReply = z.infer<typeof GitCredentialReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview', 'done'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview', 'done', 'check'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
@@ -407,6 +407,14 @@ export const AgentRefusal = z.object({ ok: z.literal(false), error: z.string(), 
 
 const AgentOkReply = z.object({ ok: z.literal(true) }).strict();
 
+const AgentCheckReply = z.object({
+  ok: z.literal(true),
+  finished: z.boolean(),
+  passed: z.boolean(),
+  note: z.string().optional(),
+  lines: z.array(z.object({ line: z.string(), command: z.string(), status: z.enum(['pass', 'fail', 'timeout', 'skipped']), output: z.string() }).strict()),
+}).strict();
+
 export const AGENT_REPLY_SCHEMAS = Object.freeze({
   push: z.union([z.object({ ok: z.literal(true), landedOn: z.string().nullable(), pushed: z.boolean(), note: z.string().optional() }).strict(), AgentRefusal]),
   spawn: z.union([z.object({ ok: z.literal(true), sessionId: z.string(), name: z.string(), note: z.string() }).strict(), AgentRefusal]),
@@ -417,6 +425,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   sessions: z.union([z.object({ ok: z.literal(true), sessions: z.array(AgentBoardRow) }).strict(), AgentRefusal]),
   edit: z.union([z.object({ ok: z.literal(true), path: z.string(), name: z.string() }).strict(), AgentRefusal]),
   done: z.union([z.object({ ok: z.literal(true), note: z.string() }).strict(), AgentRefusal]),
+  check: z.union([AgentCheckReply, AgentRefusal]),
   review: z.union([z.object({ ok: z.literal(true), key: z.string(), status: z.enum(['queued', 'running']), note: z.string() }).strict(), AgentRefusal]),
   reviews: z.union([AgentReviewsReply, AgentReviewDetailReply, AgentRefusal]),
   prs: z.union([AgentPrsReply, AgentRefusal]),

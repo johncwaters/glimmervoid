@@ -185,7 +185,7 @@ test('memory keeps a note for later sessions of the project, fenced as untrusted
   assert.equal(missing.isError, true);
 });
 
-test('session done puts the agent lines on the session snapshot, a later call replaces them, and a line without a command or with one Sane YOLO denies is refused', async () => {
+test('session done puts the agent lines on the session snapshot, a later call replaces them, a line without a command or with one Sane YOLO denies is refused, and session check reaches the verification runner', async () => {
   const { credential, backend } = bootedBackend();
   const declaredLines = [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string', command: 'npm test -- redirect' }];
   const declared = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: declaredLines } }, credential));
@@ -201,6 +201,9 @@ test('session done puts the agent lines on the session snapshot, a later call re
   const replaced = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'typecheck passes', command: 'npm run typecheck' }] } }, credential));
   assert.notEqual(replaced.isError, true, JSON.stringify(replaced));
   assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'typecheck passes', command: 'npm run typecheck' }]);
+  const checked = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'check' } }, credential));
+  assert.equal(checked.isError, true);
+  assert.match(JSON.stringify(checked), /no worktree of its own, so there is nothing to check/);
 });
 
 test('a race contestant with Done means off is never asked to call session done and cannot', async () => {

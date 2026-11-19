@@ -172,6 +172,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return note ? { note } : null;
   },
   sessions: () => ({}),
+  check: () => ({}),
   push: () => ({}),
   edit: ({ positionals }) => {
     const docPath = joinedText(positionals);

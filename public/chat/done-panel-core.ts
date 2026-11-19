@@ -1,6 +1,6 @@
 import type { AgentDoneLine } from '#shared/contracts/session.ts';
-import { AGENT_DONE_CHECK_ID_PREFIX } from '#shared/contracts/verification.ts';
-import type { CheckOutcome, RemovedTestLine, VerificationRun } from '#shared/contracts/verification.ts';
+import { AGENT_DONE_CHECK_ID_PREFIX, agentDoneCheckIdOf } from '#shared/contracts/verification.ts';
+import type { CheckOutcome, VerificationRun } from '#shared/contracts/verification.ts';
 import type { ChatPhase } from './chat-activity-core.ts';
 
 type DoneLineStatus = 'running' | 'passed' | 'failed' | 'not-checked';
@@ -25,29 +25,13 @@ function checkLineOf(check: CheckOutcome): DoneLine {
   };
 }
 
-const REMOVED_TEST_LINE_VERBS: Record<RemovedTestLine['kind'], string> = { 'removed-assertion': 'removed', 'removed-test': 'removed', 'added-skip': 'added' };
-
-function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[] | null): DoneLine {
-  if (removedTestLines === null) return { text: 'Keeps every test', status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '', command: '', isFromAgent: false };
-  const isKept = removedTestLines.length === 0;
-  return {
-    text: 'Keeps every test',
-    status: isKept ? 'passed' : 'failed',
-    proof: isKept ? 'Passed' : 'Failed',
-    isGlimmervoidRan: true,
-    evidence: removedTestLines.map((removed) => `${removed.path}:${removed.line} ${REMOVED_TEST_LINE_VERBS[removed.kind]}: ${removed.text}`).join('\n'),
-    command: '',
-    isFromAgent: false,
-  };
-}
-
 function runLinesOf(run: VerificationRun): DoneLine[] {
   if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '', command: '', isFromAgent: false }];
-  return [...run.checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX)).map(checkLineOf), testKeepingLineOf(run.removedTestLines)];
+  return [...run.checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX)).map(checkLineOf)];
 }
 
 function agentCheckOf(run: VerificationRun, line: AgentDoneLine, index: number): CheckOutcome | null {
-  return run.checks.find((check) => check.id === `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}` && check.command === line.command) ?? null;
+  return run.checks.find((check) => check.id === agentDoneCheckIdOf(index) && check.command === line.command) ?? null;
 }
 
 function agentDoneLinesOf(run: VerificationRun, agentDoneLines: readonly AgentDoneLine[]): DoneLine[] {

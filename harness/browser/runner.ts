@@ -1248,7 +1248,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-done-means') {
       await verifyChatDoneMeans(viewer.page, projectDirectory);
-      return passedOutcome('chat-done-means', 'turn-end checks and the Keeps every test scan end the finished turn with their proof, 2 (Not done) sends the failed lines back, 1 (Done, land it) sends the accept message, and a child spawned with done lines shows them and runs the checks');
+      return passedOutcome('chat-done-means', 'a turn below minChangedLines shows no panel, a bigger turn ends with each check and agent command and its proof, the panel asks nothing, and a spawned child keeps its done lines as prompt text');
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);

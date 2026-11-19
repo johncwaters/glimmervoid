@@ -513,6 +513,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     memoryFilePath: configSiblingPath(configStore.configPath, 'memory.json'),
     fileClaims,
     sessionPreviews,
+    verification,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({

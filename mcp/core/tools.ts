@@ -118,7 +118,7 @@ function boardRenderRoute(): ActionRoute {
 const SESSION_TOOL: GroupedTool = {
   name: 'session',
   title: 'Glimmervoid sessions',
-  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; done says what finished means for the request, shown in the Checked at turn end panel; limits reports what this session may do.',
+  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; done says what finished means for the request, shown in the Checked at turn end panel; check runs the repo checks and the done commands now and returns each result; limits reports what this session may do.',
   loadsUpfront: true,
   fields: {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),
@@ -126,7 +126,7 @@ const SESSION_TOOL: GroupedTool = {
     agent: AgentSpawnRequest.shape.agent.describe(`spawn: the agent to run, one of ${SPAWNABLE_AGENT_IDS} or a custom agent id; defaults to this session's`),
     model: AgentSpawnRequest.shape.model.describe("spawn: the model the new session runs, by the agent's own model id; defaults to the agent's configured model"),
     effort: AgentSpawnRequest.shape.effort.describe('spawn: the reasoning effort the new session runs at, where the agent takes one'),
-    done: AgentSpawnRequest.shape.done.describe("spawn: what finished means, one line each; they join the prompt, show in the new session's Chat, and run the repo checks at each turn end"),
+    done: AgentSpawnRequest.shape.done.describe("spawn: what finished means, one line each; they join the new session's prompt, which proves them with its own done commands"),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
     to: AgentSendRequest.shape.to.describe('send, from a spawned session: a sibling the same parent spawned, by id or name, to message instead of the parent'),
@@ -134,7 +134,7 @@ const SESSION_TOOL: GroupedTool = {
     answers: z.record(z.string(), z.string().min(1)).optional().describe('answer: each question text mapped to the chosen answer'),
     toOperator: z.literal(true).optional().describe('answer: pass the child\'s question to the operator instead'),
     path: AgentEditRequest.shape.path.optional().describe('edit: the file, absolute or relative to this session\'s directory'),
-    lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, every line with the command that proves it (a plain program and arguments, no shell syntax, exiting 0 when the line holds); Glimmervoid runs each command in the worktree at turn end and sends failures back to you, and a later done call replaces these lines"),
+    lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, every line with the command that proves it (a plain program and arguments, no shell syntax, exiting 0 when the line holds); session check runs them in the worktree and returns each result, and a later done call replaces these lines"),
   },
   actions: {
     spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
@@ -145,6 +145,7 @@ const SESSION_TOOL: GroupedTool = {
     sessions: routeTo('sessions', [], { hints: READS }),
     edit: { verb: 'edit', required: ['path'], accepts: ['path'], hints: WRITES, toPayload: editPayload },
     done: routeTo('done', ['lines'], { required: ['lines'], hints: WRITES }),
+    check: routeTo('check', [], { hints: WRITES }),
     limits: routeTo('limits', [], { hints: READS }),
   },
 };

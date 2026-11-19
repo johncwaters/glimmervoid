@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
-import { AGENT_DONE_LINE, DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
+import { AGENT_DONE_LINE, DONE_CHILD_NAME } from './cases-core.ts';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
@@ -489,9 +489,7 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
 }
 
 export const DONE_MEANS_UNTRACKED_FILE = 'done-means.txt';
-export const DONE_MEANS_TEST_FILE = 'tests/keeps.test.ts';
-const DONE_MEANS_REMOVED_ASSERTION = 'assert.equal(total, 2);';
-export const DONE_MEANS_KEPT_TEST = `test('adds', () => {\n  ${DONE_MEANS_REMOVED_ASSERTION}\n});\n`;
+export const DONE_MEANS_MIN_CHANGED_LINES = 3;
 
 export async function verifyChatDoneMeans(page: Page, projectDirectory: string): Promise<void> {
   await openChat(page);
@@ -504,11 +502,11 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
+  assert.equal(await page.locator('.session-chat .chat-done:visible').count(), 0, 'a turn below minChangedLines shows no panel');
   await sendFromComposer(page, 'work');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
-  await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), 'written during the turn\n', 'utf8');
-  await fs.writeFile(path.join(worktreePath, DONE_MEANS_TEST_FILE), DONE_MEANS_KEPT_TEST.replace(`  ${DONE_MEANS_REMOVED_ASSERTION}\n`, ''), 'utf8');
+  await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), 'written\nduring\nthe turn\n', 'utf8');
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   const panel = page.locator('.session-chat .chat-done');
@@ -517,8 +515,6 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   assert.match(await failedLine.innerText(), /Glimmervoid ran/i, 'a failed check names who proved it');
   assert.match(await failedLine.locator('.chat-done-evidence').innerText(), new RegExp(DONE_MEANS_UNTRACKED_FILE), 'a failed check shows its output tail');
   assert.equal(await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).count(), 1, 'a passing check reads passed');
-  const testKeepingLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'Keeps every test' });
-  assert.equal(await testKeepingLine.locator('.chat-done-evidence').innerText(), `${DONE_MEANS_TEST_FILE}:2 removed: ${DONE_MEANS_REMOVED_ASSERTION}`, 'a removed assertion fails Keeps every test, naming file:line and the removed text');
   const agentLine = panel.locator('.chat-done-line[data-status="passed"]', { hasText: AGENT_DONE_LINE.text });
   await agentLine.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await agentLine.locator('.chat-done-command').innerText(), AGENT_DONE_LINE.command, 'the agent command ran with no operator step and shows beneath its line');
@@ -539,11 +535,7 @@ async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
   await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
-  const panel = page.locator('.session-chat .chat-done');
-  const statusCheckLine = panel.locator('.chat-done-line[data-status="passed"]').filter({ has: page.locator('.chat-done-text', { hasText: /^status$/ }) });
-  await statusCheckLine.waitFor({ timeout: CARD_TIMEOUT_MS });
-  assert.match(await statusCheckLine.innerText(), /Glimmervoid ran/i, 'a spawned child with done lines runs the repo checks at turn end');
-  for (const doneLine of DONE_CHILD_LINES) assert.equal(await panel.locator('.chat-done-line', { hasText: doneLine }).count(), 0, 'a spawn done line stays prompt text, off the panel');
+  assert.equal(await page.locator('.session-chat .chat-done:visible').count(), 0, 'a spawned child whose turn changed nothing shows no panel, and its spawn done lines stay prompt text');
 }
 
 async function stopTurnPastHints(page: Page): Promise<void> {

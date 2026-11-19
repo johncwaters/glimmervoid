@@ -19,73 +19,63 @@ function writeFiles(repoPath: string, contentByPath: Record<string, string>): vo
   }
 }
 
-test('Keeps every test reports only net removals and skips, at their real path and line, whatever the diff config, attributes or base, in a spawned child whose repo has an invalid verification entry', async (context) => {
-  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-test-keeping-'));
+test('a turn end below minChangedLines shows no panel until the session diff passes it, whatever the integration branch or an earlier check did, and check runs the done commands on demand', async (context) => {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-changed-lines-'));
   context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
   git(repoPath, ['init', '--quiet']);
-  git(repoPath, ['config', 'diff.mnemonicPrefix', 'true']);
-  writeFiles(repoPath, {
-    'tests/edited.test.ts': "test('adds', () => {\n  assert.equal(total, 2);\n});\n",
-    'tests/test_units.py': 'def test_units(self):\n    self.assertEqual(units, 3)\n    self.assertTrue(ok)\n',
-    'tests/named.test.ts': "test('named', () => {\n  strictEqual(a, 1);\n});\n",
-    'tests/b.sql.test': 'x: 1\n-- note\nassert(ok)\n',
-    'tests/skipped.test.ts': "test('later', () => {});\n",
-    'tests/moved.test.ts': "test('moves', () => {\n  assert.ok(moved);\n});\n",
-    'tests/hidden.test.ts': "test('hidden', () => {\n  assert.ok(seen);\n});\n",
-  });
+  writeFiles(repoPath, { 'README.md': 'base\n' });
   git(repoPath, ['add', '-A']);
   git(repoPath, ['commit', '--quiet', '-m', 'base']);
-  git(repoPath, ['branch', 'integration']);
-  fs.renameSync(path.join(repoPath, 'tests/moved.test.ts'), path.join(repoPath, 'tests/renamed.test.ts'));
-  fs.writeFileSync(path.join(repoPath, '.gitattributes'), 'tests/hidden.test.ts -diff\n');
-  writeFiles(repoPath, {
-    'tests/edited.test.ts': "test('adds two', () => {\n  assert.equal(total, 3);\n});\n",
-    'tests/test_units.py': 'def test_units(self):\n    self.assertTrue(ok)\n',
-    'tests/named.test.ts': "test('named', () => {\n});\n",
-    'tests/b.sql.test': 'x: 1\n',
-    'tests/skipped.test.ts': "test.skip('later', () => {});\n",
-    'tests/hidden.test.ts': "test('hidden', () => {\n});\n",
-  });
-
+  const baseSha = git(repoPath, ['rev-parse', 'HEAD']);
+  const sessionBranch = git(repoPath, ['branch', '--show-current']);
+  git(repoPath, ['checkout', '--quiet', '-b', 'integration']);
+  writeFiles(repoPath, { 'landed.md': Array.from({ length: 30 }, (_, lineIndex) => `landed by another session ${lineIndex}`).join('\n') });
+  git(repoPath, ['add', '-A']);
+  git(repoPath, ['commit', '--quiet', '-m', 'landed elsewhere']);
+  git(repoPath, ['checkout', '--quiet', sessionBranch]);
+  const broadcastRuns: VerificationRun[] = [];
   let onTurnEnd = () => {};
+  let treeNumber = 0;
   const verification = createVerificationWiring({
-    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }], typo: true } } }),
+    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }], minChangedLines: 5 } } }),
     isSessionSandboxOn: () => false,
-    broadcastControl: () => {},
+    broadcastControl: (message) => { if (message.type === 'verification-run') broadcastRuns.push(VerificationRun.parse(message.run)); },
     logger: console,
   });
   verification.attachSession({
-    id: 'test-keeping',
+    id: 'changed-lines',
     path: repoPath,
-    ephemeral: true,
-    ownerId: 'parent',
-    agentDoneLines: [],
+    ephemeral: false,
+    agentDoneLines: [{ text: 'node runs', command: 'node --version' }],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
     worktreeLifecycle: {
-      computeGateTree: async () => ({ sig: 'turn-1', dirty: true, headSha: 'unused' }),
-      snapshot: () => ({ baseSha: null, effectiveBase: 'integration' }),
+      computeGateTree: async () => ({ sig: `tree-${++treeNumber}`, dirty: true, headSha: baseSha }),
+      snapshot: () => ({ baseSha, effectiveBase: 'integration' }),
       setMergeGate: () => {},
     },
   });
-  onTurnEnd();
-  const deadline = Date.now() + 20_000;
-  while ((verification.latestRun('test-keeping')?.status ?? 'running') === 'running' && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  assert.deepEqual(verification.latestRun('test-keeping')?.checks.map((check) => `${check.id} ${check.status}`), ['verification-config fail']);
-  const reported = (verification.latestRun('test-keeping')?.removedTestLines ?? []).map((removed) => `${removed.kind} ${removed.path}:${removed.line} ${removed.text}`);
-  assert.deepEqual(reported.sort(), [
-    'added-skip tests/skipped.test.ts:1 test.skip(\'later\', () => {});',
-    'removed-assertion tests/b.sql.test:3 assert(ok)',
-    'removed-assertion tests/hidden.test.ts:2 assert.ok(seen);',
-    'removed-assertion tests/named.test.ts:2 strictEqual(a, 1);',
-    'removed-assertion tests/test_units.py:2 self.assertEqual(units, 3)',
-  ]);
+  writeFiles(repoPath, { 'README.md': 'base\nsmall\n' });
+  const earlyCheck = await verification.checkNow('changed-lines', 10_000);
+  assert.deepEqual(earlyCheck.ok ? earlyCheck.run?.checks.map((check) => `${check.id} ${check.status}`) : [], ['node pass', 'agent-done-1 pass']);
+  onTurnEnd();
+  await sleep(1000);
+  assert.equal(broadcastRuns.length, 0, 'a small diff shows no panel, even after a check and with the integration branch moved on');
+  writeFiles(repoPath, { 'README.md': 'base\none\ntwo\nthree\nfour\nfive\nsix\n' });
+  onTurnEnd();
+  await sleep(1500);
+  assert.deepEqual(broadcastRuns.at(-1)?.checks.map((check) => `${check.id} ${check.status}`), ['node pass', 'agent-done-1 pass']);
+  const checked = await verification.checkNow('changed-lines', 10_000);
+  assert.equal(checked.ok, true);
+  assert.deepEqual(checked.ok ? checked.run?.checks.map((check) => `${check.id} ${check.status}`) : [], ['node pass', 'agent-done-1 pass']);
+  assert.deepEqual(await verification.checkNow('not-attached', 10_000), { ok: false, reason: 'this session has no worktree of its own, so there is nothing to check' });
 });
 
 test('the newest turn end decides the verdict: an unreadable tree shows skipped checks, a slower earlier run never overwrites it, and a readable turn shows its run again', async (context) => {
-  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-test-keeping-'));
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-unread-tree-'));
   context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
   fs.writeFileSync(path.join(repoPath, 'slow.js'), 'setTimeout(() => process.exit(1), 1500);\n');
   const broadcastRuns: VerificationRun[] = [];

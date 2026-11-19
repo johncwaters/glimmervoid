@@ -3,9 +3,9 @@ import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
-import { AGENT_DONE_CHECK_ID_PREFIX, VERIFICATION_OUTPUT_TAIL_BYTES, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
-import type { CheckOutcome, RemovedTestLine, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
-import { streamRemovedTestLines } from './test-keeping-scan.ts';
+import { AGENT_DONE_CHECK_ID_PREFIX, VERIFICATION_OUTPUT_TAIL_BYTES, agentDoneCheckIdOf, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
+import type { CheckOutcome, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
+import { contestantDiffStats } from '../race/race-diff.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -46,9 +46,12 @@ interface VerificationWiringDependencies {
   platform?: string;
 }
 
+type CheckNowOutcome = { ok: true; run: VerificationRun | null } | { ok: false; reason: string };
+
 interface VerificationWiring {
   attachSession(session: VerifiableSession): void;
   latestRun(sessionId: string): VerificationRun | null;
+  checkNow(sessionId: string, waitLimitMs: number): Promise<CheckNowOutcome>;
   forgetSession(sessionId: string): void;
   stop(): void;
 }
@@ -137,6 +140,8 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const warnedInvalidRepos = new Set<string>();
   const liveCheckPidsBySession = new Map<string, Set<number>>();
   const attachedSessionIds = new Set<string>();
+  const attachedSessionById = new Map<string, VerifiableSession>();
+  const panelSessionIds = new Set<string>();
   const invalidConfigMessageBySession = new Map<string, string | null>();
 
   function liveCheckPidsOf(sessionId: string): Set<number> {
@@ -153,6 +158,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function publish(finishedOrRunning: VerificationRun): void {
+    if (!panelSessionIds.has(finishedOrRunning.sessionId)) return;
     const invalidConfigMessage = invalidConfigMessageBySession.get(finishedOrRunning.sessionId) ?? null;
     const run = invalidConfigMessage === null || finishedOrRunning.status === 'running' ? finishedOrRunning : withInvalidConfigCheck(finishedOrRunning, invalidConfigMessage);
     publishedRunBySession.set(run.sessionId, run);
@@ -180,30 +186,14 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return runCheck(sessionId, worktreeDir, agentCheck, timeoutMs);
   }
 
-  async function scanRemovedTestLines(session: VerifiableSession): Promise<RemovedTestLine[] | null> {
-    if (!session.worktreeDir) return null;
-    const { baseSha, effectiveBase } = session.worktreeLifecycle.snapshot();
-    return streamRemovedTestLines(session.worktreeDir, baseSha, effectiveBase);
-  }
-
-  async function rescanMissingTestLines(session: VerifiableSession, cached: { key: string; run: VerificationRun }): Promise<VerificationRun> {
-    const turnEndCountAtStart = turnEndCountOf(session.id);
-    const removedTestLines = await scanRemovedTestLines(session);
-    if (removedTestLines === null || cachedRunBySession.get(session.id) !== cached) return cached.run;
-    const run: VerificationRun = { ...cached.run, removedTestLines };
-    cachedRunBySession.set(session.id, { key: cached.key, run });
-    if (turnEndCountOf(session.id) === turnEndCountAtStart) publish(run);
-    return run;
-  }
-
   function agentChecksOf(session: VerifiableSession): AgentCheck[] {
-    return session.agentDoneLines.map((line, index) => ({ id: `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}`, command: line.command }));
+    return session.agentDoneLines.map((line, index) => ({ id: agentDoneCheckIdOf(index), command: line.command }));
   }
 
   async function runChecks(session: VerifiableSession, settings: VerificationSettings, agentChecks: readonly AgentCheck[], key: string, sig: string): Promise<VerificationRun> {
     const worktreeDir = session.worktreeDir;
     const turnEndCountAtStart = turnEndCountOf(session.id);
-    publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null, removedTestLines: null });
+    publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null });
     const checks: CheckOutcome[] = [];
     for (const spec of settings.checks) {
       if (!attachedSessionIds.has(session.id)) break;
@@ -213,19 +203,22 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       if (!attachedSessionIds.has(session.id)) break;
       checks.push(worktreeDir ? await runAgentCheck(session.id, worktreeDir, agentCheck, settings.timeoutSeconds * 1000) : skippedOutcome(agentCheck, 'the session has no worktree'));
     }
-    const removedTestLines = attachedSessionIds.has(session.id) ? await scanRemovedTestLines(session) : null;
-    const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX))), checks, finishedAt: clock.nowMs(), removedTestLines };
+    const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX))), checks, finishedAt: clock.nowMs() };
     if (!attachedSessionIds.has(session.id)) return run;
     cachedRunBySession.set(session.id, { key, run });
     if (turnEndCountOf(session.id) === turnEndCountAtStart) publish(run);
     return run;
   }
 
+  function runKeyOf(session: VerifiableSession, settings: VerificationSettings, sig: string): string {
+    return `${sig}\0${settingsFingerprint(settings)}\0${JSON.stringify(agentChecksOf(session))}`;
+  }
+
   function ensureRun(session: VerifiableSession, settings: VerificationSettings, sig: string, { reuseFailed }: { reuseFailed: boolean }): Promise<VerificationRun> {
     const agentChecks = agentChecksOf(session);
-    const key = `${sig}\0${settingsFingerprint(settings)}\0${JSON.stringify(agentChecks)}`;
+    const key = runKeyOf(session, settings, sig);
     const cached = cachedRunBySession.get(session.id);
-    if (cached?.key === key && (reuseFailed || cached.run.status === 'passed')) return cached.run.removedTestLines === null ? rescanMissingTestLines(session, cached) : Promise.resolve(cached.run);
+    if (cached?.key === key && (reuseFailed || cached.run.status === 'passed')) return Promise.resolve(cached.run);
     const inFlight = inFlightBySession.get(session.id);
     if (inFlight?.key === key) return inFlight.promise;
     const waitForCurrent = inFlight ? inFlight.promise.catch(() => null) : Promise.resolve(null);
@@ -249,7 +242,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   function publishUnreadTree(settings: VerificationSettings, sessionId: string): void {
     const checks = settings.checks.map((spec) => skippedOutcome(spec, UNREAD_TREE_SKIP_REASON));
-    publish({ sessionId, sig: '', status: overallStatus(checks), checks, finishedAt: clock.nowMs(), removedTestLines: null });
+    publish({ sessionId, sig: '', status: overallStatus(checks), checks, finishedAt: clock.nowMs() });
   }
 
   function withInvalidConfigCheck(run: VerificationRun, message: string): VerificationRun {
@@ -270,8 +263,35 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       if (isLatestTurnEnd()) publishUnreadTree(settings, session.id);
       return;
     }
+    if (!panelSessionIds.has(session.id) && await isBelowChangedLines(session, settings.minChangedLines)) return;
+    panelSessionIds.add(session.id);
     const run = await ensureRun(session, settings, tree.sig, { reuseFailed: true });
     if (isLatestTurnEnd()) publish(run);
+  }
+
+  async function isBelowChangedLines(session: VerifiableSession, minChangedLines: number): Promise<boolean> {
+    if (minChangedLines === 0 || !session.worktreeDir) return false;
+    const { baseSha, effectiveBase } = session.worktreeLifecycle.snapshot();
+    const startSha = baseSha ?? effectiveBase;
+    if (!startSha) return false;
+    const diffStats = await contestantDiffStats({ worktreeDir: session.worktreeDir, startSha });
+    if (!diffStats.ok) return false;
+    return diffStats.stats.linesAdded + diffStats.stats.linesRemoved < minChangedLines;
+  }
+
+  async function checkNow(sessionId: string, waitLimitMs: number): Promise<CheckNowOutcome> {
+    const session = attachedSessionById.get(sessionId);
+    if (!session?.hasOwnWorktree) return { ok: false, reason: 'this session has no worktree of its own, so there is nothing to check' };
+    const lookup = lookupSettings(session);
+    const settings = lookup.kind === 'ok' ? lookup.settings : SETTINGS_WITHOUT_CHECKS;
+    const tree = await session.worktreeLifecycle.computeGateTree();
+    if (!tree) return { ok: false, reason: 'the worktree could not be read, so the checks did not run' };
+    const finishedRun = ensureRun(session, settings, tree.sig, { reuseFailed: true });
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    const waitLimit = new Promise<null>((resolve) => { waitTimer = setTimeout(() => resolve(null), waitLimitMs); });
+    const run = await Promise.race([finishedRun, waitLimit]).finally(() => clearTimeout(waitTimer));
+    if (run === null || lookup.kind !== 'invalid') return { ok: true, run };
+    return { ok: true, run: withInvalidConfigCheck(run, lookup.message) };
   }
 
   async function gateMerge(session: VerifiableSession, tree: WorktreeTree | null): Promise<StandardsGateVerdict> {
@@ -291,6 +311,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   function attachSession(session: VerifiableSession): void {
     attachedSessionIds.add(session.id);
+    attachedSessionById.set(session.id, session);
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
     if (session.ephemeral && !session.ownerId) return;
     session.on('post-turn-check', () => {
@@ -302,9 +323,12 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   return {
     attachSession,
+    checkNow,
     latestRun: (sessionId) => publishedRunBySession.get(sessionId) ?? cachedRunBySession.get(sessionId)?.run ?? null,
     forgetSession: (sessionId) => {
       attachedSessionIds.delete(sessionId);
+      attachedSessionById.delete(sessionId);
+      panelSessionIds.delete(sessionId);
       killChecksOf(sessionId);
       cachedRunBySession.delete(sessionId);
       publishedRunBySession.delete(sessionId);

@@ -63,6 +63,7 @@ interface AgentRequestByVerb {
   answer: AgentAnswerRequest;
   attention: AgentAttentionRequest;
   sessions: EmptyRequest;
+  check: EmptyRequest;
   push: EmptyRequest;
   edit: AgentEditRequest;
   done: AgentDoneRequest;
@@ -214,6 +215,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   answer: bodyParser(AgentAnswerRequest),
   attention: bodyParser(AgentAttentionRequest),
   sessions: parseEmptyBody,
+  check: parseEmptyBody,
   push: parseEmptyBody,
   edit: bodyParser(AgentEditRequest),
   done: bodyParser(AgentDoneRequest),
@@ -453,7 +455,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     options: [
       { name: 'model', type: 'string', valueName: 'model', summary: "The model the new session runs, by the agent's own model id; defaults to the agent's configured model" },
       { name: 'effort', type: 'string', valueName: 'level', summary: 'The reasoning effort the new session runs at, where the agent takes one' },
-      { name: 'done', type: 'string', valueName: 'lines', summary: "What finished means, as lines split by ';'; they join the prompt, show in the new session's Chat, and run the repo checks at each turn end" },
+      { name: 'done', type: 'string', valueName: 'lines', summary: "What finished means, as lines split by ';'; they join the new session's prompt, which proves them with its own done commands" },
     ],
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',
@@ -509,8 +511,14 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: "Use it once you understand the operator's request, and again when your plan changes",
     usage: 'done <lines>',
     positionals: requiredText('<lines>'),
-    summary: "Say what finished means for this request, as lines split by ';', each ending in ' :: <command>', a plain program that exits 0 when the line holds, which Glimmervoid runs at turn end; they show in this session's Checked at turn end panel and replace the lines you gave before",
+    summary: "Say what finished means for this request, as lines split by ';', each ending in ' :: <command>', a plain program that exits 0 when the line holds, which glimmervoid check runs; they show in this session's Checked at turn end panel and replace the lines you gave before",
     missingArgumentHint: 'this command needs lines, for example "glimmervoid done login tests pass :: npm test -- login; the redirect keeps the query string :: npm test -- redirect"',
+  },
+  check: {
+    usage: 'check',
+    whenToUse: 'Use it before you end a turn, and again after each fix, until every line passes',
+    summary: "Run this repo's verification checks and your done line commands on the worktree now, and print each one with its status and the output of a failure",
+    missingArgumentHint: null,
   },
   review: {
     whenToUse: 'Use it instead of gh pr review when a pull request needs a review the operator posts',
