@@ -5,6 +5,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
+import { disclosure } from '../ui/disclosure.ts';
 import { digestTurn, isCollapsedByDefault } from './turn-digest-core.ts';
 import type { TurnSegment } from './turn-digest-core.ts';
 
@@ -29,7 +30,19 @@ interface TurnView {
   isFoldable: boolean;
 }
 
+type ToolsSegment = Extract<TurnSegment, { kind: 'tools' }>;
+
+interface ToolLineView {
+  details: HTMLDetailsElement;
+  number: HTMLElement;
+  word: HTMLElement;
+  currentCall: HTMLElement;
+  earlierCalls: HTMLElement;
+  segment: ToolsSegment;
+}
+
 const CHEVRON_ICON_PATH = 'M6 4l4 4-4 4';
+const toolLineViewByElement = new WeakMap<HTMLElement, ToolLineView>();
 
 export function renderAttachmentThumbnail(fileName: string, uploadUrlOf: UploadUrlOf): HTMLElement {
   const thumbnail = el('span', 'chat-prompt-thumbnail');
@@ -68,17 +81,55 @@ function renderTextSegment(text: string): HTMLElement {
   return textElement;
 }
 
-function toolLineChildrenOf(segment: Extract<TurnSegment, { kind: 'tools' }>): HTMLElement[] {
-  const latestCall = el('span', 'chat-turn-tool', segment.latestLabel);
-  if (segment.callCount === 1) return [latestCall];
-  return [latestCall, el('span', 'chat-turn-tool-count', countText(segment.callCount, 'tool', 'tools'))];
+function earlierCallRowsOf(segment: ToolsSegment): HTMLElement[] {
+  const earlierCallRows = segment.labels.slice(0, -1).map((label) => el('div', 'chat-turn-tool-earlier', label));
+  const unkeptCallCount = segment.callCount - segment.labels.length;
+  if (unkeptCallCount <= 0) return earlierCallRows;
+  return [el('div', 'chat-turn-tool-earlier', `+ ${unkeptCallCount} earlier`), ...earlierCallRows];
+}
+
+function showToolRun(view: ToolLineView): void {
+  const { details, segment } = view;
+  details.toggleAttribute('data-single', segment.callCount === 1);
+  view.word.textContent = segment.callCount === 1 ? 'tool call' : 'tool calls';
+  view.currentCall.textContent = segment.labels.at(-1) ?? '';
+  if (details.open) view.earlierCalls.replaceChildren(...earlierCallRowsOf(segment));
+}
+
+function renderToolLine(segment: ToolsSegment): HTMLElement {
+  const number = el('span', 'chat-turn-tool-number', String(segment.callCount));
+  const word = el('span', 'chat-turn-tool-word');
+  const count = el('span', 'chat-turn-tool-count');
+  count.append(number, word);
+  const currentCall = el('span', 'chat-turn-tool');
+  const { element: details, summary, body } = disclosure({ summary: [count, currentCall], marker: 'chevron' });
+  details.classList.add('chat-turn-tools');
+  const view: ToolLineView = { details, number, word, currentCall, earlierCalls: body, segment: { ...segment, labels: [...segment.labels] } };
+  summary.addEventListener('click', (event) => {
+    if (view.segment.callCount === 1) event.preventDefault();
+  });
+  details.addEventListener('toggle', () => {
+    if (details.open) body.replaceChildren(...earlierCallRowsOf(view.segment));
+  });
+  toolLineViewByElement.set(details, view);
+  showToolRun(view);
+  return details;
+}
+
+function tickToolLine(toolLine: HTMLElement, segment: ToolsSegment): void {
+  const view = toolLineViewByElement.get(toolLine);
+  if (!view) return;
+  view.segment = { ...segment, labels: [...segment.labels] };
+  const tickedNumber = el('span', 'chat-turn-tool-number', String(segment.callCount));
+  tickedNumber.setAttribute('data-ticked', '');
+  view.number.replaceWith(tickedNumber);
+  view.number = tickedNumber;
+  showToolRun(view);
 }
 
 function renderSegment(segment: TurnSegment): HTMLElement {
   if (segment.kind === 'text') return renderTextSegment(segment.text);
-  const toolLine = el('div', 'chat-turn-tools');
-  toolLine.append(...toolLineChildrenOf(segment));
-  return toolLine;
+  return renderToolLine(segment);
 }
 
 function renderAsked(asked: string): HTMLElement {
@@ -127,7 +178,7 @@ function syncSegments(view: TurnView, segments: readonly TurnSegment[]): void {
     if (rendered?.kind === 'text') return;
     if (rendered?.kind === 'tools' && segment.kind === 'tools' && existingElement) {
       if (rendered.callCount === segment.callCount) return;
-      existingElement.replaceChildren(...toolLineChildrenOf(segment));
+      tickToolLine(existingElement, segment);
       view.renderedSegments[index] = { ...segment };
       return;
     }

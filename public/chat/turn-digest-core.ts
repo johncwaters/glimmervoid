@@ -1,7 +1,7 @@
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import type { PlanInline } from '../plan/plan-markdown-core.ts';
 
-export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; latestLabel: string; callCount: number };
+export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; labels: string[]; callCount: number };
 
 export interface FileEdit {
   path: string;

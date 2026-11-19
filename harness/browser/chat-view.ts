@@ -77,6 +77,7 @@ function traceRecordsPlugin(traceRecords: readonly TraceRecord[]): Plugin {
 async function checkTurnKeys(page: Page): Promise<string> {
   await page.setViewportSize({ width: 900, height: 640 });
   await page.evaluate(() => window.dispatchEvent(new Event('harness-remount-chat')));
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined));
   const isScrolled = await page.evaluate(() => {
     const scroller = document.querySelector('.chat-scroller');

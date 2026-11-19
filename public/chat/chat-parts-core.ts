@@ -41,6 +41,7 @@ interface AppendedChat {
 
 const MAX_RESIDENT_PARTS = 2000;
 const MAX_TURN_SEGMENTS = 400;
+const MAX_RUN_LABELS = 50;
 const TRIM_BATCH_PARTS = 200;
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
@@ -99,10 +100,11 @@ function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind
   const label = toolLabelOf(record.name, record.input, state.workingDirectory);
   const lastSegment = turn.segments.at(-1);
   if (lastSegment?.kind === 'tools') {
-    lastSegment.latestLabel = label;
+    lastSegment.labels.push(label);
+    if (lastSegment.labels.length > MAX_RUN_LABELS) lastSegment.labels.shift();
     lastSegment.callCount += 1;
   }
-  if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', latestLabel: label, callCount: 1 });
+  if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', labels: [label], callCount: 1 });
   if (!isEditingTool(record.name)) return;
   tallyFileEdits(turn, record.truncated === true ? truncatedFileEditsOf(record.input, state.workingDirectory) : fileEditsOf(record.input, state.workingDirectory));
 }
