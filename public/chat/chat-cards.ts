@@ -18,7 +18,7 @@ const CARD_KEYS_READY_DELAY_MS = 500;
 
 const keysReadyTimerByElement = new WeakMap<HTMLElement, number>();
 
-export function releaseCardKeys(cardElement: HTMLElement): void {
+function releaseCardKeys(cardElement: HTMLElement): void {
   window.clearTimeout(keysReadyTimerByElement.get(cardElement));
   keysReadyTimerByElement.delete(cardElement);
   delete cardElement.dataset.keysReady;
@@ -29,7 +29,7 @@ export function holdCardKeys(cardElement: HTMLElement): void {
   keysReadyTimerByElement.set(cardElement, window.setTimeout(() => { cardElement.dataset.keysReady = 'true'; }, CARD_KEYS_READY_DELAY_MS));
 }
 
-export function markCardKeys(element: HTMLElement, keys: readonly string[]): void {
+function markCardKeys(element: HTMLElement, keys: readonly string[]): void {
   element.dataset.cardKeys = keys.join(' ');
 }
 
@@ -109,7 +109,7 @@ function denyMessageRowOf(shell: HTMLElement, card: ChatCardByType['permission']
   return row;
 }
 
-export interface QuestionCardModel {
+interface QuestionCardModel {
   readonly cardType: string;
   readonly heading: string;
   readonly detail: string;
