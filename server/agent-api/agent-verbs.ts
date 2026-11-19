@@ -513,7 +513,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     },
     codemap: async (session, request) => {
       if (!codemap) return refusal(503, 'the code map is not available in this Glimmervoid');
-      const outcome = await codemap.handle({ repoDir: session.path, mainlineBranch: session.worktreeLifecycle.snapshot().effectiveBase }, repoRelativeCodemapRequest(session.worktreeDir ?? session.path, request));
+      const outcome = await codemap.handle({ repoDir: session.path }, repoRelativeCodemapRequest(session.worktreeDir ?? session.path, request));
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
     },
     whiteboard,

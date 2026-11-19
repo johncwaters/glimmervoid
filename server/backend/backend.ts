@@ -84,6 +84,7 @@ import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLau
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionPreviews } from '../session/session-previews.ts';
 import { createCodemapService } from '../codemap/codemap-wiring.ts';
+import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
@@ -326,7 +327,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
     projectOf: (sessionId) => getSessionAny(sessionId)?.path ?? null,
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
+    codemapNoticeOf: (project) => codemap.noticeOf(project),
   });
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config) });
   const reviews = createReviewWiring({
     reviewsRoot: configSiblingPath(configStore.configPath, REVIEWS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -520,7 +523,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     fileClaims,
     sessionPreviews,
     verification,
-    codemap: createCodemapService({ detectDefaultBranch: assembledGitWorkspace.detectDefaultBranch, whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json') }),
+    codemap,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -566,6 +569,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);
+    codemap.attachSession(session);
     agentApi?.watchSessionWakes(session);
     secretsWiring.seedSessionMasks(session);
   }

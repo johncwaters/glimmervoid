@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
 
-import type { AgentCodemapReply, AgentCodemapRequest, CodemapStatus } from '../../shared/contracts/codemap.ts';
+import type { AgentCodemapReply, AgentCodemapRequest, CodemapExtract, CodemapExtractBase, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
@@ -9,21 +9,35 @@ import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { runGit } from '../git/git-exec.ts';
-import { buildCodemapModel, CODEMAP_TUNABLES, impactOf, mapBoardOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { buildCodemapModel, CODEMAP_TUNABLES, codemapNoticeOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
 
 interface CodemapRepo {
   repoDir: string;
-  mainlineBranch: string | null;
 }
 
 interface RepoMapState {
   model: CodemapModel | null;
+  extractBase: CodemapExtractBase | null;
   failure: { sha: string; reason: string; retryAtMs: number } | null;
-  drawnSha: string | null;
+  latestStatus: CodemapStatus | null;
+  drawnModelSha: string | null;
+  drawnStatusKey: string | null;
   drawRetryAtMs: number;
+  startedCheckCount: number;
+  appliedCheckNumber: number;
+  refreshesInFlight: number;
+}
+
+interface MappedSession {
+  path: string;
+  on(event: 'commits-landed', listener: (landed: { repoDir: string }) => void): unknown;
+}
+
+function extractBaseOf(extract: CodemapExtract): CodemapExtractBase {
+  return { sha: extract.sha, paths: extract.paths, specifiersByIndex: extract.specifiersByIndex, exportedNamesByIndex: extract.exportedNamesByIndex };
 }
 
 const MapBoardIds = z.record(z.string(), z.string());
@@ -58,6 +72,7 @@ interface CodemapServiceOptions {
   detectDefaultBranch?: DefaultBranchDetector;
   whiteboards?: MapBoards | null;
   mapBoardIdsFilePath?: string | null;
+  configuredMainlineBranch?: () => string | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -82,7 +97,7 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, logger = console }: CodemapServiceOptions = {}) {
   const drawingByRepoDir = new Map<string, Promise<boolean>>();
   const mapBoardIdByRepoDir = new Map<string, string>();
   const mapBoardIdStore = createJsonStateStore({
@@ -117,23 +132,24 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return rememberMapBoard(repoDir, createdBoardId);
   }
 
-  async function drawMapBoard(boards: MapBoards, repoDir: string, model: CodemapModel): Promise<void> {
+  async function drawMapBoard(boards: MapBoards, repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus): Promise<void> {
     const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
     const boardId = await mapBoardIdOf(boards, repoDir);
     const read = await boards.readPlanBoard(caller, boardId);
     if (!read.ok) throw new Error(`the map board could not be read: ${JSON.stringify(read.reply.body)}`);
     const existingKindById = new Map([...read.board.elements].map(([id, element]) => [id, element.kind]));
-    for (const ops of chunkedBySize(OpList.parse(mapBoardOpsOf(model, existingKindById)))) {
+    const rawOps = [...(changedModel ? mapBoardOpsOf(changedModel, existingKindById) : []), ...mapStampOpsOf(status, existingKindById)];
+    for (const ops of chunkedBySize(OpList.parse(rawOps))) {
       const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops });
       if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
     }
   }
 
-  function redrawMapBoard(repoDir: string, model: CodemapModel): Promise<boolean> {
+  function redrawMapBoard(repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus): Promise<boolean> {
     if (!whiteboards) return Promise.resolve(true);
     const boards = whiteboards;
     const previous = drawingByRepoDir.get(repoDir) ?? Promise.resolve(true);
-    const drawing = previous.then(() => drawMapBoard(boards, repoDir, model)).then(() => true, (error: unknown) => {
+    const drawing = previous.then(() => drawMapBoard(boards, repoDir, changedModel, status)).then(() => true, (error: unknown) => {
       logger.warn(`[codemap] the map board of ${repoDir} was not redrawn: ${errorMessage(error)}`);
       return false;
     });
@@ -141,17 +157,21 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return drawing;
   }
 
-  async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, model: CodemapModel): Promise<void> {
-    if (state.drawnSha === model.sha || clock.nowMs() < state.drawRetryAtMs) return;
-    if (await redrawMapBoard(repoDir, model)) {
-      state.drawnSha = model.sha;
+  async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, status: CodemapStatus): Promise<void> {
+    const statusKey = JSON.stringify(status);
+    const changedModel = state.model && state.drawnModelSha !== state.model.sha ? state.model : null;
+    if (!changedModel && state.drawnStatusKey === statusKey) return;
+    if (clock.nowMs() < state.drawRetryAtMs) return;
+    if (await redrawMapBoard(repoDir, changedModel, status)) {
+      state.drawnModelSha = state.model?.sha ?? state.drawnModelSha;
+      state.drawnStatusKey = statusKey;
       return;
     }
     state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;
   }
 
-  async function mainlineShaOf({ repoDir, mainlineBranch }: CodemapRepo): Promise<string | null> {
-    const branch = mainlineBranch ?? await detectDefaultBranch({ projectPath: repoDir });
+  async function mainlineShaOf({ repoDir }: CodemapRepo): Promise<string | null> {
+    const branch = configuredMainlineBranch() ?? await detectDefaultBranch({ projectPath: repoDir });
     if (!branch) return revParse(repoDir, 'HEAD');
     return await revParse(repoDir, `refs/remotes/origin/${branch}`) ?? await revParse(repoDir, `refs/heads/${branch}`) ?? revParse(repoDir, 'HEAD');
   }
@@ -161,7 +181,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   function stateOf(repoDir: string): RepoMapState {
     const known = stateByRepoDir.get(repoDir);
     if (known) return known;
-    const created: RepoMapState = { model: null, failure: null, drawnSha: null, drawRetryAtMs: 0 };
+    const created: RepoMapState = { model: null, extractBase: null, failure: null, latestStatus: null, drawnModelSha: null, drawnStatusKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
     stateByRepoDir.set(repoDir, created);
     return created;
   }
@@ -173,22 +193,58 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   }
 
   async function currentMap(repo: CodemapRepo): Promise<CurrentMap | { error: string }> {
+    const state = stateOf(repo.repoDir);
+    state.startedCheckCount += 1;
+    const checkNumber = state.startedCheckCount;
     const mainlineSha = await mainlineShaOf(repo);
     if (!mainlineSha) return { error: `${repo.repoDir} has no commit to map; the code map needs a git repository with a mainline commit` };
-    const state = stateOf(repo.repoDir);
     const isFailureFresh = state.failure?.sha === mainlineSha && clock.nowMs() < state.failure.retryAtMs;
-    if (state.model?.sha === mainlineSha) await keepMapBoardDrawn(state, repo.repoDir, state.model);
-    if (state.model?.sha === mainlineSha || isFailureFresh) return { model: state.model, status: statusOf(state, mainlineSha) };
+    if (state.model?.sha !== mainlineSha && !isFailureFresh) await advanceMap(state, repo.repoDir, mainlineSha, checkNumber);
+    if (checkNumber < state.appliedCheckNumber && state.latestStatus) return { model: state.model, status: state.latestStatus };
+    state.appliedCheckNumber = checkNumber;
+    const status = statusOf(state, mainlineSha);
+    state.latestStatus = status;
+    await keepMapBoardDrawn(state, repo.repoDir, status);
+    return { model: state.model, status };
+  }
+
+  async function advanceMap(state: RepoMapState, repoDir: string, mainlineSha: string, checkNumber: number): Promise<void> {
     try {
-      const model = buildCodemapModel(await client.extract(repo.repoDir, mainlineSha));
-      state.model = model;
+      const extract = await client.extract(repoDir, mainlineSha, state.extractBase);
+      if (checkNumber < state.appliedCheckNumber) return;
+      state.appliedCheckNumber = checkNumber;
+      state.model = buildCodemapModel(extract);
+      state.extractBase = extractBaseOf(extract);
       state.failure = null;
       state.drawRetryAtMs = 0;
-      await keepMapBoardDrawn(state, repo.repoDir, model);
     } catch (error) {
+      if (checkNumber < state.appliedCheckNumber) return;
+      state.appliedCheckNumber = checkNumber;
       state.failure = { sha: mainlineSha, reason: errorMessage(error), retryAtMs: clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs };
+      state.drawRetryAtMs = 0;
     }
-    return { model: state.model, status: statusOf(state, mainlineSha) };
+  }
+
+  function refresh(session: MappedSession): void {
+    const state = stateOf(session.path);
+    state.refreshesInFlight += 1;
+    void currentMap({ repoDir: session.path }).catch((error: unknown) => {
+      logger.warn(`[codemap] the map of ${session.path} was not refreshed: ${errorMessage(error)}`);
+    }).finally(() => {
+      state.refreshesInFlight -= 1;
+    });
+  }
+
+  function attachSession(session: MappedSession): void {
+    refresh(session);
+    session.on('commits-landed', () => refresh(session));
+  }
+
+  function noticeOf(repoDir: string): string | null {
+    const state = stateByRepoDir.get(repoDir);
+    if (state?.latestStatus) return codemapNoticeOf(path.basename(repoDir), state.latestStatus);
+    if (state && state.refreshesInFlight > 0) return `Code map of ${path.basename(repoDir)} is being built; read it with codemap map.`;
+    return null;
   }
 
   async function handle(repo: CodemapRepo, request: AgentCodemapRequest): Promise<CodemapOutcome> {
@@ -202,7 +258,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: answer.text, status: map.status } };
   }
 
-  return { handle };
+  return { handle, attachSession, noticeOf };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

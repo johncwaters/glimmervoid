@@ -5,13 +5,14 @@ import { z } from 'zod';
 
 import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { isSourcePath, readImportsMap } from '../change-map/core/change-map-core.ts';
 import { buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers } from '../core/import-graph-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
 import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 
-const ExtractRequest = z.strictObject({ repoDir: z.string().min(1), sha: z.string().regex(/^[0-9a-f]{40}$/) });
+const ExtractRequest = z.strictObject({ repoDir: z.string().min(1), sha: z.string().regex(/^[0-9a-f]{40}$/), base: CodemapExtractBase.nullable() });
 
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
@@ -77,6 +78,24 @@ async function readTsconfigs(repoDir: string, entries: readonly TreeEntry[]): Pr
   return configsByPath;
 }
 
+interface FileScan {
+  specifiers: string[];
+  exportedNames: string[];
+}
+
+function scanOf(repoPath: string, sourceText: string): FileScan {
+  if (repoPath.endsWith('.py')) return { specifiers: extractPythonImportSpecifiers(sourceText), exportedNames: [] };
+  return { specifiers: extractImportSpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
+}
+
+async function reusableScansOf(repoDir: string, base: CodemapExtractBase | null, sha: string): Promise<Map<string, FileScan>> {
+  if (!base) return new Map();
+  const changed = await execFileAsync('git', ['diff', '--name-only', '--relative', '-z', '--no-renames', base.sha, sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES })
+    .then(({ stdout }) => new Set(stdout.split(String.fromCharCode(0)).filter(Boolean)), () => null);
+  if (!changed) return new Map();
+  return new Map(base.paths.flatMap((repoPath, index) => (changed.has(repoPath) ? [] : [[repoPath, { specifiers: base.specifiersByIndex[index] ?? [], exportedNames: base.exportedNamesByIndex[index] ?? [] }] as const])));
+}
+
 async function assertFullClone(repoDir: string): Promise<void> {
   const promisorSettings = await execFileAsync('git', ['config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV }).then(({ stdout }) => stdout.trim(), () => '');
   if (promisorSettings) throw new Error(`${repoDir} is a partial clone; the code map reads every source file at the mainline commit and does not fetch missing ones`);
@@ -115,23 +134,24 @@ function readBlobs(repoDir: string, objectIds: readonly string[]): Promise<strin
   });
 }
 
-async function extract(repoDir: string, sha: string, markPhase: (phase: string) => void) {
+async function extract(repoDir: string, sha: string, base: CodemapExtractBase | null, markPhase: (phase: string) => void) {
   await assertFullClone(repoDir);
   const { stdout: treeText } = await execFileAsync('git', ['ls-tree', '-r', '-z', '--long', sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES });
   const entries = parseTree(treeText);
   const { kept: sourceEntries, skipped } = partitionByBudget(entries.filter((entry) => isSourcePath(entry.repoPath)));
   const skippedPaths = skipped.map((entry) => entry.repoPath).sort();
   markPhase('list tree');
+  const reusableScans = await reusableScansOf(repoDir, base, sha);
   const packageJsonEntry = entries.find((entry) => entry.repoPath === 'package.json' && entry.sizeBytes <= CODEMAP_TUNABLES.maxFileBytes);
-  const textByPath = await readTextsByPath(repoDir, packageJsonEntry ? [...sourceEntries, packageJsonEntry] : sourceEntries);
+  const unscannedEntries = sourceEntries.filter((entry) => !reusableScans.has(entry.repoPath));
+  const textByPath = await readTextsByPath(repoDir, packageJsonEntry ? [...unscannedEntries, packageJsonEntry] : unscannedEntries);
   const configsByPath = await readTsconfigs(repoDir, entries);
-  markPhase('read blobs');
+  markPhase(`read blobs (${unscannedEntries.length} changed, ${sourceEntries.length - unscannedEntries.length} reused)`);
   const paths = sourceEntries.map((entry) => entry.repoPath).sort();
-  const specifiersByPath = new Map(paths.map((repoPath) => {
-    const sourceText = textByPath.get(repoPath) ?? '';
-    return [repoPath, repoPath.endsWith('.py') ? extractPythonImportSpecifiers(sourceText) : extractImportSpecifiers(sourceText)];
-  }));
-  const exportedNamesByIndex = paths.map((repoPath) => (repoPath.endsWith('.py') ? [] : extractExportedNames(textByPath.get(repoPath) ?? '')));
+  const scans = paths.map((repoPath) => reusableScans.get(repoPath) ?? scanOf(repoPath, textByPath.get(repoPath) ?? ''));
+  const specifiersByIndex = scans.map((scan) => scan.specifiers);
+  const exportedNamesByIndex = scans.map((scan) => scan.exportedNames);
+  const specifiersByPath = new Map(paths.map((repoPath, index) => [repoPath, specifiersByIndex[index] ?? []]));
   markPhase('scan imports');
   const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath) });
   const indexByPath = new Map(paths.map((repoPath, index) => [repoPath, index]));
@@ -148,7 +168,7 @@ async function extract(repoDir: string, sha: string, markPhase: (phase: string) 
     }
   }
   markPhase('resolve graph');
-  return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), exportedNamesByIndex, skippedPaths };
+  return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), specifiersByIndex, exportedNamesByIndex, skippedPaths };
 }
 
 function serve(): void {
@@ -167,7 +187,7 @@ function serve(): void {
       port?.postMessage({ phase, elapsedMs: now - previousPhaseAt, heapBytes: heapUsed, rssBytes: rss });
       previousPhaseAt = now;
     }
-    extract(parsed.data.repoDir, parsed.data.sha, markPhase).then(
+    extract(parsed.data.repoDir, parsed.data.sha, parsed.data.base, markPhase).then(
       (extracted) => port.postMessage({ ok: true, extract: extracted }, [extracted.importerIndexes.buffer, extracted.importedIndexes.buffer]),
       (error: unknown) => port.postMessage({ ok: false, error: errorMessage(error) }),
     );

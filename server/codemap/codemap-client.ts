@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
 
 import { CodemapExtract } from '../../shared/contracts/codemap.ts';
+import type { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { codemapWorkerPath } from '../runtime-paths.ts';
 
@@ -14,13 +15,13 @@ const ExtractReply = z.union([
 ]);
 
 interface CodemapClient {
-  extract(repoDir: string, sha: string): Promise<CodemapExtract>;
+  extract(repoDir: string, sha: string, base?: CodemapExtractBase | null): Promise<CodemapExtract>;
 }
 
 function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: ExtractPhase) => void } = {}): CodemapClient {
   const runningByKey = new Map<string, Promise<CodemapExtract>>();
 
-  function runWorker(repoDir: string, sha: string): Promise<CodemapExtract> {
+  function runWorker(repoDir: string, sha: string, base: CodemapExtractBase | null): Promise<CodemapExtract> {
     return new Promise((resolve, reject) => {
       const worker = new Worker(codemapWorkerPath, { resourceLimits: { maxOldGenerationSizeMb: CODEMAP_TUNABLES.workerHeapMb } });
       let isSettled = false;
@@ -52,15 +53,15 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
       });
       worker.on('error', (error: unknown) => settle(() => reject(error instanceof Error ? error : new Error(String(error)))));
       worker.on('exit', (exitCode) => settle(() => reject(new Error(`the code map worker stopped with exit code ${exitCode}`))));
-      worker.postMessage({ repoDir, sha });
+      worker.postMessage({ repoDir, sha, base });
     });
   }
 
-  function extract(repoDir: string, sha: string): Promise<CodemapExtract> {
+  function extract(repoDir: string, sha: string, base: CodemapExtractBase | null = null): Promise<CodemapExtract> {
     const key = `${repoDir}\n${sha}`;
     const running = runningByKey.get(key);
     if (running) return running;
-    const started = runWorker(repoDir, sha).finally(() => runningByKey.delete(key));
+    const started = runWorker(repoDir, sha, base).finally(() => runningByKey.delete(key));
     runningByKey.set(key, started);
     return started;
   }

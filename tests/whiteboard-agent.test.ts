@@ -2253,7 +2253,7 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal(removed.status, 200);
 });
 
-test('the code map board keeps a moved box and a note wired to it across regenerations, and refuses an agent any other change to a codemap element', async () => {
+test('the code map board keeps a moved box and a note wired to it across regenerations, stamps the mapped sha, and refuses an agent any other change to a codemap element', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'codemap-board-'));
   const repoDir = path.join(boardsRoot, 'mapped');
   const writeSource = (repoPath: string, text: string) => {
@@ -2271,7 +2271,7 @@ test('the code map board keeps a moved box and a note wired to it across regener
   const wiring = createWhiteboardWiring({ boardsRoot });
   const codemap = createCodemapService({ whiteboards: wiring });
   const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
-  await codemap.handle({ repoDir, mainlineBranch: null }, { sub: 'map' });
+  await codemap.handle({ repoDir }, { sub: 'map' });
   const firstRead = await wiring.readPlanBoard(reader, 'Code map: mapped');
   assert.ok(firstRead.ok);
   const boardId = firstRead.board.id;
@@ -2288,7 +2288,8 @@ test('the code map board keeps a moved box and a note wired to it across regener
 
   writeSource('tools/build.ts', "import { part0 } from '../lib/part0.ts';\nexport const built = part0;");
   await commitAll();
-  await codemap.handle({ repoDir, mainlineBranch: null }, { sub: 'map' });
+  const remapped = await codemap.handle({ repoDir }, { sub: 'map' });
+  const remappedSha = remapped.ok ? remapped.reply.status.sha ?? '' : '';
   const secondRead = await wiring.readPlanBoard(reader, boardId);
   assert.ok(secondRead.ok);
   const elements = secondRead.board.elements;
@@ -2296,6 +2297,7 @@ test('the code map board keeps a moved box and a note wired to it across regener
   assert.deepEqual(movedBox?.kind === 'box' ? movedBox.place : null, { at: { x: 900, y: 900 } });
   assert.equal(elements.get('lib-note-wire')?.kind, 'wire');
   assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === 'tools'));
+  assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === `Map at ${remappedSha.slice(0, 7)}: current`));
 });
 
 test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {

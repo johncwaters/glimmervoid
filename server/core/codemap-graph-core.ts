@@ -308,7 +308,7 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
   const wires = [...model.edgesByModule.values()].flat().map((edge) => ({
     kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOf(edge.from), to: moduleBoxIdOf(edge.to), label: `${edge.fileImports}`,
   }));
-  const producedIds = new Set([...boxes, ...wires].map((element) => element.id));
+  const producedIds = new Set([STAMP_BOX_ID, ...[...boxes, ...wires].map((element) => element.id)]);
   const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.map) && !producedIds.has(id));
   const staleWireRemovals = staleIds.filter((id) => existingKindById.get(id) === 'wire').map((id) => ({ op: 'remove', id }));
   const staleBoxRemovals = staleIds.filter((id) => existingKindById.get(id) !== 'wire').map((id) => ({ op: 'remove', id }));
@@ -316,5 +316,28 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
   return [...staleWireRemovals, ...staleBoxRemovals, ...writes];
 }
 
-export { buildCodemapModel, impactOf, mapBoardOpsOf, mapTextOf, whereOf };
+const STAMP_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'map stamp', String.fromCharCode(0));
+const STAMP_TONE_BY_STATE: Record<CodemapStatus['state'], string> = { current: 'green', behind: 'yellow', failed: 'pink' };
+
+function stampLinesOf(status: CodemapStatus): { text: string }[] {
+  const lines = [{ text: `mainline is ${shortSha(status.mainlineSha)}` }];
+  if (status.reason) lines.push({ text: status.reason.slice(0, WHITEBOARD_LIMITS.line) });
+  return lines;
+}
+
+function mapStampOpsOf(status: CodemapStatus, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
+  const stamp = {
+    kind: 'box', id: STAMP_BOX_ID, title: `Map at ${shortSha(status.sha)}: ${status.state}`, lines: stampLinesOf(status), tone: STAMP_TONE_BY_STATE[status.state],
+    place: { at: { x: 0, y: -MAP_BOX_SPACING.y } },
+  };
+  return [existingKindById.has(STAMP_BOX_ID) ? { op: 'set', id: STAMP_BOX_ID, fields: fieldsToRefresh(stamp) } : { op: 'add', element: stamp }];
+}
+
+function codemapNoticeOf(repoName: string, status: CodemapStatus): string {
+  const mapAt = `Code map of ${repoName} at ${shortSha(status.sha)}`;
+  if (status.state === 'failed') return `${mapAt}, the last run failed: ${status.reason ?? 'no reason given'}; codemap map shows the last good map.`;
+  return `${mapAt}, ${status.state} (mainline is ${shortSha(status.mainlineSha)}); read it with codemap map.`;
+}
+
+export { buildCodemapModel, codemapNoticeOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel };

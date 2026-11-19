@@ -149,6 +149,7 @@ interface WhiteboardWiringOptions {
   codeContextOf?: (sessionId: string) => CodeContext | null;
   projectOf?: (sessionId: string) => string | null;
   onBoardNamedProvisionally?: (naming: ProvisionalBoardNaming) => void;
+  codemapNoticeOf?: (project: string) => string | null;
 }
 
 interface ProvisionalBoardNaming {
@@ -287,7 +288,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {},
+  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const linkedFolderKeeperIdByKey = new Map<string, string>();
@@ -1170,7 +1171,8 @@ function createWhiteboardWiring({
     const projectBoardsLine = isFirstPrompt && sessionProject !== null ? projectBoardsNoticeFor(recordsByBoardId.values(), { sessionId, project: sessionProject }, now()) : null;
     const notice = boardNoticeFor([...recordsByBoardId.values()], sessionId, announcedVersionByBoardId);
     for (const { boardId, version } of notice?.announced ?? []) announcedVersionByBoardId.set(boardId, version);
-    const lines = [takeAttachedBoardLine(sessionId), projectBoardsLine, notice?.text ?? null].filter((line) => line !== null);
+    const codemapLine = isFirstPrompt && sessionProject !== null ? codemapNoticeOf(sessionProject) : null;
+    const lines = [takeAttachedBoardLine(sessionId), projectBoardsLine, codemapLine, notice?.text ?? null].filter((line) => line !== null);
     return lines.length === 0 ? null : lines.join('\n');
   }
 
