@@ -505,12 +505,9 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   await pressInEmptyComposer(page, '2');
-  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
-  assert.equal(await composer.inputValue(), '2', 'a digit typed into the composer stays a digit and never accepts');
-  await composer.fill('');
-  await panel.focus();
-  await page.keyboard.press('2');
   await waitForTurnRunning(page, true);
+  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  assert.equal(await composer.inputValue(), '', 'a 2 in the empty composer accepts instead of typing');
   await waitForOutboxEmpty(page);
   await verifySpawnedChildDoneMeans(page);
 }

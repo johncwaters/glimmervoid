@@ -148,13 +148,6 @@ const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) =
 const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const READY_DONE_PANEL_SELECTOR = '.chat-done:not([hidden])[data-keys-ready]';
-const DONE_PANEL_COMPOSER_KEY = 'Enter';
-
-function isComposerFocused(root: HTMLElement): boolean {
-  const focused = document.activeElement;
-  return focused instanceof HTMLTextAreaElement && root.contains(focused);
-}
-
 const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
 
 function isFocusOnOtherControl(): boolean {
@@ -180,7 +173,6 @@ function chatKeyTargetOf(root: HTMLElement, key: string): { target: HTMLElement;
   if (root.querySelector(UNANSWERED_CARD_SELECTOR)) return null;
   const donePanel = root.querySelector<HTMLElement>(READY_DONE_PANEL_SELECTOR);
   if (!donePanel?.querySelector('.chat-done-foot')) return null;
-  if (key !== DONE_PANEL_COMPOSER_KEY && isComposerFocused(root)) return null;
   const panelTarget = keyTargetOf(donePanel, key);
   if (!panelTarget) return null;
   return { target: panelTarget, heldSelector: READY_DONE_PANEL_SELECTOR };
