@@ -10,6 +10,7 @@ import { FULL_MIN_SCALE, TITLES_MIN_SCALE } from '#shared/whiteboard-tile-core.t
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
+import type { LinkedIds } from '#shared/whiteboard-board-index.ts';
 import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import type { BlockTile } from './board-tile-store.ts';
@@ -68,8 +69,11 @@ interface BoardRenderer {
   setReviewMarks(marks: ReviewMarks): void;
   setWireTarget(boxId: string | null): void;
   setHover(boxId: string | null): void;
+  setLinkResolver(resolve: (selectedBoxIds: readonly string[]) => LinkedIds): void;
   clear(): void;
 }
+
+const NO_LINKED_IDS: LinkedIds = { wireIds: [], boxIds: [] };
 
 interface RendererOptions {
   canvas: HTMLCanvasElement;
@@ -599,6 +603,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let reviewMarks = NO_REVIEW_MARKS;
   let wireTargetId: string | null = null;
   let hoveredBoxId: string | null = null;
+  let resolveLinkedIds: (selectedBoxIds: readonly string[]) => LinkedIds = () => NO_LINKED_IDS;
   let frameRequest: number | null = null;
   let isGatherDirty = true;
   let gatheredArea: Rect | null = null;
@@ -862,6 +867,21 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return pressed ? { id: handleArea.boxId, kind: 'box', part: 'resize', lineIndex: null, port: null, media: null, handle: pressed.handle, end: null, bend: null } : null;
   }
 
+  function linkedDecorationsOf(current: GlScene): Decoration[] {
+    const selectedBoxIds = [...selectedIds].filter((elementId) => elementOf(current, elementId)?.kind === 'box');
+    if (selectedBoxIds.length === 0) return [];
+    const linked = resolveLinkedIds(selectedBoxIds);
+    const wireDecorations = linked.wireIds.flatMap((wireId): Decoration[] => {
+      const wire = elementOf(current, wireId);
+      return wire?.kind === 'wire' ? [{ kind: 'linked-wire', wire }] : [];
+    });
+    const boxDecorations = linked.boxIds.flatMap((boxId): Decoration[] => {
+      const box = elementOf(current, boxId);
+      return box?.kind === 'box' ? [{ kind: 'linked-box', box }] : [];
+    });
+    return [...wireDecorations, ...boxDecorations];
+  }
+
   function selectedWiresOf(current: GlScene): Extract<LaidOutElement, { kind: 'wire' }>[] {
     return [...selectedIds].flatMap((elementId) => {
       const element = elementOf(current, elementId);
@@ -889,7 +909,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function decorations(current: GlScene): Decoration[] {
-    const listed: Decoration[] = [];
+    const listed: Decoration[] = preview ? [] : linkedDecorationsOf(current);
     for (const elementId of reviewMarks.flaggedStepIds) {
       const element = elementOf(current, elementId);
       if (element) listed.push({ kind: 'flagged', element });
@@ -1749,6 +1769,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     setWireTarget: (boxId) => {
       if (wireTargetId === boxId) return;
       wireTargetId = boxId;
+      refreshDecorations();
+    },
+    setLinkResolver: (resolve) => {
+      resolveLinkedIds = resolve;
       refreshDecorations();
     },
     setHover: (boxId) => {

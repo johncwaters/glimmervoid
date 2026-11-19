@@ -165,6 +165,27 @@ function emptyIndex(): BoardIndex {
   return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set(), linkedBoxIds: new Set(), wireCountByStyleSlot: WIRE_STYLES.map(() => 0), boxCountByChangeSlot: BOX_CHANGES.map(() => 0), asideBoxCount: 0 };
 }
 
+interface LinkedIds {
+  wireIds: string[];
+  boxIds: string[];
+}
+
+function linkedIdsOf(elements: Board['elements'], selectedBoxIds: readonly string[]): LinkedIds {
+  const { dependentIdsByBoxId } = boardIndexOf(elements);
+  const selected = new Set(selectedBoxIds);
+  const wireIds = new Set<string>();
+  const boxIds = new Set<string>();
+  for (const boxId of selectedBoxIds) {
+    for (const dependentId of dependentIdsByBoxId.get(boxId) ?? []) {
+      const wire = elements.get(dependentId);
+      if (wire?.kind !== 'wire') continue;
+      wireIds.add(wire.id);
+      for (const endBoxId of boxIdsOfWire(wire)) if (!selected.has(endBoxId)) boxIds.add(endBoxId);
+    }
+  }
+  return { wireIds: [...wireIds], boxIds: [...boxIds] };
+}
+
 function boardIndexOf(elements: Board['elements']): BoardIndex {
   const known = indexByElements.get(elements);
   if (known) return known;
@@ -254,4 +275,5 @@ function assetIdsOf(board: Board): Set<string> {
   return new Set(boardIndexOf(board.elements).assetRefCount.keys());
 }
 
-export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement, usedBoxChangesOf, usedWireStylesOf };
+export type { LinkedIds };
+export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, linkedIdsOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement, usedBoxChangesOf, usedWireStylesOf };

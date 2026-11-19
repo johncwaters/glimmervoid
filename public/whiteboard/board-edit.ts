@@ -16,7 +16,7 @@ import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
-import { boardIndexOf } from '#shared/whiteboard-board-index.ts';
+import { boardIndexOf, linkedIdsOf } from '#shared/whiteboard-board-index.ts';
 import { carriedWiresOf, centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf, shiftedWireOpOf } from './board-clipboard-core.ts';
 import type { BoardClipboard } from './board-clipboard-core.ts';
 import { rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
@@ -301,6 +301,10 @@ function unitsPerPixelShowing(area: { width: number; height: number }, canvasWid
 
 export function createBoardEditor(options: BoardEditorOptions) {
   const { viewport, world, svg, canvas, renderer } = options;
+  renderer.setLinkResolver((selectedBoxIds) => {
+    const board = options.currentBoard();
+    return board ? linkedIdsOf(board.elements, selectedBoxIds) : { wireIds: [], boxIds: [] };
+  });
   const activePointers = new Map<number, ViewPoint>();
   let selectedIds = new Set<string>();
   let lastPointerClient: ViewPoint | null = null;

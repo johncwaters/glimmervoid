@@ -129,6 +129,8 @@ const CHAR_WIDTH_EM = MONO_CHAR_WIDTH / 12;
 const LABEL_HALO_PAD = 3;
 const CORNER_STEPS = 4;
 const ALWAYS = 0;
+const LINKED_WIRE_WIDTH = 1.8;
+const LINKED_BOX_OUTLINE_WIDTH = 1.6;
 
 const ICON_VIEWBOX_SIZE = 24;
 const ICON_STROKE_UNITS = 2;
@@ -663,7 +665,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
 }
 
-type Decoration = { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind !== 'box' || element.angle === 0) {
@@ -730,6 +732,14 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
   const { palette, glyphs } = context;
   const part = createPart();
   for (const decoration of decorations) {
+    if (decoration.kind === 'linked-wire') {
+      pushPolyline(part, drawnWirePoints(decoration.wire, pointsOfPath(decoration.wire.path)), LINKED_WIRE_WIDTH, palette.accent, SOLID, ALWAYS);
+      continue;
+    }
+    if (decoration.kind === 'linked-box') {
+      outlineDecoration(part, decoration.box, palette.ink, LINKED_BOX_OUTLINE_WIDTH);
+      continue;
+    }
     if (decoration.kind === 'selected' || decoration.kind === 'wire-target') {
       outlineDecoration(part, decoration.element, palette.accent, 2.4);
       continue;
