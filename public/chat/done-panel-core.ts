@@ -1,4 +1,4 @@
-import type { CheckOutcome, VerificationRun } from '#shared/contracts/verification.ts';
+import type { CheckOutcome, RemovedTestLine, VerificationRun } from '#shared/contracts/verification.ts';
 import type { ChatPhase } from './chat-activity-core.ts';
 
 type DoneLineStatus = 'running' | 'passed' | 'failed' | 'not-checked';
@@ -24,10 +24,25 @@ function checkLineOf(check: CheckOutcome): DoneLine {
   };
 }
 
+const REMOVED_TEST_LINE_VERBS: Record<RemovedTestLine['kind'], string> = { 'removed-assertion': 'removed', 'removed-test': 'removed', 'added-skip': 'added' };
+
+function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[]): DoneLine {
+  const isKept = removedTestLines.length === 0;
+  return {
+    text: 'Keeps every test',
+    status: isKept ? 'passed' : 'failed',
+    proof: isKept ? 'Passed' : 'Failed',
+    isGlimmervoidRan: true,
+    evidence: removedTestLines.map((removed) => `${removed.path}:${removed.line} ${REMOVED_TEST_LINE_VERBS[removed.kind]}: ${removed.text}`).join('\n'),
+  };
+}
+
 function runLinesOf(run: VerificationRun | null): DoneLine[] {
   if (run === null) return [];
   if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '' }];
-  return run.checks.map(checkLineOf);
+  const checkLines = run.checks.map(checkLineOf);
+  if (run.removedTestLines === null) return checkLines;
+  return [...checkLines, testKeepingLineOf(run.removedTestLines)];
 }
 
 function doneMeansLineOf(text: string): DoneLine {

@@ -1248,7 +1248,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-done-means') {
       await verifyChatDoneMeans(viewer.page, projectDirectory);
-      return passedOutcome('chat-done-means', 'turn-end checks end the finished turn with their proof, Enter sends the failed lines back, 2 sends the accept message, and a child spawned with done lines shows them and runs the checks');
+      return passedOutcome('chat-done-means', 'turn-end checks and the Keeps every test scan end the finished turn with their proof, Enter sends the failed lines back, 2 sends the accept message, and a child spawned with done lines shows them and runs the checks');
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);

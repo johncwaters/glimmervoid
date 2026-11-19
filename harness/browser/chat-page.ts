@@ -453,6 +453,9 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
 }
 
 export const DONE_MEANS_UNTRACKED_FILE = 'done-means.txt';
+export const DONE_MEANS_TEST_FILE = 'tests/keeps.test.ts';
+const DONE_MEANS_REMOVED_ASSERTION = 'assert.equal(total, 2);';
+export const DONE_MEANS_KEPT_TEST = `test('adds', () => {\n  ${DONE_MEANS_REMOVED_ASSERTION}\n});\n`;
 
 async function pressInEmptyComposer(page: Page, key: string): Promise<void> {
   await page.locator('.session-chat .chat-done[data-keys-ready]').waitFor({ timeout: CARD_TIMEOUT_MS });
@@ -474,6 +477,7 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
   await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), 'written during the turn\n', 'utf8');
+  await fs.writeFile(path.join(worktreePath, DONE_MEANS_TEST_FILE), DONE_MEANS_KEPT_TEST.replace(`  ${DONE_MEANS_REMOVED_ASSERTION}\n`, ''), 'utf8');
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   const panel = page.locator('.session-chat .chat-done');
@@ -482,7 +486,9 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   assert.match(await failedLine.innerText(), /Glimmervoid ran/i, 'a failed check names who proved it');
   assert.match(await failedLine.locator('.chat-done-evidence').innerText(), new RegExp(DONE_MEANS_UNTRACKED_FILE), 'a failed check shows its output tail');
   assert.equal(await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).count(), 1, 'a passing check reads passed');
-  assert.match(await panel.locator('.chat-done-verdict').innerText(), /1 line failed/, 'the verdict counts the failed lines once the agent finished');
+  const testKeepingLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'Keeps every test' });
+  assert.equal(await testKeepingLine.locator('.chat-done-evidence').innerText(), `${DONE_MEANS_TEST_FILE}:2 removed: ${DONE_MEANS_REMOVED_ASSERTION}`, 'a removed assertion fails Keeps every test, naming file:line and the removed text');
+  assert.match(await panel.locator('.chat-done-verdict').innerText(), /2 lines failed/, 'the verdict counts the failed lines once the agent finished');
   await pressInEmptyComposer(page, 'Enter');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);

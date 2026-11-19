@@ -3,7 +3,8 @@ import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
 import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
-import type { CheckOutcome, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
+import type { CheckOutcome, RemovedTestLine, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
+import { streamRemovedTestLines } from './test-keeping-scan.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -27,6 +28,7 @@ interface VerifiableSession {
   on(event: 'post-turn-check', listener: () => void): unknown;
   worktreeLifecycle: {
     computeGateTree(): Promise<WorktreeTree | null>;
+    snapshot(): { baseSha: string | null };
     setMergeGate(gate: ((tree: WorktreeTree | null) => Promise<StandardsGateVerdict>) | null): void;
   };
 }
@@ -155,15 +157,21 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
   }
 
+  async function scanRemovedTestLines(worktreeDir: string | null, baseSha: string | null): Promise<RemovedTestLine[] | null> {
+    if (!worktreeDir || !baseSha) return null;
+    return streamRemovedTestLines(worktreeDir, baseSha);
+  }
+
   async function runChecks(session: VerifiableSession, settings: VerificationSettings, key: string, sig: string): Promise<VerificationRun> {
     const worktreeDir = session.worktreeDir;
-    publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null });
+    publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null, removedTestLines: null });
     const checks: CheckOutcome[] = [];
     for (const spec of settings.checks) {
       if (!attachedSessionIds.has(session.id)) break;
       checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
     }
-    const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks), checks, finishedAt: clock.nowMs() };
+    const removedTestLines = attachedSessionIds.has(session.id) ? await scanRemovedTestLines(worktreeDir, session.worktreeLifecycle.snapshot().baseSha) : null;
+    const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks), checks, finishedAt: clock.nowMs(), removedTestLines };
     if (!attachedSessionIds.has(session.id)) return run;
     cachedRunBySession.set(session.id, { key, run });
     publish(run);

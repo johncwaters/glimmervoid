@@ -31,14 +31,25 @@ export const CheckOutcome = z.strictObject({
 
 const VERIFICATION_STATUSES = ['running', 'passed', 'failed'] as const;
 
+export const REMOVED_TEST_LINE_LIMIT = 20;
+
+const RemovedTestLine = z.strictObject({
+  path: z.string().min(1),
+  line: z.number().int().min(0),
+  text: z.string().max(200),
+  kind: z.enum(['removed-assertion', 'removed-test', 'added-skip']),
+});
+
 export const VerificationRun = z.strictObject({
   sessionId: z.string().min(1),
   sig: z.string(),
   status: z.enum(VERIFICATION_STATUSES),
   checks: z.array(CheckOutcome).max(VERIFICATION_CHECK_LIMIT),
   finishedAt: z.number().int().nullable(),
+  removedTestLines: z.array(RemovedTestLine).max(REMOVED_TEST_LINE_LIMIT).nullable().default(null),
 });
 
 export type VerificationSettings = z.infer<typeof VerificationSettings>;
 export type CheckOutcome = z.infer<typeof CheckOutcome>;
 export type VerificationRun = z.infer<typeof VerificationRun>;
+export type RemovedTestLine = z.infer<typeof RemovedTestLine>;
