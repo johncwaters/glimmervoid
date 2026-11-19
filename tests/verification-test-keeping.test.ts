@@ -61,6 +61,7 @@ test('Keeps every test reports only net removals and skips, at their real path a
     ephemeral: true,
     ownerId: 'parent',
     agentDoneLines: [],
+    allowedDoneCommands: [] as string[],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -103,6 +104,7 @@ test('the newest turn end decides the verdict: an unreadable tree shows skipped 
     path: repoPath,
     ephemeral: false,
     agentDoneLines: [],
+    allowedDoneCommands: [] as string[],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -147,6 +149,7 @@ test('an agent command waits for the operator, runs once allowed, waits again wh
     path: repoPath,
     ephemeral: false,
     agentDoneLines: [{ text: 'node runs', command: 'node --version' }, { text: 'the README reads well' }],
+    allowedDoneCommands: [] as string[],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event: 'post-turn-check', listener: () => void) => { onTurnEnd = listener; },
@@ -164,7 +167,8 @@ test('an agent command waits for the operator, runs once allowed, waits again wh
   await sleep(500);
   assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 skipped']);
   assert.equal(broadcastRuns.at(-1)?.status, 'passed', 'a waiting agent command leaves the repo checks passed');
-  verification.allowAgentCommands(session, ['node --version']);
+  session.allowedDoneCommands = ['node --version'];
+  verification.runAllowedAgentCommands(session);
   await sleep(1500);
   assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 pass']);
   session.agentDoneLines = [{ text: 'node runs', command: 'node --print 1' }];
@@ -187,6 +191,7 @@ test('a session without its own worktree shows no Allow commands bar for an agen
     path: os.tmpdir(),
     ephemeral: false,
     agentDoneLines,
+    allowedDoneCommands: [] as string[],
     hasOwnWorktree: false,
     worktreeDir: null,
     on: () => {},
@@ -197,7 +202,8 @@ test('a session without its own worktree shows no Allow commands bar for an agen
     },
   };
   verification.attachSession(session);
-  verification.allowAgentCommands(session, ['node --version']);
+  session.allowedDoneCommands = ['node --version'];
+  verification.runAllowedAgentCommands(session);
   await new Promise((resolve) => setTimeout(resolve, 200));
   const latestRun = broadcastRuns.at(-1) ?? null;
   const model = donePanelModelOf({ run: latestRun, doneMeans: [], agentDoneLines, phase: 'quiet' });

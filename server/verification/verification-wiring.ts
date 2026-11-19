@@ -27,6 +27,7 @@ interface VerifiableSession {
   ephemeral: boolean;
   ownerId?: string | null;
   agentDoneLines: readonly { text: string; command?: string }[];
+  allowedDoneCommands: readonly string[];
   hasOwnWorktree: boolean;
   worktreeDir: string | null;
   on(event: 'post-turn-check', listener: () => void): unknown;
@@ -47,7 +48,7 @@ interface VerificationWiringDependencies {
 
 interface VerificationWiring {
   attachSession(session: VerifiableSession): void;
-  allowAgentCommands(session: VerifiableSession, commands: readonly string[]): void;
+  runAllowedAgentCommands(session: VerifiableSession): void;
   latestRun(sessionId: string): VerificationRun | null;
   forgetSession(sessionId: string): void;
   stop(): void;
@@ -139,7 +140,6 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const liveCheckPidsBySession = new Map<string, Set<number>>();
   const attachedSessionIds = new Set<string>();
   const invalidConfigMessageBySession = new Map<string, string | null>();
-  const allowedAgentCommandsBySession = new Map<string, Set<string>>();
 
   function liveCheckPidsOf(sessionId: string): Set<number> {
     const existing = liveCheckPidsBySession.get(sessionId);
@@ -193,10 +193,9 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function agentChecksOf(session: VerifiableSession): AgentCheck[] {
-    const allowedCommands = allowedAgentCommandsBySession.get(session.id);
     return session.agentDoneLines.flatMap((line, index) => {
       if (line.command === undefined) return [];
-      return [{ id: `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}`, command: line.command, isAllowed: allowedCommands?.has(line.command) === true }];
+      return [{ id: `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}`, command: line.command, isAllowed: session.allowedDoneCommands.includes(line.command) }];
     });
   }
 
@@ -294,11 +293,8 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     });
   }
 
-  function allowAgentCommands(session: VerifiableSession, commands: readonly string[]): void {
+  function runAllowedAgentCommands(session: VerifiableSession): void {
     if (!attachedSessionIds.has(session.id)) return;
-    const allowedCommands = allowedAgentCommandsBySession.get(session.id) ?? new Set<string>();
-    for (const command of commands) allowedCommands.add(command);
-    allowedAgentCommandsBySession.set(session.id, allowedCommands);
     verifyAtTurnEnd(session).catch((error: unknown) => {
       dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);
     });
@@ -317,7 +313,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   return {
     attachSession,
-    allowAgentCommands,
+    runAllowedAgentCommands,
     latestRun: (sessionId) => publishedRunBySession.get(sessionId) ?? cachedRunBySession.get(sessionId)?.run ?? null,
     forgetSession: (sessionId) => {
       attachedSessionIds.delete(sessionId);
@@ -326,7 +322,6 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       publishedRunBySession.delete(sessionId);
       turnEndCountBySession.delete(sessionId);
       invalidConfigMessageBySession.delete(sessionId);
-      allowedAgentCommandsBySession.delete(sessionId);
       inFlightBySession.delete(sessionId);
     },
     stop: () => {

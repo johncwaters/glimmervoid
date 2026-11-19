@@ -390,6 +390,10 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on('agent-done-lines-change', ({ agentDoneLines }: { agentDoneLines: readonly AgentDoneLine[] }) => {
       dependencies.broadcastControl({ type: 'session-done-lines', id: session.id, agentDoneLines: [...agentDoneLines] });
+      if (!session.ephemeral) persistProjectField('agentDoneLines', agentDoneLines.length > 0 ? [...agentDoneLines] : undefined);
+    });
+    session.on('allowed-done-commands-change', ({ allowedDoneCommands }: { allowedDoneCommands: readonly string[] }) => {
+      if (!session.ephemeral) persistProjectField('allowedDoneCommands', allowedDoneCommands.length > 0 ? [...allowedDoneCommands] : undefined);
     });
     session.on('pr-links-change', (prLinks: SessionPrLinks) => {
       if (!session.ephemeral) persistProjectField('prLinks', prLinks);

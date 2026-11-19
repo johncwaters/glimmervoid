@@ -105,7 +105,7 @@ interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
   changeMaps?: ChangeMapService;
-  verification?: Pick<VerificationWiring, 'latestRun' | 'allowAgentCommands'> | null;
+  verification?: Pick<VerificationWiring, 'latestRun' | 'runAllowedAgentCommands'> | null;
   sessionReview?: Pick<SessionReviewWiring, 'latest' | 'run'> | null;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;
   sessionWakes?: SessionWakesControl | null;

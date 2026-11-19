@@ -66,9 +66,7 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
     'done-commands-allow': (msg: ClientMessageOf<'done-commands-allow'>) => {
       const s = findSession(msg);
       if (!s) return;
-      const declaredCommands = new Set(s.agentDoneLines.flatMap((line) => (line.command === undefined ? [] : [line.command])));
-      const allowedCommands = msg.commands.filter((command) => declaredCommands.has(command));
-      if (allowedCommands.length > 0) deps.verification?.allowAgentCommands(s, allowedCommands);
+      if (s.allowDoneCommands(msg.commands)) deps.verification?.runAllowedAgentCommands(s);
     },
     'request-session-review': (msg: ClientMessageOf<'request-session-review'>, ws: ControlSocket) => {
       const s = findSession(msg);

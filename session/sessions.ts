@@ -212,6 +212,8 @@ interface SessionOptions {
   spawnCommand?: ResolvedCommand | null;
   initialPrompt?: string | null;
   doneMeans?: readonly string[];
+  agentDoneLines?: readonly AgentDoneLine[];
+  allowedDoneCommands?: readonly string[];
   extraClaudeArgs?: string[];
   agentSetup?: AgentSetup | null;
   ephemeral?: boolean;
@@ -289,6 +291,11 @@ interface ClaudeSessionIdEvent {
 
 function launchSecretEnvOf(plan: LaunchPlan, valuesByName: Readonly<Record<string, string>>): Record<string, string> {
   return Object.fromEntries(Object.entries(plan.secretEnv).map(([envName, secretName]) => [envName, valuesByName[secretName] ?? ""]));
+}
+
+function declaredCommandsAmong(lines: readonly AgentDoneLine[], commands: readonly string[]): string[] {
+  const declaredCommands = new Set(lines.flatMap((line) => (line.command === undefined ? [] : [line.command])));
+  return [...new Set(commands)].filter((command) => declaredCommands.has(command));
 }
 
 class Session extends EventEmitter {
@@ -388,6 +395,7 @@ class Session extends EventEmitter {
   readonly ownerId: string | null;
   readonly doneMeans: readonly string[];
   agentDoneLines: readonly AgentDoneLine[];
+  allowedDoneCommands: readonly string[];
   readonly attentionOwner: AttentionOwner;
   _agentToken: string | null;
   _commitSigningProgram: string | null;
@@ -460,6 +468,8 @@ class Session extends EventEmitter {
 
     initialPrompt = null,
     doneMeans = [],
+    agentDoneLines = [],
+    allowedDoneCommands = [],
     extraClaudeArgs = [],
     agentSetup = null,
     ephemeral = false,
@@ -526,7 +536,8 @@ class Session extends EventEmitter {
     this.id = id;
     this.ownerId = ownerId;
     this.doneMeans = doneMeans;
-    this.agentDoneLines = [];
+    this.agentDoneLines = agentDoneLines.map((line) => ({ ...line }));
+    this.allowedDoneCommands = declaredCommandsAmong(this.agentDoneLines, allowedDoneCommands);
     this.attentionOwner = attentionOwnerOf(ownerId, raceId);
     this.name = name;
     this.customTitle = customTitle || null;
@@ -858,6 +869,20 @@ class Session extends EventEmitter {
   setAgentDoneLines(lines: readonly AgentDoneLine[]): void {
     this.agentDoneLines = lines.map((line) => ({ ...line }));
     this.emit("agent-done-lines-change", { agentDoneLines: this.agentDoneLines });
+    this._replaceAllowedDoneCommands(declaredCommandsAmong(this.agentDoneLines, this.allowedDoneCommands));
+  }
+
+  allowDoneCommands(commands: readonly string[]): boolean {
+    const newlyAllowed = declaredCommandsAmong(this.agentDoneLines, commands).filter((command) => !this.allowedDoneCommands.includes(command));
+    if (newlyAllowed.length === 0) return false;
+    this._replaceAllowedDoneCommands([...this.allowedDoneCommands, ...newlyAllowed]);
+    return true;
+  }
+
+  _replaceAllowedDoneCommands(next: readonly string[]): void {
+    if (next.length === this.allowedDoneCommands.length && next.every((command, index) => command === this.allowedDoneCommands[index])) return;
+    this.allowedDoneCommands = next;
+    this.emit("allowed-done-commands-change", { allowedDoneCommands: this.allowedDoneCommands });
   }
 
   get linkedPrs(): LinkedPr[] {

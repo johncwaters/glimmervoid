@@ -686,3 +686,42 @@ test('createBackend shutdown stops the race settle check, so a race is never jud
     fs.rmSync(projectDir, { recursive: true, force: true });
   }
 });
+
+test('a session keeps its agent done lines and allowed done commands across a server restart, reading only the well-formed lines it saved', async () => {
+  const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-done-restart-cfg-'));
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-done-restart-proj-'));
+  const cfgPath = path.join(cfgDir, 'config.json');
+  fs.writeFileSync(cfgPath, JSON.stringify({ autoResume: false, checkForUpdates: false, projects: [{ id: 'done-restart', name: 'done-restart', path: projectDir, agentDoneLines: [{ text: 'a line from a newer build', command: 'npm test', timeoutMs: 5000 }, { text: '' }] }], teams: [], repoRoots: [] }, null, 2), 'utf8');
+  const prevEnv = process.env.GLIMMERVOID_CONFIG;
+  const originalSpawn = pty.spawn;
+  process.env.GLIMMERVOID_CONFIG = cfgPath;
+  pty.spawn = () => fakeIPty();
+  const liveBackends = new Set<ReturnType<typeof createBackend>>();
+  const bootBackend = () => { const backend = createBackend(http.createServer(), { staticDir: null }); liveBackends.add(backend); return backend; };
+  const shutDown = async (backend: ReturnType<typeof createBackend>) => { liveBackends.delete(backend); await settleBackendShutdown(backend); };
+  const savedProject = () => JSON.parse(fs.readFileSync(cfgPath, 'utf8')).projects[0];
+  try {
+    const before = bootBackend();
+    const session = before.getSession('done-restart');
+    assert.ok(session);
+    assert.deepEqual(session.agentDoneLines, [{ text: 'a line from a newer build', command: 'npm test' }]);
+    session.setAgentDoneLines([{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'lint passes', command: 'npm run lint' }]);
+    assert.equal(session.allowDoneCommands(['npm test -- login', 'rm -rf /']), true);
+    await waitFor(() => savedProject().allowedDoneCommands?.length === 1);
+    await shutDown(before);
+    const after = bootBackend();
+    const restored = after.getSession('done-restart');
+    assert.deepEqual(restored?.agentDoneLines, [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'lint passes', command: 'npm run lint' }]);
+    assert.deepEqual(restored?.allowedDoneCommands, ['npm test -- login']);
+    restored?.setAgentDoneLines([{ text: 'login tests pass', command: 'npm test -- login --watch=false' }]);
+    await waitFor(() => savedProject().allowedDoneCommands === undefined);
+    assert.deepEqual(restored?.allowedDoneCommands, []);
+  } finally {
+    for (const backend of liveBackends) await settleBackendShutdown(backend);
+    pty.spawn = originalSpawn;
+    if (prevEnv == null) delete process.env.GLIMMERVOID_CONFIG;
+    if (prevEnv != null) process.env.GLIMMERVOID_CONFIG = prevEnv;
+    fs.rmSync(cfgDir, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
