@@ -142,8 +142,10 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"][data-keys-ready]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
-const UNANSWERED_CARD_SELECTOR = '.chat-card[data-resolved="false"]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in'] as const;
+const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
+const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
+const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const READY_DONE_PANEL_SELECTOR = '.chat-done:not([hidden])[data-keys-ready]';
 const DONE_PANEL_COMPOSER_KEY = 'Enter';
 
