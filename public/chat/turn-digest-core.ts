@@ -60,10 +60,6 @@ export function digestTurn(segments: readonly TurnSegment[], toolCount: number):
   return { asked: finalText === undefined ? null : askedOf(finalText), isFoldable: toolCount > 0 || texts.length > 1 };
 }
 
-export function isCollapsedByDefault(turn: { isFoldable: boolean; isNewest: boolean }): boolean {
-  return turn.isFoldable && !turn.isNewest;
-}
-
 function stringField(input: unknown, field: string): string | null {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return null;
   const value: unknown = Reflect.get(input, field);

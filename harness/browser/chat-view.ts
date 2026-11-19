@@ -90,20 +90,23 @@ async function checkTurnKeys(page: Page): Promise<string> {
   const focusedTurnIndex = await page.evaluate(() => [...document.querySelectorAll('.chat-turn')].indexOf(document.activeElement as Element));
   if (focusedTurnIndex !== turnCount - 3) throw new Error(`[ three times focused turn ${focusedTurnIndex}, not ${turnCount - 3}`);
   const turnTopsBefore = await page.locator('.chat-turn').evaluateAll((turns) => turns.map((turn) => turn.getBoundingClientRect().top));
-  const wasCollapsed = await page.evaluate(() => document.activeElement?.hasAttribute('data-collapsed') ?? false);
+  const isOpenNow = () => page.evaluate(() => document.activeElement?.hasAttribute('data-open') ?? false);
+  const wasOpen = await isOpenNow();
   await page.keyboard.press('Space');
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const isCollapsed = await page.evaluate(() => document.activeElement?.hasAttribute('data-collapsed') ?? false);
-  if (wasCollapsed && isCollapsed) throw new Error('Space did not open the focused turn');
+  const isOpen = await isOpenNow();
+  if (isOpen === wasOpen) throw new Error('Space did not flip the focused turn');
   const turnTopsAfter = await page.locator('.chat-turn').evaluateAll((turns) => turns.map((turn) => turn.getBoundingClientRect().top));
   const movedAboveCount = turnTopsBefore.slice(0, focusedTurnIndex + 1).filter((top, index) => Math.abs(top - (turnTopsAfter[index] ?? top)) > 0.5).length;
   if (movedAboveCount > 0) throw new Error(`opening a turn moved ${movedAboveCount} turns at or above it`);
+  await page.keyboard.press('Space');
+  if ((await isOpenNow()) !== wasOpen) throw new Error('a second Space did not flip the focused turn back');
   await page.keyboard.press('b');
   const isBriefOff = await page.evaluate(() => document.documentElement.hasAttribute('data-chat-brief-off'));
   await page.keyboard.press('b');
   const isBriefBack = await page.evaluate(() => !document.documentElement.hasAttribute('data-chat-brief-off'));
   if (!isBriefOff || !isBriefBack) throw new Error('B did not switch Brief off and back on');
-  return `turn keys on a remounted, scrolled Chat: [ stepped to turn ${focusedTurnIndex}, Space ${wasCollapsed ? 'opened' : 'kept open'} it with 0 turns above moving, B switched Brief off and on`;
+  return `turn keys on a remounted, scrolled Chat: [ stepped to turn ${focusedTurnIndex}, Space ${wasOpen ? 'closed' : 'opened'} it with 0 turns above moving and flipped it back, B switched Brief off and on`;
 }
 
 async function captureScreenshot(url: string, screenshotPath: string, executablePath: string | null): Promise<void> {

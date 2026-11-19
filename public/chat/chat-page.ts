@@ -668,7 +668,6 @@ function buildChat(sessionId: string): MountedChat {
     },
     park: () => {
       stopRail();
-      chatView.forgetPaintedTurns();
       draftBySessionId.set(sessionId, chatView.readDraft());
       releaseTerminal();
     },

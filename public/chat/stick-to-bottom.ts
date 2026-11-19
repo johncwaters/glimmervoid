@@ -49,6 +49,7 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   scroller.addEventListener('scroll', () => {
     const hasResized = scroller.clientHeight !== lastClientHeight;
     const scrolledUp = scroller.scrollTop < lastScrollTop - 1;
+    const scrolledDown = scroller.scrollTop > lastScrollTop + 1;
     lastScrollTop = scroller.scrollTop;
     lastClientHeight = scroller.clientHeight;
     if (hasResized && mode === 'following') {
@@ -56,7 +57,7 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
       return;
     }
     const distance = distanceFromBottom(scroller);
-    if (distance <= BOTTOM_THRESHOLD_PX) {
+    if (distance <= BOTTOM_THRESHOLD_PX && (mode === 'following' || scrolledDown || distance <= 1)) {
       receive('reach-bottom');
       return;
     }
@@ -75,7 +76,7 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
     change();
     scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTopBefore;
     lastScrollTop = scroller.scrollTop;
-    if (distanceFromBottom(scroller) > BOTTOM_THRESHOLD_PX) receive('scroll-up');
+    receive(distanceFromBottom(scroller) <= 1 ? 'reach-bottom' : 'scroll-up');
   };
   const followObserver = new ResizeObserver(() => {
     if (mode === 'following') {

@@ -5,8 +5,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
-import { disclosure } from '../ui/disclosure.ts';
-import { digestTurn, isCollapsedByDefault } from './turn-digest-core.ts';
+import { digestTurn } from './turn-digest-core.ts';
 import type { TurnSegment } from './turn-digest-core.ts';
 
 type FlatPartKind = Exclude<ChatPartKind, 'turn'>;
@@ -21,28 +20,24 @@ interface TurnView {
   brief: HTMLElement;
   body: HTMLElement;
   meta: HTMLElement;
+  work: HTMLElement;
   chevron: HTMLButtonElement;
-  renderedSegments: TurnSegment[];
-  segmentElements: HTMLElement[];
+  toolCount: HTMLElement;
+  toolNumber: HTMLElement;
+  toolWord: HTMLElement;
+  currentCall: HTMLElement;
+  segmentKinds: TurnSegment['kind'][];
+  textElements: (HTMLElement | null)[];
   droppedSegmentCount: number;
+  part: TurnPart | null;
   isOver: boolean;
-  wasPaintedRunning: boolean;
-  isFoldable: boolean;
+  hasWork: boolean;
+  isOpen: boolean;
 }
 
 type ToolsSegment = Extract<TurnSegment, { kind: 'tools' }>;
 
-interface ToolLineView {
-  details: HTMLDetailsElement;
-  number: HTMLElement;
-  word: HTMLElement;
-  currentCall: HTMLElement;
-  earlierCalls: HTMLElement;
-  segment: ToolsSegment;
-}
-
 const CHEVRON_ICON_PATH = 'M6 4l4 4-4 4';
-const toolLineViewByElement = new WeakMap<HTMLElement, ToolLineView>();
 
 export function renderAttachmentThumbnail(fileName: string, uploadUrlOf: UploadUrlOf): HTMLElement {
   const thumbnail = el('span', 'chat-prompt-thumbnail');
@@ -81,55 +76,27 @@ function renderTextSegment(text: string): HTMLElement {
   return textElement;
 }
 
-function earlierCallRowsOf(segment: ToolsSegment): HTMLElement[] {
-  const earlierCallRows = segment.labels.slice(0, -1).map((label) => el('div', 'chat-turn-tool-earlier', label));
+function callRowsOf(segment: ToolsSegment): HTMLElement[] {
+  const callRows = segment.labels.map((label) => el('div', 'chat-turn-call', label));
   const unkeptCallCount = segment.callCount - segment.labels.length;
-  if (unkeptCallCount <= 0) return earlierCallRows;
-  return [el('div', 'chat-turn-tool-earlier', `+ ${unkeptCallCount} earlier`), ...earlierCallRows];
+  if (unkeptCallCount <= 0) return callRows;
+  return [el('div', 'chat-turn-call', `+ ${unkeptCallCount} earlier`), ...callRows];
 }
 
-function showToolRun(view: ToolLineView): void {
-  const { details, segment } = view;
-  details.toggleAttribute('data-single', segment.callCount === 1);
-  view.word.textContent = segment.callCount === 1 ? 'tool call' : 'tool calls';
-  view.currentCall.textContent = segment.labels.at(-1) ?? '';
-  if (details.open) view.earlierCalls.replaceChildren(...earlierCallRowsOf(segment));
-}
-
-function renderToolLine(segment: ToolsSegment): HTMLElement {
-  const number = el('span', 'chat-turn-tool-number', String(segment.callCount));
-  const word = el('span', 'chat-turn-tool-word');
-  const count = el('span', 'chat-turn-tool-count');
-  count.append(number, word);
-  const currentCall = el('span', 'chat-turn-tool');
-  const { element: details, summary, body } = disclosure({ summary: [count, currentCall], marker: 'chevron' });
-  details.classList.add('chat-turn-tools');
-  const view: ToolLineView = { details, number, word, currentCall, earlierCalls: body, segment: { ...segment, labels: [...segment.labels] } };
-  summary.addEventListener('click', (event) => {
-    if (view.segment.callCount === 1) event.preventDefault();
+function workRowsOf(part: TurnPart): HTMLElement[] {
+  const replyIndex = part.isOver ? part.segments.findLastIndex((segment) => segment.kind === 'text') : -1;
+  const rows = part.segments.flatMap((segment, index) => {
+    if (index === replyIndex) return [];
+    if (segment.kind === 'tools') return callRowsOf(segment);
+    return part.isOver ? [renderTextSegment(segment.text)] : [];
   });
-  details.addEventListener('toggle', () => {
-    if (details.open) body.replaceChildren(...earlierCallRowsOf(view.segment));
-  });
-  toolLineViewByElement.set(details, view);
-  showToolRun(view);
-  return details;
+  if (part.droppedSegmentCount === 0) return rows;
+  return [el('div', 'chat-turn-call', `+ ${part.droppedSegmentCount} earlier steps`), ...rows];
 }
 
-function tickToolLine(toolLine: HTMLElement, segment: ToolsSegment): void {
-  const view = toolLineViewByElement.get(toolLine);
-  if (!view) return;
-  view.segment = { ...segment, labels: [...segment.labels] };
-  const tickedNumber = el('span', 'chat-turn-tool-number', String(segment.callCount));
-  tickedNumber.setAttribute('data-ticked', '');
-  view.number.replaceWith(tickedNumber);
-  view.number = tickedNumber;
-  showToolRun(view);
-}
-
-function renderSegment(segment: TurnSegment): HTMLElement {
-  if (segment.kind === 'text') return renderTextSegment(segment.text);
-  return renderToolLine(segment);
+function currentCallOf(segments: readonly TurnSegment[]): string {
+  const lastRun = segments.findLast((segment): segment is ToolsSegment => segment.kind === 'tools');
+  return lastRun?.labels.at(-1) ?? '';
 }
 
 function renderAsked(asked: string): HTMLElement {
@@ -157,60 +124,91 @@ function createTurnView(): TurnView {
   const brief = el('div', 'chat-turn-brief');
   const body = el('div', 'chat-turn-body');
   const meta = el('div', 'chat-turn-meta');
+  const work = el('div', 'chat-turn-work');
   const chevron = button({ variant: 'icon', size: 'small', label: 'Turn details', icon: createLineIcon(CHEVRON_ICON_PATH, '1.6') });
   chevron.classList.add('chat-turn-chevron');
-  element.append(body, brief, meta);
-  return { element, brief, body, meta, chevron, renderedSegments: [], segmentElements: [], droppedSegmentCount: 0, isOver: false, wasPaintedRunning: false, isFoldable: false };
+  const toolNumber = el('span', 'chat-turn-tool-number');
+  const toolWord = el('span', 'chat-turn-tool-word');
+  const toolCount = el('span', 'chat-turn-tool-count');
+  toolCount.append(toolNumber, toolWord);
+  const currentCall = el('span', 'chat-turn-tool');
+  element.append(body, brief, meta, work);
+  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, segmentKinds: [], textElements: [], droppedSegmentCount: 0, part: null, isOver: false, hasWork: false, isOpen: false };
 }
 
 function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void {
   const newlyDroppedCount = droppedSegmentCount - view.droppedSegmentCount;
   if (newlyDroppedCount <= 0) return;
-  for (const droppedElement of view.segmentElements.splice(0, newlyDroppedCount)) droppedElement.remove();
-  view.renderedSegments.splice(0, newlyDroppedCount);
+  for (const droppedElement of view.textElements.splice(0, newlyDroppedCount)) droppedElement?.remove();
+  view.segmentKinds.splice(0, newlyDroppedCount);
   view.droppedSegmentCount = droppedSegmentCount;
 }
 
 function syncSegments(view: TurnView, segments: readonly TurnSegment[]): void {
-  segments.forEach((segment, index) => {
-    const rendered = view.renderedSegments[index];
-    const existingElement = view.segmentElements[index];
-    if (rendered?.kind === 'text') return;
-    if (rendered?.kind === 'tools' && segment.kind === 'tools' && existingElement) {
-      if (rendered.callCount === segment.callCount) return;
-      tickToolLine(existingElement, segment);
-      view.renderedSegments[index] = { ...segment };
-      return;
+  for (const segment of segments.slice(view.segmentKinds.length)) {
+    view.segmentKinds.push(segment.kind);
+    if (segment.kind === 'tools') {
+      view.textElements.push(null);
+      continue;
     }
-    const segmentElement = renderSegment(segment);
-    if (existingElement) existingElement.replaceWith(segmentElement);
-    if (!existingElement) view.body.append(segmentElement);
-    view.segmentElements[index] = segmentElement;
-    view.renderedSegments[index] = { ...segment };
-  });
+    const textElement = renderTextSegment(segment.text);
+    view.body.append(textElement);
+    view.textElements.push(textElement);
+  }
+}
+
+function tickToolNumber(view: TurnView, toolCount: number): void {
+  const countText = String(toolCount);
+  if (view.toolNumber.textContent === countText) return;
+  const tickedNumber = el('span', 'chat-turn-tool-number', countText);
+  if (view.toolNumber.textContent !== '') tickedNumber.setAttribute('data-ticked', '');
+  view.toolNumber.replaceWith(tickedNumber);
+  view.toolNumber = tickedNumber;
+}
+
+function showRunningRow(view: TurnView, part: TurnPart): void {
+  view.hasWork = part.toolCount > 0;
+  if (view.toolCount.parentElement !== view.meta) view.meta.replaceChildren(view.chevron, view.toolCount, view.currentCall);
+  tickToolNumber(view, part.toolCount);
+  view.toolWord.textContent = part.toolCount === 1 ? 'tool call' : 'tool calls';
+  view.currentCall.textContent = currentCallOf(part.segments);
+}
+
+function showEndedRow(view: TurnView, part: TurnPart): void {
+  const digest = digestTurn(part.segments, part.toolCount);
+  view.hasWork = digest.isFoldable;
+  view.element.toggleAttribute('data-foldable', digest.isFoldable);
+  view.element.toggleAttribute('data-asks', digest.asked !== null);
+  view.brief.replaceChildren(...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
+  view.meta.replaceChildren(view.chevron, ...metaFieldsOf(part));
+}
+
+function showWork(view: TurnView): void {
+  const isOpen = view.isOpen && view.hasWork && view.part !== null;
+  view.element.toggleAttribute('data-open', isOpen);
+  view.chevron.setAttribute('aria-expanded', String(isOpen));
+  if (!isOpen || view.part === null) {
+    view.work.replaceChildren();
+    return;
+  }
+  view.work.replaceChildren(...workRowsOf(view.part));
 }
 
 function updateTurnView(view: TurnView, part: TurnPart): void {
   dropLeadingSegments(view, part.droppedSegmentCount);
   syncSegments(view, part.segments);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
-  view.segmentElements.forEach((segmentElement, index) => {
-    segmentElement.toggleAttribute('data-before-final', index < finalTextIndex);
-    segmentElement.toggleAttribute('data-final', index === finalTextIndex);
-  });
-  if (part.isOver && !view.isOver && view.wasPaintedRunning && document.visibilityState === 'visible') view.element.setAttribute('data-ended-in-view', '');
-  if (!part.isOver && !view.wasPaintedRunning) requestAnimationFrame(() => {
-    view.wasPaintedRunning = !view.isOver && view.element.isConnected;
+  view.textElements.forEach((textElement, index) => {
+    textElement?.toggleAttribute('data-before-final', index < finalTextIndex);
+    textElement?.toggleAttribute('data-final', index === finalTextIndex);
   });
   view.isOver = part.isOver;
+  view.part = part;
   view.element.toggleAttribute('data-over', part.isOver);
-  if (!part.isOver) return;
-  const digest = digestTurn(part.segments, part.toolCount);
-  view.isFoldable = digest.isFoldable;
-  view.element.toggleAttribute('data-foldable', digest.isFoldable);
-  view.element.toggleAttribute('data-asks', digest.asked !== null);
-  view.brief.replaceChildren(...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
-  view.meta.replaceChildren(view.chevron, ...metaFieldsOf(part));
+  view.element.toggleAttribute('data-has-tools', part.toolCount > 0);
+  if (part.isOver) showEndedRow(view, part);
+  if (!part.isOver) showRunningRow(view, part);
+  showWork(view);
 }
 
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
@@ -243,7 +241,6 @@ interface ChatLog {
   remove(partIds: readonly string[]): void;
   keepLast(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
-  forgetPaintedTurns(): void;
 }
 
 export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
@@ -251,21 +248,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
   element.setAttribute('role', 'log');
   const elementByPartId = new Map<string, HTMLElement>();
   const turnViewByPartId = new Map<string, TurnView>();
-  const isCollapsedByPartId = new Map<string, boolean>();
-  const isOpenedByOperatorByPartId = new Map<string, boolean>();
-  let newestTurnPartId: string | null = null;
 
-  const showCollapse = (partId: string) => {
-    const view = turnViewByPartId.get(partId);
-    if (!view) return;
-    const isCollapsed = view.isOver && view.isFoldable && (isOpenedByOperatorByPartId.has(partId) ? !isOpenedByOperatorByPartId.get(partId) : (isCollapsedByPartId.get(partId) ?? false));
-    view.element.toggleAttribute('data-collapsed', isCollapsed);
-    view.chevron.setAttribute('aria-expanded', String(!isCollapsed));
-  };
-  const decideCollapse = (partId: string, view: TurnView) => {
-    if (!view.isOver || isCollapsedByPartId.has(partId)) return;
-    isCollapsedByPartId.set(partId, isCollapsedByDefault({ isFoldable: view.isFoldable, isNewest: partId === newestTurnPartId }));
-  };
   const upsertTurn = (part: TurnPart) => {
     const existingView = turnViewByPartId.get(part.id);
     const view = existingView ?? createTurnView();
@@ -275,11 +258,6 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     turnViewByPartId.set(part.id, view);
     elementByPartId.set(part.id, view.element);
     element.appendChild(view.element);
-    const formerNewestPartId = newestTurnPartId;
-    newestTurnPartId = part.id;
-    if (formerNewestPartId === null) return;
-    isCollapsedByPartId.set(formerNewestPartId, true);
-    showCollapse(formerNewestPartId);
   };
   const upsertFlat = (part: FlatPart) => {
     const rendered = renderPart(part, uploadUrlOf);
@@ -292,20 +270,12 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     element.appendChild(rendered);
   };
   const upsert = (parts: readonly ChatPart[]) => {
-    const touchedTurnPartIds: string[] = [];
     for (const part of parts) {
-      if (part.kind !== 'turn') {
-        upsertFlat(part);
+      if (part.kind === 'turn') {
+        upsertTurn(part);
         continue;
       }
-      upsertTurn(part);
-      touchedTurnPartIds.push(part.id);
-    }
-    for (const partId of touchedTurnPartIds) {
-      const view = turnViewByPartId.get(partId);
-      if (!view) continue;
-      decideCollapse(partId, view);
-      showCollapse(partId);
+      upsertFlat(part);
     }
   };
   const remove = (partIds: readonly string[]) => {
@@ -313,18 +283,15 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       elementByPartId.get(partId)?.remove();
       elementByPartId.delete(partId);
       turnViewByPartId.delete(partId);
-      isCollapsedByPartId.delete(partId);
-      isOpenedByOperatorByPartId.delete(partId);
     }
   };
   const toggleTurn = (turnElement: HTMLElement) => {
     const partId = turnElement.dataset.partId;
     const view = partId === undefined ? undefined : turnViewByPartId.get(partId);
-    if (partId === undefined || !view || !view.isOver || !view.isFoldable) return;
+    if (!view?.hasWork) return;
     keepTurnInPlace(view.element, () => {
-      view.element.removeAttribute('data-ended-in-view');
-      isOpenedByOperatorByPartId.set(partId, view.element.hasAttribute('data-collapsed'));
-      showCollapse(partId);
+      view.isOpen = !view.isOpen;
+      showWork(view);
     });
   };
   element.addEventListener('click', (event) => {
@@ -348,8 +315,5 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     if (firstMisplacedIndex < 0) return;
     element.append(...pinnedElements.slice(firstMisplacedIndex));
   };
-  const forgetPaintedTurns = () => {
-    for (const view of turnViewByPartId.values()) view.wasPaintedRunning = false;
-  };
-  return { element, upsert, remove, keepLast, toggleTurn, forgetPaintedTurns };
+  return { element, upsert, remove, keepLast, toggleTurn };
 }
