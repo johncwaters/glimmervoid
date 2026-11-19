@@ -49,7 +49,7 @@ function beatKey(beat: ActivityBeat): string {
 
 export function createChatActivity(): ChatActivity {
   const element = el('div', 'chat-activity');
-  element.hidden = true;
+  element.toggleAttribute('data-idle', true);
   element.setAttribute('role', 'status');
   const mark = createSvgShape('svg', { class: 'chat-activity-mark', viewBox: BRAND_MARK_VIEWBOX, 'aria-hidden': 'true' });
   const bracketBySide = new Map<BrandMarkSide, SVGElement>();
@@ -130,7 +130,7 @@ export function createChatActivity(): ChatActivity {
   };
 
   const showStarting = () => {
-    element.hidden = false;
+    element.toggleAttribute('data-idle', false);
     delete element.dataset.workKind;
     shownBeatKey = '';
     clearInterval(typingTimer);
@@ -140,7 +140,7 @@ export function createChatActivity(): ChatActivity {
   };
 
   const showWorking = (wasStarting: boolean) => {
-    element.hidden = false;
+    element.toggleAttribute('data-idle', false);
     if (!wasStarting) {
       show(BUSY_BEAT, false);
       return;
@@ -155,13 +155,13 @@ export function createChatActivity(): ChatActivity {
     clearInterval(typingTimer);
     shownBeatKey = '';
     if (!hasJustBecomeReady || prefersReducedMotion()) {
-      element.hidden = true;
+      element.toggleAttribute('data-idle', true);
       return;
     }
     delete element.dataset.workKind;
     showVerb(READY_MEANING);
     playDialSpin();
-    readyTimer = setTimeout(() => { element.hidden = true; }, DIAL_SPIN_MS);
+    readyTimer = setTimeout(() => element.toggleAttribute('data-idle', true), DIAL_SPIN_MS);
   };
 
   return {

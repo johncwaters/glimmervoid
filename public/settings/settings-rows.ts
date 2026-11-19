@@ -77,7 +77,7 @@ function applyFootState(row: Element, setting: SettingsSetting) {
   const reset = row.querySelector<HTMLButtonElement>('[data-action="reset-setting"]');
   if (reset) reset.hidden = !canReset(setting);
   const foot = row.querySelector<HTMLElement>('.settings-view-control-foot');
-  if (foot) foot.hidden = !saveStatus && !canReset(setting);
+  foot?.toggleAttribute('data-idle', !saveStatus && !canReset(setting));
   const existingError = row.querySelector<HTMLElement>('.settings-view-field-error');
   const error = fieldErrorById.get(setting.id);
   if (existingError && !error) existingError.remove();

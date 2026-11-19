@@ -53,7 +53,7 @@
   gap: 8px;
 }
 
-.settings-view-control-foot[hidden] {
+.settings-view-control-foot[data-idle] {
   display: none;
 }
 
@@ -132,7 +132,7 @@
   justify-content: flex-end;
 }
 
-[data-layout="phone"] .settings-view .settings-view-control-foot[hidden] {
+[data-layout="phone"] .settings-view .settings-view-control-foot[data-idle] {
   display: flex;
   visibility: hidden;
 }

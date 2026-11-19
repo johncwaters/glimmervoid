@@ -72,6 +72,7 @@ async function playLive(): Promise<void> {
   }
   await new Promise((resolve) => setTimeout(resolve, LIVE_PAGE_INTERVAL_MS));
   if (new URLSearchParams(location.search).has('working')) return;
+  while (chatView.element.querySelector('[data-arriving]')) await new Promise((resolve) => requestAnimationFrame(resolve));
   const partTopsBefore = partTops();
   chatView.setPhase('quiet');
   feed.endTurn();

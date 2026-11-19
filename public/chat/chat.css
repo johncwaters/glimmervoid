@@ -274,7 +274,7 @@
   color: var(--text-muted);
   font: var(--type-meta)/1 var(--font-mono);
 }
-.chat-activity[hidden] { visibility: hidden; }
+.chat-activity[data-idle] { visibility: hidden; }
 .chat-activity[data-work-kind="reading"] { --activity-hue: #8fbcff; }
 .chat-activity[data-work-kind="editing"] { --activity-hue: #f4a6d7; }
 .chat-activity[data-work-kind="busy"],
@@ -551,7 +551,7 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
   50% { opacity: 0.35; }
 }
 
-.chat-activity:not([hidden]) .chat-activity-light { animation: chat-activity-breathe 1.4s ease-in-out infinite; }
+.chat-activity:not([data-idle]) .chat-activity-light { animation: chat-activity-breathe 1.4s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
   .chat-activity .chat-activity-light { animation: none; }
