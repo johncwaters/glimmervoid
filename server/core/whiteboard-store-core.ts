@@ -11,6 +11,7 @@ import { isRecord } from '../../shared/coerce.ts';
 import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
 import { boxIdsShowingFile, boxIdsTitled } from '../../shared/whiteboard-board-index.ts';
 import { caseFoldedPathKey } from '../../shared/paths.ts';
+import { gridOfRects, hasSlotTouching } from '../../shared/spatial-grid-core.ts';
 
 function elementWithMediaForImage(element: unknown): unknown {
   if (!isRecord(element) || !('image' in element)) return element;
@@ -466,7 +467,50 @@ function boxShowingSameFile(board: Board, card: ShownCard): string | null {
   return boxIdsShowingFile(board.elements, source.path)[0] ?? null;
 }
 
-function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): ShownBoxOp {
+interface ShowPlacementContext {
+  contentBounds: BoardBounds;
+  pinnedOffsetY: number;
+  operatorView: BoardBounds | null;
+  boxesInView: readonly BoardBounds[];
+}
+
+const SHOWN_CARD_CHROME_HEIGHT = 80;
+const FREE_SPOT_SCAN_STEPS = 40;
+
+function shownCardHeight(media: BoxMedia): number {
+  return Math.round((SHOWN_BOX_WIDTH * media.height) / media.width) + SHOWN_CARD_CHROME_HEIGHT;
+}
+
+function freeSpotIn(view: BoardBounds, boxesInView: readonly BoardBounds[], cardHeight: number): { x: number; y: number } | null {
+  const paddedBoxes = boxesInView.map((box) => ({ x: box.x - SHOWN_BOX_GAP, y: box.y - SHOWN_BOX_GAP, width: box.width + 2 * SHOWN_BOX_GAP, height: box.height + 2 * SHOWN_BOX_GAP }));
+  const occupied = gridOfRects(paddedBoxes, SHOWN_BOX_WIDTH);
+  const lastX = view.x + view.width - SHOWN_BOX_GAP - SHOWN_BOX_WIDTH;
+  const lastY = view.y + view.height - SHOWN_BOX_GAP - cardHeight;
+  const stepX = Math.max(SHOWN_BOX_GAP, view.width / FREE_SPOT_SCAN_STEPS);
+  const stepY = Math.max(SHOWN_BOX_GAP, view.height / FREE_SPOT_SCAN_STEPS);
+  for (let y = view.y + SHOWN_BOX_GAP; y <= lastY; y += stepY) {
+    for (let x = view.x + SHOWN_BOX_GAP; x <= lastX; x += stepX) {
+      const candidate = { x: Math.round(x), y: Math.round(y), width: SHOWN_BOX_WIDTH, height: cardHeight };
+      if (!hasSlotTouching(occupied, candidate)) return { x: candidate.x, y: candidate.y };
+    }
+  }
+  return null;
+}
+
+function drawnShownCardPoint(context: ShowPlacementContext, media: BoxMedia): { x: number; y: number } {
+  const inView = context.operatorView ? freeSpotIn(context.operatorView, context.boxesInView, shownCardHeight(media)) : null;
+  if (inView) return inView;
+  const { contentBounds } = context;
+  return { x: contentBounds.x, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
+}
+
+function newShownCardPoint(board: Board, context: ShowPlacementContext, media: BoxMedia): { x: number; y: number } {
+  if (board.elements.size === 0) return EMPTY_BOARD_ORIGIN;
+  const drawnPoint = drawnShownCardPoint(context, media);
+  return { x: drawnPoint.x, y: drawnPoint.y - context.pinnedOffsetY };
+}
+
+function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard): ShownBoxOp {
   const sameFileBoxId = boxShowingSameFile(board, card);
   if (sameFileBoxId !== null) {
     const { title, caption, media } = shownCardFields(card);
@@ -476,11 +520,7 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
   const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
   const boxId = `shown-${lastShownNumber + 1}`;
   const { title, caption, media } = shownCardFields(card);
-  const isEmptyBoard = board.elements.size === 0;
-  const belowContent = { x: contentBounds.x, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
-  const placement = lastShownNumber > 0
-    ? { near: { of: `shown-${lastShownNumber}`, side: 'right' as const, gap: SHOWN_BOX_GAP } }
-    : { at: isEmptyBoard ? EMPTY_BOARD_ORIGIN : belowContent };
+  const placement = { at: newShownCardPoint(board, context, media) };
   const box = BoxInput.safeParse({
     kind: 'box',
     id: boxId,

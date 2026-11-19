@@ -1780,7 +1780,7 @@ test('a board saved with units, panels, columns, lanes and retired fields loads 
   assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"|"outputs"|"fromOutput"|"back"|"loop"|"linkedBoardId"|"numbered"/.test(JSON.stringify(storedPlanned)), false);
 });
 
-test('show puts each file on a board the session is connected to, creating one named after the first file title, placing later cards right of the last, updating the card of a file shown again in place, refusing an agent second card of that file, warning on wordy boxes, and numbering past an oversized shown id', async () => {
+test('show puts each file on a board the session is connected to, creating one named after the first file title, placing a later card below the content with no operator view and in a free spot of the operator view when one is open, updating the card of a file shown again in place, refusing an agent second card of that file, warning on wordy boxes, and numbering past an oversized shown id', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-'));
   const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'shower-'));
@@ -1809,7 +1809,29 @@ test('show puts each file on a board the session is connected to, creating one n
   const drawnCards = layoutBoard(shownBoard).elements.filter((element) => element.kind === 'box');
   const drawnFirst = drawnCards.find((element) => element.id === 'shown-1');
   const drawnSecond = drawnCards.find((element) => element.id === 'shown-2');
-  assert.equal(drawnSecond?.x, (drawnFirst?.x ?? 0) + (drawnFirst?.width ?? 0) + 60);
+  assert.ok(drawnFirst && drawnSecond && drawnSecond.y >= drawnFirst.y + drawnFirst.height + 60, JSON.stringify([drawnFirst, drawnSecond]));
+
+  const operatorView = { x: 3000, y: 2000, width: 1600, height: 960 };
+  const planSteps = ['plan-a', 'plan-b', 'plan-c'].map((stepId) => ({ op: 'add', element: { kind: 'box', id: stepId, title: stepId, place: 'plan', step: { status: 'planned' } } }));
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([...planSteps, { op: 'add', element: { kind: 'box', id: 'in-view', title: 'Already here', place: { at: { x: 3100, y: 1700 } } } }]) })).status, 200);
+  assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'stroke', id: 'operator-ink', points: [3500, 1700, 4000, 2000], width: 4 } }]))).ok, true);
+  await wiring.tiles.view({ send: () => {} }, { boardId, view: operatorView, lod: 'full', knownVersion: null });
+  fs.writeFileSync(path.join(showerDir, 'chart.png'), await sharp({ create: { width: 40, height: 30, channels: 3, background: '#a3e635' } }).png().toBuffer());
+  const inView = await wiring.handleAgent(shower, { sub: 'show', path: 'chart.png' });
+  assert.equal(inView.status, 200, JSON.stringify(inView.body));
+  const inViewBoard = (await wiring.handleOperator.get(boardId)).board;
+  assert.ok(inViewBoard);
+  const drawnInView = layoutBoard(inViewBoard).elements.filter((element) => element.kind === 'box');
+  const drawnThird = drawnInView.find((element) => element.id === 'shown-3');
+  assert.ok(drawnThird);
+  assert.ok(drawnThird.x >= operatorView.x && drawnThird.y >= operatorView.y && drawnThird.x + drawnThird.width <= operatorView.x + operatorView.width && drawnThird.y + drawnThird.height <= operatorView.y + operatorView.height, JSON.stringify(drawnThird));
+  const overlapsThird = (other: { x: number; y: number; width: number; height: number }) => other.x < drawnThird.x + drawnThird.width && drawnThird.x < other.x + other.width && other.y < drawnThird.y + drawnThird.height && drawnThird.y < other.y + other.height;
+  const drawnInk = layoutBoard(inViewBoard).elements.find((element) => element.kind === 'stroke');
+  assert.ok(drawnInk?.kind === 'stroke');
+  const inkYs = drawnInk.points.filter((_, index) => index % 2 === 1);
+  const inkXs = drawnInk.points.filter((_, index) => index % 2 === 0);
+  assert.deepEqual([...drawnInView.filter((element) => element.id !== 'shown-3' && overlapsThird(element)).map((element) => element.id), ...(overlapsThird({ x: Math.min(...inkXs), y: Math.min(...inkYs), width: Math.max(...inkXs) - Math.min(...inkXs), height: Math.max(...inkYs) - Math.min(...inkYs) }) ? ['operator-ink'] : [])], []);
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-3' }, { op: 'remove', id: 'in-view' }, ...['plan-a', 'plan-b', 'plan-c', 'operator-ink'].map((removedId) => ({ op: 'remove', id: removedId }))]) })).status, 200);
 
   fs.writeFileSync(path.join(showerDir, 'login.png'), await sharp({ create: { width: 96, height: 32, channels: 3, background: '#f43f5e' } }).png().toBuffer());
   const reshown = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', caption: 'login after second fix' });

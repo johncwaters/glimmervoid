@@ -13,6 +13,7 @@ import { OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from 
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import type { StagedElements } from './board-store-core.ts';
 import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
+import type { Rect } from '../../shared/whiteboard-layout-core.ts';
 import { createBoardTileService } from './board-tile-service.ts';
 import { forgetBoardRenders } from './board-picture.ts';
 import type { PictureOptions } from '../../mcp/core/board-reading.ts';
@@ -1242,6 +1243,28 @@ function createWhiteboardWiring({
     return reply;
   }
 
+  function drawnStrokeRectOf(board: Board, elementId: string, pinnedOffsetY: number): Rect[] {
+    const element = board.elements.get(elementId);
+    if (element?.kind !== 'stroke') return [];
+    const xs = element.points.filter((_, index) => index % 2 === 0);
+    const ys = element.points.filter((_, index) => index % 2 === 1);
+    const halfWidth = (element.width ?? 3) / 2;
+    const left = Math.min(...xs) - halfWidth;
+    const top = Math.min(...ys) - halfWidth + pinnedOffsetY;
+    return [{ x: left, y: top, width: Math.max(...xs) + halfWidth - left, height: Math.max(...ys) + halfWidth + pinnedOffsetY - top }];
+  }
+
+  async function drawnRectsIn(board: Board, view: Rect, pinnedOffsetY: number): Promise<Rect[] | null> {
+    try {
+      const { elementIds } = await tiles.regionOf(board, view, false);
+      const pins = await tiles.pinPositionsOf(board, elementIds);
+      return elementIds.flatMap((elementId) => pins.laidOutBoxOf(elementId) ?? drawnStrokeRectOf(board, elementId, pinnedOffsetY));
+    } catch (error: unknown) {
+      logger.warn(`[whiteboard] board ${board.id} could not read what the operator's view holds to place a shown file: ${errorMessage(error)}`);
+      return null;
+    }
+  }
+
   function placeShownCard(boardId: string, card: ShownCard, author: Author, unloaded: readonly UnloadedReference[]): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
@@ -1249,7 +1272,11 @@ function createWhiteboardWiring({
         return null;
       });
       if (!layout) return { ok: false, reply: refusal(503, 'the board layout could not be read, so nothing was shown; try again') };
-      const shownBox = shownBoxOp(record.board, layout.chrome.bounds, card);
+      const { bounds: contentBounds, pinnedOffsetY } = layout.chrome;
+      const lastOperatorView = tiles.operatorViewOf(record.board.id)?.view ?? null;
+      const drawnInView = lastOperatorView ? await drawnRectsIn(record.board, lastOperatorView, pinnedOffsetY) : null;
+      const operatorView = drawnInView ? lastOperatorView : null;
+      const shownBox = shownBoxOp(record.board, { contentBounds, pinnedOffsetY, operatorView, boxesInView: drawnInView ?? [] }, card);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
       const { op, boxId, isUpdate } = shownBox;
       const applied = await applyOpsToRecord(record, [op], author);
