@@ -10,6 +10,7 @@ import { pathCommandLaunch } from "./path-command-launch.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import { isRecord } from "../../shared/coerce.ts";
+import { SIGNED_IN_SIGNAL, SIGN_IN_PROMPT_KIND } from "../../shared/states.ts";
 import { describeInstalledClaudeHooks } from "../../detection/settings-injector.ts";
 
 
@@ -45,14 +46,21 @@ function notificationType(payload: HookPayload | null | undefined): string {
   return String((payload && (payload.notification_type || payload.notificationType)) || "").toLowerCase();
 }
 
+function isAuthenticationFailure(event: string, payload?: HookPayload): boolean {
+  return String(event || "").toLowerCase() === "stopfailure" && payload?.error === "authentication_failed";
+}
+
 function mapHookConfidence(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
-  if (e === "notification" && notificationType(payload) === "idle_prompt") return "low";
+  if (e !== "notification") return null;
+  const t = notificationType(payload);
+  if (t === "idle_prompt") return "low";
   return null;
 }
 
 function mapHookPromptKind(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
+  if (isAuthenticationFailure(event, payload)) return SIGN_IN_PROMPT_KIND;
   if (e === "permissionrequest") {
     if (String(payload?.tool_name || "") === EXIT_PLAN_MODE_TOOL_NAME) return "plan";
     return "permission";
@@ -89,7 +97,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
     case "stop":
       return "ready";
     case "stopfailure":
-      return payload?.error === "authentication_failed" ? "auth-failed" : "ready";
+      return isAuthenticationFailure(event, payload) ? "awaiting-input" : "ready";
     case "subagentstart":
       return "subagent-start";
     case "subagentstop":
@@ -114,6 +122,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
     case "notification": {
       const t = notificationType(payload);
       if (t === "idle_prompt") return "ready";
+      if (t === "auth_success") return SIGNED_IN_SIGNAL;
       if (t === "permission_prompt" || t.startsWith("elicitation")) return "awaiting-input";
       return null;
     }
@@ -180,6 +189,7 @@ const claudeCode = {
   settingsArgs,
   trustFolder,
   accountHomeProfile: CLAUDE_HOME_PROFILE,
+  credentialEnvNames: ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN"],
   capabilities: {
     hooks: true,
     awaitingInput: true,

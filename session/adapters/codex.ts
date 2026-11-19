@@ -502,6 +502,7 @@ function buildArgs({
 }
 
 const codex = {
+  credentialEnvNames: ["OPENAI_API_KEY", "CODEX_API_KEY"],
   id: ID,
   label: "Codex CLI",
   usageVendor: "codex",

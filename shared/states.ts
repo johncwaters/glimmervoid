@@ -37,3 +37,8 @@ export const KILLABLE_STATES: readonly SessionState[] = Object.freeze([
 export const RESTARTABLE_STATES: readonly SessionState[] = Object.freeze([STATES.DONE, STATES.FAILED]);
 
 export const MERGEABLE_LIVE_STATES: readonly SessionState[] = Object.freeze([STATES.WAITING, STATES.IDLE, STATES.COMPLETE]);
+
+export const SIGN_IN_PROMPT_KIND = 'sign-in';
+export const API_KEY_PROMPT_KIND = 'api-key';
+export const SIGNED_IN_SIGNAL = 'signed-in';
+export const LOGIN_PROMPT_KINDS: ReadonlySet<string> = new Set([SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND]);

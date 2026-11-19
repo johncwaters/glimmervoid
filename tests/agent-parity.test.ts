@@ -94,6 +94,20 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     fixtureByAgent: { 'claude-code': 'v2-claude-code-plan-wait.jsonl', codex: 'v2-codex-plan-wait.jsonl', kimi: 'v2-kimi-plan-wait.jsonl', opencode: 'v2-opencode-plan-wait.jsonl', pi: 'v2-pi-plan-wait.jsonl', antigravity: 'v2-antigravity-plan-wait.jsonl' },
   },
   {
+    name: 'sign-in-wait',
+    expectedFinalState: STATES.WAITING,
+    expectedCompleteNotifications: 0,
+    waitingNotification: 'required',
+    fixtureByAgent: {
+      'claude-code': 'v2-claude-code-sign-in-wait.jsonl',
+      codex: { unproducible: 'Codex 0.169.0 has no hook that reports a failed login, and its terminal text may not be read' },
+      kimi: { unproducible: 'Kimi 2.7.0 signed out fails before any turn starts, so no hook fires, and an expired token needs its credentials copied, which Safety Net forbids' },
+      opencode: { unproducible: 'OpenCode is not installed on the recording machine, and its credential store may not be read to expire a login' },
+      pi: { unproducible: 'pi is not installed on the recording machine, and its auth file may not be read to expire a login' },
+      antigravity: { unproducible: 'Antigravity agy 1.5.12 has no login command and no hook that reports a failed login' },
+    },
+  },
+  {
     name: 'structured-question-answered',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,

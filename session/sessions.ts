@@ -33,7 +33,7 @@ import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import { prepareAccountHome, prepareSandboxedAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
-import { STATES, KILLABLE_STATES, RESTARTABLE_STATES } from "../shared/states.ts";
+import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, SIGNED_IN_SIGNAL } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { hintFor, permitsHelpCommand, promptHintsFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
@@ -342,6 +342,7 @@ class Session extends EventEmitter {
   _lastSignal: Record<string, unknown> | null;
   _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
+  _loginFailurePromptKind: string;
   _pendingPromptToolName: string | null;
   _attention: AttentionLanes;
   _titleQuiet: boolean;
@@ -617,6 +618,7 @@ class Session extends EventEmitter {
 
     this._compaction = createCompactionTracking();
     this._pendingPromptKind = null;
+    this._loginFailurePromptKind = SIGN_IN_PROMPT_KIND;
     this._pendingPromptToolName = null;
     this._attention = createAttentionLanes();
 
@@ -980,8 +982,14 @@ class Session extends EventEmitter {
 
   _ingestHookSignal(raw: HookSignal): void {
     if (this._destroyed) return;
-    if (raw?.signal === "auth-failed") {
-      this.ingestHookSignal({ ...raw, signal: "awaiting-input" });
+    if (raw?.promptKind === SIGN_IN_PROMPT_KIND && this._loginFailurePromptKind !== SIGN_IN_PROMPT_KIND) {
+      this._ingestHookSignal({ ...raw, promptKind: this._loginFailurePromptKind });
+      return;
+    }
+    if (raw?.signal === SIGNED_IN_SIGNAL) {
+      const isWaitingOnLogin = this.state === STATES.WAITING && this._pendingPromptKind !== null && LOGIN_PROMPT_KINDS.has(this._pendingPromptKind);
+      if (!isWaitingOnLogin) return;
+      this._ingestHookSignal({ ...raw, signal: "ready", confidence: "high" });
       return;
     }
     if (this._isConversationReplacedAtStartup(raw)) {
@@ -1861,6 +1869,7 @@ class Session extends EventEmitter {
       prependPathDirs: this._prependPathDirs,
       extraEnv: spawnExtraEnv,
     });
+    this._loginFailurePromptKind = (this._adapter.credentialEnvNames ?? []).some((name) => (env[name] ?? "") !== "") ? API_KEY_PROMPT_KIND : SIGN_IN_PROMPT_KIND;
     if (await this._shouldDetachDesktopBus()) env.DBUS_SESSION_BUS_ADDRESS = DETACHED_DESKTOP_BUS_ADDRESS;
 
     const configuredResumeSessionId = this._can("resume") ? this._resumeSessionId : null;

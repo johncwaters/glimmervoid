@@ -6,10 +6,11 @@ import WebSocket from 'ws';
 
 import { createBackendWebSockets } from '../server/backend/backend-websockets.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
+import claudeCode from '../session/adapters/claude-code.ts';
 import { createCustomAdapter } from '../session/adapters/custom.ts';
 import { Session } from '../session/sessions.ts';
 import { ASK_USER_QUESTION_TOOL_NAME } from '../shared/contracts/session.ts';
-import { STATES } from '../shared/states.ts';
+import { SIGN_IN_PROMPT_KIND, STATES } from '../shared/states.ts';
 import { capturingPty } from './helpers/fake-pty.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
@@ -190,6 +191,56 @@ test('looking at a Claude Code question whose title already went idle keeps it W
   } finally {
     await harness.close();
   }
+});
+
+function claudeCodeHookSignal(event: string, payload: Record<string, unknown>) {
+  const hooks = claudeCode.hooks;
+  assert.ok(hooks);
+  const signal = hooks.mapSignal(event, payload);
+  assert.ok(signal);
+  const promptKind = hooks.mapPromptKind(event, payload);
+  const confidence = hooks.mapConfidence(event, payload);
+  return { signal, source: 'hook' as const, event, payload, ts: Date.now(), ...(promptKind ? { promptKind } : {}), ...(confidence ? { confidence } : {}) };
+}
+
+test('a Claude Code login failure waits as sign-in through the /login keystrokes, and auth_success ends the wait', async () => {
+  const session = new Session({ id: SESSION_ID, name: 'login lane', path: process.cwd(), titleStabilizationMs: 40 });
+  session.state = STATES.RUNNING;
+  session.ingestHookSignal(claudeCodeHookSignal('StopFailure', { hook_event_name: 'StopFailure', error: 'authentication_failed' }));
+  assert.equal(session.state, STATES.WAITING);
+  assert.equal(session._pendingPromptKind, SIGN_IN_PROMPT_KIND);
+  const harness = await bootHarness(session);
+  try {
+    await harness.sendInput('/login');
+    await harness.sendInput('\r');
+    await harness.sendInput('1');
+    await harness.sendInput(ESCAPE);
+    assert.equal(harness.session.state, STATES.WAITING);
+    assert.equal(harness.session._pendingPromptKind, SIGN_IN_PROMPT_KIND);
+    harness.session.ingestHookSignal(claudeCodeHookSignal('Notification', { hook_event_name: 'Notification', notification_type: 'auth_success' }));
+    await waitUntil(() => harness.session.state !== STATES.WAITING);
+    assert.equal(harness.session.state, STATES.COMPLETE);
+    assert.equal(harness.session._pendingPromptKind, null);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('a Claude Code sign-in outside a login wait leaves an idle or permission-waiting session as it was', async () => {
+  const idleSession = new Session({ id: SESSION_ID, name: 'idle lane', path: process.cwd(), statusConflictMs: 20 });
+  idleSession.state = STATES.IDLE;
+  const permissionSession = new Session({ id: SESSION_ID, name: 'permission lane', path: process.cwd(), statusConflictMs: 20 });
+  permissionSession.state = STATES.RUNNING;
+  permissionSession.ingestHookSignal(claudeCodeHookSignal('Notification', { hook_event_name: 'Notification', notification_type: 'permission_prompt' }));
+  assert.equal(permissionSession.state, STATES.WAITING);
+  const signInSignal = claudeCodeHookSignal('Notification', { hook_event_name: 'Notification', notification_type: 'auth_success' });
+  idleSession.ingestHookSignal(signInSignal);
+  permissionSession.ingestHookSignal(signInSignal);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(idleSession.state, STATES.IDLE);
+  assert.equal(permissionSession.state, STATES.WAITING);
+  idleSession.destroy();
+  permissionSession.destroy();
 });
 
 test('a keystroke on a title-only agent card still ends WAITING', async () => {

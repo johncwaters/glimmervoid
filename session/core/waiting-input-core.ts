@@ -1,5 +1,6 @@
 import { STATES } from "../../shared/states.ts";
 import type { SessionState } from "../../shared/states.ts";
+import { LOGIN_PROMPT_KINDS } from "../../shared/states.ts";
 
 type WaitingInputDecision = "ignore" | "acknowledge" | "end-waiting";
 
@@ -50,6 +51,7 @@ function isWaitingOnHookRaisedPrompt(hasHookAwaitingInput: boolean, pendingPromp
 function decideWaitingInput({ state, hasHookAwaitingInput, pendingPromptKind, isQuestionPrompt, input }: WaitingInputContext): WaitingInputDecision {
   if (state !== STATES.WAITING) return "ignore";
   if (!isOperatorKeystroke(input)) return "ignore";
+  if (pendingPromptKind !== null && LOGIN_PROMPT_KINDS.has(pendingPromptKind)) return "acknowledge";
   if (!isWaitingOnHookRaisedPrompt(hasHookAwaitingInput, pendingPromptKind)) return "end-waiting";
   if (isPromptClosingKeystroke(input, isQuestionPrompt)) return "end-waiting";
   return "acknowledge";

@@ -1,4 +1,5 @@
 import type { Pane } from '#shared/contracts/focus-layout.ts';
+import { API_KEY_PROMPT_KIND, SIGN_IN_PROMPT_KIND } from '#shared/states.ts';
 import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
@@ -27,7 +28,7 @@ type SessionRowSignalSlot = 'status' | 'links';
 const sessionRowSignalSources: { source: SessionRowSignalSource; slot: SessionRowSignalSlot }[] = [];
 const FOCUSED_LINK_LIMIT = 5;
 
-const PLAN_PROMPT_KIND = 'plan';
+const STATUS_LABEL_BY_PROMPT_KIND: Readonly<Record<string, string>> = { plan: 'Plan ready', [SIGN_IN_PROMPT_KIND]: 'Needs sign-in', [API_KEY_PROMPT_KIND]: 'API key refused' };
 
 const MERGE_SIGNALS: Readonly<Record<string, Omit<Signal, 'key'>>> = {
   parked: { text: 'PARKED', look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
@@ -227,7 +228,7 @@ export function paintSessionRowStatus(
   writeDataIfChanged(row, 'state', state);
   writeDataIfChanged(row, 'prompt', pendingPromptKind ?? '');
   const { icon, label, isMonitoring } = stateChip(state, awaitingBackgroundTasks);
-  const statusLabel = pendingPromptKind === PLAN_PROMPT_KIND ? 'Plan ready' : label;
+  const statusLabel = (pendingPromptKind === null ? undefined : STATUS_LABEL_BY_PROMPT_KIND[pendingPromptKind]) ?? label;
   row.toggleAttribute('data-monitoring', isMonitoring);
   paintStatusIcon(refs.glyph, icon);
   writeTextIfChanged(refs.label, statusLabel);

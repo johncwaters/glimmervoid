@@ -12,14 +12,13 @@ interface ConnectRecipe {
   statusArgs: string[];
   logoutArgs: string[];
   homeEnvKey: 'CLAUDE_CONFIG_DIR' | 'CODEX_HOME';
-  credentialEnvKeys: readonly string[];
   homeFolderName: string;
   displayName: string;
 }
 
 const CONNECT_RECIPES: Readonly<Record<ConnectableAgent, ConnectRecipe>> = Object.freeze({
-  'claude-code': { loginArgs: ['auth', 'login', '--claudeai'], statusArgs: ['auth', 'status'], logoutArgs: ['auth', 'logout'], homeEnvKey: 'CLAUDE_CONFIG_DIR', credentialEnvKeys: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_OAUTH_REFRESH_TOKEN'], homeFolderName: 'claude-code', displayName: 'Claude Code' },
-  codex: { loginArgs: ['login', '--device-auth'], statusArgs: ['login', 'status'], logoutArgs: ['logout'], homeEnvKey: 'CODEX_HOME', credentialEnvKeys: ['OPENAI_API_KEY', 'CODEX_API_KEY'], homeFolderName: 'codex', displayName: 'Codex' },
+  'claude-code': { loginArgs: ['auth', 'login', '--claudeai'], statusArgs: ['auth', 'status'], logoutArgs: ['auth', 'logout'], homeEnvKey: 'CLAUDE_CONFIG_DIR', homeFolderName: 'claude-code', displayName: 'Claude Code' },
+  codex: { loginArgs: ['login', '--device-auth'], statusArgs: ['login', 'status'], logoutArgs: ['logout'], homeEnvKey: 'CODEX_HOME', homeFolderName: 'codex', displayName: 'Codex' },
 });
 
 const ESCAPE = String.fromCharCode(27);

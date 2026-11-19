@@ -174,6 +174,7 @@ interface AgentAdapter {
   sessionIdOf?(payload: HookPayload): unknown;
   accountHomeProfile?: AgentHomeProfile;
   accountHomeEnvName?: string;
+  credentialEnvNames?: readonly string[];
 }
 
 type AgentAdapterShape = AgentAdapter & Record<string, unknown>;

@@ -77,7 +77,7 @@ function accountAgentOf(account: AgentAccount | undefined): ConnectableAgent | u
 function accountLaunch(agent: ConnectableAgent, launch: CommandLaunch, folder: string): CommandLaunch {
   const recipe = CONNECT_RECIPES[agent];
   const env = { ...launch.env, [recipe.homeEnvKey]: folder };
-  for (const key of recipe.credentialEnvKeys) delete env[key];
+  for (const key of getAdapter(agent)?.credentialEnvNames ?? []) delete env[key];
   return { ...launch, env };
 }
 
