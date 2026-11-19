@@ -18,6 +18,7 @@ interface ChatView {
   toggleTurn(turnElement: HTMLElement): void;
   keepLast(partIds: readonly string[]): void;
   keepLogInPlace(change: () => void): void;
+  replaceLogParts(replacedPartIds: readonly string[], parts: readonly ChatPart[]): void;
   setPhase(phase: ChatPhase): void;
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
@@ -51,6 +52,8 @@ interface KeyedChat {
 let keyedChat: KeyedChat | null = null;
 const keyedChatByElement = new WeakMap<Element, KeyedChat>();
 let isChatKeyListenerInstalled = false;
+
+export const CHAT_NEAR_TOP_EVENT = 'chat-near-top';
 
 export const NO_ARRIVING_PARTS: ReadonlySet<string> = new Set();
 
@@ -210,6 +213,16 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   new ResizeObserver(() => {
     scrollContent.style.paddingBottom = `${dock.offsetHeight + DOCK_CLEARANCE_PX}px`;
   }).observe(dock, { box: 'border-box' });
+  const announceNearTop = () => {
+    if (scroller.scrollTop >= scroller.clientHeight) return;
+    element.dispatchEvent(new CustomEvent(CHAT_NEAR_TOP_EVENT, { bubbles: true }));
+  };
+  scroller.addEventListener('scroll', announceNearTop, { passive: true });
+  new ResizeObserver(announceNearTop).observe(scrollContent);
+  const replaceLogParts = (replacedPartIds: readonly string[], parts: readonly ChatPart[]) => {
+    keepInPlace(activity.element, () => chatLog.replaceParts(replacedPartIds, parts));
+    announceNearTop();
+  };
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
   const setPhase = (phase: ChatPhase) => {
     const wasStarting = shownPhase === 'starting';
@@ -218,5 +231,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     activity.setPhase(phase);
     if (wasStarting !== (phase === 'starting')) showQueued(queuedEntries);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, mountAfterActivity: (afterActivity: HTMLElement) => scrollContent.insertBefore(afterActivity, queuedList), showAgentBoardChange: agentBoardChange.show };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, mountAfterActivity: (afterActivity: HTMLElement) => scrollContent.insertBefore(afterActivity, queuedList), showAgentBoardChange: agentBoardChange.show };
 }

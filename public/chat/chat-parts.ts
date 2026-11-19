@@ -240,6 +240,7 @@ interface ChatLog {
   element: HTMLElement;
   upsert(parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>): void;
   remove(partIds: readonly string[]): void;
+  replaceParts(replacedPartIds: readonly string[], parts: readonly ChatPart[]): void;
   keepLast(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
 }
@@ -256,7 +257,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
   const elementByPartId = new Map<string, HTMLElement>();
   const turnViewByPartId = new Map<string, TurnView>();
 
-  const upsertTurn = (part: TurnPart, isArriving: boolean) => {
+  const upsertTurn = (part: TurnPart, isArriving: boolean, container: ParentNode) => {
     const existingView = turnViewByPartId.get(part.id);
     const view = existingView ?? createTurnView();
     updateTurnView(view, part, isArriving && existingView !== undefined);
@@ -265,9 +266,9 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     view.element.dataset.partId = part.id;
     turnViewByPartId.set(part.id, view);
     elementByPartId.set(part.id, view.element);
-    element.appendChild(view.element);
+    container.appendChild(view.element);
   };
-  const upsertFlat = (part: FlatPart, isArriving: boolean) => {
+  const upsertFlat = (part: FlatPart, isArriving: boolean, container: ParentNode) => {
     const rendered = renderPart(part, uploadUrlOf);
     const existing = elementByPartId.get(part.id);
     elementByPartId.set(part.id, rendered);
@@ -276,24 +277,68 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       return;
     }
     rendered.toggleAttribute('data-arriving', isArriving);
-    element.appendChild(rendered);
+    container.appendChild(rendered);
   };
-  const upsert = (parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => {
+  const upsertInto = (container: ParentNode, parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => {
     if (arrivingPartIds.size > 0) requestAnimationFrame(() => settleArrivalsThatCannotAnimate(element));
     for (const part of parts) {
       const isArriving = arrivingPartIds.has(part.id);
       if (part.kind === 'turn') {
-        upsertTurn(part, isArriving);
+        upsertTurn(part, isArriving, container);
         continue;
       }
-      upsertFlat(part, isArriving);
+      upsertFlat(part, isArriving, container);
     }
   };
+  const upsert = (parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => upsertInto(element, parts, arrivingPartIds);
   const remove = (partIds: readonly string[]) => {
     for (const partId of partIds) {
       elementByPartId.get(partId)?.remove();
       elementByPartId.delete(partId);
       turnViewByPartId.delete(partId);
+    }
+  };
+  const replaceParts = (replacedPartIds: readonly string[], parts: readonly ChatPart[]) => {
+    const replacedIndexByElement = new Map<Element, number>();
+    replacedPartIds.forEach((partId, index) => {
+      const replaced = elementByPartId.get(partId);
+      if (replaced) replacedIndexByElement.set(replaced, index);
+    });
+    const keptElementsAfterReplaced: { kept: Element; replacedIndexBefore: number }[] = [];
+    let replacedIndexBefore = -1;
+    for (const child of element.children) {
+      const replacedIndex = replacedIndexByElement.get(child);
+      if (replacedIndex !== undefined) {
+        replacedIndexBefore = replacedIndex;
+        continue;
+      }
+      if (replacedIndexBefore >= 0) keptElementsAfterReplaced.push({ kept: child, replacedIndexBefore });
+    }
+    const openReplacedIndexes = new Set<number>();
+    let focusedReplacedIndex = -1;
+    for (const [replaced, index] of replacedIndexByElement) {
+      if (turnViewByPartId.get(replacedPartIds[index] ?? '')?.isOpen) openReplacedIndexes.add(index);
+      if (replaced.contains(document.activeElement)) focusedReplacedIndex = index;
+    }
+    const insertionMark = document.createComment('');
+    const firstReplacedElement = replacedIndexByElement.keys().next().value ?? element.firstElementChild;
+    if (firstReplacedElement) firstReplacedElement.before(insertionMark);
+    if (!firstReplacedElement) element.append(insertionMark);
+    remove(replacedPartIds);
+    const rebuiltElements = document.createDocumentFragment();
+    upsertInto(rebuiltElements, parts, new Set());
+    insertionMark.replaceWith(rebuiltElements);
+    const rebuiltIndexShift = parts.length - replacedPartIds.length;
+    const rebuiltPartIdOf = (replacedIndex: number) => parts[replacedIndex + rebuiltIndexShift]?.id ?? '';
+    for (const openIndex of openReplacedIndexes) {
+      const rebuiltView = turnViewByPartId.get(rebuiltPartIdOf(openIndex));
+      if (!rebuiltView) continue;
+      rebuiltView.isOpen = true;
+      showWork(rebuiltView);
+    }
+    if (focusedReplacedIndex >= 0) elementByPartId.get(rebuiltPartIdOf(focusedReplacedIndex))?.focus({ preventScroll: true });
+    for (const { kept, replacedIndexBefore: index } of keptElementsAfterReplaced.reverse()) {
+      elementByPartId.get(rebuiltPartIdOf(index))?.after(kept);
     }
   };
   const toggleTurn = (turnElement: HTMLElement) => {
@@ -331,5 +376,5 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     if (firstMisplacedIndex < 0) return;
     element.append(...pinnedElements.slice(firstMisplacedIndex));
   };
-  return { element, upsert, remove, keepLast, toggleTurn };
+  return { element, upsert, remove, replaceParts, keepLast, toggleTurn };
 }

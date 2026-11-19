@@ -4,7 +4,7 @@ import { appendChatRecords, createChatPartsState, endChatTurn } from '../../../p
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
 import { railFieldsOf } from '../../../public/chat/status-rail-core.ts';
 import type { RunningSubagent } from '../../../public/chat/status-rail-core.ts';
-import { createChatView, NO_ARRIVING_PARTS } from '../../../public/chat/chat-view.ts';
+import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from '../../../public/chat/chat-view.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
@@ -61,6 +61,7 @@ async function playLive(): Promise<void> {
       chatView.beat(beats);
     },
     onReset: () => {},
+    onRebuilt: (rebuiltParts, replacedPartIds) => chatView.replaceLogParts(replacedPartIds, rebuiltParts),
     onFailure: (failureText) => { if (failureText) document.body.dataset.feedFailure = failureText; },
   });
   feed.refresh();
@@ -78,6 +79,34 @@ async function playLive(): Promise<void> {
   const partTopsAfter = partTops();
   const turnEndShiftPx = Math.max(0, ...partTopsBefore.map((top, partIndex) => Math.abs(top - (partTopsAfter[partIndex] ?? top))));
   document.body.dataset.turnEndShiftPx = String(turnEndShiftPx);
+}
+
+const EARLIER_PAGE_RECORDS = 40;
+
+function playEarlier(): void {
+  const feed = createChatFeed({
+    sessionId: 'harness',
+    workingDirectory: null,
+    requestPage: async (payload) => {
+      const pageEnd = 'endingAt' in payload && typeof payload.endingAt === 'number' ? payload.endingAt : traceRecords.length;
+      const pageStart = Math.max(0, pageEnd - EARLIER_PAGE_RECORDS);
+      document.body.dataset.earliestOffset = String(pageStart);
+      return { type: 'session-trace-response', id: 'harness', requestId: 'harness', records: traceRecords.slice(pageStart, pageEnd), start: pageStart, next: pageEnd, reset: false, path: '' };
+    },
+    onPartsChanged: (changedParts, droppedPartIds) => {
+      chatView.upsert(changedParts, NO_ARRIVING_PARTS);
+      chatView.remove(droppedPartIds);
+      if (harnessMode.has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
+    },
+    onSubagents: showExampleRail,
+    isTurnOver: () => true,
+    onBeats: () => {},
+    onReset: () => {},
+    onRebuilt: (rebuiltParts, replacedPartIds) => chatView.replaceLogParts(replacedPartIds, rebuiltParts),
+    onFailure: (failureText) => { if (failureText) document.body.dataset.feedFailure = failureText; },
+  });
+  chatView.element.addEventListener(CHAT_NEAR_TOP_EVENT, () => feed.loadEarlier());
+  feed.refresh();
 }
 
 function partTops(): number[] {
@@ -116,8 +145,9 @@ async function playBoot(): Promise<void> {
 const harnessMode = new URLSearchParams(location.search);
 if (harnessMode.has('boot')) void playBoot();
 if (harnessMode.has('live')) await playLive();
-if (!harnessMode.has('live') && !harnessMode.has('boot')) showRecordsAtRest();
-if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
+if (harnessMode.has('earlier')) playEarlier();
+if (!harnessMode.has('live') && !harnessMode.has('boot') && !harnessMode.has('earlier')) showRecordsAtRest();
+if (harnessMode.has('cards') && !harnessMode.has('earlier')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
 if (new URLSearchParams(location.search).has('rail-updates')) {
   const railStates: readonly RunningSubagent[][] = [[{ type: 'Explore', model: 'example-small' }, { type: 'reviewer', model: null }], [], [{ type: 'Explore', model: null }], []];
   for (const subagents of railStates) {

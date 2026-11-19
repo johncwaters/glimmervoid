@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { firstDetailLine, toolDetailLine } from '#shared/tool-detail.ts';
 
-const TRACE_MAX_RESIDENT_ROWS = 5000;
+export const TRACE_MAX_RESIDENT_ROWS = 5000;
 
 type ToolCallRecord = Extract<TraceRecord, { kind: 'tool_call' }>;
 type ExpansionRecord = Extract<TraceRecord, { kind: 'expansion' }>;

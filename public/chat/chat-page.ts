@@ -16,7 +16,7 @@ import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
 import { agentLabel } from '../arena/lineup-core.ts';
-import { createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
+import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
 import { sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
@@ -630,6 +630,14 @@ function buildChat(sessionId: string): MountedChat {
       if (isLive) swapStandInsForPrompts(newPromptParts.length);
       keepPendingPartsLast();
     },
+    onRebuilt: (rebuiltParts, replacedPartIds) => {
+      shownPromptPartIds.clear();
+      for (const part of rebuiltParts) {
+        if (part.kind === 'prompt') shownPromptPartIds.add(part.id);
+      }
+      chatView.replaceLogParts(replacedPartIds, rebuiltParts);
+      keepPendingPartsLast();
+    },
     onSubagents: (subagents) => {
       runningSubagents = subagents;
       showRail();
@@ -656,6 +664,7 @@ function buildChat(sessionId: string): MountedChat {
     },
     onFailure: showFailure,
   });
+  root.addEventListener(CHAT_NEAR_TOP_EVENT, () => feed.loadEarlier());
   showOutbox();
   return {
     sessionId,
