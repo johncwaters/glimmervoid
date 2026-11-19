@@ -1,5 +1,5 @@
 import { CHAT_SEND_MAX_ATTACHMENTS, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
-import { STATES } from '#shared/states.ts';
+import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-helpers.ts';
@@ -13,7 +13,8 @@ import { getSessionView, setSessionView } from '../ui-prefs.ts';
 import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
-import type { ChatCard, ChatPart } from './chat-part.ts';
+import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
+import { agentLabel } from '../arena/lineup-core.ts';
 import { createChatView } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
@@ -36,6 +37,11 @@ const STAND_IN_UNRECORDED_MAX_MS = 5000;
 const SENT_OUTBOX_STATES: ReadonlySet<ChatOutboxEntry['state']> = new Set(['sending', 'submitted']);
 
 const LIVE_TERMINAL_HEADING = 'The agent is waiting on its terminal';
+const LOGIN_COMMAND_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': '/login' };
+const LOGIN_SUBMIT_DELAY_MS = 300;
+const SIGNED_IN_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
+
+type SignInCard = Extract<ChatCard, { cardType: 'sign-in' }>;
 
 type TerminalCardState = 'hidden' | 'borrowed' | 'released';
 
@@ -130,7 +136,7 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"][data-keys-ready]:is([data-card-type="question"], [data-card-type="permission"])';
+const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"][data-keys-ready]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
 
 const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
 
@@ -307,10 +313,12 @@ function buildChat(sessionId: string): MountedChat {
   let terminalCardId: string | null = null;
   let terminalHome: HTMLElement | null = null;
   let strayChildWatcher: MutationObserver | null = null;
+  let signInCard: SignInCard | null = null;
+  let signInCardSerial = 0;
 
   const keepPendingPartsLast = () => {
     const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
-    const terminalCardIds = terminalCardId === null ? [] : [terminalCardId];
+    const terminalCardIds = [terminalCardId, signInCard?.cardId ?? null].filter((cardId): cardId is string => cardId !== null);
     const standInIds = [...standInByEntryId.values()].map((standIn) => standIn.id);
     chatView.keepLast([...standInIds, ...openCardIds, ...terminalCardIds]);
   };
@@ -334,16 +342,10 @@ function buildChat(sessionId: string): MountedChat {
     }
   };
 
-  const borrowTerminal = () => {
-    if (terminalCardState === 'borrowed') return;
+  const lendTerminalToCard = (cardId: string): boolean => {
     const ui = sessionUIs.get(sessionId);
-    if (!ui) return;
-    terminalCardSerial += 1;
-    const card: ChatCard = { cardType: 'live-terminal', cardId: `live-terminal-${terminalCardSerial}`, data: { heading: LIVE_TERMINAL_HEADING }, resolution: null };
-    chatView.upsert([cardPartOf(card)]);
-    const slot = chatView.element.querySelector<HTMLElement>(`[data-card-type="live-terminal"] .chat-terminal-slot`);
-    if (!slot) return;
-    terminalCardId = card.cardId;
+    const slot = [...chatView.element.querySelectorAll<HTMLElement>('.chat-terminal-slot')].find((candidate) => candidate.closest<HTMLElement>('[data-part-id]')?.dataset.partId === cardId);
+    if (!ui || !slot) return false;
     terminalCardState = 'borrowed';
     terminalHome = el('div', 'terminal-wrap-home');
     terminalHome.hidden = true;
@@ -352,6 +354,76 @@ function buildChat(sessionId: string): MountedChat {
     strayChildWatcher = new MutationObserver(() => sendStrayChildrenHome(slot, ui.termWrap));
     strayChildWatcher.observe(slot, { childList: true });
     ui._ensureTerminalReady?.();
+    return true;
+  };
+
+  const borrowTerminal = () => {
+    if (terminalCardState === 'borrowed') return;
+    if (!sessionUIs.has(sessionId)) return;
+    terminalCardSerial += 1;
+    const card: ChatCard = { cardType: 'live-terminal', cardId: `live-terminal-${terminalCardSerial}`, data: { heading: LIVE_TERMINAL_HEADING }, resolution: null };
+    chatView.upsert([cardPartOf(card)]);
+    if (lendTerminalToCard(card.cardId)) terminalCardId = card.cardId;
+  };
+
+  const showSignInCard = (card: SignInCard) => {
+    signInCard = card;
+    chatView.upsert([cardPartOf(card)]);
+  };
+
+  const settleSignInCard = () => {
+    const shownCard = signInCard;
+    if (!shownCard) return;
+    signInCard = null;
+    if (shownCard.data.stage === 'signing-in') releaseTerminal();
+    const sessionState = sessionUIs.get(sessionId)?.currentState;
+    const hasSignedIn = shownCard.data.stage !== 'refused-key' && sessionState !== undefined && SIGNED_IN_STATES.has(sessionState);
+    if (!hasSignedIn) {
+      chatView.remove([shownCard.cardId]);
+      return;
+    }
+    chatView.upsert([cardPartOf({ ...shownCard, resolution: { isSignedIn: true } })]);
+  };
+
+  const relendSignInTerminal = () => {
+    if (signInCard?.data.stage !== 'signing-in' || terminalCardState === 'borrowed') return;
+    lendTerminalToCard(signInCard.cardId);
+  };
+
+  const offerSignInCard = (loginKind: string) => {
+    if (signInCard) {
+      relendSignInTerminal();
+      return;
+    }
+    const agent = sessionUIs.get(sessionId)?.agent ?? '';
+    const stage: SignInStage = loginKind === API_KEY_PROMPT_KIND ? 'refused-key' : 'offered';
+    releaseTerminal();
+    signInCardSerial += 1;
+    showSignInCard({ cardType: 'sign-in', cardId: `sign-in-${signInCardSerial}`, data: { agentName: agentLabel(agent), stage }, resolution: null });
+  };
+
+  const startSignIn = () => {
+    const ui = sessionUIs.get(sessionId);
+    const loginCommand = LOGIN_COMMAND_BY_AGENT[ui?.agent ?? ''];
+    if (!signInCard || signInCard.data.stage !== 'offered' || !ui || !loginCommand) return;
+    if (!sendTerminalInput(ui, loginCommand)) {
+      showFailure(NOT_SENT_TEXT);
+      return;
+    }
+    window.setTimeout(() => sendTerminalInput(ui, '\r'), LOGIN_SUBMIT_DELAY_MS);
+    const signingInCard: SignInCard = { ...signInCard, data: { ...signInCard.data, stage: 'signing-in' } };
+    chatView.keepLogInPlace(() => {
+      showSignInCard(signingInCard);
+      lendTerminalToCard(signingInCard.cardId);
+    });
+  };
+
+  const loginKindOfSession = (): string | null => {
+    const ui = sessionUIs.get(sessionId);
+    const kind = ui?.pendingPromptKind ?? null;
+    if (ui?.currentState !== STATES.WAITING || kind === null || !LOGIN_PROMPT_KINDS.has(kind)) return null;
+    if (kind !== API_KEY_PROMPT_KIND && !LOGIN_COMMAND_BY_AGENT[ui.agent ?? '']) return null;
+    return kind;
   };
 
   const settleShownApproval = () => {
@@ -369,6 +441,12 @@ function buildChat(sessionId: string): MountedChat {
       chatView.upsert(shownApproval.cards.map(cardPartOf));
     }
     const isAnswerableFromChat = shownApproval !== null && shownApproval.cards.length > 0;
+    const loginKind = isAnswerableFromChat ? null : loginKindOfSession();
+    if (loginKind === null) settleSignInCard();
+    if (loginKind !== null) {
+      offerSignInCard(loginKind);
+      return;
+    }
     const isWaitingOnTerminal = sessionUIs.get(sessionId)?.currentState === STATES.WAITING && !isAnswerableFromChat;
     if (isWaitingOnTerminal) {
       borrowTerminal();
@@ -384,6 +462,10 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const answerCard = (cardId: string, action: string, value: string) => {
+    if (signInCard?.cardId === cardId && action === 'sign-in') {
+      startSignIn();
+      return;
+    }
     const shown = shownApproval;
     const card = shown?.cards.find((shownCard) => shownCard.cardId === cardId);
     if (!shown || !card || card.resolution !== null) return;
@@ -504,6 +586,7 @@ function buildChat(sessionId: string): MountedChat {
       freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
+      if (signInCard) showSignInCard(signInCard);
       runningSubagents = [];
       showRail();
       syncWaitingCards();

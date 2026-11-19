@@ -394,6 +394,23 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   assert.equal(await page.locator('.session-card > .session-attention-note').count(), 1, 'the note outlives the inline terminal');
 }
 
+export async function verifyChatSignIn(page: Page): Promise<void> {
+  await openChat(page);
+  await sendFromComposer(page, 'login-expired');
+  const signInCard = page.locator('.session-chat .chat-card[data-card-type="sign-in"]');
+  await page.locator('.session-chat .chat-card[data-card-type="sign-in"][data-keys-ready]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await signInCard.locator('.chat-card-heading').textContent(), 'Claude Code needs you to sign in');
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="live-terminal"]').count(), 0, 'a failed login offers sign-in instead of the bare terminal');
+  assert.equal(await page.locator('.session-chat .terminal-wrap').count(), 0, 'the terminal stays home until Sign in is pressed');
+  const cardTopBefore = (await signInCard.boundingBox())?.y ?? -1;
+  await page.keyboard.press('1');
+  await signInCard.locator('.chat-terminal-slot .terminal-wrap').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal((await signInCard.boundingBox())?.y ?? -2, cardTopBefore, 'opening the terminal grows the card downward and leaves its top in place');
+  await page.locator('.session-chat .chat-card[data-card-type="sign-in"][data-resolved="true"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await signInCard.locator('.chat-card-heading').textContent(), 'Signed in to Claude Code');
+  assert.equal(await page.locator('.session-chat .terminal-wrap').count(), 0, 'the terminal returns to its session card once the agent reports the sign-in');
+}
+
 async function verifyComposerPassesDashboardShortcuts(page: Page): Promise<void> {
   await page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' }).click();
   const isShortcutHandled = page.evaluate(() => new Promise<boolean>((resolve) => {

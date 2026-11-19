@@ -17,6 +17,7 @@ interface ChatView {
   toggleTurn(turnElement: HTMLElement): void;
   forgetPaintedTurns(): void;
   keepLast(partIds: readonly string[]): void;
+  keepLogInPlace(change: () => void): void;
   setPhase(phase: ChatPhase): void;
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
@@ -189,5 +190,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     activity.setPhase(phase);
     if (wasStarting !== (phase === 'starting')) showQueued(queuedEntries);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, forgetPaintedTurns: chatLog.forgetPaintedTurns, keepLast: chatLog.keepLast, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, forgetPaintedTurns: chatLog.forgetPaintedTurns, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
 }

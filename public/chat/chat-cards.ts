@@ -141,6 +141,35 @@ function renderNoticeCard(card: ChatCardByType['notice']): HTMLElement {
   return shell;
 }
 
+function signInHeadingOf(card: ChatCardByType['sign-in']): string {
+  if (card.resolution) return `Signed in to ${card.data.agentName}`;
+  if (card.data.stage === 'refused-key') return `${card.data.agentName} refused its API key`;
+  return `${card.data.agentName} needs you to sign in`;
+}
+
+const SIGN_IN_TEXT_BY_STAGE = {
+  offered: 'Its login expired, so this turn stopped. Sign in, then resend your message.',
+  'signing-in': 'Finish signing in below, then resend your message.',
+  'refused-key': 'The API key this session started with no longer works. Replace it, then resend your message.',
+} as const;
+
+function renderSignInCard(card: ChatCardByType['sign-in']): HTMLElement {
+  const shell = cardShell(card, signInHeadingOf(card));
+  if (card.resolution) return shell;
+  shell.appendChild(el('p', 'chat-card-text', SIGN_IN_TEXT_BY_STAGE[card.data.stage]));
+  if (card.data.stage === 'signing-in') {
+    shell.appendChild(el('div', 'chat-terminal-slot'));
+    return shell;
+  }
+  if (card.data.stage === 'refused-key') return shell;
+  const actions = el('div', 'chat-card-actions');
+  const signInButton = button({ variant: 'primary', textCase: 'sentence', label: 'Sign in', shortcutKey: '1', onClick: () => dispatchCardAction(shell, card, 'sign-in', '') });
+  markCardKeys(signInButton, ['1']);
+  actions.appendChild(signInButton);
+  shell.appendChild(actions);
+  return shell;
+}
+
 function renderLiveTerminalCard(card: ChatCardByType['live-terminal']): HTMLElement {
   const shell = cardShell(card, card.data.heading);
   shell.appendChild(el('div', 'chat-terminal-slot'));
@@ -152,6 +181,7 @@ const RENDERER_BY_CARD_TYPE = {
   question: renderQuestionCard,
   notice: renderNoticeCard,
   'live-terminal': renderLiveTerminalCard,
+  'sign-in': renderSignInCard,
 } satisfies ChatCardRendererTable;
 
 const rendererByCardType: ChatCardRendererTable = RENDERER_BY_CARD_TYPE;

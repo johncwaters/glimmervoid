@@ -11,7 +11,7 @@ import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from 
 import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, verifyKeyStripContexts } from './key-strip.ts';
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
-import { verifyChatApprovals, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
+import { verifyChatApprovals, verifyChatSignIn, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1257,6 +1257,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-terminal') {
       await verifyChatTerminal(viewer.page);
       return passedOutcome('chat-terminal', 'a prompt Chat cannot answer shows the live terminal inline, and the terminal goes home once the wait ends');
+    }
+    if (step.kind === 'assert-chat-sign-in') {
+      await verifyChatSignIn(viewer.page);
+      return passedOutcome('chat-sign-in', 'a failed Claude Code login shows a sign-in card, Sign in runs /login in the card, and the card reads Signed in once the agent reports it');
     }
     if (step.kind === 'assert-phone-changes') {
       await verifyPhoneChanges(viewer.page, projectDirectory);

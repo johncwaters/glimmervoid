@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sign in to Claude Code from Chat.** When a Claude Code login expires mid-session, Chat shows a sign-in card instead of the bare terminal. Press Sign in (or 1) and the card runs `/login` with the terminal inside it; once Claude Code reports the sign-in, the card reads Signed in to Claude Code. When the session's key or token came from its environment, the card says the key was refused instead, since `/login` cannot replace it.
 - **Answer Chat cards from the keyboard.** With the Chat message box empty, number keys answer a waiting question by option position, and Enter takes the option the agent recommends. The recommended option now shows first, tagged Recommended. On a permission card, 1 allows, 2 denies, and 3 moves to the deny message box; Enter never allows a tool. Each button shows its key. Agents are now asked to mark one option of every question (Recommended), so the question manager's default rule and Chat have something to pick on agents beyond Claude Code.
 - **Chat shows when a session is still starting.** While a new session sets up its worktree and boots the agent, Chat shows the Glimmervoid mark scanning in the Starting color with the same words as the status key. A message you send meanwhile appears at once as your prompt, marked "Sends when the agent is ready", and you can still cancel it. When the agent is up, the mark spins once and the message goes out.
 

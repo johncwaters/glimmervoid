@@ -11,6 +11,9 @@ const SESSION_ID = '00000000-0000-4000-8000-0000000fa4e0';
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_BURST_LINES = 100;
+const LOGIN_MENU_ROW_NUMBER = 4;
+const LOGIN_MENU_TEXT = 'Select login method';
+const LOGIN_SUCCESS_DELAY_MS = 1500;
 const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
 const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
 const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
@@ -229,6 +232,15 @@ function dispatch(command: string): void {
     const questionRequest = { hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion', tool_input: { questions } };
     postHook('permissionrequest', questionRequest);
     postHook('permissionrequest-conversation', questionRequest);
+    return;
+  }
+  if (command === 'login-expired') {
+    postHook('stopfailure', { hook_event_name: 'StopFailure', error: 'authentication_failed', last_assistant_message: 'OAuth token has expired' });
+    return;
+  }
+  if (command === '/login') {
+    writeRow(LOGIN_MENU_ROW_NUMBER, LOGIN_MENU_TEXT);
+    setTimeout(() => postHook('notification', { hook_event_name: 'Notification', notification_type: 'auth_success', message: 'Login successful' }), LOGIN_SUCCESS_DELAY_MS);
     return;
   }
   if (command === 'work') {
