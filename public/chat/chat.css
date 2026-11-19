@@ -362,6 +362,27 @@
 
 .chat-card-receipt { color: var(--text-muted); font-size: var(--type-meta); }
 
+.chat-card-step { color: var(--text-muted); font-size: var(--type-meta); }
+
+.chat-card[data-card-type="question"][data-resolved="false"] { position: relative; z-index: 2; }
+
+.chat-card[data-card-type="question"][data-resolved="false"] ~ .chat-card[data-card-type="question"][data-resolved="false"] {
+  z-index: 1;
+  height: 8px;
+  margin: -18px 10px 0;
+  padding: 0;
+  overflow: hidden;
+  border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.chat-card[data-card-type="question"][data-resolved="false"] ~ .chat-card[data-card-type="question"][data-resolved="false"] ~ .chat-card[data-card-type="question"][data-resolved="false"] {
+  z-index: 0;
+  margin-inline: 20px;
+}
+
+.chat-card[data-card-type="question"][data-resolved="false"] ~ .chat-card[data-card-type="question"][data-resolved="false"] > * { visibility: hidden; }
+
 .chat-card.chat-notice {
   align-self: center;
   padding: 0;

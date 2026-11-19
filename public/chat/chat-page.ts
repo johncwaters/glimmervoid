@@ -112,10 +112,12 @@ function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
     const title = approval.toolName ? `Allow ${approval.toolName}?` : 'Allow this tool?';
     return [{ cardType: 'permission', cardId: requestKey, data: { title, detail: approval.summary }, resolution: null }];
   }
-  return (approval.questions ?? []).map((question, index) => ({
+  const questions = approval.questions ?? [];
+  const isStacked = questions.length > 1;
+  return questions.map((question, index) => ({
     cardType: 'question',
     cardId: `${requestKey}-${index}`,
-    data: { question: question.question, detail: question.header, options: question.options.map((option) => ({ label: option.label, note: option.description })) },
+    data: { question: question.question, detail: question.header, ...(isStacked ? { step: `${index + 1} of ${questions.length}` } : {}), options: question.options.map((option) => ({ label: option.label, note: option.description })) },
     resolution: null,
   }));
 }

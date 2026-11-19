@@ -113,12 +113,14 @@ interface QuestionCardModel {
   readonly cardType: string;
   readonly heading: string;
   readonly detail: string;
+  readonly step?: string;
   readonly options: readonly { label: string; note: string }[];
   readonly answer: string | null;
 }
 
 export function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void): HTMLElement {
   const shell = shellOf(question.cardType, question.heading, question.answer !== null);
+  if (question.step) shell.prepend(el('span', 'chat-card-step', question.step));
   if (question.detail) shell.appendChild(el('p', 'chat-card-text', question.detail));
   if (question.answer !== null) {
     shell.appendChild(receipt(`Answered: ${withoutRecommendedSuffix(question.answer)}`));
@@ -133,7 +135,7 @@ export function questionCardOf(question: QuestionCardModel, onAnswer: (label: st
 }
 
 function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
-  const question = { cardType: card.cardType, heading: card.data.question, detail: card.data.detail, options: card.data.options, answer: card.resolution?.answer ?? null };
+  const question = { cardType: card.cardType, heading: card.data.question, detail: card.data.detail, ...(card.data.step ? { step: card.data.step } : {}), options: card.data.options, answer: card.resolution?.answer ?? null };
   const shell: HTMLElement = questionCardOf(question, (label) => dispatchCardAction(shell, card, 'answer', label));
   return shell;
 }
