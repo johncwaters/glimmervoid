@@ -5,6 +5,8 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { runCommandSafely } from '../../server/child-process-safe.ts';
+import { selectionArgs } from '../../shared/agent-models-core.ts';
+import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { habitTableOf, TrialResult } from './habits-core.ts';
 import type { ToolCall, TurnResult } from './habits-core.ts';
 
@@ -106,7 +108,7 @@ function parsedLineOf(line: string): { type?: string; is_error?: boolean; total_
 }
 
 async function runClaudeTurn(projectDirectory: string, mcpConfigPath: string, credential: string, model: string, prompt: string, isContinuation: boolean): Promise<TurnResult> {
-  const args = ['-p', prompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--strict-mcp-config', '--mcp-config', mcpConfigPath,
+  const args = ['-p', prompt, ...selectionArgs({ agent: 'claude-code', model, options: [] }), '--output-format', 'stream-json', '--verbose', '--strict-mcp-config', '--mcp-config', mcpConfigPath,
     '--setting-sources', 'project,local', '--permission-mode', 'acceptEdits', '--allowedTools', 'mcp__glimmervoid', 'Write', 'Edit', 'Read', 'Bash', 'Glob', 'Grep', '--max-turns', MAX_AGENT_TURNS];
   if (isContinuation) args.push('--continue');
   const scrubbedEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !SCRUBBED_ENV_KEY.test(key)));
@@ -183,7 +185,7 @@ function readTrials(outDirectory: string): TrialResult[] {
 }
 
 async function runTrialInChild(arm: Arm, taskId: string, trialIndex: number, model: string, outDirectory: string): Promise<void> {
-  const args = [import.meta.filename, '--trial', `${arm.name}=${arm.root}`, '--tasks', taskId, '--trials', String(trialIndex), '--model', model, '--out', outDirectory];
+  const args = [import.meta.filename, '--trial', `${arm.name}=${arm.root}`, '--tasks', taskId, '--trials', String(trialIndex), '--agent-model', model, '--out', outDirectory];
   const run = await runCommandSafely(process.execPath, args, { cwd: arm.root, env: process.env, timeoutMs: TRIAL_TIMEOUT_MS, maxBufferBytes: STREAM_BUFFER_BYTES });
   process.stdout.write(run.stdout);
   if (!run.ok) process.stderr.write(`${arm.name} ${taskId} #${trialIndex} failed: ${run.stderr.slice(-1500)}\n`);
@@ -195,7 +197,7 @@ const { values: options } = parseArgs({
     trial: { type: 'string' },
     tasks: { type: 'string' },
     trials: { type: 'string', default: '3' },
-    model: { type: 'string', default: 'sonnet' },
+    'agent-model': { type: 'string', default: DEFAULT_MODELS.boardHabits },
     out: { type: 'string' },
     report: { type: 'string' },
   },
@@ -215,14 +217,14 @@ if (unknownTaskIds.length > 0) throw new Error(`no task ${unknownTaskIds.join(',
 if (options.trial) {
   const task = TASKS.find((candidate) => candidate.id === taskIds[0]);
   if (!task) throw new Error(`no task ${taskIds[0]}`);
-  await runTrial(armOf(options.trial), task, Number(options.trials), options.model, outDirectory);
+  await runTrial(armOf(options.trial), task, Number(options.trials), options['agent-model'], outDirectory);
   process.exit(0);
 }
 
 const arms = (options.arm ?? [`head=${REPO_ROOT}`]).map(armOf);
 const trialCount = Number(options.trials);
 await Promise.all(arms.flatMap((arm) => taskIds.map(async (taskId) => {
-  for (let trialIndex = 0; trialIndex < trialCount; trialIndex += 1) await runTrialInChild(arm, taskId, trialIndex, options.model, outDirectory);
+  for (let trialIndex = 0; trialIndex < trialCount; trialIndex += 1) await runTrialInChild(arm, taskId, trialIndex, options['agent-model'], outDirectory);
 })));
 console.log(`\nresults in ${outDirectory}\n`);
 console.log(habitTableOf(readTrials(outDirectory)));

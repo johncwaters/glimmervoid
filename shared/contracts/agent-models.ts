@@ -78,4 +78,5 @@ export const DEFAULT_MODELS = Object.freeze({
   questionManager: 'haiku',
   loginRefresh: 'haiku',
   siteCapture: 'sonnet',
+  boardHabits: 'sonnet',
 });
