@@ -107,6 +107,10 @@ export function isEditingTool(name: string): boolean {
   return WORK_KIND_BY_TOOL_NAME.get(name.toLowerCase()) === 'editing';
 }
 
+export function isShellTool(name: string): boolean {
+  return WORK_KIND_BY_TOOL_NAME.get(name.toLowerCase()) === 'running';
+}
+
 function beatOfToolCall(name: string, input: unknown): ActivityBeat {
   const glimmervoidTool = glimmervoidToolOf(name, input);
   const workKind = WORK_KIND_BY_TOOL_NAME.get(name.toLowerCase()) ?? 'working';

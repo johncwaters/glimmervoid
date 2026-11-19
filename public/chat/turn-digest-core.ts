@@ -1,3 +1,4 @@
+import { isShellTool } from './chat-activity-core.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import type { PlanInline } from '../plan/plan-markdown-core.ts';
 
@@ -99,8 +100,10 @@ export function toolLabelOf(name: string, input: unknown, workingDirectory: stri
   const path = firstStringField(input, PATH_FIELDS);
   if (path !== null) return `${name} ${shownPathOf(path, workingDirectory)}`;
   const argument = firstStringField(input, ARGUMENT_FIELDS);
-  if (argument !== null) return `${name} ${shortArgumentOf(argument, workingDirectory)}`;
-  return name;
+  if (argument === null) return name;
+  const shownArgument = shortArgumentOf(argument, workingDirectory);
+  if (isShellTool(name)) return shownArgument;
+  return `${name} ${shownArgument}`;
 }
 
 function lineCountOf(text: string): number {
