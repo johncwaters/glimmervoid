@@ -145,6 +145,12 @@ function cancelledEntryIdOf(event: Event): string | null {
 const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"][data-keys-ready]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
 const UNANSWERED_CARD_SELECTOR = '.chat-card[data-resolved="false"]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
 const READY_DONE_PANEL_SELECTOR = '.chat-done:not([hidden])[data-keys-ready]';
+const DONE_PANEL_COMPOSER_KEY = 'Enter';
+
+function isComposerFocused(root: HTMLElement): boolean {
+  const focused = document.activeElement;
+  return focused instanceof HTMLTextAreaElement && root.contains(focused);
+}
 
 const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
 
@@ -171,6 +177,7 @@ function chatKeyTargetOf(root: HTMLElement, key: string): { target: HTMLElement;
   if (root.querySelector(UNANSWERED_CARD_SELECTOR)) return null;
   const donePanel = root.querySelector<HTMLElement>(READY_DONE_PANEL_SELECTOR);
   if (!donePanel?.querySelector('.chat-done-foot')) return null;
+  if (key !== DONE_PANEL_COMPOSER_KEY && isComposerFocused(root)) return null;
   const panelTarget = keyTargetOf(donePanel, key);
   if (!panelTarget) return null;
   return { target: panelTarget, heldSelector: READY_DONE_PANEL_SELECTOR };

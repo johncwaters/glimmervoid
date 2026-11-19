@@ -26,7 +26,8 @@ function checkLineOf(check: CheckOutcome): DoneLine {
 
 const REMOVED_TEST_LINE_VERBS: Record<RemovedTestLine['kind'], string> = { 'removed-assertion': 'removed', 'removed-test': 'removed', 'added-skip': 'added' };
 
-function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[]): DoneLine {
+function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[] | null): DoneLine {
+  if (removedTestLines === null) return { text: 'Keeps every test', status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '' };
   const isKept = removedTestLines.length === 0;
   return {
     text: 'Keeps every test',
@@ -40,9 +41,7 @@ function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[]): DoneLi
 function runLinesOf(run: VerificationRun | null): DoneLine[] {
   if (run === null) return [];
   if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '' }];
-  const checkLines = run.checks.map(checkLineOf);
-  if (run.removedTestLines === null) return checkLines;
-  return [...checkLines, testKeepingLineOf(run.removedTestLines)];
+  return [...run.checks.map(checkLineOf), testKeepingLineOf(run.removedTestLines)];
 }
 
 function doneMeansLineOf(text: string): DoneLine {

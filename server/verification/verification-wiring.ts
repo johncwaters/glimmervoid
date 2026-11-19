@@ -11,6 +11,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { launchArgvFor, overallStatus, parseCheckCommand, readVerificationSettings, redactSecretLines, settingsFingerprint } from './core/verification-core.ts';
 
 const SECRET_ENV_NAME_PATTERN = /(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)/i;
+const UNREAD_TREE_SKIP_REASON = 'the worktree could not be read at turn end, so the checks did not run for this turn';
 const SANDBOX_SKIP_REASON = 'checks do not run while sessionSandbox is on, because they would run agent-edited code outside the sandbox';
 
 interface WorktreeTree {
@@ -28,7 +29,7 @@ interface VerifiableSession {
   on(event: 'post-turn-check', listener: () => void): unknown;
   worktreeLifecycle: {
     computeGateTree(): Promise<WorktreeTree | null>;
-    snapshot(): { baseSha: string | null };
+    snapshot(): { baseSha: string | null; effectiveBase: string | null };
     setMergeGate(gate: ((tree: WorktreeTree | null) => Promise<StandardsGateVerdict>) | null): void;
   };
 }
@@ -121,6 +122,9 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const platform = dependencies.platform ?? process.platform;
   const cachedRunBySession = new Map<string, CachedRun>();
   const inFlightBySession = new Map<string, { key: string; promise: Promise<VerificationRun> }>();
+  const publishedRunBySession = new Map<string, VerificationRun>();
+  const turnEndCountBySession = new Map<string, number>();
+  const turnEndCountOf = (sessionId: string) => turnEndCountBySession.get(sessionId) ?? 0;
   const warnedInvalidRepos = new Set<string>();
   const liveCheckPidsBySession = new Map<string, Set<number>>();
   const attachedSessionIds = new Set<string>();
@@ -139,6 +143,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function publish(run: VerificationRun): void {
+    publishedRunBySession.set(run.sessionId, run);
     dependencies.broadcastControl({ type: 'verification-run', id: run.sessionId, run });
   }
 
@@ -157,31 +162,43 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
   }
 
-  async function scanRemovedTestLines(worktreeDir: string | null, baseSha: string | null): Promise<RemovedTestLine[] | null> {
-    if (!worktreeDir || !baseSha) return null;
-    return streamRemovedTestLines(worktreeDir, baseSha);
+  async function scanRemovedTestLines(session: VerifiableSession): Promise<RemovedTestLine[] | null> {
+    if (!session.worktreeDir) return null;
+    const { baseSha, effectiveBase } = session.worktreeLifecycle.snapshot();
+    return streamRemovedTestLines(session.worktreeDir, baseSha, effectiveBase);
+  }
+
+  async function rescanMissingTestLines(session: VerifiableSession, cached: { key: string; run: VerificationRun }): Promise<VerificationRun> {
+    const turnEndCountAtStart = turnEndCountOf(session.id);
+    const removedTestLines = await scanRemovedTestLines(session);
+    if (removedTestLines === null || cachedRunBySession.get(session.id) !== cached) return cached.run;
+    const run: VerificationRun = { ...cached.run, removedTestLines };
+    cachedRunBySession.set(session.id, { key: cached.key, run });
+    if (turnEndCountOf(session.id) === turnEndCountAtStart) publish(run);
+    return run;
   }
 
   async function runChecks(session: VerifiableSession, settings: VerificationSettings, key: string, sig: string): Promise<VerificationRun> {
     const worktreeDir = session.worktreeDir;
+    const turnEndCountAtStart = turnEndCountOf(session.id);
     publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null, removedTestLines: null });
     const checks: CheckOutcome[] = [];
     for (const spec of settings.checks) {
       if (!attachedSessionIds.has(session.id)) break;
       checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
     }
-    const removedTestLines = attachedSessionIds.has(session.id) ? await scanRemovedTestLines(worktreeDir, session.worktreeLifecycle.snapshot().baseSha) : null;
+    const removedTestLines = attachedSessionIds.has(session.id) ? await scanRemovedTestLines(session) : null;
     const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks), checks, finishedAt: clock.nowMs(), removedTestLines };
     if (!attachedSessionIds.has(session.id)) return run;
     cachedRunBySession.set(session.id, { key, run });
-    publish(run);
+    if (turnEndCountOf(session.id) === turnEndCountAtStart) publish(run);
     return run;
   }
 
   function ensureRun(session: VerifiableSession, settings: VerificationSettings, sig: string, { reuseFailed }: { reuseFailed: boolean }): Promise<VerificationRun> {
     const key = `${sig}\0${settingsFingerprint(settings)}`;
     const cached = cachedRunBySession.get(session.id);
-    if (cached?.key === key && (reuseFailed || cached.run.status === 'passed')) return Promise.resolve(cached.run);
+    if (cached?.key === key && (reuseFailed || cached.run.status === 'passed')) return cached.run.removedTestLines === null ? rescanMissingTestLines(session, cached) : Promise.resolve(cached.run);
     const inFlight = inFlightBySession.get(session.id);
     if (inFlight?.key === key) return inFlight.promise;
     const waitForCurrent = inFlight ? inFlight.promise.catch(() => null) : Promise.resolve(null);
@@ -203,12 +220,24 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return lookup;
   }
 
+  function publishUnreadTree(settings: VerificationSettings, sessionId: string): void {
+    const checks = settings.checks.map((spec) => skippedOutcome(spec, UNREAD_TREE_SKIP_REASON));
+    publish({ sessionId, sig: '', status: overallStatus(checks), checks, finishedAt: clock.nowMs(), removedTestLines: null });
+  }
+
   async function verifyAtTurnEnd(session: VerifiableSession): Promise<void> {
     const lookup = lookupSettings(session);
     if (lookup.kind !== 'ok' || !session.hasOwnWorktree) return;
+    const turnEndCount = turnEndCountOf(session.id) + 1;
+    turnEndCountBySession.set(session.id, turnEndCount);
+    const isLatestTurnEnd = () => turnEndCountOf(session.id) === turnEndCount && attachedSessionIds.has(session.id);
     const tree = await session.worktreeLifecycle.computeGateTree();
-    if (!tree) return;
-    await ensureRun(session, lookup.settings, tree.sig, { reuseFailed: true });
+    if (!tree) {
+      if (isLatestTurnEnd()) publishUnreadTree(lookup.settings, session.id);
+      return;
+    }
+    const run = await ensureRun(session, lookup.settings, tree.sig, { reuseFailed: true });
+    if (isLatestTurnEnd()) publish(run);
   }
 
   async function gateMerge(session: VerifiableSession, tree: WorktreeTree | null): Promise<StandardsGateVerdict> {
@@ -239,11 +268,13 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   return {
     attachSession,
-    latestRun: (sessionId) => cachedRunBySession.get(sessionId)?.run ?? null,
+    latestRun: (sessionId) => publishedRunBySession.get(sessionId) ?? cachedRunBySession.get(sessionId)?.run ?? null,
     forgetSession: (sessionId) => {
       attachedSessionIds.delete(sessionId);
       killChecksOf(sessionId);
       cachedRunBySession.delete(sessionId);
+      publishedRunBySession.delete(sessionId);
+      turnEndCountBySession.delete(sessionId);
       inFlightBySession.delete(sessionId);
     },
     stop: () => {

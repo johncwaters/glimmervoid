@@ -38,6 +38,7 @@ function linesOf(model: DonePanelModel): HTMLElement {
 export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void }): DonePanel {
   const element = el('section', 'chat-done');
   element.setAttribute('aria-label', 'Done means');
+  element.tabIndex = -1;
   element.hidden = true;
   let shownVerdict: string | null = null;
   let hasAnsweredVerdict = false;
