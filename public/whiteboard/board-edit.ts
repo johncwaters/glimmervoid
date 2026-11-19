@@ -24,6 +24,7 @@ import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
 import { alignedRectsOf, distributedRectsOf } from './board-context-menu.ts';
 import { firstPresentedBoxId, presentedBoxIdAfter } from './media-walk-core.ts';
 import type { AlignEdge, ArrangedRect, DistributeAxis } from './board-context-menu.ts';
+import { prefersReducedMotion } from '../attention-banner.ts';
 
 const DRAG_THRESHOLD_PX = 4;
 const BOX_LIFT_HOLD_MS = 300;
@@ -286,6 +287,7 @@ function hoverCursorOf(hit: BoardHit | null, turnAngle: number): string {
 }
 
 const MAX_FIT_ZOOM = 2;
+const CAMERA_GLIDE_MS = 450;
 const STACK_ORDER_BY_KEY_CODE: Readonly<Record<string, { plain: StackOrder; withShift: StackOrder }>> = {
   BracketRight: { plain: 'forward', withShift: 'front' },
   BracketLeft: { plain: 'backward', withShift: 'back' },
@@ -321,7 +323,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let spaceHeldTool: 'hand' | null = null;
   let nudgeRun: NudgeRun | null = null;
   let pendingTitleEditId: string | null = null;
-  let isFitOwedOnceSized = false;
+  let owedFit: { bounds: Rect; maxZoom: number } | null = null;
+  let glideFrameId: number | null = null;
   let presentedBoxId: string | null = null;
 
   function setTool(tool: BoardTool): void {
@@ -388,27 +391,59 @@ export function createBoardEditor(options: BoardEditorOptions) {
     fitArea(rectAround(selectedRects), MAX_FIT_ZOOM);
   }
 
-  function fitArea(bounds: Rect, maxZoom: number): void {
+  function fittedCameraOf(bounds: Rect, maxZoom: number): Camera | null {
     const canvasWidth = viewport.clientWidth;
-    const canvasHeight = viewport.clientHeight;
-    if (canvasWidth === 0 || canvasHeight === 0) {
-      camera = { x: bounds.x, y: bounds.y, scale: 1 };
-      applyCamera();
-      isFitOwedOnceSized = true;
-      return;
-    }
-    isFitOwedOnceSized = false;
+    if (canvasWidth === 0 || viewport.clientHeight === 0) return null;
     const band = islandFreeBand();
     const unitsPerPixel = Math.max(1 / maxZoom, unitsPerPixelShowing(bounds, canvasWidth, band.heightPx));
     const fittedViewWidth = canvasWidth * unitsPerPixel;
     const boardCenterY = bounds.y + bounds.height / 2;
     const bandCenterPx = band.topPx + band.heightPx / 2;
-    camera = {
+    return {
       x: bounds.x - Math.max(0, fittedViewWidth - bounds.width) / 2,
       y: boardCenterY - bandCenterPx * unitsPerPixel,
       scale: 1 / unitsPerPixel,
     };
+  }
+
+  function fitArea(bounds: Rect, maxZoom: number): void {
+    stopGlide();
+    const fitted = fittedCameraOf(bounds, maxZoom);
+    owedFit = fitted ? null : { bounds, maxZoom };
+    camera = fitted ?? { x: bounds.x, y: bounds.y, scale: 1 };
     applyCamera();
+  }
+
+  function stopGlide(): void {
+    if (glideFrameId !== null) cancelAnimationFrame(glideFrameId);
+    glideFrameId = null;
+  }
+
+  function glideToArea(bounds: Rect): void {
+    const target = fittedCameraOf(bounds, MAX_FIT_ZOOM);
+    if (!target || prefersReducedMotion()) {
+      fitArea(bounds, MAX_FIT_ZOOM);
+      return;
+    }
+    stopGlide();
+    const halfWidthPx = viewport.clientWidth / 2;
+    const halfHeightPx = viewport.clientHeight / 2;
+    const centerOf = (view: Camera) => ({ x: view.x + halfWidthPx / view.scale, y: view.y + halfHeightPx / view.scale });
+    const startCenter = centerOf(camera);
+    const targetCenter = centerOf(target);
+    const startScale = camera.scale;
+    const startedAtMs = performance.now();
+    const step = (nowMs: number) => {
+      const progress = Math.min(1, (nowMs - startedAtMs) / CAMERA_GLIDE_MS);
+      const eased = 1 - (1 - progress) ** 3;
+      const scale = startScale * (target.scale / startScale) ** eased;
+      const centerX = startCenter.x + (targetCenter.x - startCenter.x) * eased;
+      const centerY = startCenter.y + (targetCenter.y - startCenter.y) * eased;
+      camera = { x: centerX - halfWidthPx / scale, y: centerY - halfHeightPx / scale, scale };
+      applyCamera();
+      glideFrameId = progress < 1 ? requestAnimationFrame(step) : null;
+    };
+    glideFrameId = requestAnimationFrame(step);
   }
 
   function toViewPoint(clientX: number, clientY: number): ViewPoint {
@@ -421,6 +456,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function zoomAround(anchor: ViewPoint, factor: number): void {
+    stopGlide();
     const currentViewWidth = viewWidth();
     const nextViewWidth = Math.min(maxViewWidth(), Math.max(MIN_VIEW_WIDTH, currentViewWidth * factor));
     const appliedFactor = nextViewWidth / currentViewWidth;
@@ -438,6 +474,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function panByPixels(deltaX: number, deltaY: number): void {
+    stopGlide();
     camera = { ...camera, x: camera.x - deltaX / camera.scale, y: camera.y - deltaY / camera.scale };
     applyCamera();
   }
@@ -2046,12 +2083,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
   });
   new ResizeObserver(() => {
     if (presentedBoxId) return showPresentedBox();
-    if (isFitOwedOnceSized && viewport.clientWidth > 0 && viewport.clientHeight > 0) fit();
+    if (owedFit && viewport.clientWidth > 0 && viewport.clientHeight > 0) fitArea(owedFit.bounds, owedFit.maxZoom);
   }).observe(viewport);
 
   return {
     fit,
-    frameArea: (bounds: Rect) => fitArea(bounds, MAX_FIT_ZOOM),
+    frameArea: glideToArea,
     startPresenting,
     endPresenting,
     selectedIds: (): ReadonlySet<string> => selectedIds,

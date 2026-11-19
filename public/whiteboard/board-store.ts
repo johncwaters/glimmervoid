@@ -1,5 +1,5 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { AgentChange, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
 import { BoardFileImportReply, BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_FILE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
@@ -219,6 +219,30 @@ let pendingOpenRequest: OpenBoardRequest | null = null;
 
 export function requestOpenBoard(boardId: string, sessionId: string | null): void {
   pendingOpenRequest = { boardId, sessionId };
+}
+
+interface BoardFocus {
+  boardId: string;
+  change: AgentChange;
+}
+
+let pendingBoardFocus: BoardFocus | null = null;
+const boardFocusListeners: (() => void)[] = [];
+
+export function requestBoardFocus(focus: BoardFocus): void {
+  pendingBoardFocus = focus;
+  for (const listener of boardFocusListeners) listener();
+}
+
+export function onBoardFocusRequested(listener: () => void): void {
+  boardFocusListeners.push(listener);
+}
+
+export function takeBoardFocusFor(boardId: string): AgentChange | null {
+  if (pendingBoardFocus?.boardId !== boardId) return null;
+  const { change } = pendingBoardFocus;
+  pendingBoardFocus = null;
+  return change;
 }
 
 export function takeOpenBoardRequest(): OpenBoardRequest | null {

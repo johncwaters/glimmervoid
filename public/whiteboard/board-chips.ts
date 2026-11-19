@@ -2,7 +2,8 @@ import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
 import { repaintSessionRowSignals } from '../session-row.ts';
 import type { ActivatableSignal } from '../signal.ts';
 import { tierForTone } from '../signal-core.ts';
-import { boardsConnectedTo, onBoardListChanged, requestOpenBoard } from './board-store.ts';
+import type { AgentChange } from '#shared/contracts/control/whiteboard-messages.ts';
+import { boardsConnectedTo, onBoardListChanged, requestBoardFocus, requestOpenBoard } from './board-store.ts';
 
 let openBoardsView: () => void = () => {};
 
@@ -13,6 +14,11 @@ export function setBoardsViewOpener(open: () => void): void {
 function openBoardForSession(boardId: string, sessionId: string | null): void {
   requestOpenBoard(boardId, sessionId);
   openBoardsView();
+}
+
+export function openBoardAtAgentChange(boardId: string, sessionId: string, change: AgentChange): void {
+  requestBoardFocus({ boardId, change });
+  openBoardForSession(boardId, sessionId);
 }
 
 function queuedEditsText(summary: BoardSummary, sessionId: string): string {

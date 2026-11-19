@@ -28,7 +28,7 @@ import { createBoardEditor, newElementId, NUDGE_DIRECTION_BY_KEY, stacksByTopBox
 import { nextWiredBoxId } from './media-walk-core.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
-import type { AgentChange, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import { rectAround } from './board-snap-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
@@ -46,7 +46,7 @@ import type { BoardGraphicsEvent } from './board-graphics-report-core.ts';
 import { countDashboardTabs } from '../boot/dashboard-tab-lock.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
-import { dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
+import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardMediaLayer, fetchBoardDocText, fetchBoardSheetText, tunePageOnLoad } from './board-media-layer.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
@@ -57,7 +57,7 @@ import { openSheetEditor } from './sheet-editor.ts';
 import type { SheetSaveOutcome } from './sheet-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, boardsConnectedTo, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, sendBoardOps, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, boardsConnectedTo, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, onBoardFocusRequested, sendBoardOps, takeBoardFocusFor, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 import { clock } from '#shared/clock.ts';
 import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
@@ -698,18 +698,20 @@ function requestReviewOf(board: Board): void {
   });
 }
 
-function agentChangeSentence(change: AgentChange): string {
-  const [onlyBox] = change.boxes;
-  const changedCards = change.boxes.length === 1 && onlyBox ? onlyBox.title : `${change.boxes.length} cards`;
-  return `${change.author.name} changed ${changedCards}`;
-}
-
 function paintAgentChange(): void {
   if (!parts) return;
   const change = selectedBoardId ? offViewAgentChangeOf(selectedBoardId) : null;
   parts.agentChangeIsland.hidden = !change;
   if (!change) return;
   parts.agentChangeText.textContent = agentChangeSentence(change);
+}
+
+function focusAgentChangeOf(boardId: string): void {
+  const change = takeBoardFocusFor(boardId);
+  if (!change) return;
+  editor?.frameArea(rectAround(change.boxes.map((box) => box.rect)));
+  dismissAgentChange();
+  ringAgentChange(boardId, change);
 }
 
 function goToAgentChange(): void {
@@ -739,6 +741,7 @@ function paintBoard(): void {
     editor?.fit();
     shouldFitOnNextRender = false;
   }
+  focusAgentChangeOf(board.id);
   paintToolbar();
 }
 
@@ -1737,6 +1740,7 @@ export function mountBoardHost(): HTMLElement {
   document.addEventListener('keydown', (event) => onHistoryKey(host, event));
   wireMediaDrops(host, canvas);
   onBoardListChanged(paintList);
+  onBoardFocusRequested(paintBoard);
   onBoardChanged((boardId) => {
     applyDocsToOpenEditor(boardDocKey(boardId));
     if (boardId !== selectedBoardId) return;

@@ -26,6 +26,9 @@ import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
+import { agentChangeSentence, dismissLatestAgentChange, latestAgentChangeOf, onLatestAgentChangeChanged } from '../whiteboard/board-tile-store.ts';
+import { boardSummariesOf } from '../whiteboard/board-store.ts';
+import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { ACCEPT_MESSAGE, donePanelModelOf, sendBackMessageOf } from './done-panel-core.ts';
 
 const CHAT_PAGE_ID = 'chat';
@@ -68,6 +71,7 @@ interface MountedChat {
   syncWaitingCards(): void;
   showRail(): void;
   showDone(): void;
+  showAgentBoardChange(): void;
   resumeRail(): void;
   park(): void;
   close(): void;
@@ -247,6 +251,14 @@ function chatSendOf(event: Event): { text: string; attachments: string[] } | nul
   return { text: detail.text, attachments };
 }
 
+function agentBoardChangeTextOf(sessionId: string): string | null {
+  const latest = latestAgentChangeOf(sessionId);
+  if (!latest) return null;
+  const boardTitle = boardSummariesOf().find((summary) => summary.id === latest.boardId)?.title;
+  const sentence = agentChangeSentence(latest.change);
+  return boardTitle ? `${sentence} on ${boardTitle}` : sentence;
+}
+
 function buildChat(sessionId: string): MountedChat {
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
@@ -327,6 +339,8 @@ function buildChat(sessionId: string): MountedChat {
     },
   });
   const showDone = () => donePanel.show(doneModelNow());
+  const showAgentBoardChange = () => chatView.showAgentBoardChange(agentBoardChangeTextOf(sessionId));
+  showAgentBoardChange();
   sendControlMsg({ type: 'request-verification', id: sessionId });
   chatView.mountAfterActivity(donePanel.element);
   root.append(failureLine, chatView.element);
@@ -567,6 +581,13 @@ function buildChat(sessionId: string): MountedChat {
     showFailure(null);
     sendChatText(sessionId, chatSend.text, chatSend.attachments);
   });
+  root.addEventListener('chat-focus-board-change', () => {
+    const latest = latestAgentChangeOf(sessionId);
+    if (!latest) return;
+    dismissLatestAgentChange(sessionId);
+    openBoardAtAgentChange(latest.boardId, sessionId, latest.change);
+  });
+  root.addEventListener('chat-dismiss-board-change', () => dismissLatestAgentChange(sessionId));
   root.addEventListener('chat-cancel', (event) => {
     const entryId = cancelledEntryIdOf(event);
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
@@ -628,6 +649,7 @@ function buildChat(sessionId: string): MountedChat {
       freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
+      showAgentBoardChange();
       if (signInCard) showSignInCard(signInCard);
       runningSubagents = [];
       showRail();
@@ -654,6 +676,7 @@ function buildChat(sessionId: string): MountedChat {
     syncWaitingCards,
     showRail,
     showDone,
+    showAgentBoardChange,
     resumeRail: () => {
       showRail();
       if (railTimer === null) railTimer = setInterval(showRail, RAIL_TICK_MS);
@@ -755,6 +778,11 @@ export function applyChatSessionStatus(sessionId: string): void {
   mountedChat.setPhase(phase);
   if (wasWorking && phase !== 'working') mountedChat.feed.endTurn();
 }
+
+onLatestAgentChangeChanged(() => {
+  mountedChat?.showAgentBoardChange();
+  for (const keptChat of keptChatBySessionId.values()) keptChat.showAgentBoardChange();
+});
 
 onReviewChange((sessionId) => {
   if (mountedChat?.sessionId === sessionId) mountedChat.showDone();

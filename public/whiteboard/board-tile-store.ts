@@ -63,6 +63,8 @@ interface AgentChip {
 let agentRing: AgentRing | null = null;
 let agentChip: AgentChip | null = null;
 let agentRingTimer: ReturnType<typeof setTimeout> | null = null;
+const latestAgentChangeBySessionId = new Map<string, AgentChip>();
+const latestAgentChangeListeners: (() => void)[] = [];
 
 function notifyTilesChanged(): void {
   for (const listener of listeners) listener();
@@ -236,12 +238,41 @@ function forgetAgentChange(): void {
 }
 
 function applyAgentChange(message: ServerMessageOf<'whiteboard-agent-change'>): void {
+  latestAgentChangeBySessionId.set(message.change.author.id, { boardId: message.boardId, change: message.change });
+  notifyLatestAgentChangeListeners();
   if (state?.boardId !== message.boardId) return;
-  if (agentRingTimer !== null) clearTimeout(agentRingTimer);
-  agentRing = { boardId: message.boardId, boxIds: new Set(message.change.boxes.map((box) => box.id)) };
   agentChip = { boardId: message.boardId, change: message.change };
+  ringAgentChange(message.boardId, message.change);
+}
+
+function ringAgentChange(boardId: string, change: AgentChange): void {
+  if (agentRingTimer !== null) clearTimeout(agentRingTimer);
+  agentRing = { boardId, boxIds: new Set(change.boxes.map((box) => box.id)) };
   agentRingTimer = setTimeout(endAgentRing, AGENT_RING_MS);
   notifyTilesChanged();
+}
+
+function notifyLatestAgentChangeListeners(): void {
+  for (const listener of latestAgentChangeListeners) listener();
+}
+
+function latestAgentChangeOf(sessionId: string): AgentChip | null {
+  return latestAgentChangeBySessionId.get(sessionId) ?? null;
+}
+
+function dismissLatestAgentChange(sessionId: string): void {
+  if (!latestAgentChangeBySessionId.delete(sessionId)) return;
+  notifyLatestAgentChangeListeners();
+}
+
+function onLatestAgentChangeChanged(listener: () => void): void {
+  latestAgentChangeListeners.push(listener);
+}
+
+function agentChangeSentence(change: AgentChange): string {
+  const [onlyBox] = change.boxes;
+  const changedCards = change.boxes.length === 1 && onlyBox ? onlyBox.title : `${change.boxes.length} cards`;
+  return `${change.author.name} changed ${changedCards}`;
 }
 
 function endAgentRing(): void {
@@ -311,5 +342,5 @@ function onTilesChanged(listener: () => void): void {
   listeners.push(listener);
 }
 
-export { applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, offViewAgentChangeOf, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
+export { agentChangeSentence, applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, dismissLatestAgentChange, forgetTilesOf, latestAgentChangeOf, offViewAgentChangeOf, onLatestAgentChangeChanged, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
 export type { BlockTile };
