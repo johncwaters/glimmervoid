@@ -96,8 +96,6 @@
   margin: 0 auto;
   padding: 24px 20px 12px;
   color: var(--text);
-  font-family: var(--font-ui);
-  font-size: var(--type-title);
   line-height: 1.6;
 }
 
@@ -427,10 +425,12 @@
   resize: none;
   background: transparent;
   color: var(--text-head);
-  font: var(--type-title)/1.5 var(--font-ui);
+  font: inherit;
 }
 
 .chat-composer-input::placeholder { color: var(--text-muted); }
+
+html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 
 .chat-composer-row { display: flex; align-items: flex-end; gap: 8px; }
 
@@ -561,7 +561,7 @@
   margin: 12px auto 0;
   padding: 0 20px 12px;
   color: var(--text);
-  font: var(--type-title)/1.6 var(--font-ui);
+  line-height: 1.6;
 }
 
 .chat-queued-list:empty { display: none; }
@@ -584,7 +584,7 @@
   align-items: center;
   gap: 8px;
   color: var(--text-muted);
-  font: var(--type-meta)/1 var(--font-ui);
+  font: var(--type-meta)/1 var(--font-mono);
 }
 
 .chat-queued-row[data-state="failed"] .chat-queued-meta {
@@ -597,6 +597,8 @@
 .chat-queued-status { overflow-wrap: anywhere; }
 
 .chat-turn .plan-document { max-width: none; margin: 0; }
+
+.chat-turn .plan-document :is(h1, h2) { font-size: var(--type-body); }
 
 .chat-turn .plan-document > :last-child { margin-bottom: 0; }
 
