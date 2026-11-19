@@ -406,7 +406,7 @@ test('an agent reads a board too large to return whole as an outline with the op
   const staleCursorPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: wholeRegion, cursor: ElementPage.parse(firstPage.body).nextCursor });
   assert.equal(staleCursorPage.status, 409);
 
-  const longLine = 'word '.repeat(24).trim();
+  const longLine = 'w'.repeat(WHITEBOARD_LIMITS.line);
   const heavyBoxes = Array.from({ length: 40 }, (_, boxIndex) => ({ op: 'add', element: { kind: 'box', id: `heavy-${boxIndex}`, title: `Heavy ${boxIndex}`, lines: Array.from({ length: WHITEBOARD_LIMITS.linesPerBox }, () => ({ text: longLine })), place: { at: { x: 90000 + (boxIndex % 8) * 1000, y: Math.floor(boxIndex / 8) * 1000 } } } }));
   assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: heavyBoxes })).status, 200);
   const heavyPage = await whiteboard(BUILDER_ID, { sub: 'query', board: boardId, region: { x: 89000, y: -1000, width: 10000, height: 7000 } });
@@ -1884,6 +1884,24 @@ test('show puts each file on a board the session is connected to, creating one n
   const replaced = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-1' }, { op: 'add', element: { kind: 'box', id: 'shown-1', title: 'login.png', media: reshownCard.media, place: { at: reshownCard.place.at } } }]) });
   assert.equal(replaced.status, 200, JSON.stringify(replaced.body));
 
+  const proseLines = ['Purpose every checklist item names its enforcer', 'How a registry test scans each model call site', 'Why a later change cannot quietly drop an item'].map((text) => ({ text }));
+  const prose = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'registry', title: 'Agent security registry', lines: proseLines, place: { at: { x: 0, y: 900 } } } },
+  ]) });
+  assert.equal(prose.status, 409, JSON.stringify(prose.body));
+  assert.match(String((prose.body as { error: string }).error), /box registry holds 28 words; a card holds one idea in 24 words or fewer/);
+  const planned = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'registry-step', title: 'Agent security registry', lines: proseLines, step: {}, place: { at: { x: 0, y: 1500 } } } },
+  ]) });
+  assert.equal(planned.status, 200, JSON.stringify(planned.body));
+  const unplanned = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'set', id: 'registry-step', fields: { step: null } }]) });
+  assert.equal(unplanned.status, 409, JSON.stringify(unplanned.body));
+  const unspaced = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'unspaced', title: '代理安全注册表的目的与工作方式说明', lines: [{ text: '每个检查项都要指明负责执行它的测试或钩子以免遗漏' }, { text: '后来的修改不能悄悄删掉任何一项检查否则测试会失败并指出缺少的执行者' }], place: { at: { x: 0, y: 1200 } } } },
+  ]) });
+  assert.equal(unspaced.status, 409, JSON.stringify(unspaced.body));
+  await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'registry-step' }]) });
+
   const fiveLines = ['one', 'two', 'three', 'four', 'five'].map((text) => ({ text }));
   const wordy = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
     { op: 'add', element: { kind: 'box', id: 'recap', title: 'Weekly report', lines: fiveLines, place: { at: { x: 0, y: 600 } } } },
@@ -1893,7 +1911,6 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.equal(wordy.status, 200, JSON.stringify(wordy.body));
   const habitWarnings = ((wordy.body as { warnings?: string[] }).warnings ?? []).join('\n');
   assert.match(habitWarnings, /box recap repeats the title of box shown-2/);
-  assert.match(habitWarnings, /box recap holds 5 lines of text/);
   assert.match(habitWarnings, /this put adds 3 boxes of words/);
   await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse(['recap', 'risks', 'next'].map((id) => ({ op: 'remove', id }))) });
 

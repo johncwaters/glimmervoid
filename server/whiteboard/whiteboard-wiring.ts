@@ -31,7 +31,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, duplicateSourceRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -68,6 +68,7 @@ const PUT_GUIDE = [
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
   '{"op":"set","id":"parse","fields":{"title":"Parse and dedupe"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
+  'Draw in the board language: each card is one idea in a few words (24 at most, title and lines together, or the put is refused) with an icon; a relation is a wire with a one to three word label; a longer explanation is a Markdown document shown on the board; a tone means what the legend says.',
   `Element kinds: box (title, icon, place, lines, refs, change none|added|removed|relabeled, was, order, shape ${BOX_SHAPES.join('|')}, tone ${NOTE_TONES.join('|')} as a fill tint on a box, decision, ellipse or note, textSize S|M|L for the title, width, height, device, fit, borderless, params, step {status planned|building|landed} to make it a plan step), wire (from and to each a box id or a free point {"x","y"}, dashed, tone plain|fail|join, width thin|bold, arrows none|end|both, route elbow|sharp|curved where elbow routes around boxes and sharp or curved runs straight or bowed, label, fromSide and toSide left|right|top|bottom), frame (title, contains, collapsed).`,
   'To show a picture, video, HTML page, Markdown document, Fountain screenplay, CSV, TSV or XLSX sheet or PowerPoint deck, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, a Markdown document shows the operator its rendered text, a Fountain screenplay shows laid out as a script, which they can edit and save on the board, and a CSV, TSV or XLSX sheet shows its rows as a grid, which the operator can edit for CSV and TSV and only read for XLSX, and a PowerPoint deck shows as a labelled card the operator opens to read slide by slide; whiteboard doc reads a document or sheet back as its text.',
   `An icon draws before a box title in the text color, as in "icon":"database"; a box with shape icon holds no lines or media and draws its required icon large with the title under it. The icons are ${ICON_NAMES.join(', ')}.`,
@@ -851,7 +852,7 @@ function createWhiteboardWiring({
   }
 
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
-    const reply = await putOps(boardId, ops, author, duplicateSourceRefusalOf);
+    const reply = await putOps(boardId, ops, author, agentPutRefusalOf);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
     const habitWarnings = habitWarningsOf(board, ops);

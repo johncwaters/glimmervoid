@@ -534,7 +534,7 @@ function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard
   return { ok: true, op: { op: 'add', element: box.data }, boxId, isUpdate: false };
 }
 
-const WORDY_BOX_LINE_LIMIT = 4;
+const CARD_WORD_LIMIT = 24;
 const ALL_WORDS_BOX_COUNT = 3;
 
 function addedBoxesOf(ops: readonly Op[]): BoxInput[] {
@@ -576,13 +576,36 @@ function likeTitledWarnings(boardAfter: Board, addedBoxes: readonly BoxInput[]):
   });
 }
 
-function wordyBoxWarnings(boardAfter: Board, ops: readonly Op[]): string[] {
-  const touchedIds = new Set(ops.flatMap((op) => (op.op === 'add' ? [op.element.id] : op.op === 'set' ? [op.id] : [])));
-  return [...touchedIds].flatMap((boxId) => {
-    const box = boardAfter.elements.get(boxId);
-    if (box?.kind !== 'box' || box.lines.length <= WORDY_BOX_LINE_LIMIT) return [];
-    return [`box ${boxId} holds ${box.lines.length} lines of text; the operator reads a picture faster, so split it into smaller boxes wired together, give it an icon, or show a screenshot or chart instead`];
-  });
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+
+function wordCountOf(text: string): number {
+  let words = 0;
+  for (const segment of wordSegmenter.segment(text)) if (segment.isWordLike) words += 1;
+  return words;
+}
+
+function cardWordsOf(box: BoxInput): number {
+  return wordCountOf(box.title) + box.lines.reduce((total, line) => total + wordCountOf(line.text) + wordCountOf(line.key ?? ''), 0);
+}
+
+function isTextUnchanged(box: BoxInput, before: Element | null | undefined): boolean {
+  if (before?.kind !== 'box' || before.step !== null || before.media !== null) return false;
+  return before.title === box.title && JSON.stringify(before.lines) === JSON.stringify(box.lines);
+}
+
+function wordyCardRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
+  for (const [boxId, element] of afterById) {
+    if (element?.kind !== 'box' || element.step !== null || element.media !== null) continue;
+    if (isTextUnchanged(element, boardBefore.elements.get(boxId))) continue;
+    const words = cardWordsOf(element);
+    if (words <= CARD_WORD_LIMIT) continue;
+    return `box ${boxId} holds ${words} words; a card holds one idea in ${CARD_WORD_LIMIT} words or fewer with an icon, so split it into cards wired together with short labels, or show the explanation as a Markdown document`;
+  }
+  return null;
+}
+
+function agentPutRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
+  return duplicateSourceRefusalOf(boardBefore, afterById) ?? wordyCardRefusalOf(boardBefore, afterById);
 }
 
 function isPictorial(box: BoxInput): boolean {
@@ -598,9 +621,9 @@ function allWordsWarnings(ops: readonly Op[], addedBoxes: readonly BoxInput[]): 
 
 function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
   const addedBoxes = addedBoxesOf(ops);
-  return [...likeTitledWarnings(boardAfter, addedBoxes), ...wordyBoxWarnings(boardAfter, ops), ...allWordsWarnings(ops, addedBoxes)];
+  return [...likeTitledWarnings(boardAfter, addedBoxes), ...allWordsWarnings(ops, addedBoxes)];
 }
 
-export { duplicateSourceRefusalOf, habitWarningsOf, pickShowBoardId, shownBoxOp };
+export { agentPutRefusalOf, habitWarningsOf, pickShowBoardId, shownBoxOp };
 export type { ShownCard };
 export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
