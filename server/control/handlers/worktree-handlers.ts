@@ -63,11 +63,6 @@ function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDep
       if (!s) return;
       ws.send(JSON.stringify({ type: 'verification-run', id: s.id, run: deps.verification?.latestRun(s.id) ?? null }));
     },
-    'done-commands-allow': (msg: ClientMessageOf<'done-commands-allow'>) => {
-      const s = findSession(msg);
-      if (!s) return;
-      if (s.allowDoneCommands(msg.commands)) deps.verification?.runAllowedAgentCommands(s);
-    },
     'request-session-review': (msg: ClientMessageOf<'request-session-review'>, ws: ControlSocket) => {
       const s = findSession(msg);
       if (!s) return;

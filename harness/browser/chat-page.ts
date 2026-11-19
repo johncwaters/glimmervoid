@@ -493,13 +493,6 @@ export const DONE_MEANS_TEST_FILE = 'tests/keeps.test.ts';
 const DONE_MEANS_REMOVED_ASSERTION = 'assert.equal(total, 2);';
 export const DONE_MEANS_KEPT_TEST = `test('adds', () => {\n  ${DONE_MEANS_REMOVED_ASSERTION}\n});\n`;
 
-async function pressInEmptyComposer(page: Page, key: string): Promise<void> {
-  await page.locator('.session-chat .chat-done .chat-card[data-resolved="false"][data-keys-ready]').waitFor({ timeout: CARD_TIMEOUT_MS });
-  const input = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
-  await input.focus();
-  await input.press(key);
-}
-
 export async function verifyChatDoneMeans(page: Page, projectDirectory: string): Promise<void> {
   await openChat(page);
   const worktreePath = await pollFor('the session worktree', CARD_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
@@ -526,32 +519,15 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   assert.equal(await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).count(), 1, 'a passing check reads passed');
   const testKeepingLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'Keeps every test' });
   assert.equal(await testKeepingLine.locator('.chat-done-evidence').innerText(), `${DONE_MEANS_TEST_FILE}:2 removed: ${DONE_MEANS_REMOVED_ASSERTION}`, 'a removed assertion fails Keeps every test, naming file:line and the removed text');
-  assert.equal(await panel.locator('.chat-card-heading').innerText(), 'Is the work done?', 'the finished turn asks whether the work is done');
-  assert.equal(await panel.locator('.chat-card .chat-card-recommended').count(), 0, 'neither answer is marked Recommended');
-  const agentLine = panel.locator('.chat-done-line', { hasText: AGENT_DONE_LINE.text });
-  assert.match(await agentLine.innerText(), /Waiting for you/, 'an agent command does not run before the operator allows it');
-  assert.equal(await agentLine.locator('.chat-done-command').innerText(), AGENT_DONE_LINE.command, 'the agent line shows the command it asks to run');
-  await panel.getByRole('button', { name: 'Allow commands', exact: true }).click();
-  await panel.locator('.chat-done-line[data-status="passed"]', { hasText: AGENT_DONE_LINE.text }).waitFor({ timeout: CARD_TIMEOUT_MS });
-  assert.equal(await panel.getByRole('button', { name: 'Allow commands', exact: true }).count(), 0, 'an allowed command asks no more');
-  assert.equal(await panel.locator('.chat-done-line[data-status="failed"]').count(), 2, 'the allowed run keeps both failed lines');
-  await pressInEmptyComposer(page, '2');
-  await waitForTurnRunning(page, true);
-  await waitForOutboxEmpty(page);
-  assert.equal(await panel.locator('.chat-card[data-resolved="false"]').count(), 0, 'a Not done answer takes no second key');
-  await stopTurnPastHints(page);
-  await waitForTurnRunning(page, false);
-  await pressInEmptyComposer(page, '1');
-  await waitForTurnRunning(page, true);
-  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
-  assert.equal(await composer.inputValue(), '', 'a 1 in the empty composer answers Done instead of typing');
-  await waitForOutboxEmpty(page);
+  const agentLine = panel.locator('.chat-done-line[data-status="passed"]', { hasText: AGENT_DONE_LINE.text });
+  await agentLine.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await agentLine.locator('.chat-done-command').innerText(), AGENT_DONE_LINE.command, 'the agent command ran with no operator step and shows beneath its line');
+  assert.equal(await panel.locator('.chat-card').count(), 0, 'the panel reports and asks nothing');
+  assert.equal(await panel.getByRole('button').count(), 0, 'the panel has no Allow commands button');
   await verifySpawnedChildDoneMeans(page);
 }
 
 async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
-  await stopTurnPastHints(page);
-  await waitForTurnRunning(page, false);
   await sendFromComposer(page, 'spawn-done-child');
   const childRow = page.locator('button.session-row', { hasText: DONE_CHILD_NAME });
   await childRow.waitFor({ timeout: CARD_TIMEOUT_MS });
@@ -564,12 +540,10 @@ async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   const panel = page.locator('.session-chat .chat-done');
-  for (const doneLine of DONE_CHILD_LINES) {
-    await panel.locator('.chat-done-line[data-status="not-checked"]', { hasText: doneLine }).waitFor({ timeout: CARD_TIMEOUT_MS });
-  }
   const statusCheckLine = panel.locator('.chat-done-line[data-status="passed"]').filter({ has: page.locator('.chat-done-text', { hasText: /^status$/ }) });
   await statusCheckLine.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await statusCheckLine.innerText(), /Glimmervoid ran/i, 'a spawned child with done lines runs the repo checks at turn end');
+  for (const doneLine of DONE_CHILD_LINES) assert.equal(await panel.locator('.chat-done-line', { hasText: doneLine }).count(), 0, 'a spawn done line stays prompt text, off the panel');
 }
 
 async function stopTurnPastHints(page: Page): Promise<void> {

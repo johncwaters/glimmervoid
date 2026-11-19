@@ -100,7 +100,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'host-ready-result', requestId: 'r1', hostReady: { rows: [{ id: 'github', state: 'ready', text: 'Connected as octo-cat.', fix: null }, { id: 'commit-signing', state: 'needs-action', text: 'Off, so commits show as Unverified on GitHub.', fix: 'set-up-signing' }] } },
   { type: 'session-title', id: 'session-1', taskTitle: 'Fix dashboard', isCustom: false },
   { type: 'session-prs', id: 'session-1', linkedPrs: [{ repo: 'PostHog/glimmervoid', number: 42, url: 'https://github.com/PostHog/glimmervoid/pull/42', source: 'hook', linkedAt: NOW }] },
-  { type: 'session-done-lines', id: 'session-1', agentDoneLines: [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string' }] },
+  { type: 'session-done-lines', id: 'session-1', agentDoneLines: [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string', command: 'npm test -- redirect' }] },
   { type: 'session-wakes', id: 'session-1', wakes: [{ id: 'w4', kind: 'cron', pattern: '0 9 * * 1-5', text: 'run nightly QA and report', nextFireAt: NOW, nextFire: '09:00 tomorrow (in 14h)' }] },
   { type: 'session-modified', id: 'session-1', session: 'glimmervoid', path: '/repo/glimmervoid', agent: 'claude-code', state: STATES.DORMANT, stateSince: NOW, skipPerms: true, saneYolo: true, worktree: false, resumeSessionId: null },
   { type: 'session-git', id: 'session-1', worktree: true },

@@ -134,7 +134,7 @@ const SESSION_TOOL: GroupedTool = {
     answers: z.record(z.string(), z.string().min(1)).optional().describe('answer: each question text mapped to the chosen answer'),
     toOperator: z.literal(true).optional().describe('answer: pass the child\'s question to the operator instead'),
     path: AgentEditRequest.shape.path.optional().describe('edit: the file, absolute or relative to this session\'s directory'),
-    lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, with a command only where one proves the line (a plain program and arguments, no shell syntax); Glimmervoid runs each command in the worktree at every turn end once the operator allows it, and a later done call replaces these lines"),
+    lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, every line with the command that proves it (a plain program and arguments, no shell syntax, exiting 0 when the line holds); Glimmervoid runs each command in the worktree at turn end and sends failures back to you, and a later done call replaces these lines"),
   },
   actions: {
     spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),

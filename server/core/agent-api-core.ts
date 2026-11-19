@@ -509,8 +509,8 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: "Use it once you understand the operator's request, and again when your plan changes",
     usage: 'done <lines>',
     positionals: requiredText('<lines>'),
-    summary: "Say what finished means for this request, as lines split by ';', each optionally ending in ' :: <command>' that Glimmervoid runs at each turn end once the operator allows it; they show in this session's Checked at turn end panel and replace the lines you gave before",
-    missingArgumentHint: 'this command needs lines, for example "glimmervoid done login tests pass :: npm test -- login; the redirect keeps the query string"',
+    summary: "Say what finished means for this request, as lines split by ';', each ending in ' :: <command>', a plain program that exits 0 when the line holds, which Glimmervoid runs at turn end; they show in this session's Checked at turn end panel and replace the lines you gave before",
+    missingArgumentHint: 'this command needs lines, for example "glimmervoid done login tests pass :: npm test -- login; the redirect keeps the query string :: npm test -- redirect"',
   },
   review: {
     whenToUse: 'Use it instead of gh pr review when a pull request needs a review the operator posts',

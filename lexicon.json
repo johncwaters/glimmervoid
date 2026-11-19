@@ -1489,12 +1489,8 @@
       "definition": "The one option of an agent question whose label ends (Recommended): the option the question manager rule picks and the one Chat shows first and takes on Enter"
     },
     {
-      "name": "accept",
-      "definition": "The Checked at turn end panel answer Done, land it, key 1, that sends the agent a fixed message to land its work; the merge gate still applies"
-    },
-    {
       "name": "checked at turn end",
-      "definition": "The Chat panel that ends a finished turn with each done line and verification check Glimmervoid ran, N of M passed, then asks the operator Is the work done?",
+      "definition": "The Chat panel that ends a finished turn past the worktree size threshold with each done line and verification check Glimmervoid ran, N of M passed; it asks nothing",
       "aliases": [
         "checked"
       ]

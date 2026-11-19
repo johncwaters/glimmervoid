@@ -1,5 +1,4 @@
 import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
-import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -30,7 +29,7 @@ import { agentChangeSentence, onAgentChange } from '../whiteboard/board-tile-sto
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
-import { ACCEPT_MESSAGE, donePanelModelOf, sendBackMessageOf } from './done-panel-core.ts';
+import { donePanelModelOf } from './done-panel-core.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -82,7 +81,6 @@ const approvalBySessionId = new Map<string, ConversationApproval | null>();
 const draftBySessionId = new Map<string, string>();
 const draftAttachmentsBySessionId = new Map<string, string[]>();
 const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
-const doneMeansBySessionId = new Map<string, readonly string[]>();
 const agentDoneLinesBySessionId = new Map<string, readonly AgentDoneLine[]>();
 let mountedChat: MountedChat | null = null;
 const keptChatBySessionId = new Map<string, MountedChat>();
@@ -150,7 +148,7 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'done-verdict'] as const;
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in'] as const;
 const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
 const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
@@ -356,27 +354,8 @@ function buildChat(sessionId: string): MountedChat {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
   };
-  const doneModelNow = () => donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, doneMeans: doneMeansBySessionId.get(sessionId) ?? [], agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) });
-  const donePanel = createDonePanel({
-    onNotDone: () => {
-      const doneModel = doneModelNow();
-      if (doneModel === null) return;
-      showFailure(null);
-      if (!doneModel.lines.some((line) => line.status === 'failed')) {
-        root.querySelector<HTMLTextAreaElement>('.chat-composer-input')?.focus();
-        return;
-      }
-      sendChatText(sessionId, sendBackMessageOf(doneModel, CHAT_SEND_MAX_CHARS), []);
-    },
-    onDone: () => {
-      showFailure(null);
-      sendChatText(sessionId, ACCEPT_MESSAGE, []);
-    },
-    onAllowCommands: (commands) => {
-      if (!sendControlMsg({ type: 'done-commands-allow', id: sessionId, commands: [...commands] })) showFailure('Allow commands did not reach Glimmervoid. Check the connection and press it again.');
-    },
-  });
-  const showDone = () => donePanel.show(doneModelNow());
+  const donePanel = createDonePanel();
+  const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
   chatView.mountAfterActivity(donePanel.element);
   root.append(failureLine, chatView.element);
@@ -823,12 +802,6 @@ export function noteChatApproval(sessionId: string, approval: ConversationApprov
   approvalBySessionId.set(sessionId, approval);
 }
 
-export function noteChatDoneMeans(sessionId: string, doneMeans: readonly string[], agentDoneLines: readonly AgentDoneLine[]): void {
-  doneMeansBySessionId.set(sessionId, doneMeans);
-  agentDoneLinesBySessionId.set(sessionId, agentDoneLines);
-  if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
-}
-
 export function noteChatAgentDoneLines(sessionId: string, agentDoneLines: readonly AgentDoneLine[]): void {
   agentDoneLinesBySessionId.set(sessionId, agentDoneLines);
   if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
@@ -844,15 +817,14 @@ export function applyChatTraceChanged(sessionId: string): void {
   mountedChat.feed.refresh();
 }
 
-export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; doneMeans?: readonly string[]; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
+export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
   approvalBySessionId.clear();
   outboxBySessionId.clear();
-  doneMeansBySessionId.clear();
   agentDoneLinesBySessionId.clear();
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
     noteChatOutbox(row.id, row.chatOutbox ?? []);
-    noteChatDoneMeans(row.id, row.doneMeans ?? [], row.agentDoneLines ?? []);
+    noteChatAgentDoneLines(row.id, row.agentDoneLines ?? []);
   }
   if (!mountedChat) return;
   applyChatSessionStatus(mountedChat.sessionId);

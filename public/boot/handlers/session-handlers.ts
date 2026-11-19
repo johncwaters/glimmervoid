@@ -1,4 +1,4 @@
-import { applyChatSessionStatus, noteChatAgentDoneLines, noteChatApproval, noteChatDoneMeans, noteChatOutbox } from '../../chat/chat-page.ts';
+import { applyChatSessionStatus, noteChatAgentDoneLines, noteChatApproval, noteChatOutbox } from '../../chat/chat-page.ts';
 import { setSessionAccountId, setSessionWorkingDirectory, setSessionModelSelection } from '../../session-card/card-model.ts';
 import { refreshFavicon } from '../../favicon.ts';
 import { forgetSessionInSavedOrder, setFocusMergeStatus } from '../../focus-view/focus-view.ts';
@@ -21,7 +21,7 @@ const messageHandlers = {
     if (msg.chatOutbox !== undefined) noteChatOutbox(msg.id, msg.chatOutbox);
     applyChatSessionStatus(msg.id);
   },
-  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); noteChatDoneMeans(msg.id, msg.doneMeans ?? [], msg.agentDoneLines ?? []); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } setSessionModelSelection(msg.id, msg.modelSelection ?? null); setSessionAccountId(msg.id, msg.accountId ?? null); setSessionWorkingDirectory(msg.id, msg.workingDirectory); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
+  'session-added':      (msg) => { setSessionLinkedPrs(msg.id, msg.linkedPrs); noteChatAgentDoneLines(msg.id, msg.agentDoneLines ?? []); if (!hasSession(msg.id)) { createSessionCard(msg.id, msg.session, msg.state, buildSessionCardOptions(msg)); setSessionAgent(msg.id, msg.agent, msg.agentDrawsAlternateScreen); } setSessionModelSelection(msg.id, msg.modelSelection ?? null); setSessionAccountId(msg.id, msg.accountId ?? null); setSessionWorkingDirectory(msg.id, msg.workingDirectory); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-close-confirm': (msg) => { requestSessionRemovalNow(msg.id); },
   'session-removed':    (msg) => { forgetSession(msg.id); forgetSessionInSavedOrder(msg.id); refreshFavicon(attentionTally.counts); refreshRosterAndAttentionSurfaces(); syncTraceSessionsFromCards(); },
   'session-title': (msg) => { setSessionTaskTitle(msg.id, msg.taskTitle, msg.isCustom); refreshRosterAndAttentionSurfaces(); },

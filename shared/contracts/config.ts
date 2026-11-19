@@ -109,7 +109,7 @@ export const PersistedTaskTitle = z.object({
   return sources[source]?.replace(/\s+/g, ' ').trim() === taskTitle && isCustom === (source === 'customTitle');
 });
 
-const PersistedAgentDoneLine = z.object({ text: z.string().min(1), command: z.string().min(1).optional() });
+const PersistedAgentDoneLine = z.object({ text: z.string().min(1), command: z.string().min(1) });
 
 function readablePersistedDoneLines(lines: unknown[]): z.infer<typeof PersistedAgentDoneLine>[] {
   return lines.flatMap((line) => {
@@ -140,7 +140,6 @@ export const ProjectConfig = z.object({
   isStartPinned: z.boolean().optional(),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
-  allowedDoneCommands: z.array(z.unknown()).transform((commands) => commands.flatMap((command) => (typeof command === 'string' && command.length > 0 ? [command] : [])).slice(0, DONE_MEANS_MAX_LINES)).optional().catch(undefined),
 }).passthrough();
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,

@@ -1,8 +1,9 @@
+import { checkCommand } from 'cc-safety-net/api';
 import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
-import { AGENT_COMMAND_WAITING_REASON, AGENT_DONE_CHECK_ID_PREFIX, VERIFICATION_OUTPUT_TAIL_BYTES, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
+import { AGENT_DONE_CHECK_ID_PREFIX, VERIFICATION_OUTPUT_TAIL_BYTES, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome, RemovedTestLine, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
 import { streamRemovedTestLines } from './test-keeping-scan.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -26,8 +27,7 @@ interface VerifiableSession {
   path: string;
   ephemeral: boolean;
   ownerId?: string | null;
-  agentDoneLines: readonly { text: string; command?: string }[];
-  allowedDoneCommands: readonly string[];
+  agentDoneLines: readonly { text: string; command: string }[];
   hasOwnWorktree: boolean;
   worktreeDir: string | null;
   on(event: 'post-turn-check', listener: () => void): unknown;
@@ -48,7 +48,6 @@ interface VerificationWiringDependencies {
 
 interface VerificationWiring {
   attachSession(session: VerifiableSession): void;
-  runAllowedAgentCommands(session: VerifiableSession): void;
   latestRun(sessionId: string): VerificationRun | null;
   forgetSession(sessionId: string): void;
   stop(): void;
@@ -57,7 +56,6 @@ interface VerificationWiring {
 interface AgentCheck {
   id: string;
   command: string;
-  isAllowed: boolean;
 }
 
 interface CachedRun {
@@ -176,6 +174,12 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
   }
 
+  function runAgentCheck(sessionId: string, worktreeDir: string, agentCheck: AgentCheck, timeoutMs: number): Promise<CheckOutcome> {
+    const screened = checkCommand({ command: agentCheck.command, cwd: worktreeDir });
+    if (screened.kind === 'deny') return Promise.resolve({ id: agentCheck.id, command: agentCheck.command, status: 'fail', exitCode: null, outputTail: `Sane YOLO refused to run it: ${screened.reason}` });
+    return runCheck(sessionId, worktreeDir, agentCheck, timeoutMs);
+  }
+
   async function scanRemovedTestLines(session: VerifiableSession): Promise<RemovedTestLine[] | null> {
     if (!session.worktreeDir) return null;
     const { baseSha, effectiveBase } = session.worktreeLifecycle.snapshot();
@@ -193,15 +197,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function agentChecksOf(session: VerifiableSession): AgentCheck[] {
-    return session.agentDoneLines.flatMap((line, index) => {
-      if (line.command === undefined) return [];
-      return [{ id: `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}`, command: line.command, isAllowed: session.allowedDoneCommands.includes(line.command) }];
-    });
-  }
-
-  async function runAgentCheck(sessionId: string, worktreeDir: string, agentCheck: AgentCheck, timeoutMs: number): Promise<CheckOutcome> {
-    if (!agentCheck.isAllowed) return skippedOutcome(agentCheck, AGENT_COMMAND_WAITING_REASON);
-    return runCheck(sessionId, worktreeDir, agentCheck, timeoutMs);
+    return session.agentDoneLines.map((line, index) => ({ id: `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}`, command: line.command }));
   }
 
   async function runChecks(session: VerifiableSession, settings: VerificationSettings, agentChecks: readonly AgentCheck[], key: string, sig: string): Promise<VerificationRun> {
@@ -293,13 +289,6 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     });
   }
 
-  function runAllowedAgentCommands(session: VerifiableSession): void {
-    if (!attachedSessionIds.has(session.id)) return;
-    verifyAtTurnEnd(session).catch((error: unknown) => {
-      dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);
-    });
-  }
-
   function attachSession(session: VerifiableSession): void {
     attachedSessionIds.add(session.id);
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
@@ -313,7 +302,6 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   return {
     attachSession,
-    runAllowedAgentCommands,
     latestRun: (sessionId) => publishedRunBySession.get(sessionId) ?? cachedRunBySession.get(sessionId)?.run ?? null,
     forgetSession: (sessionId) => {
       attachedSessionIds.delete(sessionId);

@@ -293,7 +293,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
 
       const carriedChatOutbox = oldSession.chatOutboxEntries;
       const carriedAgentDoneLines = oldSession.agentDoneLines;
-      const carriedAllowedDoneCommands = oldSession.allowedDoneCommands;
       oldSession.destroy('replaced');
       const newSession = dependencies.makeSession(project, newConfig);
       sessions.set(project.id, newSession);
@@ -301,7 +300,6 @@ function createSessionRegistry(dependencies: SessionRegistryDependencies): Sessi
       dependencies.wireSessionEvents(newSession);
       newSession.adoptChatOutbox(carriedChatOutbox);
       newSession.setAgentDoneLines(carriedAgentDoneLines);
-      newSession.allowDoneCommands(carriedAllowedDoneCommands);
       dependencies.carryWorktreeAcrossRecreate(oldSession, newSession, getSession);
       dependencies.broadcastControl({
         type: 'session-modified',

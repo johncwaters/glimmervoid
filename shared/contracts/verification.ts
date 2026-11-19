@@ -5,7 +5,6 @@ const VERIFICATION_CHECK_LIMIT = 12;
 export const VERIFICATION_OUTPUT_TAIL_BYTES = 4000;
 
 export const AGENT_DONE_CHECK_ID_PREFIX = 'agent-done-';
-export const AGENT_COMMAND_WAITING_REASON = 'waiting for you to press Allow commands in the Checked at turn end panel';
 const VERIFICATION_RUN_CHECK_LIMIT = VERIFICATION_CHECK_LIMIT + DONE_MEANS_MAX_LINES + 1;
 
 const checkId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);

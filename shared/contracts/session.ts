@@ -99,14 +99,15 @@ const DoneMeansLine = z.string({ error: 'each done line must be a string' })
 
 const DoneMeansLines = z.array(DoneMeansLine, { error: 'done must be a list of lines' }).min(1, { error: 'done needs at least one line' }).max(DONE_MEANS_MAX_LINES, { error: `done takes at most ${DONE_MEANS_MAX_LINES} lines` });
 
+const DONE_LINE_COMMAND_MISSING = 'each done line needs a command: a plain program and arguments that exits 0 when the line holds';
+
 export const AgentDoneLine = z.object({
   text: DoneMeansLine,
-  command: z.string({ error: 'command must be a string' })
+  command: z.string({ error: (issue) => (issue.input === undefined ? DONE_LINE_COMMAND_MISSING : 'command must be a string') })
     .trim()
     .min(1, { error: 'command must not be empty' })
     .max(400, { error: 'command must be at most 400 characters' })
-    .regex(/^[^\r\n]*$/, { error: 'command must be one line' })
-    .optional(),
+    .regex(/^[^\r\n]*$/, { error: 'command must be one line' }),
 }).strict();
 
 export const AgentDoneRequest = z.object({

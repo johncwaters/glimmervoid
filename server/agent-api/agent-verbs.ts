@@ -27,7 +27,9 @@ import { createPlanRuns } from '../plan-run-wiring.ts';
 import type { PlanRunPorts } from '../plan-run-wiring.ts';
 import type { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { COMMAND_ROUTES } from '../../session/core/session-routes.ts';
+import { checkCommand } from 'cc-safety-net/api';
 
+const UNUSABLE_DIRECTORY_RULE_ID = 'cwd.requested-unusable';
 const CHECKOUT_DEADLINE_MS = 240_000;
 const CLONE_BY_HAND_HINT = 'clone it by hand, then run glimmervoid checkout <absolute path>';
 
@@ -193,10 +195,16 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function done(session: Session, request: AgentDoneRequest): AgentReplyOf<'done'> {
+    const commandDirectory = session.worktreeDir ?? session.path;
+    for (const line of request.lines) {
+      const screened = checkCommand({ command: line.command, cwd: commandDirectory });
+      if (screened.kind === 'deny' && screened.ruleId === UNUSABLE_DIRECTORY_RULE_ID) return refusal(409, `This session's folder ${commandDirectory} cannot be used, so no done line can be checked: ${screened.reason}`);
+      if (screened.kind === 'deny') return refusal(400, `Sane YOLO refused the command for "${line.text}" (${line.command}): ${screened.reason} Give a command that only checks the line.`);
+    }
     session.setAgentDoneLines(request.lines);
-    const commandCount = request.lines.filter((line) => line.command !== undefined).length;
-    const commandNote = commandCount === 0 || !session.hasOwnWorktree ? '' : ` Glimmervoid runs the ${commandCount === 1 ? 'command' : `${commandCount} commands`} at each turn end once the operator allows ${commandCount === 1 ? 'it' : 'them'}.`;
-    return { status: 200, body: { ok: true, note: `The Checked at turn end panel now lists ${request.lines.length} ${request.lines.length === 1 ? 'line' : 'lines'} from you.${commandNote}` } };
+    const lineCount = request.lines.length;
+    const runNote = session.hasOwnWorktree ? ` Glimmervoid runs ${lineCount === 1 ? 'its command' : 'their commands'} at each turn end once the worktree has changed enough, and sends any failure back to you.` : '';
+    return { status: 200, body: { ok: true, note: `The Checked at turn end panel now lists ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} from you.${runNote}` } };
   }
 
   function planRunPortsOf(session: Session, boards: NonNullable<typeof whiteboards>): PlanRunPorts {

@@ -123,7 +123,7 @@ interface BackendControlDependencies {
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
-  verification: Pick<VerificationWiring, 'latestRun' | 'runAllowedAgentCommands'>;
+  verification: Pick<VerificationWiring, 'latestRun'>;
   sessionReview: Pick<SessionReviewWiring, 'latest' | 'run'>;
   serverBuild: () => string;
   telemetry: Pick<Telemetry, 'capture' | 'captureException' | 'captureClientError' | 'requestDataDeletion'>;

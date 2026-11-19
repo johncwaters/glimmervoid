@@ -68,7 +68,7 @@ Inside a Glimmervoid session:
   sessions            List the live sessions. Use it to see what other sessions are working on before touching shared code
   push                Land this session's commits on the integration branch and push it. Use it when this session's commits are ready to land
   edit <path>         Open a text file for the operator to edit in the dashboard. Use it when the operator should write or correct text, such as a plan or a prompt
-  done <lines>        Say what finished means for this request, as lines split by ';', each optionally ending in ' :: <command>' that Glimmervoid runs at each turn end once the operator allows it; they show in this session's Checked at turn end panel and replace the lines you gave before. Use it once you understand the operator's request, and again when your plan changes
+  done <lines>        Say what finished means for this request, as lines split by ';', each ending in ' :: <command>', a plain program that exits 0 when the line holds, which Glimmervoid runs at turn end; they show in this session's Checked at turn end panel and replace the lines you gave before. Use it once you understand the operator's request, and again when your plan changes
   review <pr>         Queue a team review of a pull request; the draft waits in the Reviews tab for the operator to post. Use it instead of gh pr review when a pull request needs a review the operator posts
   reviews [pr]        List the Reviews tab: reviews running, queued and drafted; with a pull request, read its draft in full. Use it to follow a queued review or read its draft
   prs                 List the operator's open pull requests with their checks, reviews and merge state. Use it to find which of the operator's pull requests need work

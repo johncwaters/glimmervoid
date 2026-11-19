@@ -7,7 +7,6 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createVerificationWiring } from '../server/verification/verification-wiring.ts';
 import { VerificationRun, VerificationSettings } from '../shared/contracts/verification.ts';
-import { donePanelModelOf } from '../public/chat/done-panel-core.ts';
 
 function git(repoPath: string, args: string[]): string {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repoPath }).toString().trim();
@@ -61,7 +60,6 @@ test('Keeps every test reports only net removals and skips, at their real path a
     ephemeral: true,
     ownerId: 'parent',
     agentDoneLines: [],
-    allowedDoneCommands: [] as string[],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -104,7 +102,6 @@ test('the newest turn end decides the verdict: an unreadable tree shows skipped 
     path: repoPath,
     ephemeral: false,
     agentDoneLines: [],
-    allowedDoneCommands: [] as string[],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -128,7 +125,7 @@ test('the newest turn end decides the verdict: an unreadable tree shows skipped 
   assert.deepEqual(shownVerdict(), ['fail'], 'a readable turn end on the same tree shows its cached run again');
 });
 
-test('an agent command waits for the operator, runs once allowed, waits again when changed, and never fails the repo checks or takes a repo check id', async (context) => {
+test('an agent command runs at turn end with no operator step, reruns when changed, refuses a risky command however it arrived, and never fails the repo checks or takes a repo check id', async (context) => {
   const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-agent-commands-'));
   context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
   git(repoPath, ['init', '--quiet']);
@@ -148,8 +145,7 @@ test('an agent command waits for the operator, runs once allowed, waits again wh
     id: 'agent-commands',
     path: repoPath,
     ephemeral: false,
-    agentDoneLines: [{ text: 'node runs', command: 'node --version' }, { text: 'the README reads well' }],
-    allowedDoneCommands: [] as string[],
+    agentDoneLines: [{ text: 'node runs', command: 'node --version' }],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event: 'post-turn-check', listener: () => void) => { onTurnEnd = listener; },
@@ -164,48 +160,17 @@ test('an agent command waits for the operator, runs once allowed, waits again wh
   const shownAgentChecks = () => broadcastRuns.at(-1)?.checks.map((check) => `${check.id} ${check.status}`);
 
   onTurnEnd();
-  await sleep(500);
-  assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 skipped']);
-  assert.equal(broadcastRuns.at(-1)?.status, 'passed', 'a waiting agent command leaves the repo checks passed');
-  session.allowedDoneCommands = ['node --version'];
-  verification.runAllowedAgentCommands(session);
   await sleep(1500);
   assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 pass']);
-  session.agentDoneLines = [{ text: 'node runs', command: 'node --print 1' }];
+  session.agentDoneLines = [{ text: 'node fails', command: 'node --check missing-entry.js' }];
   onTurnEnd();
-  await sleep(500);
-  assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 skipped']);
-});
-
-test('a session without its own worktree shows no Allow commands bar for an agent command it can never run', async () => {
-  const broadcastRuns: VerificationRun[] = [];
-  const verification = createVerificationWiring({
-    getVerificationConfig: () => ({}),
-    isSessionSandboxOn: () => false,
-    broadcastControl: (message) => { if (message.type === 'verification-run') broadcastRuns.push(VerificationRun.parse(message.run)); },
-    logger: console,
-  });
-  const agentDoneLines = [{ text: 'node runs', command: 'node --version' }];
-  const session = {
-    id: 'shared-checkout',
-    path: os.tmpdir(),
-    ephemeral: false,
-    agentDoneLines,
-    allowedDoneCommands: [] as string[],
-    hasOwnWorktree: false,
-    worktreeDir: null,
-    on: () => {},
-    worktreeLifecycle: {
-      computeGateTree: async () => null,
-      snapshot: () => ({ baseSha: null, effectiveBase: null }),
-      setMergeGate: () => {},
-    },
-  };
-  verification.attachSession(session);
-  session.allowedDoneCommands = ['node --version'];
-  verification.runAllowedAgentCommands(session);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  const latestRun = broadcastRuns.at(-1) ?? null;
-  const model = donePanelModelOf({ run: latestRun, doneMeans: [], agentDoneLines, phase: 'quiet' });
-  assert.deepEqual(model?.waitingCommands, []);
+  await sleep(1500);
+  assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 fail']);
+  assert.equal(broadcastRuns.at(-1)?.status, 'passed', 'a failing agent command leaves the repo checks passed');
+  session.agentDoneLines = [{ text: 'restored from a saved session', command: 'git reset --hard HEAD' }];
+  onTurnEnd();
+  await sleep(1500);
+  const refusedCheck = broadcastRuns.at(-1)?.checks.find((check) => check.id === 'agent-done-1');
+  assert.equal(refusedCheck?.status, 'fail');
+  assert.match(refusedCheck?.outputTail ?? '', /Sane YOLO refused to run it/);
 });

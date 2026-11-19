@@ -185,14 +185,22 @@ test('memory keeps a note for later sessions of the project, fenced as untrusted
   assert.equal(missing.isError, true);
 });
 
-test('session done puts the agent lines on the session snapshot, and a later call replaces them', async () => {
+test('session done puts the agent lines on the session snapshot, a later call replaces them, and a line without a command or with one Sane YOLO denies is refused', async () => {
   const { credential, backend } = bootedBackend();
-  const declared = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string' }] } }, credential));
+  const declaredLines = [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string', command: 'npm test -- redirect' }];
+  const declared = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: declaredLines } }, credential));
   assert.notEqual(declared.isError, true, JSON.stringify(declared));
-  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string' }]);
-  const replaced = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'typecheck passes' }] } }, credential));
+  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, declaredLines);
+  const withoutCommand = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'the README reads well' }] } }, credential));
+  assert.equal(withoutCommand.isError, true);
+  assert.match(JSON.stringify(withoutCommand), /each done line needs a command/);
+  const denied = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'the tree is clean', command: 'git reset --hard' }] } }, credential));
+  assert.equal(denied.isError, true);
+  assert.match(JSON.stringify(denied), /Sane YOLO refused the command for/);
+  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, declaredLines);
+  const replaced = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'typecheck passes', command: 'npm run typecheck' }] } }, credential));
   assert.notEqual(replaced.isError, true, JSON.stringify(replaced));
-  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'typecheck passes' }]);
+  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'typecheck passes', command: 'npm run typecheck' }]);
 });
 
 test('a race contestant with Done means off is never asked to call session done and cannot', async () => {
@@ -205,7 +213,7 @@ test('a race contestant with Done means off is never asked to call session done 
   assert.doesNotMatch(String(initialized.instructions), /session done/);
   const operatorInitialized = await resultOf(await callMcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } }, bootedBackend().credential));
   assert.match(String(operatorInitialized.instructions), /call session done/);
-  const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'tests pass' }] } }, credential));
+  const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'tests pass', command: 'npm test' }] } }, credential));
   assert.equal(called.isError, true);
   assert.deepEqual(contestant.agentDoneLines, []);
 });

@@ -118,7 +118,7 @@ interface QuestionCardModel {
   readonly answer: string | null;
 }
 
-export function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void): HTMLElement {
+function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void): HTMLElement {
   const shell = shellOf(question.cardType, question.heading, question.answer !== null);
   if (question.step) shell.prepend(el('span', 'chat-card-step', question.step));
   if (question.detail) shell.appendChild(el('p', 'chat-card-text', question.detail));

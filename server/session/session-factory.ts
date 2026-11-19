@@ -97,7 +97,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       taskTitleState: project.taskTitleState,
       prLinks: project.prLinks,
       agentDoneLines: project.agentDoneLines,
-      allowedDoneCommands: project.allowedDoneCommands,
       path: project.path,
       workspaceRepos: project.repos,
       dangerouslySkipPermissions: skipPermissions,

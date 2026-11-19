@@ -687,11 +687,11 @@ test('createBackend shutdown stops the race settle check, so a race is never jud
   }
 });
 
-test('a session keeps its agent done lines and allowed done commands across a server restart, reading only the well-formed lines it saved', async () => {
+test('a session keeps its agent done lines across a server restart, reading only the well-formed lines it saved, each with a command', async () => {
   const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-done-restart-cfg-'));
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-done-restart-proj-'));
   const cfgPath = path.join(cfgDir, 'config.json');
-  fs.writeFileSync(cfgPath, JSON.stringify({ autoResume: false, checkForUpdates: false, projects: [{ id: 'done-restart', name: 'done-restart', path: projectDir, agentDoneLines: [{ text: 'a line from a newer build', command: 'npm test', timeoutMs: 5000 }, { text: '' }] }], teams: [], repoRoots: [] }, null, 2), 'utf8');
+  fs.writeFileSync(cfgPath, JSON.stringify({ autoResume: false, checkForUpdates: false, projects: [{ id: 'done-restart', name: 'done-restart', path: projectDir, agentDoneLines: [{ text: 'a line from a newer build', command: 'npm test', timeoutMs: 5000 }, { text: '' }, { text: 'a line saved before commands were required' }] }], teams: [], repoRoots: [] }, null, 2), 'utf8');
   const prevEnv = process.env.GLIMMERVOID_CONFIG;
   const originalSpawn = pty.spawn;
   process.env.GLIMMERVOID_CONFIG = cfgPath;
@@ -706,16 +706,11 @@ test('a session keeps its agent done lines and allowed done commands across a se
     assert.ok(session);
     assert.deepEqual(session.agentDoneLines, [{ text: 'a line from a newer build', command: 'npm test' }]);
     session.setAgentDoneLines([{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'lint passes', command: 'npm run lint' }]);
-    assert.equal(session.allowDoneCommands(['npm test -- login', 'rm -rf /']), true);
-    await waitFor(() => savedProject().allowedDoneCommands?.length === 1);
+    await waitFor(() => savedProject().agentDoneLines?.length === 2);
     await shutDown(before);
     const after = bootBackend();
     const restored = after.getSession('done-restart');
     assert.deepEqual(restored?.agentDoneLines, [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'lint passes', command: 'npm run lint' }]);
-    assert.deepEqual(restored?.allowedDoneCommands, ['npm test -- login']);
-    restored?.setAgentDoneLines([{ text: 'login tests pass', command: 'npm test -- login --watch=false' }]);
-    await waitFor(() => savedProject().allowedDoneCommands === undefined);
-    assert.deepEqual(restored?.allowedDoneCommands, []);
   } finally {
     for (const backend of liveBackends) await settleBackendShutdown(backend);
     pty.spawn = originalSpawn;
