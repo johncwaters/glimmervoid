@@ -10,7 +10,7 @@ import type { SessionPage } from '../session-pages/session-pages.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
-import { keyTargetOf } from './chat-cards.ts';
+import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
@@ -152,7 +152,7 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"]:is([data-card-type="question"], [data-card-type="permission"])';
+const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"][data-keys-ready]:is([data-card-type="question"], [data-card-type="permission"])';
 
 const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
 
@@ -469,6 +469,7 @@ function buildChat(sessionId: string): MountedChat {
       return;
     }
     keyTarget.click();
+    root.querySelectorAll<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR).forEach(holdCardKeys);
   }, { capture: true });
 
   const feed = createChatFeed({

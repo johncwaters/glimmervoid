@@ -14,6 +14,13 @@ const MAX_DIGIT_KEY = 9;
 
 type ShownOption = { label: string; note: string; isRecommended: boolean };
 
+const CARD_KEYS_READY_DELAY_MS = 500;
+
+export function holdCardKeys(cardElement: HTMLElement): void {
+  delete cardElement.dataset.keysReady;
+  window.setTimeout(() => { cardElement.dataset.keysReady = 'true'; }, CARD_KEYS_READY_DELAY_MS);
+}
+
 function markCardKeys(element: HTMLElement, keys: readonly string[]): void {
   element.dataset.cardKeys = keys.join(' ');
 }
@@ -39,6 +46,7 @@ function cardShell(card: ChatCard, heading: string): HTMLElement {
   const shell = el('section', 'chat-card');
   shell.dataset.cardType = card.cardType;
   shell.dataset.resolved = String(card.resolution !== null);
+  if (card.resolution === null) holdCardKeys(shell);
   shell.appendChild(el('div', 'chat-card-heading', heading));
   return shell;
 }

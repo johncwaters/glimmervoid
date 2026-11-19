@@ -246,6 +246,10 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   await sendFromComposer(page, 'ask-question-chat');
   const openQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="false"]');
   await openQuestion.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await composer.focus();
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').count(), 1, 'a key pressed as the card appears answers nothing');
+  await openQuestion.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
   const optionTexts = await openQuestion.locator('.chat-card-option .ui-button').allInnerTexts();
   assert.match(optionTexts[0] ?? '', /^Run both for a week\s*Recommended\s*Enter$/, 'the recommended option comes first with its tag and the Enter key cap');
   assert.match(optionTexts[1] ?? '', /^Move now\s*2$/, 'the other option keeps its position key');
@@ -268,6 +272,7 @@ async function answerOpenCardFromComposer(page: Page, openCard: Locator): Promis
   await composer.fill('');
   await page.keyboard.press('Enter');
   assert.equal(await answeredPermissionCount(page), 0, 'Enter never allows a permission');
+  await openCard.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.keyboard.press('1');
 }
 
