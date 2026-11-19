@@ -140,6 +140,11 @@ function memoryRoute(caller: SessionKindFacts): RouteVerdict {
   return { answers: false, reason: 'a lane session cannot use shared memory, because a lane runs on input the operator has not vetted and could plant notes other sessions trust' };
 }
 
+function doneRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot set done lines, because it has no Chat panel to show them in' };
+}
+
 function previewRoute(caller: SessionKindFacts): RouteVerdict {
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: 'a lane session cannot share a preview, because it has no card to show it on' };
@@ -160,6 +165,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   attention: attentionRoute,
   sessions: () => ANSWERS,
   edit: editRoute,
+  done: doneRoute,
   show: whiteboardRoute,
   review: operatorStateRoute,
   reviews: operatorStateRoute,

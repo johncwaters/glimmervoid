@@ -184,6 +184,16 @@ test('memory keeps a note for later sessions of the project, fenced as untrusted
   assert.equal(missing.isError, true);
 });
 
+test('session done puts the agent lines on the session snapshot, and a later call replaces them', async () => {
+  const { credential, backend } = bootedBackend();
+  const declared = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string' }] } }, credential));
+  assert.notEqual(declared.isError, true, JSON.stringify(declared));
+  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'login tests pass', command: 'npm test -- login' }, { text: 'the redirect keeps the query string' }]);
+  const replaced = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'typecheck passes' }] } }, credential));
+  assert.notEqual(replaced.isError, true, JSON.stringify(replaced));
+  assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'typecheck passes' }]);
+});
+
 test('a refused verb comes back as a tool error the agent can read', async () => {
   const { credential } = bootedBackend();
   const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'close', child: 'nobody' } }, credential));

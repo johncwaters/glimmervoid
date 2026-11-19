@@ -17,7 +17,13 @@ function lineRowOf(line: DoneLine): HTMLElement {
   row.dataset.status = line.status;
   const proof = el('span', 'chat-done-proof', line.proof);
   if (line.isGlimmervoidRan) proof.append(el('span', 'chat-done-provenance', 'Glimmervoid ran'));
+  if (line.isFromAgent) {
+    const agentProvenance = el('span', 'chat-done-provenance', 'From the agent');
+    agentProvenance.dataset.source = 'agent';
+    proof.append(agentProvenance);
+  }
   row.append(el('span', 'chat-done-mark'), el('span', 'chat-done-text', line.text), proof);
+  if (line.command !== '') row.append(el('code', 'chat-done-command', line.command));
   if (line.evidence !== '') row.append(el('pre', 'chat-done-evidence', line.evidence));
   return row;
 }

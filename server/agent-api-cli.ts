@@ -132,6 +132,16 @@ function packsBody({ positionals: [command, packArgument] }: ParsedArguments): R
   return command === 'check' || command === 'install' || command === 'preview' ? { command, path: path.resolve(packArgument) } : { command, name: packArgument };
 }
 
+const DONE_COMMAND_SEPARATOR = ' :: ';
+
+function doneLinesOf(text: string): { text: string; command?: string }[] {
+  return text.split(';').map((line) => line.trim()).filter((line) => line.length > 0).map((line) => {
+    const separatorAt = line.indexOf(DONE_COMMAND_SEPARATOR);
+    if (separatorAt < 0) return { text: line };
+    return { text: line.slice(0, separatorAt).trim(), command: line.slice(separatorAt + DONE_COMMAND_SEPARATOR.length).trim() };
+  });
+}
+
 const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   spawn: ({ positionals, values }) => {
     const prompt = joinedText(positionals);
@@ -168,6 +178,10 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
     return docPath ? { path: path.resolve(docPath) } : null;
   },
   limits: () => ({}),
+  done: ({ positionals }) => {
+    const lines = doneLinesOf(joinedText(positionals));
+    return lines.length === 0 ? null : { lines };
+  },
   review: pullRequestBody,
   reviews: (parsed) => pullRequestBody(parsed) ?? {},
   prs: () => ({}),

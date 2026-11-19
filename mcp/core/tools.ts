@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import {
-  AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
+  AgentAttentionRequest, AgentCloseRequest, AgentDoneRequest, AgentEditRequest, AgentPacksRequest, AgentPullRequestRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCommentsRequest,
 } from '../../shared/contracts/session.ts';
 import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
@@ -118,7 +118,7 @@ function boardRenderRoute(): ActionRoute {
 const SESSION_TOOL: GroupedTool = {
   name: 'session',
   title: 'Glimmervoid sessions',
-  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; limits reports what this session may do.',
+  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; done says what finished means for the request, shown in the Done means panel; limits reports what this session may do.',
   loadsUpfront: true,
   fields: {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),
@@ -134,6 +134,7 @@ const SESSION_TOOL: GroupedTool = {
     answers: z.record(z.string(), z.string().min(1)).optional().describe('answer: each question text mapped to the chosen answer'),
     toOperator: z.literal(true).optional().describe('answer: pass the child\'s question to the operator instead'),
     path: AgentEditRequest.shape.path.optional().describe('edit: the file, absolute or relative to this session\'s directory'),
+    lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, with a command only where one proves the line (a plain program and arguments, no shell syntax); Glimmervoid runs each command in the worktree at every turn end once the operator allows it, and a later done call replaces these lines"),
   },
   actions: {
     spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
@@ -143,6 +144,7 @@ const SESSION_TOOL: GroupedTool = {
     answer: { verb: 'answer', required: ['child'], accepts: ['child', 'answers', 'toOperator'], hints: WRITES, toPayload: answerPayload },
     sessions: routeTo('sessions', [], { hints: READS }),
     edit: { verb: 'edit', required: ['path'], accepts: ['path'], hints: WRITES, toPayload: editPayload },
+    done: routeTo('done', ['lines'], { required: ['lines'], hints: WRITES }),
     limits: routeTo('limits', [], { hints: READS }),
   },
 };

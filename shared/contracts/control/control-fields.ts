@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PlanGate } from '../plan-gate.ts';
 import { GH_SEGMENT } from '../github-ids.ts';
 import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
-import { AttentionNote, AttentionOwner, CHAT_OUTBOX_MAX_ENTRIES, ChatOutboxEntry, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
+import { AgentDoneLine, AttentionNote, AttentionOwner, CHAT_OUTBOX_MAX_ENTRIES, ChatOutboxEntry, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
@@ -106,6 +106,7 @@ export const SessionCardFields = z.object({
   attentionOwner: AttentionOwner.optional(),
   linkedPrs: z.array(LinkedPr).optional(),
   doneMeans: z.array(z.string()).optional(),
+  agentDoneLines: z.array(AgentDoneLine).optional(),
   modelSelection: ModelSelection.nullable().optional(),
   workingDirectory: z.string().optional(),
 });

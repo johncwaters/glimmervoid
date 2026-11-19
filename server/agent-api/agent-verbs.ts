@@ -4,7 +4,7 @@ import { unsafeLaunchValueOf } from '../../shared/agent-models-core.ts';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
 import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
 import type { Session } from '../../session/sessions.ts';
-import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
+import type { AgentAnswerRequest, AgentCheckoutRequest, AgentAttentionReply, AgentAttentionRequest, AgentBoardRow, AgentCloseRequest, AgentCommentsRequest, AgentDoneRequest, AgentEditRequest, AgentLimitsReply, AgentPacksRequest, AgentReadRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest } from '../../shared/contracts/session.ts';
 import { manualPrLink } from '../../session/core/session-pr-links-core.ts';
 import { REMOTE_URL_PATTERN, describePushLanding, describeUnpushedCloseRefusal, projectMyPrs, projectReviewDetail, projectReviews } from '../core/agent-api-core.ts';
 import { openComments } from '../review/review-state-core.ts';
@@ -188,6 +188,13 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const reply = await sessionDocs.surface(session, request);
     if (!reply.ok) return { status: 400, body: reply };
     return { status: 200, body: { ok: true, path: reply.doc.path, name: reply.doc.name } };
+  }
+
+  function done(session: Session, request: AgentDoneRequest): AgentReplyOf<'done'> {
+    session.setAgentDoneLines(request.lines);
+    const commandCount = request.lines.filter((line) => line.command !== undefined).length;
+    const commandNote = commandCount === 0 ? '' : ` Glimmervoid runs the ${commandCount === 1 ? 'command' : `${commandCount} commands`} at each turn end once the operator allows ${commandCount === 1 ? 'it' : 'them'}.`;
+    return { status: 200, body: { ok: true, note: `The Done means panel now lists ${request.lines.length} ${request.lines.length === 1 ? 'line' : 'lines'} from you.${commandNote}` } };
   }
 
   function planRunPortsOf(session: Session, boards: NonNullable<typeof whiteboards>): PlanRunPorts {
@@ -443,6 +450,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     sessions: () => ({ status: 200, body: { ok: true, sessions: liveSessionRows() } }),
     push,
     edit,
+    done,
     limits: (session) => ({ status: 200, body: limits(session) }),
     review: (_session, { pullRequestKey }) => review(pullRequestKey),
     reviews: (_session, { pullRequestKey }) => reviews(pullRequestKey),

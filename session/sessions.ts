@@ -51,7 +51,7 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor, hookProfileOf } from "./adapters/index.ts";
-import type { AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome } from "../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
@@ -387,6 +387,7 @@ class Session extends EventEmitter {
   _agentDepth: number;
   readonly ownerId: string | null;
   readonly doneMeans: readonly string[];
+  agentDoneLines: readonly AgentDoneLine[];
   readonly attentionOwner: AttentionOwner;
   _agentToken: string | null;
   _commitSigningProgram: string | null;
@@ -525,6 +526,7 @@ class Session extends EventEmitter {
     this.id = id;
     this.ownerId = ownerId;
     this.doneMeans = doneMeans;
+    this.agentDoneLines = [];
     this.attentionOwner = attentionOwnerOf(ownerId, raceId);
     this.name = name;
     this.customTitle = customTitle || null;
@@ -851,6 +853,11 @@ class Session extends EventEmitter {
 
   get refocusTaskTitle(): string | null {
     return resolveRefocusTaskTitle(this._taskTitleSources);
+  }
+
+  setAgentDoneLines(lines: readonly AgentDoneLine[]): void {
+    this.agentDoneLines = lines.map((line) => ({ ...line }));
+    this.emit("agent-done-lines-change", { agentDoneLines: this.agentDoneLines });
   }
 
   get linkedPrs(): LinkedPr[] {
@@ -1668,6 +1675,7 @@ class Session extends EventEmitter {
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
       doneMeans: this.doneMeans,
+      agentDoneLines: this.agentDoneLines,
       auditLog: this.auditLog,
       detection: {
         ...this.getDetectionStats(),

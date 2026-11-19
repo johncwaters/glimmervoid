@@ -4,7 +4,7 @@ import type { z } from 'zod';
 
 import { pullRequestKeyFromReference } from '../../shared/contracts/control-messages.ts';
 import {
-  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest, AgentCommentsRequest, AgentPacksRequest,
+  AGENT_API_VERBS, AGENT_REPLY_SCHEMAS, AgentAnswerRequest, AgentAttentionRequest, AgentCloseRequest, AgentDoneRequest, AgentEditRequest, AgentPullRequestRequest, AgentReadRequest, AgentReviewsRequest, AgentSendRequest, AgentSettingsRequest, AgentSpawnRequest, AgentWhyRequest, AgentCheckoutRequest, AgentCommentsRequest, AgentPacksRequest,
 } from '../../shared/contracts/session.ts';
 import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentReplyBodyOf, AgentReviewDetailReply, AgentReviewsReply } from '../../shared/contracts/session.ts';
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
@@ -65,6 +65,7 @@ interface AgentRequestByVerb {
   sessions: EmptyRequest;
   push: EmptyRequest;
   edit: AgentEditRequest;
+  done: AgentDoneRequest;
   limits: EmptyRequest;
   review: PullRequestKeyRequest;
   reviews: ReviewsRequest;
@@ -215,6 +216,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   sessions: parseEmptyBody,
   push: parseEmptyBody,
   edit: bodyParser(AgentEditRequest),
+  done: bodyParser(AgentDoneRequest),
   limits: parseEmptyBody,
   review: parsePullRequestBody,
   reviews: parseReviewsBody,
@@ -502,6 +504,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     positionals: requiredText('<path>'),
     summary: 'Open a text file for the operator to edit in the dashboard',
     missingArgumentHint: 'this command needs a file path, for example "glimmervoid edit drafts/post.md"',
+  },
+  done: {
+    whenToUse: "Use it once you understand the operator's request, and again when your plan changes",
+    usage: 'done <lines>',
+    positionals: requiredText('<lines>'),
+    summary: "Say what finished means for this request, as lines split by ';', each optionally ending in ' :: <command>' that Glimmervoid runs at each turn end once the operator allows it; they show in this session's Done means panel and replace the lines you gave before",
+    missingArgumentHint: 'this command needs lines, for example "glimmervoid done login tests pass :: npm test -- login; the redirect keeps the query string"',
   },
   review: {
     whenToUse: 'Use it instead of gh pr review when a pull request needs a review the operator posts',

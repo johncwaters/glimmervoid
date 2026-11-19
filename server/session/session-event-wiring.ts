@@ -8,7 +8,7 @@ import type { UnseenOutcome } from '../../shared/contracts/session.ts';
 import type { InstallDetail, InstallFailureKind, SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_NOTIFY_CATEGORY } from '../../shared/contracts/session.ts';
-import type { AttentionNote, ChatOutboxEntry, ConversationApproval } from '../../shared/contracts/session.ts';
+import type { AgentDoneLine, AttentionNote, ChatOutboxEntry, ConversationApproval } from '../../shared/contracts/session.ts';
 import { decideExitClose } from '../../session/core/exit-close.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -387,6 +387,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on('task-title-change', ({ taskTitle, isCustom }: { taskTitle: string | null; isCustom: boolean }) => {
       dependencies.broadcastControl({ type: 'session-title', id: session.id, taskTitle, isCustom });
+    });
+    session.on('agent-done-lines-change', ({ agentDoneLines }: { agentDoneLines: readonly AgentDoneLine[] }) => {
+      dependencies.broadcastControl({ type: 'session-done-lines', id: session.id, agentDoneLines: [...agentDoneLines] });
     });
     session.on('pr-links-change', (prLinks: SessionPrLinks) => {
       if (!session.ephemeral) persistProjectField('prLinks', prLinks);

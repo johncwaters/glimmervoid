@@ -89,6 +89,32 @@ export type AttentionNote = z.infer<typeof AttentionNote>;
 export const AttentionOwner = z.enum(['operator', 'parent', 'race']);
 export type AttentionOwner = z.infer<typeof AttentionOwner>;
 
+const DONE_MEANS_MAX_LINES = 12;
+
+const DoneMeansLine = z.string({ error: 'each done line must be a string' })
+  .trim()
+  .min(1, { error: 'a done line must not be empty' })
+  .max(200, { error: 'a done line must be at most 200 characters' })
+  .regex(/^[^\r\n]*$/, { error: 'a done line must be one line' });
+
+const DoneMeansLines = z.array(DoneMeansLine, { error: 'done must be a list of lines' }).min(1, { error: 'done needs at least one line' }).max(DONE_MEANS_MAX_LINES, { error: `done takes at most ${DONE_MEANS_MAX_LINES} lines` });
+
+export const AgentDoneLine = z.object({
+  text: DoneMeansLine,
+  command: z.string({ error: 'command must be a string' })
+    .trim()
+    .min(1, { error: 'command must not be empty' })
+    .max(400, { error: 'command must be at most 400 characters' })
+    .regex(/^[^\r\n]*$/, { error: 'command must be one line' })
+    .optional(),
+}).strict();
+
+export const AgentDoneRequest = z.object({
+  lines: z.array(AgentDoneLine, { error: 'lines must be a list' })
+    .min(1, { error: 'done needs at least one line' })
+    .max(DONE_MEANS_MAX_LINES, { error: `done takes at most ${DONE_MEANS_MAX_LINES} lines` }),
+}).strict();
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -128,6 +154,7 @@ export const SessionSnapshot = z.object({
   conversationApproval: ConversationApproval.nullable().default(null),
   chatOutbox: z.array(ChatOutboxEntry).max(CHAT_OUTBOX_MAX_ENTRIES).default([]),
   doneMeans: z.array(z.string()).default([]),
+  agentDoneLines: z.array(AgentDoneLine).default([]),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
@@ -176,22 +203,11 @@ export const GitCredentialReply = z.union([
 
 export type GitCredentialRequest = z.infer<typeof GitCredentialRequest>;
 export type GitCredentialReply = z.infer<typeof GitCredentialReply>;
-const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview'] as const;
+const CLI_SESSION_COMMANDS = ['push', 'spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview', 'done'] as const;
 export const SESSION_COMMANDS = [...CLI_SESSION_COMMANDS, 'show'] as const;
 export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as const;
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
-
-const DONE_MEANS_MAX_LINES = 12;
-
-const DoneMeansLines = z.array(
-  z.string({ error: 'each done line must be a string' })
-    .trim()
-    .min(1, { error: 'a done line must not be empty' })
-    .max(200, { error: 'a done line must be at most 200 characters' })
-    .regex(/^[^\r\n]*$/, { error: 'a done line must be one line' }),
-  { error: 'done must be a list of lines' },
-).min(1, { error: 'done needs at least one line' }).max(DONE_MEANS_MAX_LINES, { error: `done takes at most ${DONE_MEANS_MAX_LINES} lines` });
 
 export const AgentSpawnRequest = z.object({
   prompt: z.string({ error: 'prompt must be a string' })
@@ -372,6 +388,8 @@ export const SessionDoc = z.object({
 }).strict();
 
 export type AgentEditRequest = z.infer<typeof AgentEditRequest>;
+export type AgentDoneRequest = z.infer<typeof AgentDoneRequest>;
+export type AgentDoneLine = z.infer<typeof AgentDoneLine>;
 export type SessionDoc = z.infer<typeof SessionDoc>;
 
 export const SessionLimits = z.object({
@@ -397,6 +415,7 @@ export const AGENT_REPLY_SCHEMAS = Object.freeze({
   attention: z.union([AgentAttentionReply, AgentRefusal]),
   sessions: z.union([z.object({ ok: z.literal(true), sessions: z.array(AgentBoardRow) }).strict(), AgentRefusal]),
   edit: z.union([z.object({ ok: z.literal(true), path: z.string(), name: z.string() }).strict(), AgentRefusal]),
+  done: z.union([z.object({ ok: z.literal(true), note: z.string() }).strict(), AgentRefusal]),
   review: z.union([z.object({ ok: z.literal(true), key: z.string(), status: z.enum(['queued', 'running']), note: z.string() }).strict(), AgentRefusal]),
   reviews: z.union([AgentReviewsReply, AgentReviewDetailReply, AgentRefusal]),
   prs: z.union([AgentPrsReply, AgentRefusal]),

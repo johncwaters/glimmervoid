@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { PLAN_GATE_FEEDBACK_MAX_CHARS, PlanDecision } from '../plan-gate.ts';
-import { CHAT_OUTBOX_TEXT_MAX_CHARS, CHAT_SEND_MAX_ATTACHMENTS, ConversationAnswers, MergeStatus, PermissionDecision, SessionSnapshot, SessionState, TaskTitle, UploadFileName } from '../session.ts';
+import { AgentDoneLine, CHAT_OUTBOX_TEXT_MAX_CHARS, CHAT_SEND_MAX_ATTACHMENTS, ConversationAnswers, MergeStatus, PermissionDecision, SessionSnapshot, SessionState, TaskTitle, UploadFileName } from '../session.ts';
 import { LinkedPr } from '../my-prs.ts';
 import { WakeId, WakeView } from '../wakes.ts';
 import { ModelSelection } from '../agent-models.ts';
@@ -82,6 +82,7 @@ export const sessionServerVariants = [
   loose('session-renamed', { id: sessionId, oldName: z.string(), newName: z.string() }),
   loose('session-title', { id: sessionId, taskTitle: TaskTitle.nullable(), isCustom: z.boolean() }),
   loose('session-prs', { id: sessionId, linkedPrs: z.array(LinkedPr) }),
+  loose('session-done-lines', { id: sessionId, agentDoneLines: z.array(AgentDoneLine) }),
   loose('session-wakes', { id: sessionId, wakes: z.array(WakeView) }),
   loose('session-git', { id: sessionId, worktree: z.boolean() }),
   loose('session-manager-decision', { id: sessionId, decision: ManagerDecision }),

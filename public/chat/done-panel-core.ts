@@ -1,8 +1,9 @@
+import type { AgentDoneLine } from '#shared/contracts/session.ts';
 import type { CheckOutcome, RemovedTestLine, VerificationRun } from '#shared/contracts/verification.ts';
 import type { ChatPhase } from './chat-activity-core.ts';
 
 type DoneLineStatus = 'running' | 'passed' | 'failed' | 'not-checked';
-export type DoneLine = { text: string; status: DoneLineStatus; proof: string; isGlimmervoidRan: boolean; evidence: string };
+export type DoneLine = { text: string; status: DoneLineStatus; proof: string; isGlimmervoidRan: boolean; evidence: string; command: string; isFromAgent: boolean };
 export type DonePanelModel = { lines: DoneLine[]; metCount: number; verdict: string | null };
 
 export const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
@@ -21,13 +22,15 @@ function checkLineOf(check: CheckOutcome): DoneLine {
     proof: CHECK_STATUS_WORDS[check.status],
     isGlimmervoidRan: status !== 'not-checked',
     evidence: status === 'failed' ? check.outputTail.trim() : '',
+    command: '',
+    isFromAgent: false,
   };
 }
 
 const REMOVED_TEST_LINE_VERBS: Record<RemovedTestLine['kind'], string> = { 'removed-assertion': 'removed', 'removed-test': 'removed', 'added-skip': 'added' };
 
 function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[] | null): DoneLine {
-  if (removedTestLines === null) return { text: 'Keeps every test', status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '' };
+  if (removedTestLines === null) return { text: 'Keeps every test', status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '', command: '', isFromAgent: false };
   const isKept = removedTestLines.length === 0;
   return {
     text: 'Keeps every test',
@@ -35,17 +38,23 @@ function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[] | null):
     proof: isKept ? 'Passed' : 'Failed',
     isGlimmervoidRan: true,
     evidence: removedTestLines.map((removed) => `${removed.path}:${removed.line} ${REMOVED_TEST_LINE_VERBS[removed.kind]}: ${removed.text}`).join('\n'),
+    command: '',
+    isFromAgent: false,
   };
 }
 
 function runLinesOf(run: VerificationRun | null): DoneLine[] {
   if (run === null) return [];
-  if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '' }];
+  if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '', command: '', isFromAgent: false }];
   return [...run.checks.map(checkLineOf), testKeepingLineOf(run.removedTestLines)];
 }
 
 function doneMeansLineOf(text: string): DoneLine {
-  return { text, status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '' };
+  return { text, status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '', command: '', isFromAgent: false };
+}
+
+function agentDoneLineOf(line: AgentDoneLine): DoneLine {
+  return { ...doneMeansLineOf(line.text), command: line.command ?? '', isFromAgent: true };
 }
 
 function verdictOf(lines: readonly DoneLine[]): string | null {
@@ -57,9 +66,9 @@ function verdictOf(lines: readonly DoneLine[]): string | null {
   return `The agent finished. ${failedCount} ${failedCount === 1 ? 'line' : 'lines'} failed.`;
 }
 
-export function donePanelModelOf(input: { run: VerificationRun | null; doneMeans: readonly string[]; phase: ChatPhase }): DonePanelModel | null {
+export function donePanelModelOf(input: { run: VerificationRun | null; doneMeans: readonly string[]; agentDoneLines: readonly AgentDoneLine[]; phase: ChatPhase }): DonePanelModel | null {
   if (!FINISHED_PHASES.includes(input.phase)) return null;
-  const lines = [...input.doneMeans.map(doneMeansLineOf), ...runLinesOf(input.run)];
+  const lines = [...input.doneMeans.map(doneMeansLineOf), ...input.agentDoneLines.map(agentDoneLineOf), ...runLinesOf(input.run)];
   if (lines.length === 0) return null;
   return { lines, metCount: lines.filter((line) => line.status === 'passed').length, verdict: verdictOf(lines) };
 }

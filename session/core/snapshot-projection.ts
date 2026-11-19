@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { AttentionNote, AttentionOwner, ChatOutboxEntry, ConversationApproval, UnseenOutcome } from "../../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionNote, AttentionOwner, ChatOutboxEntry, ConversationApproval, UnseenOutcome } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 import type { PlanGate } from "../../shared/contracts/plan-gate.ts";
 import type { AgentSetup, ModelSelection } from "../../shared/contracts/agent-models.ts";
@@ -25,6 +25,7 @@ interface SessionCardSource {
   attentionOwner?: AttentionOwner;
   linkedPrs?: LinkedPr[];
   doneMeans?: readonly string[];
+  agentDoneLines?: readonly AgentDoneLine[];
   agentSetup?: AgentSetup | null;
 }
 
@@ -61,6 +62,7 @@ function projectSessionCard(
     ...(source.isWorkspace ? { workspace: true } : {}),
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
     ...(source.doneMeans?.length ? { doneMeans: [...source.doneMeans] } : {}),
+    ...(source.agentDoneLines?.length ? { agentDoneLines: source.agentDoneLines.map((line) => ({ ...line })) } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
@@ -110,6 +112,7 @@ interface SnapshotSource {
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
   doneMeans: readonly string[];
+  agentDoneLines: readonly AgentDoneLine[];
   auditLog: Record<string, unknown>[];
   detection: Record<string, unknown>;
   decisions: Record<string, unknown>[];
@@ -155,6 +158,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
     doneMeans: [...source.doneMeans],
+    agentDoneLines: source.agentDoneLines.map((line) => ({ ...line })),
     auditLog: source.auditLog.slice(-100),
   };
   const debug = {
