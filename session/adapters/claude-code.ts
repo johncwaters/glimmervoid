@@ -3,6 +3,7 @@ import { EXIT_PLAN_MODE_TOOL_NAME } from "../../shared/contracts/plan-gate.ts";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { createClaudeFolderTrust } from "./claude-trust.ts";
+import { mainCheckoutOf } from "../../server/github/team-review-checkouts.ts";
 import { CLAUDE_HOME_PROFILE } from "../core/agent-home-core.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile } from "./index.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
@@ -157,7 +158,11 @@ function buildArgs({
 
 async function trustFolder(sessionFolder: string, env: SpawnEnv): Promise<void> {
   const resolvedSessionFolder = await fs.promises.realpath(sessionFolder).catch(() => sessionFolder);
-  await createClaudeFolderTrust({ env }).ensureTrusted(resolvedSessionFolder);
+  const folderTrust = createClaudeFolderTrust({ env });
+  await folderTrust.ensureTrusted(resolvedSessionFolder);
+  const mainCheckout = await mainCheckoutOf(resolvedSessionFolder);
+  if (mainCheckout === null || mainCheckout === resolvedSessionFolder) return;
+  await folderTrust.ensureTrusted(mainCheckout);
 }
 
 const claudeCode = {

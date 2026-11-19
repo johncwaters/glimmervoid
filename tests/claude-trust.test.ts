@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { execFileSync } from '../server/child-process-safe.ts';
 import { createClaudeFolderTrust } from '../session/adapters/claude-trust.ts';
+import claudeCode from '../session/adapters/claude-code.ts';
 import { CLAUDE_CONFIG_LOCK_STALE_MS } from '../session/core/claude-trust-core.ts';
 
 const REPOSITORY_ROOT = '/work/seeded-repo';
@@ -141,4 +142,25 @@ test('a config lock left behind by a Claude process that exited is waited out to
   assert.ok(orphaned.waits.reduce((total, waitMs) => total + waitMs, 0) > CLAUDE_CONFIG_LOCK_STALE_MS - 1_000);
   assert.deepEqual(JSON.parse(await fs.readFile(orphaned.configPath, 'utf8')), { projects: { [REPOSITORY_ROOT]: { allowedTools: [], mcpContextUris: [], mcpServers: {}, enabledMcpjsonServers: [], disabledMcpjsonServers: [], ...GRANTED_ENTRY_KEYS } } });
   assert.deepEqual(await fs.readdir(orphaned.configDir), ['.claude.json']);
+});
+
+test('a session in a git worktree also trusts the main checkout, the entry Claude Code reads for a worktree, so its trust dialog never takes the first message', async (t) => {
+  const scratch = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-claude-worktree-trust-')));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const mainCheckout = path.join(scratch, 'repo');
+  const worktree = path.join(scratch, 'repo-session');
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: mainCheckout });
+  await fs.mkdir(mainCheckout);
+  git('init', '-q');
+  git('commit', '-q', '--allow-empty', '-m', 'seed');
+  git('worktree', 'add', '-q', worktree);
+  const configDir = path.join(scratch, 'claude-home');
+  await fs.mkdir(configDir);
+  await fs.writeFile(path.join(configDir, '.claude.json'), JSON.stringify({ projects: {} }));
+
+  await claudeCode.trustFolder(worktree, { CLAUDE_CONFIG_DIR: configDir });
+
+  const { projects } = JSON.parse(await fs.readFile(path.join(configDir, '.claude.json'), 'utf8'));
+  assert.equal(projects[worktree]?.hasTrustDialogAccepted, true);
+  assert.equal(projects[mainCheckout]?.hasTrustDialogAccepted, true);
 });
