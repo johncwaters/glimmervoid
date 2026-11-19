@@ -22,6 +22,14 @@ const OCCLUDER_MARGIN = 6;
 const OCCLUDER_CORNER_RADIUS = 8;
 const DECISION_POINT_INSET = 12;
 const MONO_CHAR_WIDTH = 7.2;
+const STEP_CHIP_TOP = 10;
+const STEP_CHIP_HEIGHT = 16;
+const STEP_CHIP_INSET = 8;
+const STEP_CHIP_PAD_LEFT = 7;
+const STEP_CHIP_PAD_RIGHT = 8;
+const STEP_CHIP_DOT_RADIUS = 3;
+const STEP_CHIP_DOT_GAP = 5;
+const STEP_CHIP_TEXT_SIZE = 11;
 const CUT_TEXT_ENDING = '...';
 const WIDE_CHAR = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]|\p{Extended_Pictographic}|[\u{20000}-\u{3fffd}]/u;
 const CODE_BAND_RISE = 13;
@@ -59,15 +67,16 @@ ${NOTE_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${NOTE_TONE
 .wb-legend-swatch.wb-box-outline { stroke-width: 1.6; }
 .wb-box-title { fill: #e6e0f5; font-size: 16px; font-weight: 700; }
 ${TEXT_SIZES.map((size) => `.wb-text-${size} .wb-box-title, .wb-text-${size} .wb-box-was { font-size: ${16 * TITLE_SCALE_BY_TEXT_SIZE[size]}px; }`).join('\n')}
-.wb-box-line { fill: #e6e0f5; font-size: 12px; }
-.wb-box-line.wb-muted { fill: #a79fc4; }
+.wb-box-line { fill: #a79fc4; font-size: 12px; }
+.wb-box-line.wb-muted { fill: #857d9e; }
 .wb-line-code { fill: #c4b5fd; }
 .wb-code-band { fill: #221d3a; }
 .wb-line-marker { fill: #a79fc4; font-size: 12px; }
 .wb-line-key { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-item-dot { fill: #a79fc4; }
-.wb-step .wb-box-outline, .wb-step-swatch { stroke: ${BRAND_ACCENT}; }
-.wb-step-label { fill: ${BRAND_ACCENT}; font-size: 12px; font-weight: 700; }
+.wb-step-swatch { stroke: #4b435a; }
+.wb-step-label { fill: #a79fc4; font-size: 12px; font-weight: 700; }
+.wb-step-chip { fill: #0d0b16; stroke: #4b435a; stroke-width: 1; }
 .wb-step-status { fill: #a79fc4; font-size: 11px; }
 .wb-step-planned { fill: #a79fc4; }
 .wb-step-building { fill: #f59e0b; }
@@ -279,10 +288,28 @@ function deviceMarkup(box: LaidOutBox, device: LaidOutDevice, title: string, ass
   return [...parts, text(title, screen.x + screen.width / 2, screen.y + screen.height / 2 + 4, 'wb-device-empty', { 'text-anchor': 'middle' })];
 }
 
+interface StepChip {
+  rect: Rect;
+  dotCenter: { x: number; y: number };
+  textX: number;
+  baseline: number;
+}
+
+function stepChipOf(box: Rect, status: string, textSize: number): StepChip {
+  const textWidth = status.length * MONO_CHAR_WIDTH * (textSize / 12);
+  const width = STEP_CHIP_PAD_LEFT + STEP_CHIP_DOT_RADIUS * 2 + STEP_CHIP_DOT_GAP + textWidth + STEP_CHIP_PAD_RIGHT;
+  const rect = { x: box.x + box.width - STEP_CHIP_INSET - width, y: box.y + STEP_CHIP_TOP, width, height: STEP_CHIP_HEIGHT };
+  const dotCenter = { x: rect.x + STEP_CHIP_PAD_LEFT + STEP_CHIP_DOT_RADIUS, y: rect.y + STEP_CHIP_HEIGHT / 2 };
+  return { rect, dotCenter, textX: dotCenter.x + STEP_CHIP_DOT_RADIUS + STEP_CHIP_DOT_GAP, baseline: box.y + STEP_LABEL_BASELINE };
+}
+
 function stepHeaderMarkup(box: LaidOutBox, step: LaidOutStep): string[] {
+  const chip = stepChipOf(box, step.status, STEP_CHIP_TEXT_SIZE);
   return [
     text(step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, 'wb-step-label'),
-    text(step.status, box.x + box.width - BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, `wb-step-status wb-step-${step.status}`, { 'text-anchor': 'end' }),
+    tag('rect', { x: chip.rect.x, y: chip.rect.y, width: chip.rect.width, height: chip.rect.height, rx: STEP_CHIP_HEIGHT / 2, class: 'wb-step-chip' }),
+    tag('circle', { cx: chip.dotCenter.x, cy: chip.dotCenter.y, r: STEP_CHIP_DOT_RADIUS, class: `wb-step-${step.status}` }),
+    text(step.status, chip.textX, chip.baseline, 'wb-step-status'),
   ];
 }
 
@@ -456,5 +483,6 @@ export {
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
-  boardSvgDocument, codeBandRectOf, pageMaskImage, shapedOutlinePoints,
+  STEP_CHIP_DOT_RADIUS, STEP_CHIP_HEIGHT,
+  boardSvgDocument, codeBandRectOf, pageMaskImage, shapedOutlinePoints, stepChipOf,
 };

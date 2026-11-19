@@ -10,7 +10,7 @@ import {
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT, codeBandRectOf, shapedOutlinePoints,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
-  TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
+  TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING, STEP_CHIP_DOT_RADIUS, STEP_CHIP_HEIGHT, stepChipOf,
 } from '#shared/whiteboard-svg-core.ts';
 import { firstCodePoints } from '#shared/text.ts';
 import { iconStrokesOf } from './board-gl-icons.ts';
@@ -329,7 +329,7 @@ interface SceneContext {
 
 function lineTextColor(line: LaidOutLine, palette: BoardPalette): Rgba {
   if (line.style === 'code') return palette.accent;
-  return line.muted ? palette.inkDim : palette.ink;
+  return line.muted ? palette.muted : palette.inkDim;
 }
 
 function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly LaidOutLine[], left: number, top: number, opacity: number, detailMinScale: number): void {
@@ -372,12 +372,11 @@ function boxTextRectsOf(box: LaidOutBox, titleTop: number, bodyTop: number): Box
 type OutlinedBox = Pick<LaidOutBox, 'change' | 'shape' | 'tone' | 'isBorderless'> & { step: unknown };
 
 function boxOutlineColors(box: OutlinedBox, palette: BoardPalette): { fill: Rgba; stroke: Rgba; dash: Dash; width: number } {
-  const stepStroke = box.step ? palette.accent : null;
   const restingFill = restingFillOf(box, palette);
-  if (box.change === 'added') return { fill: restingFill, stroke: stepStroke ?? palette.running, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
-  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: stepStroke ?? palette.failed, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
-  if (box.change === 'relabeled') return { fill: restingFill, stroke: stepStroke ?? palette.noteStroke, dash: SOLID, width: OUTLINE_WIDTH };
-  return { fill: restingFill, stroke: stepStroke ?? restingStrokeOf(box, palette), dash: SOLID, width: OUTLINE_WIDTH };
+  if (box.change === 'added') return { fill: restingFill, stroke: palette.running, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
+  if (box.change === 'removed') return { fill: [0, 0, 0, 0], stroke: palette.failed, dash: { on: 7, off: 5 }, width: OUTLINE_WIDTH };
+  if (box.change === 'relabeled') return { fill: restingFill, stroke: palette.noteStroke, dash: SOLID, width: OUTLINE_WIDTH };
+  return { fill: restingFill, stroke: restingStrokeOf(box, palette), dash: SOLID, width: OUTLINE_WIDTH };
 }
 
 function restingFillOf(box: OutlinedBox, palette: BoardPalette): Rgba {
@@ -396,6 +395,16 @@ function stepStatusColor(status: LaidOutStep['status'], palette: BoardPalette): 
   if (status === 'building') return palette.waiting;
   if (status === 'landed') return palette.running;
   return palette.muted;
+}
+
+function pushStepChip(part: PartBuilder, context: SceneContext, box: Rect, status: LaidOutStep['status'], opacity: number, minScale: number): void {
+  const { palette, glyphs } = context;
+  const textSize = palette.metaSize - 1;
+  const chip = stepChipOf(box, status, textSize);
+  pushRect(part, chip.rect, STEP_CHIP_HEIGHT / 2, faded(palette.board, opacity), faded(palette.line, opacity), 1, minScale);
+  const dotColor = faded(stepStatusColor(status, palette), opacity);
+  pushCircle(part, chip.dotCenter, STEP_CHIP_DOT_RADIUS, dotColor, dotColor, 0, minScale);
+  pushText(part, glyphs, status, chip.textX, chip.baseline, { size: textSize, color: faded(palette.inkDim, opacity) });
 }
 
 function pushDeviceBase(part: PartBuilder, device: LaidOutDevice, bodyBottom: number, color: Rgba, edge: Rgba, minScale: number): void {
@@ -459,8 +468,8 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   if (!outlinePolygon) pushOutlinedRect(part, box, 8, fill, stroke, outline.width, outline.dash, ALWAYS);
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   if (box.step) {
-    pushText(part, glyphs, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.accent, opacity), isBold: true });
-    pushText(part, glyphs, box.step.status, box.x + box.width - BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(stepStatusColor(box.step.status, palette), opacity), anchor: 'end' });
+    pushText(part, glyphs, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.inkDim, opacity), isBold: true });
+    pushStepChip(part, context, box, box.step.status, opacity, detailMinScale);
   }
   const isIconBox = box.shape === 'icon';
   const glyphRoom = isIconBox ? ICON_BOX_GLYPH_SIZE + ICON_BOX_GLYPH_GAP : 0;
@@ -614,7 +623,7 @@ function elementGeometry(element: LaidOutElement, paintRank: number, context: Sc
 function legendSwatch(part: PartBuilder, entry: BoardLayout['legend'][number], palette: BoardPalette): void {
   const { swatch } = entry;
   if (swatch.kind === 'status') {
-    pushRect(part, { x: entry.x, y: entry.y, width: 14, height: 14 }, 3, stepStatusColor(swatch.status, palette), palette.accent, OUTLINE_WIDTH, ALWAYS);
+    pushRect(part, { x: entry.x, y: entry.y, width: 14, height: 14 }, 3, stepStatusColor(swatch.status, palette), palette.line, OUTLINE_WIDTH, ALWAYS);
     return;
   }
   if (swatch.kind === 'change') {
