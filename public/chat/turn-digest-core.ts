@@ -1,9 +1,7 @@
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
-import type { PlanBlock, PlanInline } from '../plan/plan-markdown-core.ts';
+import type { PlanInline } from '../plan/plan-markdown-core.ts';
 
 export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; latestLabel: string; callCount: number };
-
-export type TurnLead = { kind: 'text'; text: string } | { kind: 'code'; fileName: string; lineCount: number };
 
 export interface FileEdit {
   path: string;
@@ -20,17 +18,10 @@ export interface FileEditTally {
 }
 
 interface TurnDigest {
-  lead: TurnLead | null;
   asked: string | null;
-  moreLineCount: number;
   isFoldable: boolean;
 }
 
-const MAX_LEAD_CHARS = 160;
-const ELLIPSIS = String.fromCharCode(0x2026);
-const CODE_FENCE = /^\s*(`{3,}|~{3,})(.*)$/;
-const ATX_HEADING = /^\s*#{1,6}\s+(.*?)\s*#*\s*$/;
-const FIRST_SENTENCE = /^.*?[.!?](?=\s|$)/s;
 const PATH_FIELDS = ['file_path', 'filePath', 'path', 'TargetFile', 'notebook_path', 'AbsolutePath', 'Path'] as const;
 const ARGUMENT_FIELDS = ['command', 'CommandLine', 'cmd', 'pattern', 'query', 'url', 'Url', 'description', 'prompt'] as const;
 const OLD_NEW_FIELD_PAIRS = [
@@ -48,86 +39,25 @@ function inlineText(inlines: readonly PlanInline[]): string {
   return inlines.map((inline) => ('children' in inline ? inlineText(inline.children) : inline.text)).join('');
 }
 
-function blockText(block: PlanBlock): string {
-  switch (block.type) {
-    case 'heading':
-    case 'paragraph':
-      return inlineText(block.children);
-    case 'list':
-      return block.items.map((item) => item.children.map(blockText).join(' ')).join(' ');
-    case 'blockquote':
-      return block.blocks.map(blockText).join(' ');
-    case 'table':
-      return block.header.map(inlineText).join(' ');
-    case 'code':
-      return block.text;
-    case 'rule':
-      return '';
-  }
-}
-
 function normalizedSpace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
-}
-
-function cutLead(text: string): string {
-  if (text.length <= MAX_LEAD_CHARS) return text;
-  return `${text.slice(0, MAX_LEAD_CHARS - 1).trimEnd()}${ELLIPSIS}`;
-}
-
-function codeLeadOf(lines: readonly string[]): TurnLead | null {
-  const fence = CODE_FENCE.exec(lines[0] ?? '');
-  if (!fence) return null;
-  const fenceMark = fence[1] ?? '```';
-  const infoWords = (fence[2] ?? '').trim().split(/\s+/).filter((word) => word.length > 0);
-  const fileName = infoWords.findLast((word) => word.includes('/') || word.includes('.')) ?? '';
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim().startsWith(fenceMark));
-  const lineCount = (closingIndex < 0 ? lines.length : closingIndex) - 1;
-  return { kind: 'code', fileName, lineCount };
 }
 
 function textsOf(segments: readonly TurnSegment[]): string[] {
   return segments.flatMap((segment) => (segment.kind === 'text' && segment.text.trim().length > 0 ? [segment.text] : []));
 }
 
-function firstSentenceOf(text: string): string {
-  return normalizedSpace(FIRST_SENTENCE.exec(text)?.[0] ?? text);
-}
-
-function leadOf(segments: readonly TurnSegment[]): TurnLead | null {
-  const finalText = textsOf(segments).at(-1);
-  if (finalText === undefined) return null;
-  const lines = finalText.trim().split('\n');
-  const codeLead = codeLeadOf(lines);
-  if (codeLead) return codeLead;
-  const heading = ATX_HEADING.exec(lines[0] ?? '');
-  if (heading) return { kind: 'text', text: cutLead(normalizedSpace(heading[1] ?? '')) };
-  const firstBlock = parsePlanMarkdown(finalText)[0];
-  if (!firstBlock) return null;
-  return { kind: 'text', text: cutLead(firstSentenceOf(blockText(firstBlock))) };
-}
-
-function askedOf(segments: readonly TurnSegment[]): string | null {
-  const lastText = textsOf(segments).at(-1);
-  if (lastText === undefined) return null;
-  const lastBlock = parsePlanMarkdown(lastText).at(-1);
+function askedOf(finalText: string): string | null {
+  const lastBlock = parsePlanMarkdown(finalText).at(-1);
   if (lastBlock?.type !== 'paragraph') return null;
   const paragraph = normalizedSpace(inlineText(lastBlock.children));
   return paragraph.endsWith('?') ? paragraph : null;
 }
 
-function moreLineCountOf(segments: readonly TurnSegment[]): number {
-  const nonEmptyLines = textsOf(segments).flatMap((text) => text.split('\n')).filter((line) => line.trim().length > 0);
-  return Math.max(0, nonEmptyLines.length - 1);
-}
-
 export function digestTurn(segments: readonly TurnSegment[], toolCount: number): TurnDigest {
-  const lead = leadOf(segments);
-  const asked = askedOf(segments);
-  const moreLineCount = moreLineCountOf(segments);
-  const isLeadCut = lead?.kind === 'text' && lead.text.endsWith(ELLIPSIS);
-  const isFoldable = toolCount > 0 || moreLineCount > 0 || lead === null || lead.kind === 'code' || isLeadCut;
-  return { lead, asked: asked === null || (lead?.kind === 'text' && lead.text === asked) ? null : asked, moreLineCount, isFoldable };
+  const texts = textsOf(segments);
+  const finalText = texts.at(-1);
+  return { asked: finalText === undefined ? null : askedOf(finalText), isFoldable: toolCount > 0 || texts.length > 1 };
 }
 
 export function isCollapsedByDefault(turn: { isFoldable: boolean; isNewest: boolean }): boolean {

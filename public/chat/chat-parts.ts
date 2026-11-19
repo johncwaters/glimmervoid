@@ -6,7 +6,7 @@ import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { digestTurn, isCollapsedByDefault } from './turn-digest-core.ts';
-import type { TurnLead, TurnSegment } from './turn-digest-core.ts';
+import type { TurnSegment } from './turn-digest-core.ts';
 
 type FlatPartKind = Exclude<ChatPartKind, 'turn'>;
 type FlatPart = Exclude<ChatPart, TurnPart>;
@@ -81,23 +81,14 @@ function renderSegment(segment: TurnSegment): HTMLElement {
   return toolLine;
 }
 
-function renderLead(lead: TurnLead): HTMLElement {
-  if (lead.kind === 'text') return el('p', 'chat-turn-lead', lead.text);
-  const leadElement = el('p', 'chat-turn-lead chat-turn-lead-code');
-  const fileNameText = lead.fileName.length > 0 ? ` ${lead.fileName},` : ',';
-  leadElement.append(el('span', 'chat-turn-code-mark', 'code'), `${fileNameText} ${countText(lead.lineCount, 'line', 'lines')}`);
-  return leadElement;
-}
-
 function renderAsked(asked: string): HTMLElement {
   const askedElement = el('p', 'chat-turn-asked');
   askedElement.append(el('span', 'chat-turn-asked-mark', '?'), el('span', 'chat-turn-asked-text', asked));
   return askedElement;
 }
 
-function metaFieldsOf(part: TurnPart, moreLineCount: number): HTMLElement[] {
+function metaFieldsOf(part: TurnPart): HTMLElement[] {
   const fields: HTMLElement[] = [];
-  if (moreLineCount > 0) fields.push(el('span', 'chat-turn-more', countText(moreLineCount, 'more line', 'more lines')));
   if (part.toolCount > 0) fields.push(el('span', 'chat-turn-fact', countText(part.toolCount, 'tool', 'tools')));
   const { fileEdits } = part;
   if (fileEdits.fileCount > 0) {
@@ -117,7 +108,7 @@ function createTurnView(): TurnView {
   const meta = el('div', 'chat-turn-meta');
   const chevron = button({ variant: 'icon', size: 'small', label: 'Turn details', icon: createLineIcon(CHEVRON_ICON_PATH, '1.6') });
   chevron.classList.add('chat-turn-chevron');
-  element.append(brief, body, meta);
+  element.append(body, brief, meta);
   return { element, brief, body, meta, chevron, renderedSegments: [], segmentElements: [], droppedSegmentCount: 0, isOver: false, wasPaintedRunning: false, isFoldable: false };
 }
 
@@ -154,6 +145,7 @@ function updateTurnView(view: TurnView, part: TurnPart): void {
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
   view.segmentElements.forEach((segmentElement, index) => {
     segmentElement.toggleAttribute('data-before-final', index < finalTextIndex);
+    segmentElement.toggleAttribute('data-final', index === finalTextIndex);
   });
   if (part.isOver && !view.isOver && view.wasPaintedRunning && document.visibilityState === 'visible') view.element.setAttribute('data-ended-in-view', '');
   if (!part.isOver && !view.wasPaintedRunning) requestAnimationFrame(() => {
@@ -165,8 +157,9 @@ function updateTurnView(view: TurnView, part: TurnPart): void {
   const digest = digestTurn(part.segments, part.toolCount);
   view.isFoldable = digest.isFoldable;
   view.element.toggleAttribute('data-foldable', digest.isFoldable);
-  view.brief.replaceChildren(...(digest.lead === null ? [] : [renderLead(digest.lead)]), ...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
-  view.meta.replaceChildren(view.chevron, ...metaFieldsOf(part, digest.moreLineCount));
+  view.element.toggleAttribute('data-asks', digest.asked !== null);
+  view.brief.replaceChildren(...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
+  view.meta.replaceChildren(view.chevron, ...metaFieldsOf(part));
 }
 
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
