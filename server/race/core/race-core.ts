@@ -246,12 +246,13 @@ const CRITERION_CREDIT: Readonly<Record<CriterionStanding, number>> = { pass: 1,
 
 function setupKey(contestant: RaceContestant): string {
   const effort = contestant.setup.options.find((option) => option.id === EFFORT_OPTION_ID)?.value ?? null;
-  return JSON.stringify([contestant.setup.agent, contestant.setup.model, effort, contestant.home, contestant.setup.instructions.trim()]);
+  return JSON.stringify([contestant.setup.agent, contestant.setup.model, effort, contestant.home, contestant.setup.instructions.trim(), ...(contestant.doneMeans === 'off' ? ['done-means-off'] : [])]);
 }
 
 function setupLabel(contestant: RaceContestant): string {
   const parts = [judgeLabel(contestant.setup), contestant.home === 'clean' ? 'clean home' : 'your setup'];
   if (contestant.setup.instructions.trim() !== '') parts.push(`instructions: ${contestant.setup.instructions.trim().slice(0, 60)}`);
+  if (contestant.doneMeans === 'off') parts.push('Done means off');
   return parts.join(', ');
 }
 

@@ -314,7 +314,7 @@ export function buildNewRace(onStarted: () => void): HTMLElement {
     repoInput?.setAttribute('list', knownPaths.id);
     const addButton = button({ variant: 'secondary', size: 'small', label: 'Add contestant', disabled: draft.contestants.length >= RACE_MAX_CONTESTANTS, onClick: () => {
       const firstAgent = agentsWithModels(catalog)[0] ?? 'claude-code';
-      draft.contestants = relabel([...draft.contestants, { id: 'new', label: 'new', setup: draft.contestants.at(-1)?.setup ?? defaultSetup(catalog, firstAgent), home: draft.contestants.at(-1)?.home ?? 'operator' }]);
+      draft.contestants = relabel([...draft.contestants, { id: 'new', label: 'new', setup: draft.contestants.at(-1)?.setup ?? defaultSetup(catalog, firstAgent), home: draft.contestants.at(-1)?.home ?? 'operator', doneMeans: draft.contestants.at(-1)?.doneMeans }]);
       paint();
     } });
     const lineupActions = el('div', 'arena-actions');

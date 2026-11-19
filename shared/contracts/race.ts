@@ -23,6 +23,7 @@ export const RaceContestant = z.strictObject({
   label: z.string().trim().min(1).max(60),
   setup: AgentSetup,
   home: AgentHomeKind.default('operator'),
+  doneMeans: z.literal('off').optional(),
 });
 export type RaceContestant = z.infer<typeof RaceContestant>;
 

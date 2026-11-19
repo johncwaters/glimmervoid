@@ -101,7 +101,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
 }
 
 function buildSessionServer(session: Session, agentApi: AgentApiPort, stores: FileStores): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: serverInstructionsWith(agentApi.operatorRules()), capabilities: { tools: { listChanged: false } } });
+  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: serverInstructionsWith(agentApi.operatorRules(), { asksForDone: agentApi.refuseRole(session, 'done') === null }), capabilities: { tools: { listChanged: false } } });
   for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, stores);
   return server;
 }

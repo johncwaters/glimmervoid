@@ -54,7 +54,7 @@ function createRaceLauncher({ races, sessions, config, createProjectSession }: R
       dangerouslySkipPermissions: permissions.dangerouslySkipPermissions,
       saneYolo: permissions.saneYolo,
       requireExistingPath: true,
-      runSettings: { agentSetup: contestant.setup, agentHome: contestant.home, raceId: race.raceId, startSha: race.startSha, ...(spec.reviewCase ? { isStartPinned: true } : {}) },
+      runSettings: { agentSetup: contestant.setup, agentHome: contestant.home, raceId: race.raceId, startSha: race.startSha, ...(spec.reviewCase ? { isStartPinned: true } : {}), ...(contestant.doneMeans === 'off' ? { isDoneMeansOff: true } : {}) },
     });
     if (!created.ok) return { ok: false as const, error: created.error };
     const session = sessions.get(created.project.id);

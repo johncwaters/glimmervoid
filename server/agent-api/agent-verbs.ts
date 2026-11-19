@@ -74,11 +74,13 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
+    const raceProject = config.projects.find((project) => (project.id === session.id || project.id === session.ownerId) && project.raceId !== undefined);
     return {
       isEphemeral: session.ephemeral,
       isSpawnedChild: agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`),
       hasOwnWorktree: session.hasOwnWorktree,
-      isRaceContestant: config.projects.some((project) => (project.id === session.id || project.id === session.ownerId) && project.raceId !== undefined),
+      isRaceContestant: raceProject !== undefined,
+      isDoneMeansOff: raceProject?.isDoneMeansOff === true,
     };
   }
 

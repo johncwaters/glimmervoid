@@ -17,6 +17,7 @@ interface SessionRoleFacts {
   isSpawnedChild: boolean;
   hasOwnWorktree: boolean;
   isRaceContestant: boolean;
+  isDoneMeansOff: boolean;
 }
 
 type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
@@ -141,6 +142,7 @@ function memoryRoute(caller: SessionKindFacts): RouteVerdict {
 }
 
 function doneRoute(caller: SessionKindFacts): RouteVerdict {
+  if (caller.isDoneMeansOff) return { answers: false, reason: 'this race contestant runs with Done means off' };
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: 'a lane session cannot set done lines, because it has no Chat panel to show them in' };
 }

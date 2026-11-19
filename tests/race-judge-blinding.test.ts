@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import { RaceRecord } from '../shared/contracts/race.ts';
 import { runCommandSafely } from '../server/child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../server/git/core/git-invocation-core.ts';
-import { checkOutcomeOf, contestantFinish, panelStanding } from '../server/race/core/race-core.ts';
+import { checkOutcomeOf, contestantFinish, panelStanding, raceHistory } from '../server/race/core/race-core.ts';
 import type { CheckOutcome, RaceCheck, RaceHistory } from '../shared/contracts/race.ts';
 import { contestantDiff } from '../server/race/race-diff.ts';
 import { createRaceStore } from '../server/race/race-store.ts';
@@ -375,4 +375,15 @@ test('history folds every stored race a judge scored into standings per setup an
   assert.ok((await wiring.pickWinner('legacy', 'b')).ok);
   assert.equal(histories.length, foldsBeforeWrite + 1, 'a judged write refolds the history once');
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a Done means off contestant gets its own standings row beside the same setup with Done means on', () => {
+  const setup = { agent: 'claude-code', model: 'claude-opus-5-5', options: [], instructions: '' };
+  const record = RaceRecord.parse({
+    id: 'done-means-ab', createdAt: 1, phase: 'judged', startSha: 'a'.repeat(40), baseBranch: 'main', sessionIdByContestant: { on: 'session-on', off: 'session-off' },
+    spec: { version: 1, title: 'A/B', prompt: 'Fix it.', repoPath: '/repo', contestants: [{ id: 'on', label: 'Opus', setup, home: 'operator' }, { id: 'off', label: 'Opus, no Done means', setup, home: 'operator', doneMeans: 'off' }] },
+    judge: { ranking: [{ contestantId: 'off', rank: 1, reason: 'Better' }, { contestantId: 'on', rank: 2, reason: 'Worse' }], notes: {} },
+  });
+  const winsByLabel = Object.fromEntries(raceHistory([record], new Set()).standings.map((row) => [row.label, row.wins]));
+  assert.deepEqual(winsByLabel, { 'claude-code claude-opus-5-5, your setup': 0, 'claude-code claude-opus-5-5, your setup, Done means off': 1 });
 });

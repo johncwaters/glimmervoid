@@ -114,14 +114,14 @@ function variedSetup(catalog: AgentModelCatalog, base: AgentSetup, setting: Vary
   return withEffort(base, value);
 }
 
-export function contestantsFor(catalog: AgentModelCatalog, entries: readonly { setup: AgentSetup; home: AgentHomeKind }[]): RaceContestant[] {
+export function contestantsFor(catalog: AgentModelCatalog, entries: readonly { setup: AgentSetup; home: AgentHomeKind; doneMeans?: RaceContestant['doneMeans'] }[]): RaceContestant[] {
   const labelCounts = new Map<string, number>();
-  return entries.slice(0, RACE_MAX_CONTESTANTS).map(({ setup, home }, index) => {
+  return entries.slice(0, RACE_MAX_CONTESTANTS).map(({ setup, home, doneMeans }, index) => {
     const setupLabel = autoLabel(setup, catalog);
     const baseLabel = (home === 'clean' ? `${setupLabel} clean` : setupLabel).slice(0, 60);
     const seen = (labelCounts.get(baseLabel) ?? 0) + 1;
     labelCounts.set(baseLabel, seen);
-    return { id: `c${index + 1}`, label: seen === 1 ? baseLabel : `${baseLabel} ${seen}`.slice(0, 60), setup, home };
+    return { id: `c${index + 1}`, label: seen === 1 ? baseLabel : `${baseLabel} ${seen}`.slice(0, 60), setup, home, ...(doneMeans ? { doneMeans } : {}) };
   });
 }
 

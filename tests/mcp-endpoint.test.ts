@@ -29,6 +29,7 @@ import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { AgentMemoryReply } from '../shared/contracts/memory.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
+const DONE_MEANS_OFF_SESSION_ID = 'mcp-done-means-off-contestant';
 
 interface BootedBackend {
   tmpDir: string;
@@ -51,7 +52,7 @@ async function boot(): Promise<BootedBackend> {
   const projectDir = path.join(tmpDir, 'project');
   fs.mkdirSync(projectDir);
   const configPath = path.join(tmpDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: SESSION_ID, name: 'mcp endpoint', path: projectDir }], repoRoots: [], autoResume: false, agentRules: { rules: ['Run the targeted tests before claiming done.'] } }), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ projects: [{ id: SESSION_ID, name: 'mcp endpoint', path: projectDir }, { id: DONE_MEANS_OFF_SESSION_ID, name: 'done means off contestant', path: projectDir, raceId: 'race-ab', isDoneMeansOff: true }], repoRoots: [], autoResume: false, agentRules: { rules: ['Run the targeted tests before claiming done.'] } }), 'utf8');
   process.env.GLIMMERVOID_CONFIG = configPath;
   const server = http.createServer();
   const backend = createBackend(server, { staticDir: null });
@@ -192,6 +193,21 @@ test('session done puts the agent lines on the session snapshot, and a later cal
   const replaced = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'typecheck passes' }] } }, credential));
   assert.notEqual(replaced.isError, true, JSON.stringify(replaced));
   assert.deepEqual(backend.getSession(SESSION_ID)?.agentDoneLines, [{ text: 'typecheck passes' }]);
+});
+
+test('a race contestant with Done means off is never asked to call session done and cannot', async () => {
+  const { backend } = bootedBackend();
+  const contestant = backend.getSession(DONE_MEANS_OFF_SESSION_ID);
+  assert.ok(contestant?.agentToken);
+  contestant._hooks.inject();
+  const credential = mcpCredentialFor(DONE_MEANS_OFF_SESSION_ID, contestant.agentToken);
+  const initialized = await resultOf(await callMcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } }, credential));
+  assert.doesNotMatch(String(initialized.instructions), /session done/);
+  const operatorInitialized = await resultOf(await callMcp('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } }, bootedBackend().credential));
+  assert.match(String(operatorInitialized.instructions), /call session done/);
+  const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'done', lines: [{ text: 'tests pass' }] } }, credential));
+  assert.equal(called.isError, true);
+  assert.deepEqual(contestant.agentDoneLines, []);
 });
 
 test('a refused verb comes back as a tool error the agent can read', async () => {
