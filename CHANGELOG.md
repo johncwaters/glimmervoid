@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Settings opens on a new General page.** It holds Ready to commit as you (GitHub, git identity, gh sign-in, commit signing) and your agent accounts, which used to sit on Appearance and a separate Accounts page. Appearance now holds only appearance, and old links to the Accounts page open General.
+- **Zoomed-out boards stay readable.** When you zoom out far enough that box details drop away, box titles grow to the largest size that still fits the box, and each plan step's status shows as a colored dot.
+
 - **The board's dot grid moves with the board.** The faint dots behind the board now pan and zoom with it instead of staying fixed on screen, and fade out as you zoom far out so a whole-board view stays clean. Board pictures show the same dots.
 
 - **Lighter wires with rounded corners.** Wires on the board draw thinner and dimmer than box outlines, with smaller arrowheads, so the boxes read first. Elbow wires turn their corners on a small curve that matches the rounded box corners. Wires still click and select as before, and board pictures show the same look.

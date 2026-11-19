@@ -401,10 +401,14 @@ function pushStepChip(part: PartBuilder, context: SceneContext, box: Rect, statu
   const { palette, glyphs } = context;
   const textSize = palette.metaSize - 1;
   const chip = stepChipOf(box, status, textSize);
-  pushRect(part, chip.rect, STEP_CHIP_HEIGHT / 2, faded(palette.board, opacity), faded(palette.line, opacity), 1, minScale);
+  const labelStyle: TextStyle = { size: textSize, color: faded(palette.inkDim, opacity) };
+  const labelMinScale = Math.max(minScale, textMinScale(labelStyle));
   const dotColor = faded(stepStatusColor(status, palette), opacity);
-  pushCircle(part, chip.dotCenter, STEP_CHIP_DOT_RADIUS, dotColor, dotColor, 0, minScale);
-  pushText(part, glyphs, status, chip.textX, chip.baseline, { size: textSize, color: faded(palette.inkDim, opacity) });
+  const zoomedOutDotCenter = { x: chip.rect.x + STEP_CHIP_HEIGHT / 2, y: chip.rect.y + STEP_CHIP_HEIGHT / 2 };
+  pushCircle(part, zoomedOutDotCenter, STEP_CHIP_HEIGHT / 2, dotColor, dotColor, 0, minScale);
+  pushRect(part, chip.rect, STEP_CHIP_HEIGHT / 2, palette.board, faded(palette.line, opacity), 1, labelMinScale);
+  pushCircle(part, chip.dotCenter, STEP_CHIP_DOT_RADIUS, dotColor, dotColor, 0, labelMinScale);
+  pushText(part, glyphs, status, chip.textX, chip.baseline, labelStyle);
 }
 
 function pushDeviceBase(part: PartBuilder, device: LaidOutDevice, bodyBottom: number, color: Rgba, edge: Rgba, minScale: number): void {

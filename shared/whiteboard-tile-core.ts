@@ -2,7 +2,7 @@ import { BLOCK_RASTER_PX } from './contracts/whiteboard-tiles.ts';
 import { pointOfBox, sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, BoardOutline, Element, ReadElement } from './contracts/whiteboard.ts';
 import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
-import { dressedElement, laidOutStrokeOf } from './whiteboard-layout-core.ts';
+import { dressedElement, laidOutStrokeOf, titlesOnlyBox } from './whiteboard-layout-core.ts';
 import { boardIndexOf, elementsOfKind } from './whiteboard-board-index.ts';
 import type { ElementTable } from './whiteboard-element-table.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
@@ -278,9 +278,9 @@ function boardOutlineOf(board: Board, index: TileIndex, focus: Rect): BoardOutli
   };
 }
 
-function withTitlesOnly(element: LaidOutElement): LaidOutElement {
+function withTitlesOnly(element: LaidOutElement, record: Element | undefined): LaidOutElement {
   switch (element.kind) {
-    case 'box': return { ...element, bodyLines: [] };
+    case 'box': return titlesOnlyBox(element, record);
     default: return element;
   }
 }
@@ -288,7 +288,7 @@ function withTitlesOnly(element: LaidOutElement): LaidOutElement {
 function forLod(index: TileIndex, painted: PlacedPaint, lod: TileLod): PaintedElement {
   const record = index.records.get(painted.element.id);
   const dressed = dressedElement(painted.element, record);
-  return { paintOrder: painted.paintOrder, element: lod === 'titles' ? withTitlesOnly(dressed) : dressed, record };
+  return { paintOrder: painted.paintOrder, element: lod === 'titles' ? withTitlesOnly(dressed, record) : dressed, record };
 }
 
 function base64Of(bytes: Uint8Array): string {

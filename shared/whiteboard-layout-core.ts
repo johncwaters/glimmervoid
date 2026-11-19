@@ -34,6 +34,7 @@ const PLAN_TITLE_BASELINE = 16;
 const PLAN_TITLE_HEIGHT = 30;
 const PLAN_BAND_GAP = 40;
 const STEP_HEADER_HEIGHT = 18;
+const TEXT_SIZES_LARGEST_FIRST: readonly TextSize[] = ['L', 'M', 'S'];
 const MEDIA_GAP = 8;
 const MEDIA_MAX_HEIGHT = 320;
 const OVERLAP_CELL_SIZE = 256;
@@ -769,6 +770,23 @@ function dressedBox(placed: PlacedBox, record: Element | undefined): LaidOutBox 
   return { ...placed, ...boxTextOf(record, placed.width) };
 }
 
+function titlesOnlyBox(dressed: LaidOutBox, record: Element | undefined): LaidOutBox {
+  const titlesOnly = { ...dressed, bodyLines: [] };
+  if (record?.kind !== 'box' || dressed.media || dressed.device || dressed.shape === 'icon') return titlesOnly;
+  const stepHeaderHeight = dressed.step ? STEP_HEADER_HEIGHT : 0;
+  const roomForTitles = dressed.height - BOX_PADDING * 2 - stepHeaderHeight - boxContentOf(record).glyphRoom;
+  const titleBlockHeightAt = (textSize: TextSize) => {
+    const resized = { ...record, textSize };
+    if (textFitAt(resized, dressed.width).isTitleCutMidWord) return Number.POSITIVE_INFINITY;
+    const { titleLines, wasLines } = boxTextOf(resized, dressed.width);
+    return (titleLines.length + wasLines.length) * titleLineHeightOf(textSize);
+  };
+  const fittedTextSize = TEXT_SIZES_LARGEST_FIRST.find((textSize) => titleBlockHeightAt(textSize) <= roomForTitles) ?? record.textSize;
+  if (fittedTextSize === dressed.textSize) return titlesOnly;
+  const { titleLines, wasLines } = boxTextOf({ ...record, textSize: fittedTextSize }, dressed.width);
+  return { ...titlesOnly, textSize: fittedTextSize, titleLines, wasLines };
+}
+
 function dressedElement(placed: PlacedElement, record: Element | undefined): LaidOutElement {
   switch (placed.kind) {
     case 'box': return dressedBox(placed, record);
@@ -935,6 +953,6 @@ export {
   FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
-  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
+  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };
