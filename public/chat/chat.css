@@ -131,6 +131,8 @@
   font: var(--type-meta)/1.5 var(--font-mono);
 }
 
+.chat-turn[data-over]:not([data-ended-in-view]) .chat-turn-tools { display: none; }
+
 .chat-turn-tool { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-turn[data-over] .chat-turn-text[data-before-final] { opacity: 0.62; }

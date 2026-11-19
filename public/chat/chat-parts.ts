@@ -31,6 +31,7 @@ interface TurnView {
   droppedSegmentCount: number;
   turnKey: number | null;
   isOver: boolean;
+  wasPaintedRunning: boolean;
   isFoldable: boolean;
 }
 
@@ -117,7 +118,7 @@ function createTurnView(part: TurnPart): TurnView {
   const chevron = button({ variant: 'icon', size: 'small', label: 'Turn details', icon: createLineIcon(CHEVRON_ICON_PATH, '1.6') });
   chevron.classList.add('chat-turn-chevron');
   element.append(brief, body, meta);
-  return { element, brief, body, meta, chevron, renderedSegments: [], segmentElements: [], droppedSegmentCount: 0, turnKey: part.turnKey, isOver: false, isFoldable: false };
+  return { element, brief, body, meta, chevron, renderedSegments: [], segmentElements: [], droppedSegmentCount: 0, turnKey: part.turnKey, isOver: false, wasPaintedRunning: false, isFoldable: false };
 }
 
 function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void {
@@ -149,6 +150,10 @@ function updateTurnView(view: TurnView, part: TurnPart): void {
     segmentElement.toggleAttribute('data-before-final', index < finalTextIndex);
   });
   view.turnKey = part.turnKey;
+  if (part.isOver && !view.isOver && view.wasPaintedRunning && document.visibilityState === 'visible') view.element.setAttribute('data-ended-in-view', '');
+  if (!part.isOver && !view.wasPaintedRunning) requestAnimationFrame(() => {
+    view.wasPaintedRunning = !view.isOver && view.element.isConnected;
+  });
   view.isOver = part.isOver;
   view.element.toggleAttribute('data-over', part.isOver);
   if (!part.isOver) return;
@@ -189,6 +194,7 @@ interface ChatLog {
   remove(partIds: readonly string[]): void;
   keepLast(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
+  forgetPaintedTurns(): void;
 }
 
 export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
@@ -270,6 +276,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, ke
     const view = partId === undefined ? undefined : turnViewByPartId.get(partId);
     if (partId === undefined || !view || !view.isOver || !view.isFoldable) return;
     keepTurnInPlace(view.element, () => {
+      view.element.removeAttribute('data-ended-in-view');
       isOpenedByOperatorByPartId.set(partId, view.element.hasAttribute('data-collapsed'));
       showCollapse(partId);
     });
@@ -295,5 +302,8 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, ke
     if (firstMisplacedIndex < 0) return;
     element.append(...pinnedElements.slice(firstMisplacedIndex));
   };
-  return { element, upsert, remove, keepLast, toggleTurn };
+  const forgetPaintedTurns = () => {
+    for (const view of turnViewByPartId.values()) view.wasPaintedRunning = false;
+  };
+  return { element, upsert, remove, keepLast, toggleTurn, forgetPaintedTurns };
 }
