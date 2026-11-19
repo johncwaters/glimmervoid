@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { BOARD_PAGE_ENTRY_PATH, BOARD_PAGE_MEMBERS_MAX } from '../../shared/contracts/whiteboard.ts';
-import { isScriptFile, referencedPackPath, referencesIn, REMOTE_REFERENCE_PATTERN } from '../packs/core/pack-core.ts';
+import { isScriptFile, packFileMime, referencedPackPath, referencesIn, REMOTE_REFERENCE_PATTERN, withReferencesReplaced } from '../packs/core/pack-core.ts';
 
 const MAX_LISTED_UNLOADED = 10;
 
@@ -101,6 +101,72 @@ async function collectPageBundle({ pagePath, pageText, capBytes, storeMember }: 
   return { members, unloaded };
 }
 
+const BOARD_PAGE_INLINE_BUDGET_BYTES = 32 * 1024 * 1024;
+const MEMBER_SPECIFIER_PREFIX = 'glimmervoid-member/';
+
+type InlinedPage = { page: string; importMap: string | null };
+
+function dataUriOfBytes(memberPath: string, bytes: Buffer): string {
+  return `data:${packFileMime(memberPath).replaceAll(' ', '')};base64,${bytes.toString('base64')}`;
+}
+
+function memberPathOfReference(fromPath: string, url: string): string | null {
+  if (REMOTE_REFERENCE_PATTERN.test(url) || url.startsWith('/')) return null;
+  return referencedPackPath(fromPath, url);
+}
+
+function moduleDataUrisOf(textByMemberPath: ReadonlyMap<string, string>, budgetBytes: number): Map<string, string> | null {
+  const scriptPaths = [...textByMemberPath.keys()].filter(isScriptFile);
+  const importedScriptPathOf = (scriptPath: string, url: string): string | null => {
+    const memberPath = memberPathOfReference(scriptPath, url);
+    return memberPath !== null && isScriptFile(memberPath) && textByMemberPath.has(memberPath) ? memberPath : null;
+  };
+  const everyImportResolves = scriptPaths.every((scriptPath) => referencesIn(scriptPath, textByMemberPath.get(scriptPath) ?? '')
+    .every(({ url }) => REMOTE_REFERENCE_PATTERN.test(url) || importedScriptPathOf(scriptPath, url) !== null));
+  if (scriptPaths.length === 0 || !everyImportResolves) return null;
+  const dataUriByScriptPath = new Map(scriptPaths.map((scriptPath) => {
+    const specifiedText = withReferencesReplaced(scriptPath, textByMemberPath.get(scriptPath) ?? '', (url) => {
+      const importedScriptPath = importedScriptPathOf(scriptPath, url);
+      return importedScriptPath === null ? null : `${MEMBER_SPECIFIER_PREFIX}${importedScriptPath}`;
+    });
+    return [scriptPath, dataUriOfBytes(scriptPath, Buffer.from(specifiedText, 'utf8'))];
+  }));
+  const moduleBytes = [...dataUriByScriptPath.values()].reduce((total, dataUri) => total + dataUri.length, 0);
+  return moduleBytes <= budgetBytes ? dataUriByScriptPath : null;
+}
+
+function importMapOf(dataUriByScriptPath: ReadonlyMap<string, string>): string {
+  const imports = Object.fromEntries([...dataUriByScriptPath].map(([scriptPath, dataUri]) => [`${MEMBER_SPECIFIER_PREFIX}${scriptPath}`, dataUri]));
+  return `<script type="importmap">${JSON.stringify({ imports }).replaceAll('<', '\\u003c')}</script>`;
+}
+
+function pageWithInlinedMembers(html: string, bytesByMemberPath: ReadonlyMap<string, Buffer>): InlinedPage {
+  const textByMemberPath = new Map([...bytesByMemberPath].filter(([memberPath]) => isScannedMember(memberPath)).map(([memberPath, bytes]) => [memberPath, bytes.toString('utf8')]));
+  const dataUriByScriptPath = moduleDataUrisOf(textByMemberPath, BOARD_PAGE_INLINE_BUDGET_BYTES);
+  let remainingBudgetBytes = BOARD_PAGE_INLINE_BUDGET_BYTES - [...(dataUriByScriptPath?.values() ?? [])].reduce((total, dataUri) => total + dataUri.length, 0);
+  const dataUriByMemberPath = new Map<string, string | null>(dataUriByScriptPath ?? []);
+  const dataUriOf = (memberPath: string): string | null => {
+    if (dataUriByMemberPath.has(memberPath)) return dataUriByMemberPath.get(memberPath) ?? null;
+    const bytes = bytesByMemberPath.get(memberPath);
+    if (bytes === undefined || memberPath.endsWith('.html') || isScriptFile(memberPath)) return null;
+    dataUriByMemberPath.set(memberPath, null);
+    if (Math.ceil(bytes.byteLength / 3) * 4 > remainingBudgetBytes) return null;
+    const memberText = textByMemberPath.get(memberPath);
+    const dataUri = dataUriOfBytes(memberPath, memberText === undefined ? bytes : Buffer.from(inlinedText(memberPath, memberText), 'utf8'));
+    dataUriByMemberPath.set(memberPath, dataUri);
+    return dataUri;
+  };
+  const inlinedText = (filePath: string, text: string): string => withReferencesReplaced(filePath, text, (url) => {
+    const memberPath = memberPathOfReference(filePath, url);
+    const dataUri = memberPath === null ? null : dataUriOf(memberPath);
+    if (dataUri === null || dataUri.length > remainingBudgetBytes) return null;
+    remainingBudgetBytes -= dataUri.length;
+    const fragmentAt = url.indexOf('#');
+    return fragmentAt === -1 ? dataUri : `${dataUri}${url.slice(fragmentAt)}`;
+  });
+  return { page: inlinedText(BOARD_PAGE_ENTRY_PATH, html), importMap: dataUriByScriptPath === null ? null : importMapOf(dataUriByScriptPath) };
+}
+
 function manifestOf(pageHash: string, members: readonly BundleMember[]): { page: string; members: Record<string, string> } {
   const sortedMembers = [...members].sort((left, right) => (left.memberPath < right.memberPath ? -1 : 1));
   return { page: pageHash, members: Object.fromEntries(sortedMembers.map((member) => [member.memberPath, member.hash])) };
@@ -119,5 +185,5 @@ function unloadedNote(unloaded: readonly UnloadedReference[]): string | null {
   return `${fileCount}: ${listed.join(', ')}${unlisted > 0 ? `, and ${unlisted} more` : ''}; put each file in the page folder or below and refer to it by a relative path`;
 }
 
-export { bundleIdOf, collectPageBundle, manifestOf, unloadedNote };
+export { BOARD_PAGE_INLINE_BUDGET_BYTES, bundleIdOf, collectPageBundle, manifestOf, pageWithInlinedMembers, unloadedNote };
 export type { BundleMember, StoredMember, UnloadedReference };

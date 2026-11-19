@@ -323,6 +323,73 @@ export function referencesIn(filePath: string, text: string): PageReference[] {
   return rawReferencesIn(filePath, text).map((reference) => ({ ...reference, url: reference.url.trim() })).filter((reference) => reference.url !== '' && !INERT_REFERENCE_PATTERN.test(reference.url));
 }
 
+type ReferenceReplacer = (url: string) => string | null;
+
+function replacedUrl(url: string, replacementOf: ReferenceReplacer): string {
+  const trimmedUrl = url.trim();
+  if (trimmedUrl === '' || INERT_REFERENCE_PATTERN.test(trimmedUrl)) return url;
+  return replacementOf(trimmedUrl) ?? url;
+}
+
+function withValueReplaced(match: string, value: string, replacement: string): string {
+  if (replacement === value) return match;
+  const valueAt = match.lastIndexOf(value);
+  return `${match.slice(0, valueAt)}${replacement}${match.slice(valueAt + value.length)}`;
+}
+
+function withJsImportsReplaced(text: string, replacementOf: ReferenceReplacer): string {
+  return text.replace(JS_IMPORT_PATTERN, (match, fromSpecifier: string | undefined, importedSpecifier: string | undefined) => {
+    const specifier = fromSpecifier ?? importedSpecifier ?? '';
+    return withValueReplaced(match, specifier, replacedUrl(specifier, replacementOf));
+  });
+}
+
+function withCssReferencesReplaced(text: string, replacementOf: ReferenceReplacer): string {
+  return text.replace(CSS_REFERENCE_PATTERN, (match, urlValue: string | undefined, importedValue: string | undefined) => {
+    const value = urlValue ?? importedValue ?? '';
+    return withValueReplaced(match, value, replacedUrl(value, replacementOf));
+  });
+}
+
+function srcsetReplaced(srcset: string, replacementOf: ReferenceReplacer): string {
+  return srcset.split(',').map((candidate) => {
+    const url = candidate.trim().split(/\s+/)[0] ?? '';
+    return url === '' ? candidate : candidate.replace(url, replacedUrl(url, replacementOf));
+  }).join(',');
+}
+
+function withScriptBodiesReplaced(html: string, replacedBody: (body: string) => string): string {
+  const keptParts: string[] = [];
+  const lowerHtml = html.toLowerCase();
+  let cursor = 0;
+  while (cursor < html.length) {
+    const openAt = lowerHtml.indexOf('<script', cursor);
+    const bodyStart = openAt === -1 ? -1 : lowerHtml.indexOf('>', openAt);
+    const closeAt = bodyStart === -1 ? -1 : lowerHtml.indexOf('</script', bodyStart);
+    if (closeAt === -1) break;
+    keptParts.push(html.slice(cursor, bodyStart + 1), replacedBody(html.slice(bodyStart + 1, closeAt)));
+    cursor = closeAt;
+  }
+  keptParts.push(html.slice(cursor));
+  return keptParts.join('');
+}
+
+function withHtmlReferencesReplaced(html: string, replacementOf: ReferenceReplacer): string {
+  const withScriptImports = withScriptBodiesReplaced(html, (body) => withJsImportsReplaced(body, replacementOf));
+  const withAttributes = withScriptImports.replace(HTML_REFERENCE_PATTERN, (match, attributeName: string, doubleQuoted: string | undefined, singleQuoted: string | undefined, unquoted: string | undefined) => {
+    const value = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+    const replacement = attributeName.toLowerCase().endsWith('srcset') ? srcsetReplaced(value, replacementOf) : replacedUrl(value, replacementOf);
+    return withValueReplaced(match, value, replacement);
+  });
+  return withCssReferencesReplaced(withAttributes, replacementOf);
+}
+
+export function withReferencesReplaced(filePath: string, text: string, replacementOf: ReferenceReplacer): string {
+  if (isScriptFile(filePath)) return withJsImportsReplaced(text, replacementOf);
+  if (!filePath.endsWith('.html')) return withCssReferencesReplaced(text, replacementOf);
+  return withHtmlReferencesReplaced(text, replacementOf);
+}
+
 function decodedPath(reference: string): string {
   try {
     return decodeURIComponent(reference);

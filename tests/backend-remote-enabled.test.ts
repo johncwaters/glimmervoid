@@ -284,7 +284,8 @@ test('a board page frame opens only with the pairing cookie, then loads its file
   const pageDir = fs.mkdtempSync(path.join(tmpDir, 'page-'));
   const shotBytes = Buffer.from('shot bytes');
   fs.writeFileSync(path.join(pageDir, 'shot.png'), shotBytes);
-  fs.writeFileSync(path.join(pageDir, 'page.html'), '<!doctype html><img src="shot.png">');
+  fs.writeFileSync(path.join(pageDir, 'look.css'), 'body{background:url(shot.png)}');
+  fs.writeFileSync(path.join(pageDir, 'page.html'), '<!doctype html><link rel="stylesheet" href="look.css"><img src="shot.png">');
   const ingested = await backend.whiteboards.assets.ingestFile(path.join(pageDir, 'page.html'));
   assert.ok(ingested.ok, JSON.stringify(ingested));
   const openPath = `/frames/open/whiteboards/pages/${ingested.media.asset}/index.html?tuned=1`;
@@ -301,7 +302,14 @@ test('a board page frame opens only with the pairing cookie, then loads its file
   const shot = await fetch(`http://127.0.0.1:${remotePort}${keyedShotPath}`, { headers: { origin: 'null' } });
   assert.equal(shot.status, 200, 'a frame file loads with no cookie');
   assert.deepEqual(Buffer.from(await shot.arrayBuffer()), shotBytes);
-  assert.equal((await fetch(`http://127.0.0.1:${remotePort}${keyedPagePath}`)).status, 200);
+  const keyedPage = await fetch(`http://127.0.0.1:${remotePort}${keyedPagePath}`);
+  assert.equal(keyedPage.status, 200);
+  const pageHtml = await keyedPage.text();
+  const shotDataUri = `data:image/png;base64,${shotBytes.toString('base64')}`;
+  assert.ok(pageHtml.includes(`<img src="${shotDataUri}">`), 'an auth proxy whose cookie a sandboxed frame cannot send must not be asked for the image');
+  const stylesheetDataUri = /<link rel="stylesheet" href="data:text\/css;charset=utf-8;base64,([^"]+)">/.exec(pageHtml)?.[1];
+  assert.ok(stylesheetDataUri, 'the stylesheet is inlined too');
+  assert.equal(Buffer.from(stylesheetDataUri, 'base64').toString('utf8'), `body{background:url(${shotDataUri})}`);
   const wrongKeyPath = keyedShotPath.replace(/^\/frames\/[0-9a-f]{64}\//, `/frames/${'0'.repeat(64)}/`);
   assert.equal((await fetch(`http://127.0.0.1:${remotePort}${wrongKeyPath}`)).status, 404);
   assert.equal((await fetch(`http://127.0.0.1:${remotePort}/frames/whiteboards/pages/${ingested.media.asset}/shot.png`)).status, 404);

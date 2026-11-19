@@ -1896,7 +1896,9 @@ test('a shown page brings the files it refers to by relative path, served beside
   const namedPage = await fetch(`${pageUrl('index.html')}?tuned=1&name=${encodeURIComponent('Before and after.html')}`);
   assert.equal(namedPage.headers.get('content-disposition'), `inline; filename="Before and after.html"; filename*=UTF-8''Before%20and%20after.html`);
   assert.match(String(servedPage.headers.get('content-security-policy')), /^sandbox allow-scripts/);
-  assert.match(await servedPage.text(), /<img src="shots\/before\.png\?v=2">/);
+  const servedPageHtml = await servedPage.text();
+  assert.ok(servedPageHtml.includes(`<img src="data:image/png;base64,${shotBytes.toString('base64')}">`), 'a bundled file rides inside the page, so no proxy cookie is needed to load it');
+  assert.ok(servedPageHtml.includes('<a href="notes.html">'), 'a page the shown page links to stays a navigation');
   const servedShot = await fetch(pageUrl('shots/before.png'));
   assert.deepEqual([servedShot.status, servedShot.headers.get('content-type'), servedShot.headers.get('content-security-policy')], [200, 'image/png', "default-src 'none'; sandbox"]);
   assert.deepEqual(Buffer.from(await servedShot.arrayBuffer()), shotBytes);

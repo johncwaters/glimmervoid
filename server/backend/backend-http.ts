@@ -50,6 +50,7 @@ import { clientDir } from '../runtime-paths.ts';
 import type { WhiteboardAssetStore } from '../whiteboard/whiteboard-assets.ts';
 import type { WhiteboardLayouts, WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { ASSET_INPUT_CAP_BYTES } from '../whiteboard/whiteboard-assets.ts';
+import { BOARD_PAGE_INLINE_BUDGET_BYTES, pageWithInlinedMembers } from '../whiteboard/page-bundle.ts';
 import { BOARD_PAGE_ARROW_KEYS, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_CONTENT_WIDTH_MESSAGE, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_GESTURE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_ZOOMED_MESSAGE, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_FILE_ROUTE, WHITEBOARD_PICTURE_ROUTE, BOARD_FILE_CAP_BYTES, BOARD_FILE_DOWNLOAD_NAME, BOARD_PAGE_ENTRY_PATH, BOARD_PAGE_SAVED_NAME_QUERY, savableFileName } from '../../shared/contracts/whiteboard.ts';
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
@@ -302,17 +303,50 @@ function sendBoardAssetBytes(req: Request, res: Response, servable: { path: stri
 const BOARD_PAGE_INJECTIONS = [BOARD_PAGE_BASE_STYLE, BOARD_PAGE_PARAMS_BRIDGE, BOARD_PAGE_INPUT_REPORTER];
 const BOARD_PAGE_INJECTED_BYTES = BOARD_PAGE_INJECTIONS.reduce((total, injection) => total + injection.byteLength, 0);
 
-function sendBoardPage(res: Response, servable: { path: string; contentType: string }, sizeBytes: number, preludeOffset: number): void {
+function setBoardPageHeaders(res: Response, contentType: string, pageSizeBytes: number): void {
   res.setHeader('Content-Security-Policy', BOARD_PAGE_SANDBOX_POLICY);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Content-Type', servable.contentType);
-  res.setHeader('Content-Length', String(sizeBytes + BOARD_PAGE_INJECTED_BYTES));
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', String(pageSizeBytes + BOARD_PAGE_INJECTED_BYTES));
+}
+
+function sendBoardPage(res: Response, servable: { path: string; contentType: string }, sizeBytes: number, preludeOffset: number): void {
+  setBoardPageHeaders(res, servable.contentType, sizeBytes);
   pipeline(async function* pageWithInjectionsAfterPrelude() {
     if (preludeOffset > 0) yield* fs.createReadStream(servable.path, { end: preludeOffset - 1 });
     yield* BOARD_PAGE_INJECTIONS;
     yield* fs.createReadStream(servable.path, { start: preludeOffset });
   }, res, () => {});
+}
+
+async function smallestMembersWithinInlineBudget(assets: WhiteboardAssetStore, assetId: string): Promise<Map<string, Buffer>> {
+  const sizedMembers: { memberPath: string; path: string; sizeBytes: number }[] = [];
+  for (const memberPath of assets.memberPathsOf(assetId)) {
+    const member = assets.servableMemberOf(assetId, memberPath);
+    if (member) sizedMembers.push({ memberPath, path: member.path, sizeBytes: (await fsp.stat(member.path)).size });
+  }
+  const bytesByMemberPath = new Map<string, Buffer>();
+  let readBytes = 0;
+  for (const member of sizedMembers.sort((left, right) => left.sizeBytes - right.sizeBytes)) {
+    readBytes += member.sizeBytes;
+    if (readBytes > BOARD_PAGE_INLINE_BUDGET_BYTES) break;
+    bytesByMemberPath.set(member.memberPath, await fsp.readFile(member.path));
+  }
+  return bytesByMemberPath;
+}
+
+function serveInlinedBoardPage(res: Response, assets: WhiteboardAssetStore, assetId: string, page: { path: string; contentType: string }): void {
+  Promise.all([fsp.readFile(page.path, 'utf8'), smallestMembersWithinInlineBudget(assets, assetId)]).then(async ([pageText, bytesByMemberPath]) => {
+    const inlined = pageWithInlinedMembers(pageText, bytesByMemberPath);
+    const pageBytes = Buffer.from(inlined.page, 'utf8');
+    const importMapBytes = Buffer.from(inlined.importMap ?? '', 'utf8');
+    const preludeOffset = await offsetAfterPagePrelude(async (position, byteCount) => pageBytes.subarray(position, position + byteCount));
+    setBoardPageHeaders(res, page.contentType, pageBytes.byteLength + importMapBytes.byteLength);
+    res.end(Buffer.concat([pageBytes.subarray(0, preludeOffset), importMapBytes, ...BOARD_PAGE_INJECTIONS, pageBytes.subarray(preludeOffset)]));
+  }).catch(() => {
+    if (!res.headersSent) res.status(404).end();
+  });
 }
 
 const OPAQUE_ORIGIN = 'null';
@@ -348,6 +382,10 @@ function serveBoardPageFile(req: Request, res: Response, assets: WhiteboardAsset
       return;
     }
     nameInlineIfSavable(res, req.query[BOARD_PAGE_SAVED_NAME_QUERY]);
+    if (assets && assets.memberPathsOf(assetId).length > 0) {
+      serveInlinedBoardPage(res, assets, assetId, page);
+      return;
+    }
     serveBoardAsset(req, res, page);
     return;
   }

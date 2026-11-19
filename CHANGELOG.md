@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Page cards show their images behind a login proxy.** When you open the dashboard through a proxy that asks you to sign in, such as a Coder port URL, a page card shown with `show` loaded its HTML but none of the images, stylesheets or scripts it refers to by relative path, because the card's sandboxed frame cannot send the proxy's cookie. The page now carries those files inside itself, so they load wherever the dashboard is hosted, smallest first up to 32 MB per page. Bigger files, and a file the page fetches only from script while it runs, still load by URL.
 - **A session you open right after a restart now carries on with its task.** Opening a session that was mid-task before Glimmervoid got to it on its own used to start it without the note telling the agent to continue, so it sat idle until you typed "continue". It now gets the same note however it starts.
 - **Chat no longer folds the agent's newest reply.** Switching sessions or reconnecting used to fold the latest turn down to its first line, hiding the answer. It now stays open until the agent starts a newer turn.
 - **An opened Chat turn now points its arrow up, at the steps and text it revealed.** The arrow sits under the turn, so it used to turn down, away from what had just appeared above it.
