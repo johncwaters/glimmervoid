@@ -258,7 +258,7 @@ test('a doorman-signed device pairing request mints a single-use pairing link fo
   assert.equal(((await (await askForPairing('glimmervoid_device=forged.secret')).json()) as { state: string }).state, 'minted');
 });
 
-test('a traversal dressed as a pair path does not escape the pairing gate', async () => {
+test('an unpaired device gets the home screen icons but a traversal dressed as a pair or icon path does not escape the pairing gate', async () => {
   const { localPort, remotePort } = ctx();
   const local = await fetch(`http://127.0.0.1:${localPort}/index.html`);
   assert.equal(local.status, 200, 'the dashboard asset is mounted on the shared app');
@@ -266,7 +266,14 @@ test('a traversal dressed as a pair path does not escape the pairing gate', asyn
   const plain = await fetch(`http://127.0.0.1:${remotePort}/index.html`);
   assert.equal(plain.status, 401, 'the baseline: an unpaired device gets nothing');
 
-  for (const target of ['/pair/%2e%2e/index.html', '/pair/../index.html', '/pair/%2e%2e%2findex.html']) {
+  const favicon = await fetch(`http://127.0.0.1:${remotePort}/favicon.svg`);
+  assert.equal(favicon.status, 200, 'iOS fetches home screen icons without the pairing cookie');
+  for (const target of ['/app-icons/apple-touch-icon.png', '/manifest.webmanifest']) {
+    const res = await fetch(`http://127.0.0.1:${remotePort}${target}`);
+    assert.notEqual(res.status, 401, `${target} must pass the pairing gate`);
+  }
+
+  for (const target of ['/pair/%2e%2e/index.html', '/pair/../index.html', '/pair/%2e%2e%2findex.html', '/app-icons/%2e%2e/index.html', '/app-icons/../index.html', '/app-icons/..%5Cindex.html']) {
     const res = await fetch(`http://127.0.0.1:${remotePort}${target}`);
     assert.equal(res.status, 401, `${target} must be judged as the resource it resolves to`);
   }

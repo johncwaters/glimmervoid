@@ -2,6 +2,13 @@ import { normalizeClientTrust } from '../../shared/client-trust.ts';
 import { decideOriginAllowed } from './origin-policy.ts';
 
 const PAIR_PATH_PREFIX = '/pair/';
+const HOME_SCREEN_ICON_PATHS = new Set([
+  '/manifest.webmanifest',
+  '/favicon.svg',
+  '/app-icons/apple-touch-icon.png',
+  '/app-icons/icon-192.png',
+  '/app-icons/icon-512.png',
+]);
 
 export type RequestTrust = 'local' | 'remote';
 
@@ -34,6 +41,10 @@ function isPairPath(pathname: unknown): boolean {
   const normalized = normalizePathname(pathname);
   if (normalized.suspicious) return false;
   return normalized.pathname.startsWith(PAIR_PATH_PREFIX);
+}
+
+function isHomeScreenIconPath(pathname: unknown): boolean {
+  return HOME_SCREEN_ICON_PATHS.has(normalizePathname(pathname).pathname);
 }
 
 const ENCODED_WORD_SHAPE = /=\?[^?]*\?[^?]*\?[^?]*\?=/;
@@ -111,6 +122,7 @@ function decideRequestAccess({ trust, pathname, authenticated, ownerOk }: {
   if (trust !== 'remote') return { allow: true, action: 'allow' };
   if (ownerOk !== true) return { allow: false, action: 'not-owner' };
   if (isPairPath(pathname)) return { allow: true, action: 'pair-page' };
+  if (isHomeScreenIconPath(pathname)) return { allow: true, action: 'home-screen-icon' };
   if (authenticated === true) return { allow: true, action: 'allow' };
   return { allow: false, action: 'unauthorized' };
 }
