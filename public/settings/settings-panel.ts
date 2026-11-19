@@ -10,6 +10,7 @@ import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
+import { MACHINE_HOME } from '#shared/settings/machine-sections.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
 import { SCOPE_LABELS, fileOnlySearchCard, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
@@ -233,7 +234,7 @@ function renderContent() {
   header.append(titleRow, el('p', 'settings-view-section-description', selectedPage.description));
   if (isExperimentalPage) header.appendChild(el('p', 'settings-view-warning settings-view-experimental-caution', 'Experimental: this may change or break between releases.'));
   contentEl.appendChild(header);
-  if (selectedPage.id === availableSettingsSections()[0]?.id) contentEl.appendChild(buildHostReadyRows().element);
+  if (selectedPage.id === MACHINE_HOME.id) contentEl.appendChild(buildHostReadyRows().element);
 
   if (selectedPage.id === SHORTCUTS_PAGE_ID) {
     const stack = el('div', 'settings-view-stack');

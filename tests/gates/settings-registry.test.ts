@@ -226,6 +226,8 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     notifications: 'machine-telegram',
     'machine-general': 'machine-sessions',
     general: 'machine-sessions',
+    'machine-accounts': 'machine-home',
+    accounts: 'machine-home',
     'machine-repositories': 'machine-sessions',
     repos: 'machine-sessions',
     repositories: 'machine-sessions',

@@ -39,9 +39,10 @@ const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHo
 const SEGMENTED_CHOICE_LIMIT = 3;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
-const SETTINGS_NAVIGATION_HEADINGS = ['This browser', 'Sessions', 'Machine', 'Lanes'] as const;
+const SETTINGS_NAVIGATION_HEADINGS = ['', 'This browser', 'Sessions', 'Machine', 'Lanes'] as const;
 type SettingsNavigationHeading = typeof SETTINGS_NAVIGATION_HEADINGS[number];
 const NAVIGATION_HEADING_BY_SECTION_ID: ReadonlyMap<string, SettingsNavigationHeading> = new Map([
+  ['machine-home', ''],
   ['machine-sessions', 'Sessions'],
   ['machine-safety', 'Sessions'],
   ['machine-vault', 'Sessions'],

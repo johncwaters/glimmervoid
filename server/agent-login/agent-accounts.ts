@@ -407,7 +407,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     identityByKey.set(identityKey(accountAgent, account?.id ?? null), identity);
     announce();
     if (identity.isSignedIn) return null;
-    return { error: `${label} is signed out. Sign in to it in Settings > Accounts, then switch again.`, needsSignIn: true };
+    return { error: `${label} is signed out. Sign in to it in Settings > General, then switch again.`, needsSignIn: true };
   }
 
   function stop(): void {

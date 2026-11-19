@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings opens on a new General page.** It holds Ready to commit as you (GitHub, git identity, gh sign-in, commit signing) and your agent accounts, which used to sit on Appearance and a separate Accounts page. Appearance now holds only appearance, and old links to the Accounts page open General.
+
 - **Session rows hide their remove X until you point at them.** On a desktop with a mouse, the X beside each session in the list shows only while the pointer is over that row or keyboard focus is inside it. On a phone or other touch screen it stays visible as before.
 
 ### Fixed

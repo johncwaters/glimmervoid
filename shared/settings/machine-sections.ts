@@ -168,11 +168,12 @@ export const MACHINE_SESSIONS: SettingsSection = {
   ],
 };
 
-export const MACHINE_ACCOUNTS: SettingsSection = {
-  id: 'machine-accounts',
+export const MACHINE_HOME: SettingsSection = {
+  id: 'machine-home',
   level: 'machine',
-  title: 'Accounts',
-  description: 'Agent accounts a session can run under, beside the login already on this machine.',
+  title: 'General',
+  description: 'Who Glimmervoid works as: your GitHub sign-in, and the agent accounts a session can run under beside the login already on this machine.',
+  legacyIds: ['machine-accounts', 'accounts'],
   settings: [
     {
       id: 'agent-accounts', path: 'status:agent-accounts', title: 'Agent accounts',
