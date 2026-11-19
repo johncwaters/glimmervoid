@@ -3,6 +3,7 @@
 .boards-view {
   --wb-font: 'ComicMono', var(--font-mono);
   --wb-board: var(--bg-surface);
+  --wb-canvas: var(--bg);
   --wb-ink: var(--text-head);
   --wb-ink-dim: var(--text-dim);
   --wb-line: var(--border-hover);
@@ -353,7 +354,7 @@
   min-height: 320px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--wb-board);
+  background: var(--wb-canvas);
   overflow: hidden;
 }
 

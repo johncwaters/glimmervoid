@@ -528,6 +528,7 @@ function resolvePalette(host: HTMLElement): BoardPalette {
   const reader = createColorReader(host);
   const palette: BoardPalette = {
     board: reader.colorOf('var(--wb-board)'),
+    canvas: reader.colorOf('var(--wb-canvas)'),
     ink: reader.colorOf('var(--wb-ink)'),
     inkDim: reader.colorOf('var(--wb-ink-dim)'),
     line: reader.colorOf('var(--wb-line)'),

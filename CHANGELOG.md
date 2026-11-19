@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Board cards stand out from the canvas.** The live board's canvas is now darker than its cards, so each card reads as its own surface instead of blending into the grey behind it.
+
 - **Settings opens on a new General page.** It holds Ready to commit as you (GitHub, git identity, gh sign-in, commit signing) and your agent accounts, which used to sit on Appearance and a separate Accounts page. Appearance now holds only appearance, and old links to the Accounts page open General.
 - **Boxes snap to even spacing.** Dragging a box next to a row or column of boxes now snaps it so its gap matches the gap already between its neighbors, with guides showing both gaps.
 

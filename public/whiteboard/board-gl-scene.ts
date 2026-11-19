@@ -24,6 +24,7 @@ interface Point {
 
 interface BoardPalette {
   board: Rgba;
+  canvas: Rgba;
   ink: Rgba;
   inkDim: Rgba;
   line: Rgba;
@@ -572,7 +573,7 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
     const labelStyle: TextStyle = { size: palette.metaSize, color: palette.ink, anchor: 'middle', minPixels: MIN_WIRE_LABEL_PX };
     const width = textWidth(wire.label, labelStyle);
     const halo = { x: wire.labelAt.x - width / 2 - LABEL_HALO_PAD, y: wire.labelAt.y - palette.metaSize, width: width + LABEL_HALO_PAD * 2, height: palette.metaSize + LABEL_HALO_PAD + 2 };
-    pushRect(labelPart, halo, 3, palette.board, palette.board, 0, textMinScale(labelStyle));
+    pushRect(labelPart, halo, 3, palette.canvas, palette.canvas, 0, textMinScale(labelStyle));
     pushText(labelPart, glyphs, wire.label, wire.labelAt.x, wire.labelAt.y, labelStyle);
     bounds = unionRect(bounds, halo);
   }
