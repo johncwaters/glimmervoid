@@ -18,7 +18,10 @@ const LOGIN_SUCCESS_DELAY_MS = 1500;
 const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
 const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
 const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
-const BRACKETED_PASTE_MARKER = /\x1b\[20[01]~/g;
+const BRACKETED_PASTE_SPLIT = /(\x1b\[20[01]~)/;
+const BRACKETED_PASTE_START = '\x1b[200~';
+const BRACKETED_PASTE_END = '\x1b[201~';
+const PARTIAL_PASTE_MARKER_AT_END = /\x1b(?:\[(?:2(?:0[01]?)?)?)?$/;
 const OUT_OF_BAND_COMMAND = /\x1b\]7777;([^\x07]*)\x07/g;
 const MODE_SEQUENCE_BY_COMMAND = new Map([
   ['mouse-on', `${ESC}[?1000h${ESC}[?1006h`],
@@ -282,13 +285,27 @@ function dispatch(command: string): void {
 }
 
 let pending = '';
+let isInBracketedPaste = false;
+let partialPasteMarker = '';
+
+function pasteAsOneLine(chunk: string): string {
+  const joined = partialPasteMarker + chunk;
+  partialPasteMarker = PARTIAL_PASTE_MARKER_AT_END.exec(joined)?.[0] ?? '';
+  const complete = joined.slice(0, joined.length - partialPasteMarker.length);
+  return complete.split(BRACKETED_PASTE_SPLIT).map((part) => {
+    if (part === BRACKETED_PASTE_START) isInBracketedPaste = true;
+    if (part === BRACKETED_PASTE_END) isInBracketedPaste = false;
+    if (part === BRACKETED_PASTE_START || part === BRACKETED_PASTE_END) return '';
+    return isInBracketedPaste ? part.replace(/[\r\n]+/g, ' ') : part;
+  }).join('');
+}
 
 function onInput(chunk: string): void {
   if (chunk === ESC) {
     dispatch('stop');
     return;
   }
-  pending += chunk.replace(BRACKETED_PASTE_MARKER, '').replace(OUT_OF_BAND_COMMAND, (_sequence, command: string) => {
+  pending += pasteAsOneLine(chunk).replace(OUT_OF_BAND_COMMAND, (_sequence, command: string) => {
     dispatch(command);
     return '';
   });

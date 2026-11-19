@@ -509,7 +509,10 @@ async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
   await childRow.waitFor({ timeout: CARD_TIMEOUT_MS });
   await childRow.click();
   await openChat(page);
+  await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   const panel = page.locator('.session-chat .chat-done');
