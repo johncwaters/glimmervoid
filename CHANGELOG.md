@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.8] - 2026-11-18
+
 ### Added
 
 - **Agent turns in Chat fold to their lead.** Each turn in Chat is one block now. While the agent works, its tool calls show as muted lines above its text. Once the turn ends, a turn you have already seen folds to the first sentence of its final reply, with a line under it giving how many more lines it holds, its tool calls, the files it edited with lines added and removed, and how long it took. A question the agent ended on stays visible under the lead. Click that line to open or fold the turn, or press `[` and `]` to step through turns and Space to open the one you are on. The newest turn stays open until you have seen it, and a one-line reply with no tool calls shows as it is. **Brief** in the Chat status bar, or B, turns folding off in every Chat and shows each turn in full.
