@@ -50,15 +50,14 @@ let keyedChat: KeyedChat | null = null;
 const keyedChatByElement = new WeakMap<Element, KeyedChat>();
 let isChatKeyListenerInstalled = false;
 
-function showBriefState(isBriefOff: boolean): void {
+export function applyChatBriefOff(isBriefOff: boolean): void {
   document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isBriefOff);
-  for (const briefToggle of document.querySelectorAll('.chat-brief-toggle')) briefToggle.setAttribute('aria-pressed', String(!isBriefOff));
 }
 
 function toggleBrief(): void {
   const isBriefOff = !document.documentElement.hasAttribute(BRIEF_OFF_ATTRIBUTE);
   setChatBriefOff(isBriefOff);
-  showBriefState(isBriefOff);
+  applyChatBriefOff(isBriefOff);
 }
 
 function isEditableFocused(): boolean {
@@ -128,7 +127,7 @@ function keepChatKeyed(chat: KeyedChat): void {
   if (isChatKeyListenerInstalled) return;
   isChatKeyListenerInstalled = true;
   document.addEventListener('keydown', handleChatKey);
-  window.addEventListener('storage', () => showBriefState(isChatBriefOff()));
+  window.addEventListener('storage', () => applyChatBriefOff(isChatBriefOff()));
 }
 
 function queuedStatusOf(entry: ChatOutboxEntry, phase: ChatPhase): string {
@@ -157,11 +156,8 @@ export function createChatView(uploadUrlOf: (fileName: string) => string, seenTu
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
 
-  const briefToggle = button({ variant: 'quiet', size: 'small', label: 'Brief', shortcutKey: 'B', onClick: toggleBrief });
-  briefToggle.classList.add('chat-brief-toggle');
-  briefToggle.setAttribute('aria-pressed', String(!isChatBriefOff()));
-  document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isChatBriefOff());
-  const composer = createComposer(uploadUrlOf, briefToggle);
+  applyChatBriefOff(isChatBriefOff());
+  const composer = createComposer(uploadUrlOf);
   const activity = createChatActivity();
   const queuedList = el('div', 'chat-queued-list');
   const scrollContent = el('div', 'chat-scroll-content');

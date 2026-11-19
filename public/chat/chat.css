@@ -344,10 +344,6 @@
   overflow: hidden;
 }
 
-.chat-brief-toggle { flex: 0 0 auto; }
-
-.chat-brief-toggle[aria-pressed="true"] { color: var(--text); }
-
 .chat-rail-field { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .chat-rail-field[data-kind="subagents"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chat-rail-field[data-kind="subagents"] .chat-rail-text { overflow: hidden; text-overflow: ellipsis; }

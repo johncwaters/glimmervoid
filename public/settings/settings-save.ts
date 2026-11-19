@@ -8,8 +8,9 @@ import { settingSavePayload } from './settings-view-core.ts';
 import { applyNextAttentionKeyCode } from '../shortcuts.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applyTheme } from '../theme.ts';
+import { applyChatBriefOff } from '../chat/chat-view.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
-import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
+import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setChatBriefOff, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
 import { applySettingsBroadcast } from './settings-store.ts';
 import { applySoundEnabled } from '../mute-button.ts';
 import { fieldErrorById, panelRefresher, pendingSaveById, saveStatusById, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
@@ -33,6 +34,11 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:phoneArrowPad') {
     setPhoneArrowPad(value === true);
     applyPhoneArrowPad(value === true);
+    return;
+  }
+  if (setting.path === 'pref:chatBrief') {
+    setChatBriefOff(value !== true);
+    applyChatBriefOff(value !== true);
     return;
   }
   if (setting.path === 'pref:nextAttentionKeyCode') {

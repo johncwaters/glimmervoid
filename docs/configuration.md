@@ -380,6 +380,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 |---------|---------|-------|
 | Theme | `"glimmer"` | Color scheme for the dashboard. |
 | Swipe arrow pad on phone | `false` | Swap the phone arrow keys for one pad you swipe on. |
+| Brief Chat turns | `true` | Fold each Chat turn you have seen down to its lead line. Press B in Chat to switch it. |
 | Flying animals | `false` | Show animated animals flying across the dashboard. |
 | Time between flights: minimum | `20` | Shortest pause between flights. |
 | Time between flights: maximum | `40` | Longest pause between flights. |

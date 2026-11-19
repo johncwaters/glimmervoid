@@ -48,7 +48,7 @@ function fitInputHeight(input: HTMLTextAreaElement): void {
   input.style.height = `${Math.min(input.scrollHeight, MAX_INPUT_HEIGHT_PX)}px`;
 }
 
-export function createComposer(uploadUrlOf: (fileName: string) => string, railControl: HTMLElement): ChatComposer {
+export function createComposer(uploadUrlOf: (fileName: string) => string): ChatComposer {
   const element = el('form', 'chat-composer');
   const input = el('textarea', 'chat-composer-input');
   input.dataset.dashboardShortcuts = 'allowed';
@@ -72,7 +72,7 @@ export function createComposer(uploadUrlOf: (fileName: string) => string, railCo
   sendStopSlot.append(sendButton, stopButton);
   const inputRow = el('div', 'chat-composer-row');
   inputRow.append(attachButton, input, sendStopSlot);
-  const rail = createStatusRail(railControl);
+  const rail = createStatusRail();
   element.append(attachments, inputRow, rail.element, filePicker);
 
   const attachFiles = (files: readonly File[]) => {

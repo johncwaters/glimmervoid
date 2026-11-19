@@ -20,6 +20,11 @@ export const BROWSER_APPEARANCE: SettingsSection = {
       control: 'toggle', keywords: ['experimental', 'mobile', 'keys', 'arrows', 'swipe', 'gesture'], defaultValue: false, ...BROWSER_NOW,
     },
     {
+      id: 'chat-brief', path: 'pref:chatBrief', title: 'Brief Chat turns',
+      description: 'Fold each Chat turn you have seen down to its lead line. Press B in Chat to switch it.',
+      control: 'toggle', keywords: ['chat', 'fold', 'collapse', 'turns', 'summary'], defaultValue: true, ...BROWSER_NOW,
+    },
+    {
       id: 'flying-animals', path: 'pref:flyingAnimalsEnabled', title: 'Flying animals',
       description: 'Show animated animals flying across the dashboard.',
       control: 'toggle', keywords: ['animation', 'motion', 'animals'], defaultValue: false, ...BROWSER_NOW,

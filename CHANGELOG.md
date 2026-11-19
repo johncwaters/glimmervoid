@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brief switch moved from the Chat message box to Settings > Appearance, as Brief Chat turns.** Your current choice carries over, and B in Chat still switches it.
 - **Board cards stand out from the canvas.** The live board's canvas is now darker than its cards, so each card reads as its own surface instead of blending into the grey behind it.
 
 - **Settings opens on a new General page.** It holds Ready to commit as you (GitHub, git identity, gh sign-in, commit signing) and your agent accounts, which used to sit on Appearance and a separate Accounts page. Appearance now holds only appearance, and old links to the Accounts page open General.
