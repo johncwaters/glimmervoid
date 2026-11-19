@@ -1,7 +1,6 @@
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
@@ -28,7 +27,6 @@ interface ChatView {
   showAttachment(fileName: string): void;
   showRail(fields: readonly RailField[]): void;
   mountAfterActivity(element: HTMLElement): void;
-  showAgentBoardChange(text: string | null): void;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -159,27 +157,6 @@ function queuedRowOf(entry: ChatOutboxEntry, phase: ChatPhase, uploadUrlOf: (fil
   return row;
 }
 
-function createAgentBoardChangeToast(): { element: HTMLElement; show(text: string | null): void } {
-  const element = el('div', 'chat-agent-board-change');
-  element.setAttribute('role', 'status');
-  element.hidden = true;
-  const text = el('span', 'chat-agent-board-change-text');
-  const focusButton = button({ variant: 'primary', size: 'small', textCase: 'sentence', label: 'Focus this' });
-  focusButton.addEventListener('click', () => {
-    element.dispatchEvent(new CustomEvent('chat-focus-board-change', { bubbles: true, composed: true }));
-  });
-  const dismissButton = button({ variant: 'icon', size: 'small', label: 'Dismiss', icon: createLineIcon(CLOSE_ICON_PATH) });
-  dismissButton.addEventListener('click', () => {
-    element.dispatchEvent(new CustomEvent('chat-dismiss-board-change', { bubbles: true, composed: true }));
-  });
-  element.append(el('span', 'chat-agent-board-change-dot'), text, focusButton, dismissButton);
-  const show = (shownText: string | null) => {
-    element.hidden = shownText === null;
-    text.textContent = shownText ?? '';
-  };
-  return { element, show };
-}
-
 export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
@@ -202,11 +179,8 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   composer.element.addEventListener('chat-send', followLatest);
   const jumpSlot = el('div', 'chat-jump-slot');
   jumpSlot.appendChild(jumpButton);
-  const agentBoardChange = createAgentBoardChangeToast();
-  const floatStack = el('div', 'chat-float-stack');
-  floatStack.append(jumpSlot, agentBoardChange.element);
   const jumpBar = el('div', 'chat-jump-bar');
-  jumpBar.appendChild(floatStack);
+  jumpBar.appendChild(jumpSlot);
   const dock = el('div', 'chat-dock');
   dock.append(jumpBar, composer.element);
   element.append(scroller, dock);
@@ -231,5 +205,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     activity.setPhase(phase);
     if (wasStarting !== (phase === 'starting')) showQueued(queuedEntries);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, mountAfterActivity: (afterActivity: HTMLElement) => scrollContent.insertBefore(afterActivity, queuedList), showAgentBoardChange: agentBoardChange.show };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, mountAfterActivity: (afterActivity: HTMLElement) => scrollContent.insertBefore(afterActivity, queuedList) };
 }

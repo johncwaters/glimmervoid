@@ -363,6 +363,42 @@ async function verifyComposerAttachesImage(page: Page): Promise<void> {
   assert.equal(await scrollerBoxOf(), scrollerBoxBefore, 'an attachment leaves the conversation where it is');
 }
 
+async function verifyBoardCardKeepsPlace(page: Page): Promise<void> {
+  const logOrder = () => page.locator('.session-chat .chat-log > [data-part-id]').evaluateAll((parts) => parts.map((part) => (part instanceof HTMLElement ? (part.dataset.cardType ?? part.className) : '')).join(','));
+  await sendFromComposer(page, 'ask-chat');
+  await page.waitForFunction(() => [...document.querySelectorAll('.session-chat .chat-log > [data-part-id]')].some((part) => part.textContent?.includes('ask-chat')), undefined, { timeout: CARD_TIMEOUT_MS });
+  const orderBeforeReopen = await logOrder();
+  const chatPageButton = page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true });
+  await chatPageButton.click();
+  await chatPageButton.click();
+  await page.locator('.session-chat .chat-card[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await logOrder(), orderBeforeReopen, 'closing and reopening Chat keeps the card where it was in the history');
+}
+
+async function verifyBoardChangeCard(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const tileStoreUrl = '/whiteboard/board-tile-store.ts';
+    const { applyAgentChange } = await import(tileStoreUrl);
+    const changeOf = (title: string) => ({ type: 'whiteboard-agent-change', boardId: 'harness-board', version: 1, change: { author: { id: sessionId, name: 'Claude' }, boxes: [{ id: title, title, rect: { x: 0, y: 0, width: 200, height: 100 } }] } });
+    applyAgentChange(changeOf('Parse feed'));
+    applyAgentChange(changeOf('Store rows'));
+  });
+  await page.locator('.session-chat .chat-card[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  const cardTitles = await page.locator('.session-chat .chat-log .chat-card[data-card-type="board-change"]').allTextContents();
+  assert.equal(cardTitles.length, 1, 'two agent changes in one turn share one card in the chat history');
+  assert.match(cardTitles[0] ?? '', /Claude changed Store rows/, 'the card names the latest change');
+  assert.equal(await page.locator('.session-chat .chat-dock .chat-card').count(), 0, 'nothing about the change floats over the chat');
+  await page.locator('.session-chat .chat-card[data-card-type="board-change"]').getByRole('button', { name: 'Focus this', exact: true }).click();
+  const focusedBoxIds = await page.evaluate(async () => {
+    const boardStoreUrl = '/whiteboard/board-store.ts';
+    const { takeBoardFocusFor } = await import(boardStoreUrl);
+    return takeBoardFocusFor('harness-board')?.boxes.map((box: { id: string }) => box.id) ?? null;
+  });
+  assert.ok(focusedBoxIds === null || focusedBoxIds.join() === 'Store rows', 'Focus this asks the board to frame the changed card');
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="board-change"]').count(), 1, 'the card stays in the history after Focus this');
+}
+
 export async function verifyChatTerminal(page: Page): Promise<void> {
   await openChat(page);
   await verifyComposerHeightSteady(page);
@@ -385,6 +421,7 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
     return { inChat: document.querySelectorAll('.session-chat .session-attention-note').length, onCard: card?.querySelectorAll(':scope > .session-attention-note').length ?? 0 };
   });
   assert.deepEqual(noteCounts, { inChat: 0, onCard: 1 }, 'a note added while Chat holds the terminal stays one line on the session card');
+  await verifyBoardChangeCard(page);
   await terminalInCard.click();
   await page.keyboard.type('stop');
   await page.keyboard.press('Enter');
@@ -395,6 +432,7 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   });
   assert.ok(isTerminalHome, 'the terminal returns to its session card once the wait ends');
   assert.equal(await page.locator('.session-card > .session-attention-note').count(), 1, 'the note outlives the inline terminal');
+  await verifyBoardCardKeepsPlace(page);
 }
 
 export async function verifyChatSignIn(page: Page): Promise<void> {

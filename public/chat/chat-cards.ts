@@ -167,6 +167,14 @@ function renderNoticeCard(card: ChatCardByType['notice']): HTMLElement {
   return shell;
 }
 
+function renderBoardChangeCard(card: ChatCardByType['board-change']): HTMLElement {
+  const shell = shellOf(card.cardType, card.data.sentence, true);
+  const actions = el('div', 'chat-card-actions');
+  actions.appendChild(button({ variant: 'primary', size: 'small', textCase: 'sentence', label: 'Focus this', onClick: () => dispatchCardAction(shell, card, 'focus', '') }));
+  shell.appendChild(actions);
+  return shell;
+}
+
 function signInHeadingOf(card: ChatCardByType['sign-in']): string {
   if (card.resolution) return `Signed in to ${card.data.agentName}`;
   if (card.data.stage === 'refused-key') return `${card.data.agentName} refused its API key`;
@@ -206,6 +214,7 @@ const RENDERER_BY_CARD_TYPE = {
   permission: renderPermissionCard,
   question: renderQuestionCard,
   notice: renderNoticeCard,
+  'board-change': renderBoardChangeCard,
   'live-terminal': renderLiveTerminalCard,
   'sign-in': renderSignInCard,
 } satisfies ChatCardRendererTable;

@@ -260,11 +260,6 @@ function latestAgentChangeOf(sessionId: string): AgentChip | null {
   return latestAgentChangeBySessionId.get(sessionId) ?? null;
 }
 
-function dismissLatestAgentChange(sessionId: string): void {
-  if (!latestAgentChangeBySessionId.delete(sessionId)) return;
-  notifyLatestAgentChangeListeners();
-}
-
 function onLatestAgentChangeChanged(listener: () => void): void {
   latestAgentChangeListeners.push(listener);
 }
@@ -342,5 +337,5 @@ function onTilesChanged(listener: () => void): void {
   listeners.push(listener);
 }
 
-export { agentChangeSentence, applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, dismissLatestAgentChange, forgetTilesOf, latestAgentChangeOf, offViewAgentChangeOf, onLatestAgentChangeChanged, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
-export type { BlockTile };
+export { agentChangeSentence, applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, latestAgentChangeOf, offViewAgentChangeOf, onLatestAgentChangeChanged, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
+export type { AgentChip, BlockTile };

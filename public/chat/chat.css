@@ -128,47 +128,7 @@
   justify-content: center;
 }
 
-.chat-float-stack {
-  position: absolute;
-  bottom: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  max-width: calc(100% - 32px);
-}
-
-.chat-agent-board-change {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  padding: 4px 4px 4px 12px;
-  border: 1px solid var(--state-running);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-}
-
-.chat-agent-board-change[hidden] { display: none; }
-
-.chat-agent-board-change-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--state-running);
-}
-
-.chat-agent-board-change-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--type-meta);
-  color: var(--text-head);
-}
-
-.chat-agent-board-change button { flex: none; }
+.chat-jump-slot { position: absolute; bottom: 10px; }
 
 .chat-prompt {
   align-self: flex-end;
@@ -243,13 +203,12 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .chat-log [data-arriving],
-  .chat-agent-board-change:not([hidden]),
   .chat-jump-slot > button:not([hidden]),
   :root:not([data-chat-brief-off]) .chat-turn[data-open] .chat-turn-work { animation: chat-arrive var(--transition-fast); }
 
   .chat-log [data-arriving] { transform-origin: top left; }
   .chat-log :is(.chat-prompt, .chat-prompt-with-attachments)[data-arriving] { transform-origin: bottom right; }
-  .chat-agent-board-change, .chat-jump-slot > button { transform-origin: bottom center; }
+  .chat-jump-slot > button { transform-origin: bottom center; }
   .chat-turn-work { transform-origin: top left; }
 }
 

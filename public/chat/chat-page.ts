@@ -26,7 +26,8 @@ import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
-import { agentChangeSentence, dismissLatestAgentChange, latestAgentChangeOf, onLatestAgentChangeChanged } from '../whiteboard/board-tile-store.ts';
+import { agentChangeSentence, latestAgentChangeOf, onLatestAgentChangeChanged } from '../whiteboard/board-tile-store.ts';
+import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { ACCEPT_MESSAGE, donePanelModelOf, sendBackMessageOf } from './done-panel-core.ts';
@@ -242,12 +243,32 @@ function chatSendOf(event: Event): { text: string; attachments: string[] } | nul
   return { text: detail.text, attachments };
 }
 
-function agentBoardChangeTextOf(sessionId: string): string | null {
-  const latest = latestAgentChangeOf(sessionId);
-  if (!latest) return null;
-  const boardTitle = boardSummariesOf().find((summary) => summary.id === latest.boardId)?.title;
-  const sentence = agentChangeSentence(latest.change);
-  return boardTitle ? `${sentence} on ${boardTitle}` : sentence;
+interface BoardChangeCard {
+  cardId: string;
+  boardChange: AgentChip;
+  afterPromptAt: number | null;
+}
+
+interface SessionBoardCards {
+  cards: BoardChangeCard[];
+  shownBoardChange: AgentChip | null;
+  serial: number;
+}
+
+const boardCardsBySessionId = new Map<string, SessionBoardCards>();
+
+function boardCardsOf(sessionId: string): SessionBoardCards {
+  const existing = boardCardsBySessionId.get(sessionId);
+  if (existing) return existing;
+  const created: SessionBoardCards = { cards: [], shownBoardChange: null, serial: 0 };
+  boardCardsBySessionId.set(sessionId, created);
+  return created;
+}
+
+function boardChangeCardOf(cardId: string, boardChange: AgentChip): ChatCard {
+  const boardTitle = boardSummariesOf().find((summary) => summary.id === boardChange.boardId)?.title;
+  const sentence = agentChangeSentence(boardChange.change);
+  return { cardType: 'board-change', cardId, data: { sentence: boardTitle ? `${sentence} on ${boardTitle}` : sentence }, resolution: null };
 }
 
 function buildChat(sessionId: string): MountedChat {
@@ -338,8 +359,6 @@ function buildChat(sessionId: string): MountedChat {
     },
   });
   const showDone = () => donePanel.show(doneModelNow());
-  const showAgentBoardChange = () => chatView.showAgentBoardChange(agentBoardChangeTextOf(sessionId));
-  showAgentBoardChange();
   sendControlMsg({ type: 'request-verification', id: sessionId });
   chatView.mountAfterActivity(donePanel.element);
   root.append(failureLine, chatView.element);
@@ -371,6 +390,59 @@ function buildChat(sessionId: string): MountedChat {
   let strayChildWatcher: MutationObserver | null = null;
   let signInCard: SignInCard | null = null;
   let signInCardSerial = 0;
+  const boardCards = boardCardsOf(sessionId);
+  const promptAtByPartId = new Map<string, number>();
+  let latestPromptAt: number | null = null;
+
+  const notePromptTimes = (changedParts: readonly ChatPart[]) => {
+    for (const part of changedParts) {
+      if (part.kind !== 'prompt') continue;
+      promptAtByPartId.set(part.id, part.at);
+      latestPromptAt = Math.max(latestPromptAt ?? part.at, part.at);
+    }
+  };
+
+  const isPromptAfter = (partElement: HTMLElement, afterPromptAt: number | null) => {
+    const promptAt = promptAtByPartId.get(partElement.dataset.partId ?? '');
+    if (promptAt === undefined) return false;
+    return afterPromptAt === null || promptAt > afterPromptAt;
+  };
+
+  const placeBoardCard = (card: BoardChangeCard, arrivingPartIds: ReadonlySet<string>) => {
+    chatView.upsert([cardPartOf(boardChangeCardOf(card.cardId, card.boardChange))], arrivingPartIds);
+    const partElements = [...chatView.element.querySelectorAll<HTMLElement>('.chat-log > [data-part-id]')];
+    const cardElement = partElements.find((partElement) => partElement.dataset.partId === card.cardId);
+    const laterPrompt = partElements.find((partElement) => isPromptAfter(partElement, card.afterPromptAt));
+    if (cardElement && laterPrompt) laterPrompt.before(cardElement);
+  };
+
+  const showBoardChangeCards = () => {
+    for (const card of boardCards.cards) placeBoardCard(card, NO_ARRIVING_PARTS);
+    keepPendingPartsLast();
+  };
+
+  const showAgentBoardChange = () => {
+    const latest = latestAgentChangeOf(sessionId);
+    if (!latest || latest === boardCards.shownBoardChange) return;
+    boardCards.shownBoardChange = latest;
+    const lastCard = boardCards.cards.at(-1);
+    if (lastCard && lastCard.afterPromptAt === latestPromptAt) {
+      lastCard.boardChange = latest;
+      placeBoardCard(lastCard, NO_ARRIVING_PARTS);
+      keepPendingPartsLast();
+      return;
+    }
+    boardCards.serial += 1;
+    const card: BoardChangeCard = { cardId: `board-change-${boardCards.serial}`, boardChange: latest, afterPromptAt: latestPromptAt };
+    boardCards.cards.push(card);
+    placeBoardCard(card, new Set([card.cardId]));
+    keepPendingPartsLast();
+  };
+
+  const showBoardChanges = () => {
+    showBoardChangeCards();
+    showAgentBoardChange();
+  };
 
   const keepPendingPartsLast = () => {
     const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
@@ -518,6 +590,11 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const answerCard = (cardId: string, action: string, value: string) => {
+    const boardCard = boardCards.cards.find((card) => card.cardId === cardId);
+    if (boardCard && action === 'focus') {
+      openBoardAtAgentChange(boardCard.boardChange.boardId, sessionId, boardCard.boardChange.change);
+      return;
+    }
     if (signInCard?.cardId === cardId && action === 'sign-in') {
       startSignIn();
       return;
@@ -580,13 +657,6 @@ function buildChat(sessionId: string): MountedChat {
     showFailure(null);
     sendChatText(sessionId, chatSend.text, chatSend.attachments);
   });
-  root.addEventListener('chat-focus-board-change', () => {
-    const latest = latestAgentChangeOf(sessionId);
-    if (!latest) return;
-    dismissLatestAgentChange(sessionId);
-    openBoardAtAgentChange(latest.boardId, sessionId, latest.change);
-  });
-  root.addEventListener('chat-dismiss-board-change', () => dismissLatestAgentChange(sessionId));
   root.addEventListener('chat-cancel', (event) => {
     const entryId = cancelledEntryIdOf(event);
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
@@ -628,6 +698,7 @@ function buildChat(sessionId: string): MountedChat {
       chatView.upsert(changedParts, isLive ? arrivingPartIdsOf(changedParts, newPromptParts) : NO_ARRIVING_PARTS);
       chatView.remove(droppedPartIds);
       if (isLive) swapStandInsForPrompts(newPromptParts.length);
+      notePromptTimes(changedParts);
       keepPendingPartsLast();
     },
     onRebuilt: (rebuiltParts, replacedPartIds) => {
@@ -636,6 +707,8 @@ function buildChat(sessionId: string): MountedChat {
         if (part.kind === 'prompt') shownPromptPartIds.add(part.id);
       }
       chatView.replaceLogParts(replacedPartIds, rebuiltParts);
+      notePromptTimes(rebuiltParts);
+      showBoardChangeCards();
       keepPendingPartsLast();
     },
     onSubagents: (subagents) => {
@@ -656,7 +729,7 @@ function buildChat(sessionId: string): MountedChat {
       freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
-      showAgentBoardChange();
+      feed.whenCaughtUp(showBoardChanges);
       if (signInCard) showSignInCard(signInCard);
       runningSubagents = [];
       showRail();
@@ -666,6 +739,7 @@ function buildChat(sessionId: string): MountedChat {
   });
   root.addEventListener(CHAT_NEAR_TOP_EVENT, () => feed.loadEarlier());
   showOutbox();
+  feed.whenCaughtUp(showBoardChanges);
   return {
     sessionId,
     root,
