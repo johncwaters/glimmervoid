@@ -7,6 +7,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createVerificationWiring } from '../server/verification/verification-wiring.ts';
 import { VerificationRun, VerificationSettings } from '../shared/contracts/verification.ts';
+import { donePanelModelOf } from '../public/chat/done-panel-core.ts';
 
 function git(repoPath: string, args: string[]): string {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repoPath }).toString().trim();
@@ -170,4 +171,35 @@ test('an agent command waits for the operator, runs once allowed, waits again wh
   onTurnEnd();
   await sleep(500);
   assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 skipped']);
+});
+
+test('a session without its own worktree shows no Allow commands bar for an agent command it can never run', async () => {
+  const broadcastRuns: VerificationRun[] = [];
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => ({}),
+    isSessionSandboxOn: () => false,
+    broadcastControl: (message) => { if (message.type === 'verification-run') broadcastRuns.push(VerificationRun.parse(message.run)); },
+    logger: console,
+  });
+  const agentDoneLines = [{ text: 'node runs', command: 'node --version' }];
+  const session = {
+    id: 'shared-checkout',
+    path: os.tmpdir(),
+    ephemeral: false,
+    agentDoneLines,
+    hasOwnWorktree: false,
+    worktreeDir: null,
+    on: () => {},
+    worktreeLifecycle: {
+      computeGateTree: async () => null,
+      snapshot: () => ({ baseSha: null, effectiveBase: null }),
+      setMergeGate: () => {},
+    },
+  };
+  verification.attachSession(session);
+  verification.allowAgentCommands(session, ['node --version']);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const latestRun = broadcastRuns.at(-1) ?? null;
+  const model = donePanelModelOf({ run: latestRun, doneMeans: [], agentDoneLines, phase: 'quiet' });
+  assert.deepEqual(model?.waitingCommands, []);
 });
