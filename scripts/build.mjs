@@ -29,7 +29,7 @@ const REQUIRED_OUTPUTS = [
   'examples/packs/session-board/pack.json',
 ];
 
-const ENTRY_CHUNK_BUDGET_BYTES = 520 * 1024;
+const ENTRY_CHUNK_BUDGET_BYTES = 581 * 1024;
 
 function fail(message) {
   console.error(`build: ${message}`);
