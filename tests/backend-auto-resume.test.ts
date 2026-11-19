@@ -264,12 +264,14 @@ test('runAutoResume spawns nothing when autoResume is false (kill switch)', asyn
   }
 });
 
-test('runAutoResume does not double-spawn a session started externally while queued behind the gate', async () => {
+test('runAutoResume does not double-spawn a session started externally while queued behind the gate, and that external start still continues the mid-turn task', async () => {
   const calls: SpawnCall[] = [];
-  const sess = fakeSession('race', '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5', calls);
+  const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+  writeClaudeTranscript(process.cwd(), resumeSessionId);
+  const sess = fakeSession('race', resumeSessionId, calls);
   const sessionsMap = new Map([['race', sess]]);
   const cfg = autoResumeConfig(
-    [{ id: 'race', wasActive: true, resumeSessionId: '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5' }],
+    [{ id: 'race', wasActive: true, wasWorking: true, resumeSessionId }],
     true,
   );
   const gate = createSpawnGate();
@@ -282,6 +284,7 @@ test('runAutoResume does not double-spawn a session started externally while que
     await sess.start();
     assert.equal(calls.length, 1, 'the external start spawned once');
     assert.equal(sess.state, STATES.STARTING);
+    assert.equal(calls[0].args.at(-1), AUTO_CONTINUE_PROMPT, 'the operator opening the session first still gets the continue prompt');
 
     assert.ok(blocker.release, 'the blocker is holding the gate');
     blocker.release();
@@ -289,6 +292,11 @@ test('runAutoResume does not double-spawn a session started externally while que
     await done;
 
     assert.equal(calls.length, 1, 'the gate-queued auto-resume job re-checked and saw the session was no longer DORMANT');
+
+    sess.killSession();
+    sess.restart();
+    await waitFor(() => calls.length === 2);
+    assert.ok(!calls[1].args.includes(AUTO_CONTINUE_PROMPT), 'a later restart never repeats the continue prompt');
   } finally {
     sess.destroy();
   }

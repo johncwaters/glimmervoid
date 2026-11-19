@@ -87,11 +87,11 @@ function runAutoResume(
   for (const id of ids) {
     const session = sessions.get(id);
     if (!session) continue;
-    const resumePrompt = resumePromptFor(config.projects.find((project) => project.id === id));
+    session.holdResumePromptForNextStart(resumePromptFor(config.projects.find((project) => project.id === id)));
     runs.push(
       spawnGate.run(() => {
         if (session.state !== STATES.DORMANT) return null;
-        return session.start({ resumePrompt });
+        return session.start();
       }, {
         isStillWanted: () => session.state === STATES.DORMANT,
       }).catch((error: unknown) => {

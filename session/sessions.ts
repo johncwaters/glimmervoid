@@ -355,6 +355,7 @@ class Session extends EventEmitter {
   _spawnPackLaunch: PackAgentLaunch | null;
   _pendingResumeNote: string | null;
   _resumeNoteAwaitingTurn: string | null;
+  _heldResumePrompt: string | null;
   _hintedCommands: Set<HintedCommand>;
   _shownHintCommands: Set<HintedCommand>;
   _ranCommands: Set<string>;
@@ -647,6 +648,7 @@ class Session extends EventEmitter {
     this._spawnPackLaunch = null;
     this._pendingResumeNote = null;
     this._resumeNoteAwaitingTurn = null;
+    this._heldResumePrompt = null;
     this._hintedCommands = new Set();
     this._shownHintCommands = new Set();
     this._ranCommands = new Set();
@@ -1742,9 +1744,15 @@ class Session extends EventEmitter {
     return true;
   }
 
+  holdResumePromptForNextStart(resumePrompt: string | null): void {
+    this._heldResumePrompt = resumePrompt;
+  }
+
   start(options: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._startPending) return this._startPending;
-    this._startPending = this._startBody(options).finally(() => { this._startPending = null; });
+    const resumePrompt = options.resumePrompt !== undefined ? options.resumePrompt : this._heldResumePrompt;
+    this._heldResumePrompt = null;
+    this._startPending = this._startBody({ ...options, resumePrompt }).finally(() => { this._startPending = null; });
     return this._startPending;
   }
 
