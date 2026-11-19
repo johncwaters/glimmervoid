@@ -36,6 +36,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
   [STATES.STARTING]: {
     first_output: STATES.IDLE,
     process_exit: STATES.FAILED,
+    process_exit_ok: STATES.DONE,
     user_kill: STATES.DONE,
     user_snooze: STATES.DORMANT,
   },

@@ -143,7 +143,8 @@ function startsTurn(from: SessionState, to: SessionState): boolean {
   return BETWEEN_PROMPT_STATES.has(from) && TURN_REACHED_STATES.has(to) && from !== to;
 }
 
-type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer";
+type StartupSignal = "output" | "hook";
+type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer" | "_startupHookFallbackTimer";
 type SnoozeRefusal = "in-progress" | "no-conversation" | "not-snoozable";
 type SnoozeOutcome = { ok: true } | { ok: false; reason: SnoozeRefusal };
 
@@ -322,10 +323,11 @@ class Session extends EventEmitter {
   worktreeLifecycle: ReturnType<typeof createSessionWorktreeLifecycle>;
   _worktreeReaderHolds = new Set<() => Promise<() => void>>();
 
-  _receivedFirstOutput: boolean;
+  _startupSignals: Set<StartupSignal>;
   _hasPromptSinceSpawn: boolean;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
   _resumeNoteFallbackTimer: NodeJS.Timeout | null;
+  _startupHookFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
   _teardown: Teardown;
   _ptyAlive: boolean;
@@ -539,7 +541,7 @@ class Session extends EventEmitter {
     this.unseenOutcome = null;
     this.managerSeenSeq = 0;
     this.passedQuestionSeq = 0;
-    this._receivedFirstOutput = false;
+    this._startupSignals = new Set();
     this._hasPromptSinceSpawn = false;
     this._teardown = NO_TEARDOWN;
 
@@ -561,8 +563,8 @@ class Session extends EventEmitter {
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
     this._chatOutbox = createChatOutbox({
-      canTakeMessage: () => this.hasLivePty && BETWEEN_PROMPT_STATES.has(this.state),
-      reportsTurnStarts: () => this._adapter.capabilities.hooks,
+      canTakeMessage: () => this.hasLivePty && BETWEEN_PROMPT_STATES.has(this.state) && this._isAgentReadyForChat(),
+      reportsTurnStarts: () => this._hooksReportPrompts,
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
       noteSubmitted: (entry) => {
@@ -572,10 +574,9 @@ class Session extends EventEmitter {
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
     this.on("state-change", ({ from, to }: { from: SessionState; to: SessionState }) => {
-      if (startsTurn(from, to)) this._chatOutbox.noteTurnStarted();
+      if (startsTurn(from, to)) this._chatOutbox.noteTurnTaken();
       this._chatOutbox.drain();
     });
-    this.on("delivered-input", () => this._chatOutbox.noteInputSubmitted());
 
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
@@ -608,6 +609,7 @@ class Session extends EventEmitter {
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
     this._resumeNoteFallbackTimer = null;
+    this._startupHookFallbackTimer = null;
 
     this._hookSeen = false;
     this._lastSignal = null;
@@ -985,6 +987,7 @@ class Session extends EventEmitter {
       return;
     }
     this._hookSeen = true;
+    if (!this._startupSignals.has("hook") && this._isReadyByStartupHook()) this._noteStartupHook();
     if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
     }
@@ -1805,8 +1808,9 @@ class Session extends EventEmitter {
 
       if (this.mergeStatus === "pending-review") this.worktreeLifecycle.scheduleCheck();
     }
-    this._receivedFirstOutput = false;
+    this._startupSignals.clear();
     this._hasPromptSinceSpawn = false;
+    this._clearTimer("_startupHookFallbackTimer");
 
     this._clearDetectionTracking();
     this._output.reset();
@@ -1953,6 +1957,33 @@ class Session extends EventEmitter {
     this._deliverPtyInitialPrompt(launchPrompt);
     this._armResumeNoteFallback();
     this._armPromptSupervisionLine();
+  }
+
+  _isReadyByStartupHook(): boolean {
+    return this._can("readyByStartupHook") && this._hooks.hasInjection();
+  }
+
+  _isAgentReadyForChat(): boolean {
+    return this._startupSignals.has("hook") || !this._isReadyByStartupHook();
+  }
+
+  _noteStartupHook(): void {
+    this._startupSignals.add("hook");
+    this._clearTimer("_startupHookFallbackTimer");
+    if (this.state === STATES.STARTING) this.transition("first_output");
+    this._chatOutbox.drain();
+  }
+
+  _leaveStartingOnFirstOutput(): void {
+    if (!this._isReadyByStartupHook()) {
+      this.transition("first_output");
+      return;
+    }
+    this._armTimer("_startupHookFallbackTimer", this._titleQuietFallbackMs, () => {
+      if (this._destroyed || this.state !== STATES.STARTING) return;
+      console.warn(`[session:${this.name}] no hook callback within ${Math.round(this._titleQuietFallbackMs / 1000)}s of first output - showing the session as idle (detection is degraded); Chat keeps holding messages until a hook arrives`);
+      this.transition("first_output");
+    }, { unref: true });
   }
 
   _armResumeNoteFallback(): void {
@@ -2177,9 +2208,9 @@ class Session extends EventEmitter {
       this._recorder.writeData(data);
     }
 
-    if (this.state === STATES.STARTING && !this._receivedFirstOutput) {
-      this._receivedFirstOutput = true;
-      this.transition("first_output");
+    if (this.state === STATES.STARTING && !this._startupSignals.has("output")) {
+      this._startupSignals.add("output");
+      this._leaveStartingOnFirstOutput();
     }
 
     try {
@@ -2254,7 +2285,7 @@ class Session extends EventEmitter {
       this._reaper.exitReap = this._reaper.reapTreeOnce(pid, scopeUnit);
     }
 
-    const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._receivedFirstOutput);
+    const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._startupSignals.has("output"));
     const reason = detail.reason || null;
     const didTransition = this.transition(event, detail);
     const isUnsignalledCleanExit = didTransition && event === "process_exit_ok" && !signal;
@@ -2315,7 +2346,7 @@ class Session extends EventEmitter {
   queueChatMessage(text: string, attachments: readonly string[] = []) { return this._chatOutbox.queue(text, attachments); }
 
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
-  noteChatPromptRecorded() { this._chatOutbox.notePromptRecorded(); }
+  noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
 
   get chatOutboxEntries() { return this._chatOutbox.entries(); }
 
@@ -2556,6 +2587,7 @@ class Session extends EventEmitter {
     this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");
     this._clearTimer("_resumeNoteFallbackTimer");
+    this._clearTimer("_startupHookFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.clearWakeups();

@@ -7,9 +7,10 @@ import path from 'node:path';
 
 import { Session } from '../session/sessions.ts';
 import { createCustomAdapter } from '../session/adapters/custom.ts';
+import { HookRouter } from '../detection/hook-source.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
-import { capturingPty } from './helpers/fake-pty.ts';
+import { capturingPty, exitablePty } from './helpers/fake-pty.ts';
 import { permissionRequestDecisionOf } from './helpers/permission-reply.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 
@@ -185,60 +186,80 @@ test('Chat switches the model between turns, keeping the conversation and the se
   }
 });
 
-test('a Chat message the agent never starts a turn for turns failed with its text instead of vanishing, and one it starts a turn for clears', async (t) => {
-  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-not-taken-'));
+test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, and clears only when a turn starts for it', async (t) => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-ready-by-hook-'));
   const writes: string[] = [];
-  const session = new Session({ id: 'unanswered', name: 'unanswered', path: projectPath, ptySpawn: () => capturingPty(writes) });
+  const session = new Session({ id: 'booting', name: 'booting', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
   t.after(() => {
     session.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });
   });
   await session.start();
-  session.transition('first_output');
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
   const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
-  const deliverThenWait = async (waitMs: number) => {
+  const advance = async (waitMs: number) => {
     for (let elapsedMs = 0; elapsedMs < waitMs; elapsedMs += 250) {
       t.mock.timers.tick(250);
       await new Promise((resolve) => setImmediate(resolve));
     }
   };
 
-  session.queueChatMessage('Eaten by a startup dialog');
-  await deliverThenWait(1_000);
-  assert.ok(writes.join('').includes('Eaten by a startup dialog'));
-  assert.deepEqual(outboxOf(), ['Eaten by a startup dialog:submitted']);
-  await deliverThenWait(16_000);
-  assert.deepEqual(outboxOf(), ['Eaten by a startup dialog:failed']);
-  assert.match(session.toSnapshot().chatOutbox[0]?.failure ?? '', /did not start a turn/);
-  assert.deepEqual(session.cancelChatMessage(session.toSnapshot().chatOutbox[0]?.entryId ?? '').map((entry) => entry.text), ['Eaten by a startup dialog']);
+  session._handlePtyData('Quick safety check: do you trust this folder?');
+  assert.equal(session.state, 'STARTING');
+  session.queueChatMessage('Sent while the dialog is up');
+  await advance(45_000);
+  assert.equal(session.state, 'IDLE');
+  assert.equal(writes.join('').includes('Sent while the dialog is up'), false);
+  assert.deepEqual(outboxOf(), ['Sent while the dialog is up:held']);
 
-  session.queueChatMessage('Answered without a working signal');
-  await deliverThenWait(1_000);
-  assert.equal(session.transition('task_complete'), true);
-  await deliverThenWait(16_000);
-  assert.deepEqual(outboxOf(), []);
-  session.transition('user_dismiss');
-
-  session.queueChatMessage('Eaten before the next one');
-  await deliverThenWait(1_000);
-  session.queueChatMessage('Picked up by a turn');
-  await deliverThenWait(11_000);
-  assert.deepEqual(outboxOf(), ['Eaten before the next one:submitted', 'Picked up by a turn:submitted']);
+  session.ingestHookSignal({ event: 'SessionStart', signal: 'session-start', source: 'hook', ts: 1, payload: { source: 'startup' } });
+  await advance(1_000);
+  assert.ok(writes.join('').includes('Sent while the dialog is up'));
+  assert.deepEqual(outboxOf(), ['Sent while the dialog is up:submitted']);
+  await advance(60_000);
+  assert.deepEqual(outboxOf(), ['Sent while the dialog is up:submitted']);
   session.transition('new_output');
-  await deliverThenWait(16_000);
-  assert.deepEqual(outboxOf(), ['Eaten before the next one:failed']);
-  session.cancelChatMessage(session.toSnapshot().chatOutbox[0]?.entryId ?? '');
+  assert.deepEqual(outboxOf(), []);
   session.transition('task_complete');
   session.transition('user_dismiss');
 
-  session.queueChatMessage('Eaten before a child report');
-  await deliverThenWait(1_000);
+  session.queueChatMessage('Sent before a child report');
+  await advance(1_000);
   session.deliver('Child report', { when: 'ready', submit: true });
-  await deliverThenWait(1_000);
+  await advance(1_000);
   session.transition('new_output');
-  await deliverThenWait(16_000);
-  assert.deepEqual(outboxOf(), ['Eaten before a child report:failed']);
+  assert.deepEqual(outboxOf(), []);
+});
+
+test('a Claude session whose startup hook never arrives becomes ready at the degraded-detection deadline', async (t) => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-hook-deadline-'));
+  const session = new Session({ id: 'hookless', name: 'hookless', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty([]) });
+  t.after(() => {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  });
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  await session.start();
+  t.mock.timers.tick(31_000);
+  session._handlePtyData('Claude Code');
+  t.mock.timers.tick(29_000);
+  assert.equal(session.state, 'STARTING');
+  t.mock.timers.tick(1_000);
+  assert.equal(session.state, 'IDLE');
+});
+
+test('a Claude session that exits cleanly from a startup dialog ends done instead of staying starting', async (t) => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-dialog-exit-'));
+  const pty = exitablePty();
+  const session = new Session({ id: 'declined', name: 'declined', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => pty });
+  t.after(() => {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  });
+  await session.start();
+  session._handlePtyData('Quick safety check: do you trust this folder?');
+  pty.fireExit(0);
+  assert.equal(session.state, 'DONE');
 });
 
 test('a Chat message to an agent with no turn signal clears after the wait instead of turning failed', async (t) => {

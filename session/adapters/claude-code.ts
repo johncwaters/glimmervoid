@@ -192,6 +192,7 @@ const claudeCode = {
     headless: true,
     toolHookContext: true,
     resumeNoteByHook: true,
+    readyByStartupHook: true,
     drawsOwnAlternateScreen: true,
   },
   promptContextReply: "additional-context",

@@ -39,6 +39,7 @@ interface AgentCapabilities {
   ptyInitialPrompt?: boolean;
   toolHookContext?: boolean;
   resumeNoteByHook?: boolean;
+  readyByStartupHook?: boolean;
   drawsOwnAlternateScreen?: boolean;
 }
 
