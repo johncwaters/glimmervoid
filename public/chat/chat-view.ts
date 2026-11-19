@@ -5,7 +5,6 @@ import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
-import type { SeenTurns } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
 import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
@@ -152,7 +151,7 @@ function queuedRowOf(entry: ChatOutboxEntry, phase: ChatPhase, uploadUrlOf: (fil
   return row;
 }
 
-export function createChatView(uploadUrlOf: (fileName: string) => string, seenTurns: SeenTurns): ChatView {
+export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
 
@@ -162,7 +161,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string, seenTu
   const queuedList = el('div', 'chat-queued-list');
   const scrollContent = el('div', 'chat-scroll-content');
   const { jumpButton, followLatest, keepInPlace } = stickToBottom(scroller, scrollContent);
-  const chatLog = createChatLog(uploadUrlOf, seenTurns, keepInPlace);
+  const chatLog = createChatLog(uploadUrlOf, keepInPlace);
   scrollContent.append(chatLog.element, activity.element, queuedList);
   scroller.append(scrollContent);
   let shownPhase: ChatPhase = 'quiet';

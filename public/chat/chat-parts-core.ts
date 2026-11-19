@@ -10,7 +10,6 @@ import type { FileEdit, FileEditTally, TurnSegment } from './turn-digest-core.ts
 
 interface ChatTurn {
   promptAt: number | null;
-  firstAt: number | null;
   partId: string | null;
   segments: TurnSegment[];
   droppedSegmentCount: number;
@@ -42,7 +41,6 @@ interface AppendedChat {
 
 const MAX_RESIDENT_PARTS = 2000;
 const MAX_TURN_SEGMENTS = 400;
-const MAX_TOOL_LABELS_PER_SEGMENT = 50;
 const TRIM_BATCH_PARTS = 200;
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
@@ -50,7 +48,7 @@ export function createChatPartsState(workingDirectory: string | null = null): Ch
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, firstAt: null, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, lastAt: 0, isOver: false };
+  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, lastAt: 0, isOver: false };
 }
 
 function durationTextOf(turn: ChatTurn): string | null {
@@ -62,7 +60,6 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
   return {
     kind: 'turn',
     id: partId,
-    turnKey: turn.promptAt ?? turn.firstAt,
     segments: turn.segments,
     droppedSegmentCount: turn.droppedSegmentCount,
     toolCount: turn.toolCount,
@@ -101,9 +98,11 @@ function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind
   turn.toolCount += 1;
   const label = toolLabelOf(record.name, record.input, state.workingDirectory);
   const lastSegment = turn.segments.at(-1);
-  const hasRoomForLabel = lastSegment?.kind === 'tools' && lastSegment.labels.length < MAX_TOOL_LABELS_PER_SEGMENT;
-  if (hasRoomForLabel) lastSegment.labels.push(label);
-  if (!hasRoomForLabel) pushSegment(turn, { kind: 'tools', labels: [label] });
+  if (lastSegment?.kind === 'tools') {
+    lastSegment.latestLabel = label;
+    lastSegment.callCount += 1;
+  }
+  if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', latestLabel: label, callCount: 1 });
   if (!isEditingTool(record.name)) return;
   tallyFileEdits(turn, record.truncated === true ? truncatedFileEditsOf(record.input, state.workingDirectory) : fileEditsOf(record.input, state.workingDirectory));
 }
@@ -133,7 +132,6 @@ function noteTurnRecord(state: ChatPartsState, record: TraceRecord, emit: (part:
   if (touch === 'untouched') return;
   const { turn } = state;
   const wasOver = turn.isOver;
-  turn.firstAt ??= record.ts;
   turn.lastAt = Math.max(turn.lastAt, record.ts);
   turn.isOver = false;
   if (turn.segments.length === 0 || (touch === 'ran' && !wasOver)) return;

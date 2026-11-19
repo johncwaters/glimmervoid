@@ -1,7 +1,7 @@
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import type { PlanBlock, PlanInline } from '../plan/plan-markdown-core.ts';
 
-export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; labels: string[] };
+export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; latestLabel: string; callCount: number };
 
 export type TurnLead = { kind: 'text'; text: string } | { kind: 'code'; fileName: string; lineCount: number };
 
@@ -130,11 +130,8 @@ export function digestTurn(segments: readonly TurnSegment[], toolCount: number):
   return { lead, asked: asked === null || (lead?.kind === 'text' && lead.text === asked) ? null : asked, moreLineCount, isFoldable };
 }
 
-export function isCollapsedByDefault(turn: { isFoldable: boolean; isNewest: boolean; turnKey: number | null; seenTurnKey: number | null }): boolean {
-  if (!turn.isFoldable) return false;
-  if (!turn.isNewest) return true;
-  if (turn.turnKey === null) return false;
-  return turn.seenTurnKey !== null && turn.turnKey <= turn.seenTurnKey;
+export function isCollapsedByDefault(turn: { isFoldable: boolean; isNewest: boolean }): boolean {
+  return turn.isFoldable && !turn.isNewest;
 }
 
 function stringField(input: unknown, field: string): string | null {

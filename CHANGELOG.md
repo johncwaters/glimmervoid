@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A run of tool calls in a working Chat turn now takes one line that counts up.** The line shows the latest call and how many calls the run has made, instead of adding a row per call.
 - **The Brief switch moved from the Chat message box to Settings > Appearance, as Brief Chat turns.** Your current choice carries over, and B in Chat still switches it.
 - **Board cards stand out from the canvas.** The live board's canvas is now darker than its cards, so each card reads as its own surface instead of blending into the grey behind it.
 
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chat no longer folds the agent's newest reply.** Switching sessions or reconnecting used to fold the latest turn down to its first line, hiding the answer. It now stays open until the agent starts a newer turn.
 - **An opened Chat turn now points its arrow up, at the steps and text it revealed.** The arrow sits under the turn, so it used to turn down, away from what had just appeared above it.
 - **A sent Chat message stays put.** It no longer vanishes for a moment and comes back in a different spot, or jumps above a question the agent asked after it. The conversation also ends with more space above the message box.
 - **A Chat message sent while Claude Code starts now waits until Claude is ready, instead of being typed into its startup screen.** Chat treats a Claude session as ready when its first hook arrives, so a dialog such as the folder trust check no longer swallows the message. A sent message stays in Chat until its turn starts, and Chat never marks a message as not taken. If Claude's hooks never arrive, the card stops showing Starting after 30 seconds, and Chat still holds the message, which you can cancel.

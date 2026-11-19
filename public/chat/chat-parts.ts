@@ -15,11 +15,6 @@ type UploadUrlOf = (fileName: string) => string;
 type ChatPartRenderer<Kind extends FlatPartKind> = (part: ChatPartByKind[Kind], uploadUrlOf: UploadUrlOf) => HTMLElement;
 type ChatPartRendererTable = { [Kind in FlatPartKind]: ChatPartRenderer<Kind> };
 
-export interface SeenTurns {
-  readSeenTurnKey(): number | null;
-  markSeen(turnKey: number): void;
-}
-
 interface TurnView {
   element: HTMLElement;
   brief: HTMLElement;
@@ -29,7 +24,6 @@ interface TurnView {
   renderedSegments: TurnSegment[];
   segmentElements: HTMLElement[];
   droppedSegmentCount: number;
-  turnKey: number | null;
   isOver: boolean;
   wasPaintedRunning: boolean;
   isFoldable: boolean;
@@ -74,11 +68,17 @@ function renderTextSegment(text: string): HTMLElement {
   return textElement;
 }
 
+function toolLineChildrenOf(segment: Extract<TurnSegment, { kind: 'tools' }>): HTMLElement[] {
+  const latestCall = el('span', 'chat-turn-tool', segment.latestLabel);
+  if (segment.callCount === 1) return [latestCall];
+  return [latestCall, el('span', 'chat-turn-tool-count', countText(segment.callCount, 'tool', 'tools'))];
+}
+
 function renderSegment(segment: TurnSegment): HTMLElement {
   if (segment.kind === 'text') return renderTextSegment(segment.text);
-  const tools = el('div', 'chat-turn-tools');
-  tools.append(...segment.labels.map((label) => el('span', 'chat-turn-tool', label)));
-  return tools;
+  const toolLine = el('div', 'chat-turn-tools');
+  toolLine.append(...toolLineChildrenOf(segment));
+  return toolLine;
 }
 
 function renderLead(lead: TurnLead): HTMLElement {
@@ -109,7 +109,7 @@ function metaFieldsOf(part: TurnPart, moreLineCount: number): HTMLElement[] {
   return fields;
 }
 
-function createTurnView(part: TurnPart): TurnView {
+function createTurnView(): TurnView {
   const element = el('div', 'chat-turn');
   element.tabIndex = -1;
   const brief = el('div', 'chat-turn-brief');
@@ -118,7 +118,7 @@ function createTurnView(part: TurnPart): TurnView {
   const chevron = button({ variant: 'icon', size: 'small', label: 'Turn details', icon: createLineIcon(CHEVRON_ICON_PATH, '1.6') });
   chevron.classList.add('chat-turn-chevron');
   element.append(brief, body, meta);
-  return { element, brief, body, meta, chevron, renderedSegments: [], segmentElements: [], droppedSegmentCount: 0, turnKey: part.turnKey, isOver: false, wasPaintedRunning: false, isFoldable: false };
+  return { element, brief, body, meta, chevron, renderedSegments: [], segmentElements: [], droppedSegmentCount: 0, isOver: false, wasPaintedRunning: false, isFoldable: false };
 }
 
 function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void {
@@ -132,13 +132,19 @@ function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void 
 function syncSegments(view: TurnView, segments: readonly TurnSegment[]): void {
   segments.forEach((segment, index) => {
     const rendered = view.renderedSegments[index];
-    if (rendered !== undefined && (rendered.kind === 'text' || (segment.kind === 'tools' && rendered.labels.length === segment.labels.length))) return;
-    const segmentElement = renderSegment(segment);
     const existingElement = view.segmentElements[index];
+    if (rendered?.kind === 'text') return;
+    if (rendered?.kind === 'tools' && segment.kind === 'tools' && existingElement) {
+      if (rendered.callCount === segment.callCount) return;
+      existingElement.replaceChildren(...toolLineChildrenOf(segment));
+      view.renderedSegments[index] = { ...segment };
+      return;
+    }
+    const segmentElement = renderSegment(segment);
     if (existingElement) existingElement.replaceWith(segmentElement);
     if (!existingElement) view.body.append(segmentElement);
     view.segmentElements[index] = segmentElement;
-    view.renderedSegments[index] = segment.kind === 'tools' ? { kind: 'tools', labels: [...segment.labels] } : segment;
+    view.renderedSegments[index] = { ...segment };
   });
 }
 
@@ -149,7 +155,6 @@ function updateTurnView(view: TurnView, part: TurnPart): void {
   view.segmentElements.forEach((segmentElement, index) => {
     segmentElement.toggleAttribute('data-before-final', index < finalTextIndex);
   });
-  view.turnKey = part.turnKey;
   if (part.isOver && !view.isOver && view.wasPaintedRunning && document.visibilityState === 'visible') view.element.setAttribute('data-ended-in-view', '');
   if (!part.isOver && !view.wasPaintedRunning) requestAnimationFrame(() => {
     view.wasPaintedRunning = !view.isOver && view.element.isConnected;
@@ -197,7 +202,7 @@ interface ChatLog {
   forgetPaintedTurns(): void;
 }
 
-export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
+export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
   const element = el('div', 'chat-log');
   element.setAttribute('role', 'log');
   const elementByPartId = new Map<string, HTMLElement>();
@@ -215,11 +220,11 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, ke
   };
   const decideCollapse = (partId: string, view: TurnView) => {
     if (!view.isOver || isCollapsedByPartId.has(partId)) return;
-    isCollapsedByPartId.set(partId, isCollapsedByDefault({ isFoldable: view.isFoldable, isNewest: partId === newestTurnPartId, turnKey: view.turnKey, seenTurnKey: seenTurns.readSeenTurnKey() }));
+    isCollapsedByPartId.set(partId, isCollapsedByDefault({ isFoldable: view.isFoldable, isNewest: partId === newestTurnPartId }));
   };
   const upsertTurn = (part: TurnPart) => {
     const existingView = turnViewByPartId.get(part.id);
-    const view = existingView ?? createTurnView(part);
+    const view = existingView ?? createTurnView();
     updateTurnView(view, part);
     if (existingView) return;
     view.element.dataset.partId = part.id;
@@ -252,15 +257,12 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, seenTurns: SeenTurns, ke
       upsertTurn(part);
       touchedTurnPartIds.push(part.id);
     }
-    const seenTurnKeys: number[] = [];
     for (const partId of touchedTurnPartIds) {
       const view = turnViewByPartId.get(partId);
       if (!view) continue;
       decideCollapse(partId, view);
       showCollapse(partId);
-      if (view.isOver && view.turnKey !== null) seenTurnKeys.push(view.turnKey);
     }
-    if (seenTurnKeys.length > 0) seenTurns.markSeen(Math.max(...seenTurnKeys));
   };
   const remove = (partIds: readonly string[]) => {
     for (const partId of partIds) {

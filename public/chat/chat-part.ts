@@ -14,6 +14,6 @@ export type ChatPart =
   | { kind: 'skill'; id: string; skillName: string }
   | { kind: 'card'; id: string; card: ChatCard };
 
-export type TurnPart = { kind: 'turn'; id: string; turnKey: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; fileEdits: FileEditTally; durationText: string | null; isOver: boolean };
+export type TurnPart = { kind: 'turn'; id: string; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; fileEdits: FileEditTally; durationText: string | null; isOver: boolean };
 
 export type ChatPartKind = ChatPart['kind'];
