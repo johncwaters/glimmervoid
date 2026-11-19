@@ -44,6 +44,19 @@ jobs:
             sed -i "s/^  desc \".*\"$/  desc \"${HOMEBREW_DESC}\"/" "$formula"
             sed -i '$d' "$formula"
             printf '\n  test do\n    assert_match version.to_s, shell_output("#{bin}/%s --version")\n  end\nend\n' "$name" >> "$formula"
+            ruby - "$formula" <<'RUBY'
+          path = ARGV.fetch(0)
+          formula = File.read(path)
+          triple_definition = /^  def target_triple\n(?<body>.*?)\n\n    (?<value>"[^\n]+")\n  end\n\n/m
+          aliases_definition = /^  def install_binary_aliases!\n(?<body>.*?)\n  end\n\n/m
+          aliases_call = "    install_binary_aliases!\n"
+          triple = formula.match(triple_definition) or abort("#{path}: def target_triple not in the expected shape")
+          aliases = formula.match(aliases_definition) or abort("#{path}: def install_binary_aliases! not in the expected shape")
+          formula.include?(aliases_call) or abort("#{path}: install_binary_aliases! call not found")
+          inlined = "#{triple[:body]}\n    target_triple = #{triple[:value]}\n#{aliases[:body]}\n"
+          formula = formula.sub(triple_definition, "").sub(aliases_definition, "").sub(aliases_call) { inlined }
+          File.write(path, formula)
+          RUBY
             brew style --except-cops FormulaAudit/Homepage,FormulaAuditStrict --fix "$formula"
 
             git add "$formula"

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Session rows hide their remove X until you point at them.** On a desktop with a mouse, the X beside each session in the list shows only while the pointer is over that row or keyboard focus is inside it. On a phone or other touch screen it stays visible as before.
 
+### Fixed
+
+- **The Homebrew tap gets each release again.** A style check added in Homebrew 7.0.15 rejected the generated formula and stopped the 0.62.8 formula from reaching the tap. Releases now pass that check.
+
 ## [0.62.8] - 2026-11-18
 
 ### Added
