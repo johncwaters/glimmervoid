@@ -6,6 +6,7 @@ import { DEVICE_CATALOG } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, ICON_CATALOG, ICON_NAMES, ICON_VIEWBOX, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { TITLE_SCALE_BY_TEXT_SIZE, titleLineHeightOf } from './whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutMedia, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
+import { WIRE_CORNER_RADIUS, pointsOfPath, roundedCornerPath } from './whiteboard-route-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOX_TEXT_INSET = 12;
@@ -84,12 +85,12 @@ ${TEXT_SIZES.map((size) => `.wb-text-${size} .wb-box-title, .wb-text-${size} .wb
 .wb-frame-outline { fill: ${BRAND_ACCENT}; fill-opacity: 0.04; stroke: #4a4268; stroke-width: 1.4; stroke-dasharray: 10 6; }
 .wb-frame-title { fill: #a79fc4; font-size: 12px; font-weight: 700; }
 .wb-wire-hit, .wb-port { display: none; }
-.wb-wire-line { fill: none; stroke: #a79fc4; stroke-width: 1.6; }
+.wb-wire-line { fill: none; stroke: #5a556d; stroke-width: 1.1; }
 .wb-wire-line.wb-dashed { stroke-dasharray: 7 6; }
-.wb-wire-line.wb-bold { stroke-width: 3.2; }
+.wb-wire-line.wb-bold { stroke-width: 2.4; }
 .wb-tone-fail .wb-wire-line { stroke: #ef4444; }
 .wb-tone-join .wb-wire-line { stroke: ${BRAND_ACCENT}; }
-.wb-wire-dot { fill: #a79fc4; }
+.wb-wire-dot { fill: #5a556d; }
 .wb-wire-label { fill: #e6e0f5; font-size: 12px; text-anchor: middle; paint-order: stroke; stroke: #0d0b16; stroke-width: 5; }
 .wb-resolved { opacity: 0.5; }
 .wb-legend-text { fill: #a79fc4; font-size: 12px; }
@@ -360,10 +361,15 @@ function frameMarkup(frame: LaidOutFrame): string {
   return elementGroup(frame, 'wb-frame', parts);
 }
 
+function drawnWirePath(wire: LaidOutWire): string {
+  if (wire.route !== 'elbow') return wire.path;
+  return roundedCornerPath(pointsOfPath(wire.path), WIRE_CORNER_RADIUS);
+}
+
 function wireMarkup(wire: LaidOutWire): string {
   const parts = [
     tag('path', { d: wire.path, class: 'wb-wire-hit' }),
-    tag('path', { d: wire.path, 'marker-start': wire.hasStartArrowhead ? 'url(#wb-arrow)' : null, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: ['wb-wire-line', wire.isDashed ? 'wb-dashed' : null, wire.isBold ? 'wb-bold' : null].filter((name) => name !== null).join(' ') }),
+    tag('path', { d: drawnWirePath(wire), 'marker-start': wire.hasStartArrowhead ? 'url(#wb-arrow)' : null, 'marker-end': wire.hasArrowhead ? 'url(#wb-arrow)' : null, class: ['wb-wire-line', wire.isDashed ? 'wb-dashed' : null, wire.isBold ? 'wb-bold' : null].filter((name) => name !== null).join(' ') }),
   ];
   if (!wire.hasStartArrowhead) parts.push(tag('circle', { cx: wire.start.x, cy: wire.start.y, r: 3, class: 'wb-wire-dot' }));
   if (wire.joinAt) parts.push(tag('circle', { cx: wire.joinAt.x, cy: wire.joinAt.y, r: 3, class: 'wb-wire-dot' }));

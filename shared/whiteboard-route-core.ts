@@ -1837,11 +1837,67 @@ function pointsOfPath(path: string): Point[] {
   return points;
 }
 
+const WIRE_CORNER_RADIUS = 8;
+
+interface RoundedCorner {
+  entry: Point;
+  corner: Point;
+  exit: Point;
+}
+
+function roundedCornersOf(points: readonly Point[], radius: number): RoundedCorner[] {
+  const corners: RoundedCorner[] = [];
+  for (let index = 1; index + 1 < points.length; index += 1) {
+    const before = points[index - 1];
+    const corner = points[index];
+    const after = points[index + 1];
+    if (!before || !corner || !after) continue;
+    const inLength = Math.hypot(corner.x - before.x, corner.y - before.y);
+    const outLength = Math.hypot(after.x - corner.x, after.y - corner.y);
+    const isStraight = Math.abs((corner.x - before.x) * (after.y - corner.y) - (corner.y - before.y) * (after.x - corner.x)) < 1e-6;
+    if (inLength === 0 || outLength === 0 || isStraight) continue;
+    const cut = Math.min(radius, inLength / 2, outLength / 2);
+    corners.push({
+      entry: { x: corner.x + ((before.x - corner.x) / inLength) * cut, y: corner.y + ((before.y - corner.y) / inLength) * cut },
+      corner,
+      exit: { x: corner.x + ((after.x - corner.x) / outLength) * cut, y: corner.y + ((after.y - corner.y) / outLength) * cut },
+    });
+  }
+  return corners;
+}
+
+function quadraticAt(start: Point, control: Point, end: Point, share: number): Point {
+  const rest = 1 - share;
+  return { x: rest * rest * start.x + 2 * rest * share * control.x + share * share * end.x, y: rest * rest * start.y + 2 * rest * share * control.y + share * share * end.y };
+}
+
+function roundedCornerPoints(points: readonly Point[], radius: number, stepsPerCorner: number): Point[] {
+  const first = points[0];
+  const last = points.at(-1);
+  if (!first || !last || points.length < 3) return [...points];
+  const rounded: Point[] = [first];
+  for (const { entry, corner, exit } of roundedCornersOf(points, radius)) {
+    for (let step = 0; step <= stepsPerCorner; step += 1) rounded.push(quadraticAt(entry, corner, exit, step / stepsPerCorner));
+  }
+  rounded.push(last);
+  return rounded;
+}
+
+function roundedCornerPath(points: readonly Point[], radius: number): string {
+  const first = points[0];
+  const last = points.at(-1);
+  if (!first || !last || points.length < 3) return pathOf(points);
+  const commands = [`M ${first.x} ${first.y}`];
+  for (const { entry, corner, exit } of roundedCornersOf(points, radius)) commands.push(`L ${entry.x} ${entry.y}`, `Q ${corner.x} ${corner.y} ${exit.x} ${exit.y}`);
+  commands.push(`L ${last.x} ${last.y}`);
+  return commands.join(' ');
+}
+
 function wireExtentOf(wire: LaidOutWire): Rect | null {
   const pointRects = pointsOfPath(wire.path).map((point) => ({ x: point.x, y: point.y, width: 0, height: 0 }));
   return unionOf(wire.label ? [...pointRects, labelBoundsAt(wire.labelAt, labelWidthOf(wire.label))] : pointRects);
 }
 
-export { cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
+export { WIRE_CORNER_RADIUS, roundedCornerPath, roundedCornerPoints, cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
 export type { WireHandle };
 export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, SoftObstacle, WarningList };

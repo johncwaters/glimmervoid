@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Settings opens on a new General page.** It holds Ready to commit as you (GitHub, git identity, gh sign-in, commit signing) and your agent accounts, which used to sit on Appearance and a separate Accounts page. Appearance now holds only appearance, and old links to the Accounts page open General.
+- **Lighter wires with rounded corners.** Wires on the board draw thinner and dimmer than box outlines, with smaller arrowheads, so the boxes read first. Elbow wires turn their corners on a small curve that matches the rounded box corners. Wires still click and select as before, and board pictures show the same look.
+
 - **Plan steps no longer use violet.** Plan steps draw the same neutral outline as other boxes, and their status sits in a small chip in the top corner with a colored dot: gray for planned, amber for building, green for landed. Violet stays for selection, wire targets and edit handles. Body lines in a box draw dimmer than its title, and muted lines dimmer again, on the live board and in board pictures, so the title reads first.
 
 - **Plan steps line up with the steps they follow.** Within each column of the plan band, a step now sits level with the steps it comes after instead of in title order, so fewer plan wires cross or bend around other steps. Step labels such as 1a and 1b follow the new order.

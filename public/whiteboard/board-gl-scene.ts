@@ -3,7 +3,7 @@ import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shared/whiteboard-icons.ts';
 import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, handleSidesOf, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
-import { pointsOfPath, rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
+import { WIRE_CORNER_RADIUS, pointsOfPath, rotatedAbout, rotatedBoundsOf, roundedCornerPoints, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
@@ -117,11 +117,11 @@ const ROW_DESCENT = 5;
 const MIN_DETAIL_BOX_PX = 12;
 const MIN_WIRE_LABEL_PX = 8;
 const MIN_ARROWHEAD_PX = 4;
-const ARROWHEAD_LENGTH = 12.8;
-const ARROWHEAD_HALF_WIDTH = 5.12;
+const ARROWHEAD_LENGTH = 9;
+const ARROWHEAD_HALF_WIDTH = 3.6;
 const ARROWHEAD_OVERSHOOT = 1.28;
-const WIRE_WIDTH = 1.6;
-const BOLD_WIRE_WIDTH = 3.2;
+const WIRE_WIDTH = 1.1;
+const BOLD_WIRE_WIDTH = 2.4;
 const OUTLINE_WIDTH = 1.6;
 const WIRE_MIDPOINT_HANDLE_SCALE = 0.7;
 const LETTER_SPACING_EM = 0.08;
@@ -534,7 +534,12 @@ function frameGeometry(frame: LaidOutFrame, context: SceneContext): { part: Part
 function wireColor(wire: Pick<LaidOutWire, 'tone'>, palette: BoardPalette): Rgba {
   if (wire.tone === 'fail') return palette.failed;
   if (wire.tone === 'join') return palette.accent;
-  return palette.inkDim;
+  return mixed(palette.inkDim, palette.board, 0.5);
+}
+
+function drawnWirePoints(wire: Pick<LaidOutWire, 'route'>, points: readonly Point[]): Point[] {
+  if (wire.route !== 'elbow') return [...points];
+  return roundedCornerPoints(points, WIRE_CORNER_RADIUS, CORNER_STEPS);
 }
 
 function pushArrowAtEnd(part: PartBuilder, points: readonly Point[], color: Rgba): void {
@@ -548,13 +553,14 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
   const part = createPart();
   const labelPart = createPart();
   const points = pointsOfPath(wire.path);
+  const drawnPoints = drawnWirePoints(wire, points);
   const color = wireColor(wire, palette);
-  pushPolyline(part, points, wire.isBold ? BOLD_WIRE_WIDTH : WIRE_WIDTH, color, wire.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
-  if (wire.hasArrowhead) pushArrowAtEnd(part, points, color);
-  if (wire.hasStartArrowhead) pushArrowAtEnd(part, [...points].reverse(), color);
+  pushPolyline(part, drawnPoints, wire.isBold ? BOLD_WIRE_WIDTH : WIRE_WIDTH, color, wire.isDashed ? { on: 7, off: 6 } : SOLID, ALWAYS);
+  if (wire.hasArrowhead) pushArrowAtEnd(part, drawnPoints, color);
+  if (wire.hasStartArrowhead) pushArrowAtEnd(part, [...drawnPoints].reverse(), color);
   const dotMinScale = MIN_ARROWHEAD_PX / 6;
-  if (!wire.hasStartArrowhead) pushCircle(part, wire.start, 3, palette.inkDim, palette.inkDim, 0, dotMinScale);
-  if (wire.joinAt) pushCircle(part, wire.joinAt, 3, palette.inkDim, palette.inkDim, 0, dotMinScale);
+  if (!wire.hasStartArrowhead) pushCircle(part, wire.start, 3, color, color, 0, dotMinScale);
+  if (wire.joinAt) pushCircle(part, wire.joinAt, 3, color, color, 0, dotMinScale);
   let bounds = boundsOfPoints(points.length > 0 ? points : [wire.start, wire.end], 8);
   if (wire.label) {
     const labelStyle: TextStyle = { size: palette.metaSize, color: palette.ink, anchor: 'middle', minPixels: MIN_WIRE_LABEL_PX };
@@ -675,7 +681,7 @@ function pushTurned(part: PartBuilder, pivot: Point, degrees: number, draw: (tur
 
 function outlineUnturned(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind === 'wire') {
-    pushPolyline(part, pointsOfPath(element.path), 2.6, color, SOLID, ALWAYS);
+    pushPolyline(part, drawnWirePoints(element, pointsOfPath(element.path)), 2.6, color, SOLID, ALWAYS);
     return;
   }
   if (element.kind === 'stroke') {
