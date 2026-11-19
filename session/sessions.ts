@@ -136,6 +136,12 @@ function nextPendingPromptToolName(
 }
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
+const BETWEEN_PROMPT_STATES: ReadonlySet<SessionState> = new Set([STATES.IDLE, STATES.COMPLETE]);
+const TURN_REACHED_STATES: ReadonlySet<SessionState> = new Set([STATES.RUNNING, STATES.WAITING, STATES.COMPLETE]);
+
+function startsTurn(from: SessionState, to: SessionState): boolean {
+  return BETWEEN_PROMPT_STATES.has(from) && TURN_REACHED_STATES.has(to) && from !== to;
+}
 
 type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer";
 type SnoozeRefusal = "in-progress" | "no-conversation" | "not-snoozable";
@@ -556,6 +562,7 @@ class Session extends EventEmitter {
     });
     this._chatOutbox = createChatOutbox({
       canTakeMessage: () => this.hasLivePty && (this.state === STATES.IDLE || this.state === STATES.COMPLETE),
+      reportsTurnStarts: () => this._adapter.capabilities.hooks,
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
       noteSubmitted: (entry) => {
@@ -564,7 +571,11 @@ class Session extends EventEmitter {
       },
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
-    this.on("state-change", () => this._chatOutbox.drain());
+    this.on("state-change", ({ from, to }: { from: SessionState; to: SessionState }) => {
+      if (startsTurn(from, to)) this._chatOutbox.noteTurnStarted();
+      this._chatOutbox.drain();
+    });
+    this.on("delivered-input", () => this._chatOutbox.noteInputSubmitted());
 
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");

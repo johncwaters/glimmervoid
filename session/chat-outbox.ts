@@ -15,9 +15,11 @@ const UNDELIVERED_TEXT_BY_SETTLEMENT: Record<Exclude<DeliverySettlement, "submit
   dropped: "The session ended before the message was sent.",
 };
 const RESTARTED_TEXT = "The session restarted before the message was sent.";
+const NOT_TAKEN_TEXT = "The agent did not start a turn for this message. Open Terminal to see why, or Cancel to get the text back.";
 
 interface ChatOutboxPort {
   canTakeMessage(): boolean;
+  reportsTurnStarts(): boolean;
   isDeliveryInFlight(): boolean;
   deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
   noteSubmitted(entry: ChatOutboxEntry): void;
@@ -33,13 +35,17 @@ interface ChatOutbox {
   cancel(entryId: string): ChatOutboxEntry[];
   drain(): void;
   notePromptRecorded(): void;
+  noteTurnStarted(): void;
+  noteInputSubmitted(): void;
   dispose(): void;
 }
 
 function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   let outboxEntries: ChatOutboxEntry[] = [];
   let recheckTimer: ReturnType<typeof setTimeout> | null = null;
-  let unrecordedTimer: ReturnType<typeof setTimeout> | null = null;
+  const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
+  const takenEntryIds = new Set<string>();
+  let lastSubmittedEntryId: string | null = null;
 
   function publish(nextEntries: ChatOutboxEntry[]): void {
     outboxEntries = nextEntries;
@@ -55,28 +61,52 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
       const submittedEntry = outboxEntries.find((entry) => entry.entryId === entryId);
       if (submittedEntry) port.noteSubmitted(submittedEntry);
       replaceEntry(entryId, { state: "submitted" });
-      armUnrecordedTimer();
+      armUnrecordedTimer(entryId);
       drain();
       return;
     }
     replaceEntry(entryId, { state: "failed", failure: UNDELIVERED_TEXT_BY_SETTLEMENT[settlement] });
   }
 
-  function stopUnrecordedTimer(): void {
-    if (unrecordedTimer) clearTimeout(unrecordedTimer);
-    unrecordedTimer = null;
+  function stopUnrecordedTimers(): void {
+    for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
+    unrecordedTimerByEntryId.clear();
+    takenEntryIds.clear();
+    lastSubmittedEntryId = null;
   }
 
-  function armUnrecordedTimer(): void {
-    stopUnrecordedTimer();
-    unrecordedTimer = unrefTimer(setTimeout(notePromptRecorded, SUBMITTED_UNRECORDED_MAX_MS));
+  function armUnrecordedTimer(entryId: string): void {
+    lastSubmittedEntryId = entryId;
+    unrecordedTimerByEntryId.set(entryId, unrefTimer(setTimeout(() => settleUnrecorded(entryId), SUBMITTED_UNRECORDED_MAX_MS)));
   }
 
   function notePromptRecorded(): void {
-    stopUnrecordedTimer();
+    stopUnrecordedTimers();
     if (!outboxEntries.some((entry) => entry.state === "submitted")) return;
     publish(outboxEntries.filter((entry) => entry.state !== "submitted"));
     drain();
+  }
+
+  function noteTurnStarted(): void {
+    if (lastSubmittedEntryId !== null) takenEntryIds.add(lastSubmittedEntryId);
+  }
+
+  function noteInputSubmitted(): void {
+    lastSubmittedEntryId = null;
+  }
+
+  function settleUnrecorded(entryId: string): void {
+    unrecordedTimerByEntryId.delete(entryId);
+    const wasTaken = takenEntryIds.delete(entryId);
+    if (lastSubmittedEntryId === entryId) lastSubmittedEntryId = null;
+    const isStillSubmitted = outboxEntries.some((entry) => entry.entryId === entryId && entry.state === "submitted");
+    if (!isStillSubmitted) return;
+    if (wasTaken || !port.reportsTurnStarts()) {
+      publish(outboxEntries.filter((entry) => entry.entryId !== entryId));
+      drain();
+      return;
+    }
+    replaceEntry(entryId, { state: "failed", failure: NOT_TAKEN_TEXT });
   }
 
   function recheckSoon(): void {
@@ -128,10 +158,10 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   function dispose(): void {
     if (recheckTimer) clearTimeout(recheckTimer);
     recheckTimer = null;
-    stopUnrecordedTimer();
+    stopUnrecordedTimers();
   }
 
-  return { entries: () => outboxEntries, queue, adopt, cancel, drain, notePromptRecorded, dispose };
+  return { entries: () => outboxEntries, queue, adopt, cancel, drain, notePromptRecorded, noteTurnStarted, noteInputSubmitted, dispose };
 }
 
 export { createChatOutbox };
