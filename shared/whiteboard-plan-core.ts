@@ -66,6 +66,18 @@ function levelsOf(stepIds: readonly string[], afterIdsByStepId: ReadonlyMap<stri
   return levelById;
 }
 
+function barycenterOf(stepId: string, afterIdsByStepId: ReadonlyMap<string, readonly string[]>, rowById: ReadonlyMap<string, number>): number {
+  const afterRows = (afterIdsByStepId.get(stepId) ?? []).flatMap((afterId) => rowById.get(afterId) ?? []);
+  if (afterRows.length === 0) return Number.MAX_VALUE;
+  return afterRows.reduce((sum, row) => sum + row, 0) / afterRows.length;
+}
+
+function inBarycenterOrder(stepsAtLevel: StepBox[], afterIdsByStepId: ReadonlyMap<string, readonly string[]>, rowById: ReadonlyMap<string, number>): StepBox[] {
+  const barycenterById = new Map(stepsAtLevel.map((step) => [step.id, barycenterOf(step.id, afterIdsByStepId, rowById)]));
+  const barycenterOfStep = (step: StepBox) => barycenterById.get(step.id) ?? Number.MAX_VALUE;
+  return stepsAtLevel.sort((left, right) => barycenterOfStep(left) - barycenterOfStep(right) || left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+}
+
 function planSteps(board: Board): PlanStep[] {
   const steps = stepBoxesOf(board);
   const afterIdsByStepId = afterIdsByStepIdOf(board, new Set(steps.map((step) => step.id)));
@@ -73,13 +85,20 @@ function planSteps(board: Board): PlanStep[] {
   const stepsByLevel = new Map<number, StepBox[]>();
   for (const step of steps) {
     const level = levelById.get(step.id) ?? 1;
-    stepsByLevel.set(level, [...(stepsByLevel.get(level) ?? []), step]);
+    const stepsAtLevel = stepsByLevel.get(level);
+    if (stepsAtLevel) {
+      stepsAtLevel.push(step);
+      continue;
+    }
+    stepsByLevel.set(level, [step]);
   }
   const labelById = new Map<string, string>();
+  const rowById = new Map<string, number>();
   const orderedSteps: StepBox[] = [];
   for (const level of [...stepsByLevel.keys()].sort((left, right) => left - right)) {
-    const stepsAtLevel = (stepsByLevel.get(level) ?? []).sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+    const stepsAtLevel = inBarycenterOrder(stepsByLevel.get(level) ?? [], afterIdsByStepId, rowById);
     for (const [index, step] of stepsAtLevel.entries()) {
+      rowById.set(step.id, index);
       labelById.set(step.id, stepsAtLevel.length === 1 ? String(level) : `${level}${letterFor(index)}`);
       orderedSteps.push(step);
     }
