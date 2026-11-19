@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { CodemapSetup } from '../../shared/contracts/codemap.ts';
+import { CodemapSetup, DesignSpecForMap } from '../../shared/contracts/codemap.ts';
 import { errorCode, errorMessage } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { writeTextAtomic } from '../json-file.ts';
@@ -82,6 +82,25 @@ async function recentCommitsOf(directory: string, sha: string): Promise<CommitFi
   return logText === null ? null : parseCoChangeLog(logText);
 }
 
+const TICKET_TRAILER_LOG_ARGS = Object.freeze(['log', '--no-merges', '--format=%(trailers:key=Ticket,valueonly)', '-n', '2000']);
+
+async function ticketTrailersOf(directory: string, sha: string): Promise<Set<string> | null> {
+  const logText = await gitText(directory, [...TICKET_TRAILER_LOG_ARGS, sha]);
+  return logText === null ? null : new Set(logText.split('\n').map((line) => line.trim()).filter(Boolean));
+}
+
+type DesignSpecLookup = { kind: 'none' } | { kind: 'invalid'; message: string } | { kind: 'ok'; spec: DesignSpecForMap };
+
+async function readDesignSpec(specsRoot: string, repoName: string, slug: string): Promise<DesignSpecLookup> {
+  const specPath = path.join(specsRoot, repoName, `${slug}.json`);
+  const text = await fsp.readFile(specPath, 'utf8').catch((error: unknown) => (errorCode(error) === 'ENOENT' ? null : { error }));
+  if (text === null) return { kind: 'none' };
+  if (typeof text !== 'string') return { kind: 'invalid', message: `${specPath} could not be read: ${errorMessage(text.error)}` };
+  const parsed = DesignSpecForMap.safeParse(parseJsonOrNull(text));
+  if (!parsed.success) return { kind: 'invalid', message: `${specPath} is not a design spec the map can draw: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}` };
+  return { kind: 'ok', spec: parsed.data };
+}
+
 async function guessedDefaultBranchOf(directory: string): Promise<string | null> {
   const remoteHead = (await gitText(directory, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']))?.trim() ?? '';
   const fromRemoteHead = defaultBranchFromRemoteHead(remoteHead);
@@ -92,4 +111,4 @@ async function guessedDefaultBranchOf(directory: string): Promise<string | null>
   return null;
 }
 
-export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, recentCommitsOf, revParse, repoKeyOf, setupPathOf, worktreeRootOf, writeCodemapSetup };
+export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, worktreeRootOf, writeCodemapSetup };

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
-import type { CodemapExtract, CodemapModuleEdge, CodemapStatus } from '../../shared/contracts/codemap.ts';
+import type { CodemapExtract, CodemapModuleEdge, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
 import { isTestPath } from './import-graph-core.ts';
@@ -384,6 +384,48 @@ function overlayOpsOf(overlay: MapOverlay | null, existingKindById: ReadonlyMap<
   return [...staleRemovals, existingKindById.has(OVERLAY_STAMP_ID) ? { op: 'set', id: OVERLAY_STAMP_ID, fields: fieldsToRefresh(stamp) } : { op: 'add', element: stamp }];
 }
 
+interface SpecPlan {
+  slug: string;
+  units: readonly DesignSpecUnit[];
+  dependsOn: readonly { from: string; to: string }[];
+  landedUnitIds: ReadonlySet<string>;
+}
+
+function specStepIdOf(slug: string, unitId: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.steps, `${slug}-${unitId}`, `${slug}\n${unitId}`);
+}
+
+function specPlanOpsOf(model: CodemapModel, plan: SpecPlan | null, existingKindById: ReadonlyMap<string, string>): { removals: Record<string, unknown>[]; writes: Record<string, unknown>[] } {
+  const moduleIds = new Set(model.modules.map((summary) => summary.id));
+  const unitIds = new Set(plan?.units.map((unit) => unit.id) ?? []);
+  const steps = (plan?.units ?? []).map((unit) => ({
+    kind: 'box',
+    id: specStepIdOf(plan?.slug ?? '', unit.id),
+    title: `${unit.id} ${unit.title}`.slice(0, WHITEBOARD_LIMITS.title),
+    lines: [{ text: `changes ${unit.changes.length} files`, muted: true }],
+    refs: unit.changes.filter((change) => AnchorRef.safeParse(change).success).slice(0, WHITEBOARD_LIMITS.refsPerElement),
+    place: 'plan',
+    step: { status: plan?.landedUnitIds.has(unit.id) ? 'landed' : 'planned' },
+  }));
+  const orderWires = (plan?.dependsOn ?? []).filter((edge) => unitIds.has(edge.from) && unitIds.has(edge.to)).map((edge) => ({
+    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.steps, edge.from, `${plan?.slug}\n${edge.to}\n${edge.from}`), from: specStepIdOf(plan?.slug ?? '', edge.to), to: specStepIdOf(plan?.slug ?? '', edge.from),
+  }));
+  const moduleWires = (plan?.units ?? []).flatMap((unit) => [...new Set(unit.changes.map((change) => moduleOfPath(model, change)))].filter((moduleId) => moduleIds.has(moduleId)).map((moduleId) => ({
+    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.steps, `${unit.id}-${moduleId}`, `${plan?.slug}\n${unit.id}\n${moduleId}`), from: specStepIdOf(plan?.slug ?? '', unit.id), to: moduleBoxIdOf(moduleId), dashed: true, arrows: 'none',
+  })));
+  const produced = [...steps, ...orderWires, ...moduleWires];
+  const producedIds = new Set(produced.map((element) => element.id));
+  const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.steps) && !producedIds.has(id));
+  const removals = [...staleIds.filter((id) => existingKindById.get(id) === 'wire'), ...staleIds.filter((id) => existingKindById.get(id) !== 'wire')].map((id) => ({ op: 'remove', id }));
+  const writes = produced.map((element) => {
+    if (!existingKindById.has(element.id)) return { op: 'add', element };
+    const fields = fieldsToRefresh(element);
+    const isLanded = 'step' in element && element.step.status === 'landed';
+    return { op: 'set', id: element.id, fields: isLanded ? fields : Object.fromEntries(Object.entries(fields).filter(([field]) => field !== 'step')) };
+  });
+  return { removals, writes };
+}
+
 function codemapNoticeOf(repoName: string, status: CodemapStatus): string {
   const mapAt = `Code map of ${repoName} at ${shortSha(status.sha)}`;
   if (status.state === 'failed') return `${mapAt}, the last run failed: ${status.reason ?? 'no reason given'}; codemap map shows the last good map.`;
@@ -438,5 +480,5 @@ function checkTextOf(repoName: string, unallowedEdges: readonly UnallowedEdge[],
   return [...edgeLines, ...unjudgedLine, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, unjudgedPathsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
-export type { CodemapModel, MapDecorations, MapOverlay };
+export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, unjudgedPathsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

@@ -1,6 +1,8 @@
+import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 
+import { CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
 import type { AgentCodemapReply, AgentCodemapRequest, CodemapExtract, CodemapExtractBase, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -8,9 +10,9 @@ import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { changedPathsSince, mainlineShaOf, readCodemapSetup, recentCommitsOf, repoKeyOf, revParse } from './codemap-store.ts';
-import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, codemapNoticeOf, unallowedEdgesOf, unjudgedPathsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
-import type { CodemapModel, MapDecorations, MapOverlay } from '../core/codemap-graph-core.ts';
+import { changedPathsSince, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf } from './codemap-store.ts';
+import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, unallowedEdgesOf, unjudgedPathsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
 
@@ -82,6 +84,7 @@ interface SessionOverlay {
 
 interface OverlayDrawing {
   key: string;
+  specPlan: SpecPlan | null;
   decorations: MapDecorations;
   stamp: MapOverlay | null;
 }
@@ -107,7 +110,7 @@ const UNREADABLE_MAINLINE_STATUS = 409;
 const UNKNOWN_TARGET_STATUS = 404;
 const OPERATOR_ONLY_STATUS = 403;
 const UNKNOWN_SESSION_STATUS = 404;
-const MISSING_SESSION_STATUS = 400;
+const BAD_REQUEST_STATUS = 400;
 
 async function noDefaultBranch(): Promise<string | null> {
   return null;
@@ -123,6 +126,7 @@ interface CodemapServiceOptions {
   configuredMainlineBranch?: () => string | null;
   homeDir?: string | null;
   changesOfSession?: ((sessionId: string) => Promise<SessionChanges | null>) | null;
+  specsRoot?: string;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -147,8 +151,9 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, homeDir = null, changesOfSession = null, logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, homeDir = null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
   const overlayByRepoDir = new Map<string, SessionOverlay>();
+  const specPlanByRepoDir = new Map<string, SpecPlan>();
   let startedOverlayRefreshCount = 0;
   const drawingByRepoDir = new Map<string, Promise<boolean>>();
   const mapBoardIdByRepoDir = new Map<string, string>();
@@ -190,7 +195,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const read = await boards.readPlanBoard(caller, boardId);
     if (!read.ok) throw new Error(`the map board could not be read: ${JSON.stringify(read.reply.body)}`);
     const existingKindById = new Map([...read.board.elements].map(([id, element]) => [id, element.kind]));
-    const rawOps = [...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, overlay.decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById)];
+    const specOps = changedModel ? specPlanOpsOf(changedModel, overlay.specPlan, existingKindById) : { removals: [], writes: [] };
+    const rawOps = [...specOps.removals, ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, overlay.decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById), ...specOps.writes];
     for (const ops of chunkedBySize(OpList.parse(rawOps))) {
       const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops });
       if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
@@ -214,7 +220,9 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const model = state.model;
     const overlaidModules = overlay && model ? [...new Set(overlay.paths.map((repoPath) => moduleOfPath(model, repoPath)))].sort() : [];
     const stamp = overlay ? { title: `Session ${overlay.sessionName}`, lines: [`changes ${overlay.paths.length} files in ${overlaidModules.length} modules`, ...overlaidModules] } : null;
-    return { key: JSON.stringify([stamp, overlaidModules]), decorations: { churnByModule: state.churnByModule, overlaidModules: new Set(overlaidModules) }, stamp };
+    const specPlan = specPlanByRepoDir.get(repoDir) ?? null;
+    const specKey = specPlan ? { ...specPlan, landedUnitIds: [...specPlan.landedUnitIds].sort() } : null;
+    return { key: JSON.stringify([stamp, overlaidModules, specKey]), specPlan, decorations: { churnByModule: state.churnByModule, overlaidModules: new Set(overlaidModules) }, stamp };
   }
 
   async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, status: CodemapStatus): Promise<boolean> {
@@ -300,10 +308,31 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     }
   }
 
+  async function specPlanOf(repoDir: string, slug: string): Promise<{ ok: true; plan: SpecPlan } | { ok: false; status: number; error: string }> {
+    const repoName = path.basename(await repoKeyOf(repoDir) ?? repoDir);
+    const lookup = await readDesignSpec(specsRoot, repoName, slug);
+    if (lookup.kind === 'none') return { ok: false, status: UNKNOWN_TARGET_STATUS, error: `no design spec ${slug} for ${repoName} under ${specsRoot}` };
+    if (lookup.kind === 'invalid') return { ok: false, status: BAD_REQUEST_STATUS, error: lookup.message };
+    const specRepoKey = lookup.spec.repoRoot ? await repoKeyOf(lookup.spec.repoRoot) : null;
+    const repoKey = await repoKeyOf(repoDir);
+    if (specRepoKey && specRepoKey !== repoKey) return { ok: false, status: BAD_REQUEST_STATUS, error: `design spec ${slug} under ${repoName} belongs to ${specRepoKey}, not ${repoKey ?? repoDir}` };
+    const mainlineSha = await repoMainlineShaOf(repoDir);
+    const ticketTrailers = mainlineSha ? await ticketTrailersOf(repoDir, mainlineSha) : null;
+    const landedUnitIds = new Set(lookup.spec.units.filter((unit) => ticketTrailers?.has(`${slug}/${unit.id}`)).map((unit) => unit.id));
+    return { ok: true, plan: { slug, units: lookup.spec.units, dependsOn: lookup.spec.dependsOn, landedUnitIds } };
+  }
+
+  async function reloadSpecPlan(repoDir: string): Promise<void> {
+    const shown = specPlanByRepoDir.get(repoDir);
+    if (!shown) return;
+    const reloaded = await specPlanOf(repoDir, shown.slug);
+    if (reloaded.ok && specPlanByRepoDir.get(repoDir) === shown) specPlanByRepoDir.set(repoDir, reloaded.plan);
+  }
+
   function refresh(session: MappedSession): void {
     const state = stateOf(session.path);
     state.refreshesInFlight += 1;
-    void currentMap({ repoDir: session.path }).catch((error: unknown) => {
+    void reloadSpecPlan(session.path).then(() => currentMap({ repoDir: session.path })).catch((error: unknown) => {
       logger.warn(`[codemap] the map of ${session.path} was not refreshed: ${errorMessage(error)}`);
     }).finally(() => {
       state.refreshesInFlight -= 1;
@@ -342,21 +371,44 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     session.on('post-turn-check', () => refreshOverlaysOf(session.id));
   }
 
+  async function applyOverlayRequest(repo: CodemapRepo, request: Extract<AgentCodemapRequest, { sub: 'overlay' }>): Promise<CodemapOutcome | null> {
+    const repoName = path.basename(repo.repoDir);
+    if (request.layer === 'none') {
+      overlayByRepoDir.delete(repo.repoDir);
+      specPlanByRepoDir.delete(repo.repoDir);
+      return null;
+    }
+    if (request.layer === 'spec') {
+      if (!request.id || !CODEMAP_SPEC_SLUG.test(request.id)) return { ok: false, status: BAD_REQUEST_STATUS, error: 'codemap overlay spec needs a design spec slug of lowercase letters, digits and dashes' };
+      const loaded = await specPlanOf(repo.repoDir, request.id);
+      if (!loaded.ok) return loaded;
+      specPlanByRepoDir.set(repo.repoDir, loaded.plan);
+      return null;
+    }
+    const sessionId = request.id ?? repo.sessionId ?? null;
+    if (!sessionId) return { ok: false, status: BAD_REQUEST_STATUS, error: 'codemap overlay session needs a session id outside a session' };
+    const overlay = await sessionOverlayOf(repo.repoDir, sessionId);
+    if (!overlay) return { ok: false, status: UNKNOWN_SESSION_STATUS, error: `no live session ${sessionId} to overlay on the map of ${repoName}` };
+    overlayByRepoDir.set(repo.repoDir, overlay);
+    return null;
+  }
+
+  function overlayTextOf(repoName: string, drawing: OverlayDrawing): string {
+    const sessionText = drawing.stamp ? [`${drawing.stamp.title.toLowerCase()} ${drawing.stamp.lines.join(', ')}`] : [];
+    const specText = drawing.specPlan ? [`spec ${drawing.specPlan.slug} draws ${drawing.specPlan.units.length} units as plan steps, ${drawing.specPlan.landedUnitIds.size} landed`] : [];
+    const parts = [...sessionText, ...specText];
+    return parts.length > 0 ? `codemap overlay on the map of ${repoName}: ${parts.join('; ')}` : `codemap overlay: the map of ${repoName} shows no overlay.`;
+  }
+
   async function overlayOutcomeOf(repo: CodemapRepo, request: Extract<AgentCodemapRequest, { sub: 'overlay' }>): Promise<CodemapOutcome> {
     const repoName = path.basename(repo.repoDir);
-    const sessionId = request.id ?? repo.sessionId ?? null;
-    if (request.layer === 'session' && !sessionId) return { ok: false, status: MISSING_SESSION_STATUS, error: 'codemap overlay session needs a session id outside a session' };
-    const overlay = request.layer === 'session' && sessionId ? await sessionOverlayOf(repo.repoDir, sessionId) : null;
-    if (request.layer === 'session' && !overlay) return { ok: false, status: UNKNOWN_SESSION_STATUS, error: `no live session ${sessionId} to overlay on the map of ${repoName}` };
-    if (overlay) overlayByRepoDir.set(repo.repoDir, overlay);
-    if (!overlay) overlayByRepoDir.delete(repo.repoDir);
+    const refused = await applyOverlayRequest(repo, request);
+    if (refused) return refused;
     stateOf(repo.repoDir).drawRetryAtMs = 0;
     const map = await currentMap(repo);
     if ('error' in map) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: map.error };
     if (!map.isBoardDrawn) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: `the map board of ${repoName} could not be redrawn, so the overlay is not shown yet; the next map read retries it` };
-    const drawing = overlayDrawingOf(stateOf(repo.repoDir), repo.repoDir);
-    const text = drawing.stamp ? `codemap overlay on the map of ${repoName}: ${drawing.stamp.title.toLowerCase()} ${drawing.stamp.lines.join(', ')}` : `codemap overlay: the map of ${repoName} shows no overlay.`;
-    return { ok: true, reply: { ok: true, text, status: map.status } };
+    return { ok: true, reply: { ok: true, text: overlayTextOf(repoName, overlayDrawingOf(stateOf(repo.repoDir), repo.repoDir)), status: map.status } };
   }
 
   function noticeOf(repoDir: string): string | null {

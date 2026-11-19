@@ -384,15 +384,15 @@ const CLAIM_TOOL: GroupedTool = {
 const CODEMAP_TOOL: GroupedTool = {
   name: 'codemap',
   title: 'Glimmervoid code map',
-  description: "This repo's module map, generated from its imports at the mainline commit and kept in step with it by Glimmervoid; reach for it before a grep sweep. map lists modules with file counts and the import edges between them; where names the module, exports, neighbors and reaching entrances of a file (path relative to the repo root) or of an exported name; impact lists the dependents, tests, modules and entrances a set of files reaches; check lists the new module imports this session's branch adds that the repo's setup does not allow, which a gated repo refuses to merge until the operator allows them; overlay session tints the modules a session changed on the operator's map board, this session's unless id names another, and refreshes at that session's turn ends, while overlay none clears it; every module box also carries how many recent mainline commits changed it; allow is always refused, since only the operator allows a module import. Every reply names the commit it describes and whether the map is current, behind or failed.",
+  description: "This repo's module map, generated from its imports at the mainline commit and kept in step with it by Glimmervoid; reach for it before a grep sweep. map lists modules with file counts and the import edges between them; where names the module, exports, neighbors and reaching entrances of a file (path relative to the repo root) or of an exported name; impact lists the dependents, tests, modules and entrances a set of files reaches; check lists the new module imports this session's branch adds that the repo's setup does not allow, which a gated repo refuses to merge until the operator allows them; overlay session tints the modules a session changed on the operator's map board, this session's unless id names another, and refreshes at that session's turn ends; overlay spec with id set to a design spec slug draws its units as plan steps wired to their modules, landed once a Ticket trailer for them is on mainline; overlay none clears both; every module box also carries how many recent mainline commits changed it; allow is always refused, since only the operator allows a module import. Every reply names the commit it describes and whether the map is current, behind or failed.",
   loadsUpfront: true,
   fields: {
     target: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('where: a file path relative to the repo root, or an exported name'),
     paths: z.array(z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS)).min(1).max(CODEMAP_IMPACT_MAX_PATHS).optional().describe('impact: the files, relative to the repo root'),
     from: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('allow: the importing module'),
     to: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('allow: the imported module'),
-    layer: z.enum(CODEMAP_OVERLAY_LAYERS).optional().describe('overlay: session to tint the modules a session changed, none to clear the overlay'),
-    id: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('overlay session: the session id to show, this session when left out'),
+    layer: z.enum(CODEMAP_OVERLAY_LAYERS).optional().describe('overlay: session to tint the modules a session changed, spec to draw a design spec as plan steps, none to clear both'),
+    id: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('overlay session: the session id to show, this session when left out; overlay spec: the design spec slug'),
   },
   actions: {
     map: subcommandRoute('codemap', 'map', [], { hints: READS }),

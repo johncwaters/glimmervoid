@@ -2262,7 +2262,7 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal(removed.status, 200);
 });
 
-test('the code map board keeps a moved box and a note wired to it across regenerations, stamps the mapped sha, tints and refreshes a session overlay, and refuses an agent any other change to a codemap element', async () => {
+test('the code map board keeps a moved box and a note wired to it across regenerations, stamps the mapped sha, tints and refreshes a session overlay, draws a design spec as plan steps landed by their Ticket trailers, and refuses an agent any other change to a codemap element', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'codemap-board-'));
   const repoDir = path.join(boardsRoot, 'mapped');
   const writeSource = (repoPath: string, text: string) => {
@@ -2279,7 +2279,18 @@ test('the code map board keeps a moved box and a note wired to it across regener
   await commitAll();
   const wiring = createWhiteboardWiring({ boardsRoot });
   let overlaidPaths = ['app/screen1.ts'];
-  const codemap = createCodemapService({ whiteboards: wiring, changesOfSession: async (sessionId) => (sessionId === 'worker' ? { name: 'worker', repos: [{ root: repoDir, paths: overlaidPaths }] } : null) });
+  const specsRoot = path.join(boardsRoot, 'specs');
+  fs.mkdirSync(path.join(specsRoot, 'mapped'), { recursive: true });
+  fs.writeFileSync(path.join(specsRoot, 'mapped', 'ship-parts.json'), JSON.stringify({
+    status: 'challenged',
+    nodes: [{ id: 'G1', kind: 'goal', text: 'ship' }, { id: 'U1', kind: 'unit', title: 'Grow the parts', changes: ['lib/part1.ts'] }, { id: 'U2', kind: 'unit', title: 'Show the parts', changes: ['app/screen1.ts', 'lib/part2.ts'] }],
+    edges: [{ from: 'U2', kind: 'dependsOn', to: 'U1' }, { from: 'U2', kind: 'dependsOn', to: 'U1' }],
+  }));
+  const otherRepoDir = path.join(boardsRoot, 'other');
+  fs.mkdirSync(otherRepoDir);
+  await execFileAsync('git', ['init', '-q'], { cwd: otherRepoDir });
+  fs.writeFileSync(path.join(specsRoot, 'mapped', 'foreign.json'), JSON.stringify({ repoRoot: otherRepoDir, nodes: [], edges: [] }));
+  const codemap = createCodemapService({ whiteboards: wiring, specsRoot, changesOfSession: async (sessionId) => (sessionId === 'worker' ? { name: 'worker', repos: [{ root: repoDir, paths: overlaidPaths }] } : null) });
   const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
   await codemap.handle({ repoDir }, { sub: 'map' });
   const firstRead = await wiring.readPlanBoard(reader, 'Code map: mapped');
@@ -2335,6 +2346,25 @@ test('the code map board keeps a moved box and a note wired to it across regener
   assert.equal((await boxTitled('app'))?.tone, null);
   const missing = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'session', id: 'gone' });
   assert.equal(missing.ok ? null : missing.status, 404);
+
+  writeSource('lib/part1.ts', 'export const part1 = 100;');
+  await execFileAsync('git', ['add', '-A'], { cwd: repoDir });
+  await execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'grow parts', '-m', 'Ticket: ship-parts/U1'], { cwd: repoDir });
+  const planned = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'spec', id: 'ship-parts' });
+  assert.match(planned.ok ? planned.reply.text : '', /spec ship-parts draws 2 units as plan steps, 1 landed/);
+  const stepOf = async (title: string) => (await boxTitled(title))?.step?.status;
+  assert.equal(await stepOf('U1 Grow the parts'), 'landed');
+  assert.equal(await stepOf('U2 Show the parts'), 'planned');
+  const planRead = await wiring.readPlanBoard(reader, boardId);
+  assert.ok(planRead.ok);
+  const titleById = new Map([...planRead.board.elements.values()].map((element) => [element.id, element.kind === 'box' ? element.title : '']));
+  const wiredTitles = [...planRead.board.elements.values()].flatMap((element) => (element.kind === 'wire' && element.id.startsWith('cms-') ? [`${titleById.get(String(element.from))} > ${titleById.get(String(element.to))}`] : [])).sort();
+  assert.deepEqual(wiredTitles, ['U1 Grow the parts > U2 Show the parts', 'U1 Grow the parts > lib', 'U2 Show the parts > app', 'U2 Show the parts > lib']);
+  const foreign = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'spec', id: 'foreign' });
+  assert.match(foreign.ok ? '' : foreign.error, /belongs to .*other/);
+  for (const badSlug of ['../secrets', 'Ship']) assert.equal((await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'spec', id: badSlug })).ok, false);
+  assert.equal((await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'none' })).ok, true);
+  assert.equal(await boxTitled('U1 Grow the parts'), null);
 });
 
 test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {
