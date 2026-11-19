@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { fetchFnox, hostTarget } from './fetch-fnox.ts';
+import { assertBinariesFitGlibcFloor } from './check-glibc-floor.ts';
 import { packJsonSchemaText } from '../shared/contracts/pack.ts';
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -76,6 +77,14 @@ async function buildBinary() {
   await buildRelayBinary(packageExecutable, pkgTarget, binaryOutputDirectory);
   const fnoxName = process.platform === 'win32' ? 'glimmervoid-fnox.exe' : 'glimmervoid-fnox';
   await fetchFnox({ target: hostTarget(), outputPath: path.join(binaryOutputDirectory, fnoxName) });
+  if (process.platform !== 'linux') return;
+  const builtBinaryPaths = [binaryName, 'glimmervoid-relay', fnoxName].map((fileName) => path.join(binaryOutputDirectory, fileName));
+  try {
+    assertBinariesFitGlibcFloor({ repoRoot, builtBinaryPaths });
+  } catch (error) {
+    fail(error.message);
+  }
+  console.log('build: every shipped Linux binary and native module fits the dist glibc floor');
 }
 
 async function buildRelayBinary(packageExecutable, pkgTarget, binaryOutputDirectory) {

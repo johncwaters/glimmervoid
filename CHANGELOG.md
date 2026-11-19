@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The Homebrew tap gets each release again.** A style check added in Homebrew 7.0.15 rejected the generated formula and stopped the 0.62.8 formula from reaching the tap. Releases now pass that check.
+- **The install script works on older Linux again.** `glimmervoid-installer.sh` refused any Linux older than glibc 2.39, such as Debian 12 or Ubuntu 22.04, with `no compatible downloads were found for your platform`, though the binary runs on glibc 2.28 and newer. It now installs on any Linux with glibc 2.28 or newer.
 
 ## [0.62.8] - 2026-11-18
 
