@@ -19,7 +19,7 @@ import { clock } from '#shared/clock.ts';
 import { boardIndexOf, linkedIdsOf } from '#shared/whiteboard-board-index.ts';
 import { carriedWiresOf, centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf, shiftedWireOpOf } from './board-clipboard-core.ts';
 import type { BoardClipboard } from './board-clipboard-core.ts';
-import { rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
+import { movedSnapOf, rectAround, snappedCorrectionOf, snapTargetsOf } from './board-snap-core.ts';
 import type { SnapGuide, SnapTargets } from './board-snap-core.ts';
 import { alignedRectsOf, distributedRectsOf } from './board-context-menu.ts';
 import { firstPresentedBoxId, presentedBoxIdAfter } from './media-walk-core.ts';
@@ -1247,8 +1247,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     }
     const offset = { x: point.x - drag.origin.x, y: point.y - drag.origin.y };
     const moved = shiftedRectOf(rectAround(drag.movingBoxes.map((movingBox) => movingBox.start)), offset);
-    const edges = { xs: [moved.x, moved.x + moved.width / 2, moved.x + moved.width], ys: [moved.y, moved.y + moved.height / 2, moved.y + moved.height] };
-    const snap = snappedCorrectionOf(drag.snapTargets, edges, moved, thresholdUnits);
+    const snap = movedSnapOf(drag.snapTargets, moved, thresholdUnits);
     paintGuides(snap.guides);
     return { x: point.x + snap.correction.x, y: point.y + snap.correction.y };
   }
