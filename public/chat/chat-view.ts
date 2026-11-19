@@ -36,7 +36,7 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
 
 const HELD_WHILE_STARTING_TEXT = 'Sends when the agent is ready';
 
-const DOCK_CLEARANCE_PX = 4;
+const DOCK_CLEARANCE_PX = 20;
 const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
 const TURN_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['[', -1], [']', 1]]);
 

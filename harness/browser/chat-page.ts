@@ -152,10 +152,14 @@ async function verifySendFollowsLatest(page: Page): Promise<void> {
 async function startCountingSentPrompts(page: Page, sentText: string): Promise<void> {
   await page.evaluate((text) => {
     const counts: number[] = [];
-    Object.assign(window, { sentPromptCounts: counts });
+    const tops: number[] = [];
+    Object.assign(window, { sentPromptCounts: counts, sentPromptTops: tops });
     const countFrame = () => {
       const prompts = document.querySelectorAll('.session-chat .chat-scroll-content .chat-prompt');
-      counts.push([...prompts].filter((prompt) => prompt.textContent === text).length);
+      const sentPrompts = [...prompts].filter((prompt) => prompt.textContent === text);
+      counts.push(sentPrompts.length);
+      const shownTop = sentPrompts[0]?.getBoundingClientRect().top;
+      if (shownTop !== undefined) tops.push(Math.round(shownTop));
       if (counts.length < 600) requestAnimationFrame(countFrame);
     };
     requestAnimationFrame(countFrame);
@@ -168,6 +172,15 @@ async function verifySentPromptNeverBlinks(page: Page): Promise<void> {
   assert.ok(shownFrom >= 0, 'the sent message shows');
   assert.deepEqual([...new Set(counts.slice(shownFrom))], [1], 'the sent message shows once in every frame from send until the conversation has it');
   await page.waitForFunction(() => document.querySelector('.session-chat [data-part-id^="sent-"]') === null, undefined, { timeout: CARD_TIMEOUT_MS });
+  const tops = await page.evaluate(() => Reflect.get(window, 'sentPromptTops') as number[]);
+  assert.deepEqual([...new Set(tops)], [tops[0]], 'the sent message never moves from send until the conversation has it');
+  const isPromptAboveCard = await page.locator('.session-chat .chat-log').evaluate((log) => {
+    const sentPrompt = [...log.querySelectorAll('.chat-prompt')].find((prompt) => prompt.textContent === 'ask-chat');
+    const card = log.querySelector('.chat-card[data-card-type="permission"]');
+    if (!sentPrompt || !card) return false;
+    return (sentPrompt.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  });
+  assert.ok(isPromptAboveCard, 'the question asked after a send shows below the sent message');
 }
 
 async function verifyOpenCardStaysLastAcrossRemount(page: Page): Promise<void> {

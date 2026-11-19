@@ -36,6 +36,8 @@ const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTA
 const uploadingCountBySessionId = new Map<string, number>();
 const SEEN_TURNS_STORAGE_KEY = 'glimmervoid-chat-seen-turns';
 const MAX_SESSIONS_WITH_SEEN_TURNS = 200;
+const STAND_IN_UNRECORDED_MAX_MS = 5000;
+const SENT_OUTBOX_STATES: ReadonlySet<ChatOutboxEntry['state']> = new Set(['sending', 'submitted']);
 
 function seenTurnKeyBySessionId(): Record<string, unknown> {
   const stored: unknown = getJSON(SEEN_TURNS_STORAGE_KEY, {});
@@ -250,29 +252,54 @@ function buildChat(sessionId: string): MountedChat {
   for (const fileName of draftAttachmentsBySessionId.get(sessionId) ?? []) chatView.showAttachment(fileName);
   draftAttachmentsBySessionId.delete(sessionId);
   const standInByEntryId = new Map<string, ChatPart>();
-  const entryIdsAwaitingFeed = new Set<string>();
+  const entryIdsTakenByPrompt = new Set<string>();
+  const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
+  const shownPromptPartIds = new Set<string>();
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
       const standIn = standInByEntryId.get(entryId);
       if (standIn) chatView.remove([standIn.id]);
       standInByEntryId.delete(entryId);
-      entryIdsAwaitingFeed.delete(entryId);
+      clearTimeout(unrecordedTimerByEntryId.get(entryId));
+      unrecordedTimerByEntryId.delete(entryId);
     }
+  };
+  const awaitPromptFor = (entryId: string) => {
+    if (unrecordedTimerByEntryId.has(entryId)) return;
+    unrecordedTimerByEntryId.set(entryId, setTimeout(() => {
+      feed.whenCaughtUp(() => removeStandIns([entryId]));
+      feed.refresh();
+    }, STAND_IN_UNRECORDED_MAX_MS));
+  };
+  const countNewPromptParts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[]) => {
+    for (const droppedPartId of droppedPartIds) shownPromptPartIds.delete(droppedPartId);
+    const newPromptParts = changedParts.filter((part) => part.kind === 'prompt' && !shownPromptPartIds.has(part.id));
+    for (const promptPart of newPromptParts) shownPromptPartIds.add(promptPart.id);
+    return newPromptParts.length;
+  };
+  const swapStandInsForPrompts = (newPromptCount: number) => {
+    const takenEntryIds = [...standInByEntryId.keys()].slice(0, newPromptCount);
+    for (const entryId of takenEntryIds) entryIdsTakenByPrompt.add(entryId);
+    removeStandIns(takenEntryIds);
   };
   const showOutbox = () => {
     const entries = outboxBySessionId.get(sessionId) ?? [];
-    const submittedEntries = entries.filter((entry) => entry.state === 'submitted');
-    for (const entry of submittedEntries) {
-      if (standInByEntryId.has(entry.entryId)) continue;
+    const sentEntries = entries.filter((entry) => SENT_OUTBOX_STATES.has(entry.state));
+    for (const entryId of entryIdsTakenByPrompt) {
+      if (!sentEntries.some((entry) => entry.entryId === entryId)) entryIdsTakenByPrompt.delete(entryId);
+    }
+    for (const entry of sentEntries) {
+      if (standInByEntryId.has(entry.entryId) || entryIdsTakenByPrompt.has(entry.entryId)) continue;
       const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: clock.nowMs(), attachments: [...entry.attachments] };
       standInByEntryId.set(entry.entryId, standIn);
       chatView.upsert([standIn]);
     }
-    const recordedEntryIds = [...standInByEntryId.keys()].filter((entryId) => !entryIdsAwaitingFeed.has(entryId) && !submittedEntries.some((entry) => entry.entryId === entryId));
-    chatView.showQueued(entries.filter((entry) => entry.state !== 'submitted'));
-    if (recordedEntryIds.length === 0) return;
-    for (const entryId of recordedEntryIds) entryIdsAwaitingFeed.add(entryId);
-    feed.whenCaughtUp(() => removeStandIns(recordedEntryIds));
+    const unsentEntryIds = [...standInByEntryId.keys()].filter((entryId) => entries.some((entry) => entry.entryId === entryId && !SENT_OUTBOX_STATES.has(entry.state)));
+    removeStandIns(unsentEntryIds);
+    chatView.showQueued(entries.filter((entry) => !SENT_OUTBOX_STATES.has(entry.state)));
+    const clearedEntryIds = [...standInByEntryId.keys()].filter((entryId) => !entries.some((entry) => entry.entryId === entryId));
+    if (clearedEntryIds.length === 0) return;
+    for (const entryId of clearedEntryIds) awaitPromptFor(entryId);
     feed.refresh();
   };
   const showFailure = (failureText: string | null) => {
@@ -311,7 +338,7 @@ function buildChat(sessionId: string): MountedChat {
     const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
     const terminalCardIds = terminalCardId === null ? [] : [terminalCardId];
     const standInIds = [...standInByEntryId.values()].map((standIn) => standIn.id);
-    chatView.keepLast([...openCardIds, ...terminalCardIds, ...standInIds]);
+    chatView.keepLast([...standInIds, ...openCardIds, ...terminalCardIds]);
   };
 
   const releaseTerminal = () => {
@@ -478,9 +505,11 @@ function buildChat(sessionId: string): MountedChat {
     sessionId,
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
-    onPartsChanged: (changedParts, droppedPartIds) => {
+    onPartsChanged: (changedParts, droppedPartIds, isLive) => {
       chatView.upsert(changedParts);
       chatView.remove(droppedPartIds);
+      const newPromptCount = countNewPromptParts(changedParts, droppedPartIds);
+      if (isLive) swapStandInsForPrompts(newPromptCount);
       keepPendingPartsLast();
     },
     onSubagents: (subagents) => {
@@ -495,7 +524,8 @@ function buildChat(sessionId: string): MountedChat {
       const freshView = createChatView(uploadUrlFor(sessionId), seenTurnsFor(sessionId));
       freshView.restoreDraft(chatView.readDraft());
       for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
-      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => entry.state !== 'submitted'));
+      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !SENT_OUTBOX_STATES.has(entry.state)));
+      shownPromptPartIds.clear();
       freshView.upsert([...standInByEntryId.values()]);
       freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
@@ -536,6 +566,7 @@ function buildChat(sessionId: string): MountedChat {
       draftBySessionId.set(sessionId, chatView.readDraft());
       draftAttachmentsBySessionId.set(sessionId, chatView.readAttachments());
       releaseTerminal();
+      for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       feed.close();
     },
   };
