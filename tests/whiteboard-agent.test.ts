@@ -22,6 +22,7 @@ import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } fro
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { createWhiteboardWiring } from '../server/whiteboard/whiteboard-wiring.ts';
+import { createCodemapService } from '../server/codemap/codemap-wiring.ts';
 import { createTaskTitleRefiner } from '../server/task-title-refiner.ts';
 import { createBoardStore } from '../server/whiteboard/board-store-client.ts';
 import { planSteps } from '../shared/whiteboard-plan-core.ts';
@@ -2250,6 +2251,51 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal((changed.body as { error?: string }).error, 'op 1: only the operator changes strokes; an agent may read or remove one, so nothing changed');
   const removed = await wiring.handleAgent(agent, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'ink' }]) });
   assert.equal(removed.status, 200);
+});
+
+test('the code map board keeps a moved box and a note wired to it across regenerations, and refuses an agent any other change to a codemap element', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'codemap-board-'));
+  const repoDir = path.join(boardsRoot, 'mapped');
+  const writeSource = (repoPath: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(repoDir, repoPath)), { recursive: true });
+    fs.writeFileSync(path.join(repoDir, repoPath), text);
+  };
+  const commitAll = async () => {
+    await execFileAsync('git', ['add', '-A'], { cwd: repoDir });
+    await execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'map me'], { cwd: repoDir });
+  };
+  for (let index = 0; index < 21; index++) writeSource(`lib/part${index}.ts`, `export const part${index} = ${index};`);
+  for (let index = 0; index < 20; index++) writeSource(`app/screen${index}.ts`, `import { part${index} } from '../lib/part${index}.ts';\nexport const screen${index} = part${index};`);
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: repoDir });
+  await commitAll();
+  const wiring = createWhiteboardWiring({ boardsRoot });
+  const codemap = createCodemapService({ whiteboards: wiring });
+  const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
+  await codemap.handle({ repoDir, mainlineBranch: null }, { sub: 'map' });
+  const firstRead = await wiring.readPlanBoard(reader, 'Code map: mapped');
+  assert.ok(firstRead.ok);
+  const boardId = firstRead.board.id;
+  const libBoxId = [...firstRead.board.elements.values()].find((element) => element.kind === 'box' && element.title === 'lib')?.id ?? '';
+  assert.match(libBoxId, /^cm-lib-[0-9a-f]{8}$/);
+
+  assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: libBoxId, fields: { place: { at: { x: 900, y: 900 } } } }]))).ok, true);
+  const noted = await wiring.handleAgent(reader, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'lib-note', title: 'Shared parts', shape: 'note', place: { near: { of: libBoxId, side: 'right' } } } }, { op: 'add', element: { kind: 'wire', id: 'lib-note-wire', from: 'lib-note', to: libBoxId, dashed: true } }]) });
+  assert.equal(noted.status, 200);
+  for (const refusedOp of [{ op: 'set', id: libBoxId, fields: { title: 'renamed' } }, { op: 'remove', id: libBoxId }, { op: 'add', element: { kind: 'box', id: 'cm-forged', title: 'forged', place: 'aside' } }]) {
+    const refused = await wiring.handleAgent(reader, { sub: 'put', board: boardId, ops: z.array(Op).parse([refusedOp]) });
+    assert.match((refused.body as { error?: string }).error ?? '', /belong to codemap/);
+  }
+
+  writeSource('tools/build.ts', "import { part0 } from '../lib/part0.ts';\nexport const built = part0;");
+  await commitAll();
+  await codemap.handle({ repoDir, mainlineBranch: null }, { sub: 'map' });
+  const secondRead = await wiring.readPlanBoard(reader, boardId);
+  assert.ok(secondRead.ok);
+  const elements = secondRead.board.elements;
+  const movedBox = elements.get(libBoxId);
+  assert.deepEqual(movedBox?.kind === 'box' ? movedBox.place : null, { at: { x: 900, y: 900 } });
+  assert.equal(elements.get('lib-note-wire')?.kind, 'wire');
+  assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === 'tools'));
 });
 
 test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {

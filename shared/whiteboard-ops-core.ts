@@ -42,10 +42,25 @@ const STORED_ELEMENT_SCHEMAS = Object.freeze({ box: Box, frame: Frame, wire: Wir
 const OK: OpOutcome = { ok: true };
 const DIFFED_BOARD_FIELDS = ['title', 'caption', 'legend', 'codeSessionId', 'link'] as const;
 const OPERATOR_AUTHOR: Author = Object.freeze({ id: 'operator', name: 'operator' });
+const CODEMAP_AUTHOR: Author = Object.freeze({ id: 'codemap', name: 'codemap' });
+const CODEMAP_ID_PREFIXES = Object.freeze({ map: 'cm-', overlay: 'cmo-', steps: 'cms-' });
+const CODEMAP_OWNED_REFUSAL = 'ids starting cm-, cmo- or cms- belong to codemap, which regenerates them; anyone may change place, step status on a cms- step, and the operator may add or remove one';
 const NO_PLAN_STEPS = new Map<string, never>();
 
 function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
+}
+
+function isCodemapOwnedId(id: string): boolean {
+  return Object.values(CODEMAP_ID_PREFIXES).some((prefix) => id.startsWith(prefix));
+}
+
+function isOwnedByCodemapFor(id: string, author: Author): boolean {
+  return isCodemapOwnedId(id) && author.id !== CODEMAP_AUTHOR.id;
+}
+
+function isOpenToEveryone(id: string, fields: Record<string, unknown>): boolean {
+  return Object.entries(fields).every(([field, value]) => field === 'place' || (field === 'step' && id.startsWith(CODEMAP_ID_PREFIXES.steps) && isRecord(value) && Object.keys(value).every((stepField) => stepField === 'status')));
 }
 
 function authoredNote(element: Element, previous: Element | undefined, author: Author): Element {
@@ -177,6 +192,7 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (elementOf(draft, element.id)) return refuse(`an element with id ${element.id} already exists`);
   if (draft.elementCount >= WHITEBOARD_LIMITS.elements) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.elements} elements`);
   if (element.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator draws strokes; an agent may read or remove one');
+  if (isOwnedByCodemapFor(element.id, author) && !isOperatorAuthor(author)) return refuse(CODEMAP_OWNED_REFUSAL);
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   const placed = placedAtNear(draft, isOperatorAuthor(author) ? element : withFittedWidth(element));
   if (!placed.ok) return placed;
@@ -217,6 +233,7 @@ function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>
 function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>, author: Author): OpOutcome {
   const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
+  if (isOwnedByCodemapFor(id, author) && !isOpenToEveryone(id, rawFields)) return refuse(CODEMAP_OWNED_REFUSAL);
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
   if (existing.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator changes strokes; an agent may read or remove one');
@@ -231,9 +248,10 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   return OK;
 }
 
-function removeElement(draft: Draft, id: string): OpOutcome {
+function removeElement(draft: Draft, id: string, author: Author): OpOutcome {
   const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
+  if (isOwnedByCodemapFor(id, author) && !isOperatorAuthor(author)) return refuse(CODEMAP_OWNED_REFUSAL);
   eraseElement(draft, id);
   if (existing.kind !== 'box') return OK;
   for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);
@@ -355,7 +373,7 @@ function applyOne(draft: Draft, op: ElementOp, author: Author): OpOutcome {
   switch (op.op) {
     case 'add': return addElement(draft, op.element, author);
     case 'set': return setFields(draft, op.id, op.fields, author);
-    case 'remove': return removeElement(draft, op.id);
+    case 'remove': return removeElement(draft, op.id, author);
     case 'board':
       if (op.title !== undefined) draft.head.title = op.title;
       if (op.caption !== undefined) draft.head.caption = op.caption;
@@ -614,5 +632,5 @@ function createBoard({ id, title, nowMs, codeSessionId = null, project = null }:
   };
 }
 
-export { OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, noteBoxTextOf, stageOps, unplacedNearTargetIdsOf };
+export { CODEMAP_AUTHOR, CODEMAP_ID_PREFIXES, OPERATOR_AUTHOR, applyBoardDiff, applyOps, createBoard, noteBoxTextOf, stageOps, unplacedNearTargetIdsOf };
 export type { ApplyResult, Author, PinPositions, StagedOps };

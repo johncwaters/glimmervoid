@@ -1,10 +1,15 @@
 import path from 'node:path';
+import { z } from 'zod';
 
 import type { AgentCodemapReply, AgentCodemapRequest, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
+import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
+import { createJsonStateStore } from '../json-file.ts';
 import { runGit } from '../git/git-exec.ts';
-import { buildCodemapModel, CODEMAP_TUNABLES, impactOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { buildCodemapModel, CODEMAP_TUNABLES, impactOf, mapBoardOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -17,7 +22,12 @@ interface CodemapRepo {
 interface RepoMapState {
   model: CodemapModel | null;
   failure: { sha: string; reason: string; retryAtMs: number } | null;
+  drawnSha: string | null;
+  drawRetryAtMs: number;
 }
+
+const MapBoardIds = z.record(z.string(), z.string());
+const PUT_BYTES_HEADROOM = 64 * 1024;
 
 type DefaultBranchDetector = (probe: { projectPath: string }) => Promise<string | null>;
 
@@ -41,7 +51,105 @@ async function noDefaultBranch(): Promise<string | null> {
   return null;
 }
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch }: { client?: CodemapClient; detectDefaultBranch?: DefaultBranchDetector } = {}) {
+type MapBoards = Pick<WhiteboardPort, 'handleAgent' | 'handleOperator' | 'readPlanBoard'>;
+
+interface CodemapServiceOptions {
+  client?: CodemapClient;
+  detectDefaultBranch?: DefaultBranchDetector;
+  whiteboards?: MapBoards | null;
+  mapBoardIdsFilePath?: string | null;
+  logger?: Pick<Console, 'warn'>;
+}
+
+function chunkedBySize(ops: readonly Op[]): Op[][] {
+  const chunks: Op[][] = [];
+  let current: Op[] = [];
+  let currentBytes = 0;
+  for (const op of ops) {
+    const opBytes = Buffer.byteLength(JSON.stringify(op));
+    const isFull = current.length >= WHITEBOARD_LIMITS.opsPerPut || currentBytes + opBytes > WHITEBOARD_LIMITS.putBytes - PUT_BYTES_HEADROOM;
+    if (isFull && current.length > 0) {
+      chunks.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(op);
+    currentBytes += opBytes;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+const OpList = z.array(Op);
+
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, logger = console }: CodemapServiceOptions = {}) {
+  const drawingByRepoDir = new Map<string, Promise<boolean>>();
+  const mapBoardIdByRepoDir = new Map<string, string>();
+  const mapBoardIdStore = createJsonStateStore({
+    name: 'code map boards', filePath: mapBoardIdsFilePath,
+    parse: (raw) => MapBoardIds.safeParse(raw).data ?? null,
+    adopt: (loadedBoardIds) => {
+      for (const [repoDir, boardId] of Object.entries(loadedBoardIds ?? {})) mapBoardIdByRepoDir.set(repoDir, boardId);
+    },
+    warn: (message, fields) => logger.warn(`[codemap] ${message} ${JSON.stringify(fields)}`),
+  });
+
+  async function rememberMapBoard(repoDir: string, boardId: string): Promise<string> {
+    mapBoardIdByRepoDir.set(repoDir, boardId);
+    const boardIds = Object.fromEntries(mapBoardIdByRepoDir);
+    await mapBoardIdStore.write(boardIds, () => `${JSON.stringify(boardIds, null, 2)}\n`);
+    return boardId;
+  }
+
+  async function mapBoardIdOf(boards: MapBoards, repoDir: string): Promise<string> {
+    await mapBoardIdStore.load();
+    const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
+    const rememberedBoardId = mapBoardIdByRepoDir.get(repoDir);
+    if (rememberedBoardId && (await boards.readPlanBoard(caller, rememberedBoardId)).ok) return rememberedBoardId;
+    const title = `Code map: ${path.basename(repoDir)}`.slice(0, WHITEBOARD_LIMITS.title);
+    const listed = await boards.handleAgent(caller, { sub: 'list' });
+    const titledBoardIds = 'boards' in listed.body ? listed.body.boards.filter((board) => board.title.toLowerCase() === title.toLowerCase()).map((board) => board.id) : [];
+    if (titledBoardIds.length > 1) throw new Error(`${titledBoardIds.length} boards are titled ${title} and none is the remembered map board, so none was redrawn`);
+    if (titledBoardIds[0]) return rememberMapBoard(repoDir, titledBoardIds[0]);
+    const created = await boards.handleOperator.create(title);
+    const createdBoardId = created.board?.id ?? created.summary?.id;
+    if (!created.ok || !createdBoardId) throw new Error(`the map board could not be created: ${created.error ?? 'no reason given'}`);
+    return rememberMapBoard(repoDir, createdBoardId);
+  }
+
+  async function drawMapBoard(boards: MapBoards, repoDir: string, model: CodemapModel): Promise<void> {
+    const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
+    const boardId = await mapBoardIdOf(boards, repoDir);
+    const read = await boards.readPlanBoard(caller, boardId);
+    if (!read.ok) throw new Error(`the map board could not be read: ${JSON.stringify(read.reply.body)}`);
+    const existingKindById = new Map([...read.board.elements].map(([id, element]) => [id, element.kind]));
+    for (const ops of chunkedBySize(OpList.parse(mapBoardOpsOf(model, existingKindById)))) {
+      const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops });
+      if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
+    }
+  }
+
+  function redrawMapBoard(repoDir: string, model: CodemapModel): Promise<boolean> {
+    if (!whiteboards) return Promise.resolve(true);
+    const boards = whiteboards;
+    const previous = drawingByRepoDir.get(repoDir) ?? Promise.resolve(true);
+    const drawing = previous.then(() => drawMapBoard(boards, repoDir, model)).then(() => true, (error: unknown) => {
+      logger.warn(`[codemap] the map board of ${repoDir} was not redrawn: ${errorMessage(error)}`);
+      return false;
+    });
+    drawingByRepoDir.set(repoDir, drawing);
+    return drawing;
+  }
+
+  async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, model: CodemapModel): Promise<void> {
+    if (state.drawnSha === model.sha || clock.nowMs() < state.drawRetryAtMs) return;
+    if (await redrawMapBoard(repoDir, model)) {
+      state.drawnSha = model.sha;
+      return;
+    }
+    state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;
+  }
+
   async function mainlineShaOf({ repoDir, mainlineBranch }: CodemapRepo): Promise<string | null> {
     const branch = mainlineBranch ?? await detectDefaultBranch({ projectPath: repoDir });
     if (!branch) return revParse(repoDir, 'HEAD');
@@ -53,7 +161,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   function stateOf(repoDir: string): RepoMapState {
     const known = stateByRepoDir.get(repoDir);
     if (known) return known;
-    const created: RepoMapState = { model: null, failure: null };
+    const created: RepoMapState = { model: null, failure: null, drawnSha: null, drawRetryAtMs: 0 };
     stateByRepoDir.set(repoDir, created);
     return created;
   }
@@ -69,10 +177,14 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (!mainlineSha) return { error: `${repo.repoDir} has no commit to map; the code map needs a git repository with a mainline commit` };
     const state = stateOf(repo.repoDir);
     const isFailureFresh = state.failure?.sha === mainlineSha && clock.nowMs() < state.failure.retryAtMs;
+    if (state.model?.sha === mainlineSha) await keepMapBoardDrawn(state, repo.repoDir, state.model);
     if (state.model?.sha === mainlineSha || isFailureFresh) return { model: state.model, status: statusOf(state, mainlineSha) };
     try {
-      state.model = buildCodemapModel(await client.extract(repo.repoDir, mainlineSha));
+      const model = buildCodemapModel(await client.extract(repo.repoDir, mainlineSha));
+      state.model = model;
       state.failure = null;
+      state.drawRetryAtMs = 0;
+      await keepMapBoardDrawn(state, repo.repoDir, model);
     } catch (error) {
       state.failure = { sha: mainlineSha, reason: errorMessage(error), retryAtMs: clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs };
     }

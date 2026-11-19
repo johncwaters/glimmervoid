@@ -520,7 +520,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     fileClaims,
     sessionPreviews,
     verification,
-    codemap: createCodemapService({ detectDefaultBranch: assembledGitWorkspace.detectDefaultBranch }),
+    codemap: createCodemapService({ detectDefaultBranch: assembledGitWorkspace.detectDefaultBranch, whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json') }),
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({

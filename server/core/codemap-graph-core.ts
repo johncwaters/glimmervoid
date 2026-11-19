@@ -1,6 +1,9 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 
 import type { CodemapExtract, CodemapStatus } from '../../shared/contracts/codemap.ts';
+import { AnchorRef, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
 import { isTestPath } from './import-graph-core.ts';
 
 export const CODEMAP_TUNABLES = Object.freeze({
@@ -41,7 +44,7 @@ interface CodemapModel {
   moduleByIndex: readonly string[];
   modules: readonly ModuleSummary[];
   moduleEdgeCount: number;
-  importedModulesById: ReadonlyMap<string, readonly string[]>;
+  edgesByModule: ReadonlyMap<string, readonly ModuleEdge[]>;
   imports: AdjacencyList;
   dependents: AdjacencyList;
   exportedNamesByIndex: readonly (readonly string[])[];
@@ -124,12 +127,12 @@ function buildCodemapModel(extract: CodemapExtract, maxFilesPerModule: number = 
   const fileCountByModule = new Map<string, number>();
   for (const moduleId of moduleByIndex) fileCountByModule.set(moduleId, (fileCountByModule.get(moduleId) ?? 0) + 1);
   const importedByCount = new Map<string, number>();
-  const importedModulesById = new Map<string, string[]>();
+  const edgesByModule = new Map<string, ModuleEdge[]>();
   for (const edge of moduleEdges) {
     importedByCount.set(edge.to, (importedByCount.get(edge.to) ?? 0) + 1);
-    const importedModules = importedModulesById.get(edge.from) ?? [];
-    importedModules.push(`${edge.to} ${edge.fileImports}`);
-    importedModulesById.set(edge.from, importedModules);
+    const moduleEdgesFrom = edgesByModule.get(edge.from) ?? [];
+    moduleEdgesFrom.push(edge);
+    edgesByModule.set(edge.from, moduleEdgesFrom);
   }
   const modules = [...fileCountByModule].map(([id, fileCount]) => ({ id, fileCount, importedBy: importedByCount.get(id) ?? 0 }))
     .sort((left, right) => compareText(left.id, right.id));
@@ -141,7 +144,7 @@ function buildCodemapModel(extract: CodemapExtract, maxFilesPerModule: number = 
     moduleByIndex,
     modules,
     moduleEdgeCount: moduleEdges.length,
-    importedModulesById,
+    edgesByModule,
     imports,
     dependents,
     exportedNamesByIndex: extract.exportedNamesByIndex,
@@ -175,7 +178,7 @@ function mapTextOf(model: CodemapModel | null, status: CodemapStatus, repoName: 
   if (model.skippedPaths.size > 0) lines.push(`${model.skippedPaths.size} source files skipped over the size or count caps, so their imports are missing: ${cappedList([...model.skippedPaths])}`);
   lines.push('modules (file count, imported by N modules): imported modules with file import counts');
   for (const summary of model.modules.slice(0, CODEMAP_TUNABLES.listedModules)) {
-    lines.push(`${summary.id} (${summary.fileCount}, in ${summary.importedBy}): ${cappedList(model.importedModulesById.get(summary.id) ?? [])}`);
+    lines.push(`${summary.id} (${summary.fileCount}, in ${summary.importedBy}): ${cappedList((model.edgesByModule.get(summary.id) ?? []).map((edge) => `${edge.to} ${edge.fileImports}`))}`);
   }
   if (model.modules.length > CODEMAP_TUNABLES.listedModules) lines.push(`and ${model.modules.length - CODEMAP_TUNABLES.listedModules} more modules`);
   lines.push('Ask codemap where <path or exported name> for one file, or codemap impact <paths> for what a change reaches.');
@@ -269,5 +272,49 @@ function impactOf(model: CodemapModel, targets: readonly string[]): { ok: true; 
   return { ok: true, text: lines.join('\n') };
 }
 
-export { buildCodemapModel, impactOf, mapTextOf, whereOf };
+const MAP_BOX_SPACING = Object.freeze({ x: 320, y: 200 });
+const GENERATED_ID_MAX_LENGTH = 40;
+const GENERATED_HASH_LENGTH = 8;
+
+function generatedIdOf(prefix: string, displayPath: string, identity: string): string {
+  const hash = crypto.createHash('sha256').update(identity).digest('hex').slice(0, GENERATED_HASH_LENGTH);
+  const slugRoom = GENERATED_ID_MAX_LENGTH - prefix.length - hash.length - 1;
+  const slug = displayPath.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(-slugRoom).replace(/^-+|-+$/g, '');
+  return slug ? `${prefix}${slug}-${hash}` : `${prefix}${hash}`;
+}
+
+function moduleBoxIdOf(moduleId: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, moduleId === ROOT_MODULE ? 'root' : moduleId, moduleId);
+}
+
+function boardTitleOf(text: string): string {
+  return text.slice(-WHITEBOARD_LIMITS.title);
+}
+
+function fieldsToRefresh(element: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(element).filter(([field]) => field !== 'kind' && field !== 'id' && field !== 'place'));
+}
+
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
+  const columnCount = Math.max(1, Math.ceil(Math.sqrt(model.modules.length)));
+  const boxes = model.modules.map((summary, index) => ({
+    kind: 'box',
+    id: moduleBoxIdOf(summary.id),
+    title: boardTitleOf(summary.id === ROOT_MODULE ? 'repo root' : summary.id),
+    lines: [{ text: `${summary.fileCount} files, imported by ${summary.importedBy} modules`, muted: true }],
+    refs: summary.id !== ROOT_MODULE && AnchorRef.safeParse(summary.id).success ? [summary.id] : [],
+    place: { at: { x: (index % columnCount) * MAP_BOX_SPACING.x, y: Math.floor(index / columnCount) * MAP_BOX_SPACING.y } },
+  }));
+  const wires = [...model.edgesByModule.values()].flat().map((edge) => ({
+    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOf(edge.from), to: moduleBoxIdOf(edge.to), label: `${edge.fileImports}`,
+  }));
+  const producedIds = new Set([...boxes, ...wires].map((element) => element.id));
+  const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.map) && !producedIds.has(id));
+  const staleWireRemovals = staleIds.filter((id) => existingKindById.get(id) === 'wire').map((id) => ({ op: 'remove', id }));
+  const staleBoxRemovals = staleIds.filter((id) => existingKindById.get(id) !== 'wire').map((id) => ({ op: 'remove', id }));
+  const writes = [...boxes, ...wires].map((element) => (existingKindById.has(element.id) ? { op: 'set', id: element.id, fields: fieldsToRefresh(element) } : { op: 'add', element }));
+  return [...staleWireRemovals, ...staleBoxRemovals, ...writes];
+}
+
+export { buildCodemapModel, impactOf, mapBoardOpsOf, mapTextOf, whereOf };
 export type { CodemapModel };
