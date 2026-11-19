@@ -2051,6 +2051,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   return {
     fit,
+    frameArea: (bounds: Rect) => fitArea(bounds, MAX_FIT_ZOOM),
     startPresenting,
     endPresenting,
     selectedIds: (): ReadonlySet<string> => selectedIds,

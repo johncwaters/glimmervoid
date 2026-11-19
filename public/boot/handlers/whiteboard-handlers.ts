@@ -1,5 +1,5 @@
 import { applyWhiteboardRemoved, applyWhiteboardsSnapshot } from '../../whiteboard/board-store.ts';
-import { applyBoardTileDiff, applyBoardTiles, forgetTilesOf, resyncTilesIfBehind } from '../../whiteboard/board-tile-store.ts';
+import { applyAgentChange, applyBoardTileDiff, applyBoardTiles, forgetTilesOf, resyncTilesIfBehind } from '../../whiteboard/board-tile-store.ts';
 import type { DashboardHandlerTable } from '../core/message-dispatch-core.ts';
 
 const messageHandlers = {
@@ -13,6 +13,7 @@ const messageHandlers = {
   },
   'whiteboard-tiles': (msg) => applyBoardTiles(msg),
   'whiteboard-tile-diff': (msg) => applyBoardTileDiff(msg),
+  'whiteboard-agent-change': (msg) => applyAgentChange(msg),
 } satisfies DashboardHandlerTable;
 
 export { messageHandlers as whiteboardHandlers };

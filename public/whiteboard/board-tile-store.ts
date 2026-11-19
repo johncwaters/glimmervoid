@@ -1,4 +1,5 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { AgentChange } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardHead } from '#shared/contracts/whiteboard.ts';
 import type { BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from '#shared/whiteboard-layout-core.ts';
@@ -7,6 +8,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 
 const VIEW_SEND_DELAY_MS = 100;
+const AGENT_RING_MS = 8000;
 
 interface HeldTile {
   key: TileKey;
@@ -47,6 +49,20 @@ interface TileState {
 const listeners: (() => void)[] = [];
 let state: TileState | null = null;
 let sendTimer: ReturnType<typeof setTimeout> | null = null;
+
+interface AgentRing {
+  boardId: string;
+  boxIds: ReadonlySet<string>;
+}
+
+interface AgentChip {
+  boardId: string;
+  change: AgentChange;
+}
+
+let agentRing: AgentRing | null = null;
+let agentChip: AgentChip | null = null;
+let agentRingTimer: ReturnType<typeof setTimeout> | null = null;
 
 function notifyTilesChanged(): void {
   for (const listener of listeners) listener();
@@ -104,6 +120,7 @@ function freshState(boardId: string, view: Rect, lod: TileLod): TileState {
 function showTilesFor(boardId: string, view: Rect, scale: number): void {
   const lod = lodForScale(scale);
   const isNewBoard = state?.boardId !== boardId;
+  if (isNewBoard) forgetAgentChange();
   const current = isNewBoard || !state ? freshState(boardId, view, lod) : state;
   const isLodChanged = current.lod !== lod;
   state = current;
@@ -185,6 +202,7 @@ function applyBoardTileDiff(message: ServerMessageOf<'whiteboard-tile-diff'>): v
     current.elementById.delete(removedId);
   }
   for (const painted of message.diff.changed) placeChangedElement(current, painted);
+  followAgentChip(message.diff.removedIds, message.diff.changed);
   for (const tile of message.diff.rasters) {
     const held = current.tiles.get(tileIdOf(tile.key));
     if (held) held.raster = tile.raster ? bytesOf(tile.raster) : null;
@@ -194,6 +212,59 @@ function applyBoardTileDiff(message: ServerMessageOf<'whiteboard-tile-diff'>): v
   current.elementCount = message.elementCount;
   current.version = message.toVersion;
   current.assembled = null;
+  notifyTilesChanged();
+}
+
+function followAgentChip(removedIds: readonly string[], changed: readonly PaintedElement[]): void {
+  if (!agentChip) return;
+  const removed = new Set(removedIds);
+  const changedById = new Map(changed.map(({ element }) => [element.id, element]));
+  const boxes = agentChip.change.boxes.flatMap((box) => {
+    if (removed.has(box.id)) return [];
+    const changedBox = changedById.get(box.id);
+    if (changedBox?.kind !== 'box') return [box];
+    return [{ ...box, rect: { x: changedBox.x, y: changedBox.y, width: changedBox.width, height: changedBox.height } }];
+  });
+  agentChip = boxes.length === 0 ? null : { boardId: agentChip.boardId, change: { ...agentChip.change, boxes } };
+}
+
+function forgetAgentChange(): void {
+  if (agentRingTimer !== null) clearTimeout(agentRingTimer);
+  agentRingTimer = null;
+  agentRing = null;
+  agentChip = null;
+}
+
+function applyAgentChange(message: ServerMessageOf<'whiteboard-agent-change'>): void {
+  if (state?.boardId !== message.boardId) return;
+  if (agentRingTimer !== null) clearTimeout(agentRingTimer);
+  agentRing = { boardId: message.boardId, boxIds: new Set(message.change.boxes.map((box) => box.id)) };
+  agentChip = { boardId: message.boardId, change: message.change };
+  agentRingTimer = setTimeout(endAgentRing, AGENT_RING_MS);
+  notifyTilesChanged();
+}
+
+function endAgentRing(): void {
+  agentRingTimer = null;
+  if (!agentRing) return;
+  agentRing = null;
+  notifyTilesChanged();
+}
+
+function ringedAgentBoxIdsOf(boardId: string): ReadonlySet<string> {
+  return agentRing?.boardId === boardId ? agentRing.boxIds : new Set();
+}
+
+function offViewAgentChangeOf(boardId: string): AgentChange | null {
+  const current = state;
+  if (!current || current.boardId !== boardId || agentChip?.boardId !== boardId) return null;
+  const { change } = agentChip;
+  return change.boxes.every((box) => rectsTouch(box.rect, current.view)) ? null : change;
+}
+
+function dismissAgentChange(): void {
+  if (!agentChip) return;
+  agentChip = null;
   notifyTilesChanged();
 }
 
@@ -232,6 +303,7 @@ function forgetTilesOf(boardId: string): void {
   if (sendTimer !== null) clearTimeout(sendTimer);
   sendTimer = null;
   state = null;
+  forgetAgentChange();
   notifyTilesChanged();
 }
 
@@ -239,5 +311,5 @@ function onTilesChanged(listener: () => void): void {
   listeners.push(listener);
 }
 
-export { applyBoardTileDiff, applyBoardTiles, forgetTilesOf, onTilesChanged, resendTilesView, resyncTilesIfBehind, showTilesFor, tiledBoardOf };
+export { applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, offViewAgentChangeOf, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
 export type { BlockTile };

@@ -28,7 +28,8 @@ import { createBoardEditor, newElementId, NUDGE_DIRECTION_BY_KEY, stacksByTopBox
 import { nextWiredBoxId } from './media-walk-core.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
-import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { AgentChange, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import { rectAround } from './board-snap-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
 import { createBoardStylePopover } from './board-style-popover.ts';
@@ -45,7 +46,7 @@ import type { BoardGraphicsEvent } from './board-graphics-report-core.ts';
 import { countDashboardTabs } from '../boot/dashboard-tab-lock.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
-import { onTilesChanged, resendTilesView, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
+import { dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardMediaLayer, fetchBoardDocText, fetchBoardSheetText, tunePageOnLoad } from './board-media-layer.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
@@ -130,6 +131,8 @@ interface BoardsViewParts {
   empty: HTMLElement;
   emptyText: HTMLElement;
   agentIsland: HTMLElement;
+  agentChangeIsland: HTMLElement;
+  agentChangeText: HTMLElement;
   queuedForSession: HTMLElement;
   pairedDisconnect: HTMLElement;
   buttons: Record<'fit' | 'undo' | 'redo', HTMLButtonElement>;
@@ -669,6 +672,7 @@ function paintReview(): void {
   renderer.setReviewMarks({
     worthALookIds: board && review ? worthALookIdsOf(board, review.worthALook) : new Set(),
     flaggedStepIds: new Set(review?.flaggedStepIds ?? []),
+    agentChangedIds: selectedBoardId ? ringedAgentBoxIdsOf(selectedBoardId) : new Set(),
   });
   parts.mediaLayer.setLinkStates(review?.linkStates ?? []);
 }
@@ -694,6 +698,27 @@ function requestReviewOf(board: Board): void {
   });
 }
 
+function agentChangeSentence(change: AgentChange): string {
+  const [onlyBox] = change.boxes;
+  const changedCards = change.boxes.length === 1 && onlyBox ? onlyBox.title : `${change.boxes.length} cards`;
+  return `${change.author.name} changed ${changedCards}`;
+}
+
+function paintAgentChange(): void {
+  if (!parts) return;
+  const change = selectedBoardId ? offViewAgentChangeOf(selectedBoardId) : null;
+  parts.agentChangeIsland.hidden = !change;
+  if (!change) return;
+  parts.agentChangeText.textContent = agentChangeSentence(change);
+}
+
+function goToAgentChange(): void {
+  const change = selectedBoardId ? offViewAgentChangeOf(selectedBoardId) : null;
+  if (!change) return;
+  editor?.frameArea(rectAround(change.boxes.map((box) => box.rect)));
+  dismissAgentChange();
+}
+
 function paintBoard(): void {
   if (!renderer) return;
   const tiled = selectedBoardId ? tiledBoardOf(selectedBoardId) : null;
@@ -708,6 +733,7 @@ function paintBoard(): void {
   editor?.pruneSelection(board);
   if (parts) parts.emptyBoardHint.hidden = tiled.elementCount > 0;
   paintReview();
+  paintAgentChange();
   editor?.afterBoardPaint(tiled.version);
   if (shouldFitOnNextRender) {
     editor?.fit();
@@ -1631,8 +1657,13 @@ export function mountBoardHost(): HTMLElement {
   pairedDisconnect.hidden = true;
   const agentIsland = island('wb-island-agent', 'Session', queuedForSession, pairedDisconnect);
   agentIsland.hidden = true;
+  const agentChangeText = el('span', 'wb-agent-change-text');
+  const goToAgentChangeButton = button({ variant: 'secondary', size: 'small', label: 'Go to card', action: 'go-to-agent-change', onClick: goToAgentChange });
+  const dismissAgentChangeButton = button({ variant: 'icon', size: 'small', label: 'Dismiss', icon: createLineIcon(CLOSE_ICON_PATH), action: 'dismiss-agent-change', onClick: dismissAgentChange });
+  const agentChangeIsland = island('wb-island-agent-change', 'Agent change', agentChangeText, goToAgentChangeButton, dismissAgentChangeButton);
+  agentChangeIsland.hidden = true;
   const bottomLeftStack = el('div', 'wb-bottom-left');
-  bottomLeftStack.append(agentIsland);
+  bottomLeftStack.append(agentChangeIsland, agentIsland);
   const chrome = el('div', 'wb-top-left');
   chrome.append(boardIsland, viewIsland, toolsIsland, toolHint);
   const topRightStack = el('div', 'wb-top-right');
@@ -1656,7 +1687,7 @@ export function mountBoardHost(): HTMLElement {
   empty.classList.add('wb-empty');
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, agentChangeIsland, agentChangeText, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
@@ -1666,6 +1697,7 @@ export function mountBoardHost(): HTMLElement {
     notice: glNotice,
     onViewChange: (view, scale) => {
       if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);
+      paintAgentChange();
     },
     onGraphicsEvent: (event) => { void reportBoardGraphics(event); },
   });

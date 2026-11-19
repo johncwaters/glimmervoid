@@ -666,7 +666,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
 }
 
-type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
+type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'agent-changed'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };
 
 function outlineDecoration(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
   if (element.kind !== 'box' || element.angle === 0) {
@@ -726,6 +726,7 @@ function resizeHandleRectsOf(area: Rect): ResizeHandleRect[] {
 }
 
 const LOOK_BADGE_RADIUS = 9;
+const AGENT_CHANGED_OUTLINE_WIDTH = 4;
 const LOOK_LABEL_GAP = 4;
 const LOOK_BADGE_LABEL = 'worth a look';
 
@@ -747,6 +748,10 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
     }
     if (decoration.kind === 'flagged') {
       outlineDecoration(part, decoration.element, palette.waiting, 2.4);
+      continue;
+    }
+    if (decoration.kind === 'agent-changed') {
+      outlineDecoration(part, decoration.element, palette.running, AGENT_CHANGED_OUTLINE_WIDTH);
       continue;
     }
     if (decoration.kind === 'hover-handles') {

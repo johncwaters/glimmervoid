@@ -37,6 +37,7 @@ interface Camera {
 interface ReviewMarks {
   worthALookIds: ReadonlySet<string>;
   flaggedStepIds: ReadonlySet<string>;
+  agentChangedIds: ReadonlySet<string>;
 }
 
 type HitPart = 'body' | 'line' | 'emptyBody' | 'port' | 'resize' | 'media' | 'end' | 'bend' | 'rotate';
@@ -145,7 +146,7 @@ interface ScenePreview {
   elementById: Map<string, LaidOutElement>;
 }
 
-const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set() };
+const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set(), agentChangedIds: new Set() };
 const CULL_CELL_SIZE = 512;
 const CONTEXT_RETRY_MS = 5000;
 const REFUSAL_MAX_RETRIES = 30;
@@ -914,6 +915,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     for (const elementId of reviewMarks.flaggedStepIds) {
       const element = elementOf(current, elementId);
       if (element) listed.push({ kind: 'flagged', element });
+    }
+    for (const elementId of reviewMarks.agentChangedIds) {
+      const element = elementOf(current, elementId);
+      if (element) listed.push({ kind: 'agent-changed', element });
     }
     for (const elementId of selectedIds) {
       const element = elementOf(current, elementId);

@@ -113,6 +113,16 @@
 
 .wb-island[hidden] { display: none; }
 
+.wb-island-agent-change { flex-wrap: nowrap; }
+
+.wb-agent-change-text {
+  min-width: 0;
+  max-width: 320px;
+  padding: 0 6px;
+  font-size: var(--type-meta);
+  overflow-wrap: anywhere;
+}
+
 .wb-style-popover {
   position: static;
   flex-direction: column;
