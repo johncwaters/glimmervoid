@@ -89,7 +89,7 @@ export type AttentionNote = z.infer<typeof AttentionNote>;
 export const AttentionOwner = z.enum(['operator', 'parent', 'race']);
 export type AttentionOwner = z.infer<typeof AttentionOwner>;
 
-const DONE_MEANS_MAX_LINES = 12;
+export const DONE_MEANS_MAX_LINES = 12;
 
 const DoneMeansLine = z.string({ error: 'each done line must be a string' })
   .trim()

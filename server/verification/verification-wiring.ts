@@ -2,7 +2,7 @@ import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
-import { VERIFICATION_OUTPUT_TAIL_BYTES, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
+import { AGENT_COMMAND_WAITING_REASON, AGENT_DONE_CHECK_ID_PREFIX, VERIFICATION_OUTPUT_TAIL_BYTES, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome, RemovedTestLine, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
 import { streamRemovedTestLines } from './test-keeping-scan.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -26,6 +26,7 @@ interface VerifiableSession {
   path: string;
   ephemeral: boolean;
   ownerId?: string | null;
+  agentDoneLines: readonly { text: string; command?: string }[];
   hasOwnWorktree: boolean;
   worktreeDir: string | null;
   on(event: 'post-turn-check', listener: () => void): unknown;
@@ -46,9 +47,16 @@ interface VerificationWiringDependencies {
 
 interface VerificationWiring {
   attachSession(session: VerifiableSession): void;
+  allowAgentCommands(session: VerifiableSession, commands: readonly string[]): void;
   latestRun(sessionId: string): VerificationRun | null;
   forgetSession(sessionId: string): void;
   stop(): void;
+}
+
+interface AgentCheck {
+  id: string;
+  command: string;
+  isAllowed: boolean;
 }
 
 interface CachedRun {
@@ -131,6 +139,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const liveCheckPidsBySession = new Map<string, Set<number>>();
   const attachedSessionIds = new Set<string>();
   const invalidConfigMessageBySession = new Map<string, string | null>();
+  const allowedAgentCommandsBySession = new Map<string, Set<string>>();
 
   function liveCheckPidsOf(sessionId: string): Set<number> {
     const existing = liveCheckPidsBySession.get(sessionId);
@@ -152,11 +161,11 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     dependencies.broadcastControl({ type: 'verification-run', id: run.sessionId, run });
   }
 
-  function skippedOutcome(spec: VerificationSettings['checks'][number], reason: string): CheckOutcome {
+  function skippedOutcome(spec: { id: string; command: string }, reason: string): CheckOutcome {
     return { id: spec.id, command: spec.command, status: 'skipped', exitCode: null, outputTail: reason };
   }
 
-  async function runCheck(sessionId: string, worktreeDir: string, spec: VerificationSettings['checks'][number], timeoutMs: number): Promise<CheckOutcome> {
+  async function runCheck(sessionId: string, worktreeDir: string, spec: { id: string; command: string }, timeoutMs: number): Promise<CheckOutcome> {
     if (dependencies.isSessionSandboxOn()) return skippedOutcome(spec, SANDBOX_SKIP_REASON);
     const argv = parseCheckCommand(spec.command);
     if (!argv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
@@ -183,7 +192,20 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return run;
   }
 
-  async function runChecks(session: VerifiableSession, settings: VerificationSettings, key: string, sig: string): Promise<VerificationRun> {
+  function agentChecksOf(session: VerifiableSession): AgentCheck[] {
+    const allowedCommands = allowedAgentCommandsBySession.get(session.id);
+    return session.agentDoneLines.flatMap((line, index) => {
+      if (line.command === undefined) return [];
+      return [{ id: `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}`, command: line.command, isAllowed: allowedCommands?.has(line.command) === true }];
+    });
+  }
+
+  async function runAgentCheck(sessionId: string, worktreeDir: string, agentCheck: AgentCheck, timeoutMs: number): Promise<CheckOutcome> {
+    if (!agentCheck.isAllowed) return skippedOutcome(agentCheck, AGENT_COMMAND_WAITING_REASON);
+    return runCheck(sessionId, worktreeDir, agentCheck, timeoutMs);
+  }
+
+  async function runChecks(session: VerifiableSession, settings: VerificationSettings, agentChecks: readonly AgentCheck[], key: string, sig: string): Promise<VerificationRun> {
     const worktreeDir = session.worktreeDir;
     const turnEndCountAtStart = turnEndCountOf(session.id);
     publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null, removedTestLines: null });
@@ -192,8 +214,12 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       if (!attachedSessionIds.has(session.id)) break;
       checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
     }
+    for (const agentCheck of agentChecks) {
+      if (!attachedSessionIds.has(session.id)) break;
+      checks.push(worktreeDir ? await runAgentCheck(session.id, worktreeDir, agentCheck, settings.timeoutSeconds * 1000) : skippedOutcome(agentCheck, 'the session has no worktree'));
+    }
     const removedTestLines = attachedSessionIds.has(session.id) ? await scanRemovedTestLines(session) : null;
-    const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks), checks, finishedAt: clock.nowMs(), removedTestLines };
+    const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX))), checks, finishedAt: clock.nowMs(), removedTestLines };
     if (!attachedSessionIds.has(session.id)) return run;
     cachedRunBySession.set(session.id, { key, run });
     if (turnEndCountOf(session.id) === turnEndCountAtStart) publish(run);
@@ -201,14 +227,15 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function ensureRun(session: VerifiableSession, settings: VerificationSettings, sig: string, { reuseFailed }: { reuseFailed: boolean }): Promise<VerificationRun> {
-    const key = `${sig}\0${settingsFingerprint(settings)}`;
+    const agentChecks = agentChecksOf(session);
+    const key = `${sig}\0${settingsFingerprint(settings)}\0${JSON.stringify(agentChecks)}`;
     const cached = cachedRunBySession.get(session.id);
     if (cached?.key === key && (reuseFailed || cached.run.status === 'passed')) return cached.run.removedTestLines === null ? rescanMissingTestLines(session, cached) : Promise.resolve(cached.run);
     const inFlight = inFlightBySession.get(session.id);
     if (inFlight?.key === key) return inFlight.promise;
     const waitForCurrent = inFlight ? inFlight.promise.catch(() => null) : Promise.resolve(null);
     const promise: Promise<VerificationRun> = waitForCurrent
-      .then(() => runChecks(session, settings, key, sig))
+      .then(() => runChecks(session, settings, agentChecks, key, sig))
       .finally(() => {
         if (inFlightBySession.get(session.id)?.promise === promise) inFlightBySession.delete(session.id);
       });
@@ -267,6 +294,16 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     });
   }
 
+  function allowAgentCommands(session: VerifiableSession, commands: readonly string[]): void {
+    if (!attachedSessionIds.has(session.id)) return;
+    const allowedCommands = allowedAgentCommandsBySession.get(session.id) ?? new Set<string>();
+    for (const command of commands) allowedCommands.add(command);
+    allowedAgentCommandsBySession.set(session.id, allowedCommands);
+    verifyAtTurnEnd(session).catch((error: unknown) => {
+      dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);
+    });
+  }
+
   function attachSession(session: VerifiableSession): void {
     attachedSessionIds.add(session.id);
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
@@ -280,6 +317,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   return {
     attachSession,
+    allowAgentCommands,
     latestRun: (sessionId) => publishedRunBySession.get(sessionId) ?? cachedRunBySession.get(sessionId)?.run ?? null,
     forgetSession: (sessionId) => {
       attachedSessionIds.delete(sessionId);
@@ -288,6 +326,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       publishedRunBySession.delete(sessionId);
       turnEndCountBySession.delete(sessionId);
       invalidConfigMessageBySession.delete(sessionId);
+      allowedAgentCommandsBySession.delete(sessionId);
       inFlightBySession.delete(sessionId);
     },
     stop: () => {

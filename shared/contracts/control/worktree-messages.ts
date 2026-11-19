@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ChangeMap } from '../change-map.ts';
 import { VerificationRun } from '../verification.ts';
 import { SessionReviewResult } from '../session-review.ts';
-import { MergeStatus } from '../session.ts';
+import { DONE_MEANS_MAX_LINES, MergeStatus } from '../session.ts';
 import { sessionId, requestId, loose, nullableString, DiffBase, SessionCommit, timestamp, optionalError, InstallFailureKind, InstallDetail, INSTALL_DETAIL_MAX_FOLDERS } from './control-fields.ts';
 
 const diffFilePath = z.string().min(1).max(4096);
@@ -10,6 +10,7 @@ const blobId = z.string().regex(/^[0-9a-f]{40}$|^[0-9a-f]{64}$/);
 
 export const worktreeClientVariants = [
   loose('watch-session-changes', { id: sessionId.nullable() }),
+  loose('done-commands-allow', { id: sessionId, commands: z.array(z.string().min(1).max(400)).min(1).max(DONE_MEANS_MAX_LINES) }),
   loose('request-diff-file', { id: sessionId, requestId, path: diffFilePath, oldBlobId: blobId.nullable(), newBlobId: blobId }),
 ] as const;
 

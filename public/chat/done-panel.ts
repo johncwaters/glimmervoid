@@ -41,7 +41,16 @@ function linesOf(model: DonePanelModel): HTMLElement {
   return list;
 }
 
-export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void }): DonePanel {
+function allowBarOf(waitingCommands: readonly string[], onAllowCommands: (commands: readonly string[]) => void): HTMLElement {
+  const bar = el('div', 'chat-done-allow');
+  const commandCount = waitingCommands.length;
+  const note = `The agent asks Glimmervoid to run ${commandCount === 1 ? 'this command' : `these ${commandCount} commands`} in the worktree at each turn end. Allowed commands run until the agent changes them or Glimmervoid restarts.`;
+  const allowButton = button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: 'Allow commands', onClick: () => onAllowCommands(waitingCommands) });
+  bar.append(el('span', 'chat-done-allow-note', note), allowButton);
+  return bar;
+}
+
+export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void; onAllowCommands(commands: readonly string[]): void }): DonePanel {
   const element = el('section', 'chat-done');
   element.setAttribute('aria-label', 'Done means');
   element.tabIndex = -1;
@@ -80,6 +89,7 @@ export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void
     }
     if (model === null) return;
     const parts = [headOf(model), linesOf(model)];
+    if (model.waitingCommands.length > 0) parts.push(allowBarOf(model.waitingCommands, handlers.onAllowCommands));
     const hasFailedLine = model.lines.some((line) => line.status === 'failed');
     if (model.verdict !== null && !hasAnsweredVerdict) parts.push(footOf(model.verdict, hasFailedLine));
     element.replaceChildren(...parts);

@@ -193,7 +193,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   function done(session: Session, request: AgentDoneRequest): AgentReplyOf<'done'> {
     session.setAgentDoneLines(request.lines);
     const commandCount = request.lines.filter((line) => line.command !== undefined).length;
-    const commandNote = commandCount === 0 ? '' : ` Glimmervoid runs the ${commandCount === 1 ? 'command' : `${commandCount} commands`} at each turn end once the operator allows ${commandCount === 1 ? 'it' : 'them'}.`;
+    const commandNote = commandCount === 0 || !session.hasOwnWorktree ? '' : ` Glimmervoid runs the ${commandCount === 1 ? 'command' : `${commandCount} commands`} at each turn end once the operator allows ${commandCount === 1 ? 'it' : 'them'}.`;
     return { status: 200, body: { ok: true, note: `The Done means panel now lists ${request.lines.length} ${request.lines.length === 1 ? 'line' : 'lines'} from you.${commandNote}` } };
   }
 

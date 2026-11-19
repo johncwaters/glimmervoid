@@ -330,6 +330,9 @@ function buildChat(sessionId: string): MountedChat {
       showFailure(null);
       sendChatText(sessionId, ACCEPT_MESSAGE, []);
     },
+    onAllowCommands: (commands) => {
+      if (!sendControlMsg({ type: 'done-commands-allow', id: sessionId, commands: [...commands] })) showFailure('Allow commands did not reach Glimmervoid. Check the connection and press it again.');
+    },
   });
   const showDone = () => donePanel.show(doneModelNow());
   sendControlMsg({ type: 'request-verification', id: sessionId });

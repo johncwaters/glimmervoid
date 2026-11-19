@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createVerificationWiring } from '../server/verification/verification-wiring.ts';
-import { VerificationRun } from '../shared/contracts/verification.ts';
+import { VerificationRun, VerificationSettings } from '../shared/contracts/verification.ts';
 
 function git(repoPath: string, args: string[]): string {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repoPath }).toString().trim();
@@ -59,6 +59,7 @@ test('Keeps every test reports only net removals and skips, at their real path a
     path: repoPath,
     ephemeral: true,
     ownerId: 'parent',
+    agentDoneLines: [],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -100,6 +101,7 @@ test('the newest turn end decides the verdict: an unreadable tree shows skipped 
     id: 'unread-tree',
     path: repoPath,
     ephemeral: false,
+    agentDoneLines: [],
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -121,4 +123,51 @@ test('the newest turn end decides the verdict: an unreadable tree shows skipped 
   onTurnEnd();
   await sleep(500);
   assert.deepEqual(shownVerdict(), ['fail'], 'a readable turn end on the same tree shows its cached run again');
+});
+
+test('an agent command waits for the operator, runs once allowed, waits again when changed, and never fails the repo checks or takes a repo check id', async (context) => {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-agent-commands-'));
+  context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
+  git(repoPath, ['init', '--quiet']);
+  writeFiles(repoPath, { 'README.md': 'base\n' });
+  git(repoPath, ['add', '-A']);
+  git(repoPath, ['commit', '--quiet', '-m', 'base']);
+  const broadcastRuns: VerificationRun[] = [];
+  let onTurnEnd = () => {};
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }], gate: { enabled: true } } } }),
+    isSessionSandboxOn: () => false,
+    broadcastControl: (message) => { if (message.type === 'verification-run') broadcastRuns.push(VerificationRun.parse(message.run)); },
+    logger: console,
+  });
+  assert.throws(() => VerificationSettings.parse({ checks: [{ id: 'agent-done-1', command: 'node --version' }] }));
+  const session = {
+    id: 'agent-commands',
+    path: repoPath,
+    ephemeral: false,
+    agentDoneLines: [{ text: 'node runs', command: 'node --version' }, { text: 'the README reads well' }],
+    hasOwnWorktree: true,
+    worktreeDir: repoPath,
+    on: (_event: 'post-turn-check', listener: () => void) => { onTurnEnd = listener; },
+    worktreeLifecycle: {
+      computeGateTree: async () => ({ sig: 'tree', dirty: false, headSha: 'unused' }),
+      snapshot: () => ({ baseSha: null, effectiveBase: null }),
+      setMergeGate: () => {},
+    },
+  };
+  verification.attachSession(session);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const shownAgentChecks = () => broadcastRuns.at(-1)?.checks.map((check) => `${check.id} ${check.status}`);
+
+  onTurnEnd();
+  await sleep(500);
+  assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 skipped']);
+  assert.equal(broadcastRuns.at(-1)?.status, 'passed', 'a waiting agent command leaves the repo checks passed');
+  verification.allowAgentCommands(session, ['node --version']);
+  await sleep(1500);
+  assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 pass']);
+  session.agentDoneLines = [{ text: 'node runs', command: 'node --print 1' }];
+  onTurnEnd();
+  await sleep(500);
+  assert.deepEqual(shownAgentChecks(), ['node pass', 'agent-done-1 skipped']);
 });

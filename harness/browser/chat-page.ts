@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
-import { DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
+import { AGENT_DONE_LINE, DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
@@ -468,6 +468,8 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await openChat(page);
   const worktreePath = await pollFor('the session worktree', CARD_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
   await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'declare-done');
+  await waitForOutboxEmpty(page);
   await sendFromComposer(page, 'take-any-prompt');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
@@ -489,6 +491,13 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   const testKeepingLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'Keeps every test' });
   assert.equal(await testKeepingLine.locator('.chat-done-evidence').innerText(), `${DONE_MEANS_TEST_FILE}:2 removed: ${DONE_MEANS_REMOVED_ASSERTION}`, 'a removed assertion fails Keeps every test, naming file:line and the removed text');
   assert.match(await panel.locator('.chat-done-verdict').innerText(), /2 lines failed/, 'the verdict counts the failed lines once the agent finished');
+  const agentLine = panel.locator('.chat-done-line', { hasText: AGENT_DONE_LINE.text });
+  assert.match(await agentLine.innerText(), /Waiting for you/, 'an agent command does not run before the operator allows it');
+  assert.equal(await agentLine.locator('.chat-done-command').innerText(), AGENT_DONE_LINE.command, 'the agent line shows the command it asks to run');
+  await panel.getByRole('button', { name: 'Allow commands', exact: true }).click();
+  await panel.locator('.chat-done-line[data-status="passed"]', { hasText: AGENT_DONE_LINE.text }).waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await panel.getByRole('button', { name: 'Allow commands', exact: true }).count(), 0, 'an allowed command asks no more');
+  assert.match(await panel.locator('.chat-done-verdict').innerText(), /2 lines failed/, 'the allowed run keeps the verdict');
   await pressInEmptyComposer(page, 'Enter');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);

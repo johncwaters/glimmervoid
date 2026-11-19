@@ -1,10 +1,11 @@
 import type { AgentDoneLine } from '#shared/contracts/session.ts';
+import { AGENT_COMMAND_WAITING_REASON, AGENT_DONE_CHECK_ID_PREFIX } from '#shared/contracts/verification.ts';
 import type { CheckOutcome, RemovedTestLine, VerificationRun } from '#shared/contracts/verification.ts';
 import type { ChatPhase } from './chat-activity-core.ts';
 
 type DoneLineStatus = 'running' | 'passed' | 'failed' | 'not-checked';
 export type DoneLine = { text: string; status: DoneLineStatus; proof: string; isGlimmervoidRan: boolean; evidence: string; command: string; isFromAgent: boolean };
-export type DonePanelModel = { lines: DoneLine[]; metCount: number; verdict: string | null };
+export type DonePanelModel = { lines: DoneLine[]; metCount: number; verdict: string | null; waitingCommands: string[] };
 
 export const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
 
@@ -46,15 +47,36 @@ function testKeepingLineOf(removedTestLines: readonly RemovedTestLine[] | null):
 function runLinesOf(run: VerificationRun | null): DoneLine[] {
   if (run === null) return [];
   if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '', command: '', isFromAgent: false }];
-  return [...run.checks.map(checkLineOf), testKeepingLineOf(run.removedTestLines)];
+  return [...run.checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX)).map(checkLineOf), testKeepingLineOf(run.removedTestLines)];
 }
 
 function doneMeansLineOf(text: string): DoneLine {
   return { text, status: 'not-checked', proof: 'Not checked', isGlimmervoidRan: false, evidence: '', command: '', isFromAgent: false };
 }
 
-function agentDoneLineOf(line: AgentDoneLine): DoneLine {
-  return { ...doneMeansLineOf(line.text), command: line.command ?? '', isFromAgent: true };
+function agentCheckOf(run: VerificationRun | null, line: AgentDoneLine, index: number): CheckOutcome | null {
+  if (run === null || line.command === undefined) return null;
+  return run.checks.find((check) => check.id === `${AGENT_DONE_CHECK_ID_PREFIX}${index + 1}` && check.command === line.command) ?? null;
+}
+
+function isWaitingForOperator(check: CheckOutcome): boolean {
+  return check.status === 'skipped' && check.outputTail === AGENT_COMMAND_WAITING_REASON;
+}
+
+function agentDoneLineOf(line: AgentDoneLine, check: CheckOutcome | null): DoneLine {
+  const unchecked = { ...doneMeansLineOf(line.text), command: line.command ?? '', isFromAgent: true };
+  if (check === null) return unchecked;
+  if (isWaitingForOperator(check)) return { ...unchecked, proof: 'Waiting for you' };
+  return { ...checkLineOf(check), text: line.text, command: line.command ?? '', isFromAgent: true };
+}
+
+function waitingCommandsOf(run: VerificationRun | null, agentDoneLines: readonly AgentDoneLine[]): string[] {
+  if (run === null || run.status === 'running') return [];
+  return agentDoneLines.flatMap((line, index) => {
+    if (line.command === undefined) return [];
+    const check = agentCheckOf(run, line, index);
+    return check === null || isWaitingForOperator(check) ? [line.command] : [];
+  });
 }
 
 function verdictOf(lines: readonly DoneLine[]): string | null {
@@ -68,9 +90,10 @@ function verdictOf(lines: readonly DoneLine[]): string | null {
 
 export function donePanelModelOf(input: { run: VerificationRun | null; doneMeans: readonly string[]; agentDoneLines: readonly AgentDoneLine[]; phase: ChatPhase }): DonePanelModel | null {
   if (!FINISHED_PHASES.includes(input.phase)) return null;
-  const lines = [...input.doneMeans.map(doneMeansLineOf), ...input.agentDoneLines.map(agentDoneLineOf), ...runLinesOf(input.run)];
+  const agentLines = input.agentDoneLines.map((line, index) => agentDoneLineOf(line, agentCheckOf(input.run, line, index)));
+  const lines = [...input.doneMeans.map(doneMeansLineOf), ...agentLines, ...runLinesOf(input.run)];
   if (lines.length === 0) return null;
-  return { lines, metCount: lines.filter((line) => line.status === 'passed').length, verdict: verdictOf(lines) };
+  return { lines, metCount: lines.filter((line) => line.status === 'passed').length, verdict: verdictOf(lines), waitingCommands: [...new Set(waitingCommandsOf(input.run, input.agentDoneLines))] };
 }
 
 function lastCharsOf(text: string, maxChars: number): string {
