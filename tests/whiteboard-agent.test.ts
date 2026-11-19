@@ -130,10 +130,14 @@ async function boardOf(sessionId: string, boardId: string) {
   return { ...body, board };
 }
 
+const plannerBoardIds: string[] = [];
+
 async function newBoard(title: string): Promise<string> {
+  for (const earlierBoardId of plannerBoardIds.splice(0)) await whiteboard(PLANNER_ID, { sub: 'disconnect', board: earlierBoardId });
   const created = await whiteboard(PLANNER_ID, { sub: 'new', title });
   assert.equal(created.status, 200);
   const board = created.body.board as { id: string };
+  plannerBoardIds.push(board.id);
   return board.id;
 }
 
@@ -1322,22 +1326,30 @@ test('the operator connects and disconnects a session from the dashboard, and a 
     assert.match(String(newWhileAttached.body.error), new RegExp(`board "operator links" \\(${boardId}\\) beside this session`));
     const detached = await command({ type: 'whiteboard-detach', boardId, sessionId: BUILDER_ID, requestId: 'detach-builder' });
     assert.ok(detached.summary?.connectedSessionIds.includes(BUILDER_ID));
-    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'board after detach' })).status, 200);
+    const newAfterDetach = await whiteboard(BUILDER_ID, { sub: 'new', title: 'board after detach' });
+    assert.equal(newAfterDetach.status, 409);
+    assert.match(String(newAfterDetach.body.error), new RegExp(`this session is already on board "operator links" \\(${boardId}\\)`));
     assert.equal((await command({ type: 'whiteboard-connect', boardId, sessionId: BUILDER_ID, requestId: 'reattach-builder' })).ok, true);
 
     const disconnected = await command({ type: 'whiteboard-disconnect', boardId, sessionId: BUILDER_ID, requestId: 'disconnect-builder' });
     assert.equal(disconnected.ok, true);
     assert.equal(disconnected.summary?.connectedSessionIds.includes(BUILDER_ID), false);
+    const builderBoards = (await whiteboard(BUILDER_ID, { sub: 'list', all: true })).body.boards as { id: string; connectedSessionIds: string[] }[];
+    for (const builderBoard of builderBoards.filter((listedBoard) => listedBoard.connectedSessionIds.includes(BUILDER_ID))) await whiteboard(BUILDER_ID, { sub: 'disconnect', board: builderBoard.id });
     assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'second board' })).status, 200);
     assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
-    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'third board' })).status, 200);
+    const newWhileSelfConnected = await whiteboard(BUILDER_ID, { sub: 'new', title: 'third board' });
+    assert.equal(newWhileSelfConnected.status, 409);
+    assert.doesNotMatch(String(newWhileSelfConnected.body.error), /beside this session/);
     await whiteboard(BUILDER_ID, { sub: 'disconnect', board: boardId });
     await Promise.all([
       command({ type: 'whiteboard-connect', boardId, sessionId: BUILDER_ID, requestId: 'racing-connect' }),
       command({ type: 'whiteboard-disconnect', boardId, sessionId: BUILDER_ID, requestId: 'racing-disconnect' }),
     ]);
     assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
-    assert.equal((await whiteboard(BUILDER_ID, { sub: 'new', title: 'fourth board' })).status, 200);
+    const newAfterRacing = await whiteboard(BUILDER_ID, { sub: 'new', title: 'fourth board' });
+    assert.equal(newAfterRacing.status, 409);
+    assert.doesNotMatch(String(newAfterRacing.body.error), /beside this session/);
 
     const unknown = await command({ type: 'whiteboard-connect', boardId, sessionId: 'no-such-session', requestId: 'connect-unknown' });
     assert.equal(unknown.ok, false);
@@ -1376,6 +1388,10 @@ test('a board the operator attached beside a session stays attached across a res
   await afterRestart.handleOperator.detach(boardId, agent.id);
 
   const afterDetachRestart = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const newWhileConnected = await afterDetachRestart.handleAgent(agent, { sub: 'new', title: 'second' });
+  assert.equal(newWhileConnected.status, 409);
+  assert.match(String(newWhileConnected.body.ok ? '' : newWhileConnected.body.error), new RegExp(`this session is already on board "Beside plan" \\(${boardId}\\)`));
+  await afterDetachRestart.handleAgent(agent, { sub: 'disconnect', board: boardId });
   assert.equal((await afterDetachRestart.handleAgent(agent, { sub: 'new', title: 'second' })).status, 200);
 });
 

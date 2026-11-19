@@ -1192,8 +1192,8 @@ function createWhiteboardWiring({
   }
 
   async function showBoardIdFor(caller: WhiteboardCaller, newBoardTitle: string): Promise<{ ok: true; boardId: string; provisionalTitle: string | null } | { ok: false; reply: WhiteboardReply }> {
-    const pickedBoardId = attachedRecordOf(caller.id)?.board.id ?? pickShowBoardId([...recordsByBoardId.values()], caller.id);
-    if (pickedBoardId) return { ok: true, boardId: pickedBoardId, provisionalTitle: null };
+    const sessionBoard = sessionBoardOf(caller.id);
+    if (sessionBoard) return { ok: true, boardId: sessionBoard.board.id, provisionalTitle: null };
     const provisionalTitle = newBoardTitle.slice(0, WHITEBOARD_LIMITS.title);
     const created = await createBoardFor(caller, provisionalTitle);
     if (!created.body.ok || !('board' in created.body)) return { ok: false, reply: created };
@@ -1288,11 +1288,23 @@ function createWhiteboardWiring({
     });
   }
 
-  function createUnlessAttached(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
-    const attached = attachedRecordOf(caller.id);
-    if (!attached) return createBoardFor(caller, title);
-    const { title: attachedTitle, id } = attached.board;
-    return Promise.resolve(refusal(409, `the operator opened board "${attachedTitle}" (${id}) beside this session, so no new board was made; draw on it with whiteboard get ${id} and whiteboard put, or whiteboard disconnect ${id} first if this work needs a board of its own`));
+  function sessionBoardOf(sessionId: string): BoardRecord | null {
+    const attached = attachedRecordOf(sessionId);
+    if (attached) return attached;
+    const pickedBoardId = pickShowBoardId([...recordsByBoardId.values()], sessionId);
+    return pickedBoardId === null ? null : recordsByBoardId.get(pickedBoardId) ?? null;
+  }
+
+  async function createUnlessOnBoard(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
+    const sessionBoard = sessionBoardOf(caller.id);
+    if (!sessionBoard) return createBoardFor(caller, title);
+    const loading = await loadedRecordOf(sessionBoard.board.id);
+    const isSessionBoardDamaged = !loading.ok && loading.reply.body.ok === false && loading.reply.body.error === DAMAGED_BOARD_TEXT;
+    if (isSessionBoardDamaged) return createBoardFor(caller, title);
+    const { title: boardTitle, id } = sessionBoard.board;
+    const boardNamed = `board "${boardTitle}" (${id})`;
+    const whyThisBoard = sessionBoard === attachedRecordOf(caller.id) ? `the operator opened ${boardNamed} beside this session` : `this session is already on ${boardNamed}`;
+    return refusal(409, `${whyThisBoard}, so no new board was made; draw on it with whiteboard get ${id} and whiteboard put, or whiteboard disconnect ${id} (and from any other board this session is on) first if this work needs a board of its own`);
   }
 
   async function exportedBoardFile(boardId: string): Promise<{ ok: true; bytes: Buffer; title: string } | { ok: false; status: number; error: string }> {
@@ -1365,7 +1377,7 @@ function createWhiteboardWiring({
 
   async function handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply> {
     await loaded;
-    if (request.sub === 'new') return createUnlessAttached(caller, request.title);
+    if (request.sub === 'new') return createUnlessOnBoard(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
     if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null, request.link === true);
     if (request.sub === 'import') return importBoardForAgent(caller, request.path);

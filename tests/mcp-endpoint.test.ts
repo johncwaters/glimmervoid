@@ -280,6 +280,15 @@ for (const agent of ['claude-code', 'codex']) {
   });
 }
 
+async function newBoardAfterLeavingOthers(credential: string, title: string): Promise<Record<string, unknown>> {
+  const listed = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'list' } }, credential));
+  const boards = (listed.structuredContent as { boards: { id: string; connectedSessionIds: string[] }[] }).boards;
+  for (const board of boards.filter((listedBoard) => listedBoard.connectedSessionIds.includes(SESSION_ID))) {
+    await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'disconnect', board: board.id } }, credential));
+  }
+  return resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title } }, credential));
+}
+
 const ONE_PIXEL_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
 test('show puts a file named relative to the session on a board as a card, counts as running show, and refuses a path that is not a file', async () => {
@@ -298,7 +307,7 @@ test('show puts a file named relative to the session on a board as a card, count
 
 test('a whiteboard put that renames its board still returns its plan steps, get returns them too, and view returns a PNG of the board', async () => {
   const { credential } = bootedBackend();
-  const created = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'mcp plan' } }, credential));
+  const created = await newBoardAfterLeavingOthers(credential, 'mcp plan');
   assert.notEqual(created.isError, true, JSON.stringify(created));
   assert.equal(JSON.stringify(created).includes('glimmervoid whiteboard put'), false);
   const ops = [
@@ -326,7 +335,7 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
 
 test('whiteboard view pictures only a named region at twice its size, and render writes the whole board to a PNG or SVG file at the named path', async () => {
   const { credential, projectDir } = bootedBackend();
-  await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'sharp board' } }, credential));
+  await newBoardAfterLeavingOthers(credential, 'sharp board');
   const ops = [
     { op: 'add', element: { kind: 'box', id: 'near', title: 'Near', place: { at: { x: 0, y: 0 } } } },
     { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', place: { at: { x: 900, y: 600 } } } },
@@ -373,7 +382,7 @@ test('whiteboard view pictures only a named region at twice its size, and render
 
 test('whiteboard view pictures a board with a far-off box at a capped size', async () => {
   const { credential } = bootedBackend();
-  await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'new', title: 'far board' } }, credential));
+  await newBoardAfterLeavingOthers(credential, 'far board');
   const farBox = { op: 'add', element: { kind: 'box', id: 'far', title: 'Far', place: { at: { x: 0, y: 100_000 } } } };
   const put = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'far board', ops: [farBox] } }, credential));
   assert.notEqual(put.isError, true, JSON.stringify(put));
