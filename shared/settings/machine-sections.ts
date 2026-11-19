@@ -233,7 +233,7 @@ export const MACHINE_VAULT: SettingsSection = {
     {
       id: 'vault-source', path: 'vault.manager', title: 'Source',
       description: 'Where agents read the secrets you allow. Age file keeps them encrypted on this machine and needs no password manager; you type each value on the request card the first time an agent asks.',
-      control: 'select', options: [{ value: '1password', label: '1Password' }, { value: 'age', label: 'Age file on this machine' }], keywords: ['1password', 'age', 'password manager', 'secrets', 'headless', 'linux'], defaultValue: '1password', ...MACHINE_NOW,
+      control: 'select', options: [{ value: '1password', label: '1Password' }, { value: 'age', label: 'Age file on this machine' }], keywords: ['1password', 'age', 'password manager', 'secrets', 'headless', 'linux'], defaultValue: 'age', ...MACHINE_NOW,
     },
     {
       id: 'vault-look-in', path: 'vault.lookIn', title: 'Look in',

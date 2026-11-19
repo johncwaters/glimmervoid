@@ -32,7 +32,6 @@ interface CanaryBackend {
   tmpDir: string;
   fakeBin: string;
   projectDir: string;
-  configPath: string;
   server: Server;
   backend: Backend;
   base: string;
@@ -51,6 +50,7 @@ async function bootCanaryBackend(): Promise<CanaryBackend> {
     projects: [{ id: SESSION_ID, name: 'secrets canary', path: projectDir }],
     repoRoots: [],
     autoResume: false,
+    vault: { manager: '1password', lookIn: 'Agents' },
     secrets: { byProject: { [projectDir]: { CANARY_KEY: { isAllowed: true }, REFUSED_KEY: { isAllowed: false } } } },
   }, null, 2), 'utf8');
   process.env.GLIMMERVOID_CONFIG = configPath;
@@ -58,7 +58,7 @@ async function bootCanaryBackend(): Promise<CanaryBackend> {
   const backend = createBackend(server, { staticDir: null });
   server.on('request', backend.app);
   await listenOnLoopback(server);
-  return { tmpDir, fakeBin, projectDir, configPath, server, backend, base: await agentIngressBase(backend) };
+  return { tmpDir, fakeBin, projectDir, server, backend, base: await agentIngressBase(backend) };
 }
 
 async function runNeedCli(context: CanaryBackend, names: readonly string[]): Promise<{ exitCode: number; output: string }> {
@@ -78,12 +78,6 @@ async function runNeedUntilSettled(context: CanaryBackend, names: readonly strin
   let attempt = await runNeedCli(context, names);
   while (attempt.exitCode === 30 && Date.now() < deadlineMs) attempt = await runNeedCli(context, names);
   return attempt;
-}
-
-function chooseSource(context: CanaryBackend): void {
-  const savedConfig = JSON.parse(fs.readFileSync(context.configPath, 'utf8'));
-  savedConfig.vault = { ...savedConfig.vault, manager: '1password', lookIn: 'Agents' };
-  fs.writeFileSync(context.configPath, JSON.stringify(savedConfig, null, 2), 'utf8');
 }
 
 async function submitPrompt(context: CanaryBackend, prompt: string): Promise<void> {
@@ -134,11 +128,6 @@ test('a delivered canary reaches the env file only, never a trace, recording, MC
     assert.ok(session, 'the boot loop created the configured session');
     session._hooks.inject();
 
-    const noSource = await runNeedCli(context, ['CANARY_KEY']);
-    assert.equal(noSource.exitCode, 30, noSource.output);
-    assert.match(noSource.output, /no-source/);
-
-    chooseSource(context);
     const delivered = await runNeedUntilSettled(context, ['CANARY_KEY']);
     assert.equal(delivered.exitCode, 0, delivered.output);
     const envFile = String(JSON.parse(delivered.output).envFile);
@@ -163,7 +152,7 @@ test('a delivered canary reaches the env file only, never a trace, recording, MC
     const mcpReply = await askNeedOverMcp(context, ['CANARY_KEY']);
     assert.match(mcpReply, /delivered/);
     assert.equal(mcpReply.includes(CANARY_VALUE), false, 'the MCP reply carries no value');
-    for (const output of [noSource.output, delivered.output]) assert.equal(output.includes(CANARY_VALUE), false, 'need output carries no value');
+    assert.equal(delivered.output.includes(CANARY_VALUE), false, 'need output carries no value');
 
     session._recorder?.writeHeader({ agent: 'claude', cols: 80, rows: 24 });
     session._recorder?.writeHook('PostToolUse', { tool_name: 'Bash', tool_response: { stdout: `${CANARY_MARKER} ${CANARY_VALUE}` } });

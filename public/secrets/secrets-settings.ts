@@ -96,7 +96,7 @@ function showVaultTest(view: VaultTestView): void {
 function chosenSourceLabel(): string {
   const sourceSetting = settingById(VAULT_SOURCE_SETTING_ID);
   const manager = SecretManager.safeParse(sourceSetting === null ? undefined : storedValue(sourceSetting));
-  return SECRET_MANAGER_LABELS[manager.success ? manager.data : '1password'];
+  return SECRET_MANAGER_LABELS[manager.success ? manager.data : 'age'];
 }
 
 function busyTestMessage(): string {

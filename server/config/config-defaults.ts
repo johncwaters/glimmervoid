@@ -44,7 +44,7 @@ const DEFAULT_CONFIG = {
     enabled: true,
   },
   vault: {
-    manager: '1password',
+    manager: 'age',
     lookIn: '',
   },
 

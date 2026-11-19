@@ -92,7 +92,7 @@ import { createSecretsBroker } from '../secrets/secrets-broker.ts';
 import { createAgeStore } from '../secrets/age-store.ts';
 import { createFnoxRunner } from '../secrets/fnox-runner.ts';
 import { createWrittenSecretNames } from '../secrets/written-secret-names.ts';
-import { SecretSource } from '../../shared/contracts/secrets.ts';
+import { SecretSource, vaultManagerOf } from '../../shared/contracts/secrets.ts';
 import type { SecretSourceTestResult } from '../../shared/contracts/secrets.ts';
 import { readEnvValues, writeEnvFile } from '../secrets/env-file.ts';
 import { wireSecretsBroker } from '../secrets/secrets-wiring.ts';
@@ -434,7 +434,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
   const vaultSourceFor = (lookIn: unknown) => {
-    const manager = config.vault?.manager ?? '1password';
+    const manager = vaultManagerOf(config.vault);
     return SecretSource.safeParse(manager === 'age' ? { manager } : { manager, lookIn });
   };
   const ageStore = createAgeStore({ glimmervoidHome: glimmervoidHomeDir() });

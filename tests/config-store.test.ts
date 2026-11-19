@@ -420,7 +420,14 @@ test('a saved secret approval that names a vault item and the vault companion ke
     assert.deepEqual(store.config.secrets, expected);
     const savedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
     assert.deepEqual(savedConfig.secrets, expected);
-    assert.deepEqual(savedConfig.vault, { lookIn: 'Agents' });
+    assert.deepEqual(savedConfig.vault, { lookIn: 'Agents', manager: '1password' });
+  });
+});
+
+test('a 1Password vault source with no vault set loads and saves as the age file', () => {
+  withStore({ projects: [], vault: { manager: '1password', lookIn: '' } }, (store, configPath) => {
+    const savedConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    assert.deepEqual([store.config.vault, savedConfig.vault], [{ manager: 'age', lookIn: '' }, { manager: 'age', lookIn: '' }]);
   });
 });
 

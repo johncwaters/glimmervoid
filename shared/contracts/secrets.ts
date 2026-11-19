@@ -13,6 +13,13 @@ export const SecretManager = z.enum(['1password', 'age'], { error: 'vault.manage
 
 export const SECRET_MANAGER_LABELS: Readonly<Record<z.infer<typeof SecretManager>, string>> = Object.freeze({ '1password': '1Password', age: 'Age file' });
 
+export function vaultManagerOf(vault: { manager?: unknown; lookIn?: unknown } | undefined): z.infer<typeof SecretManager> {
+  const savedManager = SecretManager.safeParse(vault?.manager);
+  if (savedManager.success) return savedManager.data;
+  const lookIn = typeof vault?.lookIn === 'string' ? vault.lookIn.trim() : '';
+  return lookIn === '' ? 'age' : '1password';
+}
+
 export const SecretLookIn = z.string({ error: 'vault.lookIn must be a string' }).trim()
   .max(MAX_LOOK_IN_LENGTH, { error: `vault.lookIn must be at most ${MAX_LOOK_IN_LENGTH} characters` })
   .regex(/^\P{Cc}*$/u, { error: 'vault.lookIn cannot hold control characters' });

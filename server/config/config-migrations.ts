@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { BranchGcFileSettings, configIssueMessage } from '../../shared/contracts/index.ts';
 import { isRecord } from '../../shared/coerce.ts';
+import { vaultManagerOf } from '../../shared/contracts/secrets.ts';
 import type { GlimmervoidConfig } from './config-types.ts';
 import { DEFAULT_CONFIG } from './config-defaults.ts';
 import type { DefaultConfig } from './config-defaults.ts';
@@ -141,13 +142,27 @@ function dropRetiredSecretReferences(config: GlimmervoidConfig): string | null {
 }
 
 
-function dropRetiredVaultCompanion(config: GlimmervoidConfig): string | null {
-  const vault: unknown = config.vault;
-  if (!isRecord(vault)) return null;
+function retiredVaultCompanionMessage(vault: Record<string, unknown>): string | null {
   const droppedKeys = (['host', 'port', 'token'] as const).filter((key) => Object.hasOwn(vault, key));
   if (droppedKeys.length === 0) return null;
   for (const key of droppedKeys) delete vault[key];
   return `[config] Removed ${droppedKeys.map((key) => `vault.${key}`).join(', ')}: the 1Password vault companion is gone, and secrets read from the vault set in Settings > Vault.`;
+}
+
+function explicitVaultManagerMessage(vault: Record<string, unknown>): string | null {
+  const managerFromLookIn = vaultManagerOf({ lookIn: vault.lookIn });
+  const isOnePasswordWithoutVault = vault.manager === '1password' && managerFromLookIn === 'age';
+  if (vault.manager !== undefined && !isOnePasswordWithoutVault) return null;
+  vault.manager = managerFromLookIn;
+  if (managerFromLookIn === '1password') return '[config] Set vault.manager to 1password: the age file is now the default source, and your 1Password vault stays in use.';
+  return '[config] Secrets now read from the age file on this machine: no 1Password vault was set. Change it under Settings > Vault.';
+}
+
+function migrateVaultSettings(config: GlimmervoidConfig): string | null {
+  const vault: unknown = config.vault;
+  if (!isRecord(vault)) return null;
+  const messages = [retiredVaultCompanionMessage(vault), explicitVaultManagerMessage(vault)].filter((message) => message !== null);
+  return messages.length === 0 ? null : messages.join('\n');
 }
 
 interface KeyMove {
@@ -233,4 +248,4 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredVaultCompanion, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
