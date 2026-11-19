@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An opened Chat turn now points its arrow up, at the steps and text it revealed.** The arrow sits under the turn, so it used to turn down, away from what had just appeared above it.
 - **A Chat message sent while Claude Code starts now waits until Claude is ready, instead of being typed into its startup screen.** Chat treats a Claude session as ready when its first hook arrives, so a dialog such as the folder trust check no longer swallows the message. A sent message stays in Chat until its turn starts, and Chat never marks a message as not taken. If Claude's hooks never arrive, the card stops showing Starting after 30 seconds, and Chat still holds the message, which you can cancel.
 - **A Chat message sent right after a Claude Code session starts in a worktree is no longer lost.** Claude Code reads folder trust for a git worktree from the repo's main checkout, which Glimmervoid did not trust, so a repo that pre-approves tools showed Claude's trust dialog and your first message's Enter answered it. Glimmervoid now trusts the main checkout as well, so the dialog does not appear.
 - **The Homebrew tap gets each release again.** A style check added in Homebrew 7.0.15 rejected the generated formula and stopped the 0.62.8 formula from reaching the tap. Releases now pass that check.

@@ -152,7 +152,7 @@
 
 .chat-turn-chevron svg { transition: transform 120ms ease; }
 
-.chat-turn-chevron[aria-expanded="true"] svg { transform: rotate(90deg); }
+.chat-turn-chevron[aria-expanded="true"] svg { transform: rotate(-90deg); }
 
 .chat-turn-more { display: none; }
 
