@@ -50,13 +50,17 @@ function dispatchCardAction(source: HTMLElement, card: ChatCard, action: string,
   source.dispatchEvent(new CustomEvent('chat-card', { bubbles: true, composed: true, detail }));
 }
 
-function cardShell(card: ChatCard, heading: string): HTMLElement {
+function shellOf(cardType: string, heading: string, isResolved: boolean): HTMLElement {
   const shell = el('section', 'chat-card');
-  shell.dataset.cardType = card.cardType;
-  shell.dataset.resolved = String(card.resolution !== null);
-  if (card.resolution === null) holdCardKeys(shell);
+  shell.dataset.cardType = cardType;
+  shell.dataset.resolved = String(isResolved);
+  if (!isResolved) holdCardKeys(shell);
   shell.appendChild(el('div', 'chat-card-heading', heading));
   return shell;
+}
+
+function cardShell(card: ChatCard, heading: string): HTMLElement {
+  return shellOf(card.cardType, heading, card.resolution !== null);
 }
 
 function receipt(text: string): HTMLElement {
@@ -105,22 +109,36 @@ function denyMessageRowOf(shell: HTMLElement, card: ChatCardByType['permission']
   return row;
 }
 
-function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
-  const shell = cardShell(card, card.data.question);
-  if (card.data.detail) shell.appendChild(el('p', 'chat-card-text', card.data.detail));
-  if (card.resolution) {
-    shell.appendChild(receipt(`Answered: ${withoutRecommendedSuffix(card.resolution.answer)}`));
+export interface QuestionCardModel {
+  readonly cardType: string;
+  readonly heading: string;
+  readonly detail: string;
+  readonly options: readonly { label: string; note: string }[];
+  readonly answer: string | null;
+}
+
+export function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void): HTMLElement {
+  const shell = shellOf(question.cardType, question.heading, question.answer !== null);
+  if (question.detail) shell.appendChild(el('p', 'chat-card-text', question.detail));
+  if (question.answer !== null) {
+    shell.appendChild(receipt(`Answered: ${withoutRecommendedSuffix(question.answer)}`));
     return shell;
   }
   const options = el('div', 'chat-card-options');
-  for (const [index, option] of shownOptionsOf(card.data.options).entries()) {
-    options.appendChild(optionRowOf(shell, card, option, digitKeyOf(index + 1)));
+  for (const [index, option] of shownOptionsOf(question.options).entries()) {
+    options.appendChild(optionRowOf(option, digitKeyOf(index + 1), onAnswer));
   }
   shell.appendChild(options);
   return shell;
 }
 
-function optionRowOf(shell: HTMLElement, card: ChatCardByType['question'], option: ShownOption, digitKey: string | null): HTMLElement {
+function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
+  const question = { cardType: card.cardType, heading: card.data.question, detail: card.data.detail, options: card.data.options, answer: card.resolution?.answer ?? null };
+  const shell: HTMLElement = questionCardOf(question, (label) => dispatchCardAction(shell, card, 'answer', label));
+  return shell;
+}
+
+function optionRowOf(option: ShownOption, digitKey: string | null, onAnswer: (label: string) => void): HTMLElement {
   const optionRow = el('div', 'chat-card-option');
   const shownKey = option.isRecommended ? ENTER_KEY : digitKey;
   const label = option.isRecommended ? withoutRecommendedSuffix(option.label) : option.label;
@@ -129,7 +147,7 @@ function optionRowOf(shell: HTMLElement, card: ChatCardByType['question'], optio
     textCase: 'sentence',
     label,
     ...(shownKey === null ? {} : { shortcutKey: shownKey }),
-    onClick: () => dispatchCardAction(shell, card, 'answer', option.label),
+    onClick: () => onAnswer(option.label),
   });
   if (option.isRecommended) optionButton.insertBefore(el('span', 'chat-card-recommended', 'Recommended'), optionButton.querySelector('.ui-button-shortcut'));
   markCardKeys(optionButton, [digitKey, option.isRecommended ? ENTER_KEY : null].filter((key): key is string => key !== null));

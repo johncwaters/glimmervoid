@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { holdCardKeys, markCardKeys, releaseCardKeys } from './chat-cards.ts';
+import { questionCardOf } from './chat-cards.ts';
 import type { DoneLine, DonePanelModel } from './done-panel-core.ts';
 
 interface DonePanel {
@@ -8,8 +8,9 @@ interface DonePanel {
   show(model: DonePanelModel | null): void;
 }
 
-const SEND_BACK_KEY = 'Enter';
-const ACCEPT_KEY = '2';
+const SEND_BACK_LABEL = 'Send back';
+const ACCEPT_LABEL = 'Accept';
+const RECOMMENDED_SUFFIX = ' (Recommended)';
 
 function lineRowOf(line: DoneLine): HTMLElement {
   const row = el('div', 'chat-done-line');
@@ -50,51 +51,56 @@ function allowBarOf(waitingCommands: readonly string[], onAllowCommands: (comman
   return bar;
 }
 
+function verdictOptionsOf(hasFailedLine: boolean): { label: string; note: string }[] {
+  const acceptNote = 'Tells the agent to land the work';
+  if (!hasFailedLine) return [{ label: `${ACCEPT_LABEL}${RECOMMENDED_SUFFIX}`, note: acceptNote }];
+  return [
+    { label: `${SEND_BACK_LABEL}${RECOMMENDED_SUFFIX}`, note: 'Sends the failed lines and their output to the agent' },
+    { label: ACCEPT_LABEL, note: acceptNote },
+  ];
+}
+
 export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void; onAllowCommands(commands: readonly string[]): void }): DonePanel {
   const element = el('section', 'chat-done');
   element.setAttribute('aria-label', 'Done means');
-  element.tabIndex = -1;
   element.hidden = true;
-  let shownVerdict: string | null = null;
-  let hasAnsweredVerdict = false;
+  let shownModel: DonePanelModel | null = null;
+  let answeredLabel: string | null = null;
+  let verdictCard: { key: string; element: HTMLElement } | null = null;
 
-  const answerVerdict = (sendAnswer: () => void) => {
-    hasAnsweredVerdict = true;
-    element.querySelector('.chat-done-foot')?.remove();
-    releaseCardKeys(element);
-    sendAnswer();
-  };
-
-  const footOf = (verdictText: string, hasFailedLine: boolean): HTMLElement => {
-    const actions = el('span', 'chat-done-actions');
-    if (hasFailedLine) {
-      const sendBackButton = button({ variant: 'primary', size: 'small', textCase: 'sentence', label: 'Send back', shortcutKey: SEND_BACK_KEY, onClick: () => answerVerdict(handlers.onSendBack) });
-      markCardKeys(sendBackButton, [SEND_BACK_KEY]);
-      actions.append(sendBackButton);
-    }
-    const acceptButton = button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: 'Accept', shortcutKey: ACCEPT_KEY, onClick: () => answerVerdict(handlers.onAccept) });
-    markCardKeys(acceptButton, [ACCEPT_KEY]);
-    actions.append(acceptButton);
-    const foot = el('div', 'chat-done-foot');
-    foot.append(el('span', 'chat-done-verdict', verdictText), actions);
-    return foot;
+  const verdictCardOf = (verdictText: string, hasFailedLine: boolean): HTMLElement => {
+    const key = JSON.stringify([verdictText, hasFailedLine, answeredLabel]);
+    if (verdictCard?.key === key) return verdictCard.element;
+    const question = { cardType: 'done-verdict', heading: verdictText, detail: '', options: verdictOptionsOf(hasFailedLine), answer: answeredLabel };
+    const card = questionCardOf(question, (label) => {
+      answeredLabel = label;
+      show(shownModel);
+      if (label.startsWith(SEND_BACK_LABEL)) {
+        handlers.onSendBack();
+        return;
+      }
+      handlers.onAccept();
+    });
+    verdictCard = { key, element: card };
+    return card;
   };
 
   const show = (model: DonePanelModel | null) => {
     element.hidden = model === null;
     if (model === null || model.verdict === null) {
-      shownVerdict = null;
-      hasAnsweredVerdict = false;
-      releaseCardKeys(element);
+      answeredLabel = null;
+      verdictCard = null;
     }
-    if (model === null) return;
+    shownModel = model;
+    if (model === null) {
+      element.replaceChildren();
+      return;
+    }
     const parts = [headOf(model), linesOf(model)];
     if (model.waitingCommands.length > 0) parts.push(allowBarOf(model.waitingCommands, handlers.onAllowCommands));
     const hasFailedLine = model.lines.some((line) => line.status === 'failed');
-    if (model.verdict !== null && !hasAnsweredVerdict) parts.push(footOf(model.verdict, hasFailedLine));
+    if (model.verdict !== null) parts.push(verdictCardOf(model.verdict, hasFailedLine));
     element.replaceChildren(...parts);
-    if (model.verdict !== null && shownVerdict === null) holdCardKeys(element);
-    shownVerdict = model.verdict;
   };
   return { element, show };
 }

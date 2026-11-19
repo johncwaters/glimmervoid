@@ -81,10 +81,8 @@
 
 .chat-done-allow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border-dim); }
 .chat-done-allow-note { flex: 1 1 240px; font-size: var(--type-meta); color: var(--text-dim); }
-.chat-done-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 16px 12px; border-top: 1px solid var(--border-dim); }
+.chat-done > .chat-card { margin: 4px 12px 12px; }
 .chat-done[hidden] { display: none; }
-.chat-done-verdict { font-size: var(--type-meta); color: var(--text-dim); }
-.chat-done-actions { display: flex; gap: 8px; margin-left: auto; }
 
 @media (max-width: 640px) {
   .chat-done-proof { white-space: normal; }

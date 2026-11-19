@@ -147,11 +147,10 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in'] as const;
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'done-verdict'] as const;
 const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
 const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
-const READY_DONE_PANEL_SELECTOR = '.chat-done:not([hidden])[data-keys-ready]';
 const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
 
 function isFocusOnOtherControl(): boolean {
@@ -168,18 +167,10 @@ function isCardPickKeydown(event: KeyboardEvent): boolean {
   return !isRealInputOwningKey(event);
 }
 
-function chatKeyTargetOf(root: HTMLElement, key: string): { target: HTMLElement; heldSelector: string } | null {
-  const openCard = root.querySelector<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR);
-  if (openCard) {
-    const cardTarget = keyTargetOf(openCard, key);
-    return cardTarget ? { target: cardTarget, heldSelector: OPEN_ANSWERABLE_CARD_SELECTOR } : null;
-  }
-  if (root.querySelector(UNANSWERED_CARD_SELECTOR)) return null;
-  const donePanel = root.querySelector<HTMLElement>(READY_DONE_PANEL_SELECTOR);
-  if (!donePanel?.querySelector('.chat-done-foot')) return null;
-  const panelTarget = keyTargetOf(donePanel, key);
-  if (!panelTarget) return null;
-  return { target: panelTarget, heldSelector: READY_DONE_PANEL_SELECTOR };
+function chatKeyTargetOf(root: HTMLElement, key: string): HTMLElement | null {
+  const firstUnansweredCard = root.querySelector<HTMLElement>(UNANSWERED_CARD_SELECTOR);
+  if (!firstUnansweredCard?.matches(OPEN_ANSWERABLE_CARD_SELECTOR)) return null;
+  return keyTargetOf(firstUnansweredCard, key);
 }
 
 function builtChatOf(sessionId: string): MountedChat | null {
@@ -612,12 +603,12 @@ function buildChat(sessionId: string): MountedChat {
     if (!keyTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    if (keyTarget.target instanceof HTMLInputElement) {
-      keyTarget.target.focus();
+    if (keyTarget instanceof HTMLInputElement) {
+      keyTarget.focus();
       return;
     }
-    keyTarget.target.click();
-    root.querySelectorAll<HTMLElement>(keyTarget.heldSelector).forEach(holdCardKeys);
+    keyTarget.click();
+    root.querySelectorAll<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR).forEach(holdCardKeys);
   }, { capture: true });
 
   const feed = createChatFeed({
