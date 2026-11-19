@@ -19,7 +19,7 @@ function writeFiles(repoPath: string, contentByPath: Record<string, string>): vo
   }
 }
 
-test('Keeps every test reports only net removals and skips, at their real path and line, whatever the diff config, attributes or base', async (context) => {
+test('Keeps every test reports only net removals and skips, at their real path and line, whatever the diff config, attributes or base, in a spawned child whose repo has an invalid verification entry', async (context) => {
   const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-test-keeping-'));
   context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
   git(repoPath, ['init', '--quiet']);
@@ -49,7 +49,7 @@ test('Keeps every test reports only net removals and skips, at their real path a
 
   let onTurnEnd = () => {};
   const verification = createVerificationWiring({
-    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }] } } }),
+    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }], typo: true } } }),
     isSessionSandboxOn: () => false,
     broadcastControl: () => {},
     logger: console,
@@ -57,7 +57,8 @@ test('Keeps every test reports only net removals and skips, at their real path a
   verification.attachSession({
     id: 'test-keeping',
     path: repoPath,
-    ephemeral: false,
+    ephemeral: true,
+    ownerId: 'parent',
     hasOwnWorktree: true,
     worktreeDir: repoPath,
     on: (_event, listener) => { onTurnEnd = listener; },
@@ -71,6 +72,7 @@ test('Keeps every test reports only net removals and skips, at their real path a
   const deadline = Date.now() + 20_000;
   while ((verification.latestRun('test-keeping')?.status ?? 'running') === 'running' && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
 
+  assert.deepEqual(verification.latestRun('test-keeping')?.checks.map((check) => `${check.id} ${check.status}`), ['verification-config fail']);
   const reported = (verification.latestRun('test-keeping')?.removedTestLines ?? []).map((removed) => `${removed.kind} ${removed.path}:${removed.line} ${removed.text}`);
   assert.deepEqual(reported.sort(), [
     'added-skip tests/skipped.test.ts:1 test.skip(\'later\', () => {});',

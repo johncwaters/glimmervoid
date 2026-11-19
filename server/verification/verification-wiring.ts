@@ -2,7 +2,7 @@ import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
-import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
+import { VERIFICATION_OUTPUT_TAIL_BYTES, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome, RemovedTestLine, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
 import { streamRemovedTestLines } from './test-keeping-scan.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -12,6 +12,8 @@ import { launchArgvFor, overallStatus, parseCheckCommand, readVerificationSettin
 
 const SECRET_ENV_NAME_PATTERN = /(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)/i;
 const UNREAD_TREE_SKIP_REASON = 'the worktree could not be read at turn end, so the checks did not run for this turn';
+const SETTINGS_WITHOUT_CHECKS = VerificationSettingsSchema.parse({});
+const INVALID_CONFIG_CHECK_ID = 'verification-config';
 const SANDBOX_SKIP_REASON = 'checks do not run while sessionSandbox is on, because they would run agent-edited code outside the sandbox';
 
 interface WorktreeTree {
@@ -23,7 +25,7 @@ interface VerifiableSession {
   id: string;
   path: string;
   ephemeral: boolean;
-  doneMeans?: readonly string[];
+  ownerId?: string | null;
   hasOwnWorktree: boolean;
   worktreeDir: string | null;
   on(event: 'post-turn-check', listener: () => void): unknown;
@@ -128,6 +130,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const warnedInvalidRepos = new Set<string>();
   const liveCheckPidsBySession = new Map<string, Set<number>>();
   const attachedSessionIds = new Set<string>();
+  const invalidConfigMessageBySession = new Map<string, string | null>();
 
   function liveCheckPidsOf(sessionId: string): Set<number> {
     const existing = liveCheckPidsBySession.get(sessionId);
@@ -142,7 +145,9 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     liveCheckPidsBySession.delete(sessionId);
   }
 
-  function publish(run: VerificationRun): void {
+  function publish(finishedOrRunning: VerificationRun): void {
+    const invalidConfigMessage = invalidConfigMessageBySession.get(finishedOrRunning.sessionId) ?? null;
+    const run = invalidConfigMessage === null || finishedOrRunning.status === 'running' ? finishedOrRunning : withInvalidConfigCheck(finishedOrRunning, invalidConfigMessage);
     publishedRunBySession.set(run.sessionId, run);
     dependencies.broadcastControl({ type: 'verification-run', id: run.sessionId, run });
   }
@@ -225,18 +230,25 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     publish({ sessionId, sig: '', status: overallStatus(checks), checks, finishedAt: clock.nowMs(), removedTestLines: null });
   }
 
+  function withInvalidConfigCheck(run: VerificationRun, message: string): VerificationRun {
+    const invalidConfig: CheckOutcome = { id: INVALID_CONFIG_CHECK_ID, command: 'config.json verification.repos', status: 'fail', exitCode: null, outputTail: `this repository's verification entry is invalid, so its checks did not run and merges are refused: ${message}` };
+    return { ...run, status: 'failed', checks: [invalidConfig, ...run.checks] };
+  }
+
   async function verifyAtTurnEnd(session: VerifiableSession): Promise<void> {
+    if (!session.hasOwnWorktree) return;
     const lookup = lookupSettings(session);
-    if (lookup.kind !== 'ok' || !session.hasOwnWorktree) return;
+    const settings = lookup.kind === 'ok' ? lookup.settings : SETTINGS_WITHOUT_CHECKS;
+    invalidConfigMessageBySession.set(session.id, lookup.kind === 'invalid' ? lookup.message : null);
     const turnEndCount = turnEndCountOf(session.id) + 1;
     turnEndCountBySession.set(session.id, turnEndCount);
     const isLatestTurnEnd = () => turnEndCountOf(session.id) === turnEndCount && attachedSessionIds.has(session.id);
     const tree = await session.worktreeLifecycle.computeGateTree();
     if (!tree) {
-      if (isLatestTurnEnd()) publishUnreadTree(lookup.settings, session.id);
+      if (isLatestTurnEnd()) publishUnreadTree(settings, session.id);
       return;
     }
-    const run = await ensureRun(session, lookup.settings, tree.sig, { reuseFailed: true });
+    const run = await ensureRun(session, settings, tree.sig, { reuseFailed: true });
     if (isLatestTurnEnd()) publish(run);
   }
 
@@ -258,7 +270,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   function attachSession(session: VerifiableSession): void {
     attachedSessionIds.add(session.id);
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
-    if (session.ephemeral && !session.doneMeans?.length) return;
+    if (session.ephemeral && !session.ownerId) return;
     session.on('post-turn-check', () => {
       verifyAtTurnEnd(session).catch((error: unknown) => {
         dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);
@@ -275,6 +287,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       cachedRunBySession.delete(sessionId);
       publishedRunBySession.delete(sessionId);
       turnEndCountBySession.delete(sessionId);
+      invalidConfigMessageBySession.delete(sessionId);
       inFlightBySession.delete(sessionId);
     },
     stop: () => {
