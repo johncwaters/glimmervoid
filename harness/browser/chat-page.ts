@@ -76,8 +76,6 @@ async function verifyChatModelSwitch(page: Page): Promise<void> {
   await page.keyboard.press('Escape');
   assert.equal(await composerInput.inputValue(), 'draft kept across the switch', 'an unsent draft survives the restart a model switch causes');
   await composerInput.fill('');
-  await waitForTurnRunning(page, true);
-  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
 }
 
@@ -537,8 +535,13 @@ async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
 }
 
 async function stopTurnPastHints(page: Page): Promise<void> {
-  await page.evaluate(() => { for (const hintCard of document.querySelectorAll('aside.feature-hint')) hintCard.remove(); });
-  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  const hintCards = page.locator('aside.feature-hint');
+  await page.addLocatorHandler(hintCards, (hintCard) => hintCard.getByRole('button', { name: 'Dismiss', exact: true }).click());
+  try {
+    await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  } finally {
+    await page.removeLocatorHandler(hintCards);
+  }
 }
 
 async function waitForOutboxEmpty(page: Page): Promise<void> {

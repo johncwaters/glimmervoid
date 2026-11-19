@@ -10,6 +10,7 @@ import type { Browser } from 'playwright-core';
 import type { Plugin } from 'vite';
 
 import { resolveWorktreeGitDir } from '../../detection/worktree-watch.ts';
+import { getAdapter, listAgentIds } from '../../session/adapters/index.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
@@ -274,6 +275,10 @@ async function waitForFakeAgentsToExit(): Promise<FakeAgentScan> {
   return scan;
 }
 
+function agentCredentialEnvNames(): string[] {
+  return listAgentIds().flatMap((agentId) => getAdapter(agentId)?.credentialEnvNames ?? []);
+}
+
 function restoreEnvironmentVariable(name: string, value: string | undefined): void {
   if (value === undefined) {
     delete process.env[name];
@@ -387,7 +392,9 @@ async function main(): Promise<number> {
     GLIMMERVOID_CONFIG: process.env.GLIMMERVOID_CONFIG,
     GLIMMERVOID_PORT: process.env.GLIMMERVOID_PORT,
     PATH: process.env.PATH,
+    ...Object.fromEntries(agentCredentialEnvNames().map((name) => [name, process.env[name]])),
   };
+  for (const name of agentCredentialEnvNames()) delete process.env[name];
   const restoreTranscriptHomes = isolateTranscriptHomes(tempDirectory);
 
   let browser: Browser | null = null;
