@@ -8,9 +8,8 @@ interface DonePanel {
   show(model: DonePanelModel | null): void;
 }
 
-const SEND_BACK_LABEL = 'Send back';
-const ACCEPT_LABEL = 'Accept';
-const RECOMMENDED_SUFFIX = ' (Recommended)';
+const DONE_LABEL = 'Done, land it';
+const NOT_DONE_LABEL = 'Not done';
 
 function lineRowOf(line: DoneLine): HTMLElement {
   const row = el('div', 'chat-done-line');
@@ -31,7 +30,7 @@ function lineRowOf(line: DoneLine): HTMLElement {
 
 function headOf(model: DonePanelModel): HTMLElement {
   const head = el('div', 'chat-done-head');
-  head.append(el('span', 'chat-done-title', 'Done means'), el('span', 'chat-done-count', `${model.metCount} of ${model.lines.length} met`));
+  head.append(el('span', 'chat-done-title', 'Checked at turn end'), el('span', 'chat-done-count', `${model.metCount} of ${model.lines.length} passed`));
   return head;
 }
 
@@ -52,17 +51,15 @@ function allowBarOf(waitingCommands: readonly string[], onAllowCommands: (comman
 }
 
 function verdictOptionsOf(hasFailedLine: boolean): { label: string; note: string }[] {
-  const acceptNote = 'Tells the agent to land the work';
-  if (!hasFailedLine) return [{ label: `${ACCEPT_LABEL}${RECOMMENDED_SUFFIX}`, note: acceptNote }];
   return [
-    { label: `${SEND_BACK_LABEL}${RECOMMENDED_SUFFIX}`, note: 'Sends the failed lines and their output to the agent' },
-    { label: ACCEPT_LABEL, note: acceptNote },
+    { label: DONE_LABEL, note: 'Tells the agent to land the work' },
+    { label: NOT_DONE_LABEL, note: hasFailedLine ? 'Sends the failed lines and their output to the agent' : 'Type what is missing in the message box' },
   ];
 }
 
-export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void; onAllowCommands(commands: readonly string[]): void }): DonePanel {
+export function createDonePanel(handlers: { onNotDone(): void; onDone(): void; onAllowCommands(commands: readonly string[]): void }): DonePanel {
   const element = el('section', 'chat-done');
-  element.setAttribute('aria-label', 'Done means');
+  element.setAttribute('aria-label', 'Checked at turn end');
   element.hidden = true;
   let shownModel: DonePanelModel | null = null;
   let answeredLabel: string | null = null;
@@ -75,11 +72,11 @@ export function createDonePanel(handlers: { onSendBack(): void; onAccept(): void
     const card = questionCardOf(question, (label) => {
       answeredLabel = label;
       show(shownModel);
-      if (label.startsWith(SEND_BACK_LABEL)) {
-        handlers.onSendBack();
+      if (label === NOT_DONE_LABEL) {
+        handlers.onNotDone();
         return;
       }
-      handlers.onAccept();
+      handlers.onDone();
     });
     verdictCard = { key, element: card };
     return card;

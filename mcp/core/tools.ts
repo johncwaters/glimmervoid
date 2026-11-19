@@ -118,7 +118,7 @@ function boardRenderRoute(): ActionRoute {
 const SESSION_TOOL: GroupedTool = {
   name: 'session',
   title: 'Glimmervoid sessions',
-  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; done says what finished means for the request, shown in the Done means panel; limits reports what this session may do.',
+  description: 'Spawn, message and manage Glimmervoid sessions. spawn starts a new supervised session with its own dashboard card and worktree, an option beside an in-process subagent. send and read talk with a spawned child (or, from a child, its parent, or with to a sibling the same parent spawned); answer replies to a question a child asked; close ends a child; sessions lists every live session; edit opens a file for the operator to write or correct, such as a plan or a prompt; done says what finished means for the request, shown in the Checked at turn end panel; limits reports what this session may do.',
   loadsUpfront: true,
   fields: {
     prompt: AgentSpawnRequest.shape.prompt.optional().describe('spawn: the task for the new session'),

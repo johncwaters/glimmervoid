@@ -79,13 +79,11 @@ function waitingCommandsOf(run: VerificationRun | null, agentDoneLines: readonly
   });
 }
 
+const VERDICT_QUESTION = 'Is the work done?';
+
 function verdictOf(lines: readonly DoneLine[]): string | null {
   if (lines.some((line) => line.status === 'running')) return null;
-  const failedCount = lines.filter((line) => line.status === 'failed').length;
-  const passedCount = lines.filter((line) => line.status === 'passed').length;
-  if (failedCount === 0 && passedCount === 0) return 'The agent finished. No line was checked.';
-  if (failedCount === 0) return 'The agent finished. Every checked line passed.';
-  return `The agent finished. ${failedCount} ${failedCount === 1 ? 'line' : 'lines'} failed.`;
+  return VERDICT_QUESTION;
 }
 
 export function donePanelModelOf(input: { run: VerificationRun | null; doneMeans: readonly string[]; agentDoneLines: readonly AgentDoneLine[]; phase: ChatPhase }): DonePanelModel | null {

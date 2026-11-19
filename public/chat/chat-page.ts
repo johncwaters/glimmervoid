@@ -315,13 +315,17 @@ function buildChat(sessionId: string): MountedChat {
   };
   const doneModelNow = () => donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, doneMeans: doneMeansBySessionId.get(sessionId) ?? [], agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) });
   const donePanel = createDonePanel({
-    onSendBack: () => {
+    onNotDone: () => {
       const doneModel = doneModelNow();
       if (doneModel === null) return;
       showFailure(null);
+      if (!doneModel.lines.some((line) => line.status === 'failed')) {
+        root.querySelector<HTMLTextAreaElement>('.chat-composer-input')?.focus();
+        return;
+      }
       sendChatText(sessionId, sendBackMessageOf(doneModel, CHAT_SEND_MAX_CHARS), []);
     },
-    onAccept: () => {
+    onDone: () => {
       showFailure(null);
       sendChatText(sessionId, ACCEPT_MESSAGE, []);
     },
