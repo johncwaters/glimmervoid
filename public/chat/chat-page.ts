@@ -16,7 +16,7 @@ import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
 import { agentLabel } from '../arena/lineup-core.ts';
-import { createChatView } from './chat-view.ts';
+import { createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
 import { sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
@@ -278,11 +278,15 @@ function buildChat(sessionId: string): MountedChat {
       feed.refresh();
     }, STAND_IN_UNRECORDED_MAX_MS));
   };
-  const countNewPromptParts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[]) => {
+  const takeNewPromptParts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[]) => {
     for (const droppedPartId of droppedPartIds) shownPromptPartIds.delete(droppedPartId);
     const newPromptParts = changedParts.filter((part) => part.kind === 'prompt' && !shownPromptPartIds.has(part.id));
     for (const promptPart of newPromptParts) shownPromptPartIds.add(promptPart.id);
-    return newPromptParts.length;
+    return newPromptParts;
+  };
+  const arrivingPartIdsOf = (changedParts: readonly ChatPart[], newPromptParts: readonly ChatPart[]): ReadonlySet<string> => {
+    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, standInByEntryId.size).map((part) => part.id));
+    return new Set(changedParts.map((part) => part.id).filter((partId) => !promptIdsTakingStandIns.has(partId)));
   };
   const swapStandInsForPrompts = (newPromptCount: number) => {
     const takenEntryIds = [...standInByEntryId.keys()].slice(0, newPromptCount);
@@ -299,7 +303,7 @@ function buildChat(sessionId: string): MountedChat {
       if (standInByEntryId.has(entry.entryId) || entryIdsTakenByPrompt.has(entry.entryId)) continue;
       const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: clock.nowMs(), attachments: [...entry.attachments] };
       standInByEntryId.set(entry.entryId, standIn);
-      chatView.upsert([standIn]);
+      chatView.upsert([standIn], new Set([standIn.id]));
     }
     const unsentEntryIds = [...standInByEntryId.keys()].filter((entryId) => entries.some((entry) => entry.entryId === entryId && !SENT_OUTBOX_STATES.has(entry.state)));
     removeStandIns(unsentEntryIds);
@@ -414,13 +418,13 @@ function buildChat(sessionId: string): MountedChat {
     if (!sessionUIs.has(sessionId)) return;
     terminalCardSerial += 1;
     const card: ChatCard = { cardType: 'live-terminal', cardId: `live-terminal-${terminalCardSerial}`, data: { heading: LIVE_TERMINAL_HEADING }, resolution: null };
-    chatView.upsert([cardPartOf(card)]);
+    chatView.upsert([cardPartOf(card)], new Set([card.cardId]));
     if (lendTerminalToCard(card.cardId)) terminalCardId = card.cardId;
   };
 
   const showSignInCard = (card: SignInCard) => {
     signInCard = card;
-    chatView.upsert([cardPartOf(card)]);
+    chatView.upsert([cardPartOf(card)], new Set([card.cardId]));
   };
 
   const settleSignInCard = () => {
@@ -434,7 +438,7 @@ function buildChat(sessionId: string): MountedChat {
       chatView.remove([shownCard.cardId]);
       return;
     }
-    chatView.upsert([cardPartOf({ ...shownCard, resolution: { isSignedIn: true } })]);
+    chatView.upsert([cardPartOf({ ...shownCard, resolution: { isSignedIn: true } })], NO_ARRIVING_PARTS);
   };
 
   const relendSignInTerminal = () => {
@@ -490,7 +494,7 @@ function buildChat(sessionId: string): MountedChat {
     if (shownApproval && shownApproval.approval.requestId !== approval?.requestId) settleShownApproval();
     if (approval && !shownApproval) {
       shownApproval = { approval, cards: approvalCardsOf(approval), answers: new Map() };
-      chatView.upsert(shownApproval.cards.map(cardPartOf));
+      chatView.upsert(shownApproval.cards.map(cardPartOf), new Set(shownApproval.cards.map((card) => card.cardId)));
     }
     const isAnswerableFromChat = shownApproval !== null && shownApproval.cards.length > 0;
     const loginKind = isAnswerableFromChat ? null : loginKindOfSession();
@@ -510,7 +514,7 @@ function buildChat(sessionId: string): MountedChat {
   const resolveCard = (card: ChatCard) => {
     if (!shownApproval) return;
     shownApproval.cards = shownApproval.cards.map((shownCard) => (shownCard.cardId === card.cardId ? card : shownCard));
-    chatView.upsert([cardPartOf(card)]);
+    chatView.upsert([cardPartOf(card)], NO_ARRIVING_PARTS);
   };
 
   const answerCard = (cardId: string, action: string, value: string) => {
@@ -620,10 +624,10 @@ function buildChat(sessionId: string): MountedChat {
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null,
     requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
     onPartsChanged: (changedParts, droppedPartIds, isLive) => {
-      chatView.upsert(changedParts);
+      const newPromptParts = takeNewPromptParts(changedParts, droppedPartIds);
+      chatView.upsert(changedParts, isLive ? arrivingPartIdsOf(changedParts, newPromptParts) : NO_ARRIVING_PARTS);
       chatView.remove(droppedPartIds);
-      const newPromptCount = countNewPromptParts(changedParts, droppedPartIds);
-      if (isLive) swapStandInsForPrompts(newPromptCount);
+      if (isLive) swapStandInsForPrompts(newPromptParts.length);
       keepPendingPartsLast();
     },
     onSubagents: (subagents) => {
@@ -640,7 +644,7 @@ function buildChat(sessionId: string): MountedChat {
       for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
       freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !SENT_OUTBOX_STATES.has(entry.state)));
       shownPromptPartIds.clear();
-      freshView.upsert([...standInByEntryId.values()]);
+      freshView.upsert([...standInByEntryId.values()], NO_ARRIVING_PARTS);
       freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;

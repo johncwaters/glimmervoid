@@ -13,7 +13,7 @@ import type { RailField } from './status-rail-core.ts';
 
 interface ChatView {
   element: HTMLElement;
-  upsert(parts: readonly ChatPart[]): void;
+  upsert(parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>): void;
   remove(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
   keepLast(partIds: readonly string[]): void;
@@ -51,6 +51,8 @@ interface KeyedChat {
 let keyedChat: KeyedChat | null = null;
 const keyedChatByElement = new WeakMap<Element, KeyedChat>();
 let isChatKeyListenerInstalled = false;
+
+export const NO_ARRIVING_PARTS: ReadonlySet<string> = new Set();
 
 export function applyChatBriefOff(isBriefOff: boolean): void {
   document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isBriefOff);

@@ -4,7 +4,7 @@ import { appendChatRecords, createChatPartsState, endChatTurn } from '../../../p
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
 import { railFieldsOf } from '../../../public/chat/status-rail-core.ts';
 import type { RunningSubagent } from '../../../public/chat/status-rail-core.ts';
-import { createChatView } from '../../../public/chat/chat-view.ts';
+import { createChatView, NO_ARRIVING_PARTS } from '../../../public/chat/chat-view.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
@@ -50,8 +50,8 @@ async function playLive(): Promise<void> {
       const start = 'after' in payload ? payload.after : 0;
       return { type: 'session-trace-response', id: 'harness', requestId: 'harness', records: traceRecords.slice(start, servedCount), start, next: servedCount, reset: false, path: '' };
     },
-    onPartsChanged: (changedParts, droppedPartIds) => {
-      chatView.upsert(changedParts);
+    onPartsChanged: (changedParts, droppedPartIds, isLive) => {
+      chatView.upsert(changedParts, isLive ? new Set(changedParts.map((part) => part.id)) : NO_ARRIVING_PARTS);
       chatView.remove(droppedPartIds);
     },
     onSubagents: showExampleRail,
@@ -88,10 +88,10 @@ function showRecordsAtRest(): void {
   const partsState = createChatPartsState();
   const appended = appendChatRecords(partsState, traceRecords);
   const restingParts = [...appended.parts, ...endChatTurn(partsState)];
-  chatView.upsert(restingParts);
+  chatView.upsert(restingParts, NO_ARRIVING_PARTS);
   window.addEventListener('harness-remount-chat', () => {
     const remountedView = createChatView(harnessUploadUrlOf);
-    remountedView.upsert(restingParts);
+    remountedView.upsert(restingParts, NO_ARRIVING_PARTS);
     document.querySelector('.chat-view')?.replaceWith(remountedView.element);
   });
 }
@@ -117,7 +117,7 @@ const harnessMode = new URLSearchParams(location.search);
 if (harnessMode.has('boot')) void playBoot();
 if (harnessMode.has('live')) await playLive();
 if (!harnessMode.has('live') && !harnessMode.has('boot')) showRecordsAtRest();
-if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
+if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
 if (new URLSearchParams(location.search).has('rail-updates')) {
   const railStates: readonly RunningSubagent[][] = [[{ type: 'Explore', model: 'example-small' }, { type: 'reviewer', model: null }], [], [{ type: 'Explore', model: null }], []];
   for (const subagents of railStates) {

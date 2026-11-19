@@ -239,6 +239,20 @@
   .chat-turn-tool-number[data-ticked] { animation: chat-tool-tick 180ms ease-out; }
 }
 
+@keyframes chat-arrive { from { opacity: 0; transform: scale(0.985); } }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-log [data-arriving],
+  .chat-agent-board-change:not([hidden]),
+  .chat-jump-slot > button:not([hidden]),
+  :root:not([data-chat-brief-off]) .chat-turn[data-open] .chat-turn-work { animation: chat-arrive var(--transition-fast); }
+
+  .chat-log [data-arriving] { transform-origin: top left; }
+  .chat-log :is(.chat-prompt, .chat-prompt-with-attachments)[data-arriving] { transform-origin: bottom right; }
+  .chat-agent-board-change, .chat-jump-slot > button { transform-origin: bottom center; }
+  .chat-turn-work { transform-origin: top left; }
+}
+
 .chat-turn[data-over] .chat-turn-text[data-before-final], .chat-turn-work > .chat-turn-text { opacity: 0.62; }
 
 .chat-turn-meta { display: none; }

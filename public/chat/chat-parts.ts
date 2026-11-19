@@ -144,7 +144,7 @@ function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void 
   view.droppedSegmentCount = droppedSegmentCount;
 }
 
-function syncSegments(view: TurnView, segments: readonly TurnSegment[]): void {
+function syncSegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
   for (const segment of segments.slice(view.segmentKinds.length)) {
     view.segmentKinds.push(segment.kind);
     if (segment.kind === 'tools') {
@@ -152,6 +152,7 @@ function syncSegments(view: TurnView, segments: readonly TurnSegment[]): void {
       continue;
     }
     const textElement = renderTextSegment(segment.text);
+    textElement.toggleAttribute('data-arriving', isArriving);
     view.body.append(textElement);
     view.textElements.push(textElement);
   }
@@ -194,9 +195,9 @@ function showWork(view: TurnView): void {
   view.work.replaceChildren(...workRowsOf(view.part));
 }
 
-function updateTurnView(view: TurnView, part: TurnPart): void {
+function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean): void {
   dropLeadingSegments(view, part.droppedSegmentCount);
-  syncSegments(view, part.segments);
+  syncSegments(view, part.segments, areNewSegmentsArriving);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
   view.textElements.forEach((textElement, index) => {
     textElement?.toggleAttribute('data-before-final', index < finalTextIndex);
@@ -237,10 +238,16 @@ function renderPart(part: FlatPart, uploadUrlOf: UploadUrlOf): HTMLElement {
 
 interface ChatLog {
   element: HTMLElement;
-  upsert(parts: readonly ChatPart[]): void;
+  upsert(parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>): void;
   remove(partIds: readonly string[]): void;
   keepLast(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
+}
+
+function settleArrivalsThatCannotAnimate(logElement: HTMLElement): void {
+  for (const arrivingElement of logElement.querySelectorAll('[data-arriving]')) {
+    if (arrivingElement.getAnimations().length === 0) arrivingElement.removeAttribute('data-arriving');
+  }
 }
 
 export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
@@ -249,17 +256,18 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
   const elementByPartId = new Map<string, HTMLElement>();
   const turnViewByPartId = new Map<string, TurnView>();
 
-  const upsertTurn = (part: TurnPart) => {
+  const upsertTurn = (part: TurnPart, isArriving: boolean) => {
     const existingView = turnViewByPartId.get(part.id);
     const view = existingView ?? createTurnView();
-    updateTurnView(view, part);
+    updateTurnView(view, part, isArriving && existingView !== undefined);
     if (existingView) return;
+    view.element.toggleAttribute('data-arriving', isArriving);
     view.element.dataset.partId = part.id;
     turnViewByPartId.set(part.id, view);
     elementByPartId.set(part.id, view.element);
     element.appendChild(view.element);
   };
-  const upsertFlat = (part: FlatPart) => {
+  const upsertFlat = (part: FlatPart, isArriving: boolean) => {
     const rendered = renderPart(part, uploadUrlOf);
     const existing = elementByPartId.get(part.id);
     elementByPartId.set(part.id, rendered);
@@ -267,15 +275,18 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       existing.replaceWith(rendered);
       return;
     }
+    rendered.toggleAttribute('data-arriving', isArriving);
     element.appendChild(rendered);
   };
-  const upsert = (parts: readonly ChatPart[]) => {
+  const upsert = (parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => {
+    if (arrivingPartIds.size > 0) requestAnimationFrame(() => settleArrivalsThatCannotAnimate(element));
     for (const part of parts) {
+      const isArriving = arrivingPartIds.has(part.id);
       if (part.kind === 'turn') {
-        upsertTurn(part);
+        upsertTurn(part, isArriving);
         continue;
       }
-      upsertFlat(part);
+      upsertFlat(part, isArriving);
     }
   };
   const remove = (partIds: readonly string[]) => {
@@ -294,6 +305,11 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       showWork(view);
     });
   };
+  const settleArrival = (event: AnimationEvent) => {
+    if (event.target instanceof Element) event.target.removeAttribute('data-arriving');
+  };
+  element.addEventListener('animationend', settleArrival);
+  element.addEventListener('animationcancel', settleArrival);
   element.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
     const meta = event.target.closest('.chat-turn-meta');
