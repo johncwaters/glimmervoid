@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { Board as BoardSchema, BoxInput, Near as NearSchema, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Near, Op } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Element, Near, Op } from '../../shared/contracts/whiteboard.ts';
 import { isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
 import { currentStoredBox } from '../../shared/whiteboard-stored-box.ts';
 import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
@@ -9,6 +9,7 @@ import { noteBoxTextOf } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
+import { boxIdsShowingFile, boxIdsTitled } from '../../shared/whiteboard-board-index.ts';
 import { caseFoldedPathKey } from '../../shared/paths.ts';
 
 function elementWithMediaForImage(element: unknown): unknown {
@@ -451,10 +452,30 @@ interface ShownCard {
   caption: string | null;
 }
 
-function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): { ok: true; op: Op; boxId: string } | { ok: false; error: string } {
+type ShownBoxOp = { ok: true; op: Op; boxId: string; isUpdate: boolean } | { ok: false; error: string };
+
+function shownCardFields(card: ShownCard): { title: string; caption: string | null; media: BoxMedia } {
+  const caption = card.caption?.slice(0, WHITEBOARD_LIMITS.line) ?? null;
+  const title = card.title.slice(0, WHITEBOARD_LIMITS.title);
+  return { title, caption, media: { ...card.media, alt: caption ?? card.title.slice(0, WHITEBOARD_LIMITS.line) } };
+}
+
+function boxShowingSameFile(board: Board, card: ShownCard): string | null {
+  const source = card.media.source;
+  if (source?.from !== 'file') return null;
+  return boxIdsShowingFile(board.elements, source.path)[0] ?? null;
+}
+
+function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): ShownBoxOp {
+  const sameFileBoxId = boxShowingSameFile(board, card);
+  if (sameFileBoxId !== null) {
+    const { title, caption, media } = shownCardFields(card);
+    const fields = caption === null ? { title, media } : { title, media, lines: [{ text: caption }] };
+    return { ok: true, op: { op: 'set', id: sameFileBoxId, fields }, boxId: sameFileBoxId, isUpdate: true };
+  }
   const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
   const boxId = `shown-${lastShownNumber + 1}`;
-  const caption = card.caption?.slice(0, WHITEBOARD_LIMITS.line) ?? null;
+  const { title, caption, media } = shownCardFields(card);
   const isEmptyBoard = board.elements.size === 0;
   const belowContent = { x: contentBounds.x, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
   const placement = lastShownNumber > 0
@@ -463,16 +484,83 @@ function shownBoxOp(board: Board, contentBounds: BoardBounds, card: ShownCard): 
   const box = BoxInput.safeParse({
     kind: 'box',
     id: boxId,
-    title: card.title.slice(0, WHITEBOARD_LIMITS.title),
+    title,
     lines: caption ? [{ text: caption }] : [],
-    media: { ...card.media, alt: caption ?? card.title.slice(0, WHITEBOARD_LIMITS.line) },
+    media,
     width: SHOWN_BOX_WIDTH,
     place: placement,
   });
   if (!box.success) return { ok: false, error: `box ${boxId} could not be built: ${box.error.issues[0]?.message ?? 'invalid box'}` };
-  return { ok: true, op: { op: 'add', element: box.data }, boxId };
+  return { ok: true, op: { op: 'add', element: box.data }, boxId, isUpdate: false };
 }
 
-export { pickShowBoardId, shownBoxOp };
+const WORDY_BOX_LINE_LIMIT = 4;
+const ALL_WORDS_BOX_COUNT = 3;
+
+function addedBoxesOf(ops: readonly Op[]): BoxInput[] {
+  return ops.flatMap((op) => (op.op === 'add' && op.element.kind === 'box' ? [op.element] : []));
+}
+
+function fileSourcePathOf(element: Element | null | undefined): string | null {
+  if (element?.kind !== 'box' || element.media?.source?.from !== 'file') return null;
+  return element.media.source.path;
+}
+
+function stagedBoxIdsByFile(afterById: ReadonlyMap<string, Element | null>): Map<string, string[]> {
+  const boxIdsByFile = new Map<string, string[]>();
+  for (const [boxId, element] of afterById) {
+    const sourcePath = fileSourcePathOf(element);
+    if (sourcePath !== null) boxIdsByFile.set(sourcePath, [...boxIdsByFile.get(sourcePath) ?? [], boxId]);
+  }
+  return boxIdsByFile;
+}
+
+function duplicateSourceRefusalOf(boardBefore: Board, afterById: ReadonlyMap<string, Element | null>): string | null {
+  const stagedShowing = stagedBoxIdsByFile(afterById);
+  for (const [boxId, element] of afterById) {
+    const sourcePath = fileSourcePathOf(element);
+    if (sourcePath === null || sourcePath === fileSourcePathOf(boardBefore.elements.get(boxId))) continue;
+    const unchangedShowing = boxIdsShowingFile(boardBefore.elements, sourcePath).filter((otherBoxId) => !afterById.has(otherBoxId));
+    const sameFileBoxId = [...unchangedShowing, ...stagedShowing.get(sourcePath) ?? []].find((otherBoxId) => otherBoxId !== boxId);
+    if (sameFileBoxId === undefined) continue;
+    return `box ${boxId} shows ${path.basename(sourcePath)}, which box ${sameFileBoxId} already shows; set the media of ${sameFileBoxId} or show the file again to update that card instead of adding a second one`;
+  }
+  return null;
+}
+
+function likeTitledWarnings(boardAfter: Board, addedBoxes: readonly BoxInput[]): string[] {
+  return addedBoxes.flatMap((box) => {
+    const likeTitledBoxId = boxIdsTitled(boardAfter.elements, box.title).find((boxId) => boxId !== box.id);
+    if (likeTitledBoxId === undefined) return [];
+    return [`box ${box.id} repeats the title of box ${likeTitledBoxId}; to revise ${likeTitledBoxId}, set its fields, or remove the older one so the operator is not left with two`];
+  });
+}
+
+function wordyBoxWarnings(boardAfter: Board, ops: readonly Op[]): string[] {
+  const touchedIds = new Set(ops.flatMap((op) => (op.op === 'add' ? [op.element.id] : op.op === 'set' ? [op.id] : [])));
+  return [...touchedIds].flatMap((boxId) => {
+    const box = boardAfter.elements.get(boxId);
+    if (box?.kind !== 'box' || box.lines.length <= WORDY_BOX_LINE_LIMIT) return [];
+    return [`box ${boxId} holds ${box.lines.length} lines of text; the operator reads a picture faster, so split it into smaller boxes wired together, give it an icon, or show a screenshot or chart instead`];
+  });
+}
+
+function isPictorial(box: BoxInput): boolean {
+  return box.icon !== null || box.media !== null || box.shape !== 'box';
+}
+
+function allWordsWarnings(ops: readonly Op[], addedBoxes: readonly BoxInput[]): string[] {
+  if (addedBoxes.length < ALL_WORDS_BOX_COUNT) return [];
+  const addsWire = ops.some((op) => op.op === 'add' && op.element.kind === 'wire');
+  if (addsWire || addedBoxes.some(isPictorial)) return [];
+  return [`this put adds ${addedBoxes.length} boxes of words with no icon, picture, shape or wire; wire them to show how they relate, give them icons, or show a picture of the thing they describe`];
+}
+
+function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
+  const addedBoxes = addedBoxesOf(ops);
+  return [...likeTitledWarnings(boardAfter, addedBoxes), ...wordyBoxWarnings(boardAfter, ops), ...allWordsWarnings(ops, addedBoxes)];
+}
+
+export { duplicateSourceRefusalOf, habitWarningsOf, pickShowBoardId, shownBoxOp };
 export type { ShownCard };
 export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

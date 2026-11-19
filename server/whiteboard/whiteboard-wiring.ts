@@ -30,7 +30,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, duplicateSourceRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -62,10 +62,10 @@ const OLDER_READER_PICTURE_GUARD = `boards${BOARD_FILE_EXTENSION}.corrupt-moved-
 
 const PUT_GUIDE = [
   'glimmervoid whiteboard put <board> <ops> takes a JSON array of ops, - to read it from stdin, or --file <path> to read it from a file, for example',
-  '\'[{"op":"add","element":{"kind":"box","id":"parse","title":"Parse","place":{"at":{"x":40,"y":40}},"lines":[{"text":"reads the feed"},{"text":"skips drafts","muted":true}]}},',
-  '{"op":"add","element":{"kind":"box","id":"store","title":"Store","place":{"near":{"of":"parse","side":"right","gap":60}}}},',
+  '\'[{"op":"add","element":{"kind":"box","id":"parse","title":"Parse feed","icon":"function","place":{"at":{"x":40,"y":40}}}},',
+  '{"op":"add","element":{"kind":"box","id":"store","title":"Store","shape":"icon","icon":"database","place":{"near":{"of":"parse","side":"right","gap":60}}}},',
   '{"op":"add","element":{"kind":"wire","id":"w1","from":"parse","to":"store","dashed":true,"label":"on retry"}},',
-  '{"op":"set","id":"parse","fields":{"title":"Parse feed"}},{"op":"remove","id":"w1"}]\'.',
+  '{"op":"set","id":"parse","fields":{"title":"Parse and dedupe"}},{"op":"remove","id":"w1"}]\'.',
   'Pick the layout that fits what you draw; the example shows op syntax, not a preferred shape.',
   `Element kinds: box (title, icon, place, lines, refs, change none|added|removed|relabeled, was, order, shape ${BOX_SHAPES.join('|')}, tone ${NOTE_TONES.join('|')} as a fill tint on a box, decision, ellipse or note, textSize S|M|L for the title, width, height, device, fit, borderless, params, step {status planned|building|landed} to make it a plan step), wire (from and to each a box id or a free point {"x","y"}, dashed, tone plain|fail|join, width thin|bold, arrows none|end|both, route elbow|sharp|curved where elbow routes around boxes and sharp or curved runs straight or bowed, label, fromSide and toSide left|right|top|bottom), frame (title, contains, collapsed).`,
   'To show a picture, video, HTML page, Markdown document, Fountain screenplay, CSV, TSV or XLSX sheet or PowerPoint deck, run glimmervoid whiteboard attach <path> (PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX) and set the media it returns on a box unchanged except alt, as in "media":{"kind":"image","asset":"<id>","mime":"image/png","width":800,"height":600,"alt":"login screen","hasPreview":false}; a picture or video first frame draws under the box lines, a page or a video without a first frame shows as a labelled placeholder, a Markdown document shows the operator its rendered text, a Fountain screenplay shows laid out as a script, which they can edit and save on the board, and a CSV, TSV or XLSX sheet shows its rows as a grid, which the operator can edit for CSV and TSV and only read for XLSX, and a PowerPoint deck shows as a labelled card the operator opens to read slide by slide; whiteboard doc reads a document or sheet back as its text.',
@@ -132,6 +132,10 @@ const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store
 const DAMAGED_BOARD_TEXT = 'that board has stored elements that cannot be read, so nothing changed';
 const DAMAGED_ROWS = Symbol('damaged element rows');
 const RELEASE_HOLD_MS = 60 * 60_000;
+type PutRefusalCheck = (boardBefore: Board, afterById: ReadonlyMap<string, Element | null>) => string | null;
+
+const noPutRefusal: PutRefusalCheck = () => null;
+
 const UNREADABLE_LAYOUT_WARNING = 'the board could not be laid out after this put, so its layout warnings are unknown and the dashboard may not show it';
 
 interface WhiteboardWiringOptions {
@@ -641,14 +645,14 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, board: summaryOf(record, now()), note } };
   }
 
-  function putOps(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
+  function putOps(boardId: string, ops: readonly Op[], author: Author, refusalOf: PutRefusalCheck = noPutRefusal): Promise<WhiteboardReply> {
     if (Buffer.byteLength(JSON.stringify(ops)) > WHITEBOARD_LIMITS.putBytes) {
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
-    return applyPut(boardId, () => ops, author);
+    return applyPut(boardId, () => ops, author, refusalOf);
   }
 
-  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author): Promise<WhiteboardReply> {
+  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, refusalOf: PutRefusalCheck = noPutRefusal): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const ops = opsOf(record.board);
       const linkProblem = ops.flatMap((op) => (op.op === 'board' && typeof op.link === 'string' ? [linkPathProblem(op.link)] : [])).find((problemText) => problemText !== null);
@@ -657,6 +661,8 @@ function createWhiteboardWiring({
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
       const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
+      const habitRefusal = refusalOf(record.board, applied.staged.afterById);
+      if (habitRefusal) return { ok: false, reply: refusal(409, `${habitRefusal}, so nothing changed`) };
       const boardSharingFolder = boardSharingLinkedFolderOf(record.board, applied.record.board);
       if (boardSharingFolder) return { ok: false, reply: refusal(409, `the board ${boardSharingFolder.title} already links ${applied.record.board.link}, and two boards on one folder would write over each other, so nothing changed`) };
       const replyAfterCommit = (saved: BoardRecord, layout: LayoutSummary | null): CommittedReply => {
@@ -843,14 +849,15 @@ function createWhiteboardWiring({
   }
 
   async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
-    const reply = await putOps(boardId, ops, author);
+    const reply = await putOps(boardId, ops, author, duplicateSourceRefusalOf);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
+    const habitWarnings = habitWarningsOf(board, ops);
     const isCodeSessionChanged = ops.some((op) => op.op === 'board' && op.codeSessionId !== undefined);
     const elementIds = isCodeSessionChanged ? null : new Set(ops.flatMap(elementIdsNamedBy));
     const { anchorWarnings, stepWarnings } = await reviewFor(board, { readsChanges: stepBoxesOf(board).length > 0, elementIds });
-    if (anchorWarnings.length === 0 && stepWarnings.length === 0) return reply;
-    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings]) } };
+    if (anchorWarnings.length === 0 && stepWarnings.length === 0 && habitWarnings.length === 0) return reply;
+    return { status: reply.status, body: { ...reply.body, warnings: cappedWarnings([...reply.body.warnings ?? [], ...anchorWarnings, ...stepWarnings, ...habitWarnings]) } };
   }
 
   function focusFor(boardId: string, readerId: string, requested: BoardRegion | undefined): BoardRegion | null {
@@ -1244,12 +1251,12 @@ function createWhiteboardWiring({
       if (!layout) return { ok: false, reply: refusal(503, 'the board layout could not be read, so nothing was shown; try again') };
       const shownBox = shownBoxOp(record.board, layout.chrome.bounds, card);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
-      const { op, boxId } = shownBox;
+      const { op, boxId, isUpdate } = shownBox;
       const applied = await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
-      const note = withUnloadedNote(`showed ${card.title} as box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; change it with whiteboard put`, unloaded);
+      const note = withUnloadedNote(`${isUpdate ? 'updated' : 'showed'} ${card.title} ${isUpdate ? 'in place in' : 'as'} box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; show the same file again to update this card, or change it with whiteboard put`, unloaded);
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summaryOf(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
   }

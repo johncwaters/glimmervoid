@@ -1780,7 +1780,7 @@ test('a board saved with units, panels, columns, lanes and retired fields loads 
   assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"|"outputs"|"fromOutput"|"back"|"loop"|"linkedBoardId"|"numbered"/.test(JSON.stringify(storedPlanned)), false);
 });
 
-test('show puts each file on a board the session is connected to, creating one named after the first file title, placing later cards right of the last and numbering past an oversized shown id', async () => {
+test('show puts each file on a board the session is connected to, creating one named after the first file title, placing later cards right of the last, updating the card of a file shown again in place, refusing an agent second card of that file, warning on wordy boxes, and numbering past an oversized shown id', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-'));
   const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'shower-'));
@@ -1811,8 +1811,46 @@ test('show puts each file on a board the session is connected to, creating one n
   const drawnSecond = drawnCards.find((element) => element.id === 'shown-2');
   assert.equal(drawnSecond?.x, (drawnFirst?.x ?? 0) + (drawnFirst?.width ?? 0) + 60);
 
+  fs.writeFileSync(path.join(showerDir, 'login.png'), await sharp({ create: { width: 96, height: 32, channels: 3, background: '#f43f5e' } }).png().toBuffer());
+  const reshown = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', caption: 'login after second fix' });
+  assert.equal(reshown.status, 200, JSON.stringify(reshown.body));
+  assert.match(String((reshown.body as { note: string }).note), /^updated login\.png in place in box shown-1 /);
+  const reshownBoard = Board.parse(((await wiring.handleAgent(shower, { sub: 'get', board: boardId })).body as { board: unknown }).board);
+  const reshownCard = reshownBoard.elements.get('shown-1');
+  assert.ok(reshownCard?.kind === 'box');
+  assert.deepEqual([reshownBoard.elements.size, reshownCard.place, reshownCard.media?.width, reshownCard.lines.map((line) => line.text)], [2, firstCard.place, 96, ['login after second fix']]);
+
+  const secondCopy = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'login-copy', title: 'Login v2', media: reshownCard.media, place: { at: { x: 0, y: 600 } } } }]) });
+  assert.equal(secondCopy.status, 409, JSON.stringify(secondCopy.body));
+  assert.match(String((secondCopy.body as { error: string }).error), /box login-copy shows login\.png, which box shown-1 already shows/);
+
+  const setCopy = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'set-copy', title: 'Copy', place: { at: { x: 0, y: 600 } } } }, { op: 'set', id: 'set-copy', fields: { media: reshownCard.media } }]) });
+  assert.equal(setCopy.status, 409, JSON.stringify(setCopy.body));
+  if (process.platform !== 'win32') {
+    fs.symlinkSync(path.join(showerDir, 'login.png'), path.join(showerDir, 'alias.png'));
+    const aliasShown = await wiring.handleAgent(shower, { sub: 'show', path: 'alias.png' });
+    assert.match(String((aliasShown.body as { note: string }).note), /^updated alias\.png in place in box shown-1 /);
+  }
+
+  const replaced = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-1' }, { op: 'add', element: { kind: 'box', id: 'shown-1', title: 'login.png', media: reshownCard.media, place: { at: reshownCard.place.at } } }]) });
+  assert.equal(replaced.status, 200, JSON.stringify(replaced.body));
+
+  const fiveLines = ['one', 'two', 'three', 'four', 'five'].map((text) => ({ text }));
+  const wordy = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'recap', title: 'Weekly report', lines: fiveLines, place: { at: { x: 0, y: 600 } } } },
+    { op: 'add', element: { kind: 'box', id: 'risks', title: 'Risks', place: { at: { x: 300, y: 600 } } } },
+    { op: 'add', element: { kind: 'box', id: 'next', title: 'Next', place: { at: { x: 600, y: 600 } } } },
+  ]) });
+  assert.equal(wordy.status, 200, JSON.stringify(wordy.body));
+  const habitWarnings = ((wordy.body as { warnings?: string[] }).warnings ?? []).join('\n');
+  assert.match(habitWarnings, /box recap repeats the title of box shown-2/);
+  assert.match(habitWarnings, /box recap holds 5 lines of text/);
+  assert.match(habitWarnings, /this put adds 3 boxes of words/);
+  await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse(['recap', 'risks', 'next'].map((id) => ({ op: 'remove', id }))) });
+
+  fs.writeFileSync(path.join(showerDir, 'signup.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#22c55e' } }).png().toBuffer());
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'shown-1000000000000000000000', title: 'Odd id', place: { at: { x: 0, y: 0 } } } }]));
-  const pastOddId = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png' });
+  const pastOddId = await wiring.handleAgent(shower, { sub: 'show', path: 'signup.png' });
   assert.equal(pastOddId.status, 200, JSON.stringify(pastOddId.body));
   assert.match(String((pastOddId.body as { note: string }).note), /as box shown-3 /);
 });

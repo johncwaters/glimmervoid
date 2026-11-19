@@ -656,7 +656,8 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     }
     const ingested = await adoptIncoming(incomingPath, name, sourcePath);
     if (!ingested.ok) return ingested;
-    return { ...ingested, media: { ...ingested.media, source: { from: 'file', path: sourcePath, sessionId } } };
+    const canonicalSourcePath = await fsp.realpath(sourcePath).catch(() => sourcePath);
+    return { ...ingested, media: { ...ingested.media, source: { from: 'file', path: canonicalSourcePath, sessionId } } };
   }
 
   async function reserveIncomingPath(): Promise<string> {

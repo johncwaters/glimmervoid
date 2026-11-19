@@ -12,6 +12,8 @@ interface BoardIndex {
   stepBoxIds: Set<string>;
   anchoredIds: Set<string>;
   linkedBoxIds: Set<string>;
+  boxIdsBySourcePath: Map<string, Set<string>>;
+  boxIdsByTitle: Map<string, Set<string>>;
   wireCountByStyleSlot: number[];
   boxCountByChangeSlot: number[];
   asideBoxCount: number;
@@ -99,6 +101,39 @@ function trackLink(index: BoardIndex, element: Element): void {
   index.linkedBoxIds.delete(element.id);
 }
 
+function titleKeyOf(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+function sourcePathOf(element: Element): string | null {
+  if (element.kind !== 'box' || element.media?.source?.from !== 'file') return null;
+  return element.media.source.path;
+}
+
+function addKeyedId(idsByKey: Map<string, Set<string>>, key: string, id: string): void {
+  const ids = idsByKey.get(key);
+  if (ids) {
+    ids.add(id);
+    return;
+  }
+  idsByKey.set(key, new Set([id]));
+}
+
+function removeKeyedId(idsByKey: Map<string, Set<string>>, key: string, id: string): void {
+  const ids = idsByKey.get(key);
+  if (!ids) return;
+  ids.delete(id);
+  if (ids.size === 0) idsByKey.delete(key);
+}
+
+function trackBoxKeys(index: BoardIndex, element: Element, isPresent: boolean): void {
+  if (element.kind !== 'box') return;
+  const changeKeyedId = isPresent ? addKeyedId : removeKeyedId;
+  changeKeyedId(index.boxIdsByTitle, titleKeyOf(element.title), element.id);
+  const sourcePath = sourcePathOf(element);
+  if (sourcePath !== null) changeKeyedId(index.boxIdsBySourcePath, sourcePath, element.id);
+}
+
 function linkDependent(index: BoardIndex, element: Element, elements: Board['elements']): void {
   for (const boxId of new Set(boxIdsDependedOnBy(element))) {
     const dependentIds = index.dependentIdsByBoxId.get(boxId);
@@ -148,6 +183,7 @@ function addToIndex(index: BoardIndex, element: Element, elements: Board['elemen
   trackStep(index, element, true);
   trackAnchor(index, element);
   trackLink(index, element);
+  trackBoxKeys(index, element, true);
 }
 
 function removeFromIndex(index: BoardIndex, element: Element): void {
@@ -159,10 +195,11 @@ function removeFromIndex(index: BoardIndex, element: Element): void {
   trackStep(index, element, false);
   index.anchoredIds.delete(element.id);
   index.linkedBoxIds.delete(element.id);
+  trackBoxKeys(index, element, false);
 }
 
 function emptyIndex(): BoardIndex {
-  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set(), linkedBoxIds: new Set(), wireCountByStyleSlot: WIRE_STYLES.map(() => 0), boxCountByChangeSlot: BOX_CHANGES.map(() => 0), asideBoxCount: 0 };
+  return { elementCount: 0, strokeCount: 0, assetRefCount: new Map(), dependentIdsByBoxId: new Map(), stepBoxIds: new Set(), anchoredIds: new Set(), linkedBoxIds: new Set(), boxIdsBySourcePath: new Map(), boxIdsByTitle: new Map(), wireCountByStyleSlot: WIRE_STYLES.map(() => 0), boxCountByChangeSlot: BOX_CHANGES.map(() => 0), asideBoxCount: 0 };
 }
 
 interface LinkedIds {
@@ -219,6 +256,8 @@ function copyOfIndex(index: BoardIndex): BoardIndex {
     stepBoxIds: new Set(index.stepBoxIds),
     anchoredIds: new Set(index.anchoredIds),
     linkedBoxIds: new Set(index.linkedBoxIds),
+    boxIdsBySourcePath: new Map([...index.boxIdsBySourcePath].map(([sourcePath, boxIds]) => [sourcePath, new Set(boxIds)])),
+    boxIdsByTitle: new Map([...index.boxIdsByTitle].map(([titleKey, boxIds]) => [titleKey, new Set(boxIds)])),
     wireCountByStyleSlot: [...index.wireCountByStyleSlot],
     boxCountByChangeSlot: [...index.boxCountByChangeSlot],
     asideBoxCount: index.asideBoxCount,
@@ -256,6 +295,8 @@ function storeElement(elements: Board['elements'], element: Element): void {
   trackStep(index, stored, true);
   trackAnchor(index, stored);
   trackLink(index, stored);
+  trackBoxKeys(index, withStoredId(elements, previous), false);
+  trackBoxKeys(index, stored, true);
 }
 
 function appendElement(elements: Board['elements'], element: Element): void {
@@ -271,9 +312,17 @@ function dropElement(elements: Board['elements'], id: string): void {
   if (index) removeFromIndex(index, previous);
 }
 
+function boxIdsShowingFile(elements: Board['elements'], sourcePath: string): string[] {
+  return [...boardIndexOf(elements).boxIdsBySourcePath.get(sourcePath) ?? []];
+}
+
+function boxIdsTitled(elements: Board['elements'], title: string): string[] {
+  return [...boardIndexOf(elements).boxIdsByTitle.get(titleKeyOf(title)) ?? []];
+}
+
 function assetIdsOf(board: Board): Set<string> {
   return new Set(boardIndexOf(board.elements).assetRefCount.keys());
 }
 
 export type { LinkedIds };
-export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, linkedIdsOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement, usedBoxChangesOf, usedWireStylesOf };
+export { appendElement, assetIdOf, assetIdsOf, boardIndexOf, boxIdsShowingFile, boxIdsTitled, linkedIdsOf, boxIdsDependedOnBy, copyOfElements, dropElement, elementsOfKind, indexBoardInSlices, storeElement, usedBoxChangesOf, usedWireStylesOf };

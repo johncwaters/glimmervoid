@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **An agent that shows a file again updates its card instead of adding a copy.** Showing a revised screenshot, page or document that is already on the board now replaces that card's content where it sits, so revisions no longer pile up as duplicate cards beside the original.
+- **Agents are steered toward pictures on the board without being asked.** An agent that adds a second card of a file already on the board is refused and told to update the first. When an agent adds a box titled like one already there, packs more than four lines of text into a box, or adds three or more plain text boxes with no icon, picture or wire, the board tells it to revise the existing box, split the text, wire the boxes or show a picture instead.
 - **A run of tool calls in a working Chat turn now takes one line that counts up.** The line shows the latest call and how many calls the run has made, instead of adding a row per call.
 - **The Brief switch moved from the Chat message box to Settings > Appearance, as Brief Chat turns.** Your current choice carries over, and B in Chat still switches it.
 - **Board cards stand out from the canvas.** The live board's canvas is now darker than its cards, so each card reads as its own surface instead of blending into the grey behind it.
