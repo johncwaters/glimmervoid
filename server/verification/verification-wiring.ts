@@ -21,6 +21,7 @@ interface VerifiableSession {
   id: string;
   path: string;
   ephemeral: boolean;
+  doneMeans?: readonly string[];
   hasOwnWorktree: boolean;
   worktreeDir: string | null;
   on(event: 'post-turn-check', listener: () => void): unknown;
@@ -119,7 +120,21 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   const cachedRunBySession = new Map<string, CachedRun>();
   const inFlightBySession = new Map<string, { key: string; promise: Promise<VerificationRun> }>();
   const warnedInvalidRepos = new Set<string>();
-  const liveCheckPids = new Set<number>();
+  const liveCheckPidsBySession = new Map<string, Set<number>>();
+  const attachedSessionIds = new Set<string>();
+
+  function liveCheckPidsOf(sessionId: string): Set<number> {
+    const existing = liveCheckPidsBySession.get(sessionId);
+    if (existing) return existing;
+    const created = new Set<number>();
+    liveCheckPidsBySession.set(sessionId, created);
+    return created;
+  }
+
+  function killChecksOf(sessionId: string): void {
+    for (const pid of liveCheckPidsBySession.get(sessionId) ?? []) killCheckTree(pid, platform);
+    liveCheckPidsBySession.delete(sessionId);
+  }
 
   function publish(run: VerificationRun): void {
     dependencies.broadcastControl({ type: 'verification-run', id: run.sessionId, run });
@@ -129,13 +144,13 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     return { id: spec.id, command: spec.command, status: 'skipped', exitCode: null, outputTail: reason };
   }
 
-  async function runCheck(worktreeDir: string, spec: VerificationSettings['checks'][number], timeoutMs: number): Promise<CheckOutcome> {
+  async function runCheck(sessionId: string, worktreeDir: string, spec: VerificationSettings['checks'][number], timeoutMs: number): Promise<CheckOutcome> {
     if (dependencies.isSessionSandboxOn()) return skippedOutcome(spec, SANDBOX_SKIP_REASON);
     const argv = parseCheckCommand(spec.command);
     if (!argv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
     const env = buildAllowlistedChildEnv(process.env, platform);
     const { program, args } = launchArgvFor(argv, platform, env.ComSpec ?? env.COMSPEC ?? 'cmd.exe');
-    const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs, platform, liveCheckPids);
+    const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs, platform, liveCheckPidsOf(sessionId));
     const output = result.launchError ?? result.outputTail;
     return { id: spec.id, command: spec.command, status: statusOf(result), exitCode: result.exitCode, outputTail: redactSecretLines(output, secretEnvValues()) };
   }
@@ -145,9 +160,11 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null });
     const checks: CheckOutcome[] = [];
     for (const spec of settings.checks) {
-      checks.push(worktreeDir ? await runCheck(worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
+      if (!attachedSessionIds.has(session.id)) break;
+      checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
     }
     const run: VerificationRun = { sessionId: session.id, sig, status: overallStatus(checks), checks, finishedAt: clock.nowMs() };
+    if (!attachedSessionIds.has(session.id)) return run;
     cachedRunBySession.set(session.id, { key, run });
     publish(run);
     return run;
@@ -202,8 +219,9 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function attachSession(session: VerifiableSession): void {
+    attachedSessionIds.add(session.id);
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
-    if (session.ephemeral) return;
+    if (session.ephemeral && !session.doneMeans?.length) return;
     session.on('post-turn-check', () => {
       verifyAtTurnEnd(session).catch((error: unknown) => {
         dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);
@@ -215,12 +233,13 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     attachSession,
     latestRun: (sessionId) => cachedRunBySession.get(sessionId)?.run ?? null,
     forgetSession: (sessionId) => {
+      attachedSessionIds.delete(sessionId);
+      killChecksOf(sessionId);
       cachedRunBySession.delete(sessionId);
       inFlightBySession.delete(sessionId);
     },
     stop: () => {
-      for (const pid of liveCheckPids) killCheckTree(pid, platform);
-      liveCheckPids.clear();
+      for (const sessionId of [...liveCheckPidsBySession.keys()]) killChecksOf(sessionId);
     },
   };
 }

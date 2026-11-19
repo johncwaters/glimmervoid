@@ -24,6 +24,7 @@ interface SessionCardSource {
   ownerId?: string | null;
   attentionOwner?: AttentionOwner;
   linkedPrs?: LinkedPr[];
+  doneMeans?: readonly string[];
   agentSetup?: AgentSetup | null;
 }
 
@@ -59,6 +60,7 @@ function projectSessionCard(
     resumeSessionId: source.resumeSessionId || null,
     ...(source.isWorkspace ? { workspace: true } : {}),
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
+    ...(source.doneMeans?.length ? { doneMeans: [...source.doneMeans] } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
@@ -107,6 +109,7 @@ interface SnapshotSource {
   agentSetup?: AgentSetup | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
+  doneMeans: readonly string[];
   auditLog: Record<string, unknown>[];
   detection: Record<string, unknown>;
   decisions: Record<string, unknown>[];
@@ -151,6 +154,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     modelSelection: modelSelectionOf(source.agentSetup),
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,
+    doneMeans: [...source.doneMeans],
     auditLog: source.auditLog.slice(-100),
   };
   const debug = {

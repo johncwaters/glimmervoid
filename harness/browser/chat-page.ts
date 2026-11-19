@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
+import { DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
@@ -491,6 +492,27 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await pressInEmptyComposer(page, '2');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
+  await verifySpawnedChildDoneMeans(page);
+}
+
+async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
+  await stopTurnPastHints(page);
+  await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'spawn-done-child');
+  const childRow = page.locator('button.session-row', { hasText: DONE_CHILD_NAME });
+  await childRow.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await childRow.click();
+  await openChat(page);
+  await waitForTurnRunning(page, true);
+  await stopTurnPastHints(page);
+  await waitForTurnRunning(page, false);
+  const panel = page.locator('.session-chat .chat-done');
+  for (const doneLine of DONE_CHILD_LINES) {
+    await panel.locator('.chat-done-line[data-status="not-checked"]', { hasText: doneLine }).waitFor({ timeout: CARD_TIMEOUT_MS });
+  }
+  const statusCheckLine = panel.locator('.chat-done-line[data-status="passed"]').filter({ has: page.locator('.chat-done-text', { hasText: /^status$/ }) });
+  await statusCheckLine.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await statusCheckLine.innerText(), /Glimmervoid ran/i, 'a spawned child with done lines runs the repo checks at turn end');
 }
 
 async function stopTurnPastHints(page: Page): Promise<void> {

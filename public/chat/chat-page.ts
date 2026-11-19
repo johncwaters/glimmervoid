@@ -77,6 +77,7 @@ const approvalBySessionId = new Map<string, ConversationApproval | null>();
 const draftBySessionId = new Map<string, string>();
 const draftAttachmentsBySessionId = new Map<string, string[]>();
 const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
+const doneMeansBySessionId = new Map<string, readonly string[]>();
 let mountedChat: MountedChat | null = null;
 const keptChatBySessionId = new Map<string, MountedChat>();
 let wasChatEnabled = false;
@@ -307,7 +308,7 @@ function buildChat(sessionId: string): MountedChat {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
   };
-  const doneModelNow = () => donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, doneMeans: [], phase: sessionPhaseOf(sessionId) });
+  const doneModelNow = () => donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, doneMeans: doneMeansBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) });
   const donePanel = createDonePanel({
     onSendBack: () => {
       const doneModel = doneModelNow();
@@ -704,6 +705,11 @@ export function noteChatApproval(sessionId: string, approval: ConversationApprov
   approvalBySessionId.set(sessionId, approval);
 }
 
+export function noteChatDoneMeans(sessionId: string, doneMeans: readonly string[]): void {
+  doneMeansBySessionId.set(sessionId, doneMeans);
+  if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
+}
+
 export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
   outboxBySessionId.set(sessionId, entries);
   if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
@@ -714,12 +720,14 @@ export function applyChatTraceChanged(sessionId: string): void {
   mountedChat.feed.refresh();
 }
 
-export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[] }[]): void {
+export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; doneMeans?: readonly string[] }[]): void {
   approvalBySessionId.clear();
   outboxBySessionId.clear();
+  doneMeansBySessionId.clear();
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
     noteChatOutbox(row.id, row.chatOutbox ?? []);
+    noteChatDoneMeans(row.id, row.doneMeans ?? []);
   }
   if (!mountedChat) return;
   applyChatSessionStatus(mountedChat.sessionId);

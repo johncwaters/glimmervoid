@@ -105,6 +105,7 @@ export const SessionCardFields = z.object({
   ownerId: sessionId.optional(),
   attentionOwner: AttentionOwner.optional(),
   linkedPrs: z.array(LinkedPr).optional(),
+  doneMeans: z.array(z.string()).optional(),
   modelSelection: ModelSelection.nullable().optional(),
   workingDirectory: z.string().optional(),
 });

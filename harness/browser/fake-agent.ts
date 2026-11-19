@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
@@ -163,6 +164,18 @@ function osc8Link(url: string, text: string): string {
 
 let isTakingAnyPrompt = false;
 
+function spawnDoneChild(): void {
+  const agentUrl = new URL(process.env.GLIMMERVOID_AGENT_URL ?? '');
+  const agentToken = agentUrl.searchParams.get('t') ?? '';
+  agentUrl.search = '';
+  agentUrl.pathname = `${agentUrl.pathname}/spawn`;
+  fetch(agentUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${agentToken}` },
+    body: JSON.stringify({ prompt: 'commit done-means.txt', name: DONE_CHILD_NAME, done: DONE_CHILD_LINES }),
+  }).then(async (reply) => { process.stdout.write(`spawn-done-child ${reply.status} ${await reply.text()}\r\n`); }).catch((error: unknown) => { process.stdout.write(`spawn-done-child failed ${String(error)}\r\n`); });
+}
+
 function dispatch(command: string): void {
   const modeSequence = MODE_SEQUENCE_BY_COMMAND.get(command);
   if (modeSequence) {
@@ -261,6 +274,7 @@ function dispatch(command: string): void {
     return;
   }
   if (command === 'exit') process.exit(0);
+  if (command === 'spawn-done-child') spawnDoneChild();
   if (command === 'take-any-prompt') isTakingAnyPrompt = true;
   if (!isTakingAnyPrompt) return;
   postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });

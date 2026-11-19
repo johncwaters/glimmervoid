@@ -74,6 +74,7 @@ import type { ExpiredOpenWork } from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
 import { isConversationReplacedAtStartup, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
+import { promptWithDoneMeans } from "./core/done-means-prompt.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { createSessionObservability } from "./session-observability.ts";
@@ -210,6 +211,7 @@ interface SessionOptions {
   titleQuietFallbackMs?: number;
   spawnCommand?: ResolvedCommand | null;
   initialPrompt?: string | null;
+  doneMeans?: readonly string[];
   extraClaudeArgs?: string[];
   agentSetup?: AgentSetup | null;
   ephemeral?: boolean;
@@ -384,6 +386,7 @@ class Session extends EventEmitter {
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
+  readonly doneMeans: readonly string[];
   readonly attentionOwner: AttentionOwner;
   _agentToken: string | null;
   _commitSigningProgram: string | null;
@@ -455,6 +458,7 @@ class Session extends EventEmitter {
     spawnCommand = null,
 
     initialPrompt = null,
+    doneMeans = [],
     extraClaudeArgs = [],
     agentSetup = null,
     ephemeral = false,
@@ -520,6 +524,7 @@ class Session extends EventEmitter {
     super();
     this.id = id;
     this.ownerId = ownerId;
+    this.doneMeans = doneMeans;
     this.attentionOwner = attentionOwnerOf(ownerId, raceId);
     this.name = name;
     this.customTitle = customTitle || null;
@@ -642,7 +647,7 @@ class Session extends EventEmitter {
     });
     this._spawnCommand = spawnCommand;
     this._requiresWorktree = requireWorktree;
-    this._initialPrompt = initialPrompt;
+    this._initialPrompt = promptWithDoneMeans(initialPrompt, doneMeans);
     this._firstTurnSince = null;
     this._pendingPromptSupervisionLine = null;
     this._pendingPackContextLines = [];
@@ -1662,6 +1667,7 @@ class Session extends EventEmitter {
       agentSetup: this._agentSetup,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,
+      doneMeans: this.doneMeans,
       auditLog: this.auditLog,
       detection: {
         ...this.getDetectionStats(),

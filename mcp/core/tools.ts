@@ -126,6 +126,7 @@ const SESSION_TOOL: GroupedTool = {
     agent: AgentSpawnRequest.shape.agent.describe(`spawn: the agent to run, one of ${SPAWNABLE_AGENT_IDS} or a custom agent id; defaults to this session's`),
     model: AgentSpawnRequest.shape.model.describe("spawn: the model the new session runs, by the agent's own model id; defaults to the agent's configured model"),
     effort: AgentSpawnRequest.shape.effort.describe('spawn: the reasoning effort the new session runs at, where the agent takes one'),
+    done: AgentSpawnRequest.shape.done.describe("spawn: what finished means, one line each; they join the prompt, show in the new session's Chat, and run the repo checks at each turn end"),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
     to: AgentSendRequest.shape.to.describe('send, from a spawned session: a sibling the same parent spawned, by id or name, to message instead of the parent'),
@@ -135,7 +136,7 @@ const SESSION_TOOL: GroupedTool = {
     path: AgentEditRequest.shape.path.optional().describe('edit: the file, absolute or relative to this session\'s directory'),
   },
   actions: {
-    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
+    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
     send: { verb: 'send', required: ['text'], accepts: ['child', 'text', 'to'], hints: WRITES, toPayload: sendPayload },
     read: routeTo('read', ['child'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),

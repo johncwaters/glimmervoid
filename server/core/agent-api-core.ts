@@ -451,6 +451,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     options: [
       { name: 'model', type: 'string', valueName: 'model', summary: "The model the new session runs, by the agent's own model id; defaults to the agent's configured model" },
       { name: 'effort', type: 'string', valueName: 'level', summary: 'The reasoning effort the new session runs at, where the agent takes one' },
+      { name: 'done', type: 'string', valueName: 'lines', summary: "What finished means, as lines split by ';'; they join the prompt, show in the new session's Chat, and run the repo checks at each turn end" },
     ],
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',

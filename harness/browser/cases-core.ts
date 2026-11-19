@@ -824,6 +824,9 @@ export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
   return resolved;
 }
 
+export const DONE_CHILD_NAME = 'done-child';
+export const DONE_CHILD_LINES = ['The status check passes', 'done-means.txt is committed'];
+
 export function needsDoneMeansChecks(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'assert-chat-done-means');
 }

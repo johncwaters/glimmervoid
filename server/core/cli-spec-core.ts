@@ -113,9 +113,22 @@ function unknownOptionReason(spec: CommandSpec, commandPath: readonly string[], 
   return `unknown option ${unknownOption}. Text that starts with a dash goes after --, as in ${commandLabel(commandPath)} -- ${unknownOption}`;
 }
 
+function firstRepeatedValueOption(tokens: readonly { kind: string; name?: string; value?: string | undefined }[]): string | null {
+  const seenValueOptions = new Set<string>();
+  for (const token of tokens) {
+    if (token.kind !== 'option' || token.name === undefined || token.value === undefined) continue;
+    if (seenValueOptions.has(token.name)) return token.name;
+    seenValueOptions.add(token.name);
+  }
+  return null;
+}
+
 function strictlyParse(spec: CommandSpec, args: readonly string[]): { values: ParsedValues; positionals: string[] } | { error: string } {
   try {
-    return parseArgs({ args: [...args], options: parseOptionsConfig(spec), strict: true, allowPositionals: true });
+    const { values, positionals, tokens } = parseArgs({ args: [...args], options: parseOptionsConfig(spec), strict: true, allowPositionals: true, tokens: true });
+    const repeatedOption = firstRepeatedValueOption(tokens);
+    if (repeatedOption) return { error: `--${repeatedOption} was given more than once; give it once` };
+    return { values, positionals };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) };
   }

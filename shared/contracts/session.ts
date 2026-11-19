@@ -127,6 +127,7 @@ export const SessionSnapshot = z.object({
   planGate: PlanGate.nullable().default(null),
   conversationApproval: ConversationApproval.nullable().default(null),
   chatOutbox: z.array(ChatOutboxEntry).max(CHAT_OUTBOX_MAX_ENTRIES).default([]),
+  doneMeans: z.array(z.string()).default([]),
   auditLog: z.array(z.unknown()),
 }).passthrough();
 
@@ -181,6 +182,17 @@ export const AGENT_API_VERBS = [...CLI_SESSION_COMMANDS, 'limits', 'answer'] as 
 export type AgentApiVerb = (typeof AGENT_API_VERBS)[number];
 
 
+const DONE_MEANS_MAX_LINES = 12;
+
+const DoneMeansLines = z.array(
+  z.string({ error: 'each done line must be a string' })
+    .trim()
+    .min(1, { error: 'a done line must not be empty' })
+    .max(200, { error: 'a done line must be at most 200 characters' })
+    .regex(/^[^\r\n]*$/, { error: 'a done line must be one line' }),
+  { error: 'done must be a list of lines' },
+).min(1, { error: 'done needs at least one line' }).max(DONE_MEANS_MAX_LINES, { error: `done takes at most ${DONE_MEANS_MAX_LINES} lines` });
+
 export const AgentSpawnRequest = z.object({
   prompt: z.string({ error: 'prompt must be a string' })
     .min(1, { error: 'prompt must not be empty' })
@@ -190,6 +202,7 @@ export const AgentSpawnRequest = z.object({
   agent: z.string({ error: 'agent must be a string' }).min(1, { error: 'agent must not be empty' }).max(40, { error: 'agent must be at most 40 characters' }).optional(),
   model: z.string({ error: 'model must be a string' }).max(200, { error: 'model must be at most 200 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'model uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
   effort: z.string({ error: 'effort must be a string' }).max(40, { error: 'effort must be at most 40 characters' }).regex(SAFE_LAUNCH_ARGUMENT_PATTERN, { error: 'effort uses only letters, digits and . _ : / [ ] -, because it reaches the agent command line' }).optional(),
+  done: DoneMeansLines.optional(),
 }).strict();
 
 const SessionTarget = z.string({ error: 'the session must be a string' }).min(1, { error: 'the session must not be empty' }).max(300, { error: 'the session must be at most 300 characters' });

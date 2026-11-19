@@ -30,7 +30,7 @@ import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'doneMeans' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
