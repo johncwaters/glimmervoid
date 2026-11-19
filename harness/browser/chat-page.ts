@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
 import { AGENT_DONE_LINE, DONE_CHILD_NAME } from './cases-core.ts';
+import { PANEL_MIN_CHANGED_LINES } from '../../shared/contracts/verification.ts';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
@@ -489,7 +490,6 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
 }
 
 export const DONE_MEANS_UNTRACKED_FILE = 'done-means.txt';
-export const DONE_MEANS_MIN_CHANGED_LINES = 3;
 
 export async function verifyChatDoneMeans(page: Page, projectDirectory: string): Promise<void> {
   await openChat(page);
@@ -502,11 +502,11 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
-  assert.equal(await page.locator('.session-chat .chat-done:visible').count(), 0, 'a turn below minChangedLines shows no panel');
+  assert.equal(await page.locator('.session-chat .chat-done:visible').count(), 0, 'a turn below the panel line threshold shows no panel');
   await sendFromComposer(page, 'work');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
-  await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), 'written\nduring\nthe turn\n', 'utf8');
+  await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), Array.from({ length: PANEL_MIN_CHANGED_LINES }, (_, lineIndex) => `written during the turn ${lineIndex}`).join('\n'), 'utf8');
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
   const panel = page.locator('.session-chat .chat-done');

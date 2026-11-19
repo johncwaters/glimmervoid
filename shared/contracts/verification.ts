@@ -5,6 +5,7 @@ const VERIFICATION_CHECK_LIMIT = 12;
 export const VERIFICATION_OUTPUT_TAIL_BYTES = 4000;
 
 export const AGENT_DONE_CHECK_ID_PREFIX = 'agent-done-';
+export const PANEL_MIN_CHANGED_LINES = 20;
 
 export function agentDoneCheckIdOf(lineIndex: number): string {
   return `${AGENT_DONE_CHECK_ID_PREFIX}${lineIndex + 1}`;
@@ -23,7 +24,6 @@ const VerificationCheckSpec = z.strictObject({
 export const VerificationSettings = z.strictObject({
   checks: z.array(VerificationCheckSpec).max(VERIFICATION_CHECK_LIMIT).default([]),
   timeoutSeconds: z.number().int().min(5).max(1800).default(300),
-  minChangedLines: z.number().int().min(0).max(100_000).default(20),
   gate: z.strictObject({
     enabled: z.boolean().default(false),
     required: z.array(configCheckId).max(VERIFICATION_CHECK_LIMIT).optional(),

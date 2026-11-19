@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createVerificationWiring } from '../server/verification/verification-wiring.ts';
-import { VerificationRun, VerificationSettings } from '../shared/contracts/verification.ts';
+import { PANEL_MIN_CHANGED_LINES, VerificationRun, VerificationSettings } from '../shared/contracts/verification.ts';
 
 function git(repoPath: string, args: string[]): string {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repoPath }).toString().trim();
@@ -19,7 +19,7 @@ function writeFiles(repoPath: string, contentByPath: Record<string, string>): vo
   }
 }
 
-test('a turn end below minChangedLines shows no panel until the session diff passes it, whatever the integration branch or an earlier check did, and check runs the done commands on demand', async (context) => {
+test('a turn end below the panel line threshold shows no panel until the session diff passes it, whatever the integration branch or an earlier check did, and check runs the done commands on demand', async (context) => {
   const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-changed-lines-'));
   context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
   git(repoPath, ['init', '--quiet']);
@@ -37,7 +37,7 @@ test('a turn end below minChangedLines shows no panel until the session diff pas
   let onTurnEnd = () => {};
   let treeNumber = 0;
   const verification = createVerificationWiring({
-    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }], minChangedLines: 5 } } }),
+    getVerificationConfig: () => ({ repos: { [repoPath]: { checks: [{ id: 'node', command: 'node --version' }] } } }),
     isSessionSandboxOn: () => false,
     broadcastControl: (message) => { if (message.type === 'verification-run') broadcastRuns.push(VerificationRun.parse(message.run)); },
     logger: console,
@@ -64,7 +64,7 @@ test('a turn end below minChangedLines shows no panel until the session diff pas
   onTurnEnd();
   await sleep(1000);
   assert.equal(broadcastRuns.length, 0, 'a small diff shows no panel, even after a check and with the integration branch moved on');
-  writeFiles(repoPath, { 'README.md': 'base\none\ntwo\nthree\nfour\nfive\nsix\n' });
+  writeFiles(repoPath, { 'README.md': Array.from({ length: PANEL_MIN_CHANGED_LINES + 1 }, (_, lineIndex) => `line ${lineIndex}`).join('\n') });
   onTurnEnd();
   await sleep(1500);
   assert.deepEqual(broadcastRuns.at(-1)?.checks.map((check) => `${check.id} ${check.status}`), ['node pass', 'agent-done-1 pass']);

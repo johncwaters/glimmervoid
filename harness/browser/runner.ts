@@ -1248,7 +1248,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-done-means') {
       await verifyChatDoneMeans(viewer.page, projectDirectory);
-      return passedOutcome('chat-done-means', 'a turn below minChangedLines shows no panel, a bigger turn ends with each check and agent command and its proof, the panel asks nothing, and a spawned child keeps its done lines as prompt text');
+      return passedOutcome('chat-done-means', 'a turn below the panel line threshold shows no panel, a bigger turn ends with each check and agent command and its proof, the panel asks nothing, and a spawned child keeps its done lines as prompt text');
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);

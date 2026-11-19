@@ -16,7 +16,7 @@ import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../s
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
 import { casesFor, needsDoneMeansChecks, needsGitOrigin, needsSessionChat, needsTeamReview } from './cases-core.ts';
-import { DONE_MEANS_MIN_CHANGED_LINES, DONE_MEANS_UNTRACKED_FILE } from './chat-page.ts';
+import { DONE_MEANS_UNTRACKED_FILE } from './chat-page.ts';
 import { deviceLogPlugin, withoutIpv4MappedPrefix } from './device-log.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
@@ -187,7 +187,6 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
   }));
   const doneMeansRepos = Object.fromEntries(cases.flatMap((harnessCase, index) => needsDoneMeansChecks(harnessCase.scenario) ? [[projectDirs[index], {
     checks: [{ id: 'status', command: 'git status --short' }, { id: 'committed', command: `git ls-files --error-unmatch ${DONE_MEANS_UNTRACKED_FILE}` }],
-    minChangedLines: DONE_MEANS_MIN_CHANGED_LINES,
   }]] : []));
   const configDocument = {
     port,

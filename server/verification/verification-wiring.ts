@@ -3,7 +3,7 @@ import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
 import type { StandardsGateVerdict } from '../../session/core/merge-gate.ts';
-import { AGENT_DONE_CHECK_ID_PREFIX, VERIFICATION_OUTPUT_TAIL_BYTES, agentDoneCheckIdOf, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
+import { AGENT_DONE_CHECK_ID_PREFIX, PANEL_MIN_CHANGED_LINES, VERIFICATION_OUTPUT_TAIL_BYTES, agentDoneCheckIdOf, VerificationSettings as VerificationSettingsSchema } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome, VerificationRun, VerificationSettings } from '../../shared/contracts/verification.ts';
 import { contestantDiffStats } from '../race/race-diff.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
@@ -263,20 +263,20 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
       if (isLatestTurnEnd()) publishUnreadTree(settings, session.id);
       return;
     }
-    if (!panelSessionIds.has(session.id) && await isBelowChangedLines(session, settings.minChangedLines)) return;
+    if (!panelSessionIds.has(session.id) && await isBelowPanelChangedLines(session)) return;
     panelSessionIds.add(session.id);
     const run = await ensureRun(session, settings, tree.sig, { reuseFailed: true });
     if (isLatestTurnEnd()) publish(run);
   }
 
-  async function isBelowChangedLines(session: VerifiableSession, minChangedLines: number): Promise<boolean> {
-    if (minChangedLines === 0 || !session.worktreeDir) return false;
+  async function isBelowPanelChangedLines(session: VerifiableSession): Promise<boolean> {
+    if (!session.worktreeDir) return false;
     const { baseSha, effectiveBase } = session.worktreeLifecycle.snapshot();
     const startSha = baseSha ?? effectiveBase;
     if (!startSha) return false;
     const diffStats = await contestantDiffStats({ worktreeDir: session.worktreeDir, startSha });
     if (!diffStats.ok) return false;
-    return diffStats.stats.linesAdded + diffStats.stats.linesRemoved < minChangedLines;
+    return diffStats.stats.linesAdded + diffStats.stats.linesRemoved < PANEL_MIN_CHANGED_LINES;
   }
 
   async function checkNow(sessionId: string, waitLimitMs: number): Promise<CheckNowOutcome> {
