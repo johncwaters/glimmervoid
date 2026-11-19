@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reviews board headings line up.** The Ready column's heading, which holds the Alt+J key caps, sat 2px taller than the other open columns' headings, so the board's headings were out of line. Every open column heading now has the same height.
 - **Chat opens at the bottom.** Opening Chat showed its status line and queued messages at the top while history loaded, then jumped down when it arrived. Chat content now sits directly above the message box from the first frame, older history fills in above it without the view moving, and a short session reads upward from the message box.
 - **Chat scrolls back to the first message.** Chat used to open with only the latest stretch of a long session and stop there, so the message that started it was out of reach. Scrolling up now loads older turns as you near the top, back to the session's first message (up to the last 5000 conversation records), and what you are reading stays where it is while they load.
 - **A Claude Code turn that reads an image stays one Chat turn.** The note Claude Code adds after reading an image counted as a new message, so the tool calls before it showed as separate, text-less turns above the reply. Those notes no longer split the turn.

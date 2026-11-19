@@ -309,6 +309,7 @@ html[data-layout="phone"] .review-queue .pr-queue-foot > .ui-segmented { display
   .review-board-column:not([data-slim="true"], [data-collapsed="true"]) { flex: 0 0 85cqi; min-width: 0; }
 }
 .review-board-column-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 8px 6px; }
+.review-board-column:not([data-collapsed="true"], [data-slim="true"]) > .review-board-column-heading { min-height: calc(var(--chip-height) + 6px); }
 .review-board-column-title { flex-shrink: 0; white-space: nowrap; }
 .review-board-cards { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .review-board-cards .pr-queue-row { background: var(--bg-card); }

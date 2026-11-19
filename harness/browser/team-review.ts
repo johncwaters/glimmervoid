@@ -797,7 +797,8 @@ async function dragCardWithinColumn(page: Page, queueKey: string, beforeQueueKey
     const dropTarget = beforeKey ? column?.querySelector(`[data-queue-key="${beforeKey}"]`) : column;
     if (!card || !dropTarget) throw new Error('Missing drag card or drop target');
     const dataTransfer = new DataTransfer();
-    const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
+    const clientY = dropTarget === column ? dropTarget.getBoundingClientRect().bottom - 1 : dropTarget.getBoundingClientRect().top + 1;
+    const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, clientY }));
     fire(card, 'dragstart');
     if (fire(dropTarget, 'dragover')) throw new Error('Column refused the reorder drag');
     fire(dropTarget, 'drop');
@@ -826,7 +827,7 @@ async function verifyDragReorder(page: Page): Promise<void> {
     const fire = (target: Element, type: string) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer, clientY }));
     fire(card, 'dragstart');
     fire(cards, 'dragover');
-    if (cardBelowGap.getAttribute('data-drop-before') !== 'true') throw new Error('Gap drag did not mark the card below it');
+    if (cardBelowGap.previousElementSibling?.classList.contains('review-board-slot') !== true) throw new Error('Gap drag did not open a slot above the card below it');
     fire(cards, 'drop');
   }, { cardKey: lastKey, aboveKey: computedKeys[1] });
   assert.deepEqual(await readyKeys(), [computedKeys[0], lastKey, ...otherKeys.slice(1)]);
@@ -843,6 +844,7 @@ async function verifyDragToWaiting(page: Page): Promise<void> {
   assert.equal(await dragCardBetweenColumns(page, 'Acme/app#1', 'turn'), true);
   assert.equal(await columnOf('Acme/app#1'), 'turn');
   assert.deepEqual(await movedEntries(), []);
+  await writeUiPrefs(page, { reviewsCardOrder: [] });
 }
 
 async function verifyDragToParked(page: Page): Promise<void> {
@@ -866,8 +868,7 @@ async function verifyDragToParked(page: Page): Promise<void> {
       const dataTransfer = new DataTransfer();
       card?.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer }));
       const columns = [...document.querySelectorAll<HTMLElement>('.review-board-column')];
-      for (const column of columns) column.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }));
-      const lanes = columns.filter((column) => column.dataset.dropTarget === 'true').map((column) => column.dataset.group);
+      const lanes = columns.filter((column) => !column.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer }))).map((column) => column.dataset.group);
       for (const column of columns) column.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, dataTransfer }));
       card?.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer }));
       return lanes;
@@ -932,7 +933,7 @@ async function verifyReviewingNowPull(page: Page): Promise<void> {
   await page.locator('.pr-queue-section[data-group="now"] .pr-queue-row[data-review-key="Acme/app#1"]').click();
   await page.keyboard.press('m');
   await waitForText(page, REVIEWING_NOW_COUNT, null);
-  await writeUiPrefs(page, { reviewsTurnLimit: 5 });
+  await writeUiPrefs(page, { reviewsTurnLimit: 5, reviewsCardOrder: [] });
 }
 
 const BOARD_RESERVE_PX = 320;
