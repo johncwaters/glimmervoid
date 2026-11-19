@@ -23,7 +23,8 @@ interface TurnDigest {
 }
 
 const PATH_FIELDS = ['file_path', 'filePath', 'path', 'TargetFile', 'notebook_path', 'AbsolutePath', 'Path'] as const;
-const ARGUMENT_FIELDS = ['command', 'CommandLine', 'cmd', 'pattern', 'query', 'url', 'Url', 'description', 'prompt'] as const;
+const ARGUMENT_FIELDS = ['description', 'command', 'CommandLine', 'cmd', 'pattern', 'query', 'url', 'Url', 'prompt'] as const;
+const LEADING_CD = /^(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*)+/;
 const OLD_NEW_FIELD_PAIRS = [
   ['old_string', 'new_string'],
   ['oldString', 'newString'],
@@ -84,11 +85,21 @@ function firstLineOf(text: string): string {
   return text.trim().split('\n')[0] ?? '';
 }
 
+function shortArgumentOf(argument: string, workingDirectory: string | null): string {
+  const argumentLine = firstLineOf(argument);
+  const withoutCd = argumentLine.replace(LEADING_CD, '');
+  const shownArgument = withoutCd.length > 0 ? withoutCd : argumentLine;
+  if (workingDirectory === null) return shownArgument;
+  const prefix = workingDirectory.endsWith('/') ? workingDirectory : `${workingDirectory}/`;
+  const leadingPrefix = new RegExp(`(^|[\\s"'=])${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+  return shownArgument.replace(leadingPrefix, '$1');
+}
+
 export function toolLabelOf(name: string, input: unknown, workingDirectory: string | null): string {
   const path = firstStringField(input, PATH_FIELDS);
   if (path !== null) return `${name} ${shownPathOf(path, workingDirectory)}`;
   const argument = firstStringField(input, ARGUMENT_FIELDS);
-  if (argument !== null) return `${name} ${firstLineOf(argument)}`;
+  if (argument !== null) return `${name} ${shortArgumentOf(argument, workingDirectory)}`;
   return name;
 }
 
