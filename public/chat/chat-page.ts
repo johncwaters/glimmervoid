@@ -2,7 +2,7 @@ import { CHAT_SEND_MAX_ATTACHMENTS, type ChatOutboxEntry, type ConversationAppro
 import { STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { adoptElement, el, releaseElement } from '../dom-helpers.ts';
+import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../session-pages/session-pages.ts';
@@ -10,6 +10,7 @@ import type { SessionPage } from '../session-pages/session-pages.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
+import { keyTargetOf } from './chat-cards.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart } from './chat-part.ts';
@@ -149,6 +150,24 @@ function cancelledEntryIdOf(event: Event): string | null {
   const detail: unknown = event.detail;
   if (typeof detail !== 'object' || detail === null || !('entryId' in detail) || typeof detail.entryId !== 'string') return null;
   return detail.entryId;
+}
+
+const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"]:is([data-card-type="question"], [data-card-type="permission"])';
+
+const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
+
+function isFocusOnOtherControl(): boolean {
+  const focused = document.activeElement;
+  if (!(focused instanceof HTMLElement)) return false;
+  if (focused.classList.contains('chat-composer-input')) return false;
+  return focused.closest(FOCUSABLE_CONTROL_SELECTOR) !== null;
+}
+
+function isCardPickKeydown(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.repeat || event.isComposing) return false;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+  if (isFocusOnOtherControl()) return false;
+  return !isRealInputOwningKey(event);
 }
 
 function builtChatOf(sessionId: string): MountedChat | null {
@@ -437,6 +456,20 @@ function buildChat(sessionId: string): MountedChat {
     const detail = cardDetailOf(event);
     if (detail) answerCard(detail.cardId, detail.action, detail.value);
   });
+  root.addEventListener('keydown', (event) => {
+    if (!isCardPickKeydown(event)) return;
+    if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
+    const openCard = root.querySelector<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR);
+    const keyTarget = openCard ? keyTargetOf(openCard, event.key) : null;
+    if (!keyTarget) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (keyTarget instanceof HTMLInputElement) {
+      keyTarget.focus();
+      return;
+    }
+    keyTarget.click();
+  }, { capture: true });
 
   const feed = createChatFeed({
     sessionId,

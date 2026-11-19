@@ -478,3 +478,10 @@
 .chat-turn .plan-inline-code { font-family: var(--font-mono); font-size: var(--type-body); }
 
 .chat-turn .plan-paragraph { white-space: pre-line; }
+
+.chat-card-recommended {
+  margin-left: 8px;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  font-weight: 400;
+}

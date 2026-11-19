@@ -1244,7 +1244,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-approvals') {
       await verifyChatApprovals(viewer.page);
-      return passedOutcome('chat-approvals', 'a prompt sent from the Chat composer reaches the agent, its permission prompt shows as a card, and Allow answers it');
+      return passedOutcome('chat-approvals', 'a prompt sent from the Chat composer reaches the agent, its permission prompt shows as a card with key caps, and pressing 1 in the empty composer allows it');
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);

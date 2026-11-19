@@ -1,4 +1,5 @@
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
+import { isRecommendedOptionLabel, withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import type { ChatCard, ChatCardType } from './chat-part.ts';
@@ -8,6 +9,26 @@ type ChatCardRenderer<Type extends ChatCardType> = (card: ChatCardByType[Type]) 
 type ChatCardRendererTable = { [Type in ChatCardType]: ChatCardRenderer<Type> };
 
 const DECISION_RECEIPT_BY_DECISION = { allow: 'Allowed', deny: 'Denied' } as const;
+const ENTER_KEY = 'Enter';
+const MAX_DIGIT_KEY = 9;
+
+type ShownOption = { label: string; note: string; isRecommended: boolean };
+
+function markCardKeys(element: HTMLElement, keys: readonly string[]): void {
+  element.dataset.cardKeys = keys.join(' ');
+}
+
+function digitKeyOf(position: number): string | null {
+  return position <= MAX_DIGIT_KEY ? String(position) : null;
+}
+
+function shownOptionsOf(options: readonly { label: string; note: string }[]): ShownOption[] {
+  const recommendedOptions = options.filter((option) => isRecommendedOptionLabel(option.label));
+  if (recommendedOptions.length !== 1) return options.map((option) => ({ ...option, isRecommended: false }));
+  const [recommendedOption] = recommendedOptions;
+  const otherOptions = options.filter((option) => option !== recommendedOption);
+  return [{ ...recommendedOption, isRecommended: true }, ...otherOptions.map((option) => ({ ...option, isRecommended: false }))];
+}
 
 function dispatchCardAction(source: HTMLElement, card: ChatCard, action: string, value: string): void {
   const detail = { cardId: card.cardId, cardType: card.cardType, action, value };
@@ -35,8 +56,11 @@ function renderPermissionCard(card: ChatCardByType['permission']): HTMLElement {
     return shell;
   }
   const actions = el('div', 'chat-card-actions');
-  actions.appendChild(button({ variant: 'primary', textCase: 'sentence', label: 'Allow', onClick: () => dispatchCardAction(shell, card, 'decide', 'allow') }));
-  actions.appendChild(button({ variant: 'secondary', textCase: 'sentence', label: 'Deny', onClick: () => dispatchCardAction(shell, card, 'decide', 'deny') }));
+  const allowButton = button({ variant: 'primary', textCase: 'sentence', label: 'Allow', shortcutKey: '1', onClick: () => dispatchCardAction(shell, card, 'decide', 'allow') });
+  const denyButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Deny', shortcutKey: '2', onClick: () => dispatchCardAction(shell, card, 'decide', 'deny') });
+  markCardKeys(allowButton, ['1']);
+  markCardKeys(denyButton, ['2']);
+  actions.append(allowButton, denyButton);
   shell.append(actions, denyMessageRowOf(shell, card));
   return shell;
 }
@@ -48,7 +72,9 @@ function denyMessageRowOf(shell: HTMLElement, card: ChatCardByType['permission']
   messageInput.maxLength = CHAT_SEND_MAX_CHARS;
   messageInput.placeholder = 'Tell the agent what to do instead';
   messageInput.setAttribute('aria-label', 'Message for the agent');
-  const denyWithMessageButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Deny with message', disabled: true });
+  messageInput.setAttribute('aria-keyshortcuts', '3');
+  markCardKeys(messageInput, ['3']);
+  const denyWithMessageButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Deny with message', shortcutKey: '3', disabled: true });
   denyWithMessageButton.type = 'submit';
   messageInput.addEventListener('input', () => {
     denyWithMessageButton.disabled = messageInput.value.trim().length === 0;
@@ -67,18 +93,38 @@ function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
   const shell = cardShell(card, card.data.question);
   if (card.data.detail) shell.appendChild(el('p', 'chat-card-text', card.data.detail));
   if (card.resolution) {
-    shell.appendChild(receipt(`Answered: ${card.resolution.answer}`));
+    shell.appendChild(receipt(`Answered: ${withoutRecommendedSuffix(card.resolution.answer)}`));
     return shell;
   }
   const options = el('div', 'chat-card-options');
-  for (const option of card.data.options) {
-    const optionRow = el('div', 'chat-card-option');
-    optionRow.appendChild(button({ variant: 'secondary', textCase: 'sentence', label: option.label, onClick: () => dispatchCardAction(shell, card, 'answer', option.label) }));
-    if (option.note) optionRow.appendChild(el('span', 'chat-card-option-note', option.note));
-    options.appendChild(optionRow);
+  for (const [index, option] of shownOptionsOf(card.data.options).entries()) {
+    options.appendChild(optionRowOf(shell, card, option, digitKeyOf(index + 1)));
   }
   shell.appendChild(options);
   return shell;
+}
+
+function optionRowOf(shell: HTMLElement, card: ChatCardByType['question'], option: ShownOption, digitKey: string | null): HTMLElement {
+  const optionRow = el('div', 'chat-card-option');
+  const shownKey = option.isRecommended ? ENTER_KEY : digitKey;
+  const label = option.isRecommended ? withoutRecommendedSuffix(option.label) : option.label;
+  const optionButton = button({
+    variant: option.isRecommended ? 'primary' : 'secondary',
+    textCase: 'sentence',
+    label,
+    ...(shownKey === null ? {} : { shortcutKey: shownKey }),
+    onClick: () => dispatchCardAction(shell, card, 'answer', option.label),
+  });
+  if (option.isRecommended) optionButton.insertBefore(el('span', 'chat-card-recommended', 'Recommended'), optionButton.querySelector('.ui-button-shortcut'));
+  markCardKeys(optionButton, [digitKey, option.isRecommended ? ENTER_KEY : null].filter((key): key is string => key !== null));
+  optionRow.appendChild(optionButton);
+  if (option.note) optionRow.appendChild(el('span', 'chat-card-option-note', option.note));
+  return optionRow;
+}
+
+export function keyTargetOf(cardElement: HTMLElement, key: string): HTMLElement | null {
+  const targets = cardElement.querySelectorAll<HTMLElement>('[data-card-keys]');
+  return [...targets].find((target) => (target.dataset.cardKeys ?? '').split(' ').includes(key)) ?? null;
 }
 
 function renderNoticeCard(card: ChatCardByType['notice']): HTMLElement {

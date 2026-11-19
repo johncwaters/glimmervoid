@@ -218,6 +218,19 @@ function dispatch(command: string): void {
     postHook('permissionrequest-conversation', permissionRequest);
     return;
   }
+  if (command === 'ask-question-chat') {
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    const questions = [{
+      question: 'Which rollout?',
+      header: 'Rollout',
+      multiSelect: false,
+      options: [{ label: 'Move now', description: 'The old path stops today' }, { label: 'Run both for a week (Recommended)', description: 'The old path stays as a fallback' }],
+    }];
+    const questionRequest = { hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion', tool_input: { questions } };
+    postHook('permissionrequest', questionRequest);
+    postHook('permissionrequest-conversation', questionRequest);
+    return;
+  }
   if (command === 'work') {
     postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
     setTitle(WORKING_GLYPH, 'working');

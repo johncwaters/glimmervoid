@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
@@ -201,7 +201,7 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   assert.match(await openCard.innerText(), /Bash/, 'the permission card names the tool');
   await verifySentPromptNeverBlinks(page);
   await verifyOpenCardStaysLastAcrossRemount(page);
-  await openCard.getByRole('button', { name: 'Allow', exact: true }).click();
+  await answerOpenCardFromComposer(page, openCard);
   const answeredCard = page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]');
   await answeredCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await answeredCard.innerText(), /Allowed/, 'the answered card reads Allowed');
@@ -225,7 +225,54 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   await stopButton.click();
   await page.locator('.session-chat .chat-composer button[aria-label="Send"]:visible').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await dockBoxOf(), idleDockBox, 'ending a turn swaps Stop for Send without moving the composer');
+  await verifyQuestionTakesRecommendedOnEnter(page);
   await verifyComposerAttachesImage(page);
+}
+
+async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> {
+  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await composer.fill('');
+  await sendFromComposer(page, 'ask-question-chat');
+  const firstQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="false"]');
+  await firstQuestion.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await firstQuestion.getByRole('button', { name: /^Move now/ }).focus();
+  await page.keyboard.press('Enter');
+  const answeredByFocus = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]');
+  await answeredByFocus.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await answeredByFocus.innerText(), /Answered: Move now$/m, 'Enter on a focused option answers with that option');
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  await waitForTurnRunning(page, false);
+  await composer.fill('');
+  await sendFromComposer(page, 'ask-question-chat');
+  const openQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="false"]');
+  await openQuestion.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const optionTexts = await openQuestion.locator('.chat-card-option .ui-button').allInnerTexts();
+  assert.match(optionTexts[0] ?? '', /^Run both for a week\s*Recommended\s*Enter$/, 'the recommended option comes first with its tag and the Enter key cap');
+  assert.match(optionTexts[1] ?? '', /^Move now\s*2$/, 'the other option keeps its position key');
+  await composer.focus();
+  await page.keyboard.press('Enter');
+  const answeredQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').last();
+  await page.waitForFunction(() => document.querySelectorAll('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').length === 2, undefined, { timeout: CARD_TIMEOUT_MS });
+  assert.match(await answeredQuestion.innerText(), /Answered: Run both for a week$/m, 'Enter answers with the recommended option');
+}
+
+async function answerOpenCardFromComposer(page: Page, openCard: Locator): Promise<void> {
+  const keyCaps = await openCard.locator('.ui-button-shortcut').allInnerTexts();
+  assert.deepEqual(keyCaps, ['1', '2', '3'], 'Allow, Deny and Deny with message carry their key caps');
+  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await composer.focus();
+  await composer.fill('2');
+  await page.keyboard.press('1');
+  assert.equal(await composer.inputValue(), '21', 'a digit typed into a composer holding text stays text');
+  assert.equal(await answeredPermissionCount(page), 0, 'typing into the composer answers no card');
+  await composer.fill('');
+  await page.keyboard.press('Enter');
+  assert.equal(await answeredPermissionCount(page), 0, 'Enter never allows a permission');
+  await page.keyboard.press('1');
+}
+
+function answeredPermissionCount(page: Page): Promise<number> {
+  return page.locator('.session-chat .chat-card[data-card-type="permission"][data-resolved="true"]').count();
 }
 
 async function waitForTurnRunning(page: Page, isTurnRunning: boolean): Promise<void> {

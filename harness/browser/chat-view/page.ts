@@ -17,7 +17,7 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
     card: {
       cardType: 'question',
       cardId: 'example-question',
-      data: { question: 'Which layout should the composer use?', detail: 'Both keep the Stop control beside the input.', options: [{ label: 'Docked', note: 'pinned to the bottom' }, { label: 'Inline', note: 'follows the last reply' }] },
+      data: { question: 'Which layout should the composer use?', detail: 'Both keep the Stop control beside the input.', options: [{ label: 'Docked (Recommended)', note: 'pinned to the bottom' }, { label: 'Inline', note: 'follows the last reply' }] },
       resolution: null,
     },
   },

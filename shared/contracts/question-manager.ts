@@ -12,6 +12,12 @@ export function isRecommendedOptionLabel(label: string): boolean {
   return label.trim().toLowerCase().endsWith(RECOMMENDED_LABEL_SUFFIX);
 }
 
+export function withoutRecommendedSuffix(label: string): string {
+  const trimmedLabel = label.trim();
+  if (!isRecommendedOptionLabel(trimmedLabel)) return trimmedLabel;
+  return trimmedLabel.slice(0, -RECOMMENDED_LABEL_SUFFIX.length).trim();
+}
+
 const RuleName = z.string({ error: 'questionManager.rules[].name must be a string' }).trim().min(1).max(80);
 
 export const QuestionMatchRule = z.object({
