@@ -933,7 +933,8 @@ async function verifyReviewingNowPull(page: Page): Promise<void> {
   await page.locator('.pr-queue-section[data-group="now"] .pr-queue-row[data-review-key="Acme/app#1"]').click();
   await page.keyboard.press('m');
   await waitForText(page, REVIEWING_NOW_COUNT, null);
-  await writeUiPrefs(page, { reviewsTurnLimit: 5, reviewsCardOrder: [] });
+  assert.deepEqual(await page.evaluate(() => (JSON.parse(localStorage.getItem('glimmervoid-ui-prefs') ?? '{}') as { reviewsCardOrder?: unknown }).reviewsCardOrder), [], 'a card sent back to Ready with M forgets the place it was dropped in Reviewing now');
+  await writeUiPrefs(page, { reviewsTurnLimit: 5 });
 }
 
 const BOARD_RESERVE_PX = 320;

@@ -196,13 +196,14 @@ function stepColumn(step: 1 | -1): boolean {
   return true;
 }
 
-function movePulled(queueKey: string, shouldBePulled: boolean): boolean {
+function movePulled(queueKey: string, shouldBePulled: boolean, placeAfterMove: 'keep-place' | 'forget-place'): boolean {
   const turnKeys = turnItems(currentGroups).map((item) => item.key);
   if (!turnKeys.includes(queueKey)) return false;
   const pulledKeys = getReviewsPulledKeys();
   if (pulledKeys.includes(queueKey) === shouldBePulled) return true;
   const nextPulledKeys = togglePulledKey({ pulledKeys, key: queueKey, turnKeys, limit: getReviewsTurnLimit() });
   if (nextPulledKeys.length === pulledKeys.length) return true;
+  if (placeAfterMove === 'forget-place') setReviewsCardOrder(getReviewsCardOrder().filter((orderedKey) => orderedKey !== queueKey));
   setReviewsPulledKeys(nextPulledKeys);
   renderedSignature = null;
   render();
@@ -220,7 +221,7 @@ function moveToWaiting(item: QueueItem, isMoved: boolean, shouldBePulled: boolea
   setReviewsMovedToWaiting(isMoved ? [...otherEntries, entry] : otherEntries);
   renderedSignature = null;
   render();
-  if (shouldBePulled) movePulled(item.key, true);
+  if (shouldBePulled) movePulled(item.key, true, 'keep-place');
   rowsByKey.get(item.key)?.focus({ preventScroll: true });
 }
 
@@ -254,7 +255,7 @@ function dropCardOnLane(queueKey: string, targetGroupId: DisplayGroupId, beforeQ
   if (drop.kind === 'pull' && isPullRefused) return;
   if (!isPullRefused) placeInColumn(queueKey, targetGroupId, beforeQueueKey);
   pendingLanding = isPullRefused ? null : { queueKey, dropPoint };
-  if (drop.kind === 'pull') movePulled(queueKey, drop.shouldBePulled);
+  if (drop.kind === 'pull') movePulled(queueKey, drop.shouldBePulled, 'keep-place');
   if (drop.kind === 'wait') moveToWaiting(item, drop.isMoved, drop.shouldBePulled);
   pendingLanding = null;
 }
@@ -270,7 +271,7 @@ function reorderCard(queueKey: string, groupId: DisplayGroupId, beforeQueueKey: 
 
 function toggleSelectedPulled(): boolean {
   if (!selectedKey) return false;
-  return movePulled(selectedKey, !getReviewsPulledKeys().includes(selectedKey));
+  return movePulled(selectedKey, !getReviewsPulledKeys().includes(selectedKey), 'forget-place');
 }
 
 function runReviewKey(action: ReviewKeyAction): boolean {
