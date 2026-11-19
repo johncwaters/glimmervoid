@@ -3,7 +3,10 @@ import type { BoardChrome, TileKey, TileLod } from '../../shared/contracts/white
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
 import type { PictureOptions } from '../../mcp/core/board-reading.ts';
-import type { PinPositions } from '../../shared/whiteboard-ops-core.ts';
+import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
+import { AGENT_CHANGE_BOXES_MAX } from '../../shared/contracts/control/whiteboard-messages.ts';
+import type { AgentChange } from '../../shared/contracts/control/whiteboard-messages.ts';
 import { tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -12,7 +15,7 @@ import type { ChangedElement } from './layout-client.ts';
 import type { LayoutAnswer, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 
 interface TileViewer {
-  send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
+  send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'> | ServerMessageOf<'whiteboard-agent-change'>): void;
 }
 
 interface ViewerState {
@@ -69,7 +72,7 @@ interface BoardTileService {
   view(viewer: TileViewer, request: ViewRequest, openSteps?: OpenStepLog): Promise<void>;
   viewCached(viewer: TileViewer, request: ViewRequest, openSteps?: OpenStepLog): Promise<boolean>;
   hold(board: Board): Promise<void>;
-  advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null>;
+  advance(board: Board, changes: readonly ChangedElement[] | null, author: Author | null): Promise<LayoutSummary | null>;
   forget(viewer: TileViewer): void;
   forgetBoard(boardId: string): void;
   operatorViewOf(boardId: string): BoardView | null;
@@ -129,6 +132,12 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     }
   }
 
+  function sendToBoardViewers(boardId: string, message: ServerMessageOf<'whiteboard-agent-change'>): void {
+    for (const [viewer, state] of stateByViewer) {
+      if (state.boardId === boardId) viewer.send(message);
+    }
+  }
+
   function forgetViewer(viewer: TileViewer): void {
     const state = stateByViewer.get(viewer);
     stateByViewer.delete(viewer);
@@ -176,12 +185,33 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     };
   }
 
-  async function advance(board: Board, changes: readonly ChangedElement[] | null): Promise<LayoutSummary | null> {
+  async function agentChangeOf(board: Board, changes: readonly ChangedElement[], author: Author | null): Promise<AgentChange | null> {
+    if (!author || author.id === OPERATOR_AUTHOR.id) return null;
+    const changedBoxes = changes.flatMap(({ after }) => (after?.kind === 'box' ? [after] : [])).slice(0, AGENT_CHANGE_BOXES_MAX);
+    if (changedBoxes.length === 0) return null;
+    const pins = await pinPositionsOf(board, changedBoxes.map((box) => box.id));
+    const boxes = changedBoxes.flatMap(({ id, title }) => {
+      const laidOut = pins.laidOutBoxOf(id);
+      return laidOut ? [{ id, title, rect: { x: laidOut.x, y: laidOut.y, width: laidOut.width, height: laidOut.height } }] : [];
+    });
+    return boxes.length === 0 ? null : { author: { id: author.id, name: author.name }, boxes };
+  }
+
+  async function sendAgentChange(board: Board, changes: readonly ChangedElement[], author: Author | null): Promise<void> {
+    const agentChange = await agentChangeOf(board, changes, author).catch((error: unknown) => {
+      logger.warn(`[whiteboard] board ${board.id} could not locate the boxes an agent changed: ${errorMessage(error)}`);
+      return null;
+    });
+    if (agentChange) sendToBoardViewers(board.id, { type: 'whiteboard-agent-change', boardId: board.id, version: board.version, change: agentChange });
+  }
+
+  async function advance(board: Board, changes: readonly ChangedElement[] | null, author: Author | null): Promise<LayoutSummary | null> {
     const viewers = viewerTilesOf(board.id);
     setViewerVersions(board.id, board.version);
     try {
       const answer = changes ? await layouts.advance(board, changes, viewers) : await layouts.refresh(board, viewers);
       deliver(board, answer.viewerMessages ?? []);
+      if (changes && viewers.length > 0) await sendAgentChange(board, changes, author);
       return summaryOfAnswer(board, answer);
     } catch (error) {
       setViewerVersions(board.id, null);

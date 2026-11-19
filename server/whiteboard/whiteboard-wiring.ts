@@ -605,7 +605,7 @@ function createWhiteboardWiring({
       const isSaved = await saveRecordInSlot(current, outcome.record, outcome.staged ?? null);
       if (!isSaved) return refusal(500, 'the board could not be saved, so nothing changed');
       const isBoardChanged = outcome.record.board !== current.board;
-      const layout = isBoardChanged ? await tiles.advance(outcome.record.board, elementChanges) : null;
+      const layout = isBoardChanged ? await tiles.advance(outcome.record.board, elementChanges, outcome.patch?.author ?? null) : null;
       const committed = outcome.replyAfterCommit?.(outcome.record, layout) ?? { reply: outcome.reply };
       linkChangeAfterCommit(current.board, outcome.record.board);
       broadcastSummariesIfChanged(current, outcome.record);

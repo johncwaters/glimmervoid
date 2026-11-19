@@ -297,7 +297,7 @@ test('a dashboard viewing one region of a board past the incremental layout floo
     { op: 'set', id: 'far', fields: { place: { at: { x: 40000, y: 80 } } } },
   ] });
   assert.equal(placed.status, 200);
-  type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number }; record?: { title?: string } }[]; removedIds: string[] } };
+  type TileFrame = { type: string; boardId?: string; version?: number; fromVersion?: number; chrome?: unknown; tiles?: { elements: { element: { id: string } }[] }[]; diff?: { changed: { element: { id: string; titleLines?: string[]; x?: number }; record?: { title?: string } }[]; removedIds: string[] }; toVersion?: number; change?: { author: { id: string }; boxes: { id: string; title: string; rect: { x: number } }[] } };
   const client = await dashboardClient(boundPort(running().server));
   const control = await openRecordingSocket<TileFrame>(client);
   try {
@@ -312,11 +312,18 @@ test('a dashboard viewing one region of a board past the incremental layout floo
     assert.equal(renamed.status, 200);
     const renameDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === tiles.version, 'the rename diff');
     assert.deepEqual(renameDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.titleLines?.join(' '), painted.record?.title]), [['near', 'Near now', 'Near now']]);
+    const renameLocator = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-agent-change' && frame.version === renamed.body.version, 'the rename agent change');
+    assert.deepEqual([renameLocator.change?.author.id, renameLocator.change?.boxes.map((box) => [box.id, box.title, box.rect.x])], [PLANNER_ID, [['near', 'Near now', 40], ['far', 'Far now', 40000]]]);
+
+    control.ws.send(JSON.stringify({ type: 'whiteboard-op', boardId, ops: [{ op: 'set', id: 'near', fields: { title: 'Near by hand' } }], requestId: 'operator-rename' }));
+    const operatorDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === renamed.body.version, 'the operator rename diff');
 
     const movedIn = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'far', fields: { place: { at: { x: 400, y: 300 } } } }] });
     assert.equal(movedIn.status, 200);
-    const moveDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === renamed.body.version, 'the move diff');
+    const moveDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === operatorDiff.toVersion, 'the move diff');
     assert.deepEqual(moveDiff.diff?.changed.map((painted) => [painted.element.id, painted.element.x]), [['far', 400]]);
+    await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-agent-change' && frame.version === movedIn.body.version, 'the move agent change');
+    assert.equal(control.received.some((frame) => frame.type === 'whiteboard-agent-change' && frame.version === operatorDiff.toVersion), false);
   } finally {
     await closeSocket(control.ws);
   }

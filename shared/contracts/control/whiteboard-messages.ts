@@ -32,10 +32,18 @@ export const WhiteboardPatch = z.object({
   before: DiffBefore,
 });
 
+export const AGENT_CHANGE_BOXES_MAX = 50;
+
+export const AgentChange = z.object({
+  author: z.object({ id: z.string(), name: z.string() }),
+  boxes: z.array(z.object({ id: z.string(), title: z.string(), rect: LayoutRect })).min(1).max(AGENT_CHANGE_BOXES_MAX),
+}).strict();
+
 export type ElementChange = z.infer<typeof ElementChange>;
 export type BoardDiff = z.infer<typeof BoardDiff>;
 export type DiffBefore = z.infer<typeof DiffBefore>;
 export type WhiteboardPatch = z.infer<typeof WhiteboardPatch>;
+export type AgentChange = z.infer<typeof AgentChange>;
 
 export const whiteboardClientVariants = [
   loose('whiteboard-create', { title: Board.shape.title, requestId }),
@@ -55,5 +63,6 @@ export const whiteboardServerVariants = [
   loose('whiteboard-removed', { boardId: z.string() }),
   loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
   loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), diff: TileDiff }),
+  loose('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), change: AgentChange }),
   loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),
 ] as const;
