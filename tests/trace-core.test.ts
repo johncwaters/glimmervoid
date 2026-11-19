@@ -67,6 +67,14 @@ test('only operator messages are prompts: queued mid-turn ones count, task notif
   assert.deepEqual(traceRecordsFromTranscriptLine(deliveredNotification, context).map((record) => record.kind), ['expansion']);
   assert.deepEqual(traceRecordsFromTranscriptLine(stringOriginNotification, context).map((record) => record.kind), ['expansion']);
   assert.deepEqual(traceRecordsFromTranscriptLine(legacyNotification, context).map((record) => record.kind), ['expansion']);
+
+  const imageReadNote = JSON.stringify({
+    type: 'user',
+    isMeta: true,
+    turnCompanion: true,
+    message: { role: 'user', content: '[Image: original 5120x2646, displayed at 2000x1034. Multiply coordinates by 2.56 to map to original image.]' },
+  });
+  assert.deepEqual(traceRecordsFromTranscriptLine(imageReadNote, context).map((record) => record.kind), ['raw']);
 });
 
 test('text bodies at and above the cap retain their truncation state', () => {

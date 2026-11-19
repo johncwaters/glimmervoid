@@ -53,6 +53,7 @@ interface TranscriptLine {
   timestamp?: unknown;
   agentId?: unknown;
   isMeta?: unknown;
+  turnCompanion?: unknown;
   isCompactSummary?: unknown;
   sourceToolUseID?: unknown;
   subtype?: unknown;
@@ -254,6 +255,7 @@ function mapUserLine(
     const expansionText = typeof content === 'string' ? content : everyTextBlockJoined(blocks);
     if (!expansionText) return [rawRecord(rawLine, line, context)];
     const sourceToolUseId = rawTextOr(line.sourceToolUseID, null);
+    if (!sourceToolUseId && line.turnCompanion === true) return [rawRecord(rawLine, line, context)];
     if (!sourceToolUseId) return [{ ...base, kind: 'expansion', ...boundedTextFields(expansionText) }];
     return [{ ...base, kind: 'expansion', toolUseId: sourceToolUseId, ...boundedTextFields(expansionText) }];
   }
