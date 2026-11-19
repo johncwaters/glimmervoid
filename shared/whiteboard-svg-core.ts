@@ -23,6 +23,7 @@ const OCCLUDER_MARGIN = 6;
 const OCCLUDER_CORNER_RADIUS = 8;
 const DECISION_POINT_INSET = 12;
 const MONO_CHAR_WIDTH = 7.2;
+const BOARD_GRID_SPACING = 22;
 const STEP_CHIP_TOP = 10;
 const STEP_CHIP_HEIGHT = 16;
 const STEP_CHIP_INSET = 8;
@@ -54,6 +55,7 @@ const PREFERRED_ASPECT_BY_FIT = Object.freeze({ fill: 'xMidYMid slice', fit: 'xM
 const STANDALONE_STYLE = `
 svg { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; }
 .wb-backdrop { fill: #0d0b16; }
+.wb-grid-dot { fill: #2b2636; }
 .wb-plan-title { fill: #a79fc4; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .wb-box-outline { fill: #15122a; stroke: #a79fc4; stroke-width: 1.6; }
 .wb-borderless .wb-box-outline { fill: transparent; stroke: transparent; }
@@ -455,7 +457,9 @@ function iconSymbolMarkup(name: IconName): string {
 function definitionsMarkup(iconNames: readonly IconName[] = ICON_NAMES): string {
   const arrowhead = tag('path', { d: 'M 0 1 L 10 5 L 0 9 z', fill: 'context-stroke' });
   const arrowMarker = tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead);
-  return tag('defs', {}, arrowMarker + iconNames.map(iconSymbolMarkup).join(''));
+  const gridDot = tag('circle', { cx: 1, cy: 1, r: 1, class: 'wb-grid-dot' });
+  const gridPattern = tag('pattern', { id: 'wb-grid', width: BOARD_GRID_SPACING, height: BOARD_GRID_SPACING, patternUnits: 'userSpaceOnUse' }, gridDot);
+  return tag('defs', {}, arrowMarker + gridPattern + iconNames.map(iconSymbolMarkup).join(''));
 }
 
 function iconNamesOf(layout: BoardLayout): IconName[] {
@@ -476,6 +480,7 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
     tag('style', {}, STANDALONE_STYLE),
     definitionsMarkup(iconNamesOf(layout)),
     tag('rect', { x, y, width, height, class: 'wb-backdrop' }),
+    tag('rect', { x, y, width, height, fill: 'url(#wb-grid)' }),
     chromeMarkup(layout),
     ...layers,
   ].join('');
@@ -489,6 +494,6 @@ export {
   RESIZE_HANDLE_SIZE, STEP_HEADER_HEIGHT, STEP_LABEL_BASELINE, TITLE_BASELINE, TITLE_LINE_HEIGHT,
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
-  STEP_CHIP_DOT_RADIUS, STEP_CHIP_HEIGHT,
+  BOARD_GRID_SPACING, STEP_CHIP_DOT_RADIUS, STEP_CHIP_HEIGHT,
   boardSvgDocument, codeBandRectOf, pageMaskImage, shapedOutlinePoints, stepChipOf,
 };

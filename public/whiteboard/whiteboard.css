@@ -353,9 +353,7 @@
   min-height: 320px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background:
-    radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0) 0 0 / 22px 22px,
-    var(--wb-board);
+  background: var(--wb-board);
   overflow: hidden;
 }
 
@@ -406,6 +404,11 @@
   touch-action: none;
   user-select: none;
   cursor: grab;
+  --wb-grid-size: 22px;
+  --wb-grid-x: 0px;
+  --wb-grid-y: 0px;
+  --wb-grid-strength: 1;
+  background: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--border) calc(var(--wb-grid-strength) * 100%), transparent) 1px, transparent 0) var(--wb-grid-x) var(--wb-grid-y) / var(--wb-grid-size) var(--wb-grid-size);
 }
 
 .wb-world {

@@ -5,7 +5,8 @@ import type { Board } from '#shared/contracts/whiteboard.ts';
 import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
-import { PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
+import { BOARD_GRID_SPACING, PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
+import { FULL_MIN_SCALE, TITLES_MIN_SCALE } from '#shared/whiteboard-tile-core.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
@@ -1206,6 +1207,15 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     context.enable(context.DEPTH_TEST);
   }
 
+  function placeGrid(): void {
+    const spacingPx = BOARD_GRID_SPACING * camera.scale;
+    const strength = Math.min(1, Math.max(0, (camera.scale - TITLES_MIN_SCALE) / (FULL_MIN_SCALE - TITLES_MIN_SCALE)));
+    viewport.style.setProperty('--wb-grid-size', `${spacingPx}px`);
+    viewport.style.setProperty('--wb-grid-x', `${-((camera.x * camera.scale) % spacingPx)}px`);
+    viewport.style.setProperty('--wb-grid-y', `${-((camera.y * camera.scale) % spacingPx)}px`);
+    viewport.style.setProperty('--wb-grid-strength', String(strength));
+  }
+
   function reportView(): void {
     if (!onViewChange || camera.scale <= 0) return;
     const view = { x: camera.x, y: camera.y, width: canvas.clientWidth / camera.scale, height: canvas.clientHeight / camera.scale };
@@ -1719,6 +1729,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     },
     setCamera: (nextCamera) => {
       camera = nextCamera;
+      placeGrid();
       reportView();
       requestDraw();
     },
