@@ -1,5 +1,5 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
-import { STATES } from '#shared/states.ts';
+import { STATES, type SessionState } from '#shared/states.ts';
 
 type WorkKind = 'busy' | 'thinking' | 'reading' | 'editing' | 'running' | 'working';
 
@@ -158,13 +158,23 @@ export function verbChoicesFor(beat: ActivityBeat): readonly string[] {
 
 export type ChatPhase = 'starting' | 'working' | 'quiet' | 'stopped';
 
-const STARTING_STATES: ReadonlySet<string> = new Set([STATES.INITIALIZING, STATES.STARTING]);
-const WORKING_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
-const READY_STATES: ReadonlySet<string> = new Set([STATES.IDLE, STATES.COMPLETE]);
+const CHAT_PHASE_BY_STATE: Readonly<Record<SessionState, ChatPhase>> = {
+  [STATES.DORMANT]: 'stopped',
+  [STATES.INITIALIZING]: 'starting',
+  [STATES.STARTING]: 'starting',
+  [STATES.RUNNING]: 'working',
+  [STATES.WAITING]: 'working',
+  [STATES.IDLE]: 'quiet',
+  [STATES.COMPLETE]: 'quiet',
+  [STATES.DONE]: 'stopped',
+  [STATES.FAILED]: 'stopped',
+};
+
+function isSessionState(state: string): state is SessionState {
+  return Object.hasOwn(CHAT_PHASE_BY_STATE, state);
+}
 
 export function chatPhaseOf(state: string | undefined): ChatPhase {
-  if (state === undefined) return 'quiet';
-  if (STARTING_STATES.has(state)) return 'starting';
-  if (WORKING_STATES.has(state)) return 'working';
-  return READY_STATES.has(state) ? 'quiet' : 'stopped';
+  if (state === undefined || !isSessionState(state)) return 'quiet';
+  return CHAT_PHASE_BY_STATE[state];
 }

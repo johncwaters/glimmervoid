@@ -561,7 +561,7 @@ class Session extends EventEmitter {
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
     this._chatOutbox = createChatOutbox({
-      canTakeMessage: () => this.hasLivePty && (this.state === STATES.IDLE || this.state === STATES.COMPLETE),
+      canTakeMessage: () => this.hasLivePty && BETWEEN_PROMPT_STATES.has(this.state),
       reportsTurnStarts: () => this._adapter.capabilities.hooks,
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
