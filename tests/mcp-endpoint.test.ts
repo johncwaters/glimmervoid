@@ -432,7 +432,7 @@ test('every board just past the picture width still pictures instead of being re
   assert.deepEqual(refusedOffsets, []);
 });
 
-test('codemap answers map, where and impact from the project mainline commit, the same text on every read', async () => {
+test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
@@ -455,4 +455,9 @@ test('codemap answers map, where and impact from the project mainline commit, th
   assert.match(impact.text, /^1 changed files reach 1 dependent files/);
   const unknown = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'where', target: 'missing.ts' } }, credential));
   assert.equal(unknown.isError, true);
+  const checked = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'check' } }, credential))).structuredContent);
+  assert.match(checked.text, /has no code map setup, so no module import is judged/);
+  const allowed = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'allow', from: 'lib', to: '.' } }, credential));
+  assert.equal(allowed.isError, true);
+  assert.match(JSON.stringify(allowed.content), /only the operator allows a module import/);
 });

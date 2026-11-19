@@ -8,6 +8,7 @@ import type { CheckOutcome, VerificationRun, VerificationSettings } from '../../
 import { contestantDiffStats } from '../race/race-diff.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { clock } from '../../shared/clock.ts';
+import { selfLaunch } from '../runtime-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { launchArgvFor, overallStatus, parseCheckCommand, readVerificationSettings, redactSecretLines, settingsFingerprint } from './core/verification-core.ts';
 
@@ -130,6 +131,8 @@ function statusOf(result: CheckProcessResult): CheckOutcome['status'] {
   return 'fail';
 }
 
+const GLIMMERVOID_PROGRAM = 'glimmervoid';
+
 function createVerificationWiring(dependencies: VerificationWiringDependencies): VerificationWiring {
   const platform = dependencies.platform ?? process.platform;
   const cachedRunBySession = new Map<string, CachedRun>();
@@ -171,8 +174,9 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
 
   async function runCheck(sessionId: string, worktreeDir: string, spec: { id: string; command: string }, timeoutMs: number): Promise<CheckOutcome> {
     if (dependencies.isSessionSandboxOn()) return skippedOutcome(spec, SANDBOX_SKIP_REASON);
-    const argv = parseCheckCommand(spec.command);
-    if (!argv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
+    const parsedArgv = parseCheckCommand(spec.command);
+    if (!parsedArgv) return skippedOutcome(spec, 'the command uses shell syntax, so it was not run; give a plain program and arguments');
+    const argv = parsedArgv[0] === GLIMMERVOID_PROGRAM ? [...selfLaunch('cli'), ...parsedArgv.slice(1)] : parsedArgv;
     const env = buildAllowlistedChildEnv(process.env, platform);
     const { program, args } = launchArgvFor(argv, platform, env.ComSpec ?? env.COMSPEC ?? 'cmd.exe');
     const result = await runCheckProcess(program, args, worktreeDir, env, timeoutMs, platform, liveCheckPidsOf(sessionId));

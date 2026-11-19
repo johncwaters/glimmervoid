@@ -43,12 +43,14 @@ function decideDiffSelfHeal(
 interface StandardsGateFacts {
   enabled: boolean;
   requiredCheckIds: readonly string[];
-  run: { sig: string; checks: readonly { id: string; status: string }[] } | null;
+  run: { sig: string; checks: readonly { id: string; status: string; outputTail: string }[] } | null;
   currentSig: string | null;
   isTreeDirty: boolean;
 }
 
 type StandardsGateVerdict = { allowed: true } | { allowed: false; reason: string };
+
+const FAILED_CHECK_LINE_MAX_CHARS = 300;
 
 function decideStandardsGate(facts: StandardsGateFacts): StandardsGateVerdict {
   if (!facts.enabled) return { allowed: true };
@@ -56,10 +58,14 @@ function decideStandardsGate(facts: StandardsGateFacts): StandardsGateVerdict {
   if (!facts.run || facts.currentSig === null || facts.run.sig !== facts.currentSig) {
     return { allowed: false, reason: "checks pending: the required checks have not run on this tree yet" };
   }
-  const statusById = new Map(facts.run.checks.map((check) => [check.id, check.status]));
-  const failingIds = facts.requiredCheckIds.filter((checkId) => statusById.get(checkId) !== "pass");
+  const checkById = new Map(facts.run.checks.map((check) => [check.id, check]));
+  const failingIds = facts.requiredCheckIds.filter((checkId) => checkById.get(checkId)?.status !== "pass");
   if (failingIds.length === 0) return { allowed: true };
-  return { allowed: false, reason: `checks failed: ${failingIds.join(", ")}` };
+  const lastOutputLines = failingIds.flatMap((checkId) => {
+    const lastLine = checkById.get(checkId)?.outputTail.split("\n").map((line) => line.trim()).findLast(Boolean);
+    return lastLine ? [`${checkId}: ${lastLine.slice(0, FAILED_CHECK_LINE_MAX_CHARS)}`] : [];
+  });
+  return { allowed: false, reason: [`checks failed: ${failingIds.join(", ")}`, ...lastOutputLines].join("\n") };
 }
 
 export { decideSignatureDemotion, decideBaseSyncDemotion, decideDiffSelfHeal, decideStandardsGate };

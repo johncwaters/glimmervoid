@@ -329,7 +329,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
     codemapNoticeOf: (project) => codemap.noticeOf(project),
   });
-  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config) });
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir() });
   const reviews = createReviewWiring({
     reviewsRoot: configSiblingPath(configStore.configPath, REVIEWS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,

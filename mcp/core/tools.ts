@@ -384,16 +384,20 @@ const CLAIM_TOOL: GroupedTool = {
 const CODEMAP_TOOL: GroupedTool = {
   name: 'codemap',
   title: 'Glimmervoid code map',
-  description: "This repo's module map, generated from its imports at the mainline commit and kept in step with it by Glimmervoid; reach for it before a grep sweep. map lists modules with file counts and the import edges between them; where names the module, exports, neighbors and reaching entrances of a file (path relative to the repo root) or of an exported name; impact lists the dependents, tests, modules and entrances a set of files reaches. Every reply names the commit it describes and whether the map is current, behind or failed.",
+  description: "This repo's module map, generated from its imports at the mainline commit and kept in step with it by Glimmervoid; reach for it before a grep sweep. map lists modules with file counts and the import edges between them; where names the module, exports, neighbors and reaching entrances of a file (path relative to the repo root) or of an exported name; impact lists the dependents, tests, modules and entrances a set of files reaches; check lists the new module imports this session's branch adds that the repo's setup does not allow, which a gated repo refuses to merge until the operator allows them; allow is always refused, since only the operator allows a module import. Every reply names the commit it describes and whether the map is current, behind or failed.",
   loadsUpfront: true,
   fields: {
     target: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('where: a file path relative to the repo root, or an exported name'),
     paths: z.array(z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS)).min(1).max(CODEMAP_IMPACT_MAX_PATHS).optional().describe('impact: the files, relative to the repo root'),
+    from: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('allow: the importing module'),
+    to: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('allow: the imported module'),
   },
   actions: {
     map: subcommandRoute('codemap', 'map', [], { hints: READS }),
     where: subcommandRoute('codemap', 'where', ['target'], { required: ['target'], hints: READS }),
     impact: subcommandRoute('codemap', 'impact', ['paths'], { required: ['paths'], hints: READS }),
+    check: subcommandRoute('codemap', 'check', [], { hints: READS }),
+    allow: subcommandRoute('codemap', 'allow', ['from', 'to'], { required: ['from', 'to'], hints: WRITES }),
   },
 };
 

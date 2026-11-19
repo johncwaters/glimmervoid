@@ -130,6 +130,7 @@ function codemapBody({ positionals: [sub, ...targets] }: ParsedArguments): Recor
   if (!sub) return null;
   if (sub === 'where') return { sub, target: joinedText(targets) };
   if (sub === 'impact') return { sub, paths: targets };
+  if (sub === 'allow') return { sub, from: targets.at(-2) ?? '', to: targets.at(-1) ?? '' };
   return { sub };
 }
 
@@ -507,6 +508,10 @@ async function runAgentApiCli(args: string[]): Promise<number> {
   if (verb === 'whiteboard' && isLayoutCommand(parsed)) return runLayoutCommand(parsed);
   if (verb === 'need') return runNeedCommand(parsed);
   if (verb === 'secrets') return runSecretsCommand(parsed);
+  if (verb === 'codemap' && !process.env[AGENT_URL_ENV]) {
+    const { isOperatorCodemapCommand, runOperatorCodemapCli } = await import('./codemap/codemap-cli.ts');
+    if (isOperatorCodemapCommand(parsed.positionals)) return runOperatorCodemapCli(parsed.positionals);
+  }
   const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
     console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);

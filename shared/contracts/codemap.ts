@@ -31,8 +31,23 @@ export type CodemapExtract = z.infer<typeof CodemapExtract>;
 export const CodemapExtractBase = CodemapExtract.pick({ sha: true, paths: true, specifiersByIndex: true, exportedNamesByIndex: true });
 export type CodemapExtractBase = z.infer<typeof CodemapExtractBase>;
 
+const CodemapModuleName = z.string({ error: 'a module must be a string' }).min(1, { error: 'a module must not be empty' }).max(CODEMAP_TARGET_MAX_CHARS);
+
+const CodemapModuleEdge = z.strictObject({ from: CodemapModuleName, to: CodemapModuleName });
+export type CodemapModuleEdge = z.infer<typeof CodemapModuleEdge>;
+
+export const CodemapSetup = z.strictObject({
+  repo: z.string().min(1),
+  gate: z.boolean(),
+  modules: z.array(CodemapModuleName),
+  allow: z.array(CodemapModuleEdge),
+});
+export type CodemapSetup = z.infer<typeof CodemapSetup>;
+
 export const AgentCodemapRequest = z.discriminatedUnion('sub', [
   z.strictObject({ sub: z.literal('map') }),
+  z.strictObject({ sub: z.literal('check') }),
+  z.strictObject({ sub: z.literal('allow'), from: CodemapModuleName, to: CodemapModuleName }),
   z.strictObject({ sub: z.literal('where'), target: CodemapTarget }),
   z.strictObject({ sub: z.literal('impact'), paths: z.array(CodemapTarget).min(1, { error: 'impact needs at least one path' }).max(CODEMAP_IMPACT_MAX_PATHS, { error: `impact takes at most ${CODEMAP_IMPACT_MAX_PATHS} paths` }) }),
 ]);

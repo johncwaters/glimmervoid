@@ -112,7 +112,7 @@ test('a push is refused until the required checks pass on the current tree, nami
 
   const refused = await run.lifecycle.mergeAndContinue({ force: true });
   assert.equal(refused.merged, false);
-  assert.equal(refused.reason, 'checks failed: unit');
+  assert.match(refused.reason ?? '', /^checks failed: unit/);
   assert.equal(mergeKeepCalls, 0);
 
   checkCommand = 'node --version';
@@ -183,7 +183,7 @@ function gatedRepo(checks: Array<{ id: string; command: string }>, { ephemeral =
 test('a spawned child session push is refused while a required check fails', async () => {
   const { run, landing } = gatedRepo([{ id: 'unit', command: 'node does-not-exist.js' }], { ephemeral: true });
   const refused = await run.lifecycle.mergeAndContinue({ force: true });
-  assert.equal(refused.reason, 'checks failed: unit');
+  assert.match(refused.reason ?? '', /^checks failed: unit/);
   assert.equal(landing.mergeKeepCalls, 0);
   run.cleanup();
 });

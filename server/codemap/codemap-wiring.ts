@@ -8,22 +8,50 @@ import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { runGit } from '../git/git-exec.ts';
-import { buildCodemapModel, CODEMAP_TUNABLES, codemapNoticeOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { changedPathsSince, mainlineShaOf, readCodemapSetup, repoKeyOf, revParse } from './codemap-store.ts';
+import { buildCodemapModel, checkTextOf, CODEMAP_TUNABLES, codemapNoticeOf, unallowedEdgesOf, unjudgedPathsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
 
 interface CodemapRepo {
   repoDir: string;
+  worktreeDir?: string | null;
+}
+
+interface WorktreeCheck {
+  client: CodemapClient;
+  homeDir: string;
+  worktreeDir: string;
+  mainlineSha: string;
+}
+
+type WorktreeCheckOutcome = { ok: true; isRefusing: boolean; text: string } | { ok: false; error: string };
+
+async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha }: WorktreeCheck): Promise<WorktreeCheckOutcome> {
+  const repoKey = await repoKeyOf(worktreeDir);
+  if (!repoKey) return { ok: false, error: `${worktreeDir} is not inside a git repository` };
+  const repoName = path.basename(repoKey);
+  const lookup = await readCodemapSetup(homeDir, repoKey);
+  if (lookup.kind === 'none') return { ok: true, isRefusing: false, text: `codemap check: ${repoName} has no code map setup, so no module import is judged.` };
+  if (lookup.kind === 'invalid') return { ok: false, error: lookup.message };
+  const headSha = await revParse(worktreeDir, 'HEAD');
+  const changedPaths = await changedPathsSince(worktreeDir, mainlineSha);
+  if (!headSha || !changedPaths) return { ok: false, error: `${worktreeDir} has no commit to compare with mainline ${mainlineSha.slice(0, 7)}` };
+  const model = buildCodemapModel(await client.extract(worktreeDir, headSha), lookup.setup.modules);
+  const unallowedEdges = unallowedEdgesOf(model, changedPaths, lookup.setup.allow);
+  const unjudgedPaths = unjudgedPathsOf(model, changedPaths);
+  const gateNote = lookup.setup.gate ? null : 'The import gate is off for this repo, so these never refuse a push.';
+  return { ok: true, isRefusing: lookup.setup.gate && (unallowedEdges.length > 0 || unjudgedPaths.length > 0), text: checkTextOf(repoName, unallowedEdges, unjudgedPaths, gateNote) };
 }
 
 interface RepoMapState {
   model: CodemapModel | null;
+  modelLayoutKey: string | null;
   extractBase: CodemapExtractBase | null;
   failure: { sha: string; reason: string; retryAtMs: number } | null;
   latestStatus: CodemapStatus | null;
-  drawnModelSha: string | null;
+  drawnModel: CodemapModel | null;
   drawnStatusKey: string | null;
   drawRetryAtMs: number;
   startedCheckCount: number;
@@ -54,12 +82,7 @@ type CodemapOutcome = { ok: true; reply: AgentCodemapReply } | { ok: false; stat
 
 const UNREADABLE_MAINLINE_STATUS = 409;
 const UNKNOWN_TARGET_STATUS = 404;
-
-async function revParse(repoDir: string, ref: string): Promise<string | null> {
-  const parsed = await runGit(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd: repoDir });
-  const sha = parsed.out.trim();
-  return parsed.ok && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
-}
+const OPERATOR_ONLY_STATUS = 403;
 
 async function noDefaultBranch(): Promise<string | null> {
   return null;
@@ -73,6 +96,7 @@ interface CodemapServiceOptions {
   whiteboards?: MapBoards | null;
   mapBoardIdsFilePath?: string | null;
   configuredMainlineBranch?: () => string | null;
+  homeDir?: string | null;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -97,7 +121,7 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, homeDir = null, logger = console }: CodemapServiceOptions = {}) {
   const drawingByRepoDir = new Map<string, Promise<boolean>>();
   const mapBoardIdByRepoDir = new Map<string, string>();
   const mapBoardIdStore = createJsonStateStore({
@@ -159,21 +183,26 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
 
   async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, status: CodemapStatus): Promise<void> {
     const statusKey = JSON.stringify(status);
-    const changedModel = state.model && state.drawnModelSha !== state.model.sha ? state.model : null;
+    const changedModel = state.model && state.drawnModel !== state.model ? state.model : null;
     if (!changedModel && state.drawnStatusKey === statusKey) return;
     if (clock.nowMs() < state.drawRetryAtMs) return;
     if (await redrawMapBoard(repoDir, changedModel, status)) {
-      state.drawnModelSha = state.model?.sha ?? state.drawnModelSha;
+      state.drawnModel = state.model ?? state.drawnModel;
       state.drawnStatusKey = statusKey;
       return;
     }
     state.drawRetryAtMs = clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs;
   }
 
-  async function mainlineShaOf({ repoDir }: CodemapRepo): Promise<string | null> {
-    const branch = configuredMainlineBranch() ?? await detectDefaultBranch({ projectPath: repoDir });
-    if (!branch) return revParse(repoDir, 'HEAD');
-    return await revParse(repoDir, `refs/remotes/origin/${branch}`) ?? await revParse(repoDir, `refs/heads/${branch}`) ?? revParse(repoDir, 'HEAD');
+  async function repoMainlineShaOf(repoDir: string): Promise<string | null> {
+    return mainlineShaOf(repoDir, configuredMainlineBranch() ?? await detectDefaultBranch({ projectPath: repoDir }));
+  }
+
+  async function moduleLayoutOf(repoDir: string): Promise<readonly string[] | null> {
+    if (!homeDir) return null;
+    const repoKey = await repoKeyOf(repoDir);
+    const lookup = repoKey ? await readCodemapSetup(homeDir, repoKey) : { kind: 'none' as const };
+    return lookup.kind === 'ok' ? lookup.setup.modules : null;
   }
 
   const stateByRepoDir = new Map<string, RepoMapState>();
@@ -181,7 +210,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   function stateOf(repoDir: string): RepoMapState {
     const known = stateByRepoDir.get(repoDir);
     if (known) return known;
-    const created: RepoMapState = { model: null, extractBase: null, failure: null, latestStatus: null, drawnModelSha: null, drawnStatusKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
+    const created: RepoMapState = { model: null, modelLayoutKey: null, extractBase: null, failure: null, latestStatus: null, drawnModel: null, drawnStatusKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
     stateByRepoDir.set(repoDir, created);
     return created;
   }
@@ -196,10 +225,13 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const state = stateOf(repo.repoDir);
     state.startedCheckCount += 1;
     const checkNumber = state.startedCheckCount;
-    const mainlineSha = await mainlineShaOf(repo);
+    const mainlineSha = await repoMainlineShaOf(repo.repoDir);
     if (!mainlineSha) return { error: `${repo.repoDir} has no commit to map; the code map needs a git repository with a mainline commit` };
+    const moduleLayout = await moduleLayoutOf(repo.repoDir);
+    const layoutKey = JSON.stringify(moduleLayout);
     const isFailureFresh = state.failure?.sha === mainlineSha && clock.nowMs() < state.failure.retryAtMs;
-    if (state.model?.sha !== mainlineSha && !isFailureFresh) await advanceMap(state, repo.repoDir, mainlineSha, checkNumber);
+    const isModelCurrent = state.model?.sha === mainlineSha && state.modelLayoutKey === layoutKey;
+    if (!isModelCurrent && !isFailureFresh) await advanceMap(state, repo.repoDir, mainlineSha, checkNumber, moduleLayout);
     if (checkNumber < state.appliedCheckNumber && state.latestStatus) return { model: state.model, status: state.latestStatus };
     state.appliedCheckNumber = checkNumber;
     const status = statusOf(state, mainlineSha);
@@ -208,12 +240,13 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { model: state.model, status };
   }
 
-  async function advanceMap(state: RepoMapState, repoDir: string, mainlineSha: string, checkNumber: number): Promise<void> {
+  async function advanceMap(state: RepoMapState, repoDir: string, mainlineSha: string, checkNumber: number, moduleLayout: readonly string[] | null): Promise<void> {
     try {
       const extract = await client.extract(repoDir, mainlineSha, state.extractBase);
       if (checkNumber < state.appliedCheckNumber) return;
       state.appliedCheckNumber = checkNumber;
-      state.model = buildCodemapModel(extract);
+      state.model = buildCodemapModel(extract, moduleLayout);
+      state.modelLayoutKey = JSON.stringify(moduleLayout);
       state.extractBase = extractBaseOf(extract);
       state.failure = null;
       state.drawRetryAtMs = 0;
@@ -248,6 +281,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   }
 
   async function handle(repo: CodemapRepo, request: AgentCodemapRequest): Promise<CodemapOutcome> {
+    if (request.sub === 'allow') return { ok: false, status: OPERATOR_ONLY_STATUS, error: `only the operator allows a module import; ask the operator to run glimmervoid codemap allow ${repo.repoDir} ${request.from} ${request.to} outside a session` };
+    if (request.sub === 'check') return checkOutcomeOf(repo);
     const map = await currentMap(repo);
     if ('error' in map) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: map.error };
     const repoName = path.basename(repo.repoDir);
@@ -258,10 +293,21 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: answer.text, status: map.status } };
   }
 
+  async function checkOutcomeOf(repo: CodemapRepo): Promise<CodemapOutcome> {
+    const mainlineSha = await repoMainlineShaOf(repo.repoDir);
+    if (!mainlineSha) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: `${repo.repoDir} has no commit to check against` };
+    if (!homeDir) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: 'the code map setup store is not available in this Glimmervoid' };
+    const checked = await checkWorktree({ client, homeDir, worktreeDir: repo.worktreeDir ?? repo.repoDir, mainlineSha });
+    if (!checked.ok) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: checked.error };
+    const map = await currentMap(repo);
+    const status = 'error' in map ? { sha: null, mainlineSha, state: 'failed' as const, reason: map.error } : map.status;
+    return { ok: true, reply: { ok: true, text: checked.text, status } };
+  }
+
   return { handle, attachSession, noticeOf };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;
 
-export { createCodemapService };
+export { checkWorktree, createCodemapService };
 export type { CodemapService };
