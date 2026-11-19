@@ -3,15 +3,15 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
-import type { AgentCodemapReply, AgentCodemapRequest, CodemapExtract, CodemapExtractBase, CodemapStatus } from '../../shared/contracts/codemap.ts';
+import type { AgentCodemapReply, AgentCodemapRequest, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore } from '../json-file.ts';
-import { changedPathsSince, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf } from './codemap-store.ts';
-import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, unallowedEdgesOf, unjudgedPathsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { changedPathsSince, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup } from './codemap-store.ts';
+import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -45,7 +45,34 @@ async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha }: Work
   const unallowedEdges = unallowedEdgesOf(model, changedPaths, lookup.setup.allow);
   const unjudgedPaths = unjudgedPathsOf(model, changedPaths);
   const gateNote = lookup.setup.gate ? null : 'The import gate is off for this repo, so these never refuse a push.';
-  return { ok: true, isRefusing: lookup.setup.gate && (unallowedEdges.length > 0 || unjudgedPaths.length > 0), text: checkTextOf(repoName, unallowedEdges, unjudgedPaths, gateNote) };
+  return { ok: true, isRefusing: lookup.setup.gate && (unallowedEdges.length > 0 || unjudgedPaths.length > 0), text: checkTextOf(repoName, unallowedEdges, unjudgedPaths, staleAllowedEdgesOf(model, lookup.setup.allow), gateNote) };
+}
+
+interface SetupShrink {
+  client: CodemapClient;
+  homeDir: string;
+  repoKey: string;
+  mainlineSha: string;
+}
+
+async function shrinkSetup({ client, homeDir, repoKey, mainlineSha }: SetupShrink): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const lookup = await readCodemapSetup(homeDir, repoKey);
+  if (lookup.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; the operator runs glimmervoid codemap setup ${repoKey} first` };
+  if (lookup.kind === 'invalid') return { ok: false, error: lookup.message };
+  const model = buildCodemapModel(await client.extract(repoKey, mainlineSha), lookup.setup.modules);
+  const shrinkOutcome: { dropped: readonly CodemapModuleEdge[] } = { dropped: [] };
+  const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
+    if (!current) return null;
+    const shrunk = shrunkAllowListOf(model, current.allow);
+    shrinkOutcome.dropped = shrunk.dropped;
+    return JSON.stringify(shrunk.allow) === JSON.stringify(current.allow) ? null : { ...current, allow: shrunk.allow };
+  });
+  const { dropped } = shrinkOutcome;
+  if (updated.kind !== 'ok') return { ok: false, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup` };
+  const repoName = path.basename(repoKey);
+  const shortSha = mainlineSha.slice(0, 7);
+  if (dropped.length === 0) return { ok: true, text: `codemap shrink: every allowed module import of ${repoName} is on mainline ${shortSha} or still waits for its first landing, so none was dropped.` };
+  return { ok: true, text: `codemap shrink: dropped ${dropped.length} allowed module imports mainline ${shortSha} of ${repoName} no longer has: ${dropped.map((entry) => `${entry.from} -> ${entry.to}`).join(', ')}` };
 }
 
 interface RepoMapState {
@@ -421,6 +448,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   async function handle(repo: CodemapRepo, request: AgentCodemapRequest): Promise<CodemapOutcome> {
     if (request.sub === 'allow') return { ok: false, status: OPERATOR_ONLY_STATUS, error: `only the operator allows a module import; ask the operator to run glimmervoid codemap allow ${repo.repoDir} ${request.from} ${request.to} outside a session` };
     if (request.sub === 'check') return checkOutcomeOf(repo);
+    if (request.sub === 'shrink') return shrinkOutcomeOf(repo);
     if (request.sub === 'overlay') return overlayOutcomeOf(repo, request);
     const map = await currentMap(repo);
     if ('error' in map) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: map.error };
@@ -430,6 +458,18 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const answer = request.sub === 'where' ? whereOf(map.model, request.target) : impactOf(map.model, request.paths);
     if (!answer.ok) return { ok: false, status: UNKNOWN_TARGET_STATUS, error: answer.error };
     return { ok: true, reply: { ok: true, text: answer.text, status: map.status } };
+  }
+
+  async function shrinkOutcomeOf(repo: CodemapRepo): Promise<CodemapOutcome> {
+    const mainlineSha = await repoMainlineShaOf(repo.repoDir);
+    const repoKey = await repoKeyOf(repo.repoDir);
+    if (!mainlineSha || !repoKey) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: `${repo.repoDir} has no mainline commit to shrink the setup against` };
+    if (!homeDir) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: 'the code map setup store is not available in this Glimmervoid' };
+    const shrunk = await shrinkSetup({ client, homeDir, repoKey, mainlineSha });
+    if (!shrunk.ok) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: shrunk.error };
+    const map = await currentMap(repo);
+    if ('error' in map) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: map.error };
+    return { ok: true, reply: { ok: true, text: shrunk.text, status: map.status } };
   }
 
   async function checkOutcomeOf(repo: CodemapRepo): Promise<CodemapOutcome> {
@@ -448,5 +488,5 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
 
 type CodemapService = ReturnType<typeof createCodemapService>;
 
-export { checkWorktree, createCodemapService };
+export { checkWorktree, shrinkSetup, createCodemapService };
 export type { CodemapService };

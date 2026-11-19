@@ -38,11 +38,20 @@ const CodemapModuleName = z.string({ error: 'a module must be a string' }).min(1
 const CodemapModuleEdge = z.strictObject({ from: CodemapModuleName, to: CodemapModuleName });
 export type CodemapModuleEdge = z.infer<typeof CodemapModuleEdge>;
 
+export const CODEMAP_ALLOW_REASON_MAX_CHARS = 500;
+
+const CodemapAllowEntry = z.discriminatedUnion('origin', [
+  z.strictObject({ from: CodemapModuleName, to: CodemapModuleName, origin: z.literal('seeded') }),
+  z.strictObject({ from: CodemapModuleName, to: CodemapModuleName, origin: z.literal('allowed'), reason: z.string().min(1).max(CODEMAP_ALLOW_REASON_MAX_CHARS), date: z.iso.date(), landed: z.boolean() }),
+]);
+
+export type CodemapAllowEntry = z.infer<typeof CodemapAllowEntry>;
+
 export const CodemapSetup = z.strictObject({
   repo: z.string().min(1),
   gate: z.boolean(),
   modules: z.array(CodemapModuleName),
-  allow: z.array(CodemapModuleEdge),
+  allow: z.array(CodemapAllowEntry),
 });
 export type CodemapSetup = z.infer<typeof CodemapSetup>;
 
@@ -73,6 +82,7 @@ export type DesignSpecForMap = z.infer<typeof DesignSpecForMap>;
 export const AgentCodemapRequest = z.discriminatedUnion('sub', [
   z.strictObject({ sub: z.literal('map') }),
   z.strictObject({ sub: z.literal('check') }),
+  z.strictObject({ sub: z.literal('shrink') }),
   z.strictObject({ sub: z.literal('allow'), from: CodemapModuleName, to: CodemapModuleName }),
   z.strictObject({ sub: z.literal('where'), target: CodemapTarget }),
   z.strictObject({ sub: z.literal('overlay'), layer: z.enum(CODEMAP_OVERLAY_LAYERS, { error: `layer must be one of ${CODEMAP_OVERLAY_LAYERS.join(', ')}` }), id: CodemapTarget.optional() }),

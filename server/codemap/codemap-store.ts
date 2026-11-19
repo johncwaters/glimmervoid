@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { CodemapSetup, DesignSpecForMap } from '../../shared/contracts/codemap.ts';
 import { errorCode, errorMessage } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
-import { writeTextAtomic } from '../json-file.ts';
+import { writeTextAtomicSync } from '../json-file.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { DEFAULT_BRANCH_FALLBACKS, defaultBranchFromRemoteHead } from '../core/integration-branch-core.ts';
 import { CO_CHANGE_LOG_ARGS, parseCoChangeLog } from '../core/co-change-core.ts';
@@ -43,23 +44,50 @@ function setupPathOf(homeDir: string, repoKey: string): string {
   return path.join(homeDir, SETUP_FOLDER_NAME, `${readableName}-${keyHash}`, SETUP_FILE_NAME);
 }
 
-async function readCodemapSetup(homeDir: string, repoKey: string): Promise<CodemapSetupLookup> {
-  const setupPath = setupPathOf(homeDir, repoKey);
-  const text = await fsp.readFile(setupPath, 'utf8').catch((error: unknown) => (errorCode(error) === 'ENOENT' ? null : { error }));
+function setupLookupOf(setupPath: string, repoKey: string, text: string | null): CodemapSetupLookup {
   if (text === null) return { kind: 'none' };
-  if (typeof text !== 'string') return { kind: 'invalid', message: `${setupPath} could not be read: ${errorMessage(text.error)}` };
   const parsed = CodemapSetup.safeParse(parseJsonOrNull(text));
   if (!parsed.success) return { kind: 'invalid', message: `${setupPath} is not a valid code map setup: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}` };
   if (parsed.data.repo !== repoKey) return { kind: 'invalid', message: `${setupPath} belongs to ${parsed.data.repo}, not ${repoKey}` };
   return { kind: 'ok', setup: parsed.data };
 }
 
-async function writeCodemapSetup(homeDir: string, setup: CodemapSetup): Promise<string> {
-  const setupPath = setupPathOf(homeDir, setup.repo);
-  await fsp.mkdir(path.dirname(setupPath), { recursive: true });
-  await writeTextAtomic(setupPath, `${JSON.stringify(CodemapSetup.parse(setup), null, 2)}\n`);
-  return setupPath;
+async function readCodemapSetup(homeDir: string, repoKey: string): Promise<CodemapSetupLookup> {
+  const setupPath = setupPathOf(homeDir, repoKey);
+  const text = await fsp.readFile(setupPath, 'utf8').catch((error: unknown) => (errorCode(error) === 'ENOENT' ? null : { error }));
+  if (text !== null && typeof text !== 'string') return { kind: 'invalid', message: `${setupPath} could not be read: ${errorMessage(text.error)}` };
+  return setupLookupOf(setupPath, repoKey, text);
 }
+
+function readSetupTextSync(setupPath: string): string | null | { error: unknown } {
+  try {
+    return fs.readFileSync(setupPath, 'utf8');
+  } catch (error) {
+    return errorCode(error) === 'ENOENT' ? null : { error };
+  }
+}
+
+function writeSetupSync(setupPath: string, setup: CodemapSetup): string | null {
+  try {
+    writeTextAtomicSync(setupPath, `${JSON.stringify(CodemapSetup.parse(setup), null, 2)}\n`, { mkdir: true });
+    return null;
+  } catch (error) {
+    return `${setupPath} could not be written: ${errorMessage(error)}`;
+  }
+}
+
+function updateCodemapSetup(homeDir: string, repoKey: string, change: (current: CodemapSetup | null) => CodemapSetup | null): CodemapSetupLookup {
+  const setupPath = setupPathOf(homeDir, repoKey);
+  const text = readSetupTextSync(setupPath);
+  if (text !== null && typeof text !== 'string') return { kind: 'invalid', message: `${setupPath} could not be read: ${errorMessage(text.error)}` };
+  const current = setupLookupOf(setupPath, repoKey, text);
+  if (current.kind === 'invalid') return current;
+  const next = change(current.kind === 'ok' ? current.setup : null);
+  if (!next) return current;
+  const writeError = writeSetupSync(setupPath, next);
+  return writeError ? { kind: 'invalid', message: writeError } : { kind: 'ok', setup: next };
+}
+
 
 async function changedPathsSince(worktreeDir: string, baseSha: string): Promise<Set<string> | null> {
   const listed = await gitText(worktreeDir, ['diff', '--name-only', '--relative', '-z', '--no-renames', `${baseSha}...HEAD`]);
@@ -111,4 +139,4 @@ async function guessedDefaultBranchOf(directory: string): Promise<string | null>
   return null;
 }
 
-export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, worktreeRootOf, writeCodemapSetup };
+export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf };

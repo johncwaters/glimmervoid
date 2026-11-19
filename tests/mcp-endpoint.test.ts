@@ -27,7 +27,11 @@ import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { AgentMemoryReply } from '../shared/contracts/memory.ts';
-import { AgentCodemapReply } from '../shared/contracts/codemap.ts';
+import { AgentCodemapReply, CodemapSetup } from '../shared/contracts/codemap.ts';
+import { glimmervoidHomeDir } from '../server/config-store.ts';
+import { clock } from '../shared/clock.ts';
+import { repoKeyOf, setupPathOf } from '../server/codemap/codemap-store.ts';
+import { runOperatorCodemapCli } from '../server/codemap/codemap-cli.ts';
 import { git } from './helpers/git-fixture.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
@@ -432,7 +436,7 @@ test('every board just past the picture width still pictures instead of being re
   assert.deepEqual(refusedOffsets, []);
 });
 
-test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, and refuses an agent allowing a module import', async () => {
+test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
@@ -460,6 +464,20 @@ test('codemap answers map, where, impact and check from the project mainline com
   const allowed = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'allow', from: 'lib', to: '.' } }, credential));
   assert.equal(allowed.isError, true);
   assert.match(JSON.stringify(allowed.content), /only the operator allows a module import/);
+
+  const setupPath = setupPathOf(glimmervoidHomeDir(), await repoKeyOf(projectDir) ?? '');
+  fs.mkdirSync(path.dirname(setupPath), { recursive: true });
+  const allowedOnMainline = { from: '.', to: 'lib', origin: 'allowed', reason: 'main reads the store', date: '2026-01-02', landed: false };
+  const awaitingItsBranch = { from: 'lib', to: 'tools', origin: 'allowed', reason: 'a branch not merged yet', date: '2026-01-03', landed: false };
+  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: false, modules: ['lib'], allow: [allowedOnMainline, { from: 'lib', to: '.', origin: 'allowed', reason: 'a cycle once', date: '2026-01-02', landed: true }, awaitingItsBranch] }));
+  const staleChecked = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'check' } }, credential))).structuredContent);
+  assert.match(staleChecked.text, /allowed module imports this branch no longer has, .*: lib -> \./);
+  const shrunk = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'shrink' } }, credential))).structuredContent);
+  assert.match(shrunk.text, /dropped 1 allowed module imports .*: lib -> \./);
+  assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow, [{ ...allowedOnMainline, landed: true }, awaitingItsBranch]);
+  assert.equal(await runOperatorCodemapCli(['allow', projectDir, 'lib', '.']), 1);
+  assert.equal(await runOperatorCodemapCli(['allow', projectDir, 'lib', '.', '--reason', 'store reads config']), 0);
+  assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow.at(-1), { from: 'lib', to: '.', origin: 'allowed', reason: 'store reads config', date: clock.dayKeyOf(clock.nowMs()), landed: false });
 
   const overlaid = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'session' } }, credential))).structuredContent);
   assert.match(overlaid.text, /^codemap overlay on the map of project: session mcp endpoint changes \d+ files/);

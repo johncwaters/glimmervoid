@@ -2,8 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { CODEMAP_ALLOW_REASON_MAX_CHARS } from '../../shared/contracts/codemap.ts';
 import type { CodemapSetup } from '../../shared/contracts/codemap.ts';
 import { VerificationSettings } from '../../shared/contracts/verification.ts';
+import { clock } from '../../shared/clock.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadConfigFile, saveConfigFileOnce } from '../config-store.ts';
@@ -13,12 +15,12 @@ import { configuredIntegrationBranch } from '../core/integration-branch-core.ts'
 import { buildCodemapModel, moduleEdgesOf } from '../core/codemap-graph-core.ts';
 import { parseCheckCommand } from '../verification/core/verification-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
-import { guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, repoKeyOf, setupPathOf, worktreeRootOf, writeCodemapSetup } from './codemap-store.ts';
-import { checkWorktree } from './codemap-wiring.ts';
+import { guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf } from './codemap-store.ts';
+import { checkWorktree, shrinkSetup } from './codemap-wiring.ts';
 
 const CODEMAP_CHECK_ID = 'codemap';
-const OPERATOR_CODEMAP_ACTIONS = new Set(['setup', 'allow', 'check']);
-const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] | codemap allow <repo> <from module> <to module> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
+const OPERATOR_CODEMAP_ACTIONS = new Set(['setup', 'allow', 'shrink', 'check']);
+const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] | codemap allow <repo> <from module> <to module> --reason <why> | codemap shrink <repo> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
 
 type CliOutcome = { ok: true; text: string; exitCode?: number } | { ok: false; error: string };
 
@@ -89,7 +91,7 @@ function writeVerificationGate(configPath: string, verificationKeys: readonly st
 
 async function seededSetup(repoKey: string, mainlineSha: string): Promise<CodemapSetup> {
   const model = buildCodemapModel(await createCodemapClient().extract(repoKey, mainlineSha));
-  return { repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model) };
+  return { repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const })) };
 }
 
 async function runSetup(args: readonly string[]): Promise<CliOutcome> {
@@ -104,8 +106,14 @@ async function runSetup(args: readonly string[]): Promise<CliOutcome> {
   if (existing.kind === 'invalid') return { ok: false, error: existing.message };
   const mainlineSha = await mainlineShaForCli(repoKey, config.ok ? config.configPath : null);
   if (!mainlineSha) return { ok: false, error: `${repoKey} has no mainline commit to seed the setup from` };
-  const base = existing.kind === 'ok' ? existing.setup : await seededSetup(repoKey, mainlineSha);
-  const setup = { ...base, gate: gateArgument === null ? base.gate : gateArgument === 'on' };
+  const seeded = existing.kind === 'ok' ? null : await seededSetup(repoKey, mainlineSha);
+  const isGateOn = (base: CodemapSetup) => (gateArgument === null ? base.gate : gateArgument === 'on');
+  const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
+    const base = current ?? seeded;
+    return base ? { ...base, gate: isGateOn(base) } : null;
+  });
+  if (updated.kind !== 'ok') return { ok: false, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup to gate` };
+  const { setup } = updated;
   if (gateArgument !== null) {
     if (!config.ok) return { ok: false, error: config.error };
     const checkCommand = checkCommandFor(homeDir, config.configPath);
@@ -113,22 +121,39 @@ async function runSetup(args: readonly string[]): Promise<CliOutcome> {
     const gateError = writeVerificationGate(config.configPath, await verificationKeysOf(repoKey, config.configPath), setup.gate, checkCommand.command);
     if (gateError) return { ok: false, error: gateError };
   }
-  const setupPath = await writeCodemapSetup(homeDir, setup);
-  return { ok: true, text: `code map setup for ${repoKey} at ${setupPath}: ${setup.modules.length} modules, ${setup.allow.length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}. The repo itself is unchanged.` };
+  return { ok: true, text: `code map setup for ${repoKey} at ${setupPathOf(homeDir, repoKey)}: ${setup.modules.length} modules, ${setup.allow.length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}. The repo itself is unchanged.` };
 }
 
 async function runAllow(args: readonly string[]): Promise<CliOutcome> {
   const [, repoArgument, from, to] = positionalsOf(args);
-  if (!repoArgument || !from || !to) return { ok: false, error: USAGE };
+  const reason = optionValue(args, '--reason')?.trim() ?? '';
+  if (!repoArgument || !from || !to || !reason) return { ok: false, error: USAGE };
+  if (reason.length > CODEMAP_ALLOW_REASON_MAX_CHARS) return { ok: false, error: `the reason must be at most ${CODEMAP_ALLOW_REASON_MAX_CHARS} characters` };
   const repoKey = await repoKeyOf(path.resolve(repoArgument));
   if (!repoKey) return { ok: false, error: `${repoArgument} is not inside a git repository` };
   const homeDir = glimmervoidHomeDir(os.homedir(), process.env);
-  const lookup = await readCodemapSetup(homeDir, repoKey);
-  if (lookup.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; run glimmervoid codemap setup ${repoKey} first` };
-  if (lookup.kind === 'invalid') return { ok: false, error: lookup.message };
-  const isAllowed = lookup.setup.allow.some((edge) => edge.from === from && edge.to === to);
-  if (!isAllowed) await writeCodemapSetup(homeDir, { ...lookup.setup, allow: [...lookup.setup.allow, { from, to }] });
+  const allowedEntry = { from, to, origin: 'allowed' as const, reason, date: clock.dayKeyOf(clock.nowMs()), landed: false };
+  const allowOutcome = { wasAllowed: false };
+  const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
+    allowOutcome.wasAllowed = current?.allow.some((edge) => edge.from === from && edge.to === to) ?? false;
+    return current && !allowOutcome.wasAllowed ? { ...current, allow: [...current.allow, allowedEntry] } : null;
+  });
+  if (updated.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; run glimmervoid codemap setup ${repoKey} first` };
+  if (updated.kind === 'invalid') return { ok: false, error: updated.message };
+  const isAllowed = allowOutcome.wasAllowed;
   return { ok: true, text: `${from} -> ${to} is allowed for ${repoKey}${isAllowed ? ' already' : ''} (${setupPathOf(homeDir, repoKey)}).` };
+}
+
+async function runShrink(args: readonly string[]): Promise<CliOutcome> {
+  const [, repoArgument] = positionalsOf(args);
+  if (!repoArgument) return { ok: false, error: USAGE };
+  const repoKey = await repoKeyOf(path.resolve(repoArgument));
+  if (!repoKey) return { ok: false, error: `${repoArgument} is not inside a git repository` };
+  const config = configPathOrError();
+  const mainlineSha = await mainlineShaForCli(repoKey, config.ok ? config.configPath : null);
+  if (!mainlineSha) return { ok: false, error: `${repoKey} has no mainline commit to shrink the setup against` };
+  const shrunk = await shrinkSetup({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(os.homedir(), process.env), repoKey, mainlineSha });
+  return shrunk.ok ? { ok: true, text: shrunk.text } : shrunk;
 }
 
 async function runCheck(args: readonly string[]): Promise<CliOutcome> {
@@ -149,7 +174,7 @@ function isOperatorCodemapCommand(args: readonly string[]): boolean {
 }
 
 async function runOperatorCodemapCli(args: readonly string[]): Promise<number> {
-  const runners: Record<string, (actionArgs: readonly string[]) => Promise<CliOutcome>> = { setup: runSetup, allow: runAllow, check: runCheck };
+  const runners: Record<string, (actionArgs: readonly string[]) => Promise<CliOutcome>> = { setup: runSetup, allow: runAllow, shrink: runShrink, check: runCheck };
   const outcome = await (runners[args[0] ?? ''] ?? (async () => ({ ok: false as const, error: USAGE })))(args).catch((error: unknown) => ({ ok: false as const, error: errorMessage(error) }));
   if (!outcome.ok) {
     console.error(`glimmervoid codemap: ${outcome.error}`);

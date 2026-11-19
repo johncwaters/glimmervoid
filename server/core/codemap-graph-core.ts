@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
-import type { CodemapExtract, CodemapModuleEdge, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
+import type { CodemapAllowEntry, CodemapExtract, CodemapModuleEdge, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
 import { isTestPath } from './import-graph-core.ts';
@@ -464,21 +464,35 @@ function moduleEdgesOf(model: CodemapModel): CodemapModuleEdge[] {
   return [...model.edgesByModule.values()].flat().map(({ from, to }) => ({ from, to }));
 }
 
+function staleAllowedEdgesOf(model: CodemapModel, allowed: readonly CodemapModuleEdge[]): CodemapModuleEdge[] {
+  const presentKeys = new Set(moduleEdgesOf(model).map((edge) => edgeKeyOf(edge.from, edge.to)));
+  return allowed.filter((edge) => !presentKeys.has(edgeKeyOf(edge.from, edge.to)));
+}
+
+function shrunkAllowListOf(model: CodemapModel, allow: readonly CodemapAllowEntry[]): { allow: CodemapAllowEntry[]; dropped: CodemapAllowEntry[] } {
+  const mainlineEdgeKeys = new Set(moduleEdgesOf(model).map((edge) => edgeKeyOf(edge.from, edge.to)));
+  const isOnMainline = (entry: CodemapAllowEntry) => mainlineEdgeKeys.has(edgeKeyOf(entry.from, entry.to));
+  const isDroppable = (entry: CodemapAllowEntry) => !isOnMainline(entry) && (entry.origin === 'seeded' || entry.landed);
+  const kept = allow.filter((entry) => !isDroppable(entry)).map((entry) => (entry.origin === 'allowed' && isOnMainline(entry) ? { ...entry, landed: true } : entry));
+  return { allow: kept, dropped: allow.filter(isDroppable) };
+}
+
 function unjudgedPathsOf(model: CodemapModel, changedPaths: ReadonlySet<string>): string[] {
   return [...changedPaths].filter((changedPath) => model.skippedPaths.has(changedPath)).sort(compareText);
 }
 
-function checkTextOf(repoName: string, unallowedEdges: readonly UnallowedEdge[], unjudgedPaths: readonly string[], gateNote: string | null): string {
-  if (unallowedEdges.length === 0 && unjudgedPaths.length === 0) return `codemap check: no new module import in ${repoName} needs allowing.`;
+function checkTextOf(repoName: string, unallowedEdges: readonly UnallowedEdge[], unjudgedPaths: readonly string[], staleAllowedEdges: readonly CodemapModuleEdge[], gateNote: string | null): string {
+  const staleLines = staleAllowedEdges.length > 0 ? [`  allowed module imports this branch no longer has, which codemap shrink drops once mainline lacks them too: ${cappedList(staleAllowedEdges.map((edge) => `${edge.from} -> ${edge.to}`))}`] : [];
+  if (unallowedEdges.length === 0 && unjudgedPaths.length === 0) return [...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
   const edgeLines = unallowedEdges.flatMap((edge) => [
-    `  ${edge.from} -> ${edge.to} is not allowed for this repo; ask the operator to allow it (glimmervoid codemap allow <repo> ${edge.from} ${edge.to})`,
+    `  ${edge.from} -> ${edge.to} is not allowed for this repo; ask the operator to allow it (glimmervoid codemap allow <repo> ${edge.from} ${edge.to} --reason <why>)`,
     ...edge.fileImports.slice(0, CODEMAP_TUNABLES.listedPathsPerSection).map((fileImport) => `    ${fileImport}`),
   ]);
   const unjudgedLine = unjudgedPaths.length > 0 ? [`  changed files over the size or count caps, so their imports cannot be judged: ${cappedList(unjudgedPaths)}`] : [];
   const edgeNames = unallowedEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ');
   const summaryParts = [edgeNames ? `adds module imports the operator has not allowed: ${edgeNames}` : '', unjudgedPaths.length > 0 ? `changes ${unjudgedPaths.length} files too large to judge` : ''].filter(Boolean);
-  return [...edgeLines, ...unjudgedLine, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
+  return [...edgeLines, ...unjudgedLine, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, unjudgedPathsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, unjudgedPathsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };
