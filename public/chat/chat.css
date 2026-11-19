@@ -238,8 +238,6 @@
 
 .chat-turn-chevron[aria-expanded="true"] svg { transform: rotate(-90deg); }
 
-.chat-turn-time { margin-left: auto; }
-
 .chat-turn-added { color: var(--state-running); }
 
 .chat-turn-removed { color: var(--state-failed); }
