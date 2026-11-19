@@ -208,8 +208,15 @@
 
 @keyframes chat-arrive { from { opacity: 0; transform: scale(0.985); } }
 
+@keyframes chat-line-arrive { from { opacity: 0; filter: blur(2px); } }
+
 @media (prefers-reduced-motion: no-preference) {
-  .chat-log [data-arriving],
+  .chat-turn-text[data-arriving] .chat-reveal-word {
+    animation: chat-line-arrive 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    animation-delay: var(--line-delay, 0ms);
+  }
+
+  .chat-log [data-arriving]:not(.chat-turn-text),
   .chat-jump-slot > button:not([hidden]),
   :root:not([data-chat-brief-off]) .chat-turn[data-open] .chat-turn-work { animation: chat-arrive var(--transition-fast); }
 
