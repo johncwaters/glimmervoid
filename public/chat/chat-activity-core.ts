@@ -1,4 +1,5 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
+import { STATES } from '#shared/states.ts';
 
 type WorkKind = 'busy' | 'thinking' | 'reading' | 'editing' | 'running' | 'working';
 
@@ -153,4 +154,17 @@ export function verbChoicesFor(beat: ActivityBeat): readonly string[] {
   if (beat.glimmervoidTool !== null) return [VERB_BY_GLIMMERVOID_TOOL.get(beat.glimmervoidTool) ?? GLIMMERVOID_FALLBACK_VERB];
   if (beat.workKind === 'working') return [`Using ${beat.toolName ?? 'a tool'}`];
   return VERBS_BY_WORK_KIND[beat.workKind];
+}
+
+export type ChatPhase = 'starting' | 'working' | 'quiet' | 'stopped';
+
+const STARTING_STATES: ReadonlySet<string> = new Set([STATES.INITIALIZING, STATES.STARTING]);
+const WORKING_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
+const READY_STATES: ReadonlySet<string> = new Set([STATES.IDLE, STATES.COMPLETE]);
+
+export function chatPhaseOf(state: string | undefined): ChatPhase {
+  if (state === undefined) return 'quiet';
+  if (STARTING_STATES.has(state)) return 'starting';
+  if (WORKING_STATES.has(state)) return 'working';
+  return READY_STATES.has(state) ? 'quiet' : 'stopped';
 }

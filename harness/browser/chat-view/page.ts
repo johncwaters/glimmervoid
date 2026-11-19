@@ -32,7 +32,7 @@ const harnessSeenTurns = { readSeenTurnKey: () => harnessSeenTurnKey, markSeen: 
 const harnessUploadUrlOf = (fileName: string) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`);
 const chatView = createChatView(harnessUploadUrlOf, harnessSeenTurns);
 chatHost?.appendChild(chatView.element);
-chatView.setTurnRunning(true);
+chatView.setPhase('working');
 const HARNESS_NOW_MS = Date.now();
 const EXAMPLE_METER = { model: 'Example Large 2', effort: 'medium', contextTokens: 167_000, contextWindow: 300_000, callCostUSD: 0.0334, outputStyle: 'Explanatory' };
 const EXAMPLE_PLAN_LIMITS = { fiveHour: { pct: 12, resetsAtMs: HARNESS_NOW_MS + 2 * 3_600_000 }, sevenDay: { pct: 44, resetsAtMs: HARNESS_NOW_MS + 3.4 * 86_400_000 } };
@@ -74,7 +74,7 @@ async function playLive(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, LIVE_PAGE_INTERVAL_MS));
   if (new URLSearchParams(location.search).has('working')) return;
   const partTopsBefore = partTops();
-  chatView.setTurnRunning(false);
+  chatView.setPhase('quiet');
   feed.endTurn();
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const partTopsAfter = partTops();
@@ -98,8 +98,27 @@ function showRecordsAtRest(): void {
   });
 }
 
-if (new URLSearchParams(location.search).has('live')) await playLive();
-if (!new URLSearchParams(location.search).has('live')) showRecordsAtRest();
+const BOOT_STEP_MS = 900;
+
+async function playBoot(): Promise<void> {
+  const pause = () => new Promise((resolve) => setTimeout(resolve, BOOT_STEP_MS));
+  chatView.setPhase('starting');
+  const sentText = await new Promise<string>((resolve) => {
+    chatView.element.addEventListener('chat-send', (event) => resolve(event instanceof CustomEvent ? String(event.detail.text) : ''), { once: true });
+  });
+  chatView.showQueued([{ entryId: 'boot-held', text: sentText, attachments: [], state: 'held', failure: null }]);
+  await pause();
+  chatView.setPhase('quiet');
+  await pause();
+  chatView.setPhase('working');
+  await pause();
+  document.body.dataset.bootDone = 'true';
+}
+
+const harnessMode = new URLSearchParams(location.search);
+if (harnessMode.has('boot')) void playBoot();
+if (harnessMode.has('live')) await playLive();
+if (!harnessMode.has('live') && !harnessMode.has('boot')) showRecordsAtRest();
 if (new URLSearchParams(location.search).has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS);
 if (new URLSearchParams(location.search).has('rail-updates')) {
   const railStates: readonly RunningSubagent[][] = [[{ type: 'Explore', model: 'example-small' }, { type: 'reviewer', model: null }], [], [{ type: 'Explore', model: null }], []];

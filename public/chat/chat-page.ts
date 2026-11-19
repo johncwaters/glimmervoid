@@ -17,6 +17,7 @@ import type { ChatCard, ChatPart } from './chat-part.ts';
 import { createChatView } from './chat-view.ts';
 import type { SeenTurns } from './chat-parts.ts';
 import { getJSON, setJSON } from '../local-store.ts';
+import { type ChatPhase, chatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
 import { sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
@@ -27,7 +28,6 @@ import type { RunningSubagent } from './status-rail-core.ts';
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
-const MID_TURN_STATES: ReadonlySet<string> = new Set([STATES.RUNNING, STATES.WAITING]);
 const RAIL_TICK_MS = 30_000;
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
@@ -73,8 +73,8 @@ interface MountedChat {
   sessionId: string;
   root: HTMLElement;
   feed: ChatFeed;
-  wasSessionWorking: boolean;
-  setTurnRunning(isTurnRunning: boolean): void;
+  shownPhase: ChatPhase;
+  setPhase(phase: ChatPhase): void;
   showOutbox(): void;
   restoreText(text: string): void;
   restoreAttachments(fileNames: readonly string[]): void;
@@ -104,10 +104,12 @@ function draftWithRestoredText(restoredText: string, draft: string): string {
   return `${restoredText}\n\n${draft}`;
 }
 
+function sessionPhaseOf(sessionId: string): ChatPhase {
+  return chatPhaseOf(sessionUIs.get(sessionId)?.currentState);
+}
+
 function isSessionWorking(sessionId: string): boolean {
-  const state = sessionUIs.get(sessionId)?.currentState;
-  if (state === undefined) return false;
-  return MID_TURN_STATES.has(state);
+  return sessionPhaseOf(sessionId) === 'working';
 }
 
 function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
@@ -297,7 +299,7 @@ function buildChat(sessionId: string): MountedChat {
     if (railTimer !== null) clearInterval(railTimer);
     railTimer = null;
   };
-  chatView.setTurnRunning(isSessionWorking(sessionId));
+  chatView.setPhase(sessionPhaseOf(sessionId));
   let shownApproval: ShownApproval | null = null;
   let terminalCardState: TerminalCardState = 'hidden';
   let terminalCardSerial = 0;
@@ -495,7 +497,7 @@ function buildChat(sessionId: string): MountedChat {
       for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
       freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => entry.state !== 'submitted'));
       freshView.upsert([...standInByEntryId.values()]);
-      freshView.setTurnRunning(isSessionWorking(sessionId));
+      freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       runningSubagents = [];
@@ -509,8 +511,8 @@ function buildChat(sessionId: string): MountedChat {
     sessionId,
     root,
     feed,
-    wasSessionWorking: isSessionWorking(sessionId),
-    setTurnRunning: (isTurnRunning) => chatView.setTurnRunning(isTurnRunning),
+    shownPhase: sessionPhaseOf(sessionId),
+    setPhase: (phase) => chatView.setPhase(phase),
     showOutbox,
     restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),
     restoreAttachments: (fileNames) => {
@@ -598,11 +600,12 @@ export function applyChatSnapshot(rows: readonly { id: string; conversationAppro
 export function applyChatSessionStatus(sessionId: string): void {
   if (mountedChat?.sessionId !== sessionId) return;
   mountedChat.syncWaitingCards();
-  const isWorking = isSessionWorking(sessionId);
-  if (isWorking === mountedChat.wasSessionWorking) return;
-  mountedChat.wasSessionWorking = isWorking;
-  mountedChat.setTurnRunning(isWorking);
-  if (!isWorking) mountedChat.feed.endTurn();
+  const phase = sessionPhaseOf(sessionId);
+  if (phase === mountedChat.shownPhase) return;
+  const wasWorking = mountedChat.shownPhase === 'working';
+  mountedChat.shownPhase = phase;
+  mountedChat.setPhase(phase);
+  if (wasWorking && phase !== 'working') mountedChat.feed.endTurn();
 }
 
 subscribeUsage((change) => {

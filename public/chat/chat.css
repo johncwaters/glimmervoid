@@ -203,6 +203,21 @@
 
 .chat-activity-verb { color: var(--activity-hue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+.chat-activity-detail { min-width: 0; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.chat-activity-detail:empty { display: none; }
+
+.chat-activity[data-phase="starting"] { --activity-hue: var(--state-starting); }
+
+.chat-activity-bracket[data-side="top"] { --dx: 0; --dy: 1; }
+.chat-activity-bracket[data-side="right"] { --dx: -1; --dy: 0; animation-delay: 325ms; }
+.chat-activity-bracket[data-side="bottom"] { --dx: 0; --dy: -1; animation-delay: 650ms; }
+.chat-activity-bracket[data-side="left"] { --dx: 1; --dy: 0; animation-delay: 975ms; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-activity[data-phase="starting"] .chat-activity-bracket { animation-name: loading-mark-scan; animation-duration: 1.3s; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); animation-iteration-count: infinite; }
+}
+
 .chat-card {
   display: flex;
   flex-direction: column;

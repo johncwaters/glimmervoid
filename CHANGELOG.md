@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Answer Chat cards from the keyboard.** With the Chat message box empty, number keys answer a waiting question by option position, and Enter takes the option the agent recommends. The recommended option now shows first, tagged Recommended. On a permission card, 1 allows, 2 denies, and 3 moves to the deny message box; Enter never allows a tool. Each button shows its key. Agents are now asked to mark one option of every question (Recommended), so the question manager's default rule and Chat have something to pick on agents beyond Claude Code.
+- **Chat shows when a session is still starting.** While a new session sets up its worktree and boots the agent, Chat shows the Glimmervoid mark scanning in the Starting color with the same words as the status key. A message you send meanwhile appears at once as your prompt, marked "Sends when the agent is ready", and you can still cancel it. When the agent is up, the mark spins once and the message goes out.
 
 ### Changed
 
@@ -34,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A Chat message the agent never picks up now comes back to you instead of disappearing.** If no turn starts within 15 seconds of a message being sent, Chat marks it as not taken, keeps its text, and Cancel puts the text back in the message box. Before, it was quietly dropped.
+- **A Chat message sent right after a Claude Code session starts in a worktree is no longer lost.** Claude Code reads folder trust for a git worktree from the repo's main checkout, which Glimmervoid did not trust, so a repo that pre-approves tools showed Claude's trust dialog and your first message's Enter answered it. Glimmervoid now trusts the main checkout as well, so the dialog does not appear.
 - **The Homebrew tap gets each release again.** A style check added in Homebrew 7.0.15 rejected the generated formula and stopped the 0.62.8 formula from reaching the tap. Releases now pass that check.
 - **The install script works on older Linux again.** `glimmervoid-installer.sh` refused any Linux older than glibc 2.39, such as Debian 12 or Ubuntu 22.04, with `no compatible downloads were found for your platform`, though the binary runs on glibc 2.28 and newer. It now installs on any Linux with glibc 2.28 or newer.
 
@@ -73,8 +76,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A Chat message the agent never picks up now comes back to you instead of disappearing.** If no turn starts within 15 seconds of a message being sent, Chat marks it as not taken, keeps its text, and Cancel puts the text back in the message box. Before, it was quietly dropped.
-- **A Chat message sent right after a Claude Code session starts in a worktree is no longer lost.** Claude Code reads folder trust for a git worktree from the repo's main checkout, which Glimmervoid did not trust, so a repo that pre-approves tools showed Claude's trust dialog and your first message's Enter answered it. Glimmervoid now trusts the main checkout as well, so the dialog does not appear.
 - **The Glimmervoid icon on an iPhone Home Screen.** Adding the remote dashboard to an iPhone Home Screen gave a generic letter icon, because iOS fetches the icon without the pairing cookie and the remote listener refused it. The app icons, the web app manifest and the favicon now load without pairing; everything else still needs a paired device. Remove the old Home Screen bookmark and add it again to get the logo.
 - **Secrets work out of the box.** An agent asking for a secret no longer stops at "no password manager chosen": the age file on this machine is now the default source, so you approve the name on the session card and save its value there. Existing setups with 1Password chosen but no vault typed in move to the age file on the next start; a setup with a 1Password vault keeps reading from 1Password. Change the source under Settings > Vault.
 - **Clicking an empty spot no longer draws a focus outline around the sidebar.** A click on empty space in the sidebar or beside a pane's title used to put focus on the whole dashboard area, so the next key you pressed drew a browser outline around the sidebar and your typing went nowhere. Those clicks now leave nothing focused, as on any page.

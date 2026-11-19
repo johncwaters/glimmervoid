@@ -1,7 +1,7 @@
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import type { ActivityBeat } from './chat-activity-core.ts';
+import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
@@ -17,7 +17,7 @@ interface ChatView {
   remove(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
   keepLast(partIds: readonly string[]): void;
-  setTurnRunning(isTurnRunning: boolean): void;
+  setPhase(phase: ChatPhase): void;
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
   restoreDraft(text: string): void;
@@ -32,6 +32,8 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
   sending: 'Sending',
   submitted: 'Sent',
 };
+
+const HELD_WHILE_STARTING_TEXT = 'Sends when the agent is ready';
 
 const DOCK_CLEARANCE_PX = 4;
 const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
@@ -128,15 +130,16 @@ function keepChatKeyed(chat: KeyedChat): void {
   window.addEventListener('storage', () => showBriefState(isChatBriefOff()));
 }
 
-function queuedStatusOf(entry: ChatOutboxEntry): string {
+function queuedStatusOf(entry: ChatOutboxEntry, phase: ChatPhase): string {
   if (entry.state === 'failed') return entry.failure ?? 'Not sent.';
+  if (entry.state === 'held' && phase === 'starting') return HELD_WHILE_STARTING_TEXT;
   return QUEUED_STATUS_TEXT[entry.state];
 }
 
-function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => string): HTMLElement {
+function queuedRowOf(entry: ChatOutboxEntry, phase: ChatPhase, uploadUrlOf: (fileName: string) => string): HTMLElement {
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
-  const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
+  const status = el('span', 'chat-queued-status', queuedStatusOf(entry, phase));
   const cancelButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Cancel', disabled: entry.state === 'sending' });
   cancelButton.addEventListener('click', () => {
     row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
@@ -163,10 +166,13 @@ export function createChatView(uploadUrlOf: (fileName: string) => string, seenTu
   const scrollContent = el('div', 'chat-scroll-content');
   const { jumpButton, followLatest, keepInPlace } = stickToBottom(scroller, scrollContent);
   const chatLog = createChatLog(uploadUrlOf, seenTurns, keepInPlace);
-  scrollContent.append(chatLog.element, queuedList, activity.element);
+  scrollContent.append(chatLog.element, activity.element, queuedList);
   scroller.append(scrollContent);
+  let shownPhase: ChatPhase = 'quiet';
+  let queuedEntries: readonly ChatOutboxEntry[] = [];
   const showQueued = (entries: readonly ChatOutboxEntry[]) => {
-    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf)));
+    queuedEntries = entries;
+    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, shownPhase, uploadUrlOf)));
   };
   composer.element.addEventListener('chat-send', followLatest);
   const jumpSlot = el('div', 'chat-jump-slot');
@@ -180,9 +186,12 @@ export function createChatView(uploadUrlOf: (fileName: string) => string, seenTu
     scrollContent.style.paddingBottom = `${dock.offsetHeight + DOCK_CLEARANCE_PX}px`;
   }).observe(dock, { box: 'border-box' });
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
-  const setTurnRunning = (isTurnRunning: boolean) => {
-    composer.setTurnRunning(isTurnRunning);
-    activity.setRunning(isTurnRunning);
+  const setPhase = (phase: ChatPhase) => {
+    const wasStarting = shownPhase === 'starting';
+    shownPhase = phase;
+    composer.setTurnRunning(phase === 'working');
+    activity.setPhase(phase);
+    if (wasStarting !== (phase === 'starting')) showQueued(queuedEntries);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, setTurnRunning, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail };
 }
