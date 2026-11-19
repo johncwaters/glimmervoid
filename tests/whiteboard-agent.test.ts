@@ -1499,6 +1499,15 @@ test('once its code session is gone a board checks refs against its project, the
   assert.equal(review?.notChecked, null);
   assert.deepEqual(review?.anchorWarnings.map((warning) => warning.split(':')[0]), ['ref src/missing.ts on box parse']);
 
+  fs.writeFileSync(path.join(project, 'src', 'lines.ts'), 'one\ntwo\nthree\n', 'utf8');
+  await wiring.handleAgent(creator, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', shape: 'note', id: 'note', title: 'Two is odd', place: { at: { x: 40, y: 240 } }, refs: ['src/lines.ts#L2', 'src/lines.ts#L3'] } }]) });
+  const staleWarnings = async (): Promise<string[]> => ((await wiring.handleAgent(creator, { sub: 'get', board: boardId, review: true })).body as { review: { anchorWarnings: string[] } }).review.anchorWarnings.filter((warning) => warning.includes('changed since this box was put'));
+  assert.deepEqual(await staleWarnings(), []);
+  fs.writeFileSync(path.join(project, 'src', 'lines.ts'), 'zero\none\nTWO\nthree\n', 'utf8');
+  assert.deepEqual((await staleWarnings()).map((warning) => warning.split(':')[0]), ['ref src/lines.ts#L2 on box note', 'ref src/lines.ts#L3 on box note']);
+  await wiring.handleAgent(creator, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'set', id: 'note', fields: { refs: ['src/lines.ts#L2', 'src/lines.ts#L3'] } }]) });
+  assert.deepEqual(await staleWarnings(), []);
+
   await wiring.handleAgent({ id: 'refs-successor', name: 'stranger', project: path.join(boardsRoot, 'other') }, { sub: 'connect', board: boardId });
   assert.equal((await wiring.handleOperator.get(boardId)).board?.codeSessionId, creator.id);
   await wiring.handleAgent(successor, { sub: 'connect', board: boardId });

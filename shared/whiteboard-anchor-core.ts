@@ -6,6 +6,7 @@ import { stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { StepBox } from './whiteboard-plan-core.ts';
 
 const MAX_REFERENCED_PATHS = 64;
+const STALE_REF_TEXT = 'the lines changed since this box was put';
 
 interface ParsedRef {
   path: string;
@@ -17,6 +18,7 @@ interface AnchorSite {
   elementId: string;
   ref: string;
   where: string;
+  hashWhenPut: string | null;
 }
 
 type FileFact = { lineCount: number | null } | { problem: string };
@@ -34,6 +36,7 @@ interface ChangeFacts {
 
 interface AnchorFacts {
   fileFactByPath: ReadonlyMap<string, FileFact>;
+  hashByRef: ReadonlyMap<string, string | null>;
   changes: ChangeFacts | null;
 }
 
@@ -67,7 +70,7 @@ function sitesOfElement(element: Element): AnchorSite[] {
   const elementName = `${element.kind} ${element.id}`;
   switch (element.kind) {
     case 'box':
-      return element.refs.map((ref) => ({ elementId: element.id, ref, where: elementName }));
+      return element.refs.map((ref) => ({ elementId: element.id, ref, where: elementName, hashWhenPut: element.refHashes[ref] ?? null }));
     case 'frame':
     case 'wire':
     case 'stroke':
@@ -84,13 +87,17 @@ function anchorSitesOf(board: Board, elementIds: ReadonlySet<string> | null): An
   });
 }
 
-function referencedPaths(board: Board, elementIds: ReadonlySet<string> | null = null): string[] {
-  const paths = new Set<string>();
+function referencedRefs(board: Board, elementIds: ReadonlySet<string> | null = null): string[] {
+  const readPaths = new Set<string>();
+  const refs = new Set<string>();
   for (const site of anchorSitesOf(board, elementIds)) {
     const parsed = parseRef(site.ref);
-    if ('path' in parsed) paths.add(parsed.path);
+    if (!('path' in parsed)) continue;
+    if (!readPaths.has(parsed.path) && readPaths.size >= MAX_REFERENCED_PATHS) continue;
+    readPaths.add(parsed.path);
+    refs.add(site.ref);
   }
-  return [...paths].slice(0, MAX_REFERENCED_PATHS);
+  return [...refs];
 }
 
 function siteProblem(site: AnchorSite, facts: AnchorFacts): string | null {
@@ -100,10 +107,16 @@ function siteProblem(site: AnchorSite, facts: AnchorFacts): string | null {
   if (!fact) return `not checked, since the board names more than ${MAX_REFERENCED_PATHS} files`;
   if ('problem' in fact) return fact.problem;
   const lastLine = parsed.endLine ?? parsed.startLine;
-  if (lastLine === null) return null;
+  if (lastLine === null) return staleProblem(site, facts);
   if (fact.lineCount === null) return 'the file is too large to check its lines';
   if (lastLine > fact.lineCount) return `the file has ${fact.lineCount} lines`;
-  return null;
+  return staleProblem(site, facts);
+}
+
+function staleProblem(site: AnchorSite, facts: AnchorFacts): string | null {
+  const currentHash = facts.hashByRef.get(site.ref) ?? null;
+  if (site.hashWhenPut === null || currentHash === null || currentHash === site.hashWhenPut) return null;
+  return `${STALE_REF_TEXT}; confirm it by setting the box refs again, or remove the box`;
 }
 
 function unreviewedWarning(codeSessionId: string | null): string {
@@ -180,5 +193,5 @@ function reviewBoard(board: Board, facts: AnchorFacts | null, elementIds: Readon
   return { codeSessionId, anchorWarnings: cappedWarnings(anchorWarnings), ...changeReviewOf(board, sites, facts.changes), linkStates: [] };
 }
 
-export { referencedPaths, refPathOf, refsOfElement, reviewBoard };
-export type { ChangeFacts, FileFact };
+export { parseRef, referencedRefs, refPathOf, refsOfElement, reviewBoard };
+export type { ChangeFacts, FileFact, ParsedRef };

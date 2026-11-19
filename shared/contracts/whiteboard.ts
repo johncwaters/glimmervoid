@@ -27,6 +27,10 @@ const DeviceFit = z.enum(DEVICE_FITS).default('fill').describe('fill covers the 
 
 export const LINE_STYLES = ['text', 'code', 'item', 'kv'] as const;
 
+const RefHashes = z.record(z.string(), z.string().regex(/^[0-9a-f]{40}$/))
+  .refine((hashByRef) => Object.keys(hashByRef).length <= WHITEBOARD_LIMITS.refsPerElement, { error: `a box keeps at most ${WHITEBOARD_LIMITS.refsPerElement} ref hashes` })
+  .default({})
+  .describe('a hash of the lines each ref named when the box was last put with its refs; the server sets it');
 const AnchorRefs = z.array(AnchorRef).max(WHITEBOARD_LIMITS.refsPerElement, { error: `an element carries at most ${WHITEBOARD_LIMITS.refsPerElement} refs` }).default([]);
 
 export const BoxLine = z.object({
@@ -209,6 +213,7 @@ const boxFields = {
   was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
   step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
   author: z.string().min(1).max(WHITEBOARD_LIMITS.title).nullable().default(null).describe('who wrote a note; the server sets it'),
+  refHashes: RefHashes,
 };
 
 type ShapeCheckedBox = Pick<z.infer<z.ZodObject<typeof boxFields>>, 'id' | 'shape' | 'icon' | 'device' | 'fit' | 'tone' | 'borderless' | 'lines' | 'media' | 'step' | 'author'> & { place: unknown };
@@ -660,7 +665,7 @@ export function filledBox(box: SparseBox): Box {
     borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
-    step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null,
+    step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, refHashes: box.refHashes ?? {},
   };
 }
 

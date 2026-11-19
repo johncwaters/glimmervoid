@@ -22,9 +22,9 @@ import type { BoardPictureRead, BoardTileService, LayoutSummary, OpenStepLog, Pi
 import { createOpenStepLogs } from './open-step-log.ts';
 import type { ChangedElement } from './layout-client.ts';
 import { elementPageOf, fitsOnePage } from '../../shared/whiteboard-tile-core.ts';
-import { referencedPaths, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
+import { referencedRefs, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
-import { readChangeFacts, readFileFacts } from './whiteboard-anchor-facts.ts';
+import { readAnchorFileFacts, readChangeFacts } from './whiteboard-anchor-facts.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import { planSteps, stepBoxesOf } from '../../shared/whiteboard-plan-core.ts';
 import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
@@ -159,6 +159,7 @@ interface ProvisionalBoardNaming {
   cardTitle: string;
   caption: string | null;
 }
+
 
 function isProjectFolderPresent(projectPath: string): Promise<boolean> {
   return fsp.stat(projectPath).then((stats) => stats.isDirectory(), () => false);
@@ -653,17 +654,17 @@ function createWhiteboardWiring({
     if (Buffer.byteLength(JSON.stringify(ops)) > WHITEBOARD_LIMITS.putBytes) {
       return Promise.resolve(refusal(413, `one put carries at most ${WHITEBOARD_LIMITS.putBytes} bytes of ops, so nothing changed`));
     }
-    return applyPut(boardId, () => ops, author, refusalOf);
+    return applyPut(boardId, () => ops, author, { refusalOf });
   }
 
-  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, refusalOf: PutRefusalCheck = noPutRefusal): Promise<WhiteboardReply> {
+  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, { refusalOf = noPutRefusal, confirmsRefs = true }: { refusalOf?: PutRefusalCheck; confirmsRefs?: boolean } = {}): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const ops = opsOf(record.board);
       const linkProblem = ops.flatMap((op) => (op.op === 'board' && typeof op.link === 'string' ? [linkPathProblem(op.link)] : [])).find((problemText) => problemText !== null);
       if (linkProblem) return { ok: false, reply: refusal(400, `${linkProblem}, so nothing changed`) };
       if (ops.length === 0) return { ok: true, record, reply: { status: 200, body: { ok: true, version: record.board.version } } };
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
-      const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author);
+      const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author, { confirmsRefs });
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const habitRefusal = refusalOf(record.board, applied.staged.afterById);
       if (habitRefusal) return { ok: false, reply: refusal(409, `${habitRefusal}, so nothing changed`) };
@@ -805,7 +806,8 @@ function createWhiteboardWiring({
     }
   }
 
-  async function applyOpsToRecord(record: BoardRecord, ops: readonly Op[], author: Author): Promise<AppliedOps> {
+  async function applyOpsToRecord(record: BoardRecord, unstampedOps: readonly Op[], author: Author, { confirmsRefs = false }: { confirmsRefs?: boolean } = {}): Promise<AppliedOps> {
+    const ops = await withRefHashesStamped(record.board, unstampedOps, confirmsRefs);
     const pinned = await basePinPositionsFor(record.board, ops);
     if (!pinned.ok) return pinned;
     const basePinPositions = pinned.pins;
@@ -826,15 +828,48 @@ function createWhiteboardWiring({
     return { ok: true, record: next, patch, staged: { diff: result.diff, afterById: result.afterById, commit } };
   }
 
+  async function refRootOf(board: Board): Promise<string | null> {
+    const codeContext = board.codeSessionId ? codeContextOf(board.codeSessionId) : null;
+    if (codeContext) return codeContext.root;
+    if (board.project === null || !(await isProjectFolderPresent(board.project))) return null;
+    return board.project;
+  }
+
   async function reviewFor(board: Board, { readsChanges, elementIds = null }: { readsChanges: boolean; elementIds?: ReadonlySet<string> | null }): Promise<BoardReview> {
     const codeContext = board.codeSessionId ? codeContextOf(board.codeSessionId) : null;
-    const refRoot = codeContext?.root ?? board.project;
+    const refRoot = await refRootOf(board);
     if (refRoot === null) return reviewBoard(board, null, elementIds);
-    if (!codeContext && !(await isProjectFolderPresent(refRoot))) return reviewBoard(board, null, elementIds);
-    const fileFactByPath = await readFileFacts(refRoot, referencedPaths(board, elementIds));
-    if (!codeContext) return reviewBoard(board, { fileFactByPath, changes: null }, elementIds);
+    const anchorFileFacts = await readAnchorFileFacts(refRoot, referencedRefs(board, elementIds));
+    if (!codeContext) return reviewBoard(board, { ...anchorFileFacts, changes: null }, elementIds);
     const changes = readsChanges ? await readChangeFacts(codeContext.buildChangeMap) : null;
-    return reviewBoard(board, { fileFactByPath, changes }, elementIds);
+    return reviewBoard(board, { ...anchorFileFacts, changes }, elementIds);
+  }
+
+  async function withRefHashesStamped(board: Board, ops: readonly Op[], confirmsRefs: boolean): Promise<Op[]> {
+    const addedBoxIds = new Set<string>();
+    const stampedRefsByOpIndex = new Map<number, string[]>();
+    ops.forEach((op, opIndex) => {
+      if (op.op === 'add' && op.element.kind === 'box') {
+        addedBoxIds.add(op.element.id);
+        stampedRefsByOpIndex.set(opIndex, op.element.refs);
+      }
+      const isBoxSet = op.op === 'set' && (board.elements.get(op.id)?.kind === 'box' || addedBoxIds.has(op.id));
+      if (isBoxSet && confirmsRefs && Array.isArray(op.fields.refs)) stampedRefsByOpIndex.set(opIndex, op.fields.refs.filter((ref) => typeof ref === 'string'));
+    });
+    const stampedRefs = [...new Set([...stampedRefsByOpIndex.values()].flat())];
+    const refRoot = stampedRefs.length > 0 ? await refRootOf(board) : null;
+    const hashByRef = refRoot === null ? new Map<string, string | null>() : (await readAnchorFileFacts(refRoot, stampedRefs)).hashByRef;
+    const hashesOf = (refs: readonly string[]): Record<string, string> => Object.fromEntries(refs.flatMap((ref) => {
+      const hash = hashByRef.get(ref);
+      return hash ? [[ref, hash]] : [];
+    }));
+    return ops.map((op, opIndex): Op => {
+      const stampedRefsOfOp = stampedRefsByOpIndex.get(opIndex);
+      if (op.op === 'add' && op.element.kind === 'box') return { ...op, element: { ...op.element, refHashes: hashesOf(stampedRefsOfOp ?? []) } };
+      if (op.op !== 'set') return op;
+      const { refHashes: _ignoredRefHashes, ...fields } = op.fields;
+      return stampedRefsOfOp ? { ...op, fields: { ...fields, refHashes: hashesOf(stampedRefsOfOp) } } : { ...op, fields };
+    });
   }
 
   async function readDocOf(boardId: string, boxId: string): Promise<WhiteboardReply> {
@@ -1354,7 +1389,7 @@ function createWhiteboardWiring({
   }
 
   async function overwriteBoardFromFile(boardId: string, content: BoardContent): Promise<WhiteboardReply> {
-    const applied = await applyPut(boardId, (current) => boardDiffOps(current, content), OPERATOR_AUTHOR);
+    const applied = await applyPut(boardId, (current) => boardDiffOps(current, content), OPERATOR_AUTHOR, { confirmsRefs: false });
     if (applied.status !== 200) return applied;
     const record = recordsByBoardId.get(boardId);
     if (!record) return refusal(404, DELETED_BOARD_TEXT);

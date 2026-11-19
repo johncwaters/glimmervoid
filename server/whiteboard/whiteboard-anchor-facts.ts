@@ -5,7 +5,9 @@ import type { ContainmentRefusal } from '../core/trace-tail-core.ts';
 import { buildChangeMapView } from '../../shared/change-map-view-core.ts';
 import type { ChangeMap } from '../../shared/contracts/change-map.ts';
 import type { WorthALookPath } from '../../shared/contracts/whiteboard.ts';
-import type { ChangeFacts, FileFact } from '../../shared/whiteboard-anchor-core.ts';
+import { parseRef } from '../../shared/whiteboard-anchor-core.ts';
+import type { ChangeFacts, FileFact, ParsedRef } from '../../shared/whiteboard-anchor-core.ts';
+import { hashText } from '../core/text-hash-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 
 const MAX_ANCHOR_FILE_BYTES = 512 * 1024;
@@ -26,26 +28,56 @@ function lineCountOf(bytes: Uint8Array): number {
   return newlineCount + (hasUnterminatedLastLine ? 1 : 0);
 }
 
-async function fileFactOf(root: string, refPath: string): Promise<FileFact> {
+interface ReadAnchorFile {
+  fact: FileFact;
+  lines: readonly string[] | null;
+}
+
+interface AnchorFileFacts {
+  fileFactByPath: Map<string, FileFact>;
+  hashByRef: Map<string, string | null>;
+}
+
+async function anchorFileOf(root: string, refPath: string): Promise<ReadAnchorFile> {
   const opened = await openContainedFile(path.join(root, refPath), root);
-  if (!opened.ok) return { problem: PROBLEM_BY_REFUSAL[opened.reason] };
+  if (!opened.ok) return { fact: { problem: PROBLEM_BY_REFUSAL[opened.reason] }, lines: null };
   const { handle, stat } = opened.file;
   try {
-    if (stat.size > MAX_ANCHOR_FILE_BYTES) return { lineCount: null };
-    return { lineCount: lineCountOf(await handle.readFile()) };
+    if (stat.size > MAX_ANCHOR_FILE_BYTES) return { fact: { lineCount: null }, lines: null };
+    const bytes = await handle.readFile();
+    return { fact: { lineCount: lineCountOf(bytes) }, lines: bytes.toString('utf8').split('\n') };
   } catch {
-    return { problem: PROBLEM_BY_REFUSAL.unreadable };
+    return { fact: { problem: PROBLEM_BY_REFUSAL.unreadable }, lines: null };
   } finally {
     await handle.close().catch(() => {});
   }
 }
 
-async function readFileFacts(root: string, refPaths: readonly string[]): Promise<Map<string, FileFact>> {
-  const fileFactByPath = new Map<string, FileFact>();
-  for (const refPath of refPaths) {
-    fileFactByPath.set(refPath, await fileFactOf(root, refPath));
+function hashOfRefLines(parsed: ParsedRef, lines: readonly string[] | null, lineCount: number | null): string | null {
+  if (lines === null || lineCount === null) return null;
+  if (parsed.startLine === null) return hashText(lines.join('\n'));
+  const endLine = parsed.endLine ?? parsed.startLine;
+  if (endLine > lineCount) return null;
+  return hashText(lines.slice(parsed.startLine - 1, endLine).join('\n'));
+}
+
+async function readAnchorFileFacts(root: string, refs: readonly string[]): Promise<AnchorFileFacts> {
+  const parsedRefsByPath = new Map<string, { ref: string; parsed: ParsedRef }[]>();
+  for (const ref of refs) {
+    const parsed = parseRef(ref);
+    if (!('path' in parsed)) continue;
+    const parsedRefsOfPath = parsedRefsByPath.get(parsed.path) ?? [];
+    parsedRefsOfPath.push({ ref, parsed });
+    parsedRefsByPath.set(parsed.path, parsedRefsOfPath);
   }
-  return fileFactByPath;
+  const fileFactByPath = new Map<string, FileFact>();
+  const hashByRef = new Map<string, string | null>();
+  for (const [refPath, parsedRefs] of parsedRefsByPath) {
+    const file = await anchorFileOf(root, refPath);
+    fileFactByPath.set(refPath, file.fact);
+    for (const { ref, parsed } of parsedRefs) hashByRef.set(ref, hashOfRefLines(parsed, file.lines, 'lineCount' in file.fact ? file.fact.lineCount : null));
+  }
+  return { fileFactByPath, hashByRef };
 }
 
 function worthALookOf(map: ChangeMap): WorthALookPath[] {
@@ -72,4 +104,4 @@ async function readChangeFacts(buildChangeMap: () => Promise<ChangeMap>): Promis
   }
 }
 
-export { readChangeFacts, readFileFacts };
+export { readAnchorFileFacts, readChangeFacts };

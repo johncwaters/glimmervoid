@@ -201,7 +201,7 @@ test('a step status that disagrees with the code session changes warns, changed 
     error: null,
   };
 
-  assert.deepEqual(reviewBoard(reviewedBoard, { fileFactByPath, changes }), {
+  assert.deepEqual(reviewBoard(reviewedBoard, { fileFactByPath, hashByRef: new Map(), changes }), {
     codeSessionId: 'builder',
     anchorWarnings: [],
     stepWarnings: [
@@ -215,11 +215,11 @@ test('a step status that disagrees with the code session changes warns, changed 
     notChecked: null,
     linkStates: [],
   });
-  assert.equal(reviewBoard(reviewedBoard, { fileFactByPath, changes: { ...changes, error: 'git diff failed' } }).notChecked, 'the code session changes could not be read: git diff failed');
+  assert.equal(reviewBoard(reviewedBoard, { fileFactByPath, hashByRef: new Map(), changes: { ...changes, error: 'git diff failed' } }).notChecked, 'the code session changes could not be read: git diff failed');
   assert.equal(reviewBoard(reviewedBoard, null).notChecked, 'code session builder is not running');
 
   const manyStrayChanges = { ...changes, changedPaths: Array.from({ length: 25 }, (_, index) => ({ path: `src/stray-${index}.ts`, isCommitted: true })) };
-  const { uncoveredPaths } = reviewBoard(reviewedBoard, { fileFactByPath, changes: manyStrayChanges });
+  const { uncoveredPaths } = reviewBoard(reviewedBoard, { fileFactByPath, hashByRef: new Map(), changes: manyStrayChanges });
   assert.equal(uncoveredPaths.length, 20);
   assert.ok(uncoveredPaths.every((uncoveredPath) => uncoveredPath.startsWith('src/stray-')), uncoveredPaths.join(', '));
 });

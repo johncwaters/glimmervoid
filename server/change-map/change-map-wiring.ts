@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ChangeMap } from '../../shared/contracts/change-map.ts';
@@ -28,6 +27,7 @@ import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } f
 import type { PackageManifest, RepoPackageFacts } from '../core/workspace-links-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { clock } from '../../shared/clock.ts';
+import { hashText } from '../core/text-hash-core.ts';
 
 const GIT_TIMEOUT_MS = 15000;
 const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -117,10 +117,6 @@ async function runGitAsync(args: string[], cwd: string): Promise<string> {
 
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => { setImmediate(resolve); });
-}
-
-function hashText(text: string): string {
-  return crypto.createHash('sha1').update(text).digest('hex');
 }
 
 function ignoreOutcome(): void {}
