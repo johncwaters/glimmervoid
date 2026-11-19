@@ -1,4 +1,5 @@
 import { CHAT_SEND_MAX_ATTACHMENTS, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
+import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -23,6 +24,9 @@ import { clock } from '#shared/clock.ts';
 import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
+import { onReviewChange, reviewOf } from '../review/review-store.ts';
+import { createDonePanel } from './done-panel.ts';
+import { ACCEPT_MESSAGE, donePanelModelOf, sendBackMessageOf } from './done-panel-core.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -63,6 +67,7 @@ interface MountedChat {
   showFailure(failureText: string | null): void;
   syncWaitingCards(): void;
   showRail(): void;
+  showDone(): void;
   resumeRail(): void;
   park(): void;
   close(): void;
@@ -137,6 +142,8 @@ function cancelledEntryIdOf(event: Event): string | null {
 }
 
 const OPEN_ANSWERABLE_CARD_SELECTOR = '.chat-card[data-resolved="false"][data-keys-ready]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
+const UNANSWERED_CARD_SELECTOR = '.chat-card[data-resolved="false"]:is([data-card-type="question"], [data-card-type="permission"], [data-card-type="sign-in"])';
+const READY_DONE_PANEL_SELECTOR = '.chat-done:not([hidden])[data-keys-ready]';
 
 const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
 
@@ -152,6 +159,20 @@ function isCardPickKeydown(event: KeyboardEvent): boolean {
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
   if (isFocusOnOtherControl()) return false;
   return !isRealInputOwningKey(event);
+}
+
+function chatKeyTargetOf(root: HTMLElement, key: string): { target: HTMLElement; heldSelector: string } | null {
+  const openCard = root.querySelector<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR);
+  if (openCard) {
+    const cardTarget = keyTargetOf(openCard, key);
+    return cardTarget ? { target: cardTarget, heldSelector: OPEN_ANSWERABLE_CARD_SELECTOR } : null;
+  }
+  if (root.querySelector(UNANSWERED_CARD_SELECTOR)) return null;
+  const donePanel = root.querySelector<HTMLElement>(READY_DONE_PANEL_SELECTOR);
+  if (!donePanel?.querySelector('.chat-done-foot')) return null;
+  const panelTarget = keyTargetOf(donePanel, key);
+  if (!panelTarget) return null;
+  return { target: panelTarget, heldSelector: READY_DONE_PANEL_SELECTOR };
 }
 
 function builtChatOf(sessionId: string): MountedChat | null {
@@ -286,6 +307,22 @@ function buildChat(sessionId: string): MountedChat {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
   };
+  const doneModelNow = () => donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, doneMeans: [], phase: sessionPhaseOf(sessionId) });
+  const donePanel = createDonePanel({
+    onSendBack: () => {
+      const doneModel = doneModelNow();
+      if (doneModel === null) return;
+      showFailure(null);
+      sendChatText(sessionId, sendBackMessageOf(doneModel, CHAT_SEND_MAX_CHARS), []);
+    },
+    onAccept: () => {
+      showFailure(null);
+      sendChatText(sessionId, ACCEPT_MESSAGE, []);
+    },
+  });
+  const showDone = () => donePanel.show(doneModelNow());
+  sendControlMsg({ type: 'request-verification', id: sessionId });
+  chatView.mountAfterActivity(donePanel.element);
   root.append(failureLine, chatView.element);
   let runningSubagents: readonly RunningSubagent[] = [];
   const showRail = () => {
@@ -544,17 +581,16 @@ function buildChat(sessionId: string): MountedChat {
   root.addEventListener('keydown', (event) => {
     if (!isCardPickKeydown(event)) return;
     if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
-    const openCard = root.querySelector<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR);
-    const keyTarget = openCard ? keyTargetOf(openCard, event.key) : null;
+    const keyTarget = chatKeyTargetOf(root, event.key);
     if (!keyTarget) return;
     event.preventDefault();
     event.stopPropagation();
-    if (keyTarget instanceof HTMLInputElement) {
-      keyTarget.focus();
+    if (keyTarget.target instanceof HTMLInputElement) {
+      keyTarget.target.focus();
       return;
     }
-    keyTarget.click();
-    root.querySelectorAll<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR).forEach(holdCardKeys);
+    keyTarget.target.click();
+    root.querySelectorAll<HTMLElement>(keyTarget.heldSelector).forEach(holdCardKeys);
   }, { capture: true });
 
   const feed = createChatFeed({
@@ -599,7 +635,10 @@ function buildChat(sessionId: string): MountedChat {
     root,
     feed,
     shownPhase: sessionPhaseOf(sessionId),
-    setPhase: (phase) => chatView.setPhase(phase),
+    setPhase: (phase) => {
+      chatView.setPhase(phase);
+      showDone();
+    },
     showOutbox,
     restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),
     restoreAttachments: (fileNames) => {
@@ -608,6 +647,7 @@ function buildChat(sessionId: string): MountedChat {
     showFailure,
     syncWaitingCards,
     showRail,
+    showDone,
     resumeRail: () => {
       showRail();
       if (railTimer === null) railTimer = setInterval(showRail, RAIL_TICK_MS);
@@ -697,6 +737,10 @@ export function applyChatSessionStatus(sessionId: string): void {
   if (wasWorking && phase !== 'working') mountedChat.feed.endTurn();
 }
 
+onReviewChange((sessionId) => {
+  if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
+});
+
 subscribeUsage((change) => {
   if (change === 'refresh-status' || change === 'report') return;
   mountedChat?.showRail();
@@ -729,6 +773,7 @@ export const chatPage: SessionPage = {
     host.append(mountedChat.root);
     mountedChat.showOutbox();
     mountedChat.resumeRail();
+    mountedChat.showDone();
     applyChatSessionStatus(sessionId);
     mountedChat.feed.refresh();
   },

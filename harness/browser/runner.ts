@@ -11,7 +11,7 @@ import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from 
 import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, verifyKeyStripContexts } from './key-strip.ts';
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
-import { verifyChatApprovals, verifyChatSignIn, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
+import { verifyChatApprovals, verifyChatDoneMeans, verifyChatSignIn, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1245,6 +1245,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-approvals') {
       await verifyChatApprovals(viewer.page);
       return passedOutcome('chat-approvals', 'a prompt sent from the Chat composer reaches the agent, its permission prompt shows as a card with key caps, and pressing 1 in the empty composer allows it');
+    }
+    if (step.kind === 'assert-chat-done-means') {
+      await verifyChatDoneMeans(viewer.page, projectDirectory);
+      return passedOutcome('chat-done-means', 'turn-end checks show above Chat with their proof, Enter sends the failed lines back and 2 sends the accept message');
     }
     if (step.kind === 'assert-chat-default-phone') {
       await verifyChatStaysDefaultOnPhone(viewer.page);

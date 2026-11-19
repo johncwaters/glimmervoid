@@ -19,9 +19,9 @@ import {
   effectiveDiffLayout, fileReadStateOf, findReaderFile, groupReaderFiles, isCommentOutdated, lineTextAt, readerStateOf, shouldHoldUpdate, stepReaderFile,
 } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
+import { CHECK_STATUS_WORDS } from '../chat/done-panel-core.ts';
 import { onReviewChange, refreshReview, reviewOf, runSessionReview, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
-import type { CheckOutcome } from '#shared/contracts/verification.ts';
 import type { SessionReviewResult } from '#shared/contracts/session-review.ts';
 import { clock } from '#shared/clock.ts';
 
@@ -226,8 +226,6 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
   if (tour) fileColumn.append(tour);
   fileColumn.scrollTop = scrollTop;
 }
-
-const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
 
 function appendVerificationGroup(fileColumn: HTMLElement, review: SessionReview) {
   const run = review.verification;

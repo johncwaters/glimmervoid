@@ -161,6 +161,8 @@ function osc8Link(url: string, text: string): string {
   return `${ESC}]8;;${url}${BEL}${text}${ESC}]8;;${BEL}`;
 }
 
+let isTakingAnyPrompt = false;
+
 function dispatch(command: string): void {
   const modeSequence = MODE_SEQUENCE_BY_COMMAND.get(command);
   if (modeSequence) {
@@ -259,6 +261,10 @@ function dispatch(command: string): void {
     return;
   }
   if (command === 'exit') process.exit(0);
+  if (command === 'take-any-prompt') isTakingAnyPrompt = true;
+  if (!isTakingAnyPrompt) return;
+  postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
+  setTitle(WORKING_GLYPH, 'working');
 }
 
 let pending = '';

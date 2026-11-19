@@ -1487,6 +1487,10 @@
     {
       "name": "recommended",
       "definition": "The one option of an agent question whose label ends (Recommended): the option the question manager rule picks and the one Chat shows first and takes on Enter"
+    },
+    {
+      "name": "accept",
+      "definition": "The Done means panel action, key 2, that sends the agent a fixed message to land its work; the merge gate still applies"
     }
   ],
   "retired": [

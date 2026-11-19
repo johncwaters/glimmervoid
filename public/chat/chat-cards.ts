@@ -16,12 +16,20 @@ type ShownOption = { label: string; note: string; isRecommended: boolean };
 
 const CARD_KEYS_READY_DELAY_MS = 500;
 
-export function holdCardKeys(cardElement: HTMLElement): void {
+const keysReadyTimerByElement = new WeakMap<HTMLElement, number>();
+
+export function releaseCardKeys(cardElement: HTMLElement): void {
+  window.clearTimeout(keysReadyTimerByElement.get(cardElement));
+  keysReadyTimerByElement.delete(cardElement);
   delete cardElement.dataset.keysReady;
-  window.setTimeout(() => { cardElement.dataset.keysReady = 'true'; }, CARD_KEYS_READY_DELAY_MS);
 }
 
-function markCardKeys(element: HTMLElement, keys: readonly string[]): void {
+export function holdCardKeys(cardElement: HTMLElement): void {
+  releaseCardKeys(cardElement);
+  keysReadyTimerByElement.set(cardElement, window.setTimeout(() => { cardElement.dataset.keysReady = 'true'; }, CARD_KEYS_READY_DELAY_MS));
+}
+
+export function markCardKeys(element: HTMLElement, keys: readonly string[]): void {
   element.dataset.cardKeys = keys.join(' ');
 }
 

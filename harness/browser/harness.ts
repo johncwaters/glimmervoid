@@ -14,7 +14,8 @@ import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts'
 import { findFreeHighPort, removeHarnessTempDirectory, safeTextTail } from '../support/backend-harness.ts';
 import { BROWSER_ENGINES, browserEngineNamed, browserTypeOf } from '../support/browser-engines.ts';
 import { createProject } from '../site-capture/isolated-glimmervoid.ts';
-import { casesFor, needsGitOrigin, needsSessionChat, needsTeamReview } from './cases-core.ts';
+import { casesFor, needsDoneMeansChecks, needsGitOrigin, needsSessionChat, needsTeamReview } from './cases-core.ts';
+import { DONE_MEANS_UNTRACKED_FILE } from './chat-page.ts';
 import { deviceLogPlugin, withoutIpv4MappedPrefix } from './device-log.ts';
 import type { HarnessCase } from './cases-core.ts';
 import {
@@ -183,6 +184,9 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     agent: harnessCase.scenario.agent ?? 'claude-code',
     dangerouslySkipPermissions: harnessCase.scenario.skipsPermissions === true,
   }));
+  const doneMeansRepos = Object.fromEntries(cases.flatMap((harnessCase, index) => needsDoneMeansChecks(harnessCase.scenario) ? [[projectDirs[index], {
+    checks: [{ id: 'status', command: 'git status --short' }, { id: 'committed', command: `git ls-files --error-unmatch ${DONE_MEANS_UNTRACKED_FILE}` }],
+  }]] : []));
   const configDocument = {
     port,
     projects,
@@ -197,6 +201,7 @@ function writeConfigDocument(configPath: string, port: number, cases: HarnessCas
     capture: { enabled: false },
     recordSignals: false,
     postTurnChecks: { enabled: false },
+    verification: { repos: doneMeansRepos },
     checkForUpdates: false,
     telemetry: { enabled: false },
     ...(lanOrigin ? { remote: { allowedOrigins: [lanOrigin] } } : {}),

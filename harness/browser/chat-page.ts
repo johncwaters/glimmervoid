@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
+import { findSessionWorktree, pollFor } from './review-changes.ts';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
@@ -204,6 +207,7 @@ async function verifyOpenCardStaysLastAcrossRemount(page: Page): Promise<void> {
 
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
+  assert.equal(await page.locator('.session-chat .chat-done').isHidden(), true, 'a session with no checks and no done lines shows no Done means panel');
   await verifyChatModelSwitch(page);
   await verifyComposerKeepsFollowing(page);
   await startCountingSentPrompts(page, 'ask-chat');
@@ -445,4 +449,55 @@ export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.goBack();
   await page.locator('.phone-board-list button.session-row').first().click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+}
+
+export const DONE_MEANS_UNTRACKED_FILE = 'done-means.txt';
+
+async function pressInEmptyComposer(page: Page, key: string): Promise<void> {
+  await page.locator('.session-chat .chat-done[data-keys-ready]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  const input = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await input.focus();
+  await input.press(key);
+}
+
+export async function verifyChatDoneMeans(page: Page, projectDirectory: string): Promise<void> {
+  await openChat(page);
+  const worktreePath = await pollFor('the session worktree', CARD_TIMEOUT_MS, () => findSessionWorktree(projectDirectory));
+  await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'take-any-prompt');
+  await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
+  await stopTurnPastHints(page);
+  await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'work');
+  await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
+  await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), 'written during the turn\n', 'utf8');
+  await stopTurnPastHints(page);
+  await waitForTurnRunning(page, false);
+  const panel = page.locator('.session-chat .chat-done');
+  const failedLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'committed' });
+  await failedLine.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await failedLine.innerText(), /Glimmervoid ran/i, 'a failed check names who proved it');
+  assert.match(await failedLine.locator('.chat-done-evidence').innerText(), new RegExp(DONE_MEANS_UNTRACKED_FILE), 'a failed check shows its output tail');
+  assert.equal(await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).count(), 1, 'a passing check reads passed');
+  assert.match(await panel.locator('.chat-done-verdict').innerText(), /1 line failed/, 'the verdict counts the failed lines once the agent finished');
+  await pressInEmptyComposer(page, 'Enter');
+  await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
+  assert.equal(await panel.locator('.chat-done-foot').isHidden(), true, 'a sent-back verdict takes no second key');
+  await stopTurnPastHints(page);
+  await waitForTurnRunning(page, false);
+  await pressInEmptyComposer(page, '2');
+  await waitForTurnRunning(page, true);
+  await waitForOutboxEmpty(page);
+}
+
+async function stopTurnPastHints(page: Page): Promise<void> {
+  await page.evaluate(() => { for (const hintCard of document.querySelectorAll('aside.feature-hint')) hintCard.remove(); });
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+}
+
+async function waitForOutboxEmpty(page: Page): Promise<void> {
+  await page.locator('.session-chat .chat-queued-row').first().waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
 }

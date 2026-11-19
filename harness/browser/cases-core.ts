@@ -14,6 +14,7 @@ export type Step =
   | { kind: 'assert-team-review'; viewer?: ViewerId }
   | { kind: 'assert-review-changes'; viewer?: ViewerId }
   | { kind: 'assert-chat-approvals'; viewer?: ViewerId }
+  | { kind: 'assert-chat-done-means'; viewer?: ViewerId }
   | { kind: 'assert-chat-terminal'; viewer?: ViewerId }
   | { kind: 'assert-chat-sign-in'; viewer?: ViewerId }
   | { kind: 'assert-chat-default'; viewer?: ViewerId }
@@ -268,6 +269,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'chat-approvals',
     viewports: ['desktop-1280'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-approvals' }, { kind: 'shot', name: 'chat-approvals' }, { kind: 'assert-chat-default' }],
+  },
+  {
+    name: 'chat-done-means',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-done-means' }, { kind: 'shot', name: 'chat-done-means' }],
   },
   {
     name: 'chat-default-phone',
@@ -773,11 +779,11 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-review-changes' || step.kind === 'assert-board-pane' || step.kind === 'assert-phone-changes');
+  return scenario.steps.some((step) => step.kind === 'assert-review-changes' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-board-pane' || step.kind === 'assert-phone-changes');
 }
 
 function scenarioRunsOnViewport(scenario: Scenario, viewport: Viewport, layout: Layout, proveFailure: boolean): boolean {
@@ -816,4 +822,8 @@ export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
     }
   }
   return resolved;
+}
+
+export function needsDoneMeansChecks(scenario: Scenario): boolean {
+  return scenario.steps.some((step) => step.kind === 'assert-chat-done-means');
 }
