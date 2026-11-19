@@ -103,6 +103,8 @@ function textField(label: string, value: string, onInput: (value: string) => voi
 const OPERATOR_HOME_CHOICE = { value: 'operator', label: 'Your setup' };
 const CLEAN_HOME_CHOICE = { value: 'clean', label: 'Clean home' };
 
+const DONE_MEANS_CHOICES = [{ value: 'on', label: 'Done means on' }, { value: 'off', label: 'Done means off' }];
+
 function homeChoicesFor(agent: string): { value: string; label: string }[] {
   return CLEAN_HOME_AGENT_IDS.includes(agent) ? [OPERATOR_HOME_CHOICE, CLEAN_HOME_CHOICE] : [OPERATOR_HOME_CHOICE];
 }
@@ -124,6 +126,10 @@ function buildLineupEditor(onChanged: () => void): HTMLElement {
       draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, home: AgentHomeKind.parse(home) } : existing)));
       onChanged();
     }, 'Home'));
+    column.append(buildSelect(DONE_MEANS_CHOICES, contestant.doneMeans ?? 'on', (doneMeans) => {
+      draft.contestants = relabel(draft.contestants.map((existing, position) => (position === index ? { ...existing, doneMeans: doneMeans === 'off' ? 'off' : undefined } : existing)));
+      onChanged();
+    }, 'Done means'));
     const instructions = textArea({ value: contestant.setup.instructions, placeholder: 'Extra instructions for this contestant', label: 'Extra instructions for this contestant', onInput: (value) => {
       draft.contestants = draft.contestants.map((existing, position) => (position === index ? { ...existing, setup: { ...existing.setup, instructions: value } } : existing));
     } });

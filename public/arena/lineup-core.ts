@@ -118,7 +118,8 @@ export function contestantsFor(catalog: AgentModelCatalog, entries: readonly { s
   const labelCounts = new Map<string, number>();
   return entries.slice(0, RACE_MAX_CONTESTANTS).map(({ setup, home, doneMeans }, index) => {
     const setupLabel = autoLabel(setup, catalog);
-    const baseLabel = (home === 'clean' ? `${setupLabel} clean` : setupLabel).slice(0, 60);
+    const homeLabel = home === 'clean' ? `${setupLabel} clean` : setupLabel;
+    const baseLabel = (doneMeans === 'off' ? `${homeLabel}, no Done means` : homeLabel).slice(0, 60);
     const seen = (labelCounts.get(baseLabel) ?? 0) + 1;
     labelCounts.set(baseLabel, seen);
     return { id: `c${index + 1}`, label: seen === 1 ? baseLabel : `${baseLabel} ${seen}`.slice(0, 60), setup, home, ...(doneMeans ? { doneMeans } : {}) };
