@@ -1490,7 +1490,14 @@
     },
     {
       "name": "accept",
-      "definition": "The Done means panel action, key 2, that sends the agent a fixed message to land its work; the merge gate still applies"
+      "definition": "The Checked at turn end panel answer Done, land it, key 1, that sends the agent a fixed message to land its work; the merge gate still applies"
+    },
+    {
+      "name": "checked at turn end",
+      "definition": "The Chat panel that ends a finished turn with each done line and verification check Glimmervoid ran, N of M passed, then asks the operator Is the work done?",
+      "aliases": [
+        "checked"
+      ]
     }
   ],
   "retired": [
