@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Session rows hide their remove X until you point at them.** On a desktop with a mouse, the X beside each session in the list shows only while the pointer is over that row or keyboard focus is inside it. On a phone or other touch screen it stays visible as before.
+
 ## [0.62.8] - 2026-11-18
 
 ### Added

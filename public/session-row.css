@@ -210,6 +210,7 @@
 .session-row .signal .pr-status-icon { width: 11px; height: 11px; }
 @media (hover: hover) {
   .session-row .signal:hover { color: var(--text-head); text-decoration: underline; }
+  .session-row-item:not(:hover, :focus-within) > [data-action="remove-session"] { opacity: 0; }
 }
 
 .session-row-item > :is([data-action="remove-session"], [data-action="undo-remove"]) { align-self: var(--row-anchor-align, center); margin-top: var(--row-control-top, 0px); translate: 0 var(--row-control-shift, 0); }
