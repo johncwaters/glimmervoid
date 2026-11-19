@@ -63,6 +63,6 @@ export const whiteboardServerVariants = [
   loose('whiteboard-removed', { boardId: z.string() }),
   loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
   loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), diff: TileDiff }),
-  loose('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), change: AgentChange }),
+  loose('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), at: z.number().finite(), change: AgentChange }),
   loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),
 ] as const;

@@ -57,14 +57,14 @@ interface AgentRing {
 
 interface AgentChip {
   boardId: string;
+  at: number;
   change: AgentChange;
 }
 
 let agentRing: AgentRing | null = null;
 let agentChip: AgentChip | null = null;
 let agentRingTimer: ReturnType<typeof setTimeout> | null = null;
-const latestAgentChangeBySessionId = new Map<string, AgentChip>();
-const latestAgentChangeListeners: (() => void)[] = [];
+const agentChangeListeners: ((sessionId: string, boardChange: AgentChip) => void)[] = [];
 
 function notifyTilesChanged(): void {
   for (const listener of listeners) listener();
@@ -227,7 +227,7 @@ function followAgentChip(removedIds: readonly string[], changed: readonly Painte
     if (changedBox?.kind !== 'box') return [box];
     return [{ ...box, rect: { x: changedBox.x, y: changedBox.y, width: changedBox.width, height: changedBox.height } }];
   });
-  agentChip = boxes.length === 0 ? null : { boardId: agentChip.boardId, change: { ...agentChip.change, boxes } };
+  agentChip = boxes.length === 0 ? null : { ...agentChip, change: { ...agentChip.change, boxes } };
 }
 
 function forgetAgentChange(): void {
@@ -238,10 +238,10 @@ function forgetAgentChange(): void {
 }
 
 function applyAgentChange(message: ServerMessageOf<'whiteboard-agent-change'>): void {
-  latestAgentChangeBySessionId.set(message.change.author.id, { boardId: message.boardId, change: message.change });
-  notifyLatestAgentChangeListeners();
+  const boardChange: AgentChip = { boardId: message.boardId, at: message.at, change: message.change };
+  for (const listener of agentChangeListeners) listener(message.change.author.id, boardChange);
   if (state?.boardId !== message.boardId) return;
-  agentChip = { boardId: message.boardId, change: message.change };
+  agentChip = boardChange;
   ringAgentChange(message.boardId, message.change);
 }
 
@@ -252,16 +252,8 @@ function ringAgentChange(boardId: string, change: AgentChange): void {
   notifyTilesChanged();
 }
 
-function notifyLatestAgentChangeListeners(): void {
-  for (const listener of latestAgentChangeListeners) listener();
-}
-
-function latestAgentChangeOf(sessionId: string): AgentChip | null {
-  return latestAgentChangeBySessionId.get(sessionId) ?? null;
-}
-
-function onLatestAgentChangeChanged(listener: () => void): void {
-  latestAgentChangeListeners.push(listener);
+function onAgentChange(listener: (sessionId: string, boardChange: AgentChip) => void): void {
+  agentChangeListeners.push(listener);
 }
 
 function agentChangeSentence(change: AgentChange): string {
@@ -337,5 +329,5 @@ function onTilesChanged(listener: () => void): void {
   listeners.push(listener);
 }
 
-export { agentChangeSentence, applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, latestAgentChangeOf, offViewAgentChangeOf, onLatestAgentChangeChanged, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
+export { agentChangeSentence, applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, offViewAgentChangeOf, onAgentChange, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
 export type { AgentChip, BlockTile };

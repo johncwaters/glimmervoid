@@ -380,7 +380,7 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
     const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
     const tileStoreUrl = '/whiteboard/board-tile-store.ts';
     const { applyAgentChange } = await import(tileStoreUrl);
-    const changeOf = (title: string) => ({ type: 'whiteboard-agent-change', boardId: 'harness-board', version: 1, change: { author: { id: sessionId, name: 'Claude' }, boxes: [{ id: title, title, rect: { x: 0, y: 0, width: 200, height: 100 } }] } });
+    const changeOf = (title: string) => ({ type: 'whiteboard-agent-change', boardId: 'harness-board', version: 1, at: Date.now(), change: { author: { id: sessionId, name: 'Claude' }, boxes: [{ id: title, title, rect: { x: 0, y: 0, width: 200, height: 100 } }] } });
     applyAgentChange(changeOf('Parse feed'));
     applyAgentChange(changeOf('Store rows'));
   });

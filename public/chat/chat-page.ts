@@ -26,7 +26,7 @@ import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
-import { agentChangeSentence, latestAgentChangeOf, onLatestAgentChangeChanged } from '../whiteboard/board-tile-store.ts';
+import { agentChangeSentence, onAgentChange } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
@@ -72,7 +72,7 @@ interface MountedChat {
   syncWaitingCards(): void;
   showRail(): void;
   showDone(): void;
-  showAgentBoardChange(): void;
+  showBoardChanges(): void;
   resumeRail(): void;
   park(): void;
   close(): void;
@@ -243,26 +243,42 @@ function chatSendOf(event: Event): { text: string; attachments: string[] } | nul
   return { text: detail.text, attachments };
 }
 
-interface BoardChangeCard {
+interface RememberedBoardChange {
+  serial: number;
+  boardChange: AgentChip;
+}
+
+interface BoardChangeGroup {
   cardId: string;
   boardChange: AgentChip;
-  afterPromptAt: number | null;
 }
 
-interface SessionBoardCards {
-  cards: BoardChangeCard[];
-  shownBoardChange: AgentChip | null;
-  serial: number;
+const REMEMBERED_BOARD_CHANGES_MAX = 200;
+const rememberedBoardChangesBySessionId = new Map<string, RememberedBoardChange[]>();
+let rememberedBoardChangeSerial = 0;
+
+function rememberBoardChange(sessionId: string, boardChange: AgentChip): void {
+  const rememberedChanges = rememberedBoardChangesBySessionId.get(sessionId) ?? [];
+  rememberedBoardChangeSerial += 1;
+  rememberedChanges.push({ serial: rememberedBoardChangeSerial, boardChange });
+  rememberedBoardChangesBySessionId.set(sessionId, rememberedChanges.slice(-REMEMBERED_BOARD_CHANGES_MAX));
 }
 
-const boardCardsBySessionId = new Map<string, SessionBoardCards>();
-
-function boardCardsOf(sessionId: string): SessionBoardCards {
-  const existing = boardCardsBySessionId.get(sessionId);
-  if (existing) return existing;
-  const created: SessionBoardCards = { cards: [], shownBoardChange: null, serial: 0 };
-  boardCardsBySessionId.set(sessionId, created);
-  return created;
+function boardChangeGroupsOf(sessionId: string, promptTimes: readonly number[]): BoardChangeGroup[] {
+  const groups: BoardChangeGroup[] = [];
+  let previousAt: number | null = null;
+  for (const { serial, boardChange } of rememberedBoardChangesBySessionId.get(sessionId) ?? []) {
+    const lastGroup = groups.at(-1);
+    const startAfter = previousAt;
+    const isPromptBetween = startAfter === null || promptTimes.some((promptAt) => promptAt > startAfter && promptAt <= boardChange.at);
+    previousAt = boardChange.at;
+    if (lastGroup && !isPromptBetween) {
+      lastGroup.boardChange = boardChange;
+      continue;
+    }
+    groups.push({ cardId: `board-change-${serial}`, boardChange });
+  }
+  return groups;
 }
 
 function boardChangeCardOf(cardId: string, boardChange: AgentChip): ChatCard {
@@ -390,58 +406,46 @@ function buildChat(sessionId: string): MountedChat {
   let strayChildWatcher: MutationObserver | null = null;
   let signInCard: SignInCard | null = null;
   let signInCardSerial = 0;
-  const boardCards = boardCardsOf(sessionId);
   const promptAtByPartId = new Map<string, number>();
-  let latestPromptAt: number | null = null;
+  let boardChangeByCardId = new Map<string, AgentChip>();
+  let hasCaughtUpOnce = false;
 
   const notePromptTimes = (changedParts: readonly ChatPart[]) => {
     for (const part of changedParts) {
-      if (part.kind !== 'prompt') continue;
-      promptAtByPartId.set(part.id, part.at);
-      latestPromptAt = Math.max(latestPromptAt ?? part.at, part.at);
+      if (part.kind === 'prompt') promptAtByPartId.set(part.id, part.at);
     }
   };
 
-  const isPromptAfter = (partElement: HTMLElement, afterPromptAt: number | null) => {
-    const promptAt = promptAtByPartId.get(partElement.dataset.partId ?? '');
-    if (promptAt === undefined) return false;
-    return afterPromptAt === null || promptAt > afterPromptAt;
-  };
-
-  const placeBoardCard = (card: BoardChangeCard, arrivingPartIds: ReadonlySet<string>) => {
-    chatView.upsert([cardPartOf(boardChangeCardOf(card.cardId, card.boardChange))], arrivingPartIds);
-    const partElements = [...chatView.element.querySelectorAll<HTMLElement>('.chat-log > [data-part-id]')];
-    const cardElement = partElements.find((partElement) => partElement.dataset.partId === card.cardId);
-    const laterPrompt = partElements.find((partElement) => isPromptAfter(partElement, card.afterPromptAt));
-    if (cardElement && laterPrompt) laterPrompt.before(cardElement);
-  };
-
-  const showBoardChangeCards = () => {
-    for (const card of boardCards.cards) placeBoardCard(card, NO_ARRIVING_PARTS);
-    keepPendingPartsLast();
-  };
-
-  const showAgentBoardChange = () => {
-    const latest = latestAgentChangeOf(sessionId);
-    if (!latest || latest === boardCards.shownBoardChange) return;
-    boardCards.shownBoardChange = latest;
-    const lastCard = boardCards.cards.at(-1);
-    if (lastCard && lastCard.afterPromptAt === latestPromptAt) {
-      lastCard.boardChange = latest;
-      placeBoardCard(lastCard, NO_ARRIVING_PARTS);
-      keepPendingPartsLast();
-      return;
+  const placeBoardChangeCards = (arrivingAllowed: boolean) => {
+    const logElement = chatView.element.querySelector<HTMLElement>('.chat-log');
+    if (!logElement) return;
+    const promptAtOf = (partElement: HTMLElement) => promptAtByPartId.get(partElement.dataset.partId ?? '');
+    const promptElements = [...logElement.querySelectorAll<HTMLElement>(':scope > [data-part-id]')].filter((partElement) => promptAtOf(partElement) !== undefined);
+    const promptTimes = promptElements.map((promptElement) => promptAtOf(promptElement) ?? 0);
+    const groups = boardChangeGroupsOf(sessionId, promptTimes);
+    const staleCardIds = [...boardChangeByCardId.keys()].filter((cardId) => !groups.some((group) => group.cardId === cardId));
+    chatView.remove(staleCardIds);
+    const shownCardIds = new Set(boardChangeByCardId.keys());
+    boardChangeByCardId = new Map(groups.map((group) => [group.cardId, group.boardChange]));
+    for (const group of groups) {
+      const isArriving = arrivingAllowed && !shownCardIds.has(group.cardId);
+      chatView.upsert([cardPartOf(boardChangeCardOf(group.cardId, group.boardChange))], isArriving ? new Set([group.cardId]) : NO_ARRIVING_PARTS);
+      const cardElement = logElement.querySelector<HTMLElement>(`:scope > [data-part-id="${group.cardId}"]`);
+      if (!cardElement) continue;
+      const laterPrompt = promptElements.find((promptElement) => (promptAtOf(promptElement) ?? 0) > group.boardChange.at);
+      if (laterPrompt) laterPrompt.before(cardElement);
+      if (!laterPrompt) logElement.append(cardElement);
     }
-    boardCards.serial += 1;
-    const card: BoardChangeCard = { cardId: `board-change-${boardCards.serial}`, boardChange: latest, afterPromptAt: latestPromptAt };
-    boardCards.cards.push(card);
-    placeBoardCard(card, new Set([card.cardId]));
     keepPendingPartsLast();
   };
 
   const showBoardChanges = () => {
-    showBoardChangeCards();
-    showAgentBoardChange();
+    if (hasCaughtUpOnce) placeBoardChangeCards(true);
+  };
+
+  const showBoardChangesOnceCaughtUp = () => {
+    hasCaughtUpOnce = true;
+    placeBoardChangeCards(false);
   };
 
   const keepPendingPartsLast = () => {
@@ -590,9 +594,9 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const answerCard = (cardId: string, action: string, value: string) => {
-    const boardCard = boardCards.cards.find((card) => card.cardId === cardId);
-    if (boardCard && action === 'focus') {
-      openBoardAtAgentChange(boardCard.boardChange.boardId, sessionId, boardCard.boardChange.change);
+    const boardChange = boardChangeByCardId.get(cardId);
+    if (boardChange && action === 'focus') {
+      openBoardAtAgentChange(boardChange.boardId, sessionId, boardChange.change);
       return;
     }
     if (signInCard?.cardId === cardId && action === 'sign-in') {
@@ -699,6 +703,7 @@ function buildChat(sessionId: string): MountedChat {
       chatView.remove(droppedPartIds);
       if (isLive) swapStandInsForPrompts(newPromptParts.length);
       notePromptTimes(changedParts);
+      if (hasCaughtUpOnce && changedParts.some((part) => part.kind === 'prompt')) placeBoardChangeCards(false);
       keepPendingPartsLast();
     },
     onRebuilt: (rebuiltParts, replacedPartIds) => {
@@ -708,7 +713,7 @@ function buildChat(sessionId: string): MountedChat {
       }
       chatView.replaceLogParts(replacedPartIds, rebuiltParts);
       notePromptTimes(rebuiltParts);
-      showBoardChangeCards();
+      if (hasCaughtUpOnce) placeBoardChangeCards(false);
       keepPendingPartsLast();
     },
     onSubagents: (subagents) => {
@@ -729,7 +734,9 @@ function buildChat(sessionId: string): MountedChat {
       freshView.setPhase(sessionPhaseOf(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
-      feed.whenCaughtUp(showBoardChanges);
+      boardChangeByCardId = new Map();
+      hasCaughtUpOnce = false;
+      feed.whenCaughtUp(showBoardChangesOnceCaughtUp);
       if (signInCard) showSignInCard(signInCard);
       runningSubagents = [];
       showRail();
@@ -739,7 +746,7 @@ function buildChat(sessionId: string): MountedChat {
   });
   root.addEventListener(CHAT_NEAR_TOP_EVENT, () => feed.loadEarlier());
   showOutbox();
-  feed.whenCaughtUp(showBoardChanges);
+  feed.whenCaughtUp(showBoardChangesOnceCaughtUp);
   return {
     sessionId,
     root,
@@ -758,7 +765,7 @@ function buildChat(sessionId: string): MountedChat {
     syncWaitingCards,
     showRail,
     showDone,
-    showAgentBoardChange,
+    showBoardChanges,
     resumeRail: () => {
       showRail();
       if (railTimer === null) railTimer = setInterval(showRail, RAIL_TICK_MS);
@@ -861,9 +868,9 @@ export function applyChatSessionStatus(sessionId: string): void {
   if (wasWorking && phase !== 'working') mountedChat.feed.endTurn();
 }
 
-onLatestAgentChangeChanged(() => {
-  mountedChat?.showAgentBoardChange();
-  for (const keptChat of keptChatBySessionId.values()) keptChat.showAgentBoardChange();
+onAgentChange((sessionId, boardChange) => {
+  rememberBoardChange(sessionId, boardChange);
+  if (mountedChat?.sessionId === sessionId) mountedChat.showBoardChanges();
 });
 
 onReviewChange((sessionId) => {
@@ -905,6 +912,7 @@ export const chatPage: SessionPage = {
     mountedChat.showDone();
     applyChatSessionStatus(sessionId);
     mountedChat.feed.refresh();
+    mountedChat.showBoardChanges();
   },
   unmount: unmountChat,
   didCloseByOperator: () => setSessionView('terminal'),

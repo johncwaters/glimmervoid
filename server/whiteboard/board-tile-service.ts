@@ -13,6 +13,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';
 import type { ChangedElement } from './layout-client.ts';
 import type { LayoutAnswer, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
+import { clock } from '../../shared/clock.ts';
 
 interface TileViewer {
   send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
@@ -197,7 +198,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
       logger.warn(`[whiteboard] board ${board.id} could not locate the boxes an agent changed: ${errorMessage(error)}`);
       return null;
     });
-    if (agentChange) broadcastAgentChange({ type: 'whiteboard-agent-change', boardId: board.id, version: board.version, change: agentChange });
+    if (agentChange) broadcastAgentChange({ type: 'whiteboard-agent-change', boardId: board.id, version: board.version, at: clock.nowMs(), change: agentChange });
   }
 
   async function advance(board: Board, changes: readonly ChangedElement[] | null, author: Author | null): Promise<LayoutSummary | null> {

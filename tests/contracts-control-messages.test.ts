@@ -243,6 +243,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   },
   {
     type: 'whiteboard-agent-change', boardId: 'board-1', version: 5,
+    at: NOW,
     change: { author: { id: 'session-1', name: 'checkout fix' }, boxes: [{ id: 'shown-1', title: 'login.png', rect: { x: 40, y: 80, width: 480, height: 300 } }] },
   },
   {
