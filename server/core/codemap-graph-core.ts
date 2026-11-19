@@ -300,13 +300,42 @@ function fieldsToRefresh(element: Record<string, unknown>): Record<string, unkno
   return Object.fromEntries(Object.entries(element).filter(([field]) => field !== 'kind' && field !== 'id' && field !== 'place'));
 }
 
-function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
+interface MapDecorations {
+  churnByModule: ReadonlyMap<string, number> | null;
+  overlaidModules: ReadonlySet<string>;
+}
+
+const OVERLAY_TONE = 'violet';
+
+function moduleOfPath(model: CodemapModel, repoPath: string): string {
+  const index = model.indexByPath.get(repoPath);
+  if (index !== undefined) return model.moduleByIndex[index];
+  const owningModules = model.modules.map((summary) => summary.id).filter((moduleId) => moduleId !== ROOT_MODULE && repoPath.startsWith(`${moduleId}/`));
+  return owningModules.sort((left, right) => right.length - left.length)[0] ?? ROOT_MODULE;
+}
+
+function churnByModuleOf(model: CodemapModel, commits: readonly { paths: readonly string[] }[]): Map<string, number> {
+  const churnByModule = new Map<string, number>();
+  for (const commit of commits) {
+    for (const moduleId of new Set(commit.paths.map((repoPath) => moduleOfPath(model, repoPath)))) churnByModule.set(moduleId, (churnByModule.get(moduleId) ?? 0) + 1);
+  }
+  return churnByModule;
+}
+
+function moduleLinesOf(summary: ModuleSummary, churnByModule: ReadonlyMap<string, number> | null): { text: string; muted: boolean }[] {
+  const sizeLine = { text: `${summary.fileCount} files, imported by ${summary.importedBy} modules`, muted: true };
+  if (!churnByModule) return [sizeLine];
+  return [sizeLine, { text: `changed by ${churnByModule.get(summary.id) ?? 0} recent commits`, muted: true }];
+}
+
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules }: MapDecorations): Record<string, unknown>[] {
   const columnCount = Math.max(1, Math.ceil(Math.sqrt(model.modules.length)));
   const boxes = model.modules.map((summary, index) => ({
     kind: 'box',
     id: moduleBoxIdOf(summary.id),
     title: boardTitleOf(summary.id === ROOT_MODULE ? 'repo root' : summary.id),
-    lines: [{ text: `${summary.fileCount} files, imported by ${summary.importedBy} modules`, muted: true }],
+    lines: moduleLinesOf(summary, churnByModule),
+    tone: overlaidModules.has(summary.id) ? OVERLAY_TONE : null,
     refs: summary.id !== ROOT_MODULE && AnchorRef.safeParse(summary.id).success ? [summary.id] : [],
     place: { at: { x: (index % columnCount) * MAP_BOX_SPACING.x, y: Math.floor(index / columnCount) * MAP_BOX_SPACING.y } },
   }));
@@ -336,6 +365,23 @@ function mapStampOpsOf(status: CodemapStatus, existingKindById: ReadonlyMap<stri
     place: { at: { x: 0, y: -MAP_BOX_SPACING.y } },
   };
   return [existingKindById.has(STAMP_BOX_ID) ? { op: 'set', id: STAMP_BOX_ID, fields: fieldsToRefresh(stamp) } : { op: 'add', element: stamp }];
+}
+
+const OVERLAY_STAMP_ID = generatedIdOf(CODEMAP_ID_PREFIXES.overlay, 'overlay stamp', String.fromCharCode(0));
+
+interface MapOverlay {
+  title: string;
+  lines: readonly string[];
+}
+
+function overlayOpsOf(overlay: MapOverlay | null, existingKindById: ReadonlyMap<string, string>): Record<string, unknown>[] {
+  const staleRemovals = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.overlay) && (overlay === null || id !== OVERLAY_STAMP_ID)).map((id) => ({ op: 'remove', id }));
+  if (!overlay) return staleRemovals;
+  const stamp = {
+    kind: 'box', id: OVERLAY_STAMP_ID, title: boardTitleOf(overlay.title), lines: overlay.lines.slice(0, WHITEBOARD_LIMITS.linesPerBox).map((text) => ({ text: text.slice(0, WHITEBOARD_LIMITS.line) })), tone: OVERLAY_TONE,
+    place: { at: { x: MAP_BOX_SPACING.x, y: -MAP_BOX_SPACING.y } },
+  };
+  return [...staleRemovals, existingKindById.has(OVERLAY_STAMP_ID) ? { op: 'set', id: OVERLAY_STAMP_ID, fields: fieldsToRefresh(stamp) } : { op: 'add', element: stamp }];
 }
 
 function codemapNoticeOf(repoName: string, status: CodemapStatus): string {
@@ -392,5 +438,5 @@ function checkTextOf(repoName: string, unallowedEdges: readonly UnallowedEdge[],
   return [...edgeLines, ...unjudgedLine, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { buildCodemapModel, checkTextOf, unjudgedPathsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
-export type { CodemapModel };
+export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, unjudgedPathsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export type { CodemapModel, MapDecorations, MapOverlay };

@@ -432,7 +432,7 @@ test('every board just past the picture width still pictures instead of being re
   assert.deepEqual(refusedOffsets, []);
 });
 
-test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, and refuses an agent allowing a module import', async () => {
+test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
@@ -460,4 +460,9 @@ test('codemap answers map, where, impact and check from the project mainline com
   const allowed = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'allow', from: 'lib', to: '.' } }, credential));
   assert.equal(allowed.isError, true);
   assert.match(JSON.stringify(allowed.content), /only the operator allows a module import/);
+
+  const overlaid = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'session' } }, credential))).structuredContent);
+  assert.match(overlaid.text, /^codemap overlay on the map of project: session mcp endpoint changes \d+ files/);
+  const cleared = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'none' } }, credential))).structuredContent);
+  assert.match(cleared.text, /shows no overlay/);
 });

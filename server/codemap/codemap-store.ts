@@ -8,6 +8,8 @@ import { execFileAsync } from '../child-process-safe.ts';
 import { writeTextAtomic } from '../json-file.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
 import { DEFAULT_BRANCH_FALLBACKS, defaultBranchFromRemoteHead } from '../core/integration-branch-core.ts';
+import { CO_CHANGE_LOG_ARGS, parseCoChangeLog } from '../core/co-change-core.ts';
+import type { CommitFiles } from '../core/co-change-core.ts';
 
 const SETUP_FOLDER_NAME = 'codemap';
 const SETUP_FILE_NAME = 'setup.json';
@@ -75,6 +77,11 @@ async function mainlineShaOf(directory: string, mainlineBranch: string | null): 
   return await revParse(directory, `refs/remotes/origin/${mainlineBranch}`) ?? await revParse(directory, `refs/heads/${mainlineBranch}`) ?? revParse(directory, 'HEAD');
 }
 
+async function recentCommitsOf(directory: string, sha: string): Promise<CommitFiles[] | null> {
+  const logText = await gitText(directory, ['-c', 'core.quotePath=false', ...CO_CHANGE_LOG_ARGS, sha]);
+  return logText === null ? null : parseCoChangeLog(logText);
+}
+
 async function guessedDefaultBranchOf(directory: string): Promise<string | null> {
   const remoteHead = (await gitText(directory, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']))?.trim() ?? '';
   const fromRemoteHead = defaultBranchFromRemoteHead(remoteHead);
@@ -85,4 +92,4 @@ async function guessedDefaultBranchOf(directory: string): Promise<string | null>
   return null;
 }
 
-export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, revParse, repoKeyOf, setupPathOf, worktreeRootOf, writeCodemapSetup };
+export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, recentCommitsOf, revParse, repoKeyOf, setupPathOf, worktreeRootOf, writeCodemapSetup };

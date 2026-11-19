@@ -8,6 +8,7 @@ const CodemapTarget = z.string({ error: 'target must be a string' })
   .max(CODEMAP_TARGET_MAX_CHARS, { error: `target must be at most ${CODEMAP_TARGET_MAX_CHARS} characters` });
 
 const CODEMAP_STATES = ['current', 'behind', 'failed'] as const;
+export const CODEMAP_OVERLAY_LAYERS = ['session', 'none'] as const;
 
 export const CodemapStatus = z.strictObject({
   sha: z.string().nullable(),
@@ -49,6 +50,7 @@ export const AgentCodemapRequest = z.discriminatedUnion('sub', [
   z.strictObject({ sub: z.literal('check') }),
   z.strictObject({ sub: z.literal('allow'), from: CodemapModuleName, to: CodemapModuleName }),
   z.strictObject({ sub: z.literal('where'), target: CodemapTarget }),
+  z.strictObject({ sub: z.literal('overlay'), layer: z.enum(CODEMAP_OVERLAY_LAYERS, { error: `layer must be one of ${CODEMAP_OVERLAY_LAYERS.join(', ')}` }), id: CodemapTarget.optional() }),
   z.strictObject({ sub: z.literal('impact'), paths: z.array(CodemapTarget).min(1, { error: 'impact needs at least one path' }).max(CODEMAP_IMPACT_MAX_PATHS, { error: `impact takes at most ${CODEMAP_IMPACT_MAX_PATHS} paths` }) }),
 ]);
 export type AgentCodemapRequest = z.infer<typeof AgentCodemapRequest>;

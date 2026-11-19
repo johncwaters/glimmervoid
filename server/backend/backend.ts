@@ -329,7 +329,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
     codemapNoticeOf: (project) => codemap.noticeOf(project),
   });
-  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir() });
+  const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
+    changesOfSession: async (sessionId) => {
+      const session = getSessionAny(sessionId);
+      if (!session) return null;
+      const changeMap = await changeMaps.build(session);
+      return { name: session.name, repos: changeMap.repos.map((repo) => ({ root: repo.root, paths: repo.files.map((file) => file.path) })) };
+    },
+  });
   const reviews = createReviewWiring({
     reviewsRoot: configSiblingPath(configStore.configPath, REVIEWS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,

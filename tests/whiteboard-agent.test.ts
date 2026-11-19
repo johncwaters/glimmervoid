@@ -2262,7 +2262,7 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal(removed.status, 200);
 });
 
-test('the code map board keeps a moved box and a note wired to it across regenerations, stamps the mapped sha, and refuses an agent any other change to a codemap element', async () => {
+test('the code map board keeps a moved box and a note wired to it across regenerations, stamps the mapped sha, tints and refreshes a session overlay, and refuses an agent any other change to a codemap element', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'codemap-board-'));
   const repoDir = path.join(boardsRoot, 'mapped');
   const writeSource = (repoPath: string, text: string) => {
@@ -2278,7 +2278,8 @@ test('the code map board keeps a moved box and a note wired to it across regener
   await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: repoDir });
   await commitAll();
   const wiring = createWhiteboardWiring({ boardsRoot });
-  const codemap = createCodemapService({ whiteboards: wiring });
+  let overlaidPaths = ['app/screen1.ts'];
+  const codemap = createCodemapService({ whiteboards: wiring, changesOfSession: async (sessionId) => (sessionId === 'worker' ? { name: 'worker', repos: [{ root: repoDir, paths: overlaidPaths }] } : null) });
   const reader = { id: 'codemap-reader', name: 'reader', project: repoDir };
   await codemap.handle({ repoDir }, { sub: 'map' });
   const firstRead = await wiring.readPlanBoard(reader, 'Code map: mapped');
@@ -2307,6 +2308,33 @@ test('the code map board keeps a moved box and a note wired to it across regener
   assert.equal(elements.get('lib-note-wire')?.kind, 'wire');
   assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === 'tools'));
   assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === `Map at ${remappedSha.slice(0, 7)}: current`));
+  const boxTitled = async (title: string) => {
+    const read = await wiring.readPlanBoard(reader, boardId);
+    assert.ok(read.ok);
+    const box = [...read.board.elements.values()].find((element) => element.kind === 'box' && element.title === title);
+    return box?.kind === 'box' ? box : null;
+  };
+  assert.deepEqual((await boxTitled('lib'))?.lines.map((line) => line.text), ['21 files, imported by 2 modules', 'changed by 0 recent commits']);
+  assert.deepEqual((await boxTitled('tools'))?.lines.map((line) => line.text), ['1 files, imported by 0 modules', 'changed by 1 recent commits']);
+  const overlaid = await codemap.handle({ repoDir, sessionId: 'worker' }, { sub: 'overlay', layer: 'session' });
+  assert.match(overlaid.ok ? overlaid.reply.text : '', /session worker changes 1 files in 1 modules, app/);
+  assert.equal((await boxTitled('app'))?.tone, 'violet');
+  assert.equal((await boxTitled('lib'))?.tone, null);
+  assert.deepEqual((await boxTitled('Session worker'))?.lines.map((line) => line.text), ['changes 1 files in 1 modules', 'app']);
+
+  const session = Object.assign(new EventEmitter(), { id: 'worker', path: repoDir });
+  codemap.attachSession(session);
+  overlaidPaths = ['app/screen1.ts', 'lib/part3.ts', 'lib/new-part.ts'];
+  session.emit('post-turn-check');
+  for (let attempt = 0; attempt < 200 && (await boxTitled('lib'))?.tone !== 'violet'; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual((await boxTitled('Session worker'))?.lines.map((line) => line.text), ['changes 3 files in 2 modules', 'app', 'lib']);
+
+  const cleared = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'none' });
+  assert.match(cleared.ok ? cleared.reply.text : '', /shows no overlay/);
+  assert.equal(await boxTitled('Session worker'), null);
+  assert.equal((await boxTitled('app'))?.tone, null);
+  const missing = await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'session', id: 'gone' });
+  assert.equal(missing.ok ? null : missing.status, 404);
 });
 
 test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {

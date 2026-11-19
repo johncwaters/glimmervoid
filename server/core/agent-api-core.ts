@@ -629,9 +629,9 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     isPassthrough: true,
   },
   codemap: {
-    usage: 'codemap map|where|impact|check|setup|allow',
+    usage: 'codemap map|where|impact|check|overlay|setup|allow',
     whenToUse: 'Use it before a grep sweep to orient in the repo, find where a file or exported name sits, or see what a change reaches',
-    summary: "Read this repo's module map at its mainline commit (codemap map), where a file or exported name sits with its neighbors and the entrances reaching it (codemap where <path or name>), the dependents, tests and entrances a set of files reaches (codemap impact <path>...), or the new module imports this branch adds that the repo's setup does not allow (codemap check); every reply names the commit and whether the map is current; outside a session the operator gates a repo's module imports (codemap setup <repo> --gate on) and allows one (codemap allow <repo> <from> <to>)",
+    summary: "Read this repo's module map at its mainline commit (codemap map), where a file or exported name sits with its neighbors and the entrances reaching it (codemap where <path or name>), the dependents, tests and entrances a set of files reaches (codemap impact <path>...), or the new module imports this branch adds that the repo's setup does not allow (codemap check), or tint the modules a session changed on the map board until cleared (codemap overlay session [id], codemap overlay none); every reply names the commit and whether the map is current; outside a session the operator gates a repo's module imports (codemap setup <repo> --gate on) and allows one (codemap allow <repo> <from> <to>)",
     missingArgumentHint: 'this command needs an action, for example "glimmervoid codemap map" or "glimmervoid codemap where server/index.ts"',
     isPassthrough: true,
   },
