@@ -31,6 +31,7 @@ export default defineConfig({
         'bin/glimmervoid': path.join(repoRoot, 'bin', 'glimmervoid.ts'),
         'bin/binary-main': path.join(repoRoot, 'bin', 'binary-main.ts'),
         'server/whiteboard/board-store-worker': path.join(repoRoot, 'server', 'whiteboard', 'board-store-worker.ts'),
+        'server/codemap/codemap-worker': path.join(repoRoot, 'server', 'codemap', 'codemap-worker.ts'),
         'server/whiteboard/layout-worker': path.join(repoRoot, 'server', 'whiteboard', 'layout-worker.ts'),
         'server/whiteboard/workbook-worker': path.join(repoRoot, 'server', 'whiteboard', 'workbook-worker.ts'),
         'server/sandbox/seatbelt-launcher': path.join(repoRoot, 'server', 'sandbox', 'seatbelt-launcher.ts'),

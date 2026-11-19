@@ -11,6 +11,7 @@ import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config
 import { RaceId } from '../../shared/contracts/race.ts';
 import { MAX_WAKE_TEXT_CHARS, MAX_WAKE_WHEN_CHARS, WakeId } from '../../shared/contracts/wakes.ts';
 import { MEMORY_KEY_MAX_CHARS, MEMORY_TEXT_MAX_CHARS } from '../../shared/contracts/memory.ts';
+import { CODEMAP_IMPACT_MAX_PATHS, CODEMAP_TARGET_MAX_CHARS } from '../../shared/contracts/codemap.ts';
 
 type ToolArguments = Record<string, unknown>;
 
@@ -380,6 +381,22 @@ const CLAIM_TOOL: GroupedTool = {
   },
 };
 
+const CODEMAP_TOOL: GroupedTool = {
+  name: 'codemap',
+  title: 'Glimmervoid code map',
+  description: "This repo's module map, generated from its imports at the mainline commit and kept in step with it by Glimmervoid; reach for it before a grep sweep. map lists modules with file counts and the import edges between them; where names the module, exports, neighbors and reaching entrances of a file (path relative to the repo root) or of an exported name; impact lists the dependents, tests, modules and entrances a set of files reaches. Every reply names the commit it describes and whether the map is current, behind or failed.",
+  loadsUpfront: true,
+  fields: {
+    target: z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS).optional().describe('where: a file path relative to the repo root, or an exported name'),
+    paths: z.array(z.string().min(1).max(CODEMAP_TARGET_MAX_CHARS)).min(1).max(CODEMAP_IMPACT_MAX_PATHS).optional().describe('impact: the files, relative to the repo root'),
+  },
+  actions: {
+    map: subcommandRoute('codemap', 'map', [], { hints: READS }),
+    where: subcommandRoute('codemap', 'where', ['target'], { required: ['target'], hints: READS }),
+    impact: subcommandRoute('codemap', 'impact', ['paths'], { required: ['paths'], hints: READS }),
+  },
+};
+
 const PREVIEW_TOOL: GroupedTool = {
   name: 'preview',
   title: 'Glimmervoid preview',
@@ -394,7 +411,7 @@ const PREVIEW_TOOL: GroupedTool = {
   },
 };
 
-const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL, MEMORY_TOOL, CLAIM_TOOL, PREVIEW_TOOL]);
+const GROUPED_TOOLS: readonly GroupedTool[] = Object.freeze([SESSION_TOOL, WHITEBOARD_TOOL, REVIEW_TOOL, SHOW_TOOL, PUSH_TOOL, ATTENTION_TOOL, SECRETS_TOOL, SETTINGS_TOOL, PACKS_TOOL, WHY_TOOL, ARENA_TOOL, WAKE_TOOL, MEMORY_TOOL, CLAIM_TOOL, PREVIEW_TOOL, CODEMAP_TOOL]);
 
 function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVerb) => boolean): string[] {
   return Object.entries(tool.actions).filter(([, route]) => isVerbAllowed(route.verb)).map(([actionName]) => actionName);

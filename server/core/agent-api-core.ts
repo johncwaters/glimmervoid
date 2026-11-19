@@ -12,6 +12,7 @@ import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/sec
 import { AgentArenaRequest } from '../../shared/contracts/race.ts';
 import { AgentWakeRequest } from '../../shared/contracts/wakes.ts';
 import { AgentMemoryRequest } from '../../shared/contracts/memory.ts';
+import { AgentCodemapRequest } from '../../shared/contracts/codemap.ts';
 import { AgentClaimRequest } from '../../shared/contracts/file-claims.ts';
 import { AgentPreviewRequest } from '../../shared/contracts/session-previews.ts';
 import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
@@ -85,6 +86,7 @@ interface AgentRequestByVerb {
   memory: AgentMemoryRequest;
   claim: AgentClaimRequest;
   preview: AgentPreviewRequest;
+  codemap: AgentCodemapRequest;
 }
 
 type AgentRequestOf<V extends AgentApiVerb> = AgentRequestByVerb[V];
@@ -237,6 +239,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   memory: bodyParser(AgentMemoryRequest),
   claim: bodyParser(AgentClaimRequest),
   preview: bodyParser(AgentPreviewRequest),
+  codemap: bodyParser(AgentCodemapRequest),
 });
 
 type CheckedAgentReply = { ok: true; reply: AgentReplyOf<AgentApiVerb> } | { ok: false; reply: AgentRefusalReply; issue: string };
@@ -623,6 +626,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it after starting a dev server, so the operator can watch the running app beside this session',
     summary: "Show the app this session serves on a local port in the dashboard's Preview page (preview 5173), or close it (preview clear); serve the app under the base path the reply names, since only plain HTTP is forwarded",
     missingArgumentHint: 'this command needs a port, for example "glimmervoid preview 5173" or "glimmervoid preview clear"',
+    isPassthrough: true,
+  },
+  codemap: {
+    usage: 'codemap map|where|impact',
+    whenToUse: 'Use it before a grep sweep to orient in the repo, find where a file or exported name sits, or see what a change reaches',
+    summary: "Read this repo's module map at its mainline commit (codemap map), where a file or exported name sits with its neighbors and the entrances reaching it (codemap where <path or name>), or the dependents, tests and entrances a set of files reaches (codemap impact <path>...); every reply names the commit and whether the map is current",
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid codemap map" or "glimmervoid codemap where server/index.ts"',
     isPassthrough: true,
   },
   limits: { usage: 'limits', whenToUse: 'Use it when a command is refused, to see why', summary: 'List which of these commands answer here and why the rest do not', missingArgumentHint: null },

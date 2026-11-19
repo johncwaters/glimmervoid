@@ -16,6 +16,7 @@ export interface RuntimePaths {
   relayPath: (relayName: string) => string;
   boardStoreWorkerPath: string;
   layoutWorkerPath: string;
+  codemapWorkerPath: string;
   workbookWorkerPath: string;
   seatbeltLauncherPath: string;
   selfLaunch: (entry: SelfEntry, launcherPath: string, relayRunnerPath?: string) => string[];
@@ -117,6 +118,7 @@ function computeRuntimePaths({ moduleFile, hasPackageJson, isBinary }: RuntimePa
     relayPath,
     boardStoreWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `board-store-worker${sourceExtension}`),
     layoutWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `layout-worker${sourceExtension}`),
+    codemapWorkerPath: path.join(assetRoot, 'server', 'codemap', `codemap-worker${sourceExtension}`),
     workbookWorkerPath: path.join(assetRoot, 'server', 'whiteboard', `workbook-worker${sourceExtension}`),
     seatbeltLauncherPath: path.join(assetRoot, 'server', 'sandbox', `seatbelt-launcher${sourceExtension}`),
     selfLaunch,

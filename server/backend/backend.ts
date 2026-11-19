@@ -83,6 +83,7 @@ import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts'
 import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, resolveFnoxPath } from '../runtime-paths.ts';
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionPreviews } from '../session/session-previews.ts';
+import { createCodemapService } from '../codemap/codemap-wiring.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
@@ -519,6 +520,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     fileClaims,
     sessionPreviews,
     verification,
+    codemap: createCodemapService({ detectDefaultBranch: assembledGitWorkspace.detectDefaultBranch }),
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({

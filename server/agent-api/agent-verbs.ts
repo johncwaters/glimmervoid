@@ -26,6 +26,7 @@ import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { createPlanRuns } from '../plan-run-wiring.ts';
 import type { PlanRunPorts } from '../plan-run-wiring.ts';
 import type { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { AgentCodemapRequest } from '../../shared/contracts/codemap.ts';
 import { COMMAND_ROUTES } from '../../session/core/session-routes.ts';
 import { checkCommand } from 'cc-safety-net/api';
 import { agentDoneCheckIdOf } from '../../shared/contracts/verification.ts';
@@ -71,8 +72,20 @@ function needingSessionOf(session: Session): { id: string; project: string; cwd:
   return { id: session.id, project: session.path, cwd: session.effectiveCwd() };
 }
 
+function repoRelativePath(rootDir: string, target: string): string {
+  if (!path.isAbsolute(target)) return target;
+  const relativePath = path.relative(rootDir, target);
+  return relativePath.startsWith('..') || path.isAbsolute(relativePath) ? target : relativePath.split(path.sep).join('/');
+}
+
+function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapRequest): AgentCodemapRequest {
+  if (request.sub === 'where') return { ...request, target: repoRelativePath(rootDir, request.target) };
+  if (request.sub === 'impact') return { ...request, paths: request.paths.map((target) => repoRelativePath(rootDir, target)) };
+  return request;
+}
+
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
@@ -496,6 +509,11 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     preview: (session, request) => (sessionPreviews ? { status: 200, body: sessionPreviews.handle(session.id, request) } : refusal(503, 'previews are not available in this Glimmervoid')),
     memory: async (session, request) => {
       const outcome = await memory.handle({ projectPath: session.path, name: session.name }, request);
+      return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
+    },
+    codemap: async (session, request) => {
+      if (!codemap) return refusal(503, 'the code map is not available in this Glimmervoid');
+      const outcome = await codemap.handle({ repoDir: session.path, mainlineBranch: session.worktreeLifecycle.snapshot().effectiveBase }, repoRelativeCodemapRequest(session.worktreeDir ?? session.path, request));
       return outcome.ok ? { status: 200, body: outcome.reply } : refusal(outcome.status, outcome.error);
     },
     whiteboard,

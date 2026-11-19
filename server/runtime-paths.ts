@@ -28,9 +28,9 @@ const runtimePaths: RuntimePaths = computeRuntimePaths({
   isBinary: isSea(),
 });
 
-const { appIconPath, assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, mode, packageRoot, relayPath, seatbeltLauncherPath, workbookWorkerPath } = runtimePaths;
+const { appIconPath, assetRoot, boardStoreWorkerPath, bundled, codemapWorkerPath, cliPath, clientDir, examplePacksDir, layoutWorkerPath, mode, packageRoot, relayPath, seatbeltLauncherPath, workbookWorkerPath } = runtimePaths;
 
-export { appIconPath, mode as runtimeMode, assetRoot, boardStoreWorkerPath, bundled, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath, seatbeltLauncherPath, workbookWorkerPath };
+export { appIconPath, mode as runtimeMode, assetRoot, boardStoreWorkerPath, bundled, codemapWorkerPath, cliPath, clientDir, examplePacksDir, layoutWorkerPath, packageRoot, relayPath, seatbeltLauncherPath, workbookWorkerPath };
 
 const SELF_LAUNCHER_COMMAND = mode === 'binary' ? 'glimmervoid' : 'node';
 const BINARY_ARGV_PREFIX_LENGTH = 2;

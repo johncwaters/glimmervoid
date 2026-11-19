@@ -188,6 +188,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   memory: memoryRoute,
   claim: claimRoute,
   preview: previewRoute,
+  codemap: () => ANSWERS,
 });
 
 type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';

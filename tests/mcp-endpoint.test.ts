@@ -27,6 +27,8 @@ import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { AgentMemoryReply } from '../shared/contracts/memory.ts';
+import { AgentCodemapReply } from '../shared/contracts/codemap.ts';
+import { git } from './helpers/git-fixture.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
 const DONE_MEANS_OFF_SESSION_ID = 'mcp-done-means-off-contestant';
@@ -118,7 +120,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'codemap', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
@@ -428,4 +430,29 @@ test('every board just past the picture width still pictures instead of being re
     if (!boardPicture(board, layoutBoard(board)).ok) refusedOffsets.push(boxOffset);
   }
   assert.deepEqual(refusedOffsets, []);
+});
+
+test('codemap answers map, where and impact from the project mainline commit, the same text on every read', async () => {
+  const { credential, projectDir } = bootedBackend();
+  fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
+  fs.writeFileSync(path.join(projectDir, 'main.ts'), "import { readStore } from './lib/store.ts';\nreadStore();\n");
+  git(['init', '--quiet', '--initial-branch', 'main'], projectDir);
+  git(['add', 'main.ts', 'lib/store.ts'], projectDir);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'seed'], projectDir);
+  const headSha = git(['rev-parse', 'HEAD'], projectDir).trim();
+
+  const mapped = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'map' } }, credential))).structuredContent);
+  assert.deepEqual(mapped.status, { sha: headSha, mainlineSha: headSha, state: 'current', reason: null });
+  assert.match(mapped.text, /^\. \(2, in 0\): none$/m);
+  const mappedAgain = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'map' } }, credential))).structuredContent);
+  assert.equal(mappedAgain.text, mapped.text);
+
+  const where = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'where', target: 'readStore' } }, credential))).structuredContent);
+  assert.match(where.text, /imported by files: main\.ts/);
+  assert.match(where.text, /reached from entrances: main\.ts/);
+  const impact = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'impact', paths: ['lib/store.ts'] } }, credential))).structuredContent);
+  assert.match(impact.text, /^1 changed files reach 1 dependent files/);
+  const unknown = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'where', target: 'missing.ts' } }, credential));
+  assert.equal(unknown.isError, true);
 });

@@ -27,6 +27,27 @@ export function extractImportSpecifiers(sourceText: string): string[] {
   return [...new Set(matches.map((match) => match.specifier))];
 }
 
+const EXPORTED_DECLARATION = /\bexport\s+(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|interface|type|abstract\s+class)\s+([A-Za-z_$][\w$]*)/g;
+const EXPORTED_LIST_OPENING = /\bexport\s+(?:type\s+)?\{/g;
+
+export function extractExportedNames(sourceText: string): string[] {
+  const names = new Set<string>();
+  EXPORTED_DECLARATION.lastIndex = 0;
+  for (const match of sourceText.matchAll(EXPORTED_DECLARATION)) names.add(match[1]);
+  EXPORTED_LIST_OPENING.lastIndex = 0;
+  let closingBraceIndex = -1;
+  for (const match of sourceText.matchAll(EXPORTED_LIST_OPENING)) {
+    const listStart = match.index + match[0].length;
+    if (closingBraceIndex < listStart) closingBraceIndex = sourceText.indexOf('}', listStart);
+    if (closingBraceIndex < 0) break;
+    for (const entry of sourceText.slice(listStart, closingBraceIndex).split(',')) {
+      const exportedName = entry.trim().replace(/^type\s+/, '').split(/\s+as\s+/).at(-1)?.trim();
+      if (exportedName && /^[A-Za-z_$][\w$]*$/.test(exportedName)) names.add(exportedName);
+    }
+  }
+  return [...names].sort();
+}
+
 export function extractPythonImportSpecifiers(sourceText: string): string[] {
   const specifiers: string[] = [];
   let pendingFrom = '';
@@ -183,7 +204,7 @@ export function buildImportGraph({
   return { dependentsByPath };
 }
 
-function isTestPath(repoPath: string): boolean {
+export function isTestPath(repoPath: string): boolean {
   const segments = repoPath.split('/');
   if (segments.slice(0, -1).some((segment) => segment === 'tests' || segment === 'test' || segment === '__tests__')) return true;
   const fileName = segments.at(-1) ?? '';

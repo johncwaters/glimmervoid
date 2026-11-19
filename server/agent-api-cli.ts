@@ -126,6 +126,13 @@ function claimBody({ positionals: [sub, claimPath] }: ParsedArguments): Record<s
   return { sub, path: claimPath === undefined ? '' : path.resolve(claimPath) };
 }
 
+function codemapBody({ positionals: [sub, ...targets] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'where') return { sub, target: joinedText(targets) };
+  if (sub === 'impact') return { sub, paths: targets };
+  return { sub };
+}
+
 function packsBody({ positionals: [command, packArgument] }: ParsedArguments): Record<string, unknown> {
   if (packArgument === undefined) return { command };
   if (command === 'add' || command === 'update') return { command, url: packArgument };
@@ -198,6 +205,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   wake: wakeBody,
   memory: memoryBody,
   claim: claimBody,
+  codemap: codemapBody,
   preview: ({ positionals: [portText] }) => {
     if (portText === undefined) return null;
     if (portText === 'clear') return { port: null };
