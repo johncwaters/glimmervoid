@@ -6,3 +6,8 @@
 
 [build.environment]
   NODE_VERSION = "24"
+
+[[redirects]]
+  from = "/next"
+  to = "/"
+  status = 301

@@ -16,7 +16,7 @@ variants:
     use: The lockup, the mark left of GLIMMERVOID in uppercase CommitMono 700, 0.1em tracking, one solid ink; the dashboard header (public/index.html), the site nav and the site footer.
   - id: stacked
     file: site/src/components/Wordmark.astro
-    use: GLIMMER over VOID in one solid ink with a violet diamond after VOID, 0.06em tracking; display only, the site hero and the link image (marketing/social/templates/link-card.html), never set below 48px. For Glimmervoid Cloud (productName) the diamond sits after VOID and CLOUD follows at half size, regular weight, centred on the diamond, as the /next/ Cloud section sets it.
+    use: GLIMMER over VOID in one solid ink with a violet diamond after VOID, 0.06em tracking; display only, the site hero and the link image (marketing/social/templates/link-card.html), never set below 48px. For Glimmervoid Cloud (productName) the diamond sits after VOID and CLOUD follows at half size, regular weight, centred on the diamond, as the homepage Cloud section sets it.
   - id: favicon
     file: public/favicon.svg
     use: The mark in the browser tab; the light turns amber or red when a session needs the operator or failed.

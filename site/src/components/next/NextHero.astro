@@ -1,12 +1,10 @@
 ---
-import { siteNavLinks } from '../../lib/site-nav.ts';
-import { BRAND_ACCENT, BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX, brandMarkMarkup } from '../../../../shared/brand-mark.ts';
+import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '../../../../shared/brand-mark.ts';
 import DashboardRecording from '../DashboardRecording.astro';
+import Nav from '../Nav.astro';
 import Wordmark from '../Wordmark.astro';
 import { INSTALL_COMMAND, WINDOWS_INSTALL_COMMAND } from '../../lib/install-command.ts';
 import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-platform.ts';
-
-const NAV_LINKS = siteNavLinks('');
 ---
 <header class="next-hero">
   <div class="ghost-field">
@@ -16,13 +14,7 @@ const NAV_LINKS = siteNavLinks('');
       <path class="ghost-light" d={BRAND_MARK_LIGHT} />
     </svg>
   </div>
-  <nav class="next-nav" aria-label="Main">
-    <a class="brand" href="#top"><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg><Wordmark /></a>
-    <ul>
-      {NAV_LINKS.map(({ label, href }) => <li><a href={href}>{label}</a></li>)}
-      <li><a class="nav-install" href="#install">Install</a></li>
-    </ul>
-  </nav>
+  <Nav />
 
   <div class="hero-grid" id="top">
     <h1 class="hero-wordmark"><Wordmark isStacked /><span class="hero-category">Open-source ADE for agents.</span></h1>
@@ -58,15 +50,6 @@ const NAV_LINKS = siteNavLinks('');
   .ghost-light { fill: currentColor; }
   .ghost-halo { fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0; }
 
-  .next-nav { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 64px; }
-  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-weight: 700; color: var(--text-head); letter-spacing: .1em; text-transform: uppercase; font-size: var(--type-body); text-decoration: none; }
-  .brand svg { width: 20px; height: 20px; }
-  .next-nav ul { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; align-items: center; font-size: var(--type-body); }
-  .next-nav ul a { color: var(--text-dim); text-decoration: none; }
-  .next-nav ul a:hover { color: var(--text-head); }
-  .next-nav ul .nav-install { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: var(--radius); background: var(--accent); color: var(--bg); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; font-size: var(--type-meta); }
-  .next-nav ul .nav-install:hover { color: var(--bg); background: color-mix(in oklab, var(--accent) 85%, var(--text-head)); }
-
   .hero-grid { position: relative; display: grid; grid-template-columns: 1.5fr 1fr; gap: 40px; padding-top: 56px; align-items: start; }
   .hero-wordmark { margin: 0; font-size: clamp(56px, 9.4vw, 120px); line-height: .9; }
   .hero-category { display: block; margin-top: 24px; font-size: var(--type-title); font-weight: 400; line-height: 1.4; letter-spacing: normal; color: var(--text-dim); }
@@ -90,7 +73,6 @@ const NAV_LINKS = siteNavLinks('');
   .next-hero :global(.recording figcaption) { display: none; }
 
   @media (max-width: 820px) {
-    .next-nav ul li:not(:last-child) { display: none; }
     .hero-grid { grid-template-columns: 1fr; gap: 16px; }
   }
   @media (max-width: 640px) {
