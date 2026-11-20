@@ -17,4 +17,4 @@ The automated suite `npm test` runs (node:test, no framework). It holds rules, n
 - Outside `gates/`, drive real components: a booted backend, a temp git repo, real files, a PTY, a child process, or a replay fixture. A test that restates the code or wires fakes together is not added.
 - No real network and no live agent binary; a fake agent binary on PATH is fine.
 - `node --import ./tests/helpers/isolate-home.ts --test <file>` runs one file.
-- Run `npm run check:fast` before landing: it runs the spec, lexicon and unused-exports checks that only the full `npm test` reaches, which CI otherwise catches after the push.
+- Run `npm run check:fast` before landing: it runs the spec, lexicon and unused-exports checks that only the full `npm test` reaches, and CI runs only before a release, so nothing else catches them before review.

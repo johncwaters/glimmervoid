@@ -6,7 +6,7 @@ Pull requests are welcome. This page says what a mergeable one needs, so you kno
 
 - **Small fixes go straight to a pull request**: a bug fix, a docs correction, a typo.
 - **Open an issue first** for a new feature, a behavior change, a new dependency or a new agent adapter, so we agree on the approach before you spend time on it. A pull request for one of these without an agreed issue may be closed.
-- One change per pull request. A refactor riding along with a fix makes both harder to review.
+- One change per pull request. A refactor riding along with a fix hides what each one changed.
 
 ## Set up
 
@@ -23,7 +23,7 @@ npm run dev
 
 ## Checks
 
-CI does not run on pull requests: the test workflow runs only before a release, because Actions minutes are limited. You run the checks yourself, and all three must pass before review:
+CI does not run on pull requests: the test workflow runs only before a release, because Actions minutes are limited. You run the checks yourself, and all three must pass before merging:
 
 ```bash
 npm run lint
@@ -41,11 +41,11 @@ node --import ./tests/helpers/isolate-home.ts --test tests/some.test.ts
 
 Changed a setting, config key or environment variable? Run `npm run docs:config` and commit the regenerated `docs/configuration.md`. `tests/gates/config-docs.test.ts` fails otherwise.
 
-Tests pass but you have not used the change? Run it in the dashboard first. Review asks how you exercised it.
+Tests pass but you have not used the change? Run it in the dashboard first; the pull request template asks how you exercised it.
 
 ## Conventions
 
-Code conventions, invariants and the architecture map are in [AGENTS.md](AGENTS.md) and the `AGENTS.md` nearest the code you touch. Tests enforce most of them, so a failing test usually names the rule. The ones review checks by hand:
+Code conventions, invariants and the architecture map are in [AGENTS.md](AGENTS.md) and the `AGENTS.md` nearest the code you touch. Tests enforce most of them, so a failing test usually names the rule. The ones no test checks:
 
 - **Agent parity.** A session feature works on every first-class agent (Claude Code, Codex, Kimi Code, OpenCode, pi, Antigravity CLI), or the pull request says why one cannot.
 - **No new dependencies** without agreement in an issue.
@@ -54,7 +54,7 @@ Code conventions, invariants and the architecture map are in [AGENTS.md](AGENTS.
 
 ## AI-assisted contributions
 
-Welcome: this repo is built with coding agents, and `AGENTS.md` is written for yours. You stay the author. Before opening the pull request, read every line of the diff, run the checks above, and exercise the change yourself. A pull request whose author cannot explain a line of it will be closed.
+Welcome: this repo is built with coding agents, and `AGENTS.md` is written for yours. You stay the author: run the checks above and exercise the change yourself before opening the pull request.
 
 ## Commits and pull requests
 
@@ -62,8 +62,8 @@ Commit messages use Conventional Commits with a scope, as in the history: `feat(
 
 Fill in every section of the pull request template.
 
-## Review
+## Merging
 
-One maintainer reviews pull requests as time allows, with no promised turnaround. The maintainer reruns the checks before merging, and the full CI matrix, macOS and Windows included, runs before each release. Your commits may be squashed or rebased onto `main`; you stay credited as the author.
+One maintainer handles pull requests as time allows, with no promised turnaround. The maintainer reruns the checks before merging, and the full CI matrix, macOS and Windows included, runs before each release. Your commits may be squashed or rebased onto `main`; you stay credited as the author.
 
 Report security issues privately as described in [SECURITY.md](SECURITY.md), never in a pull request.

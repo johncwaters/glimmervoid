@@ -17,4 +17,3 @@
 - [ ] `npm test`
 - [ ] Line under `## [Unreleased]` in `CHANGELOG.md`, or none needed (tests, refactor, internal docs)
 - [ ] Session behavior: works on every first-class agent, or says below which one cannot and why
-- [ ] I have read every line of this diff, including any an agent wrote
