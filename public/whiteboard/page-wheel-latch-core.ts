@@ -1,5 +1,5 @@
-export const WHEEL_GESTURE_GAP_MS = 150;
-export const PAGE_REPLY_TIMEOUT_MS = 100;
+const WHEEL_GESTURE_GAP_MS = 150;
+const PAGE_REPLY_TIMEOUT_MS = 100;
 
 export type WheelLatch =
   | { state: 'idle' }
@@ -7,16 +7,16 @@ export type WheelLatch =
   | { state: 'page'; boxId: string; lastWheelAtMs: number }
   | { state: 'board'; lastWheelAtMs: number };
 
-export interface WheelInput {
+interface WheelInput {
   atMs: number;
   pageBoxIdUnderPointer: string | null;
   deltaX: number;
   deltaY: number;
 }
 
-export type WheelRoute = { to: 'page'; boxId: string } | { to: 'board' };
+type WheelRoute = { to: 'page'; boxId: string } | { to: 'board' };
 
-export interface BoardPan {
+interface BoardPan {
   deltaX: number;
   deltaY: number;
 }
