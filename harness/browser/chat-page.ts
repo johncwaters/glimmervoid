@@ -514,6 +514,29 @@ export async function verifyChatSignIn(page: Page): Promise<void> {
   assert.equal(await page.locator('.session-chat .terminal-wrap').count(), 0, 'the terminal returns to its session card once the agent reports the sign-in');
 }
 
+export async function verifyChatUsageLimit(page: Page): Promise<void> {
+  await openChat(page);
+  await sendFromComposer(page, 'limit');
+  const limitCard = page.locator('.session-chat .chat-card[data-card-type="usage-limit"]');
+  await page.locator('.session-chat .chat-card[data-card-type="usage-limit"][data-keys-ready]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await limitCard.locator('.chat-card-heading').textContent(), 'Weekly limit reached');
+  assert.match(await limitCard.locator('.chat-card-text').innerText(), /^This turn stopped\. It resets at \d{1,2}(:\d\d)?(am|pm), in 9h 1[12]m\.$/, 'the card names the reset time and the time left');
+  const rowLabel = page.locator('button.session-row[data-prompt="rate-limit"] .session-row-label').first();
+  await rowLabel.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.waitForFunction(() => document.querySelector('button.session-row[data-prompt="rate-limit"] .session-row-label')?.textContent?.startsWith('Limit until ') === true, undefined, { timeout: CARD_TIMEOUT_MS });
+  await page.keyboard.press('1');
+  const switchAccountDialog = page.locator('.dialog', { has: page.locator('.dialog-title', { hasText: 'Switch account' }) });
+  await switchAccountDialog.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await switchAccountDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await switchAccountDialog.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' }).focus();
+  await page.locator('.session-chat .chat-card[data-card-type="usage-limit"][data-keys-ready]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.keyboard.press('2');
+  await page.locator('.session-chat .chat-card[data-card-type="usage-limit"][data-resolved="true"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await limitCard.locator('.chat-card-receipt').innerText(), /^Continues at \d{1,2}(:\d\d)?(am|pm)\.$/, 'Continue at reset sets the wake and the card says when it continues');
+  await page.locator('.session-wake-chip').first().waitFor({ timeout: CARD_TIMEOUT_MS });
+}
+
 async function verifyComposerPassesDashboardShortcuts(page: Page): Promise<void> {
   await page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' }).click();
   const isShortcutHandled = page.evaluate(() => new Promise<boolean>((resolve) => {

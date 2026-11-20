@@ -15,6 +15,8 @@ const DEFAULT_BURST_LINES = 100;
 const LOGIN_MENU_ROW_NUMBER = 4;
 const LOGIN_MENU_TEXT = 'Select login method';
 const LOGIN_SUCCESS_DELAY_MS = 1500;
+const USAGE_LIMIT_DELAY_MS = 500;
+const USAGE_LIMIT_RESET_IN_SECONDS = 9 * 3600 + 12 * 60;
 const WRITE_CHUNK_CAP_CHARS = 64 * 1024;
 const ANY_MOTION_SGR_TRACKING = `${ESC}[?1003h${ESC}[?1006h`;
 const SGR_MOUSE_REPORT = /\x1b\[<(\d+);\d+;\d+([Mm])/g;
@@ -190,6 +192,18 @@ function spawnDoneChild(): void {
   postAgentVerb('spawn', { prompt: 'commit done-means.txt', name: DONE_CHILD_NAME, done: DONE_CHILD_LINES });
 }
 
+function hitUsageLimit(): void {
+  const resetsAt = Math.floor(Date.now() / 1000) + USAGE_LIMIT_RESET_IN_SECONDS;
+  appendTranscriptLine({
+    type: 'assistant',
+    apiError: 'usage_limit_reached',
+    apiErrorParams: { rate_limit_info: { resetsAt, rateLimitType: 'seven_day' } },
+    message: { role: 'assistant', content: [{ type: 'text', text: "You've hit your weekly limit" }] },
+  });
+  postHook('stopfailure', { hook_event_name: 'StopFailure', error: 'rate_limit' });
+  setTitle(IDLE_GLYPH, 'idle');
+}
+
 function dispatch(command: string): void {
   const modeSequence = MODE_SEQUENCE_BY_COMMAND.get(command);
   if (modeSequence) {
@@ -265,6 +279,12 @@ function dispatch(command: string): void {
   }
   if (command === 'login-expired') {
     postHook('stopfailure', { hook_event_name: 'StopFailure', error: 'authentication_failed', last_assistant_message: 'OAuth token has expired' });
+    return;
+  }
+  if (command === 'limit') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    setTimeout(hitUsageLimit, USAGE_LIMIT_DELAY_MS);
     return;
   }
   if (command === '/login') {

@@ -1,5 +1,5 @@
-import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
-import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, STATES } from '#shared/states.ts';
+import { CHAT_SEND_MAX_ATTACHMENTS, UsageLimit, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
+import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-helpers.ts';
@@ -11,7 +11,8 @@ import type { SessionPage } from '../session-pages/session-pages.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
-import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
+import { holdCardKeys, keyTargetOf, refreshLimitCountdowns } from './chat-cards.ts';
+import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
@@ -38,6 +39,7 @@ const CHAT_SEND_TIMEOUT_MS = 10000;
 const RAIL_TICK_MS = 30_000;
 const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
+const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
 const uploadingCountBySessionId = new Map<string, number>();
@@ -127,6 +129,11 @@ function cardPartOf(card: ChatCard): ChatPart {
   return { kind: 'card', id: card.cardId, card };
 }
 
+function usageLimitOfActionValue(value: string): UsageLimit | null {
+  const parsed = UsageLimit.safeParse(JSON.parse(value));
+  return parsed.success ? parsed.data : null;
+}
+
 function cardDetailOf(event: Event): { cardId: string; action: string; value: string } | null {
   if (!(event instanceof CustomEvent)) return null;
   const detail: unknown = event.detail;
@@ -151,7 +158,7 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in'] as const;
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'usage-limit'] as const;
 const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
 const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
@@ -410,6 +417,7 @@ function buildChat(sessionId: string): MountedChat {
   root.append(failureLine, chatView.element);
   let runningSubagents: readonly RunningSubagent[] = [];
   const showRail = () => {
+    refreshLimitCountdowns(root, clock.nowMs());
     const isMachineLogin = sessionAccountIdOf(sessionId) === null;
     const agent = sessionUIs.get(sessionId)?.agent ?? null;
     const vendor = isMachineLogin ? planVendorOfAgent(agent) : null;
@@ -612,7 +620,9 @@ function buildChat(sessionId: string): MountedChat {
       offerSignInCard(loginKind);
       return;
     }
-    const isWaitingOnTerminal = sessionUIs.get(sessionId)?.currentState === STATES.WAITING && !isAnswerableFromChat;
+    const ui = sessionUIs.get(sessionId);
+    const isWaitingOnLimit = ui?.pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
+    const isWaitingOnTerminal = ui?.currentState === STATES.WAITING && !isAnswerableFromChat && !isWaitingOnLimit;
     if (isWaitingOnTerminal) {
       borrowTerminal();
       return;
@@ -649,6 +659,20 @@ function buildChat(sessionId: string): MountedChat {
     return true;
   };
 
+  const continueAtLimitReset = (cardId: string, value: string) => {
+    const usageLimit = usageLimitOfActionValue(value);
+    if (usageLimit === null) return;
+    sendControlRequest('wake-at-limit-reset', { id: sessionId, resetsAtMs: usageLimit.resetsAtMs })
+      .then((reply) => {
+        if (reply.type !== 'wake-at-limit-reset-result' || !reply.ok) {
+          showFailure(reply.type === 'wake-at-limit-reset-result' ? reply.error ?? WAKE_NOT_SET_TEXT : WAKE_NOT_SET_TEXT);
+          return;
+        }
+        chatView.upsert([cardPartOf({ cardType: 'usage-limit', cardId, data: usageLimit, resolution: { isContinuingAtReset: true } })], NO_ARRIVING_PARTS);
+      })
+      .catch((error: unknown) => showFailure(errorMessage(error)));
+  };
+
   const answerCard = (cardId: string, action: string, value: string) => {
     const boardChange = boardChangeByCardId.get(cardId);
     if (boardChange && action === 'focus') {
@@ -658,6 +682,14 @@ function buildChat(sessionId: string): MountedChat {
     }
     if (signInCard?.cardId === cardId && action === 'sign-in') {
       startSignIn();
+      return;
+    }
+    if (action === 'switch-account') {
+      openSwitchAccountDialog(sessionId);
+      return;
+    }
+    if (action === 'continue-at-reset') {
+      continueAtLimitReset(cardId, value);
       return;
     }
     const shown = shownApproval;

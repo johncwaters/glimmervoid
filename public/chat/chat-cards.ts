@@ -1,6 +1,9 @@
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { isRecommendedOptionLabel, withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
+import { twoUnitDurationText } from '#shared/display-text.ts';
+import { clock } from '#shared/clock.ts';
 import { el } from '../dom-helpers.ts';
+import { resetClockText } from '../usage-limit-text.ts';
 import { shortcutHint } from '../shortcuts-core.ts';
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { BOARDS_ICON_PATH, createLineIcon } from '../svg-dom.ts';
@@ -260,6 +263,56 @@ function renderLiveTerminalCard(card: ChatCardByType['live-terminal']): HTMLElem
   return shell;
 }
 
+const MS_PER_SECOND = 1000;
+const LIMIT_COUNTDOWN_SELECTOR = '.chat-limit-countdown';
+
+const USAGE_LIMIT_HEADING_BY_WINDOW: Readonly<Record<string, string>> = {
+  weekly: 'Weekly limit reached',
+  session: 'Session limit reached',
+};
+
+function usageLimitHeadingOf(card: ChatCardByType['usage-limit']): string {
+  return USAGE_LIMIT_HEADING_BY_WINDOW[card.data.window] ?? 'Usage limit reached';
+}
+
+function limitCountdownText(resetsAtMs: number, nowMs: number): string {
+  const secondsLeft = Math.ceil((resetsAtMs - nowMs) / MS_PER_SECOND);
+  if (secondsLeft <= 0) return 'now';
+  return `in ${twoUnitDurationText(secondsLeft, { smallestUnit: 'm', dropsZeroRemainder: true })}`;
+}
+
+export function refreshLimitCountdowns(root: ParentNode, nowMs: number): void {
+  for (const countdown of root.querySelectorAll<HTMLElement>(LIMIT_COUNTDOWN_SELECTOR)) {
+    countdown.textContent = limitCountdownText(Number(countdown.dataset.resetsAtMs), nowMs);
+  }
+}
+
+function usageLimitReceiptOf(card: ChatCardByType['usage-limit']): string {
+  const resetClock = resetClockText(card.data.resetsAtMs);
+  if (card.resolution && 'isContinuingAtReset' in card.resolution) return `Continues at ${resetClock}.`;
+  return `Resets at ${resetClock}.`;
+}
+
+function renderUsageLimitCard(card: ChatCardByType['usage-limit']): HTMLElement {
+  const shell = cardShell(card, usageLimitHeadingOf(card));
+  if (card.resolution) {
+    shell.appendChild(receipt(usageLimitReceiptOf(card)));
+    return shell;
+  }
+  const countdown = el('span', 'chat-limit-countdown', limitCountdownText(card.data.resetsAtMs, clock.nowMs()));
+  countdown.dataset.resetsAtMs = String(card.data.resetsAtMs);
+  const text = el('p', 'chat-card-text');
+  text.append(`This turn stopped. It resets at ${resetClockText(card.data.resetsAtMs)}, `, countdown, '.');
+  const actions = el('div', 'chat-card-actions');
+  const switchAccountButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Switch account', shortcutKey: '1', onClick: () => dispatchCardAction(shell, card, 'switch-account', JSON.stringify(card.data)) });
+  const continueButton = button({ variant: 'primary', textCase: 'sentence', label: 'Continue at reset', shortcutKey: '2', onClick: () => dispatchCardAction(shell, card, 'continue-at-reset', JSON.stringify(card.data)) });
+  markCardKeys(switchAccountButton, ['1']);
+  markCardKeys(continueButton, ['2']);
+  actions.append(switchAccountButton, continueButton);
+  shell.append(text, actions);
+  return shell;
+}
+
 const RENDERER_BY_CARD_TYPE = {
   permission: renderPermissionCard,
   question: renderQuestionCard,
@@ -267,6 +320,7 @@ const RENDERER_BY_CARD_TYPE = {
   'board-change': renderBoardChangeCard,
   'live-terminal': renderLiveTerminalCard,
   'sign-in': renderSignInCard,
+  'usage-limit': renderUsageLimitCard,
 } satisfies ChatCardRendererTable;
 
 const rendererByCardType: ChatCardRendererTable = RENDERER_BY_CARD_TYPE;

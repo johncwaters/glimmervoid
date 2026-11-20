@@ -107,10 +107,10 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return false;
   }
 
-  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void): boolean {
+  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void, when: 'idle' | 'now' = 'idle'): boolean {
     if (isWakeLineInFlight(recipient)) return false;
     const delivered = recipient.deliver(line, {
-      when: 'idle',
+      when,
       submit: true,
       onSettled: (settlement) => {
         const isSubmitted = settlement === 'submitted';

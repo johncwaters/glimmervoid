@@ -11,7 +11,7 @@ import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from 
 import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, verifyKeyStripContexts } from './key-strip.ts';
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
-import { verifyChatApprovals, verifyChatDoneMeans, verifyChatSignIn, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
+import { verifyChatApprovals, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1265,6 +1265,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-sign-in') {
       await verifyChatSignIn(viewer.page);
       return passedOutcome('chat-sign-in', 'a failed Claude Code login shows a sign-in card, Sign in runs /login in the card, and the card reads Signed in once the agent reports it');
+    }
+    if (step.kind === 'assert-chat-usage-limit') {
+      await verifyChatUsageLimit(viewer.page);
+      return passedOutcome('chat-usage-limit', 'a Claude Code usage limit shows a limit card with its reset time and countdown, the row reads Limit until, 1 opens Switch account, and 2 sets a wake at the reset');
     }
     if (step.kind === 'assert-phone-changes') {
       await verifyPhoneChanges(viewer.page, projectDirectory);

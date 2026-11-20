@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
-import type { ChatPart, TurnPart } from './chat-part.ts';
+import type { ChatCard, ChatPart, TurnPart } from './chat-part.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -21,6 +21,7 @@ interface ChatTurn {
 }
 
 type PromptPart = Extract<ChatPart, { kind: 'prompt' }>;
+type UsageLimitCard = Extract<ChatCard, { cardType: 'usage-limit' }>;
 type SentAttachments = Pick<Extract<TraceRecord, { kind: 'attachments' }>, 'files' | 'pastedPrefix'>;
 
 interface ChatPartsState {
@@ -29,6 +30,7 @@ interface ChatPartsState {
   turn: ChatTurn;
   pendingAttachments: SentAttachments | null;
   latestPrompt: PromptPart | null;
+  openUsageLimitCard: UsageLimitCard | null;
   runningSubagentByToolUseId: Map<string, RunningSubagent>;
   workingDirectory: string | null;
 }
@@ -45,7 +47,7 @@ const MAX_RUN_LABELS = 50;
 const TRIM_BATCH_PARTS = 200;
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, runningSubagentByToolUseId: new Map(), workingDirectory };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, openUsageLimitCard: null, runningSubagentByToolUseId: new Map(), workingDirectory };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -180,8 +182,23 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   return prompt;
 }
 
+function usageLimitCardPartOf(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'usage_limit' }>): ChatPart {
+  const cardId = nextPartId(state, 'usage-limit');
+  const card: UsageLimitCard = { cardType: 'usage-limit', cardId, data: { resetsAtMs: record.resetsAtMs, window: record.window }, resolution: null };
+  state.openUsageLimitCard = card;
+  return { kind: 'card', id: cardId, card };
+}
+
+function passedUsageLimitPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
+  const openCard = state.openUsageLimitCard;
+  if (openCard === null || record.kind !== 'prompt' || record.agentId !== undefined) return null;
+  state.openUsageLimitCard = null;
+  return { kind: 'card', id: openCard.cardId, card: { ...openCard, resolution: { isPassed: true } } };
+}
+
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
-  if (record.kind === 'notice' || record.kind === 'usage_limit') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
+  if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
+  if (record.kind === 'usage_limit') return usageLimitCardPartOf(state, record);
   const skillName = loadedSkillOf(record);
   if (skillName !== null) return { kind: 'skill', id: nextPartId(state, 'skill'), skillName };
   return null;
@@ -218,6 +235,8 @@ export function appendChatRecords(state: ChatPartsState, appended: readonly Trac
     parts.push(part);
   };
   for (const record of appended) {
+    const passedUsageLimitPart = passedUsageLimitPartOf(state, record);
+    if (passedUsageLimitPart) emit(passedUsageLimitPart);
     const part = chatPartOf(state, record);
     if (part) emit(part);
     noteTurnRecord(state, record, emit);

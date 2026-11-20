@@ -213,7 +213,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function deliver(wake: Wake, session: Session, nowMs: number): void {
     recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
-    budget.submitWakeLine(session, describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf), (isSubmitted) => settleDelivery(wake.id, isSubmitted));
+    budget.submitWakeLine(session, describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf), (isSubmitted) => settleDelivery(wake.id, isSubmitted), session.isWaitingOnRateLimit ? 'now' : 'idle');
   }
 
   function evaluateWake(wake: Wake, nowMs: number): void {
@@ -234,7 +234,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     }
     watchSession(session);
     const decision = decideDueWake(graceAnchoredWake, {
-      nowMs, sessionState: session.state, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
+      nowMs, sessionState: session.state, isWaitingOnRateLimit: session.isWaitingOnRateLimit, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
     }, limits);
     switch (decision.kind) {
       case 'wait':
@@ -314,6 +314,12 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     return reply.body.error;
   }
 
+  async function scheduleInForOperator(session: Session, delay: string, text: string): Promise<string | null> {
+    const reply = await schedule(session, 'in', delay, text);
+    if (reply.body.ok) return null;
+    return reply.body.error;
+  }
+
   async function list(session: Session): Promise<AgentReplyOf<'wake'>> {
     await store.load();
     return { status: 200, body: { ok: true, wakes: pendingViewsOf(session.id), timezone: clock.timezone() } };
@@ -331,7 +337,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     if (!isLoaded && filePath !== null) unrefTimer(setTimeoutFn(() => void start(), WAKE_RECHECK_MS));
   }
 
-  return { alarms, cancelForOperator, handleAgent, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
+  return { alarms, cancelForOperator, handleAgent, scheduleInForOperator, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
 }
 
 type WakeWiring = ReturnType<typeof createWakeWiring>;

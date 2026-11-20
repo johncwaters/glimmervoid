@@ -487,6 +487,11 @@ html[data-layout="phone"] .chat-card-option-keys .ui-keycap { display: none; }
 
 .chat-card[data-card-type="question"][data-resolved="false"] ~ .chat-card[data-card-type="question"][data-resolved="false"] > * { visibility: hidden; }
 
+.chat-card[data-card-type="usage-limit"][data-resolved="false"] {
+  border-color: color-mix(in oklab, var(--state-failed) 45%, var(--border));
+  background: color-mix(in oklab, var(--state-failed) 6%, var(--bg-surface));
+}
+
 .chat-card.chat-notice {
   align-self: center;
   padding: 0;

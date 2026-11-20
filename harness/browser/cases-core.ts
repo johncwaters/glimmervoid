@@ -17,6 +17,7 @@ export type Step =
   | { kind: 'assert-chat-done-means'; viewer?: ViewerId }
   | { kind: 'assert-chat-terminal'; viewer?: ViewerId }
   | { kind: 'assert-chat-sign-in'; viewer?: ViewerId }
+  | { kind: 'assert-chat-usage-limit'; viewer?: ViewerId }
   | { kind: 'assert-chat-default'; viewer?: ViewerId }
   | { kind: 'assert-chat-default-phone'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
@@ -291,6 +292,12 @@ export const SCENARIOS: readonly Scenario[] = [
     viewports: ['desktop-1280'],
     skipsPermissions: true,
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-sign-in' }, { kind: 'shot', name: 'chat-sign-in' }],
+  },
+  {
+    name: 'chat-usage-limit',
+    viewports: ['desktop-1280'],
+    skipsPermissions: true,
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-usage-limit' }, { kind: 'shot', name: 'chat-usage-limit' }],
   },
   {
     name: 'rename-repaints-roster',
@@ -779,7 +786,7 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {

@@ -277,6 +277,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'save-hook-result', requestId: 'r2', ok: true, error: null, hook: { id: 'h1' } },
   { type: 'add-session-result', requestId: 'r6', ok: false, error: '/repos/notes is not a git repository', reason: 'not-git' },
   { type: 'switch-session-account-result', requestId: 'r7', id: 's1', ok: false, error: 'Team Max is signed out.', needsSignIn: true },
+  { type: 'wake-at-limit-reset-result', requestId: 'r8', id: 's1', ok: false, error: 'this session already holds 10 pending wakes (w1, w2); cancel one first' },
   { type: 'switch-session-model-result', requestId: 'r8', id: 's1', ok: false, error: 'The agent is mid-turn. Switch the model once it finishes.' },
   { type: 'chat-send-result', requestId: 'r9', id: 's1', ok: false, error: '20 messages are already waiting, so this one was not queued.', acceptedAt: 1794958999757 },
   { type: 'chat-cancel-result', requestId: 'r10', id: 's1', cancelledTexts: ['Typed over', 'Waits behind the failure'], cancelledAttachments: [] },

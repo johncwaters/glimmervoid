@@ -46,6 +46,8 @@ type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
+const MS_PER_SECOND = 1000;
+const LIMIT_RESET_WAKE_TEXT = 'continue';
 
 
 async function runGitForConversationHistory(args: string[], cwd: string): Promise<string> {
@@ -797,6 +799,19 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (refusal) sendError(ws, refusal, { id: msg.id });
   }
 
+  async function wakeAtLimitReset(msg: ClientMessageOf<'wake-at-limit-reset'>): Promise<string | null> {
+    const session = findSession(msg);
+    if (!session) return SESSION_GONE_TEXT;
+    if (!sessionWakes) return 'Wakes are not available on this host.';
+    const secondsUntilReset = Math.max(1, Math.ceil((msg.resetsAtMs - clock.nowMs()) / MS_PER_SECOND));
+    return sessionWakes.scheduleInForOperator(session, `${secondsUntilReset}s`, LIMIT_RESET_WAKE_TEXT);
+  }
+
+  async function handleWakeAtLimitReset(msg: ClientMessageOf<'wake-at-limit-reset'>, ws: ControlSocket): Promise<void> {
+    const refusal = await wakeAtLimitReset(msg);
+    replyTo(ws, msg, 'wake-at-limit-reset-result', { id: msg.id, ok: refusal === null, ...(refusal === null ? {} : { error: refusal }) });
+  }
+
   function sessionWakeFrames() {
     return (sessionWakes?.pendingWakesBySession() ?? []).map(({ sessionId, wakes }) => ({ type: 'session-wakes', id: sessionId, wakes }));
   }
@@ -895,6 +910,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'link-session-pr': handleLinkSessionPr,
     'unlink-session-pr': handleUnlinkSessionPr,
     'cancel-wake': handleCancelWake,
+    'wake-at-limit-reset': handleWakeAtLimitReset,
     'kill': (msg: ClientMessageOf<'kill'>) => { const s = findSession(msg); if (s) s.killSession(); },
     'start-session': handleStartSession,
     'snooze-session': handleSnoozeSession,

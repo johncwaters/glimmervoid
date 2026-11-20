@@ -30,7 +30,7 @@ interface AgentApiPort {
   refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
   watchSessionWakes(session: Session): void;
-  sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator' | 'alarms' | 'onAlarm' | 'onAlarmsMayHaveChanged'>;
+  sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator' | 'scheduleInForOperator' | 'alarms' | 'onAlarm' | 'onAlarmsMayHaveChanged'>;
   operatorRules(): string[];
 }
 

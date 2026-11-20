@@ -2446,6 +2446,10 @@ class Session extends EventEmitter {
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
   noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
 
+  get isWaitingOnRateLimit(): boolean {
+    return this.state === STATES.WAITING && this._pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
+  }
+
   noteUsageLimit(usageLimit: UsageLimit): void {
     if (usageLimit.resetsAtMs <= clock.nowMs()) return;
     this._setUsageLimit(usageLimit);
