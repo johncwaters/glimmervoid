@@ -15,6 +15,18 @@ const TraceRecordBase = z.object({
   truncated: z.boolean().optional(),
 });
 
+export const SUBAGENT_SIGNAL_EVENT = 'subagent-signal';
+
+const SubagentSignalFields = {
+  phase: z.enum(['start', 'stop']),
+  subagentId: z.string().min(1),
+  subagentType: z.string().min(1).nullable(),
+  task: z.string().min(1).nullable(),
+};
+
+export const SubagentSignal = z.strictObject({ ...SubagentSignalFields, ts: z.number() });
+export type SubagentSignal = z.infer<typeof SubagentSignal>;
+
 export const TraceRecord = z.discriminatedUnion('kind', [
   TraceRecordBase.extend({
     kind: z.literal('prompt'),
@@ -45,7 +57,9 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     content: z.string(),
     isError: z.boolean(),
     truncated: z.boolean(),
+    subagentId: z.string().min(1).optional(),
   }),
+  TraceRecordBase.extend({ kind: z.literal('subagent'), ...SubagentSignalFields }),
   TraceRecordBase.extend({
     kind: z.literal('session'),
     vendor: z.string().min(1),

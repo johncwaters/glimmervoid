@@ -100,6 +100,7 @@ import type { SessionLaunch } from "./session-launch.ts";
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
+import { SUBAGENT_SIGNAL_EVENT, type SubagentSignal } from "../shared/contracts/trace.ts";
 import { cleanHomeArgs, launchPlanFor, launchSecretNames } from "../shared/agent-models-core.ts";
 import type { LaunchPlan } from "../shared/agent-models-core.ts";
 import { claudePluginArgs } from "./core/pack-session-core.ts";
@@ -296,6 +297,10 @@ interface ClaudeSessionIdEvent {
 
 function launchSecretEnvOf(plan: LaunchPlan, valuesByName: Readonly<Record<string, string>>): Record<string, string> {
   return Object.fromEntries(Object.entries(plan.secretEnv).map(([envName, secretName]) => [envName, valuesByName[secretName] ?? ""]));
+}
+
+function nonEmptyText(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 class Session extends EventEmitter {
@@ -1008,6 +1013,23 @@ class Session extends EventEmitter {
     this[field] = null;
   }
 
+  emitSubagentSignal(raw: HookSignal): void {
+    const payload = raw.payload ?? {};
+    const subagentId = nonEmptyText(payload.agent_id);
+    if (subagentId === null) return;
+    const toolInput = typeof payload.tool_input === "object" && payload.tool_input !== null ? payload.tool_input : {};
+    const declaredType = "subagent_type" in toolInput ? toolInput.subagent_type : null;
+    const task = "description" in toolInput ? toolInput.description : null;
+    const signal: SubagentSignal = {
+      phase: raw.signal === "subagent-start" ? "start" : "stop",
+      subagentId,
+      subagentType: nonEmptyText(payload.agent_type) ?? nonEmptyText(declaredType),
+      task: nonEmptyText(task),
+      ts: raw.ts || clock.nowMs(),
+    };
+    this.emit(SUBAGENT_SIGNAL_EVENT, signal);
+  }
+
   _isSubagentTurnStop(raw: HookSignal): boolean {
     if (raw?.signal !== "ready" || String(raw.event || "").toLowerCase() !== "stop") return false;
     return this._can("subagentTurnStops") && this.backgroundTracking.activeAgentCount() > 0;
@@ -1043,6 +1065,7 @@ class Session extends EventEmitter {
 
     if (raw && (raw.signal === "subagent-start" || raw.signal === "subagent-stop")) {
       this.backgroundTracking.trackSubagent(raw);
+      this.emitSubagentSignal(raw);
       return;
     }
 

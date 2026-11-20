@@ -11,6 +11,7 @@ export function traceRecordBody(record: TraceRecord): string {
   if (record.kind === 'tool_result') return record.content;
   if (record.kind === 'raw') return record.line;
   if (record.kind === 'attachments') return record.files.join('\n');
+  if (record.kind === 'subagent') return [`${record.phase} ${record.subagentType ?? 'subagent'} ${record.subagentId}`, record.task ?? ''].filter(Boolean).join('\n');
   if (record.kind === 'tool_call') return JSON.stringify(record.input, null, 2) ?? String(record.input ?? '');
   return [
     `${record.vendor} ${record.vendorSessionId}`,

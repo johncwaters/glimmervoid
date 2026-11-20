@@ -52,6 +52,7 @@ interface TranscriptLine {
   sessionId?: unknown;
   timestamp?: unknown;
   agentId?: unknown;
+  toolUseResult?: unknown;
   isMeta?: unknown;
   turnCompanion?: unknown;
   isCompactSummary?: unknown;
@@ -229,6 +230,13 @@ function isTaskNotificationLine(line: TranscriptLine): boolean {
   return line.origin?.kind === 'task-notification' || turnOriginKind === 'task_notification';
 }
 
+function launchedSubagentField(toolUseResult: unknown): { subagentId?: string } {
+  if (typeof toolUseResult !== 'object' || toolUseResult === null) return {};
+  const subagentId = 'agentId' in toolUseResult ? toolUseResult.agentId : null;
+  if (typeof subagentId !== 'string' || subagentId === '') return {};
+  return { subagentId };
+}
+
 function mapUserLine(
   rawLine: string,
   line: TranscriptLine,
@@ -250,6 +258,7 @@ function mapUserLine(
       content: bounded.text,
       isError: toolResult.is_error === true,
       truncated: bounded.truncated || unwrapped.isSpilled,
+      ...launchedSubagentField(line.toolUseResult),
     }];
   }
 

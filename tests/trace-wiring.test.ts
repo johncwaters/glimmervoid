@@ -12,6 +12,8 @@ import {
   MAX_PARTIAL_LINE_BYTES,
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../server/core/trace-tail-core.ts';
+import { Session } from '../session/sessions.ts';
+import { fakePty } from './helpers/fake-pty.ts';
 
 const claudeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-home-')));
 process.env.CLAUDE_CONFIG_DIR = claudeHome;
@@ -1231,4 +1233,46 @@ test('an agent without a transcript source binds no transcript it reports', asyn
   await harness.poll();
 
   assert.equal(fs.existsSync(harness.tracePath('sourceless-session')), false);
+});
+
+test('a subagent start and stop append subagent records and a Claude Agent result names the subagent it launched', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('subagent-signal');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, '', 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new Session({
+    id: 'subagent-signal-session',
+    name: 'subagent-signal-session',
+    path: process.cwd(),
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: () => fakePty(),
+  });
+  harness.wiring.attachSession(session);
+
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  session.ingestHookSignal({ signal: 'subagent-start', source: 'hook', ts: 10, event: 'SubagentStart', payload: { agent_id: 'a1', tool_input: { subagent_type: 'Explore', description: 'Map callers' } } });
+  fs.appendFileSync(transcriptPath, transcriptLine({
+    type: 'user',
+    uuid: 'agent-result',
+    parentUuid: null,
+    sessionId: 'vendor-session',
+    timestamp: '2026-08-22T18:47:30.724Z',
+    message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_agent', content: 'Async agent launched' }] },
+    toolUseResult: { agentId: 'a1', status: 'async_launched' },
+  }), 'utf8');
+  await harness.poll();
+  session.ingestHookSignal({ signal: 'subagent-stop', source: 'hook', ts: 20, event: 'SubagentStop', payload: { agent_id: 'a1', agent_type: 'Explore' } });
+  await harness.wiring.whenIdle();
+
+  const records = readTrace(harness.tracePath('subagent-signal-session'));
+  const subagentRecords = records.filter((record) => record.kind === 'subagent');
+  assert.deepEqual(subagentRecords.map((record) => [record.phase, record.subagentId, record.subagentType, record.task]), [['start', 'a1', 'Explore', 'Map callers'], ['stop', 'a1', 'Explore', null]]);
+  const agentResult = records.find((record) => record.kind === 'tool_result');
+  assert.equal(agentResult?.kind === 'tool_result' ? agentResult.subagentId : null, 'a1');
+
+  session.destroy();
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
 });
