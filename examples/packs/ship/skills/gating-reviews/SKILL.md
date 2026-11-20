@@ -5,7 +5,7 @@ description: Reviews local work once before it lands. Runs landing preflight, on
 
 # Gating Reviews
 
-**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder whose name ends in `landing`, the one holding `land.ts`.
+**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder that holds `land.ts`.
 
 One review pass over local work, ending in a stamp that `land.ts` checks before it commits.
 

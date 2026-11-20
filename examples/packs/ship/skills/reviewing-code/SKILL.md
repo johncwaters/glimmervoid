@@ -6,7 +6,7 @@ allowed-tools: Bash(node ${CLAUDE_SKILL_DIR}/scripts/route-lanes.mjs *)
 
 # Code Review
 
-**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder whose name ends in `landing`, the one holding `land.ts`.
+**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder that holds `land.ts`.
 
 One pass. Pin, find, triage, judge, return. A change gets this pass once, so it reports what a lane proved broken and nothing a lane only suspected.
 

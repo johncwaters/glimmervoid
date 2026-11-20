@@ -5,7 +5,7 @@ description: Challenges a fresh plan with three read-only subagents to simplify 
 
 # Plan Challenge
 
-**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder whose name ends in `landing`, the one holding `land.ts`.
+**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder that holds `land.ts`.
 
 Every step is guilty until justified. Three challengers press necessity, leverage, and scale; the output is a plan at most the original size.
 

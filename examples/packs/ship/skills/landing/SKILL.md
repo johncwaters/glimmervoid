@@ -5,7 +5,7 @@ description: Lands reviewed work through the ship commit workflow. Reads the rev
 
 # Commit
 
-**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder whose name ends in `landing`, the one holding `land.ts`.
+**Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from. `<landing-dir>` is its sibling skill folder that holds `land.ts`.
 
 Two deterministic steps own everything that touches git. A review gate
 (`/gating-reviews` by default) stamps the tree first; you own the message and recovery. Stage, commit, push, or merge by hand only
