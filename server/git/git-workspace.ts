@@ -38,6 +38,7 @@ import { readDiskHeadroom } from '../disk-headroom.ts';
 import { diskShortNotice, isDiskShort } from '../core/disk-headroom-core.ts';
 
 const WORKTREE_TRASH_LABEL = 'worktree';
+const GITLINK_MODE = '160000 ';
 
 const fsp = fs.promises;
 
@@ -294,7 +295,7 @@ function createGitWorkspace(opts: {
 
   async function removeWorktreeEntry(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<GitResult> {
     if (isWorktreeHiddenFromGuardedSessions(worktreePath, glimmervoidHomes)) await runGitInProject(['worktree', 'unlock', worktreePath]);
-    const trashFolder = await moveForcedRemovalToTrash(runGitInProject, worktreePath, removeFlags);
+    const trashFolder = await moveRemovalToTrash(runGitInProject, worktreePath, removeFlags);
     const removed = trashFolder === null
       ? await runGitInProject(['worktree', 'remove', ...removeFlags, worktreePath])
       : await runGitInProject(['worktree', 'prune']);
@@ -303,12 +304,20 @@ function createGitWorkspace(opts: {
     return removed;
   }
 
-  async function moveForcedRemovalToTrash(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<string | null> {
+  async function isSafeToMoveAsideUnforced(worktreePath: string): Promise<boolean> {
+    if (await fsp.access(path.join(worktreePath, '.gitmodules')).then(() => true, () => false)) return false;
+    const stagedEntries = await run(['ls-files', '--stage'], worktreePath);
+    if (!stagedEntries.ok || stagedEntries.out.split('\n').some((stagedEntry) => stagedEntry.startsWith(GITLINK_MODE))) return false;
+    const status = await run(['--no-optional-locks', 'status', '--porcelain', '--ignore-submodules=none'], worktreePath);
+    return status.ok && status.out.trim() === '';
+  }
+
+  async function moveRemovalToTrash(runGitInProject: ProjectGitRunner, worktreePath: string, removeFlags: string[]): Promise<string | null> {
     const forceCount = removeFlags.filter((flag) => flag === '--force').length;
-    if (forceCount === 0) return null;
     const lockState = await readWorktreeLockState(worktreePath);
     if (lockState === 'unreadable') return null;
-    if (lockState === 'locked' && forceCount === 1) return null;
+    if (lockState === 'locked' && forceCount < 2) return null;
+    if (forceCount === 0 && !(await isSafeToMoveAsideUnforced(worktreePath))) return null;
     if (lockState === 'locked' && !(await runGitInProject(['worktree', 'unlock', worktreePath])).ok) return null;
     return moveFolderToTrash(worktreePath, WORKTREE_TRASH_LABEL).catch((error: unknown) => {
       log.warn(`[git-workspace] could not move ${worktreePath} aside, so git removes it in place: ${errorMessage(error)}`);
@@ -995,5 +1004,15 @@ async function populateWorktree(projectPath: string, wtDir: string, shareList: s
 
 type GitWorkspaceInstance = ReturnType<typeof createGitWorkspace>;
 
-export { createGitWorkspace, createGitWorkspaceSync };
+async function deleteLeftoverWorktreeTrash(worktreeRoots: string[], log: Pick<Console, 'warn'>): Promise<void> {
+  for (const worktreeRoot of new Set(worktreeRoots)) {
+    await deleteLeftoverTrash(worktreeRoot, WORKTREE_TRASH_LABEL, log);
+    const rootEntries = await fsp.readdir(worktreeRoot, { withFileTypes: true }).catch(() => []);
+    for (const rootEntry of rootEntries) {
+      if (rootEntry.isDirectory()) await deleteLeftoverTrash(path.join(worktreeRoot, rootEntry.name), WORKTREE_TRASH_LABEL, log);
+    }
+  }
+}
+
+export { createGitWorkspace, createGitWorkspaceSync, deleteLeftoverWorktreeTrash };
 export type { GitWorkspaceInstance, SessionWorktree, WorkspaceHandle, WorktreeArgs };

@@ -71,6 +71,7 @@ import { normalizeManagedBy, normalizeUpdateChannel } from '../core/update-core.
 import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
+import { deleteLeftoverWorktreeTrash } from '../git/git-workspace.ts';
 import { deleteRetiredGuardrailsFolders } from '../session-temp/retired-guardrails.ts';
 import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
@@ -614,6 +615,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards.fileUnfiledBoards(),
     whiteboards.followLinkedFolders(),
     deleteRetiredGuardrailsFolders(glimmervoidHomeDir()),
+    deleteLeftoverWorktreeTrash(config.projects.map((project) => configuredWorktreeRoot(config, project.path)), console),
     reconcileOwnedPaths({
       ledger: laneAssembly.ownedPaths,
       configuredSessionIds: new Set(config.projects.map((project) => project.id)),

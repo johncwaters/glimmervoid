@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A worktree removal that gets interrupted no longer leaves a half-deleted checkout behind.** Removing a clean worktree used to delete its files in place, so a server stop partway through left a folder with missing files that every later start read as uncommitted work and kept forever. A clean worktree is now moved aside in one step before it is deleted, and each start finishes deleting any moved-aside folder an earlier run left in a project's worktree folder.
 - **A command that starts with `node` runs Node in the standalone install.** A done line, repo check or pack command such as `node scripts/check.js` used to run Glimmervoid itself and print its help, because the standalone build sends any program named `node` back to its own binary. Glimmervoid now runs the `node` on your PATH, as the source install always did, so `env node` is no longer needed. With no `node` on PATH, the command fails with an error naming `glimmervoid-node-not-on-PATH`.
 
 ### Changed
