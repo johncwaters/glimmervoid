@@ -1,0 +1,9 @@
+{
+  "name": "shop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/api/server.js",
+    "serve": "node scripts/serve.js"
+  }
+}

@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { ServerMessage } from '../../shared/contracts/control-messages.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
 import { resolveFfmpegPath } from '../../server/runtime-paths.ts';
+import { repoKeyOf, updateCodemapSetup } from '../../server/codemap/codemap-store.ts';
+import { CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { safeTextTail } from '../support/backend-harness.ts';
 import {
@@ -69,6 +71,16 @@ async function recordedPathRedactions(sessions: readonly { recording: string; pr
     if (recordedWorktree !== null) worktreeRedactions.push({ from: recordedWorktree, to: `~/code/${session.project}` });
   }
   return worktreeRedactions;
+}
+
+async function seedCodemapSetups(isolatedHome: string, projectPaths: ReadonlyMap<string, string>, modulesByProject: Record<string, string[]>): Promise<void> {
+  for (const [projectName, modules] of Object.entries(modulesByProject)) {
+    const projectPath = projectPaths.get(projectName);
+    const repoKey = projectPath ? await repoKeyOf(projectPath) : null;
+    if (!repoKey) throw new Error(`codemapModules names project ${projectName}, which no captured session uses`);
+    const seeded = updateCodemapSetup(isolatedHome, repoKey, () => ({ version: CODEMAP_SETUP_VERSION, repo: repoKey, gate: false, modules, allow: [], exports: [] }));
+    if (seeded.kind !== 'ok') throw new Error(`code map setup for ${projectName} was not written: ${seeded.kind === 'invalid' ? seeded.message : 'no setup'}`);
+  }
 }
 
 async function pressAltJUntilFocused(page: Page, sessionIds: ReadonlyMap<string, string>, sessionName: string): Promise<void> {
@@ -273,7 +285,8 @@ async function main(): Promise<void> {
       const directoryName = seedDirectory ? session.project : `project-${projectPaths.size}`;
       projectPaths.set(session.project, await createProject(tempDirectory, directoryName, seedDirectory));
     }
-    const { port, configPath } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: false });
+    const { port, configPath, isolatedHome } = await prepareIsolatedEnvironment({ tempDirectory, repoRoots: [...projectPaths.values()], recordSessions: false });
+    await seedCodemapSetups(isolatedHome, projectPaths, manifest.codemapModules);
     if (manifest.boardSeed) await seedWhiteboard(configPath, path.resolve(manifestDirectory, manifest.boardSeed), projectPaths);
     await settleStarHint(configPath);
     const isolatedConfig = z.record(z.string(), z.unknown()).parse(JSON.parse(await fs.readFile(configPath, 'utf8')));
@@ -310,7 +323,7 @@ async function main(): Promise<void> {
     }
     const framesDirectory = path.join(options.outputDirectory, 'frames');
     await fs.rm(framesDirectory, { recursive: true, force: true });
-    await showCursor(page, manifest.viewport);
+    if (manifest.cursor) await showCursor(page, manifest.viewport);
     const screencast = await startScreencast(page, framesDirectory, manifest.viewport);
     const startAt = Date.now() + 250;
     await writeJsonAtomic(path.join(tempDirectory, 'start.json'), { startAt });

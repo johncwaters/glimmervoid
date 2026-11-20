@@ -1,0 +1,13 @@
+const products = [
+  { sku: 'mug', name: 'Ceramic mug', priceCents: 1800 },
+  { sku: 'tee', name: 'Logo tee', priceCents: 2600 },
+  { sku: 'cap', name: 'Dad cap', priceCents: 2200 },
+];
+
+export function findProduct(sku) {
+  return products.find((product) => product.sku === sku) ?? null;
+}
+
+export function listProducts() {
+  return [...products];
+}

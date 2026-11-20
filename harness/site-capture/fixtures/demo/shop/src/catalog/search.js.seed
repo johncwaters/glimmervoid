@@ -1,0 +1,6 @@
+import { listProducts } from './products.js';
+
+export function searchProducts(query) {
+  const needle = query.trim().toLowerCase();
+  return listProducts().filter((product) => product.name.toLowerCase().includes(needle));
+}

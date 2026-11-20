@@ -1,0 +1,15 @@
+import { searchProducts } from '../catalog/search.js';
+import { addToCart, createCart } from '../cart/cart.js';
+import { checkout } from '../checkout/checkout.js';
+
+const carts = new Map();
+
+export const routes = {
+  'GET /products': ({ query }) => searchProducts(query.q ?? ''),
+  'POST /cart': ({ body }) => {
+    const cart = carts.get(body.cartId) ?? createCart();
+    carts.set(body.cartId, addToCart(cart, body.sku, body.quantity));
+    return cart;
+  },
+  'POST /checkout': ({ body }) => checkout(carts.get(body.cartId), body),
+};

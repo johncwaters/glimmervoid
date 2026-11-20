@@ -1,0 +1,3 @@
+export function buildReceipt(cart, charge, shipping) {
+  return { lines: cart.lines, shippingCents: shipping, totalCents: charge.amountCents, chargeId: charge.id };
+}

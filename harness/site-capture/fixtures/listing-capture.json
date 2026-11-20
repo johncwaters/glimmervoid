@@ -1,0 +1,165 @@
+{
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "speed": 1.5,
+  "maxIdleGapMs": 1200,
+  "projects": {
+    "billing": "demo/billing",
+    "shop": "demo/shop"
+  },
+  "redactions": [
+    {
+      "pattern": "You've used \\d+% of your weekly limit[^\\u001b\\r\\n]*",
+      "to": ""
+    },
+    {
+      "from": " \u00b7 Claude Max",
+      "to": ""
+    },
+    {
+      "from": " \u00b7 Claude Ultra",
+      "to": ""
+    },
+    {
+      "from": "john@johncwaters.com",
+      "to": "demo@example.com"
+    },
+    {
+      "from": "John C. Waters",
+      "to": "Demo Developer"
+    },
+    {
+      "from": "johncwaters",
+      "to": "demo"
+    },
+    {
+      "from": "jwaters",
+      "to": "demo"
+    },
+    {
+      "from": "John",
+      "to": "Demo"
+    },
+    {
+      "from": "Waters",
+      "to": "Doe"
+    }
+  ],
+  "codemapModules": {
+    "shop": [
+      "src/api",
+      "src/cart",
+      "src/catalog",
+      "src/checkout",
+      "src/payments",
+      "src/shipping",
+      "src/notifications",
+      "scripts",
+      "web"
+    ]
+  },
+  "sessions": [
+    {
+      "name": "checkout-architecture",
+      "project": "shop",
+      "recording": "../recordings/checkout-architecture.jsonl",
+      "glimmervoidCalls": "../recordings/checkout-architecture.glimmervoid-calls.jsonl",
+      "startAtMs": 0
+    },
+    {
+      "name": "gift-cards",
+      "project": "shop",
+      "recording": "../recordings/gift-cards.jsonl",
+      "glimmervoidCalls": "../recordings/gift-cards.glimmervoid-calls.jsonl",
+      "patch": "../recordings/gift-cards.patch",
+      "patchAtEvent": "stop",
+      "startAtMs": -3000
+    },
+    {
+      "name": "pricing-preview",
+      "project": "shop",
+      "recording": "../recordings/pricing-preview.jsonl",
+      "glimmervoidCalls": "../recordings/pricing-preview.glimmervoid-calls.jsonl",
+      "patch": "../recordings/pricing-preview.patch",
+      "patchAtEvent": "userpromptsubmit",
+      "previewRoot": "web",
+      "startAtMs": -2000
+    },
+    {
+      "name": "migrate-billing-schema",
+      "project": "billing",
+      "recording": "../recordings/migrate-billing-schema.jsonl",
+      "startAtMs": -1000
+    }
+  ],
+  "shots": [
+    {
+      "atMs": 9500,
+      "pressUntilFocused": "migrate-billing-schema",
+      "name": "5-needs-input"
+    },
+    {
+      "atMs": 11000,
+      "press": "Enter"
+    },
+    {
+      "atMs": 16000,
+      "clickIn": "checkout-architecture",
+      "click": ".session-row-name"
+    },
+    {
+      "atMs": 17000,
+      "click": ".wb-island-view [data-action=\"fit-board\"]"
+    },
+    {
+      "atMs": 19000,
+      "name": "1-board-split"
+    },
+    {
+      "atMs": 20000,
+      "press": "Alt+KeyK"
+    },
+    {
+      "atMs": 29500,
+      "click": ".session-row[data-board-id]:has-text(\"Checkout flow\")"
+    },
+    {
+      "atMs": 30500,
+      "click": ".wb-island-view [data-action=\"fit-board\"]"
+    },
+    {
+      "atMs": 31500,
+      "name": "2-board"
+    },
+    {
+      "atMs": 32500,
+      "click": ".session-row[data-board-id]:has-text(\"Code map: shop\")"
+    },
+    {
+      "atMs": 33500,
+      "click": ".wb-island-view [data-action=\"fit-board\"]"
+    },
+    {
+      "atMs": 35000,
+      "name": "3-code-map"
+    },
+    {
+      "atMs": 36000,
+      "clickIn": "pricing-preview",
+      "click": ".session-row-name"
+    },
+    {
+      "atMs": 37000,
+      "click": ".session-page-bar-header .session-page-button[data-page=\"preview\"] button"
+    },
+    {
+      "atMs": 39500,
+      "name": "4-preview"
+    }
+  ],
+  "videoMs": 40500,
+  "videoStartMs": 0,
+  "cursor": false
+}

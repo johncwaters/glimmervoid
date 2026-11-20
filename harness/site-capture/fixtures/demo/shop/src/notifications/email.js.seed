@@ -1,0 +1,3 @@
+export async function sendReceipt(email, receipt) {
+  console.log(`receipt for ${receipt.totalCents} cents queued to ${email}`);
+}

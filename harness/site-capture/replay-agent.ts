@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -9,6 +10,8 @@ import { GROUPED_TOOLS, routeToolCall } from '../../mcp/core/tools.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
 import { resolveHookTarget } from '../../session/core/hook-relay-core.ts';
 import { AGENT_URL_ENV } from '../../shared/contracts/session.ts';
+import { PREVIEW_ROUTE } from '../../shared/contracts/session-previews.ts';
+import { errorMessage } from '../../shared/text.ts';
 import { ReplayEnvironment, compressTimeline, findEnterAnswerTimestamps, findHookEndpoint, parseCaptureRecording, redactRecording } from './manifest-core.ts';
 
 const runCommand = promisify(execFile);
@@ -24,8 +27,15 @@ const McpCall = z.strictObject({
 const GlimmervoidCall = z.union([CliCall, McpCall]);
 type GlimmervoidCall = z.infer<typeof GlimmervoidCall>;
 type McpCall = z.infer<typeof McpCall>;
-const dashboardChangingVerbs = new Set(['spawn', 'whiteboard']);
+const dashboardChangingVerbs = new Set(['spawn', 'whiteboard', 'preview']);
+const dashboardChangingCodemapSubcommands = new Set(['overlay']);
 const agentPathPrefix = '/agent/';
+const previewBasePattern = new RegExp(`^${PREVIEW_ROUTE}/[^/]+`);
+const previewContentTypeByExtension: Record<string, string> = {
+  '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json',
+};
+const PreviewPayload = z.object({ port: z.number().int().nullable() });
+const CodemapPayload = z.object({ sub: z.string() });
 
 function routeMcpCall(call: McpCall, worktreePath: string) {
   const tool = GROUPED_TOOLS.find((candidate) => candidate.name === call.tool);
@@ -37,7 +47,27 @@ function routeMcpCall(call: McpCall, worktreePath: string) {
 function changesDashboard(call: GlimmervoidCall): boolean {
   if ('args' in call) return call.exitCode === 0 && dashboardChangingVerbs.has(call.args[0] ?? '');
   const route = routeMcpCall(call, process.cwd());
-  return route !== null && dashboardChangingVerbs.has(route.verb);
+  if (route === null) return false;
+  if (route.verb === 'codemap') return dashboardChangingCodemapSubcommands.has(CodemapPayload.parse(route.payload).sub);
+  return dashboardChangingVerbs.has(route.verb);
+}
+
+function servePreviewFiles(worktreePath: string, port: number): Promise<void> {
+  const server = http.createServer((request, response) => {
+    const requestPath = new URL(request.url ?? '/', 'http://localhost').pathname.replace(previewBasePattern, '');
+    const relativePath = requestPath.endsWith('/') ? `${requestPath}index.html` : requestPath;
+    const filePath = path.join(worktreePath, path.normalize(relativePath));
+    const relativeToWorktree = path.relative(worktreePath, filePath);
+    if (relativeToWorktree.startsWith('..') || path.isAbsolute(relativeToWorktree)) { response.writeHead(403).end(); return; }
+    void fs.readFile(filePath).then((body) => {
+      response.writeHead(200, { 'content-type': previewContentTypeByExtension[path.extname(filePath)] ?? 'application/octet-stream' }).end(body);
+    }, () => { response.writeHead(404).end('not found'); });
+  });
+  cancellation.signal.addEventListener('abort', () => server.close(), { once: true });
+  return new Promise((resolve, reject) => {
+    server.once('error', (error) => reject(new Error(`preview replay needs port ${port} free on 127.0.0.1: ${errorMessage(error)}`)));
+    server.listen(port, '127.0.0.1', () => resolve());
+  });
 }
 
 async function readGlimmervoidCalls(callLogPath: string | undefined): Promise<GlimmervoidCall[]> {
@@ -56,10 +86,12 @@ async function writeSnapshotFiles(call: McpCall, worktreePath: string): Promise<
   }
 }
 
-async function replayMcpCall(call: McpCall, worktreePath: string): Promise<void> {
+async function replayMcpCall(call: McpCall, worktreePath: string, previewRoot: string): Promise<void> {
   const route = routeMcpCall(call, worktreePath);
   if (!route) throw new Error(`glimmervoid MCP ${call.tool} no longer routes`);
   await writeSnapshotFiles(call, worktreePath);
+  const previewPort = route.verb === 'preview' ? PreviewPayload.parse(route.payload).port : null;
+  if (previewPort !== null) await servePreviewFiles(path.resolve(worktreePath, previewRoot), previewPort);
   const target = resolveHookTarget(process.env[AGENT_URL_ENV] ?? '', route.verb, agentPathPrefix);
   if (!target.url) throw new Error(`replay needs ${AGENT_URL_ENV}: ${target.reason}`);
   const endpoint = new URL(target.url);
@@ -75,10 +107,10 @@ async function replayMcpCall(call: McpCall, worktreePath: string): Promise<void>
   await response.arrayBuffer();
 }
 
-async function replayGlimmervoidCall(call: GlimmervoidCall): Promise<void> {
+async function replayGlimmervoidCall(call: GlimmervoidCall, previewRoot: string): Promise<void> {
   const worktreePath = await fs.realpath(process.cwd());
   if (!('args' in call)) {
-    await replayMcpCall(call, worktreePath);
+    await replayMcpCall(call, worktreePath, previewRoot);
     return;
   }
   await runCommand('glimmervoid', call.args, { cwd: worktreePath, signal: cancellation.signal, timeout: 30_000 }).catch((error: Error & { stderr?: string; stdout?: string }) => {
@@ -158,7 +190,7 @@ async function runReplay(): Promise<void> {
       timelineStartAt += Date.now() - pausedAt;
       continue;
     }
-    if (call) { await replayGlimmervoidCall(call); continue; }
+    if (call) { await replayGlimmervoidCall(call, session.previewRoot); continue; }
     if (!record) continue;
     if (record.type === 'data' && typeof record.data === 'string') {
       const output = record.data;

@@ -1,0 +1,14 @@
+import { subtotalCents } from '../cart/totals.js';
+import { shippingCents } from '../shipping/rates.js';
+import { chargeCard } from '../payments/card.js';
+import { sendReceipt } from '../notifications/email.js';
+import { buildReceipt } from './receipt.js';
+
+export async function checkout(cart, { cardToken, email }) {
+  const subtotal = subtotalCents(cart);
+  const shipping = shippingCents(subtotal);
+  const charge = await chargeCard(cardToken, subtotal + shipping);
+  const receipt = buildReceipt(cart, charge, shipping);
+  await sendReceipt(email, receipt);
+  return receipt;
+}

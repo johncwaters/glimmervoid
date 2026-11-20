@@ -1,0 +1,42 @@
+{
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "model": "sonnet",
+  "effort": "low",
+  "projects": {
+    "billing": "demo/billing",
+    "shop": "demo/shop"
+  },
+  "sessions": [
+    {
+      "name": "checkout-architecture",
+      "project": "shop",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 6,
+      "task": "Read the code under src/ and show me how checkout works as an architecture diagram on a Glimmervoid whiteboard titled Checkout flow, using the glimmervoid whiteboard tool: create it with action new, then one put with a box per module (an icon, the module name, one short line on what it owns) and wires labelled with what flows between them. Keep it compact, a grid three boxes wide with 80 pixel gaps: api and catalog on the top row, cart and checkout in the middle row, payments, shipping and notifications on the bottom row. Always pass the board by its title, never its id. Then end your turn with one line pointing me at the board; do not explain the architecture in chat."
+    },
+    {
+      "name": "gift-cards",
+      "project": "shop",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 6,
+      "task": "Add gift card support: create src/payments/gift-card.js exporting redeemGiftCard(code, amountCents) that returns how many cents the card covers (codes starting with GC cover up to 2500 cents, anything else covers 0), call it from src/checkout/checkout.js before charging so the card is charged only the rest, and show the gift card amount in src/checkout/receipt.js. Commit with a conventional commit message. Then tint your changes on the code map with the glimmervoid codemap tool (action overlay, layer session) and end with one line."
+    },
+    {
+      "name": "pricing-preview",
+      "project": "shop",
+      "dangerouslySkipPermissions": true,
+      "maxMinutes": 6,
+      "task": "Replace web/index.html with a self-contained pricing page (inline CSS, dark background #0f1115, light text, accent #7c5cff, no gradients or glows): a heading, then three plan cards, Starter $0, Team $12 and Business $29 per seat a month, each with three short features and a button, with Team marked Most popular. Commit it with a conventional commit message. Then start the static server with the Bash tool using run_in_background: node scripts/serve.js 4173. Then show the page beside this session with the glimmervoid preview tool (action show, port 4173) and end with one line."
+    },
+    {
+      "name": "migrate-billing-schema",
+      "project": "billing",
+      "dangerouslySkipPermissions": false,
+      "maxMinutes": 4,
+      "task": "Plan a backward compatible migration that replaces invoices.amount with amount_cents (BIGINT) and currency (TEXT, default USD). Write the plan to docs/migration-plan.md in under 25 lines, and do not write any SQL files yet."
+    }
+  ]
+}

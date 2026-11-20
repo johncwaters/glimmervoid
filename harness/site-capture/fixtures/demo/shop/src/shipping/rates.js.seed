@@ -1,0 +1,6 @@
+const flatRateCents = 600;
+const freeShippingFromCents = 5000;
+
+export function shippingCents(subtotal) {
+  return subtotal >= freeShippingFromCents ? 0 : flatRateCents;
+}

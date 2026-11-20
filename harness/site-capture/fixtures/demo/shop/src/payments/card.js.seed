@@ -1,0 +1,4 @@
+export async function chargeCard(token, amountCents) {
+  if (!token) throw new Error('missing card token');
+  return { id: `ch_${Date.now()}`, amountCents, status: 'succeeded' };
+}

@@ -1,0 +1,3 @@
+export async function refundCharge(chargeId, amountCents) {
+  return { id: `re_${Date.now()}`, chargeId, amountCents, status: 'pending' };
+}

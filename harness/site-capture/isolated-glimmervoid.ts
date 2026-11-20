@@ -19,6 +19,9 @@ import { configSiblingPath } from '../../server/pairings-store.ts';
 import { CARD_REGISTRY_URL, readGrid } from '../browser/probe.ts';
 import type { GridReading } from '../browser/probe.ts';
 import { connectControl, removeHarnessTempDirectory } from '../support/backend-harness.ts';
+import { errorMessage } from '../../shared/text.ts';
+import { retireLocalDoorman } from '../../cloud/doorman/ensure-doorman.ts';
+import { glimmervoidHomeDir } from '../../server/core/config-path-core.ts';
 
 export const repoRoot = path.resolve(import.meta.dirname, '../..');
 export const runCommand = promisify(execFile);
@@ -189,6 +192,7 @@ export async function runIsolatedDashboard(options: IsolatedDashboardOptions, ru
   let vite: ViteDevServer | undefined;
   let socket: WebSocket | undefined;
   let cleanupPromise: Promise<void> | undefined;
+  let serverPort: number | undefined;
   const closeBrowserContext = async (): Promise<void> => {
     if (!browserContext) return;
     await browserContext.close();
@@ -199,18 +203,20 @@ export async function runIsolatedDashboard(options: IsolatedDashboardOptions, ru
     cleanupPromise = (async () => {
       const failures: unknown[] = [];
       for (const close of [closeBrowserContext, async () => { if (browser) await browser.close(); },
-        async () => { socket?.terminate(); if (vite) await vite.close(); }, async () => options.waitForAgentExit(tempDirectory)]) {
+        async () => { socket?.terminate(); if (vite) await vite.close(); },
+        async () => { if (serverPort !== undefined) await retireLocalDoorman(glimmervoidHomeDir(os.homedir(), process.env), serverPort); }, async () => options.waitForAgentExit(tempDirectory)]) {
         try { await close(); } catch (error) { failures.push(error); }
       }
       removeHarnessTempDirectory(tempDirectory);
       restoreEnvironment();
-      if (failures.length > 0) throw new AggregateError(failures, `${options.label} cleanup failed`);
+      if (failures.length > 0) throw new AggregateError(failures, `${options.label} cleanup failed: ${failures.map(errorMessage).join('; ')}`);
     })();
     return cleanupPromise;
   };
   const dashboard: IsolatedDashboard = {
     tempDirectory,
     startServer: async (port, configPath) => {
+      serverPort = port;
       const server = await startIsolatedServer(port, configPath);
       vite = server.vite;
       socket = server.socket;

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { z } from 'zod';
 import type { ReplayRecord } from '../../detection/replay.ts';
 import { HookPayload } from '../../shared/contracts/hooks.ts';
@@ -40,6 +41,7 @@ const CaptureSession = z.strictObject({
   spawnedBy: sessionName.optional(),
   glimmervoidCalls: z.string().min(1).optional(),
   maxIdleGapMs: z.number().finite().nonnegative().optional(),
+  previewRoot: z.string().min(1).refine((root) => !path.isAbsolute(root) && !path.normalize(root).startsWith('..'), { message: 'previewRoot must stay inside the worktree' }).default('.'),
 });
 
 export const CaptureManifest = z.strictObject({
@@ -50,6 +52,8 @@ export const CaptureManifest = z.strictObject({
   redactions: z.array(Redaction).default([]),
   sessions: z.array(CaptureSession).min(1),
   boardSeed: z.string().min(1).optional(),
+  cursor: z.boolean().default(true),
+  codemapModules: z.record(projectSlug, z.array(z.string().min(1)).min(1)).default({}),
   shots: z.array(z.strictObject({
     atMs: z.number().finite().nonnegative(),
     name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).optional(),

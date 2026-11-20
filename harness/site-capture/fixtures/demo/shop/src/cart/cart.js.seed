@@ -1,0 +1,12 @@
+import { findProduct } from '../catalog/products.js';
+
+export function createCart() {
+  return { lines: [] };
+}
+
+export function addToCart(cart, sku, quantity = 1) {
+  const product = findProduct(sku);
+  if (!product) throw new Error(`unknown product ${sku}`);
+  cart.lines.push({ sku, name: product.name, priceCents: product.priceCents, quantity });
+  return cart;
+}
