@@ -973,3 +973,14 @@ test('a hand edit to config.json reaches the live verification and reactions blo
     assert.deepEqual(store.config.reactions, reactions);
   });
 });
+
+test('a codemap check an earlier codemap setup wrote into verification.repos is dropped on load, keeping the other checks and their gate', () => {
+  const legacyCheck = { id: 'codemap', command: 'glimmervoid codemap check --home /h --config /c.json' };
+  const repos = {
+    '/repos/only-codemap': { checks: [legacyCheck], gate: { enabled: true } },
+    '/repos/mixed': { checks: [{ id: 'test', command: 'npm test' }, legacyCheck], gate: { enabled: true, required: ['test', 'codemap'] } },
+  };
+  withStore({ projects: [], verification: { repos } }, (_store, configPath) => {
+    assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')).verification.repos, { '/repos/mixed': { checks: [{ id: 'test', command: 'npm test' }], gate: { enabled: true, required: ['test'] } } });
+  });
+});

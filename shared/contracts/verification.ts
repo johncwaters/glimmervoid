@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CODEMAP_CHECK_ID } from './codemap.ts';
 import { DONE_MEANS_MAX_LINES } from './session.ts';
 
 const VERIFICATION_CHECK_LIMIT = 12;
@@ -10,11 +11,14 @@ export const PANEL_MIN_CHANGED_LINES = 20;
 export function agentDoneCheckIdOf(lineIndex: number): string {
   return `${AGENT_DONE_CHECK_ID_PREFIX}${lineIndex + 1}`;
 }
-const VERIFICATION_RUN_CHECK_LIMIT = VERIFICATION_CHECK_LIMIT + DONE_MEANS_MAX_LINES + 1;
+const BUILT_IN_CHECK_IDS: readonly string[] = [CODEMAP_CHECK_ID];
+const VERIFICATION_RUN_CHECK_LIMIT = VERIFICATION_CHECK_LIMIT + DONE_MEANS_MAX_LINES + BUILT_IN_CHECK_IDS.length + 1;
 
 const checkId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
 
-const configCheckId = checkId.refine((id) => !id.startsWith(AGENT_DONE_CHECK_ID_PREFIX), { error: `check ids starting ${AGENT_DONE_CHECK_ID_PREFIX} are kept for the agent's Done means commands` });
+const configCheckId = checkId
+  .refine((id) => !id.startsWith(AGENT_DONE_CHECK_ID_PREFIX), { error: `check ids starting ${AGENT_DONE_CHECK_ID_PREFIX} are kept for the agent's Done means commands` })
+  .refine((id) => !BUILT_IN_CHECK_IDS.includes(id), { error: `check ids ${BUILT_IN_CHECK_IDS.join(', ')} are kept for Glimmervoid's built-in checks` });
 
 const VerificationCheckSpec = z.strictObject({
   id: configCheckId,

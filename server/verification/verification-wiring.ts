@@ -21,6 +21,7 @@ const SANDBOX_SKIP_REASON = 'checks do not run while sessionSandbox is on, becau
 interface WorktreeTree {
   sig: string;
   dirty: boolean;
+  headSha: string | null;
 }
 
 interface VerifiableSession {
@@ -39,8 +40,16 @@ interface VerifiableSession {
   };
 }
 
+interface BuiltInChecks {
+  outcomesOf(session: VerifiableSession, commitSha: string | null): Promise<CheckOutcome[]>;
+  requiredIdsOf(session: VerifiableSession): Promise<string[]>;
+}
+
+const NO_BUILT_IN_CHECKS: BuiltInChecks = { outcomesOf: async () => [], requiredIdsOf: async () => [] };
+
 interface VerificationWiringDependencies {
   getVerificationConfig: () => unknown;
+  builtInChecks?: BuiltInChecks;
   isSessionSandboxOn: () => boolean;
   broadcastControl: (message: ControlMessageRecord) => void;
   logger: Pick<Console, 'warn'>;
@@ -135,6 +144,7 @@ const GLIMMERVOID_PROGRAM = 'glimmervoid';
 
 function createVerificationWiring(dependencies: VerificationWiringDependencies): VerificationWiring {
   const platform = dependencies.platform ?? process.platform;
+  const builtInChecks = dependencies.builtInChecks ?? NO_BUILT_IN_CHECKS;
   const cachedRunBySession = new Map<string, CachedRun>();
   const inFlightBySession = new Map<string, { key: string; promise: Promise<VerificationRun> }>();
   const publishedRunBySession = new Map<string, VerificationRun>();
@@ -198,7 +208,10 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     const worktreeDir = session.worktreeDir;
     const turnEndCountAtStart = turnEndCountOf(session.id);
     publish({ sessionId: session.id, sig, status: 'running', checks: [], finishedAt: null });
-    const checks: CheckOutcome[] = [];
+    const checks: CheckOutcome[] = await builtInChecks.outcomesOf(session, null).catch((error: unknown) => {
+      dependencies.logger.warn(`[verification] ${session.id}: the built-in checks did not run: ${errorMessage(error)}`);
+      return [];
+    });
     for (const spec of settings.checks) {
       if (!attachedSessionIds.has(session.id)) break;
       checks.push(worktreeDir ? await runCheck(session.id, worktreeDir, spec, settings.timeoutSeconds * 1000) : skippedOutcome(spec, 'the session has no worktree'));
@@ -301,17 +314,31 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   async function gateMerge(session: VerifiableSession, tree: WorktreeTree | null): Promise<StandardsGateVerdict> {
     const lookup = lookupSettings(session);
     if (lookup.kind === 'invalid') return { allowed: false, reason: `the verification entry for this repository in config.json is invalid: ${lookup.message}` };
-    if (lookup.kind === 'none' || !lookup.settings.gate.enabled) return { allowed: true };
-    const settings = lookup.settings;
-    const run = tree && !tree.dirty ? await ensureRun(session, settings, tree.sig, { reuseFailed: false }) : null;
+    const isConfigGateOn = lookup.kind === 'ok' && lookup.settings.gate.enabled;
+    const settings = lookup.kind === 'ok' ? lookup.settings : SETTINGS_WITHOUT_CHECKS;
+    const configRequiredIds = isConfigGateOn ? settings.gate.required ?? settings.checks.map((check) => check.id) : [];
+    const builtInRequiredIds = await builtInChecks.requiredIdsOf(session);
+    const requiredCheckIds = [...configRequiredIds, ...builtInRequiredIds];
+    if (requiredCheckIds.length === 0) return { allowed: true };
+    const isTreeLandable = tree !== null && !tree.dirty;
+    const run = isTreeLandable ? await landingRunOf(session, settings, tree, isConfigGateOn, builtInRequiredIds.length > 0) : null;
     return decideStandardsGate({
       enabled: true,
-      requiredCheckIds: settings.gate.required ?? settings.checks.map((check) => check.id),
+      requiredCheckIds,
       run,
       currentSig: tree?.sig ?? null,
       isTreeDirty: tree?.dirty === true,
     });
   }
+
+  async function landingRunOf(session: VerifiableSession, settings: VerificationSettings, tree: WorktreeTree, isConfigGateOn: boolean, isBuiltInGateOn: boolean): Promise<VerificationRun> {
+    const configRun = isConfigGateOn ? await ensureRun(session, settings, tree.sig, { reuseFailed: false }) : null;
+    const builtInOutcomes = isBuiltInGateOn ? await builtInChecks.outcomesOf(session, tree.headSha) : [];
+    const builtInIds = new Set(builtInOutcomes.map((check) => check.id));
+    const checks = [...builtInOutcomes, ...(configRun?.checks ?? []).filter((check) => !builtInIds.has(check.id))];
+    return { sessionId: session.id, sig: tree.sig, status: overallStatus(checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX))), checks, finishedAt: clock.nowMs() };
+  }
+
 
   function attachSession(session: VerifiableSession): void {
     attachedSessionIds.add(session.id);

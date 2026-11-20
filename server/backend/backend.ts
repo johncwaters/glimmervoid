@@ -349,6 +349,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), claimsByOthersOf: fileClaims.claimsByOthersOf });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
+    builtInChecks: { outcomesOf: (session, commitSha) => codemap.builtInChecksOf(session, commitSha), requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session) },
     isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
     broadcastControl: broadcastControlFromWebSockets,
     logger: console,

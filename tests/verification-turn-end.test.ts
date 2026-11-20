@@ -164,3 +164,48 @@ test('an agent command runs at turn end with no operator step, reruns when chang
   assert.equal(refusedCheck?.status, 'fail');
   assert.match(refusedCheck?.outputTail ?? '', /Sane YOLO refused to run it/);
 });
+
+test('a built-in check gates a merge with no verification entry in config.json, judges the commit that lands afresh at every merge, and a passing one lets the merge through', async (context) => {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-built-in-gate-'));
+  context.after(() => fs.rmSync(repoPath, { recursive: true, force: true }));
+  git(repoPath, ['init', '--quiet']);
+  writeFiles(repoPath, { 'README.md': 'base\n' });
+  git(repoPath, ['add', '-A']);
+  git(repoPath, ['commit', '--quiet', '-m', 'base']);
+  const headSha = git(repoPath, ['rev-parse', 'HEAD']);
+  let builtInStatus: 'pass' | 'fail' = 'fail';
+  const judgedCommits: (string | null)[] = [];
+  const installed: { mergeGate: ((tree: { sig: string; dirty: boolean; headSha: string | null } | null) => Promise<{ allowed: boolean; reason?: string }>) | null } = { mergeGate: null };
+  const verification = createVerificationWiring({
+    getVerificationConfig: () => ({}),
+    builtInChecks: {
+      outcomesOf: async (_session, commitSha) => { judgedCommits.push(commitSha); return [{ id: 'codemap', command: 'codemap check (built in)', status: builtInStatus, exitCode: null, outputTail: 'adds module imports the operator has not allowed: lib -> tools' }]; },
+      requiredIdsOf: async () => ['codemap'],
+    },
+    isSessionSandboxOn: () => true,
+    broadcastControl: () => {},
+    logger: console,
+  });
+  verification.attachSession({
+    id: 'built-in-gate',
+    path: repoPath,
+    ephemeral: false,
+    agentDoneLines: [],
+    hasOwnWorktree: true,
+    worktreeDir: repoPath,
+    on: () => {},
+    worktreeLifecycle: {
+      computeGateTree: async () => ({ sig: 'tree-fail', dirty: false, headSha }),
+      snapshot: () => ({ baseSha: headSha, effectiveBase: null }),
+      setMergeGate: (gate) => { installed.mergeGate = gate; },
+    },
+  });
+  const checked = await verification.checkNow('built-in-gate', 10_000);
+  assert.deepEqual(checked.ok ? checked.run?.checks.map((check) => `${check.id} ${check.status}`) : [], ['codemap fail'], 'the built-in check runs even with sessionSandbox on');
+  const refused = await installed.mergeGate?.({ sig: 'tree-fail', dirty: false, headSha });
+  assert.equal(refused?.allowed, false);
+  assert.match(refused?.reason ?? '', /checks failed: codemap/);
+  builtInStatus = 'pass';
+  assert.deepEqual(await installed.mergeGate?.({ sig: 'tree-fail', dirty: false, headSha }), { allowed: true }, 'a merge judges the built-in check afresh, never from a run cached under the same tree');
+  assert.deepEqual(judgedCommits, [null, headSha, headSha], 'session check judges the working tree, a merge judges the commit that lands');
+});

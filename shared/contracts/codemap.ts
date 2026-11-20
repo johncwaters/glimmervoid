@@ -45,14 +45,17 @@ export type CodemapModuleEdge = z.infer<typeof CodemapModuleEdge>;
 
 export const CODEMAP_ALLOW_REASON_MAX_CHARS = 500;
 
+const FileImportCeiling = z.number().int().min(0).nullable();
+
 const CodemapAllowEntry = z.discriminatedUnion('origin', [
-  z.strictObject({ from: CodemapModuleName, to: CodemapModuleName, origin: z.literal('seeded') }),
-  z.strictObject({ from: CodemapModuleName, to: CodemapModuleName, origin: z.literal('allowed'), reason: z.string().min(1).max(CODEMAP_ALLOW_REASON_MAX_CHARS), date: z.iso.date(), landed: z.boolean() }),
+  z.strictObject({ from: CodemapModuleName, to: CodemapModuleName, origin: z.literal('seeded'), fileImportCeiling: FileImportCeiling }),
+  z.strictObject({ from: CodemapModuleName, to: CodemapModuleName, origin: z.literal('allowed'), reason: z.string().min(1).max(CODEMAP_ALLOW_REASON_MAX_CHARS), date: z.iso.date(), landed: z.boolean(), fileImportCeiling: FileImportCeiling }),
 ]);
 
 export type CodemapAllowEntry = z.infer<typeof CodemapAllowEntry>;
 
-export const CODEMAP_SETUP_VERSION = 1;
+export const CODEMAP_SETUP_VERSION = 2;
+export const CODEMAP_CHECK_ID = 'codemap';
 
 export const CodemapSetup = z.strictObject({
   version: z.literal(CODEMAP_SETUP_VERSION),
@@ -63,6 +66,15 @@ export const CodemapSetup = z.strictObject({
   exports: z.array(z.enum(CODEMAP_EXPORT_KINDS)),
 });
 export type CodemapSetup = z.infer<typeof CodemapSetup>;
+
+const CodemapSetupVersion1 = z.looseObject({ version: z.literal(1), allow: z.array(z.looseObject({})) }).transform((setup, context) => {
+  const migrated = CodemapSetup.safeParse({ ...setup, version: CODEMAP_SETUP_VERSION, allow: setup.allow.map((entry) => ({ ...entry, fileImportCeiling: null })) });
+  if (migrated.success) return migrated.data;
+  for (const issue of migrated.error.issues) context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  return z.NEVER;
+});
+
+export const StoredCodemapSetup = z.union([CodemapSetup, CodemapSetupVersion1]);
 
 const DesignSpecUnit = z.object({ kind: z.literal('unit'), id: z.string().min(1).max(40), title: z.string().min(1), changes: z.array(z.string()) });
 export type DesignSpecUnit = z.infer<typeof DesignSpecUnit>;

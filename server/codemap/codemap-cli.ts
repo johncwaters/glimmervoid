@@ -2,23 +2,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS, CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS } from '../../shared/contracts/codemap.ts';
 import type { CodemapExportKind, CodemapSetup } from '../../shared/contracts/codemap.ts';
-import { VerificationSettings } from '../../shared/contracts/verification.ts';
 import { clock } from '../../shared/clock.ts';
-import { isRecord } from '../../shared/coerce.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { loadConfigFile, saveConfigFileOnce } from '../config-store.ts';
+import { loadConfigFile } from '../config-store.ts';
 import type { LoadedConfig } from '../config/config-file.ts';
 import { decideConfigPath, glimmervoidHomeDir } from '../core/config-path-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
-import { buildCodemapModel, moduleEdgesOf } from '../core/codemap-graph-core.ts';
-import { parseCheckCommand } from '../verification/core/verification-core.ts';
+import { buildCodemapModel, seededSetupOf } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import { guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf } from './codemap-store.ts';
 import { checkWorktree, shrinkSetup } from './codemap-wiring.ts';
 
-const CODEMAP_CHECK_ID = 'codemap';
 const OPERATOR_CODEMAP_ACTIONS = new Set(['setup', 'allow', 'shrink', 'check']);
 const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] [--exports lint,map|none] | codemap allow <repo> <from module> <to module> --reason <why> | codemap shrink <repo> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
 
@@ -51,47 +47,8 @@ async function mainlineShaForCli(repoDir: string, configPath: string | null): Pr
   return mainlineShaOf(repoDir, configured ?? await guessedDefaultBranchOf(repoDir));
 }
 
-async function verificationKeysOf(repoKey: string, configPath: string): Promise<string[]> {
-  const projectPaths = (loadedConfigOf(configPath)?.projects ?? []).map((project) => project.path);
-  const projectKeys = await Promise.all(projectPaths.map(async (projectPath) => ((await repoKeyOf(projectPath)) === repoKey ? projectPath : null)));
-  const matchingPaths = projectKeys.filter((projectPath) => projectPath !== null);
-  return [...new Set([repoKey, ...matchingPaths])];
-}
-
-function checkCommandFor(homeDir: string, configPath: string): { ok: true; command: string } | { ok: false; error: string } {
-  const command = ['glimmervoid', 'codemap', 'check', '--home', homeDir, '--config', configPath].join(' ');
-  if (!parseCheckCommand(command)) return { ok: false, error: `the codemap check command (${command}) has a space or shell character in a path, so a verification check cannot run it` };
-  return { ok: true, command };
-}
-
-function verificationWithCodemapGate(current: unknown, isGateOn: boolean, checkCommand: string): VerificationSettings | null {
-  const settings = VerificationSettings.parse(current ?? {});
-  const otherChecks = settings.checks.filter((check) => check.id !== CODEMAP_CHECK_ID);
-  const checks = isGateOn ? [...otherChecks, { id: CODEMAP_CHECK_ID, command: checkCommand }] : otherChecks;
-  if (checks.length === 0) return null;
-  if (settings.gate.required === undefined && (settings.gate.enabled || otherChecks.length === 0)) return { ...settings, checks, gate: { enabled: settings.gate.enabled || isGateOn } };
-  const otherRequired = (settings.gate.required ?? []).filter((checkId) => checkId !== CODEMAP_CHECK_ID);
-  const required = isGateOn ? [...otherRequired, CODEMAP_CHECK_ID] : otherRequired;
-  return { ...settings, checks, gate: { enabled: (settings.gate.enabled || isGateOn) && required.length > 0, required } };
-}
-
-function writeVerificationGate(configPath: string, verificationKeys: readonly string[], isGateOn: boolean, checkCommand: string): string | null {
-  const saved = saveConfigFileOnce(configPath, (config) => {
-    const verification = isRecord(config.verification) ? config.verification : {};
-    const repos = isRecord(verification.repos) ? { ...verification.repos } : {};
-    for (const verificationKey of verificationKeys) {
-      const next = verificationWithCodemapGate(repos[verificationKey], isGateOn, checkCommand);
-      if (next) repos[verificationKey] = next;
-      if (!next) delete repos[verificationKey];
-    }
-    config.verification = { ...verification, repos };
-  });
-  return saved.ok ? null : saved.message;
-}
-
 async function seededSetup(repoKey: string, mainlineSha: string): Promise<CodemapSetup> {
-  const model = buildCodemapModel(await createCodemapClient().extract(repoKey, mainlineSha));
-  return { version: CODEMAP_SETUP_VERSION, repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const })), exports: [] };
+  return seededSetupOf(repoKey, buildCodemapModel(await createCodemapClient().extract(repoKey, mainlineSha)));
 }
 
 function exportKindsOf(exportsArgument: string): CodemapExportKind[] | null {
@@ -123,13 +80,6 @@ async function runSetup(args: readonly string[]): Promise<CliOutcome> {
   });
   if (updated.kind !== 'ok') return { ok: false, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup to gate` };
   const { setup } = updated;
-  if (gateArgument !== null) {
-    if (!config.ok) return { ok: false, error: config.error };
-    const checkCommand = checkCommandFor(homeDir, config.configPath);
-    if (!checkCommand.ok) return { ok: false, error: checkCommand.error };
-    const gateError = writeVerificationGate(config.configPath, await verificationKeysOf(repoKey, config.configPath), setup.gate, checkCommand.command);
-    if (gateError) return { ok: false, error: gateError };
-  }
   return { ok: true, text: `code map setup for ${repoKey} at ${setupPathOf(homeDir, repoKey)}: ${setup.modules.length} modules, ${setup.allow.length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}, exports ${setup.exports.length > 0 ? setup.exports.join(', ') : 'none'}. The repo itself is unchanged.` };
 }
 
@@ -141,7 +91,7 @@ async function runAllow(args: readonly string[]): Promise<CliOutcome> {
   const repoKey = await repoKeyOf(path.resolve(repoArgument));
   if (!repoKey) return { ok: false, error: `${repoArgument} is not inside a git repository` };
   const homeDir = glimmervoidHomeDir(os.homedir(), process.env);
-  const allowedEntry = { from, to, origin: 'allowed' as const, reason, date: clock.dayKeyOf(clock.nowMs()), landed: false };
+  const allowedEntry = { from, to, origin: 'allowed' as const, reason, date: clock.dayKeyOf(clock.nowMs()), landed: false, fileImportCeiling: null };
   const allowOutcome = { wasAllowed: false };
   const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
     allowOutcome.wasAllowed = current?.allow.some((edge) => edge.from === from && edge.to === to) ?? false;

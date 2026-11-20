@@ -248,4 +248,37 @@ function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
   return '[config] Dropped remote.enabled: the remote listener is always on, behind pairing.';
 }
 
-export { dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+const LEGACY_CODEMAP_CHECK = { id: 'codemap', commandPrefix: 'glimmervoid codemap check ' };
+
+function isLegacyCodemapCheck(check: unknown): boolean {
+  return isRecord(check) && check.id === LEGACY_CODEMAP_CHECK.id && typeof check.command === 'string' && check.command.startsWith(LEGACY_CODEMAP_CHECK.commandPrefix);
+}
+
+function withoutLegacyCodemapCheck(entry: Record<string, unknown>): Record<string, unknown> | null {
+  const checks = Array.isArray(entry.checks) ? entry.checks.filter((check) => !isLegacyCodemapCheck(check)) : [];
+  if (checks.length === 0) return null;
+  if (!isRecord(entry.gate) || !Array.isArray(entry.gate.required)) return { ...entry, checks };
+  const required = entry.gate.required.filter((checkId) => checkId !== LEGACY_CODEMAP_CHECK.id);
+  return { ...entry, checks, gate: { ...entry.gate, enabled: entry.gate.enabled === true && required.length > 0, required } };
+}
+
+function dropLegacyCodemapChecks(config: GlimmervoidConfig): string | null {
+  const verification = config.verification;
+  if (!isRecord(verification) || !isRecord(verification.repos)) return null;
+  const legacyRepoKeys = Object.keys(verification.repos).filter((repoKey) => {
+    const entry = isRecord(verification.repos) ? verification.repos[repoKey] : null;
+    return isRecord(entry) && Array.isArray(entry.checks) && entry.checks.some(isLegacyCodemapCheck);
+  });
+  if (legacyRepoKeys.length === 0) return null;
+  const repos: Record<string, unknown> = { ...verification.repos };
+  for (const repoKey of legacyRepoKeys) {
+    const entry = repos[repoKey];
+    const migrated = isRecord(entry) ? withoutLegacyCodemapCheck(entry) : null;
+    if (migrated) repos[repoKey] = migrated;
+    if (!migrated) delete repos[repoKey];
+  }
+  config.verification = { ...verification, repos };
+  return `[config] Dropped the codemap check from verification.repos for ${legacyRepoKeys.join(', ')}: the import gate is now built in and follows the code map setup.`;
+}
+
+export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

@@ -1,13 +1,15 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
-import { CodemapSetup, DesignSpecForMap } from '../../shared/contracts/codemap.ts';
+import { CodemapSetup, DesignSpecForMap, StoredCodemapSetup } from '../../shared/contracts/codemap.ts';
 import { errorCode, errorMessage } from '../../shared/text.ts';
 import { execFileAsync } from '../child-process-safe.ts';
 import { writeTextAtomicSync } from '../json-file.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
+import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { DEFAULT_BRANCH_FALLBACKS, defaultBranchFromRemoteHead } from '../core/integration-branch-core.ts';
 import { CO_CHANGE_LOG_ARGS, parseCoChangeLog } from '../core/co-change-core.ts';
 import type { CommitFiles } from '../core/co-change-core.ts';
@@ -22,8 +24,8 @@ type CodemapSetupLookup =
   | { kind: 'invalid'; message: string }
   | { kind: 'ok'; setup: CodemapSetup };
 
-async function gitText(cwd: string, args: readonly string[]): Promise<string | null> {
-  return execFileAsync('git', [...args], { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER_BYTES, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })
+async function gitText(cwd: string, args: readonly string[], extraEnv: Record<string, string> = {}): Promise<string | null> {
+  return execFileAsync('git', [...args], { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER_BYTES, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...extraEnv } })
     .then(({ stdout }) => stdout, () => null);
 }
 
@@ -50,7 +52,7 @@ function setupPathOf(homeDir: string, repoKey: string): string {
 
 function setupLookupOf(setupPath: string, repoKey: string, text: string | null): CodemapSetupLookup {
   if (text === null) return { kind: 'none' };
-  const parsed = CodemapSetup.safeParse(parseJsonOrNull(text));
+  const parsed = StoredCodemapSetup.safeParse(parseJsonOrNull(text));
   if (!parsed.success) return { kind: 'invalid', message: `${setupPath} is not a valid code map setup: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}` };
   if (parsed.data.repo !== repoKey) return { kind: 'invalid', message: `${setupPath} belongs to ${parsed.data.repo}, not ${repoKey}` };
   return { kind: 'ok', setup: parsed.data };
@@ -93,10 +95,42 @@ function updateCodemapSetup(homeDir: string, repoKey: string, change: (current: 
 }
 
 
-async function changedPathsSince(worktreeDir: string, baseSha: string): Promise<Set<string> | null> {
-  const listed = await gitText(worktreeDir, ['diff', '--name-only', '--relative', '-z', '--no-renames', `${baseSha}...HEAD`]);
+async function untrackedPathsWithinCapsOf(worktreeDir: string): Promise<string[]> {
+  const listed = await gitText(worktreeDir, ['ls-files', '--others', '--exclude-standard', '-z']);
+  const candidates = (listed ?? '').split(String.fromCharCode(0)).filter(Boolean).slice(0, CODEMAP_TUNABLES.maxSourceFiles);
+  const sizes = await Promise.all(candidates.map(async (repoPath) => (await fsp.stat(path.join(worktreeDir, repoPath)).catch(() => null))?.size ?? Number.POSITIVE_INFINITY));
+  return candidates.filter((_repoPath, index) => (sizes[index] ?? Number.POSITIVE_INFINITY) <= CODEMAP_TUNABLES.maxFileBytes);
+}
+
+async function workingTreeShaOf(worktreeDir: string): Promise<string | null> {
+  const indexPath = (await gitText(worktreeDir, ['rev-parse', '--path-format=absolute', '--git-path', 'index']))?.trim();
+  if (!indexPath) return null;
+  const scratchPrefix = path.join(os.tmpdir(), `glimmervoid-codemap-${crypto.randomUUID()}`);
+  const scratchIndexPath = `${scratchPrefix}.index`;
+  const untrackedListPath = `${scratchPrefix}.paths`;
+  try {
+    await fsp.copyFile(indexPath, scratchIndexPath).catch((error: unknown) => {
+      if (errorCode(error) !== 'ENOENT') throw error;
+    });
+    const scratchIndex = { GIT_INDEX_FILE: scratchIndexPath };
+    if (await gitText(worktreeDir, ['add', '--update', '--', '.'], scratchIndex) === null) return null;
+    const untrackedPaths = await untrackedPathsWithinCapsOf(worktreeDir);
+    await fsp.writeFile(untrackedListPath, untrackedPaths.join(String.fromCharCode(0)));
+    if (untrackedPaths.length > 0 && await gitText(worktreeDir, ['add', `--pathspec-from-file=${untrackedListPath}`, '--pathspec-file-nul'], scratchIndex) === null) return null;
+    const treeSha = (await gitText(worktreeDir, ['write-tree'], scratchIndex))?.trim() ?? '';
+    return /^[0-9a-f]{40}$/.test(treeSha) ? treeSha : null;
+  } finally {
+    await Promise.all([fsp.rm(scratchIndexPath, { force: true }), fsp.rm(untrackedListPath, { force: true })]);
+  }
+}
+
+async function judgedTreeOf(worktreeDir: string, mainlineSha: string, commitSha: string | null): Promise<{ treeSha: string; changedPaths: Set<string> } | null> {
+  const treeSha = commitSha ?? await workingTreeShaOf(worktreeDir);
+  const forkSha = (await gitText(worktreeDir, ['merge-base', mainlineSha, commitSha ?? 'HEAD']))?.trim();
+  if (!treeSha || !forkSha) return null;
+  const listed = await gitText(worktreeDir, ['diff', '--name-only', '--relative', '-z', '--no-renames', forkSha, treeSha]);
   if (listed === null) return null;
-  return new Set(listed.split(String.fromCharCode(0)).filter(Boolean));
+  return { treeSha, changedPaths: new Set(listed.split(String.fromCharCode(0)).filter(Boolean)) };
 }
 
 async function revParse(directory: string, ref: string): Promise<string | null> {
@@ -143,4 +177,4 @@ async function guessedDefaultBranchOf(directory: string): Promise<string | null>
   return null;
 }
 
-export { changedPathsSince, fileTextAtCommit, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf };
+export { fileTextAtCommit, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf };

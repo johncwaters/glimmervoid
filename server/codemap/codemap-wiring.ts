@@ -3,16 +3,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
-import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapStatus } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_CHECK_ID, CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
+import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
+import type { CheckOutcome } from '../../shared/contracts/verification.ts';
+import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
-import { changedPathsSince, fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -31,35 +33,48 @@ async function writeExportFile(targetPath: string, text: string): Promise<string
   return writeTextAtomic(targetPath, text, { exclusive: true }).then(() => null, (error: unknown) => errorMessage(error));
 }
 
+const CODEMAP_BUILT_IN_COMMAND = 'codemap check (built in)';
+
+interface MainlineView {
+  model: CodemapModel;
+  base: CodemapExtractBase;
+}
+
 interface WorktreeCheck {
   client: CodemapClient;
   homeDir: string;
   worktreeDir: string;
   mainlineSha: string;
+  mainline?: MainlineView | null;
+  commitSha?: string | null;
 }
 
-type WorktreeCheckOutcome = { ok: true; isRefusing: boolean; text: string } | { ok: false; error: string };
+type WorktreeCheckOutcome = { ok: true; isGateOn: boolean; isRefusing: boolean; text: string } | { ok: false; error: string };
 
-async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha }: WorktreeCheck): Promise<WorktreeCheckOutcome> {
+async function mainlineViewOf(client: CodemapClient, worktreeDir: string, mainlineSha: string, moduleLayout: readonly string[]): Promise<MainlineView> {
+  const extract = await client.extract(worktreeDir, mainlineSha);
+  return { model: buildCodemapModel(extract, moduleLayout), base: extractBaseOf(extract) };
+}
+
+async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha, mainline = null, commitSha = null }: WorktreeCheck): Promise<WorktreeCheckOutcome> {
   const repoKey = await repoKeyOf(worktreeDir);
   if (!repoKey) return { ok: false, error: `${worktreeDir} is not inside a git repository` };
   const repoName = path.basename(repoKey);
   const lookup = await readCodemapSetup(homeDir, repoKey);
-  if (lookup.kind === 'none') return { ok: true, isRefusing: false, text: `codemap check: ${repoName} has no code map setup, so no module import is judged.` };
+  if (lookup.kind === 'none') return { ok: true, isGateOn: false, isRefusing: false, text: `codemap check: ${repoName} has no code map setup, so no module import is judged.` };
   if (lookup.kind === 'invalid') return { ok: false, error: lookup.message };
-  const headSha = await revParse(worktreeDir, 'HEAD');
-  const changedPaths = await changedPathsSince(worktreeDir, mainlineSha);
-  if (!headSha || !changedPaths) return { ok: false, error: `${worktreeDir} has no commit to compare with mainline ${mainlineSha.slice(0, 7)}` };
-  const model = buildCodemapModel(await client.extract(worktreeDir, headSha), lookup.setup.modules);
-  const mainlineModel = buildCodemapModel(await client.extract(worktreeDir, mainlineSha), lookup.setup.modules);
-  const unallowedEdges = unallowedEdgesOf(model, changedPaths, lookup.setup.allow);
   const { setup } = lookup;
-  const exportVerdicts = await Promise.all(setup.exports.map(async (kind) => exportVerdictOf(kind, await fileTextAtCommit(worktreeDir, headSha, CODEMAP_EXPORT_FILE_BY_KIND[kind]), kind === 'lint' ? lintConfigTextOf(setup) : exportedMapTextOf(model))));
+  const tree = await judgedTreeOf(worktreeDir, mainlineSha, commitSha);
+  if (!tree) return { ok: false, error: `${commitSha ? `commit ${commitSha.slice(0, 7)}` : 'the working tree'} of ${worktreeDir} could not be compared with mainline ${mainlineSha.slice(0, 7)}` };
+  const mainlineView = mainline?.model.sha === mainlineSha ? mainline : await mainlineViewOf(client, worktreeDir, mainlineSha, setup.modules);
+  const model = buildCodemapModel(await client.extract(worktreeDir, tree.treeSha, mainlineView.base), setup.modules);
+  const { changedPaths } = tree;
+  const exportVerdicts = await Promise.all(setup.exports.map(async (kind) => exportVerdictOf(kind, await fileTextAtCommit(worktreeDir, tree.treeSha, CODEMAP_EXPORT_FILE_BY_KIND[kind]), kind === 'lint' ? lintConfigTextOf(setup) : exportedMapTextOf(model))));
   const staleExports = exportVerdicts.flatMap((verdict) => (verdict.refusal ? [verdict.refusal] : []));
   const exportNotes = exportVerdicts.flatMap((verdict) => (verdict.note ? [verdict.note] : []));
-  const findings = { staleExports, exportNotes, unallowedEdges, unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineModel), staleAllowedEdges: staleAllowedEdgesOf(model, lookup.setup.allow) };
-  const gateNote = lookup.setup.gate ? null : 'The import gate is off for this repo, so these never refuse a push.';
-  return { ok: true, isRefusing: lookup.setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
+  const findings = { staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, changedPaths, setup.allow), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, setup.allow), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, setup.allow) };
+  const gateNote = setup.gate ? null : 'The import gate is off for this repo, so these never refuse a merge.';
+  return { ok: true, isGateOn: setup.gate, isRefusing: setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
 }
 
 interface SetupShrink {
@@ -71,7 +86,7 @@ interface SetupShrink {
 
 async function shrinkSetup({ client, homeDir, repoKey, mainlineSha }: SetupShrink): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   const lookup = await readCodemapSetup(homeDir, repoKey);
-  if (lookup.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; the operator runs glimmervoid codemap setup ${repoKey} first` };
+  if (lookup.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; Glimmervoid writes one the first time it maps mainline` };
   if (lookup.kind === 'invalid') return { ok: false, error: lookup.message };
   const model = buildCodemapModel(await client.extract(repoKey, mainlineSha), lookup.setup.modules);
   const shrinkOutcome: { dropped: readonly CodemapModuleEdge[] } = { dropped: [] };
@@ -342,12 +357,59 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
       state.extractBase = extractBaseOf(extract);
       state.failure = null;
       state.drawRetryAtMs = 0;
+      await settleSetup(repoDir, state.model).catch((error: unknown) => {
+        logger.warn(`[codemap] the code map setup of ${repoDir} was not seeded or ratcheted: ${errorMessage(error)}`);
+      });
     } catch (error) {
       if (checkNumber < state.appliedCheckNumber) return;
       state.appliedCheckNumber = checkNumber;
       state.failure = { sha: mainlineSha, reason: errorMessage(error), retryAtMs: clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs };
       state.drawRetryAtMs = 0;
     }
+  }
+
+  async function settleSetup(repoDir: string, model: CodemapModel): Promise<void> {
+    if (!homeDir) return;
+    const setupHome = homeDir;
+    const repoKey = await repoKeyOf(repoDir);
+    if (!repoKey) return;
+    const lookup = await readCodemapSetup(setupHome, repoKey);
+    if (lookup.kind === 'invalid') return;
+    const isRatchetUnchanged = (allow: CodemapSetup['allow']) => JSON.stringify(shrunkAllowListOf(model, allow).allow) === JSON.stringify(allow);
+    if (lookup.kind === 'ok' && isRatchetUnchanged(lookup.setup.allow)) return;
+    const updated = updateCodemapSetup(setupHome, repoKey, (current) => {
+      if (!current) return seededSetupOf(repoKey, model);
+      return isRatchetUnchanged(current.allow) ? null : { ...current, allow: shrunkAllowListOf(model, current.allow).allow };
+    });
+    if (updated.kind === 'invalid') throw new Error(updated.message);
+  }
+
+  async function builtInChecksOf(session: { path: string; worktreeDir: string | null }, commitSha: string | null): Promise<CheckOutcome[]> {
+    if (!homeDir || !session.worktreeDir) return [];
+    const map = await currentMap({ repoDir: session.path });
+    const mainlineSha = 'error' in map ? null : map.status.mainlineSha;
+    const repoKey = await repoKeyOf(session.path);
+    const lookup = repoKey ? await readCodemapSetup(homeDir, repoKey) : { kind: 'none' as const };
+    if (lookup.kind === 'ok' && !lookup.setup.gate) return [];
+    if (lookup.kind === 'none' || !mainlineSha) {
+      const reason = 'error' in map ? map.error : map.status.reason ?? 'mainline has not been mapped yet';
+      return [{ id: CODEMAP_CHECK_ID, command: CODEMAP_BUILT_IN_COMMAND, status: 'skipped', exitCode: null, outputTail: `this repo is not import gated yet, since Glimmervoid writes its code map setup the first time it maps mainline: ${reason}` }];
+    }
+    const state = stateOf(session.path);
+    const mainline = state.model?.sha === mainlineSha && state.extractBase ? { model: state.model, base: state.extractBase } : null;
+    const checked = await checkWorktree({ client, homeDir, worktreeDir: session.worktreeDir, mainlineSha, mainline, commitSha }).catch((error: unknown) => ({ ok: false as const, error: errorMessage(error) }));
+    const isRefusing = !checked.ok || checked.isRefusing;
+    const text = checked.ok ? checked.text : `codemap check could not judge this tree: ${checked.error}`;
+    return [{ id: CODEMAP_CHECK_ID, command: CODEMAP_BUILT_IN_COMMAND, status: isRefusing ? 'fail' : 'pass', exitCode: null, outputTail: text.slice(-VERIFICATION_OUTPUT_TAIL_BYTES) }];
+  }
+
+  async function requiredCheckIdsOf(session: { path: string }): Promise<string[]> {
+    if (!homeDir) return [];
+    await currentMap({ repoDir: session.path });
+    const repoKey = await repoKeyOf(session.path);
+    const lookup = repoKey ? await readCodemapSetup(homeDir, repoKey) : { kind: 'none' as const };
+    if (lookup.kind === 'none') return [];
+    return lookup.kind === 'invalid' || lookup.setup.gate ? [CODEMAP_CHECK_ID] : [];
   }
 
   async function specPlanOf(repoDir: string, slug: string): Promise<{ ok: true; plan: SpecPlan } | { ok: false; status: number; error: string }> {
@@ -494,6 +556,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const headSha = worktreeRoot ? await revParse(worktreeRoot, 'HEAD') : null;
     if (!worktreeRoot || !repoKey || !headSha) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: `${repo.worktreeDir ?? repo.repoDir} has no commit to export from` };
     if (!homeDir) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: 'the code map setup store is not available in this Glimmervoid' };
+    const map = await currentMap(repo);
     const lookup = await readCodemapSetup(homeDir, repoKey);
     if (lookup.kind === 'invalid') return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: lookup.message };
     const enabledExports = lookup.kind === 'ok' ? lookup.setup.exports : [];
@@ -502,7 +565,6 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const text = kind === 'lint' ? lintConfigTextOf(lookup.setup) : exportedMapTextOf(buildCodemapModel(await client.extract(worktreeRoot, headSha), lookup.setup.modules));
     const writeError = await writeExportFile(path.join(worktreeRoot, fileName), text);
     if (writeError) return { ok: false, status: CONFLICTING_FILE_STATUS, error: `codemap export left ${fileName} in ${worktreeRoot} alone: ${writeError}` };
-    const map = await currentMap(repo);
     const status = 'error' in map ? { sha: null, mainlineSha: null, state: 'failed' as const, reason: map.error } : map.status;
     const followUp = kind === 'map' ? ` It maps the source committed at ${headSha.slice(0, 7)}; commit it, and export again after committing more source, since codemap check refuses an out of date ${fileName}.` : ' Commit it; dependency-cruiser (npx depcruise --config .dependency-cruiser.cjs <source folders>) then refuses a module import this setup does not allow.';
     return { ok: true, reply: { ok: true, text: `codemap export wrote ${fileName} into ${worktreeRoot}.${followUp}`, status } };
@@ -519,7 +581,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

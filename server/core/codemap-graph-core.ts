@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 
 import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModuleEdge, CodemapSetup, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
@@ -196,6 +197,8 @@ function mapBodyLinesOf(model: CodemapModel): string[] {
   if (model.modules.length > CODEMAP_TUNABLES.listedModules) lines.push(`and ${model.modules.length - CODEMAP_TUNABLES.listedModules} more modules`);
   const cycles = moduleCyclesOf(moduleEdgesOf(model));
   if (cycles.length > 0) lines.push(`module cycles (modules that import each other): ${cycles.map((modules) => modules.join(' <-> ')).join('; ')}`);
+  const crossedWires = crossedWiresOf(model);
+  if (crossedWires.length > 0) lines.push(`crossed wires (the lighter direction of two modules that import each other, cheapest first; each may lose file imports, never gain them): ${cappedList(crossedWires.map((wire) => `${wire.from} -> ${wire.to} ${wire.fileImports.length} (${wire.fileImports.slice(0, CROSSED_WIRE_LISTED_IMPORTS).join('; ')})`))}`);
   return lines;
 }
 
@@ -603,12 +606,67 @@ function staleAllowedEdgesOf(model: CodemapModel, allowed: readonly CodemapModul
   return allowed.filter((edge) => !presentKeys.has(edgeKeyOf(edge.from, edge.to)));
 }
 
+const CROSSED_WIRE_LISTED_IMPORTS = 3;
+
+function crossedWiresOf(model: CodemapModel): UnallowedEdge[] {
+  const judgedImports = judgedModuleImportsOf(model, model.paths);
+  return [...judgedImports.values()].filter((edge) => {
+    const reverse = judgedImports.get(edgeKeyOf(edge.to, edge.from));
+    if (!reverse) return false;
+    if (edge.fileImports.length !== reverse.fileImports.length) return edge.fileImports.length < reverse.fileImports.length;
+    return compareText(edge.from, reverse.from) > 0;
+  }).sort((left, right) => left.fileImports.length - right.fileImports.length || compareText(left.from, right.from) || compareText(left.to, right.to));
+}
+
+function fileImportCeilingsOf(model: CodemapModel): Map<string, number> {
+  return new Map(crossedWiresOf(model).map((wire) => [edgeKeyOf(wire.from, wire.to), wire.fileImports.length]));
+}
+
+function seededSetupOf(repoKey: string, model: CodemapModel): CodemapSetup {
+  const ceilings = fileImportCeilingsOf(model);
+  const allow = moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const, fileImportCeiling: ceilings.get(edgeKeyOf(edge.from, edge.to)) ?? null }));
+  return { version: CODEMAP_SETUP_VERSION, repo: repoKey, gate: true, modules: model.modules.map((summary) => summary.id), allow, exports: [] };
+}
+
+function ratchetedCeilingOf(entry: CodemapAllowEntry, mainlineCeiling: number | undefined): number | null {
+  if (mainlineCeiling === undefined) return null;
+  if (entry.fileImportCeiling === null) return mainlineCeiling;
+  return Math.min(entry.fileImportCeiling, mainlineCeiling);
+}
+
 function shrunkAllowListOf(model: CodemapModel, allow: readonly CodemapAllowEntry[]): { allow: CodemapAllowEntry[]; dropped: CodemapAllowEntry[] } {
   const mainlineEdgeKeys = new Set(moduleEdgesOf(model).map((edge) => edgeKeyOf(edge.from, edge.to)));
+  const ceilings = fileImportCeilingsOf(model);
   const isOnMainline = (entry: CodemapAllowEntry) => mainlineEdgeKeys.has(edgeKeyOf(entry.from, entry.to));
   const isDroppable = (entry: CodemapAllowEntry) => !isOnMainline(entry) && (entry.origin === 'seeded' || entry.landed);
-  const kept = allow.filter((entry) => !isDroppable(entry)).map((entry) => (entry.origin === 'allowed' && isOnMainline(entry) ? { ...entry, landed: true } : entry));
+  const kept = allow.filter((entry) => !isDroppable(entry)).map((entry): CodemapAllowEntry => {
+    if (!isOnMainline(entry)) return entry;
+    const fileImportCeiling = ratchetedCeilingOf(entry, ceilings.get(edgeKeyOf(entry.from, entry.to)));
+    return entry.origin === 'allowed' ? { ...entry, landed: true, fileImportCeiling } : { ...entry, fileImportCeiling };
+  });
   return { allow: kept, dropped: allow.filter(isDroppable) };
+}
+
+interface CeilingBreach {
+  from: string;
+  to: string;
+  fileImportCeiling: number;
+  fileImports: string[];
+}
+
+function ceilingBreachesOf(model: CodemapModel, mainlineModel: CodemapModel, changedPaths: ReadonlySet<string>, allow: readonly CodemapAllowEntry[]): CeilingBreach[] {
+  const judgedImports = judgedModuleImportsOf(model, model.paths);
+  const mainlineImports = judgedModuleImportsOf(mainlineModel, mainlineModel.paths);
+  const importerOf = (fileImport: string) => fileImport.slice(0, fileImport.indexOf(' imports '));
+  return allow.flatMap((entry) => {
+    const key = edgeKeyOf(entry.from, entry.to);
+    const edge = judgedImports.get(key);
+    if (entry.fileImportCeiling === null || !edge || edge.fileImports.length <= entry.fileImportCeiling) return [];
+    const onMainline = new Set(mainlineImports.get(key)?.fileImports ?? []);
+    const addedFileImports = edge.fileImports.filter((fileImport) => changedPaths.has(importerOf(fileImport)) && !onMainline.has(fileImport));
+    if (addedFileImports.length === 0) return [];
+    return [{ from: entry.from, to: entry.to, fileImportCeiling: entry.fileImportCeiling, fileImports: [...addedFileImports, ...edge.fileImports.filter((fileImport) => !addedFileImports.includes(fileImport))] }];
+  });
 }
 
 function unresolvedImportsOf(model: CodemapModel, changedPaths: ReadonlySet<string>): string[] {
@@ -625,6 +683,7 @@ function unjudgedPathsOf(model: CodemapModel, changedPaths: ReadonlySet<string>)
 
 interface CheckFindings {
   unallowedEdges: readonly UnallowedEdge[];
+  ceilingBreaches: readonly CeilingBreach[];
   unjudgedPaths: readonly string[];
   unresolvedImports: readonly string[];
   newCycles: readonly NewCycle[];
@@ -634,11 +693,11 @@ interface CheckFindings {
 }
 
 function isCheckRefusing(findings: CheckFindings): boolean {
-  return findings.unallowedEdges.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0 || findings.staleExports.length > 0;
+  return findings.unallowedEdges.length > 0 || findings.ceilingBreaches.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0 || findings.staleExports.length > 0;
 }
 
 function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string | null): string {
-  const { unallowedEdges, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges } = findings;
+  const { unallowedEdges, ceilingBreaches, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges } = findings;
   const noteLines = exportNotes.map((note) => `  ${note}`);
   const staleLines = staleAllowedEdges.length > 0 ? [`  allowed module imports this branch no longer has, which codemap shrink drops once mainline lacks them too: ${cappedList(staleAllowedEdges.map((edge) => `${edge.from} -> ${edge.to}`))}`] : [];
   if (!isCheckRefusing(findings)) return [...noteLines, ...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
@@ -646,20 +705,25 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
     `  ${edge.from} -> ${edge.to} is not allowed for this repo; ask the operator to allow it (glimmervoid codemap allow <repo> ${edge.from} ${edge.to} --reason <why>)`,
     ...edge.fileImports.slice(0, CODEMAP_TUNABLES.listedPathsPerSection).map((fileImport) => `    ${fileImport}`),
   ]);
+  const breachLines = ceilingBreaches.flatMap((breach) => [
+    `  ${breach.from} -> ${breach.to} is a crossed wire held to ${breach.fileImportCeiling} file imports and now has ${breach.fileImports.length}; remove the import, or move the code both modules need into a module below them`,
+    ...breach.fileImports.slice(0, CODEMAP_TUNABLES.listedPathsPerSection).map((fileImport) => `    ${fileImport}`),
+  ]);
   const unjudgedLine = unjudgedPaths.length > 0 ? [`  changed files over the size or count caps, so their imports cannot be judged: ${cappedList(unjudgedPaths)}`] : [];
   const unresolvedLine = unresolvedImports.length > 0 ? [`  relative imports that resolve to no file in the repo, so they cannot be judged: ${cappedList(unresolvedImports)}`] : [];
   const cycleLines = newCycles.map((cycle) => `  module cycle ${cycle.modules.join(', ')} holds module imports mainline does not have, which no allow excuses; break the cycle: ${cycle.newEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ')}`);
   const edgeNames = unallowedEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ');
   const summaryParts = [
     edgeNames ? `adds module imports the operator has not allowed: ${edgeNames}` : '',
+    ceilingBreaches.length > 0 ? `grows crossed wires past their ceiling: ${ceilingBreaches.map((breach) => `${breach.from} -> ${breach.to}`).join(', ')}` : '',
     unjudgedPaths.length > 0 ? `changes ${unjudgedPaths.length} files too large to judge` : '',
     unresolvedImports.length > 0 ? `has ${unresolvedImports.length} relative imports that resolve to no file` : '',
     newCycles.length > 0 ? `has ${newCycles.length} module cycles mainline does not have` : '',
     staleExports.length > 0 ? `has ${staleExports.length} out of date exports` : '',
   ].filter(Boolean);
   const exportLines = staleExports.map((refusal) => `  ${refusal}`);
-  return [...edgeLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
+  return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, ceilingBreachesOf, seededSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

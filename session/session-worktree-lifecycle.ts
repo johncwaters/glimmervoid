@@ -31,7 +31,7 @@ import { createWorktreeBranchSync } from "./worktree/worktree-branch-sync.ts";
 import { clock } from '../shared/clock.ts';
 import { isCoherenceJournalPath } from "../server/git/core/git-changed-paths-core.ts";
 
-type MergeGate = (tree: { sig: string; dirty: boolean } | null) => Promise<StandardsGateVerdict> | StandardsGateVerdict;
+type MergeGate = (tree: { sig: string; dirty: boolean; headSha: string | null } | null) => Promise<StandardsGateVerdict> | StandardsGateVerdict;
 
 const WORKTREE_CHECK_DEBOUNCE_MS = 400;
 const GIT_NOT_FOUND_EXIT_CODE = 1;
