@@ -15,6 +15,8 @@ const UNDELIVERED_TEXT_BY_SETTLEMENT: Record<Exclude<DeliverySettlement, "submit
   dropped: "The session ended before the message was sent.",
 };
 const RESTARTED_TEXT = "The session restarted before the message was sent.";
+const RESTARTED_BEFORE_TURN_TEXT = "The session restarted before a turn started for this message. Cancel to get the text back.";
+const NOT_TAKEN_TEXT = "The agent did not start a turn for this message. Open Terminal to see why, or Cancel to get the text back.";
 
 interface ChatOutboxPort {
   canTakeMessage(): boolean;
@@ -69,8 +71,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   }
 
   function awaitTurnFor(entryId: string): void {
-    if (port.reportsTurnStarts()) return;
-    unrecordedTimerByEntryId.set(entryId, unrefTimer(setTimeout(() => clearSubmitted(entryId), SUBMITTED_UNRECORDED_MAX_MS)));
+    unrecordedTimerByEntryId.set(entryId, unrefTimer(setTimeout(() => settleUnstartedTurn(entryId), SUBMITTED_UNRECORDED_MAX_MS)));
   }
 
   function noteTurnTaken(): void {
@@ -80,10 +81,14 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     drain();
   }
 
-  function clearSubmitted(entryId: string): void {
+  function settleUnstartedTurn(entryId: string): void {
     unrecordedTimerByEntryId.delete(entryId);
     const isStillSubmitted = outboxEntries.some((entry) => entry.entryId === entryId && entry.state === "submitted");
     if (!isStillSubmitted) return;
+    if (port.reportsTurnStarts()) {
+      replaceEntry(entryId, { state: "failed", failure: NOT_TAKEN_TEXT });
+      return;
+    }
     publish(outboxEntries.filter((entry) => entry.entryId !== entryId));
     drain();
   }
@@ -97,7 +102,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   }
 
   function drain(): void {
-    if (outboxEntries.some((entry) => entry.state === "sending" || entry.state === "failed")) return;
+    if (outboxEntries.some((entry) => entry.state !== "held")) return;
     const nextEntry = outboxEntries.find((entry) => entry.state === "held");
     if (!nextEntry || !port.canTakeMessage()) return;
     if (port.isDeliveryInFlight()) {
@@ -127,10 +132,15 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     return cancelledEntries;
   }
 
+  function carriedEntryOf(entry: ChatOutboxEntry): ChatOutboxEntry {
+    if (entry.state === "sending") return { ...entry, state: "failed", failure: RESTARTED_TEXT };
+    if (entry.state !== "submitted") return entry;
+    return { ...entry, state: "failed", failure: RESTARTED_BEFORE_TURN_TEXT };
+  }
+
   function adopt(carriedEntries: readonly ChatOutboxEntry[]): void {
     if (carriedEntries.length === 0) return;
-    const unsentEntries = carriedEntries.filter((entry) => entry.state !== "submitted");
-    publish(unsentEntries.map((entry) => (entry.state === "sending" ? { ...entry, state: "failed", failure: RESTARTED_TEXT } : entry)));
+    publish(carriedEntries.map(carriedEntryOf));
     drain();
   }
 

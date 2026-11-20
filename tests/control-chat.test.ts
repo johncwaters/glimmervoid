@@ -204,7 +204,7 @@ test('Chat switches the model between turns, keeping the conversation and the se
   }
 });
 
-test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, and clears only when a turn starts for it', async (t) => {
+test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, clears when a turn starts for it, and fails a message no turn takes while holding the next', async (t) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-ready-by-hook-'));
   const writes: string[] = [];
   const session = new Session({ id: 'booting', name: 'booting', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
@@ -234,12 +234,25 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   await advance(1_000);
   assert.ok(writes.join('').includes('Sent while the dialog is up'));
   assert.deepEqual(outboxOf(), ['Sent while the dialog is up:submitted']);
-  await advance(60_000);
-  assert.deepEqual(outboxOf(), ['Sent while the dialog is up:submitted']);
+  await advance(10_000);
   session.transition('new_output');
   assert.deepEqual(outboxOf(), []);
   session.transition('task_complete');
   session.transition('user_dismiss');
+
+  writes.length = 0;
+  session.queueChatMessage('Eaten by a mid-session dialog');
+  session.queueChatMessage('Sent behind the eaten one');
+  await advance(1_000);
+  const replacement = new Session({ id: 'recreated', name: 'recreated', path: projectPath, ptySpawn: () => capturingPty([]) });
+  t.after(() => replacement.destroy());
+  replacement.adoptChatOutbox(session.chatOutboxEntries);
+  assert.deepEqual(replacement.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`), ['Eaten by a mid-session dialog:failed', 'Sent behind the eaten one:held']);
+  await advance(19_000);
+  assert.deepEqual(outboxOf(), ['Eaten by a mid-session dialog:failed', 'Sent behind the eaten one:held']);
+  assert.equal(writes.join('').includes('Sent behind the eaten one'), false);
+  const [notTaken] = session.toSnapshot().chatOutbox;
+  assert.deepEqual(session.cancelChatMessage(notTaken.entryId).map((entry) => entry.text), ['Eaten by a mid-session dialog', 'Sent behind the eaten one']);
 
   session.queueChatMessage('Sent before a child report');
   await advance(1_000);
