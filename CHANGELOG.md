@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.10] - 2026-11-19
+
 ### Fixed
 
 - **A Glimmervoid Cloud host still wakes when its zone runs out of room.** When Google Cloud refuses to resume a sleeping host because its zone has no capacity for that machine type, the doorman now starts it fresh instead of waiting out the whole wake: it stops the host and starts it on the first of n2d-standard-2, t2d-standard-2, n2-standard-2 and e2-standard-2 with room, keeping every disk. The wake page says the zone had no room and that open sessions restart while files stay. A host the doorman manages needs the stop, set machine type and zone operation read permissions to do this.
