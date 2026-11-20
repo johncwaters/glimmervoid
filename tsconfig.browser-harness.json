@@ -14,6 +14,7 @@
   },
   "include": [
     "harness/browser/**/*.ts",
+    "public/globals.d.ts",
     "server/ws-module.d.ts",
     "server/fs-native-extensions-module.d.ts"
   ],

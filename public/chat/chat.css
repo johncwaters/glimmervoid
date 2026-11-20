@@ -566,6 +566,15 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 }
 
 .chat-rail-meter-fill { display: block; height: 100%; background: var(--text-muted); }
+.chat-rail-field[data-level="ok"] .chat-rail-meter-fill { background: var(--state-running); }
+.chat-rail-field[data-level="warn"] .chat-rail-meter-fill { background: var(--state-waiting); }
+.chat-rail-field[data-level="hot"] .chat-rail-meter-fill { background: var(--state-failed); }
+.chat-rail-field[data-level="hot"] .chat-rail-text { color: var(--state-failed); }
+.chat-rail-group[data-group="identity"] { gap: 7px; }
+.chat-rail-agent { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--agent-brand, var(--text-head)); }
+.chat-rail-agent[hidden] { display: none; }
+.chat-rail-agent svg { width: 100%; height: 100%; }
+.chat-rail-agent[data-monogram] { width: auto; height: auto; padding: 0 2px; font-weight: 700; border: 1px solid currentColor; border-radius: 2px; }
 
 .chat-composer-slot {
   position: relative;

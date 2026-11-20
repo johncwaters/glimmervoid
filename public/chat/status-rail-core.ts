@@ -9,7 +9,7 @@ export interface RunningSubagent {
 }
 
 export type RailField =
-  | { kind: 'model'; name: string; effort: string | null; canChange: boolean }
+  | { kind: 'model'; name: string; effort: string | null; canChange: boolean; agent: string | null }
   | { kind: 'plan'; label: '5h' | 'wk'; pct: number; resetsInMs: number | null }
   | { kind: 'context'; tokens: number; window: number }
   | { kind: 'callCost'; usd: number }
@@ -25,6 +25,7 @@ interface RailInput {
   subagents: readonly RunningSubagent[];
   nowMs: number;
   canChangeModel?: boolean;
+  agent?: string | null;
 }
 
 const DEFAULT_OUTPUT_STYLE = 'default';
@@ -39,10 +40,10 @@ export function planVendorOfAgent(agent: string | null | undefined): PlanLimitsV
   return PLAN_VENDOR_BY_AGENT[agent] ?? null;
 }
 
-function modelFieldOf(meter: SessionMeterReading | null, selection: ModelSelection | null, canChange: boolean): RailField | null {
+function modelFieldOf(meter: SessionMeterReading | null, selection: ModelSelection | null, canChange: boolean, agent: string | null): RailField | null {
   const name = meter?.model ?? selection?.model ?? null;
   if (name === null) return null;
-  return { kind: 'model', name, effort: meter?.effort ?? null, canChange };
+  return { kind: 'model', name, effort: meter?.effort ?? null, canChange, agent };
 }
 
 function hasWindowReset(resetsAtMs: number | null, nowMs: number): boolean {
@@ -78,9 +79,9 @@ function modeFieldOf(meter: SessionMeterReading | null): RailField | null {
   return { kind: 'mode', name: outputStyle };
 }
 
-export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, subagents, nowMs, canChangeModel = false }: RailInput): RailField[] {
+export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, subagents, nowMs, canChangeModel = false, agent = null }: RailInput): RailField[] {
   const workFields: RailField[] = subagents.length > 0 ? [{ kind: 'subagents', agents: subagents }] : costFieldsOf(meter, sessionCostUSD);
-  const fields = [modelFieldOf(meter, selection, canChangeModel), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...workFields, modeFieldOf(meter)];
+  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...workFields, modeFieldOf(meter)];
   return fields.filter((field): field is RailField => field !== null);
 }
 
@@ -114,4 +115,16 @@ export function railFillPctOf(field: RailField): number | null {
   if (field.kind === 'plan') return Math.min(100, Math.max(0, field.pct));
   if (field.kind === 'context') return Math.min(100, Math.max(0, (field.tokens / field.window) * 100));
   return null;
+}
+
+type RailLevel = 'ok' | 'warn' | 'hot';
+
+const RAIL_WARN_PCT = 50;
+const RAIL_HOT_PCT = 80;
+
+export function railLevelOf(fillPct: number): RailLevel {
+  const shownPct = Math.round(fillPct);
+  if (shownPct >= RAIL_HOT_PCT) return 'hot';
+  if (shownPct >= RAIL_WARN_PCT) return 'warn';
+  return 'ok';
 }

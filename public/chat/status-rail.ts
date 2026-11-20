@@ -1,6 +1,7 @@
 import { el } from '../dom-helpers.ts';
 import { createPressable } from '../ui/pressable.ts';
-import { railFillPctOf, railTextOf } from './status-rail-core.ts';
+import { paintAgentMark } from '../session-card/agent-mark.ts';
+import { railFillPctOf, railLevelOf, railTextOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
 
 type RailGroup = 'limits' | 'work';
@@ -27,6 +28,7 @@ function railFieldElementOf(field: RailField): HTMLElement {
   fieldElement.append(el('span', 'chat-rail-text', railTextOf(field)));
   const fillPct = railFillPctOf(field);
   if (fillPct === null) return fieldElement;
+  fieldElement.dataset.level = railLevelOf(fillPct);
   const meter = el('span', 'chat-rail-meter');
   const fill = el('span', 'chat-rail-meter-fill');
   fill.style.width = `${fillPct}%`;
@@ -49,6 +51,8 @@ function railGroupElementsOf(fields: readonly RailField[]): HTMLElement[] {
 function createModelField(): { element: HTMLElement; show(field: RailField | undefined): void } {
   const element = el('span', 'chat-rail-group');
   element.dataset.group = 'identity';
+  const agentMark = el('span', 'chat-rail-agent');
+  agentMark.hidden = true;
   const modelText = el('span', 'chat-rail-field');
   modelText.dataset.kind = 'model';
   const modelButton = createPressable('chat-rail-field chat-rail-model');
@@ -57,10 +61,11 @@ function createModelField(): { element: HTMLElement; show(field: RailField | und
   modelButton.addEventListener('click', () => {
     modelButton.dispatchEvent(new CustomEvent('chat-change-model', { bubbles: true, composed: true }));
   });
-  element.append(modelText, modelButton);
+  element.append(agentMark, modelText, modelButton);
   const show = (field: RailField | undefined) => {
     element.hidden = field?.kind !== 'model';
     if (field?.kind !== 'model') return;
+    paintAgentMark(agentMark, field.agent);
     const modelName = railTextOf(field);
     if (modelText.textContent !== modelName) modelText.textContent = modelName;
     if (modelButton.textContent !== modelName) modelButton.textContent = modelName;

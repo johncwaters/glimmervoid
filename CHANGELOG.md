@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Chat status row under the message box shows the agent's logo and colors its meters.** The model name now starts with the session agent's mark, in the agent's brand color where it has one. The plan usage and context bars fill green under 50%, amber from 50% and red from 80%, and at 80% or more the reading itself turns red, so a session close to a limit stands out at a glance.
 - **Coherence 1.15.0 in development.** The `@posthog/coherence` dev dependency moves from 1.14.0 to 1.15.0, which adds peer repositories, a `testSkip` setup key and a Components view that reads each component as its spec. No config or spec change was needed.
 
 ### Fixed

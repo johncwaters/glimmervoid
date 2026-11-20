@@ -36,7 +36,7 @@ const HARNESS_NOW_MS = Date.now();
 const EXAMPLE_METER = { model: 'Example Large 2', effort: 'medium', contextTokens: 167_000, contextWindow: 300_000, callCostUSD: 0.0334, outputStyle: 'Explanatory' };
 const EXAMPLE_PLAN_LIMITS = { fiveHour: { pct: 12, resetsAtMs: HARNESS_NOW_MS + 2 * 3_600_000 }, sevenDay: { pct: 44, resetsAtMs: HARNESS_NOW_MS + 3.4 * 86_400_000 } };
 function showExampleRail(subagents: readonly RunningSubagent[]): void {
-  chatView.showRail(railFieldsOf({ meter: EXAMPLE_METER, selection: null, planLimits: EXAMPLE_PLAN_LIMITS, sessionCostUSD: 186.39, subagents, nowMs: HARNESS_NOW_MS }));
+  chatView.showRail(railFieldsOf({ meter: EXAMPLE_METER, selection: null, planLimits: EXAMPLE_PLAN_LIMITS, sessionCostUSD: 186.39, subagents, nowMs: HARNESS_NOW_MS, agent: 'claude-code' }));
 }
 showExampleRail([]);
 const LIVE_PAGE_RECORDS = 25;

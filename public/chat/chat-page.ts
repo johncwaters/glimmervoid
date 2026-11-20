@@ -382,7 +382,8 @@ function buildChat(sessionId: string): MountedChat {
   let runningSubagents: readonly RunningSubagent[] = [];
   const showRail = () => {
     const isMachineLogin = sessionAccountIdOf(sessionId) === null;
-    const vendor = isMachineLogin ? planVendorOfAgent(sessionUIs.get(sessionId)?.agent) : null;
+    const agent = sessionUIs.get(sessionId)?.agent ?? null;
+    const vendor = isMachineLogin ? planVendorOfAgent(agent) : null;
     chatView.showRail(railFieldsOf({
       meter: sessionMeterOf(sessionId),
       selection: sessionModelSelectionOf(sessionId),
@@ -391,6 +392,7 @@ function buildChat(sessionId: string): MountedChat {
       subagents: runningSubagents,
       nowMs: clock.nowMs(),
       canChangeModel: canSwitchSessionModel(sessionId),
+      agent,
     }));
   };
   showRail();
