@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.9] - 2026-11-19
+
 ### Added
 
 - **Export the code map setup into a repo.** `codemap setup <repo> --exports lint,map` lets agents run `codemap export lint`, which writes a dependency-cruiser config (`.dependency-cruiser.cjs`) refusing any module import the setup does not allow, so CI can enforce the boundaries without Glimmervoid, and `codemap export map`, which writes `CODEMAP.md` with the map of the committed source. With an export on, a gated `codemap check` refuses a push whose exported file is missing or out of date, and an export never overwrites a file it did not write.
