@@ -18,7 +18,7 @@ import { agentLabel } from '../arena/lineup-core.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
-import { sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
+import { canSwitchSessionModel, openSwitchModelDialog, sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
 import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
@@ -370,6 +370,7 @@ function buildChat(sessionId: string): MountedChat {
       sessionCostUSD: sessionCostOf(sessionId),
       subagents: runningSubagents,
       nowMs: clock.nowMs(),
+      canChangeModel: canSwitchSessionModel(sessionId),
     }));
   };
   showRail();
@@ -618,6 +619,7 @@ function buildChat(sessionId: string): MountedChat {
     resolveCard({ ...card, resolution: { answer: value } });
   };
 
+  root.addEventListener('chat-change-model', () => openSwitchModelDialog(sessionId));
   root.addEventListener('chat-attach', (event) => {
     const files = attachedFilesOf(event);
     const uploadingCount = uploadingCountBySessionId.get(sessionId) ?? 0;

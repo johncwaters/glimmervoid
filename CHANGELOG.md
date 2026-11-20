@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings shows agent accounts as rows.** Under General, each agent gets its mark, name and a compact Add account button, and each account is one row with a check or warning mark, its email, a DEFAULT tag and its actions, in the same style as Ready to commit as you. Each lane is one row with its account picker on the right, and the follow-default choice now reads Default account.
 - **A packs reference for pack authors.** `docs/packs-reference.md` lists every `pack.json` field, panel bridge message, panel action, prFlows command output and `glimmervoid packs` command, generated from the same schemas Glimmervoid checks packs with, and `docs/packs.md` explains approval and what a pack can and cannot reach. Fields that had no description in `glimmervoid packs guide --schema` and the published `pack.v1.json` now have one.
 - **The board properties panel drops the divider lines around More.** More and the Add note, Frame and Delete row now sit in the panel without a rule above or below them.
+- **Change the model from the Chat status row.** Click the model name under the Chat message box to open Change model for that session; a session that cannot switch models shows the name as plain text. The row also lines up: the model sits at the left, the other readings sit together at the right with even gaps, and the row is centered between its divider and the bottom edge of the message box.
 
 ### Fixed
 

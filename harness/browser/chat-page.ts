@@ -71,8 +71,14 @@ async function verifyChatModelSwitch(page: Page): Promise<void> {
   await dialog.getByRole('button', { name: 'Switch', exact: true }).click();
   await dialog.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
-  await page.locator('button[data-action="session-menu"]:visible').click();
-  await page.getByRole('menuitem', { name: 'Change model' }).click();
+  const railModelButton = page.locator('.session-chat .chat-rail').getByRole('button', { name: 'Change model' });
+  await railModelButton.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const [railBottom, composerInnerBottom] = await page.locator('.session-chat .chat-composer').evaluate((composer) => {
+    const rail = composer.querySelector('.chat-rail');
+    return [rail?.getBoundingClientRect().bottom ?? 0, composer.getBoundingClientRect().bottom - composer.clientTop];
+  });
+  assert.ok(Math.abs(railBottom - composerInnerBottom) < 1, `the status row runs to the composer's bottom edge, so its text centers under the divider (row ${railBottom}, edge ${composerInnerBottom})`);
+  await railModelButton.click();
   assert.equal(await page.getByRole('dialog', { name: 'Change model' }).locator('select[aria-label="Model"]').inputValue(), otherModel, 'the dialog shows the model the session switched to');
   await page.keyboard.press('Escape');
   assert.equal(await composerInput.inputValue(), 'draft kept across the switch', 'an unsent draft survives the restart a model switch causes');

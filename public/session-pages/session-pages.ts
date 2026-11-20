@@ -1,4 +1,5 @@
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
+import { isModalOpen } from '../session-card/modal.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 
@@ -122,7 +123,7 @@ function listenForEscape(element: HTMLElement) {
   if (hostsWithEscape.has(element)) return;
   hostsWithEscape.add(element);
   element.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isRealInputOwningKey(event)) return;
+    if (event.key !== 'Escape' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isRealInputOwningKey(event) || isModalOpen()) return;
     if (!openPage) return;
     if (!openPage.page.canStepBack()) openPage.page.didCloseByOperator?.();
     stepBackInSessionPage();

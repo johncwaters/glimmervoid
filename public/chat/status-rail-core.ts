@@ -9,7 +9,7 @@ export interface RunningSubagent {
 }
 
 export type RailField =
-  | { kind: 'model'; name: string; effort: string | null }
+  | { kind: 'model'; name: string; effort: string | null; canChange: boolean }
   | { kind: 'plan'; label: '5h' | 'wk'; pct: number; resetsInMs: number | null }
   | { kind: 'context'; tokens: number; window: number }
   | { kind: 'callCost'; usd: number }
@@ -24,6 +24,7 @@ interface RailInput {
   sessionCostUSD: number | null;
   subagents: readonly RunningSubagent[];
   nowMs: number;
+  canChangeModel?: boolean;
 }
 
 const DEFAULT_OUTPUT_STYLE = 'default';
@@ -38,10 +39,10 @@ export function planVendorOfAgent(agent: string | null | undefined): PlanLimitsV
   return PLAN_VENDOR_BY_AGENT[agent] ?? null;
 }
 
-function modelFieldOf(meter: SessionMeterReading | null, selection: ModelSelection | null): RailField | null {
+function modelFieldOf(meter: SessionMeterReading | null, selection: ModelSelection | null, canChange: boolean): RailField | null {
   const name = meter?.model ?? selection?.model ?? null;
   if (name === null) return null;
-  return { kind: 'model', name, effort: meter?.effort ?? null };
+  return { kind: 'model', name, effort: meter?.effort ?? null, canChange };
 }
 
 function hasWindowReset(resetsAtMs: number | null, nowMs: number): boolean {
@@ -77,9 +78,9 @@ function modeFieldOf(meter: SessionMeterReading | null): RailField | null {
   return { kind: 'mode', name: outputStyle };
 }
 
-export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, subagents, nowMs }: RailInput): RailField[] {
+export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, subagents, nowMs, canChangeModel = false }: RailInput): RailField[] {
   const workFields: RailField[] = subagents.length > 0 ? [{ kind: 'subagents', agents: subagents }] : costFieldsOf(meter, sessionCostUSD);
-  const fields = [modelFieldOf(meter, selection), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...workFields, modeFieldOf(meter)];
+  const fields = [modelFieldOf(meter, selection, canChangeModel), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...workFields, modeFieldOf(meter)];
   return fields.filter((field): field is RailField => field !== null);
 }
 

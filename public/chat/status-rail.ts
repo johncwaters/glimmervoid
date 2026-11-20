@@ -1,13 +1,13 @@
 import { el } from '../dom-helpers.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { railFillPctOf, railTextOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
 
-type RailGroup = 'identity' | 'limits' | 'work';
+type RailGroup = 'limits' | 'work';
 
-const RAIL_GROUP_ORDER: readonly RailGroup[] = ['identity', 'limits', 'work'];
+const RAIL_GROUP_ORDER: readonly RailGroup[] = ['limits', 'work'];
 
-const RAIL_GROUP_BY_KIND: Readonly<Record<RailField['kind'], RailGroup>> = {
-  model: 'identity',
+const RAIL_GROUP_BY_KIND: Readonly<Record<Exclude<RailField['kind'], 'model'>, RailGroup>> = {
   plan: 'limits',
   context: 'limits',
   callCost: 'work',
@@ -37,7 +37,7 @@ function railFieldElementOf(field: RailField): HTMLElement {
 
 function railGroupElementsOf(fields: readonly RailField[]): HTMLElement[] {
   return RAIL_GROUP_ORDER.flatMap((group) => {
-    const fieldsInGroup = fields.filter((field) => RAIL_GROUP_BY_KIND[field.kind] === group);
+    const fieldsInGroup = fields.filter((field) => field.kind !== 'model' && RAIL_GROUP_BY_KIND[field.kind] === group);
     if (fieldsInGroup.length === 0) return [];
     const groupElement = el('span', 'chat-rail-group');
     groupElement.dataset.group = group;
@@ -46,13 +46,42 @@ function railGroupElementsOf(fields: readonly RailField[]): HTMLElement[] {
   });
 }
 
+function createModelField(): { element: HTMLElement; show(field: RailField | undefined): void } {
+  const element = el('span', 'chat-rail-group');
+  element.dataset.group = 'identity';
+  const modelText = el('span', 'chat-rail-field');
+  modelText.dataset.kind = 'model';
+  const modelButton = createPressable('chat-rail-field chat-rail-model');
+  modelButton.dataset.kind = 'model';
+  modelButton.setAttribute('aria-haspopup', 'dialog');
+  modelButton.addEventListener('click', () => {
+    modelButton.dispatchEvent(new CustomEvent('chat-change-model', { bubbles: true, composed: true }));
+  });
+  element.append(modelText, modelButton);
+  const show = (field: RailField | undefined) => {
+    element.hidden = field?.kind !== 'model';
+    if (field?.kind !== 'model') return;
+    const modelName = railTextOf(field);
+    if (modelText.textContent !== modelName) modelText.textContent = modelName;
+    if (modelButton.textContent !== modelName) modelButton.textContent = modelName;
+    modelButton.setAttribute('aria-label', `Change model, ${modelName}`);
+    modelText.hidden = field.canChange;
+    modelButton.hidden = !field.canChange;
+  };
+  return { element, show };
+}
+
 export function createStatusRail(): StatusRail {
   const element = el('div', 'chat-rail');
   element.setAttribute('aria-label', 'Session status');
   const fieldsElement = el('div', 'chat-rail-fields');
+  const modelField = createModelField();
+  const readingsElement = el('span', 'chat-rail-readings');
+  fieldsElement.append(modelField.element, readingsElement);
   element.append(fieldsElement);
   const show = (fields: readonly RailField[]) => {
-    fieldsElement.replaceChildren(...railGroupElementsOf(fields));
+    modelField.show(fields.find((field) => field.kind === 'model'));
+    readingsElement.replaceChildren(...railGroupElementsOf(fields));
   };
   return { element, show };
 }
