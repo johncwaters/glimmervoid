@@ -9,6 +9,8 @@ const CodemapTarget = z.string({ error: 'target must be a string' })
 
 const CODEMAP_STATES = ['current', 'behind', 'failed'] as const;
 export const CODEMAP_OVERLAY_LAYERS = ['session', 'spec', 'none'] as const;
+export const CODEMAP_EXPORT_KINDS = ['lint', 'map'] as const;
+export type CodemapExportKind = (typeof CODEMAP_EXPORT_KINDS)[number];
 export const CODEMAP_SPEC_SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
 
 export const CodemapStatus = z.strictObject({
@@ -55,6 +57,7 @@ export const CodemapSetup = z.strictObject({
   gate: z.boolean(),
   modules: z.array(CodemapModuleName),
   allow: z.array(CodemapAllowEntry),
+  exports: z.array(z.enum(CODEMAP_EXPORT_KINDS)),
 });
 export type CodemapSetup = z.infer<typeof CodemapSetup>;
 
@@ -86,6 +89,7 @@ export const AgentCodemapRequest = z.discriminatedUnion('sub', [
   z.strictObject({ sub: z.literal('map') }),
   z.strictObject({ sub: z.literal('check') }),
   z.strictObject({ sub: z.literal('shrink') }),
+  z.strictObject({ sub: z.literal('export'), kind: z.enum(CODEMAP_EXPORT_KINDS, { error: `kind must be one of ${CODEMAP_EXPORT_KINDS.join(', ')}` }) }),
   z.strictObject({ sub: z.literal('allow'), from: CodemapModuleName, to: CodemapModuleName }),
   z.strictObject({ sub: z.literal('where'), target: CodemapTarget }),
   z.strictObject({ sub: z.literal('overlay'), layer: z.enum(CODEMAP_OVERLAY_LAYERS, { error: `layer must be one of ${CODEMAP_OVERLAY_LAYERS.join(', ')}` }), id: CodemapTarget.optional() }),

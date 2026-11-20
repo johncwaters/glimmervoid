@@ -236,12 +236,11 @@ export function buildImportGraph({
   return { dependentsByPath };
 }
 
+export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$';
+const TEST_PATH = new RegExp(TEST_PATH_PATTERN);
+
 export function isTestPath(repoPath: string): boolean {
-  const segments = repoPath.split('/');
-  if (segments.slice(0, -1).some((segment) => segment === 'tests' || segment === 'test' || segment === '__tests__')) return true;
-  const fileName = segments.at(-1) ?? '';
-  if (fileName.endsWith('.py') && (fileName.startsWith('test_') || fileName.endsWith('_test.py') || fileName === 'conftest.py')) return true;
-  return fileName.includes('.test.') || fileName.includes('.spec.');
+  return TEST_PATH.test(repoPath);
 }
 
 function collectTransitiveDependents(graph: ImportGraph, changedPath: string, maxDepth: number): Set<string> {

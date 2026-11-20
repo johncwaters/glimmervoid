@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 
-import type { CodemapAllowEntry, CodemapExtract, CodemapModuleEdge, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
+import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModuleEdge, CodemapSetup, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
-import { isTestPath } from './import-graph-core.ts';
+import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 
 export const CODEMAP_TUNABLES = Object.freeze({
   maxFilesPerModule: 40,
@@ -186,10 +186,8 @@ function cappedList(names: readonly string[]): string {
   return names.length > limit ? `${listed} and ${names.length - limit} more` : listed;
 }
 
-function mapTextOf(model: CodemapModel | null, status: CodemapStatus, repoName: string): string {
-  const lines = [statusLineOf(repoName, status)];
-  if (!model) return lines.join('\n');
-  lines.push(`${model.modules.length} modules, ${model.paths.length} source files, ${model.moduleEdgeCount} module edges, ${model.entranceIndexes.length} entrances (files nothing imports)`);
+function mapBodyLinesOf(model: CodemapModel): string[] {
+  const lines = [`${model.modules.length} modules, ${model.paths.length} source files, ${model.moduleEdgeCount} module edges, ${model.entranceIndexes.length} entrances (files nothing imports)`];
   if (model.skippedPaths.size > 0) lines.push(`${model.skippedPaths.size} source files skipped over the size or count caps, so their imports are missing: ${cappedList([...model.skippedPaths])}`);
   lines.push('modules (file count, imported by N modules): imported modules with file import counts');
   for (const summary of model.modules.slice(0, CODEMAP_TUNABLES.listedModules)) {
@@ -198,8 +196,71 @@ function mapTextOf(model: CodemapModel | null, status: CodemapStatus, repoName: 
   if (model.modules.length > CODEMAP_TUNABLES.listedModules) lines.push(`and ${model.modules.length - CODEMAP_TUNABLES.listedModules} more modules`);
   const cycles = moduleCyclesOf(moduleEdgesOf(model));
   if (cycles.length > 0) lines.push(`module cycles (modules that import each other): ${cycles.map((modules) => modules.join(' <-> ')).join('; ')}`);
-  lines.push('Ask codemap where <path or exported name> for one file, or codemap impact <paths> for what a change reaches.');
-  return lines.join('\n');
+  return lines;
+}
+
+function mapTextOf(model: CodemapModel | null, status: CodemapStatus, repoName: string): string {
+  const statusLine = statusLineOf(repoName, status);
+  if (!model) return statusLine;
+  return [statusLine, ...mapBodyLinesOf(model), 'Ask codemap where <path or exported name> for one file, or codemap impact <paths> for what a change reaches.'].join('\n');
+}
+
+const CODEMAP_EXPORT_FILE_BY_KIND: Record<CodemapExportKind, string> = { lint: '.dependency-cruiser.cjs', map: 'CODEMAP.md' };
+const EXTERNAL_DEPENDENCY_TYPES = ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-bundled', 'npm-no-pkg', 'npm-unknown', 'deprecated', 'core', 'unknown', 'undetermined'];
+const CODEMAP_EXPORT_FORMAT = 1;
+const EXPORT_MARKER = `Written by glimmervoid codemap export, format ${CODEMAP_EXPORT_FORMAT}.`;
+const EXPORT_MARKER_FORMAT = /Written by glimmervoid codemap export, format (\d+)\./;
+
+function exportedMapTextOf(model: CodemapModel): string {
+  const fence = '`'.repeat(3);
+  return ['# Code map', '', `${EXPORT_MARKER} It maps the committed source; with this export on, codemap check refuses a push that leaves it out of date.`, '', `${fence}text`, ...mapBodyLinesOf(model), fence, ''].join('\n');
+}
+
+function isExportWrittenText(text: string): boolean {
+  return EXPORT_MARKER_FORMAT.test(text);
+}
+
+interface ExportVerdict {
+  refusal: string | null;
+  note: string | null;
+}
+
+function exportVerdictOf(kind: CodemapExportKind, committedText: string | null, expectedText: string): ExportVerdict {
+  const fileName = CODEMAP_EXPORT_FILE_BY_KIND[kind];
+  const remedy = `run codemap export ${kind} and commit ${fileName}`;
+  if (committedText === expectedText) return { refusal: null, note: null };
+  if (committedText === null) return { refusal: `${fileName} is missing at the branch head; ${remedy}`, note: null };
+  const committedFormat = EXPORT_MARKER_FORMAT.exec(committedText)?.[1];
+  if (committedFormat !== undefined && Number(committedFormat) !== CODEMAP_EXPORT_FORMAT) return { refusal: null, note: `${fileName} was written in export format ${committedFormat} and this Glimmervoid writes format ${CODEMAP_EXPORT_FORMAT}, so it is not judged; ${remedy}` };
+  return { refusal: `${fileName} at the branch head does not match ${kind === 'map' ? 'its code map' : 'the code map setup'}; ${remedy}`, note: null };
+}
+
+function escapedPatternOf(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function modulePathRuleOf(moduleId: string, moduleIds: readonly string[]): { path?: string; pathNot?: string } {
+  const nestedModules = moduleIds.filter((other) => other !== moduleId && other !== ROOT_MODULE && (moduleId === ROOT_MODULE || other.startsWith(`${moduleId}/`)));
+  const excluded = nestedModules.length > 0 ? { pathNot: `^(${nestedModules.map(escapedPatternOf).join('|')})/` } : {};
+  if (moduleId === ROOT_MODULE) return excluded;
+  return { path: `^${escapedPatternOf(moduleId)}/`, ...excluded };
+}
+
+function lintConfigTextOf(setup: CodemapSetup): string {
+  const moduleIds = [...new Set([ROOT_MODULE, ...setup.modules, ...setup.allow.flatMap((entry) => [entry.from, entry.to])])].sort(compareText);
+  const allowed = [
+    { comment: 'packages and runtime built-ins', from: {}, to: { dependencyTypes: EXTERNAL_DEPENDENCY_TYPES } },
+    { comment: 'type-only imports', from: {}, to: { dependencyTypes: ['type-only'] } },
+    { comment: 'imports from tests', from: { path: TEST_PATH_PATTERN }, to: {} },
+    ...moduleIds.map((moduleId) => ({ comment: `within ${moduleId}`, from: modulePathRuleOf(moduleId, moduleIds), to: modulePathRuleOf(moduleId, moduleIds) })),
+    ...setup.allow.map((entry) => ({
+      comment: entry.origin === 'allowed' ? `${entry.from} -> ${entry.to}, allowed ${entry.date}: ${entry.reason}` : `${entry.from} -> ${entry.to}, on mainline when setup seeded it`,
+      from: modulePathRuleOf(entry.from, moduleIds),
+      to: modulePathRuleOf(entry.to, moduleIds),
+    })),
+  ];
+  const config = { allowed, allowedSeverity: 'error', options: { tsPreCompilationDeps: true, doNotFollow: { path: 'node_modules' } } };
+  return `// ${EXPORT_MARKER}\nmodule.exports = ${JSON.stringify(config, null, 2)};\n`;
 }
 
 function reachingEntrances(model: CodemapModel, startIndex: number): string[] {
@@ -567,17 +628,20 @@ interface CheckFindings {
   unjudgedPaths: readonly string[];
   unresolvedImports: readonly string[];
   newCycles: readonly NewCycle[];
+  staleExports: readonly string[];
+  exportNotes: readonly string[];
   staleAllowedEdges: readonly CodemapModuleEdge[];
 }
 
 function isCheckRefusing(findings: CheckFindings): boolean {
-  return findings.unallowedEdges.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0;
+  return findings.unallowedEdges.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0 || findings.staleExports.length > 0;
 }
 
 function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string | null): string {
-  const { unallowedEdges, unjudgedPaths, unresolvedImports, newCycles, staleAllowedEdges } = findings;
+  const { unallowedEdges, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges } = findings;
+  const noteLines = exportNotes.map((note) => `  ${note}`);
   const staleLines = staleAllowedEdges.length > 0 ? [`  allowed module imports this branch no longer has, which codemap shrink drops once mainline lacks them too: ${cappedList(staleAllowedEdges.map((edge) => `${edge.from} -> ${edge.to}`))}`] : [];
-  if (!isCheckRefusing(findings)) return [...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
+  if (!isCheckRefusing(findings)) return [...noteLines, ...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
   const edgeLines = unallowedEdges.flatMap((edge) => [
     `  ${edge.from} -> ${edge.to} is not allowed for this repo; ask the operator to allow it (glimmervoid codemap allow <repo> ${edge.from} ${edge.to} --reason <why>)`,
     ...edge.fileImports.slice(0, CODEMAP_TUNABLES.listedPathsPerSection).map((fileImport) => `    ${fileImport}`),
@@ -591,9 +655,11 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
     unjudgedPaths.length > 0 ? `changes ${unjudgedPaths.length} files too large to judge` : '',
     unresolvedImports.length > 0 ? `has ${unresolvedImports.length} relative imports that resolve to no file` : '',
     newCycles.length > 0 ? `has ${newCycles.length} module cycles mainline does not have` : '',
+    staleExports.length > 0 ? `has ${staleExports.length} out of date exports` : '',
   ].filter(Boolean);
-  return [...edgeLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
+  const exportLines = staleExports.map((refusal) => `  ${refusal}`);
+  return [...edgeLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

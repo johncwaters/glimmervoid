@@ -34,6 +34,10 @@ async function repoKeyOf(directory: string): Promise<string | null> {
   return fsp.realpath(mainCheckout).catch(() => mainCheckout);
 }
 
+async function fileTextAtCommit(directory: string, sha: string, repoPath: string): Promise<string | null> {
+  return gitText(directory, ['show', `${sha}:${repoPath}`]);
+}
+
 async function worktreeRootOf(directory: string): Promise<string | null> {
   return (await gitText(directory, ['rev-parse', '--show-toplevel']))?.trim() || null;
 }
@@ -139,4 +143,4 @@ async function guessedDefaultBranchOf(directory: string): Promise<string | null>
   return null;
 }
 
-export { changedPathsSince, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf };
+export { changedPathsSince, fileTextAtCommit, guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, ticketTrailersOf, revParse, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf };

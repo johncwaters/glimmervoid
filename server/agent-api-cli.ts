@@ -131,6 +131,7 @@ function codemapBody({ positionals: [sub, ...targets] }: ParsedArguments): Recor
   if (sub === 'where') return { sub, target: joinedText(targets) };
   if (sub === 'impact') return { sub, paths: targets };
   if (sub === 'allow') return { sub, from: targets.at(-2) ?? '', to: targets.at(-1) ?? '' };
+  if (sub === 'export') return { sub, kind: targets[0] ?? '' };
   if (sub === 'overlay') return { sub, layer: targets[0] ?? '', ...(targets[1] ? { id: targets[1] } : {}) };
   return { sub };
 }

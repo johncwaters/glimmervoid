@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CODEMAP_ALLOW_REASON_MAX_CHARS } from '../../shared/contracts/codemap.ts';
-import type { CodemapSetup } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS } from '../../shared/contracts/codemap.ts';
+import type { CodemapExportKind, CodemapSetup } from '../../shared/contracts/codemap.ts';
 import { VerificationSettings } from '../../shared/contracts/verification.ts';
 import { clock } from '../../shared/clock.ts';
 import { isRecord } from '../../shared/coerce.ts';
@@ -20,7 +20,7 @@ import { checkWorktree, shrinkSetup } from './codemap-wiring.ts';
 
 const CODEMAP_CHECK_ID = 'codemap';
 const OPERATOR_CODEMAP_ACTIONS = new Set(['setup', 'allow', 'shrink', 'check']);
-const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] | codemap allow <repo> <from module> <to module> --reason <why> | codemap shrink <repo> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
+const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] [--exports lint,map|none] | codemap allow <repo> <from module> <to module> --reason <why> | codemap shrink <repo> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
 
 type CliOutcome = { ok: true; text: string; exitCode?: number } | { ok: false; error: string };
 
@@ -91,13 +91,22 @@ function writeVerificationGate(configPath: string, verificationKeys: readonly st
 
 async function seededSetup(repoKey: string, mainlineSha: string): Promise<CodemapSetup> {
   const model = buildCodemapModel(await createCodemapClient().extract(repoKey, mainlineSha));
-  return { repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const })) };
+  return { repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const })), exports: [] };
+}
+
+function exportKindsOf(exportsArgument: string): CodemapExportKind[] | null {
+  if (exportsArgument === 'none') return [];
+  const requested = exportsArgument.split(',').map((kind) => kind.trim());
+  const exportKinds = CODEMAP_EXPORT_KINDS.filter((kind) => requested.includes(kind));
+  return exportKinds.length === requested.length ? exportKinds : null;
 }
 
 async function runSetup(args: readonly string[]): Promise<CliOutcome> {
   const [, repoArgument] = positionalsOf(args);
   const gateArgument = optionValue(args, '--gate');
-  if (!repoArgument || (gateArgument !== null && gateArgument !== 'on' && gateArgument !== 'off')) return { ok: false, error: USAGE };
+  const exportsArgument = optionValue(args, '--exports');
+  const exportKinds = exportsArgument === null ? null : exportKindsOf(exportsArgument);
+  if (!repoArgument || (gateArgument !== null && gateArgument !== 'on' && gateArgument !== 'off') || (exportsArgument !== null && exportKinds === null)) return { ok: false, error: USAGE };
   const repoKey = await repoKeyOf(path.resolve(repoArgument));
   if (!repoKey) return { ok: false, error: `${repoArgument} is not inside a git repository` };
   const homeDir = glimmervoidHomeDir(os.homedir(), process.env);
@@ -110,7 +119,7 @@ async function runSetup(args: readonly string[]): Promise<CliOutcome> {
   const isGateOn = (base: CodemapSetup) => (gateArgument === null ? base.gate : gateArgument === 'on');
   const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
     const base = current ?? seeded;
-    return base ? { ...base, gate: isGateOn(base) } : null;
+    return base ? { ...base, gate: isGateOn(base), exports: exportKinds ?? base.exports } : null;
   });
   if (updated.kind !== 'ok') return { ok: false, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup to gate` };
   const { setup } = updated;
@@ -121,7 +130,7 @@ async function runSetup(args: readonly string[]): Promise<CliOutcome> {
     const gateError = writeVerificationGate(config.configPath, await verificationKeysOf(repoKey, config.configPath), setup.gate, checkCommand.command);
     if (gateError) return { ok: false, error: gateError };
   }
-  return { ok: true, text: `code map setup for ${repoKey} at ${setupPathOf(homeDir, repoKey)}: ${setup.modules.length} modules, ${setup.allow.length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}. The repo itself is unchanged.` };
+  return { ok: true, text: `code map setup for ${repoKey} at ${setupPathOf(homeDir, repoKey)}: ${setup.modules.length} modules, ${setup.allow.length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}, exports ${setup.exports.length > 0 ? setup.exports.join(', ') : 'none'}. The repo itself is unchanged.` };
 }
 
 async function runAllow(args: readonly string[]): Promise<CliOutcome> {

@@ -27,6 +27,7 @@ import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
 import { AgentMemoryReply } from '../shared/contracts/memory.ts';
+import { createRequire } from 'node:module';
 import { AgentCodemapReply, CodemapSetup } from '../shared/contracts/codemap.ts';
 import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { clock } from '../shared/clock.ts';
@@ -438,7 +439,7 @@ test('every board just past the picture width still pictures instead of being re
   assert.deepEqual(refusedOffsets, []);
 });
 
-test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones and unseeded module cycles, and refuses an agent allowing a module import', async () => {
+test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones and new module cycles, exports a lint config and CODEMAP.md the setup enables and refuses a stale CODEMAP.md, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
@@ -471,7 +472,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   fs.mkdirSync(path.dirname(setupPath), { recursive: true });
   const allowedOnMainline = { from: '.', to: 'lib', origin: 'allowed', reason: 'main reads the store', date: '2026-01-02', landed: false };
   const awaitingItsBranch = { from: 'lib', to: 'tools', origin: 'allowed', reason: 'a branch not merged yet', date: '2026-01-03', landed: false };
-  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: false, modules: ['lib'], allow: [allowedOnMainline, { from: 'lib', to: '.', origin: 'allowed', reason: 'a cycle once', date: '2026-01-02', landed: true }, awaitingItsBranch] }));
+  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: false, modules: ['lib'], allow: [allowedOnMainline, { from: 'lib', to: '.', origin: 'allowed', reason: 'a cycle once', date: '2026-01-02', landed: true }, awaitingItsBranch], exports: [] }));
   const staleChecked = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'check' } }, credential))).structuredContent);
   assert.match(staleChecked.text, /allowed module imports this branch no longer has, .*: lib -> \./);
   const shrunk = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'shrink' } }, credential))).structuredContent);
@@ -499,7 +500,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   fs.writeFileSync(path.join(branchDir, 'lib', 'back.ts'), "import { data } from '../tools/data.ts';\nexport { data };\n");
   git(['add', '-A'], branchDir);
   git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'tools'], branchDir);
-  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }] }));
+  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }], exports: [] }));
   const branchCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: headSha });
   assert.ok(branchCheck.ok && branchCheck.isRefusing, JSON.stringify(branchCheck));
   assert.match(branchCheck.text, /relative imports that resolve to no file in the repo, so they cannot be judged: tools\/page\.ts imports \.\/gone\.ts$/m);
@@ -507,7 +508,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.deepEqual(judgedImports, ['lib/back.ts imports tools/data.ts', 'tools/data.ts imports lib/data.json', 'tools/named-type.ts imports lib/store.ts', 'tools/test/bridge.ts imports lib/store.ts']);
   assert.doesNotMatch(branchCheck.text, /look\.css|built\.js|nowhere/);
   assert.match(branchCheck.text, /module cycle lib, tools holds .*: lib -> tools, tools -> lib$/m);
-  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }, { from: 'lib', to: 'tools', origin: 'seeded' }, { from: 'tools', to: 'lib', origin: 'allowed', reason: 'tools read the store', date: '2026-11-19', landed: false }] }));
+  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }, { from: 'lib', to: 'tools', origin: 'seeded' }, { from: 'tools', to: 'lib', origin: 'allowed', reason: 'tools read the store', date: '2026-11-19', landed: false }], exports: [] }));
   const allowedCycleCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: headSha });
   assert.ok(allowedCycleCheck.ok, JSON.stringify(allowedCycleCheck));
   assert.match(allowedCycleCheck.text, /module cycle lib, tools holds .*: lib -> tools, tools -> lib$/m);
@@ -518,6 +519,56 @@ test('codemap answers map, where, impact and check from the project mainline com
   git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'readme'], branchDir);
   const inheritedCycleCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: cycleOnMainlineSha });
   assert.ok(inheritedCycleCheck.ok && !inheritedCycleCheck.isRefusing, JSON.stringify(inheritedCycleCheck));
+
+  const exportNotEnabled = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'export', kind: 'map' } }, credential));
+  assert.equal(exportNotEnabled.isError, true);
+  assert.match(JSON.stringify(exportNotEnabled.content), /does not enable the map export; only the operator enables one/);
+  assert.match(JSON.stringify(exportNotEnabled.content), /--exports map\)/);
+  assert.equal(await runOperatorCodemapCli(['setup', projectDir, '--exports', 'lint,map']), 0);
+  fs.writeFileSync(path.join(projectDir, '.dependency-cruiser.cjs'), 'module.exports = { forbidden: [] };\n');
+  const handWrittenRefused = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'export', kind: 'lint' } }, credential));
+  assert.match(JSON.stringify(handWrittenRefused.content), /left \.dependency-cruiser\.cjs in .* alone: it was not written by codemap export/);
+  fs.rmSync(path.join(projectDir, '.dependency-cruiser.cjs'));
+  const outsideFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-outside-')), 'victim.txt');
+  fs.writeFileSync(outsideFile, 'Written by glimmervoid codemap export, format 1.\n');
+  fs.symlinkSync(outsideFile, path.join(projectDir, 'CODEMAP.md'));
+  const symlinkRefused = await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'export', kind: 'map' } }, credential));
+  assert.match(JSON.stringify(symlinkRefused.content), /it is not a regular file/);
+  assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'Written by glimmervoid codemap export, format 1.\n');
+  fs.rmSync(path.join(projectDir, 'CODEMAP.md'));
+  assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).exports, ['lint', 'map']);
+  const lintExport = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'export', kind: 'lint' } }, credential))).structuredContent);
+  assert.match(lintExport.text, /^codemap export wrote \.dependency-cruiser\.cjs into /);
+  const lintConfig = createRequire(import.meta.url)(path.join(projectDir, '.dependency-cruiser.cjs'));
+  assert.equal(lintConfig.allowedSeverity, 'error');
+  assert.ok(lintConfig.allowed.some((rule: { from: { path?: string }; to: { path?: string } }) => rule.from.path === '^lib/' && rule.to.path === '^tools/'), JSON.stringify(lintConfig.allowed));
+  assert.ok(lintConfig.allowed.some((rule: { from: { path?: string; pathNot?: string }; to: { pathNot?: string } }) => rule.from.path === undefined && rule.from.pathNot === '^(lib|tools)/' && rule.to.pathNot === '^(lib|tools)/'), JSON.stringify(lintConfig.allowed));
+  const missingMapCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: cycleOnMainlineSha });
+  assert.ok(missingMapCheck.ok && missingMapCheck.isRefusing, JSON.stringify(missingMapCheck));
+  assert.match(missingMapCheck.text, /CODEMAP\.md is missing at the branch head; run codemap export map/);
+  assert.match(missingMapCheck.text, /\.dependency-cruiser\.cjs is missing at the branch head; run codemap export lint/);
+  const mapExport = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'export', kind: 'map' } }, credential))).structuredContent);
+  assert.match(mapExport.text, /^codemap export wrote CODEMAP\.md into .*It maps the source committed at /);
+  const exportedMap = fs.readFileSync(path.join(projectDir, 'CODEMAP.md'), 'utf8');
+  assert.match(exportedMap, /^# Code map\n\nWritten by glimmervoid codemap export, format 1\.[\s\S]*\nlib \(1, in 1\): none\n/);
+  git(['add', 'CODEMAP.md', '.dependency-cruiser.cjs'], projectDir);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'map'], projectDir);
+  const exportedMapSha = git(['rev-parse', 'HEAD'], projectDir).trim();
+  const currentMapCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: projectDir, mainlineSha: exportedMapSha });
+  assert.ok(currentMapCheck.ok && !currentMapCheck.isRefusing, JSON.stringify(currentMapCheck));
+  fs.copyFileSync(path.join(projectDir, 'CODEMAP.md'), path.join(branchDir, 'CODEMAP.md'));
+  fs.copyFileSync(path.join(projectDir, '.dependency-cruiser.cjs'), path.join(branchDir, '.dependency-cruiser.cjs'));
+  git(['add', 'CODEMAP.md', '.dependency-cruiser.cjs'], branchDir);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'stale map'], branchDir);
+  const staleMapCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: cycleOnMainlineSha });
+  assert.ok(staleMapCheck.ok && staleMapCheck.isRefusing, JSON.stringify(staleMapCheck));
+  assert.match(staleMapCheck.text, /CODEMAP\.md at the branch head does not match its code map/);
+  assert.doesNotMatch(staleMapCheck.text, /dependency-cruiser/);
+  fs.writeFileSync(path.join(branchDir, 'CODEMAP.md'), fs.readFileSync(path.join(branchDir, 'CODEMAP.md'), 'utf8').replace('format 1.', 'format 0.'));
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-am', 'older format'], branchDir);
+  const olderFormatCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: cycleOnMainlineSha });
+  assert.ok(olderFormatCheck.ok && !olderFormatCheck.isRefusing, JSON.stringify(olderFormatCheck));
+  assert.match(olderFormatCheck.text, /CODEMAP\.md was written in export format 0 .*so it is not judged/);
 
   const overlaid = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'session' } }, credential))).structuredContent);
   assert.match(overlaid.text, /^codemap overlay on the map of project: session mcp endpoint changes \d+ files/);

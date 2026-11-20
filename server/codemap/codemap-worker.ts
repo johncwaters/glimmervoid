@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
-import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { isSourcePath, readImportsMap } from '../change-map/core/change-map-core.ts';
 import { buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath } from '../core/import-graph-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
@@ -152,7 +152,8 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   await assertFullClone(repoDir);
   const { stdout: treeText } = await execFileAsync('git', ['ls-tree', '-r', '-z', '--long', sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES });
   const entries = parseTree(treeText);
-  const { kept: sourceEntries, skipped } = partitionByBudget(entries.filter((entry) => isSourcePath(entry.repoPath)));
+  const exportFilePaths = new Set(Object.values(CODEMAP_EXPORT_FILE_BY_KIND));
+  const { kept: sourceEntries, skipped } = partitionByBudget(entries.filter((entry) => isSourcePath(entry.repoPath) && !exportFilePaths.has(entry.repoPath)));
   const skippedPaths = skipped.map((entry) => entry.repoPath).sort();
   markPhase('list tree');
   const reusableScans = await reusableScansOf(repoDir, base, sha);
