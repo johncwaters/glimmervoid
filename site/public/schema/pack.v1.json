@@ -5,6 +5,7 @@
   "type": "object",
   "properties": {
     "$schema": {
+      "description": "Set it to https://glimmervoid.dev/schema/pack.v1.json so an editor completes and checks the file; Glimmervoid ignores it",
       "type": "string"
     },
     "name": {
@@ -19,6 +20,7 @@
       "description": "Your release number, shown to the operator beside the pack; raise it with each change. Approval follows the files, not this number: any changed file asks again"
     },
     "description": {
+      "description": "One or two sentences shown on the pack card in the Packs tab and in the packs guide",
       "type": "string",
       "maxLength": 500
     },
@@ -32,10 +34,12 @@
         "env": [],
         "programs": []
       },
+      "description": "What this machine needs for the pack; while anything is missing the pack stays off here and its card says what, without counting as a problem in the pack",
       "type": "object",
       "properties": {
         "env": {
           "default": [],
+          "description": "Environment variables the Glimmervoid server must have set",
           "type": "array",
           "items": {
             "type": "string",
@@ -44,6 +48,7 @@
         },
         "programs": {
           "default": [],
+          "description": "Programs that must be on the PATH of the Glimmervoid server, such as gh or node",
           "type": "array",
           "items": {
             "type": "string",
@@ -224,7 +229,8 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 80,
-                "pattern": "\\S"
+                "pattern": "\\S",
+                "description": "Shown in the Handled list beside each item the rule decided"
               },
               "sources": {
                 "description": "The bare ids of this pack's sources the rule acts on. An item merged from several sources matches only when every one of them is listed here or under authors; any source when both are absent",
@@ -342,10 +348,12 @@
       "additionalProperties": false
     },
     "ui": {
+      "description": "Themes and panels this pack adds to the dashboard",
       "type": "object",
       "properties": {
         "themes": {
           "default": [],
+          "description": "Color themes added to the Theme picker",
           "maxItems": 8,
           "type": "array",
           "items": {
@@ -466,39 +474,48 @@
                 "properties": {
                   "running": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a running session, as --state-running"
                   },
                   "waiting": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a waiting session, as --state-waiting"
                   },
                   "failed": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a failed session, as --state-failed"
                   },
                   "monitoring": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a monitoring session, as --state-monitoring"
                   },
                   "done": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a done session, as --state-done"
                   },
                   "initializing": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a initializing session, as --state-initializing"
                   },
                   "idle": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a idle session, as --state-idle"
                   },
                   "starting": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a starting session, as --state-starting"
                   },
                   "complete": {
                     "type": "string",
-                    "pattern": "^#[0-9a-fA-F]{6}$"
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "description": "The color of a complete session, as --state-complete"
                   }
                 },
                 "required": [
@@ -517,7 +534,8 @@
               },
               "id": {
                 "type": "string",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                "description": "Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack"
               }
             },
             "required": [
@@ -533,6 +551,7 @@
         },
         "panels": {
           "default": [],
+          "description": "HTML pages shown as dashboard tabs, each sandboxed with no network and talking to the dashboard only through the panel bridge",
           "maxItems": 8,
           "type": "array",
           "items": {
@@ -540,12 +559,14 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                "description": "Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack"
               },
               "label": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 24
+                "maxLength": 24,
+                "description": "The tab name of the panel in the dashboard"
               },
               "entry": {
                 "type": "string",
@@ -553,6 +574,7 @@
                 "description": "The HTML page the panel opens, relative to the pack folder"
               },
               "icon": {
+                "description": "An .svg file in the pack shown beside the panel label",
                 "type": "string",
                 "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
               },
@@ -606,7 +628,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "description": "Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack"
           },
           "label": {
             "type": "string",

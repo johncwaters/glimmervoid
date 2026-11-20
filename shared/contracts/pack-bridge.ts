@@ -7,7 +7,7 @@ export const PACK_BRIDGE_VERSION = 1;
 export const PackBridgeTopic = z.enum(['sessions', 'focus', 'theme', 'usage', 'attention', 'reviews', 'providers']);
 export type PackBridgeTopic = z.infer<typeof PackBridgeTopic>;
 
-const BridgeVersion = z.literal(PACK_BRIDGE_VERSION);
+const BridgeVersion = z.literal(PACK_BRIDGE_VERSION).describe('The bridge protocol version; a message with any other v is ignored');
 
 const BridgePlanWindow = z.strictObject({
   pct: z.number().nullable().describe('Percent of the window used, 0 to 100; 100 or more means the limit is reached; null when the agent did not report it'),
@@ -33,13 +33,13 @@ export type ProviderStatus = z.infer<typeof ProviderStatus>;
 const PACK_BRIDGE_TOPIC_DATA = {
   sessions: z.strictObject({
     sessions: z.array(z.strictObject({
-      id: z.string(), name: z.string(), agent: z.string().nullable(),
+      id: z.string().describe('The stable session id, the id pack-session-send takes'), name: z.string().describe('The session name shown on its card'), agent: z.string().nullable().describe('The agent id, such as claude-code; null when unknown'),
       state: z.string().describe(`One of ${Object.values(STATES).join(', ')}; the theme color for a state is --state-<state in lowercase>, and DORMANT has none`),
       stateSinceMs: z.number().describe('When the session entered its state, as Unix epoch milliseconds'),
-      taskTitle: z.string().nullable(),
+      taskTitle: z.string().nullable().describe('The short title of what the session is working on; null until one is set'),
     })),
   }),
-  focus: z.strictObject({ sessionId: z.string().nullable(), view: z.string() }),
+  focus: z.strictObject({ sessionId: z.string().nullable().describe('The session in focus; null when none is'), view: z.string().describe('The dashboard view open now, such as focus, prs or usage') }),
   theme: z.strictObject({
     id: z.string().nullable().describe("The active theme's id; a pack theme's id is <pack name>/<theme id>"),
     colors: z.record(z.string(), z.string()).describe('CSS custom properties to set on the root element, keyed with their leading --: one per theme chrome key (--bg, --bg-card, --bg-header, --bg-surface, --border, --border-dim, --border-hover, --text, --text-dim, --text-head, --text-muted, --accent, --accent-dim) and per session state (--state-<state>, a hex color, and --state-<state>-bg, a translucent color-mix tint of it)'),
@@ -47,7 +47,9 @@ const PACK_BRIDGE_TOPIC_DATA = {
   usage: z.strictObject({
     planLimits: z.array(z.strictObject({ vendor: z.enum(['claude', 'codex', 'kimi']), fiveHour: BridgePlanWindow, sevenDay: BridgePlanWindow })).describe('One entry per agent that has reported plan limits; an agent that has not is absent'),
   }),
-  attention: z.strictObject({ waiting: z.number(), finished: z.number(), failed: z.number() }),
+  attention: z.strictObject({
+    waiting: z.number().describe('Sessions waiting on the operator'), finished: z.number().describe('Sessions that finished with an outcome the operator has not seen'), failed: z.number().describe('Sessions that failed'),
+  }),
   reviews: ReviewsSnapshot,
   providers: z.strictObject({ providers: z.array(ProviderStatus).describe("One entry per URL in the pack's status.urls, in that order") }),
 } satisfies Record<PackBridgeTopic, z.ZodType>;
@@ -80,7 +82,7 @@ function isShallowJsonValue(root: unknown): boolean {
   return true;
 }
 
-export const PackStoreKey = z.string().min(1).max(128);
+export const PackStoreKey = z.string().min(1).max(128).describe('Any key the pack picks');
 export const PackStoreValue = z.unknown().refine(isShallowJsonValue, { error: `a JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep` });
 export const PackStoreData = z.record(PackStoreKey, z.unknown().describe('A JSON value a panel saved')).describe(`The pack's saved keys and values, shared by all its panels and kept across reloads, browsers and pack updates; at most ${PACK_DATA_MAX_BYTES} bytes as JSON, deleted when the pack folder is removed`);
 export type PackStoreData = z.infer<typeof PackStoreData>;
@@ -121,7 +123,7 @@ export const PanelToHost = z.discriminatedUnion('kind', [
   z.strictObject({ v: BridgeVersion, kind: z.literal('action'), id: PanelActionId, request: PanelActionRequest }).describe('Send one action as the operator would: a Reviews action needs reviews under the panel acts, a session action needs sessions; the host answers with action-result'),
   z.strictObject({ v: BridgeVersion, kind: z.literal('store-set'), key: PackStoreKey, value: PackStoreValue.describe(`Any JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep; null deletes the key`) }).describe('Save one key of the pack store; the host answers with a store message'),
   z.strictObject({
-    v: BridgeVersion, kind: z.literal('log'), level: z.enum(['info', 'warn', 'error']),
+    v: BridgeVersion, kind: z.literal('log'), level: z.enum(['info', 'warn', 'error']).describe('The log level the line is written at'),
     text: z.string().min(1).max(PACK_LOG_TEXT_MAX_CHARS).describe(`At most ${PACK_LOG_TEXT_MAX_CHARS} characters`),
   }).describe(`Write one line to the Glimmervoid server log as [dashboard] pack: <name>/<panel>; packs preview shows it instead. At most ${PACK_LOG_LINES_PER_MINUTE} lines a minute per panel reach the log`),
 ]);
@@ -131,7 +133,7 @@ const HostTopicMessages = PackBridgeTopic.options.map((topic) => z.strictObject(
 }).describe('Sent right after hello and again whenever the data changes, checked once a second'));
 
 export const HostToPanel = z.union([
-  z.strictObject({ v: BridgeVersion, kind: z.literal('hello'), granted: z.array(PackBridgeTopic).describe('The subscribed topics that are also in reads; a topic missing here never arrives') }),
+  z.strictObject({ v: BridgeVersion, kind: z.literal('hello'), granted: z.array(PackBridgeTopic).describe('The subscribed topics that are also in reads; a topic missing here never arrives') }).describe('The answer to each subscribe'),
   z.strictObject({ v: BridgeVersion, kind: z.literal('store'), data: PackStoreData, error: z.string().nullable().describe('Why the last store-set was not saved, such as the size limit; null when it was') }).describe('Sent after hello and after each store-set from any panel of the pack in this dashboard'),
   z.strictObject({
     v: BridgeVersion, kind: z.literal('action-result'), id: PanelActionId,

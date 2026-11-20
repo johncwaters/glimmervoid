@@ -42,7 +42,7 @@ const RULE_SOURCES_TEXT = 'An item merged from several sources matches only when
 
 function ruleSchema<Sources extends z.ZodOptional<z.ZodArray<z.ZodString>>>(sources: Sources, action: z.ZodType<PrFlowActionRef>) {
   return z.strictObject({
-    name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }),
+    name: z.string({ error: 'a pr flows rule needs a name' }).trim().min(1, { error: 'a pr flows rule needs a name' }).max(80, { error: 'a pr flows rule name must be at most 80 characters' }).regex(/\S/, { error: 'a pr flows rule needs a name' }).describe('Shown in the Handled list beside each item the rule decided'),
     sources,
     authors: z.array(z.string().trim().min(1)).min(1).optional().describe(`The GitHub logins of review comment authors this rule acts on, compared case-insensitively. ${RULE_SOURCES_TEXT}`),
     priority: z.array(PrFlowPriority).min(1).optional().describe('The finding priorities this rule acts on; any priority when absent'),
@@ -116,25 +116,26 @@ export const PrFlowPrAction = PrFlowCommand.extend({
 export type PrFlowPrAction = z.infer<typeof PrFlowPrAction>;
 
 export const PrFlowSourceFinding = z.strictObject({
-  path: z.string().min(1).max(500).regex(ONE_PRINTABLE_LINE, { error: 'a finding path must be one line with no control characters' }),
-  lineStart: z.number().int().positive().nullable(), lineEnd: z.number().int().positive().nullable(),
-  priority: PrFlowPriority, body: z.string().min(1).max(4000), url: z.httpUrl().nullable().default(null),
+  path: z.string().min(1).max(500).regex(ONE_PRINTABLE_LINE, { error: 'a finding path must be one line with no control characters' }).describe('The repository path the finding is about'),
+  lineStart: z.number().int().positive().nullable().describe('The first line it is about; null for the whole file'), lineEnd: z.number().int().positive().nullable().describe('The last line it is about; null for the whole file'),
+  priority: PrFlowPriority.describe('How much it matters; rules match on it'), body: z.string().min(1).max(4000).describe('The finding text, shown on the review item'), url: z.httpUrl().nullable().default(null).describe('A link to more detail; null for none'),
 });
 export type PrFlowSourceFinding = z.infer<typeof PrFlowSourceFinding>;
 
 const PrFlowStatusLine = z.strictObject({
-  label: z.string().min(1).max(24).regex(ONE_PRINTABLE_LINE, { error: 'a status label must be one line with no control characters' }),
-  state: z.string().min(1).max(80).regex(ONE_PRINTABLE_LINE, { error: 'a status state must be one line with no control characters' }),
+  label: z.string().min(1).max(24).regex(ONE_PRINTABLE_LINE, { error: 'a status label must be one line with no control characters' }).describe('What the line is about, shown before the state'),
+  state: z.string().min(1).max(80).regex(ONE_PRINTABLE_LINE, { error: 'a status state must be one line with no control characters' }).describe('Its current value, shown on the pull request as <label>: <state>'),
 });
 
 export const PrFlowSourceOutput = z.strictObject({
-  findings: z.array(PrFlowSourceFinding).max(200),
-  status: z.array(PrFlowStatusLine).max(4).default([]),
+  findings: z.array(PrFlowSourceFinding).max(200).describe('Review items this source raises on the pull request'),
+  status: z.array(PrFlowStatusLine).max(4).default([]).describe('Short status lines shown on the pull request'),
 });
 export type PrFlowSourceOutput = z.infer<typeof PrFlowSourceOutput>;
 
 export const PrFlowActionOutput = z.strictObject({
-  outcome: z.enum(['done', 'started', 'refused', 'failed']), message: z.string().max(200).default(''),
+  outcome: z.enum(['done', 'started', 'refused', 'failed']).describe('started means the run goes on and reports its final outcome later with glimmervoid pr-action report'),
+  message: z.string().max(200).default('').describe('Shown after the outcome beside the button'),
 });
 export type PrFlowActionOutput = z.infer<typeof PrFlowActionOutput>;
 
@@ -179,8 +180,8 @@ export const PrFlowsState = z.strictObject({
 export type PrFlowsState = z.infer<typeof PrFlowsState>;
 
 export const PrFlowPackRequires = z.strictObject({
-  env: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, { error: 'an env var name is letters, digits and underscores' })).default([]),
-  programs: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/, { error: 'a program is a bare name found on PATH, such as gh' })).default([]),
+  env: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, { error: 'an env var name is letters, digits and underscores' })).default([]).describe('Environment variables the Glimmervoid server must have set'),
+  programs: z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/, { error: 'a program is a bare name found on PATH, such as gh' })).default([]).describe('Programs that must be on the PATH of the Glimmervoid server, such as gh or node'),
 });
 
 const PrFlowPackApprovalCommand = z.strictObject({

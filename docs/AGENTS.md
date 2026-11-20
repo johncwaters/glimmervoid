@@ -14,6 +14,8 @@ Design documents, postmortems, and operator guides. Background reading for why t
 | `distribution.md` | How Glimmervoid ships: standalone binaries built by `release.yml` from a release tag, the end of the npm package, the release steps, the update check, and which test or workflow enforces each claim |
 | `testing-cli.md` | Manual CLI checks to run before a release (`--help`, `--version`, `--port`, `--config`, `doctor`, `pair`, tarball, global install); its `--help` block and every command it names are pinned by the cli-docs gate |
 | `configuration.md` | GENERATED config and environment reference (`npm run docs:config`, `scripts/generate-config-docs.ts`); never edit by hand, the config-docs gate fails on drift |
+| `packs-reference.md` | GENERATED pack author reference: pack.json, panel bridge, panel actions, prFlows command output, `glimmervoid packs` (`npm run docs:packs`, `scripts/generate-packs-docs.ts`); never edit by hand, the example-packs gate fails on drift |
+| `packs.md` | Why packs work as they do: approval by fingerprint, the trust boundary, pack sources |
 | `measurement-server-runtime.md` | 2026-11 profile of the live server and Node/Bun/allocator comparison; the cost is the usage scanner's full transcript rescan on every start, not the runtime |
 | `search-builds-the-view.md` | Unbuilt product outline: a search bar that composes UI from premade components with json-render and Jev; run `/specifying` on it before building |
 | `troubleshooting.md` | Install and startup failures: PATH, node-pty under npm 12's install-script policy, port and bind refusals, the legacy `github:` install |
@@ -27,6 +29,7 @@ Design documents, postmortems, and operator guides. Background reading for why t
 
 ### Testing Requirements
 - A setting, config key or `GLIMMERVOID_*` variable change means rerunning `npm run docs:config`.
+- A pack contract, its `.describe()` text or the `packs` CLI spec change means rerunning `npm run docs:packs`.
 - A CLI command named in these docs or the README must exist in `--help`.
 
 ## Dependencies

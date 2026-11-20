@@ -22,7 +22,12 @@ async function runPackCheckCli({ packDir, isJson, env, homeDir }: { packDir: str
   return packCheckHasProblem(report) ? 1 : 0;
 }
 
-const SCHEMA_TEXT_BY_NAME: Readonly<Record<string, () => string>> = { pack: packJsonSchemaText, bridge: packBridgeJsonSchemaText, actions: panelActionsJsonSchemaText, 'pr-flows': prFlowsOutputJsonSchemaText };
+export const PACK_SCHEMA_TEXT_BY_NAME = { pack: packJsonSchemaText, bridge: packBridgeJsonSchemaText, actions: panelActionsJsonSchemaText, 'pr-flows': prFlowsOutputJsonSchemaText } as const satisfies Record<string, () => string>;
+export type PackSchemaName = keyof typeof PACK_SCHEMA_TEXT_BY_NAME;
+
+function isPackSchemaName(schemaName: string): schemaName is PackSchemaName {
+  return Object.hasOwn(PACK_SCHEMA_TEXT_BY_NAME, schemaName);
+}
 
 async function runGuide(homeDir: string, schemaName: string | null): Promise<number> {
   if (schemaName === null) {
@@ -30,12 +35,11 @@ async function runGuide(homeDir: string, schemaName: string | null): Promise<num
     process.stdout.write(`${await packGuideText({ homeDir, examplePacksDir }, [schemaHint])}\n`);
     return 0;
   }
-  const schemaText = SCHEMA_TEXT_BY_NAME[schemaName];
-  if (!schemaText) {
+  if (!isPackSchemaName(schemaName)) {
     process.stderr.write(`glimmervoid packs guide: --schema is pack, bridge, actions or pr-flows, not ${schemaName}\n`);
     return 1;
   }
-  process.stdout.write(schemaText());
+  process.stdout.write(PACK_SCHEMA_TEXT_BY_NAME[schemaName]());
   return 0;
 }
 

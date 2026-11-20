@@ -2,9 +2,13 @@ import { z } from 'zod';
 
 const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, { error: (issue) => issue.input === undefined ? 'missing; a theme sets every color as #rrggbb' : `a color is #rrggbb, not ${JSON.stringify(issue.input)}` });
 
+function stateColorFor(state: string) {
+  return HexColor.describe(`The color of a ${state} session, as --state-${state}`);
+}
+
 const ThemeStates = z.strictObject({
-  running: HexColor, waiting: HexColor, failed: HexColor, monitoring: HexColor, done: HexColor,
-  initializing: HexColor, idle: HexColor, starting: HexColor, complete: HexColor,
+  running: stateColorFor('running'), waiting: stateColorFor('waiting'), failed: stateColorFor('failed'), monitoring: stateColorFor('monitoring'), done: stateColorFor('done'),
+  initializing: stateColorFor('initializing'), idle: stateColorFor('idle'), starting: stateColorFor('starting'), complete: stateColorFor('complete'),
 });
 export type ThemeStateName = keyof z.infer<typeof ThemeStates>;
 export const THEME_STATE_NAMES = ThemeStates.keyof().options;

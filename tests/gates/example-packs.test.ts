@@ -10,6 +10,7 @@ import { PACK_BRIDGE_HELPER_SOURCE } from '../../server/packs/core/pack-page-cor
 import { PREVIEW_FRAME_COUNT, previewSampleTopics, previewThemes } from '../../server/packs/core/pack-preview-core.ts';
 import { checkPack, packCheckHasProblem, packReportText } from '../../server/packs/pack-check.ts';
 import { readPacksForAgent } from '../../server/packs/pack-agent.ts';
+import { PACKS_REFERENCE_PATH, renderPacksReference } from '../../scripts/generate-packs-docs.ts';
 
 const EXAMPLE_PACKS_DIR = path.join(import.meta.dirname, '..', '..', 'examples', 'packs');
 const PUBLISHED_SCHEMA_ID = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'site', 'public', 'schema', 'pack.v1.json'), 'utf8')).$id;
@@ -32,6 +33,10 @@ test('every example pack passes the same check an agent runs, with no problem', 
     assert.equal(manifestOf(exampleName).name, exampleName, 'an example folder is named after its pack');
     assert.equal(manifestOf(exampleName).$schema, PUBLISHED_SCHEMA_ID);
   }
+});
+
+test('docs/packs-reference.md matches what npm run docs:packs generates', () => {
+  assert.equal(fs.readFileSync(PACKS_REFERENCE_PATH, 'utf8').replaceAll('\r\n', '\n'), renderPacksReference(), 'docs/packs-reference.md is stale: run npm run docs:packs');
 });
 
 test('every example panel subscribes to exactly the topics it declares and ships no copy of the bridge helper', () => {

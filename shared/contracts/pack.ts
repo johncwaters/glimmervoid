@@ -15,12 +15,12 @@ export const PACK_FILE_NAME = 'pack.json';
 const PackFilePath = z.string().regex(/^(?!\/)(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9._/-]{1,200}$/, { error: 'a pack file path is relative, inside the pack, and uses letters, digits, dot, dash, underscore and slash' });
 
 export const PackHeader = z.strictObject({
-  $schema: z.string().optional(),
+  $schema: z.string().optional().describe(`Set it to ${PACK_SCHEMA_URL} so an editor completes and checks the file; Glimmervoid ignores it`),
   name: PackName.describe('Unique among installed packs; a second pack with the same name is refused. Theme and panel ids are scoped to it, so they never clash with another pack'),
   version: z.number().int().positive().describe('Your release number, shown to the operator beside the pack; raise it with each change. Approval follows the files, not this number: any changed file asks again'),
-  description: z.string().max(500).optional(),
+  description: z.string().max(500).optional().describe('One or two sentences shown on the pack card in the Packs tab and in the packs guide'),
   preview: PackFilePath.refine((filePath) => /\.(png|webp)$/.test(filePath), { error: 'a pack preview is a .png or .webp file' }).optional().describe('An image of what the pack adds, shown on its card in the Packs tab before it is approved. Glimmervoid releases after 0.58.4 read it; older ones refuse a manifest that sets it'),
-  requires: PrFlowPackRequires.default({ env: [], programs: [] }),
+  requires: PrFlowPackRequires.default({ env: [], programs: [] }).describe('What this machine needs for the pack; while anything is missing the pack stays off here and its card says what, without counting as a problem in the pack'),
   prFlows: z.unknown().optional(),
   ui: z.unknown().optional(),
   launchers: z.unknown().optional(),
@@ -48,21 +48,21 @@ export const PackPrFlows = z.strictObject({
 });
 export type PackPrFlows = z.infer<typeof PackPrFlows>;
 
-const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' });
+const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' }).describe('Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack');
 
 
 export const PackPanel = z.strictObject({
   id: PackItemId,
-  label: z.string().trim().min(1).max(24),
+  label: z.string().trim().min(1).max(24).describe('The tab name of the panel in the dashboard'),
   entry: PackFilePath.refine((filePath) => filePath.endsWith('.html'), { error: 'a panel entry is an .html file' }).describe('The HTML page the panel opens, relative to the pack folder'),
-  icon: PackFilePath.refine((filePath) => filePath.endsWith('.svg'), { error: 'a panel icon is an .svg file' }).optional(),
+  icon: PackFilePath.refine((filePath) => filePath.endsWith('.svg'), { error: 'a panel icon is an .svg file' }).optional().describe('An .svg file in the pack shown beside the panel label'),
   reads: z.array(PackBridgeTopic).default([]).describe('The bridge topics this panel may receive; the operator sees them before approving, and a subscribe for any other topic is ignored'),
   acts: z.array(PackPanelAct).default([]).describe(`What this panel may do as the operator, without asking again: reviews lets it ${REVIEW_ACTIONS_GRANT_TEXT}; sessions lets it ${SESSIONS_ACT_GRANT_TEXT}, using the pack sessions settings; the operator sees it before approving`),
 });
 
 export const PackUi = z.strictObject({
-  themes: z.array(ThemePalette.extend({ id: PackItemId })).max(8).default([]),
-  panels: z.array(PackPanel).max(8).default([]),
+  themes: z.array(ThemePalette.extend({ id: PackItemId })).max(8).default([]).describe('Color themes added to the Theme picker'),
+  panels: z.array(PackPanel).max(8).default([]).describe('HTML pages shown as dashboard tabs, each sandboxed with no network and talking to the dashboard only through the panel bridge'),
 }).superRefine((section, context) => {
   for (const kind of ['themes', 'panels'] as const) {
     const seenIds = new Set<string>();
@@ -213,7 +213,7 @@ export type PackOnDisk = {
 };
 
 const PackManifestForSchema = PackHeader.extend({
-  prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional(),
+  prFlows: PackPrFlows.optional().describe('PR flows this pack adds; one invalid entry skips the whole section'), ui: PackUi.optional().describe('Themes and panels this pack adds to the dashboard'),
   launchers: PackLaunchers.optional().describe('Buttons in the Add session picker, each starting a session with its own prompt'),
   sessions: PackSessions.optional().describe('Permission settings for every session this pack starts'),
   status: PackStatus.optional().describe('Status pages its panels read through the providers topic'),
