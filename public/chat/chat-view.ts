@@ -3,11 +3,12 @@ import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
-import type { ChatPart } from './chat-part.ts';
+import type { ChatPart, TurnPart } from './chat-part.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import type { TurnEnd } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
+import { interimReplyText } from './turn-digest-core.ts';
 import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
 import type { RailField } from './status-rail-core.ts';
 
@@ -158,6 +159,12 @@ function queuedRowOf(entry: ChatOutboxEntry, phase: ChatPhase, uploadUrlOf: (fil
   return row;
 }
 
+function interimReplyOf(turn: TurnPart): string | null {
+  const latestSegment = turn.segments.findLast((segment) => segment.kind === 'text');
+  if (latestSegment?.kind !== 'text') return null;
+  return interimReplyText(latestSegment.text);
+}
+
 export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
@@ -199,6 +206,11 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     keepInPlace(activity.element, () => chatLog.replaceParts(replacedPartIds, parts));
     announceNearTop();
   };
+  const upsert = (parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => {
+    chatLog.upsert(parts, arrivingPartIds);
+    const runningTurn = parts.findLast((part): part is TurnPart => part.kind === 'turn' && !part.isOver);
+    if (runningTurn !== undefined) activity.narrate(interimReplyOf(runningTurn));
+  };
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
   const setPhase = (phase: ChatPhase) => {
     const wasStarting = shownPhase === 'starting';
@@ -212,5 +224,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
     turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd };
+  return { element, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd };
 }

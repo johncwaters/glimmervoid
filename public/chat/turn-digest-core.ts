@@ -56,6 +56,25 @@ function askedOf(finalText: string): string | null {
   return paragraph.endsWith('?') ? paragraph : null;
 }
 
+const MAX_INTERIM_REPLY_CHARS = 60;
+
+function hasLink(inlines: readonly PlanInline[]): boolean {
+  return inlines.some((inline) => inline.type === 'link' || ('children' in inline && hasLink(inline.children)));
+}
+
+export function interimReplyText(text: string): string | null {
+  const trimmedText = text.trim();
+  if (trimmedText.length > MAX_INTERIM_REPLY_CHARS || trimmedText.includes('\n')) return null;
+  const blocks = parsePlanMarkdown(trimmedText);
+  const onlyBlock = blocks[0];
+  if (blocks.length !== 1 || onlyBlock?.type !== 'paragraph' || hasLink(onlyBlock.children)) return null;
+  return normalizedSpace(inlineText(onlyBlock.children));
+}
+
+export function isInterimReply(text: string): boolean {
+  return interimReplyText(text) !== null;
+}
+
 export function digestTurn(segments: readonly TurnSegment[], toolCount: number): TurnDigest {
   const texts = textsOf(segments);
   const finalText = texts.at(-1);

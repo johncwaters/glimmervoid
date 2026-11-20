@@ -127,6 +127,12 @@ function callGlimmervoidTool(): void {
   appendTranscriptLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok' }] } });
 }
 
+function replyThenRun(replyText: string, command: string): void {
+  const toolUseId = `toolu_${randomUUID().replaceAll('-', '')}`;
+  appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: replyText }, { type: 'tool_use', id: toolUseId, name: 'Bash', input: { command } }] } });
+  appendTranscriptLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok' }] } });
+}
+
 function setTitle(glyph: string, label: string): void {
   process.stdout.write(`${ESC}]0;${glyph} ${label}${BEL}`);
 }
@@ -166,6 +172,7 @@ function osc8Link(url: string, text: string): string {
 }
 
 let isTakingAnyPrompt = false;
+let isNarrating = false;
 
 function postAgentVerb(verb: string, body: unknown): void {
   const agentUrl = new URL(process.env.GLIMMERVOID_AGENT_URL ?? '');
@@ -271,6 +278,8 @@ function dispatch(command: string): void {
     return;
   }
   if (command === 'stop') {
+    if (isNarrating) appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'All green.' }] } });
+    isNarrating = false;
     postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
     setTitle(IDLE_GLYPH, 'idle');
     return;
@@ -278,6 +287,15 @@ function dispatch(command: string): void {
   if (command === 'work-glimmervoid') {
     dispatch('work');
     setTimeout(callGlimmervoidTool, 500);
+    return;
+  }
+  if (command === 'narrate') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    for (const testRun of [1, 2, 3]) replyThenRun('Running.', `npm test -- run-${testRun}`);
+    replyThenRun('Build passed. The rail now shows the agent logo and the meters color by level, so next I check the board.', 'npm run build');
+    replyThenRun('Checking the board.', 'npm run board');
+    isNarrating = true;
     return;
   }
   if (command === 'exit') process.exit(0);

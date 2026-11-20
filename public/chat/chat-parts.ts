@@ -5,7 +5,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
-import { digestTurn } from './turn-digest-core.ts';
+import { digestTurn, isInterimReply } from './turn-digest-core.ts';
 import type { TurnSegment } from './turn-digest-core.ts';
 
 type FlatPartKind = Exclude<ChatPartKind, 'turn'>;
@@ -267,6 +267,8 @@ function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: 
   syncSegments(view, part.segments, areNewSegmentsArriving);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
   view.textElements.forEach((textElement, index) => {
+    const segment = part.segments[index];
+    textElement?.toggleAttribute('data-interim', segment?.kind === 'text' && isInterimReply(segment.text));
     textElement?.toggleAttribute('data-before-final', index < finalTextIndex);
     textElement?.toggleAttribute('data-final', index === finalTextIndex);
   });

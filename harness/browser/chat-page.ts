@@ -250,6 +250,7 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   await stopButton.click();
   await page.locator('.session-chat .chat-composer button[aria-label="Send"]:visible').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await dockBoxOf(), idleDockBox, 'ending a turn swaps Stop for Send without moving the composer');
+  await verifyInterimRepliesRideActivityLine(page);
   await verifyQuestionTakesRecommendedOnEnter(page);
   await verifyComposerAttachesImage(page);
 }
@@ -364,6 +365,22 @@ async function verifyHeldMessageWaitsForTurnEnd(page: Page): Promise<void> {
   await chat.getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   await waitForTurnRunning(page, true);
+}
+
+async function verifyInterimRepliesRideActivityLine(page: Page): Promise<void> {
+  const shownTurnTextsOf = () => page.evaluate(() => {
+    const latestTurn = [...document.querySelectorAll('.session-chat .chat-log .chat-turn')].at(-1);
+    return [...(latestTurn?.querySelectorAll<HTMLElement>('.chat-turn-body > .chat-turn-text') ?? [])].filter((text) => text.offsetParent !== null).map((text) => text.innerText.trim());
+  });
+  await sendFromComposer(page, 'narrate');
+  await page.waitForFunction(() => document.querySelector('.session-chat .chat-activity-verb')?.textContent === 'Checking the board.', undefined, { timeout: CARD_TIMEOUT_MS });
+  const runningTexts = await shownTurnTextsOf();
+  assert.equal(runningTexts.length, 1, `a running turn shows only its long reply, not the short ones (${runningTexts.join(' | ')})`);
+  assert.match(runningTexts[0] ?? '', /^Build passed/, 'the long reply stays in the turn');
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  await waitForTurnRunning(page, false);
+  await page.waitForFunction(() => [...document.querySelectorAll('.session-chat .chat-log .chat-turn[data-over] .chat-turn-text')].some((text) => text.textContent?.trim() === 'All green.'), undefined, { timeout: CARD_TIMEOUT_MS });
+  assert.deepEqual(await shownTurnTextsOf(), ['All green.'], 'the ended turn shows its short final reply');
 }
 
 async function verifyGlimmervoidCallSpinsMark(page: Page): Promise<void> {

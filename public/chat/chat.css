@@ -242,6 +242,8 @@
 
 .chat-turn[data-over] .chat-turn-text[data-before-final], .chat-turn-work > .chat-turn-text { opacity: 0.62; }
 
+.chat-turn:not([data-over]) .chat-turn-text[data-interim] { display: none; }
+
 .chat-turn-meta { display: none; }
 
 :root:not([data-chat-brief-off]) .chat-turn:not([data-over])[data-has-tools] .chat-turn-meta,

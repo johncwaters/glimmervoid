@@ -9,6 +9,7 @@ interface ChatActivity {
   element: HTMLElement;
   setPhase(phase: ChatPhase): void;
   beat(beats: readonly ActivityBeat[]): void;
+  narrate(reply: string | null): void;
 }
 
 const INWARD_BY_SIDE: Record<BrandMarkSide, { dx: number; dy: number }> = {
@@ -65,6 +66,7 @@ export function createChatActivity(): ChatActivity {
   element.append(mark, verb, detail);
   let shownBeatKey = '';
   let shownPhase: ChatPhase = 'quiet';
+  let shownReply: string | null = null;
   let typingTimer: ReturnType<typeof setInterval> | undefined;
   let readyTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -117,7 +119,7 @@ export function createChatActivity(): ChatActivity {
   const show = (beat: ActivityBeat, hasGlimmervoidCall: boolean) => {
     element.dataset.workKind = beat.glimmervoidTool === null ? beat.workKind : 'glimmervoid';
     const key = beatKey(beat);
-    if (key !== shownBeatKey) {
+    if (key !== shownBeatKey && shownReply === null) {
       shownBeatKey = key;
       showVerb(pickedVerb(beat));
     }
@@ -171,6 +173,7 @@ export function createChatActivity(): ChatActivity {
       const wasStarting = shownPhase === 'starting';
       shownPhase = phase;
       clearTimeout(readyTimer);
+      shownReply = null;
       element.dataset.phase = phase;
       detail.textContent = '';
       element.removeAttribute('aria-label');
@@ -188,6 +191,16 @@ export function createChatActivity(): ChatActivity {
       const shownBeat = beats.at(-1);
       if (shownPhase !== 'working' || shownBeat === undefined) return;
       show(shownBeat, beats.some((beat) => beat.glimmervoidTool !== null));
+    },
+    narrate: (reply) => {
+      if (shownPhase !== 'working' || reply === shownReply) return;
+      shownReply = reply;
+      shownBeatKey = '';
+      if (reply === null) {
+        showVerb(pickedVerb(BUSY_BEAT));
+        return;
+      }
+      showVerb(reply);
     },
   };
 }
