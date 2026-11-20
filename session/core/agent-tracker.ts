@@ -253,6 +253,7 @@ interface TaskRegistry {
   noteBackgroundTaskLaunched(taskId: string): void;
   noteTaskNotificationsDelivered(taskIds: readonly string[]): void;
   expiredOpenWork(): ExpiredOpenWork;
+  agentWorkExpiryCount(): number;
   drainLateFinishes(): LateFinish[];
   activeCount(): number;
   isOnlyBackgroundTasks(): boolean;
@@ -283,6 +284,7 @@ function createTaskRegistry({
   const undeliveredSettledTasks: TimestampMap = new Map();
   const expiredWorkById = new Map<string, ExpiredWork>();
   let pendingLateFinishes: LateFinish[] = [];
+  let agentWorkExpiries = 0;
   let breakdown: TaskRegistryBreakdown = { counted: 0, declared: 0, idleNames: 0, idleTasks: 0 };
   const limitMsByKind: Record<ExpiredWorkKind, number> = { subagent: agentTtlMs, shell: shellTaskTtlMs };
 
@@ -291,6 +293,7 @@ function createTaskRegistry({
       if (at - startedAtMs < limitMsByKind[kind]) continue;
       map.delete(id);
       expiredWorkById.set(id, { kind, startedAtMs });
+      if (kind === 'subagent') agentWorkExpiries += 1;
     }
   }
 
@@ -333,6 +336,7 @@ function createTaskRegistry({
     const hasUnexpiredEntry = declaredEntries.some((entry) => entryAgeMs(entry, at)
       < declaredEntryTtlMs(entry.type, shellTaskTtlMs, teammateTaskTtlMs, agentTtlMs));
     if (hasUnexpiredEntry) return;
+    if (declaredEntries.some((entry) => !WEAK_TASK_TYPES.has(entry.type))) agentWorkExpiries += 1;
     declaredEntries = null;
     declaredTs = 0;
   }
@@ -459,6 +463,11 @@ function createTaskRegistry({
       const expiredOpenWork: ExpiredOpenWork = { subagent: 0, shell: 0 };
       for (const work of expiredWorkById.values()) expiredOpenWork[work.kind] += 1;
       return expiredOpenWork;
+    },
+
+    agentWorkExpiryCount() {
+      reap(now());
+      return agentWorkExpiries;
     },
 
     drainLateFinishes() {

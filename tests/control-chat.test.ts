@@ -204,7 +204,7 @@ test('Chat switches the model between turns, keeping the conversation and the se
   }
 });
 
-test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, clears when a turn starts for it, and fails a message no turn takes while holding the next', async (t) => {
+test('a Chat message waits for the Claude startup hook instead of typing into a startup screen, clears when a turn starts for it, and fails a message no turn takes, waiting as Check Terminal while holding the next', async (t) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-ready-by-hook-'));
   const writes: string[] = [];
   const session = new Session({ id: 'booting', name: 'booting', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
@@ -251,8 +251,11 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   await advance(19_000);
   assert.deepEqual(outboxOf(), ['Eaten by a mid-session dialog:failed', 'Sent behind the eaten one:held']);
   assert.equal(writes.join('').includes('Sent behind the eaten one'), false);
+  assert.deepEqual([session.state, session.toSnapshot().pendingPromptKind], ['WAITING', 'check-terminal']);
   const [notTaken] = session.toSnapshot().chatOutbox;
   assert.deepEqual(session.cancelChatMessage(notTaken.entryId).map((entry) => entry.text), ['Eaten by a mid-session dialog', 'Sent behind the eaten one']);
+  session.transition('task_complete');
+  session.transition('user_dismiss');
 
   session.queueChatMessage('Sent before a child report');
   await advance(1_000);

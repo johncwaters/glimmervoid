@@ -35,7 +35,7 @@ import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import { prepareAccountHome, prepareSandboxedAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
-import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, SIGNED_IN_SIGNAL } from "../shared/states.ts";
+import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND, SIGNED_IN_SIGNAL } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { hintFor, permitsHelpCommand, promptHintsFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
@@ -598,6 +598,7 @@ class Session extends EventEmitter {
         const pastedPrefix = this.chatAttachmentPrefixOf(entry);
         if (pastedPrefix !== null) this.emit("chat-attachments-sent", { files: entry.attachments, pastedPrefix, ts: clock.nowMs() });
       },
+      noteNotTaken: () => this.enterCheckTerminal(),
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
     this.on("state-change", ({ from, to }: { from: SessionState; to: SessionState }) => {
@@ -665,6 +666,7 @@ class Session extends EventEmitter {
         recordDecision: (entry) => this._recordDecision(entry),
         transition: (event, detail) => this.transition(event, detail),
         resyncWorkingLatch: () => this._titleSource.resyncWorkingLatch(),
+        enterCheckTerminal: () => this.enterCheckTerminal(),
       },
     });
     this._spawnCommand = spawnCommand;
@@ -1488,6 +1490,12 @@ class Session extends EventEmitter {
       confidence: "high",
       ts,
     });
+  }
+
+  enterCheckTerminal(): void {
+    if (mapSignalToEvent("awaiting-input", this.state, "high", 0) !== "prompt_detected") return;
+    this._setPendingPromptKind(CHECK_TERMINAL_PROMPT_KIND);
+    this._statusSource.ingest({ signal: "awaiting-input", source: "glimmervoid", confidence: "high", ts: clock.nowMs() });
   }
 
   get hasLivePty(): boolean {

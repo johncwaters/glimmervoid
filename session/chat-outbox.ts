@@ -24,6 +24,7 @@ interface ChatOutboxPort {
   isDeliveryInFlight(): boolean;
   deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
   noteSubmitted(entry: ChatOutboxEntry): void;
+  noteNotTaken(): void;
   emitChange(entries: ChatOutboxEntry[]): void;
 }
 
@@ -87,6 +88,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (!isStillSubmitted) return;
     if (port.reportsTurnStarts()) {
       replaceEntry(entryId, { state: "failed", failure: NOT_TAKEN_TEXT });
+      port.noteNotTaken();
       return;
     }
     publish(outboxEntries.filter((entry) => entry.entryId !== entryId));

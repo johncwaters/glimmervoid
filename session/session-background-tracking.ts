@@ -20,6 +20,7 @@ interface SessionPort {
   recordDecision: (entry: DecisionEntry) => void;
   transition: (event: string, detail: Record<string, unknown>) => unknown;
   resyncWorkingLatch: () => void;
+  enterCheckTerminal: () => void;
 }
 
 interface BackgroundTrackingOptions {
@@ -39,6 +40,7 @@ interface GateHeldReady {
   state: SessionState;
   ts: number;
   seq: number;
+  agentWorkExpiriesAtHold: number;
 }
 
 const SCHEDULED_WAKEUP_KEY = "scheduled-wakeup";
@@ -219,8 +221,13 @@ function createSessionBackgroundTracking({
       armGateTimer(waitMs);
       return;
     }
-    const event = mapSignalToEvent(held.signal, port.state(), held.confidence, 0);
+    const hasAgentWorkExpiredWhileHeld = tasks.agentWorkExpiryCount() > held.agentWorkExpiriesAtHold;
     clearGateHeldReady();
+    if (hasAgentWorkExpiredWhileHeld) {
+      port.enterCheckTerminal();
+      return;
+    }
+    const event = mapSignalToEvent(held.signal, port.state(), held.confidence, 0);
     if (event) port.transition(event, { source: held.source, signal: held.signal, deferred: true });
   }
 
@@ -331,6 +338,7 @@ function createSessionBackgroundTracking({
       state: port.state(),
       ts: now,
       seq: signalSeq,
+      agentWorkExpiriesAtHold: tasks.agentWorkExpiryCount(),
     };
 
     gateQuietSince = null;

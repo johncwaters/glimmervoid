@@ -135,6 +135,20 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     },
   },
   {
+    name: 'background-stall-wait',
+    expectedFinalState: STATES.WAITING,
+    expectedCompleteNotifications: 0,
+    waitingNotification: 'required',
+    fixtureByAgent: {
+      'claude-code': 'v2-claude-code-background-stall-wait.jsonl',
+      codex: { unproducible: 'Codex 0.169.0: a background agent that never reports its stop cannot be produced on demand, and the one recorded case came from a Claude Code usage dialog' },
+      kimi: { unproducible: 'Kimi 2.7.0: a background agent that never reports its stop cannot be produced on demand, and the one recorded case came from a Claude Code usage dialog' },
+      opencode: { unproducible: 'OpenCode is not installed on the recording machine, and a background agent that never reports its stop cannot be produced on demand, and the one recorded case came from a Claude Code usage dialog' },
+      pi: { unproducible: 'pi is not installed on the recording machine, and a background agent that never reports its stop cannot be produced on demand, and the one recorded case came from a Claude Code usage dialog' },
+      antigravity: { unproducible: 'Antigravity agy 1.5.12: a background agent that never reports its stop cannot be produced on demand, and the one recorded case came from a Claude Code usage dialog' },
+    },
+  },
+  {
     name: 'structured-question-answered',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,

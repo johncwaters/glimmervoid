@@ -1,7 +1,7 @@
 import type { Pane } from '#shared/contracts/focus-layout.ts';
 import { resetClockText } from './usage-limit-text.ts';
 import type { UsageLimit } from '#shared/contracts/session.ts';
-import { API_KEY_PROMPT_KIND, SIGN_IN_PROMPT_KIND, RATE_LIMIT_PROMPT_KIND } from '#shared/states.ts';
+import { API_KEY_PROMPT_KIND, SIGN_IN_PROMPT_KIND, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND } from '#shared/states.ts';
 import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
@@ -30,7 +30,7 @@ type SessionRowSignalSlot = 'status' | 'links';
 const sessionRowSignalSources: { source: SessionRowSignalSource; slot: SessionRowSignalSlot }[] = [];
 const FOCUSED_LINK_LIMIT = 5;
 
-const STATUS_LABEL_BY_PROMPT_KIND: Readonly<Record<string, string>> = { plan: 'Plan ready', [SIGN_IN_PROMPT_KIND]: 'Needs sign-in', [API_KEY_PROMPT_KIND]: 'API key refused', [RATE_LIMIT_PROMPT_KIND]: 'Rate limited' };
+const STATUS_LABEL_BY_PROMPT_KIND: Readonly<Record<string, string>> = { plan: 'Plan ready', [SIGN_IN_PROMPT_KIND]: 'Needs sign-in', [API_KEY_PROMPT_KIND]: 'API key refused', [RATE_LIMIT_PROMPT_KIND]: 'Rate limited', [CHECK_TERMINAL_PROMPT_KIND]: 'Check Terminal' };
 
 const MERGE_SIGNALS: Readonly<Record<string, Omit<Signal, 'key'>>> = {
   parked: { text: 'PARKED', look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
