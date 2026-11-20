@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
-const GLOW_COLOR = /var\(--(?:accent|state-|prototype-accent)/;
+const GLOW_COLOR = /var\(--(?:brand-)?(?:accent|state-|prototype-accent)/;
 const NUMERIC_LENGTH = /^-?(?:\d*\.)?\d+(?:px|em|rem)?$/;
 const BORDER_WIDTH_KEYWORD_PX: Record<string, number> = { thin: 1, medium: 3, thick: 5 };
 const BOX_SIDES = ['top', 'right', 'bottom', 'left'] as const;
 const STRIPE_SIDES = { left: 'left', right: 'right', 'inline-start': 'left', 'inline-end': 'right' } as const;
-const STRIPE_COLOR = /var\(--(?:accent|state-)/;
+const STRIPE_COLOR = /var\(--(?:brand-)?(?:accent|state-)/;
 
 const readRepoFile = (relativePath: string) => fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
 const withoutComments = (stylesheet: string) => stylesheet.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -141,7 +141,7 @@ function glowsIn(relativePath: string, stylesheet: string): string[] {
   return [...blurredShadows, ...insetStripes, ...radialHazes(uncommented), ...sideBorderStripes(uncommented)].map((finding) => `${relativePath}: ${finding}`);
 }
 
-test('no dashboard or site stylesheet blurs an accent or state color into a glow or draws it as a side stripe', () => {
+test('no dashboard, site or marketing image stylesheet blurs an accent or state color into a glow or draws it as a side stripe', () => {
   const dashboardGlows = [
     ...fs.globSync('public/**/*.css', { cwd: REPO_ROOT }).map((stylesheetPath) => glowsIn(stylesheetPath, readRepoFile(stylesheetPath))),
     ...fs.globSync('public/**/*.html', { cwd: REPO_ROOT }).map((markupPath) => glowsIn(markupPath, styleBlocks(readRepoFile(markupPath)))),
@@ -150,5 +150,6 @@ test('no dashboard or site stylesheet blurs an accent or state color into a glow
     ...fs.globSync('site/src/**/*.css', { cwd: REPO_ROOT }).map((stylesheetPath) => glowsIn(stylesheetPath, readRepoFile(stylesheetPath))),
     ...fs.globSync('site/src/**/*.astro', { cwd: REPO_ROOT }).map((markupPath) => glowsIn(markupPath, styleBlocks(readRepoFile(markupPath)))),
   ].flat();
-  assert.deepEqual([...dashboardGlows, ...siteGlows], [], 'state reads through a tinted fill, a full border and one motion, never a blurred glow or a side stripe (DESIGN.md Elevation, Don\'t)');
+  const marketingGlows = fs.globSync('marketing/social/**/*.html', { cwd: REPO_ROOT }).map((markupPath) => glowsIn(markupPath, styleBlocks(readRepoFile(markupPath)))).flat();
+  assert.deepEqual([...dashboardGlows, ...siteGlows, ...marketingGlows], [], 'state reads through a tinted fill, a full border and one motion, never a blurred glow or a side stripe (DESIGN.md Elevation, Don\'t)');
 });
