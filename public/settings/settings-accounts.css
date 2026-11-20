@@ -1,0 +1,90 @@
+@layer components {
+
+.settings-accounts {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 24px;
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+}
+
+.settings-accounts-group {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-dim);
+}
+
+.settings-accounts-group:last-child {
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.settings-accounts-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.settings-accounts-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.settings-accounts-row {
+  padding-left: 22px;
+}
+
+.host-ready-name.settings-accounts-name {
+  flex: 0 1 34ch;
+}
+
+.settings-accounts-lanes {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-accounts-lanes-text {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+}
+
+.settings-accounts-lane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  border-top: 1px solid var(--border-dim);
+}
+
+.settings-accounts-lane:last-child {
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.settings-accounts-lane-name {
+  color: var(--text);
+  font-weight: 700;
+}
+
+[data-layout="phone"] .settings-accounts-lane {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px 0;
+}
+
+[data-layout="phone"] .settings-accounts .settings-accounts-lane-name {
+  min-height: 0;
+}
+
+[data-layout="phone"] .settings-accounts-row {
+  padding-left: 0;
+}
+
+}
