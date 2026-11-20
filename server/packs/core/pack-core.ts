@@ -4,8 +4,8 @@ import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
 import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
-import { PackAgent, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
-import type { PackHeader, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackSessions } from '../../../shared/contracts/pack.ts';
+import { PackAgent, PackHooks, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackSessions } from '../../../shared/contracts/pack.ts';
 import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
@@ -75,7 +75,7 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
 }
 
 export function packSectionErrors(pack: PackOnDisk): string[] {
-  return [pack.ui, pack.launchers, pack.sessions, pack.status, pack.agent, pack.mcp].flatMap((section) => (section && !section.ok ? section.errors : []));
+  return [pack.ui, pack.launchers, pack.sessions, pack.status, pack.agent, pack.mcp, pack.hooks].flatMap((section) => (section && !section.ok ? section.errors : []));
 }
 
 function packLaunchers(pack: PackOnDisk): PackLauncher[] {
@@ -128,6 +128,10 @@ export function statusUrlsOf(packs: readonly PackOnDisk[]): string[] {
 
 export function launcherProjects(packs: readonly PackOnDisk[]): string[] {
   return [...new Set(packs.flatMap((pack) => packLaunchers(pack).map((launcher) => launcher.project)))];
+}
+
+function packHooksOf(pack: PackOnDisk): PackHook[] {
+  return pack.hooks?.ok ? pack.hooks.value : [];
 }
 
 function packAgentSection(pack: PackOnDisk): PackAgent | null {
@@ -217,7 +221,8 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
     sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack),
-    mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })), errors: sectionErrors,
+    mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })),
+    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), errors: sectionErrors,
   };
 }
 
@@ -225,7 +230,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints, operatorNames), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], errors: read.errors, isPlacedByHand,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], errors: read.errors, isPlacedByHand,
   };
 }
 
@@ -277,6 +282,7 @@ export function sourcePackDetails(header: PackHeader): SourcePackDetails {
     panels: ui?.panels ?? [], themes: ui?.themes ?? [], launchers: parsedOrNull(PackLaunchers, header.launchers) ?? [],
     agent: agent === null ? null : { context: agent.context ?? null, skills: agent.skills },
     mcpServers: parsedOrNull(PackMcp, header.mcp)?.servers ?? [],
+    hooks: parsedOrNull(PackHooks, header.hooks) ?? [],
     prFlows: parsedOrNull(PackPrFlows, header.prFlows),
   });
   const iconPath = ui?.panels.find((panel) => panel.icon !== undefined)?.icon ?? null;

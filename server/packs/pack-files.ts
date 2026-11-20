@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackAgent, PackHeader, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
-import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
+import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import type { PackHook, PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
@@ -85,7 +85,7 @@ function previewDataUrlOf(previewPath: string | undefined, filesByPath: Readonly
 
 function missingPanelFiles(panel: z.infer<typeof PackPanel>, index: number, filesByPath: ReadonlyMap<string, Buffer>): string[] {
   return [panel.entry, ...(panel.icon ? [panel.icon] : [])]
-    .filter((filePath) => !filesByPath.has(filePath))
+    .filter((filePath) => filePath.startsWith('..') || !filesByPath.has(filePath))
     .map((filePath) => `${PACK_FILE_NAME} ui.panels.${index}: ${filePath} is not a file in the pack`);
 }
 
@@ -122,6 +122,20 @@ function withAgentFilesPresent(agent: PackSection<PackAgent> | null, filesByPath
   if (agent === null || !agent.ok) return agent;
   const missing = missingAgentFiles(agent.value, filesByPath);
   return missing.length === 0 ? agent : { ok: false, errors: missing };
+}
+
+const PACK_DIR_FILE_PATTERN = new RegExp(`${PACK_DIR_PLACEHOLDER.replace(/[{}]/g, '\\$&')}[\\\\/]([^\\s"'=;,:)]+)`, 'g');
+
+function packFilesNamedBy(command: readonly string[]): string[] {
+  return command.flatMap((word) => [...word.matchAll(PACK_DIR_FILE_PATTERN)].map((match) => path.posix.normalize((match[1] ?? '').replace(/\\/g, '/'))));
+}
+
+function withHookFilesPresent(hooks: PackSection<PackHook[]> | null, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackHook[]> | null {
+  if (hooks === null || !hooks.ok) return hooks;
+  const missing = hooks.value.flatMap((hook, index) => packFilesNamedBy(hook.command)
+    .filter((filePath) => !filesByPath.has(filePath))
+    .map((filePath) => `${PACK_FILE_NAME} hooks.${index}.command: ${PACK_DIR_PLACEHOLDER}/${filePath} is not a file in the pack`));
+  return missing.length === 0 ? hooks : { ok: false, errors: missing };
 }
 
 function manifestJson(manifest: Buffer): { ok: true; value: unknown } | { ok: false; error: string } {
@@ -167,13 +181,14 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const status = parseSection(PackStatus, header.data.status, 'status');
   const agent = withAgentFilesPresent(parseSection(PackAgent, header.data.agent, 'agent'), read.filesByPath);
   const mcp = parseSection(PackMcp, header.data.mcp, 'mcp');
+  const hooks = withHookFilesPresent(parseSection(PackHooks, header.data.hooks, 'hooks'), read.filesByPath);
   if (header.data.preview !== undefined && !read.filesByPath.has(header.data.preview)) read.errors.push(`${PACK_FILE_NAME} preview: ${header.data.preview} is not a file in the pack`);
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp].flatMap(sectionErrors)], filesByPath, header: header.data };
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp, hooks].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, status, agent, mcp, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, launchers, sessions, status, agent, mcp, hooks, missingRequires: await missingRequires(header.data.requires, env),
       previewDataUrl: previewDataUrlOf(header.data.preview, read.filesByPath),
     },
   };

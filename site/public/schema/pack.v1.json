@@ -795,6 +795,75 @@
         "servers"
       ],
       "additionalProperties": false
+    },
+    "hooks": {
+      "description": "Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it",
+      "minItems": 1,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "What the hook checks, shown to the operator before approving"
+          },
+          "event": {
+            "type": "string",
+            "const": "beforeTool",
+            "description": "beforeTool runs the hook before each tool call of a kind it watches, in every agent"
+          },
+          "tools": {
+            "default": [
+              "edit",
+              "shell"
+            ],
+            "description": "The tool kinds the hook watches",
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "edit",
+                "shell"
+              ],
+              "description": "edit: a tool that writes or edits files (Edit, Write, apply_patch and the like); shell: a tool that runs a shell command (Bash, shell and the like)"
+            }
+          },
+          "command": {
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "description": "The program and its arguments, run without a shell in the session folder; an argument may hold {packDir}, the folder of the approved pack copy the session reads. It reads one JSON object on stdin: {\"version\":1,\"event\":\"beforeTool\",\"agent\",\"sessionId\",\"cwd\",\"tool\":{\"kind\":\"edit|shell|other\",\"name\",\"command\",\"filePaths\",\"input\"}}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run"
+          },
+          "timeoutSeconds": {
+            "default": 10,
+            "description": "A hook still running after this many seconds is stopped and the call runs",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "event",
+          "command"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [

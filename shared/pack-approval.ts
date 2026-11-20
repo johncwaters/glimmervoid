@@ -44,6 +44,7 @@ export function packGrants(row: PackRow): string[] {
     ...(row.agent?.context ? [`context ${row.agent.context.path} for every session`] : []),
     ...(skillNames.length === 0 ? [] : [`skills ${skillNames.join(', ')} for every session`]),
     ...(row.mcpServers.length === 0 ? [] : [`MCP servers ${row.mcpServers.map((server) => server.name).join(', ')} for every session`]),
+    ...row.hooks.map((hook) => `hook ${hook.id} running ${JSON.stringify(hook.command)} before ${hook.tools.join(' and ')} tool calls in every session`),
     ...(prFlowCommandCount === 0 ? [] : [plural(prFlowCommandCount, 'My PRs command')]),
   ];
 }
@@ -54,6 +55,7 @@ type PackContents = {
   themes: readonly unknown[];
   agent: { context: unknown; skills: readonly unknown[] } | null;
   mcpServers: readonly unknown[];
+  hooks: readonly unknown[];
   prFlows: unknown;
 };
 
@@ -65,6 +67,7 @@ export function packKindLabels(row: PackContents): string[] {
     ...(row.themes.length === 0 ? [] : [row.themes.length === 1 ? '1 theme' : `${row.themes.length} themes`]),
     ...(hasAgentFiles ? ['Agent skills'] : []),
     ...(row.mcpServers.length === 0 ? [] : ['MCP servers']),
+    ...(row.hooks.length === 0 ? [] : ['Hooks']),
     ...(row.prFlows ? ['PR commands'] : []),
   ];
 }

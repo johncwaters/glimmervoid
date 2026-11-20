@@ -28,6 +28,7 @@ export const PackHeader = z.strictObject({
   status: z.unknown().optional(),
   agent: z.unknown().optional(),
   mcp: z.unknown().optional(),
+  hooks: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -180,6 +181,43 @@ export const PackMcp = z.strictObject({
 });
 export type PackMcp = z.infer<typeof PackMcp>;
 
+export const PACK_DIR_PLACEHOLDER = '{packDir}';
+const PACK_HOOKS_MAX = 16;
+const PACK_HOOK_TIMEOUT_SECONDS_MAX = 60;
+
+export const PACK_HOOK_INPUT_TEXT = 'one JSON object on stdin: {"version":1,"event":"beforeTool","agent","sessionId","cwd","tool":{"kind":"edit|shell|other","name","command","filePaths","input"}}';
+
+const PackHookToolKind = z.enum(['edit', 'shell']).describe('edit: a tool that writes or edits files (Edit, Write, apply_patch and the like); shell: a tool that runs a shell command (Bash, shell and the like)');
+
+export const PackHook = z.strictObject({
+  id: PackItemId,
+  description: z.string().trim().min(1).max(300).describe('What the hook checks, shown to the operator before approving'),
+  event: z.literal('beforeTool').describe('beforeTool runs the hook before each tool call of a kind it watches, in every agent'),
+  tools: z.array(PackHookToolKind).min(1).max(2).default(['edit', 'shell']).describe('The tool kinds the hook watches'),
+  command: z.array(z.string().min(1).max(1000)).min(1, { error: 'a hook command needs at least the program to run' }).max(32)
+    .describe(`The program and its arguments, run without a shell in the session folder; an argument may hold ${PACK_DIR_PLACEHOLDER}, the folder of the approved pack copy the session reads. It reads ${PACK_HOOK_INPUT_TEXT}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run`),
+  timeoutSeconds: z.number().int().min(1).max(PACK_HOOK_TIMEOUT_SECONDS_MAX).default(10).describe('A hook still running after this many seconds is stopped and the call runs'),
+});
+export type PackHook = z.infer<typeof PackHook>;
+
+export const PackHookInput = z.strictObject({
+  version: z.literal(1),
+  event: z.literal('beforeTool'),
+  agent: z.string(),
+  sessionId: z.string().nullable(),
+  cwd: z.string(),
+  tool: z.strictObject({ kind: z.enum(['edit', 'shell', 'other']), name: z.string(), command: z.string().nullable(), filePaths: z.array(z.string()), input: z.unknown() }),
+});
+export type PackHookInput = z.infer<typeof PackHookInput>;
+
+export const PackHooks = z.array(PackHook).min(1).max(PACK_HOOKS_MAX).superRefine((hooks, context) => {
+  const seenIds = new Set<string>();
+  hooks.forEach((hook, index) => {
+    if (seenIds.has(hook.id)) context.addIssue({ code: 'custom', path: [index, 'id'], message: `the id '${hook.id}' is already used in hooks` });
+    seenIds.add(hook.id);
+  });
+});
+
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
@@ -208,6 +246,7 @@ export type PackOnDisk = {
   status: PackSection<PackStatus> | null;
   agent: PackSection<PackAgent> | null;
   mcp: PackSection<PackMcp> | null;
+  hooks: PackSection<PackHook[]> | null;
   missingRequires: string[];
   previewDataUrl: string | null;
 };
@@ -219,6 +258,7 @@ const PackManifestForSchema = PackHeader.extend({
   status: PackStatus.optional().describe('Status pages its panels read through the providers topic'),
   agent: PackAgent.optional().describe('Context and skills every session\'s agent gets once the operator approves the pack'),
   mcp: PackMcp.optional().describe('MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it'),
+  hooks: PackHooks.optional().describe('Checks every session\'s agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it'),
 });
 
 export function packJsonSchemaText(): string {

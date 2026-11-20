@@ -770,6 +770,18 @@ test('the published pack JSON Schema matches the Zod contract, and packs check n
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'dim', version: 1, ui: { themes: [{ id: 'dim', label: 'Dim', mode: 'dim' }] } }));
     assert.equal(await check(brokenDir), 1);
     assert.ok(output.some((line) => line.includes('pack.json ui.themes.0.mode')));
+    const specGate = { id: 'spec-gate', description: 'Asks for a design spec before the first edit', event: 'beforeTool', tools: ['edit'], command: ['node', '{packDir}/hooks/gate.mjs'] };
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'gates', version: 1, hooks: [specGate] }));
+    assert.equal(await check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /error: pack\.json hooks\.0\.command: \{packDir\}\/hooks\/gate\.mjs is not a file in the pack/);
+    fs.mkdirSync(path.join(brokenDir, 'hooks'));
+    fs.writeFileSync(path.join(brokenDir, 'hooks', 'gate.mjs'), '');
+    assert.equal(await check(brokenDir), 0);
+    assert.match(output.at(-1) ?? '', /^hook spec-gate, before edit tool calls on every first-class agent: \["node","\{packDir\}\/hooks\/gate\.mjs"\]$/m);
+    fs.writeFileSync(path.join(brokenDir, 'pack.json'), JSON.stringify({ name: 'gates', version: 1, hooks: [specGate, { ...specGate, event: 'afterTool' }] }));
+    assert.equal(await check(brokenDir), 1);
+    assert.match(output.at(-1) ?? '', /error: pack\.json hooks\.1\.event: /);
+    fs.rmSync(path.join(brokenDir, 'hooks'), { recursive: true });
     fs.writeFileSync(path.join(brokenDir, 'pack.json'), '{bad');
     assert.equal(await check(brokenDir), 1);
     assert.match(output.at(-1) ?? '', /error: pack\.json is not valid JSON: .*line 1 column 2/);

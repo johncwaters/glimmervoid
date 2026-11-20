@@ -16,6 +16,11 @@ function pageErrors(filesByPath: ReadonlyMap<string, Buffer>, header: { ui?: unk
   return [...panelReferenceErrors(filesByPath), ...undeclaredSubscriptionErrors(filesByPath, header ? declaredPanels(header.ui) : [])];
 }
 
+function hookReportLines(pack: PackOnDisk): string[] {
+  if (!pack.hooks?.ok) return [];
+  return pack.hooks.value.map((hook) => `hook ${hook.id}, before ${hook.tools.join(' and ')} tool calls on every first-class agent: ${JSON.stringify(hook.command)}`);
+}
+
 function agentReportLines(pack: PackOnDisk): string[] {
   if (!pack.agent?.ok) return [];
   const { context, skills } = pack.agent.value;
@@ -39,7 +44,7 @@ export async function checkPack(packDir: string, env: NodeJS.ProcessEnv, isAppro
     errors: [...prFlowsErrors, ...packSectionErrors(pack), ...pageErrors(pack.filesByPath, pack.header)], missingRequires: pack.missingRequires, entries: [], rules: [],
     panels: ui.panels.map((panel) => `${panel.id} (${panel.label}) opens ${panel.entry}${panel.reads.length === 0 ? ', reads nothing' : `, reads ${panel.reads.join(', ')}`}${panel.acts.length === 0 ? '' : `, acts on ${panel.acts.join(', ')}`}`),
     themes: ui.themes.map((theme) => `${theme.id} (${theme.label}, ${theme.mode})`),
-    agent: agentReportLines(pack),
+    agent: [...agentReportLines(pack), ...hookReportLines(pack)],
   };
   const [prFlowsPack] = prFlowsPacks;
   if (!prFlowsPack) return report;
