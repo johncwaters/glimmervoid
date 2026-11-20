@@ -25,6 +25,7 @@ Published as the JSON Schema `https://glimmervoid.dev/schema/pack.v1.json`; poin
 | `status` | object |  |  | Status pages its panels read through the providers topic See below. |
 | `agent` | object |  |  | Context and skills every session's agent gets once the operator approves the pack See below. |
 | `mcp` | object |  |  | MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it See below. |
+| `hooks` | array of objects |  |  | Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it See below. |
 
 ### `prFlows`
 
@@ -159,6 +160,21 @@ MCP servers every session gets once the pack is approved. Glimmervoid releases a
 | `mcp.servers[].name` | string, matches `^[a-z0-9][a-z0-9_-]{0,39}$` | yes |  | The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions |
 | `mcp.servers[].url` | string, matches `^(https://\|http://(127\.0\.0\.1\|localhost\|\[::1\])([:/?#]\|$))[^${}]*$`, URL | yes |  | The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login |
 | `mcp.servers[].secret` | string, matches `^[A-Z_][A-Z0-9_]{0,127}$` |  |  | A bearer token sent to this server: glimmervoid reads the name from the vault at session start once the operator allows it for the project, and passes it by environment variable, never argv; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves the server out |
+
+### `hooks`
+
+Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it
+
+A list, min items 1, max items 16, of:
+
+| Field | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `hooks[].id` | string, matches `^[a-z0-9][a-z0-9-]{0,39}$` | yes |  | Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack |
+| `hooks[].description` | string, min length 1, max length 300 | yes |  | What the hook checks, shown to the operator before approving |
+| `hooks[].event` | `"beforeTool"` | yes |  | beforeTool runs the hook before each tool call of a kind it watches, in every agent |
+| `hooks[].tools` | array of one of `"edit"`, `"shell"`, min items 1, max items 2 |  | `["edit","shell"]` | The tool kinds the hook watches |
+| `hooks[].command` | array of string, min length 1, max length 1000, min items 1, max items 32 | yes |  | The program and its arguments, run without a shell in the session folder; an argument after the program may hold {packDir}, the folder of the approved pack copy the session reads, whose files are not executable. It reads one JSON object on stdin: {"version":1,"event":"beforeTool","agent":"claude\|codex\|kimi\|antigravity\|opencode\|pi","sessionId","cwd","tool":{"kind":"edit\|shell\|other","name","command","filePaths","input"}}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run |
+| `hooks[].timeoutSeconds` | integer, min 1, max 60 |  | `10` | A hook still running after this many seconds is stopped and the call runs |
 
 ## Panel bridge
 
@@ -932,3 +948,4 @@ The other examples, by the sections they use:
 - [`plan-usage`](../examples/packs/plan-usage/): `ui`
 - [`pr-table`](../examples/packs/pr-table/): `ui`
 - [`session-board`](../examples/packs/session-board/): `ui`
+- [`ship`](../examples/packs/ship/): `requires`, `agent`, `hooks`
