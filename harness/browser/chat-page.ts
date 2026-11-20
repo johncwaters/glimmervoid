@@ -167,8 +167,9 @@ async function startCountingSentPrompts(page: Page, sentText: string): Promise<v
       const prompts = document.querySelectorAll('.session-chat .chat-scroll-content .chat-prompt');
       const sentPrompts = [...prompts].filter((prompt) => prompt.textContent === text);
       counts.push(sentPrompts.length);
-      const shownTop = sentPrompts[0]?.getBoundingClientRect().top;
-      if (shownTop !== undefined) tops.push(Math.round(shownTop));
+      const shownPrompt = sentPrompts[0];
+      const contentTop = shownPrompt?.closest('.chat-scroll-content')?.getBoundingClientRect().top;
+      if (shownPrompt && contentTop !== undefined) tops.push(Math.round(shownPrompt.getBoundingClientRect().top - contentTop));
       if (counts.length < 600) requestAnimationFrame(countFrame);
     };
     requestAnimationFrame(countFrame);
