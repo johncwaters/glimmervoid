@@ -1,6 +1,6 @@
 import type { Session } from '../../session/sessions.ts';
-import { WakeStoreFile } from '../../shared/contracts/wakes.ts';
-import type { AgentWakeRequest, Wake, WakeKind, WakeView } from '../../shared/contracts/wakes.ts';
+import { StoredWakeFile } from '../../shared/contracts/wakes.ts';
+import type { AgentWakeRequest, Wake, WakeKind, WakeOrigin, WakeStoreFile, WakeView } from '../../shared/contracts/wakes.ts';
 import { MAX_ALARMS } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm } from '../../shared/contracts/watcher-link.ts';
 import { clock } from '../../shared/clock.ts';
@@ -39,7 +39,7 @@ interface SessionEnd {
   cause?: string;
 }
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const KEPT_STATUSES: ReadonlySet<Wake['status']> = new Set(['pending', 'missed', 'failed']);
 const FIRE_TIME_FORMAT = { dayKeyOf: (ms: number) => clock.dayKeyOf(ms), hourMinuteOf: (ms: number) => clock.format(ms, 'hour-minute') };
 
@@ -54,6 +54,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   let isLoaded = false;
   const recheckAtById = new Map<string, number>();
   let lastBudgetHeldAtMs = Number.NEGATIVE_INFINITY;
+  const lastRateLimitedAtMsBySessionId = new Map<string, number>();
   const resumingWakeIds = new Set<string>();
   const watchedSessions = new WeakSet<Session>();
   const alarmListeners = new Set<() => void>();
@@ -62,7 +63,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   const store = createJsonStateStore<WakeStoreFile>({
     name: 'wakes',
     filePath,
-    parse: (raw) => WakeStoreFile.safeParse(raw).data ?? null,
+    parse: (raw) => StoredWakeFile.safeParse(raw).data ?? null,
     adopt: (loaded) => {
       wakes = loaded?.wakes ?? [];
       lastWakeNumber = loaded?.lastWakeNumber ?? 0;
@@ -213,7 +214,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function deliver(wake: Wake, session: Session, nowMs: number): void {
     recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
-    budget.submitWakeLine(session, describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf), (isSubmitted) => settleDelivery(wake.id, isSubmitted), session.isWaitingOnRateLimit ? 'now' : 'idle');
+    budget.submitWakeLine(session, describeWakeLine(wake, FIRE_TIME_FORMAT.hourMinuteOf), (isSubmitted) => settleDelivery(wake.id, isSubmitted), { when: session.isWaitingOnRateLimit ? 'now' : 'idle', origin: wake.origin });
   }
 
   function evaluateWake(wake: Wake, nowMs: number): void {
@@ -233,8 +234,12 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
       return;
     }
     watchSession(session);
-    const decision = decideDueWake(graceAnchoredWake, {
-      nowMs, sessionState: session.state, isWaitingOnRateLimit: session.isWaitingOnRateLimit, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
+    const rateLimitResetsAtMs = session.isWaitingOnRateLimit ? session._usageLimit?.resetsAtMs ?? null : null;
+    if (rateLimitResetsAtMs !== null && rateLimitResetsAtMs > nowMs) lastRateLimitedAtMsBySessionId.set(session.id, nowMs);
+    const lastRateLimitedAtMs = lastRateLimitedAtMsBySessionId.get(session.id) ?? Number.NEGATIVE_INFINITY;
+    const limitAnchoredWake = graceAnchoredWake.nextFireAt < lastRateLimitedAtMs ? { ...graceAnchoredWake, nextFireAt: lastRateLimitedAtMs } : graceAnchoredWake;
+    const decision = decideDueWake(limitAnchoredWake, {
+      nowMs, sessionState: session.state, isWaitingOnRateLimit: session.isWaitingOnRateLimit, rateLimitResetsAtMs, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
     }, limits);
     switch (decision.kind) {
       case 'wait':
@@ -272,13 +277,17 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   async function schedule(session: Session, kind: WakeKind, when: string, text: string): Promise<AgentReplyOf<'wake'>> {
     await store.load();
     const setAt = now();
-    const timezone = clock.timezone();
-    const parsed = parseWakeWhen(kind, when, setAt, timezone, limits);
+    const parsed = parseWakeWhen(kind, when, setAt, clock.timezone(), limits);
     if (!parsed.ok) return refusal(400, parsed.reason);
-    const candidate = { schedule: parsed.schedule, setAt, nextFireAt: parsed.nextFireAt };
-    const admission = admitWake(pendingWakesOf(session.id), candidate, limits);
+    return addWake(session, { schedule: parsed.schedule, setAt, nextFireAt: parsed.nextFireAt }, text, 'agent');
+  }
+
+  async function addWake(session: Session, candidate: Pick<Wake, 'schedule' | 'setAt' | 'nextFireAt'>, text: string, origin: WakeOrigin): Promise<AgentReplyOf<'wake'>> {
+    const timezone = clock.timezone();
+    const countedPendingWakes = origin === 'agent' ? pendingWakesOf(session.id).filter((pending) => pending.origin === 'agent') : [];
+    const admission = admitWake(countedPendingWakes, candidate, limits);
     if (!admission.ok) return refusal(409, admission.reason);
-    const wake: Wake = { id: `w${lastWakeNumber + 1}`, sessionId: session.id, text, status: 'pending', ...candidate };
+    const wake: Wake = { id: `w${lastWakeNumber + 1}`, sessionId: session.id, text, status: 'pending', origin, ...candidate };
     lastWakeNumber += 1;
     wakes = [...wakes, wake];
     if (!(await persist())) {
@@ -288,14 +297,15 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     watchSession(session);
     armTimer();
     announce(session.id);
-    const view = viewOfWake(wake, setAt, FIRE_TIME_FORMAT);
+    const view = viewOfWake(wake, candidate.setAt, FIRE_TIME_FORMAT);
     return { status: 200, body: { ok: true, wake: view, timezone, note: `wake ${wake.id} set: fires ${view.nextFire}, ${timezone}` } };
   }
 
-  async function cancel(sessionId: string, wakeId: string): Promise<AgentReplyOf<'wake'>> {
+  async function cancel(sessionId: string, wakeId: string, canceller: 'agent' | 'operator'): Promise<AgentReplyOf<'wake'>> {
     await store.load();
     const wake = pendingWakesOf(sessionId).find((pending) => pending.id === wakeId);
     if (!wake) return refusal(404, `this session has no pending wake ${wakeId}; glimmervoid wake list shows them`);
+    if (wake.origin !== 'agent' && canceller === 'agent') return refusal(403, `the operator set wake ${wakeId}, so only the operator can cancel it`);
     replaceWake({ ...wake, status: 'cancelled' });
     if (!(await persist())) {
       wakes = [...wakes, wake];
@@ -308,15 +318,20 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   }
 
   async function cancelForOperator(sessionId: string, wakeId: string): Promise<string | null> {
-    const reply = await cancel(sessionId, wakeId);
+    const reply = await cancel(sessionId, wakeId, 'operator');
     if (reply.body.ok) return null;
     announce(sessionId);
     return reply.body.error;
   }
 
-  async function scheduleInForOperator(session: Session, delay: string, text: string): Promise<string | null> {
-    const reply = await schedule(session, 'in', delay, text);
+  async function scheduleAtLimitReset(session: Session, fireAt: number, text: string): Promise<string | null> {
+    await store.load();
+    const pendingResetWake = pendingWakesOf(session.id).find((wake) => wake.origin === 'limit-reset');
+    if (pendingResetWake?.nextFireAt === fireAt) return null;
+    if (pendingResetWake) replaceWake({ ...pendingResetWake, status: 'cancelled' });
+    const reply = await addWake(session, { schedule: { kind: 'at', fireAt }, setAt: now(), nextFireAt: fireAt }, text, 'limit-reset');
     if (reply.body.ok) return null;
+    if (pendingResetWake) wakes = [...wakes, pendingResetWake];
     return reply.body.error;
   }
 
@@ -327,7 +342,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
 
   function handleAgent(session: Session, request: AgentWakeRequest): Promise<AgentReplyOf<'wake'>> {
     if (request.sub === 'list') return list(session);
-    if (request.sub === 'cancel') return cancel(session.id, request.wake);
+    if (request.sub === 'cancel') return cancel(session.id, request.wake, 'agent');
     return schedule(session, request.sub, request.when, request.text);
   }
 
@@ -337,7 +352,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     if (!isLoaded && filePath !== null) unrefTimer(setTimeoutFn(() => void start(), WAKE_RECHECK_MS));
   }
 
-  return { alarms, cancelForOperator, handleAgent, scheduleInForOperator, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
+  return { alarms, cancelForOperator, handleAgent, scheduleAtLimitReset, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
 }
 
 type WakeWiring = ReturnType<typeof createWakeWiring>;

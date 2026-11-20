@@ -659,10 +659,13 @@ function buildChat(sessionId: string): MountedChat {
     return true;
   };
 
+  const cardIdsSettingLimitWake = new Set<string>();
   const continueAtLimitReset = (cardId: string, value: string) => {
     const usageLimit = usageLimitOfActionValue(value);
-    if (usageLimit === null) return;
-    sendControlRequest('wake-at-limit-reset', { id: sessionId, resetsAtMs: usageLimit.resetsAtMs })
+    if (usageLimit === null || cardIdsSettingLimitWake.has(cardId)) return;
+    cardIdsSettingLimitWake.add(cardId);
+    sendControlRequest('wake-at-limit-reset', { id: sessionId })
+      .finally(() => cardIdsSettingLimitWake.delete(cardId))
       .then((reply) => {
         if (reply.type !== 'wake-at-limit-reset-result' || !reply.ok) {
           showFailure(reply.type === 'wake-at-limit-reset-result' ? reply.error ?? WAKE_NOT_SET_TEXT : WAKE_NOT_SET_TEXT);

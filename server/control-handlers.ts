@@ -99,7 +99,7 @@ interface MyPrMergeControl {
 interface SessionWakesControl {
   pendingWakesBySession(): { sessionId: string; wakes: WakeView[] }[];
   cancelForOperator(sessionId: string, wakeId: string): Promise<string | null>;
-  scheduleInForOperator(session: Session, delay: string, text: string): Promise<string | null>;
+  scheduleAtLimitReset(session: Session, fireAt: number, text: string): Promise<string | null>;
 }
 
 interface ControlHandlerDeps {

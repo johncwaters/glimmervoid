@@ -1,5 +1,6 @@
 import type { Session } from '../../session/sessions.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
+import type { WakeOrigin } from '../../shared/contracts/wakes.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
 import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
@@ -14,6 +15,11 @@ import type { AgentApiRuntime, ChannelLink, SessionWakeBudget } from './agent-ap
 import type { AttentionNoteOrigin } from '../../shared/contracts/session.ts';
 import type { OperatorWakeFacts } from '../core/wake-core.ts';
 
+
+interface WakeLineDelivery {
+  when?: 'idle' | 'now';
+  origin?: WakeOrigin;
+}
 
 interface StateChange {
   from: SessionState;
@@ -107,7 +113,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return false;
   }
 
-  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void, when: 'idle' | 'now' = 'idle'): boolean {
+  function submitWakeLine(recipient: Session, line: string, onSettled: (isSubmitted: boolean) => void, { when = 'idle', origin = 'agent' }: WakeLineDelivery = {}): boolean {
     if (isWakeLineInFlight(recipient)) return false;
     const delivered = recipient.deliver(line, {
       when,
@@ -120,7 +126,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
           return;
         }
         holdWakeLineUntilTurnStart(recipient);
-        wakeBudgetOf(recipient).wakesSinceOperatorInput += 1;
+        if (origin === 'agent') wakeBudgetOf(recipient).wakesSinceOperatorInput += 1;
         onSettled(true);
       },
     });

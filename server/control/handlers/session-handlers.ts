@@ -46,8 +46,8 @@ type SessionRemoval = { ok: true } | RemovalRefusal;
 type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
-const MS_PER_SECOND = 1000;
 const LIMIT_RESET_WAKE_TEXT = 'continue';
+const NO_LIMIT_TO_WAIT_ON_TEXT = 'This session has no usage limit waiting to reset.';
 
 
 async function runGitForConversationHistory(args: string[], cwd: string): Promise<string> {
@@ -803,8 +803,9 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     const session = findSession(msg);
     if (!session) return SESSION_GONE_TEXT;
     if (!sessionWakes) return 'Wakes are not available on this host.';
-    const secondsUntilReset = Math.max(1, Math.ceil((msg.resetsAtMs - clock.nowMs()) / MS_PER_SECOND));
-    return sessionWakes.scheduleInForOperator(session, `${secondsUntilReset}s`, LIMIT_RESET_WAKE_TEXT);
+    const usageLimit = session._usageLimit;
+    if (!usageLimit || usageLimit.resetsAtMs <= clock.nowMs()) return NO_LIMIT_TO_WAIT_ON_TEXT;
+    return sessionWakes.scheduleAtLimitReset(session, usageLimit.resetsAtMs, LIMIT_RESET_WAKE_TEXT);
   }
 
   async function handleWakeAtLimitReset(msg: ClientMessageOf<'wake-at-limit-reset'>, ws: ControlSocket): Promise<void> {

@@ -24,6 +24,7 @@ interface DueWakeFacts extends OperatorWakeFacts {
   nowMs: number;
   sessionState: SessionState;
   isWaitingOnRateLimit: boolean;
+  rateLimitResetsAtMs: number | null;
   hasConversationId: boolean;
   isDelivering: boolean;
 }
@@ -134,6 +135,7 @@ function admitWake(pendingInSession: readonly Wake[], candidate: Pick<Wake, 'sch
 
 function decideDueWake(wake: Wake, facts: DueWakeFacts, limits: WakeLimits): DueWakeDecision {
   if (wake.nextFireAt > facts.nowMs) return { kind: 'wait', untilMs: wake.nextFireAt };
+  if (facts.rateLimitResetsAtMs !== null && facts.rateLimitResetsAtMs > facts.nowMs) return { kind: 'wait', untilMs: Math.min(facts.rateLimitResetsAtMs, facts.nowMs + WAKE_RECHECK_MS) };
   if (facts.nowMs - wake.nextFireAt > limits.missedGraceMs) return { kind: 'missed' };
   if (facts.sessionState === STATES.DORMANT) return facts.hasConversationId ? { kind: 'resume-with-line' } : { kind: 'failed', cause: 'no-conversation' };
   if (RESTARTABLE_STATES.includes(facts.sessionState)) return { kind: 'failed', cause: 'exited' };
@@ -142,8 +144,8 @@ function decideDueWake(wake: Wake, facts: DueWakeFacts, limits: WakeLimits): Due
     recipientState: facts.isWaitingOnRateLimit ? STATES.IDLE : facts.sessionState,
     hasUnread: true,
     isWakePending: facts.isDelivering,
-    isOperatorFlagged: facts.isOperatorFlagged,
-    wakesSinceOperatorInput: facts.wakesSinceOperatorInput,
+    isOperatorFlagged: wake.origin === 'agent' && facts.isOperatorFlagged,
+    wakesSinceOperatorInput: wake.origin === 'agent' ? facts.wakesSinceOperatorInput : 0,
     msSinceOperatorInput: facts.msSinceOperatorInput,
   });
   if (decision.kind === 'none') return { kind: 'wait', untilMs: recheckAt };
@@ -205,6 +207,7 @@ function viewOfWake(wake: Wake, nowMs: number, format: FireTimeFormat): WakeView
 }
 
 function describeWakeLine(wake: Wake, formatTime: (ms: number) => string): string {
+  if (wake.origin === 'limit-reset') return `Glimmervoid wake ${wake.id} (the operator chose Continue at reset): ${wake.text}`;
   const cronPart = wake.schedule.kind === 'cron' ? `, cron ${wake.schedule.pattern}` : '';
   return `Glimmervoid wake ${wake.id} (you set it at ${formatTime(wake.setAt)}${cronPart}): ${wake.text}`;
 }

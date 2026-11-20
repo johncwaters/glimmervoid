@@ -897,7 +897,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionWakes: {
       pendingWakesBySession: () => agentApi?.sessionWakes.pendingWakesBySession() ?? [],
       cancelForOperator: async (sessionId, wakeId) => agentApi ? agentApi.sessionWakes.cancelForOperator(sessionId, wakeId) : 'Wakes are not available yet',
-      scheduleInForOperator: async (session, delay, text) => agentApi ? agentApi.sessionWakes.scheduleInForOperator(session, delay, text) : 'Wakes are not available yet',
+      scheduleAtLimitReset: async (session, fireAt, text) => agentApi ? agentApi.sessionWakes.scheduleAtLimitReset(session, fireAt, text) : 'Wakes are not available yet',
     },
     githubAppGrants,
     githubUserCredential: () => githubUserCredentialOfLink(),

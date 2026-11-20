@@ -4,6 +4,7 @@ export const MAX_WAKE_TEXT_CHARS = 2000;
 export const MAX_WAKE_WHEN_CHARS = 200;
 const WAKE_KINDS = ['in', 'at', 'cron'] as const;
 const WAKE_STATUSES = ['pending', 'fired', 'missed', 'failed', 'cancelled'] as const;
+const WAKE_ORIGINS = ['agent', 'limit-reset'] as const;
 
 export const WakeId = z.string({ error: 'the wake must be a string' }).regex(/^w[1-9][0-9]{0,8}$/, { error: 'a wake id looks like w3; glimmervoid wake list shows them' });
 export const WakeKind = z.enum(WAKE_KINDS);
@@ -27,7 +28,9 @@ export const WakeSchedule = z.union([
   z.strictObject({ kind: z.literal('cron'), pattern: z.string().min(1).max(MAX_WAKE_WHEN_CHARS), timezone: z.string().min(1).max(100) }),
 ]);
 
-export const Wake = z.strictObject({
+const WakeOrigin = z.enum(WAKE_ORIGINS);
+
+const AgentSetWake = z.strictObject({
   id: WakeId,
   sessionId: z.string().min(1).max(300),
   schedule: WakeSchedule,
@@ -37,11 +40,24 @@ export const Wake = z.strictObject({
   status: z.enum(WAKE_STATUSES),
 });
 
+export const Wake = AgentSetWake.extend({ origin: WakeOrigin });
+
 export const WakeStoreFile = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   lastWakeNumber: z.number().int().nonnegative(),
   wakes: z.array(Wake),
 });
+
+const AgentOnlyWakeStoreFile = z.strictObject({
+  version: z.literal(1),
+  lastWakeNumber: z.number().int().nonnegative(),
+  wakes: z.array(AgentSetWake),
+});
+
+export const StoredWakeFile = z.union([
+  WakeStoreFile,
+  AgentOnlyWakeStoreFile.transform((file): WakeStoreFile => ({ version: 2, lastWakeNumber: file.lastWakeNumber, wakes: file.wakes.map((wake) => ({ ...wake, origin: 'agent' })) })),
+]);
 
 export const AgentWakeRequest = z.discriminatedUnion('sub', [
   z.strictObject({ sub: z.literal('in'), when: WakeWhen, text: WakeText }),
@@ -68,6 +84,7 @@ export const AgentWakeReply = z.union([
 
 export type Wake = z.infer<typeof Wake>;
 export type WakeKind = z.infer<typeof WakeKind>;
+export type WakeOrigin = z.infer<typeof WakeOrigin>;
 export type WakeSchedule = z.infer<typeof WakeSchedule>;
 export type WakeStoreFile = z.infer<typeof WakeStoreFile>;
 export type WakeView = z.infer<typeof WakeView>;

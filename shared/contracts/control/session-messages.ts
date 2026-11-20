@@ -43,7 +43,7 @@ export const sessionClientVariants = [
   loose('link-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('unlink-session-pr', { id: sessionId, key: PullRequestKey }),
   loose('cancel-wake', { id: sessionId, wake: WakeId }),
-  loose('wake-at-limit-reset', { id: sessionId, resetsAtMs: z.number().int().positive(), requestId }),
+  loose('wake-at-limit-reset', { id: sessionId, requestId }),
   loose('dismiss', { id: sessionId, force: z.unknown().optional(), expectedState: SessionState.optional() }),
   loose('manager-seen', { id: sessionId, throughSeq: z.number().int().min(1) }),
   loose('set-session-question-manager', { id: sessionId, isOn: z.boolean() }),
