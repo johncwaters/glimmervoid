@@ -6,6 +6,7 @@ import { holdPreparedAgentHome, realAgentHome, releaseAgentHome } from "../agent
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";
 import { settingsHomeHooks } from "./settings-home-hooks.ts";
+import { settingsHomeMcpServers } from "../../mcp/core/agent-config.ts";
 import type {
   AgentAdapterShape,
   AgentArgsOptions,
@@ -88,7 +89,7 @@ const { hooksRefusal, expectedHooks, describeInstalledHooks, configFilePath } = 
 function prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const managedHooks = expectedHooks();
   if (managedHooks === null) return { refusal: hooksRefusal };
-  const prepared = holdPreparedAgentHome(GEMINI_HOME_PROFILE, env, () => managedHooks, undefined, undefined, launch.accountFolder ?? null);
+  const prepared = holdPreparedAgentHome(GEMINI_HOME_PROFILE, env, () => managedHooks, { accountFolder: launch.accountFolder ?? null, managedMcpServers: settingsHomeMcpServers(launch.listenerPort, launch.sharedPackServers ?? []) });
   if ("refusal" in prepared) return prepared;
   return { home: path.dirname(prepared.home) };
 }

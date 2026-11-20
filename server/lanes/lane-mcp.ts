@@ -5,11 +5,11 @@ import path from 'node:path';
 import { isRecord } from '../../shared/coerce.ts';
 import { knownWriteHookInput } from '../../session/core/posthog-read-gate-core.ts';
 import { execFileAsync } from '../child-process-safe.ts';
+import { listCodexMcpServers } from '../packs/operator-mcp-servers.ts';
 import { listClaudeGlobalConfigPathCandidates } from '../core/claude-config-paths-core.ts';
 import { makeHostScratchDirectory } from '../host-scratch.ts';
 import { writeJsonAtomic } from '../json-file.ts';
 import { relayPath, scriptLaunch, stableLauncherPath } from '../runtime-paths.ts';
-import codex from '../../session/adapters/codex.ts';
 import type { ScratchAgentHome } from '../../session/adapters/index.ts';
 import { realAgentHome } from '../../session/agent-home.ts';
 import { KIMI_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
@@ -20,7 +20,6 @@ import type { LaneMcpPosture } from './core/lane-permissions-core.ts';
 
 const LANE_MCP_DIR_PREFIX = 'glimmervoid-lane-settings-';
 const GATE_SELF_TEST_TIMEOUT_MS = 5000;
-const CODEX_MCP_LIST_TIMEOUT_MS = 10000;
 const CODEX_AGENT_ID = 'codex';
 const KIMI_AGENT_ID = 'kimi';
 const DEFAULT_AGENT_ID = 'claude';
@@ -44,12 +43,6 @@ interface LaneMcpDeps {
 async function readOperatorClaudeConfig(): Promise<unknown> {
   const [, currentConfigPath] = listClaudeGlobalConfigPathCandidates(process.env, os.homedir());
   return JSON.parse(await fsPromises.readFile(currentConfigPath, 'utf8'));
-}
-
-async function listOperatorCodexServers(): Promise<unknown> {
-  const listCommand = codex.buildSpawnCommand({ platform: process.platform, resolved: codex.resolveCommand(), agentArgs: ['mcp', 'list', '--json'] });
-  const { stdout } = await execFileAsync(listCommand.file, listCommand.args, { encoding: 'utf8', timeout: CODEX_MCP_LIST_TIMEOUT_MS, windowsHide: true });
-  return JSON.parse(stdout);
 }
 
 async function gateSelfTestFailure(gateTool: ResolvedHookTool): Promise<string | null> {
@@ -99,7 +92,7 @@ async function prepareKimiLaneMcp(kimiHome: string, gatePath: string, warn: (mes
 
 async function prepareLaneMcp(
   { laneArgs, agent }: { laneArgs: readonly string[]; agent?: string },
-  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listOperatorCodexServers, kimiHome = realAgentHome(KIMI_HOME_PROFILE), gatePath = relayPath('posthog-read-gate'), warn = (message) => console.warn(`[lane-mcp] ${message}`) }: LaneMcpDeps = {},
+  { readClaudeConfig = readOperatorClaudeConfig, listCodexServers = listCodexMcpServers, kimiHome = realAgentHome(KIMI_HOME_PROFILE), gatePath = relayPath('posthog-read-gate'), warn = (message) => console.warn(`[lane-mcp] ${message}`) }: LaneMcpDeps = {},
 ): Promise<PreparedLaneMcp | null> {
   if (agent === CODEX_AGENT_ID) return prepareCodexLaneMcp(listCodexServers, gatePath, warn);
   if (agent === KIMI_AGENT_ID) return prepareKimiLaneMcp(kimiHome, gatePath, warn);

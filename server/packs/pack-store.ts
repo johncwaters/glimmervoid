@@ -3,14 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { PackRow, PackSourceRow, PacksStatus } from '../../shared/contracts/control/pack-messages.ts';
 import { PACK_FILE_NAME, PacksState } from '../../shared/contracts/pack.ts';
-import type { PackOnDisk } from '../../shared/contracts/pack.ts';
+import type { PackMcpServer, PackOnDisk } from '../../shared/contracts/pack.ts';
 import { canonicalizePath } from '../../shared/canonical-paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
 import type { ProviderStatus } from '../../shared/contracts/pack-bridge.ts';
-import { packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packRow, pendingPackNote, scheduledLaunchers, withinPreviewBudget } from './core/pack-core.ts';
-import type { LauncherProjectResolution, ScheduledPackLauncher } from './core/pack-core.ts';
+import { NO_OPERATOR_MCP_SERVER_NAMES, packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote, scheduledLaunchers, withinPreviewBudget } from './core/pack-core.ts';
+import type { LauncherProjectResolution, OperatorMcpServerNames, ScheduledPackLauncher } from './core/pack-core.ts';
+import { readCodexOperatorServerNames, readOperatorMcpServerNames } from './operator-mcp-servers.ts';
 import { servedPackFile } from './core/pack-page-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
 import { PACKS_INSTALLED_FILE_NAME, readInstalledFingerprints } from './pack-install.ts';
@@ -44,6 +45,8 @@ type PackStore = EventEmitter & {
   panelInUse(packName: string, panelId: string): ReturnType<typeof approvedPanel>;
   scheduledLaunchersInUse(): ScheduledPackLauncher[];
   agentContributionsInUse(): ReturnType<typeof packAgentContributions>;
+  mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]>;
+  sharedMcpServers(agentId: string): PackMcpServer[];
 };
 
 export function createPackStore({ homeDir, statePath, env, log, frameSecret, reloadDebounceMs = PACK_RELOAD_DEBOUNCE_MS }: {
@@ -73,6 +76,11 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   let resolveLauncherProject = (_project: string): LauncherProjectResolution => ({ ok: false, reason: 'projects are still being matched' });
   let providerStatusesOf = (_urls: readonly string[]): ProviderStatus[] => [];
   let sourceRowsOf = (): readonly PackSourceRow[] => [];
+  let operatorMcpServerNames: OperatorMcpServerNames = NO_OPERATOR_MCP_SERVER_NAMES;
+
+  async function refreshOperatorMcpServerNames(): Promise<void> {
+    operatorMcpServerNames = await readOperatorMcpServerNames(env);
+  }
 
   function watchQuietly(target: string, onChange: (changedName: string | null) => void, isRecursive: boolean): fs.FSWatcher | null {
     try {
@@ -101,6 +109,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     const read = await readPackDir(packDir, env);
     installedFingerprintsByName = await readInstalledFingerprints(homeDir);
     readsByDir.set(packDir, read);
+    await refreshOperatorMcpServerNames();
     if (!isStopped) emitter.emit('changed');
   }
 
@@ -116,7 +125,10 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   async function refresh(): Promise<void> {
     const found = await packDirsUnder(homeDir);
     const knownDirs = [...new Set([...found.packDirs, ...listedWatchersByDir.keys()])];
-    const freshReads = await Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const));
+    const [freshReads] = await Promise.all([
+      Promise.all(knownDirs.map(async (packDir) => [packDir, await readPackDir(packDir, env)] as const)),
+      refreshOperatorMcpServerNames(),
+    ]);
     installedFingerprintsByName = await readInstalledFingerprints(homeDir);
     if (isStopped) return;
     const hasDroppedPack = [...readsByDir.keys()].some((packDir) => !knownDirs.includes(packDir));
@@ -171,6 +183,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
 
   function currentReads(): { packDir: string; read: PackRead }[] {
     const takenNames = new Set<string>();
+    const takenServerNames = new Set<string>();
     return [...new Set([...homePackDirs, ...listedWatchersByDir.keys()])].flatMap((packDir): { packDir: string; read: PackRead }[] => {
       const read = readsByDir.get(packDir);
       if (!read) return [];
@@ -178,6 +191,9 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
       const name = read.pack.header.name;
       if (takenNames.has(name)) return [{ packDir, read: { ok: false, errors: [`another pack is already named '${name}'`] } }];
       takenNames.add(name);
+      const takenServer = packMcpServers(read.pack).find((server) => takenServerNames.has(server.name));
+      if (takenServer) return [{ packDir, read: { ok: false, errors: [`another pack already adds an MCP server named '${takenServer.name}'`] } }];
+      for (const server of packMcpServers(read.pack)) takenServerNames.add(server.name);
       return [{ packDir, read }];
     });
   }
@@ -190,7 +206,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   }
 
   function rows(): PackRow[] {
-    return withinPreviewBudget(currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints, isPlacedByHand(packDir, read))));
+    return withinPreviewBudget(currentReads().map(({ packDir, read }) => packRow(packDir, read, approvedFingerprints, isPlacedByHand(packDir, read), operatorMcpServerNames)));
   }
 
   function packEntriesInUse(): { packDir: string; pack: PackOnDisk }[] {
@@ -227,7 +243,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
         packs.push(read.pack);
         continue;
       }
-      warnings.push(pendingPackNote(packRow(packDir, read, approvedFingerprints, false)));
+      warnings.push(pendingPackNote(packRow(packDir, read, approvedFingerprints, false, operatorMcpServerNames)));
     }
     return { packs, warnings };
   }
@@ -324,6 +340,18 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     return entry?.packDir ?? null;
   }
 
+  function sharedMcpServers(agentId: string): PackMcpServer[] {
+    return packMcpServersForAgent(agentId, packsInUse(), operatorMcpServerNames);
+  }
+
+  async function mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]> {
+    const packs = packsInUse();
+    if (packs.every((pack) => packMcpServers(pack).length === 0)) return [];
+    const codexNames = agentId === 'codex' ? await readCodexOperatorServerNames(env, cwd) : operatorMcpServerNames.codex;
+    if (codexNames === null) return [];
+    return packMcpServersForAgent(agentId, packs, { ...operatorMcpServerNames, codex: codexNames });
+  }
+
   return Object.assign(emitter, {
     start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
     dismissRequest, reopenRequest: (packName: string) => { dismissedFingerprintByPackName.delete(packName); }, isRequestDismissed,
@@ -336,5 +364,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     panelInUse: (packName: string, panelId: string) => approvedPanel(packsInUse(), packName, panelId),
     scheduledLaunchersInUse: () => scheduledLaunchers(packsInUse()),
     agentContributionsInUse: () => packAgentContributions(packsInUse()),
+    mcpServersForSession,
+    sharedMcpServers,
   });
 }

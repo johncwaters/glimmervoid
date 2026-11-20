@@ -5,6 +5,8 @@ import { LaunchAgent, LaunchEffort, LaunchModel, LaunchPrompt, LauncherLabel, La
 import { PackBridgeTopic, PackName, PackPanelAct, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { SKILL_NAME_PATTERN } from '../skill-frontmatter-core.ts';
+import { isLoopbackHostname } from '../loopback-hosts.ts';
+import { SecretName } from './secrets.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -25,6 +27,7 @@ export const PackHeader = z.strictObject({
   sessions: z.unknown().optional(),
   status: z.unknown().optional(),
   agent: z.unknown().optional(),
+  mcp: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -142,6 +145,40 @@ export const PackLauncherRuns = z.strictObject({
   sessionIdByRun: z.record(z.string().min(1), z.string().min(1)).default({}),
   lastFiredAtByRun: z.record(z.string().min(1), z.number().int().nonnegative()).default({}),
 });
+export const GLIMMERVOID_MCP_SERVER_NAME = 'glimmervoid';
+
+function isHttpsOrLoopbackHttp(url: string): boolean {
+  const parsed = URL.parse(url);
+  if (parsed === null) return false;
+  return parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname));
+}
+
+const PACK_MCP_URL_PATTERN = '^(https://|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])([:/?#]|$))[^$]*$';
+
+export const PackMcpServer = z.strictObject({
+  name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/, { error: 'a server name is lowercase letters, digits, dash and underscore, at most 40 characters' })
+    .refine((name) => name !== GLIMMERVOID_MCP_SERVER_NAME, { error: `the server name '${GLIMMERVOID_MCP_SERVER_NAME}' is glimmervoid's own` })
+    .meta({ not: { const: GLIMMERVOID_MCP_SERVER_NAME }, description: 'The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions' }),
+  url: z.url().refine(isHttpsOrLoopbackHttp, { error: 'a server url is https, or http on 127.0.0.1, ::1 or localhost' })
+    .refine((url) => !url.includes('$'), { error: 'a server url holds no $, since agents expand ${VAR} in it' })
+    .meta({ pattern: PACK_MCP_URL_PATTERN, description: 'The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login' }),
+  secret: SecretName.optional()
+    .describe('A bearer token sent to this server: glimmervoid reads the name from the vault at session start once the operator allows it for the project, and passes it by environment variable, never argv; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves the server out'),
+});
+export type PackMcpServer = z.infer<typeof PackMcpServer>;
+export type PackMcpLaunch = { servers: PackMcpServer[]; env: Record<string, string> };
+export type PackMcpLaunchHold = PackMcpLaunch | { held: Promise<PackMcpLaunch> };
+
+export const PackMcp = z.strictObject({
+  servers: z.array(PackMcpServer).min(1).max(8).describe('MCP servers every locally launched glimmervoid session gets once the operator approves the pack'),
+}).superRefine((section, context) => {
+  const seenNames = new Set<string>();
+  section.servers.forEach((server, index) => {
+    if (seenNames.has(server.name)) context.addIssue({ code: 'custom', path: ['servers', index, 'name'], message: `the name '${server.name}' is already used in servers` });
+    seenNames.add(server.name);
+  });
+});
+export type PackMcp = z.infer<typeof PackMcp>;
 
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
@@ -170,6 +207,7 @@ export type PackOnDisk = {
   sessions: PackSection<PackSessions> | null;
   status: PackSection<PackStatus> | null;
   agent: PackSection<PackAgent> | null;
+  mcp: PackSection<PackMcp> | null;
   missingRequires: string[];
   previewDataUrl: string | null;
 };
@@ -180,6 +218,7 @@ const PackManifestForSchema = PackHeader.extend({
   sessions: PackSessions.optional().describe('Permission settings for every session this pack starts'),
   status: PackStatus.optional().describe('Status pages its panels read through the providers topic'),
   agent: PackAgent.optional().describe('Context and skills every session\'s agent gets once the operator approves the pack'),
+  mcp: PackMcp.optional().describe('MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it'),
 });
 
 export function packJsonSchemaText(): string {

@@ -251,6 +251,49 @@ test('an OpenRouter session waiting on the key card releases its start and launc
   }
 });
 
+test('a pack server secret card releases the session start, and denying one server keeps the others the operator allows', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pack-secret-hold-'));
+  const broker = createSecretsBroker({
+    readSecrets: () => ({}),
+    writeSecrets: async () => true,
+    currentSource: () => ({ manager: '1password', lookIn: 'Agents' }),
+    readSecret: async () => ({ value: 'executor-token-value' }),
+  });
+  const packServers = [{ name: 'executor', url: 'http://127.0.0.1:4312/mcp', secret: 'EXECUTOR_TOKEN' }, { name: 'other', url: 'https://other.example/mcp', secret: 'OTHER_TOKEN' }];
+  const makeSession = createSessionFactory({
+    configStore: { configPath: path.join(directory, 'config.json') }, hookRouter: null, getHookPort: () => null,
+    getGitWorkspace: () => null, getUserHooks: () => [], resolveHookTools: () => [], getSecretsBroker: () => broker,
+    packMcpServers: async () => packServers,
+  });
+  const id = 'pack-secret-hold';
+  const project: ProjectEntry = { ...ProjectConfig.parse({ id, name: id, path: directory, agent: 'claude-code' }), id, name: id, path: directory };
+  const session = makeSession(project, { ...DEFAULT_CONFIG, recordSignals: false, projects: [project] });
+  const spawns: { args: string[]; env: Record<string, string | undefined> }[] = [];
+  session._spawnCommand = { path: process.execPath, kind: 'exe' };
+  session._ptySpawn = (_file, spawnArgs, options) => {
+    spawns.push({ args: [...spawnArgs], env: { ...options.env } });
+    return fakePty();
+  };
+  try {
+    await session.start();
+    assert.deepEqual(broker.requestsSnapshot()[id]?.names, ['EXECUTOR_TOKEN', 'OTHER_TOKEN']);
+    assert.equal(await broker.decide({ id, choice: 'deny', names: ['OTHER_TOKEN'] }), null);
+    await waitFor(() => broker.requestsSnapshot()[id]?.names.join() === 'EXECUTOR_TOKEN', 'the card asks again for the server still allowed');
+    assert.equal(await broker.decide({ id, choice: 'allow-once', names: ['EXECUTOR_TOKEN'] }), null);
+    await waitFor(() => spawns.length === 1, 'the agent started after the card was answered');
+    const [spawn] = spawns;
+    assert.ok(spawn);
+    const launchText = spawn.args.join(' ');
+    assert.match(launchText, /executor/);
+    assert.doesNotMatch(launchText, /other\.example/);
+    assert.doesNotMatch(launchText, /executor-token-value/);
+    assert.equal(spawn.env.GLIMMERVOID_PACK_EXECUTOR_TOKEN, 'executor-token-value');
+  } finally {
+    session.destroy();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('denying the OpenRouter key card fails the session without starting the agent', async () => {
   const launch = startOpenRouterSession();
   try {

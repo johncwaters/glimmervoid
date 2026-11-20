@@ -22,6 +22,7 @@ import { createPackSessionFiles } from '../packs/pack-session-files.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import { createSessionSandbox } from '../sandbox/sandbox-wiring.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
+import type { PackMcpServer } from '../../shared/contracts/pack.ts';
 
 interface BackendSessionRuntimeDependencies {
   config: GlimmervoidConfig;
@@ -31,10 +32,12 @@ interface BackendSessionRuntimeDependencies {
   recordOutcome?: OutcomeRecorder;
   logger: Pick<Console, 'warn'>;
   getQuestionManagerLane?: () => QuestionManagerLane | null;
-  getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch'> | null;
+  getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch' | 'deniedLaunchNames'> | null;
   liveSessionNamesUsing: (accountId: string) => string[];
   githubUserToken: () => Promise<string | null>;
   onConfigSaved: (config: GlimmervoidConfig) => void;
+  packMcpServersFor?: (agentId: string, cwd: string) => Promise<PackMcpServer[]>;
+  sharedPackMcpServersFor?: (agentId: string) => PackMcpServer[];
 }
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
@@ -114,6 +117,8 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     resolveHookTools: (config) => resolveHookTools(config, { warn: dependencies.logger.warn.bind(dependencies.logger) }),
     getUserHooks: (projectId: string) => hooksForProject(dependencies.config.hooks, projectId),
     getTerminalColors: () => terminalColors,
+    packMcpServers: dependencies.packMcpServersFor ?? null,
+    sharedPackMcpServers: dependencies.sharedPackMcpServersFor ?? null,
     questionManager: createQuestionManager({ getSettings: () => dependencies.configStore.config.questionManager, getLane: dependencies.getQuestionManagerLane }),
   });
 

@@ -727,6 +727,51 @@
         }
       },
       "additionalProperties": false
+    },
+    "mcp": {
+      "description": "MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it",
+      "type": "object",
+      "properties": {
+        "servers": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$",
+                "not": {
+                  "const": "glimmervoid"
+                },
+                "description": "The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^(https://|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])([:/?#]|$))[^$]*$",
+                "description": "The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login"
+              },
+              "secret": {
+                "description": "A bearer token sent to this server: glimmervoid reads the name from the vault at session start once the operator allows it for the project, and passes it by environment variable, never argv; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves the server out",
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"
+              }
+            },
+            "required": [
+              "name",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "description": "MCP servers every locally launched glimmervoid session gets once the operator approves the pack"
+        }
+      },
+      "required": [
+        "servers"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

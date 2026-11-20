@@ -10,6 +10,9 @@ import { createBackend } from '../server/backend/backend.ts';
 import { createSecretsBroker } from '../server/secrets/secrets-broker.ts';
 import { needExitCode } from '../server/secrets/core/secrets-broker-core.ts';
 import { createWrittenSecretNames } from '../server/secrets/written-secret-names.ts';
+import { kimiMcpFiles, mcpLaunchFor } from '../mcp/core/agent-config.ts';
+import { NO_OPERATOR_MCP_SERVER_NAMES, packMcpLaunchOf, packMcpServersForAgent } from '../server/packs/core/pack-core.ts';
+import { buildAgentEnv } from '../session/core/spawn-env.ts';
 import type { SecretRequestCard, SecretSource } from '../shared/contracts/secrets.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -292,4 +295,26 @@ test('a value delivered with Allow once is masked again after a restart, though 
   } finally {
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
+});
+
+test('a pack server secret reaches only agents that render pack servers, by environment variable name and never argv, and a parent copy never leaks into a session', () => {
+  const tokenValue = 'executor-bearer-value';
+  const servers = [
+    { name: 'executor', url: 'http://127.0.0.1:4312/mcp', secret: 'EXECUTOR_TOKEN' },
+    { name: 'other', url: 'https://other.example/mcp', secret: 'OTHER_TOKEN' },
+    { name: 'open', url: 'https://open.example/mcp' },
+  ];
+  const pack = { header: { name: 'executor' }, mcp: { ok: true, value: { servers } } };
+  for (const agentId of ['opencode', 'pi', 'antigravity', 'grok', 'my-custom-cli']) assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES), [], `${agentId} gets no pack server and so no token`);
+  const launch = packMcpLaunchOf(servers, { EXECUTOR_TOKEN: tokenValue });
+  assert.deepEqual(launch.servers.map((server) => server.name), ['executor', 'open']);
+  assert.deepEqual(launch.env, { GLIMMERVOID_PACK_EXECUTOR_TOKEN: tokenValue });
+  for (const agentId of ['claude-code', 'codex']) {
+    const argv = mcpLaunchFor({ agentId, listenerPort: null, sessionId: 'pack-session', agentToken: null, packServers: launch.servers }).args.join(' ');
+    assert.ok(argv.includes('GLIMMERVOID_PACK_EXECUTOR_TOKEN'), `${agentId} names the token variable`);
+    assert.ok(!argv.includes(tokenValue), `${agentId} argv never holds the token`);
+  }
+  const kimiFiles = Object.values(kimiMcpFiles({ realMcpJson: null, generatedMcpJson: null, baseMcpJson: null, packServersJson: null, listenerPort: 4000, packServers: launch.servers })).join('');
+  assert.ok(kimiFiles.includes('GLIMMERVOID_PACK_EXECUTOR_TOKEN') && !kimiFiles.includes(tokenValue));
+  assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token' }, {}, {})), ['PATH']);
 });

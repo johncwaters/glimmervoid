@@ -302,10 +302,19 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     return { refusal: `${names.join(', ')} could not be read from the vault${failure === null ? '' : `: ${failure.message}`}` };
   }
 
+  function launchDecision(session: NeedingSession, names: readonly string[]): ReturnType<typeof decideNeed> {
+    const state = { ...projectState(session, currentSource() !== null), deliveredNames: new Set<string>() };
+    return decideNeed(state, names, now());
+  }
+
+  function deniedLaunchNames(session: NeedingSession, names: readonly string[]): string[] {
+    const decision = launchDecision(session, names);
+    return names.filter((name) => decision.statusByName[name] === 'denied');
+  }
+
   async function holdForLaunch(session: NeedingSession, names: readonly string[], reason: string): Promise<LaunchSecretsHold> {
     const source = currentSource();
-    const state = { ...projectState(session, source !== null), deliveredNames: new Set<string>() };
-    const decision = decideNeed(state, names, now());
+    const decision = launchDecision(session, names);
     const deniedNames = names.filter((name) => decision.statusByName[name] === 'denied');
     if (deniedNames.length > 0) return { refusal: `${deniedNames.join(', ')} is denied for this project` };
     settleLaunchHold(session.id, { refusal: 'a newer start replaced this one' });
@@ -482,7 +491,7 @@ function createSecretsBroker({ readSecrets, writeSecrets, currentSource, readSec
     closeCard(sessionId);
   }
 
-  return { events, need, holdForLaunch, envFor, decide, revoke, requestsSnapshot, approvalsMessage, removeAgeFileName, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
+  return { events, need, holdForLaunch, deniedLaunchNames, envFor, decide, revoke, requestsSnapshot, approvalsMessage, removeAgeFileName, forgetSession, refreshCards, deliveredValuesOf, seedMasks };
 }
 
 type SecretsBroker = ReturnType<typeof createSecretsBroker>;

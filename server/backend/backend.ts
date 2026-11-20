@@ -201,6 +201,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getQuestionManagerLane: () => laneAssembly.questionManagerLane,
     getSecretsBroker: () => secretsBroker,
     githubUserToken: async () => (await githubUserCredentialOfLink())?.token ?? null,
+    packMcpServersFor: (agentId, cwd) => laneAssembly.packStore.mcpServersForSession(agentId, cwd),
+    sharedPackMcpServersFor: (agentId) => laneAssembly.packStore.sharedMcpServers(agentId),
     getBroadcastControl: () => broadcastControl,
     recordOutcome,
     logger: console,

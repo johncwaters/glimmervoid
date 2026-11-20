@@ -13,6 +13,7 @@ import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { hookProfileOf } from "./adapters/index.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
+import type { PackMcpServer } from "../shared/contracts/pack.ts";
 import type {
   AgentAdapter,
   AgentHookProfile,
@@ -70,6 +71,8 @@ interface SessionHookOptions {
   bypassHookTrust: boolean;
   effectiveCwd: () => string;
   folderTrustRoot: () => string;
+  packMcpServers: () => readonly PackMcpServer[];
+  sharedPackMcpServers: () => readonly PackMcpServer[];
   agentEnv: () => Record<string, string | undefined>;
   accountFolder: () => string | null;
   ingestSignal: (signal: HookSignal) => void;
@@ -295,7 +298,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], modelSelection: options.modelSelection?.() ?? null, isSandboxed: options.isOsSandboxed ?? false });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], modelSelection: options.modelSelection?.() ?? null, isSandboxed: options.isOsSandboxed ?? false, packServers: options.packMcpServers(), sharedPackServers: options.sharedPackMcpServers() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);

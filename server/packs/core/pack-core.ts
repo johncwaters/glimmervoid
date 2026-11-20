@@ -4,8 +4,9 @@ import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
 import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
-import { PackAgent, PackLaunchers, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
-import type { PackHeader, PackLauncher, PackOnDisk, PackSessions } from '../../../shared/contracts/pack.ts';
+import { PackAgent, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
+import type { PackHeader, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackSessions } from '../../../shared/contracts/pack.ts';
+import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
 import type { PackRead } from '../pack-files.ts';
@@ -74,7 +75,7 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
 }
 
 export function packSectionErrors(pack: PackOnDisk): string[] {
-  return [pack.ui, pack.launchers, pack.sessions, pack.status, pack.agent].flatMap((section) => (section && !section.ok ? section.errors : []));
+  return [pack.ui, pack.launchers, pack.sessions, pack.status, pack.agent, pack.mcp].flatMap((section) => (section && !section.ok ? section.errors : []));
 }
 
 function packLaunchers(pack: PackOnDisk): PackLauncher[] {
@@ -165,7 +166,44 @@ export function packAgentContributions(packs: readonly PackOnDisk[]): PackAgentC
   });
 }
 
-function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>): Omit<PackRow, 'isPlacedByHand'> {
+export function packMcpServers(pack: PackOnDisk): PackMcpServer[] {
+  return pack.mcp?.ok ? pack.mcp.value.servers : [];
+}
+
+const AGENT_LABELS_BY_MCP_AGENT = { 'claude-code': 'Claude Code', codex: 'Codex', kimi: 'Kimi Code', gemini: 'Gemini CLI', qwen: 'Qwen Code' } as const;
+type McpAgentId = keyof typeof AGENT_LABELS_BY_MCP_AGENT;
+export type OperatorMcpServerNames = Readonly<Record<McpAgentId, ReadonlySet<string>>>;
+export const NO_OPERATOR_MCP_SERVER_NAMES: OperatorMcpServerNames = Object.freeze({ 'claude-code': new Set<string>(), codex: new Set<string>(), kimi: new Set<string>(), gemini: new Set<string>(), qwen: new Set<string>() });
+
+function serverClashNotes(serverName: string, operatorNames: OperatorMcpServerNames): string[] {
+  const replacedIn = (['claude-code', 'kimi', 'gemini', 'qwen'] as const).filter((agentId) => operatorNames[agentId].has(serverName)).map((agentId) => AGENT_LABELS_BY_MCP_AGENT[agentId]);
+  const replacedNote = replacedIn.length === 0 ? [] : [`Replaces your own ${serverName} server in ${replacedIn.join(' and ')} sessions`];
+  const codexNote = operatorNames.codex.has(serverName) ? [`Codex sessions keep your own ${serverName} server, so they leave this one out`] : [];
+  return [...replacedNote, ...codexNote];
+}
+
+export function packMcpServersForAgent(agentId: string, packs: readonly PackOnDisk[], operatorNames: OperatorMcpServerNames): PackMcpServer[] {
+  if (!rendersPackServers(agentId)) return [];
+  const servers = packs.flatMap(packMcpServers);
+  if (agentId !== 'codex') return servers;
+  return servers.filter((server) => !operatorNames.codex.has(server.name));
+}
+
+export function packMcpLaunchOf(servers: readonly PackMcpServer[], valueBySecretName: Readonly<Record<string, string>>): PackMcpLaunch {
+  const launchedServers = servers.filter((server) => server.secret === undefined || Object.hasOwn(valueBySecretName, server.secret));
+  return { servers: launchedServers, env: Object.fromEntries(packSecretNamesOf(launchedServers).map((name) => [packSecretEnvName(name), valueBySecretName[name] ?? ''])) };
+}
+
+export function packSecretNamesOf(servers: readonly PackMcpServer[]): string[] {
+  return [...new Set(servers.flatMap((server) => (server.secret === undefined ? [] : [server.secret])))];
+}
+
+function serverSecretNotes(server: PackMcpServer): string[] {
+  if (server.secret === undefined) return [];
+  return [`Sends your ${server.secret} vault secret to ${URL.parse(server.url)?.host ?? server.url} as a bearer token, read by name from your vault once you allow it for the project; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves this server out`];
+}
+
+function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string>, operatorNames: OperatorMcpServerNames): Omit<PackRow, 'isPlacedByHand'> {
   const { prFlowsPacks, warnings: prFlowsErrors } = prFlowsPacksOf([pack]);
   const sectionErrors = [...prFlowsErrors, ...packSectionErrors(pack)];
   const [prFlowsPack] = prFlowsPacks;
@@ -178,15 +216,16 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     previewDataUrl: pack.previewDataUrl,
     panels: packPanels(pack).map((panel) => ({ id: panel.id, label: panel.label, reads: panel.reads, acts: panel.acts })),
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
-    sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack), errors: sectionErrors,
+    sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack),
+    mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })), errors: sectionErrors,
   };
 }
 
-export function packRow(packDir: string, read: PackRead, approvedFingerprints: ReadonlySet<string>, isPlacedByHand: boolean): PackRow {
-  if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints), isPlacedByHand };
+export function packRow(packDir: string, read: PackRead, approvedFingerprints: ReadonlySet<string>, isPlacedByHand: boolean, operatorNames: OperatorMcpServerNames): PackRow {
+  if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints, operatorNames), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, errors: read.errors, isPlacedByHand,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], errors: read.errors, isPlacedByHand,
   };
 }
 
@@ -237,6 +276,7 @@ export function sourcePackDetails(header: PackHeader): SourcePackDetails {
   const kinds = packKindLabels({
     panels: ui?.panels ?? [], themes: ui?.themes ?? [], launchers: parsedOrNull(PackLaunchers, header.launchers) ?? [],
     agent: agent === null ? null : { context: agent.context ?? null, skills: agent.skills },
+    mcpServers: parsedOrNull(PackMcp, header.mcp)?.servers ?? [],
     prFlows: parsedOrNull(PackPrFlows, header.prFlows),
   });
   const iconPath = ui?.panels.find((panel) => panel.icon !== undefined)?.icon ?? null;

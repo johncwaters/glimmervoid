@@ -28,6 +28,8 @@ import { ensureSessionTempFolder } from '../session-temp/session-temp.ts';
 import type { PackAgentLaunch } from '../../session/core/pack-session-core.ts';
 import { resolveUsageConfig } from '../usage/usage-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
+import type { PackMcpLaunchHold, PackMcpServer } from '../../shared/contracts/pack.ts';
+import { packMcpLaunchOf, packSecretNamesOf } from '../packs/core/pack-core.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
   'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'doneMeans' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
@@ -48,11 +50,46 @@ interface SessionFactoryDependencies {
   hostSigningKeys?: Pick<HostSigningKeyStore, 'gitEnvFor'> | null;
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
-  getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch'> | null;
+  getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch' | 'deniedLaunchNames'> | null;
   sessionSandboxFor?: ((sessionTempFolder: string | null) => PrepareSandbox) | null;
+  packMcpServers?: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
+  sharedPackMcpServers?: ((agentId: string) => PackMcpServer[]) | null;
 }
 
 const OPENROUTER_LAUNCH_REASON = 'the agent starts on OpenRouter with this key';
+const PACK_SERVER_LAUNCH_REASON = 'a pack MCP server sends it as a bearer token';
+
+type NeedingProject = Parameters<SecretsBroker['holdForLaunch']>[0];
+
+type PackSecretBroker = Pick<SecretsBroker, 'holdForLaunch' | 'deniedLaunchNames'>;
+type SecretValues = Readonly<Record<string, string>>;
+type SecretValuesHold = { values: SecretValues } | { held: Promise<SecretValues> };
+
+async function settledValuesOf(hold: SecretValuesHold): Promise<SecretValues> {
+  return 'held' in hold ? hold.held : hold.values;
+}
+
+async function readablePackSecrets(project: NeedingProject, secretNames: readonly string[], broker: PackSecretBroker): Promise<SecretValuesHold> {
+  const deniedNames = broker.deniedLaunchNames(project, secretNames);
+  const askedNames = secretNames.filter((name) => !deniedNames.includes(name));
+  if (askedNames.length === 0) return { values: {} };
+  const hold = await broker.holdForLaunch(project, askedNames, PACK_SERVER_LAUNCH_REASON);
+  if (!('held' in hold)) return { values: 'valuesByName' in hold ? hold.valuesByName : {} };
+  const valuesOnceAnswered = hold.held.then(async (outcome) => {
+    if ('valuesByName' in outcome) return outcome.valuesByName;
+    const isAnyNameNewlyDenied = broker.deniedLaunchNames(project, askedNames).length > 0;
+    return isAnyNameNewlyDenied ? settledValuesOf(await readablePackSecrets(project, askedNames, broker)) : {};
+  });
+  return { held: valuesOnceAnswered };
+}
+
+async function packMcpLaunchFor(servers: readonly PackMcpServer[], project: NeedingProject, broker: PackSecretBroker | null): Promise<PackMcpLaunchHold> {
+  const secretNames = packSecretNamesOf(servers);
+  if (secretNames.length === 0 || broker === null) return packMcpLaunchOf(servers, {});
+  const secrets = await readablePackSecrets(project, secretNames, broker);
+  if ('held' in secrets) return { held: secrets.held.then((values) => packMcpLaunchOf(servers, values)) };
+  return packMcpLaunchOf(servers, secrets.values);
+}
 
 function gitCredentialHelperResolverFor(helperProgram: string | null | undefined, isSandboxed: boolean): ((cwd: string) => Promise<string | null>) | null {
   if (!helperProgram) return null;
@@ -89,6 +126,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       return resolveSessionAccountHome(liveConfig.agentAccounts ?? [], liveProject.accountId, overrides.agent ?? liveProject.agent ?? DEFAULT_AGENT_ID);
     };
     const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
+    const packMcpServersOf = isMachineShell || overrides.ephemeral ? null : dependencies.packMcpServers ?? null;
     const sessionTempFolder = ensureSessionTempFolder(project.id);
     const session = new Session({
       id: project.id,
@@ -126,6 +164,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       planLimits: planLimitsEnabled(config),
       getUserHooks: () => dependencies.getUserHooks(project.id),
       getTerminalColors: dependencies.getTerminalColors ?? null,
+      sharedPackMcpServers: isMachineShell ? null : dependencies.sharedPackMcpServers ?? null,
+      packMcpServers: packMcpServersOf === null ? null : async (agentId, cwd) => packMcpLaunchFor(await packMcpServersOf(agentId, cwd), { id: project.id, project: project.path, cwd }, dependencies.getSecretsBroker?.() ?? null),
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
       resolveGitCredentialHelper,
       resolveHostSigningEnv: dependencies.hostSigningKeys?.gitEnvFor ?? null,

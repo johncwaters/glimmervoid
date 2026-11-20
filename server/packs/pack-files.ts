@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_FILE_NAME, PackAgent, PackHeader, PackLaunchers, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import { PACK_FILE_NAME, PackAgent, PackHeader, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -166,13 +166,14 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const sessions = parseSection(PackSessions, header.data.sessions, 'sessions');
   const status = parseSection(PackStatus, header.data.status, 'status');
   const agent = withAgentFilesPresent(parseSection(PackAgent, header.data.agent, 'agent'), read.filesByPath);
+  const mcp = parseSection(PackMcp, header.data.mcp, 'mcp');
   if (header.data.preview !== undefined && !read.filesByPath.has(header.data.preview)) read.errors.push(`${PACK_FILE_NAME} preview: ${header.data.preview} is not a file in the pack`);
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent].flatMap(sectionErrors)], filesByPath, header: header.data };
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, status, agent, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, launchers, sessions, status, agent, mcp, missingRequires: await missingRequires(header.data.requires, env),
       previewDataUrl: previewDataUrlOf(header.data.preview, read.filesByPath),
     },
   };

@@ -45,6 +45,7 @@ import { attentionNotesOf, attentionOwnerOf, createAttentionLanes, reduceAttenti
 import type { AttentionEvent, AttentionLanes } from "./core/session-attention-core.ts";
 import { generateToken } from "../detection/settings-injector.ts";
 import { mcpLaunchFor } from "../mcp/core/agent-config.ts";
+import type { PackMcpLaunch, PackMcpLaunchHold, PackMcpServer } from "../shared/contracts/pack.ts";
 import { createOscTitleSource } from "../detection/osc-title-source.ts";
 import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -231,6 +232,8 @@ interface SessionOptions {
   scratchAgentHome?: ScratchAgentHome | null;
   isCleanHome?: boolean;
   requiresHooks?: boolean;
+  packMcpServers?: ((agentId: string, cwd: string) => Promise<PackMcpLaunchHold>) | null;
+  sharedPackMcpServers?: ((agentId: string) => PackMcpServer[]) | null;
   ptySpawn?: PtySpawn | null;
   screenKeeperFactory?: ScreenKeeperFactory | null;
   killProc?: KillProc | null;
@@ -384,6 +387,12 @@ class Session extends EventEmitter {
   _planLimits: boolean;
   _readChatApprovals: () => ChatApprovalMode;
   _chatUploadsDirectory: string | null;
+  _packMcpServers: ((agentId: string, cwd: string) => Promise<PackMcpLaunchHold>) | null;
+  _approvedPackMcpLaunch: PackMcpLaunch | null = null;
+  _sharedPackMcpServers: ((agentId: string) => PackMcpServer[]) | null;
+  _spawnPackMcpServers: readonly PackMcpServer[] = [];
+  _spawnSharedPackMcpServers: readonly PackMcpServer[] = [];
+  _spawnPackMcpEnv: Readonly<Record<string, string>> = {};
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
@@ -489,6 +498,8 @@ class Session extends EventEmitter {
     scratchAgentHome = null,
     isCleanHome,
     requiresHooks = false,
+    packMcpServers = null,
+    sharedPackMcpServers = null,
 
     ptySpawn = null,
     requireWorktree = false,
@@ -679,6 +690,8 @@ class Session extends EventEmitter {
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("planLimits");
+    this._packMcpServers = packMcpServers;
+    this._sharedPackMcpServers = sharedPackMcpServers;
     this._hooks = createSessionHookLifecycle({
       id: this.id,
       name: this.name,
@@ -705,6 +718,8 @@ class Session extends EventEmitter {
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
+      packMcpServers: () => this._spawnPackMcpServers,
+      sharedPackMcpServers: () => this._spawnSharedPackMcpServers,
       agentEnv: () => this._launch.buildEnv(),
       accountFolder: () => this._accountFolder,
       ingestSignal: (raw) => this.ingestHookSignal(raw),
@@ -1834,6 +1849,12 @@ class Session extends EventEmitter {
       void launchSecretEnv.held.then((outcome) => this._resumeHeldLaunch(outcome, preparingState));
       return;
     }
+    const packMcpLaunch = await this._resolvePackMcpLaunch();
+    if (isStartSuperseded()) return;
+    if ("held" in packMcpLaunch) {
+      void packMcpLaunch.held.then((launch) => this._resumeHeldPackMcpLaunch(launch, preparingState));
+      return;
+    }
 
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();
@@ -1856,6 +1877,10 @@ class Session extends EventEmitter {
       this._abandonSpawn(new Error(accountRefusal));
       return;
     }
+    this._spawnPackMcpServers = packMcpLaunch.servers;
+    this._spawnPackMcpEnv = packMcpLaunch.env;
+    this._spawnSharedPackMcpServers = this._sharedPackMcpServers ? this._sharedPackMcpServers(this.agentId) : [];
+    if (isStartSuperseded()) return;
     await this._hooks.prepare();
     if (this._adapter.trustFolder) {
       await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._launchSpawnEnv() }))
@@ -1868,7 +1893,7 @@ class Session extends EventEmitter {
       return;
     }
     this._isSaneYoloActive = hookInjection.isSaneYoloActive;
-    const mcpLaunch = mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken });
+    const mcpLaunch = mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken, packServers: this._spawnPackMcpServers });
     const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 
     this._hooksReportPrompts = this._hooks.hasInjection();
@@ -1876,7 +1901,7 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._applyTitleContext();
-    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...mcpLaunch.env, ...this._launch.gitEnv(), ...launchPlan.env, ...launchSecretEnv.env };
+    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...this._spawnPackMcpEnv, ...mcpLaunch.env, ...this._launch.gitEnv(), ...launchPlan.env, ...launchSecretEnv.env };
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
       ? { ...(this._launchSpawnEnv() || {}), ...injectedEnv }
       : this._launchSpawnEnv();
@@ -2119,6 +2144,20 @@ class Session extends EventEmitter {
     const resolved = await this._resolveLaunchSecrets({ names, cwd: this.effectiveCwd() });
     if ("valuesByName" in resolved) return { env: launchSecretEnvOf(plan, resolved.valuesByName) };
     return resolved;
+  }
+
+  async _resolvePackMcpLaunch(): Promise<PackMcpLaunchHold> {
+    const approvedLaunch = this._approvedPackMcpLaunch;
+    this._approvedPackMcpLaunch = null;
+    if (approvedLaunch !== null) return approvedLaunch;
+    if (!this._packMcpServers) return { servers: [], env: {} };
+    return this._packMcpServers(this.agentId, this.effectiveCwd());
+  }
+
+  _resumeHeldPackMcpLaunch(launch: PackMcpLaunch, heldState: string): void {
+    if (this._destroyed || this.state !== heldState) return;
+    this._approvedPackMcpLaunch = launch;
+    void this.start();
   }
 
   _resumeHeldLaunch(outcome: LaunchSecretsOutcome, heldState: string): void {

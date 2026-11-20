@@ -441,7 +441,7 @@ function prepareHome(env: Record<string, string | undefined>, sessionFolder: str
   holdTrustedFolder(sessionFolder);
   const trustedFolders = [...trustedFolderByPath.keys()];
   const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), undefined, homeChoice.isClean, homeChoice.accountFolder ?? null, packSkillDirs, homeChoice.isSandboxed);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), { isClean: homeChoice.isClean, accountFolder: homeChoice.accountFolder ?? null, packSkillDirs, isSandboxed: homeChoice.isSandboxed });
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;

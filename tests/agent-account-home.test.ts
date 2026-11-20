@@ -131,7 +131,7 @@ test('a kimi account home links the real sessions and device id and keeps its ow
   assert.equal(fs.lstatSync(path.join(accountFolder, 'credentials')).isSymbolicLink(), false);
   assert.deepEqual(readJson(path.join(accountFolder, 'credentials', 'kimi-code.json')), { second: true });
   const holdSessionConfig = () => {
-    assert.deepEqual(holdPreparedAgentHome(KIMI_HOME_PROFILE, { HOME: homeDir, KIMI_CODE_HOME: realHome }, () => '', () => ({}), false, accountFolder), { home: accountFolder });
+    assert.deepEqual(holdPreparedAgentHome(KIMI_HOME_PROFILE, { HOME: homeDir, KIMI_CODE_HOME: realHome }, () => '', { isClean: false, accountFolder }), { home: accountFolder });
     const sessionConfig = fs.readFileSync(path.join(accountFolder, 'config.toml'), 'utf8');
     releaseAgentHome(accountFolder);
     return sessionConfig;
@@ -199,7 +199,7 @@ test('a sandboxed session home holds a placeholder login and never the real toke
   writeJson(path.join(kimiHome, 'credentials', 'kimi-code.json'), { access_token: realToken, refresh_token: realToken, expires_at: 1, token_type: 'Bearer' });
   const env = { HOME: homeDir, GLIMMERVOID_HOME: path.join(homeDir, '.glimmervoid'), CODEX_HOME: codexHome, KIMI_CODE_HOME: kimiHome };
   const placeholderLoginOf = (profile: typeof CODEX_HOME_PROFILE, loginSegments: string[], accountFolderOrNull: string | null) => {
-    const prepared = holdPreparedAgentHome(profile, env, () => '', () => ({}), false, accountFolderOrNull, [], true);
+    const prepared = holdPreparedAgentHome(profile, env, () => '', { isClean: false, accountFolder: accountFolderOrNull, isSandboxed: true });
     assert.ok('home' in prepared);
     const loginPath = path.join(prepared.home, ...loginSegments);
     assert.equal(fs.lstatSync(path.join(prepared.home, loginSegments[0] ?? '')).isSymbolicLink(), false);
@@ -213,6 +213,6 @@ test('a sandboxed session home holds a placeholder login and never the real toke
   assert.equal(placeholderLoginOf(CODEX_HOME_PROFILE, ['auth.json'], accountFolder).tokens.account_id, 'team');
   assert.equal(placeholderLoginOf(KIMI_HOME_PROFILE, ['credentials', 'kimi-code.json'], null).token_type, 'Bearer');
   writeJson(path.join(codexHome, 'auth.json'), { auth_mode: 'apikey', OPENAI_API_KEY: realToken, tokens: null });
-  const apiKeyLaunch = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, () => '', () => ({}), false, null, [], true);
+  const apiKeyLaunch = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, () => '', { isClean: false, isSandboxed: true });
   assert.ok('refusal' in apiKeyLaunch && !apiKeyLaunch.refusal.includes(realToken));
 });

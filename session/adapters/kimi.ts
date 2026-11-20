@@ -4,7 +4,8 @@ import path from "node:path";
 
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
-import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
+import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME, kimiMcpFiles } from "../../mcp/core/agent-config.ts";
+import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { KIMI_HOME_PROFILE, renderKimiHooksBlock } from "../core/agent-home-core.ts";
 import { KIMI_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { generatedAgentHomePath, holdPreparedAgentHome, prepareScratchAgentHome, realAgentHome, releaseAgentHome, sessionAgentHomePath } from "../agent-home.ts";
@@ -179,21 +180,23 @@ function isPlainFile(filePath: string): boolean {
   }
 }
 
-function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: number, isCleanHome: boolean, accountFolder: string | null, isSandboxed: boolean): Record<string, string> {
+function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: number, isCleanHome: boolean, accountFolder: string | null, isSandboxed: boolean, packServers: readonly PackMcpServer[]): Record<string, string> {
   const generatedHome = sessionAgentHomePath(KIMI_HOME_PROFILE, env, { isClean: isCleanHome, accountFolder, isSandboxed });
   const generatedMcpPath = path.join(generatedHome, KIMI_MCP_CONFIG_NAME);
   return kimiMcpFiles({
     realMcpJson: readTextOrNull(path.join(realAgentHome(KIMI_HOME_PROFILE, env), KIMI_MCP_CONFIG_NAME)),
     generatedMcpJson: isPlainFile(generatedMcpPath) ? readTextOrNull(generatedMcpPath) : null,
     baseMcpJson: readTextOrNull(path.join(generatedHome, KIMI_MCP_BASE_NAME)),
+    packServersJson: readTextOrNull(path.join(generatedHome, KIMI_PACK_SERVERS_NAME)),
     listenerPort,
+    packServers,
   });
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, accountFolder = null, packSkillDirs = [], isSandboxed = false }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, accountFolder = null, packSkillDirs = [], isSandboxed = false, sharedPackServers = [] }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
   const hooksBlock = expectedHooksBlock();
   if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
-  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, () => mcpFilesFor(env, listenerPort, isCleanHome, accountFolder, isSandboxed), isCleanHome, accountFolder, packSkillDirs, isSandboxed);
+  return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, { renderGeneratedFiles: () => mcpFilesFor(env, listenerPort, isCleanHome, accountFolder, isSandboxed, sharedPackServers), isClean: isCleanHome, accountFolder, packSkillDirs, isSandboxed });
 }
 
 function prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string } | { refusal: string } {

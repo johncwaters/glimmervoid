@@ -1,7 +1,7 @@
 import path from "node:path";
 import { parseEnv } from "node:util";
 
-import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME } from "../../mcp/core/agent-config.ts";
+import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME } from "../../mcp/core/agent-config.ts";
 import { listClaudeGlobalConfigPathCandidates } from "../../server/core/claude-config-paths-core.ts";
 import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
 import { isRecord } from "../../shared/coerce.ts";
@@ -249,6 +249,7 @@ interface AgentHomeInputs {
   generatedConfigText: string | null;
   accountConfigText: string | null;
   renderBlock: (operatorText: string) => string;
+  managedMcpServers?: Readonly<Record<string, unknown>>;
   sourceStamps: Readonly<Record<string, string>>;
   platform: NodeJS.Platform;
   isClean: boolean;
@@ -506,14 +507,24 @@ function parseStoredJsonObject(text: string | null): JsonObject | null {
   return parseJsonObject(text);
 }
 
-function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">, format: JsonConfigFormat): GeneratedConfig {
+const MCP_SERVERS_KEY = "mcpServers";
+
+function withManagedMcpServers(config: JsonObject, managedMcpServers: Readonly<JsonObject> | undefined): { config: JsonObject } | { refusal: string } {
+  if (managedMcpServers === undefined) return { config };
+  const operatorServers = config[MCP_SERVERS_KEY] ?? {};
+  if (!isRecord(operatorServers)) return { refusal: `its ${MCP_SERVERS_KEY} key is not an object, which Glimmervoid MCP servers cannot extend` };
+  return { config: { ...config, [MCP_SERVERS_KEY]: { ...operatorServers, ...managedMcpServers } } };
+}
+
+function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format"> & Pick<AgentHomeInputs, "managedMcpServers">, format: JsonConfigFormat): GeneratedConfig {
   const realText = sources.realConfigText ?? "";
   const theirs = parseStoredJsonObject(realText);
   if (theirs === null) return { refusal: "it is not a JSON object" };
   const base = parseStoredJsonObject(sources.baseConfigText);
   const generated = parseStoredJsonObject(sources.generatedConfigText);
   const ours: JsonObject = { ...generated };
-  for (const managedKey of format.hooksSwitch.managedKeys) {
+  const sessionWrittenKeys = sources.managedMcpServers === undefined ? format.hooksSwitch.managedKeys : [...format.hooksSwitch.managedKeys, MCP_SERVERS_KEY];
+  for (const managedKey of sessionWrittenKeys) {
     delete ours[managedKey];
     if (Object.hasOwn(theirs, managedKey)) ours[managedKey] = theirs[managedKey];
   }
@@ -522,7 +533,9 @@ function generatedJsonAgentConfig(sources: Omit<AgentConfigSources, "format">, f
   if (managedHooks === null) return { refusal: "the Glimmervoid hooks could not be rendered" };
   const hooked = withManagedHooks(operatorConfig, managedHooks, format.hooksSwitch);
   if ("refusal" in hooked) return hooked;
-  return { text: `${JSON.stringify(hooked.config, null, 2)}\n`, base: realText, hadBlock: false };
+  const served = withManagedMcpServers(hooked.config, sources.managedMcpServers);
+  if ("refusal" in served) return served;
+  return { text: `${JSON.stringify(served.config, null, 2)}\n`, base: realText, hadBlock: false };
 }
 
 function withoutOperatorTables(configText: string, tablePrefixes: readonly string[]): string {
@@ -727,7 +740,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
     hooksConflict: (operatorText: string) => definesHooksOutsideArrayTables(operatorText) ? "it defines hooks as a key or [hooks] table, which a [[hooks]] block cannot extend" : null,
     sessionOnlyTablePrefixes: Object.freeze(["[[hooks#"]),
   }),
-  generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME]),
+  generatedFileNames: Object.freeze([KIMI_MCP_CONFIG_NAME, KIMI_MCP_BASE_NAME, KIMI_PACK_SERVERS_NAME]),
   isPrivateEntryName: () => false,
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
   account: accountSeamOf(/^(?:credentials|oauth|region|region\.json)$/, /^\[[^[].*\.oauth#\d+$/),

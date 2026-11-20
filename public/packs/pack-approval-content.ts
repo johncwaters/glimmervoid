@@ -125,6 +125,13 @@ function agentLines(row: PackRow): HTMLElement[] {
   ];
 }
 
+function mcpServerLines(row: PackRow): HTMLElement[] {
+  return row.mcpServers.flatMap((server) => [
+    el('p', 'settings-view-setting-description', `MCP server: ${server.name} at ${server.url}, added to every session you start; with no secret the agent asks you to sign in`),
+    ...server.notes.map((note) => el('p', 'settings-view-warning', note)),
+  ]);
+}
+
 function packLines(row: PackRow): HTMLElement[] {
   const sessionsText = sessionsLine(row.sessions);
   const lines = [
@@ -142,6 +149,7 @@ function packLines(row: PackRow): HTMLElement[] {
     ...steeringWarning(row),
     ...launcherLines(row),
     ...agentLines(row),
+    ...mcpServerLines(row),
     ...(sessionsText === null ? [] : [el('p', 'settings-view-warning', sessionsText)]),
     ...row.errors.map((error) => el('p', 'settings-view-warning', error)),
     ...(row.prFlows ? approvalDetails(row.prFlows) : []),

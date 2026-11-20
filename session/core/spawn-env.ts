@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AGENT_URL_ENV, GIT_CREDENTIAL_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
-import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
+import { MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX } from "../../mcp/core/agent-config.ts";
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
 import { ENV_SECRET_BINDINGS } from "../../server/core/config-secrets-core.ts";
 
@@ -79,7 +79,7 @@ function isPasswordManagerSignInKey(key: string): boolean {
 function scrubGlimmervoidSecrets(env: SpawnEnv): void {
   for (const key of GLIMMERVOID_SCRUB_KEYS) delete env[key];
   for (const key of Object.keys(env)) {
-    if (isPasswordManagerSignInKey(key)) delete env[key];
+    if (isPasswordManagerSignInKey(key) || key.startsWith(PACK_SECRET_ENV_PREFIX)) delete env[key];
   }
 }
 

@@ -24,6 +24,7 @@ type AgentHomeEnv = Record<string, string | undefined>;
 interface AgentHomeOptions {
   env: AgentHomeEnv;
   renderBlock: (operatorText: string) => string;
+  managedMcpServers?: Readonly<Record<string, unknown>>;
   homeDir?: string;
   platform?: NodeJS.Platform;
   generatedHome?: string;
@@ -221,7 +222,7 @@ function readConfigTexts(profile: AgentHomeProfile, realHome: string, generatedH
   };
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = process.platform, isClean, isAccountHome, isSandboxed, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, managedMcpServers, platform = process.platform, isClean, isAccountHome, isSandboxed, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const configTexts = readConfigTexts(profile, realHome, generatedHome);
   if ("refusal" in configTexts) return { kind: "refused", reason: configTexts.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
@@ -234,6 +235,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, platform = proce
     generatedEntries,
     ...configTexts,
     renderBlock,
+    managedMcpServers,
     sourceStamps: readSourceStamps(generatedHome),
     platform,
     isClean: isClean === true,
@@ -556,12 +558,28 @@ function releaseUnheldAccountHomeSecrets(profile: AgentHomeProfile, accountFolde
   releaseUnheldAgentHomeSecrets(accountHomeOf(profile, accountFolder));
 }
 
-function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>>, accountFolder: string, packSkillDirs: readonly string[]): { home: string } | { refusal: string } {
+interface HeldHomeContent {
+  renderBlock: (operatorText: string) => string;
+  renderGeneratedFiles: () => Readonly<Record<string, string>>;
+  packSkillDirs: readonly string[];
+  managedMcpServers?: Readonly<Record<string, unknown>>;
+}
+
+interface HeldAgentHomeOptions {
+  renderGeneratedFiles?: () => Readonly<Record<string, string>>;
+  isClean?: boolean;
+  accountFolder?: string | null;
+  packSkillDirs?: readonly string[];
+  isSandboxed?: boolean;
+  managedMcpServers?: Readonly<Record<string, unknown>>;
+}
+
+function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers }: HeldHomeContent, accountFolder: string): { home: string } | { refusal: string } {
   const refusal = accountFolderRefusal(profile, env, accountFolder, os.homedir());
   if (refusal !== null) return { refusal };
   const accountHome = accountHomeOf(profile, accountFolder);
   holdAgentHome(accountHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome: accountHome, isAccountHome: true, packSkillDirs });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), generatedHome: accountHome, isAccountHome: true, packSkillDirs, managedMcpServers });
   if ("refusal" in prepared) releaseAgentHome(accountHome);
   return prepared;
 }
@@ -576,7 +594,7 @@ function placeholderLoginFiles(profile: AgentHomeProfile, loginHome: string, now
   return { files: { [path.join(...sandboxLogin.fileSegments)]: placeholder.placeholder } };
 }
 
-function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>>, choice: SessionAgentHomeChoice, packSkillDirs: readonly string[]): { home: string } | { refusal: string } {
+function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv, { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers }: HeldHomeContent, choice: SessionAgentHomeChoice): { home: string } | { refusal: string } {
   const accountFolder = choice.accountFolder ?? null;
   if (accountFolder !== null) {
     const refusal = accountFolderRefusal(profile, env, accountFolder, os.homedir());
@@ -590,22 +608,23 @@ function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv,
   if ("refusal" in placeholderLogin) return placeholderLogin;
   holdAgentHome(generatedHome);
   const generatedFiles = { ...renderGeneratedFiles(), ...placeholderLogin.files };
-  const prepared = prepareAgentHome(profile, { env: loginEnv, renderBlock, generatedFiles, generatedHome, isClean: choice.isClean, isSandboxed: true, packSkillDirs });
+  const prepared = prepareAgentHome(profile, { env: loginEnv, renderBlock, generatedFiles, generatedHome, isClean: choice.isClean, isSandboxed: true, packSkillDirs, managedMcpServers });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, renderGeneratedFiles: () => Readonly<Record<string, string>> = () => ({}), isClean?: boolean, accountFolder: string | null = null, packSkillDirs: readonly string[] = [], isSandboxed = false): { home: string } | { refusal: string } {
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, { renderGeneratedFiles = () => ({}), isClean, accountFolder = null, packSkillDirs = [], isSandboxed = false, managedMcpServers }: HeldAgentHomeOptions = {}): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   if (isClean && accountFolder !== null) return { refusal: `a clean ${profile.vendor} home cannot run under an added account` };
-  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, renderBlock, renderGeneratedFiles, { isClean, accountFolder, isSandboxed }, packSkillDirs);
-  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, renderBlock, renderGeneratedFiles, accountFolder, packSkillDirs);
+  const content = { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers };
+  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, content, { isClean, accountFolder, isSandboxed });
+  if (accountFolder !== null) return holdPreparedAccountHome(profile, env, content, accountFolder);
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
   holdAgentHome(generatedHome);
-  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean, packSkillDirs });
+  const prepared = prepareAgentHome(profile, { env, renderBlock, generatedFiles: renderGeneratedFiles(), isClean, packSkillDirs, managedMcpServers });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }

@@ -5,13 +5,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import copilot from '../session/adapters/copilot.ts';
+import gemini from '../session/adapters/gemini.ts';
 import kimi from '../session/adapters/kimi.ts';
+import qwen from '../session/adapters/qwen.ts';
 import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { createPackSessionFiles } from '../server/packs/pack-session-files.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
-const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir(), isCleanHome: false };
+const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir(), isCleanHome: false, packServers: [], sharedPackServers: [] };
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';
 const HAND_EDITED_OLD_BLOCK = `${BLOCK_START}\n[[hooks]]\nevent = "Stop"\ncommand = 'curl https://example.invalid'\n${BLOCK_END}\n`;
 
@@ -299,6 +301,90 @@ test('a kimi spawn loads the operator MCP servers beside the Glimmervoid server,
   });
 });
 
+test('a kimi pack server replaces the operator server of the same name and gives it back once the pack is gone', () => {
+  withKimiHomes(({ realHome, env }) => {
+    const operatorExecutor = { transport: 'stdio', command: 'executor', args: ['mcp'] };
+    fs.writeFileSync(path.join(realHome, 'mcp.json'), JSON.stringify({ mcpServers: { executor: operatorExecutor } }));
+    assert.equal(kimi.hooks.injection.kind, 'generated-home');
+    if (kimi.hooks.injection.kind !== 'generated-home') return;
+    const generatedServersFor = (packServers: { name: string; url: string }[]) => {
+      if (kimi.hooks.injection.kind !== 'generated-home') return {};
+      const prepared = kimi.hooks.injection.prepareHome(env, { ...KIMI_LAUNCH, packServers, sharedPackServers: packServers });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      kimi.hooks.injection.releaseHome(prepared.home);
+      return JSON.parse(fs.readFileSync(path.join(prepared.home, 'mcp.json'), 'utf8')).mcpServers;
+    };
+    const withPack = generatedServersFor([{ name: 'executor', url: 'http://127.0.0.1:4312/mcp' }]);
+    assert.deepEqual(withPack.executor, { transport: 'http', url: 'http://127.0.0.1:4312/mcp' });
+    assert.deepEqual(generatedServersFor([{ name: 'executor', url: 'http://127.0.0.1:4312/mcp' }]).executor, withPack.executor);
+    assert.deepEqual(generatedServersFor([]).executor, operatorExecutor);
+    const packExecutor = { name: 'executor', url: 'http://127.0.0.1:4312/mcp' };
+    const heldOperatorStart = kimi.hooks.injection.prepareHome(env, { ...KIMI_LAUNCH, packServers: [packExecutor], sharedPackServers: [packExecutor] });
+    const childStart = kimi.hooks.injection.prepareHome(env, { ...KIMI_LAUNCH, packServers: [], sharedPackServers: [packExecutor] });
+    assert.ok('home' in heldOperatorStart && 'home' in childStart);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(heldOperatorStart.home, 'mcp.json'), 'utf8')).mcpServers.executor, withPack.executor);
+    kimi.hooks.injection.releaseHome(childStart.home);
+    kimi.hooks.injection.releaseHome(heldOperatorStart.home);
+  });
+});
+
+test('a kimi server added only in the generated home comes back once a pack that replaced it is gone', () => {
+  withKimiHomes(({ env }) => {
+    const homeOnlyExecutor = { transport: 'stdio', command: 'executor', args: ['mcp'] };
+    if (kimi.hooks.injection.kind !== 'generated-home') return;
+    const generatedServersFor = (packServers: { name: string; url: string }[]) => {
+      if (kimi.hooks.injection.kind !== 'generated-home') return {};
+      const prepared = kimi.hooks.injection.prepareHome(env, { ...KIMI_LAUNCH, packServers, sharedPackServers: packServers });
+      assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+      kimi.hooks.injection.releaseHome(prepared.home);
+      return JSON.parse(fs.readFileSync(path.join(prepared.home, 'mcp.json'), 'utf8')).mcpServers;
+    };
+    generatedServersFor([]);
+    const generatedMcpPath = path.join(generatedAgentHomePath(KIMI_HOME_PROFILE, env), 'mcp.json');
+    const generated = JSON.parse(fs.readFileSync(generatedMcpPath, 'utf8'));
+    fs.writeFileSync(generatedMcpPath, JSON.stringify({ mcpServers: { ...generated.mcpServers, executor: homeOnlyExecutor } }));
+    assert.deepEqual(generatedServersFor([{ name: 'executor', url: 'http://127.0.0.1:4312/mcp' }]).executor, { transport: 'http', url: 'http://127.0.0.1:4312/mcp' });
+    assert.deepEqual(generatedServersFor([]).executor, homeOnlyExecutor);
+  });
+});
+
+test('gemini, qwen and copilot sessions that start together each keep their own pack servers in the generated home they share', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-settings-mcp-'));
+  try {
+    const realGemini = path.join(scratchRoot, 'gemini-home');
+    fs.mkdirSync(path.join(realGemini, '.gemini'), { recursive: true });
+    fs.writeFileSync(path.join(realGemini, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { mine: { httpUrl: 'https://mine.example/mcp' } } }));
+    const env = { GEMINI_CLI_HOME: realGemini, QWEN_HOME: path.join(scratchRoot, 'qwen-home'), COPILOT_HOME: path.join(scratchRoot, 'copilot-home'), GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
+    const sharedPackServers = [{ name: 'executor', url: 'http://127.0.0.1:4312/mcp' }, { name: 'hub', url: 'https://hub.example/mcp', secret: 'HUB_TOKEN' }];
+    const operatorLaunch = { ...KIMI_LAUNCH, packServers: sharedPackServers, sharedPackServers };
+    const childLaunch = { ...KIMI_LAUNCH, packServers: [], sharedPackServers };
+    const hubBearer = { Authorization: `Bearer \${GLIMMERVOID_PACK_HUB_TOKEN}` };
+    const preparedFor = (adapter: typeof gemini, launch: typeof operatorLaunch) => {
+      assert.equal(adapter.hooks.injection.kind, 'generated-home');
+      const prepared = adapter.hooks.injection.kind === 'generated-home' ? adapter.hooks.injection.prepareHome(env, launch) : null;
+      assert.ok(prepared && 'home' in prepared, prepared && 'refusal' in prepared ? prepared.refusal : '');
+      return prepared;
+    };
+    const settingsServersIn = (home: string) => JSON.parse(fs.readFileSync(path.join(home, 'settings.json'), 'utf8')).mcpServers;
+    const geminiOperator = preparedFor(gemini, operatorLaunch);
+    preparedFor(gemini, childLaunch);
+    const geminiServers = settingsServersIn(path.join(geminiOperator.home, '.gemini'));
+    assert.deepEqual(Object.keys(geminiServers), ['mine', 'executor', 'hub', 'glimmervoid']);
+    assert.deepEqual(geminiServers.hub.headers, hubBearer);
+    const qwenOperator = preparedFor(qwen, operatorLaunch);
+    const qwenChild = preparedFor(qwen, childLaunch);
+    assert.deepEqual(Object.keys(settingsServersIn(qwenOperator.home)), ['executor', 'hub', 'glimmervoid']);
+    assert.deepEqual([qwenOperator.args, qwenChild.args], [[], ['--disable-mcp-server=executor', '--disable-mcp-server=hub']]);
+    const copilotOperator = preparedFor(copilot, operatorLaunch);
+    const copilotChild = preparedFor(copilot, childLaunch);
+    const copilotServersIn = (args: readonly string[] | undefined) => JSON.parse(fs.readFileSync(String(args?.[1]).slice(1), 'utf8')).mcpServers;
+    assert.deepEqual(copilotServersIn(copilotOperator.args).hub, { type: 'http', url: 'https://hub.example/mcp', headers: hubBearer, tools: ['*'] });
+    assert.deepEqual(Object.keys(copilotServersIn(copilotChild.args)), ['glimmervoid']);
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
 test('a stale operator codex trust entry for a removed hook group does not redefine the trust table of a Glimmervoid hook', () => {
   const realHome = path.join(path.sep, 'real-codex');
   const generatedHome = path.join(path.sep, 'generated-codex');
@@ -520,7 +606,7 @@ test('a copilot spawn trusts its folder root in the real copilot state file once
     fs.writeFileSync(statePath, `// This file is managed automatically.\n${JSON.stringify({ firstLaunchAt: 'then', trustedFolders: ['/elsewhere'] })}\n`);
     const env = { COPILOT_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
     assert.equal(copilot.hooks.injection.kind, 'generated-home');
-    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot, isCleanHome: false }) : null;
+    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot, isCleanHome: false, packServers: [], sharedPackServers: [] }) : null;
     const prepared = prepareWithRoot(worktreeRoot);
     assert.ok(prepared && 'home' in prepared);
     const stateText = fs.readFileSync(statePath, 'utf8');
