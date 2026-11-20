@@ -7,7 +7,7 @@
   border-bottom: 1px solid var(--border-dim);
 }
 .session-row, .session-row-item { --row-line: calc(var(--type-meta) * 1.5); }
-.session-row-item:has(> .session-row[data-prompt="plan"], > .session-row > .session-row-main > :is(.session-row-task, .session-row-links):not([hidden]), > .session-row > .session-row-main > .session-row-meta > .session-row-signals:not([hidden])) {
+.session-row-item:has(> .session-row:is([data-prompt="plan"], [data-prompt="rate-limit"]), > .session-row > .session-row-main > :is(.session-row-task, .session-row-links):not([hidden]), > .session-row > .session-row-main > .session-row-meta > .session-row-signals:not([hidden])) {
   --row-anchor-align: flex-start;
   --second-line-top: calc(var(--row-line) + 3px);
   --row-control-top: calc(6px + var(--row-line) * 1.5 + 3px);
@@ -152,8 +152,9 @@
   white-space: nowrap;
 }
 .session-row-label { color: var(--st, var(--text-muted)); }
-.session-row:not([data-prompt="plan"]) .session-row-label { display: none; }
-.session-row:not([data-prompt="plan"]) .session-row-meta:has(.session-row-signals[hidden]) { display: none; }
+.session-row[data-prompt="rate-limit"] .session-row-label { color: var(--state-failed); }
+.session-row:not([data-prompt="plan"], [data-prompt="rate-limit"]) .session-row-label { display: none; }
+.session-row:not([data-prompt="plan"], [data-prompt="rate-limit"]) .session-row-meta:has(.session-row-signals[hidden]) { display: none; }
 .session-row-elapsed {
   flex: 0 0 auto;
   margin-top: var(--second-line-top, 0px);

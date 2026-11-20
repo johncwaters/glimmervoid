@@ -108,6 +108,20 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     },
   },
   {
+    name: 'rate-limit-wait',
+    expectedFinalState: STATES.WAITING,
+    expectedCompleteNotifications: 0,
+    waitingNotification: 'required',
+    fixtureByAgent: {
+      'claude-code': 'v2-claude-code-rate-limit-wait.jsonl',
+      codex: { unproducible: 'Codex 0.169.0 has no hook that reports a stop on a rate or plan limit, no rollout on the recording machine carries a non-null rate_limit_reached_type, and a rate or plan limit cannot be reached on demand' },
+      kimi: { unproducible: 'Kimi 2.7.0 has no hook that reports a stop on a rate or plan limit, and a rate or plan limit cannot be reached on demand' },
+      opencode: { unproducible: 'OpenCode is not installed on the recording machine, and a rate or plan limit cannot be reached on demand' },
+      pi: { unproducible: 'pi is not installed on the recording machine, and a rate or plan limit cannot be reached on demand' },
+      antigravity: { unproducible: 'Antigravity agy 1.5.12 has no hook that reports a stop on a rate or plan limit, and a rate or plan limit cannot be reached on demand' },
+    },
+  },
+  {
     name: 'structured-question-answered',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,

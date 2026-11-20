@@ -10,7 +10,7 @@ import { pathCommandLaunch } from "./path-command-launch.ts";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../../shared/contracts/session.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import { isRecord } from "../../shared/coerce.ts";
-import { SIGNED_IN_SIGNAL, SIGN_IN_PROMPT_KIND } from "../../shared/states.ts";
+import { SIGNED_IN_SIGNAL, SIGN_IN_PROMPT_KIND, RATE_LIMIT_PROMPT_KIND } from "../../shared/states.ts";
 import { describeInstalledClaudeHooks } from "../../detection/settings-injector.ts";
 
 
@@ -50,6 +50,10 @@ function isAuthenticationFailure(event: string, payload?: HookPayload): boolean 
   return String(event || "").toLowerCase() === "stopfailure" && payload?.error === "authentication_failed";
 }
 
+function isRateLimitStop(event: string, payload?: HookPayload): boolean {
+  return String(event || "").toLowerCase() === "stopfailure" && payload?.error === "rate_limit";
+}
+
 function mapHookConfidence(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
   if (e !== "notification") return null;
@@ -61,6 +65,7 @@ function mapHookConfidence(event: string, payload?: HookPayload): string | null 
 function mapHookPromptKind(event: string, payload?: HookPayload): string | null {
   const e = String(event || "").toLowerCase();
   if (isAuthenticationFailure(event, payload)) return SIGN_IN_PROMPT_KIND;
+  if (isRateLimitStop(event, payload)) return RATE_LIMIT_PROMPT_KIND;
   if (e === "permissionrequest") {
     if (String(payload?.tool_name || "") === EXIT_PLAN_MODE_TOOL_NAME) return "plan";
     return "permission";
@@ -97,7 +102,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
     case "stop":
       return "ready";
     case "stopfailure":
-      return isAuthenticationFailure(event, payload) ? "awaiting-input" : "ready";
+      return isAuthenticationFailure(event, payload) || isRateLimitStop(event, payload) ? "awaiting-input" : "ready";
     case "subagentstart":
       return "subagent-start";
     case "subagentstop":

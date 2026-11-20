@@ -117,6 +117,12 @@ export const AgentDoneRequest = z.object({
     .max(DONE_MEANS_MAX_LINES, { error: `done takes at most ${DONE_MEANS_MAX_LINES} lines` }),
 }).strict();
 
+export const UsageLimit = z.object({
+  resetsAtMs: z.number().finite(),
+  window: z.string().min(1).max(40),
+});
+export type UsageLimit = z.infer<typeof UsageLimit>;
+
 export const SessionSnapshot = z.object({
   id: z.string(),
   name: z.string(),
@@ -139,6 +145,7 @@ export const SessionSnapshot = z.object({
   activeAgents: z.number().int().nonnegative(),
   awaitingBackgroundTasks: z.boolean(),
   pendingPromptKind: z.string().nullable(),
+  usageLimit: UsageLimit.nullable().default(null),
   mergeStatus: MergeStatus.nullable(),
   mergeReason: z.string().nullable(),
   worktreeNotice: z.string().nullable(),

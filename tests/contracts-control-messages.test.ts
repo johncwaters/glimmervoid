@@ -72,6 +72,7 @@ const SESSION = {
   mergeReason: null,
   worktreeNotice: null,
   unseenOutcome: null,
+  usageLimit: null,
   managerSeenSeq: 0,
   passedQuestionSeq: 0,
   isQuestionManagerOn: true,

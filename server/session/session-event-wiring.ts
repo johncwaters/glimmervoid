@@ -4,7 +4,7 @@ import { isPlanGateEnabled } from '../../session/core/plan-gate-core.ts';
 import type { ClaudeSessionIdEvent, Session } from '../../session/sessions.ts';
 import type { LateFinish } from '../../session/core/agent-tracker.ts';
 import { SHELL_AGENT_ID, type PersistedTaskTitle } from '../../shared/contracts/config.ts';
-import type { UnseenOutcome } from '../../shared/contracts/session.ts';
+import type { UnseenOutcome, UsageLimit } from '../../shared/contracts/session.ts';
 import type { InstallDetail, InstallFailureKind, SessionStatusFields } from '../../shared/contracts/control-messages.ts';
 import type { SessionPrLinks } from '../../shared/contracts/my-prs.ts';
 import { AGENT_ATTENTION_NOTE_SEPARATOR, ATTENTION_NOTE_NOTIFY_CATEGORY } from '../../shared/contracts/session.ts';
@@ -353,6 +353,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     });
     session.on('wakeup-change', persistWasWorking);
     session.on('prompt-kind-change', ({ pendingPromptKind: nextKind }: { pendingPromptKind: string | null }) => noteStatus({ pendingPromptKind: nextKind }));
+    session.on('usage-limit-change', ({ usageLimit }: { usageLimit: UsageLimit | null }) => noteStatus({ usageLimit }));
     session.on('unseen-outcome-change', ({ unseenOutcome }: { unseenOutcome: UnseenOutcome | null }) => noteStatus({ unseenOutcome }));
     session.on('manager-seen-change', ({ managerSeenSeq }: { managerSeenSeq: number }) => noteStatus({ managerSeenSeq }));
     session.on('passed-question-change', ({ passedQuestionSeq }: { passedQuestionSeq: number }) => noteStatus({ passedQuestionSeq }));

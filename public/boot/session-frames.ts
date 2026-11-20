@@ -14,7 +14,7 @@ import { handleDebugStateRefresh } from '../session-card/card-debug.ts';
 import { buildSessionCardOptions } from '../session-card/card-options-core.ts';
 import { attentionTally, sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
+import { applyState, createSessionCard, hasSession, removeSessionCard, renameSessionCard, seedSessionMergeStatus, setSessionAgent, setSessionAgents, setSessionPrompt, setSessionTaskTitle, setSessionUnseenOutcome, setSessionUsageLimit, setSessionWorktree, updateAttentionTitle } from '../session-card/lifecycle.ts';
 import { setSessionAccount } from '../session-card/card-account.ts';
 import { forgetAttentionNotes, closeAnsweredPassedLine, forgetManagerDecisions, seedManagerDecisions, setManagerSeenSeq, setSessionAttentionNotes, setSessionFailureReason } from '../session-card/card-problems.ts';
 import { reconnectDataWs } from '../session-card/terminal-data-socket.ts';
@@ -94,6 +94,7 @@ function handleSnapshot(rows: ServerMessageOf<'snapshot'>['sessions']) {
     setSessionAgents(s.id, s.activeAgents, s.awaitingBackgroundTasks);
 
     setSessionPrompt(s.id, s.pendingPromptKind);
+    setSessionUsageLimit(s.id, s.usageLimit);
     setSessionUnseenOutcome(s.id, s.unseenOutcome);
     seedManagerDecisions(s.id, s.auditLog, s.managerSeenSeq);
     if (s.passedQuestionSeq === 0) closeAnsweredPassedLine(s.id);
@@ -203,6 +204,7 @@ function handleSessionStatus(msg: SessionStatusMessage) {
   if (msg.activeAgents !== undefined) setSessionAgents(msg.id, msg.activeAgents, msg.awaitingBackgroundTasks);
   if (msg.unseenOutcome !== undefined) setSessionUnseenOutcome(msg.id, msg.unseenOutcome);
   if (msg.pendingPromptKind !== undefined) setSessionPrompt(msg.id, msg.pendingPromptKind);
+  if (msg.usageLimit !== undefined) setSessionUsageLimit(msg.id, msg.usageLimit);
   if (msg.managerSeenSeq !== undefined) setManagerSeenSeq(msg.id, msg.managerSeenSeq);
   if (msg.passedQuestionSeq === 0) closeAnsweredPassedLine(msg.id);
   if (msg.attentionNotes !== undefined) setSessionAttentionNotes(msg.id, msg.attentionNotes);

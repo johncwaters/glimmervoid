@@ -90,6 +90,7 @@ const TRACE_TAG_BY_KIND: Record<TraceRecord['kind'], string> = {
   tool_result: 'RESULT',
   session: 'SESSION',
   notice: 'NOTICE',
+  usage_limit: 'LIMIT',
   attachments: 'ATTACHED',
   raw: 'RAW',
 };
@@ -104,6 +105,7 @@ function traceLabelParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<strin
   if (record.kind === 'thinking') return { prefix: 'Thinking: ', text: firstDetailLine(record.text) };
   if (record.kind === 'assistant') return { prefix: 'Assistant: ', text: firstDetailLine(record.text) };
   if (record.kind === 'notice') return { prefix: 'Notice: ', text: firstDetailLine(record.text) };
+  if (record.kind === 'usage_limit') return { prefix: 'Limit: ', text: firstDetailLine(record.text) };
   if (record.kind === 'raw') return { prefix: 'Raw: ', text: firstDetailLine(record.line) };
   if (record.kind === 'attachments') return { prefix: 'Attached: ', text: record.files.join(', ') };
   if (record.kind === 'session') return { prefix: 'Session: ', text: `${record.vendor} ${record.vendorSessionId}` };

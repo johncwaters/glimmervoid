@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CHAT_SEND_MAX_ATTACHMENTS, UploadFileName } from './session.ts';
+import { CHAT_SEND_MAX_ATTACHMENTS, UploadFileName, UsageLimit } from './session.ts';
 
 export const MAX_RAW_LINE_CHARS = 4000;
 export const CONVERSATION_EVENTS_HOOK_EVENT = 'ConversationEvents';
@@ -56,6 +56,11 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     kind: z.literal('attachments'),
     files: z.array(UploadFileName).min(1).max(CHAT_SEND_MAX_ATTACHMENTS),
     pastedPrefix: z.string().max(MAX_RAW_LINE_CHARS),
+  }),
+  TraceRecordBase.extend({
+    kind: z.literal('usage_limit'),
+    text: z.string().max(MAX_RAW_LINE_CHARS),
+    ...UsageLimit.shape,
   }),
   TraceRecordBase.extend({
     kind: z.literal('notice'),

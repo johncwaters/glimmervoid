@@ -6,10 +6,12 @@ import type { TraceRecord } from '../../shared/contracts/trace.ts';
 import { MAX_RAW_LINE_CHARS, TraceRecord as TraceRecordSchema } from '../../shared/contracts/trace.ts';
 import { maskSecretStrings } from '../../shared/secret-patterns.ts';
 import { opensOperatorTurn } from '../../shared/trace-turn.ts';
+import type { UsageLimit } from '../../shared/contracts/session.ts';
 
 export interface TraceAppended {
   id: string;
   opensOperatorTurn: boolean;
+  usageLimit: UsageLimit | null;
 }
 import { containmentRefusalReason } from '../core/trace-tail-core.ts';
 import { readSessionTracePage } from '../session/core/session-trace-core.ts';
@@ -52,6 +54,12 @@ function clippedToTraceLimits(record: unknown): unknown {
   if (record.kind === 'raw' && 'line' in record && typeof record.line === 'string' && record.line.length > MAX_RAW_LINE_CHARS) return { ...record, line: record.line.slice(0, MAX_RAW_LINE_CHARS), truncated: true };
   if (record.kind === 'notice' && 'text' in record && typeof record.text === 'string') return { ...record, text: record.text.slice(0, MAX_RAW_LINE_CHARS) };
   return record;
+}
+
+function latestUsageLimitOf(records: readonly TraceRecord[]): UsageLimit | null {
+  const latest = records.findLast((record) => record.kind === 'usage_limit');
+  if (latest?.kind !== 'usage_limit') return null;
+  return { resetsAtMs: latest.resetsAtMs, window: latest.window };
 }
 
 function createTraceRecordStore(context: TraceWiringContext) {
@@ -143,7 +151,7 @@ function createTraceRecordStore(context: TraceWiringContext) {
     try {
       await appendJsonLines(filePath, records, { mkdir: !hasEnsuredDirectory, mode: 0o600 });
       hasEnsuredDirectory = true;
-      const appended: TraceAppended = { id: glimmervoidSessionId, opensOperatorTurn: records.some(opensOperatorTurn) };
+      const appended: TraceAppended = { id: glimmervoidSessionId, opensOperatorTurn: records.some(opensOperatorTurn), usageLimit: latestUsageLimitOf(records) };
       emitter.emit('trace-appended', appended);
       return true;
     } catch (error) {

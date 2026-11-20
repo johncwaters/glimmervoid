@@ -181,7 +181,7 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
 }
 
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
-  if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
+  if (record.kind === 'notice' || record.kind === 'usage_limit') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   const skillName = loadedSkillOf(record);
   if (skillName !== null) return { kind: 'skill', id: nextPartId(state, 'skill'), skillName };
   return null;

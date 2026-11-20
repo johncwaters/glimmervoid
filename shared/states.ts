@@ -40,5 +40,6 @@ export const MERGEABLE_LIVE_STATES: readonly SessionState[] = Object.freeze([STA
 
 export const SIGN_IN_PROMPT_KIND = 'sign-in';
 export const API_KEY_PROMPT_KIND = 'api-key';
+export const RATE_LIMIT_PROMPT_KIND = 'rate-limit';
 export const SIGNED_IN_SIGNAL = 'signed-in';
 export const LOGIN_PROMPT_KINDS: ReadonlySet<string> = new Set([SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND]);

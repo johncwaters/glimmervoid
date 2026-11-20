@@ -279,3 +279,22 @@ test('an assistant line without a recognizable block remains raw', () => {
   }), context);
   assert.equal(record?.kind, 'raw');
 });
+
+test('a Claude usage limit line becomes a usage_limit record with its reset time and window', () => {
+  const limitLine = JSON.stringify({
+    type: 'assistant',
+    uuid: 'e489c8a9-5514-474b-a5fc-aed341671cd5',
+    parentUuid: '5bf6224f-bec0-45d5-9bea-dfe70a889bbe',
+    timestamp: '2026-11-20T17:33:15.146Z',
+    message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text: 'You have hit your weekly limit, resets 4am (America/Denver)' }] },
+    apiError: 'usage_limit_reached',
+    apiErrorParams: { rate_limit_info: { status: 'rejected', resetsAt: 1795258800, rateLimitType: 'seven_day' } },
+  });
+  const [record] = traceRecordsFromTranscriptLine(limitLine, context);
+  assert.ok(TraceRecord.safeParse(record).success);
+  assert.equal(record?.kind, 'usage_limit');
+  if (record?.kind !== 'usage_limit') return;
+  assert.equal(record.resetsAtMs, 1795258800000);
+  assert.equal(record.window, 'weekly');
+  assert.equal(record.text, 'You have hit your weekly limit, resets 4am (America/Denver)');
+});

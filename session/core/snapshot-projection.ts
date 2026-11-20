@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { AgentDoneLine, AttentionNote, AttentionOwner, ChatOutboxEntry, ConversationApproval, UnseenOutcome } from "../../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionNote, AttentionOwner, ChatOutboxEntry, ConversationApproval, UnseenOutcome, UsageLimit } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 import type { PlanGate } from "../../shared/contracts/plan-gate.ts";
 import type { AgentSetup, ModelSelection } from "../../shared/contracts/agent-models.ts";
@@ -95,6 +95,7 @@ interface SnapshotSource {
   activeAgents: number;
   awaitingBackgroundTasks: boolean;
   pendingPromptKind: string | null;
+  usageLimit: UsageLimit | null;
   attentionNotes: AttentionNote[];
   planGate: PlanGate | null;
   conversationApproval: ConversationApproval | null;
@@ -141,6 +142,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     activeAgents: source.activeAgents,
     awaitingBackgroundTasks: source.awaitingBackgroundTasks,
     pendingPromptKind: source.pendingPromptKind,
+    usageLimit: source.usageLimit,
     attentionNotes: source.attentionNotes,
     planGate: source.planGate,
     conversationApproval: source.conversationApproval,

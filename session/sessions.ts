@@ -33,7 +33,7 @@ import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import { prepareAccountHome, prepareSandboxedAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
-import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, SIGNED_IN_SIGNAL } from "../shared/states.ts";
+import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, SIGNED_IN_SIGNAL } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { hintFor, permitsHelpCommand, promptHintsFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
@@ -52,7 +52,7 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor, hookProfileOf } from "./adapters/index.ts";
-import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome } from "../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome, UsageLimit } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
@@ -349,6 +349,7 @@ class Session extends EventEmitter {
   _lastSignal: Record<string, unknown> | null;
   _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
+  _usageLimit: UsageLimit | null;
   _loginFailurePromptKind: string;
   _pendingPromptToolName: string | null;
   _attention: AttentionLanes;
@@ -640,6 +641,7 @@ class Session extends EventEmitter {
 
     this._compaction = createCompactionTracking();
     this._pendingPromptKind = null;
+    this._usageLimit = null;
     this._loginFailurePromptKind = SIGN_IN_PROMPT_KIND;
     this._pendingPromptToolName = null;
     this._attention = createAttentionLanes();
@@ -1079,6 +1081,7 @@ class Session extends EventEmitter {
 
     if (hookEvent === "userpromptsubmit") {
       this._dropResumeNote();
+      if (this._usageLimit !== null) this._setUsageLimit(null);
       const prompt = raw.payload?.prompt;
       this._queuePromptHint(prompt);
       if (!this._taskTitleSources.promptTitle) {
@@ -1209,8 +1212,10 @@ class Session extends EventEmitter {
     const next = kind || null;
     this._pendingPromptToolName = nextPendingPromptToolName(this._pendingPromptKind, this._pendingPromptToolName, next, toolName, mayInheritCurrentToolName);
     if (next === this._pendingPromptKind) return;
+    const isLeavingRateLimit = this._pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
     this._pendingPromptKind = next;
     this._emitSessionDetail();
+    if (isLeavingRateLimit && this._usageLimit !== null) this._setUsageLimit(null);
   }
 
   _observeCompaction(signal: string, source?: string | null): void {
@@ -1678,6 +1683,7 @@ class Session extends EventEmitter {
       activeAgents: active,
       awaitingBackgroundTasks: this.backgroundTracking.awaitingBackgroundTasks(),
       pendingPromptKind: this._pendingPromptKind,
+      usageLimit: this._usageLimit,
       attentionNotes: this.attentionNotes,
       planGate: this.planGate,
       conversationApproval: this._conversationApproval,
@@ -2423,6 +2429,16 @@ class Session extends EventEmitter {
 
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
   noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
+
+  noteUsageLimit(usageLimit: UsageLimit): void {
+    if (usageLimit.resetsAtMs <= clock.nowMs()) return;
+    this._setUsageLimit(usageLimit);
+  }
+
+  _setUsageLimit(usageLimit: UsageLimit | null): void {
+    this._usageLimit = usageLimit;
+    this.emit("usage-limit-change", { usageLimit });
+  }
 
   get chatOutboxEntries() { return this._chatOutbox.entries(); }
 

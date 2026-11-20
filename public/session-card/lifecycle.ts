@@ -1,5 +1,5 @@
 import { paintSecretRequest } from './secret-request-face.ts';
-import type { UnseenOutcome } from '#shared/contracts/session.ts';
+import type { UnseenOutcome, UsageLimit } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { hasSessionDocs } from '../doc-editor/doc-editor.ts';
 import { sendControlMsg } from '../control-ws.ts';
@@ -187,6 +187,12 @@ export function setSessionPrompt(sessionId: unknown, kind: unknown) {
   const ui = findSessionUi(sessionId);
   if (!ui) return;
   ui.pendingPromptKind = typeof kind === 'string' ? kind : null;
+}
+
+export function setSessionUsageLimit(sessionId: unknown, usageLimit: UsageLimit | null) {
+  const ui = findSessionUi(sessionId);
+  if (!ui) return;
+  ui.usageLimit = usageLimit;
 }
 
 export function setSessionUnseenOutcome(sessionId: unknown, unseenOutcome: UnseenOutcome | null | undefined) {

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PlanGate } from '../plan-gate.ts';
 import { GH_SEGMENT } from '../github-ids.ts';
 import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
-import { AgentDoneLine, AttentionNote, AttentionOwner, CHAT_OUTBOX_MAX_ENTRIES, ChatOutboxEntry, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome } from '../session.ts';
+import { AgentDoneLine, AttentionNote, AttentionOwner, CHAT_OUTBOX_MAX_ENTRIES, ChatOutboxEntry, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome, UsageLimit } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
@@ -133,6 +133,7 @@ export const SessionStatusFields = z.object({
   isQuestionManagerOn: z.boolean().optional(),
   accountId: AgentAccountId.nullable().optional(),
   pendingPromptKind: nullableString.optional(),
+  usageLimit: UsageLimit.nullable().optional(),
   attentionNotes: z.array(AttentionNote).optional(),
   planGate: PlanGate.nullable().optional(),
   conversationApproval: ConversationApproval.nullable().optional(),

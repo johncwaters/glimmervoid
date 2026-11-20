@@ -58,6 +58,8 @@ interface TranscriptLine {
   sourceToolUseID?: unknown;
   subtype?: unknown;
   message?: { content?: unknown };
+  apiError?: unknown;
+  apiErrorParams?: { rate_limit_info?: { resetsAt?: unknown; rateLimitType?: unknown } | null } | null;
   origin?: { kind?: unknown } | null;
   turnOrigin?: { kind?: unknown } | string | null;
   attachment?: {
@@ -284,7 +286,22 @@ function queuedCommandRecords(line: TranscriptLine, context: TraceLineContext): 
   return null;
 }
 
+const USAGE_LIMIT_API_ERROR = 'usage_limit_reached';
+const USAGE_LIMIT_WINDOW_BY_RATE_LIMIT_TYPE: Readonly<Record<string, string>> = { five_hour: 'session', seven_day: 'weekly' };
+
+function usageLimitRecord(line: TranscriptLine, context: TraceLineContext): TraceRecord | null {
+  if (line.apiError !== USAGE_LIMIT_API_ERROR) return null;
+  const rateLimitInfo = line.apiErrorParams?.rate_limit_info;
+  const resetsAtSeconds = rateLimitInfo?.resetsAt;
+  if (typeof resetsAtSeconds !== 'number' || !Number.isFinite(resetsAtSeconds)) return null;
+  const rateLimitType = typeof rateLimitInfo?.rateLimitType === 'string' ? rateLimitInfo.rateLimitType : '';
+  const text = (firstTextBlock(contentBlocks(line)) ?? '').slice(0, MAX_RAW_LINE_CHARS);
+  return { ...baseRecord(line, context), kind: 'usage_limit', text, resetsAtMs: resetsAtSeconds * 1000, window: USAGE_LIMIT_WINDOW_BY_RATE_LIMIT_TYPE[rateLimitType] ?? 'usage' };
+}
+
 function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceLineContext): TraceRecord[] {
+  const usageLimit = usageLimitRecord(line, context);
+  if (usageLimit !== null) return [usageLimit];
   const base = baseRecord(line, context);
   const records: TraceRecord[] = [];
   let hasSkippedThinkingBlock = false;

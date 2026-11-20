@@ -1,5 +1,7 @@
 import type { Pane } from '#shared/contracts/focus-layout.ts';
-import { API_KEY_PROMPT_KIND, SIGN_IN_PROMPT_KIND } from '#shared/states.ts';
+import { resetClockText } from './usage-limit-text.ts';
+import type { UsageLimit } from '#shared/contracts/session.ts';
+import { API_KEY_PROMPT_KIND, SIGN_IN_PROMPT_KIND, RATE_LIMIT_PROMPT_KIND } from '#shared/states.ts';
 import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writeTextIfChanged } from './status-paint.ts';
 import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
@@ -28,7 +30,7 @@ type SessionRowSignalSlot = 'status' | 'links';
 const sessionRowSignalSources: { source: SessionRowSignalSource; slot: SessionRowSignalSlot }[] = [];
 const FOCUSED_LINK_LIMIT = 5;
 
-const STATUS_LABEL_BY_PROMPT_KIND: Readonly<Record<string, string>> = { plan: 'Plan ready', [SIGN_IN_PROMPT_KIND]: 'Needs sign-in', [API_KEY_PROMPT_KIND]: 'API key refused' };
+const STATUS_LABEL_BY_PROMPT_KIND: Readonly<Record<string, string>> = { plan: 'Plan ready', [SIGN_IN_PROMPT_KIND]: 'Needs sign-in', [API_KEY_PROMPT_KIND]: 'API key refused', [RATE_LIMIT_PROMPT_KIND]: 'Rate limited' };
 
 const MERGE_SIGNALS: Readonly<Record<string, Omit<Signal, 'key'>>> = {
   parked: { text: 'PARKED', look: { icon: 'failed', tone: 'danger' }, tier: SIGNAL_TIER.broken },
@@ -218,17 +220,24 @@ function paintCloseCountdown(row: HTMLElement, closeStartedAt: number | null) {
   closeDrainByCountdown.set(countdown, pinnedDrain);
 }
 
+function promptStatusLabel(pendingPromptKind: string | null, usageLimit: UsageLimit | null): string | undefined {
+  if (pendingPromptKind === null) return undefined;
+  if (pendingPromptKind === RATE_LIMIT_PROMPT_KIND && usageLimit !== null) return `Limit until ${resetClockText(usageLimit.resetsAtMs)}`;
+  return STATUS_LABEL_BY_PROMPT_KIND[pendingPromptKind];
+}
+
 export function paintSessionRowStatus(
   row: HTMLElement,
   refs: Pick<SessionRowRefs, 'glyph' | 'label'>,
   state: string,
   awaitingBackgroundTasks = false,
   pendingPromptKind: string | null = null,
+  usageLimit: UsageLimit | null = null,
 ) {
   writeDataIfChanged(row, 'state', state);
   writeDataIfChanged(row, 'prompt', pendingPromptKind ?? '');
   const { icon, label, isMonitoring } = stateChip(state, awaitingBackgroundTasks);
-  const statusLabel = (pendingPromptKind === null ? undefined : STATUS_LABEL_BY_PROMPT_KIND[pendingPromptKind]) ?? label;
+  const statusLabel = promptStatusLabel(pendingPromptKind, usageLimit) ?? label;
   row.toggleAttribute('data-monitoring', isMonitoring);
   paintStatusIcon(refs.glyph, icon);
   writeTextIfChanged(refs.label, statusLabel);
@@ -330,7 +339,7 @@ function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: Session
   const isShell = ui.agent === SHELL_AGENT_ID;
   row.toggleAttribute('data-shell', isShell);
   if (isShell) return paintShellRowMark(row, refs);
-  return paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind);
+  return paintSessionRowStatus(row, refs, state, ui.awaitingBackgroundTasks, ui.pendingPromptKind, ui.usageLimit ?? null);
 }
 
 function describeSessionOwnership(ui: SessionUi): string | null {
