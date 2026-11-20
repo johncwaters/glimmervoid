@@ -32,8 +32,7 @@ import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messa
 import { rectAround } from './board-snap-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
-import { createBoardStylePopover } from './board-style-popover.ts';
-import type { BoardStylePopover } from './board-style-popover.ts';
+import { createBoardStyleRows } from './board-style-rows.ts';
 import { createBoardContextMenu } from './board-context-menu.ts';
 import { isArrayIndexKey } from '#shared/whiteboard-element-table.ts';
 import type { BoardContextMenu, ContextMenuGroup } from './board-context-menu.ts';
@@ -156,7 +155,6 @@ let renderer: BoardRenderer | null = null;
 let editor: BoardEditor | null = null;
 let contextMenu: BoardContextMenu | null = null;
 let inspector: BoardInspector | null = null;
-let stylePopover: BoardStylePopover | null = null;
 let shouldFitOnNextRender = true;
 let pairedSessionId: string | null = null;
 let shownReview: { boardId: string; review: BoardReview } | null = null;
@@ -408,11 +406,6 @@ function paintToolbar(): void {
   for (const button of [...parts.toolButtons.values(), parts.toolLockButton, parts.moreTools.trigger]) button.disabled = !board;
   for (const button of [parts.buttons.fit, parts.buttons.undo, parts.buttons.redo]) button.disabled = !board;
   inspector?.paint(editor?.selectedIds() ?? new Set());
-  paintStylePopover();
-}
-
-function paintStylePopover(): void {
-  stylePopover?.paint(editor?.selectedIds() ?? new Set());
 }
 
 function paintList(): void {
@@ -1673,7 +1666,6 @@ export function mountBoardHost(): HTMLElement {
   topRightStack.append(inspectPanel);
   const topChrome = el('div', 'wb-top');
   topChrome.append(chrome, topRightStack);
-  stylePopover = createBoardStylePopover({ host: topRightStack, currentBoard: selectedBoard, sendOps });
   const emptyBoardHint = el('div', 'wb-empty-board');
   emptyBoardHint.hidden = true;
   emptyBoardHint.append(emptyState({
@@ -1705,7 +1697,8 @@ export function mountBoardHost(): HTMLElement {
     onGraphicsEvent: (event) => { void reportBoardGraphics(event); },
   });
   renderer = boardRenderer;
-  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
+  const styleRows = createBoardStyleRows({ currentBoard: selectedBoard, sendOps });
+  inspector = createBoardInspector({ container: inspectPanel, currentBoard: selectedBoard, layout: () => boardRenderer.layout(), sendOps, codeSessionChoices, styleRowsFor: styleRows.rowsFor, openRef: openRefInReview, worthALookReasonOf, linkStateOf: (boxId) => (selectedBoardId ? linkStateOf(selectedBoardId, boxId) : null), addNoteOn, frameSelectedBoxes: addFrame, stackSelectedBoxes, removeSelected: () => editor?.removeSelected() });
   editor = createBoardEditor({
     viewport,
     world,

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The board properties panel shows just the basics.** Selecting a box shows its shape, icon and title, fill and title size, and Add note, Frame and Delete; a wire shows its label, tone, width, route and arrowheads. Step, angle, borderless, lines, change, refs, Open in review, a linked file, page dials and a device's fit, and a wire's dashed line and sides, sit under More, since agents set most of them. More starts closed and remembers whether you left it open, across elements and reloads. The fill, size and wire style picks moved out of the separate style window into the same panel, for one selection or many.
+
 ## [0.62.9] - 2026-11-19
 
 ### Added

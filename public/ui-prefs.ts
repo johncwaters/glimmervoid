@@ -27,6 +27,7 @@ interface UiPrefs extends FlyingAnimalsOptions {
   lastFocusedSessionId: string | null;
   railWidth: number | null;
   railStatusKeyOpen: boolean;
+  boardInspectMoreOpen: boolean;
   railFoldedProjectKeys: string[];
   focusLayout: FocusLayout;
   splitBoardBySession: SplitBoardBySession;
@@ -88,6 +89,7 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   lastFocusedSessionId: asNullableString,
   railWidth: asNullableNumber,
   railStatusKeyOpen: asBoolean(false),
+  boardInspectMoreOpen: asBoolean(false),
   railFoldedProjectKeys: asStringList,
   focusLayout: parseFocusLayout,
   splitBoardBySession: parseSplitBoardBySession,
@@ -172,6 +174,8 @@ export const setRailWidth = (px: number | null) => write('railWidth', px);
 
 export const isRailStatusKeyOpen = () => read('railStatusKeyOpen');
 export const setRailStatusKeyOpen = (isOpen: boolean) => write('railStatusKeyOpen', isOpen);
+export const isBoardInspectMoreOpen = () => read('boardInspectMoreOpen');
+export const setBoardInspectMoreOpen = (isOpen: boolean) => write('boardInspectMoreOpen', isOpen);
 export const getRailFoldedProjectKeys = () => read('railFoldedProjectKeys');
 export const setRailFoldedProjectKeys = (projectKeys: readonly string[]) => write('railFoldedProjectKeys', [...projectKeys]);
 

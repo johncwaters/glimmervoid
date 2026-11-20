@@ -123,13 +123,10 @@
   overflow-wrap: anywhere;
 }
 
-.wb-style-popover {
-  position: static;
+.wb-style-rows {
+  display: flex;
   flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: stretch;
   gap: 6px;
-  padding: 8px;
 }
 
 .wb-style-row {

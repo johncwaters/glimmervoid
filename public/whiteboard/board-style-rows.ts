@@ -5,8 +5,7 @@ import { el } from '../dom-helpers.ts';
 import { createSvgIcon, createSvgShape } from '../svg-dom.ts';
 import { actionButton, pickButton, pickGroup, WIRE_TONE_LABELS } from './board-inspect.ts';
 
-interface StylePopoverOptions {
-  host: HTMLElement;
+interface StyleRowsOptions {
   currentBoard: () => Board | null;
   sendOps: (ops: Op[]) => Promise<boolean>;
 }
@@ -60,14 +59,7 @@ function styleRow(label: string, group: HTMLElement): HTMLElement {
   return row;
 }
 
-export function createBoardStylePopover(options: StylePopoverOptions) {
-  const { host } = options;
-  const island = el('div', 'wb-island wb-style-popover');
-  island.setAttribute('role', 'group');
-  island.setAttribute('aria-label', 'Style');
-  island.hidden = true;
-  host.prepend(island);
-
+export function createBoardStyleRows(options: StyleRowsOptions) {
   function restyle<Styled extends Box | Wire>(elements: readonly Styled[], isAlreadyStyled: (element: Styled) => boolean, fields: Record<string, string | null>): void {
     const ops: Op[] = elements.filter((element) => !isAlreadyStyled(element)).map((element) => ({ op: 'set', id: element.id, fields }));
     if (ops.length > 0) void options.sendOps(ops);
@@ -104,22 +96,22 @@ export function createBoardStylePopover(options: StylePopoverOptions) {
     ];
   }
 
-  function paint(selectedIds: ReadonlySet<string>): void {
+  function rowsFor(selectedIds: ReadonlySet<string>): HTMLElement[] {
     const board = options.currentBoard();
-    const selection = board ? styledSelectionOf(board, selectedIds) : { tintedBoxes: [], sizedBoxes: [], wires: [] };
+    if (!board) return [];
+    const selection = styledSelectionOf(board, selectedIds);
     const rows = [
       ...(selection.tintedBoxes.length > 0 ? [fillRow(selection.tintedBoxes)] : []),
       ...(selection.sizedBoxes.length > 0 ? [textSizeRow(selection.sizedBoxes)] : []),
       ...(selection.wires.length > 0 ? wireRows(selection.wires) : []),
     ];
-    const active = document.activeElement;
-    const focusedField = active instanceof HTMLElement && island.contains(active) ? active.dataset.field : undefined;
-    island.replaceChildren(...rows);
-    island.hidden = rows.length === 0;
-    if (focusedField) island.querySelector<HTMLElement>(`[data-field="${CSS.escape(focusedField)}"]`)?.focus();
+    if (rows.length === 0) return [];
+    const group = el('div', 'wb-style-rows');
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Style');
+    group.append(...rows);
+    return [group];
   }
 
-  return { paint };
+  return { rowsFor };
 }
-
-export type BoardStylePopover = ReturnType<typeof createBoardStylePopover>;

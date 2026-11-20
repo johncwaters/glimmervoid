@@ -7,6 +7,7 @@ import type { BoxShape } from '#shared/whiteboard-shapes.ts';
 import { customLegendLabelByKey, defaultWireStyleLabel, wireStyleKey } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout } from '#shared/whiteboard-layout-core.ts';
 import { el, markAsNotCredential } from '../dom-helpers.ts';
+import { isBoardInspectMoreOpen, setBoardInspectMoreOpen } from '../ui-prefs.ts';
 import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { select } from '../ui/select.ts';
@@ -21,7 +22,6 @@ type FieldCommit = (fields: Record<string, unknown>) => void;
 type LatestItems<Item> = () => readonly Item[] | null;
 type Side = (typeof SIDES)[number];
 type StepChoice = 'none' | (typeof STEP_STATUSES)[number];
-type DisclosureName = 'more' | 'ends';
 
 interface BoardInspectorOptions {
   container: HTMLElement;
@@ -29,6 +29,7 @@ interface BoardInspectorOptions {
   layout: () => BoardLayout | null;
   sendOps: (ops: Op[]) => Promise<boolean>;
   codeSessionChoices: () => readonly Choice[];
+  styleRowsFor: (selectedIds: ReadonlySet<string>) => HTMLElement[];
   openRef: (ref: string) => void;
   worthALookReasonOf: (ref: string) => string | null;
   linkStateOf: (boxId: string) => LinkStateOfBox | null;
@@ -45,11 +46,6 @@ interface SelectionActions {
   frameSelectedBoxes: () => void;
   stackSelectedBoxes: () => void;
   removeSelected: () => void;
-}
-
-interface Disclosures {
-  latchOpenState: (name: DisclosureName, hasSetField: boolean) => boolean;
-  remember: (name: DisclosureName, isOpen: boolean) => void;
 }
 
 interface WireStyle {
@@ -171,13 +167,13 @@ function listSection(title: string, rows: HTMLElement[], addButton: HTMLButtonEl
   return section;
 }
 
-function disclosure(name: DisclosureName, summary: string, hasSetField: boolean, disclosures: Disclosures, contents: HTMLElement[]): HTMLElement {
+function moreDisclosure(contents: HTMLElement[]): HTMLElement {
   const details = el('details', 'wb-inspect-disclosure');
-  details.dataset.disclosure = name;
-  details.open = disclosures.latchOpenState(name, hasSetField);
-  const summaryRow = el('summary', 'wb-inspect-summary', summary);
-  summaryRow.dataset.field = `${name}-summary`;
-  summaryRow.addEventListener('click', () => disclosures.remember(name, !details.open));
+  details.dataset.disclosure = 'more';
+  details.open = isBoardInspectMoreOpen();
+  const summaryRow = el('summary', 'wb-inspect-summary', 'More');
+  summaryRow.dataset.field = 'more-summary';
+  summaryRow.addEventListener('click', () => setBoardInspectMoreOpen(!details.open));
   const body = el('div', 'wb-inspect-disclosure-body');
   body.append(...contents);
   details.append(summaryRow, body);
@@ -304,13 +300,12 @@ function titleRow(box: Box, set: FieldCommit): HTMLElement {
   return row;
 }
 
-function hasSetMoreField(box: Box): boolean {
-  if (box.change !== 'none' || box.refs.length > 0 || box.media?.link) return true;
-  if (Object.keys(box.params).length > 0) return true;
-  return box.shape === 'device' && box.fit !== 'fill';
+interface PanelParts {
+  styleRows: HTMLElement[];
+  reviewSection: HTMLElement;
 }
 
-function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkState: LinkStateOfBox | null, disclosures: Disclosures, set: FieldCommit): HTMLElement[] {
+function boxSections(box: Box, latest: () => BoardElement | undefined, layout: BoardLayout | null, linkState: LinkStateOfBox | null, parts: PanelParts, set: FieldCommit): HTMLElement[] {
   const traits = SHAPE_TRAITS[box.shape];
   const latestBox = () => {
     const element = latest();
@@ -355,6 +350,11 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     set({ change, was: null });
   };
   const moreFields = [
+    fieldRow('Step', selectField('step', STEP_CHOICES, box.step?.status ?? 'none', commitStep)),
+    ...(box.step ? [el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.')] : []),
+    fieldRow('Angle', angleField(box.angle, (angle) => set({ angle }))),
+    ...(box.shape === 'note' ? [] : [checkboxField('borderless', 'Borderless', isBorderlessBox(box), (borderless) => set({ borderless }))]),
+    ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
       if (was.trim()) set({ was: was.trim() });
@@ -363,17 +363,14 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     ...linkedFileSections(box, linkState, () => linkableMediaOf(latestBox()), set),
     ...dialSections(box, latestBox, set),
     ...(box.shape === 'device' ? [fieldRow('Fit', selectField('fit', FIT_CHOICES, box.fit, (fit) => set({ fit })))] : []),
+    parts.reviewSection,
   ];
   return [
     shapeRow(box.shape, commitShape),
     titleRow(box, set),
     ...(box.shape === 'device' ? [fieldRow('Device', selectField('device', DEVICE_CHOICES, box.device ?? PLACED_DEVICE, (device) => set({ device })))] : []),
-    fieldRow('Step', selectField('step', STEP_CHOICES, box.step?.status ?? 'none', commitStep)),
-    ...(box.step ? [el('p', 'wb-inspect-hint', 'A wire from one step to another means the second is built after the first.')] : []),
-    fieldRow('Angle', angleField(box.angle, (angle) => set({ angle }))),
-    ...(box.shape === 'note' ? [] : [checkboxField('borderless', 'Borderless', isBorderlessBox(box), (borderless) => set({ borderless }))]),
-    ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
-    disclosure('more', 'More', hasSetMoreField(box), disclosures, moreFields),
+    ...parts.styleRows,
+    moreDisclosure(moreFields),
   ];
 }
 
@@ -421,24 +418,26 @@ function sideOf(choice: string): Side | null {
   return SIDES.find((side) => side === choice) ?? null;
 }
 
-function wireSections(wire: Wire, disclosures: Disclosures, set: FieldCommit): HTMLElement[] {
-  const ends = [
+function wireSections(wire: Wire, parts: PanelParts, set: FieldCommit): HTMLElement[] {
+  const moreFields = [
+    checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
     fieldRow('From side', selectField('fromSide', SIDE_CHOICES, wire.fromSide ?? 'auto', (side) => set({ fromSide: sideOf(side) }))),
     fieldRow('To side', selectField('toSide', SIDE_CHOICES, wire.toSide ?? 'auto', (side) => set({ toSide: sideOf(side) }))),
   ];
   return [
     heading('Wire'),
     fieldRow('Label', textField('label', wire.label ?? '', WHITEBOARD_LIMITS.wireLabel, (label) => set({ label: label.trim() || null }))),
-    checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
-    disclosure('ends', 'Ends', wire.fromSide !== null || wire.toSide !== null, disclosures, ends),
+    ...parts.styleRows,
+    moreDisclosure([...moreFields, parts.reviewSection]),
   ];
 }
 
-function frameSections(frame: Frame, set: FieldCommit): HTMLElement[] {
+function frameSections(frame: Frame, parts: PanelParts, set: FieldCommit): HTMLElement[] {
   return [
     heading('Frame'),
     fieldRow('Title', textField('title', frame.title, WHITEBOARD_LIMITS.title, (title) => set({ title: title.trim() }))),
     checkboxField('collapsed', 'Stacked as one card', frame.collapsed, (collapsed) => set({ collapsed })),
+    parts.reviewSection,
   ];
 }
 
@@ -510,14 +509,14 @@ function linkedFileSections(box: Box, linkState: LinkStateOfBox | null, latestMe
   return media ? [linkedFileSection(media, linkState, latestMedia, set)] : [];
 }
 
-function elementSections(element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkState: LinkStateOfBox | null, disclosures: Disclosures, send: (ops: Op[]) => void): HTMLElement[] {
+function elementSections(element: BoardElement, latestBoard: () => Board | null, layout: BoardLayout | null, linkState: LinkStateOfBox | null, parts: PanelParts, send: (ops: Op[]) => void): HTMLElement[] {
   const set: FieldCommit = (fields) => send([{ op: 'set', id: element.id, fields }]);
   const latest = () => latestBoard()?.elements.get(element.id);
   switch (element.kind) {
-    case 'box': return boxSections(element, latest, layout, linkState, disclosures, set);
-    case 'wire': return wireSections(element, disclosures, set);
-    case 'frame': return frameSections(element, set);
-    case 'stroke': return [heading('Ink')];
+    case 'box': return boxSections(element, latest, layout, linkState, parts, set);
+    case 'wire': return wireSections(element, parts, set);
+    case 'frame': return frameSections(element, parts, set);
+    case 'stroke': return [heading('Ink'), parts.reviewSection];
   }
 }
 
@@ -554,10 +553,6 @@ function isTypingIn(container: HTMLElement): boolean {
   return active.closest('.wb-icon-popover') !== null;
 }
 
-function isSameSelection(first: ReadonlySet<string>, second: ReadonlySet<string>): boolean {
-  return first.size === second.size && [...first].every((selectedId) => second.has(selectedId));
-}
-
 export function createBoardInspector(options: BoardInspectorOptions) {
   const { container } = options;
   container.setAttribute('aria-label', 'Properties');
@@ -565,15 +560,6 @@ export function createBoardInspector(options: BoardInspectorOptions) {
   let paintedSelectedIds: ReadonlySet<string> = new Set();
   let isRepainting = false;
   let isShowingBoardSettings = false;
-  const disclosureOpenStates = new Map<DisclosureName, boolean>();
-  const disclosures: Disclosures = {
-    latchOpenState: (name, hasSetField) => {
-      const isOpen = disclosureOpenStates.get(name) ?? hasSetField;
-      if (isOpen) disclosureOpenStates.set(name, true);
-      return isOpen;
-    },
-    remember: (name, isOpen) => disclosureOpenStates.set(name, isOpen),
-  };
 
   function soleSelectedElement(board: Board, selectedIds: ReadonlySet<string>): BoardElement | undefined {
     if (selectedIds.size !== 1) return undefined;
@@ -588,16 +574,28 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     reviewSection.replaceChildren(...openInReviewRows(board, element, options));
   }
 
+  function repaintStyleRowsWhileTyping(selectedIds: ReadonlySet<string>): void {
+    const shownStyleRows = container.querySelector<HTMLElement>('.wb-style-rows');
+    if (!shownStyleRows) return;
+    const [freshStyleRows] = options.styleRowsFor(selectedIds);
+    if (!freshStyleRows) {
+      shownStyleRows.remove();
+      return;
+    }
+    shownStyleRows.replaceWith(freshStyleRows);
+  }
+
   function sectionsFor(board: Board, selectedIds: ReadonlySet<string>): HTMLElement[] {
     const selected = [...selectedIds].flatMap((selectedId) => board.elements.get(selectedId) ?? []);
-    if (selectedIds.size > 1) return [heading(`${selected.length} selected`), selectionActionsRow(selected, options)];
+    const styleRows = options.styleRowsFor(selectedIds);
+    if (selectedIds.size > 1) return [heading(`${selected.length} selected`), ...styleRows, selectionActionsRow(selected, options)];
     const element = soleSelectedElement(board, selectedIds);
     if (!element) return boardSections(board, options.currentBoard, send, options.codeSessionChoices(), closeBoardSettings);
-    return [...elementSections(element, options.currentBoard, options.layout(), options.linkStateOf(element.id), disclosures, send), openInReviewSection(board, element, options), selectionActionsRow(selected, options)];
+    const parts: PanelParts = { styleRows, reviewSection: openInReviewSection(board, element, options) };
+    return [...elementSections(element, options.currentBoard, options.layout(), options.linkStateOf(element.id), parts, send), selectionActionsRow(selected, options)];
   }
 
   function paint(selectedIds: ReadonlySet<string>): void {
-    if (!isSameSelection(selectedIds, paintedSelectedIds)) disclosureOpenStates.clear();
     paintedSelectedIds = selectedIds;
     if (selectedIds.size > 0) isShowingBoardSettings = false;
     const board = options.currentBoard();
@@ -605,6 +603,7 @@ export function createBoardInspector(options: BoardInspectorOptions) {
     if (!board || container.hidden) return;
     if (isTypingIn(container)) {
       repaintReviewWhileTyping(board, selectedIds);
+      repaintStyleRowsWhileTyping(selectedIds);
       return;
     }
     const active = document.activeElement;

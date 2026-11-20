@@ -159,6 +159,11 @@ async function openMoreIn(inspect: Locator): Promise<void> {
   await inspect.locator('details[data-disclosure="more"] > summary').click();
 }
 
+async function closeMoreIn(inspect: Locator): Promise<void> {
+  if (!(await isMoreOpenIn(inspect))) return;
+  await inspect.locator('details[data-disclosure="more"] > summary').click();
+}
+
 async function waitForPressedShape(inspect: Locator, shape: string): Promise<void> {
   await inspect.locator(`[data-field="shape-${shape}"][aria-pressed="true"]`).waitFor();
 }
@@ -195,7 +200,9 @@ function drawingTool(panel: Locator, name: string): Locator {
 async function addPlanStep(open: OpenBoard, offset: { x: number; y: number }, title: string): Promise<BoardElement> {
   await drawingTool(open.panel, 'Box').click();
   const box = await placeBoxWithTool(open, offset, title);
-  await open.panel.locator('.wb-inspect').getByRole('combobox', { name: 'Step', exact: true }).selectOption('planned');
+  const inspect = open.panel.locator('.wb-inspect');
+  await openMoreIn(inspect);
+  await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption('planned');
   return elementWhere(open, `${title} as a planned step`, (element) => element.id === box.id && element.kind === 'box' && element.step?.status === 'planned');
 }
 
@@ -602,7 +609,7 @@ async function verifyContextMenu(open: OpenBoard, anchorBoxId: string): Promise<
 }
 
 async function stylePick(open: OpenBoard, groupName: string, choice: string): Promise<void> {
-  await open.panel.getByRole('group', { name: 'Style', exact: true }).getByRole('group', { name: groupName, exact: true }).getByRole('button', { name: choice, exact: true }).click();
+  await open.panel.locator('.wb-inspect').getByRole('group', { name: 'Style', exact: true }).getByRole('group', { name: groupName, exact: true }).getByRole('button', { name: choice, exact: true }).click();
 }
 
 async function wireMidpointOnScreen(open: OpenBoard, wireId: string): Promise<{ x: number; y: number }> {
@@ -614,7 +621,7 @@ async function wireMidpointOnScreen(open: OpenBoard, wireId: string): Promise<{ 
   return screenRectOn(await cameraOf(open), midpoint);
 }
 
-async function verifyStylePopover(open: OpenBoard, anchorBoxId: string): Promise<void> {
+async function verifyStyleRows(open: OpenBoard, anchorBoxId: string): Promise<void> {
   const { page, panel, boardId } = open;
   const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
   const anchorPoint = anchorBox?.kind === 'box' ? pointOfBox(anchorBox) : null;
@@ -627,8 +634,9 @@ async function verifyStylePopover(open: OpenBoard, anchorBoxId: string): Promise
   await elementWhere(open, 'the style boxes are on the board', (element) => element.id === 'style-wire');
   await panel.locator('.wb-viewport').focus();
   await page.keyboard.press('Escape');
-  const popover = panel.getByRole('group', { name: 'Style', exact: true });
-  assert.equal(await popover.isVisible(), false, 'the style popover hides with nothing selected');
+  const popover = panel.locator('.wb-inspect').getByRole('group', { name: 'Style', exact: true });
+  assert.equal(await popover.isVisible(), false, 'the style rows hide with nothing selected');
+  assert.equal(await panel.locator('.wb-top-right > .wb-island').count(), 0, 'the style rows live in the properties panel, not a second window');
   await selectBoxes(open, ['style-left', 'style-right']);
   await stylePick(open, 'Fill', 'Blue');
   await elementWhere(open, 'a fill pick tints every selected box', (element) => element.id === 'style-right' && element.kind === 'box' && element.tone === 'blue');
@@ -810,10 +818,12 @@ async function verifyRotation(open: OpenBoard, anchorBoxId: string): Promise<voi
   await dragOnScreen(open, handle, { x: center.x + 120, y: center.y + 7 });
   await page.keyboard.up('Shift');
   await elementWhere(open, 'dragging the rotate handle with Shift turns the box to a 15 degree step', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 90);
+  await openMoreIn(panel.locator('.wb-inspect'));
   const angleField = panel.locator('[data-field="angle"]');
   await angleField.fill('30');
   await angleField.press('Tab');
   await elementWhere(open, 'typing in the Angle field sets the rotation', (element) => element.id === 'turn-box' && element.kind === 'box' && element.angle === 30);
+  await closeMoreIn(panel.locator('.wb-inspect'));
   const turned = await laidOutOf(open, 'turn-box');
   assert.ok(turned.kind === 'box' && turned.angle === 30, 'the laid out box carries the typed angle');
   await verifyTurnedResize(open, 'turn-box');
@@ -2300,7 +2310,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     if (desktopBoard) await verifySnapping(open);
     if (desktopBoard) await verifyFrameDrag(open);
     if (desktopBoard) await verifyContextMenu(open, parseFeed.id);
-    if (desktopBoard) await verifyStylePopover(open, parseFeed.id);
+    if (desktopBoard) await verifyStyleRows(open, parseFeed.id);
     if (desktopBoard) await verifyEllipseAndEraser(open, parseFeed.id);
     if (desktopBoard) await verifyArrowAndLineTools(open, parseFeed.id);
     if (desktopBoard) await verifyRotation(open, parseFeed.id);
@@ -2391,6 +2401,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await clickElement(open, targetBox.id);
     await waitForPressedShape(inspect, 'box');
     const isTargetWith = (isMatch: (box: Extract<BoardElement, { kind: 'box' }>) => boolean) => (element: BoardElement) => element.id === targetBox.id && element.kind === 'box' && isMatch(element);
+    await openMoreIn(inspect);
     await inspect.getByRole('checkbox', { name: 'Borderless', exact: true }).check();
     await elementWhere(open, 'the box dropped its card', isTargetWith((box) => box.shape === 'box' && box.borderless === true));
     await inspect.getByRole('group', { name: 'Shape', exact: true }).getByRole('button', { name: 'Decision', exact: true }).click();
@@ -2417,8 +2428,6 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await elementWhere(open, 'redo brings the first title back', titled('Index first'));
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await elementWhere(open, 'redo brings the second title back', titled('Index second'));
-    assert.equal(await isMoreOpenIn(inspect), false, 'More stays closed while none of its fields is set');
-    await openMoreIn(inspect);
     await inspect.getByRole('combobox', { name: 'Change', exact: true }).selectOption({ label: 'Renamed' });
     await elementWhere(open, 'a relabeled box keeps its old title', isTargetWith((box) => box.change === 'relabeled' && box.was === 'Index second'));
     await titleField.fill('Index rows by day');
@@ -2449,6 +2458,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await page.keyboard.press('Escape');
     await inspect.waitFor({ state: 'hidden' });
     await clickElement(open, step.id);
+    assert.equal(await isMoreOpenIn(inspect), true, 'More stays open across selections once the operator opens it');
     await page.waitForFunction(() => document.querySelector<HTMLSelectElement>('.boards-view .wb-inspect [data-field="step"]')?.value === 'planned');
     await inspect.getByRole('combobox', { name: 'Step', exact: true }).selectOption({ label: 'Landed' });
     await elementWhere(open, 'the landed step', (element) => element.id === step.id && element.kind === 'box' && element.step?.status === 'landed');
