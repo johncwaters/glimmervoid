@@ -35,7 +35,7 @@ async function loadExtensionWithRelayLog(folder: string): Promise<{ handlers: Ma
   const relayStubPath = path.join(folder, 'relay-stub.mjs');
   const relayLogPath = path.join(folder, 'relay.log');
   fs.writeFileSync(relayStubPath, RELAY_STUB_SOURCE);
-  const extensionSource = renderPiExtension([process.execPath, relayStubPath]);
+  const extensionSource = renderPiExtension([process.execPath, relayStubPath], [process.execPath, relayStubPath]);
   assert.ok(extensionSource);
   const extensionPath = path.join(folder, 'glimmervoid.mjs');
   fs.writeFileSync(extensionPath, extensionSource);

@@ -330,6 +330,7 @@ Rows marked internal are set by Glimmervoid itself for its child processes; they
 | `GLIMMERVOID_GITHUB_API_BASE` | internal | Points GitHub probes at a fake GitHub API for the end-to-end runs. Honored only on a loopback address; any other value is ignored with one warning. Not an operator setting. |
 | `GLIMMERVOID_POSTHOG_INGEST_HOST` | internal | Sends telemetry to a fake PostHog ingest for the end-to-end runs. Honored only on a loopback address; any other value is ignored with one warning. Not an operator setting. |
 | `GLIMMERVOID_SANE_YOLO_PATH` | internal | Names the Sane YOLO binary only in supervised sessions, so an installed Grok hook stays inert outside Glimmervoid. Not an operator setting. |
+| `GLIMMERVOID_PACK_HOOK_FILES` | internal | Set by Glimmervoid in each session environment when an approved pack carries hooks; lists the hook files the hook tool relay runs before a tool call. Not an operator setting. |
 | `GLIMMERVOID_HOOK_URL` | internal | Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting. |
 | `GLIMMERVOID_AGENT_URL` | internal | Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `sessions` read it. Not an operator setting. |
 | `GLIMMERVOID_PR_ACTION_REPORT_URL` | internal | Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting. |

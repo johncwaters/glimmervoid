@@ -3,12 +3,18 @@ import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { READ_ONLY_COMMAND } from "../../shared/read-only-command.ts";
+import type { PackHookAgent } from "../../shared/contracts/pack.ts";
+import { PACK_HOOK_FILES_ENV, PACK_HOOK_RELAY_TOOL_ID } from "./pack-hook-core.ts";
+
+const PI_PACK_HOOK_FLAVOR: PackHookAgent = "pi";
 
 const SAFE_LAUNCH_PART_RE = /^[^\0\r\n]+$/;
 const PI_LAUNCH_ENV_NAME = "GLIMMERVOID_PI_LAUNCH";
 const PI_SKIP_PERMISSIONS_FLAG = "glimmervoid-skip-permissions";
 
 const EXTENSION_SOURCE = `const RELAY_LAUNCH = __RELAY_LAUNCH__;
+const PACK_HOOK_LAUNCH = __PACK_HOOK_LAUNCH__;
+const PACK_HOOK_FILES_ENV = "${PACK_HOOK_FILES_ENV}";
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 const LAUNCH_ENV = "${PI_LAUNCH_ENV_NAME}";
 const MCP_CREDENTIAL_ENV = "${MCP_CREDENTIAL_ENV}";
@@ -118,6 +124,22 @@ function denialReason(reply) {
 function packServersOf(launch) {
   if (!Array.isArray(launch.packServers)) return [];
   return launch.packServers.filter((server) => typeof server?.name === "string" && typeof server.url === "string" && (server.secretEnv === undefined || typeof server.secretEnv === "string"));
+}
+
+function packHookDenial(toolName, toolInput) {
+  if (!process.env[PACK_HOOK_FILES_ENV]) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const child = spawn(PACK_HOOK_LAUNCH[0], PACK_HOOK_LAUNCH.slice(1), { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+    let output = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", () => resolve(denialReason(parsedReply(output))));
+    child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify({ tool_name: toolName, tool_input: toolInput ?? {}, cwd: process.cwd() }));
+  });
 }
 
 function launchConfig() {
@@ -233,6 +255,8 @@ export default function (pi) {
   pi.on("session_compact_failed", async () => endCompaction());
 
   pi.on("tool_call", async (event, ctx) => {
+    const packReason = await packHookDenial(event.toolName, event.input);
+    if (packReason) return { block: true, reason: packReason };
     const gatedToolName = GATED_TOOL_NAMES[event.toolName];
     if (!gatedToolName || pi.getFlag(SKIP_PERMISSIONS_FLAG) || isReadOnlyCommand(event.toolName, event.input)) return;
     if (!ctx.hasUI) return { block: true, reason: "Glimmervoid asks before " + event.toolName + " runs, and this pi run has no prompt to ask in." };
@@ -295,9 +319,14 @@ async function askEachQuestion(questions, ctx) {
 }
 `;
 
-function renderPiExtension(relayLaunch: readonly string[]): string | null {
-  if (relayLaunch.length === 0 || !relayLaunch.every((part) => SAFE_LAUNCH_PART_RE.test(part))) return null;
-  return EXTENSION_SOURCE.replace("__RELAY_LAUNCH__", JSON.stringify(relayLaunch));
+function isSafeLaunch(launch: readonly string[]): boolean {
+  return launch.length > 0 && launch.every((part) => SAFE_LAUNCH_PART_RE.test(part));
+}
+
+function renderPiExtension(relayLaunch: readonly string[], hookToolRelayLaunch: readonly string[]): string | null {
+  if (!isSafeLaunch(relayLaunch) || !isSafeLaunch(hookToolRelayLaunch)) return null;
+  const packHookLaunch = [...hookToolRelayLaunch, PACK_HOOK_RELAY_TOOL_ID, PI_PACK_HOOK_FLAVOR];
+  return EXTENSION_SOURCE.replace("__RELAY_LAUNCH__", JSON.stringify(relayLaunch)).replace("__PACK_HOOK_LAUNCH__", JSON.stringify(packHookLaunch));
 }
 
 interface PiLaunchConfig {

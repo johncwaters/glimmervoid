@@ -130,12 +130,20 @@ function packFilesNamedBy(command: readonly string[]): string[] {
   return command.flatMap((word) => [...word.matchAll(PACK_DIR_FILE_PATTERN)].map((match) => path.posix.normalize((match[1] ?? '').replace(/\\/g, '/'))));
 }
 
+function packProgramErrors(command: readonly string[], index: number): string[] {
+  if (!(command[0] ?? '').includes(PACK_DIR_PLACEHOLDER)) return [];
+  return [`${PACK_FILE_NAME} hooks.${index}.command: the program cannot be a pack file, since the approved copy is not executable; run it through its interpreter, such as ["node", "${PACK_DIR_PLACEHOLDER}/hooks/check.mjs"]`];
+}
+
 function withHookFilesPresent(hooks: PackSection<PackHook[]> | null, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackHook[]> | null {
   if (hooks === null || !hooks.ok) return hooks;
-  const missing = hooks.value.flatMap((hook, index) => packFilesNamedBy(hook.command)
-    .filter((filePath) => !filesByPath.has(filePath))
-    .map((filePath) => `${PACK_FILE_NAME} hooks.${index}.command: ${PACK_DIR_PLACEHOLDER}/${filePath} is not a file in the pack`));
-  return missing.length === 0 ? hooks : { ok: false, errors: missing };
+  const errors = hooks.value.flatMap((hook, index) => [
+    ...packProgramErrors(hook.command, index),
+    ...packFilesNamedBy(hook.command)
+      .filter((filePath) => !filesByPath.has(filePath))
+      .map((filePath) => `${PACK_FILE_NAME} hooks.${index}.command: ${PACK_DIR_PLACEHOLDER}/${filePath} is not a file in the pack`),
+  ]);
+  return errors.length === 0 ? hooks : { ok: false, errors };
 }
 
 function manifestJson(manifest: Buffer): { ok: true; value: unknown } | { ok: false; error: string } {

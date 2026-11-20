@@ -21,6 +21,7 @@ import { pathCommandLaunch } from "./path-command-launch.ts";
 const ID = "antigravity";
 const COMMAND_NAME = "agy";
 const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const MCP_BRIDGE_LAUNCH = hookLaunch("mcp-bridge");
 const PLUGIN_FOLDER_MODE = 0o700;
 const PLUGIN_FILE_MODE = 0o600;
@@ -117,11 +118,11 @@ function writePlugin(pluginFolder: string, pluginFiles: Readonly<Record<string, 
 
 function prepareHome(
   _env: Record<string, string | undefined>,
-  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false, packSkillDirs = [], sharedPackServers = [] }: GeneratedHomeLaunch,
+  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false, packSkillDirs = [], sharedPackServers = [], hasPackHooks = false }: GeneratedHomeLaunch,
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
-  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH, sharedPackServers);
+  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH, sharedPackServers, hasPackHooks ? HOOK_TOOL_RELAY_LAUNCH : null);
   const packSkillWorkspaces = packSkillWorkspacesOf(packSkillDirs);
   const sessionSettings = antigravitySessionSettings([folderTrustRoot, ...packSkillWorkspaces], RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };

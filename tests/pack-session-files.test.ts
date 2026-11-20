@@ -25,6 +25,8 @@ function contribution(fingerprint: string, contextText: string): PackAgentContri
     fingerprint,
     context: { fileName: 'CONTEXT.md', bytes: Buffer.from(contextText) },
     skills: [{ skillName: 'deploy', filesByPath: new Map([['SKILL.md', Buffer.from(SKILL_TEXT)], ['scripts/run.sh', Buffer.from('echo run\n')]]) }],
+    hooks: [],
+    packFiles: new Map(),
   };
 }
 
@@ -97,7 +99,7 @@ test('a re-approved pack keeps the copy live sessions started with until the nex
 
     await restarted.sync([]);
     assert.deepEqual(fs.readdirSync(root), []);
-    assert.deepEqual(restarted.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [] });
+    assert.deepEqual(restarted.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [], hookFiles: [] });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -124,7 +126,7 @@ test('a pack.json agent section shows its context and skills word for word, reac
     const folder = path.join(root, `acme-team-${(pendingRow?.fingerprint ?? '').slice(0, 12)}`);
     assert.deepEqual(packSessionFiles.launch(), {
       contextLines: [`Pack acme-team context: ${path.join(folder, 'context', 'CONTEXT.md')}. Read it when the task touches what it covers.`],
-      claudePluginDirs: [path.join(folder, 'claude')], namedSkillDirs: [path.join(folder, 'named', '.agents', 'skills', 'acme-team-deploy')],
+      claudePluginDirs: [path.join(folder, 'claude')], namedSkillDirs: [path.join(folder, 'named', '.agents', 'skills', 'acme-team-deploy')], hookFiles: [],
     });
     assert.match(fs.readFileSync(path.join(folder, 'named', '.agents', 'skills', 'acme-team-deploy', 'SKILL.md'), 'utf8'), /^---\nname: acme-team-deploy\n/);
 
@@ -132,7 +134,7 @@ test('a pack.json agent section shows its context and skills word for word, reac
     await packStore.approvedPacks();
     assert.deepEqual(packStore.agentContributionsInUse(), []);
     await packSessionFiles.sync(packStore.agentContributionsInUse());
-    assert.deepEqual(packSessionFiles.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [] });
+    assert.deepEqual(packSessionFiles.launch(), { contextLines: [], claudePluginDirs: [], namedSkillDirs: [], hookFiles: [] });
     assert.equal(fs.existsSync(folder), false);
   } finally {
     packStore.stop();

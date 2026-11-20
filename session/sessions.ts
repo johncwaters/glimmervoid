@@ -102,6 +102,7 @@ import { cleanHomeArgs, launchPlanFor, launchSecretNames } from "../shared/agent
 import type { LaunchPlan } from "../shared/agent-models-core.ts";
 import { claudePluginArgs } from "./core/pack-session-core.ts";
 import type { PackAgentLaunch } from "./core/pack-session-core.ts";
+import { packHookFilesEnv } from "./core/pack-hook-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 import { clock } from '../shared/clock.ts';
 import { cleanPastedText } from './core/input-delivery-core.ts';
@@ -714,6 +715,7 @@ class Session extends EventEmitter {
       isCleanHome,
       isOsSandboxed: prepareSandbox !== null,
       packSkillDirs: () => this._spawnPackLaunch?.namedSkillDirs ?? [],
+      packHookFiles: () => this._spawnPackLaunch?.hookFiles ?? [],
       modelSelection: () => this._agentSetup,
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
@@ -2172,8 +2174,9 @@ class Session extends EventEmitter {
   }
 
   _launchSpawnEnv(): Record<string, string> | null {
-    if (Object.keys(this._accountEnv).length === 0) return this._spawnEnv;
-    return { ...(this._spawnEnv || {}), ...this._accountEnv };
+    const packHookEnv = packHookFilesEnv(this._spawnPackLaunch?.hookFiles ?? []);
+    if (Object.keys(this._accountEnv).length === 0 && Object.keys(packHookEnv).length === 0) return this._spawnEnv;
+    return { ...(this._spawnEnv || {}), ...packHookEnv, ...this._accountEnv };
   }
 
   async _prepareAccountEnv(): Promise<string | null> {

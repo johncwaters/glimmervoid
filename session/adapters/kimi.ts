@@ -24,6 +24,7 @@ import { pathCommandLaunch } from "./path-command-launch.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import type { InstalledHooks } from "../core/user-hooks-core.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
+import { KIMI_PACK_HOOK_FLAVOR, packHookToolNamesOf } from "../core/pack-hook-core.ts";
 
 const ID = "kimi";
 const COMMAND_NAME = "kimi";
@@ -142,7 +143,7 @@ function configFilePath(
   return path.join(realAgentHome(KIMI_HOME_PROFILE, env, homedir), "config.toml");
 }
 
-function expectedHooksBlock(): string | null {
+function expectedHooksBlock(hasPackHooks = false): string | null {
   return renderKimiHooksBlock({
     relayLaunch: RELAY_LAUNCH,
     events: HOOK_EVENTS,
@@ -151,6 +152,7 @@ function expectedHooksBlock(): string | null {
     questionHold: { toolName: ASK_USER_QUESTION_TOOL_NAME, event: QUESTION_TOOL_HOLD_HOOK_EVENT, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS },
     permissionHold: { toolNames: PERMISSION_GATED_TOOL_NAMES, event: CONVERSATION_PERMISSION_HOOK_EVENT, timeoutSeconds: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS },
     saneYolo: { relayLaunch: HOOK_TOOL_RELAY_LAUNCH, toolNames: SANE_YOLO_TOOL_NAMES, agentFlavor: KIMI_SANE_YOLO_FLAVOR },
+    packHooks: hasPackHooks ? { toolNames: packHookToolNamesOf(KIMI_PACK_HOOK_FLAVOR) } : null,
   });
 }
 
@@ -193,8 +195,8 @@ function mcpFilesFor(env: Record<string, string | undefined>, listenerPort: numb
   });
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, accountFolder = null, packSkillDirs = [], isSandboxed = false, sharedPackServers = [] }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
-  const hooksBlock = expectedHooksBlock();
+function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, accountFolder = null, packSkillDirs = [], hasPackHooks = false, isSandboxed = false, sharedPackServers = [] }: GeneratedHomeLaunch): { home: string } | { refusal: string } {
+  const hooksBlock = expectedHooksBlock(hasPackHooks);
   if (hooksBlock === null) return { refusal: HOOKS_BLOCK_REFUSAL };
   return holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => hooksBlock, { renderGeneratedFiles: () => mcpFilesFor(env, listenerPort, isCleanHome, accountFolder, isSandboxed, sharedPackServers), isClean: isCleanHome, accountFolder, packSkillDirs, isSandboxed });
 }

@@ -4,10 +4,16 @@ import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { CONVERSATION_EVENTS_HOOK_EVENT } from "../../shared/contracts/trace.ts";
+import type { PackHookAgent } from "../../shared/contracts/pack.ts";
+import { PACK_HOOK_FILES_ENV, PACK_HOOK_RELAY_TOOL_ID } from "./pack-hook-core.ts";
+
+const OPENCODE_PACK_HOOK_FLAVOR: PackHookAgent = "opencode";
 
 const SAFE_LAUNCH_PART_RE = /^[^\0\r\n]+$/;
 
 const PLUGIN_SOURCE = `const RELAY_LAUNCH = __RELAY_LAUNCH__;
+const PACK_HOOK_LAUNCH = __PACK_HOOK_LAUNCH__;
+const PACK_HOOK_FILES_ENV = "${PACK_HOOK_FILES_ENV}";
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 const QUESTION_HOLD_EVENT = "${QUESTION_TOOL_HOLD_HOOK_EVENT}";
 const QUESTION_TOOL_NAME = "${ASK_USER_QUESTION_TOOL_NAME}";
@@ -90,6 +96,15 @@ function replyContext(reply) {
 function denialReason(reply) {
   const output = reply?.hookSpecificOutput;
   return output?.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string" ? output.permissionDecisionReason : null;
+}
+
+async function packHookDenial(sessionID, toolName, toolInput) {
+  if (!process.env[PACK_HOOK_FILES_ENV]) return null;
+  const child = Bun.spawn(PACK_HOOK_LAUNCH, { stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true });
+  child.stdin.write(JSON.stringify({ session_id: sessionID, tool_name: toolName, tool_input: toolInput, cwd: process.cwd() }));
+  child.stdin.end();
+  const [output] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+  return denialReason(parsedReply(output));
 }
 
 function cutStrings(value, maxChars) {
@@ -370,8 +385,10 @@ export default {
     });
 
     ctx.tool.hook("execute.before", async (event) => {
-      if (event.tool !== OPENCODE_QUESTION_TOOL) return;
       const toolInput = event.input && typeof event.input === "object" ? event.input : {};
+      const packReason = await packHookDenial(event.sessionID, event.tool, toolInput).catch(() => null);
+      if (packReason) throw new Error(packReason);
+      if (event.tool !== OPENCODE_QUESTION_TOOL) return;
       questionInputBySession.set(event.sessionID, toolInput);
       const reason = denialReason(await relayForReply(QUESTION_HOLD_EVENT, await payloadFor(event.sessionID, { tool_name: QUESTION_TOOL_NAME, tool_input: toolInput })));
       if (!reason) return;
@@ -390,15 +407,20 @@ export default {
 };
 `;
 
-function renderOpenCodePlugin(relayLaunch: readonly string[]): string | null {
-  if (relayLaunch.length === 0 || !relayLaunch.every((part) => SAFE_LAUNCH_PART_RE.test(part))) return null;
-  return PLUGIN_SOURCE.replace("__RELAY_LAUNCH__", JSON.stringify(relayLaunch));
+function isSafeLaunch(launch: readonly string[]): boolean {
+  return launch.length > 0 && launch.every((part) => SAFE_LAUNCH_PART_RE.test(part));
+}
+
+function renderOpenCodePlugin(relayLaunch: readonly string[], hookToolRelayLaunch: readonly string[]): string | null {
+  if (!isSafeLaunch(relayLaunch) || !isSafeLaunch(hookToolRelayLaunch)) return null;
+  const packHookLaunch = [...hookToolRelayLaunch, PACK_HOOK_RELAY_TOOL_ID, OPENCODE_PACK_HOOK_FLAVOR];
+  return PLUGIN_SOURCE.replace("__RELAY_LAUNCH__", JSON.stringify(relayLaunch)).replace("__PACK_HOOK_LAUNCH__", JSON.stringify(packHookLaunch));
 }
 
 const PLUGIN_PACKAGE_JSON = `${JSON.stringify({ name: "glimmervoid-opencode-plugin", private: true, type: "module", main: "index.js" }, null, 2)}\n`;
 
-function openCodePluginFiles(relayLaunch: readonly string[]): Record<string, string> | null {
-  const plugin = renderOpenCodePlugin(relayLaunch);
+function openCodePluginFiles(relayLaunch: readonly string[], hookToolRelayLaunch: readonly string[]): Record<string, string> | null {
+  const plugin = renderOpenCodePlugin(relayLaunch, hookToolRelayLaunch);
   if (plugin === null) return null;
   return { "package.json": PLUGIN_PACKAGE_JSON, "index.js": plugin };
 }

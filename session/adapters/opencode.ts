@@ -24,6 +24,7 @@ const ID = "opencode";
 const COMMAND_NAME = "opencode";
 const CONFIG_CONTENT_ENV_NAME = "OPENCODE_CONFIG_CONTENT";
 const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const PLUGIN_FOLDER_MODE = 0o700;
 const PLUGIN_FILE_MODE = 0o600;
 const PLUGIN_REFUSAL = "the hook relay path cannot be written into an OpenCode plugin";
@@ -118,7 +119,7 @@ function packSkillFolders(packSkillDirs: readonly string[]): string[] {
 
 function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [], modelSelection = null, packServers = [] }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
-  const files = openCodePluginFiles(RELAY_LAUNCH);
+  const files = openCodePluginFiles(RELAY_LAUNCH, HOOK_TOOL_RELAY_LAUNCH);
   if (files === null) return { refusal: PLUGIN_REFUSAL };
   const pluginFolder = pluginFolderPath(env);
   const writeFailure = writePluginFolder(pluginFolder, files);

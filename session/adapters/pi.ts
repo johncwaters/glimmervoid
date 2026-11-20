@@ -23,6 +23,7 @@ const ID = "pi";
 const COMMAND_NAME = "pi";
 const EXTENSION_FILE_NAME = "glimmervoid.js";
 const RELAY_LAUNCH = hookLaunch("hook-relay");
+const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
 const EXTENSION_FOLDER_MODE = 0o700;
 const EXTENSION_FILE_MODE = 0o600;
 const EXTENSION_REFUSAL = "the hook relay path cannot be written into a pi extension";
@@ -101,7 +102,7 @@ function writeExtension(extensionFolder: string, extensionSource: string): strin
 
 function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [], packServers = [] }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
-  const extensionSource = renderPiExtension(RELAY_LAUNCH);
+  const extensionSource = renderPiExtension(RELAY_LAUNCH, HOOK_TOOL_RELAY_LAUNCH);
   if (extensionSource === null) return { refusal: EXTENSION_REFUSAL };
   const extensionFolder = extensionFolderPath(env);
   const writeFailure = writeExtension(extensionFolder, extensionSource);

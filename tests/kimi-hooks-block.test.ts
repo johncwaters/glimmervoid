@@ -636,7 +636,7 @@ test('a kimi home carries approved pack skills as namespaced copies beside the o
     const packSessionFiles = createPackSessionFiles({ root: packRoot });
     const skillText = '---\nname: deploy\ndescription: Ship it\n---\nSay REDLYNX.\n';
     const skill = (skillName: string) => ({ skillName, filesByPath: new Map([['SKILL.md', Buffer.from(skillText)], ['run.sh', Buffer.from('echo run\n')]]) });
-    await packSessionFiles.sync([{ packName: 'acme', fingerprint: 'f'.repeat(64), context: null, skills: [skill('deploy'), skill('mine')] }]);
+    await packSessionFiles.sync([{ packName: 'acme', fingerprint: 'f'.repeat(64), context: null, skills: [skill('deploy'), skill('mine')], hooks: [], packFiles: new Map() }]);
     const packSkillDirs = packSessionFiles.launch()?.namedSkillDirs ?? [];
     withKimiHomes(({ realHome, env }) => {
       assert.equal(kimi.hooks.injection.kind, 'generated-home');

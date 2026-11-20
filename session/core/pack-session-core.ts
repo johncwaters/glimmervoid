@@ -1,18 +1,20 @@
 import path from "node:path";
 import { SKILL_NAME_PATTERN, renameSkillFrontmatter } from "../../shared/skill-frontmatter-core.ts";
+import type { PackHook } from "../../shared/contracts/pack.ts";
+import { PACK_COPY_FOLDER_NAME, PACK_HOOKS_FILE_NAME, packHooksFileText } from "./pack-hook-core.ts";
 
 type PackAgentSkill = { skillName: string; filesByPath: ReadonlyMap<string, Buffer> };
 type PackAgentContext = { fileName: string; bytes: Buffer };
-type PackAgentContribution = { packName: string; fingerprint: string; context: PackAgentContext | null; skills: readonly PackAgentSkill[] };
+type PackAgentContribution = { packName: string; fingerprint: string; context: PackAgentContext | null; skills: readonly PackAgentSkill[]; hooks: readonly PackHook[]; packFiles: ReadonlyMap<string, Buffer> };
 type PackAgentFile = { relativePath: string; bytes: Buffer };
-type PackAgentLaunch = { contextLines: readonly string[]; claudePluginDirs: readonly string[]; namedSkillDirs: readonly string[] };
+type PackAgentLaunch = { contextLines: readonly string[]; claudePluginDirs: readonly string[]; namedSkillDirs: readonly string[]; hookFiles: readonly string[] };
 
 const CLAUDE_PLUGIN_FOLDER_NAME = "claude";
 const CONTEXT_FOLDER_NAME = "context";
 const NAMED_SKILLS_FOLDER = path.posix.join("named", ".agents", "skills");
 const SKILL_FILE_NAME = "SKILL.md";
 const FINGERPRINT_PREFIX_LENGTH = 12;
-const EMPTY_LAUNCH: PackAgentLaunch = Object.freeze({ contextLines: Object.freeze([]), claudePluginDirs: Object.freeze([]), namedSkillDirs: Object.freeze([]) });
+const EMPTY_LAUNCH: PackAgentLaunch = Object.freeze({ contextLines: Object.freeze([]), claudePluginDirs: Object.freeze([]), namedSkillDirs: Object.freeze([]), hookFiles: Object.freeze([]) });
 
 function packAgentFolderName(packName: string, fingerprint: string): string {
   return `${packName}-${fingerprint.slice(0, FINGERPRINT_PREFIX_LENGTH)}`;
@@ -72,6 +74,13 @@ function planPackAgentFiles(contribution: PackAgentContribution): { files: PackA
     if ("refusal" in planned) return planned;
     files.push(...planned);
   }
+  if (contribution.hooks.length > 0) {
+    for (const [relativePath, bytes] of contribution.packFiles) {
+      if (!isContainedRelativePath(relativePath)) return { refusal: `the pack names a file outside its folder: ${relativePath}` };
+      files.push({ relativePath: path.posix.join(PACK_COPY_FOLDER_NAME, relativePath), bytes });
+    }
+    files.push({ relativePath: PACK_HOOKS_FILE_NAME, bytes: Buffer.from(packHooksFileText(contribution.packName, contribution.hooks)) });
+  }
   if (contribution.context === null) return { files, warnings };
   if (!isContainedRelativePath(contribution.context.fileName) || /[\\/]/.test(contribution.context.fileName)) return { refusal: `the context file name ${contribution.context.fileName} is not a plain file name` };
   files.push({ relativePath: path.posix.join(CONTEXT_FOLDER_NAME, contribution.context.fileName), bytes: contribution.context.bytes });
@@ -83,13 +92,15 @@ function packAgentLaunchOf(root: string, contributions: readonly PackAgentContri
   const contextLines: string[] = [];
   const claudePluginDirs: string[] = [];
   const namedSkillDirs: string[] = [];
+  const hookFiles: string[] = [];
   for (const contribution of contributions) {
     const folder = path.join(root, packAgentFolderName(contribution.packName, contribution.fingerprint));
     if (contribution.skills.length > 0) claudePluginDirs.push(path.join(folder, CLAUDE_PLUGIN_FOLDER_NAME));
     for (const skill of contribution.skills.filter((candidate) => hasNamedCopy(contribution.packName, candidate.skillName))) namedSkillDirs.push(path.join(folder, ...NAMED_SKILLS_FOLDER.split("/"), namespacedSkillName(contribution.packName, skill.skillName)));
+    if (contribution.hooks.length > 0) hookFiles.push(path.join(folder, PACK_HOOKS_FILE_NAME));
     if (contribution.context !== null) contextLines.push(packContextLine(contribution.packName, path.join(folder, CONTEXT_FOLDER_NAME, contribution.context.fileName)));
   }
-  return { contextLines, claudePluginDirs, namedSkillDirs };
+  return { contextLines, claudePluginDirs, namedSkillDirs, hookFiles };
 }
 
 function claudePluginArgs(agentId: string, launch: PackAgentLaunch | null): string[] {

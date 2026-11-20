@@ -104,6 +104,7 @@ interface GeneratedHomeLaunch {
   isCleanHome: boolean;
   accountFolder?: string | null;
   packSkillDirs?: readonly string[];
+  hasPackHooks?: boolean;
   modelSelection?: ModelSelection | null;
   isSandboxed?: boolean;
   packServers?: readonly PackMcpServer[];

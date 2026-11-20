@@ -8,6 +8,9 @@ import { Readable } from 'node:stream';
 import { main, runHookTool } from '../session/hook-tool-relay.ts';
 import { COPILOT_SANE_YOLO_FLAVOR, QWEN_SANE_YOLO_FLAVOR } from '../session/core/sane-yolo.ts';
 import { resolvePackageBin } from '../server/runtime-paths.ts';
+import { createPackSessionFiles } from '../server/packs/pack-session-files.ts';
+import { PackHook } from '../shared/contracts/pack.ts';
+import { packHookFilesEnv } from '../session/core/pack-hook-core.ts';
 const ENVELOPE = '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git log"}}';
 
 interface HookToolInvocation {
@@ -68,3 +71,45 @@ for (const { agentFlavor, payload } of SHELL_TOOL_CALLS) {
     assert.match(verdict, /"(decision|permissionDecision)":"deny"/);
   });
 }
+
+const PACK_GATE_SOURCE = `let text = '';
+process.stdin.on('data', (chunk) => { text += chunk; });
+process.stdin.on('end', () => {
+  const input = JSON.parse(text);
+  if (input.tool.command === 'crash') throw new Error('boom');
+  if (input.tool.command === 'hang') setInterval(() => {}, 1000);
+  if (input.tool.command === 'hang') return;
+  if (input.tool.filePaths.includes('blocked.txt') || input.tool.command === 'git push') {
+    process.stderr.write('no spec for ' + input.sessionId);
+    process.exit(2);
+  }
+});
+`;
+
+test('an approved pack hook that exits 2 denies the matching tool call in each agent dialect, and a crash, a timeout or an unwatched tool lets the call run', async () => {
+  const packRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pack-hooks-'));
+  try {
+    const packSessionFiles = createPackSessionFiles({ root: packRoot });
+    const hook = PackHook.parse({ id: 'spec-gate', description: 'Needs a spec', event: 'beforeTool', command: ['node', '{packDir}/hooks/gate.mjs'], timeoutSeconds: 1 });
+    await packSessionFiles.sync([{ packName: 'gates', fingerprint: 'a'.repeat(64), context: null, skills: [], hooks: [hook], packFiles: new Map([['hooks/gate.mjs', Buffer.from(PACK_GATE_SOURCE)]]) }]);
+    const env = packHookFilesEnv(packSessionFiles.launch()?.hookFiles ?? []);
+    const relay = async (flavor: string, payload: unknown, relayEnv: Record<string, string> = env) => {
+      const stdout = fakeStdout();
+      const outcome = await main('packHooks', relayEnv, fakeStdin(JSON.stringify(payload)), stdout, fakeHookTool(''), flavor);
+      return { reason: outcome.reason, written: stdout.written.join('') };
+    };
+    const claudeDenial = await relay('claude', { session_id: 's-1', cwd: packRoot, tool_name: 'Write', tool_input: { file_path: 'blocked.txt' } });
+    assert.deepEqual(JSON.parse(claudeDenial.written), { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: '[gates/spec-gate] no spec for s-1' } });
+    const antigravityDenial = await relay('antigravity', { conversationId: 'c-1', toolCall: { name: 'write_file', args: { TargetFile: 'blocked.txt' } } });
+    assert.deepEqual(JSON.parse(antigravityDenial.written), { decision: 'deny', reason: '[gates/spec-gate] no spec for c-1' });
+    const codexPatchDenial = await relay('codex', { tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch\n*** Add File: blocked.txt\n+x\n*** End Patch' } });
+    assert.equal(codexPatchDenial.reason, 'denied');
+    assert.equal((await relay('claude', { session_id: 's-2', tool_name: 'Monitor', tool_input: { command: 'git push' } })).reason, 'denied');
+    assert.equal((await relay('antigravity', { toolCall: { name: 'write_to_file', args: { TargetFile: 'blocked.txt' } } })).reason, 'denied');
+    for (const command of ['crash', 'hang', 'ls']) assert.deepEqual(await relay('pi', { tool_name: 'bash', tool_input: { command } }), { reason: 'allowed', written: '' });
+    assert.deepEqual(await relay('kimi', { tool_name: 'Read', tool_input: { file_path: 'blocked.txt' } }), { reason: 'allowed', written: '' });
+    assert.deepEqual(await relay('claude', { tool_name: 'Write', tool_input: { file_path: 'blocked.txt' } }, {}), { reason: 'no-pack-hooks', written: '' });
+  } finally {
+    fs.rmSync(packRoot, { recursive: true, force: true });
+  }
+});

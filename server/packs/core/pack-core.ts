@@ -161,11 +161,15 @@ export function packAgentContributions(packs: readonly PackOnDisk[]): PackAgentC
   return packs.flatMap((pack) => {
     const agent = packAgentSection(pack);
     const contextBytes = agent?.context === undefined ? undefined : pack.filesByPath.get(agent.context);
-    if (agent === null || (contextBytes === undefined && agent.skills.length === 0)) return [];
+    const skillFolders = agent?.skills ?? [];
+    const hooks = pack.hooks?.ok ? pack.hooks.value : [];
+    if (contextBytes === undefined && skillFolders.length === 0 && hooks.length === 0) return [];
     return [{
       packName: pack.header.name, fingerprint: pack.fingerprint,
-      context: agent.context === undefined || contextBytes === undefined ? null : { fileName: path.posix.basename(agent.context), bytes: contextBytes },
-      skills: agent.skills.map((skillFolder) => packAgentSkill(pack, skillFolder)),
+      context: agent?.context === undefined || contextBytes === undefined ? null : { fileName: path.posix.basename(agent.context), bytes: contextBytes },
+      skills: skillFolders.map((skillFolder) => packAgentSkill(pack, skillFolder)),
+      hooks,
+      packFiles: hooks.length > 0 ? pack.filesByPath : new Map(),
     }];
   });
 }

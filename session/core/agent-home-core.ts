@@ -7,6 +7,7 @@ import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
 import { isRecord } from "../../shared/coerce.ts";
 import type { SeededKeys } from "./agent-account-core.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
+import { KIMI_PACK_HOOK_FLAVOR, PACK_HOOK_RELAY_TIMEOUT_SECONDS, PACK_HOOK_RELAY_TOOL_ID } from "./pack-hook-core.ts";
 
 type BlockClassification = "absent" | "current" | "managed-stale" | "foreign" | "conflicting";
 
@@ -18,6 +19,7 @@ interface KimiHooksBlockOptions {
   questionHold: { toolName: string; event: string; timeoutSeconds: number };
   permissionHold: { toolNames: readonly string[]; event: string; timeoutSeconds: number };
   saneYolo: { relayLaunch: readonly string[]; toolNames: readonly string[]; agentFlavor: string };
+  packHooks?: { toolNames: readonly string[] } | null;
 }
 
 type BlockSpliceResult = { contents: string; changed: boolean } | { refused: "foreign" | "conflicting" };
@@ -62,6 +64,11 @@ function renderKimiHooksBlock(options: KimiHooksBlockOptions): string | null {
   const saneYoloCommand = buildHookCommand(options.saneYolo.relayLaunch, "saneYolo", [options.saneYolo.agentFlavor]);
   if (!saneYoloCommand) return null;
   for (const toolName of options.saneYolo.toolNames) lines.push(...hookTable("PreToolUse", saneYoloCommand, `^${toolName}$`));
+  if (options.packHooks) {
+    const packHooksCommand = buildHookCommand(options.saneYolo.relayLaunch, PACK_HOOK_RELAY_TOOL_ID, [KIMI_PACK_HOOK_FLAVOR]);
+    if (!packHooksCommand) return null;
+    lines.push(...hookTable("PreToolUse", packHooksCommand, `^(?:${options.packHooks.toolNames.join("|")})$`, PACK_HOOK_RELAY_TIMEOUT_SECONDS));
+  }
   lines.push(BLOCK_END);
   return `${lines.join("\n")}\n`;
 }

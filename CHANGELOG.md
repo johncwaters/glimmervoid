@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Packs can carry hooks that gate an agent's tool calls.** A pack's `pack.json` can declare `hooks`: each names the tool kinds it watches (`edit`, `shell`) and a command, which may run a script from the pack through its interpreter, such as `["node", "{packDir}/hooks/check.mjs"]`. You see each hook's description, tools and command when you approve the pack, and `glimmervoid packs check` reports a hook whose script the pack lacks. Once approved, the hook runs before every matching tool call in Claude Code, Codex, Kimi Code, OpenCode, pi and Antigravity CLI sessions: exit 2 stops the call and the agent reads the hook's stderr as the reason, while a crash, a timeout or any other exit lets the call run. Sessions started without an approved pack hook keep the hook setup they had. Glimmervoid releases up to 0.62.10 refuse a pack whose `pack.json` sets `hooks`.
+
 ### Fixed
 
 - **Leftover folders Glimmervoid made are cleaned up at start.** A removed worktree's folder could come back holding only an agent tool's bookkeeping files, written after the removal, and then sat in the worktree folder for good; a folder like that, at a path Glimmervoid removed before and with no checkout in it, is now deleted once nothing in it has been touched for a day. Folders Glimmervoid did not make are never touched.

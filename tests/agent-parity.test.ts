@@ -409,7 +409,7 @@ test('an OpenCode permission denied from Chat with a message is rejected with th
     if (previousHookUrl !== undefined) process.env.GLIMMERVOID_HOOK_URL = previousHookUrl;
     fs.rmSync(folder, { recursive: true, force: true });
   });
-  const pluginFiles = openCodePluginFiles(['relay']);
+  const pluginFiles = openCodePluginFiles(['relay'], ['tool-relay']);
   assert.ok(pluginFiles);
   const pluginPath = path.join(folder, 'index.mjs');
   fs.writeFileSync(pluginPath, pluginFiles['index.js']);

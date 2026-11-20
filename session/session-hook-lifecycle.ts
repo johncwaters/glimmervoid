@@ -9,6 +9,8 @@ import { HOOK_URL_ENV } from "./core/hook-relay-core.ts";
 import { HOOK_TOOLS } from "./core/hook-tools.ts";
 import type { ResolvedHookTool } from "./core/hook-tools.ts";
 import { saneYoloHomeDir } from "../server/hook-tools.ts";
+import { hookLaunch } from "../server/runtime-paths.ts";
+import { packHookUserHooks } from "./core/pack-hook-core.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import { hookProfileOf } from "./adapters/index.ts";
@@ -66,6 +68,7 @@ interface SessionHookOptions {
   isCleanHome?: boolean;
   isOsSandboxed?: boolean;
   packSkillDirs?: () => readonly string[];
+  packHookFiles?: () => readonly string[];
   modelSelection?: () => ModelSelection | null;
   requiresHooks: boolean;
   bypassHookTrust: boolean;
@@ -211,7 +214,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function glimmervoidSuppliedHooks(): UserHook[] {
-    return [...(options.extraUserHooks ?? [])];
+    return [...(options.extraUserHooks ?? []), ...packHookUserHooks(options.agentId, hookLaunch("hook-tool-relay"), options.packHookFiles?.() ?? [])];
   }
 
   function holdHookedHome(home: HookedAgentHome): { home: string; isTrusted: boolean } | { refusal: string } {
@@ -298,7 +301,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], modelSelection: options.modelSelection?.() ?? null, isSandboxed: options.isOsSandboxed ?? false, packServers: options.packMcpServers(), sharedPackServers: options.sharedPackMcpServers() });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], hasPackHooks: (options.packHookFiles?.() ?? []).length > 0, modelSelection: options.modelSelection?.() ?? null, isSandboxed: options.isOsSandboxed ?? false, packServers: options.packMcpServers(), sharedPackServers: options.sharedPackMcpServers() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);

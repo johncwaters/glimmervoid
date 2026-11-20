@@ -846,7 +846,7 @@
               "minLength": 1,
               "maxLength": 1000
             },
-            "description": "The program and its arguments, run without a shell in the session folder; an argument may hold {packDir}, the folder of the approved pack copy the session reads. It reads one JSON object on stdin: {\"version\":1,\"event\":\"beforeTool\",\"agent\",\"sessionId\",\"cwd\",\"tool\":{\"kind\":\"edit|shell|other\",\"name\",\"command\",\"filePaths\",\"input\"}}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run"
+            "description": "The program and its arguments, run without a shell in the session folder; an argument after the program may hold {packDir}, the folder of the approved pack copy the session reads, whose files are not executable. It reads one JSON object on stdin: {\"version\":1,\"event\":\"beforeTool\",\"agent\":\"claude|codex|kimi|antigravity|opencode|pi\",\"sessionId\",\"cwd\",\"tool\":{\"kind\":\"edit|shell|other\",\"name\",\"command\",\"filePaths\",\"input\"}}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run"
           },
           "timeoutSeconds": {
             "default": 10,

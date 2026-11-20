@@ -185,7 +185,9 @@ export const PACK_DIR_PLACEHOLDER = '{packDir}';
 const PACK_HOOKS_MAX = 16;
 const PACK_HOOK_TIMEOUT_SECONDS_MAX = 60;
 
-export const PACK_HOOK_INPUT_TEXT = 'one JSON object on stdin: {"version":1,"event":"beforeTool","agent","sessionId","cwd","tool":{"kind":"edit|shell|other","name","command","filePaths","input"}}';
+export const PACK_HOOK_AGENTS = ['claude', 'codex', 'kimi', 'antigravity', 'opencode', 'pi'] as const;
+export type PackHookAgent = (typeof PACK_HOOK_AGENTS)[number];
+export const PACK_HOOK_INPUT_TEXT = `one JSON object on stdin: {"version":1,"event":"beforeTool","agent":"${PACK_HOOK_AGENTS.join('|')}","sessionId","cwd","tool":{"kind":"edit|shell|other","name","command","filePaths","input"}}`;
 
 const PackHookToolKind = z.enum(['edit', 'shell']).describe('edit: a tool that writes or edits files (Edit, Write, apply_patch and the like); shell: a tool that runs a shell command (Bash, shell and the like)');
 
@@ -195,7 +197,7 @@ export const PackHook = z.strictObject({
   event: z.literal('beforeTool').describe('beforeTool runs the hook before each tool call of a kind it watches, in every agent'),
   tools: z.array(PackHookToolKind).min(1).max(2).default(['edit', 'shell']).describe('The tool kinds the hook watches'),
   command: z.array(z.string().min(1).max(1000)).min(1, { error: 'a hook command needs at least the program to run' }).max(32)
-    .describe(`The program and its arguments, run without a shell in the session folder; an argument may hold ${PACK_DIR_PLACEHOLDER}, the folder of the approved pack copy the session reads. It reads ${PACK_HOOK_INPUT_TEXT}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run`),
+    .describe(`The program and its arguments, run without a shell in the session folder; an argument after the program may hold ${PACK_DIR_PLACEHOLDER}, the folder of the approved pack copy the session reads, whose files are not executable. It reads ${PACK_HOOK_INPUT_TEXT}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run`),
   timeoutSeconds: z.number().int().min(1).max(PACK_HOOK_TIMEOUT_SECONDS_MAX).default(10).describe('A hook still running after this many seconds is stopped and the call runs'),
 });
 export type PackHook = z.infer<typeof PackHook>;
@@ -203,7 +205,7 @@ export type PackHook = z.infer<typeof PackHook>;
 export const PackHookInput = z.strictObject({
   version: z.literal(1),
   event: z.literal('beforeTool'),
-  agent: z.string(),
+  agent: z.enum(PACK_HOOK_AGENTS),
   sessionId: z.string().nullable(),
   cwd: z.string(),
   tool: z.strictObject({ kind: z.enum(['edit', 'shell', 'other']), name: z.string(), command: z.string().nullable(), filePaths: z.array(z.string()), input: z.unknown() }),

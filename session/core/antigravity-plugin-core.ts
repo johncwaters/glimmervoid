@@ -6,6 +6,7 @@ import { buildHookCommand } from "./hook-command-core.ts";
 import { packSecretEnvName } from "../../mcp/core/agent-config.ts";
 import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG } from "../../mcp/core/stdio-bridge-core.ts";
 import type { PackMcpServer } from "../../shared/contracts/pack.ts";
+import { ANTIGRAVITY_PACK_HOOK_FLAVOR, PACK_HOOK_RELAY_TIMEOUT_SECONDS, PACK_HOOK_RELAY_TOOL_ID, packHookToolNamesOf } from "./pack-hook-core.ts";
 
 const ANTIGRAVITY_PLUGIN_NAME = "glimmervoid";
 const AGENT_STATE_HOOK_EVENT = "AgentState";
@@ -33,7 +34,14 @@ function jsonFileText(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function hooksByEvent(relayLaunch: readonly string[]): Record<string, unknown[]> | null {
+function packHooksEntry(packHookLaunch: readonly string[] | null): unknown[] | null {
+  if (packHookLaunch === null) return [];
+  const command = buildHookCommand(packHookLaunch, PACK_HOOK_RELAY_TOOL_ID, [ANTIGRAVITY_PACK_HOOK_FLAVOR]);
+  if (command === null) return null;
+  return [{ matcher: `^(?:${packHookToolNamesOf(ANTIGRAVITY_PACK_HOOK_FLAVOR).join("|")})$`, hooks: [{ type: "command", command, timeout: PACK_HOOK_RELAY_TIMEOUT_SECONDS }] }];
+}
+
+function hooksByEvent(relayLaunch: readonly string[], packHookLaunch: readonly string[] | null): Record<string, unknown[]> | null {
   const hooks: Record<string, unknown[]> = {};
   for (const event of PLAIN_HOOK_EVENTS) {
     const hook = commandHook(relayLaunch, event);
@@ -51,6 +59,9 @@ function hooksByEvent(relayLaunch: readonly string[]): Record<string, unknown[]>
   const permissionHoldHook = commandHook(relayLaunch, CONVERSATION_PERMISSION_HOOK_EVENT);
   if (permissionHoldHook === null) return null;
   hooks.PreToolUse?.push({ matcher: `^(?:${ANTIGRAVITY_GATED_TOOL_NAMES.join("|")})$`, hooks: [{ ...permissionHoldHook, timeout: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS }] });
+  const packHookEntries = packHooksEntry(packHookLaunch);
+  if (packHookEntries === null) return null;
+  hooks.PreToolUse?.push(...packHookEntries);
   return hooks;
 }
 
@@ -59,8 +70,8 @@ function packServerEntry(server: PackMcpServer, bridgeCommand: string, bridgeArg
   return { command: bridgeCommand, args: [...bridgeArgs, `--${PACK_URL_FLAG}`, server.url, `--${PACK_SECRET_ENV_FLAG}`, packSecretEnvName(server.secret)] };
 }
 
-function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[], packServers: readonly PackMcpServer[] = []): Record<AntigravityPluginFileName, string> | null {
-  const hooks = hooksByEvent(relayLaunch);
+function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[], packServers: readonly PackMcpServer[] = [], packHookLaunch: readonly string[] | null = null): Record<AntigravityPluginFileName, string> | null {
+  const hooks = hooksByEvent(relayLaunch, packHookLaunch);
   const [bridgeCommand, ...bridgeArgs] = bridgeLaunch;
   if (hooks === null || bridgeCommand === undefined) return null;
   const packEntries = Object.fromEntries(packServers.map((server) => [server.name, packServerEntry(server, bridgeCommand, bridgeArgs)]));
