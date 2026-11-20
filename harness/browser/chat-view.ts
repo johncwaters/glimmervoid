@@ -8,7 +8,7 @@ import { browserTypeOf } from '../support/browser-engines.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const PAGE_ROOT = path.join(import.meta.dirname, 'chat-view');
-const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--screenshot <out.png>] [--executable <chrome path>]';
+const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--screenshot <out.png>] [--executable <chrome path>]';
 
 interface ChatViewOptions {
   tracePath: string;
@@ -18,6 +18,7 @@ interface ChatViewOptions {
   showsExampleCards: boolean;
   playsLive: boolean;
   staysWorking: boolean;
+  checksEarlier: boolean;
   screenshotPath: string | null;
   executablePath: string | null;
 }
@@ -40,6 +41,7 @@ function parseOptions(argumentList: readonly string[]): ChatViewOptions | null {
     showsExampleCards: argumentList.includes('--cards'),
     playsLive: argumentList.includes('--live'),
     staysWorking: argumentList.includes('--working'),
+    checksEarlier: argumentList.includes('--earlier'),
     screenshotPath: screenshotPath === null ? null : path.resolve(screenshotPath),
     executablePath: executablePath === null ? null : path.resolve(executablePath),
   };
@@ -109,6 +111,22 @@ async function checkTurnKeys(page: Page): Promise<string> {
   return `turn keys on a remounted, scrolled Chat: [ stepped to turn ${focusedTurnIndex}, Space ${wasOpen ? 'closed' : 'opened'} it with 0 turns above moving and flipped it back, B switched Brief off and on`;
 }
 
+async function checkEarlierFills(url: string, executablePath: string | null): Promise<string> {
+  const chromium = await browserTypeOf('chromium');
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  const page = await browser.newPage({ viewport: { width: 900, height: 1100 } });
+  await page.goto(`${url}${url.includes('?') ? '&' : '?'}earlier`);
+  const isFilled = await page.waitForFunction(() => {
+    const scroller = document.querySelector('.chat-scroller');
+    return scroller !== null && scroller.scrollHeight > scroller.clientHeight;
+  }, null, { timeout: 10000 }).then(() => true, () => false);
+  const shownPartCount = await page.locator('[data-part-id]').count();
+  const earliestRecord = await page.evaluate(() => document.body.dataset.earliestOffset ?? 'none');
+  await browser.close();
+  if (!isFilled) throw new Error(`earlier history stopped loading with ${shownPartCount} parts shown, earliest record ${earliestRecord}`);
+  return `earlier history filled the Chat: ${shownPartCount} parts shown, earliest record ${earliestRecord}`;
+}
+
 async function captureScreenshot(url: string, screenshotPath: string, executablePath: string | null): Promise<void> {
   const chromium = await browserTypeOf('chromium');
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
@@ -147,6 +165,11 @@ async function main(): Promise<void> {
   await server.listen();
   const query = [options.showsExampleCards ? 'cards' : '', options.playsLive ? 'live' : '', options.staysWorking ? 'working' : ''].filter((flag) => flag.length > 0).join('&');
   const url = `http://localhost:${options.port}/${query ? `?${query}` : ''}`;
+  if (options.checksEarlier) {
+    const earlierReport = await checkEarlierFills(url, options.executablePath).finally(() => server.close());
+    console.log(earlierReport);
+    return;
+  }
   if (options.screenshotPath === null) {
     console.log(`chat view of ${options.tracePath} at ${url}`);
     return;

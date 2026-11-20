@@ -202,6 +202,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   };
   const upsert = (parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => {
     chatLog.upsert(parts, arrivingPartIds);
+    announceNearTop();
     const runningTurn = parts.findLast((part): part is TurnPart => part.kind === 'turn' && !part.isOver);
     if (runningTurn !== undefined) activity.narrate(interimReplyOf(runningTurn));
   };
