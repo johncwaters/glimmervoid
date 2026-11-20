@@ -472,7 +472,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   fs.mkdirSync(path.dirname(setupPath), { recursive: true });
   const allowedOnMainline = { from: '.', to: 'lib', origin: 'allowed', reason: 'main reads the store', date: '2026-01-02', landed: false };
   const awaitingItsBranch = { from: 'lib', to: 'tools', origin: 'allowed', reason: 'a branch not merged yet', date: '2026-01-03', landed: false };
-  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: false, modules: ['lib'], allow: [allowedOnMainline, { from: 'lib', to: '.', origin: 'allowed', reason: 'a cycle once', date: '2026-01-02', landed: true }, awaitingItsBranch], exports: [] }));
+  fs.writeFileSync(setupPath, JSON.stringify({ version: 1, repo: await repoKeyOf(projectDir), gate: false, modules: ['lib'], allow: [allowedOnMainline, { from: 'lib', to: '.', origin: 'allowed', reason: 'a cycle once', date: '2026-01-02', landed: true }, awaitingItsBranch], exports: [] }));
   const staleChecked = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'check' } }, credential))).structuredContent);
   assert.match(staleChecked.text, /allowed module imports this branch no longer has, .*: lib -> \./);
   const shrunk = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'shrink' } }, credential))).structuredContent);
@@ -500,7 +500,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   fs.writeFileSync(path.join(branchDir, 'lib', 'back.ts'), "import { data } from '../tools/data.ts';\nexport { data };\n");
   git(['add', '-A'], branchDir);
   git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'tools'], branchDir);
-  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }], exports: [] }));
+  fs.writeFileSync(setupPath, JSON.stringify({ version: 1, repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }], exports: [] }));
   const branchCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: headSha });
   assert.ok(branchCheck.ok && branchCheck.isRefusing, JSON.stringify(branchCheck));
   assert.match(branchCheck.text, /relative imports that resolve to no file in the repo, so they cannot be judged: tools\/page\.ts imports \.\/gone\.ts$/m);
@@ -508,7 +508,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.deepEqual(judgedImports, ['lib/back.ts imports tools/data.ts', 'tools/data.ts imports lib/data.json', 'tools/named-type.ts imports lib/store.ts', 'tools/test/bridge.ts imports lib/store.ts']);
   assert.doesNotMatch(branchCheck.text, /look\.css|built\.js|nowhere/);
   assert.match(branchCheck.text, /module cycle lib, tools holds .*: lib -> tools, tools -> lib$/m);
-  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }, { from: 'lib', to: 'tools', origin: 'seeded' }, { from: 'tools', to: 'lib', origin: 'allowed', reason: 'tools read the store', date: '2026-11-19', landed: false }], exports: [] }));
+  fs.writeFileSync(setupPath, JSON.stringify({ version: 1, repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }, { from: 'lib', to: 'tools', origin: 'seeded' }, { from: 'tools', to: 'lib', origin: 'allowed', reason: 'tools read the store', date: '2026-11-19', landed: false }], exports: [] }));
   const allowedCycleCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: headSha });
   assert.ok(allowedCycleCheck.ok, JSON.stringify(allowedCycleCheck));
   assert.match(allowedCycleCheck.text, /module cycle lib, tools holds .*: lib -> tools, tools -> lib$/m);

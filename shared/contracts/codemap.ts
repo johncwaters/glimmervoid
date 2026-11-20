@@ -52,7 +52,10 @@ const CodemapAllowEntry = z.discriminatedUnion('origin', [
 
 export type CodemapAllowEntry = z.infer<typeof CodemapAllowEntry>;
 
+export const CODEMAP_SETUP_VERSION = 1;
+
 export const CodemapSetup = z.strictObject({
+  version: z.literal(CODEMAP_SETUP_VERSION),
   repo: z.string().min(1),
   gate: z.boolean(),
   modules: z.array(CodemapModuleName),

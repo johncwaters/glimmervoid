@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS, CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
 import type { CodemapExportKind, CodemapSetup } from '../../shared/contracts/codemap.ts';
 import { VerificationSettings } from '../../shared/contracts/verification.ts';
 import { clock } from '../../shared/clock.ts';
@@ -91,7 +91,7 @@ function writeVerificationGate(configPath: string, verificationKeys: readonly st
 
 async function seededSetup(repoKey: string, mainlineSha: string): Promise<CodemapSetup> {
   const model = buildCodemapModel(await createCodemapClient().extract(repoKey, mainlineSha));
-  return { repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const })), exports: [] };
+  return { version: CODEMAP_SETUP_VERSION, repo: repoKey, gate: false, modules: model.modules.map((module) => module.id), allow: moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const })), exports: [] };
 }
 
 function exportKindsOf(exportsArgument: string): CodemapExportKind[] | null {
