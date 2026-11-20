@@ -1494,6 +1494,10 @@
       "aliases": [
         "checked"
       ]
+    },
+    {
+      "name": "cold start",
+      "definition": "The doorman's wake of a cloud host whose zone refused to resume it: it stops the host and starts it fresh on the first machine type with room, keeping its disks and losing its memory"
     }
   ],
   "retired": [
