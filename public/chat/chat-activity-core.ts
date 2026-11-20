@@ -182,3 +182,8 @@ export function chatPhaseOf(state: string | undefined): ChatPhase {
   if (state === undefined || !isSessionState(state)) return 'quiet';
   return CHAT_PHASE_BY_STATE[state];
 }
+
+export function shownChatPhaseOf(phase: ChatPhase, isSentMessageAwaitingTurn: boolean): ChatPhase {
+  if (isSentMessageAwaitingTurn) return 'working';
+  return phase;
+}

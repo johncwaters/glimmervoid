@@ -20,7 +20,7 @@ interface ChatView {
   keepLast(partIds: readonly string[]): void;
   keepLogInPlace(change: () => void): void;
   replaceLogParts(replacedPartIds: readonly string[], parts: readonly ChatPart[]): void;
-  setPhase(phase: ChatPhase): void;
+  setPhase(phase: ChatPhase, isTurnRunning: boolean): void;
   beat(beats: readonly ActivityBeat[]): void;
   readDraft(): string;
   restoreDraft(text: string): void;
@@ -36,8 +36,6 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
   sending: 'Sending',
   submitted: 'Sent',
 };
-
-const HELD_WHILE_STARTING_TEXT = 'Sends when the agent is ready';
 
 const DOCK_CLEARANCE_PX = 20;
 const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
@@ -137,16 +135,15 @@ function keepChatKeyed(chat: KeyedChat): void {
   window.addEventListener('storage', () => applyChatBriefOff(isChatBriefOff()));
 }
 
-function queuedStatusOf(entry: ChatOutboxEntry, phase: ChatPhase): string {
+function queuedStatusOf(entry: ChatOutboxEntry): string {
   if (entry.state === 'failed') return entry.failure ?? 'Not sent.';
-  if (entry.state === 'held' && phase === 'starting') return HELD_WHILE_STARTING_TEXT;
   return QUEUED_STATUS_TEXT[entry.state];
 }
 
-function queuedRowOf(entry: ChatOutboxEntry, phase: ChatPhase, uploadUrlOf: (fileName: string) => string): HTMLElement {
+function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => string): HTMLElement {
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
-  const status = el('span', 'chat-queued-status', queuedStatusOf(entry, phase));
+  const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
   const cancelButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Cancel', disabled: entry.state === 'sending' });
   cancelButton.addEventListener('click', () => {
     row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
@@ -179,11 +176,8 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   const chatLog = createChatLog(uploadUrlOf, keepInPlace);
   scrollContent.append(chatLog.element, turnEndRow, activity.element, queuedList);
   scroller.append(scrollContent);
-  let shownPhase: ChatPhase = 'quiet';
-  let queuedEntries: readonly ChatOutboxEntry[] = [];
   const showQueued = (entries: readonly ChatOutboxEntry[]) => {
-    queuedEntries = entries;
-    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, shownPhase, uploadUrlOf)));
+    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf)));
   };
   composer.element.addEventListener('chat-send', followLatest);
   const jumpSlot = el('div', 'chat-jump-slot');
@@ -212,12 +206,9 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (runningTurn !== undefined) activity.narrate(interimReplyOf(runningTurn));
   };
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
-  const setPhase = (phase: ChatPhase) => {
-    const wasStarting = shownPhase === 'starting';
-    shownPhase = phase;
-    composer.setTurnRunning(phase === 'working');
+  const setPhase = (phase: ChatPhase, isTurnRunning: boolean) => {
+    composer.setTurnRunning(isTurnRunning);
     activity.setPhase(phase);
-    if (wasStarting !== (phase === 'starting')) showQueued(queuedEntries);
   };
   const showTurnEnd = (turnEnd: TurnEnd | null) => {
     const isInTurnRow = chatLog.showTurnEnd(turnEnd);

@@ -31,7 +31,7 @@ const { records: traceRecords }: { records: TraceRecord[] } = await traceRespons
 const harnessUploadUrlOf = (fileName: string) => (fileName.endsWith('.png') ? new URL('../../../public/animals/sprite-cow.png', import.meta.url).href : `/missing-upload/${encodeURIComponent(fileName)}`);
 const chatView = createChatView(harnessUploadUrlOf);
 chatHost?.appendChild(chatView.element);
-chatView.setPhase('working');
+chatView.setPhase('working', true);
 const HARNESS_NOW_MS = Date.now();
 const EXAMPLE_METER = { model: 'Example Large 2', effort: 'medium', contextTokens: 167_000, contextWindow: 300_000, callCostUSD: 0.0334, outputStyle: 'Explanatory' };
 const EXAMPLE_PLAN_LIMITS = { fiveHour: { pct: 12, resetsAtMs: HARNESS_NOW_MS + 2 * 3_600_000 }, sevenDay: { pct: 44, resetsAtMs: HARNESS_NOW_MS + 3.4 * 86_400_000 } };
@@ -75,7 +75,7 @@ async function playLive(): Promise<void> {
   if (new URLSearchParams(location.search).has('working')) return;
   while (chatView.element.querySelector('[data-arriving]')) await new Promise((resolve) => requestAnimationFrame(resolve));
   const partTopsBefore = partTops();
-  chatView.setPhase('quiet');
+  chatView.setPhase('quiet', false);
   feed.endTurn();
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const partTopsAfter = partTops();
@@ -131,15 +131,15 @@ const BOOT_STEP_MS = 900;
 
 async function playBoot(): Promise<void> {
   const pause = () => new Promise((resolve) => setTimeout(resolve, BOOT_STEP_MS));
-  chatView.setPhase('starting');
+  chatView.setPhase('starting', false);
   const sentText = await new Promise<string>((resolve) => {
     chatView.element.addEventListener('chat-send', (event) => resolve(event instanceof CustomEvent ? String(event.detail.text) : ''), { once: true });
   });
   chatView.showQueued([{ entryId: 'boot-held', text: sentText, attachments: [], state: 'held', failure: null }]);
   await pause();
-  chatView.setPhase('quiet');
+  chatView.setPhase('quiet', false);
   await pause();
-  chatView.setPhase('working');
+  chatView.setPhase('working', true);
   await pause();
   document.body.dataset.bootDone = 'true';
 }

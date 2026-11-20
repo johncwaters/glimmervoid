@@ -17,7 +17,7 @@ import type { ChatFeed } from './chat-feed.ts';
 import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
 import { agentLabel } from '../arena/lineup-core.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
-import { type ChatPhase, chatPhaseOf } from './chat-activity-core.ts';
+import { type ChatPhase, chatPhaseOf, shownChatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
 import { canSwitchSessionModel, openSwitchModelDialog, sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
@@ -64,7 +64,9 @@ interface MountedChat {
   root: HTMLElement;
   feed: ChatFeed;
   shownPhase: ChatPhase;
-  setPhase(phase: ChatPhase): void;
+  isShownTurnRunning: boolean;
+  phaseToShow(): ChatPhase;
+  setPhase(phase: ChatPhase, isTurnRunning: boolean): void;
   showOutbox(): void;
   restoreText(text: string): void;
   restoreAttachments(fileNames: readonly string[]): void;
@@ -350,9 +352,36 @@ function buildChat(sessionId: string): MountedChat {
     for (const entryId of takenEntryIds) entryIdsTakenByPrompt.add(entryId);
     removeStandIns(takenEntryIds);
   };
+  const isSentOutsideTurnByEntryId = new Map<string, boolean>();
+  const entryIdsAwaitingTurn = new Set<string>();
+  const noteOutboxEntries = (entries: readonly ChatOutboxEntry[]) => {
+    for (const entryId of isSentOutsideTurnByEntryId.keys()) {
+      if (entries.some((entry) => entry.entryId === entryId)) continue;
+      isSentOutsideTurnByEntryId.delete(entryId);
+      entryIdsAwaitingTurn.delete(entryId);
+    }
+    const isTurnRunning = isSessionWorking(sessionId);
+    for (const entry of entries) {
+      if (isSentOutsideTurnByEntryId.has(entry.entryId)) continue;
+      isSentOutsideTurnByEntryId.set(entry.entryId, !isTurnRunning);
+      if (!isTurnRunning) entryIdsAwaitingTurn.add(entry.entryId);
+    }
+  };
+  const isOutboxStalled = () => (outboxBySessionId.get(sessionId) ?? []).some((entry) => entry.state === 'failed');
+  const isShownAsSent = (entry: ChatOutboxEntry) => {
+    if (SENT_OUTBOX_STATES.has(entry.state)) return true;
+    return entry.state === 'held' && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
+  };
+  const phaseToShow = () => {
+    const phase = sessionPhaseOf(sessionId);
+    if (phase === 'working') entryIdsAwaitingTurn.clear();
+    const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
+    return shownChatPhaseOf(phase, isSentMessageAwaitingTurn);
+  };
   const showOutbox = () => {
     const entries = outboxBySessionId.get(sessionId) ?? [];
-    const sentEntries = entries.filter((entry) => SENT_OUTBOX_STATES.has(entry.state));
+    noteOutboxEntries(entries);
+    const sentEntries = entries.filter(isShownAsSent);
     for (const entryId of entryIdsTakenByPrompt) {
       if (!sentEntries.some((entry) => entry.entryId === entryId)) entryIdsTakenByPrompt.delete(entryId);
     }
@@ -362,9 +391,10 @@ function buildChat(sessionId: string): MountedChat {
       standInByEntryId.set(entry.entryId, standIn);
       chatView.upsert([standIn], new Set([standIn.id]));
     }
-    const unsentEntryIds = [...standInByEntryId.keys()].filter((entryId) => entries.some((entry) => entry.entryId === entryId && !SENT_OUTBOX_STATES.has(entry.state)));
-    removeStandIns(unsentEntryIds);
-    chatView.showQueued(entries.filter((entry) => !SENT_OUTBOX_STATES.has(entry.state)));
+    const unsentEntries = entries.filter((entry) => !isShownAsSent(entry));
+    removeStandIns(unsentEntries.map((entry) => entry.entryId).filter((entryId) => standInByEntryId.has(entryId)));
+    chatView.showQueued(unsentEntries);
+    if (mountedChat?.sessionId === sessionId) applyShownPhase(mountedChat);
     const clearedEntryIds = [...standInByEntryId.keys()].filter((entryId) => !entries.some((entry) => entry.entryId === entryId));
     if (clearedEntryIds.length === 0) return;
     for (const entryId of clearedEntryIds) awaitPromptFor(entryId);
@@ -400,7 +430,7 @@ function buildChat(sessionId: string): MountedChat {
     if (railTimer !== null) clearInterval(railTimer);
     railTimer = null;
   };
-  chatView.setPhase(sessionPhaseOf(sessionId));
+  chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
   let shownApproval: ShownApproval | null = null;
   let terminalCardState: TerminalCardState = 'hidden';
   let terminalCardSerial = 0;
@@ -698,7 +728,7 @@ function buildChat(sessionId: string): MountedChat {
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
   });
   root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => entry.state === 'held' || entry.state === 'failed');
+    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => (entry.state === 'held' || entry.state === 'failed') && !isShownAsSent(entry));
     if (!newestCancellable) return;
     event.preventDefault();
     cancelOutboxEntry(sessionId, newestCancellable.entryId);
@@ -761,10 +791,10 @@ function buildChat(sessionId: string): MountedChat {
       const freshView = createChatView(uploadUrlFor(sessionId));
       freshView.restoreDraft(chatView.readDraft());
       for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
-      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !SENT_OUTBOX_STATES.has(entry.state)));
+      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !isShownAsSent(entry)));
       shownPromptPartIds.clear();
       freshView.upsert([...standInByEntryId.values()], NO_ARRIVING_PARTS);
-      freshView.setPhase(sessionPhaseOf(sessionId));
+      freshView.setPhase(phaseToShow(), isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       boardChangeByCardId = new Map();
@@ -784,9 +814,11 @@ function buildChat(sessionId: string): MountedChat {
     sessionId,
     root,
     feed,
-    shownPhase: sessionPhaseOf(sessionId),
-    setPhase: (phase) => {
-      chatView.setPhase(phase);
+    shownPhase: phaseToShow(),
+    isShownTurnRunning: isSessionWorking(sessionId),
+    phaseToShow,
+    setPhase: (phase, isTurnRunning) => {
+      chatView.setPhase(phase, isTurnRunning);
       showDone();
     },
     showOutbox,
@@ -886,12 +918,18 @@ export function applyChatSnapshot(rows: readonly { id: string; conversationAppro
 export function applyChatSessionStatus(sessionId: string): void {
   if (mountedChat?.sessionId !== sessionId) return;
   mountedChat.syncWaitingCards();
-  const phase = sessionPhaseOf(sessionId);
-  if (phase === mountedChat.shownPhase) return;
-  const wasWorking = mountedChat.shownPhase === 'working';
-  mountedChat.shownPhase = phase;
-  mountedChat.setPhase(phase);
-  if (wasWorking && phase !== 'working') mountedChat.feed.endTurn();
+  applyShownPhase(mountedChat);
+}
+
+function applyShownPhase(chat: MountedChat): void {
+  const phase = chat.phaseToShow();
+  const isTurnRunning = isSessionWorking(chat.sessionId);
+  if (phase === chat.shownPhase && isTurnRunning === chat.isShownTurnRunning) return;
+  const wasTurnRunning = chat.isShownTurnRunning;
+  chat.shownPhase = phase;
+  chat.isShownTurnRunning = isTurnRunning;
+  chat.setPhase(phase, isTurnRunning);
+  if (wasTurnRunning && !isTurnRunning) chat.feed.endTurn();
 }
 
 onAgentChange((sessionId, boardChange) => {
