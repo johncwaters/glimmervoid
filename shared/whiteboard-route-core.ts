@@ -8,8 +8,8 @@ import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
 import type { PortSlack } from './whiteboard-nudge-core.ts';
 import { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
-import { buildGraphOn, CLEARANCE, firstIndexAbove, prepareObstacles } from './whiteboard-visibility-core.ts';
-import type { GraphPort, VisibilityGraph } from './whiteboard-visibility-core.ts';
+import { buildGraphOn, CLEARANCE, firstIndexAbove, preparedInWindow, prepareObstacles, sharedCornerShotsOf } from './whiteboard-visibility-core.ts';
+import type { GraphPort, SharedCornerShots, VisibilityGraph } from './whiteboard-visibility-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
 
@@ -79,6 +79,7 @@ interface RouteInput {
   contextWires?: readonly Wire[];
   obstaclesIn?: (area: Rect) => AreaObstacles;
   storedWireKeyOf?: (wire: Wire) => string | undefined;
+  cornerShotsOf?: () => SharedCornerShots;
 }
 
 interface PortEnds {
@@ -733,8 +734,16 @@ function areaQueryOf(input: RouteInput): (area: Rect) => AreaObstacles {
   };
 }
 
+const EVERYWHERE: Rect = { x: -Number.MAX_SAFE_INTEGER / 2, y: -Number.MAX_SAFE_INTEGER / 2, width: Number.MAX_SAFE_INTEGER, height: Number.MAX_SAFE_INTEGER };
+
 function withAreaQuery(input: RouteInput): RouteInput {
-  return input.obstaclesIn ? input : { ...input, obstaclesIn: areaQueryOf(input) };
+  const obstaclesIn = input.obstaclesIn ?? areaQueryOf(input);
+  let cornerShots: SharedCornerShots | null = null;
+  const cornerShotsOf = () => {
+    cornerShots ??= sharedCornerShotsOf(obstaclesIn(EVERYWHERE).hardRects, input.contentTop);
+    return cornerShots;
+  };
+  return { ...input, obstaclesIn, cornerShotsOf };
 }
 
 function wallsAround(window: Rect): Rect[] {
@@ -756,7 +765,10 @@ function windowObstaclesOf(input: RouteInput, window: Rect): AreaObstacles | nul
 }
 
 function windowGraphOf(ports: readonly GraphPort[], input: RouteInput, window: Rect, obstacles: AreaObstacles): VisibilityGraph | null {
-  const prepared = prepareObstacles({ hardRects: [...obstacles.hardRects, ...wallsAround(window)], softRects: obstacles.softRects, contentTop: input.contentTop });
+  const walls = wallsAround(window);
+  const prepared = input.cornerShotsOf
+    ? preparedInWindow(obstacles.hardRects, walls, obstacles.softRects, input.contentTop, window, input.cornerShotsOf())
+    : prepareObstacles({ hardRects: [...obstacles.hardRects, ...walls], softRects: obstacles.softRects, contentTop: input.contentTop });
   return prepared ? buildGraphOn(prepared, ports) : null;
 }
 
@@ -1028,13 +1040,16 @@ function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], e
       if (nextEntry && nextDirection !== nextEntry.direction) continue;
       ensureStateCapacity(buffers, graph.nodeCount * 4);
       const length = Math.abs((graph.xs[nextNode] ?? 0) - (graph.xs[node] ?? 0)) + Math.abs((graph.ys[nextNode] ?? 0) - (graph.ys[node] ?? 0));
-      const stepCost = length
-        + (nextDirection === direction ? 0 : bendCost)
-        + crossingCountOf(crossIndex, graph, node, nextNode) * WIRE_CROSSING_COST
-        + (graph.isSoftStep(node, nextDirection) ? length * SOFT_COST_PER_UNIT : 0);
+      const bendStepCost = nextDirection === direction ? 0 : bendCost;
+      const softStepCost = graph.isSoftStep(node, nextDirection) ? length * SOFT_COST_PER_UNIT : 0;
+      const costBeforeCrossings = length + bendStepCost + softStepCost;
       const nextState = nextNode * 4 + nextDirection;
-      const nextCost = costSoFar + Math.max(stepCost, 1) + (nextEntry?.bias ?? 0);
-      if (nextCost >= (buffers.bestCost[nextState] ?? Infinity)) continue;
+      const nextBias = nextEntry?.bias ?? 0;
+      const bestNextCost = buffers.bestCost[nextState] ?? Infinity;
+      if (costSoFar + Math.max(costBeforeCrossings, 1) + nextBias >= bestNextCost) continue;
+      const stepCost = length + bendStepCost + crossingCountOf(crossIndex, graph, node, nextNode) * WIRE_CROSSING_COST + softStepCost;
+      const nextCost = costSoFar + Math.max(stepCost, 1) + nextBias;
+      if (nextCost >= bestNextCost) continue;
       buffers.bestCost[nextState] = nextCost;
       buffers.cameFrom[nextState] = state;
       markStateTouched(buffers, nextState);

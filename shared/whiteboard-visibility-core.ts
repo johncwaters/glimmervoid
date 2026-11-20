@@ -461,6 +461,178 @@ function fillCornerRows(table: CornerTable, corners: readonly number[], blockers
   }
 }
 
+const WINDOW_INTERIOR_MARGIN = 2;
+
+interface SharedCornerShots {
+  contentTop: number;
+  slotByRect: ReadonlyMap<Rect, number>;
+  xs: Float64Array;
+  ys: Float64Array;
+  isBlocked: Uint8Array;
+  hits: Float64Array;
+  midlines: Float64Array;
+  midlineHits: Float64Array;
+}
+
+interface MidlineShot {
+  corner: number;
+  slot: number;
+  line: number;
+  lowDirection: number;
+  highDirection: number;
+  lowRay: number;
+  highRay: number;
+  sharedLowHit: number;
+  sharedHighHit: number;
+  isShared: boolean;
+}
+
+function raysByDirection(): Rays[] {
+  return [emptyRays(), emptyRays(), emptyRays(), emptyRays()];
+}
+
+function addCornerRay(rays: Rays[], direction: number, x: number, y: number): number {
+  const isAlongX = direction === RIGHT || direction === LEFT;
+  return addRay(rays[direction] ?? emptyRays(), isAlongX ? x : y, isAlongX ? y : x);
+}
+
+function sharedCornerShotsOf(hardRects: readonly Rect[], contentTop: number): SharedCornerShots {
+  const origins = cornerOrigins(hardRects, { left: -Infinity, top: contentTop + CONTENT_TOP_MARGIN, right: Infinity, bottom: Infinity });
+  const count = origins.xs.length;
+  const xs = filled(origins.xs);
+  const ys = filled(origins.ys);
+  const awayDirections = filled(origins.awayDirections);
+  const blockers = blockingRectsOf(hardRects);
+  const isBlocked = insideBlockerFlags(blockers, xs, ys);
+  const cornerRays = raysByDirection();
+  const cornerRayOf = new Int32Array(count * 4).fill(-1);
+  for (let corner = 0; corner < count; corner += 1) {
+    if (isBlocked[corner] === 1) continue;
+    for (let direction = 0; direction < 4; direction += 1) cornerRayOf[corner * 4 + direction] = addCornerRay(cornerRays, direction, xs[corner] ?? 0, ys[corner] ?? 0);
+  }
+  const cornerShots = shootAll(blockers, cornerRays);
+  const hits = new Float64Array(count * 4).fill(Infinity);
+  cornerRayOf.forEach((ray, cell) => {
+    if (ray >= 0) hits[cell] = cornerShots.hits[cell % 4]?.[ray] ?? Infinity;
+  });
+  const midlines = new Float64Array(count * 2).fill(Number.NaN);
+  const midlineRays = raysByDirection();
+  const midlineRayOf = new Int32Array(count * 4).fill(-1);
+  for (let corner = 0; corner < count; corner += 1) {
+    if (isBlocked[corner] === 1) continue;
+    const x = xs[corner] ?? 0;
+    const y = ys[corner] ?? 0;
+    const away = awayDirections[corner] ?? 0;
+    const horizontalAway = Math.floor(away / 4);
+    const verticalAway = away % 4;
+    const midlineX = midlineBeyond(x, hits[corner * 4 + horizontalAway] ?? Infinity, horizontalAway);
+    if (midlineX !== null) {
+      midlines[corner * 2] = midlineX;
+      midlineRayOf[corner * 4 + UP] = addCornerRay(midlineRays, UP, midlineX, y);
+      midlineRayOf[corner * 4 + DOWN] = addCornerRay(midlineRays, DOWN, midlineX, y);
+    }
+    const midlineY = midlineBeyond(y, hits[corner * 4 + verticalAway] ?? Infinity, verticalAway);
+    if (midlineY !== null) {
+      midlines[corner * 2 + 1] = midlineY;
+      midlineRayOf[corner * 4 + LEFT] = addCornerRay(midlineRays, LEFT, x, midlineY);
+      midlineRayOf[corner * 4 + RIGHT] = addCornerRay(midlineRays, RIGHT, x, midlineY);
+    }
+  }
+  const midlineShots = shootAll(blockers, midlineRays);
+  const midlineHits = new Float64Array(count * 4).fill(Infinity);
+  midlineRayOf.forEach((ray, cell) => {
+    if (ray >= 0) midlineHits[cell] = midlineShots.hits[cell % 4]?.[ray] ?? Infinity;
+  });
+  return { contentTop, slotByRect: new Map(hardRects.map((rect, slot) => [rect, slot])), xs, ys, isBlocked, hits, midlines, midlineHits };
+}
+
+function nearerHit(first: number, second: number, direction: number): number {
+  return direction === RIGHT || direction === DOWN ? Math.min(first, second) : Math.max(first, second);
+}
+
+function isInsideWindow(x: number, y: number, window: Rect): boolean {
+  return x >= window.x + WINDOW_INTERIOR_MARGIN && x <= window.x + window.width - WINDOW_INTERIOR_MARGIN && y >= window.y + WINDOW_INTERIOR_MARGIN && y <= window.y + window.height - WINDOW_INTERIOR_MARGIN;
+}
+
+function fillSharedCornerRows(table: CornerTable, sharedCornerOf: Int32Array, shared: SharedCornerShots, walls: FlatRects, blockers: FlatRects, frame: Frame, window: Rect): void {
+  const wallRays = raysByDirection();
+  const wallRayOf = new Int32Array(table.count * 4).fill(-1);
+  for (let corner = 0; corner < table.count; corner += 1) {
+    const sharedCorner = sharedCornerOf[corner] ?? -1;
+    if (sharedCorner < 0 || shared.isBlocked[sharedCorner] === 1) continue;
+    for (let direction = 0; direction < 4; direction += 1) wallRayOf[corner * 4 + direction] = addCornerRay(wallRays, direction, table.xs[corner] ?? 0, table.ys[corner] ?? 0);
+  }
+  const wallShots = shootAll(walls, wallRays);
+  const sharedMidlineWallRays = raysByDirection();
+  const freshMidlineRays = raysByDirection();
+  const midlineShots: MidlineShot[] = [];
+  const addMidline = (corner: number, sharedCorner: number, slot: number, line: number, rayX: number, rayY: number, isFromSharedHit: boolean) => {
+    const [lowDirection, highDirection] = slot === 2 ? [UP, DOWN] : [LEFT, RIGHT];
+    const isShared = isFromSharedHit && isInsideWindow(rayX, rayY, window);
+    const rays = isShared ? sharedMidlineWallRays : freshMidlineRays;
+    midlineShots.push({
+      corner, slot, line, lowDirection, highDirection,
+      lowRay: addCornerRay(rays, lowDirection, rayX, rayY),
+      highRay: addCornerRay(rays, highDirection, rayX, rayY),
+      sharedLowHit: shared.midlineHits[sharedCorner * 4 + lowDirection] ?? Infinity,
+      sharedHighHit: shared.midlineHits[sharedCorner * 4 + highDirection] ?? Infinity,
+      isShared,
+    });
+  };
+  for (let corner = 0; corner < table.count; corner += 1) {
+    const sharedCorner = sharedCornerOf[corner] ?? -1;
+    if (sharedCorner < 0) continue;
+    table.rows.fill(Number.NaN, corner * CORNER_ROW_SIZE, (corner + 1) * CORNER_ROW_SIZE);
+    if (shared.isBlocked[sharedCorner] === 1) continue;
+    const x = table.xs[corner] ?? 0;
+    const y = table.ys[corner] ?? 0;
+    const sharedHitOf = (direction: number) => shared.hits[sharedCorner * 4 + direction] ?? Infinity;
+    const rawHitOf = (direction: number) => nearerHit(sharedHitOf(direction), wallShots.hits[direction]?.[wallRayOf[corner * 4 + direction] ?? -1] ?? Infinity, direction);
+    setRowPiece(table.rows, corner, 0, y, clampedHit(rawHitOf(LEFT), LEFT, frame), clampedHit(rawHitOf(RIGHT), RIGHT, frame));
+    setRowPiece(table.rows, corner, 1, x, clampedHit(rawHitOf(UP), UP, frame), clampedHit(rawHitOf(DOWN), DOWN, frame));
+    const away = table.awayDirections[corner] ?? 0;
+    const horizontalAway = Math.floor(away / 4);
+    const verticalAway = away % 4;
+    const midlineX = midlineBeyond(x, rawHitOf(horizontalAway), horizontalAway);
+    if (midlineX !== null) addMidline(corner, sharedCorner, 2, midlineX, midlineX, y, rawHitOf(horizontalAway) === sharedHitOf(horizontalAway));
+    const midlineY = midlineBeyond(y, rawHitOf(verticalAway), verticalAway);
+    if (midlineY !== null && midlineY >= frame.top) addMidline(corner, sharedCorner, 3, midlineY, x, midlineY, rawHitOf(verticalAway) === sharedHitOf(verticalAway));
+  }
+  const sharedMidlineWallShots = shootAll(walls, sharedMidlineWallRays);
+  const freshMidlineShots = shootAll(blockers, freshMidlineRays);
+  for (const midline of midlineShots) {
+    const shots = midline.isShared ? sharedMidlineWallShots : freshMidlineShots;
+    const lowShot = shots.hits[midline.lowDirection]?.[midline.lowRay] ?? Infinity;
+    const highShot = shots.hits[midline.highDirection]?.[midline.highRay] ?? Infinity;
+    const lowHit = midline.isShared ? nearerHit(midline.sharedLowHit, lowShot, midline.lowDirection) : lowShot;
+    const highHit = midline.isShared ? nearerHit(midline.sharedHighHit, highShot, midline.highDirection) : highShot;
+    setRowPiece(table.rows, midline.corner, midline.slot, midline.line, clampedHit(lowHit, midline.lowDirection, frame), clampedHit(highHit, midline.highDirection, frame));
+  }
+}
+
+function preparedInWindow(boxes: readonly Rect[], walls: readonly Rect[], softRects: readonly Rect[], contentTop: number, window: Rect, shared: SharedCornerShots): PreparedObstacles | null {
+  const input = { hardRects: [...boxes, ...walls], softRects, contentTop };
+  const frame = frameOf(input, []);
+  if (!frame) return null;
+  const blockers = blockingRectsOf(input.hardRects);
+  const corners = cornerTableOf(input, frame);
+  const sharedSlots = boxes.map((box) => shared.slotByRect.get(box) ?? -1);
+  const sharedCornerOf = new Int32Array(corners.count).fill(-1);
+  const freshCorners: number[] = [];
+  const isEveryBoxShared = shared.contentTop === contentTop && !sharedSlots.includes(-1);
+  for (let corner = 0; corner < corners.count; corner += 1) {
+    const sharedCorner = isEveryBoxShared && corner < boxes.length * 4 ? (sharedSlots[Math.floor(corner / 4)] ?? 0) * 4 + (corner % 4) : -1;
+    const x = corners.xs[corner] ?? 0;
+    const y = corners.ys[corner] ?? 0;
+    const isSharable = sharedCorner >= 0 && shared.xs[sharedCorner] === x && shared.ys[sharedCorner] === y && isInsideWindow(x, y, window);
+    if (isSharable) sharedCornerOf[corner] = sharedCorner;
+    if (!isSharable) freshCorners.push(corner);
+  }
+  fillCornerRows(corners, freshCorners, blockers, frame);
+  fillSharedCornerRows(corners, sharedCornerOf, shared, blockingRectsOf(walls), blockers, frame, window);
+  return preparedOf(input, frame, blockers, corners);
+}
+
 function piecesOfTable(table: CornerTable, frame: Frame, blockers: FlatRects): { horizontal: Pieces; vertical: Pieces } {
   const horizontal = emptyPieces();
   const vertical = emptyPieces();
@@ -941,5 +1113,5 @@ function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPor
   return graph;
 }
 
-export { buildGraphOn, CLEARANCE, firstIndexAbove, prepareObstacles };
-export type { GraphPort, VisibilityGraph };
+export { buildGraphOn, CLEARANCE, firstIndexAbove, preparedInWindow, prepareObstacles, sharedCornerShotsOf };
+export type { GraphPort, SharedCornerShots, VisibilityGraph };
