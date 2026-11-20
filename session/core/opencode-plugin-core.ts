@@ -1,4 +1,6 @@
-import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
+import { MCP_CREDENTIAL_ENV, packSecretEnvName } from "../../mcp/core/agent-config.ts";
+import { GLIMMERVOID_MCP_SERVER_NAME } from "../../shared/contracts/pack.ts";
+import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { CONVERSATION_EVENTS_HOOK_EVENT } from "../../shared/contracts/trace.ts";
@@ -426,13 +428,21 @@ interface OpenCodeLaunchConfig {
   mcpUrl: string | null;
   skillFolders: readonly string[];
   model: string | null;
+  packServers?: readonly PackMcpServer[];
 }
 
-function openCodeConfigContent(operatorConfigText: string | undefined, { pluginFolderUrl, mcpUrl, skillFolders, model }: OpenCodeLaunchConfig): string {
+function openCodeRemoteServer(url: string, bearerEnvName: string | null): Record<string, unknown> {
+  const server = { type: "remote", url, enabled: true };
+  return bearerEnvName === null ? server : { ...server, headers: { Authorization: `Bearer {env:${bearerEnvName}}` } };
+}
+
+function openCodeConfigContent(operatorConfigText: string | undefined, { pluginFolderUrl, mcpUrl, skillFolders, model, packServers = [] }: OpenCodeLaunchConfig): string {
   const operatorConfig = parsedConfigObject(operatorConfigText);
   const plugins = [...arrayField(operatorConfig, "plugins").filter((entry) => entry !== pluginFolderUrl), pluginFolderUrl];
   const config: Record<string, unknown> = { ...operatorConfig, plugins };
-  if (mcpUrl) config.mcp = { ...objectField(operatorConfig, "mcp"), glimmervoid: { type: "remote", url: mcpUrl, enabled: true, headers: { Authorization: `Bearer {env:${MCP_CREDENTIAL_ENV}}` } } };
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, openCodeRemoteServer(server.url, server.secret === undefined ? null : packSecretEnvName(server.secret))]));
+  const glimmervoidEntries = mcpUrl ? { [GLIMMERVOID_MCP_SERVER_NAME]: openCodeRemoteServer(mcpUrl, MCP_CREDENTIAL_ENV) } : {};
+  if (mcpUrl || packServers.length > 0) config.mcp = { ...objectField(operatorConfig, "mcp"), ...packEntries, ...glimmervoidEntries };
   if (skillFolders.length > 0) config.skills = [...arrayField(operatorConfig, "skills").filter((entry) => typeof entry !== "string" || !skillFolders.includes(entry)), ...skillFolders];
   if (model) config.model = model;
   return JSON.stringify(config);

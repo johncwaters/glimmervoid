@@ -9,7 +9,7 @@ import { ENRICHED_PAYLOAD_KEYS } from "../session/core/antigravity-plugin-core.t
 import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
-  backgroundSelfWakePrompt, BACKGROUND_SELF_WAKE_SETTLE_MS, closeServer, createProbeChecks, delay, hookEventsOf, installApprovedProbePack, queueWhiteboardEditFor, runModelSetupProbe, runPackAgentProbe, runResumeContinueProbe, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, screenShowsWhiteboardAnswer, waitForState,
+  backgroundSelfWakePrompt, BACKGROUND_SELF_WAKE_SETTLE_MS, closeServer, createProbeChecks, delay, hookEventsOf, installApprovedProbePack, queueWhiteboardEditFor, runModelSetupProbe, runPackAgentProbe, runPackMcpProbe, SHOULD_RUN_ONLY_PACK_MCP_PROBE, runResumeContinueProbe, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, screenShowsWhiteboardAnswer, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord, ProbeLaunch } from "./support/backend-harness.ts";
@@ -189,6 +189,11 @@ async function runProbe(tempDirectory: string): Promise<void> {
       session._extraClaudeArgs = PERMISSION_PROMPTING_MODE_ARGS;
       await runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting: pressEnter });
       check("the launch added each pack's skill workspace with --add-dir", launches.at(-1)?.args.includes("--add-dir") === true);
+      return;
+    }
+    if (SHOULD_RUN_ONLY_PACK_MCP_PROBE) {
+      session._extraClaudeArgs = PERMISSION_PROMPTING_MODE_ARGS;
+      await runPackMcpProbe({ session, hookRecords, fixtureTarget, check, answerWaiting: pressEnter });
       return;
     }
     console.log("\nSpawn:");

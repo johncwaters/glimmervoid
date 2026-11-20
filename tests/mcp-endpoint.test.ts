@@ -7,6 +7,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 import { createBackend } from '../server/backend/backend.ts';
 import { REFUSAL_REASON } from '../server/core/agent-api-core.ts';
@@ -269,6 +270,58 @@ test('the stdio bridge carries a modern-envelope tool call through the standard 
   assert.equal(reply.id, 8);
   assert.equal(reply.error, undefined, JSON.stringify(reply));
   assert.notEqual(reply.result.isError, true, JSON.stringify(reply));
+});
+
+test('the stdio bridge reaches an IPv6 loopback pack server with the bearer from the session env, starts a new MCP session when the server ends one, and offers no tools outside a Glimmervoid session', async (testContext) => {
+  const seenAuthorizations = new Set<string | undefined>();
+  const liveSessionIds = new Set<string>();
+  let initializeCount = 0;
+  let hasEndedASession = false;
+  const packServer = http.createServer((request, response) => {
+    seenAuthorizations.add(request.headers.authorization);
+    let bodyText = '';
+    request.on('data', (chunk: Buffer) => { bodyText += chunk.toString('utf8'); });
+    request.on('end', () => {
+      const message = JSON.parse(bodyText);
+      const sentSessionId = request.headers['mcp-session-id'];
+      if (message.method === 'initialize') {
+        initializeCount += 1;
+        const issuedSessionId = `pack-session-${initializeCount}`;
+        liveSessionIds.add(issuedSessionId);
+        response.writeHead(200, { 'content-type': 'application/json', 'mcp-session-id': issuedSessionId });
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { echoed: message.method } }));
+        return;
+      }
+      if (message.id === undefined) {
+        response.writeHead(202).end();
+        return;
+      }
+      if (typeof sentSessionId !== 'string' || !liveSessionIds.has(sentSessionId)) {
+        response.writeHead(404).end();
+        return;
+      }
+      if (!hasEndedASession) {
+        hasEndedASession = true;
+        liveSessionIds.delete(sentSessionId);
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { echoed: message.method } }));
+    });
+  });
+  const port = await new Promise<number>((resolve) => packServer.listen(0, '::1', () => resolve((packServer.address() as AddressInfo).port)));
+  testContext.after(() => closeServer(packServer));
+  const packArgs = ['--pack-url', `http://[::1]:${port}/mcp`, '--pack-secret-env', 'GLIMMERVOID_PACK_HUB_TOKEN'];
+  const requests = ['{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n', '{"jsonrpc":"2.0","method":"notifications/initialized"}\n', '{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n', '{"jsonrpc":"2.0","id":3,"method":"tools/list"}\n'];
+  const bridgeOutput: string[] = [];
+  await runStdioBridge(Readable.from(requests), { [MCP_URL_ENV]: 'http://127.0.0.1:1/mcp', GLIMMERVOID_PACK_HUB_TOKEN: 'hub-bearer' }, { write: (text: string) => bridgeOutput.push(text) }, packArgs);
+  const resultsById = Object.fromEntries(bridgeOutput.map((line) => JSON.parse(line)).map((reply) => [reply.id, reply.result]));
+  assert.deepEqual(resultsById, { 1: { echoed: 'initialize' }, 2: { echoed: 'tools/list' }, 3: { echoed: 'tools/list' } });
+  assert.equal(initializeCount, 2);
+  assert.deepEqual([...seenAuthorizations], ['Bearer hub-bearer']);
+  const outsideOutput: string[] = [];
+  await runStdioBridge(Readable.from(['{"jsonrpc":"2.0","id":4,"method":"tools/list"}\n']), { GLIMMERVOID_PACK_HUB_TOKEN: 'hub-bearer' }, { write: (text: string) => outsideOutput.push(text) }, packArgs);
+  assert.deepEqual(outsideOutput.map((line) => JSON.parse(line).result), [{ tools: [] }]);
+  assert.equal(initializeCount, 2);
 });
 
 test('a call missing a field or carrying another action\'s field is refused naming the action and the fields', async () => {

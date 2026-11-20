@@ -157,7 +157,7 @@ MCP servers every session gets once the pack is approved. Glimmervoid releases a
 |---|---|---|---|---|
 | `mcp.servers` | array of objects, min items 1, max items 8 | yes |  | MCP servers every locally launched glimmervoid session gets once the operator approves the pack |
 | `mcp.servers[].name` | string, matches `^[a-z0-9][a-z0-9_-]{0,39}$` | yes |  | The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions |
-| `mcp.servers[].url` | string, matches `^(https://\|http://(127\.0\.0\.1\|localhost\|\[::1\])([:/?#]\|$))[^$]*$`, URL | yes |  | The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login |
+| `mcp.servers[].url` | string, matches `^(https://\|http://(127\.0\.0\.1\|localhost\|\[::1\])([:/?#]\|$))[^${}]*$`, URL | yes |  | The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login |
 | `mcp.servers[].secret` | string, matches `^[A-Z_][A-Z0-9_]{0,127}$` |  |  | A bearer token sent to this server: glimmervoid reads the name from the vault at session start once the operator allows it for the project, and passes it by environment variable, never argv; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves the server out |
 
 ## Panel bridge

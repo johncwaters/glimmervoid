@@ -1,3 +1,5 @@
+const PACK_URL_FLAG = 'pack-url';
+const PACK_SECRET_ENV_FLAG = 'pack-secret-env';
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INTERNAL_ERROR = -32603;
 const BRIDGE_SERVER_INFO = { name: 'glimmervoid', version: '1.0.0' };
@@ -100,15 +102,16 @@ function messagesOfResponse(contentType: string, bodyText: string): string[] {
   return messagesOfJsonBody(bodyText);
 }
 
-function failureReplyTo(message: JsonRpcMessage, reason: string): JsonRpcMessage | null {
+function failureReplyTo(message: JsonRpcMessage, reason: string, serverLabel = 'Glimmervoid'): JsonRpcMessage | null {
   if (!isRequest(message)) return null;
-  return { jsonrpc: '2.0', id: message.id, error: { code: JSON_RPC_INTERNAL_ERROR, message: `Glimmervoid could not be reached: ${reason}` } };
+  return { jsonrpc: '2.0', id: message.id, error: { code: JSON_RPC_INTERNAL_ERROR, message: `${serverLabel} could not be reached: ${reason}` } };
 }
 
 interface EndpointReply {
   statusCode: number;
   contentType: string;
   bodyText: string;
+  mcpSessionId?: string | null;
 }
 
 function isSuccessStatus(statusCode: number): boolean {
@@ -124,14 +127,14 @@ function answersRequest(text: string, message: JsonRpcMessage): boolean {
   return reply !== null && reply.id === message.id && !('method' in reply);
 }
 
-function bridgedLinesFor(message: JsonRpcMessage, reply: EndpointReply): string[] {
-  const failure = (reason: string) => [failureReplyTo(message, reason)].flatMap((failureReply) => (failureReply === null ? [] : [JSON.stringify(failureReply)]));
+function bridgedLinesFor(message: JsonRpcMessage, reply: EndpointReply, serverLabel = 'Glimmervoid'): string[] {
+  const failure = (reason: string) => [failureReplyTo(message, reason, serverLabel)].flatMap((failureReply) => (failureReply === null ? [] : [JSON.stringify(failureReply)]));
   if (!isSuccessStatus(reply.statusCode)) return failure(`the endpoint answered HTTP ${reply.statusCode}`);
   const jsonRpcLines = messagesOfResponse(reply.contentType, reply.bodyText).filter(isJsonRpcText);
   if (!isRequest(message) || jsonRpcLines.some((line) => answersRequest(line, message))) return jsonRpcLines;
   return [...jsonRpcLines, ...failure('the endpoint sent no reply to this request')];
 }
 
-export { bridgedLinesFor, failureReplyTo, offlineReplyTo, parseJsonRpcLine, standardHeadersFor };
+export { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG, bridgedLinesFor, failureReplyTo, offlineReplyTo, parseJsonRpcLine, standardHeadersFor };
 export type { EndpointReply };
 export type { JsonRpcMessage };

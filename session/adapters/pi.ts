@@ -99,14 +99,14 @@ function writeExtension(extensionFolder: string, extensionSource: string): strin
   }
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [] }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [], packServers = [] }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   const extensionSource = renderPiExtension(RELAY_LAUNCH);
   if (extensionSource === null) return { refusal: EXTENSION_REFUSAL };
   const extensionFolder = extensionFolderPath(env);
   const writeFailure = writeExtension(extensionFolder, extensionSource);
   if (writeFailure) return { refusal: writeFailure };
-  return { home: extensionFolder, homeEnvValue: piLaunchConfigContent({ mcpUrl: `http://127.0.0.1:${listenerPort}/mcp`, skillPaths: packSkillDirs }) };
+  return { home: extensionFolder, homeEnvValue: piLaunchConfigContent({ mcpUrl: `http://127.0.0.1:${listenerPort}/mcp`, skillPaths: packSkillDirs, packServers }) };
 }
 
 function prepareScratchHome(): { refusal: string } {

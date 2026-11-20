@@ -117,11 +117,11 @@ function writePlugin(pluginFolder: string, pluginFiles: Readonly<Record<string, 
 
 function prepareHome(
   _env: Record<string, string | undefined>,
-  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false, packSkillDirs = [] }: GeneratedHomeLaunch,
+  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false, packSkillDirs = [], sharedPackServers = [] }: GeneratedHomeLaunch,
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
-  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH);
+  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH, sharedPackServers);
   const packSkillWorkspaces = packSkillWorkspacesOf(packSkillDirs);
   const sessionSettings = antigravitySessionSettings([folderTrustRoot, ...packSkillWorkspaces], RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };

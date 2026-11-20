@@ -9,7 +9,7 @@ import type { Session } from "../session/sessions.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
   createProbeChecks, delay, hookEventsOf, QUEUED_HINT_PROBE_PROMPT, queueWhiteboardEditFor, screenShowsSpawnHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, installApprovedProbePack, runModelSetupProbe, runPackAgentProbe, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, runResumeContinueProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
+  BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, installApprovedProbePack, runModelSetupProbe, runPackAgentProbe, runPackMcpProbe, SHOULD_RUN_ONLY_PACK_MCP_PROBE, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, runResumeContinueProbe, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, SPAWN_HINT_PROBE_PROMPT, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord } from "./support/backend-harness.ts";
@@ -175,6 +175,14 @@ async function runProbe(tempDirectory: string): Promise<void> {
       session.kill();
       await waitForState(session, ["DONE", "FAILED"], "untrusted PTY reap");
       await runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting: approveOnce, startSession: async () => { session.restart(); } });
+      return;
+    }
+    if (SHOULD_RUN_ONLY_PACK_MCP_PROBE) {
+      await session.start();
+      await delay(BOOT_SETTLE_MS);
+      session.kill();
+      await waitForState(session, ["DONE", "FAILED"], "untrusted PTY reap");
+      await runPackMcpProbe({ session, hookRecords, fixtureTarget, check, answerWaiting: approveOnce, startSession: async () => { session.restart(); } });
       return;
     }
     console.log("\nSpawn into an untrusted folder:");

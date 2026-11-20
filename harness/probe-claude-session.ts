@@ -10,7 +10,7 @@ import type { HookPayload } from '../shared/contracts/index.ts';
 import {
   BACKGROUND_SELF_WAKE_PROBE_PROMPT, BACKGROUND_SELF_WAKE_SETTLE_MS, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   createProbeChecks, delay, HINT_PROBE_PROMPT, hookEventsOf, queueWhiteboardEditFor, screenShowsShowHint, screenShowsStartLine, screenShowsWhiteboardAnswer,
-  installApprovedProbePack, runModelSetupProbe, runPackAgentProbe, runResumeContinueProbe, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
+  installApprovedProbePack, runModelSetupProbe, runPackAgentProbe, runPackMcpProbe, SHOULD_RUN_ONLY_PACK_MCP_PROBE, runResumeContinueProbe, SHOULD_RUN_ONLY_PACK_AGENT_PROBE, SHOULD_RUN_ONLY_HINT_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE, SHOULD_RUN_ONLY_WHITEBOARD_PROBE, waitForState,
   whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from './support/backend-harness.ts';
 import type { ProbeFixtureTarget, ProbeHookRecord } from './support/backend-harness.ts';
@@ -129,6 +129,10 @@ async function runProbe(tempDirectory: string): Promise<void> {
     }
     if (SHOULD_RUN_ONLY_PACK_AGENT_PROBE) {
       await runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting: pressEnter });
+      return;
+    }
+    if (SHOULD_RUN_ONLY_PACK_MCP_PROBE) {
+      await runPackMcpProbe({ session, hookRecords, fixtureTarget, check, answerWaiting: pressEnter });
       return;
     }
     await session.start();

@@ -1,4 +1,5 @@
-import { MCP_CREDENTIAL_ENV } from "../../mcp/core/agent-config.ts";
+import { MCP_CREDENTIAL_ENV, packSecretEnvName } from "../../mcp/core/agent-config.ts";
+import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { READ_ONLY_COMMAND } from "../../shared/read-only-command.ts";
@@ -114,6 +115,11 @@ function denialReason(reply) {
   return output?.permissionDecision === "deny" && typeof output.permissionDecisionReason === "string" ? output.permissionDecisionReason : null;
 }
 
+function packServersOf(launch) {
+  if (!Array.isArray(launch.packServers)) return [];
+  return launch.packServers.filter((server) => typeof server?.name === "string" && typeof server.url === "string" && (server.secretEnv === undefined || typeof server.secretEnv === "string"));
+}
+
 function launchConfig() {
   try {
     const parsed = JSON.parse(process.env[LAUNCH_ENV] ?? "{}");
@@ -150,6 +156,12 @@ export default function (pi) {
   const openPhases = new Set();
 
   pi.registerFlag(SKIP_PERMISSIONS_FLAG, { description: "Run bash, write and edit without asking", type: "boolean", default: false });
+
+  for (const server of packServersOf(launch)) {
+    const bearer = server.secretEnv ? process.env[server.secretEnv] : null;
+    if (server.secretEnv && !bearer) continue;
+    pi.registerMcpServer(server.name, { url: server.url, exposure: "direct", ...(bearer ? { headers: { Authorization: "Bearer " + bearer } } : {}) });
+  }
 
   if (typeof launch.mcpUrl === "string" && process.env[MCP_CREDENTIAL_ENV]) {
     pi.registerMcpServer("glimmervoid", { url: launch.mcpUrl, exposure: "direct", headers: { Authorization: "Bearer " + process.env[MCP_CREDENTIAL_ENV] } });
@@ -291,10 +303,15 @@ function renderPiExtension(relayLaunch: readonly string[]): string | null {
 interface PiLaunchConfig {
   mcpUrl: string | null;
   skillPaths: readonly string[];
+  packServers?: readonly PackMcpServer[];
 }
 
-function piLaunchConfigContent({ mcpUrl, skillPaths }: PiLaunchConfig): string {
-  return JSON.stringify({ ...(mcpUrl ? { mcpUrl } : {}), skillPaths });
+function piPackServerOf(server: PackMcpServer): { name: string; url: string; secretEnv?: string } {
+  return server.secret === undefined ? { name: server.name, url: server.url } : { name: server.name, url: server.url, secretEnv: packSecretEnvName(server.secret) };
+}
+
+function piLaunchConfigContent({ mcpUrl, skillPaths, packServers = [] }: PiLaunchConfig): string {
+  return JSON.stringify({ ...(mcpUrl ? { mcpUrl } : {}), skillPaths, ...(packServers.length > 0 ? { packServers: packServers.map(piPackServerOf) } : {}) });
 }
 
 export { PI_LAUNCH_ENV_NAME, PI_SKIP_PERMISSIONS_FLAG, piLaunchConfigContent, renderPiExtension };

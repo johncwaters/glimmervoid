@@ -116,7 +116,7 @@ function packSkillFolders(packSkillDirs: readonly string[]): string[] {
   return [...new Set(packSkillDirs.map((skillDir) => path.dirname(skillDir)))];
 }
 
-function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [], modelSelection = null }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
+function prepareHome(env: Record<string, string | undefined>, { listenerPort, isCleanHome, packSkillDirs = [], modelSelection = null, packServers = [] }: GeneratedHomeLaunch): { home: string; homeEnvValue: string } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   const files = openCodePluginFiles(RELAY_LAUNCH);
   if (files === null) return { refusal: PLUGIN_REFUSAL };
@@ -128,6 +128,7 @@ function prepareHome(env: Record<string, string | undefined>, { listenerPort, is
     mcpUrl: mcpUrlFor(listenerPort),
     skillFolders: packSkillFolders(packSkillDirs),
     model: modelSelection?.agent === ID ? configModelOf(modelSelection) : null,
+    packServers,
   });
   return { home: pluginFolder, homeEnvValue };
 }

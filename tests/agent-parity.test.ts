@@ -168,6 +168,13 @@ const PARITY_SCENARIOS: readonly ParityScenario[] = [
     fixtureByAgent: { 'claude-code': 'v2-claude-code-pack-agent-context-skills.jsonl', codex: 'v2-codex-pack-agent-context-skills.jsonl', kimi: 'v2-kimi-pack-agent-context-skills.jsonl', opencode: 'v2-opencode-pack-agent-context-skills.jsonl', pi: 'v2-pi-pack-agent-context-skills.jsonl', antigravity: 'v2-antigravity-pack-agent-context-skills.jsonl' },
   },
   {
+    name: 'pack-mcp-servers',
+    expectedFinalState: STATES.COMPLETE,
+    expectedCompleteNotifications: 1,
+    waitingNotification: 'allowed',
+    fixtureByAgent: { 'claude-code': 'v2-claude-code-pack-mcp-servers.jsonl', codex: 'v2-codex-pack-mcp-servers.jsonl', kimi: 'v2-kimi-pack-mcp-servers.jsonl', opencode: 'v2-opencode-pack-mcp-servers.jsonl', pi: { unproducible: 'no pi model provider is available on the capture host: OpenCode Zen free models refuse pi with 429 FreeUsageLimitError and there is no OpenRouter key, so the pi path is covered by the generated-extension and secret-leak tests only' }, antigravity: 'v2-antigravity-pack-mcp-servers.jsonl' },
+  },
+  {
     name: 'resume-continue',
     expectedFinalState: STATES.COMPLETE,
     expectedCompleteNotifications: 1,

@@ -227,7 +227,7 @@ function kimiMcpFiles({ realMcpJson, generatedMcpJson, baseMcpJson, packServersJ
   };
 }
 
-const PACK_SERVER_AGENT_IDS: ReadonlySet<string> = new Set(['claude-code', 'codex', 'kimi', 'gemini', 'qwen', 'copilot']);
+const PACK_SERVER_AGENT_IDS: ReadonlySet<string> = new Set(['claude-code', 'codex', 'kimi', 'opencode', 'pi', 'antigravity', 'gemini', 'qwen', 'copilot']);
 
 function rendersPackServers(agentId: string): boolean {
   return PACK_SERVER_AGENT_IDS.has(agentId);

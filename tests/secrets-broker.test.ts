@@ -13,6 +13,10 @@ import { createWrittenSecretNames } from '../server/secrets/written-secret-names
 import { kimiMcpFiles, mcpLaunchFor } from '../mcp/core/agent-config.ts';
 import { NO_OPERATOR_MCP_SERVER_NAMES, packMcpLaunchOf, packMcpServersForAgent } from '../server/packs/core/pack-core.ts';
 import { buildAgentEnv } from '../session/core/spawn-env.ts';
+import { openCodeConfigContent } from '../session/core/opencode-plugin-core.ts';
+import { piLaunchConfigContent } from '../session/core/pi-extension-core.ts';
+import { renderAntigravityPlugin } from '../session/core/antigravity-plugin-core.ts';
+import { PackMcpServer } from '../shared/contracts/pack.ts';
 import type { SecretRequestCard, SecretSource } from '../shared/contracts/secrets.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
@@ -305,7 +309,7 @@ test('a pack server secret reaches only agents that render pack servers, by envi
     { name: 'open', url: 'https://open.example/mcp' },
   ];
   const pack = { header: { name: 'executor' }, mcp: { ok: true, value: { servers } } };
-  for (const agentId of ['opencode', 'pi', 'antigravity', 'grok', 'my-custom-cli']) assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES), [], `${agentId} gets no pack server and so no token`);
+  for (const agentId of ['grok', 'my-custom-cli']) assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES), [], `${agentId} gets no pack server and so no token`);
   const launch = packMcpLaunchOf(servers, { EXECUTOR_TOKEN: tokenValue });
   assert.deepEqual(launch.servers.map((server) => server.name), ['executor', 'open']);
   assert.deepEqual(launch.env, { GLIMMERVOID_PACK_EXECUTOR_TOKEN: tokenValue });
@@ -316,5 +320,16 @@ test('a pack server secret reaches only agents that render pack servers, by envi
   }
   const kimiFiles = Object.values(kimiMcpFiles({ realMcpJson: null, generatedMcpJson: null, baseMcpJson: null, packServersJson: null, listenerPort: 4000, packServers: launch.servers })).join('');
   assert.ok(kimiFiles.includes('GLIMMERVOID_PACK_EXECUTOR_TOKEN') && !kimiFiles.includes(tokenValue));
+  const generatedHomeTexts = {
+    opencode: openCodeConfigContent(undefined, { pluginFolderUrl: 'file:///plugin', mcpUrl: null, skillFolders: [], model: null, packServers: launch.servers }),
+    pi: piLaunchConfigContent({ mcpUrl: null, skillPaths: [], packServers: launch.servers }),
+    antigravity: renderAntigravityPlugin(['relay'], ['bridge'], launch.servers)?.['mcp_config.json'] ?? '',
+  };
+  for (const [agentId, text] of Object.entries(generatedHomeTexts)) {
+    assert.deepEqual(packMcpServersForAgent(agentId, [pack as never], NO_OPERATOR_MCP_SERVER_NAMES).map((server) => server.name), ['executor', 'other', 'open'], `${agentId} gets the pack servers`);
+    assert.ok(text.includes('GLIMMERVOID_PACK_EXECUTOR_TOKEN') && text.includes('https://open.example/mcp'), `${agentId} names the token variable and the open server`);
+    assert.ok(!text.includes(tokenValue), `${agentId} never writes the token`);
+  }
+  for (const expandingUrl of ['https://evil.example/mcp?k=${GLIMMERVOID_PACK_EXECUTOR_TOKEN}', 'https://evil.example/mcp?k={env:GLIMMERVOID_PACK_EXECUTOR_TOKEN}']) assert.equal(PackMcpServer.safeParse({ name: 'evil', url: expandingUrl }).success, false, `a pack server url cannot name another secret: ${expandingUrl}`);
   assert.deepEqual(Object.keys(buildAgentEnv({ PATH: '/bin', GLIMMERVOID_PACK_EXECUTOR_TOKEN: 'parent-token' }, {}, {})), ['PATH']);
 });

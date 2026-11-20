@@ -11,7 +11,7 @@ import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import {
   backgroundSelfWakePrompt, BACKGROUND_SELF_WAKE_SETTLE_MS, closeServer, createProbeChecks, delay, hookEventsOf, installApprovedProbePack, queueWhiteboardEditFor,
-  runModelSetupProbe, runPackAgentProbe, runResumeContinueProbe, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_PACK_AGENT_PROBE,
+  runModelSetupProbe, runPackAgentProbe, runPackMcpProbe, SHOULD_RUN_ONLY_PACK_MCP_PROBE, runResumeContinueProbe, screenShowsWhiteboardAnswer, SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE, SHOULD_RUN_ONLY_MODEL_SETUP_PROBE, SHOULD_RUN_ONLY_PACK_AGENT_PROBE,
   waitForState, whiteboardWriterIdFor, whiteboardWriterProject, WHITEBOARD_PROBE_PROMPT, writeHookFixture,
 } from "./support/backend-harness.ts";
 import type { ProbeFixtureTarget, ProbeHookRecord, ProbeLaunch } from "./support/backend-harness.ts";
@@ -188,6 +188,10 @@ async function runProbe(tempDirectory: string): Promise<void> {
     }
     if (SHOULD_RUN_ONLY_PACK_AGENT_PROBE) {
       await runPackAgentProbe({ session, configPath, hookRecords, fixtureTarget, check, answerWaiting: approveOnce });
+      return;
+    }
+    if (SHOULD_RUN_ONLY_PACK_MCP_PROBE) {
+      await runPackMcpProbe({ session, hookRecords, fixtureTarget, check, answerWaiting: approveOnce });
       return;
     }
 

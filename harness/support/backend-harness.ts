@@ -14,6 +14,7 @@ import type { AgentSetup, CatalogAgentId } from '../../shared/contracts/agent-mo
 import { currentAgentModelCatalog } from '../../server/agent-models/agent-models.ts';
 import { AUTO_CONTINUE_PROMPT } from '../../session/core/auto-resume.ts';
 import { packsStatePath, PACKS_DIR_NAME, readPackDir } from '../../server/packs/pack-files.ts';
+import { packSecretEnvName } from '../../mcp/core/agent-config.ts';
 
 import WebSocket from 'ws';
 
@@ -288,6 +289,101 @@ async function runPackAgentProbe({ session, configPath, hookRecords, fixtureTarg
   check('the agent answered with the pack context code word', screenText.includes(PACK_AGENT_PROBE_CONTEXT_WORD));
 }
 
+const SHOULD_RUN_ONLY_PACK_MCP_PROBE = process.argv.includes('--only-pack-mcp');
+const PACK_MCP_PROBE_SERVER_NAME = 'probe-hub';
+const PACK_MCP_PROBE_TOOL_NAME = 'pack_code_word';
+const PACK_MCP_PROBE_SECRET_NAME = 'PROBE_HUB_TOKEN';
+const PACK_MCP_PROBE_BEARER = 'probe-hub-bearer';
+const PACK_MCP_PROBE_CODE_WORD = 'saltmarten';
+const PACK_MCP_PROBE_PROMPT = `Call the ${PACK_MCP_PROBE_TOOL_NAME} tool of the ${PACK_MCP_PROBE_SERVER_NAME} MCP server, then reply with only the word it returns.`;
+
+interface PackMcpProbeServer {
+  url: string;
+  signedInCalls: () => number;
+  refusedCalls: () => number;
+  close: () => Promise<void>;
+}
+
+function packMcpProbeReplyTo(message: Record<string, unknown>): Record<string, unknown> {
+  const params = typeof message.params === 'object' && message.params !== null ? message.params : {};
+  const protocolVersion = 'protocolVersion' in params && typeof params.protocolVersion === 'string' ? params.protocolVersion : '2025-06-18';
+  switch (message.method) {
+    case 'initialize':
+      return { protocolVersion, capabilities: { tools: { listChanged: false } }, serverInfo: { name: PACK_MCP_PROBE_SERVER_NAME, version: '1.0.0' } };
+    case 'tools/list':
+      return { tools: [{ name: PACK_MCP_PROBE_TOOL_NAME, description: 'Returns the probe code word.', inputSchema: { type: 'object', properties: {} } }] };
+    case 'tools/call':
+      return { content: [{ type: 'text', text: PACK_MCP_PROBE_CODE_WORD }] };
+    default:
+      return {};
+  }
+}
+
+async function startPackMcpProbeServer(): Promise<PackMcpProbeServer> {
+  let signedInCallCount = 0;
+  let refusedCallCount = 0;
+  const server = http.createServer((request, response) => {
+    if (request.method !== 'POST') {
+      response.writeHead(405).end();
+      return;
+    }
+    if (request.headers.authorization !== `Bearer ${PACK_MCP_PROBE_BEARER}`) {
+      refusedCallCount += 1;
+      response.writeHead(401).end();
+      return;
+    }
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      const message: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      if (typeof message !== 'object' || message === null || !('id' in message)) {
+        response.writeHead(202).end();
+        return;
+      }
+      if ('method' in message && message.method === 'tools/call') signedInCallCount += 1;
+      response.writeHead(200, { 'content-type': 'application/json', 'mcp-session-id': 'probe-hub-session' });
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: packMcpProbeReplyTo(Object.fromEntries(Object.entries(message))) }));
+    });
+  });
+  const port = await new Promise<number>((resolve) => server.listen(0, '127.0.0.1', () => {
+    const address = server.address();
+    resolve(typeof address === 'object' && address !== null ? address.port : 0);
+  }));
+  return {
+    url: `http://127.0.0.1:${port}/mcp`,
+    signedInCalls: () => signedInCallCount,
+    refusedCalls: () => refusedCallCount,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
+}
+
+async function runPackMcpProbe({ session, hookRecords, fixtureTarget, check, answerWaiting, afterStart = async () => {}, startSession = () => session.start() }: Omit<PackAgentProbe, 'configPath'>): Promise<void> {
+  console.log('\npack-mcp-servers:');
+  const packServer = await startPackMcpProbeServer();
+  const packServers = [{ name: PACK_MCP_PROBE_SERVER_NAME, url: packServer.url, secret: PACK_MCP_PROBE_SECRET_NAME }];
+  session._packMcpServers = async () => ({ servers: packServers, env: { [packSecretEnvName(PACK_MCP_PROBE_SECRET_NAME)]: PACK_MCP_PROBE_BEARER } });
+  session._sharedPackMcpServers = () => packServers;
+  session._initialPrompt = PACK_MCP_PROBE_PROMPT;
+  try {
+    const scenarioStart = hookRecords.length;
+    const outputOffset = session.getOutputOffset();
+    await startSession();
+    await afterStart();
+    await runTurnToCompletion(session, answerWaiting, 'the pack MCP turn');
+    await delay(3000);
+    const scenarioHooks = hookRecords.slice(scenarioStart);
+    console.log(`  [fixture] ${writeHookFixture('pack-mcp-servers', scenarioHooks, fixtureTarget)}`);
+    console.log(`  [events] ${hookEventsOf(scenarioHooks).join(', ')}`);
+    const screenText = stripVTControlCharacters(session.getBufferSince(outputOffset).data);
+    check('the pack server answered a tool call signed in with the vault bearer', packServer.signedInCalls() > 0);
+    check('the pack server refused no call for a missing bearer', packServer.refusedCalls() === 0);
+    check('the agent answered with the pack server code word', screenText.includes(PACK_MCP_PROBE_CODE_WORD));
+    if (!screenText.includes(PACK_MCP_PROBE_CODE_WORD)) console.log(`  [screen] ${safeTextTail(screenText, 8000)}`);
+  } finally {
+    await packServer.close();
+  }
+}
+
 interface ResumeContinueProbe {
   session: Session;
   hookRecords: ProbeHookRecord[];
@@ -441,11 +537,13 @@ export {
   installApprovedProbePack,
   runModelSetupProbe,
   runPackAgentProbe,
+  runPackMcpProbe,
   runResumeContinueProbe,
   SHOULD_RUN_ONLY_BACKGROUND_SELF_WAKE_PROBE,
   SHOULD_RUN_ONLY_HINT_PROBE,
   SHOULD_RUN_ONLY_MODEL_SETUP_PROBE,
   SHOULD_RUN_ONLY_PACK_AGENT_PROBE,
+  SHOULD_RUN_ONLY_PACK_MCP_PROBE,
   SHOULD_RUN_ONLY_RESUME_CONTINUE_PROBE,
   SHOULD_RUN_ONLY_WHITEBOARD_PROBE,
   waitForState,

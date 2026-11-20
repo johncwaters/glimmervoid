@@ -153,14 +153,14 @@ function isHttpsOrLoopbackHttp(url: string): boolean {
   return parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname));
 }
 
-const PACK_MCP_URL_PATTERN = '^(https://|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])([:/?#]|$))[^$]*$';
+const PACK_MCP_URL_PATTERN = '^(https://|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])([:/?#]|$))[^${}]*$';
 
 export const PackMcpServer = z.strictObject({
   name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/, { error: 'a server name is lowercase letters, digits, dash and underscore, at most 40 characters' })
     .refine((name) => name !== GLIMMERVOID_MCP_SERVER_NAME, { error: `the server name '${GLIMMERVOID_MCP_SERVER_NAME}' is glimmervoid's own` })
     .meta({ not: { const: GLIMMERVOID_MCP_SERVER_NAME }, description: 'The name every agent lists the server under; a server the operator registered under the same name gives way to this one in glimmervoid sessions' }),
   url: z.url().refine(isHttpsOrLoopbackHttp, { error: 'a server url is https, or http on 127.0.0.1, ::1 or localhost' })
-    .refine((url) => !url.includes('$'), { error: 'a server url holds no $, since agents expand ${VAR} in it' })
+    .refine((url) => !/[${}]/.test(url), { error: 'a server url holds no $, { or }, since agents expand ${VAR} and {env:VAR} in it' })
     .meta({ pattern: PACK_MCP_URL_PATTERN, description: 'The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login' }),
   secret: SecretName.optional()
     .describe('A bearer token sent to this server: glimmervoid reads the name from the vault at session start once the operator allows it for the project, and passes it by environment variable, never argv; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves the server out'),

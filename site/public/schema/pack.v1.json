@@ -773,7 +773,7 @@
               "url": {
                 "type": "string",
                 "format": "uri",
-                "pattern": "^(https://|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])([:/?#]|$))[^$]*$",
+                "pattern": "^(https://|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])([:/?#]|$))[^${}]*$",
                 "description": "The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login"
               },
               "secret": {

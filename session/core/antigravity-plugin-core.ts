@@ -3,6 +3,9 @@ import path from "node:path";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
+import { packSecretEnvName } from "../../mcp/core/agent-config.ts";
+import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG } from "../../mcp/core/stdio-bridge-core.ts";
+import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 
 const ANTIGRAVITY_PLUGIN_NAME = "glimmervoid";
 const AGENT_STATE_HOOK_EVENT = "AgentState";
@@ -51,14 +54,20 @@ function hooksByEvent(relayLaunch: readonly string[]): Record<string, unknown[]>
   return hooks;
 }
 
-function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[]): Record<AntigravityPluginFileName, string> | null {
+function packServerEntry(server: PackMcpServer, bridgeCommand: string, bridgeArgs: readonly string[]): unknown {
+  if (server.secret === undefined) return { serverUrl: server.url };
+  return { command: bridgeCommand, args: [...bridgeArgs, `--${PACK_URL_FLAG}`, server.url, `--${PACK_SECRET_ENV_FLAG}`, packSecretEnvName(server.secret)] };
+}
+
+function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[], packServers: readonly PackMcpServer[] = []): Record<AntigravityPluginFileName, string> | null {
   const hooks = hooksByEvent(relayLaunch);
   const [bridgeCommand, ...bridgeArgs] = bridgeLaunch;
   if (hooks === null || bridgeCommand === undefined) return null;
+  const packEntries = Object.fromEntries(packServers.map((server) => [server.name, packServerEntry(server, bridgeCommand, bridgeArgs)]));
   return {
     "plugin.json": jsonFileText({ name: ANTIGRAVITY_PLUGIN_NAME, version: "1.0.0", description: "Reports session status to the Glimmervoid dashboard that started this session." }),
     "hooks.json": jsonFileText({ [ANTIGRAVITY_PLUGIN_NAME]: hooks }),
-    "mcp_config.json": jsonFileText({ mcpServers: { [ANTIGRAVITY_PLUGIN_NAME]: { command: bridgeCommand, args: bridgeArgs } } }),
+    "mcp_config.json": jsonFileText({ mcpServers: { ...packEntries, [ANTIGRAVITY_PLUGIN_NAME]: { command: bridgeCommand, args: bridgeArgs } } }),
   };
 }
 
