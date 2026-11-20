@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Shown cards line up.** A file an agent shows now lands beside a card already in your view, sharing its top or left edge, instead of at a staggered spot, and agents are told how to move a card beside the box it belongs to.
 - **A card sent back to Ready keeps its usual place.** Moving a pull request out of Reviewing now with M dropped it at the bottom of Ready, because it remembered where it had been dropped in Reviewing now. It now forgets that spot and returns to Ready's normal order; dragging it to a chosen place in Ready still keeps that place.
 - **Reviews board headings line up.** The Ready column's heading, which holds the Alt+J key caps, sat 2px taller than the other open columns' headings, so the board's headings were out of line. Every open column heading now has the same height.
 - **Chat stays still when a turn starts or ends.** With Chat scrolled to the bottom, the whole conversation jumped 32px each time an agent started or finished a turn, because the space held for the working indicator vanished while it was idle. That space now stays, and the same fix keeps a setting's row on a phone from jumping when its Reset button hides.

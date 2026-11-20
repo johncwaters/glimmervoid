@@ -1807,7 +1807,7 @@ test('a board saved with units, panels, columns, lanes and retired fields loads 
   assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"|"outputs"|"fromOutput"|"back"|"loop"|"linkedBoardId"|"numbered"/.test(JSON.stringify(storedPlanned)), false);
 });
 
-test('show puts each file on a board the session is connected to, creating one named after the first file title, placing a later card below the content with no operator view and in a free spot of the operator view when one is open, updating the card of a file shown again in place, refusing an agent second card of that file, warning on wordy boxes, and numbering past an oversized shown id', async () => {
+test('show puts each file on a board the session is connected to, creating one named after the first file title, placing a later card below the content with no operator view and in a free spot of the operator view lined up with a neighbour when one is open, updating the card of a file shown again in place, refusing an agent second card of that file, warning on wordy boxes, and numbering past an oversized shown id', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-'));
   const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'shower-'));
@@ -1857,6 +1857,12 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.ok(drawnInk?.kind === 'stroke');
   const inkYs = drawnInk.points.filter((_, index) => index % 2 === 1);
   const inkXs = drawnInk.points.filter((_, index) => index % 2 === 0);
+  const inkElement = inViewBoard.elements.get('operator-ink');
+  assert.ok(inkElement?.kind === 'stroke');
+  const inkHalfWidth = inkElement.width / 2;
+  const inkBounds = { x: Math.min(...inkXs) - inkHalfWidth, y: Math.min(...inkYs) - inkHalfWidth, width: Math.max(...inkXs) - Math.min(...inkXs) + inkElement.width, height: Math.max(...inkYs) - Math.min(...inkYs) + inkElement.width };
+  const drawnNeighbours = [...drawnInView.filter((element) => element.id !== 'shown-3' && element.x >= operatorView.x), inkBounds];
+  assert.ok(drawnNeighbours.some((neighbour) => neighbour.y === drawnThird.y || neighbour.x === drawnThird.x), `shown-3 shares a top or left edge with a neighbour in view: ${JSON.stringify([drawnThird.x, drawnThird.y, drawnNeighbours])}`);
   assert.deepEqual([...drawnInView.filter((element) => element.id !== 'shown-3' && overlapsThird(element)).map((element) => element.id), ...(overlapsThird({ x: Math.min(...inkXs), y: Math.min(...inkYs), width: Math.max(...inkXs) - Math.min(...inkXs), height: Math.max(...inkYs) - Math.min(...inkYs) }) ? ['operator-ink'] : [])], []);
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-3' }, { op: 'remove', id: 'in-view' }, ...['plan-a', 'plan-b', 'plan-c', 'operator-ink'].map((removedId) => ({ op: 'remove', id: removedId }))]) })).status, 200);
 

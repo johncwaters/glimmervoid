@@ -475,26 +475,32 @@ interface ShowPlacementContext {
 }
 
 const SHOWN_CARD_CHROME_HEIGHT = 80;
-const FREE_SPOT_SCAN_STEPS = 40;
+const SHARED_EDGE_INSET = 1;
 
 function shownCardHeight(media: BoxMedia): number {
   return Math.round((SHOWN_BOX_WIDTH * media.height) / media.width) + SHOWN_CARD_CHROME_HEIGHT;
 }
 
+function anchoredSpotsOf(view: BoardBounds, boxesInView: readonly BoardBounds[], cardHeight: number): { x: number; y: number }[] {
+  const viewCorner = { x: view.x + SHOWN_BOX_GAP, y: view.y + SHOWN_BOX_GAP };
+  const boxesInReadingOrder = [...boxesInView].sort((left, right) => left.y - right.y || left.x - right.x);
+  const besideBoxes = boxesInReadingOrder.flatMap((box) => [
+    { x: box.x + box.width + SHOWN_BOX_GAP, y: box.y },
+    { x: box.x, y: box.y + box.height + SHOWN_BOX_GAP },
+    { x: box.x - SHOWN_BOX_GAP - SHOWN_BOX_WIDTH, y: box.y },
+    { x: box.x, y: box.y - SHOWN_BOX_GAP - cardHeight },
+  ]);
+  return [...besideBoxes, viewCorner];
+}
+
 function freeSpotIn(view: BoardBounds, boxesInView: readonly BoardBounds[], cardHeight: number): { x: number; y: number } | null {
   const paddedBoxes = boxesInView.map((box) => ({ x: box.x - SHOWN_BOX_GAP, y: box.y - SHOWN_BOX_GAP, width: box.width + 2 * SHOWN_BOX_GAP, height: box.height + 2 * SHOWN_BOX_GAP }));
   const occupied = gridOfRects(paddedBoxes, SHOWN_BOX_WIDTH);
-  const lastX = view.x + view.width - SHOWN_BOX_GAP - SHOWN_BOX_WIDTH;
-  const lastY = view.y + view.height - SHOWN_BOX_GAP - cardHeight;
-  const stepX = Math.max(SHOWN_BOX_GAP, view.width / FREE_SPOT_SCAN_STEPS);
-  const stepY = Math.max(SHOWN_BOX_GAP, view.height / FREE_SPOT_SCAN_STEPS);
-  for (let y = view.y + SHOWN_BOX_GAP; y <= lastY; y += stepY) {
-    for (let x = view.x + SHOWN_BOX_GAP; x <= lastX; x += stepX) {
-      const candidate = { x: Math.round(x), y: Math.round(y), width: SHOWN_BOX_WIDTH, height: cardHeight };
-      if (!hasSlotTouching(occupied, candidate)) return { x: candidate.x, y: candidate.y };
-    }
-  }
-  return null;
+  const fitsView = (spot: { x: number; y: number }) => spot.x >= view.x && spot.y >= view.y && spot.x + SHOWN_BOX_WIDTH <= view.x + view.width && spot.y + cardHeight <= view.y + view.height;
+  const freeSpot = anchoredSpotsOf(view, boxesInView, cardHeight)
+    .map((spot) => ({ x: Math.round(spot.x), y: Math.round(spot.y) }))
+    .find((spot) => fitsView(spot) && !hasSlotTouching(occupied, { x: spot.x + SHARED_EDGE_INSET, y: spot.y + SHARED_EDGE_INSET, width: SHOWN_BOX_WIDTH - 2 * SHARED_EDGE_INSET, height: cardHeight - 2 * SHARED_EDGE_INSET }));
+  return freeSpot ?? null;
 }
 
 function drawnShownCardPoint(context: ShowPlacementContext, media: BoxMedia): { x: number; y: number } {
