@@ -72,6 +72,8 @@ import { detectInstallFlavor } from '../update-check.ts';
 import type { CheckForUpdate } from './backend-update.ts';
 import { createBackendSessionRuntime } from './backend-session-runtime.ts';
 import { deleteLeftoverWorktreeTrash } from '../git/git-workspace.ts';
+import { sweepReturnedWorktreeFolders } from '../leftover-sweeps.ts';
+import { removalsJournalPath } from '../removal-journal.ts';
 import { deleteRetiredGuardrailsFolders } from '../session-temp/retired-guardrails.ts';
 import { warnWhenGitIsTooOld } from '../git/git-version.ts';
 import { createOutcomesLane } from '../outcomes-wiring.ts';
@@ -622,7 +624,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       git: laneAssembly.gitWorkspace,
       shareList: config.worktree?.share ?? DEFAULT_CONFIG.worktree.share,
       projectPaths: config.projects.map((project) => project.path),
-    }),
+    }).then(() => sweepReturnedWorktreeFolders({
+      worktreeRoots: config.projects.map((project) => configuredWorktreeRoot(config, project.path)),
+      journalPath: removalsJournalPath(glimmervoidHomeDir()),
+      ledger: laneAssembly.ownedPaths,
+    })),
   ];
   laneAssembly.startRuntimeLanes();
 

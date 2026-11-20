@@ -80,6 +80,13 @@ function createOwnedPathsLedger({ filePath, log = console }: { filePath: string;
     return entriesByPath.get(ledgerKey(await canonicalOwnedPath(ownedPath)))?.owner ?? null;
   }
 
+  async function ownsAtOrUnder(folderPath: string): Promise<boolean> {
+    await store.load();
+    if (!isLoaded) return true;
+    const canonicalFolder = await canonicalOwnedPath(folderPath);
+    return [...entriesByPath.values()].some((entry) => holdsKeptPath(canonicalFolder, [entry.path]));
+  }
+
   async function entriesOwnedBy(owner: string): Promise<OwnedPathEntry[]> {
     await store.load();
     return [...entriesByPath.values()].filter((entry) => entry.owner === owner);
@@ -91,7 +98,7 @@ function createOwnedPathsLedger({ filePath, log = console }: { filePath: string;
     return { ok: true, entries: [...entriesByPath.entries()].filter(([key]) => !keysRecordedThisRun.has(key)).map(([, entry]) => entry) };
   }
 
-  return { loadEarlierRunEntries, record, forget, ownerOf, entriesOwnedBy, idle: () => store.idle() };
+  return { loadEarlierRunEntries, record, forget, ownerOf, ownsAtOrUnder, entriesOwnedBy, idle: () => store.idle() };
 }
 
 async function pathExists(ownedPath: string): Promise<boolean> {
