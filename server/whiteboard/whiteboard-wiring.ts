@@ -7,7 +7,7 @@ import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
-import type { WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
+import type { DiffBefore, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
@@ -31,7 +31,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -178,7 +178,7 @@ interface WhiteboardPort {
   readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
   handleOperator: {
     create(title: string): Promise<OperatorReply>;
-    put(boardId: string, ops: readonly Op[]): Promise<OperatorReply>;
+    put(boardId: string, ops: readonly Op[], expected?: DiffBefore): Promise<OperatorReply>;
     remove(boardId: string): Promise<OperatorReply>;
     get(boardId: string): Promise<OperatorReply>;
     review(boardId: string): Promise<OperatorReply>;
@@ -1123,7 +1123,7 @@ function createWhiteboardWiring({
       await loaded;
       return operatorReplyOf(await createBoardFor(null, title));
     },
-    put: (boardId, ops) => operatorBoardCommand(boardId, (foundBoardId) => putOps(foundBoardId, ops, OPERATOR_AUTHOR)),
+    put: (boardId, ops, expected) => operatorBoardCommand(boardId, (foundBoardId) => putOps(foundBoardId, ops, OPERATOR_AUTHOR, expected ? (recordBefore, afterById) => changedSinceRefusalOf(recordBefore, expected, afterById) : noPutRefusal)),
     remove: (boardId) => operatorBoardCommand(boardId, removeBoard),
     get: (boardId) => operatorBoardCommand(boardId, async (foundBoardId) => {
       await syncLinks(foundBoardId);

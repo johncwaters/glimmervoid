@@ -36,6 +36,9 @@ import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath, stableLauncherPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
+import { undoStepOf } from '../shared/whiteboard-undo-core.ts';
+import type { DiffBefore } from '../shared/contracts/control/whiteboard-messages.ts';
+import type { WhiteboardPatch } from '../shared/contracts/control/whiteboard-messages.ts';
 
 const PLANNER_ID = 'whiteboard-planner';
 const BUILDER_ID = 'whiteboard-builder';
@@ -1430,6 +1433,46 @@ test('the operator connects and disconnects a session from the dashboard, and a 
     const listed = await whiteboard(PLANNER_ID, { sub: 'list' });
     assert.deepEqual((listed.body.boards as { id: string; connectedSessionIds: string[] }[]).filter((board) => board.id === leaverOnlyBoardId).map((board) => board.connectedSessionIds), [[]]);
     assert.equal((await boardOf(PLANNER_ID, leaverOnlyBoardId)).board.version, 0);
+  } finally {
+    await closeSocket(control.ws);
+  }
+});
+
+test('the operator undo of an edit an agent changed since is refused and keeps the agent edit, and an undo nobody interfered with lands', async () => {
+  const boardId = await newBoard('undo guard');
+  const client = await dashboardClient(boundPort(running().server));
+  const control = await openRecordingSocket<{ type: string; requestId?: string; ok?: boolean; error?: string; patch?: WhiteboardPatch }>(client);
+  try {
+    const command = async (message: Record<string, unknown> & { requestId: string }) => {
+      control.ws.send(JSON.stringify(message));
+      return waitForMessage(control.received, (frame) => frame.requestId === message.requestId, `the ${message.type} reply`);
+    };
+    const operatorPut = (requestId: string, ops: unknown[], expected?: DiffBefore) => command({ type: 'whiteboard-op', boardId, ops, expected, requestId });
+    const undoOf = (requestId: string, patch: WhiteboardPatch | undefined) => {
+      assert.ok(patch);
+      const step = undoStepOf(patch.before, patch.diff);
+      return operatorPut(requestId, step.ops, step.expected);
+    };
+    await operatorPut('add-boxes', ['shared', 'own'].map((id) => ({ op: 'add', element: { kind: 'box', id, title: 'first', place: { at: { x: 40, y: 40 } } } })));
+    const sharedEdit = await operatorPut('edit-shared', [{ op: 'set', id: 'shared', fields: { title: 'operator title' } }]);
+    await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId });
+    await boardOf(BUILDER_ID, boardId);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'shared', fields: { title: 'builder title' } }] })).status, 200);
+
+    const refused = await undoOf('undo-shared', sharedEdit.patch);
+    assert.equal(refused.ok, false);
+    assert.match(String(refused.error), /shared changed since that edit/);
+    const anchorAdd = await operatorPut('add-anchor', [{ op: 'add', element: { kind: 'box', id: 'anchor', title: 'anchor', place: { at: { x: 400, y: 40 } } } }]);
+    const titleEdit = await operatorPut('edit-title', [{ op: 'board', title: 'operator board title' }]);
+    await boardOf(BUILDER_ID, boardId);
+    assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'wire', id: 'builder-wire', from: 'anchor', to: 'shared' } }, { op: 'board', title: 'builder board title' }] })).status, 200);
+    assert.match(String((await undoOf('undo-title', titleEdit.patch)).error), /the board title changed since that edit/);
+    assert.match(String((await undoOf('undo-anchor', anchorAdd.patch)).error), /builder-wire was added or changed since that edit/);
+    const ownEdit = await operatorPut('edit-own', [{ op: 'set', id: 'own', fields: { title: 'operator title' } }]);
+    assert.equal((await undoOf('undo-own', ownEdit.patch)).ok, true);
+
+    const elements = (await boardOf(PLANNER_ID, boardId)).board.elements;
+    assert.deepEqual(['shared', 'own', 'anchor', 'builder-wire'].map((id) => elements[id]?.title ?? elements[id]?.kind), ['builder title', 'first', 'anchor', 'wire']);
   } finally {
     await closeSocket(control.ws);
   }

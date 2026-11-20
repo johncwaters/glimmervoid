@@ -27,8 +27,8 @@ import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import { createBoardEditor, newElementId, NUDGE_DIRECTION_BY_KEY, stacksByTopBoxIdOf } from './board-edit.ts';
 import { nextWiredBoxId } from './media-walk-core.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
-import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoOpsOf } from '#shared/whiteboard-undo-core.ts';
-import type { WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoStepOf } from '#shared/whiteboard-undo-core.ts';
+import type { DiffBefore, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import { rectAround } from './board-snap-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
@@ -165,7 +165,8 @@ type SentOps = { isSent: boolean; version: number | null };
 
 const status = createActionStatus('action-status wb-status');
 const emptyStatus = createActionStatus('action-status wb-empty-status');
-const historyByBoardId = new Map<string, UndoHistory>();
+type UndoEntry = { ops: Op[]; expected: DiffBefore };
+const historyByBoardId = new Map<string, UndoHistory<UndoEntry>>();
 let historyQueue: Promise<unknown> = Promise.resolve();
 
 function openTextDialog(options: TextDialogOptions): void {
@@ -226,13 +227,14 @@ function sendRecordedOps(boardId: string, ops: Op[]): Promise<RecordedSend> {
   return inHistoryOrder(() => sendAndRecord(boardId, ops));
 }
 
-function fitsOnePut(ops: readonly Op[]): boolean {
-  return ops.length <= WHITEBOARD_LIMITS.opsPerPut && new TextEncoder().encode(JSON.stringify(ops)).length <= WHITEBOARD_LIMITS.putBytes;
+function fitsOnePut(entry: UndoEntry): boolean {
+  return entry.ops.length <= WHITEBOARD_LIMITS.opsPerPut && new TextEncoder().encode(JSON.stringify(entry)).length <= WHITEBOARD_LIMITS.putBytes;
 }
 
-function undoEntryOf(patch: WhiteboardPatch | null): Op[] | null {
-  if (!patch) return [];
-  const entry = [...undoOpsOf(patch.before, patch.diff), ...restoredStackOrderOpsOf(patch)];
+function undoEntryOf(patch: WhiteboardPatch | null): UndoEntry | null {
+  if (!patch) return { ops: [], expected: { fields: {}, elements: {} } };
+  const step = undoStepOf(patch.before, patch.diff);
+  const entry = { ops: [...step.ops, ...restoredStackOrderOpsOf(patch)], expected: step.expected };
   return fitsOnePut(entry) ? entry : null;
 }
 
@@ -320,6 +322,7 @@ function recordPatch(boardId: string, patch: WhiteboardPatch | null): boolean {
     historyByBoardId.set(boardId, EMPTY_HISTORY);
     return false;
   }
+  if (entry.ops.length === 0) return true;
   historyByBoardId.set(boardId, recordEdit(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, entry));
   return true;
 }
@@ -340,7 +343,7 @@ async function runHistoryStep(direction: UndoDirection): Promise<void> {
   const step = takeStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction);
   if (!step) return;
   historyByBoardId.set(boardId, step.history);
-  const outcome = await sendBoardOps(boardId, step.entry);
+  const outcome = await sendBoardOps(boardId, step.entry.ops, step.entry.expected);
   if (!outcome.ok) {
     status.show('error', `could not ${direction} that change, so it was dropped: ${outcome.error}`);
     return;
@@ -352,6 +355,7 @@ async function runHistoryStep(direction: UndoDirection): Promise<void> {
     return;
   }
   status.clear();
+  if (entry.ops.length === 0) return;
   historyByBoardId.set(boardId, recordStep(historyByBoardId.get(boardId) ?? EMPTY_HISTORY, direction, entry));
 }
 

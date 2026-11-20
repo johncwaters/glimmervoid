@@ -1,6 +1,7 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { AgentChange, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
+import type { DiffBefore } from '#shared/contracts/control/whiteboard-messages.ts';
 import { BoardFileImportReply, BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_FILE_ROUTE } from '#shared/contracts/whiteboard.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from '../action-status.ts';
@@ -135,8 +136,8 @@ export async function createBoard(title: string): Promise<{ ok: true; boardId: s
   return { ok: true, boardId };
 }
 
-export async function sendBoardOps(boardId: string, ops: readonly Op[]): Promise<{ ok: true; patch: WhiteboardPatch | null } | { ok: false; error: string }> {
-  const outcome = await runBoardCommand('whiteboard-op', { boardId, ops });
+export async function sendBoardOps(boardId: string, ops: readonly Op[], expected?: DiffBefore): Promise<{ ok: true; patch: WhiteboardPatch | null } | { ok: false; error: string }> {
+  const outcome = await runBoardCommand('whiteboard-op', { boardId, ops, expected });
   return outcome.ok ? { ok: true, patch: outcome.reply.patch ?? null } : outcome;
 }
 

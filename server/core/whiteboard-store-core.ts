@@ -1,5 +1,7 @@
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { Board as BoardSchema, BoxInput, Near as NearSchema, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import type { DiffBefore } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Element, Near, Op } from '../../shared/contracts/whiteboard.ts';
 import { isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
 import { currentStoredBox } from '../../shared/whiteboard-stored-box.ts';
@@ -364,6 +366,17 @@ function unreadChangeRefusalOf(record: BoardRecord, readerId: string, afterById:
   return `${unread.elementId} changed since this session last read the board (${unread.summary}); ${READ_FIRST_TEXT}`;
 }
 
+function changedSinceRefusalOf(record: BoardRecord, expected: DiffBefore, afterById: ReadonlyMap<string, Element | null>): string | null {
+  const changedFieldName = Object.entries(expected.fields).find(([fieldName, value]) => !isDeepStrictEqual(record.board[fieldName as keyof DiffBefore['fields']], value))?.[0];
+  if (changedFieldName !== undefined) return `the board ${changedFieldName} changed since that edit`;
+  const isUnchanged = (elementId: string, element: Element | null) => isDeepStrictEqual(record.board.elements.get(elementId) ?? null, element);
+  const changedId = Object.keys(expected.elements).find((elementId) => !isUnchanged(elementId, expected.elements[elementId] ?? null));
+  if (changedId !== undefined) return `${changedId} changed since that edit`;
+  const unrecordedId = [...afterById].find(([elementId, element]) => !Object.hasOwn(expected.elements, elementId) && !isUnchanged(elementId, element))?.[0];
+  if (unrecordedId !== undefined) return `${unrecordedId} was added or changed since that edit`;
+  return null;
+}
+
 function markRead(record: BoardRecord, sessionId: string): BoardRecord {
   const cursor = record.cursorBySessionId[sessionId];
   if (cursor === undefined || (hasReadSinceConnecting(cursor) && cursor >= record.board.version)) return record;
@@ -676,4 +689,4 @@ function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
 
 export { agentPutRefusalOf, habitWarningsOf, pickShowBoardId, shownBoxOp };
 export type { ShownCard };
-export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
+export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

@@ -16,6 +16,7 @@ import { PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/
 import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
+import type { UndoHistory } from '../shared/whiteboard-undo-core.ts';
 import type { LaidOutElement, PlacedElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string) {
@@ -485,7 +486,7 @@ test('a dashboard applying an edit diff reaches the server board exactly, and un
   };
   assert.deepEqual(comparable(undone.board), comparable(start));
 
-  let history = EMPTY_HISTORY;
+  let history: UndoHistory = EMPTY_HISTORY;
   for (let index = 0; index <= UNDO_LIMIT; index += 1) history = recordEdit(history, [{ op: 'remove', id: `edit-${index}` }]);
   assert.equal(history.undo.length, UNDO_LIMIT);
   assert.deepEqual(takeStep(history, 'undo')?.entry, [{ op: 'remove', id: `edit-${UNDO_LIMIT}` }]);

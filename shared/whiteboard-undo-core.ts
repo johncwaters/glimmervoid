@@ -4,10 +4,10 @@ import { applyBoardDiff } from './whiteboard-ops-core.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 
 type UndoDirection = 'undo' | 'redo';
-type UndoHistory<Entry extends readonly unknown[] = Op[]> = Readonly<Record<UndoDirection, readonly Entry[]>>;
+type UndoHistory<Entry = Op[]> = Readonly<Record<UndoDirection, readonly Entry[]>>;
 
 const UNDO_LIMIT = 100;
-const EMPTY_HISTORY: UndoHistory = Object.freeze({ undo: [], redo: [] });
+const EMPTY_HISTORY: UndoHistory<never> = Object.freeze({ undo: [], redo: [] });
 const EARLY_ADD_KINDS: ReadonlySet<Element['kind']> = new Set(['box']);
 const REMOVAL_ORDER: readonly Element['kind'][] = ['wire', 'frame', 'box'];
 const UNSETTABLE_FIELDS: ReadonlySet<string> = new Set(['kind', 'id']);
@@ -54,33 +54,38 @@ function restoringOps(current: Board, target: Board): Op[] {
 
 const TOUCHED_ONLY_HEAD = Object.freeze({ id: 'touched', title: 'touched', version: 0, caption: null, legend: [], codeSessionId: null, project: null, link: null, createdAt: 0, updatedAt: 0 });
 
-function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
+function undoStepOf(before: DiffBefore, diff: BoardDiff): { ops: Op[]; expected: DiffBefore } {
   const beforeElements = elementTableOf(Object.values(before.elements).flatMap((element) => element ?? []));
   const touchedBefore: Board = { ...TOUCHED_ONLY_HEAD, ...before.fields, elements: beforeElements };
   const touchedAfter = applyBoardDiff(touchedBefore, diff, 0, 0);
-  return touchedAfter ? restoringOps(touchedAfter, touchedBefore) : [];
+  if (!touchedAfter) return { ops: [], expected: { fields: {}, elements: {} } };
+  const fields = Object.fromEntries(Object.keys(before.fields).map((fieldName) => [fieldName, touchedAfter[fieldName as keyof DiffBefore['fields']]]));
+  const elements = Object.fromEntries(Object.keys(before.elements).map((elementId) => [elementId, touchedAfter.elements.get(elementId) ?? null]));
+  return { ops: restoringOps(touchedAfter, touchedBefore), expected: { fields, elements } };
 }
 
-function withEntry<Entry extends readonly unknown[]>(stack: readonly Entry[], entry: Entry): Entry[] {
-  if (entry.length === 0) return [...stack];
+function undoOpsOf(before: DiffBefore, diff: BoardDiff): Op[] {
+  return undoStepOf(before, diff).ops;
+}
+
+function withEntry<Entry>(stack: readonly Entry[], entry: Entry): Entry[] {
   return [...stack, entry].slice(-UNDO_LIMIT);
 }
 
-function recordEdit<Entry extends readonly unknown[]>(history: UndoHistory<Entry>, entry: Entry): UndoHistory<Entry> {
-  if (entry.length === 0) return history;
+function recordEdit<Entry>(history: UndoHistory<Entry>, entry: Entry): UndoHistory<Entry> {
   return { undo: withEntry(history.undo, entry), redo: [] };
 }
 
-function takeStep<Entry extends readonly unknown[]>(history: UndoHistory<Entry>, direction: UndoDirection): { entry: Entry; history: UndoHistory<Entry> } | null {
+function takeStep<Entry>(history: UndoHistory<Entry>, direction: UndoDirection): { entry: Entry; history: UndoHistory<Entry> } | null {
   const entry = history[direction].at(-1);
   if (!entry) return null;
   return { entry, history: { ...history, [direction]: history[direction].slice(0, -1) } };
 }
 
-function recordStep<Entry extends readonly unknown[]>(history: UndoHistory<Entry>, direction: UndoDirection, entry: Entry): UndoHistory<Entry> {
+function recordStep<Entry>(history: UndoHistory<Entry>, direction: UndoDirection, entry: Entry): UndoHistory<Entry> {
   const opposite: UndoDirection = direction === 'undo' ? 'redo' : 'undo';
   return { ...history, [opposite]: withEntry(history[opposite], entry) };
 }
 
-export { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, recordStep, takeStep, undoOpsOf };
+export { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, recordStep, takeStep, undoOpsOf, undoStepOf };
 export type { UndoDirection, UndoHistory };
