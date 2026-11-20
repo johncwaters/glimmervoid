@@ -492,6 +492,11 @@ html[data-layout="phone"] .chat-card-option-keys .ui-keycap { display: none; }
   background: color-mix(in oklab, var(--state-failed) 6%, var(--bg-surface));
 }
 
+.chat-card[data-card-type="live-terminal"] {
+  border-color: color-mix(in oklab, var(--state-waiting) 45%, var(--border));
+  background: color-mix(in oklab, var(--state-waiting) 6%, var(--bg-surface));
+}
+
 .chat-card.chat-notice {
   align-self: center;
   padding: 0;

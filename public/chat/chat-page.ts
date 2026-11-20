@@ -46,7 +46,6 @@ const uploadingCountBySessionId = new Map<string, number>();
 const STAND_IN_UNRECORDED_MAX_MS = 5000;
 const SENT_OUTBOX_STATES: ReadonlySet<ChatOutboxEntry['state']> = new Set(['sending', 'submitted']);
 
-const LIVE_TERMINAL_HEADING = 'The agent is waiting on its terminal';
 const LOGIN_COMMAND_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': '/login' };
 const LOGIN_SUBMIT_DELAY_MS = 300;
 const SIGNED_IN_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
@@ -158,7 +157,7 @@ function cancelledEntryIdOf(event: Event): string | null {
   return detail.entryId;
 }
 
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'usage-limit'] as const;
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'usage-limit', 'live-terminal'] as const;
 const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
 const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
 const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
@@ -379,7 +378,9 @@ function buildChat(sessionId: string): MountedChat {
     if (SENT_OUTBOX_STATES.has(entry.state)) return true;
     return entry.state === 'held' && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
   };
+  let terminalCardState: TerminalCardState = 'hidden';
   const phaseToShow = () => {
+    if (terminalCardState === 'borrowed') return 'quiet';
     const phase = sessionPhaseOf(sessionId);
     if (phase === 'working') entryIdsAwaitingTurn.clear();
     const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
@@ -440,7 +441,6 @@ function buildChat(sessionId: string): MountedChat {
   };
   chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
   let shownApproval: ShownApproval | null = null;
-  let terminalCardState: TerminalCardState = 'hidden';
   let terminalCardSerial = 0;
   let terminalCardId: string | null = null;
   let terminalHome: HTMLElement | null = null;
@@ -532,9 +532,11 @@ function buildChat(sessionId: string): MountedChat {
 
   const borrowTerminal = () => {
     if (terminalCardState === 'borrowed') return;
-    if (!sessionUIs.has(sessionId)) return;
+    const agent = sessionUIs.get(sessionId)?.agent;
+    if (agent === undefined) return;
     terminalCardSerial += 1;
-    const card: ChatCard = { cardType: 'live-terminal', cardId: `live-terminal-${terminalCardSerial}`, data: { heading: LIVE_TERMINAL_HEADING }, resolution: null };
+    const heading = `${agent === null ? 'The agent' : agentLabel(agent)} is waiting in its terminal`;
+    const card: ChatCard = { cardType: 'live-terminal', cardId: `live-terminal-${terminalCardSerial}`, data: { heading }, resolution: null };
     chatView.upsert([cardPartOf(card)], new Set([card.cardId]));
     if (lendTerminalToCard(card.cardId)) terminalCardId = card.cardId;
   };
@@ -685,6 +687,11 @@ function buildChat(sessionId: string): MountedChat {
     }
     if (signInCard?.cardId === cardId && action === 'sign-in') {
       startSignIn();
+      return;
+    }
+    if (action === 'open-terminal') {
+      setSessionView('terminal');
+      closeSessionPage();
       return;
     }
     if (action === 'switch-account') {
@@ -839,6 +846,7 @@ function buildChat(sessionId: string): MountedChat {
       runningSubagents = [];
       showRail();
       syncWaitingCards();
+      chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
     },
     onFailure: showFailure,
   });

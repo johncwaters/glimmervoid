@@ -471,6 +471,10 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   assert.ok(terminalBox && terminalBox.height >= MIN_INLINE_TERMINAL_HEIGHT_PX, `the inline terminal is tall enough to answer a menu (${terminalBox?.height ?? 0}px)`);
   const focusedElementClass = await page.evaluate(() => document.activeElement?.className ?? '');
   assert.match(focusedElementClass, /chat-composer-input/, 'a terminal shown inline leaves the keyboard on the composer');
+  const terminalCard = page.locator('.session-chat .chat-card[data-card-type="live-terminal"]');
+  assert.match(await terminalCard.locator('.chat-card-heading').innerText(), /is waiting in its terminal$/, 'the terminal card names the agent');
+  assert.equal(await terminalCard.locator('.chat-card-actions button').count(), 1, 'the terminal card offers only Open Terminal');
+  await page.locator('.session-chat .chat-activity[data-idle]').waitFor({ state: 'attached', timeout: CARD_TIMEOUT_MS });
   const noteCounts = await page.evaluate(async () => {
     const card = document.querySelector('.session-card[data-id]');
     const sessionId = card?.getAttribute('data-id') ?? '';

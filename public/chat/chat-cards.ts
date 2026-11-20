@@ -259,7 +259,11 @@ function renderSignInCard(card: ChatCardByType['sign-in']): HTMLElement {
 
 function renderLiveTerminalCard(card: ChatCardByType['live-terminal']): HTMLElement {
   const shell = cardShell(card, card.data.heading);
-  shell.appendChild(el('div', 'chat-terminal-slot'));
+  const openTerminalButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Open Terminal', shortcutKey: '1', onClick: () => dispatchCardAction(shell, card, 'open-terminal', '') });
+  markCardKeys(openTerminalButton, ['1']);
+  const actions = el('div', 'chat-card-actions');
+  actions.append(openTerminalButton);
+  shell.append(el('p', 'chat-card-text', 'It is showing something Glimmervoid cannot read. Answer it here.'), el('div', 'chat-terminal-slot'), actions);
   return shell;
 }
 
