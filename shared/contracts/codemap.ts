@@ -24,13 +24,16 @@ export const CodemapExtract = z.strictObject({
   paths: z.array(z.string()),
   importerIndexes: z.instanceof(Int32Array),
   importedIndexes: z.instanceof(Int32Array),
+  typeOnlyEdges: z.instanceof(Uint8Array),
   specifiersByIndex: z.array(z.array(z.string())),
+  typeOnlySpecifiersByIndex: z.array(z.array(z.string())),
+  outsideGraphImportsByIndex: z.array(z.array(z.strictObject({ specifier: z.string(), targetPath: z.string().nullable() }))),
   exportedNamesByIndex: z.array(z.array(z.string())),
   skippedPaths: z.array(z.string()),
 });
 export type CodemapExtract = z.infer<typeof CodemapExtract>;
 
-export const CodemapExtractBase = CodemapExtract.pick({ sha: true, paths: true, specifiersByIndex: true, exportedNamesByIndex: true });
+export const CodemapExtractBase = CodemapExtract.pick({ sha: true, paths: true, specifiersByIndex: true, typeOnlySpecifiersByIndex: true, exportedNamesByIndex: true });
 export type CodemapExtractBase = z.infer<typeof CodemapExtractBase>;
 
 const CodemapModuleName = z.string({ error: 'a module must be a string' }).min(1, { error: 'a module must not be empty' }).max(CODEMAP_TARGET_MAX_CHARS);

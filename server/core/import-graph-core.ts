@@ -9,6 +9,7 @@ import {
 export const CALL_IMPORT = /\b(?:require|import)\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
 export const STATIC_IMPORT = /\bimport\b(?:(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom)?\s*(['"])([^'"]+)\1/g;
 export const EXPORT_FROM =/\bexport\b(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom\s*(['"])([^'"]+)\1/g;
+const TYPE_ONLY_IMPORT = /\b(?:import|export)\s+type(?=\s*[{*]|\s+(?!from\b)[A-Za-z_$])(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom\s*(['"])([^'"]+)\1/g;
 
 interface ImportGraph {
   dependentsByPath: Map<string, Set<string>>;
@@ -25,6 +26,37 @@ export function extractImportSpecifiers(sourceText: string): string[] {
 
   matches.sort((left, right) => left.index - right.index);
   return [...new Set(matches.map((match) => match.specifier))];
+}
+
+export function extractTypeOnlySpecifiers(sourceText: string): string[] {
+  const typeOnlySpecifiers = [...sourceText.matchAll(TYPE_ONLY_IMPORT)].map((match) => match[2]);
+  if (typeOnlySpecifiers.length === 0) return [];
+  const valueSpecifiers = new Set(extractImportSpecifiers(sourceText.replace(TYPE_ONLY_IMPORT, '')));
+  return [...new Set(typeOnlySpecifiers)].filter((specifier) => !valueSpecifiers.has(specifier));
+}
+
+interface OutsideGraphImport {
+  specifier: string;
+  targetPath: string | null;
+}
+
+function relativeImportCandidates(candidatePath: string): string[] {
+  const declarationAndIndexForms = ['.d.ts', '/index.d.ts', '/index.mjs', '/index.mts', '/index.cjs', '/index.cts', '/index.jsx'].map((suffix) => `${candidatePath}${suffix}`);
+  return [...sourceCandidates(candidatePath), ...declarationAndIndexForms];
+}
+
+export function outsideGraphImportsOf(fromPath: string, specifiers: readonly string[], graphPaths: ReadonlySet<string>, trackedPaths: ReadonlySet<string>): OutsideGraphImport[] {
+  if (fromPath.endsWith('.py')) return [];
+  return specifiers.flatMap((specifier) => {
+    if (!specifier.startsWith('./') && !specifier.startsWith('../')) return [];
+    const candidatePath = relativeImportBasePath(fromPath, specifier);
+    if (sourceCandidates(candidatePath).some((candidate) => graphPaths.has(candidate))) return [];
+    return [{ specifier, targetPath: relativeImportCandidates(candidatePath).find((candidate) => trackedPaths.has(candidate)) ?? null }];
+  });
+}
+
+export function relativeImportBasePath(fromPath: string, specifier: string): string {
+  return path.posix.normalize(path.posix.join(path.posix.dirname(fromPath), specifier.split('?')[0] ?? specifier));
 }
 
 const EXPORTED_DECLARATION = /\bexport\s+(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|interface|type|abstract\s+class)\s+([A-Za-z_$][\w$]*)/g;

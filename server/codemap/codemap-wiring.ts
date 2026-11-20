@@ -11,7 +11,7 @@ import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { changedPathsSince, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup } from './codemap-store.ts';
-import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -43,9 +43,9 @@ async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha }: Work
   if (!headSha || !changedPaths) return { ok: false, error: `${worktreeDir} has no commit to compare with mainline ${mainlineSha.slice(0, 7)}` };
   const model = buildCodemapModel(await client.extract(worktreeDir, headSha), lookup.setup.modules);
   const unallowedEdges = unallowedEdgesOf(model, changedPaths, lookup.setup.allow);
-  const unjudgedPaths = unjudgedPathsOf(model, changedPaths);
+  const findings = { unallowedEdges, unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), staleAllowedEdges: staleAllowedEdgesOf(model, lookup.setup.allow) };
   const gateNote = lookup.setup.gate ? null : 'The import gate is off for this repo, so these never refuse a push.';
-  return { ok: true, isRefusing: lookup.setup.gate && (unallowedEdges.length > 0 || unjudgedPaths.length > 0), text: checkTextOf(repoName, unallowedEdges, unjudgedPaths, staleAllowedEdgesOf(model, lookup.setup.allow), gateNote) };
+  return { ok: true, isRefusing: lookup.setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
 }
 
 interface SetupShrink {
@@ -117,7 +117,7 @@ interface OverlayDrawing {
 }
 
 function extractBaseOf(extract: CodemapExtract): CodemapExtractBase {
-  return { sha: extract.sha, paths: extract.paths, specifiersByIndex: extract.specifiersByIndex, exportedNamesByIndex: extract.exportedNamesByIndex };
+  return { sha: extract.sha, paths: extract.paths, specifiersByIndex: extract.specifiersByIndex, typeOnlySpecifiersByIndex: extract.typeOnlySpecifiersByIndex, exportedNamesByIndex: extract.exportedNamesByIndex };
 }
 
 const MapBoardIds = z.record(z.string(), z.string());

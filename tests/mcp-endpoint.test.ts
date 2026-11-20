@@ -32,6 +32,8 @@ import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { clock } from '../shared/clock.ts';
 import { repoKeyOf, setupPathOf } from '../server/codemap/codemap-store.ts';
 import { runOperatorCodemapCli } from '../server/codemap/codemap-cli.ts';
+import { checkWorktree } from '../server/codemap/codemap-wiring.ts';
+import { createCodemapClient } from '../server/codemap/codemap-client.ts';
 import { git } from './helpers/git-fixture.ts';
 
 const SESSION_ID = 'mcp-endpoint-session';
@@ -436,7 +438,7 @@ test('every board just past the picture width still pictures instead of being re
   assert.deepEqual(refusedOffsets, []);
 });
 
-test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, and refuses an agent allowing a module import', async () => {
+test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
@@ -478,6 +480,31 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.equal(await runOperatorCodemapCli(['allow', projectDir, 'lib', '.']), 1);
   assert.equal(await runOperatorCodemapCli(['allow', projectDir, 'lib', '.', '--reason', 'store reads config']), 0);
   assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow.at(-1), { from: 'lib', to: '.', origin: 'allowed', reason: 'store reads config', date: clock.dayKeyOf(clock.nowMs()), landed: false });
+
+  const branchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-branch-'));
+  git(['worktree', 'add', '--quiet', '-b', 'tools', branchDir], projectDir);
+  fs.mkdirSync(path.join(branchDir, 'tools'));
+  fs.writeFileSync(path.join(branchDir, 'tools', 'types.ts'), "import type { readStore } from '../lib/store.ts';\nexport type Reader = typeof readStore;\n");
+  fs.writeFileSync(path.join(branchDir, 'tools', 'types.test.ts'), "import { readStore } from '../lib/store.ts';\nreadStore();\n");
+  fs.writeFileSync(path.join(branchDir, 'tools', 'look.css'), 'a {}\n');
+  fs.writeFileSync(path.join(branchDir, 'tools', 'page.ts'), "import './look.css';\nimport { gone } from './gone.ts';\nimport '../dist/built.js';\ngone();\n");
+  fs.writeFileSync(path.join(branchDir, '.gitignore'), 'dist/\n');
+  fs.writeFileSync(path.join(branchDir, 'tools', 'fixture.test.ts'), "const source = \"import { x } from './nowhere.ts';\";\n");
+  fs.mkdirSync(path.join(branchDir, 'tools', 'test'));
+  fs.writeFileSync(path.join(branchDir, 'tools', 'test', 'bridge.ts'), "export { readStore } from '../../lib/store.ts';\n");
+  fs.writeFileSync(path.join(branchDir, 'tools', 'bridged.ts'), "import { readStore } from './test/bridge.ts';\nreadStore();\n");
+  fs.writeFileSync(path.join(branchDir, 'tools', 'named-type.ts'), "import type from '../lib/store.ts';\ntype();\n");
+  fs.writeFileSync(path.join(branchDir, 'lib', 'data.json'), '{}\n');
+  fs.writeFileSync(path.join(branchDir, 'tools', 'data.ts'), "import data from '../lib/data.json';\nexport { data };\n");
+  git(['add', '-A'], branchDir);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'tools'], branchDir);
+  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }] }));
+  const branchCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: headSha });
+  assert.ok(branchCheck.ok && branchCheck.isRefusing, JSON.stringify(branchCheck));
+  assert.match(branchCheck.text, /relative imports that resolve to no file in the repo, so they cannot be judged: tools\/page\.ts imports \.\/gone\.ts$/m);
+  const judgedImports = branchCheck.text.split('\n').filter((line) => line.startsWith('    ')).map((line) => line.trim()).sort();
+  assert.deepEqual(judgedImports, ['tools/data.ts imports lib/data.json', 'tools/named-type.ts imports lib/store.ts', 'tools/test/bridge.ts imports lib/store.ts']);
+  assert.doesNotMatch(branchCheck.text, /look\.css|built\.js|nowhere/);
 
   const overlaid = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'session' } }, credential))).structuredContent);
   assert.match(overlaid.text, /^codemap overlay on the map of project: session mcp endpoint changes \d+ files/);

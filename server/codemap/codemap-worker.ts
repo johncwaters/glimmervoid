@@ -8,7 +8,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { isSourcePath, readImportsMap } from '../change-map/core/change-map-core.ts';
-import { buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers } from '../core/import-graph-core.ts';
+import { buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath } from '../core/import-graph-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
 import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 
@@ -80,12 +80,13 @@ async function readTsconfigs(repoDir: string, entries: readonly TreeEntry[]): Pr
 
 interface FileScan {
   specifiers: string[];
+  typeOnlySpecifiers: string[];
   exportedNames: string[];
 }
 
 function scanOf(repoPath: string, sourceText: string): FileScan {
-  if (repoPath.endsWith('.py')) return { specifiers: extractPythonImportSpecifiers(sourceText), exportedNames: [] };
-  return { specifiers: extractImportSpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
+  if (repoPath.endsWith('.py')) return { specifiers: extractPythonImportSpecifiers(sourceText), typeOnlySpecifiers: [], exportedNames: [] };
+  return { specifiers: extractImportSpecifiers(sourceText), typeOnlySpecifiers: extractTypeOnlySpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
 }
 
 async function reusableScansOf(repoDir: string, base: CodemapExtractBase | null, sha: string): Promise<Map<string, FileScan>> {
@@ -93,7 +94,20 @@ async function reusableScansOf(repoDir: string, base: CodemapExtractBase | null,
   const changed = await execFileAsync('git', ['diff', '--name-only', '--relative', '-z', '--no-renames', base.sha, sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES })
     .then(({ stdout }) => new Set(stdout.split(String.fromCharCode(0)).filter(Boolean)), () => null);
   if (!changed) return new Map();
-  return new Map(base.paths.flatMap((repoPath, index) => (changed.has(repoPath) ? [] : [[repoPath, { specifiers: base.specifiersByIndex[index] ?? [], exportedNames: base.exportedNamesByIndex[index] ?? [] }] as const])));
+  return new Map(base.paths.flatMap((repoPath, index) => (changed.has(repoPath) ? [] : [[repoPath, { specifiers: base.specifiersByIndex[index] ?? [], typeOnlySpecifiers: base.typeOnlySpecifiersByIndex[index] ?? [], exportedNames: base.exportedNamesByIndex[index] ?? [] }] as const])));
+}
+
+async function ignoredPathsOf(repoDir: string, candidatePaths: readonly string[]): Promise<Set<string>> {
+  if (candidatePaths.length === 0) return new Set();
+  const ignoredText = await new Promise<string>((resolve) => {
+    const child = spawn('git', ['check-ignore', '--no-index', '-z', '--stdin'], { cwd: repoDir, env: GIT_ENV, stdio: ['pipe', 'pipe', 'ignore'] });
+    const chunks: Buffer[] = [];
+    child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.on('error', () => resolve(''));
+    child.on('close', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    child.stdin?.end(candidatePaths.join(String.fromCharCode(0)));
+  });
+  return new Set(ignoredText.split(String.fromCharCode(0)).filter(Boolean));
 }
 
 async function assertFullClone(repoDir: string): Promise<void> {
@@ -151,12 +165,23 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const scans = paths.map((repoPath) => reusableScans.get(repoPath) ?? scanOf(repoPath, textByPath.get(repoPath) ?? ''));
   const specifiersByIndex = scans.map((scan) => scan.specifiers);
   const exportedNamesByIndex = scans.map((scan) => scan.exportedNames);
+  const typeOnlySpecifiersByIndex = scans.map((scan) => scan.typeOnlySpecifiers);
   const specifiersByPath = new Map(paths.map((repoPath, index) => [repoPath, specifiersByIndex[index] ?? []]));
+  const valueSpecifiersByPath = new Map(paths.map((repoPath, index) => [repoPath, (specifiersByIndex[index] ?? []).filter((specifier) => !typeOnlySpecifiersByIndex[index]?.includes(specifier))]));
+  const trackedPaths = new Set(entries.map((entry) => entry.repoPath));
+  const graphPaths = new Set(paths);
+  const candidateImportsByIndex = paths.map((repoPath, index) => outsideGraphImportsOf(repoPath, specifiersByIndex[index] ?? [], graphPaths, trackedPaths));
+  const unresolvedBasePaths = paths.flatMap((repoPath, index) => (candidateImportsByIndex[index] ?? []).filter((candidate) => candidate.targetPath === null).map((candidate) => relativeImportBasePath(repoPath, candidate.specifier)));
+  const ignoredPaths = await ignoredPathsOf(repoDir, [...new Set(unresolvedBasePaths)].filter((basePath) => !basePath.startsWith('../')));
+  const outsideGraphImportsByIndex = paths.map((repoPath, index) => (candidateImportsByIndex[index] ?? []).filter((candidate) => candidate.targetPath !== null || !ignoredPaths.has(relativeImportBasePath(repoPath, candidate.specifier))));
   markPhase('scan imports');
-  const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath) });
+  const resolution = { importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath) };
+  const graph = buildImportGraph({ specifiersByPath, ...resolution });
+  const valueGraph = buildImportGraph({ specifiersByPath: valueSpecifiersByPath, ...resolution });
   const indexByPath = new Map(paths.map((repoPath, index) => [repoPath, index]));
   const importers: number[] = [];
   const imported: number[] = [];
+  const typeOnlyEdges: number[] = [];
   for (const [importedPath, dependentPaths] of graph.dependentsByPath) {
     const importedIndex = indexByPath.get(importedPath);
     if (importedIndex === undefined) continue;
@@ -165,10 +190,11 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
       if (importerIndex === undefined) continue;
       importers.push(importerIndex);
       imported.push(importedIndex);
+      typeOnlyEdges.push(valueGraph.dependentsByPath.get(importedPath)?.has(dependentPath) ? 0 : 1);
     }
   }
   markPhase('resolve graph');
-  return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), specifiersByIndex, exportedNamesByIndex, skippedPaths };
+  return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), typeOnlyEdges: Uint8Array.from(typeOnlyEdges), specifiersByIndex, typeOnlySpecifiersByIndex, outsideGraphImportsByIndex, exportedNamesByIndex, skippedPaths };
 }
 
 function serve(): void {
@@ -188,7 +214,7 @@ function serve(): void {
       previousPhaseAt = now;
     }
     extract(parsed.data.repoDir, parsed.data.sha, parsed.data.base, markPhase).then(
-      (extracted) => port.postMessage({ ok: true, extract: extracted }, [extracted.importerIndexes.buffer, extracted.importedIndexes.buffer]),
+      (extracted) => port.postMessage({ ok: true, extract: extracted }, [extracted.importerIndexes.buffer, extracted.importedIndexes.buffer, extracted.typeOnlyEdges.buffer]),
       (error: unknown) => port.postMessage({ ok: false, error: errorMessage(error) }),
     );
   });
