@@ -4,9 +4,7 @@ Pull requests are welcome. This page says what a mergeable one needs, so you kno
 
 ## Before you start
 
-- **Small fixes go straight to a pull request**: a bug fix, a docs correction, a typo.
-- **Open an issue first** for a new feature, a behavior change, a new dependency or a new agent adapter, so we agree on the approach before you spend time on it. A pull request for one of these without an agreed issue may be closed.
-- One change per pull request. A refactor riding along with a fix hides what each one changed.
+One change per pull request. A refactor riding along with a fix hides what each one changed.
 
 ## Set up
 
@@ -41,14 +39,16 @@ node --import ./tests/helpers/isolate-home.ts --test tests/some.test.ts
 
 Changed a setting, config key or environment variable? Run `npm run docs:config` and commit the regenerated `docs/configuration.md`. `tests/gates/config-docs.test.ts` fails otherwise.
 
-Tests pass but you have not used the change? Run it in the dashboard first; the pull request template asks how you exercised it.
+Tests pass but you have not used the change? Run it in the dashboard first; the pull request template asks how you exercised it and for a screenshot of any UI change.
 
 ## Conventions
 
 Code conventions, invariants and the architecture map are in [AGENTS.md](AGENTS.md) and the `AGENTS.md` nearest the code you touch. Tests enforce most of them, so a failing test usually names the rule. The ones no test checks:
 
 - **Agent parity.** A session feature works on every first-class agent (Claude Code, Codex, Kimi Code, OpenCode, pi, Antigravity CLI), or the pull request says why one cannot.
-- **No new dependencies** without agreement in an issue.
+- **No new dependencies** unless the maintainer agrees in the pull request.
+- **No code comments.** Name or restructure instead.
+- **Screenshots.** Any UI change carries a screenshot in the pull request.
 - **Changelog.** Anything a user would notice gets a line under `## [Unreleased]` in `CHANGELOG.md`, which becomes the release notes.
 - **Characters.** No em dash, en dash, ellipsis character or emoji in source, docs or commits.
 
