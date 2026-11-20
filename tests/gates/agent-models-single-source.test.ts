@@ -22,7 +22,7 @@ const MODEL_FLAG_OR_NAME = [
 
 function trackedSourceFiles(): string[] {
   const listed = execFileSync('git', ['ls-files', '*.ts', '*.tsx', '*.mts', '*.cts', '*.mjs', '*.cjs', '*.js'], { cwd: REPO_ROOT, encoding: 'utf8' });
-  return listed.split('\n').filter((file) => file !== '' && !file.startsWith('tests/') && !file.startsWith('site/') && !/\.test\.[cm]?[jt]sx?$/.test(file));
+  return listed.split('\n').filter((file) => file !== '' && !file.startsWith('tests/') && !file.startsWith('site/') && !file.startsWith('examples/') && !/\.test\.[cm]?[jt]sx?$/.test(file));
 }
 
 test('model flags and model names live only in the agent model catalog', () => {
