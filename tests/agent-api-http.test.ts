@@ -29,7 +29,6 @@ import { memoryReserveBytes } from '../server/core/memory-admission-core.ts';
 import { sessionIdFromBranch } from '../server/core/branch-gc-core.ts';
 import { createGitWorkspace } from '../server/git/git-workspace.ts';
 import { describePushLanding, REFUSAL_REASON } from '../server/core/agent-api-core.ts';
-import { PASTE_SETTLE_MS } from '../session/core/input-delivery-core.ts';
 import { SPAWNED_SESSIONS_DEFAULT } from '../shared/settings-ranges.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV, AgentLimitsReply, AgentReadReply, AgentReviewDetailReply, AgentReviewsReply } from '../shared/contracts/session.ts';
 import { AgentWakeReply } from '../shared/contracts/wakes.ts';
@@ -1185,7 +1184,7 @@ test('a child that fails wakes its parent even after the parent read its report'
   }
 });
 
-test('a spawned child that stops wakes its just-started idle parent with one submitted line once the startup settle ends, up to the cap, then again once the operator has typed', async () => {
+test('a spawned child that stops wakes its idle parent with one submitted line, up to the cap, then again once the operator has typed', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });
   const written: string[] = [];
@@ -1210,9 +1209,6 @@ test('a spawned child that stops wakes its just-started idle parent with one sub
 
     child.emit('hook-event', { event: 'Stop', payload: { last_assistant_message: 'held U2 over a HIGH finding' } });
     await endChildTurn();
-    assert.deepEqual(pasted(), [], 'no wake typed while the parent is still settling after startup');
-    await setTimeoutPromise(PASTE_SETTLE_MS);
-    await waitForSubmitDelay();
     assert.deepEqual(pasted(), [`Glimmervoid: ${String(spawned.body.name)}, the session you spawned, has news. Run glimmervoid read ${childId} and act on it.`]);
     assert.deepEqual(enters(), ['\r']);
     const notes = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels[0]?.entries ?? [];
@@ -1255,7 +1251,6 @@ test('a child resuming after the parent wake line was submitted, before the pare
     const child = fixture.created[0];
     await fixture.parent.start();
     fixture.parent.transition('first_output');
-    await setTimeoutPromise(PASTE_SETTLE_MS);
     child.emit('state-change', { from: STATES.RUNNING, to: STATES.COMPLETE });
     advanceBy(1000);
     await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
@@ -1372,7 +1367,6 @@ test('a draft the operator stages at an idle parent holds off the wake so a stop
     await fixture.parent.start();
     fixture.parent.transition('first_output');
     assert.equal(fixture.parent.state, STATES.IDLE);
-    await setTimeoutPromise(PASTE_SETTLE_MS);
     assert.equal(fixture.parent.deliver('half done', { when: 'ready', submit: false }).ok, true);
     fixture.parent.noteOperatorDraft();
     advanceBy(1000);

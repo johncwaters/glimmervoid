@@ -230,7 +230,7 @@ test('a kimi session in a fresh folder starts pre-trusted and gets its initial p
 });
 
 for (const agent of ['kimi', 'claude-code']) {
-  test(`a prompt pasted into a starting ${agent} session waits for its input box to settle and stays pending meanwhile, so race prompts queued before or during the settle all arrive in order ahead of a prompt left for the operator to submit, while a session already ready takes a paste at once and never submits one over a prompt the operator has yet to send`, async (t) => {
+  test(`a prompt pasted into a starting ${agent} session waits until the agent can take input and stays pending meanwhile, so race prompts queued before it is ready all arrive in order ahead of a prompt left for the operator to submit, while a session already ready takes a paste at once and never submits one over a prompt the operator has yet to send`, async (t) => {
     const agentHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-paste-settle-'));
     t.after(() => fsp.rm(agentHome, { recursive: true, force: true }));
     const writes: string[] = [];
@@ -245,14 +245,14 @@ for (const agent of ['kimi', 'claude-code']) {
       assert.deepEqual(session.deliver('Read before sending', { when: 'ready', submit: false }), { ok: true, kind: 'queued' });
       assert.equal(session.deliver('Race task', { when: 'ready', submit: true }).ok, true);
       assert.deepEqual(session.deliver('Second race task', { when: 'ready', submit: true }), { ok: true, kind: 'queued' });
-      session.transition('first_output');
       await new Promise((resolve) => setTimeout(resolve, 200));
-      const writesBeforeSettle = [...writes];
-      const isPendingDuringSettle = session.hasPendingPaste();
+      const writesBeforeReady = [...writes];
+      const isPendingBeforeReady = session.hasPendingPaste();
       assert.deepEqual(session.deliver('Settle window task', { when: 'ready', submit: true }), { ok: true, kind: 'queued' });
-      await new Promise((resolve) => setTimeout(resolve, 2600));
-      assert.deepEqual(writesBeforeSettle, []);
-      assert.equal(isPendingDuringSettle, true);
+      session.transition('first_output');
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      assert.deepEqual(writesBeforeReady, []);
+      assert.equal(isPendingBeforeReady, true);
       assert.equal(session.hasPendingPaste(), false);
       assert.deepEqual(writes, [
         '\x1b[200~Race task\x1b[201~', '\r',

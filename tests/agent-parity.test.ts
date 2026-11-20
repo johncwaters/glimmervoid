@@ -65,6 +65,19 @@ const SPILLED_OUTPUT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixtu
   pi: { file: 'pi-spill.jsonl', vendorSessionId: '01a1eb36-5519-75b2-ad2e-f67b52e126e9' },
   antigravity: { file: 'antigravity-spill.jsonl', vendorSessionId: '36aa83a7-4886-494b-80f8-9aafc4c7c16a' },
 };
+const STARTUP_READY_FIXTURE_BY_AGENT: Record<FirstClassAgent, string | UnproducibleScenario> = {
+  'claude-code': { unproducible: 'Claude Code reports input readiness through its SessionStart hook, not its terminal output, which the control-chat startup hook tests pin' },
+  codex: 'v2-codex-startup-ready.jsonl',
+  kimi: 'v2-kimi-startup-ready.jsonl',
+  opencode: { unproducible: 'the operator left OpenCode at the first-output default, so no startup capture was taken' },
+  pi: { unproducible: 'the operator left pi at the first-output default, so no startup capture was taken' },
+  antigravity: 'v2-antigravity-startup-ready.jsonl',
+};
+const STARTUP_READY_RECORD_BY_FIXTURE: Readonly<Record<string, number>> = {
+  'v2-codex-startup-ready.jsonl': 0,
+  'v2-kimi-startup-ready.jsonl': 15,
+  'v2-antigravity-startup-ready.jsonl': 13,
+};
 const SPILL_WRAPPER_TEXT = /persisted-output|Output too large|output_path|\[preview: chars \[0,|Full output:|truncated due to being too long/;
 const PROBE_FIXTURE_RECORD_SPACING_MS = 1000;
 const HEADER_READ_BYTES = 4096;
@@ -242,6 +255,7 @@ function fixturesReplayedByMatrix(): Set<string> {
     for (const fixture of Object.values(scenario.fixtureByAgent)) if (typeof fixture === 'string') replayedFixtures.add(fixture);
     for (const fixture of scenario.additionalFixtures ?? []) replayedFixtures.add(fixture);
   }
+  for (const fixture of Object.values(STARTUP_READY_FIXTURE_BY_AGENT)) if (typeof fixture === 'string') replayedFixtures.add(fixture);
   return replayedFixtures;
 }
 
@@ -280,6 +294,55 @@ for (const scenario of PARITY_SCENARIOS) {
   for (const fixture of scenario.additionalFixtures ?? []) {
     test(`${scenario.name} on ${fixture}`, (t) => assertScenarioOutcome(scenario, fixture, t));
   }
+}
+
+function recordedTerminalOutput(fixtureFile: string): string[] {
+  return fs.readFileSync(path.join(FIXTURE_DIRECTORY, fixtureFile), 'utf8').split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line)).filter((record) => record.type === 'data').map((record) => record.data);
+}
+
+async function settleChatDelivery(t: TestContext): Promise<void> {
+  t.mock.timers.tick(0);
+  for (let round = 0; round < 5; round++) await new Promise((resolve) => setImmediate(resolve));
+}
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = STARTUP_READY_FIXTURE_BY_AGENT[agent];
+  if (typeof fixture !== 'string') {
+    test(`a Chat message to a starting session waits until the agent can take input on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`a Chat message to a starting session waits until the agent can take input on ${agent}`, async (t) => {
+    assert.equal(readFixtureHeader(fixture).agent, agent, `${fixture} header names another agent`);
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-startup-ready-'));
+    const ptyWrites: string[] = [];
+    const session = new Session({ id: `startup-ready-${agent}`, name: agent, path: projectPath, agent, ptySpawn: () => capturingPty(ptyWrites) });
+    t.after(() => {
+      session.destroy();
+      fs.rmSync(projectPath, { recursive: true, force: true });
+    });
+    await session.start();
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+    session.queueChatMessage('Sent while the agent was starting');
+    const readyRecord = STARTUP_READY_RECORD_BY_FIXTURE[fixture];
+    for (const [recordIndex, output] of recordedTerminalOutput(fixture).entries()) {
+      session._handlePtyData(output);
+      await settleChatDelivery(t);
+      const hasTypedMessage = ptyWrites.some((write) => write.includes('Sent while the agent was starting'));
+      if (recordIndex < (readyRecord ?? 0)) {
+        assert.equal(session.state, STATES.STARTING, `left starting at record ${recordIndex}, before the agent could take input`);
+        assert.ok(!hasTypedMessage, `typed the message at record ${recordIndex}, before the agent could take input`);
+        continue;
+      }
+      if (recordIndex !== readyRecord) continue;
+      assert.notEqual(session.state, STATES.STARTING, `still starting at record ${recordIndex}, where the agent takes input`);
+      assert.ok(hasTypedMessage, `held the message past record ${recordIndex}, where the agent takes input`);
+    }
+    for (let elapsedMs = 0; elapsedMs < 2000; elapsedMs += 100) {
+      t.mock.timers.tick(100);
+      await settleChatDelivery(t);
+    }
+    assert.ok(ptyWrites.some((write) => write.includes('Sent while the agent was starting')), 'the message never reached the agent');
+  });
 }
 
 test('every fixture pinned elsewhere still exists', () => {

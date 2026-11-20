@@ -1,4 +1,5 @@
 import type { ResolvedHookTool } from '../core/hook-tools.ts';
+import type { InputReadyCondition } from '../core/input-ready-core.ts';
 import type { ChatApprovalMode } from '../../shared/contracts/session.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../core/user-hooks-core.ts';
 import type { SessionAgentHomeChoice } from "../agent-home.ts";
@@ -40,7 +41,6 @@ interface AgentCapabilities {
   ptyInitialPrompt?: boolean;
   toolHookContext?: boolean;
   resumeNoteByHook?: boolean;
-  readyByStartupHook?: boolean;
   drawsOwnAlternateScreen?: boolean;
 }
 
@@ -166,6 +166,7 @@ interface AgentAdapter {
   titleProfile: AgentTitleProfile;
   hooks: AgentHookProfile | null;
   capabilities: AgentCapabilities;
+  inputReady?: InputReadyCondition;
   promptContextReply?: PromptContextReply;
   questionDenyReply?: QuestionDenyReply;
   resolveCommand(options?: AgentCommandOptions): ResolvedCommand;

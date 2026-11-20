@@ -7,7 +7,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { Session } from '../session/sessions.ts';
-import { PASTE_SETTLE_MS } from '../session/core/input-delivery-core.ts';
 import { createCustomAdapter } from '../session/adapters/custom.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
@@ -50,7 +49,6 @@ test('Chat reads a held question from the session status and answers it and send
   try {
     await session.start();
     session.transition('first_output');
-    await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
     session.transition('new_output');
     const held = session.holdConversationPermission(QUESTION_REQUEST, new AbortController().signal);
     assert.ok(held);
@@ -172,7 +170,6 @@ test('Chat switches the model between turns, keeping the conversation and the se
     await session.start();
     session.setResumeConversation('0f0e0d0c-0b0a-4908-8706-050403020100');
     session.transition('first_output');
-    await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
     session.transition('new_output');
     const midTurn = await switchTo({ agent: 'claude-code', model: 'opus', options: [] });
     assert.equal(midTurn?.ok, false);
@@ -283,31 +280,23 @@ test('a Claude session that exits cleanly from a startup dialog ends done instea
   assert.equal(session.state, 'DONE');
 });
 
-test('a Chat message to an agent with no turn signal waits out the startup settle, then clears after the wait instead of turning failed', async (t) => {
+test('a Chat message to an agent with no turn signal clears after the wait instead of turning failed', async (t) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-no-signal-'));
   const adapter = createCustomAdapter({ id: 'aider', label: 'Aider', command: 'aider', args: [] });
-  const writes: string[] = [];
-  const session = new Session({ id: 'silent', name: 'silent', path: projectPath, adapter, ptySpawn: () => capturingPty(writes) });
+  const session = new Session({ id: 'silent', name: 'silent', path: projectPath, adapter, ptySpawn: () => capturingPty([]) });
   t.after(() => {
     session.destroy();
     fs.rmSync(projectPath, { recursive: true, force: true });
   });
   await session.start();
+  session.transition('first_output');
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
-  const advance = async (waitMs: number) => {
-    for (let elapsedMs = 0; elapsedMs < waitMs; elapsedMs += 250) {
-      t.mock.timers.tick(250);
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-  };
 
   session.queueChatMessage('Answered with no hooks');
-  session.transition('first_output');
-  await advance(1_250);
-  assert.equal(writes.join('').includes('Answered with no hooks'), false);
-  await advance(500);
-  assert.ok(writes.join('').includes('Answered with no hooks'));
-  await advance(17_000);
+  for (let elapsedMs = 0; elapsedMs < 17_000; elapsedMs += 250) {
+    t.mock.timers.tick(250);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
 
   assert.deepEqual(session.toSnapshot().chatOutbox, []);
 });

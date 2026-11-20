@@ -18,7 +18,6 @@ interface DeliverOptions {
   onSettled?: (settlement: DeliverySettlement) => void;
 }
 
-const PASTE_SETTLE_MS = 1500;
 const SUBMIT_DELAY_MS = 300;
 const QUEUED_DELIVERY_TIMEOUT_MS = 120_000;
 const SUBMITTED_TURN_GRACE_MS = 10_000;
@@ -49,5 +48,5 @@ function canSubmit({ when, state, pastedAt, lastOperatorInputAt }: { when: Deliv
   return canLandNow(when, state);
 }
 
-export { PASTE_SETTLE_MS, QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, SUBMITTED_TURN_GRACE_MS, canLandNow, canSubmit, cleanPastedText, framePaste };
+export { QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, SUBMITTED_TURN_GRACE_MS, canLandNow, canSubmit, cleanPastedText, framePaste };
 export type { DeliverOptions, DeliveryOutcome, DeliverySettlement, DeliveryWhen };

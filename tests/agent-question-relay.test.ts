@@ -23,7 +23,6 @@ import type { LaneSpawn } from '../server/lanes/lane-spawn.ts';
 import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
-import { PASTE_SETTLE_MS } from '../session/core/input-delivery-core.ts';
 import { permissionRequestDecisionOf } from './helpers/permission-reply.ts';
 
 test('a parent reads and answers held child questions through the agent API or releases them to the operator', async (context) => {
@@ -36,7 +35,6 @@ test('a parent reads and answers held child questions through the agent API or r
   parent.transition('first_output');
   parent.ptyProcess = capturingPty(parentWrites);
   parent._ptyAlive = true;
-  await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
   const agentSessions = new Map<string, Session>();
   const wiring = createAgentApiWiring({
     config: DEFAULT_CONFIG,

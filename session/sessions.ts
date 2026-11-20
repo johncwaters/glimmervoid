@@ -6,6 +6,8 @@ import type { CompactionTracking } from "./core/compaction-core.ts";
 import { HOOK_TOOLS } from './core/hook-tools.ts';
 import { DEFAULT_TERMINAL_COLORS, scanTerminalColorQueries } from "./core/terminal-color-query.ts";
 import type { TerminalColors } from "./core/terminal-color-query.ts";
+import { NO_INPUT_READY_SCAN, scanInputReady } from "./core/input-ready-core.ts";
+import type { InputReadyCondition, InputReadyScan } from "./core/input-ready-core.ts";
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
@@ -146,8 +148,8 @@ function startsTurn(from: SessionState, to: SessionState): boolean {
   return BETWEEN_PROMPT_STATES.has(from) && TURN_REACHED_STATES.has(to) && from !== to;
 }
 
-type StartupSignal = "output" | "hook";
-type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer" | "_startupHookFallbackTimer";
+type StartupSignal = "output" | "ready";
+type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer" | "_inputReadyFallbackTimer";
 type SnoozeRefusal = "in-progress" | "no-conversation" | "not-snoozable";
 type SnoozeOutcome = { ok: true } | { ok: false; reason: SnoozeRefusal };
 
@@ -334,7 +336,7 @@ class Session extends EventEmitter {
   _hasPromptSinceSpawn: boolean;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
   _resumeNoteFallbackTimer: NodeJS.Timeout | null;
-  _startupHookFallbackTimer: NodeJS.Timeout | null;
+  _inputReadyFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
   _teardown: Teardown;
   _ptyAlive: boolean;
@@ -426,6 +428,7 @@ class Session extends EventEmitter {
   _titleSource: ReturnType<typeof createOscTitleSource>;
   _getTerminalColors: () => TerminalColors;
   _pendingColorQuery = "";
+  _inputReadyScan: InputReadyScan = NO_INPUT_READY_SCAN;
   _statusSource: ReturnType<typeof createStatusSource>;
 
   constructor({
@@ -634,7 +637,7 @@ class Session extends EventEmitter {
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
     this._resumeNoteFallbackTimer = null;
-    this._startupHookFallbackTimer = null;
+    this._inputReadyFallbackTimer = null;
 
     this._hookSeen = false;
     this._lastSignal = null;
@@ -1031,7 +1034,7 @@ class Session extends EventEmitter {
       return;
     }
     this._hookSeen = true;
-    if (!this._startupSignals.has("hook") && this._isReadyByStartupHook()) this._noteStartupHook();
+    if (!this._startupSignals.has("ready") && this._inputReadyCondition() === "startup-hook") this._noteInputReady();
     if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
     }
@@ -1871,8 +1874,9 @@ class Session extends EventEmitter {
       if (this.mergeStatus === "pending-review") this.worktreeLifecycle.scheduleCheck();
     }
     this._startupSignals.clear();
+    this._inputReadyScan = NO_INPUT_READY_SCAN;
     this._hasPromptSinceSpawn = false;
-    this._clearTimer("_startupHookFallbackTimer");
+    this._clearTimer("_inputReadyFallbackTimer");
 
     this._clearDetectionTracking();
     this._output.reset();
@@ -2026,29 +2030,40 @@ class Session extends EventEmitter {
     this._armPromptSupervisionLine();
   }
 
-  _isReadyByStartupHook(): boolean {
-    return this._can("readyByStartupHook") && this._hooks.hasInjection();
+  _inputReadyCondition(): InputReadyCondition | undefined {
+    const condition = this._adapter.inputReady;
+    if (condition === "startup-hook" && !this._hooks.hasInjection()) return undefined;
+    return condition;
   }
 
   _isAgentReadyForChat(): boolean {
-    return this._startupSignals.has("hook") || !this._isReadyByStartupHook();
+    return this._startupSignals.has("ready") || this._inputReadyCondition() === undefined;
   }
 
-  _noteStartupHook(): void {
-    this._startupSignals.add("hook");
-    this._clearTimer("_startupHookFallbackTimer");
+  _noteInputReady(): void {
+    this._startupSignals.add("ready");
+    this._clearTimer("_inputReadyFallbackTimer");
     if (this.state === STATES.STARTING) this.transition("first_output");
     this._chatOutbox.drain();
   }
 
-  _leaveStartingOnFirstOutput(): void {
-    if (!this._isReadyByStartupHook()) {
-      this.transition("first_output");
-      return;
-    }
-    this._armTimer("_startupHookFallbackTimer", this._titleQuietFallbackMs, () => {
+  _scanForInputReady(data: string): void {
+    if (this._startupSignals.has("ready")) return;
+    const { isReady, scan } = scanInputReady(this._inputReadyCondition(), this._inputReadyScan, data);
+    this._inputReadyScan = scan;
+    if (isReady) this._noteInputReady();
+  }
+
+  _armInputReadyFallback(): void {
+    this._armTimer("_inputReadyFallbackTimer", this._titleQuietFallbackMs, () => {
       if (this._destroyed || this.state !== STATES.STARTING) return;
-      console.warn(`[session:${this.name}] no hook callback within ${Math.round(this._titleQuietFallbackMs / 1000)}s of first output - showing the session as idle (detection is degraded); Chat keeps holding messages until a hook arrives`);
+      const waitedSeconds = Math.round(this._titleQuietFallbackMs / 1000);
+      if (this._inputReadyCondition() !== "startup-hook") {
+        console.warn(`[session:${this.name}] the agent showed no input-ready signal within ${waitedSeconds}s of first output - treating it as ready to take input`);
+        this._noteInputReady();
+        return;
+      }
+      console.warn(`[session:${this.name}] the agent showed no input-ready signal within ${waitedSeconds}s of first output - showing the session as idle (detection is degraded); Chat keeps holding messages until the signal arrives`);
       this.transition("first_output");
     }, { unref: true });
   }
@@ -2292,8 +2307,9 @@ class Session extends EventEmitter {
 
     if (this.state === STATES.STARTING && !this._startupSignals.has("output")) {
       this._startupSignals.add("output");
-      this._leaveStartingOnFirstOutput();
+      this._armInputReadyFallback();
     }
+    this._scanForInputReady(data);
 
     try {
       this._titleSource.feed(data);
@@ -2679,7 +2695,7 @@ class Session extends EventEmitter {
     this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");
     this._clearTimer("_resumeNoteFallbackTimer");
-    this._clearTimer("_startupHookFallbackTimer");
+    this._clearTimer("_inputReadyFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.clearWakeups();

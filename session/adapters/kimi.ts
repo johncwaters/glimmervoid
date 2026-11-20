@@ -269,6 +269,7 @@ const kimi = {
     subagentTurnStops: true,
     ptyInitialPrompt: true,
   },
+  inputReady: "full-frame",
   promptContextReply: "message",
 } satisfies AgentAdapterShape;
 
