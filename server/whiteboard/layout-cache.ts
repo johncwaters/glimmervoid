@@ -105,7 +105,7 @@ interface OpenCache extends Omit<LayoutCache, 'saveWhole'> {
 }
 
 interface QueuedLayoutCache extends LayoutCache {
-  runQueuedSlice(): boolean;
+  runQueuedSlice(isBoardBusy: (boardId: string) => boolean): boolean;
 }
 
 interface QueuedWriteTiming {
@@ -390,9 +390,9 @@ function openLayoutCache(filePath: string | null, codeStamp: string | null, onQu
     return step?.done !== false;
   }
 
-  function runQueuedSlice(): boolean {
-    const oldest = queuedWrites[0];
-    if (oldest && isWriteDone(oldest)) queuedWrites.shift();
+  function runQueuedSlice(isBoardBusy: (boardId: string) => boolean): boolean {
+    const oldestIdle = queuedWrites.find((write) => !isBoardBusy(write.boardId));
+    if (oldestIdle && isWriteDone(oldestIdle)) queuedWrites.splice(queuedWrites.indexOf(oldestIdle), 1);
     return queuedWrites.length > 0;
   }
 

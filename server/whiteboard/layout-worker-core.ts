@@ -6,7 +6,8 @@ import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileK
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
-import { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumeBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard } from '../../shared/whiteboard-layout-cache.ts';
+import { advancingBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumingBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard, worldSteps } from '../../shared/whiteboard-layout-cache.ts';
+import { drained } from '../../shared/generator-steps.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
@@ -92,7 +93,13 @@ interface HeldTiles {
 const CACHED_LINEAGE = -1;
 
 interface LayoutHost {
+  handling(request: LayoutRequestBody): Generator<void, AnswerFields>;
   handle(request: LayoutRequestBody): AnswerFields;
+}
+
+function boardIdOfRequest(request: LayoutRequestBody): string {
+  if (request.kind === 'sync-start' || request.kind === 'advance') return request.head.id;
+  return request.boardId;
 }
 
 function savedPaintOf(index: TileIndex, slot: number, painted: PlacedPaint | null | undefined): SavedPaint[] {
@@ -138,9 +145,10 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     return { stamp: { version: index.version, updatedAt: held.updatedAt }, chrome: index.chrome, rows: { count: index.painted.length, at: (slot) => savedPaintOf(index, slot, index.painted[slot])[0] ?? null }, savedWorld };
   }
 
-  function heldTilesOf(board: Board): HeldTiles {
+  function* heldTilesSteps(board: Board): Generator<void, HeldTiles> {
     const held = cachedTilesOf(board.id, board);
     if (held) return held;
+    yield* worldSteps(board);
     const { lineage, layout } = lineageLayoutOf(board);
     markStep('layout world built');
     const fresh = { index: tileIndexOf(layout, board.version, board), lineage, updatedAt: board.updatedAt };
@@ -149,6 +157,10 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     cache.saveWhole(board.id, () => wholeSaveOf(board.id, fresh));
     markStep('saved layout queued');
     return fresh;
+  }
+
+  function heldTilesOf(board: Board): HeldTiles {
+    return drained(heldTilesSteps(board));
   }
 
   function savedWorldOfferFor(board: Board): SavedWorldOffer | null {
@@ -178,10 +190,10 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     return { version: board.version, warnings, chrome: next.chrome, viewerMessages: viewers.map((viewer) => wholeTilesOf(viewer, next)) };
   }
 
-  function advance(head: z.infer<typeof BoardHead>, changed: readonly z.infer<typeof ChangedElement>[], viewers: readonly ViewerTiles[]): AnswerFields {
+  function* advancing(head: z.infer<typeof BoardHead>, changed: readonly z.infer<typeof ChangedElement>[], viewers: readonly ViewerTiles[]): Generator<void, AnswerFields> {
     const held = boardNamed(head.id);
     if (held.version !== head.version - 1) throw new Error(`the layout worker holds board ${head.id} at version ${held.version}, not ${head.version - 1}`);
-    resumeBoardLayout(held);
+    yield* resumingBoardLayout(held);
     const changes = new Map<string, ElementChange>();
     for (const { id, after, isAppended } of changed) {
       changes.set(id, { before: held.elements.get(id), after, isAppended });
@@ -191,9 +203,10 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     }
     const board: Board = { ...head, elements: held.elements };
     boardById.set(board.id, board);
-    const layoutAdvance = advanceBoardLayout(board, changes);
+    const layoutAdvance = yield* advancingBoardLayout(board, changes);
     const tiles = tilesByBoardId.get(board.id) ?? null;
     if (!tiles || !layoutAdvance || tiles.lineage !== layoutAdvance.lineage || layoutAdvance.delta.isRebuilt || tiles.index.version !== board.version - 1) {
+      yield* worldSteps(board);
       return refreshed(board, viewers, layoutAdvance?.warnings ?? warningsOfBoard(board));
     }
     const fromVersion = tiles.index.version;
@@ -229,7 +242,25 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     return { version: board.version, focus: chosen, elementIds: elementIdsTouching(index, chosen), ...(withOutline ? { outline: boardOutlineOf(board, index, chosen) } : {}) };
   }
 
-  function handle(request: LayoutRequestBody): AnswerFields {
+  function* handling(request: LayoutRequestBody): Generator<void, AnswerFields> {
+    switch (request.kind) {
+      case 'advance': return yield* advancing(request.head, request.changes, request.viewers);
+      case 'refresh':
+      case 'picture-images':
+      case 'picture':
+      case 'pins':
+      case 'summary':
+        yield* worldSteps(boardNamed(request.boardId));
+        return handledAtOnce(request);
+      case 'tiles':
+      case 'region':
+        yield* heldTilesSteps(boardNamed(request.boardId));
+        return handledAtOnce(request);
+      default: return handledAtOnce(request);
+    }
+  }
+
+  function handledAtOnce(request: LayoutRequestBody): AnswerFields {
     switch (request.kind) {
       case 'sync-start': {
         syncIdByBoardId.set(request.head.id, request.syncId);
@@ -251,7 +282,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
         for (const element of request.elements) appendElement(board.elements, element);
         return {};
       }
-      case 'advance': return advance(request.head, request.changes, request.viewers);
+      case 'advance': return drained(advancing(request.head, request.changes, request.viewers));
       case 'refresh': {
         const board = boardNamed(request.boardId);
         const current = tilesByBoardId.get(board.id) ?? null;
@@ -292,8 +323,8 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
     }
   }
 
-  return { handle };
+  return { handling, handle: (request) => drained(handling(request)) };
 }
 
-export { LayoutReply, LayoutRequest, SavedLayoutWritten, createLayoutHost };
-export type { LayoutAnswer, LayoutRequestBody, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles };
+export { LayoutReply, LayoutRequest, SavedLayoutWritten, boardIdOfRequest, createLayoutHost };
+export type { AnswerFields, LayoutAnswer, LayoutRequestBody, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles };

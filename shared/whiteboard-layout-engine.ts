@@ -4,15 +4,16 @@ import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy,
-  placeBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, titleObstacleOf, wireCeilingOf,
+  placingBoardWithMemory, legendEntriesFrom, stepBandOf, titleCutWarningOf, titleObstacleOf, wireCeilingOf,
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, rotatedBoundsOf, routeWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
-import type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
+import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, rotatedBoundsOf, routingWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
+import type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, RouteResult, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { CLEARANCE } from './whiteboard-visibility-core.ts';
+import { drained } from './generator-steps.ts';
 
 const INCREMENTAL_MIN_ELEMENTS = 2000;
 const SOLID_CELL_SIZE = 1024;
@@ -139,12 +140,6 @@ function* unioningStored(idGrid: IdGrid, around: Rect | null, elementsPerSlice: 
   return union;
 }
 
-function drained<Value>(steps: Generator<void, Value>): Value {
-  let step = steps.next();
-  while (!step.done) step = steps.next();
-  return step.value;
-}
-
 function* inSlices<Item>(items: Iterable<Item>, elementsPerSlice: number, visit: (item: Item) => void): Generator<void, void> {
   let visitedSinceYield = 0;
   for (const item of items) {
@@ -209,10 +204,21 @@ function dropWarningsMentioning(book: WarningBook, id: string, accepts: (text: s
   }
 }
 
-function addWarningLists(book: WarningBook, lists: readonly WarningList[]): void {
+function* addingWarningLists(book: WarningBook, lists: readonly WarningList[], warningsPerSlice: number): Generator<void, void> {
+  let addedSinceYield = 0;
   for (const list of lists) {
-    for (let index = 0; index < list.count; index += 1) addWarning(book, list.messageAt(index));
+    for (let index = 0; index < list.count; index += 1) {
+      addWarning(book, list.messageAt(index));
+      addedSinceYield += 1;
+      if (addedSinceYield < warningsPerSlice) continue;
+      addedSinceYield = 0;
+      yield;
+    }
   }
+}
+
+function addWarningLists(book: WarningBook, lists: readonly WarningList[]): void {
+  drained(addingWarningLists(book, lists, Number.POSITIVE_INFINITY));
 }
 
 function firstTextsOf(book: WarningBook, count: number): string[] {
@@ -319,20 +325,16 @@ function* buildingWorld(board: Board, { laidOut, chrome, routeMemory, warningLis
     return world;
   }
   yield* inSlices(laidOut, elementsPerSlice, (element) => storeLaidOut(world, element));
-  addWarningLists(world.routeWarnings, warningLists.slice(0, -1));
-  addWarningLists(world.placementWarnings, warningLists.slice(-1));
+  yield* addingWarningLists(world.routeWarnings, warningLists.slice(0, -1), elementsPerSlice);
+  yield* addingWarningLists(world.placementWarnings, warningLists.slice(-1), elementsPerSlice);
   world.around = yield* recomputingAround(world, elementsPerSlice);
   return world;
 }
 
-function worldFromParts(board: Board, parts: WorldParts, minIncrementalElements: number): LayoutWorld {
-  return drained(buildingWorld(board, parts, minIncrementalElements, Number.POSITIVE_INFINITY));
-}
-
-function rebuiltWorld(board: Board, previous: LayoutWorld | null, minIncrementalElements: number): LayoutWorld {
-  const { layout, memory, warningLists } = placeBoardWithMemory(board, previous ? { route: previous.routeMemory } : null);
+function* rebuildingWorld(board: Board, previous: LayoutWorld | null, minIncrementalElements: number, elementsPerSlice: number): Generator<void, LayoutWorld> {
+  const { layout, memory, warningLists } = yield* placingBoardWithMemory(board, previous ? { route: previous.routeMemory } : null);
   const chrome = { legend: layout.legend, caption: layout.caption, plan: layout.plan, pinnedOffsetY: layout.pinnedOffsetY, bounds: layout.bounds };
-  const world = worldFromParts(board, { laidOut: layout.elements, chrome, routeMemory: memory.route, warningLists }, minIncrementalElements);
+  const world = yield* buildingWorld(board, { laidOut: layout.elements, chrome, routeMemory: memory.route, warningLists }, minIncrementalElements, elementsPerSlice);
   world.layout = layout;
   return world;
 }
@@ -367,7 +369,7 @@ function savedWorldOf(world: LayoutWorld): SavedWorldParts {
 }
 
 function createLayoutWorld(board: Board, previous: LayoutWorld | null = null, minIncrementalElements = INCREMENTAL_MIN_ELEMENTS): LayoutWorld {
-  return rebuiltWorld(board, previous, minIncrementalElements);
+  return drained(rebuildingWorld(board, previous, minIncrementalElements, Number.POSITIVE_INFINITY));
 }
 
 function touchesStepBox(element: Element | null | undefined, stepBoxIds: ReadonlySet<string>): boolean {
@@ -597,7 +599,7 @@ function isSamePoint(first: Point, second: Point): boolean {
 
 interface SubRoute {
   routedWires: Map<string, LaidOutWire>;
-  result: ReturnType<typeof routeWires>;
+  result: RouteResult;
   completeBoxIds: Set<string>;
 }
 
@@ -677,7 +679,7 @@ function pathNeighborIdsOf(world: LayoutWorld, rerouteIds: ReadonlySet<string>, 
   return [...neighborIds];
 }
 
-function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<string>, commit: Commit): SubRoute | null {
+function* routingSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<string>, commit: Commit): Generator<void, SubRoute | null> {
   const rerouteIds = new Set(seedIds);
   for (const boxId of endpointIdsOf(board, seedIds)) {
     for (const wireId of wireIdsOn(board, boxId)) rerouteIds.add(wireId);
@@ -690,7 +692,7 @@ function routedSubBoard(world: LayoutWorld, board: Board, seedIds: ReadonlySet<s
     const memory: RouteMemory = previousRound
       ? { contentTop: world.contentTop, rectByKey: obstacleRectsByKey(input), routeById: new Map([...world.routeMemory.routeById, ...previousRound.routeById]), warningPairs: null }
       : { contentTop: world.contentTop, rectByKey: obstacleRectsByKey(previousInputOf(input, commit)), routeById: world.routeMemory.routeById, warningPairs: null };
-    const result = routeWires(input, memory);
+    const result = yield* routingWires(input, memory);
     const reroutedBusKeys = new Set([...rerouteIds].flatMap((id) => result.portEndsById.get(id)?.busKey ?? []));
     const promotedIds = [...contextIds].filter((id) => {
       const ends = result.portEndsById.get(id);
@@ -724,7 +726,7 @@ function rememberObstacles(world: LayoutWorld, commit: Commit): void {
   world.routeMemory.warningPairs = null;
 }
 
-function rerouteWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>, solids: SolidOutcome, commit: Commit): void {
+function* reroutingWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>, solids: SolidOutcome, commit: Commit): Generator<void, void> {
   const seedIds = new Set<string>();
   const removedWireIds: string[] = [];
   for (const [id, change] of changes) {
@@ -750,7 +752,7 @@ function rerouteWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<str
   }
   for (const element of [...commit.oldObstacles, ...commit.newObstacles]) dropWarningsMentioning(world.routeWarnings, element.id);
   if (seedIds.size === 0) return;
-  const routed = routedSubBoard(world, board, seedIds, commit);
+  const routed = yield* routingSubBoard(world, board, seedIds, commit);
   if (!routed) return;
   for (const [id, remembered] of routed.result.memory.routeById) {
     world.routeMemory.routeById.set(id, remembered);
@@ -824,13 +826,13 @@ function forgetWorldChanges(world: LayoutWorld): void {
   world.placementWarnings.presenceByChangedText.clear();
 }
 
-function applyIncrementally(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): LayoutDelta | null {
+function* applyingIncrementally(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): Generator<void, LayoutDelta | null> {
   const solids = laidOutSolids(world, board, changes);
   if (!solids) return null;
   forgetWorldChanges(world);
   const commit: Commit = { previousById: new Map(), changed: [], removedIds: [], oldObstacles: [], newObstacles: [], isAroundStale: false };
   for (const [id, next] of solids.nextById) commitElement(world, commit, id, next);
-  rerouteWires(world, board, changes, solids, commit);
+  yield* reroutingWires(world, board, changes, solids, commit);
   refitFramesAroundInnerWires(world, board, changes, solids, commit);
   updatePlacementWarnings(world, board, solids);
   rememberObstacles(world, commit);
@@ -844,11 +846,15 @@ function applyIncrementally(world: LayoutWorld, board: Board, changes: ReadonlyM
   return { changed: commit.changed.filter((element) => world.laidOutById.get(element.id) === element), previousById: commit.previousById, removedIds, isChromeChanged: JSON.stringify(world.chrome) !== previousChrome, isRebuilt: false, worldChanges: worldChangesOf(world) };
 }
 
-function applyLayoutDelta(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): { world: LayoutWorld; delta: LayoutDelta } {
-  const incremental = needsRebuild(world, board, changes) ? null : applyIncrementally(world, board, changes);
+function* applyingLayoutDelta(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>, elementsPerSlice: number): Generator<void, { world: LayoutWorld; delta: LayoutDelta }> {
+  const incremental = needsRebuild(world, board, changes) ? null : yield* applyingIncrementally(world, board, changes);
   if (incremental) return { world, delta: incremental };
-  const rebuilt = rebuiltWorld(board, world, world.minIncrementalElements);
+  const rebuilt = yield* rebuildingWorld(board, world, world.minIncrementalElements, elementsPerSlice);
   return { world: rebuilt, delta: { changed: [], previousById: new Map(), removedIds: [], isChromeChanged: true, isRebuilt: true, worldChanges: { routeIds: [], warnings: [] } } };
+}
+
+function applyLayoutDelta(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): { world: LayoutWorld; delta: LayoutDelta } {
+  return drained(applyingLayoutDelta(world, board, changes, Number.POSITIVE_INFINITY));
 }
 
 function layoutOf(world: LayoutWorld): PlacedLayout {
@@ -875,5 +881,5 @@ function warningsOfWorld(world: LayoutWorld): string[] {
   return world.layout ? world.layout.warnings : warningsOf(world);
 }
 
-export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, createLayoutWorld, drained, layoutOf, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld };
+export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, applyingLayoutDelta, createLayoutWorld, layoutOf, rebuildingWorld, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld };
 export type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange };

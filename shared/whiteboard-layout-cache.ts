@@ -4,11 +4,13 @@ import { dressedLayout } from './whiteboard-layout-core.ts';
 import type { BoardLayout, PlacedLayout } from './whiteboard-layout-core.ts';
 import type { PinPositions } from './whiteboard-ops-core.ts';
 import { indexBoardInSlices } from './whiteboard-board-index.ts';
-import { applyLayoutDelta, createLayoutWorld, drained, layoutOf, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld } from './whiteboard-layout-engine.ts';
+import { INCREMENTAL_MIN_ELEMENTS, applyingLayoutDelta, layoutOf, rebuildingWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld } from './whiteboard-layout-engine.ts';
+import { drained } from './generator-steps.ts';
 import type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange } from './whiteboard-layout-engine.ts';
 import type { RememberedRoute } from './contracts/whiteboard-tiles.ts';
 
 const REMEMBERED_BOARD_COUNT = 8;
+const WORLD_ELEMENTS_PER_SLICE = 5000;
 
 interface LayoutAdvance {
   lineage: number;
@@ -61,13 +63,13 @@ function forgetBoardWarm(boardId: string): void {
   pendingResumeByBoardId.delete(boardId);
 }
 
-function resumedWorldOf(board: Board): LayoutWorld | null {
+function* resumingWorldOf(board: Board): Generator<void, LayoutWorld | null> {
   const pending = pendingResumeByBoardId.get(board.id);
   forgetBoardWarm(board.id);
-  if (pending?.board === board) return adoptedWorld(board.id, drained(pending.steps), pending.adopt);
+  if (pending?.board === board) return adoptedWorld(board.id, yield* pending.steps, pending.adopt);
   const offer = savedWorldSource?.(board) ?? null;
   if (!offer) return null;
-  return adoptedWorld(board.id, resumeLayoutWorld(board, offer.saved), offer.adopt);
+  return adoptedWorld(board.id, yield* resumingLayoutWorld(board, offer.saved, WORLD_ELEMENTS_PER_SLICE), offer.adopt);
 }
 
 function isStillWarming(board: Board): boolean {
@@ -102,18 +104,22 @@ async function warmBoardLayout(board: Board, elementsPerSlice: number, yieldBetw
   await resumeInSlices(board, elementsPerSlice, yieldBetweenSlices).finally(() => stopWarming(board));
 }
 
-function resumeBoardLayout(board: Board): void {
-  if (!worldByBoardId.has(board.id)) resumedWorldOf(board);
+function* resumingBoardLayout(board: Board): Generator<void, void> {
+  if (!worldByBoardId.has(board.id)) yield* resumingWorldOf(board);
+}
+
+function* worldSteps(board: Board): Generator<void, LayoutWorld> {
+  const remembered = worldByBoardId.get(board.id);
+  if (remembered && remembered.version === board.version && remembered.board.elements === board.elements) return remembered;
+  const resumed = remembered ? null : yield* resumingWorldOf(board);
+  if (resumed) return resumed;
+  const world = yield* rebuildingWorld(board, remembered ?? null, INCREMENTAL_MIN_ELEMENTS, WORLD_ELEMENTS_PER_SLICE);
+  remember(board.id, world);
+  return world;
 }
 
 function worldFor(board: Board): LayoutWorld {
-  const remembered = worldByBoardId.get(board.id);
-  if (remembered && remembered.version === board.version && remembered.board.elements === board.elements) return remembered;
-  const resumed = remembered ? null : resumedWorldOf(board);
-  if (resumed) return resumed;
-  const world = createLayoutWorld(board, remembered ?? null);
-  remember(board.id, world);
-  return world;
+  return drained(worldSteps(board));
 }
 
 function layoutBoardRemembered(board: Board): BoardLayout {
@@ -129,10 +135,10 @@ function chromeOfBoard(board: Board): BoardChrome {
   return worldFor(board).chrome;
 }
 
-function advanceBoardLayout(board: Board, changes: ReadonlyMap<string, ElementChange>): LayoutAdvance | null {
+function* advancingBoardLayout(board: Board, changes: ReadonlyMap<string, ElementChange>): Generator<void, LayoutAdvance | null> {
   const remembered = worldByBoardId.get(board.id);
   if (!remembered) return null;
-  const { world, delta } = applyLayoutDelta(remembered, board, changes);
+  const { world, delta } = yield* applyingLayoutDelta(remembered, board, changes, WORLD_ELEMENTS_PER_SLICE);
   remember(board.id, world);
   const changedRoutes = delta.worldChanges.routeIds.map((id): [string, RememberedRoute | null] => [id, world.routeMemory.routeById.get(id) ?? null]);
   return { lineage: world.lineage, delta, chrome: world.chrome, warnings: warningsOfWorld(world), changedRoutes, warningChanges: delta.worldChanges.warnings };
@@ -160,5 +166,5 @@ function rememberedWorldSaverOf(board: Board): (() => SavedWorldParts) | null {
   return () => savedWorldOf(remembered);
 }
 
-export { advanceBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumeBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard };
+export { advancingBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumingBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard, worldSteps };
 export type { SavedWorldOffer };

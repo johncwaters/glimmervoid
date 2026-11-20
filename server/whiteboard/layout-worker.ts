@@ -2,32 +2,65 @@ import { performance } from 'node:perf_hooks';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import v8 from 'node:v8';
 import { parentPort, workerData } from 'node:worker_threads';
+import type { MessagePort } from 'node:worker_threads';
 
 import { errorMessage } from '../../shared/text.ts';
 import { layoutWorkerPath } from '../runtime-paths.ts';
 import { codeStampOf } from './code-stamp.ts';
 import { openLayoutCache } from './layout-cache.ts';
-import { LayoutRequest, createLayoutHost } from './layout-worker-core.ts';
-import type { OpenStep } from './layout-worker-core.ts';
+import { LayoutRequest, boardIdOfRequest, createLayoutHost } from './layout-worker-core.ts';
+import type { AnswerFields, OpenStep } from './layout-worker-core.ts';
+
+interface LayoutJob {
+  requestId: number;
+  steps: Generator<void, AnswerFields>;
+  openSteps: OpenStep[];
+  previousStepAt: number;
+}
+
+function workerPort(): MessagePort {
+  if (!parentPort) throw new Error('the whiteboard layout runs only as a worker thread');
+  return parentPort;
+}
 
 function serve(): void {
-  const port = parentPort;
-  if (!port) throw new Error('the whiteboard layout runs only as a worker thread');
+  const port = workerPort();
   const cachePath: unknown = workerData;
-  let openSteps: OpenStep[] = [];
-  let previousStepAt = performance.now();
+  const jobsByBoardId = new Map<string, LayoutJob[]>();
+  let runningJob: LayoutJob | null = null;
   function markStep(step: string): void {
+    if (!runningJob) return;
     const now = performance.now();
-    openSteps.push({ step, elapsedMs: now - previousStepAt, heapBytes: v8.getHeapStatistics().used_heap_size });
-    previousStepAt = now;
+    runningJob.openSteps.push({ step, elapsedMs: now - runningJob.previousStepAt, heapBytes: v8.getHeapStatistics().used_heap_size });
+    runningJob.previousStepAt = now;
   }
   const cache = openLayoutCache(typeof cachePath === 'string' ? cachePath : null, codeStampOf(layoutWorkerPath), ({ boardId, elapsedMs }) => {
     port.postMessage({ savedLayoutWritten: { boardId, elapsedMs, heapBytes: v8.getHeapStatistics().used_heap_size } });
   });
   const host = createLayoutHost(cache, markStep, yieldToEventLoop);
+  function isJobFinished(job: LayoutJob): boolean {
+    runningJob = job;
+    try {
+      const step = job.steps.next();
+      if (!step.done) return false;
+      port.postMessage({ requestId: job.requestId, ok: true, ...step.value, ...(job.openSteps.length > 0 ? { openSteps: job.openSteps } : {}) });
+      return true;
+    } catch (error) {
+      port.postMessage({ requestId: job.requestId, ok: false, error: errorMessage(error) });
+      return true;
+    } finally {
+      runningJob = null;
+    }
+  }
+  function stepFrontJob(boardId: string, jobs: LayoutJob[]): void {
+    const [front] = jobs;
+    if (front && isJobFinished(front)) jobs.shift();
+    if (jobs.length === 0) jobsByBoardId.delete(boardId);
+  }
   let isSliceScheduled = false;
   function runQueuedSlices(): void {
-    isSliceScheduled = cache.runQueuedSlice();
+    for (const [boardId, jobs] of jobsByBoardId) stepFrontJob(boardId, jobs);
+    isSliceScheduled = cache.runQueuedSlice((boardId) => jobsByBoardId.has(boardId)) || jobsByBoardId.size > 0;
     if (isSliceScheduled) setImmediate(runQueuedSlices);
   }
   function scheduleQueuedSlices(): void {
@@ -43,13 +76,14 @@ function serve(): void {
       return;
     }
     const { requestId, ...request } = parsed.data;
-    openSteps = [];
-    previousStepAt = performance.now();
-    try {
-      const answer = host.handle(request);
-      port.postMessage({ requestId, ok: true, ...answer, ...(openSteps.length > 0 ? { openSteps } : {}) });
-    } catch (error) {
-      port.postMessage({ requestId, ok: false, error: errorMessage(error) });
+    const boardId = boardIdOfRequest(request);
+    const job: LayoutJob = { requestId, steps: host.handling(request), openSteps: [], previousStepAt: performance.now() };
+    const waitingJobs = jobsByBoardId.get(boardId);
+    if (waitingJobs) waitingJobs.push(job);
+    if (!waitingJobs) {
+      const jobs = [job];
+      jobsByBoardId.set(boardId, jobs);
+      stepFrontJob(boardId, jobs);
     }
     scheduleQueuedSlices();
   });

@@ -10,6 +10,7 @@ import { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, p
 import type { SpatialGrid } from './spatial-grid-core.ts';
 import { buildGraphOn, CLEARANCE, firstIndexAbove, preparedInWindow, prepareObstacles, sharedCornerShotsOf } from './whiteboard-visibility-core.ts';
 import type { GraphPort, SharedCornerShots, VisibilityGraph } from './whiteboard-visibility-core.ts';
+import { drained } from './generator-steps.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
 
@@ -513,10 +514,11 @@ function shortRouteOf(choice: SideChoice, input: RouteInput, routedLines: Routed
   return { exit: best.exit, entry: best.entry, points: best.points };
 }
 
-function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, reuse: RouteReuse): void {
+function* choosingSidesLocally(choices: readonly SideChoice[], input: RouteInput, reuse: RouteReuse): Generator<void, void> {
   const buffers = createSearchBuffers();
   const routedLines = createRoutedLines();
   for (const choice of choices) {
+    yield;
     const shortRoute = shortRouteOf(choice, input, routedLines);
     if (shortRoute) {
       applySideChoice(choice, shortRoute.exit, shortRoute.entry, shortRoute.points);
@@ -535,13 +537,13 @@ function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, r
   }
 }
 
-function chooseSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>, input: RouteInput, reuse: RouteReuse): void {
+function* choosingSidesBySearch(plans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>, input: RouteInput, reuse: RouteReuse): Generator<void, void> {
   const choices = plans.flatMap((plan) => {
     if (reuse.cleanIds.has(plan.wire.id)) return [];
     const choice = sideChoiceOf(plan, facingByPlan.get(plan) ?? { exitSide: plan.exitSide, entrySide: plan.entrySide });
     return choice ? [choice] : [];
   });
-  if (choices.length > 0) chooseSidesLocally(choices, input, reuse);
+  if (choices.length > 0) yield* choosingSidesLocally(choices, input, reuse);
 }
 
 function joinFacingBuses(plans: readonly WirePlan[], countedPlans: readonly WirePlan[], facingByPlan: ReadonlyMap<WirePlan, SidePair>): void {
@@ -582,7 +584,7 @@ interface PlannedWires {
   contextPlans: WirePlan[];
 }
 
-function planWires(input: RouteInput, reuse: RouteReuse): PlannedWires {
+function* planningWires(input: RouteInput, reuse: RouteReuse): Generator<void, PlannedWires> {
   const facingByPlan = new Map<WirePlan, SidePair>();
   const plans = input.wires.flatMap((wire): WirePlan[] => {
     const planned = plannedWireOf(wire, input, reuse.cleanIds.has(wire.id) ? reuse.routeById.get(wire.id) : undefined);
@@ -596,7 +598,7 @@ function planWires(input: RouteInput, reuse: RouteReuse): PlannedWires {
     facingByPlan.set(planned.plan, planned.facing);
     return [planned.plan];
   });
-  chooseSidesBySearch(plans, facingByPlan, input, reuse);
+  yield* choosingSidesBySearch(plans, facingByPlan, input, reuse);
   joinFacingBuses(plans, [...plans, ...contextPlans], facingByPlan);
   const allPlans = [...plans, ...contextPlans];
   for (const plan of allPlans) plan.exitKey = `${plan.from.id}|${plan.exitSide}|${plan.styleKey}`;
@@ -1141,10 +1143,14 @@ function portSlackOf(box: PlacedBox, side: Side, port: Point): PortSlack {
   return { low: Math.max(sideLow, along - PORT_SPACING / 2), high: Math.min(sideHigh, along + PORT_SPACING / 2) };
 }
 
-function routeAll(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReuse): DrawnWire[] {
+function* routingAll(plans: readonly WirePlan[], input: RouteInput, reuse: RouteReuse): Generator<void, DrawnWire[]> {
   const buffers = createSearchBuffers();
   const routedLines = createRoutedLines();
-  const routed = plans.map((plan) => routedWireOf(plan, input, reuse, buffers, routedLines));
+  const routed: DrawnWire[] = [];
+  for (const plan of plans) {
+    yield;
+    routed.push(routedWireOf(plan, input, reuse, buffers, routedLines));
+  }
   if (reuse.isPreview) return routed;
   const nudgeWires = routed.map((wire) => ({
     points: wire.points, exitKey: wire.plan.exitKey, busKey: wire.plan.busKey,
@@ -1485,10 +1491,10 @@ function joinPointOf(wire: DrawnWire, leader: DrawnWire | undefined): Point | nu
   return joined;
 }
 
-function routeWithPortOrder(planned: PlannedWires, input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, reuse: RouteReuse): DrawnWire[] {
+function* routingWithPortOrder(planned: PlannedWires, input: RouteInput, requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>, reuse: RouteReuse): Generator<void, DrawnWire[]> {
   assignPorts(requestsBySide, groupOrderBySide);
   alignLonePorts([...planned.plans, ...planned.contextPlans], groupOrderBySide);
-  return routeAll(planned.plans, input, reuse);
+  return yield* routingAll(planned.plans, input, reuse);
 }
 
 function obstacleRectsByKey(input: RouteInput): Map<string, Rect> {
@@ -1835,23 +1841,24 @@ function previewWires(unindexedInput: RouteInput): LaidOutWire[] {
   const directWires = directWiresOf(unindexedInput);
   const input = withAreaQuery(boxRoutedInput(unindexedInput));
   const reuse: RouteReuse = { routeById: new Map(), cleanIds: new Set(), isPreview: true };
-  const planned = planWires(input, reuse);
+  const planned = drained(planningWires(input, reuse));
   const requestsBySide = portRequestsBySide(planned.plans);
-  const drawn = routeWithPortOrder(planned, input, requestsBySide, defaultPortOrders(requestsBySide), reuse);
+  const drawn = drained(routingWithPortOrder(planned, input, requestsBySide, defaultPortOrders(requestsBySide), reuse));
   return [...laidOutWiresOf(drawn, placeLabels(drawn, input, [])), ...directWires.map(laidOutDirectWireOf)];
 }
 
-function routeWires(unindexedInput: RouteInput, previous: RouteMemory | null): RouteResult {
+function* routingWires(unindexedInput: RouteInput, previous: RouteMemory | null): Generator<void, RouteResult> {
   const directWires = directWiresOf(unindexedInput);
   const input = withAreaQuery(boxRoutedInput(unindexedInput));
   const rectByKey = obstacleRectsByKey(input);
   const changes = previous && previous.contentTop === input.contentTop ? obstacleChangesOf(previous.rectByKey, rectByKey) : null;
   const reuse = routeReuseOf(input, previous, changes);
-  const planned = planWires(input, reuse);
+  const planned = yield* planningWires(input, reuse);
   const completeBoxIds = input.contextWires ? new Set(planned.plans.flatMap((plan) => [plan.from.id, plan.to.id])) : null;
   const requestsBySide = portRequestsBySide([...planned.plans, ...planned.contextPlans], completeBoxIds);
   const groupOrderBySide = defaultPortOrders(requestsBySide);
-  const drawn = routeWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
+  const drawn = yield* routingWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
+  yield;
   const labelWarnings: string[] = [];
   const labelById = placeLabels(drawn, input, labelWarnings);
   const laidOutDirectWires = directWires.map(laidOutDirectWireOf);
@@ -1942,6 +1949,6 @@ function wireExtentOf(wire: LaidOutWire): Rect | null {
   return unionOf(wire.label ? [...pointRects, labelBoundsAt(wire.labelAt, labelWidthOf(wire.label))] : pointRects);
 }
 
-export { WIRE_CORNER_RADIUS, roundedCornerPath, roundedCornerPoints, cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routeWires, unionOf, wireExtentOf, wireHandlesOf };
+export { WIRE_CORNER_RADIUS, roundedCornerPath, roundedCornerPoints, cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routingWires, unionOf, wireExtentOf, wireHandlesOf };
 export type { WireHandle };
-export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, SoftObstacle, WarningList };
+export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, RouteResult, SoftObstacle, WarningList };

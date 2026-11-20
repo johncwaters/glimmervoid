@@ -6,9 +6,10 @@ import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps, stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, previewWires, rectsOverlap, rotatedAbout, routeWires, unionOf, warningListOf, wireExtentOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, previewWires, rectsOverlap, rotatedAbout, routingWires, unionOf, warningListOf, wireExtentOf } from './whiteboard-route-core.ts';
+import { drained } from './generator-steps.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
-import type { Point, RouteMemory, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
+import type { Point, RouteMemory, RouteResult, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
@@ -555,7 +556,7 @@ interface PlacedBoard {
   boxesById: Map<string, PlacedBox>;
   collectPlacementWarnings: () => string[];
   frames: LaidOutFrame[];
-  routing: ReturnType<typeof routeWires>;
+  routing: RouteResult;
 }
 
 interface Placement {
@@ -566,6 +567,12 @@ interface Placement {
 
 interface LayoutMemory {
   route: RouteMemory;
+}
+
+interface PlacedBoardWithMemory {
+  layout: PlacedLayout;
+  memory: LayoutMemory;
+  warningLists: WarningList[];
 }
 
 function boxOverlapWarning(firstBoxId: string, secondBoxId: string): string {
@@ -597,11 +604,11 @@ function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: read
   return [...boxOverlaps, ...coveredTitles];
 }
 
-function placeAndRoute(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): PlacedBoard {
+function* placingAndRouting(board: IndexedBoard, placement: Placement, previousRoute: RouteMemory | null): Generator<void, PlacedBoard> {
   const placedBoxesById = layoutBoxes(board, placement.boxesTop, placement.stepBandPositions);
   const { visibleBoxesById: boxesById, topCardIdByHiddenId } = stackedViewOf(board, placedBoxesById);
   const framesAroundBoxes = layoutFrames(board, boxesById, new Map());
-  const routing = routeWires({
+  const routing = yield* routingWires({
     wires: wiresEndingAtCards(elementsOfKind(board, 'wire'), topCardIdByHiddenId), boxesById,
     softObstacles: framesAroundBoxes.map((frame) => titleObstacleOf(frame, board.elements.get(frame.id))),
     contentTop: placement.contentTop,
@@ -810,12 +817,12 @@ function storedRectsOfBoxes(storedBoard: Board): Map<string, PlacedBox> {
   return new Map([...boxesById].map(([boxId, placed]) => [boxId, { ...placed, y: placed.y - pinnedOffsetY }]));
 }
 
-function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): { layout: PlacedLayout; memory: LayoutMemory; warningLists: WarningList[] } {
+function* placingBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): Generator<void, PlacedBoardWithMemory> {
   const { positionById: stepBandPositions, bottom: freeformTop, columns: planColumns } = stepBandOf(storedBoard);
   const pinnedOffsetY = freeformTop - MARGIN;
   const board = indexedBoardOf(withPinnedBoxesShifted(storedBoard, pinnedOffsetY));
   const boxesTop = freeformTop;
-  const placed = placeAndRoute(board, { boxesTop, contentTop: wireCeilingOf(freeformTop), stepBandPositions }, previous?.route ?? null);
+  const placed = yield* placingAndRouting(board, { boxesTop, contentTop: wireCeilingOf(freeformTop), stepBandPositions }, previous?.route ?? null);
   const memory: LayoutMemory = { route: placed.routing.memory };
   const elements: PlacedElement[] = [
     ...placed.frames,
@@ -824,8 +831,13 @@ function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null)
     ...elementsOfKind(board, 'stroke').map((stroke) => laidOutStrokeOf(stroke, pinnedOffsetY)),
   ];
   const chrome = chromeAround(board.caption, boundsOf(elements, placed.routing.extent, boxesTop), legendEntriesOf(board), stepBandPositions.size > 0 ? planColumns : [], pinnedOffsetY);
+  yield;
   const warningLists = [...placed.routing.collectWarnings(), warningListOf(placed.collectPlacementWarnings())];
   return { layout: { elements, ...chrome, warnings: cappedWarningLists(warningLists) }, memory, warningLists };
+}
+
+function placeBoardWithMemory(storedBoard: Board, previous: LayoutMemory | null): PlacedBoardWithMemory {
+  return drained(placingBoardWithMemory(storedBoard, previous));
 }
 
 function chromeAround(caption: string | null, contentBounds: Rect, legendEntries: readonly LegendEntry[], planColumns: readonly PlanColumn[], pinnedOffsetY: number): Omit<PlacedLayout, 'elements' | 'warnings'> {
@@ -953,6 +965,6 @@ export {
   FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
-  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
+  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, placingBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };
