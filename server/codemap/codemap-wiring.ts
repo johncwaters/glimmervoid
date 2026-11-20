@@ -526,6 +526,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (request.sub === 'allow') return { ok: false, status: OPERATOR_ONLY_STATUS, error: `only the operator allows a module import; ask the operator to run glimmervoid codemap allow ${repo.repoDir} ${request.from} ${request.to} outside a session` };
     if (request.sub === 'check') return checkOutcomeOf(repo);
     if (request.sub === 'shrink') return shrinkOutcomeOf(repo);
+    if (request.sub === 'setup') return setupOutcomeOf(repo);
     if (request.sub === 'overlay') return overlayOutcomeOf(repo, request);
     if (request.sub === 'export') return exportOutcomeOf(repo, request.kind);
     const map = await currentMap(repo);
@@ -548,6 +549,27 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const map = await currentMap(repo);
     if ('error' in map) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: map.error };
     return { ok: true, reply: { ok: true, text: shrunk.text, status: map.status } };
+  }
+
+  async function setupOutcomeOf(repo: CodemapRepo): Promise<CodemapOutcome> {
+    const repoKey = await repoKeyOf(repo.repoDir);
+    if (!repoKey) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: `${repo.repoDir} is not inside a git repository` };
+    if (!homeDir) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: 'the code map setup store is not available in this Glimmervoid' };
+    const map = await currentMap(repo);
+    if ('error' in map) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: map.error };
+    const lookup = await readCodemapSetup(homeDir, repoKey);
+    if (lookup.kind === 'invalid') return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: lookup.message };
+    if (lookup.kind === 'none' && !map.model) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: mapTextOf(null, map.status, path.basename(repo.repoDir)) };
+    const seeded = lookup.kind === 'none' && map.model ? seededSetupOf(repoKey, map.model) : null;
+    const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
+      if (!current) return seeded;
+      return current.gate ? null : { ...current, gate: true };
+    });
+    if (updated.kind !== 'ok') return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup to gate` };
+    const { setup } = updated;
+    const heldWireCount = setup.allow.filter((entry) => entry.fileImportCeiling !== null).length;
+    const wasGated = lookup.kind === 'ok' && lookup.setup.gate;
+    return { ok: true, reply: { ok: true, text: `the import gate of ${repoKey} is on${wasGated ? ' already' : ''}: ${setup.allow.length} allowed module imports, ${heldWireCount} crossed wires held to their file import ceilings. A merge from this repo is refused while codemap check names an import the setup does not allow; only the operator turns the gate off (glimmervoid codemap setup ${repoKey} --gate off) or allows an import.`, status: map.status } };
   }
 
   async function exportOutcomeOf(repo: CodemapRepo, kind: CodemapExportKind): Promise<CodemapOutcome> {

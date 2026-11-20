@@ -104,6 +104,7 @@ export const AgentCodemapRequest = z.discriminatedUnion('sub', [
   z.strictObject({ sub: z.literal('map') }),
   z.strictObject({ sub: z.literal('check') }),
   z.strictObject({ sub: z.literal('shrink') }),
+  z.strictObject({ sub: z.literal('setup') }),
   z.strictObject({ sub: z.literal('export'), kind: z.enum(CODEMAP_EXPORT_KINDS, { error: `kind must be one of ${CODEMAP_EXPORT_KINDS.join(', ')}` }) }),
   z.strictObject({ sub: z.literal('allow'), from: CodemapModuleName, to: CodemapModuleName }),
   z.strictObject({ sub: z.literal('where'), target: CodemapTarget }),

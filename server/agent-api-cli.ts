@@ -514,6 +514,10 @@ async function runAgentApiCli(args: string[]): Promise<number> {
     const { isOperatorCodemapCommand, runOperatorCodemapCli } = await import('./codemap/codemap-cli.ts');
     if (isOperatorCodemapCommand(parsed.positionals)) return runOperatorCodemapCli(parsed.positionals);
   }
+  if (verb === 'codemap' && parsed.positionals[0] === 'setup' && parsed.positionals.length > 1) {
+    console.error(`glimmervoid codemap setup: inside a session it takes no arguments and only turns this repo's import gate on, so ${parsed.positionals.slice(1).join(' ')} was not sent; turning a gate off or enabling exports is the operator's, through glimmervoid codemap setup <repo> outside a session`);
+    return 1;
+  }
   const body = BODY_BUILDERS[verb](parsed);
   if (!body) {
     console.error(`glimmervoid ${parsed.commandPath.join(' ')}: ${AGENT_COMMAND_HELP[verb].missingArgumentHint ?? 'those arguments are not understood'}; run it with --help for its usage`);

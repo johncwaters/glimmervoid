@@ -33,6 +33,8 @@ import { glimmervoidHomeDir } from '../server/config-store.ts';
 import { clock } from '../shared/clock.ts';
 import { repoKeyOf, setupPathOf } from '../server/codemap/codemap-store.ts';
 import { runOperatorCodemapCli } from '../server/codemap/codemap-cli.ts';
+import { runAgentApiCli } from '../server/agent-api-cli.ts';
+import { AGENT_URL_ENV } from '../shared/contracts/session.ts';
 import { checkWorktree } from '../server/codemap/codemap-wiring.ts';
 import { createCodemapClient } from '../server/codemap/codemap-client.ts';
 import { git } from './helpers/git-fixture.ts';
@@ -481,6 +483,20 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.equal(await runOperatorCodemapCli(['allow', projectDir, 'lib', '.']), 1);
   assert.equal(await runOperatorCodemapCli(['allow', projectDir, 'lib', '.', '--reason', 'store reads config']), 0);
   assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow.at(-1), { from: 'lib', to: '.', origin: 'allowed', reason: 'store reads config', date: clock.dayKeyOf(clock.nowMs()), landed: false, fileImportCeiling: null });
+  const allowBeforeAgentSetup = CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).allow;
+  const previousAgentUrl = process.env[AGENT_URL_ENV];
+  process.env[AGENT_URL_ENV] = `${await agentIngressBase(bootedBackend().backend)}/agent/${SESSION_ID}?t=${bootedBackend().backend.getSession(SESSION_ID)?.agentToken}`;
+  const operatorSetupFromSession = await runAgentApiCli(['codemap', 'setup', projectDir, '--gate', 'off']).finally(() => {
+    if (previousAgentUrl === undefined) delete process.env[AGENT_URL_ENV];
+    if (previousAgentUrl !== undefined) process.env[AGENT_URL_ENV] = previousAgentUrl;
+  });
+  assert.equal(operatorSetupFromSession, 1);
+  assert.equal(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))).gate, false, 'an operator setup typed inside a session is refused, never sent as a gate-on request');
+  const gatedByAgent = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'setup' } }, credential))).structuredContent);
+  assert.match(gatedByAgent.text, /import gate of .* is on: 3 allowed module imports/);
+  assert.deepEqual(CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))), { ...CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8'))), gate: true, allow: allowBeforeAgentSetup }, 'an agent turns an opted-out gate back on and keeps the allow list');
+  const gatedAgain = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'setup' } }, credential))).structuredContent);
+  assert.match(gatedAgain.text, /is on already/);
 
   const branchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-branch-'));
   git(['worktree', 'add', '--quiet', '-b', 'tools', branchDir], projectDir);
