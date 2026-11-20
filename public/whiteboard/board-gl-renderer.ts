@@ -6,7 +6,6 @@ import { elementSignature, layoutBoard } from '#shared/whiteboard-layout-core.ts
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
 import { forEachSlotTouching, gridOfRects } from '#shared/spatial-grid-core.ts';
 import { BOARD_GRID_SPACING, PORT_RADIUS } from '#shared/whiteboard-svg-core.ts';
-import { FULL_MIN_SCALE, TITLES_MIN_SCALE } from '#shared/whiteboard-tile-core.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
@@ -148,6 +147,8 @@ interface ScenePreview {
 
 const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds: new Set(), agentChangedIds: new Set() };
 const CULL_CELL_SIZE = 512;
+const GRID_HIDDEN_PITCH_PX = 8;
+const GRID_FULL_PITCH_PX = 16;
 const CONTEXT_RETRY_MS = 5000;
 const REFUSAL_MAX_RETRIES = 30;
 const NOTICES = {
@@ -1235,7 +1236,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function placeGrid(): void {
     const spacingPx = BOARD_GRID_SPACING * camera.scale;
-    const strength = Math.min(1, Math.max(0, (camera.scale - TITLES_MIN_SCALE) / (FULL_MIN_SCALE - TITLES_MIN_SCALE)));
+    const strength = Math.min(1, Math.max(0, (spacingPx - GRID_HIDDEN_PITCH_PX) / (GRID_FULL_PITCH_PX - GRID_HIDDEN_PITCH_PX)));
     viewport.style.setProperty('--wb-grid-size', `${spacingPx}px`);
     viewport.style.setProperty('--wb-grid-x', `${-((camera.x * camera.scale) % spacingPx)}px`);
     viewport.style.setProperty('--wb-grid-y', `${-((camera.y * camera.scale) % spacingPx)}px`);
