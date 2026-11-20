@@ -264,8 +264,7 @@ function createPosthogApi({ host, apiKey, fetchFn }: {
 export {
   createPosthogApi,
   extractRows,
-  normalizeIssue,
   normalizeIssues,
   parseSpikeIssueIds,
 };
-export type { NormalizedIssue, PosthogApi, PosthogResponse, TrafficBuckets };
+export type { NormalizedIssue, PosthogApi };
