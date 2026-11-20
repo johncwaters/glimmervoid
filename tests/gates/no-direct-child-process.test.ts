@@ -16,6 +16,7 @@ const SKIP_DIRS = new Set([
   "tests",
   "harness",
   "scripts",
+  "examples",
   ".git",
   ".omc",
   ".glimmervoid",

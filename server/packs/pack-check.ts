@@ -13,7 +13,8 @@ type PackCheckReport = {
 };
 
 function pageErrors(filesByPath: ReadonlyMap<string, Buffer>, header: { ui?: unknown } | undefined): string[] {
-  return [...panelReferenceErrors(filesByPath), ...undeclaredSubscriptionErrors(filesByPath, header ? declaredPanels(header.ui) : [])];
+  const panels = header ? declaredPanels(header.ui) : [];
+  return [...panelReferenceErrors(filesByPath, panels.map((panel) => panel.entry)), ...undeclaredSubscriptionErrors(filesByPath, panels)];
 }
 
 function hookReportLines(pack: PackOnDisk): string[] {

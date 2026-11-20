@@ -461,8 +461,9 @@ export function referencedPackPath(filePath: string, reference: string): string 
   return path.posix.normalize(path.posix.join(path.posix.dirname(filePath), decodedPath(reference.replace(/[?#].*$/, ''))));
 }
 
-export function panelReferenceErrors(filesByPath: ReadonlyMap<string, Buffer>): string[] {
-  return [...filesByPath].filter(([filePath]) => filePath.endsWith('.html') || filePath.endsWith('.css') || isScriptFile(filePath)).flatMap(([filePath, bytes]) => referencesIn(filePath, bytes.toString('utf8'))
+export function panelReferenceErrors(filesByPath: ReadonlyMap<string, Buffer>, panelEntries: readonly string[]): string[] {
+  const panelPagePaths = new Set(panelEntries.flatMap((entry) => filesLoadedFrom(entry, filesByPath)));
+  return [...filesByPath].filter(([filePath]) => filePath.endsWith('.css') || panelPagePaths.has(filePath)).flatMap(([filePath, bytes]) => referencesIn(filePath, bytes.toString('utf8'))
     .map((reference) => referenceError(filePath, reference, filesByPath))
     .filter((error) => error !== null));
 }

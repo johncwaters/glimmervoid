@@ -12,7 +12,8 @@
       "!!.claude",
       "!!**/dist",
       "!!**/node_modules",
-      "!**/*.d.ts"
+      "!**/*.d.ts",
+      "!examples/packs/ship/skills"
     ]
   },
   "formatter": {

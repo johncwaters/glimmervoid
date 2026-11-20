@@ -1,0 +1,28 @@
+{
+  "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
+  "name": "ship",
+  "version": 1,
+  "description": "Spec, review and land in every session: specifying writes a validated design spec, gating-reviews runs one reviewing-code pass and stamps the tree, landing commits exactly that tree. A spec gate refuses the first edit no valid spec covers; a commit gate refuses raw git commit and push. Needs node and git. Parity gap: only Claude Code runs the qa-swarm review lanes in parallel through its Workflow tool; other agents run them one after another.",
+  "requires": { "env": [], "programs": ["node", "git"] },
+  "agent": {
+    "skills": ["skills/specifying", "skills/challenging-plans", "skills/gating-reviews", "skills/reviewing-code", "skills/landing"]
+  },
+  "hooks": [
+    {
+      "id": "spec-gate",
+      "description": "Refuses the first edit in a git checkout until a valid design spec under ~/.agents/specs names it; a retry in the same session goes through.",
+      "event": "beforeTool",
+      "tools": ["edit"],
+      "command": ["node", "{packDir}/hooks/spec-gate.mjs"],
+      "timeoutSeconds": 20
+    },
+    {
+      "id": "commit-gate",
+      "description": "Refuses a raw git commit or git push, pointing to the landing skill, whose land.ts commits the stamped tree. Catches accidents, not an agent set on getting around it.",
+      "event": "beforeTool",
+      "tools": ["shell"],
+      "command": ["node", "{packDir}/hooks/commit-gate.mjs"],
+      "timeoutSeconds": 5
+    }
+  ]
+}
