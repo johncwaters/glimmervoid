@@ -18,7 +18,7 @@ const DEFAULT_RETRY_INTERVAL_MS = 60000;
 interface TelegramOutboxDeps {
   filePath: string;
 
-  send: (entry: OutboxEntry) => Promise<{ ok: boolean }>;
+  send: (entry: OutboxEntry) => Promise<{ ok: boolean; isUnanswered?: boolean }>;
   now?: () => number;
   maxEntries?: number;
   maxAttempts?: number;
@@ -115,18 +115,19 @@ function createTelegramOutbox({
   }
 
   async function attempt(entry: OutboxEntry): Promise<void> {
-    let ok = false;
+    let sendOutcome: 'delivered' | 'unanswered' | 'failed' = 'failed';
     entryIdsInFlight.add(entry.id);
     try {
       const result = await send(entry);
-      ok = result?.ok === true;
+      if (result?.ok === true) sendOutcome = 'delivered';
+      if (result?.ok !== true && result?.isUnanswered === true) sendOutcome = 'unanswered';
     } catch (error) {
       warn(`[telegram-outbox] send threw: ${errorMessage(error)}`);
     } finally {
       entryIdsInFlight.delete(entry.id);
     }
-    if (ok) {
-      recordOutcome('telegramDelivered');
+    if (sendOutcome !== 'failed') {
+      recordOutcome(sendOutcome === 'delivered' ? 'telegramDelivered' : 'telegramFailed');
       entries = removeEntry(entries, entry.id);
       forgetDepartedEntries();
       await persist();

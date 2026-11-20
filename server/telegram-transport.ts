@@ -1,3 +1,4 @@
+import http from 'node:http';
 import https from 'node:https';
 
 interface TelegramBody {
@@ -24,11 +25,25 @@ interface SendTelegramOptions {
   transport?: TelegramTransport | null;
 
   timeoutMs?: number;
+
+  apiBaseUrl?: string;
 }
 
 interface SendTelegramResult {
   ok: boolean;
   error: string | null;
+  isUnanswered?: boolean;
+}
+
+const TELEGRAM_API_BASE_URL = 'https://api.telegram.org';
+const OUTER_TIMEOUT_GRACE_MS = 1000;
+
+function unansweredError(timeoutMs: number): Error & { isUnanswered: true } {
+  return Object.assign(new Error(noAnswerText(timeoutMs)), { isUnanswered: true as const });
+}
+
+function isUnansweredError(error: unknown): boolean {
+  return error instanceof Error && 'isUnanswered' in error && error.isUnanswered === true;
 }
 
 function telegramRefusalText(statusCode: number, responseText: string): string {
@@ -54,7 +69,8 @@ function noAnswerText(timeoutMs: number): string {
 function defaultTransport(url: string, bodyObject: TelegramBody, options?: TelegramSendBounds): Promise<void> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(bodyObject);
-    const req = https.request(
+    const requestModule = url.startsWith('http:') ? http : https;
+    const req = requestModule.request(
       url,
       {
         method: 'POST',
@@ -76,20 +92,27 @@ function defaultTransport(url: string, bodyObject: TelegramBody, options?: Teleg
         });
       },
     );
+    let hasWrittenWholeRequest = false;
+    req.on('finish', () => { hasWrittenWholeRequest = true; });
     req.on('error', reject);
     const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    if (timeoutMs > 0) req.setTimeout(timeoutMs, () => { req.destroy(new Error(noAnswerText(timeoutMs))); });
+    if (timeoutMs > 0) {
+      const answerTimer = setTimeout(() => {
+        req.destroy(hasWrittenWholeRequest ? unansweredError(timeoutMs) : new Error(noAnswerText(timeoutMs)));
+      }, timeoutMs);
+      req.on('close', () => { clearTimeout(answerTimer); });
+    }
     req.write(body);
     req.end();
   });
 }
 
-async function withinTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+async function withinTimeout<T>(work: Promise<T>, timeoutMs: number, statedTimeoutMs: number): Promise<T> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return work;
   void work.catch(() => {});
   let expiryTimer: NodeJS.Timeout | undefined;
   const expiry = new Promise<never>((_resolve, rejectOnExpiry) => {
-    expiryTimer = setTimeout(() => rejectOnExpiry(new Error(noAnswerText(timeoutMs))), timeoutMs);
+    expiryTimer = setTimeout(() => rejectOnExpiry(new Error(noAnswerText(statedTimeoutMs))), timeoutMs);
   });
   try {
     return await Promise.race([work, expiry]);
@@ -99,18 +122,19 @@ async function withinTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T>
 }
 
 async function sendTelegramMessage({
-  botToken, chatId, text, tag = 'telegram', transport, timeoutMs = DEFAULT_TIMEOUT_MS,
+  botToken, chatId, text, tag = 'telegram', transport, timeoutMs = DEFAULT_TIMEOUT_MS, apiBaseUrl = TELEGRAM_API_BASE_URL,
 }: SendTelegramOptions): Promise<SendTelegramResult> {
   const send = transport || defaultTransport;
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const url = `${apiBaseUrl}/bot${botToken}/sendMessage`;
+  const outerTimeoutMs = timeoutMs > 0 ? timeoutMs + OUTER_TIMEOUT_GRACE_MS : timeoutMs;
 
   try {
-    await withinTimeout(send(url, { chat_id: chatId, text }, { timeoutMs }), timeoutMs);
+    await withinTimeout(send(url, { chat_id: chatId, text }, { timeoutMs }), outerTimeoutMs, timeoutMs);
     return { ok: true, error: null };
   } catch (err) {
     const message = err instanceof Error && err.message ? err.message : String(err);
     console.warn(`[${tag}] ${message}`);
-    return { ok: false, error: message };
+    return { ok: false, error: message, isUnanswered: isUnansweredError(err) };
   }
 }
 

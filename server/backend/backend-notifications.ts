@@ -68,7 +68,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
 
   let lastTelegramFailure: TelegramDeliveryStatus['lastFailure'] = null;
 
-  async function sendAndRecordTelegram(text: string): Promise<{ ok: boolean; error: string | null }> {
+  async function sendAndRecordTelegram(text: string): Promise<{ ok: boolean; error: string | null; isUnanswered?: boolean }> {
     const botToken = config.telegram?.botToken ?? '';
     const chatId = config.telegram?.chatId ?? '';
     const refusal = telegramTestRefusal({ botToken, chatId });
