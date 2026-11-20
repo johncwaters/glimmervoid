@@ -389,7 +389,13 @@ async function verifyComposerAttachesImage(page: Page): Promise<void> {
 async function verifyBoardCardKeepsPlace(page: Page): Promise<void> {
   const logOrder = () => page.locator('.session-chat .chat-log > [data-part-id]').evaluateAll((parts) => parts.map((part) => (part instanceof HTMLElement ? (part.dataset.cardType ?? part.className) : '')).join(','));
   await sendFromComposer(page, 'ask-chat');
-  await page.waitForFunction(() => [...document.querySelectorAll('.session-chat .chat-log > [data-part-id]')].some((part) => part.textContent?.includes('ask-chat')), undefined, { timeout: CARD_TIMEOUT_MS });
+  await page.waitForFunction(() => {
+    const logParts = [...document.querySelectorAll<HTMLElement>('.session-chat .chat-log > [data-part-id]')];
+    const hasRecordedPrompt = logParts.some((part) => part.dataset.partId?.startsWith('prompt-') && part.textContent?.includes('ask-chat'));
+    const hasStandIn = logParts.some((part) => part.dataset.partId?.startsWith('sent-'));
+    const hasLiveTerminal = logParts.some((part) => part.dataset.cardType === 'live-terminal');
+    return hasRecordedPrompt && !hasStandIn && hasLiveTerminal;
+  }, undefined, { timeout: CARD_TIMEOUT_MS });
   const orderBeforeReopen = await logOrder();
   const chatPageButton = page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true });
   await chatPageButton.click();
