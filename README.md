@@ -209,7 +209,7 @@ Glimmervoid runs agents with your account's privileges. The local dashboard has 
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Release history is in [CHANGELOG.md](CHANGELOG.md).
+Pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it says when to open an issue, which checks to run, and how review works. Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
