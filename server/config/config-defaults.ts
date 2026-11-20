@@ -3,6 +3,7 @@ import type { CustomAgentDeclaration } from '../../shared/contracts/index.ts';
 import { DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL, DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS } from '../../shared/contracts/workflows.ts';
 import type { WorkflowRule } from '../../shared/contracts/workflows.ts';
 import { DEFAULT_SESSION_MEMORY_RESERVE_MB } from '../core/memory-admission-core.ts';
+import { DEFAULT_WORKTREE_DISK_RESERVE_GB } from '../core/disk-headroom-core.ts';
 import type { ProjectEntry, GlimmervoidConfig } from './config-types.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { PACK_SCHEDULED_SESSIONS_DEFAULT, SKIP_PERMISSIONS_BY_DEFAULT, SPAWNED_SESSIONS_DEFAULT } from '../../shared/settings-ranges.ts';
@@ -26,6 +27,8 @@ const DEFAULT_CONFIG = {
   replayBufferKB: 512,
 
   sessionMemoryReserveMB: DEFAULT_SESSION_MEMORY_RESERVE_MB,
+
+  worktreeDiskReserveGB: DEFAULT_WORKTREE_DISK_RESERVE_GB,
 
   packScheduledSessionsMax: PACK_SCHEDULED_SESSIONS_DEFAULT,
 

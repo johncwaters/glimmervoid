@@ -46,6 +46,9 @@ import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
+import { startDiskAlerts } from '../disk-headroom.ts';
+import { diskReserveBytes } from '../core/disk-headroom-core.ts';
+import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
 import { createCommitSigning, createUnsignedCommitNotices, followingGithubConnection } from '../commit-signing.ts';
 import { createHostReady } from '../ready-host.ts';
@@ -763,6 +766,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     statePath: configSiblingPath(configStore.configPath, 'github-connection-alerts.json'),
   });
   watcherLink.whenLinked(githubConnectionAlerts.check);
+  const diskAlerts = startDiskAlerts({
+    watchedPaths: () => [glimmervoidHomeDir(), ...configStore.config.projects.map((project) => configuredWorktreeRoot(configStore.config, project.path))],
+    reserveBytes: () => diskReserveBytes(configStore.config),
+    notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
+  });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
     configStore,
@@ -810,6 +818,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     idleStop,
     awakeUsageAlerts,
     githubConnectionAlerts,
+    diskAlerts,
     telegramInbound: notifications.telegramInbound,
     remoteListenerPortFile: { stop: withdrawRemoteListenerPort },
     controlWss,

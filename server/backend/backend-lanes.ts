@@ -38,6 +38,7 @@ import { createCommunityWiring } from '../community/community-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../spawn-gate.ts';
 import { readMemoryHeadroom } from '../memory-probe.ts';
 import { memoryReserveBytes } from '../core/memory-admission-core.ts';
+import { diskReserveBytes } from '../core/disk-headroom-core.ts';
 import type { Telemetry } from '../telemetry.ts';
 import { createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { createTeamReviewWiring } from '../github/team-review-wiring.ts';
@@ -160,6 +161,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const gitWorkspace = createGitWorkspace({
     rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs,
     githubPushToken: async () => (await githubUserCredential())?.token ?? null,
+    readDiskReserveBytes: () => diskReserveBytes(configStore.config),
   });
   const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({

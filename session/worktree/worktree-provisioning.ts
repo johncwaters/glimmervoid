@@ -152,6 +152,11 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
       return true;
     }
     if (workspace?.reason === "no-start-commit") return refusePinnedStartInPlace(`Start commit ${pinnedStartSha} not found in this repository. Fetch it, then start this session.`);
+    if (workspace?.reason === "disk-short") {
+      lifecycleState.worktreeNotice = workspace.error ?? null;
+      port.emit("worktree-blocked", { id, branch: integrationBranch, notice: lifecycleState.worktreeNotice });
+      return false;
+    }
     if (workspace?.reason === "no-base-branch") {
       lifecycleState.worktreeNotice = integrationBranch
         ? `Integration branch "${integrationBranch}" not found. Create it, then start this session.`

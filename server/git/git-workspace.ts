@@ -34,6 +34,8 @@ import { createProbeOps } from './workspace/probe-ops.ts';
 import { createIntegrationOps } from './workspace/integration-ops.ts';
 import { clock } from '../../shared/clock.ts';
 import { deleteLeftoverTrash, moveFolderToTrash, moveFolderToTrashSync } from '../trash-folder.ts';
+import { readDiskHeadroom } from '../disk-headroom.ts';
+import { diskShortNotice, isDiskShort } from '../core/disk-headroom-core.ts';
 
 const WORKTREE_TRASH_LABEL = 'worktree';
 
@@ -152,6 +154,7 @@ function createGitWorkspace(opts: {
   githubPushToken?: () => Promise<string | null>;
   rebaseSigningArgs?: (worktreePath: string) => Promise<string[]>;
   probeOrigin?: OriginProbe;
+  readDiskReserveBytes?: () => number;
 } = {}) {
 
   const rawGit: GitRunner = opts.git || (async (args, cwd, extra) => {
@@ -173,6 +176,14 @@ function createGitWorkspace(opts: {
     return rawGit(invocation.args, cwd, { ...extra, replaceEnv: { ...invocation.env, ...extra?.env } });
   };
   const mkdtemp = opts.mkdtemp || ((prefix: string) => fs.mkdtempSync(prefix));
+
+  async function readDiskShortRefusal(worktreeParent: string): Promise<string | null> {
+    const reserveBytes = opts.readDiskReserveBytes?.() ?? 0;
+    if (reserveBytes <= 0) return null;
+    const reading = await readDiskHeadroom(worktreeParent);
+    if (!reading.ok || !isDiskShort(reading, reserveBytes)) return null;
+    return diskShortNotice(worktreeParent, reading.freeBytes, reserveBytes);
+  }
   const log = opts.log || console;
 
   const rerereEnabled = opts.rerere !== false;
@@ -427,6 +438,8 @@ function createGitWorkspace(opts: {
       try { fs.mkdirSync(worktreeBase, { recursive: true }); } catch {}
     }
     const location = sessionWorktreeLocation(projectPath, teamId, worktreeBase);
+    const diskRefusal = await readDiskShortRefusal(location.parent);
+    if (diskRefusal) return { cwd: projectPath, isGit: false, reason: 'disk-short', error: diskRefusal };
     const wtDir = mkdtemp(path.join(location.parent, location.prefix));
     const add = await addWorktreeEntry(runInProject(projectPath), wtDir, ['-b', branch, wtDir, baseSha], { owner, projectPath, branch });
     if (!add.ok) {
@@ -474,6 +487,8 @@ function createGitWorkspace(opts: {
       await populateShare({ projectPath, wtDir, shareList });
       return { cwd: wtDir, isGit: true, branch, base };
     }
+    const diskRefusal = await readDiskShortRefusal(path.dirname(wtDir));
+    if (diskRefusal) return { cwd: projectPath, isGit: false, error: diskRefusal };
     const existingBranch = await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], projectPath);
     if (existingBranch.ok) {
       const attached = await addWorktreeEntry(runInProject(projectPath), wtDir, [wtDir, branch], { owner, projectPath, branch });
@@ -630,6 +645,8 @@ function createGitWorkspace(opts: {
   async function stageDetachedWorktreeBody({ projectPath, worktreePath, sha, owner, disableHooks, replaceEnv }: StageDetachedWorktreeArgs): Promise<GitResult> {
     if (!worktreePath) return { ok: false, out: '', err: 'a detached worktree needs a path' };
     if (normalizeSha(sha) !== sha) return { ok: false, out: '', err: 'a detached worktree sha must be 40 lowercase hexadecimal characters' };
+    const diskRefusal = await readDiskShortRefusal(path.dirname(worktreePath));
+    if (diskRefusal) return { ok: false, out: '', err: diskRefusal };
     return addWorktreeEntry((args) => runUntrusted(args, projectPath, { disableHooks, replaceEnv }), worktreePath, ['--detach', worktreePath, sha], { owner, projectPath, branch: null });
   }
 

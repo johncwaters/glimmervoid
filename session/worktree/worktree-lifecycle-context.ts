@@ -22,6 +22,7 @@ interface Workspace {
   base?: string | null;
   baseSha?: string | null;
   reason?: string;
+  error?: string;
   conflictPath?: string;
   warning?: string | null;
 }

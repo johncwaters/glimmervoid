@@ -25,6 +25,7 @@ export const REVIEWS_TURN_LIMIT_DEFAULT = 5;
 
 export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
 export const MEMORY_RESERVE_MB_RANGE = Object.freeze({ min: 0, max: 65536 });
+export const WORKTREE_DISK_RESERVE_GB_RANGE = Object.freeze({ min: 0, max: 1024 });
 export const PACK_SCHEDULED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 20 });
 export const PACK_SCHEDULED_SESSIONS_DEFAULT = 3;
 export const SPAWNED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 10 });
@@ -95,6 +96,7 @@ export const SETTINGS_RANGES = Object.freeze({
   REPLAY_BUFFER_KB_RANGE,
   REVIEWS_TURN_LIMIT_RANGE,
   MEMORY_RESERVE_MB_RANGE,
+  WORKTREE_DISK_RESERVE_GB_RANGE,
   PACK_SCHEDULED_SESSIONS_RANGE,
   SPAWNED_SESSIONS_RANGE,
   LOOP_GUARD_TURNS_RANGE,

@@ -12,6 +12,7 @@ import {
   POSTHOG_TRAFFIC_MIN_USERS_RANGE,
   POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   MEMORY_RESERVE_MB_RANGE,
+  WORKTREE_DISK_RESERVE_GB_RANGE,
   PACK_SCHEDULED_SESSIONS_DEFAULT,
   PACK_SCHEDULED_SESSIONS_RANGE,
   REPLAY_BUFFER_KB_RANGE,
@@ -53,6 +54,12 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-session-memory-reserve', path: 'sessionMemoryReserveMB', title: 'Session memory reserve', group: 'machine-sessions',
     description: 'Free memory an automatic session start waits for; 0 starts sessions without checking.',
     control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'headroom'], defaultValue: 600,
+    takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
+    id: 'file-worktree-disk-reserve', path: 'worktreeDiskReserveGB', title: 'Worktree disk reserve', group: 'machine-sessions',
+    description: 'Free disk space a new session worktree needs; below it the session is blocked and you are notified. 0 turns the check off.',
+    control: 'number', range: WORKTREE_DISK_RESERVE_GB_RANGE, unit: { label: 'GB', storedPerDisplay: 1 }, keywords: ['disk', 'space', 'worktree'], defaultValue: 15,
     takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
