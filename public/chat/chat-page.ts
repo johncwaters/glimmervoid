@@ -609,17 +609,6 @@ function buildChat(sessionId: string): MountedChat {
     }
   };
 
-  const leaveChatOnEscape = (event: KeyboardEvent): boolean => {
-    if (!isPlainEscapeKeydown(event) || !document.activeElement?.classList.contains('chat-composer-input')) return false;
-    const hasCancellableMessage = (outboxBySessionId.get(sessionId) ?? []).some((entry) => entry.state === 'held' || entry.state === 'failed');
-    if (hasCancellableMessage) return false;
-    event.preventDefault();
-    event.stopPropagation();
-    setSessionView('terminal');
-    closeSessionPage();
-    return true;
-  };
-
   const dismissQuestionOnEscape = (event: KeyboardEvent): boolean => {
     if (!isPlainEscapeKeydown(event)) return false;
     const openQuestionCard = root.querySelector<HTMLElement>(UNANSWERED_QUESTION_CARD_SELECTOR);
@@ -722,7 +711,6 @@ function buildChat(sessionId: string): MountedChat {
   });
   root.addEventListener('keydown', (event) => {
     if (dismissQuestionOnEscape(event)) return;
-    if (leaveChatOnEscape(event)) return;
     if (!isCardPickKeydown(event)) return;
     if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
     const keyTarget = chatKeyTargetOf(root, event.key);
