@@ -35,6 +35,7 @@ export const GET: APIRoute = ({ site }) => {
       '- Glimmervoid MCP: every agent gets the same MCP tools to start sessions, draw on whiteboards, show work, push commits, schedule wake-ups and request secrets.',
       '- Helper agents: every session gets the `glimmervoid` CLI, so an agent can spawn a helper session, message it, and close it.',
       `- Sane YOLO: accident protection, not a security boundary, for ${SANE_YOLO_AGENT_LABELS}. Safe commands run without prompts; destructive ones such as \`git reset --hard\` are blocked.`,
+      '- Glimmervoid Cloud: the same Glimmervoid on a server of your own, so sessions keep working with your laptop closed and open from any browser or phone. Sign in with GitHub. Invite-only alpha, free while it lasts.',
       '- Remote: one machine hosts everything; a phone or other device pairs once with a single-use link over your own HTTPS proxy, such as Tailscale.',
       '- Notifications: browser notifications, or Telegram when no dashboard tab is open.',
       '- Auto-resume: sessions that were live when Glimmervoid stopped come back on the next start, mid-turn included.',

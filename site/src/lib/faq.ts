@@ -39,6 +39,14 @@ export const FAQ_ENTRIES: readonly FaqEntry[] = [
     ],
   },
   {
+    question: 'Do I have to keep my computer on?',
+    answerParagraphs: [
+      'Only if you run Glimmervoid on it.',
+      'Glimmervoid Cloud runs your sessions on a server of your own, so they keep working with your laptop closed, and you open them from any browser or phone.',
+      'It is in an invite-only alpha, free while it lasts.',
+    ],
+  },
+  {
     question: 'How is an ADE different from an IDE or a terminal multiplexer?',
     answerParagraphs: [
       'An IDE is built around you editing files. An ADE is built around agents editing while you answer, review and merge.',

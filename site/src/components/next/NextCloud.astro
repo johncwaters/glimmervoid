@@ -3,7 +3,7 @@ import Wordmark from '../Wordmark.astro';
 import { ACCOUNT_PAGE_URL } from '../../lib/product-facts.ts';
 
 const COMPARISON_ROWS = [
-  { label: 'Sessions run', onYourMachine: 'When your computer is on', inCloud: 'Whenever you open it, on a server of your own' },
+  { label: 'Sessions run', onYourMachine: 'While your computer is on', inCloud: 'With your laptop closed, on a server of your own' },
   { label: 'Open it from', onYourMachine: 'Your network', inCloud: 'Any browser, any phone' },
   { label: 'Setup', onYourMachine: 'One install command', inCloud: 'Sign in with GitHub' },
   { label: 'Every feature', onYourMachine: 'Yes', inCloud: 'Yes' },
@@ -14,7 +14,7 @@ const COMPARISON_ROWS = [
   <div class="section-head reveal">
     <p class="cloud-badge">Invite-only alpha</p>
     <h2 class="cloud-heading"><span class="cloud-name">Glimmervoid Cloud</span><span aria-hidden="true"><Wordmark isStacked productName="Cloud" /></span></h2>
-    <p>Everything you run today, without keeping your computer on.</p>
+    <p>Your whiteboard and your sessions, on your phone, with the laptop closed.</p>
     <div class="waitlist">
       <a class="waitlist-join" href={ACCOUNT_PAGE_URL} data-waitlist-link>Join the waitlist</a>
       <p class="waitlist-note">Sign in with GitHub to take a place. Invites go out in small batches, and the alpha is free.</p>
@@ -27,7 +27,7 @@ const COMPARISON_ROWS = [
         {COMPARISON_ROWS.map(({ label, onYourMachine, inCloud }) => <tr><th scope="row">{label}</th><td>{onYourMachine}</td><td class="in-cloud">{inCloud}</td></tr>)}
       </tbody>
     </table>
-    <p class="hour-packs">After the alpha, a paid plan includes awake hours each month, and hour packs add more.</p>
+    <p class="hour-packs">After the alpha, a paid plan includes hours each month. Used them up? Keep going with top-offs, or wait for your hours to refresh.</p>
   </div>
 </section>
 

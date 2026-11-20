@@ -11,7 +11,7 @@
 
 Glimmervoid takes a feature from start to finish. Every agent works in its own git worktree, status comes from the agent's own hooks, and the one session that needs you comes to the front. Review and merge from the same page.
 
-It is an orchestrator, not a harness. Your coding agents run unmodified, as real processes in real terminals on your own machine, with your own login, subscription, skills, hooks and settings, talking straight to their model. No cloud service, no account. Glimmervoid is developed inside Glimmervoid.
+It is an orchestrator, not a harness. Your coding agents run unmodified, as real processes in real terminals, with your own login, subscription, skills, hooks and settings, talking straight to their model. Run it free on your own computer, or on [Glimmervoid Cloud](https://glimmervoid.dev/#cloud), where your sessions keep working after you close the laptop and you open them from any browser or phone. Glimmervoid is developed inside Glimmervoid.
 
 ![Glimmervoid dashboard replaying recorded Claude Code sessions: one fixes a flaky upload test with its diff in the terminal, three more work on their own projects in the session rail](assets/pictures/glimmervoid-demo.gif)
 
@@ -65,6 +65,18 @@ npm start
 `npm ci` does not run on Windows, because a dev dependency supports only macOS and Linux: on Windows, use the standalone binary or build from source in WSL.
 
 To update, run `git pull --ff-only && npm ci && npm run build` and restart. The dashboard's update banner shows the right command for however you installed.
+
+## Two ways to run it
+
+| | On your computer | Glimmervoid Cloud |
+|---|---|---|
+| Sessions run | While your computer is on | With your laptop closed |
+| Open it from | This computer, or a phone you pair over your own proxy | Any browser or phone |
+| Setup | The install command above | Sign in with GitHub |
+| Features | All of them | All of them |
+| Price | Free, open source | Free during the invite-only alpha |
+
+Cloud is in an invite-only alpha. [Join the waitlist](https://glimmervoid.dev/#cloud).
 
 ## Requirements
 

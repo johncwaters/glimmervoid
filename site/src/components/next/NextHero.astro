@@ -35,6 +35,7 @@ import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-pl
       </div>
     </div>
     <p class="copy-status" data-copy-status role="status"></p>
+    <p class="cloud-alternative">Or skip the install: run it on Glimmervoid Cloud and open it from your phone. <a href="#cloud">Join the waitlist</a></p>
   </div>
 
   <DashboardRecording />
@@ -67,6 +68,7 @@ import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-pl
   .install-line [data-install-for][hidden] { display: none; }
   .copy-install { margin-left: auto; flex: none; height: 34px; padding-block: 0; }
   .copy-status { display: block; margin-top: 10px; min-height: 21px; }
+  .cloud-alternative { margin-top: 4px; color: var(--text-dim); }
 
   .next-hero :global(.recording) { width: min(1000px, 100%); margin: 72px auto 0; }
   .next-hero :global(.recording-frame) { aspect-ratio: 1440 / 780; }

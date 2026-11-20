@@ -5,6 +5,7 @@ export function siteNavLinks(homePagePath: string): { label: string; href: strin
   return [
     { label: 'Boards', href: `${homePagePath}#boards` },
     { label: 'Sane YOLO', href: `${homePagePath}#sane-yolo` },
+    { label: 'Cloud', href: `${homePagePath}#cloud` },
     { label: 'Blog', href: sitePath('blog/') },
     { label: 'Changelog', href: `${REPOSITORY_URL}/blob/main/CHANGELOG.md` },
     { label: 'GitHub', href: REPOSITORY_URL },
