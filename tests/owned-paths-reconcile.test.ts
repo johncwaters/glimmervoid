@@ -16,9 +16,11 @@ import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 import { settleBackendShutdown } from './helpers/lanes.ts';
 import { waitFor } from './helpers/wait-for.ts';
 
-const UNTOUCHED_SINCE = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+const DAY_MS = 24 * 60 * 60 * 1000;
+const UNTOUCHED_SINCE = new Date(Date.now() - 2 * DAY_MS);
+const UNTOUCHED_PAST_PARK_GATE = new Date(Date.now() - 9 * DAY_MS);
 
-function makeRepo(root: string, name: string): string {
+function makeRepo(root: string, name: string, committedAt: Date = UNTOUCHED_SINCE): string {
   const repo = path.join(root, name);
   fs.mkdirSync(repo);
   git(['init', '-b', 'main'], repo);
@@ -27,16 +29,16 @@ function makeRepo(root: string, name: string): string {
   git(['config', 'commit.gpgsign', 'false'], repo);
   fs.writeFileSync(path.join(repo, 'README.md'), name);
   git(['add', '.'], repo);
-  execFileSync('git', ['commit', '-m', 'initial'], { cwd: repo, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: UNTOUCHED_SINCE.toISOString() } });
+  execFileSync('git', ['commit', '-m', 'initial'], { cwd: repo, stdio: 'ignore', env: { ...process.env, GIT_COMMITTER_DATE: committedAt.toISOString() } });
   return repo;
 }
 
-function markUntouchedForDays(workspace: { members: { dir: string }[] }): void {
+function markUntouchedForDays(workspace: { members: { dir: string }[] }, untouchedSince: Date = UNTOUCHED_SINCE): void {
   for (const member of workspace.members) {
     if (!fs.existsSync(member.dir)) continue;
-    fs.utimesSync(member.dir, UNTOUCHED_SINCE, UNTOUCHED_SINCE);
+    fs.utimesSync(member.dir, untouchedSince, untouchedSince);
     const adminDir = git(['rev-parse', '--absolute-git-dir'], member.dir).trim();
-    fs.utimesSync(adminDir, UNTOUCHED_SINCE, UNTOUCHED_SINCE);
+    fs.utimesSync(adminDir, untouchedSince, untouchedSince);
   }
 }
 
@@ -118,6 +120,55 @@ test('an orphaned checkout whose agent renamed its branch is swept once untouche
 
     assert.deepEqual(goneWorkspace.members.filter((member) => fs.existsSync(member.dir)).map((member) => member.dir), []);
     assert.deepEqual(restarted.warnings.filter((warning) => warning.includes('touch-probe-failed')), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an orphaned checkout holding work is kept while fresh, then parked on a ref and deleted, and the ref expires', { skip: !hasGit() }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-parked-orphan-')));
+  try {
+    const first = makeRepo(root, 'first.js', UNTOUCHED_PAST_PARK_GATE);
+    const second = makeRepo(root, 'second', UNTOUCHED_PAST_PARK_GATE);
+    fs.appendFileSync(path.join(first, '.git', 'info', 'exclude'), '.env\nbuild-output\n');
+    const firstRun = restartedServer(path.join(root, 'owned-paths.json'));
+    const goneWorkspace = await provisionWorkspace(root, 'gone-session', [first, second], firstRun.gitWorkspace);
+    await firstRun.ledger.idle();
+    const dirtyMember = goneWorkspace.members[0].dir;
+    fs.writeFileSync(path.join(dirtyMember, 'README.md'), 'tracked edit');
+    fs.writeFileSync(path.join(dirtyMember, 'untracked.txt'), 'never committed');
+    fs.writeFileSync(path.join(dirtyMember, '.env'), 'TOKEN=local');
+    fs.writeFileSync(path.join(dirtyMember, 'build-output'), 'ignored');
+
+    markUntouchedForDays(goneWorkspace);
+    const freshRun = restartedServer(path.join(root, 'owned-paths.json'));
+    await freshRun.reconcile([]);
+    await freshRun.ledger.idle();
+    assert.equal(fs.readFileSync(path.join(dirtyMember, 'untracked.txt'), 'utf8'), 'never committed');
+
+    git(['update-index', '--skip-worktree', 'README.md'], dirtyMember);
+    markUntouchedForDays(goneWorkspace, UNTOUCHED_PAST_PARK_GATE);
+    const hiddenEditRun = restartedServer(path.join(root, 'owned-paths.json'));
+    await hiddenEditRun.reconcile([]);
+    await hiddenEditRun.ledger.idle();
+    assert.equal(fs.readFileSync(path.join(dirtyMember, 'README.md'), 'utf8'), 'tracked edit');
+
+    git(['update-index', '--no-skip-worktree', 'README.md'], dirtyMember);
+    markUntouchedForDays(goneWorkspace, UNTOUCHED_PAST_PARK_GATE);
+    const agedRun = restartedServer(path.join(root, 'owned-paths.json'));
+    await agedRun.reconcile([]);
+    await agedRun.ledger.idle();
+    const parkedRef = 'refs/glimmervoid/parked/gone-session/first_2ejs';
+    assert.equal(fs.existsSync(dirtyMember), false);
+    assert.equal(git(['show', `${parkedRef}:README.md`], first), 'tracked edit');
+    assert.equal(git(['show', `${parkedRef}:untracked.txt`], first), 'never committed');
+    assert.equal(git(['show', `${parkedRef}:.env`], first), 'TOKEN=local');
+    assert.equal(git(['ls-tree', '--name-only', parkedRef], first).includes('build-output'), false);
+
+    assert.deepEqual(await agedRun.gitWorkspace.dropExpiredParkedWork({ projectPath: first }), []);
+    const monthLater = createGitWorkspace({ removalGuard: { now: () => Date.now() + 31 * DAY_MS } });
+    assert.deepEqual(await monthLater.dropExpiredParkedWork({ projectPath: first }), [parkedRef]);
+    assert.equal(git(['for-each-ref', 'refs/glimmervoid/parked/'], first), '');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -50,6 +50,8 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - rerere config is seeded only when UNSET, an operator who disabled it meaning it. A rebase suppresses the change funnel while it runs, or the review gate self-heals to none mid-rebase.
 
 - Every worktree Glimmervoid adds inside its home is locked with its own reason, because guarded sessions are denied that folder yet can write the shared `.git`, so their `git worktree prune` would drop it; only Glimmervoid unlocks it, and branch GC treats that lock as unlocked.
+- A dead session's worktree is deleted only once its work is in git: boot reconcile parks tracked, untracked and ignored `.env` files on `refs/glimmervoid/parked/<session id>/<folder>` first, and any park failure keeps the folder, so cleanup cannot lose work (`server/owned-paths-ledger.ts`).
+- A worktree is moved aside or parked only when its index holds no gitlink: an embedded repository's commits live only in the folder, and neither a trash rename nor a parked commit carries them.
 
 ### Worktree Base Branch
 

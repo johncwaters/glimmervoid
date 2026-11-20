@@ -15,6 +15,8 @@ import type { MarkerProbes } from '../core/integration-branch-core.ts';
 import { normalizeSha } from '../core/update-core.ts';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { runGit } from './git-exec.ts';
+import { withScratchIndex } from './scratch-index.ts';
+import { PARKED_REF_PREFIX, PARK_UNTOUCHED_DAYS, expiredParkedRefs, isUntouchedLongEnoughToPark, parkedRefFor } from '../core/owned-paths-core.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import type { OwnedPathEntry, OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import type { RemovalRecord } from '../../shared/contracts/removal-record.ts';
@@ -39,6 +41,11 @@ import { diskShortNotice, isDiskShort } from '../core/disk-headroom-core.ts';
 
 const WORKTREE_TRASH_LABEL = 'worktree';
 const GITLINK_MODE = '160000 ';
+const HIDDEN_FROM_STAGING_TAG = /^[a-zS] /;
+const PARK_GIT_TIMEOUT_MS = 10 * 60 * 1000;
+const PARK_LISTING_MAX_BUFFER = 256 * 1024 * 1024;
+const IGNORED_ENV_FILE_PATHSPECS = [':(glob)**/.env*', ':(exclude,glob)**/node_modules/**'];
+const PARK_COMMIT_IDENTITY_ARGS = ['-c', 'user.name=Glimmervoid', '-c', 'user.email=glimmervoid@localhost'];
 
 const fsp = fs.promises;
 
@@ -643,6 +650,55 @@ function createGitWorkspace(opts: {
     return removed;
   }
 
+  async function snapshotWorktreeTree(cwd: string): Promise<{ ok: true; tree: string } | { ok: false; reason: string }> {
+    const snapshot = await withScratchIndex(cwd, PARK_GIT_TIMEOUT_MS, async (scratchIndexEnv) => {
+      const scratch = { env: scratchIndexEnv, timeout: PARK_GIT_TIMEOUT_MS, disableRepoCommands: true };
+      const indexFlags = await run(['ls-files', '-v'], cwd, { ...scratch, maxBuffer: PARK_LISTING_MAX_BUFFER });
+      if (!indexFlags.ok) return `its index could not be read: ${indexFlags.err}`;
+      if (indexFlags.out.split('\n').some((flaggedEntry) => HIDDEN_FROM_STAGING_TAG.test(flaggedEntry))) return 'git was told to skip or assume unchanged some of its files, whose edits a parked commit would miss';
+      const added = await run(['add', '--all', '--', '.'], cwd, scratch);
+      if (!added.ok) return `its files could not be staged: ${added.err}`;
+      const ignoredEnvFiles = await run(['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', ...IGNORED_ENV_FILE_PATHSPECS], cwd, scratch);
+      if (!ignoredEnvFiles.ok) return `its ignored files could not be listed: ${ignoredEnvFiles.err}`;
+      const envFilePaths = ignoredEnvFiles.out.split(String.fromCharCode(0)).filter(Boolean);
+      if (envFilePaths.length > 0 && !(await run(['add', '--force', '--', ...envFilePaths], cwd, scratch)).ok) return 'its ignored .env files could not be staged';
+      const stagedEntries = await run(['ls-files', '--stage'], cwd, { ...scratch, maxBuffer: PARK_LISTING_MAX_BUFFER });
+      if (!stagedEntries.ok) return `its staged files could not be listed: ${stagedEntries.err}`;
+      if (stagedEntries.out.split('\n').some((stagedEntry) => stagedEntry.startsWith(GITLINK_MODE))) return 'it holds another repository, which a parked commit cannot carry';
+      const tree = await run(['write-tree'], cwd, scratch);
+      return tree.ok && /^[0-9a-f]{40,64}$/.test(tree.out) ? { tree: tree.out } : `its tree could not be written: ${tree.err}`;
+    });
+    if (!snapshot.ok) return { ok: false, reason: snapshot.reason };
+    if (typeof snapshot.value === 'string') return { ok: false, reason: snapshot.value };
+    return { ok: true, tree: snapshot.value.tree };
+  }
+
+  async function parkWorkspaceMemberWorkBody({ projectPath, cwd, branch, owner }: { projectPath: string; cwd: string; branch: string; owner: string }): Promise<{ ok: true; ref: string } | { ok: false; reason: string }> {
+    const ref = parkedRefFor(owner, cwd);
+    if (ref === null) return { ok: false, reason: `no parked ref can be named for ${owner} and ${path.basename(cwd)}` };
+    const lastTouchedMs = await probeLastTouchedMs({ cause: 'owned-paths', kind: 'worktree', projectPath, path: cwd, branch });
+    if (!isUntouchedLongEnoughToPark(lastTouchedMs, removalGuard.now())) return { ok: false, reason: `it was touched in the last ${PARK_UNTOUCHED_DAYS} days or its last touch could not be read` };
+    const head = await run(['rev-parse', '--verify', 'HEAD'], cwd);
+    if (!head.ok || !head.out) return { ok: false, reason: 'its checked-out commit could not be read' };
+    const snapshot = await snapshotWorktreeTree(cwd);
+    if (!snapshot.ok) return snapshot;
+    const commit = await run([...PARK_COMMIT_IDENTITY_ARGS, 'commit-tree', snapshot.tree, '-p', head.out, '-m', `Parked work of ${owner} from ${path.basename(cwd)} on ${branch}`], cwd, { disableRepoCommands: true });
+    if (!commit.ok || !commit.out) return { ok: false, reason: `its parked commit could not be written: ${commit.err}` };
+    const updated = await run(['update-ref', ref, commit.out], projectPath);
+    if (!updated.ok) return { ok: false, reason: `its parked ref could not be written: ${updated.err}` };
+    return { ok: true, ref };
+  }
+
+  async function dropExpiredParkedWorkBody({ projectPath }: { projectPath: string }): Promise<string[]> {
+    const listed = await run(['for-each-ref', '--format=%(refname) %(committerdate:unix)', PARKED_REF_PREFIX], projectPath);
+    if (!listed.ok) return [];
+    const droppedRefs: string[] = [];
+    for (const expiredRef of expiredParkedRefs(listed.out, removalGuard.now())) {
+      if ((await run(['update-ref', '-d', expiredRef], projectPath)).ok) droppedRefs.push(expiredRef);
+    }
+    return droppedRefs;
+  }
+
   async function listWorktreeBranches({ projectPath }: WorktreeArgs): Promise<WorktreeBranch[]> {
     const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
     if (!inside.ok || inside.out !== 'true') return [];
@@ -693,6 +749,8 @@ function createGitWorkspace(opts: {
     create: serialized(createBody),
     ensureWorkspaceMember: serialized(ensureWorkspaceMemberBody),
     removeWorkspaceMember: serialized(removeWorkspaceMemberBody),
+    parkWorkspaceMemberWork: serialized(parkWorkspaceMemberWorkBody),
+    dropExpiredParkedWork: serialized(dropExpiredParkedWorkBody),
     listOwnedPaths,
     discard: serialized(discardBody),
     mergeBack: (args: WorktreeArgs) => runMergeInRepositoryQueue(mergeBackBody, args),

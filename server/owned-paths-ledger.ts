@@ -8,14 +8,16 @@ import { OwnedPathsLedger } from '../shared/contracts/owned-paths.ts';
 import type { OwnedPathEntry } from '../shared/contracts/owned-paths.ts';
 import { caseFoldedPathKey } from '../shared/paths.ts';
 import { errorMessage } from '../shared/text.ts';
-import { holdsKeptPath, orphanedOwnedPaths } from './core/owned-paths-core.ts';
+import { PARKED_REF_RETAIN_DAYS, holdsKeptPath, orphanedOwnedPaths } from './core/owned-paths-core.ts';
 import { clock } from '../shared/clock.ts';
 
 type OwnedPathsLedgerHandle = ReturnType<typeof createOwnedPathsLedger>;
 
 type OwnedPathsReconcileGit = {
   describeWorkspaceMemberWork: (args: { projectPath: string; cwd: string; branch: string }) => Promise<string | null>;
-  removeWorkspaceMember: (args: { projectPath: string; cwd: string; branch: string; shareList: string[]; cause: 'owned-paths' }) => Promise<{ ok: boolean; err?: string; removalKept?: string }>;
+  removeWorkspaceMember: (args: { projectPath: string; cwd: string; branch: string; shareList: string[]; cause: 'owned-paths'; discardWork?: boolean }) => Promise<{ ok: boolean; err?: string; removalKept?: string }>;
+  parkWorkspaceMemberWork: (args: { projectPath: string; cwd: string; branch: string; owner: string }) => Promise<{ ok: true; ref: string } | { ok: false; reason: string }>;
+  dropExpiredParkedWork: (args: { projectPath: string }) => Promise<string[]>;
 };
 
 function ledgerKey(ownedPath: string): string {
@@ -102,14 +104,23 @@ async function holdsCheckout(folderPath: string): Promise<boolean> {
   return checkoutMarkers.includes(true);
 }
 
-async function removeOrphanedWorktree(entry: OwnedPathEntry, git: OwnedPathsReconcileGit, shareList: string[]): Promise<string | null> {
+async function removeOrphanedWorktree(entry: OwnedPathEntry, git: OwnedPathsReconcileGit, shareList: string[], log: Pick<Console, 'log'>): Promise<string | null> {
   if (!entry.projectPath || !entry.branch) return 'it names no repository and branch to check its work against';
-  const work = await git.describeWorkspaceMemberWork({ projectPath: entry.projectPath, cwd: entry.path, branch: entry.branch });
-  if (work) return work;
-  const removed = await git.removeWorkspaceMember({ projectPath: entry.projectPath, cwd: entry.path, branch: entry.branch, shareList, cause: 'owned-paths' });
+  const member = { projectPath: entry.projectPath, cwd: entry.path, branch: entry.branch };
+  const work = await git.describeWorkspaceMemberWork(member);
+  const parked = work ? await git.parkWorkspaceMemberWork({ ...member, owner: entry.owner }) : null;
+  if (work && parked && !parked.ok) return `${work}, not parked because ${parked.reason}`;
+  if (parked?.ok) log.log(`[owned-paths] parked the work in ${entry.path} (${work}) on ${parked.ref}; restore it with: git -C ${entry.projectPath} worktree add ${entry.path} ${parked.ref}`);
+  const removed = await git.removeWorkspaceMember({ ...member, shareList, cause: 'owned-paths', discardWork: parked?.ok === true });
   if (removed.removalKept) return `the removal guard kept it: ${removed.removalKept}`;
   if (!removed.ok || await pathExists(entry.path)) return `git could not remove it: ${removed.err || 'the folder is still there'}`;
   return null;
+}
+
+async function dropExpiredParkedWork(projectPaths: Iterable<string>, git: OwnedPathsReconcileGit, log: Pick<Console, 'log'>): Promise<void> {
+  for (const projectPath of new Set(projectPaths)) {
+    for (const droppedRef of await git.dropExpiredParkedWork({ projectPath })) log.log(`[owned-paths] dropped ${droppedRef} in ${projectPath}, parked more than ${PARKED_REF_RETAIN_DAYS} days ago`);
+  }
 }
 
 async function removeOrphanedFolder(entry: OwnedPathEntry, ledger: Pick<OwnedPathsLedgerHandle, 'forget'>, keptPaths: string[], journalPath: string, log: Pick<Console, 'warn'>): Promise<string | null> {
@@ -126,11 +137,12 @@ async function removeOrphanedFolder(entry: OwnedPathEntry, ledger: Pick<OwnedPat
   return null;
 }
 
-async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareList, journalPath = removalsJournalPath(glimmervoidHomeDir()), log = console }: {
+async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareList, projectPaths = [], journalPath = removalsJournalPath(glimmervoidHomeDir()), log = console }: {
   ledger: Pick<OwnedPathsLedgerHandle, 'loadEarlierRunEntries' | 'forget'>;
   configuredSessionIds: ReadonlySet<string>;
   git: OwnedPathsReconcileGit;
   shareList: string[];
+  projectPaths?: string[];
   journalPath?: string;
   log?: Pick<Console, 'log' | 'warn'>;
 }): Promise<void> {
@@ -147,7 +159,7 @@ async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareLis
     }
     const keepReason = entry.kind === 'folder'
       ? await removeOrphanedFolder(entry, ledger, keptPaths, journalPath, log)
-      : await removeOrphanedWorktree(entry, git, shareList);
+      : await removeOrphanedWorktree(entry, git, shareList, log);
     if (!keepReason) {
       log.log(`[owned-paths] deleted ${entry.path}, left by ${entry.owner}`);
       continue;
@@ -155,6 +167,7 @@ async function reconcileOwnedPaths({ ledger, configuredSessionIds, git, shareLis
     keptPaths.push(entry.path);
     log.warn(`[owned-paths] kept ${entry.path}, left by ${entry.owner}, because ${keepReason}`);
   }
+  await dropExpiredParkedWork([...projectPaths, ...loaded.entries.flatMap((entry) => (entry.projectPath ? [entry.projectPath] : []))], git, log);
 }
 
 export { createOwnedPathsLedger, holdsCheckout, reconcileOwnedPaths };
