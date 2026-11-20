@@ -42,7 +42,8 @@ import { clock } from '../../shared/clock.ts';
 
 type DoormanTunables = { holdTimeoutMs: number; wakeCooldownMs: number; maxHeldPerTenant: number; readinessPollMs: number; meterTickMs: number; maxEdgeWakesPerHour: number };
 type WakeOutcome = 'answering' | 'no-adapter' | 'unmetered' | 'cooling-down' | 'unreachable' | 'over-cap' | 'wake-limited';
-type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; didLastWakeFail: boolean; isColdStarting: boolean; stopStartedAtMs: number | null };
+type WakeKind = 'resume' | 'coldStart';
+type TenantGate = { state: ForwardState; heldCount: number; wakePromise: Promise<WakeOutcome> | null; lastWakeAtMs: number | null; didLastWakeFail: boolean; wakeKind: WakeKind; stopStartedAtMs: number | null };
 type TenantWatcher = { handle(request: http.IncomingMessage, response: http.ServerResponse): Promise<void>; githubTokenChanged(): void; stop(): void };
 type HeldGithubToken = { installationId: number; accountLogin: string; token: string; expiresAtMs: number };
 type TenantGithubToken = { held: readonly HeldGithubToken[]; mint: Promise<readonly HeldGithubToken[] | null> | null; refreshTimer: NodeJS.Timeout | null; failedAttempts: number; nextMintAllowedAtMs: number };
@@ -238,10 +239,10 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   async function runWake(entry: TenantEntry, adapter: HostAdapter, startedBy: WakeStartedBy): Promise<WakeOutcome> {
-    entry.gate.isColdStarting = false;
+    entry.gate.wakeKind = 'resume';
     const coldStartReport = {
       onColdStart: () => {
-        entry.gate.isColdStarting = true;
+        entry.gate.wakeKind = 'coldStart';
         log.log(`[doorman] tenant ${entry.tenant.slug} could not resume: its zone has no room, so it is starting fresh from its disks`);
       },
       onStartedOn: (machineType: string) => log.log(`[doorman] tenant ${entry.tenant.slug} started on ${machineType}`),
@@ -250,7 +251,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
       noteHostWoke(entry, startedBy);
       return true;
     }, (wakeError: unknown) => {
-      entry.gate.isColdStarting = false;
+      entry.gate.wakeKind = 'resume';
       log.warn(doormanFailureLine('wake-failed', `waking ${entry.tenant.slug} failed: ${errorMessage(wakeError)}`));
       return false;
     });
@@ -263,7 +264,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
   }
 
   function wakePageStateOf(entry: TenantEntry): WakePageState {
-    return wakePageState({ isWakeInFlight: entry.gate.wakePromise !== null, isColdStart: entry.gate.isColdStarting, didLastWakeFail: entry.gate.didLastWakeFail, lastWakeAtMs: entry.gate.lastWakeAtMs, nowMs: now(), wakeCooldownMs: tunables.wakeCooldownMs });
+    return wakePageState({ isWakeInFlight: entry.gate.wakePromise !== null, isColdStart: entry.gate.wakeKind === 'coldStart', didLastWakeFail: entry.gate.didLastWakeFail, lastWakeAtMs: entry.gate.lastWakeAtMs, nowMs: now(), wakeCooldownMs: tunables.wakeCooldownMs });
   }
 
   function overCapUsage(entry: TenantEntry): AwakeUsage | null {
@@ -820,7 +821,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     for (const tenant of nextTable.tenants) {
       if (entriesBySlug.has(tenant.slug)) continue;
       const meter = await meterFor(tenant);
-      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: meter?.lastWokeAtMs() ?? null, didLastWakeFail: false, isColdStarting: false, stopStartedAtMs: null };
+      const gate: TenantGate = { state: meter !== null && !meter.isAwake() ? 'unreachable' : 'answering', heldCount: 0, wakePromise: null, lastWakeAtMs: meter?.lastWokeAtMs() ?? null, didLastWakeFail: false, wakeKind: 'resume', stopStartedAtMs: null };
       watcherHomesBySlug.set(tenant.slug, tenant.watcherHome);
       entriesBySlug.set(tenant.slug, { tenant, gate, edgeKey: null, meter, watcher: null, watcherSecretHex: null, watcherStart: null, watcherRetryTimer: null, failedWatcherStarts: 0, github: { held: [], mint: null, refreshTimer: null, failedAttempts: 0, nextMintAllowedAtMs: 0 }, githubUser: null });
     }
