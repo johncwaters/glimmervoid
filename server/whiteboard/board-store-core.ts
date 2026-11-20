@@ -67,6 +67,7 @@ const BoardDelta = z.strictObject({
   reslottedElementIds: z.array(z.string()),
   appendedLog: z.array(z.strictObject({ version: z.number().int(), body: z.string() })),
   keptLogCount: z.number().int().nonnegative(),
+  isLogRewritten: z.boolean(),
 });
 
 const StoreRequest = z.discriminatedUnion('kind', [
@@ -183,7 +184,10 @@ function comparedElementDeltaOf(elementsBefore: Board['elements'], elementsAfter
 function boardDeltaOf(before: BoardRecord | null, after: BoardRecord, staged: StagedElements | null = null): BoardDelta {
   const elementDelta = staged ? stagedElementDeltaOf(staged) : comparedElementDeltaOf(before?.board.elements ?? elementTableOf(), after.board.elements);
   const newestLoggedVersion = before?.log.at(-1)?.version ?? Number.NEGATIVE_INFINITY;
-  const appendedLog = after.log.filter((change) => change.version > newestLoggedVersion).map((change) => ({ version: change.version, body: JSON.stringify(change) }));
+  const keptLog = after.log.filter((change) => change.version <= newestLoggedVersion);
+  const storedTail = before?.log.slice(before.log.length - keptLog.length) ?? [];
+  const isLogRewritten = keptLog.some((change, index) => storedTail[index] !== change);
+  const appendedLog = (isLogRewritten ? after.log : after.log.filter((change) => change.version > newestLoggedVersion)).map((change) => ({ version: change.version, body: JSON.stringify(change) }));
   return {
     boardId: after.board.id,
     head: headOf(after.board),
@@ -193,6 +197,7 @@ function boardDeltaOf(before: BoardRecord | null, after: BoardRecord, staged: St
     ...elementDelta,
     appendedLog,
     keptLogCount: after.log.length,
+    isLogRewritten,
   };
 }
 

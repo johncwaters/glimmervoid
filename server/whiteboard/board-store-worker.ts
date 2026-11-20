@@ -28,6 +28,7 @@ function preparedStatementsOf(database: DatabaseSync) {
     insertText: database.prepare('INSERT INTO element_text (rowid, text) VALUES (?, ?)'),
     removeRect: database.prepare('DELETE FROM element_rects WHERE slot = ?'),
     upsertRect: database.prepare('INSERT OR REPLACE INTO element_rects (slot, min_x, max_x, min_y, max_y) VALUES (?, ?, ?, ?, ?)'),
+    clearLog: database.prepare('DELETE FROM board_log WHERE board_id = ?'),
     appendLog: database.prepare('INSERT INTO board_log (board_id, version, body) VALUES (?, ?, ?)'),
     pruneLog: database.prepare('DELETE FROM board_log WHERE board_id = ? AND seq NOT IN (SELECT seq FROM board_log WHERE board_id = ? ORDER BY seq DESC LIMIT ?)'),
     allBoards: database.prepare('SELECT id, head, cursors, created_by FROM boards'),
@@ -120,6 +121,7 @@ function openStore(databasePath: string) {
       statements.removeText.run(slot);
       if (text) statements.insertText.run(slot, text);
     }
+    if (delta.isLogRewritten) statements.clearLog.run(delta.boardId);
     for (const change of delta.appendedLog) statements.appendLog.run(delta.boardId, change.version, change.body);
     statements.pruneLog.run(delta.boardId, delta.boardId, delta.keptLogCount);
   }

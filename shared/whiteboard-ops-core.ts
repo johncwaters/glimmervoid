@@ -392,23 +392,23 @@ function stageOps(board: Board, ops: readonly Op[], author: Author, nowMs: numbe
   const lookup: ElementLookup = (id) => elementOf(draft, id);
   const version = board.version + 1;
   const changes: BoardChange[] = [];
-  let restackedCount = 0;
   let orderScannedCount = 0;
   for (const [opIndex, op] of ops.entries()) {
     if (op.op === 'order') {
       const ordered = orderedKindIdsOf(draft, op);
       if (!ordered.ok) return { ok: false, error: `op ${opIndex + 1}: ${ordered.error}`, opIndex };
       orderScannedCount += ordered.scannedCount;
-      restackedCount += ordered.restacks.reduce((total, restack) => total + restack.ids.length, 0);
+      const restackedCount = ordered.restacks.reduce((total, restack) => total + restack.ids.length, 0);
       if (orderScannedCount > WHITEBOARD_LIMITS.elements) return { ok: false, error: `op ${opIndex + 1}: the put's order ops look through more than ${WHITEBOARD_LIMITS.elements} elements, so send them in separate puts`, opIndex };
       if (changes.length + restackedCount > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put restacks more than ${WHITEBOARD_LIMITS.opsPerPut} elements, so send the order ops in separate puts or move fewer elements past more neighbors`, opIndex };
       const restackedIds = restackElements(draft, ordered.restacks);
-      if (restackedIds.length > 0) changes.push({ version, author: author.id, elementId: op.ids[0] ?? null, summary: `${author.name} ${describeOrder(op, lookup)}` });
+      const summary = `${author.name} ${describeOrder(op, lookup)}`;
+      changes.push(...restackedIds.map((elementId) => ({ version, author: author.id, elementId, summary })));
       continue;
     }
     const expanded = op.op === 'align' ? alignedSetOpsOf(draft, op) : { ok: true as const, ops: [op] };
     if (!expanded.ok) return { ok: false, error: `op ${opIndex + 1}: ${expanded.error}`, opIndex };
-    if (changes.length + restackedCount + expanded.ops.length > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put changes more than ${WHITEBOARD_LIMITS.opsPerPut} elements once its align ops are counted box by box`, opIndex };
+    if (changes.length + expanded.ops.length > WHITEBOARD_LIMITS.opsPerPut) return { ok: false, error: `op ${opIndex + 1}: the put changes more than ${WHITEBOARD_LIMITS.opsPerPut} elements once its align ops are counted box by box`, opIndex };
     for (const elementOp of expanded.ops) {
       const elementId = changedElementId(elementOp);
       const previous = elementId === null ? undefined : elementOf(draft, elementId);

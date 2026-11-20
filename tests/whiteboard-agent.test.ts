@@ -244,6 +244,32 @@ test('an agent is refused a change to an element another writer changed since it
   assert.equal((await boardOf(PLANNER_ID, boardId)).board.elements.n1?.author, PLANNER_ID, 'any agent edit signs the note, not only a text edit');
 });
 
+test('an agent is refused every element another writer restacked, and past the change log threshold, even across a restart, it may still edit its own box and is told every element another writer changed', async () => {
+  const boardId = await newBoard('busy board');
+  const boxAt = (id: string, x: number, y = 40) => ({ op: 'add', element: { kind: 'box', id, title: id, place: { at: { x, y } } } });
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [boxAt('a', 40), boxAt('b', 300), boxAt('c', 600)] });
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
+  await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [boxAt('mine', 900)] });
+  await boardOf(BUILDER_ID, boardId);
+  await boardOf(PLANNER_ID, boardId);
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'order', ids: ['a', 'b', 'c'], to: 'front' }] })).status, 200);
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'c', fields: { tone: 'blue' } }] })).status, 409, 'the last restacked id is caught, not only the first');
+  await boardOf(BUILDER_ID, boardId);
+
+  const fillerCount = 1100;
+  const fillerIds = Array.from({ length: fillerCount }, (_, fillerIndex) => `filler-${fillerIndex}`);
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'a', fields: { title: 'early edit' } }] });
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: fillerIds.map((fillerId, fillerIndex) => boxAt(fillerId, (fillerIndex % 50) * 300, 100000 + Math.floor(fillerIndex / 50) * 200)) });
+  for (const tone of ['pink', 'blue']) await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: fillerIds.map((fillerId) => ({ op: 'set', id: fillerId, fields: { tone } })) });
+  await shutDown(fixture.booted);
+  fixture.booted = await boot();
+
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'mine', fields: { tone: 'green' } }] })).status, 200, 'a box nobody else touched stays editable past the threshold');
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'a', fields: { tone: 'green' } }] })).status, 409, 'the early edit is still checked after the log was compacted and reloaded');
+  const summaries = ((await whiteboard(BUILDER_ID, { sub: 'get', board: boardId })).body.changes as { summary: string }[]).map((change) => change.summary);
+  assert.deepEqual([summaries.length, summaries.some((summary) => summary.includes('"early edit"'))], [fillerCount + 1, true], 'every element another writer changed is listed once');
+});
+
 test('a malformed or over-limit put is refused whole with a reason and the board is unchanged', async () => {
   const boardId = await newBoard('refusals');
   const before = await boardOf(PLANNER_ID, boardId);

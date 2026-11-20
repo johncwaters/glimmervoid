@@ -294,10 +294,27 @@ function lowestCursor(record: BoardRecord): number {
   return cursors.length === 0 ? record.board.version : Math.min(...cursors);
 }
 
+const BOARD_TARGET = '';
+
+function newestChangePerTarget(changes: readonly BoardChange[]): Map<string, BoardChange> {
+  return new Map(changes.map((change) => [change.elementId ?? BOARD_TARGET, change]));
+}
+
+function compactedLog(record: BoardRecord, unread: readonly BoardChange[]): BoardChange[] {
+  const readVersionBySessionId = Object.entries(record.cursorBySessionId).map(([sessionId, cursor]) => ({ sessionId, readVersion: readVersionOf(cursor) }));
+  const isUnreadByAnotherSession = (change: BoardChange) => readVersionBySessionId.some(({ sessionId, readVersion }) => sessionId !== change.author && readVersion < change.version);
+  const targetAndAuthorOf = (change: BoardChange) => JSON.stringify([change.elementId, change.author]);
+  const newestByTargetAndAuthor = new Map(unread.map((change) => [targetAndAuthorOf(change), change]));
+  return unread.filter((change) => newestByTargetAndAuthor.get(targetAndAuthorOf(change)) === change && isUnreadByAnotherSession(change));
+}
+
 function pruneLog(record: BoardRecord): BoardRecord {
   const oldestUnread = lowestCursor(record);
   const unread = record.log.filter((change) => change.version > oldestUnread);
-  return { ...record, log: unread.slice(-WHITEBOARD_LIMITS.logEntries) };
+  if (unread.length <= WHITEBOARD_LIMITS.logEntries) return { ...record, log: unread };
+  const compacted = compactedLog(record, unread);
+  if (unread.length <= 2 * compacted.length) return { ...record, log: unread };
+  return { ...record, log: compacted };
 }
 
 function recordPut(record: BoardRecord, result: Pick<Extract<ApplyResult, { ok: true }>, 'board' | 'changes'>): BoardRecord {
@@ -319,26 +336,20 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   if (cursor === undefined) return [];
   const readVersion = readVersionOf(cursor);
   const unread = record.log.filter((change) => change.version > readVersion && change.author !== sessionId);
-  const mergedByElementId = new Map<string, { newest: BoardChange; summaries: Set<string> }>();
+  const newestByTarget = newestChangePerTarget(unread);
+  const summariesByElementId = new Map<string, Set<string>>();
   for (const change of unread) {
     if (change.elementId === null) continue;
-    const summaries = mergedByElementId.get(change.elementId)?.summaries ?? new Set<string>();
-    mergedByElementId.set(change.elementId, { newest: change, summaries: summaries.add(change.summary) });
+    summariesByElementId.set(change.elementId, (summariesByElementId.get(change.elementId) ?? new Set<string>()).add(change.summary));
   }
   return unread.flatMap((change) => {
     if (change.elementId === null) return [change];
-    const merged = mergedByElementId.get(change.elementId);
-    if (!merged || merged.newest !== change) return [];
-    return [{ ...change, summary: [...merged.summaries].join('; ') }];
+    if (newestByTarget.get(change.elementId) !== change) return [];
+    return [{ ...change, summary: [...(summariesByElementId.get(change.elementId) ?? [])].join('; ') }];
   });
 }
 
 const READ_FIRST_TEXT = 'read it with whiteboard get, then put again';
-
-function isLogTrimmedPast(record: BoardRecord, cursor: number): boolean {
-  const oldestKept = record.log[0];
-  return record.log.length >= WHITEBOARD_LIMITS.logEntries && oldestKept !== undefined && oldestKept.version > cursor;
-}
 
 function unreadChangeRefusalOf(record: BoardRecord, readerId: string, afterById: ReadonlyMap<string, Element | null>): string | null {
   const changedIds = new Set(afterById.keys());
@@ -348,7 +359,6 @@ function unreadChangeRefusalOf(record: BoardRecord, readerId: string, afterById:
   if (cursor === undefined) return null;
   if (firstExistingId !== undefined && !hasReadSinceConnecting(cursor)) return `this session has not read board "${record.board.title}" since it connected, so it cannot change ${firstExistingId}; ${READ_FIRST_TEXT}`;
   const readVersion = readVersionOf(cursor);
-  if (isLogTrimmedPast(record, readVersion)) return `board "${record.board.title}" changed more than its change log holds since this session last read it; ${READ_FIRST_TEXT}`;
   const unread = record.log.find((change) => change.version > readVersion && change.author !== readerId && change.elementId !== null && changedIds.has(change.elementId));
   if (!unread) return null;
   return `${unread.elementId} changed since this session last read the board (${unread.summary}); ${READ_FIRST_TEXT}`;
