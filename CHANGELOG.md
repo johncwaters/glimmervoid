@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Agents can no longer write over board edits they have not read.** When you or another session change a box, wire or note, an agent that tries to change or remove that element before reading the board again is refused, and told to read it first. An agent has to be connected to the board and have read it since connecting before it changes anything already there, and showing a file again or importing a board file over the board is checked the same way. Your own edits on the dashboard are never refused, and the code map and plan step updates still land.
+
 ## [0.62.10] - 2026-11-19
 
 ### Fixed

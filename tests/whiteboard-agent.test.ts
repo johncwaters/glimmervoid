@@ -193,7 +193,7 @@ test('an agent builds a board of boxes, wires, frames, notes and boxes marked ad
   assert.equal(board.elements.later?.change, 'added');
 });
 
-test('two writers keep both different fields, the later write of one field wins, and the overwritten writer gets every change to the element in one line', async () => {
+test('an agent is refused a change to an element another writer changed since its last read, lands it once it reads, and the other writer gets every change to the element in one line', async () => {
   const boardId = await newBoard('shared edits');
   assert.equal((await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId })).status, 200);
   await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'parse', title: 'Parse', place: { at: { x: 40, y: 40 } } } }] });
@@ -201,8 +201,27 @@ test('two writers keep both different fields, the later write of one field wins,
   await boardOf(BUILDER_ID, boardId);
 
   await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { title: 'Parse feed' } }] });
-  await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { lines: [{ text: 'by the builder' }] } }] });
-  await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { title: 'Parse and store' } }] });
+  const blindRemove = await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'parse' }] });
+  assert.equal(blindRemove.status, 409);
+  assert.match(String(blindRemove.body.error), new RegExp(`parse changed since this session last read the board \\(${PLANNER_ID} renamed "Parse" to "Parse feed"\\)`));
+  const blindSet = await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { lines: [{ text: 'by the builder' }] } }] });
+  assert.equal(blindSet.status, 409);
+  await whiteboard(BUILDER_ID, { sub: 'get', board: boardId, peek: true });
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { lines: [{ text: 'by the builder' }] } }] })).status, 409, 'a peek is not a read');
+  assert.equal((await boardOf(PLANNER_ID, boardId)).board.elements.parse?.title, 'Parse feed', 'a refused put changes nothing');
+
+  await boardOf(BUILDER_ID, boardId);
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { lines: [{ text: 'by the builder' }] } }] })).status, 200);
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { title: 'Parse and store' } }] })).status, 200, 'its own changes since its read do not block it');
+
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'gone', title: 'Gone', place: { at: { x: 40, y: 300 } } } }] });
+  await boardOf(BUILDER_ID, boardId);
+  await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'remove', id: 'gone' }] });
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'gone', title: 'Back', place: { at: { x: 40, y: 300 } } } }] })).status, 409, 'an unread removal is not undone by an add');
+  await whiteboard(BUILDER_ID, { sub: 'disconnect', board: boardId });
+  await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId });
+  assert.equal((await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'parse', fields: { tone: 'blue' } }] })).status, 409, 'a fresh connect is not a read');
+  await boardOf(BUILDER_ID, boardId);
 
   const plannerView = await boardOf(PLANNER_ID, boardId);
   assert.equal(plannerView.board.elements.parse?.title, 'Parse and store');
@@ -213,6 +232,7 @@ test('two writers keep both different fields, the later write of one field wins,
   assert.deepEqual((await boardOf(PLANNER_ID, boardId)).changes, [], 'a get marks the summaries read');
 
   await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'n1', shape: 'note', title: 'keep prod', place: { at: { x: 400, y: 400 } } } }] });
+  await boardOf(BUILDER_ID, boardId);
   await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'n1', fields: { title: 'drop prod' } }] });
   const rewritten = (await boardOf(PLANNER_ID, boardId)).board.elements.n1;
   assert.deepEqual([rewritten?.title, rewritten?.author], ['drop prod', BUILDER_ID], 'a rewritten note is signed by its rewriter');
@@ -314,6 +334,7 @@ test('a dashboard viewing one region of a board past the incremental layout floo
     assert.ok(shownIds.has('near'));
     assert.equal(shownIds.has('far'), false);
 
+    await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
     const renamed = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'near', fields: { title: 'Near now' } }, { op: 'set', id: 'far', fields: { title: 'Far now' } }] });
     assert.equal(renamed.status, 200);
     const renameDiff = await waitForMessage(control.received, (frame) => frame.type === 'whiteboard-tile-diff' && frame.fromVersion === tiles.version, 'the rename diff');
@@ -506,8 +527,14 @@ test('an agent puts ops from a file, reads the laid-out positions and renders th
   const cli = (...args: string[]) => runPlannerCli(context, ['whiteboard', ...args]);
 
   assert.equal((await cli('put', boardId, '--file', opsPath)).exitCode, 0);
+  const unconnectedEdit = await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'save', fields: { title: 'Save rows' } }] });
+  assert.equal(unconnectedEdit.status, 409);
+  assert.match(String(unconnectedEdit.body.error), /not connected to board "see it".*run whiteboard connect/);
+  await whiteboard(BUILDER_ID, { sub: 'connect', board: boardId });
+  await boardOf(BUILDER_ID, boardId);
   const builderEdit = await whiteboard(BUILDER_ID, { sub: 'put', board: boardId, ops: [{ op: 'set', id: 'save', fields: { title: 'Save rows' } }] });
   assert.equal(builderEdit.status, 200);
+  await whiteboard(BUILDER_ID, { sub: 'disconnect', board: boardId });
 
   const laidOut = await cli('get', boardId, '--layout');
   assert.equal(laidOut.exitCode, 0);
@@ -955,6 +982,9 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
     assert.equal(sharedFolder.status, 409, sameFolder);
     assert.match(String(sharedFolder.body.error), /Linked plan already links/);
   }
+  await whiteboard(PLANNER_ID, { sub: 'connect', board: boardId });
+  plannerBoardIds.push(boardId);
+  await boardOf(PLANNER_ID, boardId);
 
   const documentPath = path.join(worktree, 'boards', 'plan', 'board.jsonl');
   const eventually = async (check: () => Promise<boolean> | boolean, label: string) => {
@@ -1039,6 +1069,7 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
 
   fs.rmSync(path.dirname(builderDocumentPath), { recursive: true });
   await eventually(async () => (await listedBoard())?.link?.state === 'broken', 'a folder taken away by git shows as broken');
+  await boardOf(PLANNER_ID, boardId);
   await put([{ op: 'set', id: 'c', fields: { title: 'Edited while the folder is gone' } }]);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   assert.equal(fs.existsSync(builderDocumentPath), false, 'a folder git took away is not written back, so switching branches stays possible');
@@ -1874,6 +1905,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const drawnNeighbours = [...drawnInView.filter((element) => element.id !== 'shown-3' && element.x >= operatorView.x), inkBounds];
   assert.ok(drawnNeighbours.some((neighbour) => neighbour.y === drawnThird.y || neighbour.x === drawnThird.x), `shown-3 shares a top or left edge with a neighbour in view: ${JSON.stringify([drawnThird.x, drawnThird.y, drawnNeighbours])}`);
   assert.deepEqual([...drawnInView.filter((element) => element.id !== 'shown-3' && overlapsThird(element)).map((element) => element.id), ...(overlapsThird({ x: Math.min(...inkXs), y: Math.min(...inkYs), width: Math.max(...inkXs) - Math.min(...inkXs), height: Math.max(...inkYs) - Math.min(...inkYs) }) ? ['operator-ink'] : [])], []);
+  await wiring.handleAgent(shower, { sub: 'get', board: boardId });
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-3' }, { op: 'remove', id: 'in-view' }, ...['plan-a', 'plan-b', 'plan-c', 'operator-ink'].map((removedId) => ({ op: 'remove', id: removedId }))]) })).status, 200);
 
   fs.writeFileSync(path.join(showerDir, 'login.png'), await sharp({ create: { width: 96, height: 32, channels: 3, background: '#f43f5e' } }).png().toBuffer());

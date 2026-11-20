@@ -31,7 +31,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -134,7 +134,7 @@ const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store
 const DAMAGED_BOARD_TEXT = 'that board has stored elements that cannot be read, so nothing changed';
 const DAMAGED_ROWS = Symbol('damaged element rows');
 const RELEASE_HOLD_MS = 60 * 60_000;
-type PutRefusalCheck = (boardBefore: Board, afterById: ReadonlyMap<string, Element | null>) => string | null;
+type PutRefusalCheck = (recordBefore: BoardRecord, afterById: ReadonlyMap<string, Element | null>) => string | null;
 
 const noPutRefusal: PutRefusalCheck = () => null;
 
@@ -174,6 +174,7 @@ interface WhiteboardPort {
   loaded: Promise<void>;
   assets: WhiteboardAssetStore;
   handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply>;
+  putWithoutReadCheck(caller: WhiteboardCaller, boardRef: string, ops: readonly Op[]): Promise<WhiteboardReply>;
   readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
   handleOperator: {
     create(title: string): Promise<OperatorReply>;
@@ -666,8 +667,8 @@ function createWhiteboardWiring({
       const linkOf = (boxId: string) => mediaOfBoxIn(record.board, boxId)?.link ?? null;
       const applied = await applyOpsToRecord(record, ops.map((op) => withServerSyncedHash(op, linkOf)), author, { confirmsRefs });
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const habitRefusal = refusalOf(record.board, applied.staged.afterById);
-      if (habitRefusal) return { ok: false, reply: refusal(409, `${habitRefusal}, so nothing changed`) };
+      const putRefusal = refusalOf(record, applied.staged.afterById);
+      if (putRefusal) return { ok: false, reply: refusal(409, `${putRefusal}, so nothing changed`) };
       const boardSharingFolder = boardSharingLinkedFolderOf(record.board, applied.record.board);
       if (boardSharingFolder) return { ok: false, reply: refusal(409, `the board ${boardSharingFolder.title} already links ${applied.record.board.link}, and two boards on one folder would write over each other, so nothing changed`) };
       const replyAfterCommit = (saved: BoardRecord, layout: LayoutSummary | null): CommittedReply => {
@@ -887,8 +888,10 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, box: boxId, text } };
   }
 
-  async function reviewedPut(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
-    const reply = await putOps(boardId, ops, author, agentPutRefusalOf);
+  async function reviewedPut(boardId: string, ops: readonly Op[], author: Author, { checksReads }: { checksReads: boolean }): Promise<WhiteboardReply> {
+    const habitRefusalOf: PutRefusalCheck = (recordBefore, afterById) => agentPutRefusalOf(recordBefore.board, afterById);
+    const readCheckedRefusalOf: PutRefusalCheck = (recordBefore, afterById) => unreadChangeRefusalOf(recordBefore, author.id, afterById) ?? habitRefusalOf(recordBefore, afterById);
+    const reply = await putOps(boardId, ops, author, checksReads ? readCheckedRefusalOf : habitRefusalOf);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
     const habitWarnings = habitWarningsOf(board, ops);
@@ -1144,7 +1147,7 @@ function createWhiteboardWiring({
       if (!found.ok) return { ok: false, status: found.reply.status, error: found.reply.body.ok ? 'no such board' : found.reply.body.error };
       return exportedBoardFile(found.boardId);
     },
-    importFile: importBoardFile,
+    importFile: (gzipped) => importBoardFile(gzipped, null),
     detach: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => detachBoard(foundBoardId, sessionId)),
   };
 
@@ -1320,6 +1323,8 @@ function createWhiteboardWiring({
       const { op, boxId, isUpdate } = shownBox;
       const applied = await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
+      const unreadRefusal = unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
+      if (unreadRefusal) return { ok: false, reply: refusal(409, `${unreadRefusal}, so nothing changed`) };
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
       const note = withUnloadedNote(`${isUpdate ? 'updated' : 'showed'} ${card.title} ${isUpdate ? 'in place in' : 'as'} box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; show the same file again to update this card, or change it with whiteboard put`, unloaded);
@@ -1364,7 +1369,7 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, board: summaryOf(record, now()), wrote: written.wrote, note } };
   }
 
-  async function importBoardFile(gzipped: Buffer): Promise<WhiteboardReply> {
+  async function importBoardFile(gzipped: Buffer, importerId: string | null): Promise<WhiteboardReply> {
     await loaded;
     const parsed = await parseBoardFile(gzipped);
     if (!parsed.ok) return refusal(parsed.status, parsed.error);
@@ -1375,7 +1380,7 @@ function createWhiteboardWiring({
     const { title, caption, legend } = parsed.file.board;
     const boardId = parsed.file.board.id ?? newBoardId();
     const otherTitles = new Set([...recordsByBoardId.values()].filter((record) => record.board.id !== boardId).map((record) => record.board.title));
-    if (recordsByBoardId.has(boardId)) return overwriteBoardFromFile(boardId, { title: nextCopyTitle(title, otherTitles), caption, legend, elements });
+    if (recordsByBoardId.has(boardId)) return overwriteBoardFromFile(boardId, { title: nextCopyTitle(title, otherTitles), caption, legend, elements }, importerId);
     deletedBoardIds.delete(boardId);
     const nowMs = now();
     const startingBoard: Board = { ...createBoard({ id: boardId, title: nextCopyTitle(title, otherTitles), nowMs }), caption, legend };
@@ -1388,8 +1393,9 @@ function createWhiteboardWiring({
     return saveNewRecord(record, 'imported', `imported board "${record.board.title}" (${record.board.id}); read it with whiteboard get ${record.board.id}`);
   }
 
-  async function overwriteBoardFromFile(boardId: string, content: BoardContent): Promise<WhiteboardReply> {
-    const applied = await applyPut(boardId, (current) => boardDiffOps(current, content), OPERATOR_AUTHOR, { confirmsRefs: false });
+  async function overwriteBoardFromFile(boardId: string, content: BoardContent, importerId: string | null): Promise<WhiteboardReply> {
+    const refusalOf: PutRefusalCheck = (recordBefore, afterById) => (importerId === null ? null : unreadChangeRefusalOf(recordBefore, importerId, afterById));
+    const applied = await applyPut(boardId, (current) => boardDiffOps(current, content), OPERATOR_AUTHOR, { confirmsRefs: false, refusalOf });
     if (applied.status !== 200) return applied;
     const record = recordsByBoardId.get(boardId);
     if (!record) return refusal(404, DELETED_BOARD_TEXT);
@@ -1400,7 +1406,7 @@ function createWhiteboardWiring({
   async function importBoardForAgent(caller: WhiteboardCaller, requestedPath: string): Promise<WhiteboardReply> {
     const read = await readBoardFileAt(path.resolve(caller.cwd ?? boardsRoot, requestedPath));
     if (!read.ok) return refusal(read.status, read.error);
-    return importBoardFile(read.bytes);
+    return importBoardFile(read.bytes, caller.id);
   }
 
   async function readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }> {
@@ -1434,11 +1440,19 @@ function createWhiteboardWiring({
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
       case 'get': return readBoard(found.boardId, caller.id, request);
       case 'query': return queryBoard(found.boardId, request);
-      case 'put': return reviewedPut(found.boardId, request.ops, author);
+      case 'put': return reviewedPut(found.boardId, request.ops, author, { checksReads: true });
       case 'doc': return readDocOf(found.boardId, request.box);
       case 'delete': return deleteProjectBoard(found.boardId, caller.project);
       case 'export': return exportBoardForAgent(found.boardId);
     }
+  }
+
+  async function putWithoutReadCheck(caller: WhiteboardCaller, boardRef: string, ops: readonly Op[]): Promise<WhiteboardReply> {
+    await loaded;
+    const found = findBoardId(boardRef, caller.project);
+    if (!found.ok) return found.reply;
+    await adoptIfUnfiled(found.boardId, caller.project);
+    return reviewedPut(found.boardId, ops, { id: caller.id, name: caller.name }, { checksReads: false });
   }
 
   async function loadedBoardOf(boardId: string): Promise<Board | null> {
@@ -1503,7 +1517,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, putWithoutReadCheck, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

@@ -237,7 +237,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return {
       readPlanBoard: (boardRef) => boards.readPlanBoard(caller, boardRef),
       setStepStatus: async (boardId, stepId, status) => {
-        const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops: [{ op: 'set', id: stepId, fields: { step: { status } } }] });
+        const reply = await boards.putWithoutReadCheck(caller, boardId, [{ op: 'set', id: stepId, fields: { step: { status } } }]);
         if (!reply.body.ok) throw new Error(`could not mark ${stepId} ${status}: ${reply.body.error}`);
       },
       spawnStep: async (name, prompt) => {

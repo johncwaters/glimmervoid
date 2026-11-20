@@ -158,7 +158,7 @@ async function noDefaultBranch(): Promise<string | null> {
   return null;
 }
 
-type MapBoards = Pick<WhiteboardPort, 'handleAgent' | 'handleOperator' | 'readPlanBoard'>;
+type MapBoards = Pick<WhiteboardPort, 'handleAgent' | 'putWithoutReadCheck' | 'handleOperator' | 'readPlanBoard'>;
 
 interface CodemapServiceOptions {
   client?: CodemapClient;
@@ -240,7 +240,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const specOps = changedModel ? specPlanOpsOf(changedModel, overlay.specPlan, existingKindById) : { removals: [], writes: [] };
     const rawOps = [...specOps.removals, ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, overlay.decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById), ...specOps.writes];
     for (const ops of chunkedBySize(OpList.parse(rawOps))) {
-      const reply = await boards.handleAgent(caller, { sub: 'put', board: boardId, ops });
+      const reply = await boards.putWithoutReadCheck(caller, boardId, ops);
       if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
     }
   }

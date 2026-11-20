@@ -47,6 +47,11 @@ The backend runtime: the HTTP server and both WebSockets on loopback, the lanes,
   via: the operator connects and disconnects a session from the dashboard, and a removed session leaves every board and keeps the boards only it was on
   because: boards now carry plans and designs across sessions and restarts; deleting a board with its last session threw away the operator's work the moment the agent exited
   kinds: none
+- agents never write over unread board changes: An agent put that changes or removes an element another writer changed since the agent's last read of the board is refused whole until the agent reads it, and an agent not connected to the board, or connected but not yet reading it, is refused any change to an element already there; a show of a file already on the board and an agent import over an existing board are checked the same way.
+  over: every agent put, show and import through the MCP tool or the agent CLI; the operator's dashboard edits, the code map redraw and plan step status updates are Glimmervoid's own writers and skip it
+  via: an agent is refused a change to an element another writer changed since its last read, lands it once it reads, and the other writer gets every change to the element in one line
+  because: an agent told of an edit only after its turn wrote over the operator's work on the board before it ever saw it
+  kinds: none
 - agent board list is the project's: An agent's board list holds only boards of its own project or unfiled, leaves out archived boards unless it asks for all, and a title names only a board of its project or an unfiled one.
   over: every board list and title lookup an agent makes, through the MCP tool or the agent CLI
   via: an agent lists its own project boards in use, all lists every board, a title resolves only in its project, and a board idle 30 days unconnected is archived until a connect or an edit

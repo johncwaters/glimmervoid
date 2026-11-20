@@ -277,8 +277,20 @@ function upgradedBoardRecord(raw: unknown): unknown {
   return { ...raw, board: { ...freeBoard, elements: currentElementsOf(boxesForNotes(freeBoard, pinnedElements)) } };
 }
 
+function neverReadCursorAt(version: number): number {
+  return -version - 1;
+}
+
+function hasReadSinceConnecting(cursor: number): boolean {
+  return cursor >= 0;
+}
+
+function readVersionOf(cursor: number): number {
+  return hasReadSinceConnecting(cursor) ? cursor : -cursor - 1;
+}
+
 function lowestCursor(record: BoardRecord): number {
-  const cursors = Object.values(record.cursorBySessionId);
+  const cursors = Object.values(record.cursorBySessionId).map(readVersionOf);
   return cursors.length === 0 ? record.board.version : Math.min(...cursors);
 }
 
@@ -294,7 +306,7 @@ function recordPut(record: BoardRecord, result: Pick<Extract<ApplyResult, { ok: 
 
 function connectSession(record: BoardRecord, sessionId: string): BoardRecord {
   if (sessionId in record.cursorBySessionId) return record;
-  return { ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: record.board.version } };
+  return { ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: neverReadCursorAt(record.board.version) } };
 }
 
 function disconnectSession(record: BoardRecord, sessionId: string): BoardRecord {
@@ -305,7 +317,8 @@ function disconnectSession(record: BoardRecord, sessionId: string): BoardRecord 
 function changesForReader(record: BoardRecord, sessionId: string): BoardChange[] {
   const cursor = record.cursorBySessionId[sessionId];
   if (cursor === undefined) return [];
-  const unread = record.log.filter((change) => change.version > cursor && change.author !== sessionId);
+  const readVersion = readVersionOf(cursor);
+  const unread = record.log.filter((change) => change.version > readVersion && change.author !== sessionId);
   const mergedByElementId = new Map<string, { newest: BoardChange; summaries: Set<string> }>();
   for (const change of unread) {
     if (change.elementId === null) continue;
@@ -320,9 +333,30 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   });
 }
 
+const READ_FIRST_TEXT = 'read it with whiteboard get, then put again';
+
+function isLogTrimmedPast(record: BoardRecord, cursor: number): boolean {
+  const oldestKept = record.log[0];
+  return record.log.length >= WHITEBOARD_LIMITS.logEntries && oldestKept !== undefined && oldestKept.version > cursor;
+}
+
+function unreadChangeRefusalOf(record: BoardRecord, readerId: string, afterById: ReadonlyMap<string, Element | null>): string | null {
+  const changedIds = new Set(afterById.keys());
+  const [firstExistingId] = [...changedIds].filter((elementId) => record.board.elements.get(elementId) !== undefined);
+  const cursor = record.cursorBySessionId[readerId];
+  if (firstExistingId !== undefined && cursor === undefined) return `this session is not connected to board "${record.board.title}", so its changes to ${firstExistingId} cannot be checked; run whiteboard connect, then ${READ_FIRST_TEXT}`;
+  if (cursor === undefined) return null;
+  if (firstExistingId !== undefined && !hasReadSinceConnecting(cursor)) return `this session has not read board "${record.board.title}" since it connected, so it cannot change ${firstExistingId}; ${READ_FIRST_TEXT}`;
+  const readVersion = readVersionOf(cursor);
+  if (isLogTrimmedPast(record, readVersion)) return `board "${record.board.title}" changed more than its change log holds since this session last read it; ${READ_FIRST_TEXT}`;
+  const unread = record.log.find((change) => change.version > readVersion && change.author !== readerId && change.elementId !== null && changedIds.has(change.elementId));
+  if (!unread) return null;
+  return `${unread.elementId} changed since this session last read the board (${unread.summary}); ${READ_FIRST_TEXT}`;
+}
+
 function markRead(record: BoardRecord, sessionId: string): BoardRecord {
   const cursor = record.cursorBySessionId[sessionId];
-  if (cursor === undefined || cursor >= record.board.version) return record;
+  if (cursor === undefined || (hasReadSinceConnecting(cursor) && cursor >= record.board.version)) return record;
   return pruneLog({ ...record, cursorBySessionId: { ...record.cursorBySessionId, [sessionId]: record.board.version } });
 }
 
@@ -632,4 +666,4 @@ function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
 
 export { agentPutRefusalOf, habitWarningsOf, pickShowBoardId, shownBoxOp };
 export type { ShownCard };
-export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
+export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
