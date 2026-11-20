@@ -609,7 +609,16 @@ function buildChat(sessionId: string): MountedChat {
     }
   };
 
-  let wasLastEscapePlain = false;
+  const leaveChatOnEscape = (event: KeyboardEvent): boolean => {
+    if (!isPlainEscapeKeydown(event) || !document.activeElement?.classList.contains('chat-composer-input')) return false;
+    const hasCancellableMessage = (outboxBySessionId.get(sessionId) ?? []).some((entry) => entry.state === 'held' || entry.state === 'failed');
+    if (hasCancellableMessage) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    setSessionView('terminal');
+    closeSessionPage();
+    return true;
+  };
 
   const dismissQuestionOnEscape = (event: KeyboardEvent): boolean => {
     if (!isPlainEscapeKeydown(event)) return false;
@@ -700,14 +709,9 @@ function buildChat(sessionId: string): MountedChat {
   });
   root.addEventListener('chat-escape', (event) => {
     const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => entry.state === 'held' || entry.state === 'failed');
+    if (!newestCancellable) return;
     event.preventDefault();
-    if (newestCancellable) {
-      cancelOutboxEntry(sessionId, newestCancellable.entryId);
-      return;
-    }
-    if (!wasLastEscapePlain || root.querySelector(UNANSWERED_QUESTION_CARD_SELECTOR)) return;
-    setSessionView('terminal');
-    closeSessionPage();
+    cancelOutboxEntry(sessionId, newestCancellable.entryId);
   });
   root.addEventListener('chat-stop', () => {
     sendTerminalInput(sessionUIs.get(sessionId), ESCAPE_KEY);
@@ -717,8 +721,8 @@ function buildChat(sessionId: string): MountedChat {
     if (detail) answerCard(detail.cardId, detail.action, detail.value);
   });
   root.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') wasLastEscapePlain = isPlainEscapeKeydown(event);
     if (dismissQuestionOnEscape(event)) return;
+    if (leaveChatOnEscape(event)) return;
     if (!isCardPickKeydown(event)) return;
     if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
     const keyTarget = chatKeyTargetOf(root, event.key);
