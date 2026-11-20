@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Focus this leaves a margin around the changed cards.** The board camera stops 2% short of a tight fit, so the cards no longer sit against the edges of the board.
 - **The Chat message input is focused when you enter a session.** Picking a session shown in Chat from the rail, a shortcut or an attention tile, or switching a session to Chat, puts the caret in the message input, so you can type at once. On a phone nothing is focused, so the keyboard stays down. The turn keys `[`, `]`, `B` and Space still act only while the input is not focused.
 - **Esc dismisses a question in Chat.** With a question open, Esc or the card's new Dismiss control leaves every question of that ask unanswered and stops the agent, which then waits for your next message. The card keeps a Dismissed line. Esc no longer leaves Chat while a question is open.
 - **Questions in Chat are easier to read.** Each option is now one full-width row: its label and key on the first line, its explanation underneath at normal text size across the whole card, so every explanation starts at the same left edge. Clicking anywhere on a row answers with it. The question's topic sits beside its place, such as 1 of 4, above the question.

@@ -29,6 +29,7 @@ import { nextWiredBoxId } from './media-walk-core.ts';
 import type { BoardEditor, BoardTool, PressedImage } from './board-edit.ts';
 import { EMPTY_HISTORY, recordEdit, recordStep, takeStep, undoStepOf } from '#shared/whiteboard-undo-core.ts';
 import type { DiffBefore, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { rectAround } from './board-snap-core.ts';
 import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
 import { createBoardInspector } from './board-inspect.ts';
@@ -703,10 +704,18 @@ function paintAgentChange(): void {
   parts.agentChangeText.textContent = agentChangeSentence(change);
 }
 
+const FOCUSED_CHANGE_BREATHING_RATIO = 1.02;
+
+function areaWithBreathingRoom(area: Rect): Rect {
+  const width = area.width * FOCUSED_CHANGE_BREATHING_RATIO;
+  const height = area.height * FOCUSED_CHANGE_BREATHING_RATIO;
+  return { x: area.x - (width - area.width) / 2, y: area.y - (height - area.height) / 2, width, height };
+}
+
 function focusAgentChangeOf(boardId: string): void {
   const change = takeBoardFocusFor(boardId);
   if (!change) return;
-  editor?.frameArea(rectAround(change.boxes.map((box) => box.rect)));
+  editor?.frameArea(areaWithBreathingRoom(rectAround(change.boxes.map((box) => box.rect))));
   dismissAgentChange();
   ringAgentChange(boardId, change);
 }
