@@ -22,11 +22,12 @@ import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts
 import { clock } from '#shared/clock.ts';
 import type { ApprovedPackLauncher } from '#shared/contracts/control/pack-messages.ts';
 import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
-import { AgentModelCatalog, EFFORT_OPTION_ID } from '#shared/contracts/agent-models.ts';
-import type { AgentSetup, CatalogModel, ModelProvider, ModelSelection } from '#shared/contracts/agent-models.ts';
+import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
+import type { AgentSetup, ModelProvider, ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { StartPicks } from '#shared/contracts/start-picks.ts';
 import { emptyStartPicks, rememberedSelectionFor } from '#shared/start-picks-core.ts';
-import { canRunOnOpenRouter, configuredSetup, defaultSetup, effortOf, effortsOf, modelsOf, providerOf, setupModelsOf, withEffortChoice, withModel, withProvider, withTypedModel } from '../arena/lineup-core.ts';
+import { canRunOnOpenRouter, configuredSetup, defaultSetup, effortOf, effortsOf, modelsOf, withEffortChoice } from '../arena/lineup-core.ts';
+import { buildBackRow, buildChoiceRow, buildEffortRows, buildListLabel, buildModelRows, buildPickRow, firstModelPickOf, hasEfforts, modelLabelOf, setupAfterModelPick, setupAfterTypedPick } from './model-pick.ts';
 
 function formatRelativeAge(receivedAt: number, now: number): string {
   const elapsedMs = now - receivedAt;
@@ -221,17 +222,15 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     folderPanel.hidden = openSlot !== null || target.kind !== 'folder';
   }
 
-  function buildSlotRow(key: string, name: string, isPicked: boolean, onPick: () => void) {
-    const rowEl = createPressable('add-session-row');
-    rowEl.setAttribute('role', 'option');
-    rowEl.setAttribute('aria-selected', String(isPicked));
-    rowEl.dataset.key = key;
-    rowEl.append(el('span', 'add-session-row-name', name));
-    rowEl.addEventListener('click', () => {
+  function afterOperatorActs<Args extends unknown[]>(onPick: (...args: Args) => void) {
+    return (...args: Args) => {
       markOperatorActed();
-      onPick();
-    });
-    return rowEl;
+      onPick(...args);
+    };
+  }
+
+  function buildSlotRow(key: string, name: string, isPicked: boolean, onPick: () => void) {
+    return buildPickRow(key, name, isPicked, afterOperatorActs(onPick));
   }
 
   function buildAgentMark(agentId: string) {
@@ -247,23 +246,8 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (focusedRowKey !== null) [...listElement.querySelectorAll<HTMLElement>('.add-session-row')].find((rowEl) => rowEl.dataset.key === focusedRowKey)?.focus();
   }
 
-  function buildBackRow(label: string, onBack: () => void) {
-    const row = createPressable('add-session-row add-session-row-back');
-    row.dataset.key = `back:${label}`;
-    row.append(el('span', 'add-session-row-chevron'), el('span', 'add-session-row-name', label));
-    row.addEventListener('click', onBack);
-    return row;
-  }
-
-  function buildChoiceRow(label: string, onPick: () => void) {
-    const row = createPressable('add-session-row add-session-row-choice');
-    row.dataset.key = label;
-    row.append(el('span', 'add-session-row-name', label), el('span', 'add-session-row-chevron'));
-    row.addEventListener('click', () => {
-      markOperatorActed();
-      onPick();
-    });
-    return row;
+  function buildSlotChoiceRow(label: string, onPick: () => void) {
+    return buildChoiceRow(label, afterOperatorActs(onPick));
   }
 
   function buildProjectRow(row: RecentRow) {
@@ -337,16 +321,10 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     const issueNumber = issueNumberOf(queryBySlot.project);
     const issueRows = issueNumber === null ? [] : buildIssueRows(issueNumber);
     const rows: HTMLElement[] = [...issueRows, ...filterRows(recentRows, queryBySlot.project).map(buildProjectRow)];
-    if (!isShellChosen() && scannedProjects.length >= 2) rows.push(buildChoiceRow('Several repos', pickWorkspace));
-    rows.push(buildChoiceRow('Any folder', pickFolder));
+    if (!isShellChosen() && scannedProjects.length >= 2) rows.push(buildSlotChoiceRow('Several repos', pickWorkspace));
+    rows.push(buildSlotChoiceRow('Any folder', pickFolder));
     rows.push(...buildGithubGroup());
     return rows;
-  }
-
-  function modelLabelOf(setup: AgentSetup) {
-    const model = setupModelsOf(agentModelCatalog, setup).find((candidate) => candidate.id === setup.model);
-    const modelText = model?.label ?? setup.model ?? 'its default model';
-    return providerOf(setup) === 'openrouter' ? `${modelText} via OpenRouter` : modelText;
   }
 
   function renderModelWords() {
@@ -359,7 +337,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     }
     const setup = shownSetup();
     const effort = effortsOf(agentModelCatalog, setup).length === 0 ? null : effortOf(setup);
-    modelWord.textContent = effort === null ? modelLabelOf(setup) : `${modelLabelOf(setup)} ${effort}`;
+    modelWord.textContent = effort === null ? modelLabelOf(agentModelCatalog, setup) : `${modelLabelOf(agentModelCatalog, setup)} ${effort}`;
   }
 
   function chooseSetup(next: AgentSetup) {
@@ -374,11 +352,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function pickModel(provider: ModelProvider, modelId: string) {
-    const current = shownSetup();
-    const onProvider = providerOf(current) === provider ? current : withProvider(agentModelCatalog, current, provider);
-    const picked = withModel(agentModelCatalog, onProvider, modelId);
+    const picked = setupAfterModelPick(agentModelCatalog, shownSetup(), provider, modelId);
     chooseSetup(picked);
-    if (effortsOf(agentModelCatalog, picked).length === 0) {
+    if (!hasEfforts(agentModelCatalog, picked)) {
       finishModelPick();
       return;
     }
@@ -388,9 +364,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function pickTypedModel(provider: ModelProvider, modelId: string) {
-    const current = shownSetup();
-    const onProvider = providerOf(current) === provider ? current : withProvider(agentModelCatalog, current, provider);
-    chooseSetup(withEffortChoice(withTypedModel(onProvider, modelId), null));
+    chooseSetup(setupAfterTypedPick(agentModelCatalog, shownSetup(), provider, modelId));
     finishModelPick();
   }
 
@@ -399,59 +373,19 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     finishModelPick();
   }
 
-  function buildModelRow(provider: ModelProvider, model: CatalogModel) {
-    const setup = shownSetup();
-    const isPicked = providerOf(setup) === provider && model.id === setup.model;
-    const rowEl = buildSlotRow(`${provider}:${model.id}`, model.label, isPicked, () => pickModel(provider, model.id));
-    if (model.label !== model.id) rowEl.append(el('span', 'add-session-row-meta', model.id));
-    return rowEl;
+  function buildSlotModelRows() {
+    return buildModelRows({
+      catalog: agentModelCatalog,
+      agent: selectedAgentId,
+      setup: shownSetup(),
+      query: queryBySlot.model,
+      onPickModel: afterOperatorActs(pickModel),
+      onPickTypedModel: afterOperatorActs(pickTypedModel),
+    });
   }
 
-  function matchesModelSearch(model: CatalogModel) {
-    const needle = queryBySlot.model.trim().toLowerCase();
-    return needle === '' || model.label.toLowerCase().includes(needle) || model.id.toLowerCase().includes(needle);
-  }
-
-  function visibleModelsByProvider(): { provider: ModelProvider; models: CatalogModel[] }[] {
-    const nativeModels = modelsOf(agentModelCatalog, selectedAgentId).filter(matchesModelSearch);
-    const openRouterModels = canRunOnOpenRouter(selectedAgentId) ? agentModelCatalog.openrouter.models.filter(matchesModelSearch) : [];
-    return [{ provider: 'native', models: nativeModels }, { provider: 'openrouter', models: openRouterModels }];
-  }
-
-  function typedModelId() {
-    const typed = queryBySlot.model.trim();
-    const isListed = [...modelsOf(agentModelCatalog, selectedAgentId), ...agentModelCatalog.openrouter.models].some((model) => model.id === typed);
-    return typed === '' || isListed ? null : typed;
-  }
-
-  function buildListLabel(text: string) {
-    const label = el('div', 'add-session-list-label', text);
-    label.setAttribute('role', 'presentation');
-    return label;
-  }
-
-  function buildModelRows() {
-    const [nativeGroup, openRouterGroup] = visibleModelsByProvider();
-    const typed = typedModelId();
-    const openRouterRows = openRouterGroup.models.length === 0 ? [] : [buildListLabel('OpenRouter'), ...openRouterGroup.models.map((model) => buildModelRow('openrouter', model))];
-    const typedOpenRouterRows = typed !== null && canRunOnOpenRouter(selectedAgentId) ? [buildChoiceRow(`Use "${typed}" on OpenRouter`, () => pickTypedModel('openrouter', typed))] : [];
-    const typedRows = typed === null ? [] : [buildChoiceRow(`Use "${typed}" as typed`, () => pickTypedModel('native', typed)), ...typedOpenRouterRows];
-    return [...nativeGroup.models.map((model) => buildModelRow('native', model)), ...openRouterRows, ...typedRows];
-  }
-
-  function agentDefaultEffort(setup: AgentSetup) {
-    const configured = agentModelCatalog.agents.find((agentModels) => agentModels.agent === setup.agent)?.configuredDefault?.effort ?? null;
-    if (providerOf(setup) === 'native' && configured !== null && effortsOf(agentModelCatalog, setup).includes(configured)) return configured;
-    const model = setupModelsOf(agentModelCatalog, setup).find((candidate) => candidate.id === setup.model);
-    return model?.options.find((option) => option.id === EFFORT_OPTION_ID)?.defaultChoice ?? null;
-  }
-
-  function buildEffortRows() {
-    const setup = shownSetup();
-    const defaultEffort = agentDefaultEffort(setup);
-    const defaultRow = buildSlotRow('default', defaultEffort === null ? 'Default' : `Default (${defaultEffort})`, effortOf(setup) === null, () => pickEffort(null));
-    const effortRows = effortsOf(agentModelCatalog, setup).map((effort) => buildSlotRow(effort, effort, effortOf(setup) === effort, () => pickEffort(effort)));
-    return [buildBackRow('All models', backToModels), defaultRow, ...effortRows];
+  function buildSlotEffortRows() {
+    return buildEffortRows({ catalog: agentModelCatalog, setup: shownSetup(), onPickEffort: afterOperatorActs(pickEffort), onBack: backToModels });
   }
 
   function buildAccountRows() {
@@ -470,12 +404,12 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   const rowsBySlot: Record<AddSessionSlot, () => HTMLElement[]> = {
     agent: () => agentOptions.map(buildAgentRow),
     account: buildAccountRows,
-    model: () => (effortStepModelId === null ? buildModelRows() : buildEffortRows()),
+    model: () => (effortStepModelId === null ? buildSlotModelRows() : buildSlotEffortRows()),
     project: buildProjectRows,
   };
 
   function slotTitleOf(slot: AddSessionSlot) {
-    if (slot === 'model' && effortStepModelId !== null) return `${modelLabelOf(shownSetup())} effort`;
+    if (slot === 'model' && effortStepModelId !== null) return `${modelLabelOf(agentModelCatalog, shownSetup())} effort`;
     return LIST_LABEL_BY_SLOT[slot];
   }
 
@@ -1112,10 +1046,9 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     if (event.key !== 'Enter') return;
     if (openSlot === 'model') {
       event.preventDefault();
-      const firstGroup = visibleModelsByProvider().find((group) => group.models.length > 0);
-      const typed = typedModelId();
-      if (firstGroup) pickModel(firstGroup.provider, firstGroup.models[0].id);
-      if (!firstGroup && typed !== null) pickTypedModel('native', typed);
+      const firstPick = firstModelPickOf(agentModelCatalog, selectedAgentId, queryBySlot.model);
+      if (firstPick?.kind === 'listed') pickModel(firstPick.provider, firstPick.modelId);
+      if (firstPick?.kind === 'typed') pickTypedModel(firstPick.provider, firstPick.modelId);
       return;
     }
     const issueNumber = issueNumberOf(queryBySlot.project);

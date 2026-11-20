@@ -88,10 +88,27 @@ function selectionOf({ instructions: _instructions, ...selection }: AgentSetup):
   return selection;
 }
 
-export function openSwitchModelDialog(sessionId: string): void {
+export function switchableSetupOf(sessionId: string): { catalog: AgentModelCatalog; setup: AgentSetup } | null {
   const agent = findSessionUi(sessionId)?.agent ?? null;
   const catalog = catalogListing(agent);
-  if (catalog === null || agent === null) return;
+  if (catalog === null || agent === null) return null;
+  return { catalog, setup: shownSetupOf(catalog, agent, modelSelectionBySessionId.get(sessionId) ?? null) };
+}
+
+export function switchSessionModel(sessionId: string, setup: AgentSetup): Promise<string | null> {
+  return sendControlRequest('switch-session-model', { id: sessionId, setup: selectionOf(setup) }, { timeoutMs: SWITCH_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'switch-session-model-result') return 'Unexpected reply';
+      if (reply.ok) return null;
+      return reply.error ?? 'The model was not switched.';
+    })
+    .catch((error: unknown) => `The model was not switched: ${errorMessage(error)}`);
+}
+
+export function openSwitchModelDialog(sessionId: string): void {
+  const switchable = switchableSetupOf(sessionId);
+  if (switchable === null) return;
+  const { catalog } = switchable;
   const { overlay, dialog, close, actions, btnCancel } = buildDialogShell({ title: 'Change model' });
   const hint = el('p', 'dialog-message', 'Switching restarts the agent on the model you pick and resumes its conversation. Your default for new sessions stays as it is.');
   const controlsSlot = el('div', 'session-model-controls');
@@ -102,7 +119,7 @@ export function openSwitchModelDialog(sessionId: string): void {
   actions.append(btnSwitch);
   dialog.append(hint, controlsSlot, statusEl, errorEl, actions);
 
-  let pickedSetup = shownSetupOf(catalog, agent, modelSelectionBySessionId.get(sessionId) ?? null);
+  let pickedSetup = switchable.setup;
   const renderControls = () => {
     const controls = setupControls(catalog, pickedSetup, (next) => {
       pickedSetup = next;
@@ -124,15 +141,13 @@ export function openSwitchModelDialog(sessionId: string): void {
     errorEl.textContent = '';
     btnSwitch.disabled = true;
     statusEl.textContent = 'Restarting the agent on the new model.';
-    sendControlRequest('switch-session-model', { id: sessionId, setup: selectionOf(pickedSetup) }, { timeoutMs: SWITCH_TIMEOUT_MS })
-      .then((reply) => {
-        if (reply.type === 'switch-session-model-result' && reply.ok) {
-          close();
-          return;
-        }
-        showRefusal(reply.type === 'switch-session-model-result' ? reply.error ?? 'The model was not switched.' : 'Unexpected reply');
-      })
-      .catch((error: unknown) => showRefusal(`The model was not switched: ${errorMessage(error)}`));
+    switchSessionModel(sessionId, pickedSetup).then((refusalText) => {
+      if (refusalText === null) {
+        close();
+        return;
+      }
+      showRefusal(refusalText);
+    });
   });
   requestAnimationFrame(() => btnCancel.focus());
 }

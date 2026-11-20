@@ -57,7 +57,7 @@ function createModelField(): { element: HTMLElement; show(field: RailField | und
   modelText.dataset.kind = 'model';
   const modelButton = createPressable('chat-rail-field chat-rail-model');
   modelButton.dataset.kind = 'model';
-  modelButton.setAttribute('aria-haspopup', 'dialog');
+  modelButton.setAttribute('aria-expanded', 'false');
   modelButton.addEventListener('click', () => {
     modelButton.dispatchEvent(new CustomEvent('chat-change-model', { bubbles: true, composed: true }));
   });

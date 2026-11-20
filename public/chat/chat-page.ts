@@ -20,10 +20,12 @@ import { agentLabel } from '../arena/lineup-core.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf, shownChatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
-import { canSwitchSessionModel, openSwitchModelDialog, sessionAccountIdOf, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
+import { canSwitchSessionModel, sessionAccountIdOf, switchableSetupOf, switchSessionModel, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
 import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
+import { openChatModelPicker } from './model-picker.ts';
+import type { ChatModelPicker } from './model-picker.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
@@ -417,7 +419,10 @@ function buildChat(sessionId: string): MountedChat {
   sendControlMsg({ type: 'request-verification', id: sessionId });
   root.append(failureLine, chatView.element);
   let runningSubagents: readonly RunningSubagent[] = [];
+  let openModelPicker: ChatModelPicker | null = null;
   const showRail = () => {
+    const canChangeModel = canSwitchSessionModel(sessionId) && !isSessionWorking(sessionId);
+    if (!canChangeModel) openModelPicker?.close();
     refreshLimitCountdowns(root, clock.nowMs());
     const isMachineLogin = sessionAccountIdOf(sessionId) === null;
     const agent = sessionUIs.get(sessionId)?.agent ?? null;
@@ -429,13 +434,14 @@ function buildChat(sessionId: string): MountedChat {
       sessionCostUSD: sessionCostOf(sessionId),
       subagents: runningSubagents,
       nowMs: clock.nowMs(),
-      canChangeModel: canSwitchSessionModel(sessionId),
+      canChangeModel,
       agent,
     }));
   };
   showRail();
   let railTimer: ReturnType<typeof setInterval> | null = setInterval(showRail, RAIL_TICK_MS);
   const stopRail = () => {
+    openModelPicker?.close();
     if (railTimer !== null) clearInterval(railTimer);
     railTimer = null;
   };
@@ -740,7 +746,30 @@ function buildChat(sessionId: string): MountedChat {
     resolveCard({ ...card, resolution: { answer: value } });
   };
 
-  root.addEventListener('chat-change-model', () => openSwitchModelDialog(sessionId));
+  root.addEventListener('chat-change-model', (event) => {
+    if (openModelPicker !== null) {
+      openModelPicker.close();
+      return;
+    }
+    const modelName = event.target instanceof HTMLElement ? event.target : null;
+    const composer = modelName?.closest<HTMLElement>('.chat-composer') ?? null;
+    const switchable = switchableSetupOf(sessionId);
+    if (modelName === null || composer === null || switchable === null || isSessionWorking(sessionId)) return;
+    openModelPicker = openChatModelPicker({
+      composer,
+      modelName,
+      catalog: switchable.catalog,
+      setup: switchable.setup,
+      onSwitch: (next) => {
+        switchSessionModel(sessionId, next).then((refusalText) => {
+          if (refusalText !== null) showSessionFailure(sessionId, refusalText);
+        });
+      },
+      onClose: () => {
+        openModelPicker = null;
+      },
+    });
+  });
   root.addEventListener('chat-attach', (event) => {
     const files = attachedFilesOf(event);
     const uploadingCount = uploadingCountBySessionId.get(sessionId) ?? 0;
@@ -863,6 +892,7 @@ function buildChat(sessionId: string): MountedChat {
     setPhase: (phase, isTurnRunning) => {
       chatView.setPhase(phase, isTurnRunning);
       showDone();
+      showRail();
     },
     showOutbox,
     restoreText: (text) => chatView.restoreDraft(draftWithRestoredText(text, chatView.readDraft())),

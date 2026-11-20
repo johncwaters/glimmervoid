@@ -371,3 +371,11 @@ html[data-layout="phone"] .add-session-dialog .dialog-actions {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+.add-session-popover .add-session-sentence { min-height: 0; padding: 0 2px; font-size: var(--type-meta); line-height: 1.6; }
+.add-session-popover .add-session-word[hidden] { display: none; }
+.add-session-popover .add-session-pick:not([hidden]) { height: auto; }
+.add-session-popover .add-session-list { flex: none; max-height: 260px; }
+.add-session-popover .add-session-row { min-height: 34px; padding: 6px 10px; font-size: var(--type-meta); }
+.add-session-popover .dialog-input { padding: 6px 10px; font-size: var(--type-meta); }
+.add-session-popover .add-session-slot-title { padding: 0 10px; }
