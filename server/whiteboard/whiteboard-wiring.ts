@@ -657,7 +657,7 @@ function createWhiteboardWiring({
     return applyPut(boardId, () => ops, author, { refusalOf });
   }
 
-  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, { refusalOf = noPutRefusal, confirmsRefs = true }: { refusalOf?: PutRefusalCheck; confirmsRefs?: boolean } = {}): Promise<WhiteboardReply> {
+  function applyPut(boardId: string, opsOf: (board: Board) => readonly Op[], author: Author, { confirmsRefs = true, refusalOf = noPutRefusal }: { confirmsRefs?: boolean; refusalOf?: PutRefusalCheck } = {}): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const ops = opsOf(record.board);
       const linkProblem = ops.flatMap((op) => (op.op === 'board' && typeof op.link === 'string' ? [linkPathProblem(op.link)] : [])).find((problemText) => problemText !== null);
