@@ -100,7 +100,7 @@ test('a pi bash call denied from Chat with a message is blocked with the operato
 
 test('pi launches the extension file its generated home writes', (t) => {
   const injection = pi.hooks.injection as GeneratedHomeInjection;
-  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: os.tmpdir(), isCleanHome: false, packSkillDirs: ['/skills/review'] });
+  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: os.tmpdir(), sessionFolder: os.tmpdir(), isCleanHome: false, packSkillDirs: ['/skills/review'] });
   assert.ok(!('refusal' in prepared));
   t.after(() => fs.rmSync(prepared.home, { recursive: true, force: true }));
   const args = pi.buildArgs({ resumeSessionId: 'pi-session' });

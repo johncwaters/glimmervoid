@@ -5,6 +5,7 @@ import path from "node:path";
 import { MCP_URL_ENV } from "../../mcp/core/agent-config.ts";
 import { hookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
+import { canonicalizePath } from "../../shared/canonical-paths.ts";
 import { errorMessage } from "../../shared/text.ts";
 import { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
@@ -118,13 +119,13 @@ function writePlugin(pluginFolder: string, pluginFiles: Readonly<Record<string, 
 
 function prepareHome(
   _env: Record<string, string | undefined>,
-  { listenerPort, folderTrustRoot, isCleanHome, isSandboxed = false, packSkillDirs = [], sharedPackServers = [], hasPackHooks = false }: GeneratedHomeLaunch,
+  { listenerPort, sessionFolder, isCleanHome, isSandboxed = false, packSkillDirs = [], sharedPackServers = [], hasPackHooks = false }: GeneratedHomeLaunch,
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
   const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH, sharedPackServers, hasPackHooks ? HOOK_TOOL_RELAY_LAUNCH : null);
   const packSkillWorkspaces = packSkillWorkspacesOf(packSkillDirs);
-  const sessionSettings = antigravitySessionSettings([folderTrustRoot, ...packSkillWorkspaces], RELAY_LAUNCH);
+  const sessionSettings = antigravitySessionSettings([...new Set([sessionFolder, canonicalizePath(sessionFolder)]), ...packSkillWorkspaces], RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };
   const pluginFolder = pluginFolderPath();
   const writeFailure = writePlugin(pluginFolder, pluginFiles);

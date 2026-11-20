@@ -36,7 +36,7 @@ test('model flags and model names live only in the agent model catalog', () => {
 function generatedLaunchConfigOf(agent: string, modelSelection: ModelSelection): string {
   const injection = getAdapter(agent)?.hooks?.injection;
   if (injection?.kind !== 'generated-home') return '';
-  const prepared = injection.prepareHome({ ...process.env }, { listenerPort: 1, folderTrustRoot: REPO_ROOT, isCleanHome: false, modelSelection });
+  const prepared = injection.prepareHome({ ...process.env }, { listenerPort: 1, folderTrustRoot: REPO_ROOT, sessionFolder: REPO_ROOT, isCleanHome: false, modelSelection });
   return 'homeEnvValue' in prepared ? prepared.homeEnvValue ?? '' : '';
 }
 

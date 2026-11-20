@@ -101,6 +101,7 @@ interface ScratchAgentHome {
 interface GeneratedHomeLaunch {
   listenerPort: number;
   folderTrustRoot: string;
+  sessionFolder: string;
   isCleanHome: boolean;
   accountFolder?: string | null;
   packSkillDirs?: readonly string[];

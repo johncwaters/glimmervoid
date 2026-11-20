@@ -26,7 +26,7 @@ function withTemporaryHome(t: test.TestContext): string {
 test('an agy spawn writes the Glimmervoid plugin agy loads hooks from and trusts the session folder for that launch only', (t) => {
   const home = withTemporaryHome(t);
   const injection = antigravity.hooks.injection as GeneratedHomeInjection;
-  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: '/work/repo', isCleanHome: false, packSkillDirs: ['/packs/acme-1/named/.agents/skills/acme-deploy', '/packs/acme-1/named/.agents/skills/acme-test'] });
+  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: '/work', sessionFolder: '/work/repo', isCleanHome: false, packSkillDirs: ['/packs/acme-1/named/.agents/skills/acme-deploy', '/packs/acme-1/named/.agents/skills/acme-test'] });
   assert.ok(!('refusal' in prepared));
   assert.deepEqual(prepared.args?.slice(2), ['--add-dir', '/packs/acme-1/named']);
 

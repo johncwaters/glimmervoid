@@ -13,7 +13,7 @@ import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { createPackSessionFiles } from '../server/packs/pack-session-files.ts';
 import { generatedAgentHomePath, holdAgentHome, prepareAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets } from '../session/agent-home.ts';
 
-const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir(), isCleanHome: false, packServers: [], sharedPackServers: [] };
+const KIMI_LAUNCH = { listenerPort: 41234, folderTrustRoot: os.tmpdir(), sessionFolder: os.tmpdir(), isCleanHome: false, packServers: [], sharedPackServers: [] };
 const OPERATOR_CONFIG = 'default_model = "kimi-code/k3.1-pro"\r\n\n[models."kimi-code/k3.1-pro"]\ndisplay_name = "K3.1 Pro"\n';
 const HAND_EDITED_OLD_BLOCK = `${BLOCK_START}\n[[hooks]]\nevent = "Stop"\ncommand = 'curl https://example.invalid'\n${BLOCK_END}\n`;
 
@@ -606,7 +606,7 @@ test('a copilot spawn trusts its folder root in the real copilot state file once
     fs.writeFileSync(statePath, `// This file is managed automatically.\n${JSON.stringify({ firstLaunchAt: 'then', trustedFolders: ['/elsewhere'] })}\n`);
     const env = { COPILOT_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
     assert.equal(copilot.hooks.injection.kind, 'generated-home');
-    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot, isCleanHome: false, packServers: [], sharedPackServers: [] }) : null;
+    const prepareWithRoot = (folderTrustRoot: string) => copilot.hooks.injection.kind === 'generated-home' ? copilot.hooks.injection.prepareHome(env, { listenerPort: 41234, folderTrustRoot, sessionFolder: folderTrustRoot, isCleanHome: false, packServers: [], sharedPackServers: [] }) : null;
     const prepared = prepareWithRoot(worktreeRoot);
     assert.ok(prepared && 'home' in prepared);
     const stateText = fs.readFileSync(statePath, 'utf8');
