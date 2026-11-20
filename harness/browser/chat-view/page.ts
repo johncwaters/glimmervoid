@@ -17,7 +17,7 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
     card: {
       cardType: 'question',
       cardId: 'example-question',
-      data: { question: 'Which layout should the composer use?', detail: 'Both keep the Stop control beside the input.', options: [{ label: 'Docked (Recommended)', note: 'pinned to the bottom' }, { label: 'Inline', note: 'follows the last reply' }] },
+      data: { question: 'Which layout should the composer use?', detail: 'Composer', step: '1 of 2', options: [{ label: 'Docked (Recommended)', note: 'Pinned to the bottom of the pane, so the input stays in one place while replies arrive and the Stop control never moves. Cost: the last reply loses two lines of height.' }, { label: 'Inline', note: 'Follows the last reply.' }] },
       resolution: null,
     },
   },

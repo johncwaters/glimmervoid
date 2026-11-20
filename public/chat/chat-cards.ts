@@ -2,6 +2,8 @@ import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.
 import { isRecommendedOptionLabel, withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { keycap } from '../ui/keycap.ts';
+import { createPressable } from '../ui/pressable.ts';
 import type { ChatCard, ChatCardType } from './chat-part.ts';
 
 type ChatCardByType = { [Card in ChatCard as Card['cardType']]: Card };
@@ -118,10 +120,18 @@ interface QuestionCardModel {
   readonly answer: string | null;
 }
 
+function questionMetaLineOf(question: QuestionCardModel): HTMLElement | null {
+  if (!question.detail && !question.step) return null;
+  const metaLine = el('div', 'chat-card-meta');
+  if (question.detail) metaLine.appendChild(el('span', 'chat-card-topic', question.detail));
+  if (question.step) metaLine.appendChild(el('span', 'chat-card-step', question.step));
+  return metaLine;
+}
+
 function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void): HTMLElement {
   const shell = shellOf(question.cardType, question.heading, question.answer !== null);
-  if (question.step) shell.prepend(el('span', 'chat-card-step', question.step));
-  if (question.detail) shell.appendChild(el('p', 'chat-card-text', question.detail));
+  const metaLine = questionMetaLineOf(question);
+  if (metaLine) shell.prepend(metaLine);
   if (question.answer !== null) {
     shell.appendChild(receipt(`Answered: ${withoutRecommendedSuffix(question.answer)}`));
     return shell;
@@ -141,20 +151,19 @@ function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
 }
 
 function optionRowOf(option: ShownOption, digitKey: string | null, onAnswer: (label: string) => void): HTMLElement {
-  const optionRow = el('div', 'chat-card-option');
+  const optionRow = createPressable('chat-card-option');
+  optionRow.dataset.recommended = String(option.isRecommended);
   const shownKey = option.isRecommended ? ENTER_KEY : digitKey;
   const label = option.isRecommended ? withoutRecommendedSuffix(option.label) : option.label;
-  const optionButton = button({
-    variant: option.isRecommended ? 'primary' : 'secondary',
-    textCase: 'sentence',
-    label,
-    ...(shownKey === null ? {} : { shortcutKey: shownKey }),
-    onClick: () => onAnswer(option.label),
-  });
-  if (option.isRecommended) optionButton.insertBefore(el('span', 'chat-card-recommended', 'Recommended'), optionButton.querySelector('.ui-button-shortcut'));
-  markCardKeys(optionButton, [digitKey, option.isRecommended ? ENTER_KEY : null].filter((key): key is string => key !== null));
-  optionRow.appendChild(optionButton);
+  const keys = el('span', 'chat-card-option-keys');
+  if (option.isRecommended) keys.appendChild(el('span', 'chat-card-recommended', 'Recommended'));
+  if (shownKey !== null) keys.appendChild(keycap(shownKey));
+  optionRow.append(el('span', 'chat-card-option-label', label), keys);
   if (option.note) optionRow.appendChild(el('span', 'chat-card-option-note', option.note));
+  const answerKeys = [digitKey, option.isRecommended ? ENTER_KEY : null].filter((key): key is string => key !== null);
+  if (answerKeys.length > 0) optionRow.setAttribute('aria-keyshortcuts', answerKeys.join(' '));
+  markCardKeys(optionRow, answerKeys);
+  optionRow.addEventListener('click', () => onAnswer(option.label));
   return optionRow;
 }
 
