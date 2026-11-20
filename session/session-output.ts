@@ -10,6 +10,7 @@ import type { SessionState } from "../shared/states.ts";
 import { clock } from "../shared/clock.ts";
 
 interface StateChange {
+  from: SessionState;
   to: SessionState;
 }
 
@@ -37,6 +38,7 @@ type SettleListener = (settlement: DeliverySettlement) => void;
 
 interface QueuedDelivery {
   text: string;
+  when: Exclude<DeliveryWhen, "now">;
   submit: boolean;
   onSettled: SettleListener | undefined;
   expiryTimer: NodeJS.Timeout;
@@ -82,6 +84,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   let pendingSubmitListener: SettleListener | undefined;
   let hasUnsubmittedPasteInComposer = false;
   let submittedTurnGraceEndsAt = 0;
+  let spawnSettlesAt = 0;
   let lastCols: number | null = null;
   let lastRows: number | null = null;
 
@@ -165,14 +168,23 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
       clearPendingPaste();
       return;
     }
-    if (landPaste(next.text, "ready", next.submit, next.onSettled)) return;
+    if (!canLandNow(next.when, options.getState())) {
+      settleLater(next.onSettled, "expired");
+      pasteNextQueued();
+      return;
+    }
+    if (landPaste(next.text, next.when, next.submit, next.onSettled)) return;
     pasteNextQueued();
   }
 
-  function startDrainingQueue(): void {
+  function spawnSettleRemainingMs(): number {
+    return Math.max(0, spawnSettlesAt - clock.nowMs());
+  }
+
+  function startDrainingQueue(delayMs = PASTE_SETTLE_MS): void {
     if (queuedDeliveries.length === 0) return;
     isDrainingQueue = true;
-    drainTimer = setTimeout(pasteNextQueued, PASTE_SETTLE_MS);
+    drainTimer = setTimeout(pasteNextQueued, delayMs);
     drainTimer.unref();
   }
 
@@ -200,16 +212,27 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     queuedDeliveries.splice(firstUnsubmittedIndex, 0, queued);
   }
 
-  function queueUntilReady(text: string, submit: boolean, timeoutMs: number, onSettled: SettleListener | undefined): DeliveryOutcome {
-    const stateBeforeWaiting = options.getState();
+  function enqueueDelivery(text: string, when: Exclude<DeliveryWhen, "now">, submit: boolean, timeoutMs: number, onSettled: SettleListener | undefined): void {
     const queued: QueuedDelivery = {
       text,
+      when,
       submit,
       onSettled,
       expiryTimer: setTimeout(() => dropExpiredDelivery(queued), timeoutMs),
     };
     queued.expiryTimer.unref();
     enqueueAheadOfUnsubmittedPastes(queued);
+  }
+
+  function holdUntilSpawnSettles(text: string, when: Exclude<DeliveryWhen, "now">, submit: boolean, timeoutMs: number, onSettled: SettleListener | undefined): DeliveryOutcome {
+    enqueueDelivery(text, when, submit, timeoutMs, onSettled);
+    startDrainingQueue(spawnSettleRemainingMs());
+    return { ok: true, kind: "queued" };
+  }
+
+  function queueUntilReady(text: string, submit: boolean, timeoutMs: number, onSettled: SettleListener | undefined): DeliveryOutcome {
+    const stateBeforeWaiting = options.getState();
+    enqueueDelivery(text, "ready", submit, timeoutMs, onSettled);
     if (!isDrainingQueue && !isWatchingForReady) {
       isWatchingForReady = true;
       options.on("state-change", onStateChangeWhilePasteQueued);
@@ -223,6 +246,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     if (options.isDestroyed()) return { ok: false, kind: "refused", reason: "destroyed" };
     const isReadyToLand = !hasPastesAhead() && options.hasLivePty() && canLandNow(when, options.getState());
     if (when === "ready" && !isReadyToLand) return queueUntilReady(text, submit, timeoutMs, onSettled);
+    if (when !== "now" && isReadyToLand && spawnSettleRemainingMs() > 0) return holdUntilSpawnSettles(text, when, submit, timeoutMs, onSettled);
     if (!options.hasLivePty()) return { ok: false, kind: "refused", reason: "no-pty" };
     if (when === "idle" && !isReadyToLand) return { ok: false, kind: "refused", reason: "not-idle" };
     landPaste(text, when, submit && !hasPastesAhead(), onSettled);
@@ -287,7 +311,8 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   options.on("exit", disposeScreenKeeper);
   options.on("exit", clearPendingPaste);
   options.on("exit", forgetUnsubmittedComposerPaste);
-  options.on("state-change", ({ to }: StateChange) => {
+  options.on("state-change", ({ from, to }: StateChange) => {
+    if (from === STATES.STARTING) spawnSettlesAt = clock.nowMs() + PASTE_SETTLE_MS;
     if (to === STATES.RUNNING || to === STATES.WAITING) submittedTurnGraceEndsAt = 0;
   });
 
