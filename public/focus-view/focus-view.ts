@@ -31,7 +31,8 @@ import { describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlRequest } from '../control-ws.ts';
 import { mergeSettingsPayload, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import type { BoardSummary } from '#shared/contracts/whiteboard.ts';
-import { beginPendingBoardDelete, boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, isBoardDeleting, onBoardListChanged, pendingBoardDeleteStartedAt, takeOpenBoardRequest, undoPendingBoardDelete } from '../whiteboard/board-store.ts';
+import { beginPendingBoardDelete, boardSummariesOf, boardsConnectedTo, connectSessionToBoard, detachBoardFromSession, isBoardDeleting, onBoardListChanged, pendingBoardDeleteStartedAt, requestBoardFocus, takeOpenBoardRequest, undoPendingBoardDelete } from '../whiteboard/board-store.ts';
+import { markAgentChangeShown, unshownAgentChangeOf } from '../whiteboard/board-tile-store.ts';
 import type { Pane } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
@@ -338,7 +339,10 @@ function boardSplitToggleOf(sessionId: string | null) {
   if (!active || !sessionId || centeredBoardId) return null;
   const splits = currentLiveSplits();
   if (Object.hasOwn(splits, sessionId)) return { sessionId, boardIdToOpen: null };
-  const board = newestFreeBoardOf(splits, boardsConnectedTo(sessionId));
+  const connectedBoards = boardsConnectedTo(sessionId);
+  const unshownChange = unshownAgentChangeOf(sessionId);
+  const changedBoards = connectedBoards.filter((board) => board.id === unshownChange?.boardId);
+  const board = newestFreeBoardOf(splits, changedBoards) ?? newestFreeBoardOf(splits, connectedBoards);
   return board ? { sessionId, boardIdToOpen: board.id } : null;
 }
 
@@ -365,10 +369,18 @@ export function toggleShellFocus(): boolean {
   return true;
 }
 
+function frameUnshownAgentChange(sessionId: string, boardId: string): void {
+  const unshownChange = unshownAgentChangeOf(sessionId);
+  if (unshownChange?.boardId !== boardId) return;
+  markAgentChangeShown(sessionId, unshownChange.change);
+  requestBoardFocus({ boardId, change: unshownChange.change });
+}
+
 export function toggleFocusedBoardSplit(): boolean {
   const toggle = boardSplitToggleOf(getFocusedSessionId());
   if (!toggle) return false;
   if (toggle.boardIdToOpen) {
+    frameUnshownAgentChange(toggle.sessionId, toggle.boardIdToOpen);
     openOperatorSplit(toggle.sessionId, toggle.boardIdToOpen);
     refreshFocusRoster();
     return true;

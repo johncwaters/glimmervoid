@@ -65,6 +65,7 @@ let agentRing: AgentRing | null = null;
 let agentChip: AgentChip | null = null;
 let agentRingTimer: ReturnType<typeof setTimeout> | null = null;
 const agentChangeListeners: ((sessionId: string, boardChange: AgentChip) => void)[] = [];
+const unshownAgentChangeBySessionId = new Map<string, AgentChip>();
 
 function notifyTilesChanged(): void {
   for (const listener of listeners) listener();
@@ -239,6 +240,7 @@ function forgetAgentChange(): void {
 
 function applyAgentChange(message: ServerMessageOf<'whiteboard-agent-change'>): void {
   const boardChange: AgentChip = { boardId: message.boardId, at: message.at, change: message.change };
+  unshownAgentChangeBySessionId.set(message.change.author.id, boardChange);
   for (const listener of agentChangeListeners) listener(message.change.author.id, boardChange);
   if (state?.boardId !== message.boardId) return;
   agentChip = boardChange;
@@ -256,10 +258,22 @@ function onAgentChange(listener: (sessionId: string, boardChange: AgentChip) => 
   agentChangeListeners.push(listener);
 }
 
-function agentChangeSentence(change: AgentChange): string {
+function unshownAgentChangeOf(sessionId: string): AgentChip | null {
+  return unshownAgentChangeBySessionId.get(sessionId) ?? null;
+}
+
+function markAgentChangeShown(sessionId: string, shownChange: AgentChange): void {
+  if (unshownAgentChangeBySessionId.get(sessionId)?.change !== shownChange) return;
+  unshownAgentChangeBySessionId.delete(sessionId);
+}
+
+function changedCardsOf(change: AgentChange): string {
   const [onlyBox] = change.boxes;
-  const changedCards = change.boxes.length === 1 && onlyBox ? onlyBox.title : `${change.boxes.length} cards`;
-  return `${change.author.name} changed ${changedCards}`;
+  return change.boxes.length === 1 && onlyBox ? onlyBox.title : `${change.boxes.length} cards`;
+}
+
+function agentChangeSentence(change: AgentChange): string {
+  return `${change.author.name} changed ${changedCardsOf(change)}`;
 }
 
 function endAgentRing(): void {
@@ -329,5 +343,5 @@ function onTilesChanged(listener: () => void): void {
   listeners.push(listener);
 }
 
-export { agentChangeSentence, applyAgentChange, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, offViewAgentChangeOf, onAgentChange, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
+export { agentChangeSentence, applyAgentChange, changedCardsOf, markAgentChangeShown, unshownAgentChangeOf, applyBoardTileDiff, applyBoardTiles, dismissAgentChange, forgetTilesOf, offViewAgentChangeOf, onAgentChange, onTilesChanged, resendTilesView, resyncTilesIfBehind, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf };
 export type { AgentChip, BlockTile };

@@ -384,6 +384,25 @@
 
 .chat-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+.chat-board-change {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 6px 4px 10px;
+  border-radius: var(--radius);
+  font-size: var(--type-body);
+  transition: background-color var(--transition-fast);
+}
+
+.chat-board-change:hover { background: color-mix(in oklab, var(--accent) 8%, transparent); }
+
+.chat-board-change-icon { flex: none; width: 16px; height: 16px; color: var(--accent); }
+
+.chat-board-change-text { flex: 1; min-width: 0; overflow: hidden; color: var(--text-dim); text-overflow: ellipsis; white-space: nowrap; }
+
+.chat-board-change-text strong { color: var(--text-head); font-weight: 700; }
+
 .chat-card-options { display: flex; flex-direction: column; gap: 6px; }
 
 .chat-card-option {

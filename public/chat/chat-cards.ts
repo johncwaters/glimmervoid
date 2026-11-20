@@ -1,6 +1,9 @@
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import { isRecommendedOptionLabel, withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
 import { el } from '../dom-helpers.ts';
+import { shortcutHint } from '../shortcuts-core.ts';
+import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
+import { BOARDS_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { keycap } from '../ui/keycap.ts';
 import { createPressable } from '../ui/pressable.ts';
@@ -205,12 +208,21 @@ function renderNoticeCard(card: ChatCardByType['notice']): HTMLElement {
   return shell;
 }
 
+function boardChangeTextOf(card: ChatCardByType['board-change']): HTMLElement {
+  const text = el('span', 'chat-board-change-text');
+  text.append('Changed ', el('strong', null, card.data.changed));
+  if (card.data.boardTitle !== null) text.append(' on ', el('strong', null, card.data.boardTitle));
+  return text;
+}
+
 function renderBoardChangeCard(card: ChatCardByType['board-change']): HTMLElement {
-  const shell = shellOf(card.cardType, card.data.sentence, true);
-  const actions = el('div', 'chat-card-actions');
-  actions.appendChild(button({ variant: 'primary', size: 'small', textCase: 'sentence', label: 'Focus this', onClick: () => dispatchCardAction(shell, card, 'focus', '') }));
-  shell.appendChild(actions);
-  return shell;
+  const row = el('section', 'chat-board-change');
+  row.dataset.cardType = card.cardType;
+  const showOnBoard = button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: 'Show on board', shortcutKey: shortcutHint('board-split', SHORTCUT_PLATFORM), onClick: () => dispatchCardAction(row, card, 'focus', '') });
+  const icon = createLineIcon(BOARDS_ICON_PATH, '1.5');
+  icon.classList.add('chat-board-change-icon');
+  row.append(icon, boardChangeTextOf(card), showOnBoard);
+  return row;
 }
 
 function signInHeadingOf(card: ChatCardByType['sign-in']): string {

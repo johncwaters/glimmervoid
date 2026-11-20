@@ -26,7 +26,7 @@ import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
-import { agentChangeSentence, onAgentChange } from '../whiteboard/board-tile-store.ts';
+import { changedCardsOf, markAgentChangeShown, onAgentChange } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
@@ -303,9 +303,8 @@ function boardChangeGroupsOf(sessionId: string, promptTimes: readonly number[]):
 }
 
 function boardChangeCardOf(cardId: string, boardChange: AgentChip): ChatCard {
-  const boardTitle = boardSummariesOf().find((summary) => summary.id === boardChange.boardId)?.title;
-  const sentence = agentChangeSentence(boardChange.change);
-  return { cardType: 'board-change', cardId, data: { sentence: boardTitle ? `${sentence} on ${boardTitle}` : sentence }, resolution: null };
+  const boardTitle = boardSummariesOf().find((summary) => summary.id === boardChange.boardId)?.title ?? null;
+  return { cardType: 'board-change', cardId, data: { changed: changedCardsOf(boardChange.change), boardTitle }, resolution: null };
 }
 
 function buildChat(sessionId: string): MountedChat {
@@ -623,6 +622,7 @@ function buildChat(sessionId: string): MountedChat {
   const answerCard = (cardId: string, action: string, value: string) => {
     const boardChange = boardChangeByCardId.get(cardId);
     if (boardChange && action === 'focus') {
+      markAgentChangeShown(sessionId, boardChange.change);
       openBoardAtAgentChange(boardChange.boardId, sessionId, boardChange.change);
       return;
     }

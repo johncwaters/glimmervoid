@@ -394,7 +394,7 @@ async function verifyBoardCardKeepsPlace(page: Page): Promise<void> {
   const chatPageButton = page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true });
   await chatPageButton.click();
   await chatPageButton.click();
-  await page.locator('.session-chat .chat-card[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-chat .chat-board-change[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await logOrder(), orderBeforeReopen, 'closing and reopening Chat keeps the card where it was in the history');
 }
 
@@ -407,19 +407,35 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
     applyAgentChange(changeOf('Parse feed'));
     applyAgentChange(changeOf('Store rows'));
   });
-  await page.locator('.session-chat .chat-card[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
-  const cardTitles = await page.locator('.session-chat .chat-log .chat-card[data-card-type="board-change"]').allTextContents();
+  await page.locator('.session-chat .chat-board-change[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
+  const cardTitles = await page.locator('.session-chat .chat-log .chat-board-change[data-card-type="board-change"]').allTextContents();
   assert.equal(cardTitles.length, 1, 'two agent changes in one turn share one card in the chat history');
-  assert.match(cardTitles[0] ?? '', /Claude changed Store rows/, 'the card names the latest change');
+  assert.match(cardTitles[0] ?? '', /^Changed Store rows/, 'the row names the latest change without the agent name');
   assert.equal(await page.locator('.session-chat .chat-dock .chat-card').count(), 0, 'nothing about the change floats over the chat');
-  await page.locator('.session-chat .chat-card[data-card-type="board-change"]').getByRole('button', { name: 'Focus this', exact: true }).click();
+  const showOnBoard = page.locator('.session-chat .chat-board-change .ui-button');
+  assert.match(await showOnBoard.innerText(), process.platform === 'darwin' ? /B$/ : /Alt\+B$/, 'Show on board carries the board shortcut');
+  const unshownBoardId = await page.evaluate(async () => {
+    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const tileStoreUrl = '/whiteboard/board-tile-store.ts';
+    const { unshownAgentChangeOf } = await import(tileStoreUrl);
+    return unshownAgentChangeOf(sessionId)?.boardId ?? null;
+  });
+  assert.equal(unshownBoardId, 'harness-board', 'the board shortcut has the newest change to frame');
+  await showOnBoard.click();
   const focusedBoxIds = await page.evaluate(async () => {
     const boardStoreUrl = '/whiteboard/board-store.ts';
     const { takeBoardFocusFor } = await import(boardStoreUrl);
     return takeBoardFocusFor('harness-board')?.boxes.map((box: { id: string }) => box.id) ?? null;
   });
-  assert.ok(focusedBoxIds === null || focusedBoxIds.join() === 'Store rows', 'Focus this asks the board to frame the changed card');
-  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="board-change"]').count(), 1, 'the card stays in the history after Focus this');
+  const unshownAfterClick = await page.evaluate(async () => {
+    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const tileStoreUrl = '/whiteboard/board-tile-store.ts';
+    const { unshownAgentChangeOf } = await import(tileStoreUrl);
+    return unshownAgentChangeOf(sessionId)?.boardId ?? null;
+  });
+  assert.equal(unshownAfterClick, null, 'Show on board leaves nothing for the board shortcut to frame again');
+  assert.ok(focusedBoxIds === null || focusedBoxIds.join() === 'Store rows', 'Show on board asks the board to frame the changed card');
+  assert.equal(await page.locator('.session-chat .chat-board-change[data-card-type="board-change"]').count(), 1, 'the row stays in the history after Show on board');
 }
 
 export async function verifyChatTerminal(page: Page): Promise<void> {

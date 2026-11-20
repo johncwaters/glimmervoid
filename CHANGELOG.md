@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A board change in Chat is one quiet row with a shortcut.** The card that read "<agent> changed X on <board>" with a Focus this button is now a single row: the boards icon, "Changed **X** on **Board**" without repeating the agent's name, a hover tint, and a Show on board button that shows the board shortcut (Cmd+B on macOS, Alt+B elsewhere). Opening the board with that shortcut now picks the board the agent last changed and frames that change once.
 - **The Chat status row under the message box shows the agent's logo and colors its meters.** The model name now starts with the session agent's mark, in the agent's brand color where it has one. The plan usage and context bars fill green under 50%, amber from 50% and red from 80%, and at 80% or more the reading itself turns red, so a session close to a limit stands out at a glance.
 - **Coherence 1.15.0 in development.** The `@posthog/coherence` dev dependency moves from 1.14.0 to 1.15.0, which adds peer repositories, a `testSkip` setup key and a Components view that reads each component as its spec. No config or spec change was needed.
 
