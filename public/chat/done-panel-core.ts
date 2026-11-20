@@ -5,9 +5,10 @@ import type { ChatPhase } from './chat-activity-core.ts';
 
 type DoneLineStatus = 'passed' | 'failed' | 'not-checked';
 export type DoneLine = { text: string; status: DoneLineStatus; proof: string; evidence: string; command: string };
+type DonePillTone = 'running' | 'passed' | 'partial' | 'skipped' | 'failed';
 export type DonePanelModel =
   | { kind: 'running'; runKey: string }
-  | { kind: 'settled'; runKey: string; failedLines: DoneLine[]; foldedLines: DoneLine[]; passedCount: number; skippedCount: number };
+  | { kind: 'settled'; runKey: string; failedLines: DoneLine[]; skippedLines: DoneLine[]; passedLines: DoneLine[] };
 
 export const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
 
@@ -20,8 +21,8 @@ function checkLineOf(check: CheckOutcome): DoneLine {
     text: check.id,
     status,
     proof: CHECK_STATUS_WORDS[check.status],
-    evidence: status === 'failed' ? check.outputTail.trim() : '',
-    command: '',
+    evidence: status === 'passed' ? '' : check.outputTail.trim(),
+    command: check.command,
   };
 }
 
@@ -41,26 +42,34 @@ function agentDoneLinesOf(run: VerificationRun, agentDoneLines: readonly AgentDo
   });
 }
 
+type SettledModel = Extract<DonePanelModel, { kind: 'settled' }>;
+
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-export function settledSummaryText(model: Extract<DonePanelModel, { kind: 'settled' }>): string {
-  const passedText = `${countLabel(model.passedCount, 'check', 'checks')} passed`;
-  if (model.skippedCount === 0) return passedText;
-  if (model.passedCount === 0) return `${countLabel(model.skippedCount, 'check', 'checks')} skipped`;
-  return `${passedText}, ${model.skippedCount} skipped`;
+function settledPillText(model: SettledModel): string {
+  const failedCount = model.failedLines.length;
+  const skippedCount = model.skippedLines.length;
+  const passedCount = model.passedLines.length;
+  const totalCount = failedCount + skippedCount + passedCount;
+  if (failedCount > 0 && skippedCount === 0) return `${failedCount} of ${countLabel(totalCount, 'check', 'checks')} failed`;
+  if (failedCount > 0) return `${failedCount} of ${totalCount} failed, ${skippedCount} skipped`;
+  if (skippedCount === 0) return `${countLabel(passedCount, 'check', 'checks')} passed`;
+  if (passedCount === 0) return `${countLabel(skippedCount, 'check', 'checks')} skipped`;
+  return `${passedCount} passed, ${skippedCount} skipped`;
 }
 
-export function foldedSummaryText(model: Extract<DonePanelModel, { kind: 'settled' }>): string {
-  const passedText = `${model.passedCount} more passed`;
-  if (model.skippedCount === 0) return passedText;
-  if (model.passedCount === 0) return `${model.skippedCount} skipped`;
-  return `${passedText}, ${model.skippedCount} skipped`;
+function settledPillTone(model: SettledModel): DonePillTone {
+  if (model.failedLines.length > 0) return 'failed';
+  if (model.skippedLines.length === 0) return 'passed';
+  if (model.passedLines.length === 0) return 'skipped';
+  return 'partial';
 }
 
-export function failedCountText(model: Extract<DonePanelModel, { kind: 'settled' }>): string {
-  return `${model.failedLines.length} of ${model.failedLines.length + model.foldedLines.length} failed`;
+export function donePillOf(model: DonePanelModel): { tone: DonePillTone; text: string } {
+  if (model.kind === 'running') return { tone: 'running', text: 'Running checks' };
+  return { tone: settledPillTone(model), text: settledPillText(model) };
 }
 
 export function donePanelModelOf(input: { run: VerificationRun | null; agentDoneLines: readonly AgentDoneLine[]; phase: ChatPhase }): DonePanelModel | null {
@@ -74,8 +83,7 @@ export function donePanelModelOf(input: { run: VerificationRun | null; agentDone
     kind: 'settled',
     runKey,
     failedLines: lines.filter((line) => line.status === 'failed'),
-    foldedLines: lines.filter((line) => line.status !== 'failed'),
-    passedCount: lines.filter((line) => line.status === 'passed').length,
-    skippedCount: lines.filter((line) => line.status === 'not-checked').length,
+    skippedLines: lines.filter((line) => line.status === 'not-checked'),
+    passedLines: lines.filter((line) => line.status === 'passed'),
   };
 }

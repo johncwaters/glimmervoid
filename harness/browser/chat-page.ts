@@ -214,7 +214,7 @@ async function verifyOpenCardStaysLastAcrossRemount(page: Page): Promise<void> {
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), true, 'opening Chat on a desktop layout leaves the caret in the message input');
-  assert.equal(await page.locator('.session-chat .chat-done').isHidden(), true, 'a session with no checks and no done lines shows no Checked at turn end panel');
+  assert.equal(await page.locator('.session-chat .chat-done-pill').count(), 0, 'a session with no checks and no done lines shows no check result');
   await verifyChatModelSwitch(page);
   await verifyComposerKeepsFollowing(page);
   await startCountingSentPrompts(page, 'ask-chat');
@@ -525,29 +525,36 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
-  assert.equal(await page.locator('.session-chat .chat-done:visible').count(), 0, 'a turn below the panel line threshold shows no panel');
+  assert.equal(await page.locator('.session-chat .chat-done-pill').count(), 0, 'a turn below the panel line threshold shows no check result');
   await sendFromComposer(page, 'work');
   await waitForTurnRunning(page, true);
   await waitForOutboxEmpty(page);
   await fs.writeFile(path.join(worktreePath, DONE_MEANS_UNTRACKED_FILE), Array.from({ length: PANEL_MIN_CHANGED_LINES }, (_, lineIndex) => `written during the turn ${lineIndex}`).join('\n'), 'utf8');
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
-  const panel = page.locator('.session-chat .chat-done');
-  const failedLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'committed' });
-  await failedLine.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const pill = page.locator('.session-chat .chat-done-pill');
+  await pill.and(page.locator('[data-tone="failed"]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await pill.innerText(), /^\d+ of \d+ checks failed$/, 'the pill reads how many checks failed');
+  assert.equal(await pill.evaluate((pillElement) => pillElement.closest('.chat-turn') === null && pillElement.parentElement?.classList.contains('chat-turn-end-row') === true), true, 'with no turn read from the transcript, the pill sits in a row of its own below the log');
+  const list = page.locator('.session-chat .chat-done-list');
+  assert.equal(await list.isHidden(), true, 'the check list starts closed');
+  assert.equal(await pill.getAttribute('aria-expanded'), 'false', 'the pill reports the list closed');
+  await pill.click();
+  await list.waitFor({ state: 'visible', timeout: CARD_TIMEOUT_MS });
+  assert.equal(await pill.getAttribute('aria-expanded'), 'true', 'the pill reports the list open');
+  const failedLine = list.locator('.chat-done-line[data-status="failed"]', { hasText: 'committed' });
   assert.match(await failedLine.locator('.chat-done-proof').innerText(), /Failed/, 'a failed check reads Failed');
+  assert.match(await failedLine.locator('.chat-done-command').innerText(), /^git /, 'a failed repo check shows its command');
   assert.match(await failedLine.locator('.chat-done-evidence').innerText(), new RegExp(DONE_MEANS_UNTRACKED_FILE), 'a failed check shows its output tail');
-  const fold = panel.locator('.chat-done-fold');
-  assert.equal(await fold.getAttribute('open'), null, 'the checks that passed start folded under the failure');
-  assert.match(await fold.locator('summary').innerText(), /more passed/, 'the fold names how many more passed');
-  await fold.locator('summary').click();
-  await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).waitFor({ timeout: CARD_TIMEOUT_MS });
-  const agentLine = panel.locator('.chat-done-line[data-status="passed"]', { hasText: AGENT_DONE_LINE.text });
-  await agentLine.waitFor({ timeout: CARD_TIMEOUT_MS });
-  assert.equal(await agentLine.locator('.chat-done-command').innerText(), AGENT_DONE_LINE.command, 'the agent command ran with no operator step and shows beneath its line');
-  assert.equal(await agentLine.locator('.chat-done-proof').count(), 0, 'a passing line shows no status word');
-  assert.equal(await panel.locator('.chat-card').count(), 0, 'the panel reports and asks nothing');
-  assert.equal(await panel.getByRole('button', { name: /Allow/ }).count(), 0, 'the panel has no Allow commands button');
+  const passedRow = list.locator('.chat-done-passed');
+  assert.match(await passedRow.innerText(), /^Also passed: /, 'the passing checks share one Also passed row');
+  assert.match(await passedRow.innerText(), /status/, 'the Also passed row names the repo check that passed');
+  assert.match(await passedRow.innerText(), new RegExp(AGENT_DONE_LINE.text), 'the agent command ran with no operator step and is named among the passes');
+  assert.equal(await list.locator('.chat-done-line[data-status="passed"]').count(), 0, 'a passing check takes no line of its own');
+  assert.equal(await list.locator('.chat-card').count(), 0, 'the check list reports and asks nothing');
+  assert.equal(await page.locator('.session-chat').getByRole('button', { name: /Allow/ }).count(), 0, 'Chat has no Allow commands button');
+  await pill.click();
+  await list.waitFor({ state: 'hidden', timeout: CARD_TIMEOUT_MS });
   await verifySpawnedChildDoneMeans(page);
 }
 
@@ -563,7 +570,7 @@ async function verifySpawnedChildDoneMeans(page: Page): Promise<void> {
   await waitForOutboxEmpty(page);
   await stopTurnPastHints(page);
   await waitForTurnRunning(page, false);
-  assert.equal(await page.locator('.session-chat .chat-done:visible').count(), 0, 'a spawned child whose turn changed nothing shows no panel, and its spawn done lines stay prompt text');
+  assert.equal(await page.locator('.session-chat .chat-done-pill').count(), 0, 'a spawned child whose turn changed nothing shows no check result, and its spawn done lines stay prompt text');
 }
 
 async function stopTurnPastHints(page: Page): Promise<void> {

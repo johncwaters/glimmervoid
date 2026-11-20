@@ -36,6 +36,7 @@ interface TurnView {
 }
 
 type ToolsSegment = Extract<TurnSegment, { kind: 'tools' }>;
+export type TurnEnd = { pill: HTMLButtonElement; list: HTMLElement };
 
 const CHEVRON_ICON_PATH = 'M6 4l4 4-4 4';
 
@@ -233,13 +234,21 @@ function showRunningRow(view: TurnView, part: TurnPart): void {
   view.currentCall.textContent = currentCallOf(part.segments);
 }
 
-function showEndedRow(view: TurnView, part: TurnPart): void {
+function showEndedRow(view: TurnView, part: TurnPart, turnEnd: TurnEnd | null): void {
   const digest = digestTurn(part.segments, part.toolCount);
   view.hasWork = digest.isFoldable;
   view.element.toggleAttribute('data-foldable', digest.isFoldable);
   view.element.toggleAttribute('data-asks', digest.asked !== null);
   view.brief.replaceChildren(...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
-  view.meta.replaceChildren(view.chevron, ...metaFieldsOf(part));
+  const metaChildren = [view.chevron, ...metaFieldsOf(part)];
+  if (turnEnd === null) {
+    view.meta.replaceChildren(...metaChildren);
+    return;
+  }
+  for (const child of [...view.meta.children]) if (child !== turnEnd.pill) child.remove();
+  if (turnEnd.pill.parentElement !== view.meta) view.meta.append(turnEnd.pill);
+  turnEnd.pill.before(...metaChildren);
+  if (turnEnd.list.previousElementSibling !== view.work) view.work.after(turnEnd.list);
 }
 
 function showWork(view: TurnView): void {
@@ -253,7 +262,7 @@ function showWork(view: TurnView): void {
   view.work.replaceChildren(...workRowsOf(view.part));
 }
 
-function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean): void {
+function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean, turnEnd: TurnEnd | null): void {
   dropLeadingSegments(view, part.droppedSegmentCount);
   syncSegments(view, part.segments, areNewSegmentsArriving);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
@@ -265,7 +274,7 @@ function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: 
   view.part = part;
   view.element.toggleAttribute('data-over', part.isOver);
   view.element.toggleAttribute('data-has-tools', part.toolCount > 0);
-  if (part.isOver) showEndedRow(view, part);
+  if (part.isOver) showEndedRow(view, part, turnEnd);
   if (!part.isOver) showRunningRow(view, part);
   showWork(view);
 }
@@ -301,6 +310,7 @@ interface ChatLog {
   replaceParts(replacedPartIds: readonly string[], parts: readonly ChatPart[]): void;
   keepLast(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
+  showTurnEnd(turnEnd: TurnEnd | null): boolean;
 }
 
 function settleArrivalsThatCannotAnimate(logElement: HTMLElement): void {
@@ -312,11 +322,29 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
   element.setAttribute('role', 'log');
   const elementByPartId = new Map<string, HTMLElement>();
   const turnViewByPartId = new Map<string, TurnView>();
+  let lastTurnView: TurnView | null = null;
+  let shownTurnEnd: TurnEnd | null = null;
+  const turnEndOf = (view: TurnView) => (view === lastTurnView ? shownTurnEnd : null);
+  const findLastTurnView = () => {
+    const turnElements = element.querySelectorAll<HTMLElement>(':scope > .chat-turn');
+    const lastPartId = turnElements[turnElements.length - 1]?.dataset.partId;
+    lastTurnView = lastPartId === undefined ? null : turnViewByPartId.get(lastPartId) ?? null;
+  };
+  const removeTurnEnd = () => {
+    shownTurnEnd?.pill.remove();
+    shownTurnEnd?.list.remove();
+  };
+  const placeTurnEnd = () => {
+    if (shownTurnEnd === null || lastTurnView?.part?.isOver !== true) return false;
+    showEndedRow(lastTurnView, lastTurnView.part, shownTurnEnd);
+    return true;
+  };
 
   const upsertTurn = (part: TurnPart, isArriving: boolean, container: ParentNode) => {
     const existingView = turnViewByPartId.get(part.id);
     const view = existingView ?? createTurnView();
-    updateTurnView(view, part, isArriving);
+    if (!existingView) lastTurnView = view;
+    updateTurnView(view, part, isArriving, turnEndOf(view));
     if (existingView) return;
     view.element.toggleAttribute('data-arriving', isArriving);
     view.element.dataset.partId = part.id;
@@ -353,6 +381,8 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       elementByPartId.delete(partId);
       turnViewByPartId.delete(partId);
     }
+    findLastTurnView();
+    placeTurnEnd();
   };
   const replaceParts = (replacedPartIds: readonly string[], parts: readonly ChatPart[]) => {
     const replacedIndexByElement = new Map<Element, number>();
@@ -376,6 +406,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       if (turnViewByPartId.get(replacedPartIds[index] ?? '')?.isOpen) openReplacedIndexes.add(index);
       if (replaced.contains(document.activeElement)) focusedReplacedIndex = index;
     }
+    const isTurnEndFocused = shownTurnEnd?.pill.contains(document.activeElement) === true;
     const insertionMark = document.createComment('');
     const firstReplacedElement = replacedIndexByElement.keys().next().value ?? element.firstElementChild;
     if (firstReplacedElement) firstReplacedElement.before(insertionMark);
@@ -396,6 +427,8 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     for (const { kept, replacedIndexBefore: index } of keptElementsAfterReplaced.reverse()) {
       elementByPartId.get(rebuiltPartIdOf(index))?.after(kept);
     }
+    findLastTurnView();
+    if (placeTurnEnd() && isTurnEndFocused) shownTurnEnd?.pill.focus({ preventScroll: true });
   };
   const toggleTurn = (turnElement: HTMLElement) => {
     const partId = turnElement.dataset.partId;
@@ -434,5 +467,10 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     if (firstMisplacedIndex < 0) return;
     element.append(...pinnedElements.slice(firstMisplacedIndex));
   };
-  return { element, upsert, remove, replaceParts, keepLast, toggleTurn };
+  const showTurnEnd = (turnEnd: TurnEnd | null) => {
+    if (turnEnd === null) removeTurnEnd();
+    shownTurnEnd = turnEnd;
+    return placeTurnEnd();
+  };
+  return { element, upsert, remove, replaceParts, keepLast, toggleTurn, showTurnEnd };
 }

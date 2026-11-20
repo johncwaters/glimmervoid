@@ -375,10 +375,9 @@ function buildChat(sessionId: string): MountedChat {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
   };
-  const donePanel = createDonePanel();
+  const donePanel = createDonePanel(chatView.showTurnEnd);
   const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
-  chatView.mountAfterActivity(donePanel.element);
   root.append(failureLine, chatView.element);
   let runningSubagents: readonly RunningSubagent[] = [];
   const showRail = () => {

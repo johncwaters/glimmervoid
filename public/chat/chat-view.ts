@@ -5,6 +5,7 @@ import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart } from './chat-part.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
+import type { TurnEnd } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
 import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
@@ -26,7 +27,7 @@ interface ChatView {
   showQueued(entries: readonly ChatOutboxEntry[]): void;
   showAttachment(fileName: string): void;
   showRail(fields: readonly RailField[]): void;
-  mountAfterActivity(element: HTMLElement): void;
+  showTurnEnd(turnEnd: TurnEnd | null): void;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -165,10 +166,11 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   const composer = createComposer(uploadUrlOf);
   const activity = createChatActivity();
   const queuedList = el('div', 'chat-queued-list');
+  const turnEndRow = el('div', 'chat-turn-end-row');
   const scrollContent = el('div', 'chat-scroll-content');
   const { jumpButton, followLatest, keepInPlace } = stickToBottom(scroller, scrollContent);
   const chatLog = createChatLog(uploadUrlOf, keepInPlace);
-  scrollContent.append(chatLog.element, activity.element, queuedList);
+  scrollContent.append(chatLog.element, turnEndRow, activity.element, queuedList);
   scroller.append(scrollContent);
   let shownPhase: ChatPhase = 'quiet';
   let queuedEntries: readonly ChatOutboxEntry[] = [];
@@ -205,5 +207,10 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     activity.setPhase(phase);
     if (wasStarting !== (phase === 'starting')) showQueued(queuedEntries);
   };
-  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, mountAfterActivity: (afterActivity: HTMLElement) => scrollContent.insertBefore(afterActivity, queuedList) };
+  const showTurnEnd = (turnEnd: TurnEnd | null) => {
+    const isInTurnRow = chatLog.showTurnEnd(turnEnd);
+    if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
+    turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
+  };
+  return { element, upsert: chatLog.upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd };
 }
