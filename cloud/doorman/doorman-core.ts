@@ -18,7 +18,7 @@ type MeterTotal = { periodStartMs: number; closedAwakeMs: number; openSinceMs: n
 type ForwardState = 'answering' | 'waking' | 'unreachable';
 type ForwardEvent = 'connectFailed' | 'connected' | 'holdTimedOut' | 'cooldownPassedAndRequest' | 'hostStopped';
 type GceWakeAction = 'resume' | 'start';
-type WakePageState = { phase: 'waking'; elapsedMs: number; didLastWakeFail: boolean } | { phase: 'holding'; retryInMs: number | null };
+type WakePageState = { phase: 'waking'; elapsedMs: number; didLastWakeFail: boolean; isColdStart: boolean } | { phase: 'holding'; retryInMs: number | null };
 
 const FORWARD_TRANSITIONS: Readonly<Record<ForwardState, Partial<Record<ForwardEvent, ForwardState>>>> = Object.freeze({
   answering: { connectFailed: 'waking', hostStopped: 'unreachable' },
@@ -29,6 +29,8 @@ const FORWARD_TRANSITIONS: Readonly<Record<ForwardState, Partial<Record<ForwardE
 const MS_PER_HOUR = 3_600_000;
 
 const GCE_WAKE_ACTION_BY_STATUS: Readonly<Record<string, GceWakeAction>> = Object.freeze({ SUSPENDED: 'resume', TERMINATED: 'start', STOPPED: 'start' });
+const GCE_STOCKOUT_ERROR_CODES: ReadonlySet<string> = new Set(['ZONE_RESOURCE_POOL_EXHAUSTED', 'ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS', 'REGION_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS', 'POOL_CAPACITY_INSUFFICIENT']);
+const TENANT_MACHINE_TYPE_LADDER: readonly string[] = Object.freeze(['n2d-standard-2', 't2d-standard-2', 'n2-standard-2', 'e2-standard-2']);
 const GCE_SETTLING_STATUSES: ReadonlySet<string> = new Set(['SUSPENDING', 'STOPPING', 'PENDING_STOP', 'PROVISIONING', 'STAGING', 'DEPROVISIONING', 'PENDING']);
 
 const EDGE_PATH_PREFIX = '/doorman/';
@@ -69,8 +71,8 @@ function isWakeAllowed(lastWakeAtMs: number | null, nowMs: number, wakeCooldownM
   return lastWakeAtMs === null || nowMs - lastWakeAtMs >= wakeCooldownMs;
 }
 
-function wakePageState({ isWakeInFlight, didLastWakeFail, lastWakeAtMs, nowMs, wakeCooldownMs }: { isWakeInFlight: boolean; didLastWakeFail: boolean; lastWakeAtMs: number | null; nowMs: number; wakeCooldownMs: number }): WakePageState {
-  if (isWakeInFlight) return { phase: 'waking', elapsedMs: Math.max(0, nowMs - (lastWakeAtMs ?? nowMs)), didLastWakeFail };
+function wakePageState({ isWakeInFlight, isColdStart, didLastWakeFail, lastWakeAtMs, nowMs, wakeCooldownMs }: { isWakeInFlight: boolean; isColdStart: boolean; didLastWakeFail: boolean; lastWakeAtMs: number | null; nowMs: number; wakeCooldownMs: number }): WakePageState {
+  if (isWakeInFlight) return { phase: 'waking', elapsedMs: Math.max(0, nowMs - (lastWakeAtMs ?? nowMs)), didLastWakeFail, isColdStart };
   if (lastWakeAtMs === null || isWakeAllowed(lastWakeAtMs, nowMs, wakeCooldownMs)) return { phase: 'holding', retryInMs: null };
   return { phase: 'holding', retryInMs: wakeCooldownMs - (nowMs - lastWakeAtMs) };
 }
@@ -81,6 +83,15 @@ function gceWakeAction(status: string): GceWakeAction | null {
 
 function isGceSettling(status: string): boolean {
   return GCE_SETTLING_STATUSES.has(status);
+}
+
+function isGceStockout(errorCodes: readonly string[]): boolean {
+  return errorCodes.length > 0 && errorCodes.every((errorCode) => GCE_STOCKOUT_ERROR_CODES.has(errorCode));
+}
+
+function machineTypesToTry(currentMachineType: string): string[] {
+  if (!TENANT_MACHINE_TYPE_LADDER.includes(currentMachineType)) return [currentMachineType];
+  return [currentMachineType, ...TENANT_MACHINE_TYPE_LADDER.filter((machineType) => machineType !== currentMachineType)];
 }
 
 function recentEdgeWakeTimes(edgeWakeTimesMs: readonly number[], nowMs: number): number[] {
@@ -214,5 +225,5 @@ function doormanFailureLine(kind: DoormanFailureKind, message: string): string {
   return `[doorman] kind=${kind} ${message}`;
 }
 
-export { awakeUsageAt, doormanFailureLine, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, reachabilityTokenRequestBody, reachableSubset, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
+export { awakeUsageAt, doormanFailureLine, edgeWakeRetryAfterMs, emptyMeterTotal, foldAwakeEvent, gceWakeAction, githubAppJwt, isGceStockout, machineTypesToTry, headersAtEdge, installationTokenRequestBody, isConnectFailure, isGceSettling, isMeteredAwake, isOverCap, isTokenFreshForServer, isWakeAllowed, mintRetryDelayMs, nextForwardState, reachabilityTokenRequestBody, reachableSubset, recentEdgeWakeTimes, routeRequest, tokenRefreshDelayMs, wakePageState, wantsWakingPage };
 export type { DoormanRoute, EdgeAction, ForwardState, GceWakeAction, MeterTotal, WakePageState };

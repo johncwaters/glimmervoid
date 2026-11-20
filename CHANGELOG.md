@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Glimmervoid Cloud host still wakes when its zone runs out of room.** When Google Cloud refuses to resume a sleeping host because its zone has no capacity for that machine type, the doorman now starts it fresh instead of waiting out the whole wake: it stops the host and starts it on the first of n2d-standard-2, t2d-standard-2, n2-standard-2 and e2-standard-2 with room, keeping every disk. The wake page says the zone had no room and that open sessions restart while files stay. A host the doorman manages needs the stop, set machine type and zone operation read permissions to do this.
+
 ### Changed
 
 - **The board properties panel shows just the basics.** Selecting a box shows its shape, icon and title, fill and title size, and Add note, Frame and Delete; a wire shows its label, tone, width, route and arrowheads. Step, angle, borderless, lines, change, refs, Open in review, a linked file, page dials and a device's fit, and a wire's dashed line and sides, sit under More, since agents set most of them. More starts closed and remembers whether you left it open, across elements and reloads. The fill, size and wire style picks moved out of the separate style window into the same panel, for one selection or many.

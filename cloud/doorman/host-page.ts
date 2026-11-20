@@ -6,6 +6,7 @@ import { escapeMarkup } from '../../shared/escape-markup.ts';
 import type { WakePageState } from './doorman-core.ts';
 
 const TYPICAL_WAKE_SECONDS = 15;
+const TYPICAL_COLD_START_SECONDS = 90;
 const WAKE_POLL_MS = 1000;
 
 const HOST_PAGE_STYLES = [
@@ -98,21 +99,27 @@ function hostPage({ heading, headExtra, mainAttributes, body }: { heading: strin
 }
 
 function wakeStatusText(state: WakePageState): string {
+  if (state.phase === 'waking' && state.isColdStart) return 'Its zone has no room to resume it, so it is starting fresh. Open sessions restart; files on its disk are kept.';
   if (state.phase === 'waking') return state.didLastWakeFail ? 'The last try got no answer. Waking the host again.' : 'Waking the host.';
   if (state.retryInMs === null) return 'This Glimmervoid cannot be woken right now. Checking again on its own.';
   return `Not waking yet. Trying again in ${secondsText(Math.max(1, Math.ceil(state.retryInMs / 1000)))}.`;
 }
 
+function typicalSecondsOf(state: WakePageState & { phase: 'waking' }): number {
+  return state.isColdStart ? TYPICAL_COLD_START_SECONDS : TYPICAL_WAKE_SECONDS;
+}
+
 function wakeElapsedText(state: WakePageState): string {
   if (state.phase !== 'waking') return '';
   const elapsedSeconds = Math.floor(state.elapsedMs / 1000);
-  if (elapsedSeconds > TYPICAL_WAKE_SECONDS) return `${elapsedSeconds}s, longer than the usual ${TYPICAL_WAKE_SECONDS}s`;
-  return `${elapsedSeconds}s of about ${TYPICAL_WAKE_SECONDS}s`;
+  const typicalSeconds = typicalSecondsOf(state);
+  if (elapsedSeconds > typicalSeconds) return `${elapsedSeconds}s, longer than the usual ${typicalSeconds}s`;
+  return `${elapsedSeconds}s of about ${typicalSeconds}s`;
 }
 
 function wakeFraction(state: WakePageState): number {
   if (state.phase !== 'waking') return 0;
-  return Math.min(1, Math.round(state.elapsedMs / (TYPICAL_WAKE_SECONDS * 10)) / 100);
+  return Math.min(1, Math.round(state.elapsedMs / (typicalSecondsOf(state) * 10)) / 100);
 }
 
 function wakingPage(state: WakePageState, refreshSeconds: number): string {

@@ -1242,6 +1242,46 @@ test('the GCE host adapter resumes a suspended instance, starts a terminated one
   await assert.rejects(adapter.wake(tenant), /answered 403/);
 });
 
+test('the GCE host adapter starts a suspended instance fresh on the next machine type with room when its zone has no room to resume it, and never on a failure that is not a stockout', async () => {
+  const instanceUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/instances/tenant-vm';
+  const operationUrl = 'https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/operations/operation-1';
+  const instance = { status: 'SUSPENDED', machineType: 'n2d-standard-2' };
+  const stockedOutMachineTypes = new Set(['n2d-standard-2', 't2d-standard-2']);
+  const calls: string[] = [];
+  let pendingOperationErrorCode: string | null = null;
+  let resumeErrorCode = 'ZONE_RESOURCE_POOL_EXHAUSTED';
+  const fakeGoogle: typeof fetch = async (input, init) => {
+    const url = String(input);
+    if (url.startsWith('http://metadata.google.internal/')) return Response.json({ access_token: 'metadata-token', expires_in: 3599 });
+    if (url === instanceUrl) return Response.json({ status: instance.status, machineType: `https://compute.googleapis.com/compute/v1/projects/tenant-project/zones/us-central1-a/machineTypes/${instance.machineType}` });
+    if (url === operationUrl) return Response.json({ status: 'DONE', selfLink: operationUrl, ...(pendingOperationErrorCode === null ? {} : { error: { errors: [{ code: pendingOperationErrorCode }] } }) });
+    const action = url.slice(instanceUrl.length + 1);
+    calls.push(action === 'setMachineType' ? `setMachineType ${JSON.parse(String(init?.body)).machineType}` : action);
+    pendingOperationErrorCode = null;
+    if (action === 'resume') pendingOperationErrorCode = resumeErrorCode;
+    if (action === 'stop') instance.status = 'TERMINATED';
+    if (action === 'setMachineType') instance.machineType = String(JSON.parse(String(init?.body)).machineType).split('/').pop() ?? '';
+    if (action === 'start' && stockedOutMachineTypes.has(instance.machineType)) pendingOperationErrorCode = 'ZONE_RESOURCE_POOL_EXHAUSTED';
+    if (action === 'start' && pendingOperationErrorCode === null) instance.status = 'RUNNING';
+    return Response.json({ status: 'RUNNING', selfLink: operationUrl });
+  };
+  const adapter = createGcpHostAdapter({ fetchFn: fakeGoogle, settleTimeoutMs: 1000, settlePollMs: 1 });
+  const tenant = { slug: 'gcptenant0001', serverUrl: 'http://10.0.0.2:8080', linkSecret: { kind: 'file', path: '/unused' } as const, watcherHome: '/unused', awakeHoursPerMonth: null, host: TEST_GCP_HOST, owner: null };
+  const reported: string[] = [];
+
+  await adapter.wake(tenant, { onColdStart: () => reported.push('cold start'), onStartedOn: (machineType) => reported.push(`started on ${machineType}`) });
+
+  assert.deepEqual(calls, ['resume', 'stop', 'start', 'setMachineType zones/us-central1-a/machineTypes/t2d-standard-2', 'start', 'setMachineType zones/us-central1-a/machineTypes/n2-standard-2', 'start']);
+  assert.deepEqual(reported, ['cold start', 'started on n2-standard-2']);
+  assert.equal(instance.status, 'RUNNING');
+
+  instance.status = 'SUSPENDED';
+  resumeErrorCode = 'QUOTA_EXCEEDED';
+  calls.length = 0;
+  await assert.rejects(adapter.wake(tenant), /resume of instance tenant-vm failed: QUOTA_EXCEEDED/);
+  assert.deepEqual(calls, ['resume']);
+});
+
 test('a server sends the 100 percent awake-hours alert while the cap is still within its lookahead, and alerts again when the cap changes mid-month', () => {
   const hour = 3_600_000;
   const usageAt = (usedMs: number, capMs: number) => ({ usedMs, capMs, periodStartAt: '2026-11-01T00:00:00.000Z', periodEndsAt: '2026-12-01T00:00:00.000Z' });
