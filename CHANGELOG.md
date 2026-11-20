@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A command that starts with `node` runs Node in the standalone install.** A done line, repo check or pack command such as `node scripts/check.js` used to run Glimmervoid itself and print its help, because the standalone build sends any program named `node` back to its own binary. Glimmervoid now runs the `node` on your PATH, as the source install always did, so `env node` is no longer needed. With no `node` on PATH, the command fails with an error naming `glimmervoid-node-not-on-PATH`.
+
 ### Changed
 
 - **Agents can no longer write over board edits they have not read.** When you or another session change a box, wire or note, an agent that tries to change or remove that element before reading the board again is refused, and told to read it first. An agent has to be connected to the board and have read it since connecting before it changes anything already there, and showing a file again or importing a board file over the board is checked the same way. Restacking several boxes counts as a change to each of them, and a large edit no longer locks agents out of their own boxes or hides earlier changes from the list an agent reads. Your own edits on the dashboard are never refused, and the code map and plan step updates still land. Undo and Redo on a board no longer revert an edit someone else made since: the step is dropped and the status line names the box that changed.

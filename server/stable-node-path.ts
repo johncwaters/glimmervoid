@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import { commandCandidatesOnPath } from './core/node-launch-core.ts';
 import { resolveArgvCommandMatches } from '../session/core/spawn-command.ts';
 import { execFileSync } from './child-process-safe.ts';
 
@@ -28,13 +28,15 @@ function stableLauncherPathFor(commandName: string): string {
   return foundPath;
 }
 
+async function isExecutableFile(candidate: string): Promise<boolean> {
+  return fs.promises.access(candidate, fs.constants.X_OK)
+    .then(async () => (await fs.promises.stat(candidate)).isFile())
+    .catch(() => false);
+}
+
 async function firstCommandOnPath(program: string, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
-  for (const dir of (env.PATH ?? '').split(path.delimiter).filter(Boolean)) {
-    const candidate = path.join(dir, program);
-    const isExecutableFile = await fs.promises.access(candidate, fs.constants.X_OK)
-      .then(async () => (await fs.promises.stat(candidate)).isFile())
-      .catch(() => false);
-    if (isExecutableFile) return candidate;
+  for (const candidate of commandCandidatesOnPath(program, env, process.platform)) {
+    if (await isExecutableFile(candidate)) return candidate;
   }
   return null;
 }

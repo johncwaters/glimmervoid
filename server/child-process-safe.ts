@@ -11,7 +11,11 @@ import type {
   ExecSyncOptionsWithStringEncoding,
   SpawnOptions,
 } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
+import { commandCandidatesOnPath, commandWithShellResolvedNode, launchWithShellResolvedNode, NODE_NOT_ON_PATH_NAME, startsWithNode } from "./core/node-launch-core.ts";
+import type { ProgramLaunch } from "./core/node-launch-core.ts";
 
 type ExecFileCallback = (
   error: ExecException | null,
@@ -39,6 +43,47 @@ function refuseLaunchesOf(nodePath: string): void {
 function assertLaunchable(file: string): void {
   if (file !== refusedNodePath) return;
   throw new Error(`[launch] refused ${file}: launch through selfLaunch from server/runtime-paths.ts, because an upgrade deletes this path under the running server`);
+}
+
+const nodePathByPathCandidates = new Map<string, string>();
+
+function isExecutableFile(candidate: string): boolean {
+  const stats = fs.statSync(candidate, { throwIfNoEntry: false });
+  if (!stats?.isFile()) return false;
+  if (process.platform === "win32") return true;
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function nodeOnPath(env: NodeJS.ProcessEnv): string {
+  const candidates = commandCandidatesOnPath("node", env, process.platform);
+  const cacheKey = candidates.join("\0");
+  const knownNodePath = nodePathByPathCandidates.get(cacheKey);
+  if (knownNodePath !== undefined && isExecutableFile(knownNodePath)) return knownNodePath;
+  const foundNodePath = candidates.find(isExecutableFile);
+  if (foundNodePath === undefined) return path.join(path.parse(process.execPath).root, NODE_NOT_ON_PATH_NAME);
+  nodePathByPathCandidates.set(cacheKey, foundNodePath);
+  return foundNodePath;
+}
+
+function environmentOf(options: { env?: unknown } | undefined): NodeJS.ProcessEnv {
+  const env = options?.env;
+  if (env && typeof env === "object") return env as NodeJS.ProcessEnv;
+  return process.env;
+}
+
+function launchOf(file: string, args: readonly string[] | undefined, options: { env?: unknown } | undefined): ProgramLaunch {
+  if (file === "node") return { file: nodeOnPath(environmentOf(options)), args };
+  return launchWithShellResolvedNode({ file, args });
+}
+
+function shellCommandOf(command: string): string {
+  if (!startsWithNode(command)) return command;
+  return commandWithShellResolvedNode(command, process.platform === "win32" ? "/c" : "-c");
 }
 
 function hide(options: unknown): Record<string, unknown> {
@@ -70,7 +115,8 @@ const execFile: ExecFileFn = Object.assign(
     assertLaunchable(file);
     const { args, options, callback } = split(rest);
     const execOptions = hide(options) as ExecFileOptions;
-    return cp.execFile(file, args, execOptions, callback);
+    const launch = launchOf(file, args, options);
+    return cp.execFile(launch.file, launch.args, execOptions, callback);
   },
   {
     [promisify.custom]: (file: string, ...rest: unknown[]) => new Promise<ExecFileResult>((resolve, reject) => {
@@ -87,7 +133,8 @@ const execFile: ExecFileFn = Object.assign(
         }
         resolve({ stdout, stderr });
       };
-      const child: ChildProcess = cp.execFile(file, args, execOptions, callback);
+      const launch = launchOf(file, args, commandOptions);
+      const child: ChildProcess = cp.execFile(launch.file, launch.args, execOptions, callback);
       killIfStopIgnored(child, execOptions.timeout, execOptions.signal);
       if (typeof input !== 'string') return;
       if (!child.stdin) return reject(new Error('execFile stdin unavailable'));
@@ -139,22 +186,24 @@ function execFileSync(file: string, ...rest: unknown[]): string | Buffer {
   assertLaunchable(file);
   const { args, options } = split(rest);
   const execOptions = hide(options) as ExecFileSyncOptions;
-  if (args) return cp.execFileSync(file, args, execOptions);
-  return cp.execFileSync(file, execOptions);
+  const launch = launchOf(file, args, options);
+  if (launch.args) return cp.execFileSync(launch.file, launch.args, execOptions);
+  return cp.execFileSync(launch.file, execOptions);
 }
 
 function execSync(command: string, options: ExecSyncOptionsWithStringEncoding): string;
 function execSync(command: string, options?: ExecSyncOptions): string | Buffer;
 function execSync(command: string, options?: ExecSyncOptions): string | Buffer {
-  return cp.execSync(command, hide(options) as ExecSyncOptions);
+  return cp.execSync(shellCommandOf(command), hide(options) as ExecSyncOptions);
 }
 
 function spawn(file: string, ...rest: unknown[]): ChildProcess {
   assertLaunchable(file);
   const { args, options } = split(rest);
   const spawnOptions = hide(options) as SpawnOptions;
-  if (args) return cp.spawn(file, args, spawnOptions);
-  return cp.spawn(file, spawnOptions);
+  const launch = launchOf(file, args, options);
+  if (launch.args) return cp.spawn(launch.file, launch.args, spawnOptions);
+  return cp.spawn(launch.file, spawnOptions);
 }
 
 const execFileAsync = promisify(execFile);
