@@ -891,6 +891,26 @@ test('an empty trace file starts at the transcript beginning', async () => {
   fs.rmSync(configDirectory, { recursive: true, force: true });
 });
 
+test('a trace holding only the first prompt attachments still traces that first prompt', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('attachments-before-bind');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, mainPrompt('first prompt with a screenshot', 'prompt-one'), 'utf8');
+  const harness = createHarness(configDirectory);
+  const attachmentsRecord = { ts: 5, uuid: null, parentUuid: null, vendorSessionId: 'vendor-session', kind: 'attachments', files: ['2026-11-19T23-02-41-516Z-f8f5932a-chat.png'], pastedPrefix: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png' };
+  fs.mkdirSync(path.dirname(harness.tracePath('glimmervoid-session-id')), { recursive: true });
+  fs.writeFileSync(harness.tracePath('glimmervoid-session-id'), `${JSON.stringify(attachmentsRecord)}\n`, 'utf8');
+  await harness.wiring.start();
+  const session = new TestTraceSession('glimmervoid-session-id');
+  harness.wiring.attachSession(session);
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+
+  assert.deepEqual(readTrace(harness.tracePath('glimmervoid-session-id')).map((record) => record.kind), ['attachments', 'session', 'prompt']);
+
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
 test('a rebind to a path nested under an existing transcript keeps the working binding', async () => {
   const { configDirectory, projectDirectory } = makeWorkspace('nested-rebind');
   const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');

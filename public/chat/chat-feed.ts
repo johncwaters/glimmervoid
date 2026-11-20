@@ -53,7 +53,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
   let residentRecords: TraceRecord[] = [];
   let hasDroppedEarliestRecords = false;
   let pendingRequest: TraceRequest | null = null;
-  let isRefreshNeeded = false;
+  const queuedDirections = new Set<TraceRequest['direction']>();
   let callbacksAwaitingRequest: (() => void)[] = [];
   let callbacksOfPendingRequest: (() => void)[] = [];
 
@@ -75,6 +75,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     firstOffset = 0;
     residentRecords = [];
     hasDroppedEarliestRecords = false;
+    queuedDirections.clear();
     options.onReset();
   };
 
@@ -140,14 +141,17 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     if (outcome === 'prepend') showEarlierRecords(reply);
     if (outcome === 'seed' || outcome === 'append') showRecords(reply, outcome === 'append');
     runCallbacksOfPendingRequest();
-    if (!isRefreshNeeded) return;
-    isRefreshNeeded = false;
-    refresh();
+    startQueuedRequest();
+  };
+
+  const startQueuedRequest = () => {
+    if (queuedDirections.delete('forward')) refresh();
+    if (pendingRequest || !queuedDirections.delete('earlier')) return;
+    loadEarlier();
   };
 
   const refreshAfterFailedEarlierRead = (request: TraceRequest) => {
-    if (request.direction !== 'earlier' || !isRefreshNeeded) return;
-    isRefreshNeeded = false;
+    if (request.direction !== 'earlier' || !queuedDirections.delete('forward')) return;
     refresh();
   };
 
@@ -160,13 +164,13 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
       refreshAfterFailedEarlierRead(request);
       return;
     }
-    isRefreshNeeded = false;
+    queuedDirections.delete('forward');
   };
 
   function refresh(): void {
     if (phase === 'closed') return;
     if (pendingRequest) {
-      isRefreshNeeded = true;
+      queuedDirections.add('forward');
       return;
     }
     const request = nextTraceRequest({ selectedSessionId: sessionId, isPanelVisible: true, hasPendingRequest: false, hasLoadedOnce: phase === 'following', nextOffset });
@@ -182,7 +186,11 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
 
   function loadEarlier(): void {
     if (phase !== 'following') return;
-    const request = earlierTraceRequest({ selectedSessionId: sessionId, hasPendingRequest: pendingRequest !== null, hasLoadedOnce: true, hasDroppedEarliestRows: hasDroppedEarliestRecords, firstOffset, residentRowCount: residentRecords.length });
+    if (pendingRequest) {
+      queuedDirections.add('earlier');
+      return;
+    }
+    const request = earlierTraceRequest({ selectedSessionId: sessionId, hasPendingRequest: false, hasLoadedOnce: true, hasDroppedEarliestRows: hasDroppedEarliestRecords, firstOffset, residentRowCount: residentRecords.length });
     if (!request) return;
     pendingRequest = request;
     options.requestPage(payloadOf(request)).then((reply) => applyReply(request, reply), (reason) => applyFailure(request, reason));

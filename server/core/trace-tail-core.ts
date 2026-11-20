@@ -90,6 +90,7 @@ function committedOffsetFromTraceTailOrNull(tailText: string, {
     if (record) records.push(record);
   }
   const startsANewRun = records.some((record) => record.kind === 'session');
+  if (isWholeFile && !startsANewRun) return 0;
   let pathOfCurrentRun = startsANewRun ? null : pathBeforeWindow;
   let hasSeenTargetRun = pathOfCurrentRun === transcriptPath;
   let tracedOffset = 0;

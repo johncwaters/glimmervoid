@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings shows agent accounts as rows.** Under General, each agent gets its mark, name and a compact Add account button, and each account is one row with a check or warning mark, its email, a DEFAULT tag and its actions, in the same style as Ready to commit as you. Each lane is one row with its account picker on the right, and the follow-default choice now reads Default account.
 - **The board properties panel drops the divider lines around More.** More and the Add note, Frame and Delete row now sit in the panel without a rule above or below them.
 
+### Fixed
+
+- **Chat shows a session's whole history again.** Scrolling to the top of Chat while the agent was working could stop loading earlier turns for good, leaving only the latest one; the earlier page now loads as soon as the live update in flight finishes. A session whose first prompt carried a pasted image or file also lost that first prompt from its history, because recording started at the end of the conversation instead of the beginning; it now starts at the beginning. History already recorded without its first prompt stays as it is.
+
 ## [0.62.10] - 2026-11-19
 
 ### Fixed
