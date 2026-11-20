@@ -196,6 +196,8 @@ function mapTextOf(model: CodemapModel | null, status: CodemapStatus, repoName: 
     lines.push(`${summary.id} (${summary.fileCount}, in ${summary.importedBy}): ${cappedList((model.edgesByModule.get(summary.id) ?? []).map((edge) => `${edge.to} ${edge.fileImports}`))}`);
   }
   if (model.modules.length > CODEMAP_TUNABLES.listedModules) lines.push(`and ${model.modules.length - CODEMAP_TUNABLES.listedModules} more modules`);
+  const cycles = moduleCyclesOf(moduleEdgesOf(model));
+  if (cycles.length > 0) lines.push(`module cycles (modules that import each other): ${cycles.map((modules) => modules.join(' <-> ')).join('; ')}`);
   lines.push('Ask codemap where <path or exported name> for one file, or codemap impact <paths> for what a change reaches.');
   return lines.join('\n');
 }
@@ -457,10 +459,9 @@ function isJudgedImporter(model: CodemapModel, importerIndex: number): boolean {
   return [...neighborsOf(model.dependents, importerIndex)].some((dependentIndex) => !isTestPath(model.paths[dependentIndex]));
 }
 
-function unallowedEdgesOf(model: CodemapModel, changedPaths: ReadonlySet<string>, allowed: readonly CodemapModuleEdge[]): UnallowedEdge[] {
-  const allowedKeys = new Set(allowed.map((edge) => edgeKeyOf(edge.from, edge.to)));
-  const unallowedByKey = new Map<string, UnallowedEdge>();
-  for (const importerPath of changedPaths) {
+function judgedModuleImportsOf(model: CodemapModel, importerPaths: Iterable<string>): Map<string, UnallowedEdge> {
+  const importsByEdgeKey = new Map<string, UnallowedEdge>();
+  for (const importerPath of importerPaths) {
     const importerIndex = model.indexByPath.get(importerPath);
     if (importerIndex === undefined || !isJudgedImporter(model, importerIndex)) continue;
     const from = model.moduleByIndex[importerIndex];
@@ -469,13 +470,67 @@ function unallowedEdgesOf(model: CodemapModel, changedPaths: ReadonlySet<string>
     const outsideTargets = (model.outsideGraphImportsByIndex[importerIndex] ?? []).flatMap(({ specifier, targetPath }) => (targetPath === null || typeOnlySpecifiers.has(specifier) ? [] : [targetPath]));
     for (const targetPath of [...graphTargets, ...outsideTargets]) {
       const to = moduleOfPath(model, targetPath);
-      if (from === to || allowedKeys.has(edgeKeyOf(from, to))) continue;
-      const edge = unallowedByKey.get(edgeKeyOf(from, to)) ?? { from, to, fileImports: [] };
+      if (from === to) continue;
+      const edge = importsByEdgeKey.get(edgeKeyOf(from, to)) ?? { from, to, fileImports: [] };
       edge.fileImports.push(`${importerPath} imports ${targetPath}`);
-      unallowedByKey.set(edgeKeyOf(from, to), edge);
+      importsByEdgeKey.set(edgeKeyOf(from, to), edge);
     }
   }
-  return [...unallowedByKey.values()].sort((left, right) => compareText(left.from, right.from) || compareText(left.to, right.to));
+  return importsByEdgeKey;
+}
+
+function unallowedEdgesOf(model: CodemapModel, changedPaths: ReadonlySet<string>, allowed: readonly CodemapModuleEdge[]): UnallowedEdge[] {
+  const allowedKeys = new Set(allowed.map((edge) => edgeKeyOf(edge.from, edge.to)));
+  return [...judgedModuleImportsOf(model, changedPaths).values()]
+    .filter((edge) => !allowedKeys.has(edgeKeyOf(edge.from, edge.to)))
+    .sort((left, right) => compareText(left.from, right.from) || compareText(left.to, right.to));
+}
+
+function moduleCyclesOf(edges: readonly CodemapModuleEdge[]): string[][] {
+  const targetsByModule = new Map<string, string[]>();
+  for (const edge of edges) targetsByModule.set(edge.from, [...(targetsByModule.get(edge.from) ?? []), edge.to]);
+  const moduleIds = [...new Set(edges.flatMap((edge) => [edge.from, edge.to]))].sort(compareText);
+  const visitOrderByModule = new Map<string, number>();
+  const lowLinkByModule = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const cycles: string[][] = [];
+  const visit = (moduleId: string): void => {
+    visitOrderByModule.set(moduleId, visitOrderByModule.size);
+    lowLinkByModule.set(moduleId, visitOrderByModule.get(moduleId) ?? 0);
+    stack.push(moduleId);
+    onStack.add(moduleId);
+    for (const target of targetsByModule.get(moduleId) ?? []) {
+      if (!visitOrderByModule.has(target)) visit(target);
+      if (onStack.has(target)) lowLinkByModule.set(moduleId, Math.min(lowLinkByModule.get(moduleId) ?? 0, lowLinkByModule.get(target) ?? 0));
+    }
+    if (lowLinkByModule.get(moduleId) !== visitOrderByModule.get(moduleId)) return;
+    const component: string[] = [];
+    for (let member = stack.pop(); member !== undefined; member = stack.pop()) {
+      onStack.delete(member);
+      component.push(member);
+      if (member === moduleId) break;
+    }
+    if (component.length > 1) cycles.push(component.sort(compareText));
+  };
+  for (const moduleId of moduleIds) if (!visitOrderByModule.has(moduleId)) visit(moduleId);
+  return cycles.sort((left, right) => compareText(left[0] ?? '', right[0] ?? ''));
+}
+
+interface NewCycle {
+  modules: readonly string[];
+  newEdges: readonly CodemapModuleEdge[];
+}
+
+function newCyclesOf(headModel: CodemapModel, mainlineModel: CodemapModel): NewCycle[] {
+  const mainlineEdgeKeys = new Set(judgedModuleImportsOf(mainlineModel, mainlineModel.paths).keys());
+  const headEdges = [...judgedModuleImportsOf(headModel, headModel.paths).values()];
+  return moduleCyclesOf(headEdges).flatMap((modules) => {
+    const members = new Set(modules);
+    const newEdges = headEdges.filter((edge) => members.has(edge.from) && members.has(edge.to) && !mainlineEdgeKeys.has(edgeKeyOf(edge.from, edge.to)))
+      .map(({ from, to }) => ({ from, to })).sort((left, right) => compareText(left.from, right.from) || compareText(left.to, right.to));
+    return newEdges.length > 0 ? [{ modules, newEdges }] : [];
+  });
 }
 
 function moduleEdgesOf(model: CodemapModel): CodemapModuleEdge[] {
@@ -511,30 +566,34 @@ interface CheckFindings {
   unallowedEdges: readonly UnallowedEdge[];
   unjudgedPaths: readonly string[];
   unresolvedImports: readonly string[];
+  newCycles: readonly NewCycle[];
   staleAllowedEdges: readonly CodemapModuleEdge[];
 }
 
 function isCheckRefusing(findings: CheckFindings): boolean {
-  return findings.unallowedEdges.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0;
+  return findings.unallowedEdges.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0;
 }
 
-function checkTextOf(repoName: string, { unallowedEdges, unjudgedPaths, unresolvedImports, staleAllowedEdges }: CheckFindings, gateNote: string | null): string {
+function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string | null): string {
+  const { unallowedEdges, unjudgedPaths, unresolvedImports, newCycles, staleAllowedEdges } = findings;
   const staleLines = staleAllowedEdges.length > 0 ? [`  allowed module imports this branch no longer has, which codemap shrink drops once mainline lacks them too: ${cappedList(staleAllowedEdges.map((edge) => `${edge.from} -> ${edge.to}`))}`] : [];
-  if (!isCheckRefusing({ unallowedEdges, unjudgedPaths, unresolvedImports, staleAllowedEdges })) return [...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
+  if (!isCheckRefusing(findings)) return [...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
   const edgeLines = unallowedEdges.flatMap((edge) => [
     `  ${edge.from} -> ${edge.to} is not allowed for this repo; ask the operator to allow it (glimmervoid codemap allow <repo> ${edge.from} ${edge.to} --reason <why>)`,
     ...edge.fileImports.slice(0, CODEMAP_TUNABLES.listedPathsPerSection).map((fileImport) => `    ${fileImport}`),
   ]);
   const unjudgedLine = unjudgedPaths.length > 0 ? [`  changed files over the size or count caps, so their imports cannot be judged: ${cappedList(unjudgedPaths)}`] : [];
   const unresolvedLine = unresolvedImports.length > 0 ? [`  relative imports that resolve to no file in the repo, so they cannot be judged: ${cappedList(unresolvedImports)}`] : [];
+  const cycleLines = newCycles.map((cycle) => `  module cycle ${cycle.modules.join(', ')} holds module imports mainline does not have, which no allow excuses; break the cycle: ${cycle.newEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ')}`);
   const edgeNames = unallowedEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ');
   const summaryParts = [
     edgeNames ? `adds module imports the operator has not allowed: ${edgeNames}` : '',
     unjudgedPaths.length > 0 ? `changes ${unjudgedPaths.length} files too large to judge` : '',
     unresolvedImports.length > 0 ? `has ${unresolvedImports.length} relative imports that resolve to no file` : '',
+    newCycles.length > 0 ? `has ${newCycles.length} module cycles mainline does not have` : '',
   ].filter(Boolean);
-  return [...edgeLines, ...unjudgedLine, ...unresolvedLine, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
+  return [...edgeLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { buildCodemapModel, checkTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, moduleEdgesOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

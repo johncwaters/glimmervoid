@@ -11,7 +11,7 @@ import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { changedPathsSince, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup } from './codemap-store.ts';
-import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { buildCodemapModel, checkTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -42,8 +42,9 @@ async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha }: Work
   const changedPaths = await changedPathsSince(worktreeDir, mainlineSha);
   if (!headSha || !changedPaths) return { ok: false, error: `${worktreeDir} has no commit to compare with mainline ${mainlineSha.slice(0, 7)}` };
   const model = buildCodemapModel(await client.extract(worktreeDir, headSha), lookup.setup.modules);
+  const mainlineModel = buildCodemapModel(await client.extract(worktreeDir, mainlineSha), lookup.setup.modules);
   const unallowedEdges = unallowedEdgesOf(model, changedPaths, lookup.setup.allow);
-  const findings = { unallowedEdges, unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), staleAllowedEdges: staleAllowedEdgesOf(model, lookup.setup.allow) };
+  const findings = { unallowedEdges, unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineModel), staleAllowedEdges: staleAllowedEdgesOf(model, lookup.setup.allow) };
   const gateNote = lookup.setup.gate ? null : 'The import gate is off for this repo, so these never refuse a push.';
   return { ok: true, isRefusing: lookup.setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
 }

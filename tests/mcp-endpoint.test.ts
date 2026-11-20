@@ -438,7 +438,7 @@ test('every board just past the picture width still pictures instead of being re
   assert.deepEqual(refusedOffsets, []);
 });
 
-test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones, and refuses an agent allowing a module import', async () => {
+test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones and unseeded module cycles, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
   fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
@@ -496,6 +496,7 @@ test('codemap answers map, where, impact and check from the project mainline com
   fs.writeFileSync(path.join(branchDir, 'tools', 'named-type.ts'), "import type from '../lib/store.ts';\ntype();\n");
   fs.writeFileSync(path.join(branchDir, 'lib', 'data.json'), '{}\n');
   fs.writeFileSync(path.join(branchDir, 'tools', 'data.ts'), "import data from '../lib/data.json';\nexport { data };\n");
+  fs.writeFileSync(path.join(branchDir, 'lib', 'back.ts'), "import { data } from '../tools/data.ts';\nexport { data };\n");
   git(['add', '-A'], branchDir);
   git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'tools'], branchDir);
   fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }] }));
@@ -503,8 +504,20 @@ test('codemap answers map, where, impact and check from the project mainline com
   assert.ok(branchCheck.ok && branchCheck.isRefusing, JSON.stringify(branchCheck));
   assert.match(branchCheck.text, /relative imports that resolve to no file in the repo, so they cannot be judged: tools\/page\.ts imports \.\/gone\.ts$/m);
   const judgedImports = branchCheck.text.split('\n').filter((line) => line.startsWith('    ')).map((line) => line.trim()).sort();
-  assert.deepEqual(judgedImports, ['tools/data.ts imports lib/data.json', 'tools/named-type.ts imports lib/store.ts', 'tools/test/bridge.ts imports lib/store.ts']);
+  assert.deepEqual(judgedImports, ['lib/back.ts imports tools/data.ts', 'tools/data.ts imports lib/data.json', 'tools/named-type.ts imports lib/store.ts', 'tools/test/bridge.ts imports lib/store.ts']);
   assert.doesNotMatch(branchCheck.text, /look\.css|built\.js|nowhere/);
+  assert.match(branchCheck.text, /module cycle lib, tools holds .*: lib -> tools, tools -> lib$/m);
+  fs.writeFileSync(setupPath, JSON.stringify({ repo: await repoKeyOf(projectDir), gate: true, modules: ['lib', 'tools'], allow: [{ from: '.', to: 'lib', origin: 'seeded' }, { from: 'lib', to: 'tools', origin: 'seeded' }, { from: 'tools', to: 'lib', origin: 'allowed', reason: 'tools read the store', date: '2026-11-19', landed: false }] }));
+  const allowedCycleCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: headSha });
+  assert.ok(allowedCycleCheck.ok, JSON.stringify(allowedCycleCheck));
+  assert.match(allowedCycleCheck.text, /module cycle lib, tools holds .*: lib -> tools, tools -> lib$/m);
+  assert.doesNotMatch(allowedCycleCheck.text, /^    /m);
+  const cycleOnMainlineSha = git(['rev-parse', 'HEAD'], branchDir).trim();
+  fs.writeFileSync(path.join(branchDir, 'README.md'), 'tools\n');
+  git(['add', '-A'], branchDir);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'readme'], branchDir);
+  const inheritedCycleCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha: cycleOnMainlineSha });
+  assert.ok(inheritedCycleCheck.ok && !inheritedCycleCheck.isRefusing, JSON.stringify(inheritedCycleCheck));
 
   const overlaid = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'session' } }, credential))).structuredContent);
   assert.match(overlaid.text, /^codemap overlay on the map of project: session mcp endpoint changes \d+ files/);
