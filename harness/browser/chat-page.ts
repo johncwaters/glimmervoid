@@ -288,7 +288,9 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   await openQuestion.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.match(await openQuestion.innerText(), /Dismiss\s*Esc\s*Stops the agent/, 'an open question carries the Dismiss control and what it does');
   await composer.focus();
-  await page.keyboard.press('Escape');
+  await page.keyboard.down('Escape');
+  await page.keyboard.down('Escape');
+  await page.keyboard.up('Escape');
   const dismissedQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').last();
   await page.waitForFunction(() => document.querySelectorAll('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').length === 3, undefined, { timeout: CARD_TIMEOUT_MS });
   assert.match(await dismissedQuestion.innerText(), /Dismissed$/m, 'Escape in the composer dismisses the open question');
@@ -489,6 +491,10 @@ export async function verifyChatStaysDefault(page: Page): Promise<void> {
   await page.reload();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.waitForFunction(() => document.activeElement?.classList.contains('chat-composer-input') === true, undefined, { timeout: CARD_TIMEOUT_MS });
+  await page.keyboard.press('Escape');
+  await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await page.waitForFunction(() => document.activeElement?.closest('.xterm') !== null, undefined, { timeout: CARD_TIMEOUT_MS });
+  await openChat(page);
   await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
   await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   await page.reload();

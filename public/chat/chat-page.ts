@@ -609,6 +609,8 @@ function buildChat(sessionId: string): MountedChat {
     }
   };
 
+  let wasLastEscapePlain = false;
+
   const dismissQuestionOnEscape = (event: KeyboardEvent): boolean => {
     if (!isPlainEscapeKeydown(event)) return false;
     const openQuestionCard = root.querySelector<HTMLElement>(UNANSWERED_QUESTION_CARD_SELECTOR);
@@ -698,9 +700,14 @@ function buildChat(sessionId: string): MountedChat {
   });
   root.addEventListener('chat-escape', (event) => {
     const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => entry.state === 'held' || entry.state === 'failed');
-    if (!newestCancellable) return;
     event.preventDefault();
-    cancelOutboxEntry(sessionId, newestCancellable.entryId);
+    if (newestCancellable) {
+      cancelOutboxEntry(sessionId, newestCancellable.entryId);
+      return;
+    }
+    if (!wasLastEscapePlain || root.querySelector(UNANSWERED_QUESTION_CARD_SELECTOR)) return;
+    setSessionView('terminal');
+    closeSessionPage();
   });
   root.addEventListener('chat-stop', () => {
     sendTerminalInput(sessionUIs.get(sessionId), ESCAPE_KEY);
@@ -710,6 +717,7 @@ function buildChat(sessionId: string): MountedChat {
     if (detail) answerCard(detail.cardId, detail.action, detail.value);
   });
   root.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') wasLastEscapePlain = isPlainEscapeKeydown(event);
     if (dismissQuestionOnEscape(event)) return;
     if (!isCardPickKeydown(event)) return;
     if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
