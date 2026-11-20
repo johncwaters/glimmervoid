@@ -518,14 +518,19 @@ export async function verifyChatDoneMeans(page: Page, projectDirectory: string):
   const panel = page.locator('.session-chat .chat-done');
   const failedLine = panel.locator('.chat-done-line[data-status="failed"]', { hasText: 'committed' });
   await failedLine.waitFor({ timeout: CARD_TIMEOUT_MS });
-  assert.match(await failedLine.innerText(), /Glimmervoid ran/i, 'a failed check names who proved it');
+  assert.match(await failedLine.locator('.chat-done-proof').innerText(), /Failed/, 'a failed check reads Failed');
   assert.match(await failedLine.locator('.chat-done-evidence').innerText(), new RegExp(DONE_MEANS_UNTRACKED_FILE), 'a failed check shows its output tail');
-  assert.equal(await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).count(), 1, 'a passing check reads passed');
+  const fold = panel.locator('.chat-done-fold');
+  assert.equal(await fold.getAttribute('open'), null, 'the checks that passed start folded under the failure');
+  assert.match(await fold.locator('summary').innerText(), /more passed/, 'the fold names how many more passed');
+  await fold.locator('summary').click();
+  await panel.locator('.chat-done-line[data-status="passed"]', { hasText: 'status' }).waitFor({ timeout: CARD_TIMEOUT_MS });
   const agentLine = panel.locator('.chat-done-line[data-status="passed"]', { hasText: AGENT_DONE_LINE.text });
   await agentLine.waitFor({ timeout: CARD_TIMEOUT_MS });
   assert.equal(await agentLine.locator('.chat-done-command').innerText(), AGENT_DONE_LINE.command, 'the agent command ran with no operator step and shows beneath its line');
+  assert.equal(await agentLine.locator('.chat-done-proof').count(), 0, 'a passing line shows no status word');
   assert.equal(await panel.locator('.chat-card').count(), 0, 'the panel reports and asks nothing');
-  assert.equal(await panel.getByRole('button').count(), 0, 'the panel has no Allow commands button');
+  assert.equal(await panel.getByRole('button', { name: /Allow/ }).count(), 0, 'the panel has no Allow commands button');
   await verifySpawnedChildDoneMeans(page);
 }
 

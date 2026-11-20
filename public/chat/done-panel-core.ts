@@ -3,9 +3,11 @@ import { AGENT_DONE_CHECK_ID_PREFIX, agentDoneCheckIdOf } from '#shared/contract
 import type { CheckOutcome, VerificationRun } from '#shared/contracts/verification.ts';
 import type { ChatPhase } from './chat-activity-core.ts';
 
-type DoneLineStatus = 'running' | 'passed' | 'failed' | 'not-checked';
-export type DoneLine = { text: string; status: DoneLineStatus; proof: string; isGlimmervoidRan: boolean; evidence: string; command: string; isFromAgent: boolean };
-export type DonePanelModel = { lines: DoneLine[]; metCount: number };
+type DoneLineStatus = 'passed' | 'failed' | 'not-checked';
+export type DoneLine = { text: string; status: DoneLineStatus; proof: string; evidence: string; command: string };
+export type DonePanelModel =
+  | { kind: 'running'; runKey: string }
+  | { kind: 'settled'; runKey: string; failedLines: DoneLine[]; foldedLines: DoneLine[]; passedCount: number; skippedCount: number };
 
 export const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
 
@@ -18,16 +20,13 @@ function checkLineOf(check: CheckOutcome): DoneLine {
     text: check.id,
     status,
     proof: CHECK_STATUS_WORDS[check.status],
-    isGlimmervoidRan: status !== 'not-checked',
     evidence: status === 'failed' ? check.outputTail.trim() : '',
     command: '',
-    isFromAgent: false,
   };
 }
 
-function runLinesOf(run: VerificationRun): DoneLine[] {
-  if (run.status === 'running') return [{ text: 'Repo checks', status: 'running', proof: 'Running', isGlimmervoidRan: true, evidence: '', command: '', isFromAgent: false }];
-  return [...run.checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX)).map(checkLineOf)];
+function repoCheckLinesOf(run: VerificationRun): DoneLine[] {
+  return run.checks.filter((check) => !check.id.startsWith(AGENT_DONE_CHECK_ID_PREFIX)).map(checkLineOf);
 }
 
 function agentCheckOf(run: VerificationRun, line: AgentDoneLine, index: number): CheckOutcome | null {
@@ -35,17 +34,48 @@ function agentCheckOf(run: VerificationRun, line: AgentDoneLine, index: number):
 }
 
 function agentDoneLinesOf(run: VerificationRun, agentDoneLines: readonly AgentDoneLine[]): DoneLine[] {
-  if (run.status === 'running') return [];
   return agentDoneLines.flatMap((line, index) => {
     const check = agentCheckOf(run, line, index);
     if (check === null) return [];
-    return [{ ...checkLineOf(check), text: line.text, command: line.command, isFromAgent: true }];
+    return [{ ...checkLineOf(check), text: line.text, command: line.command }];
   });
 }
 
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function settledSummaryText(model: Extract<DonePanelModel, { kind: 'settled' }>): string {
+  const passedText = `${countLabel(model.passedCount, 'check', 'checks')} passed`;
+  if (model.skippedCount === 0) return passedText;
+  if (model.passedCount === 0) return `${countLabel(model.skippedCount, 'check', 'checks')} skipped`;
+  return `${passedText}, ${model.skippedCount} skipped`;
+}
+
+export function foldedSummaryText(model: Extract<DonePanelModel, { kind: 'settled' }>): string {
+  const passedText = `${model.passedCount} more passed`;
+  if (model.skippedCount === 0) return passedText;
+  if (model.passedCount === 0) return `${model.skippedCount} skipped`;
+  return `${passedText}, ${model.skippedCount} skipped`;
+}
+
+export function failedCountText(model: Extract<DonePanelModel, { kind: 'settled' }>): string {
+  return `${model.failedLines.length} of ${model.failedLines.length + model.foldedLines.length} failed`;
+}
+
 export function donePanelModelOf(input: { run: VerificationRun | null; agentDoneLines: readonly AgentDoneLine[]; phase: ChatPhase }): DonePanelModel | null {
-  if (!FINISHED_PHASES.includes(input.phase) || input.run === null) return null;
-  const lines = [...agentDoneLinesOf(input.run, input.agentDoneLines), ...runLinesOf(input.run)];
+  const { run } = input;
+  if (!FINISHED_PHASES.includes(input.phase) || run === null) return null;
+  const runKey = `${run.sig}:${run.finishedAt ?? 'running'}`;
+  if (run.status === 'running') return { kind: 'running', runKey };
+  const lines = [...agentDoneLinesOf(run, input.agentDoneLines), ...repoCheckLinesOf(run)];
   if (lines.length === 0) return null;
-  return { lines, metCount: lines.filter((line) => line.status === 'passed').length };
+  return {
+    kind: 'settled',
+    runKey,
+    failedLines: lines.filter((line) => line.status === 'failed'),
+    foldedLines: lines.filter((line) => line.status !== 'failed'),
+    passedCount: lines.filter((line) => line.status === 'passed').length,
+    skippedCount: lines.filter((line) => line.status === 'not-checked').length,
+  };
 }

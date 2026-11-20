@@ -49,22 +49,32 @@
 .chat-done-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--border); align-self: center; }
 .chat-done-line[data-status="passed"] .chat-done-mark { background: var(--state-complete); }
 .chat-done-line[data-status="failed"] .chat-done-mark { background: var(--state-failed); }
-.chat-done-line[data-status="running"] .chat-done-mark { background: var(--state-running); }
+.chat-done-mark[data-status="passed"] { background: var(--state-complete); }
+.chat-done-mark[data-status="running"] { background: var(--state-running); }
 .chat-done-text { color: var(--text-head); overflow-wrap: anywhere; }
 .chat-done-line[data-status="failed"] .chat-done-text { color: var(--state-failed); }
 .chat-done-line[data-status="not-checked"] .chat-done-text { color: var(--text-dim); }
-.chat-done-proof { display: flex; align-items: center; gap: 8px; font-size: var(--type-meta); color: var(--text-dim); white-space: nowrap; }
+.chat-done-proof { font-size: var(--type-meta); color: var(--state-failed); white-space: nowrap; }
+.chat-done-line[data-status="not-checked"] .chat-done-proof { color: var(--text-dim); }
 
-.chat-done-provenance {
-  padding: 1px 5px;
-  border: 1px solid color-mix(in oklab, var(--state-complete) 45%, var(--border));
-  border-radius: 2px;
-  color: var(--state-complete);
-  font: 700 var(--type-meta)/1.4 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.chat-done-summary,
+.chat-done-fold > .ui-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  min-height: 0;
+  padding: 10px 16px;
+  border-radius: 12px;
+  color: var(--text-muted);
+  font: var(--type-meta)/1 var(--font-mono);
 }
-.chat-done-provenance[data-source="agent"] { border-color: var(--border); color: var(--text-dim); }
+
+.chat-done-summary-text { color: var(--text-head); font-weight: 700; }
+.chat-done-details { margin-left: auto; color: var(--text-dim); }
+.chat-done-fold > .ui-disclosure-body { padding-bottom: 6px; }
+.chat-done[data-state="failed"] .chat-done-fold { margin-top: 6px; border-top: 1px solid var(--border-dim); }
+.chat-done[data-state="failed"] .chat-done-fold > .ui-disclosure-summary { border-radius: 0 0 12px 12px; }
 
 .chat-done-evidence {
   grid-column: 2 / -1;

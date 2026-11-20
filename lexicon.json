@@ -1498,6 +1498,10 @@
     {
       "name": "cold start",
       "definition": "The doorman's wake of a cloud host whose zone refused to resume it: it stops the host and starts it fresh on the first machine type with room, keeping its disks and losing its memory"
+    },
+    {
+      "name": "details",
+      "definition": "The control that opens a folded list of more information, such as the checks that passed in Checked at turn end"
     }
   ],
   "retired": [
