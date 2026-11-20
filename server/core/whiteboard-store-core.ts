@@ -7,7 +7,7 @@ import { isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/white
 import { currentStoredBox } from '../../shared/whiteboard-stored-box.ts';
 import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
-import { noteBoxTextOf } from '../../shared/whiteboard-ops-core.ts';
+import { CODEMAP_AUTHOR, CODEMAP_ID_PREFIXES, noteBoxTextOf } from '../../shared/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
@@ -319,8 +319,12 @@ function pruneLog(record: BoardRecord): BoardRecord {
   return { ...record, log: compacted };
 }
 
+function isLoggedChange(change: BoardChange): boolean {
+  return change.author !== CODEMAP_AUTHOR.id || (change.elementId?.startsWith(CODEMAP_ID_PREFIXES.steps) ?? false);
+}
+
 function recordPut(record: BoardRecord, result: Pick<Extract<ApplyResult, { ok: true }>, 'board' | 'changes'>): BoardRecord {
-  return pruneLog({ ...record, board: result.board, log: [...record.log, ...result.changes] });
+  return pruneLog({ ...record, board: result.board, log: [...record.log, ...result.changes.filter(isLoggedChange)] });
 }
 
 function connectSession(record: BoardRecord, sessionId: string): BoardRecord {

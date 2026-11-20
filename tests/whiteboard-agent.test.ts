@@ -2363,7 +2363,7 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal(removed.status, 200);
 });
 
-test('the code map board keeps a moved box and a note wired to it across regenerations, stamps the mapped sha, tints and refreshes a session overlay, draws a design spec as plan steps landed by their Ticket trailers, and refuses an agent any other change to a codemap element', async () => {
+test('the code map board keeps a moved box and a note wired to it across regenerations without queueing them for a connected session, stamps the mapped sha, tints and refreshes a session overlay, draws a design spec as plan steps landed by their Ticket trailers, and refuses an agent any other change to a codemap element', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'codemap-board-'));
   const repoDir = path.join(boardsRoot, 'mapped');
   const writeSource = (repoPath: string, text: string) => {
@@ -2408,9 +2408,11 @@ test('the code map board keeps a moved box and a note wired to it across regener
     assert.match((refused.body as { error?: string }).error ?? '', /belong to codemap/);
   }
 
+  await wiring.handleAgent(reader, { sub: 'connect', board: boardId });
   writeSource('tools/build.ts', "import { part0 } from '../lib/part0.ts';\nexport const built = part0;");
   await commitAll();
   const remapped = await codemap.handle({ repoDir }, { sub: 'map' });
+  assert.equal(wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.queuedBySessionId[reader.id], 0, 'a redraw of the map never queues for a connected session');
   const remappedSha = remapped.ok ? remapped.reply.status.sha ?? '' : '';
   const secondRead = await wiring.readPlanBoard(reader, boardId);
   assert.ok(secondRead.ok);

@@ -3,7 +3,8 @@ import path from 'node:path';
 
 import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModuleEdge, CodemapSetup, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
-import { AnchorRef, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import type { BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 
@@ -379,6 +380,7 @@ function fieldsToRefresh(element: Record<string, unknown>): Record<string, unkno
 interface MapDecorations {
   churnByModule: ReadonlyMap<string, number> | null;
   overlaidModules: ReadonlySet<string>;
+  matrixMedia: BoxMedia | null;
 }
 
 const OVERLAY_TONE = 'violet';
@@ -404,26 +406,244 @@ function moduleLinesOf(summary: ModuleSummary, churnByModule: ReadonlyMap<string
   return [sizeLine, { text: `changed by ${churnByModule.get(summary.id) ?? 0} recent commits`, muted: true }];
 }
 
-function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules }: MapDecorations): Record<string, unknown>[] {
-  const columnCount = Math.max(1, Math.ceil(Math.sqrt(model.modules.length)));
-  const boxes = model.modules.map((summary, index) => ({
+interface WeightedEdge {
+  from: string;
+  to: string;
+  fileImports: readonly string[];
+}
+
+interface Levelized {
+  levelById: ReadonlyMap<string, number>;
+  feedbackKeys: ReadonlySet<string>;
+}
+
+function feedbackOrderOf(nodeIds: readonly string[], edges: readonly WeightedEdge[]): string[] {
+  const outgoing = new Map(nodeIds.map((id) => [id, new Map<string, number>()]));
+  const incoming = new Map(nodeIds.map((id) => [id, new Map<string, number>()]));
+  for (const edge of edges) {
+    if (edge.from === edge.to || !outgoing.has(edge.from) || !outgoing.has(edge.to)) continue;
+    outgoing.get(edge.from)?.set(edge.to, edge.fileImports.length);
+    incoming.get(edge.to)?.set(edge.from, edge.fileImports.length);
+  }
+  const remaining = new Set([...nodeIds].sort(compareText));
+  const remainingWeightOf = (links: ReadonlyMap<string, number> | undefined) => [...(links ?? [])].reduce((total, [id, weight]) => total + (remaining.has(id) ? weight : 0), 0);
+  const head: string[] = [];
+  const tail: string[] = [];
+  while (remaining.size > 0) {
+    const candidates = [...remaining];
+    const sink = candidates.find((id) => remainingWeightOf(outgoing.get(id)) === 0);
+    const source = sink === undefined ? candidates.find((id) => remainingWeightOf(incoming.get(id)) === 0) : undefined;
+    const surplusOf = (id: string) => remainingWeightOf(outgoing.get(id)) - remainingWeightOf(incoming.get(id));
+    const picked = sink ?? source ?? candidates.reduce((chosen, id) => (surplusOf(id) > surplusOf(chosen) ? id : chosen));
+    remaining.delete(picked);
+    if (picked === sink) tail.unshift(picked);
+    if (picked !== sink) head.push(picked);
+  }
+  const weightBetween = (from: string, to: string) => outgoing.get(from)?.get(to) ?? 0;
+  const order = [...head, ...tail];
+  for (let isImproved = true; isImproved;) {
+    isImproved = false;
+    for (let index = 0; index + 1 < order.length; index += 1) {
+      const upper = order[index];
+      const lower = order[index + 1];
+      if (weightBetween(lower, upper) <= weightBetween(upper, lower)) continue;
+      order[index] = lower;
+      order[index + 1] = upper;
+      isImproved = true;
+    }
+  }
+  return order;
+}
+
+function levelizedOf(nodeIds: readonly string[], edges: readonly WeightedEdge[]): Levelized {
+  const order = feedbackOrderOf(nodeIds, edges);
+  const positionById = new Map(order.map((id, position) => [id, position]));
+  const isDownward = (edge: WeightedEdge) => (positionById.get(edge.from) ?? 0) < (positionById.get(edge.to) ?? 0);
+  const downwardTargetsById = new Map<string, string[]>();
+  for (const edge of edges.filter((candidate) => positionById.has(candidate.from) && positionById.has(candidate.to) && isDownward(candidate))) downwardTargetsById.set(edge.from, [...(downwardTargetsById.get(edge.from) ?? []), edge.to]);
+  const levelById = new Map<string, number>();
+  for (const id of [...order].reverse()) levelById.set(id, Math.max(-1, ...(downwardTargetsById.get(id) ?? []).map((target) => levelById.get(target) ?? 0)) + 1);
+  const isUpward = (edge: WeightedEdge) => (levelById.get(edge.from) ?? 0) <= (levelById.get(edge.to) ?? 0);
+  const feedbackKeys = new Set(edges.filter((edge) => edge.from !== edge.to && positionById.has(edge.from) && positionById.has(edge.to) && isUpward(edge)).map((edge) => edgeKeyOf(edge.from, edge.to)));
+  return { levelById, feedbackKeys };
+}
+
+function folderOf(moduleId: string): string {
+  return moduleId === ROOT_MODULE ? ROOT_MODULE : moduleId.split('/')[0];
+}
+
+interface ModuleLayers {
+  judgedEdges: readonly WeightedEdge[];
+  folderEdges: readonly WeightedEdge[];
+  folders: Levelized;
+  modulesByFolder: ReadonlyMap<string, readonly ModuleSummary[]>;
+  innerByFolder: ReadonlyMap<string, Levelized>;
+}
+
+function moduleLayersOf(model: CodemapModel): ModuleLayers {
+  const judgedEdges = [...judgedModuleImportsOf(model, model.paths).values()];
+  const modulesByFolder = new Map<string, ModuleSummary[]>();
+  for (const summary of model.modules) modulesByFolder.set(folderOf(summary.id), [...(modulesByFolder.get(folderOf(summary.id)) ?? []), summary]);
+  const folderEdgeByKey = new Map<string, { from: string; to: string; fileImports: string[] }>();
+  for (const edge of judgedEdges) {
+    const from = folderOf(edge.from);
+    const to = folderOf(edge.to);
+    if (from === to) continue;
+    const folderEdge = folderEdgeByKey.get(edgeKeyOf(from, to)) ?? { from, to, fileImports: [] };
+    folderEdge.fileImports.push(...edge.fileImports);
+    folderEdgeByKey.set(edgeKeyOf(from, to), folderEdge);
+  }
+  const folderEdges = [...folderEdgeByKey.values()];
+  const folders = levelizedOf([...modulesByFolder.keys()], folderEdges);
+  const innerByFolder = new Map([...modulesByFolder].map(([folder, summaries]) => [folder, levelizedOf(summaries.map((summary) => summary.id), judgedEdges.filter((edge) => folderOf(edge.from) === folder && folderOf(edge.to) === folder))]));
+  return { judgedEdges, folderEdges, folders, modulesByFolder, innerByFolder };
+}
+
+function folderTitleOf(folder: string): string {
+  return folder === ROOT_MODULE ? 'repo root' : `${folder}/`;
+}
+
+function folderCardIdOf(folder: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} folder`, `folder\n${folder}`);
+}
+
+function folderFrameIdOf(folder: string): string {
+  return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} frame`, `frame\n${folder}`);
+}
+
+const MATRIX_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'folder matrix', `matrix${String.fromCharCode(0)}`);
+const MODULE_COLUMNS_PER_FOLDER = 6;
+const MATRIX_BOX_WIDTH = 640;
+const RED_WIRE = Object.freeze({ tone: 'fail', width: 'bold' });
+
+function wireLabelOf(edge: WeightedEdge): string {
+  const [onlyImport] = edge.fileImports;
+  if (edge.fileImports.length !== 1 || !onlyImport) return `${edge.fileImports.length}`;
+  const [importer, target] = onlyImport.split(' imports ');
+  return `${path.basename(importer ?? '')} imports ${path.basename(target ?? '')}`.slice(0, WHITEBOARD_LIMITS.wireLabel);
+}
+
+function foldersByLevelOf(layers: ModuleLayers): string[][] {
+  const levels = [...layers.folders.levelById.values()];
+  const topLevel = Math.max(0, ...levels);
+  return Array.from({ length: topLevel + 1 }, (_unused, offset) => [...layers.folders.levelById].filter(([, level]) => level === topLevel - offset).map(([folder]) => folder).sort(compareText));
+}
+
+function innerRowsOf(layers: ModuleLayers, folder: string): string[][] {
+  const inner = layers.innerByFolder.get(folder);
+  const levels = [...(inner?.levelById.values() ?? [])];
+  const topLevel = Math.max(0, ...levels);
+  return Array.from({ length: topLevel + 1 }, (_unused, offset) => [...(inner?.levelById ?? [])].filter(([, level]) => level === topLevel - offset).map(([moduleId]) => moduleId).sort(compareText))
+    .flatMap((levelModules) => Array.from({ length: Math.ceil(levelModules.length / MODULE_COLUMNS_PER_FOLDER) }, (_unused, chunk) => levelModules.slice(chunk * MODULE_COLUMNS_PER_FOLDER, (chunk + 1) * MODULE_COLUMNS_PER_FOLDER)))
+    .filter((row) => row.length > 0);
+}
+
+function placedFoldersOf(layers: ModuleLayers): Map<string, { x: number; y: number }> {
+  const placeById = new Map<string, { x: number; y: number }>();
+  let rowTop = 0;
+  for (const levelFolders of foldersByLevelOf(layers)) {
+    let blockLeft = 0;
+    let rowHeight: number = MAP_BOX_SPACING.y;
+    for (const folder of levelFolders) {
+      const rows = innerRowsOf(layers, folder);
+      placeById.set(folderCardIdOf(folder), { x: blockLeft, y: rowTop });
+      for (const [rowIndex, row] of rows.entries()) {
+        for (const [column, moduleId] of row.entries()) placeById.set(moduleBoxIdOf(moduleId), { x: blockLeft + column * MAP_BOX_SPACING.x, y: rowTop + (rowIndex + 1) * MAP_BOX_SPACING.y });
+      }
+      blockLeft += (Math.max(1, ...rows.map((row) => row.length)) + 1) * MAP_BOX_SPACING.x;
+      rowHeight = Math.max(rowHeight, (rows.length + 1) * MAP_BOX_SPACING.y);
+    }
+    rowTop += rowHeight + MAP_BOX_SPACING.y;
+  }
+  return placeById;
+}
+
+function folderMatrixCsvOf(model: CodemapModel): string {
+  const layers = moduleLayersOf(model);
+  const orderedFolders = foldersByLevelOf(layers).reverse().flat();
+  const countByKey = new Map(layers.folderEdges.map((edge) => [edgeKeyOf(edge.from, edge.to), edge.fileImports.length]));
+  const quoted = (text: string) => `"${text.replaceAll('"', '""')}"`;
+  const header = ['imports', ...orderedFolders.map(folderTitleOf)].map(quoted).join(',');
+  const rows = orderedFolders.map((row) => [quoted(`${folderTitleOf(row)} L${layers.folders.levelById.get(row) ?? 0}`), ...orderedFolders.map((column) => {
+    const count = countByKey.get(edgeKeyOf(row, column));
+    if (!count) return '';
+    return layers.folders.feedbackKeys.has(edgeKeyOf(row, column)) ? quoted(`${count} up`) : `${count}`;
+  })].join(','));
+  return `${[header, ...rows].join('\n')}\n`;
+}
+
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules, matrixMedia }: MapDecorations): Record<string, unknown>[] {
+  const layers = moduleLayersOf(model);
+  const placeById = placedFoldersOf(layers);
+  const focusModules = new Set([...overlaidModules, ...layers.judgedEdges.flatMap((edge) => (overlaidModules.has(edge.from) ? [edge.to] : overlaidModules.has(edge.to) ? [edge.from] : []))]);
+  const focusFolders = new Set([...focusModules].map(folderOf));
+  const isFeedback = (edge: WeightedEdge) => {
+    const folder = folderOf(edge.from);
+    if (folder !== folderOf(edge.to)) return layers.folders.feedbackKeys.has(edgeKeyOf(folder, folderOf(edge.to)));
+    return layers.innerByFolder.get(folder)?.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ?? false;
+  };
+  const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: 0, y: 0 } });
+  const moduleBoxes = model.modules.map((summary) => ({
     kind: 'box',
     id: moduleBoxIdOf(summary.id),
     title: boardTitleOf(summary.id === ROOT_MODULE ? 'repo root' : summary.id),
     lines: moduleLinesOf(summary, churnByModule),
     tone: overlaidModules.has(summary.id) ? OVERLAY_TONE : null,
     refs: summary.id !== ROOT_MODULE && AnchorRef.safeParse(summary.id).success ? [summary.id] : [],
-    place: { at: { x: (index % columnCount) * MAP_BOX_SPACING.x, y: Math.floor(index / columnCount) * MAP_BOX_SPACING.y } },
+    place: placeOf(moduleBoxIdOf(summary.id)),
   }));
-  const wires = [...model.edgesByModule.values()].flat().map((edge) => ({
-    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOf(edge.from), to: moduleBoxIdOf(edge.to), label: `${edge.fileImports}`,
+  const folderCards = [...layers.modulesByFolder].map(([folder, summaries]) => ({
+    kind: 'box',
+    id: folderCardIdOf(folder),
+    title: boardTitleOf(folderTitleOf(folder)),
+    lines: [
+      { text: `level ${layers.folders.levelById.get(folder) ?? 0}: ${summaries.length} modules, ${summaries.reduce((total, summary) => total + summary.fileCount, 0)} files`, muted: true },
+      { text: `${layers.innerByFolder.get(folder)?.feedbackKeys.size ?? 0} crossed wires inside`, muted: true },
+    ],
+    tone: summaries.some((summary) => overlaidModules.has(summary.id)) ? OVERLAY_TONE : null,
+    place: placeOf(folderCardIdOf(folder)),
   }));
-  const producedIds = new Set([STAMP_BOX_ID, ...[...boxes, ...wires].map((element) => element.id)]);
+  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: MATRIX_BOX_ID, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: -(MATRIX_BOX_WIDTH + MAP_BOX_SPACING.x), y: 0 } } }] : [];
+  const frames = [...layers.modulesByFolder].map(([folder, summaries]) => ({
+    kind: 'frame', id: folderFrameIdOf(folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOf(folder), ...summaries.map((summary) => moduleBoxIdOf(summary.id))], collapsed: !focusFolders.has(folder),
+  }));
+  const folderWires = layers.folderEdges.map((edge) => ({
+    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, `${edge.to} folder`, `folder\n${edge.from}\n${edge.to}`), from: folderCardIdOf(edge.from), to: folderCardIdOf(edge.to),
+    ...(layers.folders.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ? { ...RED_WIRE, label: wireLabelOf(edge) } : { tone: 'plain', width: 'thin', label: null }),
+  }));
+  const moduleWires = layers.judgedEdges.filter((edge) => (folderOf(edge.from) === folderOf(edge.to) && isFeedback(edge)) || (focusModules.has(edge.from) && focusModules.has(edge.to))).map((edge) => ({
+    kind: 'wire', id: generatedIdOf(CODEMAP_ID_PREFIXES.map, edge.to, `${edge.from}\n${edge.to}`), from: moduleBoxIdOf(edge.from), to: moduleBoxIdOf(edge.to),
+    ...(isFeedback(edge) ? { ...RED_WIRE, label: wireLabelOf(edge) } : { tone: 'plain', width: 'thin', label: null }),
+  }));
+  const boxes = [...folderCards, ...moduleBoxes, ...matrixBoxes];
+  const wires = [...folderWires, ...moduleWires];
+  const producedIds = new Set([STAMP_BOX_ID, MATRIX_BOX_ID, ...[...boxes, ...frames, ...wires].map((element) => element.id)]);
   const staleIds = [...existingKindById.keys()].filter((id) => id.startsWith(CODEMAP_ID_PREFIXES.map) && !producedIds.has(id));
-  const staleWireRemovals = staleIds.filter((id) => existingKindById.get(id) === 'wire').map((id) => ({ op: 'remove', id }));
-  const staleBoxRemovals = staleIds.filter((id) => existingKindById.get(id) !== 'wire').map((id) => ({ op: 'remove', id }));
-  const writes = [...boxes, ...wires].map((element) => (existingKindById.has(element.id) ? { op: 'set', id: element.id, fields: fieldsToRefresh(element) } : { op: 'add', element }));
-  return [...staleWireRemovals, ...staleBoxRemovals, ...writes];
+  const staleRemovalsOfKind = (isKind: (kind: string | undefined) => boolean) => staleIds.filter((id) => isKind(existingKindById.get(id))).map((id) => ({ op: 'remove', id }));
+  const refreshOf = (element: { kind: string; id: string } & Record<string, unknown>) => {
+    if (!existingKindById.has(element.id)) return { op: 'add', element };
+    const fields = fieldsToRefresh(element);
+    if (element.kind !== 'frame' || focusFolders.has(folderOfFrame(element.id, layers))) return { op: 'set', id: element.id, fields };
+    return { op: 'set', id: element.id, fields: Object.fromEntries(Object.entries(fields).filter(([field]) => field !== 'collapsed')) };
+  };
+  return [
+    ...staleRemovalsOfKind((kind) => kind === 'wire'), ...staleRemovalsOfKind((kind) => kind === 'frame'), ...staleRemovalsOfKind((kind) => kind !== 'wire' && kind !== 'frame'),
+    ...boxes.map(refreshOf), ...frames.map(refreshOf), ...wires.map(refreshOf),
+  ];
+}
+
+function folderOfFrame(frameId: string, layers: ModuleLayers): string {
+  return [...layers.modulesByFolder.keys()].find((folder) => folderFrameIdOf(folder) === frameId) ?? '';
+}
+
+function withoutUnchangedSets(ops: readonly Op[], elementById: ReadonlyMap<string, Element>): Op[] {
+  return ops.filter((op) => {
+    if (op.op !== 'set') return true;
+    const stored = elementById.get(op.id);
+    if (!stored) return true;
+    const refreshed = Element.safeParse({ ...stored, ...op.fields });
+    return !refreshed.success || JSON.stringify(refreshed.data) !== JSON.stringify(stored);
+  });
 }
 
 const STAMP_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'map stamp', String.fromCharCode(0));
@@ -725,5 +945,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, ceilingBreachesOf, seededSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

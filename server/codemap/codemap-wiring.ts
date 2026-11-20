@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,12 +10,12 @@ import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoxMedia, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -138,6 +139,9 @@ interface SessionOverlay {
   paths: readonly string[];
 }
 
+const MATRIX_FILE_HASH_LENGTH = 16;
+const AttachedMedia = z.looseObject({ media: BoxMedia });
+
 interface OverlayDrawing {
   key: string;
   specPlan: SpecPlan | null;
@@ -253,11 +257,24 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (!read.ok) throw new Error(`the map board could not be read: ${JSON.stringify(read.reply.body)}`);
     const existingKindById = new Map([...read.board.elements].map(([id, element]) => [id, element.kind]));
     const specOps = changedModel ? specPlanOpsOf(changedModel, overlay.specPlan, existingKindById) : { removals: [], writes: [] };
-    const rawOps = [...specOps.removals, ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, overlay.decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById), ...specOps.writes];
-    for (const ops of chunkedBySize(OpList.parse(rawOps))) {
+    const decorations = changedModel ? { ...overlay.decorations, matrixMedia: await matrixMediaOf(boards, repoDir, changedModel) } : overlay.decorations;
+    const rawOps = [...specOps.removals, ...(changedModel ? mapBoardOpsOf(changedModel, existingKindById, decorations) : []), ...mapStampOpsOf(status, existingKindById), ...overlayOpsOf(overlay.stamp, existingKindById), ...specOps.writes];
+    for (const ops of chunkedBySize(withoutUnchangedSets(OpList.parse(rawOps), read.board.elements))) {
       const reply = await boards.putWithoutReadCheck(caller, boardId, ops);
       if (reply.status !== 200) throw new Error(`the map board refused the regeneration: ${JSON.stringify(reply.body)}`);
     }
+  }
+
+  async function matrixMediaOf(boards: MapBoards, repoDir: string, model: CodemapModel): Promise<BoxMedia | null> {
+    if (!mapBoardIdsFilePath) return null;
+    const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
+    const repoHash = crypto.createHash('sha256').update(repoDir).digest('hex').slice(0, MATRIX_FILE_HASH_LENGTH);
+    const matrixPath = path.join(path.dirname(mapBoardIdsFilePath), `codemap-matrix-${repoHash}.csv`);
+    const written = await fsp.writeFile(matrixPath, folderMatrixCsvOf(model)).then(() => null, (error: unknown) => errorMessage(error));
+    const attached = written === null ? await boards.handleAgent(caller, { sub: 'attach', path: matrixPath }) : null;
+    const media = attached ? AttachedMedia.safeParse(attached.body).data?.media ?? null : null;
+    if (!media) logger.warn(`[codemap] the folder matrix of ${repoDir} was not attached, so the board keeps the one it has: ${written ?? JSON.stringify(attached?.body)}`);
+    return media;
   }
 
   function redrawMapBoard(repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus, overlay: OverlayDrawing): Promise<boolean> {
@@ -279,7 +296,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const stamp = overlay ? { title: `Session ${overlay.sessionName}`, lines: [`changes ${overlay.paths.length} files in ${overlaidModules.length} modules`, ...overlaidModules] } : null;
     const specPlan = specPlanByRepoDir.get(repoDir) ?? null;
     const specKey = specPlan ? { ...specPlan, landedUnitIds: [...specPlan.landedUnitIds].sort() } : null;
-    return { key: JSON.stringify([stamp, overlaidModules, specKey]), specPlan, decorations: { churnByModule: state.churnByModule, overlaidModules: new Set(overlaidModules) }, stamp };
+    return { key: JSON.stringify([stamp, overlaidModules, specKey]), specPlan, decorations: { churnByModule: state.churnByModule, overlaidModules: new Set(overlaidModules), matrixMedia: null }, stamp };
   }
 
   async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, status: CodemapStatus): Promise<boolean> {
