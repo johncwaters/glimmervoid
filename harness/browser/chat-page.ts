@@ -281,6 +281,18 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   const answeredQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').last();
   await page.waitForFunction(() => document.querySelectorAll('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').length === 2, undefined, { timeout: CARD_TIMEOUT_MS });
   assert.match(await answeredQuestion.innerText(), /Answered: Run both for a week$/m, 'Enter answers with the recommended option');
+  await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
+  await waitForTurnRunning(page, false);
+  await sendFromComposer(page, 'ask-question-chat');
+  await openQuestion.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await openQuestion.innerText(), /Dismiss\s*Esc\s*Stops the agent/, 'an open question carries the Dismiss control and what it does');
+  await composer.focus();
+  await page.keyboard.press('Escape');
+  const dismissedQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').last();
+  await page.waitForFunction(() => document.querySelectorAll('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').length === 3, undefined, { timeout: CARD_TIMEOUT_MS });
+  assert.match(await dismissedQuestion.innerText(), /Dismissed$/m, 'Escape in the composer dismisses the open question');
+  assert.equal(await page.locator('.session-chat .chat-composer').isVisible(), true, 'Escape with a question open does not leave Chat');
+  assert.equal(await openQuestion.count(), 0, 'the dismissed question leaves no open card');
 }
 
 async function answerOpenCardFromComposer(page: Page, openCard: Locator): Promise<void> {

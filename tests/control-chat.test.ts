@@ -1,6 +1,7 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -66,6 +67,23 @@ test('Chat reads a held question from the session status and answers it and send
 
     connection.send({ type: 'answer-approval', id: session.id, requestId: approval?.requestId, answers: { 'Which store?': 'sqlite' } });
     assert.equal(connection.sent.at(-1)?.type, 'error');
+
+    const heldToDismiss = session.holdConversationPermission(QUESTION_REQUEST, new AbortController().signal);
+    assert.ok(heldToDismiss);
+    const dismissedRequestId = session.toSnapshot().conversationApproval?.requestId;
+    session.transition('prompt_detected');
+    assert.equal(session.state, 'WAITING');
+    const errorsBeforeAllow = connection.sent.filter((sent) => sent.type === 'error').length;
+    connection.send({ type: 'decide-approval', id: session.id, requestId: dismissedRequestId, decision: 'allow' });
+    assert.equal(connection.sent.filter((sent) => sent.type === 'error').length, errorsBeforeAllow + 1);
+    connection.send({ type: 'decide-approval', id: session.id, requestId: dismissedRequestId, decision: 'deny' });
+    const dismissal = permissionRequestDecisionOf(await heldToDismiss);
+    assert.equal(dismissal?.behavior, 'deny');
+    assert.equal(dismissal?.interrupt, true);
+    await once(session, 'state-change');
+    assert.equal(session.state, 'COMPLETE');
+    session.transition('new_output');
+    assert.equal(session.toSnapshot().conversationApproval, null);
 
     const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
     const settle = () => new Promise((resolve) => setTimeout(resolve, 1000));

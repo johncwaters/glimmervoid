@@ -418,6 +418,8 @@ html[data-layout="phone"] .chat-card-option-keys .ui-keycap { display: none; }
 
 .chat-card-message:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+.chat-card-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; color: var(--text-muted); font-size: var(--type-meta); }
+
 .chat-card-receipt { color: var(--text-muted); font-size: var(--type-meta); }
 
 .chat-card[data-card-type="question"][data-resolved="false"] { position: relative; z-index: 2; }

@@ -161,6 +161,13 @@ function isFocusOnOtherControl(): boolean {
   return focused.closest(FOCUSABLE_CONTROL_SELECTOR) !== null;
 }
 
+const UNANSWERED_QUESTION_CARD_SELECTOR = '.chat-card[data-card-type="question"][data-resolved="false"]';
+
+function isPlainEscapeKeydown(event: KeyboardEvent): boolean {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || event.isComposing) return false;
+  return !(event.altKey || event.ctrlKey || event.metaKey || event.shiftKey);
+}
+
 function isCardPickKeydown(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.repeat || event.isComposing) return false;
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
@@ -575,6 +582,29 @@ function buildChat(sessionId: string): MountedChat {
     chatView.upsert([cardPartOf(card)], NO_ARRIVING_PARTS);
   };
 
+  const dismissShownQuestion = () => {
+    const shown = shownApproval;
+    if (shown?.approval.kind !== 'question') return;
+    if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' })) {
+      showFailure(NOT_SENT_TEXT);
+      return;
+    }
+    shown.answers.clear();
+    for (const card of shown.cards) {
+      if (card.cardType === 'question') resolveCard({ ...card, resolution: { isDismissed: true } });
+    }
+  };
+
+  const dismissQuestionOnEscape = (event: KeyboardEvent): boolean => {
+    if (!isPlainEscapeKeydown(event)) return false;
+    const openQuestionCard = root.querySelector<HTMLElement>(UNANSWERED_QUESTION_CARD_SELECTOR);
+    if (!openQuestionCard) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    if (openQuestionCard.dataset.keysReady !== undefined) dismissShownQuestion();
+    return true;
+  };
+
   const answerCard = (cardId: string, action: string, value: string) => {
     const boardChange = boardChangeByCardId.get(cardId);
     if (boardChange && action === 'focus') {
@@ -603,6 +633,10 @@ function buildChat(sessionId: string): MountedChat {
         return;
       }
       resolveCard({ ...card, resolution: { decision: 'deny', message: value } });
+      return;
+    }
+    if (card.cardType === 'question' && action === 'dismiss') {
+      dismissShownQuestion();
       return;
     }
     if (card.cardType !== 'question' || action !== 'answer') return;
@@ -662,6 +696,7 @@ function buildChat(sessionId: string): MountedChat {
     if (detail) answerCard(detail.cardId, detail.action, detail.value);
   });
   root.addEventListener('keydown', (event) => {
+    if (dismissQuestionOnEscape(event)) return;
     if (!isCardPickKeydown(event)) return;
     if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
     const keyTarget = chatKeyTargetOf(root, event.key);

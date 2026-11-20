@@ -4,7 +4,7 @@ import { MANAGER_DECISION_AUDIT_KIND, MANAGER_DECISION_EVENT, QUESTION_TOOL_HOLD
 import type { ManagerAnswer, ManagerDecision, ManagerVerdict } from "../shared/contracts/question-manager.ts";
 import type { QuestionDenyReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
-import { claudeAnswerReply, claudeApprovalFor, claudePermissionApprovalFor, isHoldReleasedByHookEvent, isReadOnlyCommandRequest, permissionReplyFor, parseClaudePermissionRequest, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
+import { claudeAnswerReply, claudeApprovalFor, claudePermissionApprovalFor, isHoldReleasedByHookEvent, isReadOnlyCommandRequest, permissionReplyFor, parseClaudePermissionRequest, questionDismissedReply, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest, PermissionHookReply } from "./core/claude-approval-core.ts";
 import { clock } from '../shared/clock.ts';
 import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
@@ -20,6 +20,7 @@ interface ClaudeApprovalHold {
 interface ApprovalPort<Signal extends QuestionStatusSignal> {
   emit: (event: string, detail: Record<string, unknown>) => void;
   ingestStatus: (signal: Signal) => void;
+  noteQuestionDismissed: () => void;
   pushAuditEntry: (entry: Record<string, unknown>) => void;
   notePassedQuestion: (seq: number) => void;
   taskTitle: () => string | null;
@@ -400,12 +401,21 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     return true;
   }
 
+  function decisionReplyOf(approval: ConversationApproval, decision: PermissionDecision, denyMessage: string | null): PermissionHookReply | null {
+    if (approval.kind === "permission") return permissionReplyFor(agentId, decision, denyMessage);
+    if (decision === "deny") return questionDismissedReply();
+    return null;
+  }
+
   function decide(requestId: number | string, decision: PermissionDecision, denyMessage: string | null): boolean {
     const hold = holds.find((candidate) => candidate.approval.requestId === requestId);
-    if (hold?.approval.kind !== "permission") return false;
+    if (!hold) return false;
+    const reply = decisionReplyOf(hold.approval, decision, denyMessage);
+    if (!reply) return false;
     holds = holds.filter((candidate) => candidate !== hold);
-    hold.resolve(permissionReplyFor(agentId, decision, denyMessage));
+    hold.resolve(reply);
     showFirstApproval();
+    if (hold.approval.kind === "question") port.noteQuestionDismissed();
     return true;
   }
 

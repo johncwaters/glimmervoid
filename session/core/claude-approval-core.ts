@@ -38,6 +38,7 @@ type PreToolUseReply = { hookSpecificOutput: { hookEventName: 'PreToolUse'; perm
 export type PermissionHookReply = ClaudeHookReply | PreToolDecisionReply | PreToolUseReply;
 
 const DENIED_FROM_CHAT = 'The operator denied this from Chat.';
+const DISMISSED_FROM_CHAT = 'The operator dismissed this question from Chat without answering. Stop and wait for their next message.';
 const ALLOWED_FROM_CHAT = 'The operator allowed this from Chat.';
 const RELEASE_ON_SAME_CALL_EVENTS: ReadonlySet<string> = new Set([...TOOL_RESULT_HOOK_EVENTS, 'permissionresult']);
 const COMMAND_INPUT_KEYS = ['command', 'CommandLine'];
@@ -113,6 +114,10 @@ export function permissionReplyFor(agentId: string, decision: PermissionDecision
   if (replyFor) return replyFor(decision, reasonFor(decision, denyMessage), denyMessage);
   if (decision === 'allow') return hookReply({ behavior: 'allow' });
   return hookReply({ behavior: 'deny', message: reasonFor(decision, denyMessage) });
+}
+
+export function questionDismissedReply(): ClaudeHookReply {
+  return hookReply({ behavior: 'deny', message: DISMISSED_FROM_CHAT, interrupt: true });
 }
 
 export function isReadOnlyCommandRequest(request: ClaudePermissionRequest): boolean {

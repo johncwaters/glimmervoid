@@ -624,6 +624,7 @@ class Session extends EventEmitter {
         emit: (event, detail) => this.emit(event, detail),
         notePassedQuestion: (seq) => this._setPassedQuestionSeq(seq),
         ingestStatus: (signal) => this._ingestHookSignal(signal),
+        noteQuestionDismissed: () => this._ingestHookSignal({ signal: "ready", source: "hook", confidence: "high", ts: clock.nowMs() }),
         pushAuditEntry: (entry) => this._pushAuditEntry(entry),
         taskTitle: () => this.refocusTaskTitle,
       },

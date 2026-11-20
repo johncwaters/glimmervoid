@@ -22,6 +22,7 @@ const EXAMPLE_CARD_PARTS: ChatPart[] = [
     },
   },
   { kind: 'card', id: 'example-question-answered', card: { cardType: 'question', cardId: 'example-question-answered', data: { question: 'Land now?', detail: '', options: [] }, resolution: { answer: 'Yes' } } },
+  { kind: 'card', id: 'example-question-dismissed', card: { cardType: 'question', cardId: 'example-question-dismissed', data: { question: 'Which store?', detail: 'Storage', options: [] }, resolution: { isDismissed: true } } },
 ];
 
 const chatHost = document.getElementById('chat-host');

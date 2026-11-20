@@ -118,6 +118,20 @@ interface QuestionCardModel {
   readonly step?: string;
   readonly options: readonly { label: string; note: string }[];
   readonly answer: string | null;
+  readonly isDismissed: boolean;
+}
+
+const ESCAPE_KEY = 'Escape';
+const DISMISS_STATUS_TEXT = 'Stops the agent. The question goes unanswered.';
+const DISMISS_STACK_STATUS_TEXT = 'Stops the agent. Every question here goes unanswered.';
+
+function dismissFootOf(isStacked: boolean, onDismiss: () => void): HTMLElement {
+  const foot = el('div', 'chat-card-foot');
+  const dismissButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Dismiss', shortcutKey: 'Esc', onClick: onDismiss });
+  dismissButton.setAttribute('aria-keyshortcuts', ESCAPE_KEY);
+  markCardKeys(dismissButton, [ESCAPE_KEY]);
+  foot.append(dismissButton, el('span', 'chat-card-foot-status', isStacked ? DISMISS_STACK_STATUS_TEXT : DISMISS_STATUS_TEXT));
+  return foot;
 }
 
 function questionMetaLineOf(question: QuestionCardModel): HTMLElement | null {
@@ -128,10 +142,14 @@ function questionMetaLineOf(question: QuestionCardModel): HTMLElement | null {
   return metaLine;
 }
 
-function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void): HTMLElement {
-  const shell = shellOf(question.cardType, question.heading, question.answer !== null);
+function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) => void, onDismiss: () => void): HTMLElement {
+  const shell = shellOf(question.cardType, question.heading, question.answer !== null || question.isDismissed);
   const metaLine = questionMetaLineOf(question);
   if (metaLine) shell.prepend(metaLine);
+  if (question.isDismissed) {
+    shell.appendChild(receipt('Dismissed'));
+    return shell;
+  }
   if (question.answer !== null) {
     shell.appendChild(receipt(`Answered: ${withoutRecommendedSuffix(question.answer)}`));
     return shell;
@@ -140,13 +158,22 @@ function questionCardOf(question: QuestionCardModel, onAnswer: (label: string) =
   for (const [index, option] of shownOptionsOf(question.options).entries()) {
     options.appendChild(optionRowOf(option, digitKeyOf(index + 1), onAnswer));
   }
-  shell.appendChild(options);
+  shell.append(options, dismissFootOf(question.step !== undefined, onDismiss));
   return shell;
 }
 
 function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
-  const question = { cardType: card.cardType, heading: card.data.question, detail: card.data.detail, ...(card.data.step ? { step: card.data.step } : {}), options: card.data.options, answer: card.resolution?.answer ?? null };
-  const shell: HTMLElement = questionCardOf(question, (label) => dispatchCardAction(shell, card, 'answer', label));
+  const { resolution } = card;
+  const question = {
+    cardType: card.cardType,
+    heading: card.data.question,
+    detail: card.data.detail,
+    ...(card.data.step ? { step: card.data.step } : {}),
+    options: card.data.options,
+    answer: resolution !== null && 'answer' in resolution ? resolution.answer : null,
+    isDismissed: resolution !== null && 'isDismissed' in resolution,
+  };
+  const shell: HTMLElement = questionCardOf(question, (label) => dispatchCardAction(shell, card, 'answer', label), () => dispatchCardAction(shell, card, 'dismiss', ''));
   return shell;
 }
 

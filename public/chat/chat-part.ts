@@ -2,7 +2,7 @@ import type { FileEditTally, TurnSegment } from './turn-digest-core.ts';
 
 export type ChatCard =
   | { cardType: 'permission'; cardId: string; data: { title: string; detail: string }; resolution: { decision: 'allow' | 'deny'; message?: string } | null }
-  | { cardType: 'question'; cardId: string; data: { question: string; detail: string; step?: string; options: { label: string; note: string }[] }; resolution: { answer: string } | null }
+  | { cardType: 'question'; cardId: string; data: { question: string; detail: string; step?: string; options: { label: string; note: string }[] }; resolution: { answer: string } | { isDismissed: true } | null }
   | { cardType: 'notice'; cardId: string; data: { text: string }; resolution: null }
   | { cardType: 'board-change'; cardId: string; data: { sentence: string }; resolution: null }
   | { cardType: 'live-terminal'; cardId: string; data: { heading: string }; resolution: null }
