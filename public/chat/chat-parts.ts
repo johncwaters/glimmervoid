@@ -1,5 +1,6 @@
 import { el } from '../dom-helpers.ts';
-import type { ChatPart, ChatPartKind, TurnPart } from './chat-part.ts';
+import type { ChatPart, ChatPartKind, SubagentPart, TurnPart } from './chat-part.ts';
+import { subagentDurationText } from './chat-parts-core.ts';
 import { renderCard } from './chat-cards.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
@@ -287,9 +288,37 @@ function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
   return skillLine;
 }
 
+function subagentStepRowsOf(part: SubagentPart): HTMLElement[] {
+  const stepRows = part.steps.map((label) => el('div', 'chat-turn-call', label));
+  const unkeptStepCount = part.stepCount - part.steps.length;
+  if (unkeptStepCount <= 0) return stepRows;
+  return [el('div', 'chat-turn-call', `+ ${unkeptStepCount} earlier`), ...stepRows];
+}
+
+function renderSubagent(part: SubagentPart): HTMLElement {
+  const subagent = el('details', 'chat-subagent');
+  subagent.toggleAttribute('data-running', part.endedAt === null);
+  const row = el('summary', 'chat-subagent-row');
+  row.append(
+    el('span', 'chat-subagent-dot'),
+    el('span', 'chat-subagent-type', part.subagentType),
+    el('span', 'chat-subagent-task', part.task ?? ''),
+    el('span', 'chat-subagent-time', subagentDurationText(part) ?? 'Running'),
+    createLineIcon(CHEVRON_ICON_PATH, '1.6'),
+  );
+  const work = el('div', 'chat-subagent-work');
+  work.append(...subagentStepRowsOf(part));
+  if (part.report !== null) work.append(renderTextSegment(part.report));
+  if (part.endedAt === null) work.append(el('div', 'chat-turn-call', 'Running'));
+  if (part.endedAt !== null && part.report === null && part.stepCount === 0) work.append(el('div', 'chat-turn-call', 'No report'));
+  subagent.append(row, work);
+  return subagent;
+}
+
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   skill: renderSkill,
+  subagent: renderSubagent,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;
 
@@ -358,6 +387,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     const rendered = renderPart(part, uploadUrlOf);
     const existing = elementByPartId.get(part.id);
     elementByPartId.set(part.id, rendered);
+    if (existing instanceof HTMLDetailsElement && rendered instanceof HTMLDetailsElement) rendered.open = existing.open;
     if (existing) {
       existing.replaceWith(rendered);
       return;
@@ -450,6 +480,13 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
   element.addEventListener('animationcancel', settleAnimatedArrival);
   element.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
+    const subagentRow = event.target.closest('.chat-subagent-row');
+    const subagent = subagentRow?.parentElement;
+    if (subagent instanceof HTMLDetailsElement) {
+      event.preventDefault();
+      keepTurnInPlace(subagent, () => { subagent.open = !subagent.open; });
+      return;
+    }
     const meta = event.target.closest('.chat-turn-meta');
     const turnElement = meta?.closest<HTMLElement>('.chat-turn');
     if (!turnElement) return;
