@@ -1502,6 +1502,10 @@
     {
       "name": "details",
       "definition": "The control that opens a folded list of more information, such as the checks that passed in Checked at turn end"
+    },
+    {
+      "name": "software",
+      "definition": "Program code distributed under a license, as the MIT license text in a pack NOTICE names it"
     }
   ],
   "retired": [
