@@ -335,18 +335,18 @@ function onRailDrop(event: DragEvent) {
   focusSessionInputAfterSettle(sessionUIs.get(focusedId), focusedId);
 }
 
-function boardSplitToggleOf(sessionId: string | null) {
+function boardChangeToShowOf(sessionId: string | null) {
   if (!active || !sessionId || centeredBoardId) return null;
-  const splits = currentLiveSplits();
-  if (Object.hasOwn(splits, sessionId)) return { sessionId, boardIdToOpen: null };
-  const connectedBoards = boardsConnectedTo(sessionId);
   const unshownChange = unshownAgentChangeOf(sessionId);
-  const changedBoards = connectedBoards.filter((board) => board.id === unshownChange?.boardId);
-  const board = newestFreeBoardOf(splits, changedBoards) ?? newestFreeBoardOf(splits, connectedBoards);
-  return board ? { sessionId, boardIdToOpen: board.id } : null;
+  const changedBoard = boardsConnectedTo(sessionId).find((board) => board.id === unshownChange?.boardId);
+  if (!changedBoard) return null;
+  const splits = currentLiveSplits();
+  const isBesideSession = splits[sessionId] === changedBoard.id;
+  if (!isBesideSession && newestFreeBoardOf(splits, [changedBoard]) === null) return null;
+  return { sessionId, boardId: changedBoard.id };
 }
 
-setKeyClaimTest('board-split', () => boardSplitToggleOf(getFocusedSessionId()) !== null);
+setKeyClaimTest('show-board-change', () => boardChangeToShowOf(getFocusedSessionId()) !== null);
 setKeyClaimTest('shell-focus', () => focusedSessionWithShell() !== null);
 
 function focusedSessionWithShell(): string | null {
@@ -376,19 +376,12 @@ function frameUnshownAgentChange(sessionId: string, boardId: string): void {
   requestBoardFocus({ boardId, change: unshownChange.change });
 }
 
-export function toggleFocusedBoardSplit(): boolean {
-  const toggle = boardSplitToggleOf(getFocusedSessionId());
-  if (!toggle) return false;
-  if (toggle.boardIdToOpen) {
-    frameUnshownAgentChange(toggle.sessionId, toggle.boardIdToOpen);
-    openOperatorSplit(toggle.sessionId, toggle.boardIdToOpen);
-    refreshFocusRoster();
-    return true;
-  }
-  activePane = 'terminal';
-  closeOperatorSplit(toggle.sessionId);
-  refreshFocusRoster();
-  focusSessionInputAfterSettle(sessionUIs.get(toggle.sessionId), toggle.sessionId);
+export function showFocusedBoardChange(): boolean {
+  const target = boardChangeToShowOf(getFocusedSessionId());
+  if (!target) return false;
+  frameUnshownAgentChange(target.sessionId, target.boardId);
+  if (splitBoardBySession[target.sessionId] !== target.boardId) openOperatorSplit(target.sessionId, target.boardId);
+  onPillPick(target.sessionId, 'board');
   return true;
 }
 

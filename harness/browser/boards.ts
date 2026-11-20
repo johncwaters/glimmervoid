@@ -252,8 +252,8 @@ async function verifyDragPlacement(open: OpenBoard): Promise<void> {
   await openTextEditor();
   await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'set', id: typedText.id, fields: { lines: [{ text: 'kept body' }, { text: 'an agent line' }] } }] });
   await elementWhere(open, 'the agent line lands while the editor is open', (element) => element.id === typedText.id && element.kind === 'box' && element.lines.length === 2);
-  await textArea.press('ControlOrMeta+Home');
-  await textArea.press('End');
+  await textArea.press(TEXT_START_KEY);
+  await textArea.press(LINE_END_KEY);
   await page.keyboard.type(' too');
   await page.keyboard.press('Escape');
   await elementWhere(open, 'a title-only edit keeps a line an agent added while the editor was open', (element) => element.id === typedText.id && titled('Kept heading too')(element) && element.kind === 'box' && element.lines.length === 2);
@@ -556,6 +556,15 @@ async function chooseFromContextMenu(open: OpenBoard, at: { x: number; y: number
   await menu.waitFor({ state: 'hidden' });
 }
 
+async function verifyKeyboardContextMenu(open: OpenBoard, menu: Locator): Promise<void> {
+  await open.panel.locator('.wb-viewport').focus();
+  await open.page.keyboard.press('Shift+F10');
+  await menu.getByRole('menuitem', { name: 'Select all' }).waitFor();
+  assert.ok(await menu.getByRole('menuitem', { name: 'Paste' }).evaluate((item) => item === document.activeElement), 'the keyboard menu focuses its first item');
+  await open.page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'hidden' });
+}
+
 async function verifyContextMenu(open: OpenBoard, anchorBoxId: string): Promise<void> {
   const { page, panel, boardId } = open;
   const anchorBox = (await boardOf(open)).elements.get(anchorBoxId);
@@ -574,12 +583,7 @@ async function verifyContextMenu(open: OpenBoard, anchorBoxId: string): Promise<
   assert.equal(await menu.getByRole('menuitem', { name: 'Bring to front' }).count(), 0, 'the empty canvas menu offers no stacking');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'hidden' });
-  await panel.locator('.wb-viewport').focus();
-  await page.keyboard.press('Shift+F10');
-  await menu.getByRole('menuitem', { name: 'Select all' }).waitFor();
-  assert.ok(await menu.getByRole('menuitem', { name: 'Paste' }).evaluate((item) => item === document.activeElement), 'the keyboard menu focuses its first item');
-  await page.keyboard.press('Escape');
-  await menu.waitFor({ state: 'hidden' });
+  if (process.platform !== 'darwin') await verifyKeyboardContextMenu(open, menu);
   await selectBoxes(open, ['menu-first', 'menu-second']);
   await chooseFromContextMenu(open, centerOf(await screenRectOf(open, 'menu-second')), 'Align left');
   const firstLeft = (await laidOutRectOf(open, 'menu-first')).x;
@@ -1152,8 +1156,10 @@ async function verifyLineEditing(open: OpenBoard): Promise<void> {
   await page.keyboard.press('Escape');
 }
 
-const BOARD_SPLIT_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Alt+KeyB';
+const SHELL_FOCUS_KEY = process.platform === 'darwin' ? 'Meta+Backquote' : 'Alt+Backquote';
+const SHOW_BOARD_CHANGE_KEY = process.platform === 'darwin' ? 'Meta+KeyB' : 'Alt+KeyB';
 const LINE_END_KEY = process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End';
+const TEXT_START_KEY = process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home';
 
 async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
@@ -1229,6 +1235,10 @@ async function verifyBoardDoc(open: OpenBoard): Promise<void> {
   await panel.getByRole('button', { name: 'Fit', exact: true }).click();
 }
 
+async function untilAnimationsSettle(target: Locator): Promise<void> {
+  await target.evaluate((node) => Promise.all(document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && animation.effect.target instanceof Node && animation.effect.getComputedTiming().endTime !== Infinity && (animation.effect.target.contains(node) || node.contains(animation.effect.target))).map((animation) => animation.finished)));
+}
+
 async function verifyWideTableDoc(open: OpenBoard): Promise<void> {
   const { page, panel, boardId } = open;
   const wideTableMedia = await uploadBoardDoc(page, WIDE_TABLE_DOC, 'findings.md');
@@ -1238,6 +1248,7 @@ async function verifyWideTableDoc(open: OpenBoard): Promise<void> {
   const editor = page.locator('.doc-editor');
   const tableWrap = editor.locator('.doc-preview-block .plan-table-wrap');
   await tableWrap.waitFor();
+  await untilAnimationsSettle(editor);
   const widths = await editor.evaluate((sheet) => ({
     sheet: sheet.getBoundingClientRect().width,
     prose: sheet.querySelector('.doc-markup-line')?.getBoundingClientRect().width ?? 0,
@@ -1614,6 +1625,7 @@ async function verifyDroppedPicture(open: OpenBoard): Promise<void> {
   assert.ok(await enlarged.evaluate((node) => node instanceof HTMLImageElement && node.src.endsWith('.png')), 'a clicked picture opens the original png');
   assert.ok(await enlarged.evaluate((node) => node.getBoundingClientRect().width > window.innerWidth * 0.8), 'the viewer scales a picture up to fill the screen');
   const viewerClose = viewer.locator('.wb-image-viewer-header').getByRole('button', { name: 'Close', exact: true });
+  await untilAnimationsSettle(viewer);
   const closeBounds = await viewerClose.boundingBox();
   const enlargedBounds = await enlarged.boundingBox();
   assert.ok(closeBounds && enlargedBounds && closeBounds.y + closeBounds.height <= enlargedBounds.y, 'the viewer puts Close in its header above the picture');
@@ -2720,9 +2732,9 @@ async function verifyShellJoinsSplit(page: Page, sessionId: string, projectDirec
   await shellWindow.locator(`:scope > .pane-body > .session-card[data-id="${shellId}"]`).waitFor();
   await shellWindow.locator(':scope > .pane-header .session-card-header').waitFor();
   await page.locator(`.pane-group[data-pane="terminal"] > .pane-body > .session-card[data-id="${sessionId}"]`).waitFor();
-  await page.keyboard.press('Alt+Backquote');
+  await page.keyboard.press(SHELL_FOCUS_KEY);
   await page.locator(`.pane-group[data-pane="shell"] .session-card[data-id="${shellId}"] textarea:focus`).waitFor();
-  await page.keyboard.press('Alt+Backquote');
+  await page.keyboard.press(SHELL_FOCUS_KEY);
   await page.locator(`.pane-group[data-pane="terminal"] .session-card[data-id="${sessionId}"] textarea:focus`).waitFor();
   await controlReplyOf(page, 'remove-session', { id: shellId, discardWork: true });
   await hostRow.locator('[data-member="shell"]').waitFor({ state: 'detached' });
@@ -2766,16 +2778,6 @@ async function verifyBoardRowsInRail(page: Page, panel: Locator, sessionId: stri
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
   await laterRow.waitFor({ state: 'detached' });
   assert.equal(await sessionRow.locator(`.session-board-chip[aria-label="Open board ${laterTitle}"]`).count(), 1, 'the board dropped back shows once, as a link under the session it stays connected to, with no board row of its own');
-  await page.keyboard.press(BOARD_SPLIT_KEY);
-  await pollFor('Alt B opens a connected board beside the session', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
-  await page.locator('#focus-pane-board').waitFor({ state: 'visible' });
-  await sessionRow.locator('.session-row-split-member[data-member="board"]').click();
-  await page.waitForFunction((id) => document.querySelector(`.focus-rail .session-row[data-id="${id}"]`)?.getAttribute('data-active-pane') === 'board', sessionId);
-  await page.keyboard.press(BOARD_SPLIT_KEY);
-  await page.waitForFunction(() => document.activeElement?.closest('#focus-pane-terminal') != null);
-  await waitForSplitBoardTitle(page, sessionId, null);
-  await page.keyboard.press(BOARD_SPLIT_KEY);
-  await pollFor('Alt B from the terminal reopens the board', BOARD_TIMEOUT_MS, () => splitBoardTitleOf(page, sessionId));
 }
 
 async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionId: string, shownBoardTitle: string): Promise<void> {
@@ -2783,15 +2785,17 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   const secondBoardId = await createBoardOverControl(page, secondTitle);
   await controlReplyOf(page, 'whiteboard-connect', { boardId: secondBoardId, sessionId });
   const unrelatedTitle = `Unrelated plan ${sessionId.slice(0, 8)}`;
-  await createBoardOverControl(page, unrelatedTitle);
+  const unrelatedBoardId = await createBoardOverControl(page, unrelatedTitle);
   assert.equal(await splitBoardTitleOf(page, sessionId), shownBoardTitle, 'a second board connecting leaves the open split alone');
   await openBoardMenuItem(page, panel, 'Delete board');
   await page.getByRole('button', { name: 'Delete board', exact: true }).click();
   await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
   await waitForSplitBoardTitle(page, sessionId, null);
-  await page.keyboard.press(BOARD_SPLIT_KEY);
+  await applyHarnessAgentChange(page, sessionId, secondBoardId);
+  await page.keyboard.press(SHOW_BOARD_CHANGE_KEY);
   await openBoardTitle(panel, secondTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, secondTitle);
+  await page.waitForFunction((id) => document.querySelector(`.focus-rail .session-row[data-id="${id}"]`)?.getAttribute('data-active-pane') === 'board', sessionId);
   await page.locator('.focus-rail .session-row[data-board-id]', { hasText: unrelatedTitle }).dragTo(page.locator(`.focus-rail .session-row[data-id="${sessionId}"]`).first());
   await openBoardTitle(panel, unrelatedTitle).waitFor();
   await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
@@ -2799,12 +2803,30 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   await createBoardOverControl(page, laterTitle);
   await page.locator('.focus-rail .session-row[data-board-id]', { hasText: laterTitle }).waitFor();
   assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');
-  await page.keyboard.press(BOARD_SPLIT_KEY);
-  await page.locator('#focus-pane-board').waitFor({ state: 'hidden' });
-  await waitForSplitBoardTitle(page, sessionId, null);
-  await page.keyboard.press(BOARD_SPLIT_KEY);
-  await openBoardTitle(panel, unrelatedTitle).waitFor();
-  await waitForSplitBoardTitle(page, sessionId, unrelatedTitle);
+  await verifyShowBoardChangeKey(page, sessionId, unrelatedBoardId, unrelatedTitle);
+}
+
+async function verifyShowBoardChangeKey(page: Page, sessionId: string, boardId: string, boardTitle: string): Promise<void> {
+  const unshownBoardIdOf = () => page.evaluate(async (authorId) => {
+    const tileStoreUrl = '/whiteboard/board-tile-store.ts';
+    const { unshownAgentChangeOf } = await import(tileStoreUrl);
+    return unshownAgentChangeOf(authorId)?.boardId ?? null;
+  }, sessionId);
+  await applyHarnessAgentChange(page, sessionId, boardId);
+  assert.equal(await unshownBoardIdOf(), boardId, 'an agent change on the open board waits for the board shortcut');
+  await page.keyboard.press(SHOW_BOARD_CHANGE_KEY);
+  await pollFor('the board shortcut frames the change on the open board', BOARD_TIMEOUT_MS, async () => (await unshownBoardIdOf() === null ? true : null));
+  assert.equal(await splitBoardTitleOf(page, sessionId), boardTitle, 'the board shortcut keeps the board open while it frames a change');
+  await page.keyboard.press(SHOW_BOARD_CHANGE_KEY);
+  assert.equal(await splitBoardTitleOf(page, sessionId), boardTitle, 'the board shortcut with no change to show never closes the board');
+}
+
+async function applyHarnessAgentChange(page: Page, sessionId: string, boardId: string): Promise<void> {
+  await page.evaluate(async ({ authorId, changedBoardId }) => {
+    const tileStoreUrl = '/whiteboard/board-tile-store.ts';
+    const { applyAgentChange } = await import(tileStoreUrl);
+    applyAgentChange({ type: 'whiteboard-agent-change', boardId: changedBoardId, version: 1, at: Date.now(), change: { author: { id: authorId, name: 'Claude' }, boxes: [{ id: 'changed-card', title: 'Changed card', rect: { x: 0, y: 0, width: 200, height: 100 } }] } });
+  }, { authorId: sessionId, changedBoardId: boardId });
 }
 
 async function verifyRailArrowsReachBoardRows(page: Page, boardTitle: string): Promise<void> {

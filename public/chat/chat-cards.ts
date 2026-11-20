@@ -221,7 +221,7 @@ function boardChangeTextOf(card: ChatCardByType['board-change']): HTMLElement {
 function renderBoardChangeCard(card: ChatCardByType['board-change']): HTMLElement {
   const row = el('section', 'chat-board-change');
   row.dataset.cardType = card.cardType;
-  const showOnBoard = button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: 'Show on board', shortcutKey: shortcutHint('board-split', SHORTCUT_PLATFORM), onClick: () => dispatchCardAction(row, card, 'focus', '') });
+  const showOnBoard = button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: 'Show on board', shortcutKey: shortcutHint('show-board-change', SHORTCUT_PLATFORM), onClick: () => dispatchCardAction(row, card, 'focus', '') });
   const icon = createLineIcon(BOARDS_ICON_PATH, '1.5');
   icon.classList.add('chat-board-change-icon');
   row.append(icon, boardChangeTextOf(card), showOnBoard);

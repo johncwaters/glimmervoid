@@ -1,5 +1,5 @@
 import { isRealInputOwningKey } from '../dom-helpers.ts';
-import { activateFocusOnNextAttention, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive, toggleFocusedBoardSplit, toggleShellFocus } from '../focus-view/focus-view.ts';
+import { activateFocusOnNextAttention, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive, showFocusedBoardChange, toggleShellFocus } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
 import { showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
@@ -47,8 +47,8 @@ function runDashboardShortcut({ action, step }: ResolvedDashboardShortcut) {
       requestSessionRemoval(selectedSessionId);
       return true;
     }
-    case 'board-split':
-      return isFocusActive() && toggleFocusedBoardSplit();
+    case 'show-board-change':
+      return isFocusActive() && showFocusedBoardChange();
     case 'shell-focus':
       return isFocusActive() && toggleShellFocus();
     case 'new-session':

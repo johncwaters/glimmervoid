@@ -2060,9 +2060,11 @@ export function createBoardEditor(options: BoardEditorOptions) {
       presentAction();
       return;
     }
-    const action = event.metaKey || event.ctrlKey ? commandKeyAction(event) : plainKeyAction(event);
+    const isCommandChord = event.metaKey || event.ctrlKey;
+    const action = isCommandChord ? commandKeyAction(event) : plainKeyAction(event);
     if (!action) return;
     event.preventDefault();
+    if (isCommandChord) event.stopPropagation();
     if (event.repeat && event.key === ' ') return;
     action();
   }

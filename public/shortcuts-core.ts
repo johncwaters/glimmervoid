@@ -15,7 +15,7 @@ export type DashboardShortcutAction =
   | 'new-session'
   | 'quick-session'
   | 'close-session'
-  | 'board-split'
+  | 'show-board-change'
   | 'shell-focus';
 
 interface ShortcutKeyEvent {
@@ -78,7 +78,7 @@ const FIXED_DASHBOARD_SHORTCUTS: readonly DashboardShortcut[] = [
   { action: 'new-session', keyCaptions: ['0'], label: 'Add a session', stepByCode: new Map([['Digit0', 0]]), isShellChord: true },
   { action: 'quick-session', keyCaptions: ['0'], label: 'Add a session like the one you are in', stepByCode: new Map([['Digit0', 0]]), needsMacOption: true, needsShiftOffMac: true },
   { action: 'close-session', keyCaptions: ['K'], label: 'Close the selected session', stepByCode: new Map([['KeyK', 0]]) },
-  { action: 'board-split', keyCaptions: ['B'], label: 'Open or close the board beside the selected session', stepByCode: new Map([['KeyB', 0]]) },
+  { action: 'show-board-change', keyCaptions: ['B'], label: 'Show the agent\'s latest board change', stepByCode: new Map([['KeyB', 0]]) },
   { action: 'shell-focus', keyCaptions: ['`'], label: 'Move focus between the selected session and its shell', stepByCode: new Map([['Backquote', 0]]) },
 ];
 
