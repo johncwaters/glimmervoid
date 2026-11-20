@@ -16,6 +16,7 @@ export interface SessionPage {
   canStepBack(): boolean;
   stepBack(): void;
   didCloseByOperator?(): void;
+  focusInput?(): void;
   attachButton?(button: HTMLElement, style: ButtonStyle): void;
 }
 
@@ -94,6 +95,12 @@ export function openSessionPage(pageId: string, sessionId: string, target: strin
   page.mount(element, sessionId, { placement: pageHost.placement, target });
   pageHost.didShow(page);
   announceSessionPageChange(page.id, sessionId);
+}
+
+export function focusOpenSessionPageInput(sessionId: string) {
+  if (openPage?.sessionId !== sessionId || !openPage.page.focusInput) return false;
+  openPage.page.focusInput();
+  return true;
 }
 
 export function closeSessionPage() {

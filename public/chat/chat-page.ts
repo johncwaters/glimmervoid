@@ -5,6 +5,7 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
+import { isPhoneLayout } from '../form-factor.ts';
 import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../session-pages/session-pages.ts';
 import type { SessionPage } from '../session-pages/session-pages.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
@@ -179,6 +180,19 @@ function chatKeyTargetOf(root: HTMLElement, key: string): HTMLElement | null {
   const firstUnansweredCard = root.querySelector<HTMLElement>(UNANSWERED_CARD_SELECTOR);
   if (!firstUnansweredCard?.matches(OPEN_ANSWERABLE_CARD_SELECTOR)) return null;
   return keyTargetOf(firstUnansweredCard, key);
+}
+
+const TYPING_CONTROL_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
+
+function isOperatorTypingOutside(chatRoot: HTMLElement): boolean {
+  const focused = document.activeElement;
+  if (!(focused instanceof HTMLElement) || chatRoot.contains(focused)) return false;
+  return focused.matches(TYPING_CONTROL_SELECTOR) && focused.closest('.xterm') === null;
+}
+
+function focusMountedComposer(): void {
+  if (isPhoneLayout()) return;
+  mountedChat?.root.querySelector<HTMLElement>('.chat-composer-input')?.focus({ preventScroll: true });
 }
 
 function builtChatOf(sessionId: string): MountedChat | null {
@@ -924,7 +938,9 @@ export const chatPage: SessionPage = {
     applyChatSessionStatus(sessionId);
     mountedChat.feed.refresh();
     mountedChat.showBoardChanges();
+    if (!isOperatorTypingOutside(mountedChat.root)) focusMountedComposer();
   },
+  focusInput: focusMountedComposer,
   unmount: unmountChat,
   didCloseByOperator: () => setSessionView('terminal'),
   canStepBack: () => false,

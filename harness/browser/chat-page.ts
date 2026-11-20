@@ -213,6 +213,7 @@ async function verifyOpenCardStaysLastAcrossRemount(page: Page): Promise<void> {
 
 export async function verifyChatApprovals(page: Page): Promise<void> {
   await openChat(page);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), true, 'opening Chat on a desktop layout leaves the caret in the message input');
   assert.equal(await page.locator('.session-chat .chat-done').isHidden(), true, 'a session with no checks and no done lines shows no Checked at turn end panel');
   await verifyChatModelSwitch(page);
   await verifyComposerKeepsFollowing(page);
@@ -487,6 +488,7 @@ export async function verifyChatStaysDefault(page: Page): Promise<void> {
   await verifyComposerPassesDashboardShortcuts(page);
   await page.reload();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.waitForFunction(() => document.activeElement?.classList.contains('chat-composer-input') === true, undefined, { timeout: CARD_TIMEOUT_MS });
   await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
   await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
   await page.reload();
@@ -497,6 +499,7 @@ export async function verifyChatStaysDefault(page: Page): Promise<void> {
 export async function verifyChatStaysDefaultOnPhone(page: Page): Promise<void> {
   await page.locator('button[data-action="show-chat"]:visible').first().click();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), false, 'opening Chat on a phone focuses nothing, so the keyboard stays down');
   await page.locator('button[data-action="back-to-terminal"]:visible').click();
   await page.locator('button[data-action="back-to-board"]:visible').click();
   await page.locator('.phone-board-list button.session-row').first().click();
