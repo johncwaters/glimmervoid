@@ -8,7 +8,7 @@ import { nudgeSharedLines } from './whiteboard-nudge-core.ts';
 import type { PortSlack } from './whiteboard-nudge-core.ts';
 import { createSpatialGrid, forEachSlotTouching, gridOfRects, hasSlotTouching, placeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
-import { buildGraphOn, CLEARANCE, prepareObstacles } from './whiteboard-visibility-core.ts';
+import { buildGraphOn, CLEARANCE, firstIndexAbove, prepareObstacles } from './whiteboard-visibility-core.ts';
 import type { GraphPort, VisibilityGraph } from './whiteboard-visibility-core.ts';
 
 type Side = 'left' | 'right' | 'top' | 'bottom';
@@ -201,6 +201,17 @@ interface RoutedLines {
 interface Crossables {
   horizontals: Segment[];
   verticals: Segment[];
+}
+
+interface CrossLines {
+  alongs: Float64Array;
+  spanLows: Float64Array;
+  spanHighs: Float64Array;
+}
+
+interface CrossIndex {
+  verticals: CrossLines;
+  horizontals: CrossLines;
 }
 
 interface SearchBuffers {
@@ -514,7 +525,7 @@ function chooseSidesLocally(choices: readonly SideChoice[], input: RouteInput, r
     const window = windowOf(choice.plan, reuse);
     const obstacles = windowObstaclesOf(input, window);
     const graph = obstacles ? windowGraphOf(choicePortsOf([choice]), input, window, obstacles) : null;
-    const chosen = graph ? searchBetween(graph, choice.exits, choice.entries, SIDE_CHOICE_BEND_COST, buffers, crossablesIn(routedLines, window)) : null;
+    const chosen = graph ? searchBetween(graph, choice.exits, choice.entries, SIDE_CHOICE_BEND_COST, buffers, crossIndexIn(routedLines, window)) : null;
     resetSearchBuffers(buffers);
     if (!graph || !chosen) continue;
     const points = pointsOfStates(graph, chosen.states);
@@ -865,10 +876,10 @@ function resetSearchBuffers(buffers: SearchBuffers): void {
   buffers.heap.size = 0;
 }
 
-function routeOnGraph(graph: VisibilityGraph, plan: WirePlan, buffers: SearchBuffers, crossables: Crossables): number[] | null {
+function routeOnGraph(graph: VisibilityGraph, plan: WirePlan, buffers: SearchBuffers, crossIndex: CrossIndex): number[] | null {
   const exit = { side: plan.exitSide, point: plan.start, direction: OUTWARD_DIRECTION_BY_SIDE[plan.exitSide], bias: 0 };
   const entry = { side: plan.entrySide, point: plan.end, direction: INWARD_DIRECTION_BY_SIDE[plan.entrySide], bias: 0 };
-  const states = searchBetween(graph, [exit], [entry], BEND_COST, buffers, crossables)?.states ?? null;
+  const states = searchBetween(graph, [exit], [entry], BEND_COST, buffers, crossIndex)?.states ?? null;
   resetSearchBuffers(buffers);
   return states;
 }
@@ -909,7 +920,7 @@ function terminalAt(terminals: readonly PlacedTerminal[], node: number): PlacedT
   return null;
 }
 
-const NO_CROSSABLES: Crossables = { horizontals: [], verticals: [] };
+const NO_CROSSINGS: CrossIndex = { verticals: crossLinesOf([], true), horizontals: crossLinesOf([], false) };
 
 function createRoutedLines(): RoutedLines {
   return { grid: createSpatialGrid(ROUTED_LINE_CELL_SIZE), segments: [] };
@@ -931,25 +942,43 @@ function crossablesIn(lines: RoutedLines, window: Rect): Crossables {
   return crossables;
 }
 
-function crossingCountOf(crossables: Crossables, graph: VisibilityGraph, node: number, nextNode: number): number {
-  const fromX = graph.xs[node] ?? 0;
-  const fromY = graph.ys[node] ?? 0;
-  const toX = graph.xs[nextNode] ?? 0;
-  const toY = graph.ys[nextNode] ?? 0;
+function crossLinesOf(segments: readonly Segment[], isVertical: boolean): CrossLines {
+  const alongOf = (segment: Segment) => (isVertical ? segment.from.x : segment.from.y);
+  const sorted = [...segments].sort((first, second) => alongOf(first) - alongOf(second));
+  const lines: CrossLines = { alongs: new Float64Array(sorted.length), spanLows: new Float64Array(sorted.length), spanHighs: new Float64Array(sorted.length) };
+  sorted.forEach((segment, position) => {
+    const [spanFrom, spanTo] = isVertical ? [segment.from.y, segment.to.y] : [segment.from.x, segment.to.x];
+    lines.alongs[position] = alongOf(segment);
+    lines.spanLows[position] = Math.min(spanFrom, spanTo);
+    lines.spanHighs[position] = Math.max(spanFrom, spanTo);
+  });
+  return lines;
+}
+
+function crossIndexIn(lines: RoutedLines, window: Rect): CrossIndex {
+  const crossables = crossablesIn(lines, window);
+  return { verticals: crossLinesOf(crossables.verticals, true), horizontals: crossLinesOf(crossables.horizontals, false) };
+}
+
+function crossingsAlong(lines: CrossLines, alongFrom: number, alongTo: number, across: number): number {
+  const alongHigh = Math.max(alongFrom, alongTo) - 0.5;
   let crossingCount = 0;
-  if (fromY === toY) {
-    for (const vertical of crossables.verticals) {
-      if (isStrictlyBetween(vertical.from.x, fromX, toX) && isStrictlyBetween(fromY, vertical.from.y, vertical.to.y)) crossingCount += 1;
-    }
-    return crossingCount;
-  }
-  for (const horizontal of crossables.horizontals) {
-    if (isStrictlyBetween(horizontal.from.y, fromY, toY) && isStrictlyBetween(fromX, horizontal.from.x, horizontal.to.x)) crossingCount += 1;
+  for (let position = firstIndexAbove(lines.alongs, 0, lines.alongs.length, Math.min(alongFrom, alongTo) + 0.5); position < lines.alongs.length && (lines.alongs[position] ?? 0) < alongHigh; position += 1) {
+    if (isStrictlyBetween(across, lines.spanLows[position] ?? 0, lines.spanHighs[position] ?? 0)) crossingCount += 1;
   }
   return crossingCount;
 }
 
-function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], entries: readonly SideTerminal[], bendCost: number, buffers: SearchBuffers, crossables: Crossables = NO_CROSSABLES): SearchOutcome | null {
+function crossingCountOf(crossIndex: CrossIndex, graph: VisibilityGraph, node: number, nextNode: number): number {
+  const fromX = graph.xs[node] ?? 0;
+  const fromY = graph.ys[node] ?? 0;
+  const toX = graph.xs[nextNode] ?? 0;
+  const toY = graph.ys[nextNode] ?? 0;
+  if (fromY === toY) return crossingsAlong(crossIndex.verticals, fromX, toX, fromY);
+  return crossingsAlong(crossIndex.horizontals, fromY, toY, fromX);
+}
+
+function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], entries: readonly SideTerminal[], bendCost: number, buffers: SearchBuffers, crossIndex: CrossIndex = NO_CROSSINGS): SearchOutcome | null {
   graph.beginSearch();
   const placedEntries = placedTerminalsOf(graph, entries);
   const placedExits = placedTerminalsOf(graph, exits).filter((exit) => placedEntries.some((entry) => entry.component === exit.component));
@@ -1001,7 +1030,7 @@ function searchBetween(graph: VisibilityGraph, exits: readonly SideTerminal[], e
       const length = Math.abs((graph.xs[nextNode] ?? 0) - (graph.xs[node] ?? 0)) + Math.abs((graph.ys[nextNode] ?? 0) - (graph.ys[node] ?? 0));
       const stepCost = length
         + (nextDirection === direction ? 0 : bendCost)
-        + crossingCountOf(crossables, graph, node, nextNode) * WIRE_CROSSING_COST
+        + crossingCountOf(crossIndex, graph, node, nextNode) * WIRE_CROSSING_COST
         + (graph.isSoftStep(node, nextDirection) ? length * SOFT_COST_PER_UNIT : 0);
       const nextState = nextNode * 4 + nextDirection;
       const nextCost = costSoFar + Math.max(stepCost, 1) + (nextEntry?.bias ?? 0);
@@ -1057,7 +1086,7 @@ function routedInWindow(plan: WirePlan, input: RouteInput, reuse: RouteReuse, bu
   const obstacles = windowObstaclesOf(input, window);
   if (!obstacles) return null;
   const windowGraph = windowGraphOf(portsOf([plan]), input, window, obstacles);
-  const windowStates = windowGraph ? routeOnGraph(windowGraph, plan, buffers, crossablesIn(routedLines, window)) : null;
+  const windowStates = windowGraph ? routeOnGraph(windowGraph, plan, buffers, crossIndexIn(routedLines, window)) : null;
   return windowStates ? drawnWireOf(windowGraph, plan, windowStates) : null;
 }
 
@@ -1065,7 +1094,7 @@ function routedThroughOtherBoxes(plan: WirePlan, input: RouteInput, reuse: Route
   const window = windowOf(plan, reuse);
   const obstacles = input.obstaclesIn?.(window) ?? null;
   const graph = obstacles ? graphThroughOtherBoxesOf(plan, input, window, obstacles) : null;
-  return drawnWireOf(graph, plan, graph ? routeOnGraph(graph, plan, buffers, crossablesIn(routedLines, window)) : null);
+  return drawnWireOf(graph, plan, graph ? routeOnGraph(graph, plan, buffers, crossIndexIn(routedLines, window)) : null);
 }
 
 function routedInWiderWindows(plan: WirePlan, input: RouteInput, reuse: RouteReuse, buffers: SearchBuffers, routedLines: RoutedLines): DrawnWire {

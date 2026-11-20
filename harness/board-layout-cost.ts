@@ -5,12 +5,19 @@ import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { parseArgs } from 'node:util';
 
+import { z } from 'zod';
+
 import { execFileAsync } from '../server/child-process-safe.ts';
+import { createCodemapClient } from '../server/codemap/codemap-client.ts';
+import { readCodemapSetup, repoKeyOf } from '../server/codemap/codemap-store.ts';
+import { glimmervoidHomeDir } from '../server/core/config-path-core.ts';
+import { buildCodemapModel, mapBoardOpsOf } from '../server/core/codemap-graph-core.ts';
+import { runGit } from '../server/git/git-exec.ts';
 import type { Board } from '../shared/contracts/whiteboard.ts';
-import { Element, pointOfBox, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
+import { Element, Op, pointOfBox, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
-import { createBoard } from '../shared/whiteboard-ops-core.ts';
+import { applyOps, CODEMAP_AUTHOR, createBoard } from '../shared/whiteboard-ops-core.ts';
 import type { PlacedLayout } from '../shared/whiteboard-layout-core.ts';
 import { elementTableOf } from '../shared/whiteboard-element-table.ts';
 
@@ -149,6 +156,19 @@ function wiresThroughBoxesOf(board: Board, boardLayout: PlacedLayout): number {
   return throughWireIds.size;
 }
 
+async function codemapBoard(repoDir: string): Promise<Board> {
+  const head = await runGit(['rev-parse', 'HEAD'], { cwd: repoDir });
+  if (!head.ok) throw new Error(`${repoDir} is not a git checkout`);
+  const repoKey = (await repoKeyOf(repoDir)) ?? repoDir;
+  const setupLookup = await readCodemapSetup(glimmervoidHomeDir(os.homedir(), process.env), repoKey);
+  const moduleLayout = setupLookup.kind === 'ok' ? setupLookup.setup.modules : null;
+  const model = buildCodemapModel(await createCodemapClient().extract(repoDir, head.out.trim()), moduleLayout);
+  const ops = z.array(Op).parse(mapBoardOpsOf(model, new Map(), { churnByModule: null, overlaidModules: new Set(), matrixMedia: null }));
+  const drawn = applyOps(createBoard({ id: '00000000-0000-4000-8000-000000000001', title: `Code map: ${path.basename(repoDir)}`, nowMs: 0 }), ops, CODEMAP_AUTHOR, 0);
+  if (!drawn.ok) throw new Error(`the code map of ${repoDir} did not draw: ${drawn.error}`);
+  return drawn.board;
+}
+
 async function layoutAtRef(ref: string, scratchDirectory: string): Promise<LayoutBoard> {
   const archivePath = path.join(scratchDirectory, 'shared.tar');
   await execFileAsync('git', ['-C', REPO_ROOT, 'archive', '--output', archivePath, ref, 'shared'], { maxBuffer: 64 * 1024 * 1024 });
@@ -164,6 +184,8 @@ async function main(): Promise<number> {
       sizes: { type: 'string', default: '5000,10000,20000' },
       'compare-ref': { type: 'string' },
       'same-warnings': { type: 'boolean', default: false },
+      'same-layout': { type: 'boolean', default: false },
+      codemap: { type: 'string' },
       'budget-ms': { type: 'string' },
       'expect-routed': { type: 'boolean', default: false },
       edit: { type: 'boolean', default: false },
@@ -178,8 +200,10 @@ async function main(): Promise<number> {
   let failureCount = 0;
   try {
     const referenceLayout = compareRef ? await layoutAtRef(compareRef, scratchDirectory) : null;
-    for (const size of sizes) {
-      const coldBoard = inkedBoard(benchmarkBoard(size), strokeCount);
+    const codemapRepoDir = values.codemap === undefined ? null : path.resolve(values.codemap);
+    const coldBoards = codemapRepoDir ? [await codemapBoard(codemapRepoDir)] : sizes.map((size) => inkedBoard(benchmarkBoard(size), strokeCount));
+    for (const coldBoard of coldBoards) {
+      const size = coldBoard.elements.size;
       const board = values.edit ? movedBoxesBoard(coldBoard) : coldBoard;
       const current = values.edit ? bestEditMs(coldBoard) : bestLayoutMs(layoutBoard, board);
       const reference = referenceLayout ? bestLayoutMs(referenceLayout, board) : null;
@@ -187,10 +211,11 @@ async function main(): Promise<number> {
       const hasSameWarnings = reference ? JSON.stringify(reference.boardLayout.warnings) === JSON.stringify(current.boardLayout.warnings) : null;
       const hasSameLayout = reference ? JSON.stringify(reference.boardLayout) === JSON.stringify(current.boardLayout) : null;
       const failsWarnings = values['same-warnings'] && hasSameWarnings === false;
+      const failsLayout = values['same-layout'] && hasSameLayout === false;
       const wiresThroughBoxes = values['expect-routed'] ? wiresThroughBoxesOf(board, current.boardLayout) : null;
       const unroutedWarnings = current.boardLayout.warnings.filter((warning) => warning.includes('found no clear route')).length;
       const failsRouting = wiresThroughBoxes !== null && (wiresThroughBoxes > 0 || unroutedWarnings > 0);
-      if (isOverBudget || failsWarnings || failsRouting) failureCount += 1;
+      if (isOverBudget || failsWarnings || failsLayout || failsRouting) failureCount += 1;
       console.log(JSON.stringify({ size, strokeCount, storedBytes: storedBytesOf(board), layoutMs: current.layoutMs, referenceLayoutMs: reference?.layoutMs ?? null, budgetMs, isOverBudget, hasSameWarnings, hasSameLayout, wiresThroughBoxes, warnings: current.boardLayout.warnings.length }));
     }
   } finally {

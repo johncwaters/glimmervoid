@@ -941,5 +941,5 @@ function buildGraphOn(givenPrepared: PreparedObstacles, ports: readonly GraphPor
   return graph;
 }
 
-export { buildGraphOn, CLEARANCE, prepareObstacles };
+export { buildGraphOn, CLEARANCE, firstIndexAbove, prepareObstacles };
 export type { GraphPort, VisibilityGraph };
