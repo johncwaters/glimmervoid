@@ -1,4 +1,4 @@
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, boardSheetTextFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_SCROLL_MESSAGE, BoardPageGesture, BoardPageScrolled, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, boardSheetTextFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
@@ -10,6 +10,8 @@ import { WHEEL_ZOOM_STEP } from './board-edit.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
+import { routeWheel, settleReply } from './page-wheel-latch-core.ts';
+import type { WheelLatch } from './page-wheel-latch-core.ts';
 import { parseSheetText, sheetDelimiterOfMime } from '#shared/sheet-csv-core.ts';
 import { emphasisSegmentsOf, screenplayLinesOf, screenplayPagesOf } from '../doc-editor/fountain-style-core.ts';
 
@@ -288,6 +290,25 @@ interface BoardMediaLayerOptions {
   onPanFromPage: (deltaX: number, deltaY: number) => void;
 }
 
+export interface BoardWheel {
+  atMs: number;
+  boxIdUnderPointer: string | null;
+  boardPoint: { x: number; y: number };
+  deltaX: number;
+  deltaY: number;
+  screenPixelsPerBoardUnit: number;
+}
+
+function pagePointOf(page: ShownPage, boardPoint: { x: number; y: number }): { x: number; y: number } {
+  const radians = (-page.turn.angle * Math.PI) / 180;
+  const offsetX = boardPoint.x - page.turn.pivot.x;
+  const offsetY = boardPoint.y - page.turn.pivot.y;
+  const unturnedX = page.turn.pivot.x + offsetX * Math.cos(radians) - offsetY * Math.sin(radians);
+  const unturnedY = page.turn.pivot.y + offsetX * Math.sin(radians) + offsetY * Math.cos(radians);
+  const pagePixelsPerBoardUnit = page.viewportWidth / page.media.width;
+  return { x: (unturnedX - page.media.x) * pagePixelsPerBoardUnit, y: (unturnedY - page.media.y) * pagePixelsPerBoardUnit };
+}
+
 function clampToSpan(delta: number, span: number): number {
   return Math.min(span, Math.max(-span, delta));
 }
@@ -300,6 +321,41 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
   let interactiveBoxId: string | null = null;
   let pageListening: AbortController | null = null;
   let linkStateByBoxId = new Map<string, LinkStateOfBox>();
+  let wheelLatch: WheelLatch = { state: 'idle' };
+
+  window.addEventListener('message', (event) => {
+    if (wheelLatch.state !== 'pending') return;
+    const pendingBoxId = wheelLatch.boxId;
+    const pendingFrame = placedByBoxId.get(pendingBoxId)?.frame;
+    if (!pendingFrame || event.source !== pendingFrame.contentWindow) return;
+    const reply = BoardPageScrolled.safeParse(event.data);
+    if (!reply.success) return;
+    const settled = settleReply(wheelLatch, pendingBoxId, reply.data.hasScrolled);
+    wheelLatch = settled.latch;
+    if (settled.boardPan) options.onPanFromPage(-settled.boardPan.deltaX, -settled.boardPan.deltaY);
+  });
+
+  function livePageFrameOf(boxId: string | null): { page: ShownPage; frame: HTMLIFrameElement } | null {
+    if (boxId === null) return null;
+    const frame = placedByBoxId.get(boxId)?.frame;
+    const page = shownPages.find((shownPage) => shownPage.boxId === boxId);
+    if (!frame || !page) return null;
+    return { page, frame };
+  }
+
+  function takesWheel(wheel: BoardWheel): boolean {
+    const pageUnderPointer = livePageFrameOf(wheel.boxIdUnderPointer);
+    const routed = routeWheel(wheelLatch, { atMs: wheel.atMs, pageBoxIdUnderPointer: pageUnderPointer ? pageUnderPointer.page.boxId : null, deltaX: wheel.deltaX, deltaY: wheel.deltaY });
+    wheelLatch = routed.latch;
+    if (routed.heldBoardPan) options.onPanFromPage(-routed.heldBoardPan.deltaX, -routed.heldBoardPan.deltaY);
+    if (routed.route.to === 'board') return false;
+    const latchedPage = livePageFrameOf(routed.route.boxId);
+    if (!latchedPage) return false;
+    const pagePoint = pagePointOf(latchedPage.page, wheel.boardPoint);
+    const pagePixelsPerScreenPixel = latchedPage.page.viewportWidth / latchedPage.page.media.width / wheel.screenPixelsPerBoardUnit;
+    latchedPage.frame.contentWindow?.postMessage({ type: BOARD_PAGE_SCROLL_MESSAGE, pageX: pagePoint.x, pageY: pagePoint.y, deltaX: wheel.deltaX * pagePixelsPerScreenPixel, deltaY: wheel.deltaY * pagePixelsPerScreenPixel }, '*');
+    return true;
+  }
 
   function latestDialValuesOf(boxId: string): Readonly<Record<string, DialValue>> {
     return shownPages.find((page) => page.boxId === boxId)?.media.dialValues ?? {};
@@ -424,7 +480,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     setInteractiveBox(null);
   }
 
-  return { element: layer, sync, showArea, clear, setInteractiveBox, setLinkStates };
+  return { element: layer, sync, showArea, clear, setInteractiveBox, setLinkStates, takesWheel };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;

@@ -14,6 +14,7 @@ import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, Resi
 import { elbowCornersAfterShift, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
+import type { BoardWheel } from './board-media-layer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
 import { boardIndexOf, linkedIdsOf } from '#shared/whiteboard-board-index.ts';
@@ -101,6 +102,7 @@ interface BoardEditorOptions {
   onClipboardNotice: (notice: ClipboardNotice) => void;
   onContextMenu: (clientX: number, clientY: number, target: ContextMenuTarget) => void;
   onPresentChange: (isPresenting: boolean) => void;
+  takesWheel: (wheel: BoardWheel) => boolean;
 }
 
 export interface PressedImage {
@@ -1577,6 +1579,16 @@ export function createBoardEditor(options: BoardEditorOptions) {
       zoomAround(toViewPoint(event.clientX, event.clientY), event.deltaY > 0 ? WHEEL_ZOOM_STEP : 1 / WHEEL_ZOOM_STEP);
       return;
     }
+    const hit = hitAt(event.clientX, event.clientY);
+    const isTakenByPage = options.takesWheel({
+      atMs: event.timeStamp,
+      boxIdUnderPointer: hit?.kind === 'box' ? hit.id : null,
+      boardPoint: toViewPoint(event.clientX, event.clientY),
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      screenPixelsPerBoardUnit: camera.scale,
+    });
+    if (isTakenByPage) return;
     panByPixels(-event.deltaX, -event.deltaY);
   }
 

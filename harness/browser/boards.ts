@@ -1732,6 +1732,38 @@ async function verifyPageDials(open: OpenBoard): Promise<void> {
   await boardWithout(open, 'the dials page is removed', isDialsPage);
 }
 
+const WHEEL_GESTURE_END_WAIT_MS = 400;
+const TALL_PAGE_HTML = '<!doctype html><html><body><div style="height:6000px">tall page</div></body></html>';
+
+async function verifyWheelScrollsIdlePage(open: OpenBoard): Promise<void> {
+  const { page, panel } = open;
+  await dropFileOnCanvas(panel, { name: 'tall.html', type: 'text/html', base64: Buffer.from(TALL_PAGE_HTML).toString('base64') }, { x: 200, y: 300 });
+  const isTallPage = (element: BoardElement) => element.kind === 'box' && element.media?.kind === 'page' && element.media.alt === 'tall.html';
+  const tallBox = await elementWhere(open, 'the dropped tall page', isTallPage);
+  const tallMedia = panel.locator(`.wb-media[data-box-id="${tallBox.id}"]`);
+  await tallMedia.locator('iframe').waitFor();
+  await deselectAll(open);
+  const tallRoot = page.frameLocator(`.wb-media[data-box-id="${tallBox.id}"] iframe`).locator('html');
+  await tallRoot.getByText('tall page').waitFor();
+  const worldTransform = () => panel.locator('.wb-world').evaluate((world) => world instanceof HTMLElement ? world.style.transform : '');
+  const pageScrollTop = () => tallRoot.evaluate(() => document.scrollingElement?.scrollTop ?? 0);
+  const tallBounds = await tallMedia.boundingBox();
+  assert.ok(tallBounds);
+  await page.mouse.move(tallBounds.x + tallBounds.width / 2, tallBounds.y + tallBounds.height / 2);
+  const transformBeforeScroll = await worldTransform();
+  await page.mouse.wheel(0, 120);
+  await pollFor('a wheel over an idle page scrolls the page', BOARD_TIMEOUT_MS, async () => ((await pageScrollTop()) > 0 ? true : null));
+  await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(WHEEL_GESTURE_END_WAIT_MS);
+  assert.equal(await worldTransform(), transformBeforeScroll, 'a wheel that scrolls a page leaves the board where it was');
+  await tallRoot.evaluate(() => document.scrollingElement?.scrollTo(0, document.scrollingElement.scrollHeight));
+  await page.waitForTimeout(WHEEL_GESTURE_END_WAIT_MS);
+  await page.mouse.wheel(0, 120);
+  await pollFor('a wheel over a page at its end pans the board', BOARD_TIMEOUT_MS, async () => ((await worldTransform()) !== transformBeforeScroll ? true : null));
+  await controlReplyOf(page, 'whiteboard-op', { boardId: open.boardId, ops: [{ op: 'remove', id: tallBox.id }] });
+  await boardWithout(open, 'the tall page is removed', isTallPage);
+}
+
 async function verifyCtrlWheelOverInteractivePageZoomsBoard({ page, panel }: OpenBoard, pageMedia: Locator): Promise<void> {
   const worldScale = () => panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).a);
   const scaleBefore = await worldScale();
@@ -2318,6 +2350,7 @@ export async function verifyBoards(page: Page, layout: Layout, sessionId: string
     await verifyNoteShapes(open);
     await verifyLineEditing(open);
     await verifyPageDials(open);
+    await verifyWheelScrollsIdlePage(open);
     await verifyDroppedPicture(open);
     await verifyLiveMedia(open);
     if (desktopBoard) await verifyBoardDoc(open);

@@ -79,6 +79,9 @@ export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';
 export const BOARD_PAGE_THEME_MESSAGE = 'glimmervoid-theme';
 export const BOARD_PAGE_GESTURE_MESSAGE = 'glimmervoid-board-page-gesture';
 export const BOARD_PAGE_ZOOMED_MESSAGE = 'glimmervoid-board-page-zoomed';
+export const BOARD_PAGE_SCROLL_MESSAGE = 'glimmervoid-board-page-scroll';
+export const BOARD_PAGE_SCROLLED_MESSAGE = 'glimmervoid-board-page-scrolled';
+export const BoardPageScrolled = z.object({ type: z.literal(BOARD_PAGE_SCROLLED_MESSAGE), hasScrolled: z.boolean() }).strict();
 
 const PagePixels = z.number().finite();
 export const BoardPageGesture = z.discriminatedUnion('gesture', [

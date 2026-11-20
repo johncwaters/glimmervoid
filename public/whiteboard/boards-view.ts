@@ -1740,6 +1740,7 @@ export function mountBoardHost(): HTMLElement {
     onClipboardNotice: (notice) => status.show(notice === 'cut' ? 'ok' : 'error', CLIPBOARD_NOTICE_TEXT[notice]),
     onContextMenu: openBoardContextMenu,
     onPresentChange: (isPresenting) => showPresenting(canvas, isPresenting),
+    takesWheel: (wheel) => mediaLayer.takesWheel(wheel),
   });
   contextMenu = createBoardContextMenu(canvas, viewport);
 
