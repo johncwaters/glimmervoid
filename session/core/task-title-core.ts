@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { RefinedTaskTitle, TASK_TITLE_CONTROL_CHARACTERS, TASK_TITLE_MAX_LENGTH } from '../../shared/contracts/session.ts';
 import { isAutoNameOf, nextSuggestedName } from '../../shared/session-naming.ts';
 import { firstCodePoints } from '../../shared/text.ts';
+import { unwrapPastedContent } from '../../shared/pasted-content.ts';
 import { PersistedTaskTitle, TASK_TITLE_SOURCE_PRIORITY } from '../../shared/contracts/config.ts';
 import type { TaskTitleSources } from '../../shared/contracts/config.ts';
 import { AUTO_CONTINUE_PROMPT } from './auto-resume.ts';
@@ -118,9 +119,9 @@ export function seedTaskTitleSources({ persistedTitle, resumeSessionId, customTi
   return { ...parsed.data.sources, pendingPromptTitle: null, customTitle };
 }
 
-const envelopePattern = (tag: string) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\s*>`, 'gi');
+const envelopePattern = (tag: string) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\b[^>]*>`, 'gi');
 const TASK_NOTIFICATION_ENVELOPE_PATTERN = envelopePattern('task-notification');
-const PROMPT_ENVELOPE_PATTERNS = [envelopePattern('pasted_content'), envelopePattern('system-reminder'), TASK_NOTIFICATION_ENVELOPE_PATTERN];
+const PROMPT_ENVELOPE_PATTERNS = [envelopePattern('system-reminder'), TASK_NOTIFICATION_ENVELOPE_PATTERN];
 const MIN_SUBSTANTIVE_WORDS = 3;
 const CONTINUATION_PROMPTS = new Set([
   'yes please continue', 'please go ahead', 'go ahead please', 'keep going please',
@@ -132,7 +133,7 @@ function continuationKey(prompt: string): string {
 }
 
 export function cleanTaskPrompt(prompt: string): string {
-  let cleanedPrompt = prompt;
+  let cleanedPrompt = unwrapPastedContent(prompt);
   for (const pattern of PROMPT_ENVELOPE_PATTERNS) cleanedPrompt = cleanedPrompt.replace(pattern, ' ');
   return cleanedPrompt.replace(/\s+/g, ' ').trim();
 }

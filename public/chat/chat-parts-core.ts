@@ -5,6 +5,7 @@ import type { ChatCard, ChatPart, TurnPart } from './chat-part.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
+import { unwrapPastedContent } from '#shared/pasted-content.ts';
 import { fileEditsOf, truncatedFileEditsOf, toolLabelOf } from './turn-digest-core.ts';
 import type { FileEdit, FileEditTally, TurnSegment } from './turn-digest-core.ts';
 
@@ -176,7 +177,7 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   const part = nonPromptPartOf(state, record);
   if (part !== null || record.kind === 'assistant') state.latestPrompt = null;
   if (record.kind !== 'prompt') return part;
-  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: record.text, at: record.ts, attachments: [] }, state.pendingAttachments);
+  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: unwrapPastedContent(record.text), at: record.ts, attachments: [] }, state.pendingAttachments);
   state.pendingAttachments = null;
   state.latestPrompt = prompt;
   return prompt;

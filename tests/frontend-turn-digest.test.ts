@@ -60,3 +60,19 @@ test('every first-class agent edit input counts toward the turn files and change
     assert.deepEqual(endedTurnFacts(editCalls), { toolCount: 3, fileCount: 3, added: 6, removed: 2, hasLineCounts: true, durationText: '8s' }, agent);
   }
 });
+
+function promptTextsOf(records: readonly TraceRecord[]) {
+  const { parts } = appendChatRecords(createChatPartsState(WORKING_DIRECTORY), records);
+  return parts.flatMap((part) => (part.kind === 'prompt' ? [{ text: part.text, attachments: part.attachments }] : []));
+}
+
+test('a prompt Claude Code wrapped as pasted content shows the pasted text with any typed text around it', () => {
+  const recordOf = (text: string): TraceRecord => ({ kind: 'prompt', text, ts: 1_000, uuid: null, parentUuid: null, vendorSessionId: 'vendor' });
+  assert.deepEqual(promptTextsOf([recordOf('\n\n<pasted_content id="d831">\nBoard cards should scroll\n\nlike pages\n</pasted_content id="d831">')]), [{ text: 'Board cards should scroll\n\nlike pages', attachments: [] }]);
+  assert.deepEqual(promptTextsOf([recordOf('see this:\n<pasted_content id="a1">\npasted body\n</pasted_content id="a1">\nthanks')]), [{ text: 'see this:\npasted body\nthanks', attachments: [] }]);
+  assert.deepEqual(promptTextsOf([recordOf('<pasted_content id="z9">\nquote: <pasted_content id="a1">x</pasted_content id="a1">\n</pasted_content id="z9">')]), [{ text: 'quote: <pasted_content id="a1">x</pasted_content id="a1">', attachments: [] }]);
+  const imageName = '2026-11-19T23-02-41-516Z-f8f5932a-chat.png';
+  const pastedPrefix = `/uploads/${imageName}`;
+  const attachments: TraceRecord = { kind: 'attachments', files: [imageName], pastedPrefix, ts: 900, uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  assert.deepEqual(promptTextsOf([attachments, recordOf(`\n\n<pasted_content id="b2">\n${pastedPrefix} what is wrong here\n</pasted_content id="b2">`)]), [{ text: 'what is wrong here', attachments: [imageName] }]);
+});

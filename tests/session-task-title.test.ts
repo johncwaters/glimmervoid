@@ -60,7 +60,7 @@ test('sessions retain and emit only the last five cleaned substantive prompts fr
     const emittedPrompts: string[] = [];
     session.on('task-prompt', ({ prompt }: { prompt: string }) => emittedPrompts.push(prompt));
     for (let index = 0; index < 7; index++) {
-      session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: index, payload: { prompt: `<pasted_content id="x">Hidden</pasted_content> Implement task number ${index}` } });
+      session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: index, payload: { prompt: `\n\n<pasted_content id="x">\nImplement task number ${index}\n</pasted_content id="x">` } });
     }
     session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: 8, payload: { prompt: 'yes please continue' } });
     assert.equal(emittedPrompts.length, 7);
