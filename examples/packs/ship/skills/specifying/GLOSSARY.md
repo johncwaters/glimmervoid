@@ -6,10 +6,10 @@ the same thing. A doc that leans on these terms opens with a `Terms:` line citin
 - **design spec**: The single document that states what a feature is, what it is not, and
   every decision behind it, complete enough that an agent holding none of the originating
   conversation could build it. It is a typed JSON graph of nodes and edges that the `specifying`
-  skill writes to `~/.agents/specs/<repo>/<slug>.json`; `ai/skills/specifying/lib/graph.ts` is
+  skill writes to `~/.local/state/ship/specs/<repo>/<slug>.json`; `lib/graph.ts` is
   the type, and a write hook refuses a graph that breaks it. Once its tickets are built,
-  it moves to `~/.agents/spec-archive/<repo>/` to review spec effectiveness over time,
-  outside `~/.agents/specs` so no agent resumes or trusts a design that drifts from the
+  it moves to `~/.local/state/ship/spec-archive/<repo>/` to review spec effectiveness over time,
+  outside `~/.local/state/ship/specs` so no agent resumes or trusts a design that drifts from the
   code; the ship spec gate lets an edit through once a valid spec there names the checkout.
   It replaces the Claude Code plan as what `challenging-plans` judges.
 - **sketch**: The first draft of a design spec, written from the feature request and a read

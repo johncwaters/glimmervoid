@@ -92,7 +92,7 @@ function isSpecValid(specPath) {
 }
 
 function validSpecFor(checkout) {
-  const specDirectory = path.join(os.homedir(), ".agents", "specs", checkout.repoName);
+  const specDirectory = path.join(os.homedir(), ".local", "state", "ship", "specs", checkout.repoName);
   const specNames = (() => {
     try { return fs.readdirSync(specDirectory); } catch { return []; }
   })();

@@ -38,7 +38,7 @@ leave the feature branch pushed and unpromoted, and report the conflicting files
 
 ## Push and promote recovery
 
-A SessionStart `Parked branches:` entry is an unfinished landing from `~/.agents/commit-ledger.jsonl` (or the absolute `CLAUDE_COMMIT_LEDGER` override).
+A SessionStart `Parked branches:` entry is an unfinished landing from `~/.local/state/ship/commit-ledger.jsonl` (or the absolute `CLAUDE_COMMIT_LEDGER` override).
 Return to the listed branch, rerun preflight, follow the outcome's recovery instructions, then rerun `land.ts` with the original flags, which retries a failed push.
 
 `PUSH_FAILED` and `PROMOTE_FAILED` are yours to resolve the same way. `warnings` names the

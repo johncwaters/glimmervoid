@@ -10,7 +10,7 @@
   "hooks": [
     {
       "id": "spec-gate",
-      "description": "Refuses the first edit in a git checkout until a valid design spec under ~/.agents/specs names it; a retry in the same session goes through.",
+      "description": "Refuses the first edit in a git checkout until a valid design spec under ~/.local/state/ship/specs names it; a retry in the same session goes through.",
       "event": "beforeTool",
       "tools": ["edit"],
       "command": ["node", "{packDir}/hooks/spec-gate.mjs"],

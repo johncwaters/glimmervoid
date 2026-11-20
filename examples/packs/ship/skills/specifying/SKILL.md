@@ -11,7 +11,7 @@ Terms: design spec, sketch, branch, question round, decision, design node, open 
 
 **Input.** The feature in the operator's words and the repo in the working directory.
 
-**Output.** A design spec at `~/.agents/specs/<repo>/<slug>.json` with status `challenged`, its intent file beside it, and the intent built.
+**Output.** A design spec at `~/.local/state/ship/specs/<repo>/<slug>.json` with status `challenged`, its intent file beside it, and the intent built.
 
 **Paths.** `<skill-dir>` is the directory you loaded this SKILL.md from; the scripts and `subskills/` live there, whichever agent runs the skill.
 

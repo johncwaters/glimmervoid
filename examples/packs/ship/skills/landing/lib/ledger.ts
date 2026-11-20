@@ -60,7 +60,7 @@ export function ledgerPath(): string {
   if (configuredPath !== undefined && isAbsolute(configuredPath)) {
     return configuredPath;
   }
-  return join(homedir(), ".agents", "commit-ledger.jsonl");
+  return join(homedir(), ".local", "state", "ship", "commit-ledger.jsonl");
 }
 
 export function entryPathsAreAbsolute(entry: ParkedEntry): boolean {
