@@ -1525,6 +1525,10 @@
     {
       "name": "alert",
       "definition": "A signal that a session needs the operator, raised as an alert sound, a desktop notification or a Telegram message until acknowledged"
+    },
+    {
+      "name": "studio",
+      "definition": "The desktop header view that shows one session on its repo's code map with plan steps, a chat dock and board asks"
     }
   ],
   "retired": [

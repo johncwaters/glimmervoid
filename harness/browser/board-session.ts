@@ -133,5 +133,5 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await root.isHidden(), true, 'the Board tab hides when Focus opens');
+  assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');
 }
