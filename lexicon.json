@@ -1510,6 +1510,10 @@
     {
       "name": "board ask",
       "definition": "A question a session puts to the operator on its repo's code map with the whiteboard ask action: a note box carrying the ask field, wired dashed to the box it is about; answering it on the Board tab sends the answer to that session as a chat message, then removes the note"
+    },
+    {
+      "name": "sign",
+      "definition": "As in sign in and sign out: to log an agent account into or out of its agent CLI, from Settings > Accounts or a session's account switch"
     }
   ],
   "retired": [
