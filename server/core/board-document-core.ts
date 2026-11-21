@@ -9,7 +9,7 @@ type BoardDocument = { headerLine: string; lineById: ReadonlyMap<string, string>
 type DecodedDocument = { ok: true; document: BoardDocument; content: BoardContent } | { ok: false; error: string };
 
 const STACKED_DOCUMENT_VERSION = BOARD_FILE_VERSION + 1;
-const READABLE_DOCUMENT_VERSIONS = [BOARD_FILE_VERSION, STACKED_DOCUMENT_VERSION] as const;
+const READABLE_DOCUMENT_VERSIONS = [BOARD_FILE_VERSION - 1, BOARD_FILE_VERSION, STACKED_DOCUMENT_VERSION] as const;
 
 const BoardDocumentHeader = z.object({
   format: z.literal(BOARD_FILE_FORMAT, { error: 'this is not a Glimmervoid board document' }),

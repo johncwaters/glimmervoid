@@ -22,7 +22,7 @@ const WIRE_WIDTH_LABELS: Readonly<Record<Wire['width'], string>> = { thin: 'Thin
 const WIRE_ROUTE_LABELS: Readonly<Record<Wire['route'], string>> = { elbow: 'Elbow', sharp: 'Sharp', curved: 'Curved' };
 const WIRE_ARROW_LABELS: Readonly<Record<Wire['arrows'], string>> = { none: 'None', end: 'End', both: 'Both' };
 const WIRE_ARROW_NAMES: Readonly<Record<Wire['arrows'], string>> = { none: 'No arrowheads', end: 'Arrowhead at the end', both: 'Arrowheads at both ends' };
-const TEXT_SIZE_NAMES: Readonly<Record<TextSize, string>> = { S: 'Small', M: 'Medium', L: 'Large' };
+const TEXT_SIZE_NAMES: Readonly<Record<TextSize, string>> = { S: 'Small', M: 'Medium', L: 'Large', XL: 'Extra large' };
 
 function toneSwatch(tone: NoteTone): SVGSVGElement {
   const swatch = createSvgIcon(SWATCH_SIZE_PX, SWATCH_SIZE_PX);

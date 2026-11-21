@@ -1,5 +1,5 @@
 import { BRAND_ACCENT } from './brand-mark.ts';
-import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES } from './contracts/whiteboard.ts';
+import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES, TITLE_GRADIENT_HEX } from './contracts/whiteboard.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';
@@ -70,6 +70,7 @@ ${NOTE_TONES.map((tone) => `.wb-tone-${tone} .wb-box-outline { fill: ${NOTE_TONE
 .wb-legend-swatch.wb-box-outline { stroke-width: 1.6; }
 .wb-box-title { fill: #e6e0f5; font-size: 16px; font-weight: 700; }
 ${TEXT_SIZES.map((size) => `.wb-text-${size} .wb-box-title, .wb-text-${size} .wb-box-was { font-size: ${16 * TITLE_SCALE_BY_TEXT_SIZE[size]}px; }`).join('\n')}
+.wb-title-gradient .wb-box-title { fill: url(#wb-title-gradient); }
 .wb-box-line { fill: #a79fc4; font-size: 12px; }
 .wb-box-line.wb-muted { fill: #857d9e; }
 .wb-line-code { fill: #c4b5fd; }
@@ -352,7 +353,8 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
   const toneClass = box.tone ? ` wb-tone-${box.tone}` : '';
   const borderlessClass = box.isBorderless ? ' wb-borderless' : '';
   const textSizeClass = box.textSize === 'M' ? '' : ` wb-text-${box.textSize}`;
-  return elementGroup(box, `wb-box${shapeClass}${borderlessClass}${toneClass}${textSizeClass}${stepClass}${changeClass}`, parts);
+  const titleGradientClass = box.hasTitleGradient ? ' wb-title-gradient' : '';
+  return elementGroup(box, `wb-box${shapeClass}${borderlessClass}${toneClass}${textSizeClass}${titleGradientClass}${stepClass}${changeClass}`, parts);
 }
 
 function frameMarkup(frame: LaidOutFrame): string {
@@ -459,7 +461,9 @@ function definitionsMarkup(iconNames: readonly IconName[] = ICON_NAMES): string 
   const arrowMarker = tag('marker', { id: 'wb-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, arrowhead);
   const gridDot = tag('circle', { cx: 1, cy: 1, r: 1, class: 'wb-grid-dot' });
   const gridPattern = tag('pattern', { id: 'wb-grid', width: BOARD_GRID_SPACING, height: BOARD_GRID_SPACING, patternUnits: 'userSpaceOnUse' }, gridDot);
-  return tag('defs', {}, arrowMarker + gridPattern + iconNames.map(iconSymbolMarkup).join(''));
+  const titleGradientStops = TITLE_GRADIENT_HEX.map((color, index) => tag('stop', { offset: index / Math.max(1, TITLE_GRADIENT_HEX.length - 1), 'stop-color': color })).join('');
+  const titleGradient = tag('linearGradient', { id: 'wb-title-gradient', x1: 0, y1: 0, x2: 1, y2: 0 }, titleGradientStops);
+  return tag('defs', {}, arrowMarker + gridPattern + titleGradient + iconNames.map(iconSymbolMarkup).join(''));
 }
 
 function iconNamesOf(layout: BoardLayout): IconName[] {
