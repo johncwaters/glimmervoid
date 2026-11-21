@@ -396,7 +396,7 @@ test('show puts a file named relative to the session on a board as a card, count
   }
 });
 
-test('a whiteboard put that renames its board still returns its plan steps, get returns them too, and view returns a PNG of the board', async () => {
+test('a whiteboard put that renames its board still returns its plan steps, get returns them too, view returns a PNG of the board, and each put counts the puts since the session last viewed it', async () => {
   const { credential } = bootedBackend();
   const created = await newBoardAfterLeavingOthers(credential, 'mcp plan');
   assert.notEqual(created.isError, true, JSON.stringify(created));
@@ -422,6 +422,14 @@ test('a whiteboard put that renames its board still returns its plan steps, get 
   assert.equal(picture?.type, 'image');
   assert.equal(picture?.mimeType, 'image/png');
   assert.deepEqual([...Buffer.from(picture?.data ?? '', 'base64').subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+
+  const unviewedCountsAfterView: (string | undefined)[] = [];
+  for (const id of ['cache', 'queue']) {
+    const nextPut = await resultOf(await callMcp('tools/call', { name: 'whiteboard', arguments: { action: 'put', board: 'mcp plan renamed', ops: [{ op: 'add', element: { kind: 'box', id, title: id, place: 'aside' } }] } }, credential));
+    const { warnings = [] } = nextPut.structuredContent as { warnings?: string[] };
+    unviewedCountsAfterView.push(warnings.find((warning) => warning.includes('since it last viewed this board'))?.split(' by ')[0]);
+  }
+  assert.deepEqual(unviewedCountsAfterView, ['1 put', '2 puts']);
 });
 
 test('whiteboard view pictures only a named region at twice its size, and render writes the whole board to a PNG or SVG file at the named path', async () => {

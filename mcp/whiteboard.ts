@@ -18,13 +18,32 @@ async function boardIdFor(layouts: WhiteboardLayouts | null, boardRef: unknown, 
   return found.ok ? found.boardId : null;
 }
 
+const putsSinceViewBySession = new WeakMap<Session, Map<string, number>>();
+
+function countPutSinceView(session: Session, boardId: string): number {
+  const putsSinceViewByBoardId = putsSinceViewBySession.get(session) ?? new Map<string, number>();
+  putsSinceViewBySession.set(session, putsSinceViewByBoardId);
+  const putsSinceView = (putsSinceViewByBoardId.get(boardId) ?? 0) + 1;
+  putsSinceViewByBoardId.set(boardId, putsSinceView);
+  return putsSinceView;
+}
+
+function bodyWithUnviewedPutWarning(session: Session, boardId: string | null, payload: Record<string, unknown>, body: Record<string, unknown>): Record<string, unknown> {
+  if (payload.sub !== 'put' || !boardId) return body;
+  const putsSinceView = countPutSinceView(session, boardId);
+  const putCount = putsSinceView === 1 ? '1 put' : `${putsSinceView} puts`;
+  const earlierWarnings = Array.isArray(body.warnings) ? body.warnings : [];
+  return { ...body, warnings: [...earlierWarnings, `${putCount} by this session since it last viewed this board; view it to see what you drew before calling the work done`] };
+}
+
 async function boardReplyWithReading(session: Session, agentApi: AgentApiPort, layouts: WhiteboardLayouts | null, payload: Record<string, unknown>): Promise<AgentReply> {
   const boardId = await boardIdFor(layouts, payload.board, session.path);
   const reply = await agentApi.handle(session, 'whiteboard', { ...payload, board: boardId ?? payload.board });
   if (reply.body.ok !== true) return reply;
+  const body = bodyWithUnviewedPutWarning(session, boardId, payload, reply.body);
   const reading = boardId ? await layouts?.readingOf(boardId).catch(() => null) : null;
-  if (!reading) return { status: reply.status, body: { ...reply.body, readingError: UNREAD_BOARD_TEXT } };
-  return { status: reply.status, body: { ...reply.body, readingVersion: reading.version, plan: reading.plan, layoutWarnings: reading.layoutWarnings } };
+  if (!reading) return { status: reply.status, body: { ...body, readingError: UNREAD_BOARD_TEXT } };
+  return { status: reply.status, body: { ...body, readingVersion: reading.version, plan: reading.plan, layoutWarnings: reading.layoutWarnings } };
 }
 
 async function boardPictureResult(session: Session, agentApi: AgentApiPort, assets: WhiteboardAssetStore | null, layouts: WhiteboardLayouts | null, payload: Record<string, unknown>): Promise<AgentReply | ToolImageResult> {
@@ -38,6 +57,7 @@ async function boardPictureResult(session: Session, agentApi: AgentApiPort, asse
   if (!reading) return UNREADABLE_LAYOUT_REPLY;
   const picture = await boardPictureFile(layouts, assets, found.boardId, { format: 'png', region: region.data, limits: VIEW_PICTURE_LIMITS });
   if (!picture.ok) return { status: picture.status, body: { ok: false, error: picture.error } };
+  putsSinceViewBySession.get(session)?.delete(found.boardId);
   return {
     content: [
       { type: 'image', data: picture.bytes.toString('base64'), mimeType: 'image/png' },
