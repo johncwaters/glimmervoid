@@ -601,7 +601,7 @@ class Session extends EventEmitter {
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
     this._chatOutbox = createChatOutbox({
-      canTakeMessage: () => this.hasLivePty && BETWEEN_PROMPT_STATES.has(this.state) && this._isAgentReadyForChat(),
+      canTakeMessage: () => this.hasLivePty && this._isBetweenTurns() && this._isAgentReadyForChat(),
       reportsTurnStarts: () => this._hooksReportPrompts,
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
@@ -1151,6 +1151,7 @@ class Session extends EventEmitter {
       this.backgroundTracking.clearGateHeldReady();
       this.backgroundTracking.resetTurnEvidence();
       this.backgroundTracking.clearBgDeclared();
+      if (this.state === STATES.RUNNING) this._chatOutbox.noteTurnTaken();
 
       const isSelfWake = isSelfWakePrompt(raw.payload?.prompt);
       if (!isSelfWake) this._dispatchAttention({ type: "operator_prompt" });
@@ -1362,7 +1363,10 @@ class Session extends EventEmitter {
     });
     const compactionDetail = isIdleCompactionActivity(this._compaction, s.signal, s.source) ? { isIdleCompactionActivity: true } : {};
     if (event) this.transition(event, { source: s.source, signal: s.signal, ...compactionDetail });
-    if (gateHeld) this.backgroundTracking.stashGateHeldReady(s);
+    if (gateHeld) {
+      this.backgroundTracking.stashGateHeldReady(s);
+      this._chatOutbox.drain();
+    }
 
     if (s.signal === "ready") this.worktreeLifecycle.scheduleCheck();
   }
@@ -2073,6 +2077,10 @@ class Session extends EventEmitter {
     const condition = this._adapter.inputReady;
     if (condition === "startup-hook" && !this._hooks.hasInjection()) return undefined;
     return condition;
+  }
+
+  _isBetweenTurns(): boolean {
+    return BETWEEN_PROMPT_STATES.has(this.state) || (this.state === STATES.RUNNING && this.backgroundTracking.heldReady() !== null);
   }
 
   _isAgentReadyForChat(): boolean {

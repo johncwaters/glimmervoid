@@ -265,6 +265,44 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   assert.deepEqual(outboxOf(), []);
 });
 
+test('a Chat message reaches Claude once its turn ends with a background shell still running, and clears when the next turn starts', async (testContext) => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-monitoring-'));
+  const writes: string[] = [];
+  const session = new Session({ id: 'monitoring', name: 'monitoring', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
+  testContext.after(() => {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  });
+  await session.start();
+  testContext.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'] });
+  const outboxOf = () => session.toSnapshot().chatOutbox.map((entry) => `${entry.text}:${entry.state}`);
+  const advance = async (waitMs: number) => {
+    for (let elapsedMs = 0; elapsedMs < waitMs; elapsedMs += 250) {
+      testContext.mock.timers.tick(250);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+
+  session.ingestHookSignal({ event: 'SessionStart', signal: 'session-start', source: 'hook', ts: 1, payload: { source: 'startup' } });
+  await advance(1_000);
+  session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 2, payload: { prompt: 'Run the regression suite in the background' } });
+  session.transition('new_output');
+  session.queueChatMessage('Is it stuck?');
+  await advance(1_000);
+  assert.deepEqual(outboxOf(), ['Is it stuck?:held']);
+
+  session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 3, payload: { background_tasks: [{ id: 'harness-run', type: 'shell', status: 'running' }] } });
+  await advance(2_000);
+  assert.equal(session.toSnapshot().awaitingBackgroundTasks, true);
+  assert.ok(writes.join('').includes('Is it stuck?'));
+  assert.deepEqual(outboxOf(), ['Is it stuck?:submitted']);
+
+  session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 4, payload: { prompt: 'Is it stuck?' } });
+  await advance(20_000);
+  assert.deepEqual(outboxOf(), []);
+  assert.equal(session.state, 'RUNNING');
+});
+
 test('a Claude session whose startup hook never arrives becomes ready at the degraded-detection deadline', async (t) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-hook-deadline-'));
   const session = new Session({ id: 'hookless', name: 'hookless', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty([]) });

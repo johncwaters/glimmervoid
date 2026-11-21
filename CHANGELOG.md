@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chat messages reach an agent that ended its turn with background work still running.** A message sent while a session showed Monitoring, its turn over but a background shell or subagent still open, used to wait until that work finished or expired, up to an hour. It now goes in as soon as the turn ends. A message sent mid-turn still waits for the turn to end.
 - **Whiteboard: shown cards stack in a straight column**: A card an agent shows while you are not looking at the board now lines up under the last shown card instead of stepping 40px further left each time.
 
 ### Changed
