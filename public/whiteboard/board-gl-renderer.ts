@@ -12,6 +12,7 @@ import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { LinkedIds } from '#shared/whiteboard-board-index.ts';
 import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
+import type { BoardFlowLayer, FlowWire } from './board-flow-layer.ts';
 import type { BlockTile } from './board-tile-store.ts';
 import { createGlyphAtlas, RASTER_PX } from './board-gl-glyphs.ts';
 import type { GlyphAtlas } from './board-gl-glyphs.ts';
@@ -81,6 +82,7 @@ interface RendererOptions {
   viewport: HTMLElement;
   fontSource: Element;
   mediaLayer: BoardMediaLayer;
+  flowLayer: BoardFlowLayer;
   notice: HTMLElement;
   onViewChange?: (view: Rect, scale: number) => void;
   onGraphicsEvent?: (event: BoardGraphicsEvent) => void;
@@ -586,7 +588,7 @@ function isWebgl2Missing(): boolean {
 }
 
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { viewport, mediaLayer, notice, onViewChange, onGraphicsEvent } = options;
+  const { viewport, mediaLayer, flowLayer, notice, onViewChange, onGraphicsEvent } = options;
   let canvas = options.canvas;
   const contextAttributes: WebGLContextAttributes = { alpha: true, antialias: false, depth: true, premultipliedAlpha: true, preserveDrawingBuffer: false };
   const initialContext = createWebgl2Context(canvas, contextAttributes);
@@ -616,6 +618,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let decorationStart: LayerRange = emptyRange();
   let previewStart: LayerRange = emptyRange();
   let preview: ScenePreview | null = null;
+  let gatheredFlows: FlowWire[] = [];
   let stackMotion: { moves: readonly StackMove[]; startMs: number; frameRequest: number } | null = null;
   let stackFan: { frameId: string; fromSpread: number; toSpread: number; spread: number; startMs: number; frameRequest: number | null } | null = null;
   let baseDrawnMediaCount = 0;
@@ -988,6 +991,12 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     glyphs.length = 0;
     visibleDrawnMedia = [];
     gatherNumber += 1;
+    gatheredFlows = [];
+    for (const index of visible) {
+      const geometry = current.geometries[index];
+      if (geometry?.flow && !preview?.hiddenIds.has(geometry.id)) gatheredFlows.push(geometry.flow);
+    }
+    syncFlowLayer();
     for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
       const range = layerRanges[layer] ?? emptyRange();
       startRange(range);
@@ -1461,6 +1470,11 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return true;
   }
 
+  function syncFlowLayer(): void {
+    const previewFlows = preview?.geometries.flatMap((geometry) => (geometry.flow ? [geometry.flow] : [])) ?? [];
+    flowLayer.sync([...gatheredFlows, ...previewFlows]);
+  }
+
   function paintElements(elements: readonly LaidOutElement[], stackSpreadOf?: (frameId: string) => number): void {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) buildScene(scene.layout);
     const current = scene;
@@ -1474,6 +1488,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const isSameHidden = preview !== null && isSameIdSet(preview.hiddenIds, hiddenIds);
     preview = { hiddenIds: isSameHidden && preview ? preview.hiddenIds : hiddenIds, geometries, elementById: new Map(elements.map((element) => [element.id, element])) };
     if (!isSameHidden) isGatherDirty = true;
+    syncFlowLayer();
     if (current.hasPageMedia) mediaLayer.sync({ ...current.layout, elements: current.layout.elements.map((element) => preview?.elementById.get(element.id) ?? element) }, current.geometries.map((geometry) => geometry.id));
     if (!isGatherDirty && gatheredArea) writePreview(current, currentPalette, glyphSource);
     requestDraw();
@@ -1648,6 +1663,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     geometryBySignature.clear();
     forgetAllMediaTextures();
     mediaLayer.clear();
+    flowLayer.clear();
     hoveredBoxId = null;
     wireTargetId = null;
     isGatherDirty = true;
@@ -1758,6 +1774,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     },
     setCamera: (nextCamera) => {
       camera = nextCamera;
+      flowLayer.showCamera(nextCamera);
       placeGrid();
       reportView();
       requestDraw();

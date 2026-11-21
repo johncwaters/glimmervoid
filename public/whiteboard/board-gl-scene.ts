@@ -14,6 +14,7 @@ import {
 } from '#shared/whiteboard-svg-core.ts';
 import { firstCodePoints } from '#shared/text.ts';
 import { iconStrokesOf } from './board-gl-icons.ts';
+import type { FlowWire } from './board-flow-layer.ts';
 
 type Rgba = readonly [number, number, number, number];
 
@@ -89,6 +90,7 @@ interface ElementGeometry {
   bounds: Rect;
   parts: LayeredPart[];
   hitShape: HitShape;
+  flow: FlowWire | null;
 }
 
 interface BoxTextRects {
@@ -584,7 +586,11 @@ function pushArrowAtEnd(part: PartBuilder, points: readonly Point[], color: Rgba
   if (tail && tip) pushArrowhead(part, tail, tip, color, MIN_ARROWHEAD_PX / ARROWHEAD_LENGTH);
 }
 
-function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
+function flowColorOf(wire: Pick<LaidOutWire, 'tone'>, palette: BoardPalette): Rgba {
+  return wire.tone === 'plain' ? palette.accent : wireColor(wire, palette);
+}
+
+function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect; flow: FlowWire | null } {
   const { palette, glyphs } = context;
   const part = createPart();
   const labelPart = createPart();
@@ -606,7 +612,8 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
     pushText(labelPart, glyphs, wire.label, wire.labelAt.x, wire.labelAt.y, labelStyle);
     bounds = unionRect(bounds, halo);
   }
-  return { parts: [{ layer: LAYER_BY_KIND.wire, part: sealPart(part) }, { layer: WIRE_LABEL_LAYER, part: sealPart(labelPart) }], hitShape: { kind: 'path', points }, bounds };
+  const flow = wire.isFlowing ? { points: drawnPoints, color: flowColorOf(wire, palette), width: wire.isBold ? BOLD_WIRE_WIDTH : WIRE_WIDTH } : null;
+  return { parts: [{ layer: LAYER_BY_KIND.wire, part: sealPart(part) }, { layer: WIRE_LABEL_LAYER, part: sealPart(labelPart) }], hitShape: { kind: 'path', points }, bounds, flow };
 }
 
 function pointsOfStroke(stroke: LaidOutStroke): Point[] {
@@ -648,7 +655,7 @@ function paintedBoundsOf(element: Rect, hitShape: HitShape): Rect {
   return { x: element.x, y: element.y, width: right - element.x, height: element.height };
 }
 
-function geometryOf(element: LaidOutElement, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect } {
+function geometryOf(element: LaidOutElement, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect; flow?: FlowWire | null } {
   switch (element.kind) {
     case 'box': return singleLayer(element, rotatedBoxGeometry(element, context));
     case 'frame': return singleLayer(element, frameGeometry(element, context));
@@ -658,8 +665,8 @@ function geometryOf(element: LaidOutElement, context: SceneContext): { parts: La
 }
 
 function elementGeometry(element: LaidOutElement, paintRank: number, context: SceneContext): ElementGeometry {
-  const { parts, hitShape, bounds } = geometryOf(element, context);
-  return { id: element.id, kind: element.kind, paintRank, bounds, parts, hitShape };
+  const { parts, hitShape, bounds, flow } = geometryOf(element, context);
+  return { id: element.id, kind: element.kind, paintRank, bounds, parts, hitShape, flow: flow ?? null };
 }
 
 function legendSwatch(part: PartBuilder, entry: BoardLayout['legend'][number], palette: BoardPalette): void {
@@ -692,7 +699,7 @@ function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeom
     pushText(part, glyphs, entry.label, labelX, entry.y + 12, { size: palette.metaSize, color: palette.inkDim });
   }
   if (layout.caption) pushText(part, glyphs, layout.caption.text, layout.caption.x, layout.caption.y + 16, { size: palette.bodySize, color: palette.inkDim });
-  return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] } };
+  return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] }, flow: null };
 }
 
 type Decoration = { kind: 'linked-wire'; wire: LaidOutWire } | { kind: 'linked-box'; box: LaidOutBox } | { kind: 'selected'; element: LaidOutElement } | { kind: 'wire-target'; element: LaidOutElement } | { kind: 'flagged'; element: LaidOutElement } | { kind: 'agent-changed'; element: LaidOutElement } | { kind: 'hover-handles'; box: LaidOutBox } | { kind: 'resize-handles'; area: Rect; angle: number } | { kind: 'wire-ends'; wire: Extract<LaidOutElement, { kind: 'wire' }> } | { kind: 'rotate-handle'; at: Point } | { kind: 'look'; element: Exclude<LaidOutElement, { kind: 'wire' }> };

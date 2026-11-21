@@ -47,6 +47,7 @@ import { countDashboardTabs } from '../dashboard-tab-lock.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
 import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
+import { createBoardFlowLayer } from './board-flow-layer.ts';
 import { createBoardMediaLayer, fetchBoardDocText, fetchBoardSheetText, tunePageOnLoad } from './board-media-layer.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
@@ -1706,7 +1707,8 @@ export function mountBoardHost(): HTMLElement {
   const glNotice = el('p', 'wb-gl-notice');
   glNotice.setAttribute('role', 'status');
   glNotice.hidden = true;
-  viewport.append(mediaLayer.backdrop, glCanvas, world);
+  const flowLayer = createBoardFlowLayer();
+  viewport.append(mediaLayer.backdrop, glCanvas, flowLayer.element, world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const pairedDisconnect = disconnectControl('session', disconnectPairedSession);
@@ -1749,6 +1751,7 @@ export function mountBoardHost(): HTMLElement {
     viewport,
     fontSource: svg,
     mediaLayer,
+    flowLayer,
     notice: glNotice,
     onViewChange: (view, scale) => {
       if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);

@@ -1592,7 +1592,7 @@ function laidOutWiresOf(drawn: readonly DrawnWire[], labelById: ReadonlyMap<stri
     return {
       kind: 'wire', id: plan.wire.id, path: pathOf(points), start: points[0] ?? plan.start, end: points[points.length - 1] ?? plan.end,
       label: plan.wire.label, labelAt: labelById.get(plan.wire.id)?.at ?? centerOf(plan.from),
-      isDashed: plan.wire.dashed, isBold: plan.wire.width === 'bold', tone: plan.wire.tone,
+      isDashed: plan.wire.dashed, isFlowing: plan.wire.flow, isBold: plan.wire.width === 'bold', tone: plan.wire.tone,
       hasArrowhead: (leader === undefined || leader === wire) && plan.wire.arrows !== 'none', hasStartArrowhead: plan.wire.arrows === 'both', route: plan.wire.route, bends: [], joinAt: joinPointOf(wire, leader),
     };
   });
@@ -1811,7 +1811,7 @@ function laidOutDirectWireOf(direct: DirectWire): LaidOutWire {
   return {
     kind: 'wire', id: wire.id, path: pathOf(points), start, end,
     label: wire.label, labelAt: roundedPoint({ x: middle.x, y: middle.y - LABEL_GAP }),
-    isDashed: wire.dashed, isBold: wire.width === 'bold', tone: wire.tone,
+    isDashed: wire.dashed, isFlowing: wire.flow, isBold: wire.width === 'bold', tone: wire.tone,
     hasArrowhead: wire.arrows !== 'none', hasStartArrowhead: wire.arrows === 'both', route: wire.route, bends: wire.via, joinAt: null,
   };
 }

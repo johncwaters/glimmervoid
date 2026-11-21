@@ -296,6 +296,7 @@ export const Wire = z.object({
   from: WireEnd.describe('the box id it starts at, or a free point'),
   to: WireEnd.describe('the box id it ends at, or a free point'),
   dashed: z.boolean().default(false),
+  flow: z.boolean().default(false).describe('true draws a glow and particles flowing along the wire from start to end while it is on screen'),
   tone: z.enum(WIRE_TONES).default('plain'),
   width: z.enum(WIRE_WIDTHS).default('thin').describe('the line weight'),
   arrows: z.enum(WIRE_ARROWS).default('end').describe('arrowheads: none, at the end, or at both ends'),
@@ -681,7 +682,7 @@ export function filledElement(element: SparseElement): Element {
     case 'box': return filledBox(element);
     case 'frame': return { kind: 'frame', id: element.id, title: element.title, contains: element.contains, collapsed: element.collapsed ?? false };
     case 'wire': return {
-      kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, tone: element.tone ?? 'plain', width: element.width ?? 'thin',
+      kind: 'wire', id: element.id, from: element.from, to: element.to, dashed: element.dashed ?? false, flow: element.flow ?? false, tone: element.tone ?? 'plain', width: element.width ?? 'thin',
       arrows: element.arrows ?? 'end', route: element.route ?? 'elbow',
       label: element.label ?? null, via: element.via ?? [], fromSide: element.fromSide ?? null, toSide: element.toSide ?? null,
     };
