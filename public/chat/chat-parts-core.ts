@@ -6,8 +6,8 @@ import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { unwrapPastedContent } from '#shared/pasted-content.ts';
-import { fileEditsOf, truncatedFileEditsOf, toolLabelOf } from './turn-digest-core.ts';
-import type { FileEdit, FileEditTally, TurnSegment } from './turn-digest-core.ts';
+import { fileEditsOf, filePatchesOf, outputHeadOf, truncatedFileEditsOf, toolLabelOf } from './turn-digest-core.ts';
+import type { FileEdit, FileEditTally, FilePatch, ToolCallEntry, TurnSegment } from './turn-digest-core.ts';
 
 interface ChatTurn {
   promptAt: number | null;
@@ -15,8 +15,15 @@ interface ChatTurn {
   segments: TurnSegment[];
   droppedSegmentCount: number;
   toolCount: number;
+  failedCount: number;
+  callByToolUseId: Map<string, ToolCallEntry>;
   editedPaths: Set<string>;
   fileEdits: FileEditTally;
+  filePatches: FilePatch[];
+  unshownPatchCount: number;
+  thinkingMs: number | null;
+  thinkingFrom: number | null;
+  previousRecordAt: number | null;
   lastAt: number;
   isOver: boolean;
 }
@@ -62,6 +69,7 @@ interface AppendedChat {
 const MAX_RESIDENT_PARTS = 2000;
 const MAX_TURN_SEGMENTS = 400;
 const MAX_RUN_LABELS = 50;
+const MAX_TURN_FILE_PATCHES = 50;
 const TRIM_BATCH_PARTS = 200;
 const MAX_REMEMBERED_SUBAGENTS = 200;
 const MAX_REMEMBERED_BACKGROUND_TASKS = 200;
@@ -73,12 +81,22 @@ export function createChatPartsState(workingDirectory: string | null = null): Ch
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
-  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, lastAt: 0, isOver: false };
+  return { promptAt, partId: null, segments: [], droppedSegmentCount: 0, toolCount: 0, failedCount: 0, callByToolUseId: new Map(), editedPaths: new Set(), fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: true }, filePatches: [], unshownPatchCount: 0, thinkingMs: null, thinkingFrom: null, previousRecordAt: null, lastAt: 0, isOver: false };
 }
 
 function durationTextOf(turn: ChatTurn): string | null {
   if (turn.promptAt === null || turn.lastAt <= turn.promptAt) return null;
-  return twoUnitDurationText(Math.max(1, Math.floor((turn.lastAt - turn.promptAt) / 1000)), { smallestUnit: 's', dropsZeroRemainder: false });
+  return secondsTextOf(turn.lastAt - turn.promptAt);
+}
+
+function secondsTextOf(durationMs: number): string {
+  return twoUnitDurationText(Math.max(1, Math.floor(durationMs / 1000)), { smallestUnit: 's', dropsZeroRemainder: false });
+}
+
+function thoughtTextOf(turn: ChatTurn): string | null {
+  if (turn.thinkingMs === null) return null;
+  const openThinkingMs = turn.thinkingFrom === null ? 0 : Math.max(0, (turn.previousRecordAt ?? turn.thinkingFrom) - turn.thinkingFrom);
+  return `thought ${secondsTextOf(turn.thinkingMs + openThinkingMs)}`;
 }
 
 function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
@@ -88,7 +106,11 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
     segments: turn.segments,
     droppedSegmentCount: turn.droppedSegmentCount,
     toolCount: turn.toolCount,
+    failedCount: turn.failedCount,
     fileEdits: { ...turn.fileEdits },
+    filePatches: [...turn.filePatches],
+    unshownPatchCount: turn.unshownPatchCount,
+    thoughtText: turn.isOver ? thoughtTextOf(turn) : null,
     durationText: turn.isOver ? durationTextOf(turn) : null,
     isOver: turn.isOver,
   };
@@ -98,13 +120,32 @@ export function endChatTurn(state: ChatPartsState): ChatPart[] {
   const { turn } = state;
   if (turn.partId === null || turn.isOver) return [];
   turn.isOver = true;
+  stopUnsettledCalls(turn);
   return [turnPartOf(turn, turn.partId)];
+}
+
+function stopUnsettledCalls(turn: ChatTurn): void {
+  for (const call of turn.callByToolUseId.values()) {
+    if (call.state !== 'running') continue;
+    call.state = 'stopped';
+    markSegmentChanged(turn, call);
+  }
+}
+
+function markSegmentChanged(turn: ChatTurn, call: ToolCallEntry): void {
+  const changedSegment = turn.segments.findLast((segment) => segment.kind === 'tools' && segment.calls.includes(call));
+  if (changedSegment?.kind === 'tools') changedSegment.settledCount += 1;
+}
+
+function forgetCalls(turn: ChatTurn, calls: readonly ToolCallEntry[]): void {
+  for (const call of calls) turn.callByToolUseId.delete(call.toolUseId);
 }
 
 function pushSegment(turn: ChatTurn, segment: TurnSegment): void {
   turn.segments.push(segment);
   if (turn.segments.length <= MAX_TURN_SEGMENTS) return;
-  turn.segments.shift();
+  const droppedSegment = turn.segments.shift();
+  if (droppedSegment?.kind === 'tools') forgetCalls(turn, droppedSegment.calls);
   turn.droppedSegmentCount += 1;
 }
 
@@ -121,16 +162,49 @@ function tallyFileEdits(turn: ChatTurn, edits: readonly FileEdit[]): void {
 function noteToolCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): void {
   const { turn } = state;
   turn.toolCount += 1;
-  const label = toolLabelOf(record.name, record.input, state.workingDirectory);
+  const call: ToolCallEntry = { toolUseId: record.toolUseId, label: toolLabelOf(record.name, record.input, state.workingDirectory), state: 'running', startedAt: record.ts, durationMs: null, outputHead: null };
+  turn.callByToolUseId.set(call.toolUseId, call);
   const lastSegment = turn.segments.at(-1);
   if (lastSegment?.kind === 'tools') {
-    lastSegment.labels.push(label);
-    if (lastSegment.labels.length > MAX_RUN_LABELS) lastSegment.labels.shift();
+    lastSegment.calls.push(call);
+    if (lastSegment.calls.length > MAX_RUN_LABELS) forgetCalls(turn, lastSegment.calls.splice(0, 1));
     lastSegment.callCount += 1;
   }
-  if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', labels: [label], callCount: 1 });
+  if (lastSegment?.kind !== 'tools') pushSegment(turn, { kind: 'tools', calls: [call], callCount: 1, settledCount: 0 });
   if (!isEditingTool(record.name)) return;
+  keepFilePatches(turn, record.truncated === true ? [] : filePatchesOf(record.input, state.workingDirectory));
   tallyFileEdits(turn, record.truncated === true ? truncatedFileEditsOf(record.input, state.workingDirectory) : fileEditsOf(record.input, state.workingDirectory));
+}
+
+function keepFilePatches(turn: ChatTurn, patches: readonly FilePatch[]): void {
+  if (patches.length === 0) turn.unshownPatchCount += 1;
+  turn.filePatches.push(...patches);
+  if (turn.filePatches.length <= MAX_TURN_FILE_PATCHES) return;
+  turn.unshownPatchCount += turn.filePatches.splice(0, turn.filePatches.length - MAX_TURN_FILE_PATCHES).length;
+}
+
+function settleToolCall(turn: ChatTurn, record: Extract<TraceRecord, { kind: 'tool_result' }>): boolean {
+  const call = turn.callByToolUseId.get(record.toolUseId);
+  if (call === undefined) return false;
+  turn.callByToolUseId.delete(record.toolUseId);
+  call.state = record.isError ? 'failed' : 'done';
+  call.durationMs = record.ts > call.startedAt ? record.ts - call.startedAt : null;
+  call.outputHead = outputHeadOf(record.content);
+  if (record.isError) turn.failedCount += 1;
+  markSegmentChanged(turn, call);
+  return true;
+}
+
+function noteThinking(turn: ChatTurn, record: TraceRecord): void {
+  if (record.kind === 'thinking' && record.text.trim().length > 0) {
+    turn.thinkingMs ??= 0;
+    turn.thinkingFrom ??= turn.previousRecordAt ?? record.ts;
+  }
+  if (record.kind !== 'thinking' && turn.thinkingFrom !== null) {
+    turn.thinkingMs = (turn.thinkingMs ?? 0) + Math.max(0, record.ts - turn.thinkingFrom);
+    turn.thinkingFrom = null;
+  }
+  turn.previousRecordAt = record.ts;
 }
 
 type TurnTouch = 'grew' | 'ran' | 'untouched';
@@ -145,7 +219,8 @@ function turnTouchOf(state: ChatPartsState, record: TraceRecord): TurnTouch {
     pushSegment(state.turn, { kind: 'text', text: record.text });
     return 'grew';
   }
-  return record.kind === 'tool_result' ? 'ran' : 'untouched';
+  if (record.kind !== 'tool_result') return 'untouched';
+  return settleToolCall(state.turn, record) ? 'grew' : 'ran';
 }
 
 function noteTurnRecord(state: ChatPartsState, record: TraceRecord, emit: (part: ChatPart) => void): void {
@@ -155,6 +230,7 @@ function noteTurnRecord(state: ChatPartsState, record: TraceRecord, emit: (part:
     state.turn = freshTurn(record.ts);
     return;
   }
+  noteThinking(state.turn, record);
   const touch = turnTouchOf(state, record);
   if (touch === 'untouched') return;
   const { turn } = state;

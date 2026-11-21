@@ -73,7 +73,7 @@ function turnBodyOf(part: Extract<ChatPart, { kind: 'turn' }>): HTMLElement {
       body.append(renderPlanBlocks(parsePlanMarkdown(segment.text)));
       continue;
     }
-    body.append(el('p', 'bs-bubble-tools', segment.labels.at(-1) ?? ''));
+    body.append(el('p', 'bs-bubble-tools', segment.calls.at(-1)?.label ?? ''));
   }
   return body;
 }

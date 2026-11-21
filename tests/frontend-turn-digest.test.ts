@@ -20,7 +20,7 @@ function endedTurnFacts(editCalls: readonly { name: string; input: unknown }[]) 
   const [endedTurn] = endChatTurn(state);
   assert.equal(endedTurn?.kind, 'turn');
   if (endedTurn?.kind !== 'turn') return null;
-  return { toolCount: endedTurn.toolCount, ...endedTurn.fileEdits, durationText: endedTurn.durationText };
+  return { toolCount: endedTurn.toolCount, ...endedTurn.fileEdits, durationText: endedTurn.durationText, patchedPaths: endedTurn.filePatches.map((filePatch) => filePatch.path) };
 }
 
 test('every first-class agent edit input counts toward the turn files and changed lines', () => {
@@ -57,7 +57,7 @@ test('every first-class agent edit input counts toward the turn files and change
     ],
   };
   for (const [agent, editCalls] of Object.entries(editCallsByAgent)) {
-    assert.deepEqual(endedTurnFacts(editCalls), { toolCount: 3, fileCount: 3, added: 6, removed: 2, hasLineCounts: true, durationText: '8s' }, agent);
+    assert.deepEqual(endedTurnFacts(editCalls), { toolCount: 3, fileCount: 3, added: 6, removed: 2, hasLineCounts: true, durationText: '8s', patchedPaths: ['a.ts', 'b.ts', 'c.ts'] }, agent);
   }
 });
 
@@ -94,4 +94,29 @@ test('a background shell the Stop payload reports running gets a row named by it
     { taskType: 'shell', label: 'Bisect the pane failure', command: 'git bisect run ./check.sh', startedAt: 2_500, endedAt: 70_000 },
     { taskType: 'monitor', label: 'm2', command: null, startedAt: 9_000, endedAt: 90_000 },
   ]);
+});
+
+test('each tool call settles from its result into the turn rows with its state, duration and output head, a call left unanswered reads stopped once the turn ends, and thinking time reaches the ended turn', () => {
+  const state = createChatPartsState(WORKING_DIRECTORY);
+  const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  appendChatRecords(state, [
+    { kind: 'prompt', text: 'Run the checks', ts: 1_000, ...recordBase },
+    { kind: 'thinking', text: 'Which checks matter here', ts: 1_500, ...recordBase },
+    toolCall('Bash', { command: 'npm test' }, 4_000),
+    toolCall('Read', { file_path: `${WORKING_DIRECTORY}/src/deep/a.ts` }, 4_100),
+    toolCall('Grep', { pattern: 'never answered' }, 4_200),
+    { kind: 'tool_result', toolUseId: 'call-4100', content: 'line one\nline two', isError: false, truncated: false, ts: 4_400, ...recordBase },
+    { kind: 'tool_result', toolUseId: 'call-4000', content: '1 failing', isError: true, truncated: false, ts: 6_000, ...recordBase },
+    { kind: 'assistant', text: 'One test fails.', ts: 7_000, ...recordBase },
+  ]);
+  const [endedTurn] = endChatTurn(state);
+  assert.equal(endedTurn?.kind, 'turn');
+  if (endedTurn?.kind !== 'turn') return;
+  const toolSegment = endedTurn.segments.find((segment) => segment.kind === 'tools');
+  assert.deepEqual(toolSegment?.kind === 'tools' ? toolSegment.calls.map(({ label, state: callState, durationMs, outputHead }) => ({ label, callState, durationMs, outputHead })) : null, [
+    { label: 'npm test', callState: 'failed', durationMs: 2_000, outputHead: '1 failing' },
+    { label: 'Read a.ts', callState: 'done', durationMs: 300, outputHead: 'line one\nline two' },
+    { label: 'Grep never answered', callState: 'stopped', durationMs: null, outputHead: null },
+  ]);
+  assert.deepEqual({ failedCount: endedTurn.failedCount, thoughtText: endedTurn.thoughtText }, { failedCount: 1, thoughtText: 'thought 2s' });
 });

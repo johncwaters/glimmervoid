@@ -8,7 +8,11 @@ import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { currentCallOf, digestTurn, isInterimReply } from './turn-digest-core.ts';
-import type { TurnSegment } from './turn-digest-core.ts';
+import type { FilePatch, ToolCallEntry, ToolCallState, TurnSegment } from './turn-digest-core.ts';
+import { paintStatusIcon } from '../status-icon.ts';
+import type { StatusIcon } from '#shared/state-icons.ts';
+import { twoUnitDurationText } from '#shared/display-text.ts';
+import { mountPatchDiff, type MountedFileDiff } from '../review/diff-view.ts';
 
 type FlatPartKind = Exclude<ChatPartKind, 'turn'>;
 type FlatPart = Exclude<ChatPart, TurnPart>;
@@ -28,6 +32,15 @@ interface TurnView {
   toolNumber: HTMLElement;
   toolWord: HTMLElement;
   currentCall: HTMLElement;
+  diff: HTMLElement;
+  diffToggle: HTMLButtonElement;
+  mountedDiffs: MountedFileDiff[];
+  isDiffOpen: boolean;
+  workEntries: WorkEntry[];
+  workSignatures: string[];
+  workEarlier: HTMLElement | null;
+  workDropped: number;
+  workIsOver: boolean | null;
   segmentKinds: TurnSegment['kind'][];
   textElements: (HTMLElement | null)[];
   droppedSegmentCount: number;
@@ -38,9 +51,14 @@ interface TurnView {
 }
 
 type ToolsSegment = Extract<TurnSegment, { kind: 'tools' }>;
+interface CallRow { element: HTMLDetailsElement; state: ToolCallState }
+interface CallsBlock { element: HTMLElement; earlier: HTMLElement; rowByToolUseId: Map<string, CallRow> }
+type WorkEntry = { kind: 'calls'; block: CallsBlock } | { kind: 'text'; element: HTMLElement | null };
 export type TurnEnd = { pill: HTMLButtonElement; list: HTMLElement };
 
 const CHEVRON_ICON_PATH = 'M6 4l4 4-4 4';
+const DIFF_ICON_PATH = 'M4 5h4M6 3v4M4 12h4';
+const STATUS_ICON_BY_CALL_STATE: Readonly<Record<ToolCallState, StatusIcon>> = { running: 'working', stopped: 'exited', done: 'complete', failed: 'failed' };
 
 export function renderAttachmentThumbnail(fileName: string, uploadUrlOf: UploadUrlOf): HTMLElement {
   const thumbnail = el('span', 'chat-prompt-thumbnail');
@@ -111,22 +129,103 @@ function renderTextSegment(text: string): HTMLElement {
   return textElement;
 }
 
-function callRowsOf(segment: ToolsSegment): HTMLElement[] {
-  const callRows = segment.labels.map((label) => el('div', 'chat-turn-call', label));
-  const unkeptCallCount = segment.callCount - segment.labels.length;
-  if (unkeptCallCount <= 0) return callRows;
-  return [el('div', 'chat-turn-call', `+ ${unkeptCallCount} earlier`), ...callRows];
+function callDurationText(durationMs: number): string {
+  if (durationMs < 1000) return `${(durationMs / 1000).toFixed(1)}s`;
+  return twoUnitDurationText(Math.floor(durationMs / 1000), { smallestUnit: 's', dropsZeroRemainder: false });
 }
 
-function workRowsOf(part: TurnPart): HTMLElement[] {
+function renderCallRow(call: ToolCallEntry): HTMLDetailsElement {
+  const row = el('details', 'chat-turn-call');
+  row.dataset.state = call.state;
+  row.toggleAttribute('data-has-output', call.outputHead !== null);
+  const summary = el('summary', 'chat-turn-call-row');
+  const icon = el('span', 'chat-turn-call-icon');
+  paintStatusIcon(icon, STATUS_ICON_BY_CALL_STATE[call.state]);
+  summary.append(icon, el('span', 'chat-turn-call-label', call.label), el('span', 'chat-turn-call-time', call.durationMs === null ? '' : callDurationText(call.durationMs)));
+  row.append(summary);
+  if (call.outputHead !== null) row.append(el('pre', 'chat-turn-call-output', call.outputHead));
+  return row;
+}
+
+function createCallsBlock(): CallsBlock {
+  const element = el('div', 'chat-turn-calls');
+  const earlier = el('div', 'chat-turn-call-note');
+  earlier.hidden = true;
+  element.append(earlier);
+  return { element, earlier, rowByToolUseId: new Map() };
+}
+
+function syncCallsBlock(block: CallsBlock, segment: ToolsSegment): void {
+  const keptToolUseIds = new Set(segment.calls.map((call) => call.toolUseId));
+  for (const [toolUseId, row] of block.rowByToolUseId) {
+    if (keptToolUseIds.has(toolUseId)) continue;
+    row.element.remove();
+    block.rowByToolUseId.delete(toolUseId);
+  }
+  for (const call of segment.calls) {
+    const shownRow = block.rowByToolUseId.get(call.toolUseId);
+    if (shownRow?.state === call.state) continue;
+    const freshRow = renderCallRow(call);
+    if (shownRow === undefined) block.element.append(freshRow);
+    if (shownRow !== undefined) {
+      freshRow.open = shownRow.element.open;
+      shownRow.element.replaceWith(freshRow);
+    }
+    block.rowByToolUseId.set(call.toolUseId, { element: freshRow, state: call.state });
+  }
+  const unkeptCallCount = segment.callCount - segment.calls.length;
+  block.earlier.hidden = unkeptCallCount <= 0;
+  block.earlier.textContent = unkeptCallCount > 0 ? `+ ${unkeptCallCount} earlier` : '';
+}
+
+function workSignatureOf(segment: TurnSegment): string {
+  return segment.kind === 'tools' ? `${segment.callCount}:${segment.settledCount}` : 'text';
+}
+
+function resetWork(view: TurnView): void {
+  view.work.replaceChildren();
+  view.workEntries = [];
+  view.workSignatures = [];
+  view.workEarlier = null;
+  view.workDropped = 0;
+}
+
+function dropLeadingWork(view: TurnView, droppedSegmentCount: number): void {
+  const newlyDroppedCount = droppedSegmentCount - view.workDropped;
+  view.workDropped = droppedSegmentCount;
+  if (newlyDroppedCount > 0) {
+    for (const entry of view.workEntries.splice(0, newlyDroppedCount)) (entry.kind === 'calls' ? entry.block.element : entry.element)?.remove();
+    view.workSignatures.splice(0, newlyDroppedCount);
+  }
+  if (droppedSegmentCount === 0) return;
+  view.workEarlier ??= el('div', 'chat-turn-call-note');
+  view.workEarlier.textContent = `+ ${droppedSegmentCount} earlier steps`;
+  if (view.work.firstChild !== view.workEarlier) view.work.prepend(view.workEarlier);
+}
+
+function workEntryOf(segment: TurnSegment, index: number, part: TurnPart, replyIndex: number): WorkEntry {
+  if (segment.kind === 'tools') return { kind: 'calls', block: createCallsBlock() };
+  const isShownText = part.isOver && index !== replyIndex;
+  return { kind: 'text', element: isShownText ? renderTextSegment(segment.text) : null };
+}
+
+function syncWork(view: TurnView, part: TurnPart): void {
+  if (view.workIsOver !== part.isOver) resetWork(view);
+  view.workIsOver = part.isOver;
+  dropLeadingWork(view, part.droppedSegmentCount);
   const replyIndex = part.isOver ? part.segments.findLastIndex((segment) => segment.kind === 'text') : -1;
-  const rows = part.segments.flatMap((segment, index) => {
-    if (index === replyIndex) return [];
-    if (segment.kind === 'tools') return callRowsOf(segment);
-    return part.isOver ? [renderTextSegment(segment.text)] : [];
-  });
-  if (part.droppedSegmentCount === 0) return rows;
-  return [el('div', 'chat-turn-call', `+ ${part.droppedSegmentCount} earlier steps`), ...rows];
+  for (const [index, segment] of part.segments.entries()) {
+    const signature = workSignatureOf(segment);
+    if (view.workSignatures[index] === signature) continue;
+    view.workSignatures[index] = signature;
+    const entry = view.workEntries[index] ?? workEntryOf(segment, index, part, replyIndex);
+    if (view.workEntries[index] === undefined) {
+      view.workEntries[index] = entry;
+      const entryElement = entry.kind === 'calls' ? entry.block.element : entry.element;
+      if (entryElement !== null) view.work.append(entryElement);
+    }
+    if (entry.kind === 'calls' && segment.kind === 'tools') syncCallsBlock(entry.block, segment);
+  }
 }
 
 function renderAsked(asked: string): HTMLElement {
@@ -135,17 +234,55 @@ function renderAsked(asked: string): HTMLElement {
   return askedElement;
 }
 
-function metaFieldsOf(part: TurnPart): HTMLElement[] {
+function editFactOf(part: TurnPart): HTMLElement {
+  const { fileEdits } = part;
+  if (!fileEdits.hasLineCounts) return el('span', 'chat-turn-fact', countText(fileEdits.fileCount, 'file', 'files'));
+  const lineCounts = el('span', 'chat-turn-fact');
+  lineCounts.append(el('span', 'chat-turn-added', `+${fileEdits.added}`), ' ', el('span', 'chat-turn-removed', `-${fileEdits.removed}`));
+  return lineCounts;
+}
+
+function metaFieldsOf(part: TurnPart, diffToggle: HTMLButtonElement): HTMLElement[] {
   const fields: HTMLElement[] = [];
   if (part.toolCount > 0) fields.push(el('span', 'chat-turn-fact', countText(part.toolCount, 'tool', 'tools')));
-  const { fileEdits } = part;
-  if (fileEdits.fileCount > 0) {
-    const files = el('span', 'chat-turn-fact', countText(fileEdits.fileCount, 'file', 'files'));
-    if (fileEdits.hasLineCounts) files.append(' ', el('span', 'chat-turn-added', `+${fileEdits.added}`), ' ', el('span', 'chat-turn-removed', `-${fileEdits.removed}`));
-    fields.push(files);
-  }
+  if (part.failedCount > 0) fields.push(el('span', 'chat-turn-fact chat-turn-failed', `${part.failedCount} failed`));
+  if (part.thoughtText !== null) fields.push(el('span', 'chat-turn-fact', part.thoughtText));
+  if (part.fileEdits.fileCount > 0) fields.push(editFactOf(part));
+  if (part.filePatches.length + part.unshownPatchCount > 0) fields.push(diffToggle);
   if (part.durationText !== null) fields.push(el('span', 'chat-turn-time', part.durationText));
   return fields;
+}
+
+function closeDiff(view: TurnView): void {
+  for (const mountedDiff of view.mountedDiffs) mountedDiff.destroy();
+  view.mountedDiffs = [];
+  view.diff.replaceChildren();
+  view.diff.hidden = true;
+}
+
+function mountFilePatch(view: TurnView, filePatch: FilePatch): void {
+  const fileHost = el('div', 'chat-turn-diff-file');
+  const diffHost = el('div', 'chat-turn-diff-body');
+  fileHost.append(el('div', 'chat-turn-diff-name', filePatch.path), diffHost);
+  view.diff.append(fileHost);
+  mountPatchDiff(diffHost, filePatch.patch, 'unified')
+    .then((mountedDiff) => {
+      if (!view.isDiffOpen || !diffHost.isConnected) {
+        mountedDiff.destroy();
+        return;
+      }
+      view.mountedDiffs.push(mountedDiff);
+    })
+    .catch((reason: unknown) => diffHost.replaceChildren(el('div', 'chat-turn-call-note', reason instanceof Error ? reason.message : String(reason))));
+}
+
+function showDiff(view: TurnView): void {
+  view.diffToggle.setAttribute('aria-expanded', String(view.isDiffOpen));
+  closeDiff(view);
+  if (!view.isDiffOpen || view.part === null) return;
+  view.diff.hidden = false;
+  for (const filePatch of view.part.filePatches) mountFilePatch(view, filePatch);
+  if (view.part.unshownPatchCount > 0) view.diff.append(el('div', 'chat-turn-call-note', `+ ${view.part.unshownPatchCount} not shown`));
 }
 
 function createTurnView(): TurnView {
@@ -162,8 +299,13 @@ function createTurnView(): TurnView {
   const toolCount = el('span', 'chat-turn-tool-count');
   toolCount.append(toolNumber, toolWord);
   const currentCall = el('span', 'chat-turn-tool');
-  element.append(body, brief, meta, work);
-  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, segmentKinds: [], textElements: [], droppedSegmentCount: 0, part: null, isOver: false, hasWork: false, isOpen: false };
+  const diffToggle = button({ variant: 'icon', size: 'small', label: 'Diff', icon: createLineIcon(DIFF_ICON_PATH, '1.6') });
+  diffToggle.classList.add('chat-turn-diff-toggle');
+  diffToggle.setAttribute('aria-expanded', 'false');
+  const diff = el('div', 'chat-turn-diff');
+  diff.hidden = true;
+  element.append(body, brief, meta, work, diff);
+  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workEntries: [], workSignatures: [], workEarlier: null, workDropped: 0, workIsOver: null, segmentKinds: [], textElements: [], droppedSegmentCount: 0, part: null, isOver: false, hasWork: false, isOpen: false };
 }
 
 function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void {
@@ -213,7 +355,7 @@ function showEndedRow(view: TurnView, part: TurnPart, turnEnd: TurnEnd | null): 
   view.element.toggleAttribute('data-foldable', digest.isFoldable);
   view.element.toggleAttribute('data-asks', digest.asked !== null);
   view.brief.replaceChildren(...(digest.asked === null ? [] : [renderAsked(digest.asked)]));
-  const metaChildren = [view.chevron, ...metaFieldsOf(part)];
+  const metaChildren = [view.chevron, ...metaFieldsOf(part, view.diffToggle)];
   if (turnEnd === null) {
     view.meta.replaceChildren(...metaChildren);
     return;
@@ -229,10 +371,11 @@ function showWork(view: TurnView): void {
   view.element.toggleAttribute('data-open', isOpen);
   view.chevron.setAttribute('aria-expanded', String(isOpen));
   if (!isOpen || view.part === null) {
-    view.work.replaceChildren();
+    resetWork(view);
+    view.workIsOver = null;
     return;
   }
-  view.work.replaceChildren(...workRowsOf(view.part));
+  syncWork(view, view.part);
 }
 
 function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean, turnEnd: TurnEnd | null): void {
@@ -479,6 +622,15 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     findLastTurnView();
     if (placeTurnEnd() && isTurnEndFocused) shownTurnEnd?.pill.focus({ preventScroll: true });
   };
+  const toggleDiff = (turnElement: HTMLElement) => {
+    const partId = turnElement.dataset.partId;
+    const view = partId === undefined ? undefined : turnViewByPartId.get(partId);
+    if (view === undefined) return;
+    keepTurnInPlace(view.element, () => {
+      view.isDiffOpen = !view.isDiffOpen;
+      showDiff(view);
+    });
+  };
   const toggleTurn = (turnElement: HTMLElement) => {
     const partId = turnElement.dataset.partId;
     const view = partId === undefined ? undefined : turnViewByPartId.get(partId);
@@ -507,6 +659,10 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     const meta = event.target.closest('.chat-turn-meta');
     const turnElement = meta?.closest<HTMLElement>('.chat-turn');
     if (!turnElement) return;
+    if (event.target.closest('.chat-turn-diff-toggle') !== null) {
+      toggleDiff(turnElement);
+      return;
+    }
     toggleTurn(turnElement);
     turnElement.focus({ preventScroll: true });
   });

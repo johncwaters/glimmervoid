@@ -345,7 +345,58 @@
   border-left: 1px solid var(--border);
 }
 
-.chat-turn-call { color: var(--text-muted); font: var(--type-meta)/1.5 var(--font-mono); }
+.chat-turn-calls { display: flex; flex-direction: column; min-width: 0; }
+
+.chat-turn-call { min-width: 0; color: var(--text-muted); font: var(--type-meta)/1.5 var(--font-mono); }
+
+.chat-turn-call-row { display: flex; align-items: center; gap: 8px; min-width: 0; height: 22px; list-style: none; }
+
+.chat-turn-call-row::-webkit-details-marker { display: none; }
+
+.chat-turn-call[data-has-output] > .chat-turn-call-row { cursor: pointer; }
+
+.chat-turn-call[data-has-output] > .chat-turn-call-row:hover { color: var(--text); }
+
+.chat-turn-call-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+
+.chat-turn-call-icon { flex: 0 0 12px; display: grid; place-items: center; width: 12px; height: 12px; color: var(--accent); }
+
+.chat-turn-call[data-state="done"] .chat-turn-call-icon { color: var(--state-complete); }
+
+.chat-turn-call[data-state="failed"] .chat-turn-call-icon { color: var(--state-failed); }
+
+.chat-turn-call[data-state="stopped"] .chat-turn-call-icon { color: var(--text-muted); }
+
+.chat-turn-call-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.chat-turn-call-time { flex: none; font-variant-numeric: tabular-nums; }
+
+.chat-turn-call-output {
+  max-height: 240px;
+  margin: 2px 0 6px 20px;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--bg-header);
+  color: var(--text-muted);
+  font: var(--type-meta)/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-turn-call-note { color: var(--text-muted); font-size: var(--type-meta); }
+
+.chat-turn-failed { color: var(--state-failed); }
+
+.chat-turn-diff { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+
+.chat-turn-diff[hidden] { display: none; }
+
+.chat-turn-diff-name { padding: 2px 0; color: var(--text-muted); font: var(--type-meta)/1.5 var(--font-mono); }
+
+.chat-turn-diff-body { min-width: 0; overflow: auto; border-radius: var(--radius); }
+
+.chat-turn-diff-toggle[aria-expanded="true"] { color: var(--accent); }
 
 .chat-turn-chevron svg { transition: transform var(--transition-fast); }
 

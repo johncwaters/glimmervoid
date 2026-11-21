@@ -2,7 +2,18 @@ import { isShellTool } from './chat-activity-core.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import type { PlanInline } from '../plan/plan-markdown-core.ts';
 
-export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; labels: string[]; callCount: number };
+export type ToolCallState = 'running' | 'stopped' | 'done' | 'failed';
+
+export interface ToolCallEntry {
+  toolUseId: string;
+  label: string;
+  state: ToolCallState;
+  startedAt: number;
+  durationMs: number | null;
+  outputHead: string | null;
+}
+
+export type TurnSegment = { kind: 'text'; text: string } | { kind: 'tools'; calls: ToolCallEntry[]; callCount: number; settledCount: number };
 
 export interface FileEdit {
   path: string;
@@ -73,7 +84,7 @@ export function interimReplyText(text: string): string | null {
 
 export function currentCallOf(segments: readonly TurnSegment[]): string {
   const lastRun = segments.findLast((segment) => segment.kind === 'tools');
-  return lastRun?.kind === 'tools' ? lastRun.labels.at(-1) ?? '' : '';
+  return lastRun?.kind === 'tools' ? lastRun.calls.at(-1)?.label ?? '' : '';
 }
 
 export function isInterimReply(text: string): boolean {
@@ -106,6 +117,10 @@ function shownPathOf(path: string, workingDirectory: string | null): string {
   return path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
+function baseNameOf(path: string): string {
+  return path.split(/[\\/]/).filter((piece) => piece !== '').at(-1) ?? path;
+}
+
 function firstLineOf(text: string): string {
   return text.trim().split('\n')[0] ?? '';
 }
@@ -122,7 +137,7 @@ function shortArgumentOf(argument: string, workingDirectory: string | null): str
 
 export function toolLabelOf(name: string, input: unknown, workingDirectory: string | null): string {
   const path = firstStringField(input, PATH_FIELDS);
-  if (path !== null) return `${name} ${shownPathOf(path, workingDirectory)}`;
+  if (path !== null) return `${name} ${baseNameOf(path)}`;
   const argument = firstStringField(input, ARGUMENT_FIELDS);
   if (argument === null) return name;
   const shownArgument = shortArgumentOf(argument, workingDirectory);
@@ -216,4 +231,79 @@ export function truncatedFileEditsOf(input: unknown, workingDirectory: string | 
   const path = CUT_PATH_FIELD.exec(cutJson)?.[2] ?? CUT_CODEX_CHANGE_PATH.exec(cutJson)?.[1] ?? null;
   if (path === null) return [{ path: '', added: 0, removed: 0, hasLineCounts: false }];
   return [{ path: shownPathOf(path, workingDirectory), added: 0, removed: 0, hasLineCounts: false }];
+}
+
+const OUTPUT_HEAD_LINES = 12;
+const OUTPUT_HEAD_MAX_CHARS = 2000;
+
+export function outputHeadOf(content: string): string | null {
+  const head = content.split('\n').slice(0, OUTPUT_HEAD_LINES).join('\n').slice(0, OUTPUT_HEAD_MAX_CHARS).trimEnd();
+  return head.length === 0 ? null : head;
+}
+
+function prefixedLinesOf(text: string, prefix: string): string[] {
+  if (text.length === 0) return [];
+  return text.replace(/\n$/, '').split('\n').map((line) => `${prefix}${line}`);
+}
+
+export interface FilePatch {
+  path: string;
+  patch: string;
+}
+
+function filePatchOf(path: string, body: readonly string[]): FilePatch {
+  return { path, patch: [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`, ...body, ''].join('\n') };
+}
+
+function hunkOf(oldText: string, newText: string): string[] {
+  const removedLines = prefixedLinesOf(oldText, '-');
+  const addedLines = prefixedLinesOf(newText, '+');
+  return [`@@ -1,${removedLines.length} +1,${addedLines.length} @@`, ...removedLines, ...addedLines];
+}
+
+function oldNewHunksOf(input: unknown): string[] | null {
+  for (const [oldField, newField] of OLD_NEW_FIELD_PAIRS) {
+    if (typeof input !== 'object' || input === null || !(oldField in input) || !(newField in input)) continue;
+    const oldText: unknown = Reflect.get(input, oldField);
+    const newText: unknown = Reflect.get(input, newField);
+    if (typeof oldText !== 'string' || typeof newText !== 'string') return null;
+    return hunkOf(oldText, newText);
+  }
+  return null;
+}
+
+function editListHunksOf(input: unknown): string[] | null {
+  if (typeof input !== 'object' || input === null) return null;
+  for (const field of EDIT_LIST_FIELDS) {
+    const edits: unknown = Reflect.get(input, field);
+    if (Array.isArray(edits)) return edits.flatMap((edit) => oldNewHunksOf(edit) ?? []);
+  }
+  return null;
+}
+
+function codexChangePatchOf(path: string, change: unknown, workingDirectory: string | null): FilePatch | null {
+  const shownPath = shownPathOf(path, workingDirectory);
+  const unifiedDiff = stringField(change, 'unified_diff');
+  if (unifiedDiff !== null) return filePatchOf(shownPath, unifiedDiff.replace(/\n$/, '').split('\n'));
+  const content = stringField(change, 'content') ?? '';
+  const changeType = stringField(change, 'type');
+  if (changeType === 'add') return filePatchOf(shownPath, hunkOf('', content));
+  if (changeType === 'delete') return filePatchOf(shownPath, hunkOf(content, ''));
+  return null;
+}
+
+export function filePatchesOf(input: unknown, workingDirectory: string | null): FilePatch[] {
+  if (typeof input === 'object' && input !== null) {
+    const changes: unknown = Reflect.get(input, 'changes');
+    if (typeof changes === 'object' && changes !== null && !Array.isArray(changes)) {
+      return Object.entries(changes).flatMap(([path, change]) => codexChangePatchOf(path, change, workingDirectory) ?? []);
+    }
+  }
+  const path = firstStringField(input, PATH_FIELDS);
+  if (path === null) return [];
+  const shownPath = shownPathOf(path, workingDirectory);
+  const hunks = oldNewHunksOf(input) ?? editListHunksOf(input);
+  if (hunks !== null) return hunks.length === 0 ? [] : [filePatchOf(shownPath, hunks)];
+  const wholeFile = firstStringField(input, WHOLE_FILE_FIELDS);
+  return wholeFile === null ? [] : [filePatchOf(shownPath, hunkOf('', wholeFile))];
 }

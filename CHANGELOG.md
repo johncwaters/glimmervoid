@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chat: one row per tool call**: An open turn lists each call it made with a status mark, the file name or command, and how long it took; click a finished call to read the first lines of its output. The turn line adds how many calls failed, how long the agent thought, and a diff button that opens the turn's edits inline.
 - **Chat: background work you can watch**: While an agent waits on background work it started, Chat shows a row for each shell, monitor or workflow still running, named by the call that started it and with its run time counting up. Running subagent rows count up too, and the activity mark reads "Waiting on background work" and keeps breathing.
 - **Trace: background tasks**: The Trace tab lists when each background shell, monitor or workflow an agent left running starts and stops, for Claude Code and OpenCode, the agents that report them.
 - **Agents look at their boards and point at them**: After a whiteboard put, an agent is told how many changes it made to that board since it last looked at it, so it views what it drew before calling the work done. Agents are also asked to point chat at a board in one line instead of repeating it, and to mark the part of your screenshot or page they mean with a labeled note instead of describing it.
