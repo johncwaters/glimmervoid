@@ -1951,6 +1951,21 @@ test('show puts each file on a board the session is connected to, creating one n
   const drawnSecond = drawnCards.find((element) => element.id === 'shown-2');
   assert.ok(drawnFirst && drawnSecond && drawnSecond.y >= drawnFirst.y + drawnFirst.height + 60, JSON.stringify([drawnFirst, drawnSecond]));
   assert.equal(drawnSecond.x, drawnFirst.x, 'a card shown with no operator view lines up under the card before it');
+  const sessionFrame = [...elements.values()].find((element) => element.kind === 'frame');
+  assert.deepEqual(sessionFrame?.kind === 'frame' ? [sessionFrame.title, sessionFrame.contains] : null, ['checkout fix', ['shown-1', 'shown-2']], 'two cards one session shows sit in one frame titled after the session');
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'far-below', title: 'Far below', place: { at: { x: 40, y: 6000 } } } }]) })).status, 200);
+  fs.writeFileSync(path.join(showerDir, 'checkout.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#22c55e' } }).png().toBuffer());
+  assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'set', id: sessionFrame?.id ?? '', fields: { title: 'Renamed by operator' } }]))).ok, true);
+  const showAfterOperatorFrameEdit = await wiring.handleAgent(shower, { sub: 'show', path: 'checkout.png' });
+  assert.equal(showAfterOperatorFrameEdit.status, 200, `a frame the operator changed since the agent read never refuses a show: ${JSON.stringify(showAfterOperatorFrameEdit.body)}`);
+  const anchoredBoard = Board.parse(((await wiring.handleAgent(shower, { sub: 'get', board: boardId })).body as { board: unknown }).board);
+  const drawnAnchored = layoutBoard(anchoredBoard).elements.filter((element) => element.kind === 'box');
+  const drawnThirdOwn = drawnAnchored.find((element) => element.id === 'shown-3');
+  const drawnFarBelow = drawnAnchored.find((element) => element.id === 'far-below');
+  const frameAfterOperatorEdit = [...anchoredBoard.elements.values()].find((element) => element.kind === 'frame');
+  assert.deepEqual(frameAfterOperatorEdit?.kind === 'frame' ? [frameAfterOperatorEdit.title, frameAfterOperatorEdit.contains] : null, ['Renamed by operator', ['shown-1', 'shown-2']], 'show leaves a frame the operator changed unread as the operator left it');
+  assert.ok(drawnThirdOwn && drawnFarBelow && drawnThirdOwn.y < drawnFarBelow.y && drawnThirdOwn.x === drawnSecond.x, `with no operator view a card lands beside the session's previous card, not below the board: ${JSON.stringify([drawnThirdOwn, drawnFarBelow])}`);
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-3' }, { op: 'remove', id: 'far-below' }]) })).status, 200);
 
   const operatorView = { x: 3000, y: 2000, width: 1600, height: 960 };
   const planSteps = ['plan-a', 'plan-b', 'plan-c'].map((stepId) => ({ op: 'add', element: { kind: 'box', id: stepId, title: stepId, place: 'plan', step: { status: 'planned' } } }));
@@ -1988,7 +2003,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const reshownBoard = Board.parse(((await wiring.handleAgent(shower, { sub: 'get', board: boardId })).body as { board: unknown }).board);
   const reshownCard = reshownBoard.elements.get('shown-1');
   assert.ok(reshownCard?.kind === 'box');
-  assert.deepEqual([reshownBoard.elements.size, reshownCard.place, reshownCard.media?.width, reshownCard.lines.map((line) => line.text)], [2, firstCard.place, 96, ['login after second fix']]);
+  assert.deepEqual([reshownBoard.elements.size - 1, reshownCard.place, reshownCard.media?.width, reshownCard.lines.map((line) => line.text)], [2, firstCard.place, 96, ['login after second fix']]);
 
   const shownNear = await wiring.handleAgent(shower, { sub: 'show', path: 'report.html', near: { of: 'shown-1', side: 'right', gap: 60 } });
   assert.equal(shownNear.status, 200, JSON.stringify(shownNear.body));

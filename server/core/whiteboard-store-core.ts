@@ -515,7 +515,12 @@ interface ShownCard {
   near: Near | null;
 }
 
-type ShownBoxOp = { ok: true; op: Op; boxId: string; isUpdate: boolean } | { ok: false; error: string };
+type ShownBoxOp = { ok: true; op: Op; frameOp: Op | null; boxId: string; isUpdate: boolean } | { ok: false; error: string };
+
+interface CardOwner {
+  id: string;
+  name: string;
+}
 
 function shownCardFields(card: ShownCard): { title: string; caption: string | null; media: BoxMedia } {
   const caption = card.caption?.slice(0, WHITEBOARD_LIMITS.line) ?? null;
@@ -534,6 +539,7 @@ interface ShowPlacementContext {
   pinnedOffsetY: number;
   operatorView: BoardBounds | null;
   boxesInView: readonly BoardBounds[];
+  ownCard: { rect: BoardBounds; boxesNear: readonly BoardBounds[] } | null;
 }
 
 const SHOWN_CARD_CHROME_HEIGHT = 80;
@@ -555,14 +561,27 @@ function anchoredSpotsOf(view: BoardBounds, boxesInView: readonly BoardBounds[],
   return [...besideBoxes, viewCorner];
 }
 
-function freeSpotIn(view: BoardBounds, boxesInView: readonly BoardBounds[], cardHeight: number): { x: number; y: number } | null {
-  const paddedBoxes = boxesInView.map((box) => ({ x: box.x - SHOWN_BOX_GAP, y: box.y - SHOWN_BOX_GAP, width: box.width + 2 * SHOWN_BOX_GAP, height: box.height + 2 * SHOWN_BOX_GAP }));
+function firstFreeSpot(spots: readonly { x: number; y: number }[], boxes: readonly BoardBounds[], cardHeight: number, fits: (spot: { x: number; y: number }) => boolean): { x: number; y: number } | null {
+  const paddedBoxes = boxes.map((box) => ({ x: box.x - SHOWN_BOX_GAP, y: box.y - SHOWN_BOX_GAP, width: box.width + 2 * SHOWN_BOX_GAP, height: box.height + 2 * SHOWN_BOX_GAP }));
   const occupied = gridOfRects(paddedBoxes, SHOWN_BOX_WIDTH);
-  const fitsView = (spot: { x: number; y: number }) => spot.x >= view.x && spot.y >= view.y && spot.x + SHOWN_BOX_WIDTH <= view.x + view.width && spot.y + cardHeight <= view.y + view.height;
-  const freeSpot = anchoredSpotsOf(view, boxesInView, cardHeight)
+  const freeSpot = spots
     .map((spot) => ({ x: Math.round(spot.x), y: Math.round(spot.y) }))
-    .find((spot) => fitsView(spot) && !hasSlotTouching(occupied, { x: spot.x + SHARED_EDGE_INSET, y: spot.y + SHARED_EDGE_INSET, width: SHOWN_BOX_WIDTH - 2 * SHARED_EDGE_INSET, height: cardHeight - 2 * SHARED_EDGE_INSET }));
+    .find((spot) => fits(spot) && !hasSlotTouching(occupied, { x: spot.x + SHARED_EDGE_INSET, y: spot.y + SHARED_EDGE_INSET, width: SHOWN_BOX_WIDTH - 2 * SHARED_EDGE_INSET, height: cardHeight - 2 * SHARED_EDGE_INSET }));
   return freeSpot ?? null;
+}
+
+function freeSpotIn(view: BoardBounds, boxesInView: readonly BoardBounds[], cardHeight: number): { x: number; y: number } | null {
+  const fitsView = (spot: { x: number; y: number }) => spot.x >= view.x && spot.y >= view.y && spot.x + SHOWN_BOX_WIDTH <= view.x + view.width && spot.y + cardHeight <= view.y + view.height;
+  return firstFreeSpot(anchoredSpotsOf(view, boxesInView, cardHeight), boxesInView, cardHeight, fitsView);
+}
+
+function freeSpotBesideOwnCard(ownCard: NonNullable<ShowPlacementContext['ownCard']>, cardHeight: number): { x: number; y: number } | null {
+  const { rect } = ownCard;
+  const besideOwnCard = [
+    { x: rect.x, y: rect.y + rect.height + SHOWN_BOX_GAP },
+    { x: rect.x + rect.width + SHOWN_BOX_GAP, y: rect.y },
+  ];
+  return firstFreeSpot(besideOwnCard, ownCard.boxesNear, cardHeight, () => true);
 }
 
 function storedLeftOf(element: Element | undefined): number | null {
@@ -573,6 +592,8 @@ function storedLeftOf(element: Element | undefined): number | null {
 function drawnShownCardPoint(context: ShowPlacementContext, media: BoxMedia, newestShownLeft: number | null): { x: number; y: number } {
   const inView = context.operatorView ? freeSpotIn(context.operatorView, context.boxesInView, shownCardHeight(media)) : null;
   if (inView) return inView;
+  const besideOwnCard = context.ownCard ? freeSpotBesideOwnCard(context.ownCard, shownCardHeight(media)) : null;
+  if (besideOwnCard) return besideOwnCard;
   const { contentBounds } = context;
   return { x: newestShownLeft ?? contentBounds.x + BOARD_MARGIN, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
 }
@@ -583,14 +604,38 @@ function newShownCardPoint(board: Board, context: ShowPlacementContext, media: B
   return { x: drawnPoint.x, y: drawnPoint.y - context.pinnedOffsetY };
 }
 
-function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard): ShownBoxOp {
+function shownNumberOf(elementId: string): number {
+  return Number(SHOWN_BOX_ID_RE.exec(elementId)?.[1] ?? 0);
+}
+
+function ownShownCardIdsOf(board: Board, sessionId: string): string[] {
+  const ownIds = [...board.elements.values()].flatMap((element) => (element.kind === 'box' && SHOWN_BOX_ID_RE.test(element.id) && element.media?.source?.from === 'file' && element.media.source.sessionId === sessionId ? [element.id] : []));
+  return ownIds.sort((left, right) => shownNumberOf(left) - shownNumberOf(right));
+}
+
+function sessionFrameIdOf(sessionId: string): string {
+  return `shown-by-${sessionId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)}`;
+}
+
+function sessionFrameOp(board: Board, owner: CardOwner, newBoxId: string): Op | null {
+  const frameId = sessionFrameIdOf(owner.id);
+  const existingFrame = board.elements.get(frameId);
+  if (existingFrame?.kind === 'frame') return existingFrame.collapsed ? null : { op: 'set', id: frameId, fields: { contains: [...existingFrame.contains, newBoxId] } };
+  const framedElsewhere = new Set([...board.elements.values()].flatMap((element) => (element.kind === 'frame' && element.id !== frameId ? element.contains : [])));
+  const contains = [...ownShownCardIdsOf(board, owner.id), newBoxId].filter((boxId) => !framedElsewhere.has(boxId));
+  if (contains.length < 2) return null;
+  const title = owner.name.trim().slice(0, WHITEBOARD_LIMITS.title) || 'Shown cards';
+  return { op: 'add', element: { kind: 'frame', id: frameId, title, contains, collapsed: false } };
+}
+
+function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard, owner: CardOwner): ShownBoxOp {
   const sameFileBoxId = boxShowingSameFile(board, card);
   if (sameFileBoxId !== null) {
     const { title, caption, media } = shownCardFields(card);
     const captionFields = caption === null ? {} : { lines: [{ text: caption }] };
     const nearFields = card.near === null ? {} : { place: { near: card.near } };
     const fields = { title, media, ...captionFields, ...nearFields };
-    return { ok: true, op: { op: 'set', id: sameFileBoxId, fields }, boxId: sameFileBoxId, isUpdate: true };
+    return { ok: true, op: { op: 'set', id: sameFileBoxId, fields }, frameOp: null, boxId: sameFileBoxId, isUpdate: true };
   }
   const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
   const boxId = `shown-${lastShownNumber + 1}`;
@@ -606,7 +651,7 @@ function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard
     place: placement,
   });
   if (!box.success) return { ok: false, error: `box ${boxId} could not be built: ${box.error.issues[0]?.message ?? 'invalid box'}` };
-  return { ok: true, op: { op: 'add', element: box.data }, boxId, isUpdate: false };
+  return { ok: true, op: { op: 'add', element: box.data }, frameOp: sessionFrameOp(board, owner, boxId), boxId, isUpdate: false };
 }
 
 const CARD_WORD_LIMIT = 24;
@@ -699,6 +744,6 @@ function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
   return [...likeTitledWarnings(boardAfter, addedBoxes), ...allWordsWarnings(ops, addedBoxes)];
 }
 
-export { agentPutRefusalOf, habitWarningsOf, pickShowBoardId, shownBoxOp };
+export { agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, shownBoxOp };
 export type { ShownCard };
 export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

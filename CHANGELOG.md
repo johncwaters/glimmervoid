@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Whiteboard: an agent's shown cards stay together**: While you are not looking at the board, a card an agent shows lands beside that agent's previous card instead of below everything, and once it has shown two, its cards sit in one frame titled after the session.
 - **Whiteboard: show beside a box**: An agent can pass `near` to `show` to put the card next to the box it belongs to in one call.
 
 ### Fixed

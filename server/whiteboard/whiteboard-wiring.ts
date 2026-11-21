@@ -31,7 +31,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -58,6 +58,7 @@ import { clock } from '../../shared/clock.ts';
 
 const WHITEBOARDS_FOLDER_NAME = 'whiteboards';
 const BOARD_FILE_EXTENSION = '.json';
+const OWN_CARD_REACH = 1200;
 const MIGRATED_JSON_FOLDER_NAME = 'migrated-json';
 const OLDER_READER_PICTURE_GUARD = `boards${BOARD_FILE_EXTENSION}.corrupt-moved-to-boards-sqlite`;
 
@@ -1319,6 +1320,16 @@ function createWhiteboardWiring({
     }
   }
 
+  async function ownCardNear(board: Board, sessionId: string, pinnedOffsetY: number): Promise<{ rect: Rect; boxesNear: Rect[] } | null> {
+    const newestOwnCardId = ownShownCardIdsOf(board, sessionId).at(-1);
+    if (newestOwnCardId === undefined) return null;
+    const rect = await tiles.pinPositionsOf(board, [newestOwnCardId]).then((pins) => pins.laidOutBoxOf(newestOwnCardId) ?? null, () => null);
+    if (!rect) return null;
+    const region = { x: rect.x - OWN_CARD_REACH, y: rect.y - OWN_CARD_REACH, width: rect.width + 2 * OWN_CARD_REACH, height: rect.height + 2 * OWN_CARD_REACH };
+    const boxesNear = await drawnRectsIn(board, region, pinnedOffsetY);
+    return boxesNear ? { rect, boxesNear } : null;
+  }
+
   function placeShownCard(boardId: string, card: ShownCard, author: Author, unloaded: readonly UnloadedReference[]): Promise<WhiteboardReply> {
     return changeRecord(boardId, async (record) => {
       const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
@@ -1330,10 +1341,13 @@ function createWhiteboardWiring({
       const lastOperatorView = tiles.operatorViewOf(record.board.id)?.view ?? null;
       const drawnInView = lastOperatorView ? await drawnRectsIn(record.board, lastOperatorView, pinnedOffsetY) : null;
       const operatorView = drawnInView ? lastOperatorView : null;
-      const shownBox = shownBoxOp(record.board, { contentBounds, pinnedOffsetY, operatorView, boxesInView: drawnInView ?? [] }, card);
+      const ownCard = card.near === null ? await ownCardNear(record.board, author.id, pinnedOffsetY) : null;
+      const shownBox = shownBoxOp(record.board, { contentBounds, pinnedOffsetY, operatorView, boxesInView: drawnInView ?? [], ownCard }, card, author);
       if (!shownBox.ok) return { ok: false, reply: refusal(400, `${shownBox.error}, so nothing changed`) };
-      const { op, boxId, isUpdate } = shownBox;
-      const applied = await applyOpsToRecord(record, [op], author);
+      const { op, frameOp, boxId, isUpdate } = shownBox;
+      const framed = frameOp ? await applyOpsToRecord(record, [op, frameOp], author) : null;
+      const isFramedCleanly = framed?.ok === true && !unreadChangeRefusalOf(record, author.id, framed.staged.afterById);
+      const applied = isFramedCleanly && framed ? framed : await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const unreadRefusal = unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
       if (unreadRefusal) return { ok: false, reply: refusal(409, `${unreadRefusal}, so nothing changed`) };
