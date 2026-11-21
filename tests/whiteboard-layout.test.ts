@@ -7,7 +7,7 @@ import { reviewBoard } from '../shared/whiteboard-anchor-core.ts';
 import { isRecord } from '../shared/coerce.ts';
 import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
 import { createDragPreview, FRAME_TITLE_HEIGHT, layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
-import { boardSvgDocument } from '../shared/whiteboard-svg-core.ts';
+import { boardSvgDocument, textCardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireExtentOf, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
 import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
@@ -978,4 +978,11 @@ test('placeholder text wider than its media is cut to fit in the board picture, 
   const drawnTexts = [...pictured.matchAll(/wb-image-placeholder-text"[^>]*>([^<]*)</g)].map((match) => match[1]);
   assert.deepEqual(drawnTexts, ['The X post as it shows on...', `${wideAlt.slice(0, 12)}...`, 'short alt']);
   assert.ok(pictured.includes(`<title>${longAlt}</title>`), 'the title keeps the whole text');
+});
+
+test('a text card with control characters in its first lines still draws, since XML refuses them', async () => {
+  const { default: sharp } = await import('sharp');
+  const card = textCardSvgDocument(`# Build log\n${String.fromCharCode(27)}[31mred${String.fromCharCode(27)}[0m and a${String.fromCharCode(12)}feed\n`, 200, 100);
+  const drawn = await sharp(Buffer.from(card)).png().toBuffer({ resolveWithObject: true });
+  assert.deepEqual([drawn.info.width, drawn.info.height], [200, 100]);
 });

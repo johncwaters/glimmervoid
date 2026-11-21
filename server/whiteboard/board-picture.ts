@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { errorMessage } from '../../shared/text.ts';
+import { textCardSvgDocument } from '../../shared/whiteboard-svg-core.ts';
+import type { LaidOutMedia } from '../../shared/whiteboard-layout-core.ts';
 import type { BoardRegion } from '../../shared/contracts/whiteboard.ts';
 import { pictureFrameOf } from '../../mcp/core/board-reading.ts';
 import type { PictureLimits, PictureOptions } from '../../mcp/core/board-reading.ts';
@@ -31,6 +33,12 @@ type BoardPictureFile =
 const UNREADABLE_LAYOUT: BoardPictureFile = { ok: false, status: 503, error: 'the board layout could not be read, so it was not pictured; try again' };
 const TOO_LARGE_STATUS = 413;
 
+async function textCardDataUriOf(assets: WhiteboardAssetStore, media: LaidOutMedia): Promise<string | null> {
+  const textStart = await assets.readDocTextStart(media);
+  if (textStart === null) return null;
+  return `data:image/svg+xml;base64,${Buffer.from(textCardSvgDocument(textStart, media.width, media.height)).toString('base64')}`;
+}
+
 async function embeddedImagesOf(boardId: string, layouts: WhiteboardLayouts, assets: WhiteboardAssetStore | null, options: PictureOptions): Promise<Record<string, string> | null> {
   const dataUriByAssetId: Record<string, string> = {};
   if (!assets) return dataUriByAssetId;
@@ -38,7 +46,7 @@ async function embeddedImagesOf(boardId: string, layouts: WhiteboardLayouts, ass
   if (!images) return null;
   for (const image of images) {
     if (Object.hasOwn(dataUriByAssetId, image.media.asset)) continue;
-    const dataUri = await assets.dataUriOf(image.media, image.width, image.height);
+    const dataUri = await assets.dataUriOf(image.media, image.width, image.height) ?? await textCardDataUriOf(assets, image.media);
     if (dataUri) dataUriByAssetId[image.media.asset] = dataUri;
   }
   return dataUriByAssetId;

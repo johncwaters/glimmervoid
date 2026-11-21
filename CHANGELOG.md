@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Whiteboard: text cards in board pictures**: A board picture or PNG export now draws the first lines of a Markdown, Fountain, CSV or TSV card instead of a grey placeholder, so an agent looking at the board can read what it shows.
 - **Session check: board layout**: Checked at turn end now fails when a board's layout warnings (a wire through a box, overlapping boxes) name something that session drew, so an agent fixes its own mess before it stops.
 - **Whiteboard: an agent's shown cards stay together**: While you are not looking at the board, a card an agent shows lands beside that agent's previous card instead of below everything, and once it has shown two, its cards sit in one frame titled after the session.
 - **Whiteboard: show beside a box**: An agent can pass `near` to `show` to put the card next to the box it belongs to in one call.

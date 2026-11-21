@@ -112,6 +112,7 @@ interface WhiteboardAssetStore {
   mismatchOf(media: BoxMedia): string | null;
   dataUriOf(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>, drawnWidth: number, drawnHeight: number): Promise<string | null>;
   readDocText(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>): Promise<string | null>;
+  readDocTextStart(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>): Promise<string | null>;
 }
 
 function ftypBrandsOf(firstChunk: Buffer): string[] {
@@ -764,6 +765,13 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return fsp.readFile(originalPathOf(media.asset, stored.extension), 'utf8').catch(() => null);
   }
 
+  async function readDocTextStart(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>): Promise<string | null> {
+    const stored = storedAs(media);
+    if (!isTextMediaKind(media.kind) || !stored || stored.extension === WORKBOOK_EXTENSION || MEDIA_FORMAT_BY_EXTENSION[stored.extension]?.kind !== media.kind) return null;
+    const firstChunk = await readFirstChunk(originalPathOf(media.asset, stored.extension)).catch(() => null);
+    return firstChunk ? firstChunk.toString('utf8') : null;
+  }
+
   async function dataUriOf(media: Pick<BoxMedia, 'kind' | 'asset' | 'mime'>, drawnWidth: number, drawnHeight: number): Promise<string | null> {
     const sourcePath = pictureSourceOf(media);
     if (!sourcePath) return null;
@@ -776,7 +784,7 @@ function createWhiteboardAssetStore({ boardsRoot, logger = console, now = clock.
     return drawn ? `data:image/png;base64,${drawn.toString('base64')}` : null;
   }
 
-  return { loaded, has: (assetId) => storedByExtensionByAssetId.has(assetId), ingestFile, adoptIncoming, adoptPageBundle, pageBundleIdOf, reserveIncomingPath, hold, sweep, servableOf, servableMemberOf, memberPathsOf, mismatchOf, dataUriOf, readDocText };
+  return { loaded, has: (assetId) => storedByExtensionByAssetId.has(assetId), ingestFile, adoptIncoming, adoptPageBundle, pageBundleIdOf, reserveIncomingPath, hold, sweep, servableOf, servableMemberOf, memberPathsOf, mismatchOf, dataUriOf, readDocText, readDocTextStart };
 }
 
 export { ASSET_INPUT_CAP_BYTES, createWhiteboardAssetStore };

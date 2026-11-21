@@ -717,6 +717,9 @@ test('an agent attaches media once by content at full fidelity, a box shows it f
   const savedDocText = `${abstractText}\nedited on the board\n`;
   const docRead = await whiteboard(PLANNER_ID, { sub: 'doc', board: boardId, box: 'abstract' });
   assert.deepEqual([docRead.status, docRead.body], [200, { ok: true, box: 'abstract', text: savedDocText }], 'an agent reads the text the box shows now, not the text it attached');
+  const docPictureMarkup = await (await fetch(exportUrl(boardId, 'picture.svg'))).text();
+  const textCards = [...docPictureMarkup.matchAll(/data:image\/svg\+xml;base64,([A-Za-z0-9+/=]+)/g)].map((match) => Buffer.from(match[1] ?? '', 'base64').toString('utf8'));
+  assert.ok(textCards.some((card) => card.includes('# Abstract') && card.includes('&lt;b&gt;kept as text&lt;/b&gt;')), 'a board picture draws the first lines of a document card as escaped text, not a placeholder');
   const notADoc = await whiteboard(PLANNER_ID, { sub: 'doc', board: boardId, box: 'login' });
   assert.deepEqual([notADoc.status, notADoc.body.error], [400, 'login on board "pictures" holds no document or sheet; whiteboard doc reads a box whose media kind is doc or sheet']);
   const docWrites: string[] = [];

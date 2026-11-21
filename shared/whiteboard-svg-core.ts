@@ -487,6 +487,19 @@ function boardSvgDocument(layout: BoardLayout, assetHref: AssetHref = NO_ASSET_H
   return `${tag('svg', { xmlns: SVG_NAMESPACE, viewBox: `${x} ${y} ${width} ${height}`, width, height }, body)}\n`;
 }
 
+const TEXT_CARD_INSET = 10;
+const TEXT_CARD_FONT_SIZE = 12;
+const XML_ILLEGAL_CHARS = /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+
+function textCardSvgDocument(sourceText: string, width: number, height: number): string {
+  const visibleLineCount = Math.max(1, Math.floor((height - 2 * TEXT_CARD_INSET) / BODY_LINE_HEIGHT));
+  const sourceLines = sourceText.split('\n').slice(0, visibleLineCount).map((line) => line.replace(/\r$/, '').replaceAll('\t', '  ').replace(XML_ILLEGAL_CHARS, ''));
+  const drawnLines = sourceLines.map((line, index) => text(textCutToWidth(line, width - 2 * TEXT_CARD_INSET), TEXT_CARD_INSET, TEXT_CARD_INSET + (index + 1) * BODY_LINE_HEIGHT - 5, 'line', { 'xml:space': 'preserve' }));
+  const style = tag('style', {}, `text { font-family: 'ComicMono', 'CommitMono', 'Cascadia Code', 'Menlo', monospace; font-size: ${TEXT_CARD_FONT_SIZE}px; fill: #1f2328; }`);
+  const background = tag('rect', { x: 0, y: 0, width, height, fill: '#ffffff' });
+  return tag('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: `0 0 ${width} ${height}`, width, height }, [style, background, ...drawnLines].join(''));
+}
+
 export type { AssetHref, PageOccluder, PageTurn };
 export {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
@@ -495,5 +508,5 @@ export {
   ICON_BOX_TOP_INSET, STAND_FOOT_HEIGHT, STAND_FOOT_WIDTH, STAND_NECK_WIDTH, TITLE_CHAR_WIDTH, TITLE_ICON_RISE, TITLE_ICON_SIZE,
   TOOLBAR_ADDRESS_HEIGHT, TOOLBAR_ADDRESS_INSET, TOOLBAR_DOT_RADIUS, TOOLBAR_DOT_SPACING,
   BOARD_GRID_SPACING, STEP_CHIP_DOT_RADIUS, STEP_CHIP_HEIGHT,
-  boardSvgDocument, codeBandRectOf, pageMaskImage, shapedOutlinePoints, stepChipOf,
+  boardSvgDocument, codeBandRectOf, textCardSvgDocument, pageMaskImage, shapedOutlinePoints, stepChipOf,
 };

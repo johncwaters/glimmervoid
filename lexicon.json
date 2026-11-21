@@ -1514,6 +1514,10 @@
     {
       "name": "sign",
       "definition": "As in sign in and sign out: to log an agent account into or out of its agent CLI, from Settings > Accounts or a session's account switch"
+    },
+    {
+      "name": "fountain",
+      "definition": "The plain-text screenplay format (.fountain) a whiteboard document card can show and the board lays out as a script"
     }
   ],
   "retired": [
