@@ -1,7 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { AgentChange } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardHead } from '#shared/contracts/whiteboard.ts';
-import type { BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
+import type { BoardBackdrop, BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from '#shared/whiteboard-layout-core.ts';
 import { lodForScale, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/contracts/whiteboard-tile-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
@@ -30,6 +30,7 @@ interface TiledBoard {
   blocks: BlockTile[];
   board: Board;
   elementCount: number;
+  backdrop: BoardBackdrop | null;
 }
 
 interface TileState {
@@ -37,6 +38,7 @@ interface TileState {
   version: number | null;
   head: BoardHead | null;
   elementCount: number | null;
+  backdrop: BoardBackdrop | null;
   scale: number;
   chrome: BoardChrome | null;
   lod: TileLod;
@@ -118,7 +120,7 @@ function isViewRequested(current: TileState): boolean {
 }
 
 function freshState(boardId: string, view: Rect, scale: number, lod: TileLod): TileState {
-  return { boardId, version: null, head: null, elementCount: null, scale, chrome: null, lod, view, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
+  return { boardId, version: null, head: null, elementCount: null, backdrop: null, scale, chrome: null, lod, view, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
 }
 
 function showTilesFor(boardId: string, view: Rect, scale: number): void {
@@ -172,6 +174,7 @@ function applyBoardTiles(message: ServerMessageOf<'whiteboard-tiles'>): void {
   if (!current.chrome) return;
   current.head = message.head;
   current.elementCount = message.elementCount;
+  current.backdrop = message.backdrop;
   current.version = message.version;
   for (const tile of message.tiles) holdTile(current, tile);
   evictUnsentTiles(current, () => true);
@@ -222,6 +225,7 @@ function applyBoardTileDiff(message: ServerMessageOf<'whiteboard-tile-diff'>): v
   if (message.diff.chrome) current.chrome = message.diff.chrome;
   current.head = message.head;
   current.elementCount = message.elementCount;
+  current.backdrop = message.backdrop;
   current.version = message.toVersion;
   current.assembled = null;
   notifyTilesChanged();
@@ -318,7 +322,7 @@ function tiledBoardOf(boardId: string): TiledBoard | null {
   const records = elementTableOf(painted.flatMap(({ record }) => record ?? []));
   const blocks = [...current.tiles].flatMap(([id, tile]) => (tile.raster ? [{ id, rect: tile.rect, raster: tile.raster }] : []));
   const layout = { ...current.chrome, elements: painted.map(({ element }) => element), warnings: [] };
-  current.assembled = { version: current.version, lod: current.lod, layout, blocks, board: { ...current.head, elements: records }, elementCount: current.elementCount ?? 0 };
+  current.assembled = { version: current.version, lod: current.lod, layout, blocks, board: { ...current.head, elements: records }, elementCount: current.elementCount ?? 0, backdrop: current.backdrop };
   return current.assembled;
 }
 

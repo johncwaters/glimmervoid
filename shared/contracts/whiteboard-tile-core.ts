@@ -1,7 +1,7 @@
-import { BLOCK_RASTER_PX } from './whiteboard-tiles.ts';
-import { pointOfBox, sparseElement, WHITEBOARD_LIMITS } from './whiteboard.ts';
+import { BLOCK_RASTER_PX, isBackdropMedia } from './whiteboard-tiles.ts';
+import { dialValuesOfBox, pointOfBox, sparseElement, WHITEBOARD_LIMITS } from './whiteboard.ts';
 import type { Board, BoardOutline, Element, ReadElement } from './whiteboard.ts';
-import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './whiteboard-tiles.ts';
+import type { BoardBackdrop, BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './whiteboard-tiles.ts';
 import { dressedElement, laidOutStrokeOf, titlesOnlyBox } from '../whiteboard-layout-core.ts';
 import { boardIndexOf, elementsOfKind } from '../whiteboard-board-index.ts';
 import type { ElementTable } from './whiteboard-element-table.ts';
@@ -136,6 +136,15 @@ function paintedBoundsOf(element: PlacedElement): Rect {
   if (element.kind === 'frame') return { ...rectOf(element), width: Math.max(element.width, FRAME_TITLE_PAD + labelWidthOf(element.title)) };
   if (element.kind === 'box') return rectOf(rotatedBoundsOf(element));
   return rectOf(element);
+}
+
+function backdropOfBoard(board: Board): BoardBackdrop | null {
+  for (const box of elementsOfKind(board, 'box')) {
+    const media = box.media;
+    if (!box.backdrop || !isBackdropMedia(media)) continue;
+    return { kind: media.kind, asset: media.asset, mime: media.mime, dialValues: dialValuesOfBox(box) };
+  }
+  return null;
 }
 
 function rectOf(rect: Rect): Rect {
@@ -405,5 +414,5 @@ function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, i
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
+export { backdropOfBoard, boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };

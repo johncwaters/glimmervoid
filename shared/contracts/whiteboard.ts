@@ -216,6 +216,7 @@ const boxFields = {
   titleGradient: z.boolean().default(false).describe('true draws the title in a gradient from purple to blue to red'),
   fullBleed: z.boolean().default(false).describe('true on a box with media drops its title, lines and padding so the media fills the box, and Present fills the view with it'),
   autoplay: z.boolean().default(false).describe('true on a box showing a video plays it muted and looping on the board while it is on screen'),
+  backdrop: z.boolean().default(false).describe('true on a box showing a page, video or image also fills the whole board view behind every element with it; the first such box on the board wins'),
   angle: z.number().int().min(0, { error: 'a box angle is 0 to 359 degrees' }).max(359, { error: 'a box angle is 0 to 359 degrees' }).default(0).describe('the clockwise rotation in whole degrees around the box center'),
   device: DeviceName.nullable().default(null),
   fit: DeviceFit,
@@ -668,7 +669,7 @@ export function filledBox(box: SparseBox): Box {
   return {
     kind: 'box', id: box.id, shape: box.shape ?? 'box', title: box.title, icon: box.icon ?? null, place: box.place,
     order: box.order ?? 0, width: box.width ?? null, height: box.height ?? null,
-    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, fullBleed: box.fullBleed ?? false, autoplay: box.autoplay ?? false, angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
+    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, fullBleed: box.fullBleed ?? false, autoplay: box.autoplay ?? false, backdrop: box.backdrop ?? false, angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, refHashes: box.refHashes ?? {},

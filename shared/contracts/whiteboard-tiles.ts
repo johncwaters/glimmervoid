@@ -92,6 +92,20 @@ export const LegendRow = z.object({ label: z.string(), x: z.number(), y: z.numbe
 export const PlanColumn = z.object({ x: z.number(), bottom: z.number(), boxCount: z.number().int().positive() });
 export const PlanBand = z.object({ titleAt: LayoutPoint, columns: z.array(PlanColumn) });
 
+const BACKDROP_MEDIA_KINDS = ['page', 'video', 'image'] as const;
+type BackdropMediaKind = (typeof BACKDROP_MEDIA_KINDS)[number];
+
+export function isBackdropMedia<Media extends { kind: string }>(media: Media | null): media is Media & { kind: BackdropMediaKind } {
+  return media !== null && BACKDROP_MEDIA_KINDS.some((kind) => kind === media.kind);
+}
+
+export const BoardBackdrop = z.object({
+  kind: z.enum(BACKDROP_MEDIA_KINDS),
+  asset: z.string(),
+  mime: BoxMedia.shape.mime,
+  dialValues: z.record(z.string(), DialValue),
+});
+
 export const BoardChrome = z.object({
   legend: z.array(LegendRow),
   caption: z.object({ text: z.string(), x: z.number(), y: z.number() }).nullable(),
@@ -139,6 +153,7 @@ export type LegendRow = z.infer<typeof LegendRow>;
 export type PlanBand = z.infer<typeof PlanBand>;
 export type PlanColumn = z.infer<typeof PlanColumn>;
 export type BoardChrome = z.infer<typeof BoardChrome>;
+export type BoardBackdrop = z.infer<typeof BoardBackdrop>;
 export type TileKey = z.infer<typeof TileKey>;
 export type TileLod = TileKey['lod'];
 export type PaintedElement = z.infer<typeof PaintedElement>;

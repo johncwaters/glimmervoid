@@ -1,5 +1,6 @@
 import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_SCROLL_MESSAGE, BoardPageGesture, BoardPageScrolled, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, boardSheetTextFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
+import type { BoardBackdrop } from '#shared/contracts/whiteboard-tiles.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
 import { isTransparentPageBox } from '#shared/whiteboard-shapes.ts';
@@ -55,7 +56,16 @@ function viewportWidthOf(box: Pick<LaidOutBox, 'device'>, media: PageMedia): num
   return box.device ? DEVICE_CATALOG[box.device.name].screen.width : VIEWPORT_WIDTH_PX_BY_KIND[media.kind];
 }
 
-function autoplayVideoOf(media: PageMedia): HTMLVideoElement {
+function backdropContentOf(media: BoardBackdrop): HTMLElement {
+  if (media.kind === 'video') return autoplayVideoOf({ asset: media.asset, mime: media.mime, fit: 'fill' });
+  if (media.kind === 'page') return pageFrameOf({ asset: media.asset, alt: '' });
+  const image = el('img', 'wb-backdrop-image');
+  image.alt = '';
+  image.src = `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`;
+  return image;
+}
+
+function autoplayVideoOf(media: Pick<LaidOutMedia, 'asset' | 'mime' | 'fit'>): HTMLVideoElement {
   const video = Object.assign(el('video', 'wb-media-video'), { muted: true, defaultMuted: true, loop: true, playsInline: true, autoplay: true });
   video.style.objectFit = media.fit === 'fit' ? 'contain' : 'cover';
   video.src = `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`;
@@ -248,7 +258,7 @@ function postDialValues(frame: HTMLIFrameElement, dialValues: Readonly<Record<st
   frame.contentWindow?.postMessage({ type: BOARD_PAGE_PARAMS_MESSAGE, values: dialValues }, '*');
 }
 
-function pageFrameOf(media: PageMedia): HTMLIFrameElement {
+function pageFrameOf(media: Pick<LaidOutMedia, 'asset' | 'alt'>): HTMLIFrameElement {
   const frame = createSandboxedFrame({ source: { kind: 'url', url: `${boardPagePath(media)}?${BOARD_PAGE_TUNED_QUERY}` }, className: 'wb-media-page', title: media.alt || 'page', allowsScripts: true });
   frame.tabIndex = -1;
   return frame;
@@ -336,6 +346,11 @@ function clampToSpan(delta: number, span: number): number {
 
 export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
   const layer = el('div', 'wb-media-layer');
+  const backdrop = el('div', 'wb-backdrop');
+  let shownBackdropIdentity: string | null = null;
+  let latestBackdrop: BoardBackdrop | null = null;
+  let backdropFrame: HTMLIFrameElement | null = null;
+  let postedBackdropDialValues = '{}';
   const placedByBoxId = new Map<string, PlacedPage>();
   let shownPages: ShownPage[] = [];
   let liveArea: Rect | null = null;
@@ -474,6 +489,34 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     }
   }
 
+  function latestBackdropDialValues(): Readonly<Record<string, DialValue>> {
+    const dialValues = latestBackdrop?.dialValues ?? {};
+    postedBackdropDialValues = JSON.stringify(dialValues);
+    return dialValues;
+  }
+
+  function replaceBackdrop(shown: BoardBackdrop | null, identity: string | null): void {
+    shownBackdropIdentity = identity;
+    backdropFrame = null;
+    backdrop.replaceChildren();
+    backdrop.classList.toggle('is-shown', shown !== null);
+    if (!shown) return;
+    const content = backdropContentOf(shown);
+    backdrop.append(content);
+    if (!(content instanceof HTMLIFrameElement)) return;
+    backdropFrame = content;
+    postedBackdropDialValues = JSON.stringify(shown.dialValues);
+    tunePageOnLoad(content, backdrop, latestBackdropDialValues);
+  }
+
+  function showBackdrop(shown: BoardBackdrop | null): void {
+    latestBackdrop = shown;
+    const identity = shown ? JSON.stringify([shown.kind, shown.asset, shown.mime]) : null;
+    if (identity !== shownBackdropIdentity) replaceBackdrop(shown, identity);
+    if (!backdropFrame || !shown || JSON.stringify(shown.dialValues) === postedBackdropDialValues) return;
+    postDialValues(backdropFrame, latestBackdropDialValues());
+  }
+
   function sync(layout: BoardLayout, elementIdsInPaintOrder: readonly string[]): void {
     const elementById = new Map(layout.elements.map((element) => [element.id, element]));
     const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
@@ -502,10 +545,11 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     for (const placed of placedByBoxId.values()) placed.node.remove();
     placedByBoxId.clear();
     shownPages = [];
+    showBackdrop(null);
     setInteractiveBox(null);
   }
 
-  return { element: layer, sync, showArea, clear, setInteractiveBox, setLinkStates, takesWheel };
+  return { element: layer, backdrop, showBackdrop, sync, showArea, clear, setInteractiveBox, setLinkStates, takesWheel };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;

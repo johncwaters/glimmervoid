@@ -449,6 +449,23 @@
   opacity: var(--opacity-below-one-so-chromium-composites-the-frame-as-translucent);
 }
 
+.wb-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.wb-backdrop > * {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: cover;
+}
+
+.wb-viewport:has(> .wb-backdrop.is-shown) { background: none; }
+
 .wb-media-video {
   display: block;
   width: 100%;
