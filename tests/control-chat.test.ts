@@ -265,7 +265,7 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   assert.deepEqual(outboxOf(), []);
 });
 
-test('a Chat message reaches Claude once its turn ends with a background shell still running, and clears when the next turn starts', async (testContext) => {
+test('a Chat message reaches Claude once its turn ends with a background shell still running, and Stop then asks it to end that work', async (testContext) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-monitoring-'));
   const writes: string[] = [];
   const session = new Session({ id: 'monitoring', name: 'monitoring', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
@@ -301,6 +301,21 @@ test('a Chat message reaches Claude once its turn ends with a background shell s
   await advance(20_000);
   assert.deepEqual(outboxOf(), []);
   assert.equal(session.state, 'RUNNING');
+
+  session.stopFromChat();
+  assert.equal(writes.at(-1), String.fromCharCode(27));
+  assert.deepEqual(outboxOf(), []);
+
+  session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 5, payload: { background_tasks: [{ id: 'harness-run', type: 'shell', status: 'running' }] } });
+  await advance(2_000);
+  const writesBeforeStop = writes.length;
+  session.stopFromChat();
+  await advance(2_000);
+  session.stopFromChat();
+  await advance(2_000);
+  assert.ok(writes.slice(writesBeforeStop).join('').includes('Stop every background task and subagent you started, then end your turn.'));
+  assert.ok(!writes.slice(writesBeforeStop).includes(String.fromCharCode(27)));
+  assert.deepEqual(outboxOf(), ['Stop every background task and subagent you started, then end your turn.:submitted']);
 });
 
 test('a Claude session whose startup hook never arrives becomes ready at the degraded-detection deadline', async (t) => {

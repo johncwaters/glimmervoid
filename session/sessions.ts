@@ -144,6 +144,7 @@ function nextPendingPromptToolName(
 
 const DISMISSIBLE_STATES: Set<SessionState> = new Set([STATES.WAITING, STATES.COMPLETE]);
 const BETWEEN_PROMPT_STATES: ReadonlySet<SessionState> = new Set([STATES.IDLE, STATES.COMPLETE]);
+const STOP_BACKGROUND_WORK_TEXT = "Stop every background task and subagent you started, then end your turn.";
 const TURN_REACHED_STATES: ReadonlySet<SessionState> = new Set([STATES.RUNNING, STATES.WAITING, STATES.COMPLETE]);
 
 function startsTurn(from: SessionState, to: SessionState): boolean {
@@ -2080,7 +2081,11 @@ class Session extends EventEmitter {
   }
 
   _isBetweenTurns(): boolean {
-    return BETWEEN_PROMPT_STATES.has(this.state) || (this.state === STATES.RUNNING && this.backgroundTracking.heldReady() !== null);
+    return BETWEEN_PROMPT_STATES.has(this.state) || this._isTurnEndHeldForBackgroundWork();
+  }
+
+  _isTurnEndHeldForBackgroundWork(): boolean {
+    return this.state === STATES.RUNNING && this.backgroundTracking.heldReady() !== null;
   }
 
   _isAgentReadyForChat(): boolean {
@@ -2493,6 +2498,16 @@ class Session extends EventEmitter {
 
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
   noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
+
+  stopFromChat(): void {
+    if (this._isTurnEndHeldForBackgroundWork()) {
+      const isStopAlreadyAsked = this._chatOutbox.entries().some((entry) => entry.text === STOP_BACKGROUND_WORK_TEXT && entry.state !== "failed");
+      if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, []);
+      return;
+    }
+    this.write(LONE_ESCAPE);
+    this.noteOperatorInput(LONE_ESCAPE);
+  }
 
   get isWaitingOnRateLimit(): boolean {
     return this.state === STATES.WAITING && this._pendingPromptKind === RATE_LIMIT_PROMPT_KIND;

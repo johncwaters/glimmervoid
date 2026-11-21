@@ -53,6 +53,7 @@ export const sessionClientVariants = [
   loose('chat-send', { id: sessionId, text: z.string().trim().max(CHAT_SEND_MAX_CHARS), attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]), requestId })
     .refine((send) => send.text.length > 0 || send.attachments.length > 0, { message: 'chat-send needs text or an attachment' }),
   loose('chat-cancel', { id: sessionId, entryId: z.string().min(1).max(64), requestId }),
+  loose('chat-stop', { id: sessionId, requestId }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
   loose('switch-session-model', { id: sessionId, setup: ModelSelection, requestId }),
   loose('secret-decision', SecretDecision.shape),

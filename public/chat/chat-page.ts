@@ -39,7 +39,6 @@ const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
 const RAIL_TICK_MS = 30_000;
-const ESCAPE_KEY = String.fromCharCode(27);
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
@@ -805,7 +804,7 @@ function buildChat(sessionId: string): MountedChat {
     cancelOutboxEntry(sessionId, newestCancellable.entryId);
   });
   root.addEventListener('chat-stop', () => {
-    sendTerminalInput(sessionUIs.get(sessionId), ESCAPE_KEY);
+    sendControlMsg({ type: 'chat-stop', id: sessionId });
   });
   root.addEventListener('chat-card', (event) => {
     const detail = cardDetailOf(event);

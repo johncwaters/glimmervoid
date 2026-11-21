@@ -906,6 +906,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'decide-approval': handleDecideApproval,
     'chat-send': handleChatSend,
     'chat-cancel': handleChatCancel,
+    'chat-stop': (msg: ClientMessageOf<'chat-stop'>) => { findSession(msg)?.stopFromChat(); },
     'switch-session-account': handleSwitchSessionAccount,
     'switch-session-model': handleSwitchSessionModel,
     'link-session-pr': handleLinkSessionPr,
