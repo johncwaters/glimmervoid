@@ -1,4 +1,5 @@
 ---
+import Wordmark from '../Wordmark.astro';
 import { ACCOUNT_PAGE_URL } from '../../lib/product-facts.ts';
 
 const COMPARISON_ROWS = [
@@ -11,7 +12,7 @@ const COMPARISON_ROWS = [
 ---
 <section id="cloud">
   <div class="section-head reveal">
-    <h2><a href="#cloud">Glimmervoid Cloud</a></h2>
+    <h2 class="cloud-heading"><a href="#cloud"><span class="cloud-name">Glimmervoid Cloud</span><span aria-hidden="true"><Wordmark isStacked productName="Cloud" /></span></a></h2>
     <p>Your whiteboard and your sessions, on your phone, with the laptop closed.</p>
     <a class="waitlist-join" href={ACCOUNT_PAGE_URL} data-waitlist-link>Join the waitlist</a>
   </div>
@@ -27,6 +28,7 @@ const COMPARISON_ROWS = [
 </section>
 
 <style>
+  #cloud .section-head > .cloud-heading { position: static; font-size: 48px; margin: 4px 0 8px; padding: 0; border: 0; background: none; }
   .cloud-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .waitlist-join { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; font-weight: 700; height: 44px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: var(--bg); text-decoration: none; }
   .waitlist-join:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
