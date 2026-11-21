@@ -267,7 +267,9 @@ function buildTelemetryDataSlot() {
     body: () => TELEMETRY_SENT_DETAIL.map((line) => el('p', 'settings-view-setting-description', line)),
   });
   sentDetail.element.classList.add('settings-telemetry-sent');
-  slot.append(sentDetail.element, externalLink('Privacy details', websiteUrl('/privacy')), telemetryDeletionButton, telemetryDeletionStatus.element);
+  const deletionLine = el('div', 'settings-telegram-test');
+  deletionLine.append(telemetryDeletionButton, telemetryDeletionStatus.element);
+  slot.append(sentDetail.element, externalLink('Privacy details', websiteUrl('/privacy')), deletionLine);
   return slot;
 }
 

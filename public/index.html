@@ -40,6 +40,7 @@
 
     .app-shell { display: none; }
     html:not([data-layout="phone"]) .app-ready .app-shell { display: contents; }
+    .app-ready:not(.app-revealed) .app-shell > * { visibility: hidden; }
 
     .loading-screen {
       position: fixed;
@@ -62,6 +63,7 @@
     .loading-title {
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 20px;
+      line-height: 28px;
       font-weight: 700;
       letter-spacing: 0.1em;
       color: var(--text-head, #efedf6);
@@ -141,6 +143,9 @@
     }
 
     .loading-status {
+      width: min(280px, calc(100vw - 32px));
+      line-height: 18px;
+      text-align: center;
       font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace;
       font-size: 12px;
       color: var(--text-muted, #9e97af);

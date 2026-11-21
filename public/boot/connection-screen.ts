@@ -1,6 +1,7 @@
 import { refreshAgentAccounts } from '../agent-logins.ts';
 import { clearHeaderError, reportHeaderError } from '../action-status.ts';
 import { decideAppReveal, MAX_REVEAL_WAIT_MS } from '../app-reveal-core.ts';
+import type { RevealInput } from '../app-reveal-core.ts';
 import { refreshOpenAddSessionDialog } from '../dialogs.ts';
 import { sendControlRequest, setConnectionStateCallback } from '../control-ws.ts';
 import { onTenantWakingChange } from '../connection-supervisor.ts';
@@ -25,12 +26,12 @@ const shutdownScreen = queryTag(document, '#shutdown-screen', 'div');
 const shutdownStatus = queryTag(document, '#shutdown-status', 'div');
 let appRevealed = false;
 let controlConnectedAt: number | null = null;
-let hasReceivedSnapshot = false;
+const awaitedRevealInputs = new Set<RevealInput>(['snapshot', 'settings']);
 
 function revealAppWhenTerminalsLive() {
   if (appRevealed || controlConnectedAt === null) return;
   const decision = decideAppReveal({
-    hasSnapshot: hasReceivedSnapshot,
+    awaitedInputCount: awaitedRevealInputs.size,
     connectingTerminalCount: countShownConnectingTerminals(),
     msSinceConnected: performance.now() - controlConnectedAt,
   });
@@ -38,7 +39,7 @@ function revealAppWhenTerminalsLive() {
 }
 
 function noteSnapshotReceived() {
-  hasReceivedSnapshot = true;
+  awaitedRevealInputs.delete('snapshot');
   revealAppWhenTerminalsLive();
 }
 
@@ -52,6 +53,7 @@ function revealApp() {
 }
 
 function fadeOutLoadingScreen() {
+  document.body.classList.add('app-revealed');
   loadingScreen.classList.add('fade-out');
   const removeLoading = () => loadingScreen.remove();
   loadingScreen.addEventListener('transitionend', (event) => {
@@ -183,6 +185,8 @@ function onControlConnected() {
       applyDashboardSettings(msg.settings);
       reportOperatorTimezone(msg.settings);
       if (getActiveView() === 'settings') activateSettingsHash(location.hash);
+      awaitedRevealInputs.delete('settings');
+      revealAppWhenTerminalsLive();
     })
     .catch(() => {});
 }

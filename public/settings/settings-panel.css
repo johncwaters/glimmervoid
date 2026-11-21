@@ -629,6 +629,7 @@
 }
 
 .settings-view-status-slot {
+  grid-column: 1 / -1;
   margin-top: 12px;
 }
 
@@ -982,6 +983,27 @@
   align-items: center;
   gap: 10px;
   margin-top: 10px;
+}
+
+.settings-telegram-test {
+  justify-content: flex-end;
+}
+
+.settings-telegram-test > :not(.ui-button) {
+  order: -1;
+}
+
+.settings-telemetry-data > .settings-telegram-test {
+  margin: 0 0 0 auto;
+}
+
+html:not([data-layout="phone"]) .settings-view-setting:has(> .settings-view-setting-control > .ui-segmented) {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, max-content);
+}
+
+html:not([data-layout="phone"]) .settings-view-setting-control > .ui-segmented > .ui-segmented-option {
+  flex: 1 0 auto;
+  overflow: visible;
 }
 
 .settings-telegram-test .settings-telegram-test-status,

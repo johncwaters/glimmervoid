@@ -125,16 +125,26 @@
   align-items: stretch;
 }
 
+[data-layout="phone"] .settings-view .settings-view-setting-control > .ui-segmented {
+  height: auto;
+  min-height: var(--segmented-height);
+}
+
+[data-layout="phone"] .settings-view .settings-view-setting-control > .ui-segmented > .ui-segmented-option {
+  padding-block: 6px;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+[data-layout="phone"] .settings-view .settings-telemetry-data > .settings-telegram-test {
+  margin: 0;
+}
+
 [data-layout="phone"] .settings-view .settings-view-control-foot {
   min-height: 44px;
   flex-direction: row;
   align-items: center;
   justify-content: flex-end;
-}
-
-[data-layout="phone"] .settings-view .settings-view-control-foot[data-idle] {
-  display: flex;
-  visibility: hidden;
 }
 
 [data-layout="phone"] .settings-view label:where(:not(.ui-field-label)) {
