@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Chat: replies arrive faster**: A reply that comes in while you watch now rises in block by block over 150ms instead of fading in through a blur, and its last line shows within 600ms instead of 1.2s.
 - **glimmervoid.dev: link to any section**: Every homepage section heading links to its own section, so you can copy a link like glimmervoid.dev/#status. The Glimmervoid Cloud section moves to the bottom of the page, without the alpha badge and the waitlist note.
 - **Settings controls line up on the right, and the dashboard opens without jumping.** Action buttons such as Delete my data, Send test message, Test connection, Connect GitHub and Set up sit at the right edge of their row with their status beside them, choices like Alert sound and Vault Source show their whole labels, phone rows no longer leave an empty gap under each control, and the header tabs no longer move after the dashboard appears.
 - **Settings rows read at a comfortable width.** A setting with an on/off switch no longer keeps a wide empty column beside its description, descriptions wrap at a readable line length, and Privacy shows a short summary with the full list of what usage data carries folded under What is sent.

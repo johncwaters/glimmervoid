@@ -71,50 +71,25 @@ function countText(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-const LINE_REVEAL_GAP_MS = 70;
-const LINE_REVEAL_CAP_MS = 1200;
-const REVEAL_WORD_CLASS = 'chat-reveal-word';
-const LAST_REVEAL_WORD_ATTRIBUTE = 'data-reveal-last';
+const BLOCK_REVEAL_GAP_MS = 50;
+const BLOCK_REVEAL_CAP_MS = 600;
+const LAST_REVEAL_BLOCK_ATTRIBUTE = 'data-reveal-last';
 
-function wrapWordsForReveal(textElement: HTMLElement): void {
-  const walker = document.createTreeWalker(textElement, NodeFilter.SHOW_TEXT);
-  const textNodes: Text[] = [];
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (node instanceof Text && node.data.trim() !== '') textNodes.push(node);
+function revealBlocksOf(textElement: Element): Element[] {
+  return [...(textElement.firstElementChild?.children ?? [])];
+}
+
+function staggerBlockReveal(textElement: HTMLElement): void {
+  const blocks = revealBlocksOf(textElement);
+  for (const [index, block] of blocks.entries()) {
+    if (block instanceof HTMLElement) block.style.setProperty('--line-delay', `${Math.min(index * BLOCK_REVEAL_GAP_MS, BLOCK_REVEAL_CAP_MS)}ms`);
   }
-  const words: HTMLElement[] = [];
-  for (const textNode of textNodes) {
-    const pieces = textNode.data.split(/(\s+)/).filter((piece) => piece !== '');
-    const nodes = pieces.map((piece) => (piece.trim() === '' ? piece : el('span', REVEAL_WORD_CLASS, piece)));
-    words.push(...nodes.filter((node) => node instanceof HTMLElement));
-    textNode.replaceWith(...nodes);
-  }
-  words.at(-1)?.setAttribute(LAST_REVEAL_WORD_ATTRIBUTE, '');
+  blocks.at(-1)?.setAttribute(LAST_REVEAL_BLOCK_ATTRIBUTE, '');
 }
 
-function isEarlierRevealWord(element: Element): boolean {
-  return element.classList.contains(REVEAL_WORD_CLASS) && !element.hasAttribute(LAST_REVEAL_WORD_ATTRIBUTE);
-}
-
-function lineDelaysOf(wordTops: readonly number[], gapMs: number, capMs: number): number[] {
-  let lineIndex = -1;
-  let lineTop: number | null = null;
-  return wordTops.map((wordTop) => {
-    if (wordTop !== lineTop) {
-      lineIndex += 1;
-      lineTop = wordTop;
-    }
-    return Math.min(lineIndex * gapMs, capMs);
-  });
-}
-
-function scheduleLineReveal(textElement: HTMLElement): void {
-  requestAnimationFrame(() => {
-    const words = [...textElement.querySelectorAll<HTMLElement>(`.${REVEAL_WORD_CLASS}`)];
-    const wordTops = words.map((word) => Math.round(word.getBoundingClientRect().top));
-    const delays = lineDelaysOf(wordTops, LINE_REVEAL_GAP_MS, LINE_REVEAL_CAP_MS);
-    for (const [index, word] of words.entries()) word.style.setProperty('--line-delay', `${delays[index]}ms`);
-  });
+function isEarlierRevealBlock(element: Element): boolean {
+  const isRevealBlock = element.parentElement?.parentElement?.matches('.chat-turn-text[data-arriving]') === true;
+  return isRevealBlock && !element.hasAttribute(LAST_REVEAL_BLOCK_ATTRIBUTE);
 }
 
 function settleArrival(arrivingElement: Element): void {
@@ -122,8 +97,10 @@ function settleArrival(arrivingElement: Element): void {
   if (arrivingElement.getAnimations(isRevealingText ? { subtree: true } : {}).length > 0) return;
   arrivingElement.removeAttribute('data-arriving');
   if (!isRevealingText) return;
-  for (const word of arrivingElement.querySelectorAll(`.${REVEAL_WORD_CLASS}`)) word.replaceWith(...word.childNodes);
-  arrivingElement.normalize();
+  for (const block of revealBlocksOf(arrivingElement)) {
+    block.removeAttribute(LAST_REVEAL_BLOCK_ATTRIBUTE);
+    if (block instanceof HTMLElement) block.style.removeProperty('--line-delay');
+  }
 }
 
 function renderTextSegment(text: string): HTMLElement {
@@ -209,8 +186,7 @@ function syncSegments(view: TurnView, segments: readonly TurnSegment[], isArrivi
     view.textElements.push(textElement);
     if (!isArriving) continue;
     textElement.setAttribute('data-arriving', '');
-    wrapWordsForReveal(textElement);
-    scheduleLineReveal(textElement);
+    staggerBlockReveal(textElement);
   }
 }
 
@@ -513,7 +489,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     });
   };
   const settleAnimatedArrival = (event: AnimationEvent) => {
-    if (!(event.target instanceof Element) || isEarlierRevealWord(event.target)) return;
+    if (!(event.target instanceof Element) || isEarlierRevealBlock(event.target)) return;
     const arrivingElement = event.target.closest('[data-arriving]');
     if (arrivingElement) settleArrival(arrivingElement);
   };

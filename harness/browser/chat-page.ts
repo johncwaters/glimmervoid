@@ -414,6 +414,7 @@ export async function verifyChatAwayReply(page: Page): Promise<void> {
   await sendFromComposer(page, 'away-reply');
   await waitForAwayReplyCount(page, 1);
   assert.equal(await sawArrivingText(), true, 'a reply that comes in while Chat is watched animates in');
+  await page.waitForFunction(() => document.querySelector('.session-chat :is(.chat-turn-text[data-arriving], [data-reveal-last])') === null, undefined, { timeout: CARD_TIMEOUT_MS });
   await waitForTurnRunning(page, false);
   await page.locator('.session-chat .chat-log').evaluate((chatLog) => {
     const tallFiller = document.createElement('div');
