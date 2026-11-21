@@ -1,5 +1,5 @@
 import type { Board, BoardHead, BoardOutline } from '../../shared/contracts/whiteboard.ts';
-import type { BoardChrome, TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
+import type { BoardBackdrop, BoardChrome, TileKey, TileLod } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
 import type { PictureOptions } from '../../mcp/core/board-reading.ts';
@@ -7,7 +7,7 @@ import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
 import { OPERATOR_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import { AGENT_CHANGE_BOXES_MAX } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { AgentChange } from '../../shared/contracts/control/whiteboard-messages.ts';
-import { tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
+import { backdropOfBoard, tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';
@@ -33,10 +33,16 @@ interface ViewRequest {
   knownVersion: number | null;
 }
 
+interface BoardFraming {
+  head: BoardHead;
+  elementCount: number;
+  backdrop: BoardBackdrop | null;
+}
+
 interface TileSource {
   version: number;
   fetch(keys: TileKey[], withChrome: boolean): Promise<LayoutAnswer>;
-  framing(answer: LayoutAnswer): { head: BoardHead; elementCount: number };
+  framing(answer: LayoutAnswer): BoardFraming;
 }
 
 interface BoardView {
@@ -84,9 +90,9 @@ interface BoardTileService {
   pictureOf(board: Board, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead>;
 }
 
-function headOf(board: Board): { head: BoardHead; elementCount: number } {
+function headOf(board: Board): BoardFraming {
   const { elements, ...head } = board;
-  return { head, elementCount: boardIndexOf(elements).elementCount };
+  return { head, elementCount: boardIndexOf(elements).elementCount, backdrop: backdropOfBoard(board) };
 }
 
 function summaryOfAnswer(board: Board, answer: LayoutAnswer): LayoutSummary {
@@ -122,15 +128,15 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
 
   function deliver(board: Board, messages: readonly ViewerMessage[]): void {
     const { id: boardId, version } = board;
-    const { head, elementCount } = headOf(board);
+    const { head, elementCount, backdrop } = headOf(board);
     for (const message of messages) {
       const viewer = viewerById.get(message.viewerId);
       if (!viewer || stateByViewer.get(viewer)?.boardId !== boardId) continue;
       if (message.kind === 'diff') {
-        viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion: message.fromVersion, toVersion: version, head, elementCount, diff: message.diff });
+        viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion: message.fromVersion, toVersion: version, head, elementCount, backdrop, diff: message.diff });
         continue;
       }
-      viewer.send({ type: 'whiteboard-tiles', boardId, version, head, elementCount, chrome: message.chrome, tiles: message.tiles });
+      viewer.send({ type: 'whiteboard-tiles', boardId, version, head, elementCount, backdrop, chrome: message.chrome, tiles: message.tiles });
     }
   }
 
@@ -177,7 +183,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     return {
       version: board.version,
       fetch: (keys, withChrome) => layouts.cachedTiles(board.id, board, keys, withChrome),
-      framing: (answer) => ({ head, elementCount: answer.elementCount ?? 0 }),
+      framing: (answer) => ({ head, elementCount: answer.elementCount ?? 0, backdrop: backdropOfBoard(board) }),
     };
   }
 

@@ -726,6 +726,7 @@ function paintBoard(): void {
     return;
   }
   renderer.renderLayout(tiled.layout, tiled.blocks);
+  parts?.mediaLayer.showBackdrop(tiled.backdrop);
   editor?.repaintPreview();
   const { board } = tiled;
   requestReviewOf(board);
@@ -1650,7 +1651,7 @@ export function mountBoardHost(): HTMLElement {
   const glNotice = el('p', 'wb-gl-notice');
   glNotice.setAttribute('role', 'status');
   glNotice.hidden = true;
-  viewport.append(glCanvas, world);
+  viewport.append(mediaLayer.backdrop, glCanvas, world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const pairedDisconnect = disconnectControl('session', disconnectPairedSession);

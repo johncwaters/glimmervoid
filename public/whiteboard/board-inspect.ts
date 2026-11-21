@@ -2,6 +2,7 @@ import type { Board, Box, BoxLine, BoxMedia, Dial, DialValue, Element as BoardEl
 import { DEVICE_CATALOG, DEVICE_FITS, DEVICE_NAMES, PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
 import { AnchorRef, BOX_CHANGES, LINE_STYLES, MediaLink, dialValuesOfBox, SIDES, STEP_STATUSES, WHITEBOARD_LIMITS, WIRE_TONES } from '#shared/contracts/whiteboard.ts';
+import { isBackdropMedia } from '#shared/contracts/whiteboard-tiles.ts';
 import { BOX_SHAPES, isBorderlessBox, SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import type { BoxShape } from '#shared/whiteboard-shapes.ts';
 import { customLegendLabelByKey, defaultWireStyleLabel, wireStyleKey } from '#shared/whiteboard-layout-core.ts';
@@ -357,6 +358,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     checkboxField('titleGradient', 'Gradient title', box.titleGradient, (titleGradient) => set({ titleGradient })),
     ...(box.media && box.shape !== 'device' ? [checkboxField('fullBleed', 'Full bleed', box.fullBleed, (fullBleed) => set({ fullBleed }))] : []),
     ...(box.media?.kind === 'video' ? [checkboxField('autoplay', 'Autoplay', box.autoplay, (autoplay) => set({ autoplay }))] : []),
+    ...(isBackdropMedia(box.media) ? [checkboxField('backdrop', 'Board backdrop', box.backdrop, (backdrop) => set({ backdrop }))] : []),
     ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
