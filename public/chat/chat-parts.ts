@@ -7,6 +7,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
+import { copyButton } from '../ui/copy-button.ts';
 import { currentCallOf, digestTurn, isInterimReply } from './turn-digest-core.ts';
 import type { FilePatch, ToolCallEntry, ToolCallState, TurnSegment } from './turn-digest-core.ts';
 import { paintStatusIcon } from '../status-icon.ts';
@@ -121,10 +122,25 @@ function settleArrival(arrivingElement: Element): void {
   }
 }
 
+function languageOf(codeBlock: HTMLPreElement): string {
+  const languageClass = [...(codeBlock.firstElementChild?.classList ?? [])].find((className) => className.startsWith('language-'));
+  return languageClass?.slice('language-'.length) ?? '';
+}
+
+function frameCodeBlock(codeBlock: HTMLPreElement): void {
+  const frame = el('div', 'chat-code');
+  const header = el('div', 'chat-code-header');
+  const copy = copyButton({ text: () => codeBlock.textContent ?? '', variant: 'quiet', size: 'small' });
+  header.append(el('span', 'chat-code-language', languageOf(codeBlock)), copy.element);
+  codeBlock.replaceWith(frame);
+  frame.append(header, codeBlock);
+}
+
 function renderTextSegment(text: string): HTMLElement {
   const textElement = el('div', 'chat-turn-text');
   const textBody = renderPlanBlocks(parsePlanMarkdown(text));
   for (const anchoredHeading of textBody.querySelectorAll('[id]')) anchoredHeading.removeAttribute('id');
+  for (const codeBlock of textBody.querySelectorAll<HTMLPreElement>('pre.plan-code')) frameCodeBlock(codeBlock);
   textElement.append(textBody);
   return textElement;
 }

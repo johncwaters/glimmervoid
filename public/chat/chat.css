@@ -859,6 +859,29 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 
 .chat-turn .plan-code { padding: 10px 12px; background: var(--bg); font: var(--type-meta)/1.55 var(--font-mono); }
 
+.chat-code { margin: 0 0 1.2em; }
+
+.chat-code > .plan-code { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; overflow-x: auto; }
+
+.chat-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px 0 12px;
+  border: 1px solid var(--border-dim);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--bg-header);
+}
+
+.chat-code-language { color: var(--text-muted); font: var(--type-meta)/1 var(--font-mono); }
+
+.chat-code-header .ui-copy { flex-direction: row-reverse; }
+
+.chat-code-header .ui-copy-status:not(:empty) { margin: 0 8px 0 0; }
+
 .chat-turn .plan-inline-code { font-family: var(--font-mono); font-size: var(--type-body); }
 
 .chat-turn .plan-paragraph { white-space: pre-line; }
