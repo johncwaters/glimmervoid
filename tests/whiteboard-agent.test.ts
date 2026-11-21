@@ -1984,6 +1984,12 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'in-the-way', title: 'In the way', place: { at: { x: 3250, y: 110 } } } }]) })).status, 200);
   const [layoutCheck] = await wiring.layoutChecksOf(shower.id);
   assert.ok(layoutCheck?.status === 'fail' && layoutCheck.outputTail.includes('wire crossing runs through box in-the-way'), `the board layout check fails on a warning naming an element the session wrote: ${JSON.stringify(layoutCheck)}`);
+  const [checkAfterRestart] = await createWhiteboardWiring({ boardsRoot }).layoutChecksOf(shower.id);
+  assert.ok(checkAfterRestart?.status === 'fail' && checkAfterRestart.outputTail.includes('wire crossing runs through box in-the-way'), `the board layout check still fails after a restart: ${JSON.stringify(checkAfterRestart)}`);
+  assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse(['crossing', 'wire-start', 'wire-end', 'in-the-way'].map((id) => ({ op: 'set', id, fields: id === 'crossing' ? { label: 'operator route' } : { title: `${id} by operator` } }))))).ok, true);
+  const [checkAfterOperatorRewrite] = await wiring.layoutChecksOf(shower.id);
+  assert.equal(checkAfterOperatorRewrite?.status, 'pass', `elements the operator wrote last no longer count against the session: ${JSON.stringify(checkAfterOperatorRewrite)}`);
+  await wiring.handleAgent(shower, { sub: 'get', board: boardId });
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse(['crossing', 'wire-start', 'wire-end', 'in-the-way'].map((id) => ({ op: 'remove', id }))) })).status, 200);
   assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse(operatorCrossings.flatMap((op) => (op.op === 'add' && op.element.kind === 'wire' ? [] : [{ op: 'remove', id: op.element.id }]))))).ok, true);
 

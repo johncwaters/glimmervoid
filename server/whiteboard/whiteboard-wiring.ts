@@ -31,7 +31,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, sessionFrameIdOf, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { BOARD_LAYOUT_CHECK_ID, VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
@@ -338,6 +338,7 @@ function createWhiteboardWiring({
   });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
   const writtenIdsByBoardIdBySessionId = new Map<string, Map<string, Set<string>>>();
+  const writerByElementIdByBoardId = new Map<string, Map<string, string>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded, attachmentStore.load()]).then(sweepUnusedAssets).then(() => {});
@@ -405,6 +406,11 @@ function createWhiteboardWiring({
       unloadedBoardIds.add(record.board.id);
     }
     for (const boardId of stored.unreadableBoardIds) keepPicturesWhileUnloaded(`board ${boardId}`);
+    const elementWriters = await store.elementWriters().catch((error: unknown) => {
+      logger.warn(`[whiteboard] who wrote each board element could not be read, so the board layout check forgets writes from before this start: ${errorMessage(error)}`);
+      return [];
+    });
+    for (const { boardId, elementId, writtenBy } of elementWriters) noteElementWriter(boardId, elementId, writtenBy);
     await migrateJsonBoards();
   }
 
@@ -544,7 +550,7 @@ function createWhiteboardWiring({
       settleFolder = synced.settle;
       const ops = synced.content === null ? [] : boardDiffOps(current.board, synced.content);
       if (ops.length === 0) return { ok: true, record: current, reply: { status: 200, body: { ok: true, version: current.board.version } } };
-      const applied = await applyOpsToRecord(current, ops, OPERATOR_AUTHOR);
+      const applied = await applyOpsToRecord(current, ops, OPERATOR_AUTHOR, { isAuthoring: false });
       if (!applied.ok) {
         syncedState = { state: 'broken', text: `The folder's board could not be applied: ${applied.error}` };
         return { ok: false, reply: refusal(400, applied.error) };
@@ -597,6 +603,7 @@ function createWhiteboardWiring({
       return false;
     }
     staged?.commit();
+    if (staged) noteStagedWriters(boardId, staged);
     const latest = recordsByBoardId.get(boardId);
     const isLoadedMeanwhile = latest !== undefined && latest !== current && next.board.elements === current.board.elements;
     recordsByBoardId.set(boardId, isLoadedMeanwhile ? { ...next, board: { ...next.board, elements: latest.board.elements } } : next);
@@ -816,7 +823,7 @@ function createWhiteboardWiring({
     }
   }
 
-  async function applyOpsToRecord(record: BoardRecord, unstampedOps: readonly Op[], author: Author, { confirmsRefs = false }: { confirmsRefs?: boolean } = {}): Promise<AppliedOps> {
+  async function applyOpsToRecord(record: BoardRecord, unstampedOps: readonly Op[], author: Author, { confirmsRefs = false, isAuthoring = author.id !== GLIMMERVOID_AUTHOR.id }: { confirmsRefs?: boolean; isAuthoring?: boolean } = {}): Promise<AppliedOps> {
     const ops = await withRefHashesStamped(record.board, unstampedOps, confirmsRefs);
     const pinned = await basePinPositionsFor(record.board, ops);
     if (!pinned.ok) return pinned;
@@ -835,7 +842,7 @@ function createWhiteboardWiring({
       result.commit();
       holdReleasedAssets(record.board, releasedAssetIds);
     };
-    return { ok: true, record: next, patch, staged: { diff: result.diff, afterById: result.afterById, commit } };
+    return { ok: true, record: next, patch, staged: { diff: result.diff, afterById: result.afterById, writtenBy: isAuthoring ? author.id : null, commit } };
   }
 
   async function refRootOf(board: Board): Promise<string | null> {
@@ -903,7 +910,6 @@ function createWhiteboardWiring({
     const reply = await putOps(boardId, ops, author, checksReads ? readCheckedRefusalOf : habitRefusalOf);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
-    noteWrittenIds(author.id, boardId, ops.flatMap(elementIdsNamedBy));
     const habitWarnings = habitWarningsOf(board, ops);
     const isCodeSessionChanged = ops.some((op) => op.op === 'board' && op.codeSessionId !== undefined);
     const elementIds = isCodeSessionChanged ? null : new Set(ops.flatMap(elementIdsNamedBy));
@@ -1104,6 +1110,7 @@ function createWhiteboardWiring({
     recordsByBoardId.delete(boardId);
     unloadedBoardIds.delete(boardId);
     deletedBoardIds.add(boardId);
+    forgetBoardWriters(boardId);
     forgetLink(boardId);
     tiles.forgetBoard(boardId);
     void forgetBoardRenders(path.join(boardsRoot, RENDERS_FOLDER_NAME), boardId);
@@ -1200,12 +1207,32 @@ function createWhiteboardWiring({
     await Promise.all(unfiledBoardIds.map((boardId) => changeHead(boardId, (current) => filedUnder(current, knownProjectOf(current)))));
   }
 
-  function noteWrittenIds(sessionId: string, boardId: string, elementIds: readonly string[]): void {
-    const writtenByBoardId = writtenIdsByBoardIdBySessionId.get(sessionId) ?? new Map<string, Set<string>>();
+  function noteElementWriter(boardId: string, elementId: string, writer: string | null): void {
+    const writerByElementId = writerByElementIdByBoardId.get(boardId) ?? new Map<string, string>();
+    writerByElementIdByBoardId.set(boardId, writerByElementId);
+    const previousWriter = writerByElementId.get(elementId);
+    if (previousWriter !== undefined) writtenIdsByBoardIdBySessionId.get(previousWriter)?.get(boardId)?.delete(elementId);
+    writerByElementId.delete(elementId);
+    if (writer === null) return;
+    writerByElementId.set(elementId, writer);
+    const writtenByBoardId = writtenIdsByBoardIdBySessionId.get(writer) ?? new Map<string, Set<string>>();
     const written = writtenByBoardId.get(boardId) ?? new Set<string>();
-    for (const elementId of elementIds) written.add(elementId);
+    written.add(elementId);
     writtenByBoardId.set(boardId, written);
-    writtenIdsByBoardIdBySessionId.set(sessionId, writtenByBoardId);
+    writtenIdsByBoardIdBySessionId.set(writer, writtenByBoardId);
+  }
+
+  function noteStagedWriters(boardId: string, staged: StagedWrite): void {
+    for (const [elementId, change] of Object.entries(staged.diff.elements)) {
+      const isRemoved = change[0] === 'remove' || !staged.afterById.get(elementId);
+      if (isRemoved) noteElementWriter(boardId, elementId, null);
+      if (!isRemoved && staged.writtenBy !== null) noteElementWriter(boardId, elementId, staged.writtenBy);
+    }
+  }
+
+  function forgetBoardWriters(boardId: string): void {
+    for (const elementId of [...writerByElementIdByBoardId.get(boardId)?.keys() ?? []]) noteElementWriter(boardId, elementId, null);
+    writerByElementIdByBoardId.delete(boardId);
   }
 
   async function layoutWarningsWrittenBy(sessionId: string): Promise<string[]> {
@@ -1227,6 +1254,7 @@ function createWhiteboardWiring({
   }
 
   async function layoutChecksOf(sessionId: string): Promise<CheckOutcome[]> {
+    await loaded;
     if (!writtenIdsByBoardIdBySessionId.has(sessionId)) return [];
     const readOnce = () => layoutWarningsWrittenBy(sessionId).then((warnings) => ({ ok: true as const, warnings }), (error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
     const firstRead = await readOnce();
@@ -1396,7 +1424,6 @@ function createWhiteboardWiring({
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const unreadRefusal = unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
       if (unreadRefusal) return { ok: false, reply: refusal(409, `${unreadRefusal}, so nothing changed`) };
-      noteWrittenIds(author.id, boardId, applied.record.board.elements.has(sessionFrameIdOf(author.id)) ? [boxId, sessionFrameIdOf(author.id)] : [boxId]);
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
       const note = withUnloadedNote(`${isUpdate ? 'updated' : 'showed'} ${card.title} ${isUpdate ? 'in place in' : 'as'} box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; show the same file again to update this card, or change it with whiteboard put`, unloaded);

@@ -5,7 +5,7 @@ import { Worker } from 'node:worker_threads';
 
 import { boardStoreWorkerPath } from '../runtime-paths.ts';
 import { BOARD_STORE_FILENAME, ELEMENT_PAGE_SIZE, StoreReply, boardDeltaOf, headRowsOf, recordOfRows } from './board-store-core.ts';
-import type { StagedElements } from './board-store-core.ts';
+import type { ElementWriter, StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
@@ -25,6 +25,7 @@ interface BoardStore {
   loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null>;
   assetIds(): Promise<Set<string>>;
   boardIds(): Promise<Set<string>>;
+  elementWriters(): Promise<ElementWriter[]>;
   save(before: BoardRecord | null, after: BoardRecord, staged?: StagedElements | null): Promise<void>;
   saveMany(records: readonly BoardRecord[]): Promise<void>;
   remove(boardId: string): Promise<void>;
@@ -133,6 +134,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
     loadElements,
     assetIds: async () => new Set((await request({ kind: 'asset-ids' })).assetIds ?? []),
     boardIds: async () => new Set((await request({ kind: 'board-ids' })).boardIds ?? []),
+    elementWriters: async () => (await request({ kind: 'element-writers' })).elementWriters ?? [],
     save: async (before, after, staged = null) => { await request({ kind: 'write', deltas: [boardDeltaOf(before, after, staged)] }); },
     saveMany: async (records) => { await request({ kind: 'write', deltas: records.map((record) => boardDeltaOf(null, record)) }); },
     remove: async (boardId) => { await request({ kind: 'delete', boardId }); },

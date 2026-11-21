@@ -8,7 +8,7 @@ import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-ele
 import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
 
-type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'>;
+type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'> & { writtenBy: string | null };
 type ElementDelta = { writes: z.infer<typeof ElementWrite>[]; removedElementIds: string[]; reslottedElementIds: string[] };
 
 const BOARD_STORE_FILENAME = 'boards.sqlite';
@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS elements (
   body TEXT NOT NULL,
   kind TEXT,
   asset_id TEXT,
+  written_by TEXT,
+  written_revision INTEGER,
   UNIQUE (board_id, element_id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS elements_by_revision ON elements (board_id, revision);
@@ -54,7 +56,9 @@ const Rect = z.strictObject({ minX: z.number(), maxX: z.number(), minY: z.number
 
 const ElementKind = z.enum(ELEMENT_KIND_NAMES);
 
-const ElementWrite = z.strictObject({ elementId: z.string(), kind: ElementKind, body: z.string(), assetId: z.string().nullable(), text: z.string() });
+const ElementWrite = z.strictObject({ elementId: z.string(), kind: ElementKind, body: z.string(), assetId: z.string().nullable(), text: z.string(), writtenBy: z.string().nullable() });
+
+const ElementWriter = z.strictObject({ boardId: z.string(), elementId: z.string(), writtenBy: z.string() });
 
 const BoardDelta = z.strictObject({
   boardId: z.string(),
@@ -80,6 +84,7 @@ const StoreRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('query-region'), requestId: z.number().int(), boardId: z.string(), region: Rect, limit: z.number().int().positive() }),
   z.strictObject({ kind: z.literal('search-text'), requestId: z.number().int(), boardId: z.string(), query: z.string(), limit: z.number().int().positive() }),
   z.strictObject({ kind: z.literal('board-ids'), requestId: z.number().int() }),
+  z.strictObject({ kind: z.literal('element-writers'), requestId: z.number().int() }),
 ]);
 
 const StoredHeadRows = z.strictObject({
@@ -102,6 +107,7 @@ const StoreReply = z.discriminatedUnion('ok', [
     elementIds: z.array(z.string()).optional(),
     boardIds: z.array(z.string()).optional(),
     assetIds: z.array(z.string()).optional(),
+    elementWriters: z.array(ElementWriter).optional(),
   }),
   z.strictObject({ requestId: z.number().int(), ok: z.literal(false), error: z.string() }),
 ]);
@@ -133,13 +139,13 @@ function headOf(board: Board): string {
   return JSON.stringify(head);
 }
 
-function elementWriteOf(element: Element, body: string): z.infer<typeof ElementWrite> {
-  return { elementId: element.id, kind: element.kind, body, assetId: assetIdOf(element), text: searchableTextOf(element) };
+function elementWriteOf(element: Element, body: string, writtenBy: string | null): z.infer<typeof ElementWrite> {
+  return { elementId: element.id, kind: element.kind, body, assetId: assetIdOf(element), text: searchableTextOf(element), writtenBy };
 }
 
-function elementWritesOf(elements: readonly Element[]): z.infer<typeof ElementWrite>[] {
+function elementWritesOf(elements: readonly Element[], writtenBy: string | null): z.infer<typeof ElementWrite>[] {
   const encoded = elementTableOf(elements);
-  return elements.map((element) => elementWriteOf(element, encoded.bodyOf(element.id) ?? EMPTY_BODY));
+  return elements.map((element) => elementWriteOf(element, encoded.bodyOf(element.id) ?? EMPTY_BODY, writtenBy));
 }
 
 function reorderedElementIdsOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): Set<string> {
@@ -169,14 +175,14 @@ function stagedElementDeltaOf(staged: StagedElements): ElementDelta {
     if (change[0] === 'put') delta.reslottedElementIds.push(elementId);
     writtenElements.push(element);
   }
-  delta.writes = elementWritesOf(writtenElements);
+  delta.writes = elementWritesOf(writtenElements, staged.writtenBy);
   return delta;
 }
 
 function comparedElementDeltaOf(elementsBefore: Board['elements'], elementsAfter: Board['elements']): ElementDelta {
   if (elementsBefore === elementsAfter) return { writes: [], removedElementIds: [], reslottedElementIds: [] };
   const reorderedElementIds = reorderedElementIdsOf(elementsBefore, elementsAfter);
-  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || elementsBefore.kindOf(element.id) !== element.kind || reorderedElementIds.has(element.id)).map((element) => elementWriteOf(element, elementsAfter.bodyOf(element.id) ?? EMPTY_BODY));
+  const writes = [...elementsAfter.values()].filter((element) => elementsBefore.bodyOf(element.id) !== elementsAfter.bodyOf(element.id) || elementsBefore.kindOf(element.id) !== element.kind || reorderedElementIds.has(element.id)).map((element) => elementWriteOf(element, elementsAfter.bodyOf(element.id) ?? EMPTY_BODY, null));
   const removedElementIds = [...elementsBefore.keys()].filter((elementId) => !elementsAfter.has(elementId));
   return { writes, removedElementIds, reslottedElementIds: [...reorderedElementIds] };
 }
@@ -265,4 +271,5 @@ function ftsQueryOf(query: string): string {
 
 export type { StagedElements };
 export { BOARD_STORE_FILENAME, BOARD_STORE_SCHEMA, BOARD_ROWS_VERSION, ELEMENT_PAGE_SIZE, StoreReply, StoreRequest, boardDeltaOf, compactDeltaOf, elementPageOfRows, ftsQueryOf, headRowsOf, recordOfRows };
+export type ElementWriter = z.infer<typeof ElementWriter>;
 export type { BoardDelta, ElementPage, Rect, StoreRequestBody, StoredHeadRows, StoredRowColumns };
