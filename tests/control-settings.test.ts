@@ -13,7 +13,7 @@ import { settingsBlockSpecFor, validateSettingsBlock } from '../server/core/sett
 import { configSecretsPath } from '../server/secrets/core/secret-files-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
 import { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
-import { commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
+import { cachedAgentResolvability, commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
 import { decideAgentPicker } from '../public/session-card/agent-core.ts';
@@ -408,7 +408,7 @@ test('the browser round trip never sees a credential and never blanks one', asyn
   });
 });
 
-test('a settings payload build reads the resolution cache and spawns no PATH probe', () => {
+test('a settings payload build reads the resolution cache and spawns no PATH probe, and an agent installed after a probed miss resolves on its next lookup', () => {
   const warm = CustomAgentDeclaration.parse({ id: 'aider', label: 'Aider', command: 'aider' });
   const missing = CustomAgentDeclaration.parse({ id: 'ghostcode', label: 'GhostCode', command: 'ghostcode' });
   const unprobed = CustomAgentDeclaration.parse({ id: 'shadowcode', label: 'ShadowCode', command: 'node' });
@@ -436,6 +436,9 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
       { id: 'shadowcode', label: 'ShadowCode', command: 'node', args: [], resolvable: null, isShadowedByBuiltIn: false },
       { id: 'gemini', label: 'My Gemini', command: 'my-gemini', args: [], resolvable: null, isShadowedByBuiltIn: true },
     ]);
+    const installedLater = commandFor('ghostcode', { platform: process.platform, execFile: () => '/usr/local/bin/ghostcode\n' });
+    assert.equal(installedLater.path, '/usr/local/bin/ghostcode');
+    assert.equal(cachedAgentResolvability('ghostcode').resolvable, true);
   } finally {
     childProcess.execFileSync = realExecFileSync;
     setCustomAgents([]);

@@ -312,7 +312,7 @@ function commandFor(adapterOrId: AgentAdapter | string, options?: AgentCommandOp
   const adapter = typeof adapterOrId === "string" ? resolveAdapter(adapterOrId) : adapterOrId;
   if (!adapter) throw new TypeError("default agent adapter is unavailable");
   const cached = resolvedCommands.get(adapter.id);
-  if (cached) return cached;
+  if (cached?.path) return cached;
   const resolved = adapter.resolveCommand(options);
   resolvedCommands.set(adapter.id, resolved);
   return resolved;
