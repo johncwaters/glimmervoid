@@ -512,6 +512,7 @@ interface ShownCard {
   media: BoxMedia;
   title: string;
   caption: string | null;
+  near: Near | null;
 }
 
 type ShownBoxOp = { ok: true; op: Op; boxId: string; isUpdate: boolean } | { ok: false; error: string };
@@ -586,13 +587,15 @@ function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard
   const sameFileBoxId = boxShowingSameFile(board, card);
   if (sameFileBoxId !== null) {
     const { title, caption, media } = shownCardFields(card);
-    const fields = caption === null ? { title, media } : { title, media, lines: [{ text: caption }] };
+    const captionFields = caption === null ? {} : { lines: [{ text: caption }] };
+    const nearFields = card.near === null ? {} : { place: { near: card.near } };
+    const fields = { title, media, ...captionFields, ...nearFields };
     return { ok: true, op: { op: 'set', id: sameFileBoxId, fields }, boxId: sameFileBoxId, isUpdate: true };
   }
   const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
   const boxId = `shown-${lastShownNumber + 1}`;
   const { title, caption, media } = shownCardFields(card);
-  const placement = { at: newShownCardPoint(board, context, media, lastShownNumber) };
+  const placement = card.near === null ? { at: newShownCardPoint(board, context, media, lastShownNumber) } : { near: card.near };
   const box = BoxInput.safeParse({
     kind: 'box',
     id: boxId,

@@ -1926,6 +1926,9 @@ test('show puts each file on a board the session is connected to, creating one n
   const wiring = createWhiteboardWiring({ boardsRoot });
   const shower = { id: 'show-agent', name: 'checkout fix', project: showerDir, cwd: showerDir };
 
+  const nearWithNoBoard = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', near: { of: 'ghost', side: 'right', gap: 60 } });
+  assert.equal(nearWithNoBoard.status, 409, JSON.stringify(nearWithNoBoard.body));
+  assert.deepEqual(wiring.snapshotMessage().boards, [], 'a refused show near leaves no board behind');
   const first = await wiring.handleAgent(shower, { sub: 'show', path: 'login.png', caption: 'login after fix' });
   assert.equal(first.status, 200, JSON.stringify(first.body));
   const boardId = (first.body as { board: { id: string; title: string; connectedSessionIds: string[] } }).board.id;
@@ -1986,6 +1989,16 @@ test('show puts each file on a board the session is connected to, creating one n
   const reshownCard = reshownBoard.elements.get('shown-1');
   assert.ok(reshownCard?.kind === 'box');
   assert.deepEqual([reshownBoard.elements.size, reshownCard.place, reshownCard.media?.width, reshownCard.lines.map((line) => line.text)], [2, firstCard.place, 96, ['login after second fix']]);
+
+  const shownNear = await wiring.handleAgent(shower, { sub: 'show', path: 'report.html', near: { of: 'shown-1', side: 'right', gap: 60 } });
+  assert.equal(shownNear.status, 200, JSON.stringify(shownNear.body));
+  const nearBoard = Board.parse(((await wiring.handleAgent(shower, { sub: 'get', board: boardId })).body as { board: unknown }).board);
+  const drawnNear = layoutBoard(nearBoard).elements.filter((element) => element.kind === 'box');
+  const drawnLogin = drawnNear.find((element) => element.id === 'shown-1');
+  const drawnReport = drawnNear.find((element) => element.id === 'shown-2');
+  assert.ok(drawnLogin && drawnReport);
+  assert.equal(drawnReport.x, drawnLogin.x + drawnLogin.width + 60, 'show with near puts the card right of the named box');
+  assert.ok(Math.abs(drawnReport.y + drawnReport.height / 2 - (drawnLogin.y + drawnLogin.height / 2)) <= 1, 'show with near centres the card on the named box side');
 
   const secondCopy = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'login-copy', title: 'Login v2', media: reshownCard.media, place: { at: { x: 0, y: 600 } } } }]) });
   assert.equal(secondCopy.status, 409, JSON.stringify(secondCopy.body));

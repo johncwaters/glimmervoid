@@ -496,6 +496,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
     link: z.boolean().optional().describe('link a Markdown, CSV, TSV, XLSX or HTML card to the file, so the card follows it when the board is read and an operator save of a Markdown, CSV or TSV card writes it'),
+    near: Near.optional().describe('place the card beside this box instead of where show would put it'),
   }).strict(),
   z.object({ sub: z.literal('export'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('import'), path: z.string().min(1, { error: 'import needs the board file path' }).max(4096) }).strict(),

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Whiteboard: show beside a box**: An agent can pass `near` to `show` to put the card next to the box it belongs to in one call.
+
 ### Fixed
 
 - **Whiteboard: shown cards stack in a straight column**: A card an agent shows while you are not looking at the board now lines up under the last shown card instead of stepping 40px further left each time.

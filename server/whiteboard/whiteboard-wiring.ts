@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, NOTE_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
-import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { DiffBefore, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
@@ -1266,7 +1266,17 @@ function createWhiteboardWiring({
     return { ok: true, linkPath: linkPath.split(path.sep).join('/') };
   }
 
-  async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null, isLinked: boolean): Promise<WhiteboardReply> {
+  function nearRefusalFor(caller: WhiteboardCaller, near: Near | null): WhiteboardReply | null {
+    if (near === null) return null;
+    const sessionBoard = sessionBoardOf(caller.id);
+    if (!sessionBoard) return refusal(409, `show places a card near ${near.of} only on a board this session is connected to, and it has none yet, so nothing was shown; show without near first, or connect to the board that holds ${near.of}`);
+    if (sessionBoard.board.elements.get(near.of)?.kind === 'box') return null;
+    return refusal(400, `${near.of} is not a box on board "${sessionBoard.board.title}", so nothing was shown`);
+  }
+
+  async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null, isLinked: boolean, near: Near | null): Promise<WhiteboardReply> {
+    const nearRefusal = nearRefusalFor(caller, near);
+    if (nearRefusal) return nearRefusal;
     const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
     const ingested = await assets.ingestFile(sourcePath, caller.id);
     if (!ingested.ok) return refusal(ingested.status, ingested.error);
@@ -1278,7 +1288,7 @@ function createWhiteboardWiring({
     const linked = isLinked ? await linkedPathFor(target.boardId, sourcePath) : null;
     if (linked && !linked.ok) return linked.reply;
     const media = linked ? { ...ingested.media, link: { path: linked.linkPath, syncedHash: ingested.media.asset } } : ingested.media;
-    const card = { media, title: pageTitle ?? fileName, caption };
+    const card = { media, title: pageTitle ?? fileName, caption, near };
     const author: Author = { id: caller.id, name: caller.name };
     const reply = await placeShownCard(target.boardId, card, author, ingested.unloaded);
     if (reply.status === 200 && target.provisionalTitle !== null) {
@@ -1426,7 +1436,7 @@ function createWhiteboardWiring({
     await loaded;
     if (request.sub === 'new') return createUnlessOnBoard(caller, request.title);
     if (request.sub === 'attach') return attachMedia(caller, request.path);
-    if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null, request.link === true);
+    if (request.sub === 'show') return showOnBoard(caller, request.path, request.caption?.trim() || null, request.link === true, request.near ?? null);
     if (request.sub === 'import') return importBoardForAgent(caller, request.path);
     if (request.sub === 'list') {
       const nowMs = now();

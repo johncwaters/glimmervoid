@@ -5,7 +5,7 @@ import {
 } from '../../shared/contracts/session.ts';
 import { AgentNeedRequest } from '../../shared/contracts/secrets.ts';
 import type { AgentApiVerb } from '../../shared/contracts/session.ts';
-import { BoardRegion, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BoardRegion, Near, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { RaceId } from '../../shared/contracts/race.ts';
@@ -249,21 +249,23 @@ const SECRETS_TOOL: GroupedTool = {
 function showPayload(toolArguments: ToolArguments, context: CallContext): Record<string, unknown> {
   const caption = typeof toolArguments.caption === 'string' ? { caption: toolArguments.caption } : {};
   const link = typeof toolArguments.link === 'boolean' ? { link: toolArguments.link } : {};
-  if (typeof toolArguments.path !== 'string') return { sub: 'show', ...caption, ...link };
-  return { sub: 'show', path: context.resolveSessionPath(toolArguments.path), ...caption, ...link };
+  const near = toolArguments.near === undefined ? {} : { near: toolArguments.near };
+  if (typeof toolArguments.path !== 'string') return { sub: 'show', ...caption, ...link, ...near };
+  return { sub: 'show', path: context.resolveSessionPath(toolArguments.path), ...caption, ...link, ...near };
 }
 
 const SHOW_TOOL: GroupedTool = {
   name: 'show',
   title: 'Glimmervoid show',
-  description: 'Show the operator an image, video, HTML page, Markdown document, Fountain screenplay, CSV, TSV or XLSX sheet or PowerPoint deck you made (a screenshot, a rendered chart, a report, a mockup, a demo clip, a draft they should edit, a table of results) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one titled after the file when there is none (to pick the board title, create it with whiteboard new first), and returns the board and the box id so whiteboard put can change it. A new card lines up beside a card already in the operator view; to keep it next to the box it belongs to, follow with whiteboard put {"op":"set","id":<that box id>,"fields":{"place":{"near":{"of":<box id>,"side":"right"}}}}, or align related cards as a row or column. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX on this machine, up to 200 MB, a Markdown or Fountain document or a CSV or TSV sheet up to 256 KiB, an XLSX workbook up to 2 MB; the operator can edit a Markdown or Fountain document or a CSV or TSV sheet on the board, and a workbook or deck is read-only; the operator opens a deck to read it slide by slide. An HTML page brings the images, styles, fonts and scripts it refers to by a relative path in its folder or below, and the reply names each local file that did not load; a file the page loads only from script at run time (fetch, a Worker, new URL) is not brought, so put its contents in the page. With link, a Markdown, Fountain, CSV, TSV, XLSX or HTML file in the board code session worktree stays tied to the file: the card follows it when the board is read, and an operator save of a linked Markdown, Fountain, CSV or TSV card writes the file.',
+  description: 'Show the operator an image, video, HTML page, Markdown document, Fountain screenplay, CSV, TSV or XLSX sheet or PowerPoint deck you made (a screenshot, a rendered chart, a report, a mockup, a demo clip, a draft they should edit, a table of results) as a card on a whiteboard on their dashboard. Use it instead of publishing an artifact, pasting a picture into chat, or asking the operator to open a file: the operator is already watching the board, and the card stays there for them and other sessions to see and edit. It puts the card on the board this session is connected to, creating one titled after the file when there is none (to pick the board title, create it with whiteboard new first), and returns the board and the box id so whiteboard put can change it. Pass near {"of":<box id>,"side":"right"} to put the card beside the box it belongs to; without near, a new card lines up beside a card already in the operator view, or beside your previous shown card. Accepts PNG, JPEG, WebP, GIF, SVG, MP4, WebM, HTML, Markdown, Fountain, CSV, TSV, XLSX or PPTX on this machine, up to 200 MB, a Markdown or Fountain document or a CSV or TSV sheet up to 256 KiB, an XLSX workbook up to 2 MB; the operator can edit a Markdown or Fountain document or a CSV or TSV sheet on the board, and a workbook or deck is read-only; the operator opens a deck to read it slide by slide. An HTML page brings the images, styles, fonts and scripts it refers to by a relative path in its folder or below, and the reply names each local file that did not load; a file the page loads only from script at run time (fetch, a Worker, new URL) is not brought, so put its contents in the page. With link, a Markdown, Fountain, CSV, TSV, XLSX or HTML file in the board code session worktree stays tied to the file: the card follows it when the board is read, and an operator save of a linked Markdown, Fountain, CSV or TSV card writes the file.',
   loadsUpfront: true,
   fields: {
     path: z.string().min(1).max(4096).describe('The file, absolute or relative to this session\'s directory'),
     caption: z.string().min(1).max(WHITEBOARD_LIMITS.line).optional().describe('A short line shown under the file on its card'),
     link: z.boolean().optional().describe('Tie a Markdown, Fountain, CSV, TSV, XLSX or HTML card to the file in the board code session worktree, so the card follows the file when the board is read and an operator save of a Markdown, Fountain, CSV or TSV card writes it'),
+    near: Near.optional().describe('Place the card beside this box: of is the box id, side left, right, top or bottom, gap in pixels (60 when left out)'),
   },
-  actions: { show: { verb: 'whiteboard', required: ['path'], accepts: ['path', 'caption', 'link'], hints: WRITES, toPayload: showPayload } },
+  actions: { show: { verb: 'whiteboard', required: ['path'], accepts: ['path', 'caption', 'link', 'near'], hints: WRITES, toPayload: showPayload } },
 };
 
 const SETTINGS_TOOL: GroupedTool = {
