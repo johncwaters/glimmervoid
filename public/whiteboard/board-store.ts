@@ -1,5 +1,5 @@
 import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-messages.ts';
-import type { AgentChange, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
+import type { AgentChange, SlideChain, WhiteboardPatch } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { BoardReview, BoardSummary, BoxMedia, Op } from '#shared/contracts/whiteboard.ts';
 import type { DiffBefore } from '#shared/contracts/control/whiteboard-messages.ts';
 import { BoardFileImportReply, BoardMediaUploadReply, WHITEBOARD_ASSET_ROUTE, WHITEBOARD_FILE_ROUTE } from '#shared/contracts/whiteboard.ts';
@@ -195,6 +195,12 @@ export async function requestBoardReview(boardId: string): Promise<{ ok: true; r
   const outcome = await runBoardCommand('whiteboard-review', { boardId });
   if (!outcome.ok) return outcome;
   return outcome.reply.review ? { ok: true, review: outcome.reply.review } : { ok: false, error: 'Glimmervoid did not return the board review.' };
+}
+
+export async function requestBoardSlides(boardId: string): Promise<{ ok: true; slides: SlideChain } | { ok: false; error: string }> {
+  const outcome = await runBoardCommand('whiteboard-slides', { boardId });
+  if (!outcome.ok) return outcome;
+  return outcome.reply.slides ? { ok: true, slides: outcome.reply.slides } : { ok: false, error: 'Glimmervoid did not return the board slides.' };
 }
 
 let openInReview: ((sessionId: string, openPath: string) => void) | null = null;

@@ -57,7 +57,7 @@ import { openSheetEditor } from './sheet-editor.ts';
 import type { SheetSaveOutcome } from './sheet-editor.ts';
 import type { DocSource } from '../doc-editor/doc-editor.ts';
 import {
-  boardSummariesOf, boardsConnectedTo, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, saveLinkedBoardDoc, onBoardFocusRequested, sendBoardOps, takeBoardFocusFor, takeOpenBoardRequest, uploadBoardMedia,
+  boardSummariesOf, boardsConnectedTo, createBoard, deleteBoard, disconnectSessionFromBoard, importBoardFile, onBoardChanged, onBoardListChanged, openFileInReview, requestBoardReview, requestBoardSlides, saveLinkedBoardDoc, onBoardFocusRequested, sendBoardOps, takeBoardFocusFor, takeOpenBoardRequest, uploadBoardMedia,
 } from './board-store.ts';
 import { clock } from '#shared/clock.ts';
 import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
@@ -1085,8 +1085,16 @@ function downloadOriginalOf(pressedImage: PressedImage, media: BoxMedia | null):
 
 const UNWIRED_PRESENT_TEXT = 'Wire boxes in order, from each slide to the next, to present them.';
 
-function presentBoard(): void {
-  if (!editor || editor.startPresenting()) return;
+async function presentBoard(): Promise<void> {
+  const presentedBoardId = selectedBoardId;
+  if (!editor || !presentedBoardId) return;
+  const outcome = await requestBoardSlides(presentedBoardId);
+  if (!editor || selectedBoardId !== presentedBoardId) return;
+  if (!outcome.ok) {
+    status.show('error', outcome.error);
+    return;
+  }
+  if (editor.startPresenting(outcome.slides)) return;
   status.show('error', UNWIRED_PRESENT_TEXT);
 }
 
@@ -1626,7 +1634,7 @@ export function mountBoardHost(): HTMLElement {
   toolGroup.append(lockButton, ...toolButtons.values(), moreTools.menuRoot);
   const buttons = {
     fit: iconButton('Fit', 'Shift+1', FIT_ICON_PATH, 'fit-board', () => editor?.fit()),
-    present: iconButton('Present', undefined, PRESENT_ICON_PATH, 'present-board', presentBoard),
+    present: iconButton('Present', undefined, PRESENT_ICON_PATH, 'present-board', () => void presentBoard()),
     undo: iconButton('Undo', commandChord('Z'), UNDO_ICON_PATH, 'undo-board-edit', () => void stepHistory('undo')),
     redo: iconButton('Redo', commandChord('Shift+Z'), REDO_ICON_PATH, 'redo-board-edit', () => void stepHistory('redo')),
   };

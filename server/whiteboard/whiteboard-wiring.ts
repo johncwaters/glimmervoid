@@ -2,12 +2,12 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, NOTE_TONES, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, NOTE_TONES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
-import type { DiffBefore, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
+import type { DiffBefore, SlideChain, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { ControlMessageRecord } from '../core/control-replay-core.ts';
 import { OPERATOR_AUTHOR, createBoard, stageOps, unplacedNearTargetIdsOf } from '../../shared/whiteboard-ops-core.ts';
 import { assetIdOf, assetIdsOf, boardIndexOf } from '../../shared/whiteboard-board-index.ts';
@@ -121,6 +121,7 @@ type OperatorReply = {
   board?: Board;
   summary?: BoardSummary;
   review?: BoardReview;
+  slides?: SlideChain;
   patch?: WhiteboardPatch;
   isConflict?: boolean;
   savedMedia?: BoxMedia;
@@ -190,6 +191,7 @@ interface WhiteboardPort {
     remove(boardId: string): Promise<OperatorReply>;
     get(boardId: string): Promise<OperatorReply>;
     review(boardId: string): Promise<OperatorReply>;
+    slides(boardId: string): Promise<OperatorReply>;
     connect(boardId: string, sessionId: string): Promise<OperatorReply>;
     disconnect(boardId: string, sessionId: string): Promise<OperatorReply>;
     detach(boardId: string, sessionId: string): Promise<OperatorReply>;
@@ -1155,6 +1157,12 @@ function createWhiteboardWiring({
       const linkStates = await syncLinks(boardId);
       return { ok: true, error: null, review: await linkedReviewFor(boardId, loading.record.board, { readsChanges: true }, linkStates) };
     },
+    slides: async (boardId) => {
+      await loaded;
+      const loading = await loadedRecordOf(boardId);
+      if (!loading.ok) return operatorReplyOf(loading.reply);
+      return slideChainReplyOf(loading.record.board);
+    },
     connect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => attachBoard(foundBoardId, sessionId)),
     disconnect: (boardId, sessionId) => operatorBoardCommand(boardId, (foundBoardId) => disconnectBoard(foundBoardId, sessionId)),
     saveLinkedDoc: saveLinkedDocOf,
@@ -1380,6 +1388,31 @@ function createWhiteboardWiring({
     const left = Math.min(...xs) - halfWidth;
     const top = Math.min(...ys) - halfWidth + pinnedOffsetY;
     return [{ x: left, y: top, width: Math.max(...xs) + halfWidth - left, height: Math.max(...ys) + halfWidth + pinnedOffsetY - top }];
+  }
+
+  function isSlideBox(board: Board, boxId: string | null): boxId is string {
+    const element = boxId ? board.elements.get(boxId) : undefined;
+    return element?.kind === 'box' && element.shape !== 'note';
+  }
+
+  async function slideChainReplyOf(board: Board): Promise<OperatorReply> {
+    const wires = [...board.elements.valuesOfKind('wire')].flatMap((wire) => {
+      const from = boxIdOfEnd(wire.from);
+      const to = boxIdOfEnd(wire.to);
+      return isSlideBox(board, from) && isSlideBox(board, to) && from !== to ? [{ from, to }] : [];
+    });
+    const boxIds = [...new Set(wires.flatMap(({ from, to }) => [from, to]))];
+    try {
+      const pins = await tiles.pinPositionsOf(board, boxIds);
+      const boxes = boxIds.flatMap((id) => {
+        const laidOut = pins.laidOutBoxOf(id);
+        return laidOut ? [{ id, rect: { x: laidOut.x, y: laidOut.y, width: laidOut.width, height: laidOut.height } }] : [];
+      });
+      return { ok: true, error: null, slides: { boxes, wires } };
+    } catch (error: unknown) {
+      logger.warn(`[whiteboard] board ${board.id} could not locate its slides: ${errorMessage(error)}`);
+      return { ok: false, error: 'Glimmervoid could not lay out the board to find its slides.' };
+    }
   }
 
   async function drawnRectsIn(board: Board, view: Rect, pinnedOffsetY: number): Promise<Rect[] | null> {

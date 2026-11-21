@@ -35,6 +35,7 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-delete': (msg: ClientMessageOf<'whiteboard-delete'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.remove(msg.boardId)),
     'whiteboard-get': (msg: ClientMessageOf<'whiteboard-get'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.get(msg.boardId)),
     'whiteboard-review': (msg: ClientMessageOf<'whiteboard-review'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.review(msg.boardId)),
+    'whiteboard-slides': (msg: ClientMessageOf<'whiteboard-slides'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.slides(msg.boardId)),
     'whiteboard-connect': (msg: ClientMessageOf<'whiteboard-connect'>, ws: ControlSocket) => answerWhiteboard(ws, msg, async (port) => {
       if (!findSession({ id: msg.sessionId })) return { ok: false, error: 'That session is no longer on the dashboard.' };
       return port.connect(msg.boardId, msg.sessionId);
@@ -54,6 +55,7 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-delete': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-get': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-review': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
+    'whiteboard-slides': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-connect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-disconnect': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),
     'whiteboard-detach': (_msg, requestId, message) => ({ type: 'whiteboard-result', requestId, ok: false, error: message }),

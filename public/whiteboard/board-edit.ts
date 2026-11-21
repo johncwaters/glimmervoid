@@ -13,6 +13,7 @@ import { createDragPreview, handleSidesOf, isInStepBand, laidOutBox, layoutBoard
 import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
 import { elbowCornersAfterShift, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
+import type { SlideChain } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
 import type { BoardWheel } from './board-media-layer.ts';
 import { elementTableOf } from '#shared/whiteboard-element-table.ts';
@@ -328,6 +329,8 @@ export function createBoardEditor(options: BoardEditorOptions) {
   let owedFit: { bounds: Rect; maxZoom: number } | null = null;
   let glideFrameId: number | null = null;
   let presentedBoxId: string | null = null;
+  let presentedSlideRectById: ReadonlyMap<string, Rect> = new Map();
+  let presentedSlideWires: SlideChain['wires'] = [];
 
   function setTool(tool: BoardTool): void {
     activeTool = tool;
@@ -1999,15 +2002,9 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function slideBoundsOf(boxId: string): Rect | null {
-    const element = options.currentBoard()?.elements.get(boxId);
-    if (element?.kind !== 'box' || element.shape === 'note') return null;
-    return renderer.boundsOf(boxId);
-  }
-
-  function wiresOfBoard(): Wire[] {
-    const board = options.currentBoard();
-    if (!board) return [];
-    return [...board.elements.values()].filter((element) => element.kind === 'wire');
+    const startRect = presentedSlideRectById.get(boxId);
+    if (!startRect) return null;
+    return renderer.boundsOf(boxId) ?? startRect;
   }
 
   function showPresentedBox(): void {
@@ -2017,10 +2014,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
     fitArea({ x: bounds.x - marginUnits, y: bounds.y - marginUnits, width: bounds.width + marginUnits * 2, height: bounds.height + marginUnits * 2 }, PRESENT_MAX_ZOOM);
   }
 
-  function startPresenting(): boolean {
+  function startPresenting(slides: SlideChain): boolean {
+    presentedSlideRectById = new Map(slides.boxes.map((box) => [box.id, box.rect]));
+    presentedSlideWires = slides.wires;
     const [onlySelectedId, ...otherSelectedIds] = selectedIds;
     const selectedStartId = onlySelectedId && otherSelectedIds.length === 0 && slideBoundsOf(onlySelectedId) ? onlySelectedId : null;
-    const startBoxId = selectedStartId ?? firstPresentedBoxId(wiresOfBoard(), slideBoundsOf);
+    const startBoxId = selectedStartId ?? firstPresentedBoxId(presentedSlideWires, slideBoundsOf);
     if (!startBoxId) return false;
     closeInlineEditor();
     setSelection(new Set());
@@ -2033,7 +2032,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function stepPresenting(step: 1 | -1): void {
     if (!presentedBoxId) return;
-    const nextBoxId = presentedBoxIdAfter(presentedBoxId, step, wiresOfBoard(), slideBoundsOf);
+    const nextBoxId = presentedBoxIdAfter(presentedBoxId, step, presentedSlideWires, slideBoundsOf);
     if (!nextBoxId) return;
     presentedBoxId = nextBoxId;
     showPresentedBox();

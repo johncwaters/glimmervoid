@@ -380,7 +380,10 @@ export function showFocusedBoardChange(): boolean {
   const target = boardChangeToShowOf(getFocusedSessionId());
   if (!target) return false;
   frameUnshownAgentChange(target.sessionId, target.boardId);
-  if (splitBoardBySession[target.sessionId] !== target.boardId) openOperatorSplit(target.sessionId, target.boardId);
+  if (splitBoardBySession[target.sessionId] !== target.boardId) {
+    openOperatorSplit(target.sessionId, target.boardId);
+    refreshFocusRoster();
+  }
   onPillPick(target.sessionId, 'board');
   return true;
 }

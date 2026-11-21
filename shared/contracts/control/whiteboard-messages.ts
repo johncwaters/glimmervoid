@@ -32,6 +32,11 @@ export const WhiteboardPatch = z.object({
   before: DiffBefore,
 });
 
+export const SlideChain = z.object({
+  boxes: z.array(z.object({ id: z.string(), rect: LayoutRect })),
+  wires: z.array(z.object({ from: z.string(), to: z.string() })),
+});
+
 export const AGENT_CHANGE_BOXES_MAX = 50;
 
 export const AgentChange = z.object({
@@ -44,6 +49,7 @@ export type BoardDiff = z.infer<typeof BoardDiff>;
 export type DiffBefore = z.infer<typeof DiffBefore>;
 export type WhiteboardPatch = z.infer<typeof WhiteboardPatch>;
 export type AgentChange = z.infer<typeof AgentChange>;
+export type SlideChain = z.infer<typeof SlideChain>;
 
 export const whiteboardClientVariants = [
   loose('whiteboard-create', { title: Board.shape.title, requestId }),
@@ -51,6 +57,7 @@ export const whiteboardClientVariants = [
   loose('whiteboard-delete', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-get', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-review', { boardId: Board.shape.id, requestId }),
+  loose('whiteboard-slides', { boardId: Board.shape.id, requestId }),
   loose('whiteboard-connect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-detach', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
@@ -64,5 +71,5 @@ export const whiteboardServerVariants = [
   loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
   loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), diff: TileDiff }),
   loose('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), at: z.number().finite(), change: AgentChange }),
-  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),
+  loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), slides: SlideChain.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),
 ] as const;

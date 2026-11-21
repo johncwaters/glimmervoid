@@ -217,6 +217,16 @@ export function errorText(error: unknown): string {
   return String(error);
 }
 
+const DRIVER_MESSAGE_MAX_CHARS = 600;
+const DRIVER_FRAMES_KEPT = 4;
+
+function driverFailureTextOf(error: unknown): string {
+  if (!(error instanceof Error)) return safeTextTail(error, DRIVER_MESSAGE_MAX_CHARS);
+  const message = safeTextTail(error.message, Number.MAX_SAFE_INTEGER).slice(0, DRIVER_MESSAGE_MAX_CHARS);
+  const harnessFrames = (error.stack ?? '').split('\n').filter((line) => line.trim().startsWith('at ') && line.includes('/harness/')).slice(0, DRIVER_FRAMES_KEPT).map((line) => line.trim());
+  return [message, ...harnessFrames].join('\n');
+}
+
 function readGridOf(viewer: Viewer, sessionId: string): Promise<GridReading | null> {
   return viewer.page.evaluate(readGrid, { sessionId, registryUrl: CARD_REGISTRY_URL });
 }
@@ -1373,7 +1383,7 @@ export async function runCase({
       try {
         result = await runStep(step);
       } catch (error) {
-        result = failedOutcome('driver', safeTextTail(errorText(error), 800));
+        result = failedOutcome('driver', driverFailureTextOf(error));
       }
       const crashed = log.pageErrors.length > 0;
       const stepFailed = !result.ok || crashed;
@@ -1410,7 +1420,7 @@ export async function runCase({
       shot: null,
       failure: {
         predicate: 'driver',
-        detail: safeTextTail(errorText(error), 800),
+        detail: driverFailureTextOf(error),
         firstDifferingRow: null,
         expectedRow: null,
         actualRow: null,
