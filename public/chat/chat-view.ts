@@ -36,7 +36,8 @@ interface ChatView {
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
-  held: 'Queued until the turn ends',
+  held: 'Queued',
+  next: 'Next step',
   sending: 'Sending',
   submitted: 'Sent',
 };
@@ -153,7 +154,16 @@ function queuedStatusOf(entry: ChatOutboxEntry): string {
   return QUEUED_STATUS_TEXT[entry.state];
 }
 
-function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => string): HTMLElement {
+function sendNowButtonOf(entry: ChatOutboxEntry): HTMLButtonElement {
+  const sendNowButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Send now' });
+  sendNowButton.addEventListener('click', () => {
+    sendNowButton.disabled = true;
+    sendNowButton.dispatchEvent(new CustomEvent('chat-send-now', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
+  });
+  return sendNowButton;
+}
+
+function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => string, canSendNow: boolean): HTMLElement {
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
   const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
@@ -162,7 +172,9 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
     row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
   });
   const meta = el('div', 'chat-queued-meta');
-  meta.append(status, cancelButton);
+  meta.append(status);
+  if (canSendNow && entry.state === 'held') meta.append(sendNowButtonOf(entry));
+  meta.append(cancelButton);
   const queuedPrompt = renderPromptBubble(entry.text, entry.attachments, uploadUrlOf);
   queuedPrompt.classList.add('chat-prompt-queued');
   row.append(queuedPrompt, meta);
@@ -223,8 +235,12 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     element.removeAttribute('aria-busy');
   };
   scroller.append(scrollContent);
+  let shownQueuedEntries: readonly ChatOutboxEntry[] = [];
+  let isQueueBehindRunningTurn = false;
   const showQueued = (entries: readonly ChatOutboxEntry[]) => {
-    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf)));
+    shownQueuedEntries = entries;
+    const canSendNow = isQueueBehindRunningTurn && !entries.some((entry) => entry.state === 'failed');
+    queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf, canSendNow)));
   };
   composer.element.addEventListener('chat-send', followLatest);
   const jumpSlot = el('div', 'chat-jump-slot');
@@ -256,6 +272,10 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
   const setPhase = (phase: ChatPhase, isTurnRunning: boolean) => {
     composer.setTurnRunning(isTurnRunning);
+    if (isTurnRunning !== isQueueBehindRunningTurn) {
+      isQueueBehindRunningTurn = isTurnRunning;
+      showQueued(shownQueuedEntries);
+    }
     activity.setPhase(phase);
   };
   const showTurnEnd = (turnEnd: TurnEnd | null) => {

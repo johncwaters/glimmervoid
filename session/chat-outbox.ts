@@ -35,9 +35,14 @@ interface ChatOutbox {
   queue(text: string, attachments: readonly string[]): QueueOutcome;
   adopt(carriedEntries: readonly ChatOutboxEntry[]): void;
   cancel(entryId: string): ChatOutboxEntry[];
+  sendNext(entryId: string): boolean;
   drain(): void;
   noteTurnTaken(): void;
   dispose(): void;
+}
+
+function isWaitingToSend(entry: ChatOutboxEntry): boolean {
+  return entry.state === "held" || entry.state === "next";
 }
 
 function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
@@ -104,8 +109,8 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   }
 
   function drain(): void {
-    if (outboxEntries.some((entry) => entry.state !== "held")) return;
-    const nextEntry = outboxEntries.find((entry) => entry.state === "held");
+    if (!outboxEntries.every(isWaitingToSend)) return;
+    const nextEntry = outboxEntries.find(isWaitingToSend);
     if (!nextEntry || !port.canTakeMessage()) return;
     if (port.isDeliveryInFlight()) {
       recheckSoon();
@@ -134,6 +139,17 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     return cancelledEntries;
   }
 
+  function sendNext(entryId: string): boolean {
+    const heldEntry = outboxEntries.find((entry) => entry.entryId === entryId);
+    if (heldEntry?.state !== "held") return false;
+    if (outboxEntries.some((entry) => entry.state === "failed")) return false;
+    const otherEntries = outboxEntries.filter((entry) => entry !== heldEntry);
+    const firstHeldIndex = otherEntries.findIndex((entry) => entry.state === "held");
+    const insertIndex = firstHeldIndex < 0 ? otherEntries.length : firstHeldIndex;
+    publish([...otherEntries.slice(0, insertIndex), { ...heldEntry, state: "next" }, ...otherEntries.slice(insertIndex)]);
+    return true;
+  }
+
   function carriedEntryOf(entry: ChatOutboxEntry): ChatOutboxEntry {
     if (entry.state === "sending") return { ...entry, state: "failed", failure: RESTARTED_TEXT };
     if (entry.state !== "submitted") return entry;
@@ -152,7 +168,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     stopUnrecordedTimers();
   }
 
-  return { entries: () => outboxEntries, queue, adopt, cancel, drain, noteTurnTaken, dispose };
+  return { entries: () => outboxEntries, queue, adopt, cancel, sendNext, drain, noteTurnTaken, dispose };
 }
 
 export { createChatOutbox };

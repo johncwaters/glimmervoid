@@ -361,13 +361,13 @@ async function waitForDraft(page: Page, expectedDraft: string, reason: string): 
 async function verifyHeldMessageWaitsForTurnEnd(page: Page): Promise<void> {
   const chat = page.locator('.session-chat');
   const input = chat.getByRole('textbox', { name: 'Message the agent' });
-  const heldRow = chat.locator('.chat-queued-row').filter({ hasText: 'Queued until the turn ends' });
+  const heldRow = chat.locator('.chat-queued-row').filter({ hasText: 'Queued' });
   await sendFromComposer(page, 'work');
   await heldRow.waitFor({ timeout: CARD_TIMEOUT_MS });
   const secondTab = await page.context().newPage();
   try {
     await secondTab.goto(page.url());
-    const secondTabRow = secondTab.locator('.session-chat .chat-queued-row').filter({ hasText: 'Queued until the turn ends' });
+    const secondTabRow = secondTab.locator('.session-chat .chat-queued-row').filter({ hasText: 'Queued' });
     await secondTabRow.waitFor({ timeout: CARD_TIMEOUT_MS });
     await heldRow.getByRole('button', { name: 'Cancel', exact: true }).click();
     await secondTabRow.waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
@@ -384,7 +384,7 @@ async function verifyHeldMessageWaitsForTurnEnd(page: Page): Promise<void> {
   await waitForTurnRunning(page, true);
   await input.press('Enter');
   await heldRow.waitFor({ timeout: CARD_TIMEOUT_MS });
-  await chat.getByRole('button', { name: 'Stop', exact: true }).click();
+  await heldRow.getByRole('button', { name: 'Send now', exact: true }).click();
   await waitForTurnRunning(page, false);
   await waitForTurnRunning(page, true);
 }

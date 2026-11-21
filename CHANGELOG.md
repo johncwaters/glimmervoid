@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chat: Send now on a queued message**: A message queued behind a running turn has Send now beside Cancel. It moves that message to the front, stops the turn at its next step and sends it; the row reads "Next step" until it goes. Queued messages now read just "Queued".
 - **Chat: empty, loading and drop states**: A chat with no messages says "No messages yet" and shows its keys; one still loading shows a placeholder until its history arrives. Dragging files over the message box marks it as a drop target. `{` and `}` step between your prompts, like `[` and `]` step between turns.
 - **Chat: code blocks you can copy**: A code block in a reply names its language and has a Copy button; "Copied" shows beside it.
 - **Chat: one row per tool call**: An open turn lists each call it made with a status mark, the file name or command, and how long it took; click a finished call to read the first lines of its output. The turn line adds how many calls failed, how long the agent thought, and a diff button that opens the turn's edits inline.

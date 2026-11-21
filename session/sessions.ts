@@ -2499,8 +2499,13 @@ class Session extends EventEmitter {
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
   noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
 
-  stopFromChat(): void {
-    if (this._isTurnEndHeldForBackgroundWork()) {
+  stopFromChat(sendNextEntryId?: string): void {
+    const isTurnEndHeldForBackgroundWork = this._isTurnEndHeldForBackgroundWork();
+    if (sendNextEntryId !== undefined) {
+      const isTurnRunning = this.state === STATES.RUNNING || isTurnEndHeldForBackgroundWork;
+      if (!isTurnRunning || !this._chatOutbox.sendNext(sendNextEntryId)) return;
+    }
+    if (isTurnEndHeldForBackgroundWork) {
       const isStopAlreadyAsked = this._chatOutbox.entries().some((entry) => entry.text === STOP_BACKGROUND_WORK_TEXT && entry.state !== "failed");
       if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, []);
       return;

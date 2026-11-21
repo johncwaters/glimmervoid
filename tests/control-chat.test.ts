@@ -252,7 +252,11 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   assert.deepEqual(outboxOf(), ['Eaten by a mid-session dialog:failed', 'Sent behind the eaten one:held']);
   assert.equal(writes.join('').includes('Sent behind the eaten one'), false);
   assert.deepEqual([session.state, session.toSnapshot().pendingPromptKind], ['WAITING', 'check-terminal']);
-  const [notTaken] = session.toSnapshot().chatOutbox;
+  const [notTaken, heldBehindFailed] = session.toSnapshot().chatOutbox;
+  const writesBeforeSendNow = writes.length;
+  session.stopFromChat(heldBehindFailed.entryId);
+  assert.equal(writes.length, writesBeforeSendNow);
+  assert.deepEqual(outboxOf(), ['Eaten by a mid-session dialog:failed', 'Sent behind the eaten one:held']);
   assert.deepEqual(session.cancelChatMessage(notTaken.entryId).map((entry) => entry.text), ['Eaten by a mid-session dialog', 'Sent behind the eaten one']);
   session.transition('task_complete');
   session.transition('user_dismiss');
@@ -265,7 +269,7 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   assert.deepEqual(outboxOf(), []);
 });
 
-test('a Chat message reaches Claude once its turn ends with a background shell still running, and Stop then asks it to end that work', async (testContext) => {
+test('a Chat message reaches Claude once its turn ends with a background shell still running, Send now moves a queued message first and stops the turn, and Stop then asks it to end that work', async (testContext) => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-monitoring-'));
   const writes: string[] = [];
   const session = new Session({ id: 'monitoring', name: 'monitoring', path: projectPath, hookRouter: new HookRouter(), getHookPort: () => 41234, ptySpawn: () => capturingPty(writes) });
@@ -302,8 +306,15 @@ test('a Chat message reaches Claude once its turn ends with a background shell s
   assert.deepEqual(outboxOf(), []);
   assert.equal(session.state, 'RUNNING');
 
-  session.stopFromChat();
+  session.queueChatMessage('After this turn');
+  const sendNowQueued = session.queueChatMessage('Send this now');
+  assert.ok(sendNowQueued.ok);
+  if (!sendNowQueued.ok) return;
+  session.stopFromChat(sendNowQueued.entryId);
   assert.equal(writes.at(-1), String.fromCharCode(27));
+  assert.deepEqual(outboxOf(), ['Send this now:next', 'After this turn:held']);
+  session.cancelChatMessage(sendNowQueued.entryId);
+  session.cancelChatMessage(session.toSnapshot().chatOutbox[0]?.entryId ?? '');
   assert.deepEqual(outboxOf(), []);
 
   session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 5, payload: { background_tasks: [{ id: 'harness-run', type: 'shell', status: 'running' }] } });

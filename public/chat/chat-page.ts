@@ -153,7 +153,7 @@ function attachedFilesOf(event: Event): File[] {
   return detail.files.filter((file): file is File => file instanceof File);
 }
 
-function cancelledEntryIdOf(event: Event): string | null {
+function entryIdOf(event: Event): string | null {
   if (!(event instanceof CustomEvent)) return null;
   const detail: unknown = event.detail;
   if (typeof detail !== 'object' || detail === null || !('entryId' in detail) || typeof detail.entryId !== 'string') return null;
@@ -389,14 +389,14 @@ function buildChat(sessionId: string): MountedChat {
   const isOutboxStalled = () => (outboxBySessionId.get(sessionId) ?? []).some((entry) => entry.state === 'failed');
   const isShownAsSent = (entry: ChatOutboxEntry) => {
     if (SENT_OUTBOX_STATES.has(entry.state)) return true;
-    return entry.state === 'held' && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
+    return (entry.state === 'held' || entry.state === 'next') && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
   };
   let terminalCardState: TerminalCardState = 'hidden';
   const phaseToShow = () => {
     if (terminalCardState === 'borrowed') return 'quiet';
     const phase = sessionPhaseOf(sessionId);
     if (phase === 'working') entryIdsAwaitingTurn.clear();
-    const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
+    const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
     return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
   };
   const showOutbox = () => {
@@ -819,17 +819,21 @@ function buildChat(sessionId: string): MountedChat {
     sendChatText(sessionId, chatSend.text, chatSend.attachments);
   });
   root.addEventListener('chat-cancel', (event) => {
-    const entryId = cancelledEntryIdOf(event);
+    const entryId = entryIdOf(event);
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
   });
   root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => (entry.state === 'held' || entry.state === 'failed') && !isShownAsSent(entry));
+    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'failed') && !isShownAsSent(entry));
     if (!newestCancellable) return;
     event.preventDefault();
     cancelOutboxEntry(sessionId, newestCancellable.entryId);
   });
   root.addEventListener('chat-stop', () => {
     sendControlMsg({ type: 'chat-stop', id: sessionId });
+  });
+  root.addEventListener('chat-send-now', (event) => {
+    const entryId = entryIdOf(event);
+    if (entryId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId, entryId });
   });
   root.addEventListener('chat-card', (event) => {
     const detail = cardDetailOf(event);
