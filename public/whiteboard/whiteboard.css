@@ -446,6 +446,13 @@
   opacity: var(--opacity-below-one-so-chromium-composites-the-frame-as-translucent);
 }
 
+.wb-media-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .wb-media.is-interactive {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

@@ -1512,7 +1512,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       geometryIndexById: new Map(built.elements.map((geometry, index) => [geometry.id, index])),
       elementById,
       grid: gridOfRects(built.elements.map((geometry) => geometry.bounds), CULL_CELL_SIZE),
-      hasPageMedia: layout.elements.some((element) => element.kind === 'box' && (element.media?.kind === 'page' || element.media?.kind === 'doc' || element.media?.kind === 'sheet')),
+      hasPageMedia: layout.elements.some((element) => element.kind === 'box' && (element.isAutoplay || element.media?.kind === 'page' || element.media?.kind === 'doc' || element.media?.kind === 'sheet')),
     };
     forgetMediaNotIn(layout);
     mediaLayer.sync(layout, built.elements.map((geometry) => geometry.id));

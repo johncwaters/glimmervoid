@@ -25,7 +25,7 @@ const DOC_UNREAD_TEXT = 'This document could not be read.';
 const OCCLUDER_REACH = 8;
 const PAGE_THEME_VARIABLE_BY_COLOR = { background: '--bg-card', text: '--text', accent: '--accent', line: '--border' } as const;
 
-type PageMedia = LaidOutMedia & { kind: keyof typeof VIEWPORT_WIDTH_PX_BY_KIND };
+type PageMedia = LaidOutMedia & { kind: keyof typeof VIEWPORT_WIDTH_PX_BY_KIND | 'video' };
 
 interface PlacedPage {
   identity: string;
@@ -38,12 +38,26 @@ function isPageMedia(media: LaidOutMedia | null): media is PageMedia {
   return media?.kind === 'page' || media?.kind === 'doc' || media?.kind === 'sheet';
 }
 
+function liveMediaOf(box: LaidOutBox): PageMedia | null {
+  if (isPageMedia(box.media)) return box.media;
+  if (box.isAutoplay && box.media?.kind === 'video') return { ...box.media, kind: 'video' };
+  return null;
+}
+
 function identityOf(media: PageMedia): string {
-  return JSON.stringify([media.asset, media.mime, media.alt]);
+  return JSON.stringify([media.asset, media.mime, media.alt, media.kind === 'video' ? media.fit : null]);
 }
 
 function viewportWidthOf(box: Pick<LaidOutBox, 'device'>, media: PageMedia): number {
+  if (media.kind === 'video') return media.width;
   return box.device ? DEVICE_CATALOG[box.device.name].screen.width : VIEWPORT_WIDTH_PX_BY_KIND[media.kind];
+}
+
+function autoplayVideoOf(media: PageMedia): HTMLVideoElement {
+  const video = Object.assign(el('video', 'wb-media-video'), { muted: true, defaultMuted: true, loop: true, playsInline: true, autoplay: true });
+  video.style.objectFit = media.fit === 'fit' ? 'contain' : 'cover';
+  video.src = `${WHITEBOARD_ASSET_ROUTE}/${boardMediaOriginalFilename(media)}`;
+  return video;
 }
 
 function placeNode(node: HTMLElement, media: PageMedia, viewportWidth: number, turn: PageTurn): void {
@@ -245,6 +259,11 @@ function placedPageOf(page: ShownPage, latestDialValues: () => Readonly<Record<s
   const node = el('div', 'wb-media');
   node.dataset.boxId = boxId;
   node.dataset.mediaKind = media.kind;
+  if (media.kind === 'video') {
+    node.append(autoplayVideoOf(media));
+    placeNode(node, media, viewportWidth, turn);
+    return { identity, node, frame: null, postedDialValues: '{}' };
+  }
   const textCardOf = TEXT_CARD_BUILDER_BY_KIND[media.kind];
   if (textCardOf) {
     node.append(textCardOf(media));
@@ -403,10 +422,12 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     const elementById = new Map(layout.elements.map((element) => [element.id, element]));
     const elementsInPaintOrder = elementIdsInPaintOrder.flatMap((elementId) => elementById.get(elementId) ?? []);
     shownPages = layout.elements.flatMap((element) => {
-      if (element.kind !== 'box' || !isPageMedia(element.media)) return [];
+      if (element.kind !== 'box') return [];
+      const media = liveMediaOf(element);
+      if (!media) return [];
       const turn = { angle: element.angle, pivot: { x: element.x + element.width / 2, y: element.y + element.height / 2 } };
       const occluders = occludersAbove(element.id, { x: element.x, y: element.y, width: element.width, height: element.height, angle: element.angle }, elementsInPaintOrder);
-      return [{ boxId: element.id, media: element.media, turn, viewportWidth: viewportWidthOf(element, element.media), identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occluders, turn), isTransparent: isTransparentPageBox(element) }];
+      return [{ boxId: element.id, media, turn, viewportWidth: viewportWidthOf(element, media), identity: identityOf(media), maskImage: pageMaskImage(media, occluders, turn), isTransparent: isTransparentPageBox(element) }];
     });
     placeLivePages();
   }
