@@ -26,6 +26,10 @@ export const SHAPE_TRAITS: Readonly<Record<BoxShape, ShapeTraits>> = Object.free
   device: { label: 'Device', pickerIcon: 'phone', holdsLines: false, holdsMedia: true, isFitted: false, isBorderlessByDefault: true, takesTone: false, needsDevice: true, needsIcon: false },
 });
 
+export function isTransparentPageBox(box: { isBorderless: boolean; device: unknown; media: { kind: string } | null }): boolean {
+  return box.isBorderless && box.device === null && box.media?.kind === 'page';
+}
+
 export function isBorderlessBox(box: { shape: BoxShape; borderless: boolean | null }): boolean {
   return box.borderless ?? SHAPE_TRAITS[box.shape].isBorderlessByDefault;
 }
