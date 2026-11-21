@@ -66,6 +66,7 @@ export const LaidOutWire = z.object({
   label: z.string().nullable(),
   labelAt: LayoutPoint,
   isDashed: z.boolean(),
+  isFlowing: z.boolean().default(false),
   isBold: z.boolean().default(false),
   tone: Wire.shape.tone.unwrap(),
   hasArrowhead: z.boolean(),

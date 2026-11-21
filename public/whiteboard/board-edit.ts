@@ -1239,7 +1239,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   async function addWire(from: WireEnd, to: WireEnd, tool: WireTool): Promise<void> {
-    const element: Wire = { kind: 'wire', id: newElementId('wire'), from, to, dashed: false, tone: 'plain', width: 'thin', ...WIRE_STYLE_BY_TOOL[tool], label: null, via: [], fromSide: null, toSide: null };
+    const element: Wire = { kind: 'wire', id: newElementId('wire'), from, to, dashed: false, flow: false, tone: 'plain', width: 'thin', ...WIRE_STYLE_BY_TOOL[tool], label: null, via: [], fromSide: null, toSide: null };
     const isSent = await options.sendOps([{ op: 'add', element }]);
     if (isSent) setSelection(new Set([element.id]));
   }

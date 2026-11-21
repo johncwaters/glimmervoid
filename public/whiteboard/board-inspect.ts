@@ -426,6 +426,7 @@ function sideOf(choice: string): Side | null {
 function wireSections(wire: Wire, parts: PanelParts, set: FieldCommit): HTMLElement[] {
   const moreFields = [
     checkboxField('dashed', 'Dashed', wire.dashed, (dashed) => set({ dashed })),
+    checkboxField('flow', 'Flowing', wire.flow, (flow) => set({ flow })),
     fieldRow('From side', selectField('fromSide', SIDE_CHOICES, wire.fromSide ?? 'auto', (side) => set({ fromSide: sideOf(side) }))),
     fieldRow('To side', selectField('toSide', SIDE_CHOICES, wire.toSide ?? 'auto', (side) => set({ toSide: sideOf(side) }))),
   ];
