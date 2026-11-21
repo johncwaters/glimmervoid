@@ -1,5 +1,4 @@
 ---
-import Wordmark from '../Wordmark.astro';
 import { ACCOUNT_PAGE_URL } from '../../lib/product-facts.ts';
 
 const COMPARISON_ROWS = [
@@ -12,13 +11,9 @@ const COMPARISON_ROWS = [
 ---
 <section id="cloud">
   <div class="section-head reveal">
-    <p class="cloud-badge">Invite-only alpha</p>
-    <h2 class="cloud-heading"><span class="cloud-name">Glimmervoid Cloud</span><span aria-hidden="true"><Wordmark isStacked productName="Cloud" /></span></h2>
+    <h2><a href="#cloud">Glimmervoid Cloud</a></h2>
     <p>Your whiteboard and your sessions, on your phone, with the laptop closed.</p>
-    <div class="waitlist">
-      <a class="waitlist-join" href={ACCOUNT_PAGE_URL} data-waitlist-link>Join the waitlist</a>
-      <p class="waitlist-note">Sign in with GitHub to take a place. Invites go out in small batches, and the alpha is free.</p>
-    </div>
+    <a class="waitlist-join" href={ACCOUNT_PAGE_URL} data-waitlist-link>Join the waitlist</a>
   </div>
   <div class="cloud-compare reveal">
     <table>
@@ -32,20 +27,16 @@ const COMPARISON_ROWS = [
 </section>
 
 <style>
-  .cloud-badge { width: fit-content; padding: 1px 10px; border: 1px solid var(--accent-dim); border-radius: 999px; color: var(--accent); font-size: var(--type-meta); letter-spacing: 0.1em; text-transform: uppercase; }
-  #cloud .section-head > .cloud-heading { position: static; font-size: 48px; margin: 4px 0 8px; padding: 0; border: 0; background: none; }
   .cloud-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .waitlist { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
-  .waitlist-join { align-self: flex-start; display: inline-flex; align-items: center; font-weight: 700; height: 44px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: var(--bg); text-decoration: none; }
+  .waitlist-join { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; font-weight: 700; height: 44px; padding: 0 18px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: var(--bg); text-decoration: none; }
   .waitlist-join:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .waitlist-note { font-size: var(--type-meta); color: var(--text-dim); }
   .cloud-compare table { width: 100%; border-collapse: collapse; }
   .cloud-compare th, .cloud-compare td { text-align: left; font-weight: 400; padding: 14px 16px 14px 0; border-bottom: 1px solid var(--border-dim); vertical-align: top; }
-  .cloud-compare thead th { color: var(--text-dim); font-size: var(--type-meta); letter-spacing: 0.1em; text-transform: uppercase; }
+  .cloud-compare thead th { color: var(--text-dim); }
   .cloud-compare tbody th { color: var(--text-head); white-space: nowrap; }
   .cloud-compare td { color: var(--text-dim); }
   .cloud-compare td.in-cloud { color: var(--text-head); }
-  .hour-packs { margin-top: 16px; color: var(--text-dim); font-size: var(--type-meta); }
+  .hour-packs { margin-top: 16px; color: var(--text-dim); }
   @media (max-width: 640px) {
     .cloud-compare thead th:first-child { display: none; }
     .cloud-compare thead tr { display: grid; grid-template-columns: 1fr 1fr; }

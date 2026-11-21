@@ -24,7 +24,6 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
     <UsedBy />
     <NextPacks />
     <Boards />
-    <NextCloud />
     <Status />
     <NextModels />
     <Arena />
@@ -34,6 +33,7 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
     <Features />
     <Install />
     <Faq />
+    <NextCloud />
     <Footer />
   </div>
 </Base>
@@ -42,6 +42,8 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
   .next-page section { padding-block: 128px; border-top: 0; }
   .next-page #status .all-clear-hint, .next-page #status .queue-row, .next-page #status .agent-row-label:has(+ .is-also), .next-page #status .agent-chips.is-also { display: none; }
   .next-page .section-head { margin-bottom: 64px; }
+  .next-page :is(.section-head, .yolo-copy) h2 a { color: inherit; text-decoration: none; }
+  .next-page :is(.section-head, .yolo-copy) h2 a:hover { text-decoration: underline; }
   .next-page .attention-board { max-width: none; }
   .next-page .celebration-demo { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .next-page .celebration-demo .queue-row { padding-top: 0; border-top: 0; }
