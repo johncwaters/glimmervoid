@@ -4,7 +4,7 @@ import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from '#shar
 import { FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE, handleSidesOf, titleLineHeightOf } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutStep, LaidOutStroke, LaidOutWire, Rect, ResizeHandle } from '#shared/whiteboard-layout-core.ts';
 import { WIRE_CORNER_RADIUS, pointsOfPath, rotatedAbout, rotatedBoundsOf, roundedCornerPoints, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
-import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
+import { SHAPE_TRAITS, isTransparentPageBox } from '#shared/whiteboard-shapes.ts';
 import {
   BODY_LINE_HEIGHT, BOX_TEXT_INSET, ITEM_DOT_RADIUS, LEGEND_SAMPLE_WIDTH,
   MONO_CHAR_WIDTH, MUTED_INDENT, PLAN_TITLE, PORT_RADIUS,
@@ -528,8 +528,9 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
   const bodyTop = titleTop + box.titleLines.length * titleLineHeight;
   pushBodyLines(part, context, box.bodyLines, box.x, bodyTop, opacity, detailMinScale);
-  const hasDrawnMedia = box.media !== null && context.hasDrawnMedia(box);
-  if (box.media && !hasDrawnMedia) {
+  const isTransparentPage = isTransparentPageBox(box);
+  const hasDrawnMedia = box.media !== null && !isTransparentPage && context.hasDrawnMedia(box);
+  if (box.media && !hasDrawnMedia && !isTransparentPage) {
     const placeholderStyle: TextStyle = { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' };
     const placeholderMaxChars = Math.max(0, Math.floor((box.media.width - BOX_TEXT_INSET * 2) / textAdvance(placeholderStyle)));
     const placeholderText = firstCodePoints(box.media.alt || box.media.kind, placeholderMaxChars);

@@ -2,6 +2,7 @@ import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BoardPageGesture,
 import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import type { BoardLayout, LaidOutBox, LaidOutElement, LaidOutMedia, Rect } from '#shared/whiteboard-layout-core.ts';
+import { isTransparentPageBox } from '#shared/whiteboard-shapes.ts';
 import { pageMaskImage } from '#shared/whiteboard-svg-core.ts';
 import type { PageOccluder, PageTurn } from '#shared/whiteboard-svg-core.ts';
 import { rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
@@ -280,6 +281,7 @@ interface ShownPage {
   viewportWidth: number;
   identity: string;
   maskImage: string | null;
+  isTransparent: boolean;
 }
 
 interface BoardMediaLayerOptions {
@@ -376,12 +378,14 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
       if (placed?.identity === page.identity) {
         placeNode(placed.node, page.media, page.viewportWidth, page.turn);
         applyMask(placed.node, page.maskImage);
+        placed.node.classList.toggle('is-transparent', page.isTransparent);
         postChangedDialValues(page, placed);
         paintLinkChip(placed.node, linkStateByBoxId.get(page.boxId));
         continue;
       }
       const replacement = placedPageOf(page, () => latestDialValuesOf(page.boxId));
       applyMask(replacement.node, page.maskImage);
+      replacement.node.classList.toggle('is-transparent', page.isTransparent);
       markInteractive(page.boxId, replacement);
       paintLinkChip(replacement.node, linkStateByBoxId.get(page.boxId));
       if (placed) placed.node.replaceWith(replacement.node);
@@ -402,7 +406,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
       if (element.kind !== 'box' || !isPageMedia(element.media)) return [];
       const turn = { angle: element.angle, pivot: { x: element.x + element.width / 2, y: element.y + element.height / 2 } };
       const occluders = occludersAbove(element.id, { x: element.x, y: element.y, width: element.width, height: element.height, angle: element.angle }, elementsInPaintOrder);
-      return [{ boxId: element.id, media: element.media, turn, viewportWidth: viewportWidthOf(element, element.media), identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occluders, turn) }];
+      return [{ boxId: element.id, media: element.media, turn, viewportWidth: viewportWidthOf(element, element.media), identity: identityOf(element.media), maskImage: pageMaskImage(element.media, occluders, turn), isTransparent: isTransparentPageBox(element) }];
     });
     placeLivePages();
   }

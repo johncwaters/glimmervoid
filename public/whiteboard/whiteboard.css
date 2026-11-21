@@ -439,6 +439,13 @@
   pointer-events: none;
 }
 
+.wb-media.is-transparent .wb-media-page {
+  --opacity-below-one-so-chromium-composites-the-frame-as-translucent: 0.999;
+  background: transparent;
+  color-scheme: light dark;
+  opacity: var(--opacity-below-one-so-chromium-composites-the-frame-as-translucent);
+}
+
 .wb-media.is-interactive {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
