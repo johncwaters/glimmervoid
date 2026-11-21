@@ -159,6 +159,10 @@ if (new URLSearchParams(location.search).has('rail-updates')) {
     showExampleRail(subagents);
   }
 }
+if (harnessMode.has('monitoring')) {
+  chatView.setPhase('monitoring', false);
+  setInterval(() => chatView.tickRunTimes(), 1000);
+}
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);
 });

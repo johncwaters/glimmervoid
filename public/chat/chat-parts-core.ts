@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
-import type { ChatCard, ChatPart, SubagentPart, TurnPart } from './chat-part.ts';
+import type { BackgroundTaskPart, ChatCard, ChatPart, SubagentPart, TurnPart } from './chat-part.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -33,6 +33,8 @@ interface TrackedSubagent {
   isBackground: boolean;
 }
 
+type BackgroundTaskLaunch = Pick<BackgroundTaskPart, 'taskType' | 'label' | 'command' | 'startedAt'>;
+
 type SubagentStart = Pick<SubagentPart, 'subagentType' | 'task' | 'startedAt'>;
 
 interface ChatPartsState {
@@ -45,6 +47,9 @@ interface ChatPartsState {
   runningSubagents: Set<TrackedSubagent>;
   subagentByToolUseId: Map<string, TrackedSubagent>;
   subagentById: Map<string, TrackedSubagent>;
+  backgroundCallByToolUseId: Map<string, Extract<TraceRecord, { kind: 'tool_call' }>>;
+  backgroundLaunchByTaskId: Map<string, BackgroundTaskLaunch>;
+  backgroundTaskById: Map<string, BackgroundTaskPart>;
   workingDirectory: string | null;
 }
 
@@ -59,9 +64,12 @@ const MAX_TURN_SEGMENTS = 400;
 const MAX_RUN_LABELS = 50;
 const TRIM_BATCH_PARTS = 200;
 const MAX_REMEMBERED_SUBAGENTS = 200;
+const MAX_REMEMBERED_BACKGROUND_TASKS = 200;
+const BACKGROUND_TASK_TYPE_BY_TOOL_NAME: ReadonlyMap<string, string> = new Map([['Bash', 'shell'], ['Monitor', 'monitor'], ['Workflow', 'workflow']]);
+const BACKGROUND_TASK_LABEL_BY_TYPE: ReadonlyMap<string, string> = new Map([['shell', 'Shell'], ['monitor', 'Monitor'], ['workflow', 'Workflow']]);
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), workingDirectory };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -357,13 +365,89 @@ function changedSubagentsOf(state: ChatPartsState, record: TraceRecord): Tracked
   return [openSubagentCall(state, record)];
 }
 
+function rememberBounded<Value>(valueByKey: Map<string, Value>, key: string, value: Value): void {
+  valueByKey.set(key, value);
+  if (valueByKey.size <= MAX_REMEMBERED_BACKGROUND_TASKS) return;
+  const oldestKey = valueByKey.keys().next().value;
+  if (oldestKey !== undefined) valueByKey.delete(oldestKey);
+}
+
+export function backgroundTaskKindText(taskType: string | null): string {
+  if (taskType === null) return 'Background';
+  return BACKGROUND_TASK_LABEL_BY_TYPE.get(taskType) ?? taskType;
+}
+
+function backgroundLaunchOf(state: ChatPartsState, call: Extract<TraceRecord, { kind: 'tool_call' }>, launchedAt: number): BackgroundTaskLaunch {
+  return {
+    taskType: BACKGROUND_TASK_TYPE_BY_TOOL_NAME.get(call.name) ?? null,
+    label: textFieldOf(call.input, 'description') ?? toolLabelOf(call.name, call.input, state.workingDirectory),
+    command: textFieldOf(call.input, 'command'),
+    startedAt: launchedAt,
+  };
+}
+
+function noteBackgroundLaunch(state: ChatPartsState, record: TraceRecord): void {
+  if (record.agentId !== undefined) return;
+  if (record.kind === 'tool_call' && BACKGROUND_TASK_TYPE_BY_TOOL_NAME.has(record.name)) {
+    rememberBounded(state.backgroundCallByToolUseId, record.toolUseId, record);
+    return;
+  }
+  if (record.kind !== 'tool_result') return;
+  const call = state.backgroundCallByToolUseId.get(record.toolUseId);
+  state.backgroundCallByToolUseId.delete(record.toolUseId);
+  if (call === undefined || record.backgroundTaskId === undefined) return;
+  rememberBounded(state.backgroundLaunchByTaskId, record.backgroundTaskId, backgroundLaunchOf(state, call, record.ts));
+}
+
+function startBackgroundTask(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'background-task' }>): BackgroundTaskPart | null {
+  if (state.backgroundTaskById.has(record.taskId)) return null;
+  const launch = state.backgroundLaunchByTaskId.get(record.taskId);
+  state.backgroundLaunchByTaskId.delete(record.taskId);
+  const taskType = record.taskType ?? launch?.taskType ?? null;
+  const part: BackgroundTaskPart = {
+    kind: 'background-task',
+    id: nextPartId(state, 'background-task'),
+    taskType,
+    label: launch?.label ?? record.taskId,
+    command: launch?.command ?? null,
+    startedAt: Math.min(launch?.startedAt ?? record.ts, record.ts),
+    endedAt: null,
+  };
+  rememberBounded(state.backgroundTaskById, record.taskId, part);
+  return part;
+}
+
+function stopBackgroundTask(state: ChatPartsState, taskId: string, stoppedAt: number): BackgroundTaskPart | null {
+  const part = state.backgroundTaskById.get(taskId);
+  if (part === undefined || part.endedAt !== null) return null;
+  const stopped = { ...part, endedAt: Math.max(stoppedAt, part.startedAt) };
+  state.backgroundTaskById.set(taskId, stopped);
+  return stopped;
+}
+
+function stopEveryBackgroundTask(state: ChatPartsState, stoppedAt: number): BackgroundTaskPart[] {
+  return [...state.backgroundTaskById.keys()].map((taskId) => stopBackgroundTask(state, taskId, stoppedAt)).filter((stopped) => stopped !== null);
+}
+
+function changedBackgroundTasksOf(state: ChatPartsState, record: TraceRecord): BackgroundTaskPart[] {
+  noteBackgroundLaunch(state, record);
+  if (record.kind === 'session') return stopEveryBackgroundTask(state, record.ts);
+  if (record.kind !== 'background-task') return [];
+  if (record.phase === 'stop') return [stopBackgroundTask(state, record.taskId, record.ts)].filter((stopped) => stopped !== null);
+  return [startBackgroundTask(state, record)].filter((started) => started !== null);
+}
+
 function runningSubagentsOf(state: ChatPartsState): RunningSubagent[] {
   return [...state.runningSubagents].map((tracked) => ({ type: tracked.part.subagentType, model: tracked.model }));
 }
 
+export function runTimeText(startedAt: number, endedAt: number): string {
+  return twoUnitDurationText(Math.max(1, Math.round((endedAt - startedAt) / 1000)), { smallestUnit: 's', dropsZeroRemainder: false });
+}
+
 export function subagentDurationText(part: SubagentPart): string | null {
   if (part.endedAt === null) return null;
-  return twoUnitDurationText(Math.max(1, Math.round((part.endedAt - part.startedAt) / 1000)), { smallestUnit: 's', dropsZeroRemainder: false });
+  return runTimeText(part.startedAt, part.endedAt);
 }
 
 export function appendChatRecords(state: ChatPartsState, appended: readonly TraceRecord[]): AppendedChat {
@@ -386,6 +470,7 @@ export function appendChatRecords(state: ChatPartsState, appended: readonly Trac
     if (part) emit(part);
     noteTurnRecord(state, record, emit);
     for (const changedSubagent of changedSubagentsOf(state, record)) emit({ ...changedSubagent.part, steps: [...changedSubagent.part.steps] });
+    for (const changedBackgroundTask of changedBackgroundTasksOf(state, record)) emit(changedBackgroundTask);
     const beat = beatOfRecord(record);
     if (beat) beats.push(beat);
   }

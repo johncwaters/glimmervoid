@@ -1,3 +1,4 @@
+import { backgroundTaskKindText } from '../chat/chat-parts-core.ts';
 import { renderCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
@@ -108,6 +109,7 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (br
   }
   if (part.kind === 'skill') return el('p', 'bs-row bs-row-note', `Skill ${part.skillName}`);
   if (part.kind === 'subagent') return el('p', 'bs-row bs-row-note', part.task ? `Subagent ${part.subagentType}: ${part.task}` : `Subagent ${part.subagentType}`);
+  if (part.kind === 'background-task') return el('p', 'bs-row bs-row-note', `${backgroundTaskKindText(part.taskType)}: ${part.label}`);
   const row = el('div', 'bs-row bs-row-card');
   row.append(renderCard(part.card));
   return row;

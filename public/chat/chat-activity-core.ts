@@ -160,7 +160,9 @@ export function verbChoicesFor(beat: ActivityBeat): readonly string[] {
   return VERBS_BY_WORK_KIND[beat.workKind];
 }
 
-export type ChatPhase = 'starting' | 'working' | 'quiet' | 'stopped';
+export type ChatPhase = 'starting' | 'working' | 'monitoring' | 'quiet' | 'stopped';
+
+export const MONITORING_VERB = 'Waiting on background work';
 
 const CHAT_PHASE_BY_STATE: Readonly<Record<SessionState, ChatPhase>> = {
   [STATES.DORMANT]: 'stopped',
@@ -183,7 +185,8 @@ export function chatPhaseOf(state: string | undefined): ChatPhase {
   return CHAT_PHASE_BY_STATE[state];
 }
 
-export function shownChatPhaseOf(phase: ChatPhase, isSentMessageAwaitingTurn: boolean): ChatPhase {
+export function shownChatPhaseOf(phase: ChatPhase, isSentMessageAwaitingTurn: boolean, isAwaitingBackgroundTasks: boolean): ChatPhase {
   if (isSentMessageAwaitingTurn) return 'working';
+  if (phase === 'working' && isAwaitingBackgroundTasks) return 'monitoring';
   return phase;
 }

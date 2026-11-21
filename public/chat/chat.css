@@ -752,6 +752,10 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 
 .chat-activity:not([data-idle]) .chat-activity-light { animation: chat-activity-breathe 1.4s ease-in-out infinite; }
 
+@media (prefers-reduced-motion: no-preference) {
+  .chat-activity[data-phase="monitoring"] .chat-activity-bracket { animation: chat-activity-breathe 2.8s ease-in-out infinite; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-activity .chat-activity-light { animation: none; }
   .chat-turn-chevron svg { transition: none; }

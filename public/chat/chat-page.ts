@@ -39,6 +39,7 @@ const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
 const RAIL_TICK_MS = 30_000;
+const RUN_TIME_TICK_MS = 1000;
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
@@ -385,7 +386,7 @@ function buildChat(sessionId: string): MountedChat {
     const phase = sessionPhaseOf(sessionId);
     if (phase === 'working') entryIdsAwaitingTurn.clear();
     const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
-    return shownChatPhaseOf(phase, isSentMessageAwaitingTurn);
+    return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
   };
   const showOutbox = () => {
     const entries = outboxBySessionId.get(sessionId) ?? [];
@@ -439,10 +440,23 @@ function buildChat(sessionId: string): MountedChat {
   };
   showRail();
   let railTimer: ReturnType<typeof setInterval> | null = setInterval(showRail, RAIL_TICK_MS);
+  let runTimeTimer: ReturnType<typeof setInterval> | null = null;
+  const stopRunTimes = () => {
+    if (runTimeTimer !== null) clearInterval(runTimeTimer);
+    runTimeTimer = null;
+  };
+  const tickRunTimes = () => {
+    if (chatView.tickRunTimes()) return;
+    stopRunTimes();
+  };
+  const keepRunTimesTicking = () => {
+    if (runTimeTimer === null) runTimeTimer = setInterval(tickRunTimes, RUN_TIME_TICK_MS);
+  };
   const stopRail = () => {
     openModelPicker?.close();
     if (railTimer !== null) clearInterval(railTimer);
     railTimer = null;
+    stopRunTimes();
   };
   chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
   let shownApproval: ShownApproval | null = null;
@@ -838,6 +852,7 @@ function buildChat(sessionId: string): MountedChat {
       notePromptTimes(changedParts);
       if (hasCaughtUpOnce && changedParts.some((part) => part.kind === 'prompt')) placeBoardChangeCards(false);
       keepPendingPartsLast();
+      keepRunTimesTicking();
     },
     onRebuilt: (rebuiltParts, replacedPartIds) => {
       shownPromptPartIds.clear();
@@ -848,6 +863,7 @@ function buildChat(sessionId: string): MountedChat {
       notePromptTimes(rebuiltParts);
       if (hasCaughtUpOnce) placeBoardChangeCards(false);
       keepPendingPartsLast();
+      keepRunTimesTicking();
     },
     onSubagents: (subagents) => {
       runningSubagents = subagents;
@@ -906,6 +922,7 @@ function buildChat(sessionId: string): MountedChat {
     resumeRail: () => {
       showRail();
       if (railTimer === null) railTimer = setInterval(showRail, RAIL_TICK_MS);
+      keepRunTimesTicking();
     },
     park: () => {
       stopRail();

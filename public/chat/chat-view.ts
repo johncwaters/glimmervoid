@@ -29,6 +29,7 @@ interface ChatView {
   showAttachment(fileName: string): void;
   showRail(fields: readonly RailField[]): void;
   showTurnEnd(turnEnd: TurnEnd | null): void;
+  tickRunTimes(): boolean;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -216,5 +217,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
     turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
   };
-  return { element, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd };
+  return { element, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes };
 }

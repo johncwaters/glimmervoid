@@ -1,6 +1,7 @@
 import { el } from '../dom-helpers.ts';
-import type { ChatPart, ChatPartKind, SubagentPart, TurnPart } from './chat-part.ts';
-import { subagentDurationText } from './chat-parts-core.ts';
+import type { BackgroundTaskPart, ChatPart, ChatPartKind, SubagentPart, TurnPart } from './chat-part.ts';
+import { backgroundTaskKindText, runTimeText, subagentDurationText } from './chat-parts-core.ts';
+import { clock } from '#shared/clock.ts';
 import { renderCard } from './chat-cards.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
@@ -315,10 +316,33 @@ function renderSubagent(part: SubagentPart): HTMLElement {
   return subagent;
 }
 
+function renderBackgroundTask(part: BackgroundTaskPart): HTMLElement {
+  const backgroundTask = el('details', 'chat-subagent');
+  backgroundTask.toggleAttribute('data-running', part.endedAt === null);
+  const row = el('summary', 'chat-subagent-row');
+  row.append(
+    el('span', 'chat-subagent-dot'),
+    el('span', 'chat-subagent-type', backgroundTaskKindText(part.taskType)),
+    el('span', 'chat-subagent-task', part.label),
+    el('span', 'chat-subagent-time', part.endedAt === null ? '' : runTimeText(part.startedAt, part.endedAt)),
+    createLineIcon(CHEVRON_ICON_PATH, '1.6'),
+  );
+  const work = el('div', 'chat-subagent-work');
+  work.append(el('div', 'chat-turn-call', part.command ?? part.label));
+  backgroundTask.append(row, work);
+  return backgroundTask;
+}
+
+function startedAtOfRunning(part: FlatPart): number | null {
+  if (part.kind !== 'subagent' && part.kind !== 'background-task') return null;
+  return part.endedAt === null ? part.startedAt : null;
+}
+
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   skill: renderSkill,
   subagent: renderSubagent,
+  'background-task': renderBackgroundTask,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;
 
@@ -342,6 +366,7 @@ interface ChatLog {
   keepLast(partIds: readonly string[]): void;
   toggleTurn(turnElement: HTMLElement): void;
   showTurnEnd(turnEnd: TurnEnd | null): boolean;
+  tickRunTimes(): boolean;
 }
 
 function settleArrivalsThatCannotAnimate(logElement: HTMLElement): void {
@@ -353,6 +378,25 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
   element.setAttribute('role', 'log');
   const elementByPartId = new Map<string, HTMLElement>();
   const turnViewByPartId = new Map<string, TurnView>();
+  const runningTimeByPartId = new Map<string, { timeElement: Element; startedAt: number }>();
+  const showRunTime = ({ timeElement, startedAt }: { timeElement: Element; startedAt: number }) => {
+    timeElement.textContent = runTimeText(startedAt, Math.max(startedAt, clock.nowMs()));
+  };
+  const noteRunningTime = (part: FlatPart, rendered: HTMLElement) => {
+    const startedAt = startedAtOfRunning(part);
+    const timeElement = rendered.querySelector('.chat-subagent-time');
+    if (startedAt === null || timeElement === null) {
+      runningTimeByPartId.delete(part.id);
+      return;
+    }
+    const runningTime = { timeElement, startedAt };
+    runningTimeByPartId.set(part.id, runningTime);
+    showRunTime(runningTime);
+  };
+  const tickRunTimes = () => {
+    for (const runningTime of runningTimeByPartId.values()) showRunTime(runningTime);
+    return runningTimeByPartId.size > 0;
+  };
   let lastTurnView: TurnView | null = null;
   let shownTurnEnd: TurnEnd | null = null;
   const turnEndOf = (view: TurnView) => (view === lastTurnView ? shownTurnEnd : null);
@@ -387,6 +431,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     const rendered = renderPart(part, uploadUrlOf);
     const existing = elementByPartId.get(part.id);
     elementByPartId.set(part.id, rendered);
+    noteRunningTime(part, rendered);
     if (existing instanceof HTMLDetailsElement && rendered instanceof HTMLDetailsElement) rendered.open = existing.open;
     if (existing) {
       existing.replaceWith(rendered);
@@ -412,6 +457,7 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
       elementByPartId.get(partId)?.remove();
       elementByPartId.delete(partId);
       turnViewByPartId.delete(partId);
+      runningTimeByPartId.delete(partId);
     }
     findLastTurnView();
     placeTurnEnd();
@@ -511,5 +557,5 @@ export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnEl
     shownTurnEnd = turnEnd;
     return placeTurnEnd();
   };
-  return { element, upsert, remove, replaceParts, keepLast, toggleTurn, showTurnEnd };
+  return { element, upsert, remove, replaceParts, keepLast, toggleTurn, showTurnEnd, tickRunTimes };
 }

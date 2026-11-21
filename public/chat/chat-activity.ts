@@ -3,7 +3,7 @@ import { BADGE_LABELS, STATES, type SessionState } from '#shared/states.ts';
 import { STATUS_LEGEND } from '../status-legend-core.ts';
 import { el } from '../dom-helpers.ts';
 import { createSvgShape } from '../svg-dom.ts';
-import { type ActivityBeat, BUSY_BEAT, type ChatPhase, verbChoicesFor } from './chat-activity-core.ts';
+import { type ActivityBeat, BUSY_BEAT, type ChatPhase, MONITORING_VERB, verbChoicesFor } from './chat-activity-core.ts';
 
 interface ChatActivity {
   element: HTMLElement;
@@ -153,6 +153,13 @@ export function createChatActivity(): ChatActivity {
     if (!prefersReducedMotion()) playDialSpin();
   };
 
+  const showMonitoring = () => {
+    element.toggleAttribute('data-idle', false);
+    delete element.dataset.workKind;
+    shownBeatKey = '';
+    showVerb(MONITORING_VERB);
+  };
+
   const showQuiet = (hasJustBecomeReady: boolean) => {
     clearInterval(typingTimer);
     shownBeatKey = '';
@@ -183,6 +190,10 @@ export function createChatActivity(): ChatActivity {
       }
       if (phase === 'working') {
         showWorking(wasStarting);
+        return;
+      }
+      if (phase === 'monitoring') {
+        showMonitoring();
         return;
       }
       showQuiet(wasStarting && phase === 'quiet');

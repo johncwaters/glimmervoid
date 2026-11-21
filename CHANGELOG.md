@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chat: background work you can watch**: While an agent waits on background work it started, Chat shows a row for each shell, monitor or workflow still running, named by the call that started it and with its run time counting up. Running subagent rows count up too, and the activity mark reads "Waiting on background work" and keeps breathing.
 - **Trace: background tasks**: The Trace tab lists when each background shell, monitor or workflow an agent left running starts and stops, for Claude Code and OpenCode, the agents that report them.
 - **Whiteboard: text cards in board pictures**: A board picture or PNG export now draws the first lines of a Markdown, Fountain, CSV or TSV card instead of a grey placeholder, so an agent looking at the board can read what it shows.
 - **Session check: board layout**: Checked at turn end now fails when a board's layout warnings (a wire through a box, overlapping boxes) name something that session drew, so an agent fixes its own mess before it stops. It counts only what the session changed last (once you edit an element it is yours) and still holds after Glimmervoid restarts.

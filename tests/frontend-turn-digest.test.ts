@@ -76,3 +76,22 @@ test('a prompt Claude Code wrapped as pasted content shows the pasted text with 
   const attachments: TraceRecord = { kind: 'attachments', files: [imageName], pastedPrefix, ts: 900, uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
   assert.deepEqual(promptTextsOf([attachments, recordOf(`\n\n<pasted_content id="b2">\n${pastedPrefix} what is wrong here\n</pasted_content id="b2">`)]), [{ text: 'what is wrong here', attachments: [imageName] }]);
 });
+
+test('a background shell the Stop payload reports running gets a row named by its call that keeps its start and ends at its stop or when a new agent process starts', () => {
+  const state = createChatPartsState(WORKING_DIRECTORY);
+  const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  const appended = appendChatRecords(state, [
+    { kind: 'prompt', text: 'Find the bad commit', ts: 1_000, ...recordBase },
+    toolCall('Bash', { command: 'git bisect run ./check.sh', description: 'Bisect the pane failure', run_in_background: true }, 2_000),
+    { kind: 'tool_result', toolUseId: 'call-2000', content: 'Command running in background with ID: b1', isError: false, truncated: false, backgroundTaskId: 'b1', ts: 2_500, ...recordBase },
+    { kind: 'background-task', phase: 'start', taskId: 'b1', taskType: 'shell', ts: 9_000, ...recordBase },
+    { kind: 'background-task', phase: 'start', taskId: 'm2', taskType: 'monitor', ts: 9_000, ...recordBase },
+    { kind: 'background-task', phase: 'stop', taskId: 'b1', taskType: 'shell', ts: 70_000, ...recordBase },
+    { kind: 'session', vendor: 'claude', transcriptPath: '/transcripts/vendor.jsonl', ts: 90_000, ...recordBase },
+  ]);
+  const backgroundTaskParts = appended.parts.flatMap((part) => part.kind === 'background-task' ? [part] : []);
+  assert.deepEqual(backgroundTaskParts.map(({ taskType, label, command, startedAt, endedAt }) => ({ taskType, label, command, startedAt, endedAt })), [
+    { taskType: 'shell', label: 'Bisect the pane failure', command: 'git bisect run ./check.sh', startedAt: 2_500, endedAt: 70_000 },
+    { taskType: 'monitor', label: 'm2', command: null, startedAt: 9_000, endedAt: 90_000 },
+  ]);
+});
