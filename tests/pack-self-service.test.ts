@@ -690,6 +690,32 @@ test('an agent adds a git pack source whose packs stay off until the operator en
   }
 });
 
+test('a follow of the built-in examples that cannot save the pack sources record resolves with the failure instead of rejecting', async (t) => {
+  const fixture = selfServiceFixture();
+  const bundledManifestPath = path.join(fixture.bundledExamplesDir, 'night-shift', 'pack.json');
+  const ledgerPath = path.join(fixture.homeDir, 'pack-sources.json');
+  let restarted: ReturnType<typeof fixture.newPackSources> | null = null;
+  try {
+    await fixture.packStore.start();
+    await fixture.packSources.start();
+    assert.ok((await fixture.packSources.setPackEnabled(EXAMPLES_SOURCE_SLUG, 'night-shift', true)).ok);
+    await waitFor(() => fixture.rowNamed('night-shift')?.state === 'pending');
+    fixture.packSources.stop();
+    fs.writeFileSync(bundledManifestPath, fs.readFileSync(bundledManifestPath, 'utf8').replace('"version": 1', '"version": 2'));
+    const writeFile = fs.promises.writeFile;
+    t.mock.method(fs.promises, 'writeFile', (target: Parameters<typeof writeFile>[0], ...rest: [Parameters<typeof writeFile>[1], Parameters<typeof writeFile>[2]]) => {
+      if (String(target).startsWith(`${ledgerPath}.`)) return Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }));
+      return writeFile(target, ...rest);
+    });
+    restarted = fixture.newPackSources();
+    const outcome = await restarted.start();
+    assert.ok(!outcome.ok && /EACCES/.test(outcome.error), JSON.stringify(outcome));
+  } finally {
+    restarted?.stop();
+    fixture.cleanUp();
+  }
+});
+
 test('an example enabled from the built-in Glimmervoid examples source follows a changed bundled copy while the server runs and at start, asking for approval again, and the source is neither updated nor removed', async () => {
   const fixture = selfServiceFixture();
   const bundledManifestPath = path.join(fixture.bundledExamplesDir, 'night-shift', 'pack.json');

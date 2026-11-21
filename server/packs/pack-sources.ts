@@ -324,7 +324,7 @@ export function createPackSources({ homeDir, env, examplePacksDir, log, packRows
   }
 
   async function followExamples(): Promise<SourceOutcome> {
-    const outcome = await serialized(followExamplesNow);
+    const outcome = await serialized(followExamplesNow).catch((error: unknown): SourceOutcome => ({ ok: false, error: errorMessage(error) }));
     if (!outcome.ok) log.warn(`[packs] could not follow the Glimmervoid examples: ${outcome.error}`);
     return outcome;
   }
