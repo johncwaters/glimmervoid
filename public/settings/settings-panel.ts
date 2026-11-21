@@ -168,7 +168,7 @@ function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
 }
 
 function renderAnimalGalleryToggle() {
-  const disclosure = el('div', 'settings-view-advanced');
+  const disclosure = el('div', 'settings-view-advanced settings-view-animal-gallery');
   const toggle = createPressable('dialog-advanced-toggle', 'Animal gallery');
   toggle.setAttribute('aria-controls', 'settings-view-animal-gallery-panel');
   const panel = el('div', 'dialog-advanced-panel settings-view-advanced-panel');

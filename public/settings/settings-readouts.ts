@@ -5,6 +5,7 @@ import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
+import { disclosure } from '../ui/disclosure.ts';
 import { checkbox } from '../ui/checkbox.ts';
 import { createNotificationPermissionControl } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -252,9 +253,21 @@ const telemetryDeletionButton = button({
 
 const telemetryDeletionStatus = createActionStatus('settings-telemetry-deletion-status');
 
+const TELEMETRY_SENT_DETAIL = [
+  'Sent: version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and a salted one-way hash of your Claude and Codex account ids so installs of one account count together.',
+  'Also sent: the text of errors the dashboard shows in its header line, with your home folder shown as ~, which can name a session, folder or branch.',
+  'Never sent: prompts, project information, other error messages, paths, repository or branch names, objectives, terminal output, emails or names.',
+  'Delete my data asks for everything sent under this install to be erased and starts a new install id.',
+];
+
 function buildTelemetryDataSlot() {
   const slot = el('div', 'settings-view-status-slot settings-telemetry-data');
-  slot.append(externalLink('Privacy details', websiteUrl('/privacy')), telemetryDeletionButton, telemetryDeletionStatus.element);
+  const sentDetail = disclosure({
+    summary: 'What is sent',
+    body: () => TELEMETRY_SENT_DETAIL.map((line) => el('p', 'settings-view-setting-description', line)),
+  });
+  sentDetail.element.classList.add('settings-telemetry-sent');
+  slot.append(sentDetail.element, externalLink('Privacy details', websiteUrl('/privacy')), telemetryDeletionButton, telemetryDeletionStatus.element);
   return slot;
 }
 

@@ -226,7 +226,7 @@ What Glimmervoid sends about itself.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `telemetry.enabled` | Send usage data | `true` | Helps us improve Glimmervoid. Sent under a random install id: version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and a salted one-way hash of your Claude and Codex account ids so installs of one account count together. The text of errors the dashboard shows in its header line, with your home folder shown as ~, which can name a session, folder or branch. Otherwise never prompts, project information, other error messages, paths, repository or branch names, objectives, terminal output, emails or names. Delete my data asks for everything sent under this install to be erased and starts a new install id. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
+| `telemetry.enabled` | Send usage data | `true` | Helps us improve Glimmervoid. Sent under a random install id, never with prompts or terminal output; the error text the dashboard shows in its header line is sent and can name a session, folder or branch. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
 
 ### Terminal
 

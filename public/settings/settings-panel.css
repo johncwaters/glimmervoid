@@ -94,7 +94,7 @@
 
 .settings-view-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
@@ -158,10 +158,6 @@
 }
 
 .settings-view-nav-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
   width: 100%;
   padding: 8px 10px;
   border: 1px solid transparent;
@@ -286,6 +282,10 @@
   border-bottom: 1px solid var(--border-dim);
 }
 
+.settings-view-setting:has(> .settings-view-setting-control > .settings-view-toggle-wrap > .ui-switch) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .settings-view-setting[data-readout] {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -386,6 +386,7 @@
 }
 
 .settings-view-setting-description {
+  max-width: 72ch;
   margin: 0;
 }
 
@@ -550,6 +551,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .settings-view-nav-item .settings-view-experimental-tag {
@@ -951,12 +953,26 @@
   margin-top: 20px;
 }
 
+.settings-view-animal-gallery {
+  margin-top: 0;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border-dim);
+}
+
 .settings-view-advanced-panel {
   margin-top: 12px;
 }
 
 .settings-view-file-only {
   margin-top: 24px;
+}
+
+.settings-telemetry-sent {
+  width: 100%;
+}
+
+.settings-telemetry-sent .settings-view-setting-description {
+  margin-top: 8px;
 }
 
 .settings-telegram-test,
