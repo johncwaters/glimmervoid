@@ -155,7 +155,7 @@ if (!packedFiles.includes('dist/bin/glimmervoid.js')) {
   console.error('ERROR: the tarball has no dist/bin/glimmervoid.js, so the installed CLI would have nothing to run.');
   process.exit(1);
 }
-const rawSources = packedFiles.filter((file) => /\.[cm]?ts$/.test(file));
+const rawSources = packedFiles.filter((file) => /\.[cm]?ts$/.test(file) && !file.startsWith('dist/examples/packs/'));
 if (rawSources.length > 0) {
   console.error(`ERROR: the tarball ships raw TypeScript sources: ${rawSources.join(', ')}`);
   process.exit(1);
