@@ -106,7 +106,10 @@
     },
     {
       "name": "copy",
-      "definition": "Text an agent or the operator puts on the browser clipboard from a terminal, offered through the Copy to clipboard prompt when the browser blocks the agent's own write."
+      "definition": "Text an agent or the operator puts on the browser clipboard from a terminal, offered through the Copy to clipboard prompt when the browser blocks the agent's own write.",
+      "aliases": [
+        "copied"
+      ]
     },
     {
       "name": "rescan",
