@@ -55,6 +55,12 @@ function hookLaunch(entry: SelfEntry): string[] {
   return runtimePaths.selfLaunch(entry, launcherPath, relayRunnerFor(launcherPath).path);
 }
 
+function installedHookLaunch(entry: SelfEntry): string[] {
+  const installedBinary = path.join(glimmervoidHomeDir(os.homedir(), {}), 'bin', 'glimmervoid');
+  if (mode !== 'source' || !hasRelayBeside(installedBinary)) return hookLaunch(entry);
+  return [relayExecutableBeside(installedBinary), BINARY_RUN_SUBCOMMAND, entry];
+}
+
 function selfLaunch(entry: SelfEntry): string[] {
   return runtimePaths.selfLaunch(entry, stableLauncherPath());
 }
@@ -234,4 +240,4 @@ function extractNodePtyFromBinary(): string | null {
   }
 }
 
-export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, installedHookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { MCP_URL_ENV } from "../../mcp/core/agent-config.ts";
-import { hookLaunch } from "../../server/runtime-paths.ts";
+import { hookLaunch, installedHookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { canonicalizePath } from "../../shared/canonical-paths.ts";
 import { errorMessage } from "../../shared/text.ts";
@@ -22,8 +22,6 @@ import { pathCommandLaunch } from "./path-command-launch.ts";
 const ID = "antigravity";
 const COMMAND_NAME = "agy";
 const RELAY_LAUNCH = hookLaunch("hook-relay");
-const HOOK_TOOL_RELAY_LAUNCH = hookLaunch("hook-tool-relay");
-const MCP_BRIDGE_LAUNCH = hookLaunch("mcp-bridge");
 const PLUGIN_FOLDER_MODE = 0o700;
 const PLUGIN_FILE_MODE = 0o600;
 const PLUGIN_REFUSAL = "the hook relay path cannot be written into an Antigravity plugin";
@@ -123,7 +121,7 @@ function prepareHome(
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
-  const pluginFiles = renderAntigravityPlugin(RELAY_LAUNCH, MCP_BRIDGE_LAUNCH, sharedPackServers, hasPackHooks ? HOOK_TOOL_RELAY_LAUNCH : null);
+  const pluginFiles = renderAntigravityPlugin(installedHookLaunch("hook-relay"), installedHookLaunch("mcp-bridge"), sharedPackServers, hasPackHooks ? installedHookLaunch("hook-tool-relay") : null);
   const packSkillWorkspaces = packSkillWorkspacesOf(packSkillDirs);
   const sessionSettings = antigravitySessionSettings([...new Set([sessionFolder, canonicalizePath(sessionFolder)]), ...packSkillWorkspaces], RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };

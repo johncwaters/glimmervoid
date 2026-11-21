@@ -47,6 +47,20 @@ test('an agy spawn writes the Glimmervoid plugin agy loads hooks from and trusts
   assert.equal(prepared.homeEnvValue, 'http://127.0.0.1:4321/mcp');
 });
 
+test('an agy spawn from a checkout names the installed glimmervoid relay in the shared plugin, so deleting the checkout cannot break other agy sessions', (t) => {
+  const home = withTemporaryHome(t);
+  const installedRelay = path.join(home, '.glimmervoid', 'bin', 'glimmervoid-relay');
+  fs.mkdirSync(path.dirname(installedRelay), { recursive: true });
+  fs.writeFileSync(installedRelay, '', { mode: 0o755 });
+  const injection = antigravity.hooks.injection as GeneratedHomeInjection;
+  const prepared = injection.prepareHome(process.env, { listenerPort: 4321, folderTrustRoot: '/work', sessionFolder: '/work/repo', isCleanHome: false });
+  assert.ok(!('refusal' in prepared));
+  const pluginFolder = path.join(home, '.gemini', 'config', 'plugins', 'glimmervoid');
+  const hooks = JSON.parse(fs.readFileSync(path.join(pluginFolder, 'hooks.json'), 'utf8')).glimmervoid;
+  assert.equal(hooks.Stop[0].command, `${installedRelay} __run hook-relay Stop`);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(pluginFolder, 'mcp_config.json'), 'utf8')).mcpServers.glimmervoid, { command: installedRelay, args: ['__run', 'mcp-bridge'] });
+});
+
 test('a prompt note reaches agy as a PreInvocation injectSteps user message the relay prints', () => {
   assert.equal(antigravity.promptContextReply, 'inject-steps');
   const reply = refocusReplyFor({ accepted: true, event: 'PreInvocation', payload: {}, readContext: () => ({ taskTitle: null }), takePromptSupervision: () => promptContextReplyOf('inject-steps', 'board note') });
