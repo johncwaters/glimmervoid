@@ -989,7 +989,7 @@
   justify-content: flex-end;
 }
 
-.settings-telegram-test > :not(.ui-button) {
+.settings-telegram-test > [role="status"] {
   order: -1;
 }
 
