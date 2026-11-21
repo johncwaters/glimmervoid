@@ -34,7 +34,6 @@ import {
   attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, sessionFrameIdOf, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
-import { idsMentionedBy } from '../../shared/whiteboard-layout-engine.ts';
 import { BOARD_LAYOUT_CHECK_ID, VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -1215,8 +1214,8 @@ function createWhiteboardWiring({
     const boardWarnings = await Promise.all([...writtenByBoardId].map(async ([boardId, written]) => {
       const board = await loadedBoardOf(boardId);
       if (!board) return [];
-      const { warnings } = await tiles.summaryOf(board);
-      return warnings.filter((warning) => idsMentionedBy(warning).some((elementId) => written.has(elementId))).map((warning) => `board "${board.title}": ${warning}`);
+      const warnings = await tiles.warningsNamingOf(board, [...written]);
+      return warnings.map((warning) => `board "${board.title}": ${warning}`);
     }));
     return boardWarnings.flat();
   }
@@ -1229,7 +1228,9 @@ function createWhiteboardWiring({
 
   async function layoutChecksOf(sessionId: string): Promise<CheckOutcome[]> {
     if (!writtenIdsByBoardIdBySessionId.has(sessionId)) return [];
-    const read = await layoutWarningsWrittenBy(sessionId).then((warnings) => ({ ok: true as const, warnings }), (error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    const readOnce = () => layoutWarningsWrittenBy(sessionId).then((warnings) => ({ ok: true as const, warnings }), (error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    const firstRead = await readOnce();
+    const read = firstRead.ok ? firstRead : await readOnce();
     if (!read.ok) return [{ id: BOARD_LAYOUT_CHECK_ID, command: BOARD_LAYOUT_BUILT_IN_COMMAND, status: 'skipped', exitCode: null, outputTail: `the board layout could not be read: ${read.reason}`.slice(-VERIFICATION_OUTPUT_TAIL_BYTES) }];
     const { warnings } = read;
     const outputTail = warnings.length === 0 ? 'no layout warning names an element this session wrote' : `${warnings.join('\n')}\nfix each with whiteboard put, then check again`;

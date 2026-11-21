@@ -4,7 +4,7 @@ import { dressedLayout } from './whiteboard-layout-core.ts';
 import type { BoardLayout, PlacedLayout } from './whiteboard-layout-core.ts';
 import type { PinPositions } from './whiteboard-ops-core.ts';
 import { indexBoardInSlices } from './whiteboard-board-index.ts';
-import { INCREMENTAL_MIN_ELEMENTS, applyingLayoutDelta, layoutOf, rebuildingWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld } from './whiteboard-layout-engine.ts';
+import { INCREMENTAL_MIN_ELEMENTS, applyingLayoutDelta, layoutOf, rebuildingWorld, resumingLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld } from './whiteboard-layout-engine.ts';
 import { drained } from './generator-steps.ts';
 import type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange } from './whiteboard-layout-engine.ts';
 import type { RememberedRoute } from './contracts/whiteboard-tiles.ts';
@@ -160,11 +160,15 @@ function warningsOfBoard(board: Board): string[] {
   return warningsOfWorld(worldFor(board));
 }
 
+function warningsNamingOfBoard(board: Board, elementIds: readonly string[]): string[] {
+  return warningsNamingOfWorld(worldFor(board), elementIds);
+}
+
 function rememberedWorldSaverOf(board: Board): (() => SavedWorldParts) | null {
   const remembered = worldByBoardId.get(board.id);
   if (!remembered || remembered.version !== board.version || remembered.board.elements !== board.elements) return null;
   return () => savedWorldOf(remembered);
 }
 
-export { advancingBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumingBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard, worldSteps };
+export { advancingBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumingBoardLayout, setSavedWorldSource, warmBoardLayout, warningsNamingOfBoard, warningsOfBoard, worldSteps };
 export type { SavedWorldOffer };

@@ -80,6 +80,7 @@ interface BoardTileService {
   regionOf(board: Board, focus: Rect | null, withOutline: boolean): Promise<BoardRegionRead>;
   pinPositionsOf(board: Board, ids: readonly string[]): Promise<PinPositions>;
   summaryOf(board: Board): Promise<LayoutSummary>;
+  warningsNamingOf(board: Board, elementIds: readonly string[]): Promise<string[]>;
   pictureImagesOf(board: Board, options: PictureOptions): Promise<PictureImage[]>;
   pictureOf(board: Board, dataUriByAssetId: Record<string, string>, options: PictureOptions): Promise<BoardPictureRead>;
 }
@@ -266,6 +267,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     regionOf,
     pinPositionsOf,
     summaryOf: async (board) => summaryOfAnswer(board, await layouts.ask(board, { kind: 'summary', boardId: board.id })),
+    warningsNamingOf: async (board, elementIds) => (await layouts.ask(board, { kind: 'warnings-naming', boardId: board.id, ids: [...elementIds] })).warnings ?? [],
     pictureImagesOf: async (board, options) => (await layouts.ask(board, { kind: 'picture-images', boardId: board.id, options })).pictureImages ?? [],
     pictureOf,
   };

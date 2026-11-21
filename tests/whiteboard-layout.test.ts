@@ -10,7 +10,7 @@ import { createDragPreview, FRAME_TITLE_HEIGHT, layoutBoard, pinnedOffsetYAfterL
 import { boardSvgDocument, textCardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireExtentOf, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
 import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
-import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
+import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
 import { PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
 import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
@@ -607,6 +607,26 @@ test('a long identifier breaks after a separator, an agent box with no width is 
   const applied = applyLayoutDelta(world, widened.board, changes);
   assert.equal(applied.delta.isRebuilt, false);
   assert.deepEqual(warningsOfWorld(applied.world).filter((warning) => warning.includes('cut mid-word')), [], 'the incremental layout drops the warning once the width fits');
+});
+
+test('a board laid out under the incremental threshold keeps every warning naming an element through a save and through the change that carries it past the threshold', () => {
+  const author = { id: 'agent', name: 'agent' };
+  const crossingWarning = 'wire crossing runs through box in-the-way';
+  const board = Board.parse({ id: 'small', title: 'small', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
+    'wire-start': { kind: 'box', id: 'wire-start', title: 'Start', place: { at: { x: 3040, y: 234 } } },
+    'wire-end': { kind: 'box', id: 'wire-end', title: 'End', place: { at: { x: 3350, y: 110 } } },
+    crossing: { kind: 'wire', id: 'crossing', from: 'wire-start', to: 'wire-end' },
+    'in-the-way': { kind: 'box', id: 'in-the-way', title: 'Block', place: { at: { x: 3250, y: 110 } } },
+  } });
+  assert.ok(savedWorldOf(createLayoutWorld(board, null, 5)).routeWarnings.includes(crossingWarning), 'a whole save of a small board carries its warnings');
+  const world = createLayoutWorld(board, null, 5);
+  const grown = stageOps(board, [Op.parse({ op: 'add', element: { kind: 'box', id: 'late', title: 'Late', place: { at: { x: 3250, y: 110 } } } })], author, 0, null);
+  assert.ok(grown.ok);
+  const changes = new Map(Object.entries(grown.diff.elements).map(([id, change]) => [id, { before: board.elements.get(id), after: grown.afterById.get(id) ?? null, isAppended: change[0] === 'put' }]));
+  grown.commit();
+  const applied = applyLayoutDelta(world, grown.board, changes);
+  assert.deepEqual(warningsNamingOfWorld(applied.world, ['crossing', 'late']), warningsNamingOfWorld(createLayoutWorld(grown.board, null, 5), ['crossing', 'late']));
+  assert.ok(warningsNamingOfWorld(applied.world, ['late']).length > 0, 'the box the change adds over another box is warned about');
 });
 
 test('a wire ends at a free point or a box edge, rotated or not, runs sharp, curved or elbow through its bend points, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {

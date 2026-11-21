@@ -6,7 +6,7 @@ import { BoardChrome, LaidOutMedia, LayoutRect, PlacedBox, Tile, TileDiff, TileK
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import { appendElement, boardIndexOf, dropElement, storeElement } from '../../shared/whiteboard-board-index.ts';
 import { boardPicture, pictureImagesOf } from '../../mcp/core/board-reading.ts';
-import { advancingBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumingBoardLayout, setSavedWorldSource, warmBoardLayout, warningsOfBoard, worldSteps } from '../../shared/whiteboard-layout-cache.ts';
+import { advancingBoardLayout, chromeOfBoard, forgetBoardWarm, layoutBoardRemembered, lineageLayoutOf, pinPositionsOfBoard, rememberedWorldSaverOf, resumingBoardLayout, setSavedWorldSource, warmBoardLayout, warningsNamingOfBoard, warningsOfBoard, worldSteps } from '../../shared/whiteboard-layout-cache.ts';
 import { drained } from '../../shared/generator-steps.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
@@ -38,6 +38,7 @@ const LayoutRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('pins'), requestId: RequestId, boardId: z.string(), ids: z.array(z.string()) }),
   z.strictObject({ kind: z.literal('region'), requestId: RequestId, boardId: z.string(), focus: LayoutRect.nullable(), withOutline: z.boolean() }),
   z.strictObject({ kind: z.literal('summary'), requestId: RequestId, boardId: z.string() }),
+  z.strictObject({ kind: z.literal('warnings-naming'), requestId: RequestId, boardId: z.string(), ids: z.array(z.string()) }),
   z.strictObject({ kind: z.literal('forget'), requestId: RequestId, boardId: z.string() }),
 ]);
 
@@ -250,6 +251,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
       case 'picture':
       case 'pins':
       case 'summary':
+      case 'warnings-naming':
         yield* worldSteps(boardNamed(request.boardId));
         return handledAtOnce(request);
       case 'tiles':
@@ -313,6 +315,7 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
         const board = boardNamed(request.boardId);
         return { version: board.version, chrome: chromeOfBoard(board), warnings: warningsOfBoard(board) };
       }
+      case 'warnings-naming': return { warnings: warningsNamingOfBoard(boardNamed(request.boardId), request.ids) };
       case 'forget':
         forgetBoardWarm(request.boardId);
         cache.forget(request.boardId);

@@ -88,6 +88,8 @@ interface LayoutWorld {
   changedRouteIds: Set<string>;
   routeWarnings: WarningBook;
   placementWarnings: WarningBook;
+  unbookedWarningLists: { route: readonly WarningList[]; placement: readonly WarningList[] } | null;
+  isBuiltWithoutGrids: boolean;
   pinnedOffsetY: number;
   contentTop: number;
   boxesTop: number;
@@ -301,7 +303,7 @@ function emptyWorld(board: Board, minIncrementalElements: number): LayoutWorld {
     lineage: lastLineage, version: board.version, board, minIncrementalElements, laidOutById: new Map(),
     boxGrid: createIdGrid(SOLID_CELL_SIZE), softGrid: createIdGrid(SOLID_CELL_SIZE), frameGrid: createIdGrid(SOLID_CELL_SIZE), wireGrid: createIdGrid(WIRE_CELL_SIZE), inkGrid: createIdGrid(SOLID_CELL_SIZE),
     routeMemory: { contentTop: 0, rectByKey: new Map(), routeById: new Map(), warningPairs: null }, changedRouteIds: new Set(),
-    routeWarnings: createWarningBook(), placementWarnings: createWarningBook(),
+    routeWarnings: createWarningBook(), placementWarnings: createWarningBook(), unbookedWarningLists: null, isBuiltWithoutGrids: false,
     pinnedOffsetY: 0, contentTop: 0, boxesTop: 0, planColumns: [], around: null,
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 0, height: 0 } }, layout: null,
   };
@@ -326,6 +328,8 @@ function* buildingWorld(board: Board, { laidOut, chrome, routeMemory, warningLis
   world.planColumns = chrome.plan?.columns ?? [];
   if (boardIndexOf(board.elements).elementCount < minIncrementalElements) {
     for (const element of laidOut) world.laidOutById.set(element.id, element);
+    world.unbookedWarningLists = { route: warningLists.slice(0, -1), placement: warningLists.slice(-1) };
+    world.isBuiltWithoutGrids = true;
     return world;
   }
   yield* inSlices(laidOut, elementsPerSlice, (element) => storeLaidOut(world, element));
@@ -369,6 +373,7 @@ function resumeLayoutWorld(board: Board, saved: SavedWorld, minIncrementalElemen
 }
 
 function savedWorldOf(world: LayoutWorld): SavedWorldParts {
+  bookUnbookedWarnings(world);
   return { routeById: world.routeMemory.routeById, routeWarnings: [...world.routeWarnings.idsByText.keys()], placementWarnings: [...world.placementWarnings.idsByText.keys()] };
 }
 
@@ -400,7 +405,7 @@ function touchesStack(board: Board, element: Element | null | undefined): boolea
 
 function needsRebuild(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): boolean {
   const index = boardIndexOf(board.elements);
-  if (world.version !== board.version - 1 || index.elementCount < world.minIncrementalElements || world.laidOutById.size === 0) return true;
+  if (world.version !== board.version - 1 || index.elementCount < world.minIncrementalElements || world.isBuiltWithoutGrids || world.laidOutById.size === 0) return true;
   for (const change of changes.values()) {
     if (change.isAppended && change.before) return true;
     if (touchesStepBox(change.before, index.stepBoxIds) || touchesStepBox(change.after, index.stepBoxIds)) return true;
@@ -881,9 +886,22 @@ function layoutOf(world: LayoutWorld): PlacedLayout {
   return layout;
 }
 
+function bookUnbookedWarnings(world: LayoutWorld): void {
+  if (!world.unbookedWarningLists) return;
+  addWarningLists(world.routeWarnings, world.unbookedWarningLists.route);
+  addWarningLists(world.placementWarnings, world.unbookedWarningLists.placement);
+  world.unbookedWarningLists = null;
+}
+
+function warningsNamingOfWorld(world: LayoutWorld, elementIds: readonly string[]): string[] {
+  bookUnbookedWarnings(world);
+  const books = [world.routeWarnings, world.placementWarnings];
+  return [...new Set(elementIds.flatMap((elementId) => books.flatMap((book) => [...book.textsById.get(elementId) ?? []])))];
+}
+
 function warningsOfWorld(world: LayoutWorld): string[] {
   return world.layout ? world.layout.warnings : warningsOf(world);
 }
 
-export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, applyingLayoutDelta, createLayoutWorld, idsMentionedBy, layoutOf, rebuildingWorld, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld };
+export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, applyingLayoutDelta, createLayoutWorld, layoutOf, rebuildingWorld, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld };
 export type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange };
