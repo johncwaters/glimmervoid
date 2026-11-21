@@ -172,11 +172,15 @@ function noteWarningChange(book: WarningBook, text: string, isPresent: boolean):
   book.presenceByChangedText.set(text, isPresent);
 }
 
+function idsMentionedBy(warning: string): string[] {
+  return [...warning.matchAll(MENTIONED_ID)].flatMap((match) => match[1] ?? []);
+}
+
 function addWarning(book: WarningBook, text: string): void {
   if (book.idsByText.has(text)) return;
   const swapped = swappedPairOf(text);
   if (swapped !== null && book.idsByText.has(swapped)) return;
-  const ids = [...text.matchAll(MENTIONED_ID)].flatMap((match) => match[1] ?? []);
+  const ids = idsMentionedBy(text);
   book.idsByText.set(text, ids);
   noteWarningChange(book, text, true);
   for (const id of ids) {
@@ -881,5 +885,5 @@ function warningsOfWorld(world: LayoutWorld): string[] {
   return world.layout ? world.layout.warnings : warningsOf(world);
 }
 
-export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, applyingLayoutDelta, createLayoutWorld, layoutOf, rebuildingWorld, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld };
+export { INCREMENTAL_MIN_ELEMENTS, applyLayoutDelta, applyingLayoutDelta, createLayoutWorld, idsMentionedBy, layoutOf, rebuildingWorld, resumeLayoutWorld, resumingLayoutWorld, savedWorldOf, warningsOfWorld };
 export type { ElementChange, LayoutDelta, LayoutWorld, SavedWorld, SavedWorldParts, WarningChange };

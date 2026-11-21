@@ -31,9 +31,12 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, sessionFrameIdOf, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
+import { idsMentionedBy } from '../../shared/whiteboard-layout-engine.ts';
+import { BOARD_LAYOUT_CHECK_ID, VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
+import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
 import { createKeyedSerialQueue, createSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -58,6 +61,7 @@ import { clock } from '../../shared/clock.ts';
 
 const WHITEBOARDS_FOLDER_NAME = 'whiteboards';
 const BOARD_FILE_EXTENSION = '.json';
+const BOARD_LAYOUT_BUILT_IN_COMMAND = 'board layout (built in)';
 const OWN_CARD_REACH = 1200;
 const MIGRATED_JSON_FOLDER_NAME = 'migrated-json';
 const OLDER_READER_PICTURE_GUARD = `boards${BOARD_FILE_EXTENSION}.corrupt-moved-to-boards-sqlite`;
@@ -175,6 +179,8 @@ interface WhiteboardPort {
   loaded: Promise<void>;
   assets: WhiteboardAssetStore;
   handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply>;
+  layoutChecksOf(sessionId: string): Promise<CheckOutcome[]>;
+  layoutFreshnessOf(sessionId: string): string;
   putWithoutReadCheck(caller: WhiteboardCaller, boardRef: string, ops: readonly Op[]): Promise<WhiteboardReply>;
   putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply>;
   boardOf(boardId: string): Promise<Board | null>;
@@ -332,6 +338,7 @@ function createWhiteboardWiring({
     broadcastAgentChange: (message) => broadcastControl(message),
   });
   const agentFocusBySessionId = new Map<string, Map<string, AgentFocus>>();
+  const writtenIdsByBoardIdBySessionId = new Map<string, Map<string, Set<string>>>();
   const pagedFocusBySessionId = new Map<string, Map<string, BoardRegion>>();
   let isEveryBoardLoaded = true;
   const loaded = Promise.all([loadBoards(), assets.loaded, attachmentStore.load()]).then(sweepUnusedAssets).then(() => {});
@@ -897,6 +904,7 @@ function createWhiteboardWiring({
     const reply = await putOps(boardId, ops, author, checksReads ? readCheckedRefusalOf : habitRefusalOf);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
+    noteWrittenIds(author.id, boardId, ops.flatMap(elementIdsNamedBy));
     const habitWarnings = habitWarningsOf(board, ops);
     const isCodeSessionChanged = ops.some((op) => op.op === 'board' && op.codeSessionId !== undefined);
     const elementIds = isCodeSessionChanged ? null : new Set(ops.flatMap(elementIdsNamedBy));
@@ -1193,7 +1201,43 @@ function createWhiteboardWiring({
     await Promise.all(unfiledBoardIds.map((boardId) => changeHead(boardId, (current) => filedUnder(current, knownProjectOf(current)))));
   }
 
+  function noteWrittenIds(sessionId: string, boardId: string, elementIds: readonly string[]): void {
+    const writtenByBoardId = writtenIdsByBoardIdBySessionId.get(sessionId) ?? new Map<string, Set<string>>();
+    const written = writtenByBoardId.get(boardId) ?? new Set<string>();
+    for (const elementId of elementIds) written.add(elementId);
+    writtenByBoardId.set(boardId, written);
+    writtenIdsByBoardIdBySessionId.set(sessionId, writtenByBoardId);
+  }
+
+  async function layoutWarningsWrittenBy(sessionId: string): Promise<string[]> {
+    const writtenByBoardId = writtenIdsByBoardIdBySessionId.get(sessionId);
+    if (!writtenByBoardId) return [];
+    const boardWarnings = await Promise.all([...writtenByBoardId].map(async ([boardId, written]) => {
+      const board = await loadedBoardOf(boardId);
+      if (!board) return [];
+      const { warnings } = await tiles.summaryOf(board);
+      return warnings.filter((warning) => idsMentionedBy(warning).some((elementId) => written.has(elementId))).map((warning) => `board "${board.title}": ${warning}`);
+    }));
+    return boardWarnings.flat();
+  }
+
+  function layoutFreshnessOf(sessionId: string): string {
+    const writtenByBoardId = writtenIdsByBoardIdBySessionId.get(sessionId);
+    if (!writtenByBoardId) return '';
+    return [...writtenByBoardId].map(([boardId, written]) => `${boardId}@${recordsByBoardId.get(boardId)?.board.version ?? 'gone'}:${written.size}`).join(',');
+  }
+
+  async function layoutChecksOf(sessionId: string): Promise<CheckOutcome[]> {
+    if (!writtenIdsByBoardIdBySessionId.has(sessionId)) return [];
+    const read = await layoutWarningsWrittenBy(sessionId).then((warnings) => ({ ok: true as const, warnings }), (error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+    if (!read.ok) return [{ id: BOARD_LAYOUT_CHECK_ID, command: BOARD_LAYOUT_BUILT_IN_COMMAND, status: 'skipped', exitCode: null, outputTail: `the board layout could not be read: ${read.reason}`.slice(-VERIFICATION_OUTPUT_TAIL_BYTES) }];
+    const { warnings } = read;
+    const outputTail = warnings.length === 0 ? 'no layout warning names an element this session wrote' : `${warnings.join('\n')}\nfix each with whiteboard put, then check again`;
+    return [{ id: BOARD_LAYOUT_CHECK_ID, command: BOARD_LAYOUT_BUILT_IN_COMMAND, status: warnings.length === 0 ? 'pass' : 'fail', exitCode: null, outputTail: outputTail.slice(-VERIFICATION_OUTPUT_TAIL_BYTES) }];
+  }
+
   function forgetSession(sessionId: string): Promise<void> {
+    writtenIdsByBoardIdBySessionId.delete(sessionId);
     agentFocusBySessionId.delete(sessionId);
     pagedFocusBySessionId.delete(sessionId);
     announcedVersionByBoardIdBySessionId.delete(sessionId);
@@ -1351,6 +1395,7 @@ function createWhiteboardWiring({
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
       const unreadRefusal = unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
       if (unreadRefusal) return { ok: false, reply: refusal(409, `${unreadRefusal}, so nothing changed`) };
+      noteWrittenIds(author.id, boardId, applied.record.board.elements.has(sessionFrameIdOf(author.id)) ? [boxId, sessionFrameIdOf(author.id)] : [boxId]);
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
       const note = withUnloadedNote(`${isUpdate ? 'updated' : 'showed'} ${card.title} ${isUpdate ? 'in place in' : 'as'} box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; show the same file again to update this card, or change it with whiteboard put`, unloaded);
@@ -1548,7 +1593,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, putWithoutReadCheck, putAsks, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

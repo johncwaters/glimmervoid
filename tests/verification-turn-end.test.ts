@@ -174,6 +174,7 @@ test('a built-in check gates a merge with no verification entry in config.json, 
   git(repoPath, ['commit', '--quiet', '-m', 'base']);
   const headSha = git(repoPath, ['rev-parse', 'HEAD']);
   let builtInStatus: 'pass' | 'fail' = 'fail';
+  let builtInFreshness = 'board@1';
   const judgedCommits: (string | null)[] = [];
   const installed: { mergeGate: ((tree: { sig: string; dirty: boolean; headSha: string | null } | null) => Promise<{ allowed: boolean; reason?: string }>) | null } = { mergeGate: null };
   const verification = createVerificationWiring({
@@ -181,6 +182,7 @@ test('a built-in check gates a merge with no verification entry in config.json, 
     builtInChecks: {
       outcomesOf: async (_session, commitSha) => { judgedCommits.push(commitSha); return [{ id: 'codemap', command: 'codemap check (built in)', status: builtInStatus, exitCode: null, outputTail: 'adds module imports the operator has not allowed: lib -> tools' }]; },
       requiredIdsOf: async () => ['codemap'],
+      freshnessOf: () => builtInFreshness,
     },
     isSessionSandboxOn: () => true,
     broadcastControl: () => {},
@@ -208,4 +210,9 @@ test('a built-in check gates a merge with no verification entry in config.json, 
   builtInStatus = 'pass';
   assert.deepEqual(await installed.mergeGate?.({ sig: 'tree-fail', dirty: false, headSha }), { allowed: true }, 'a merge judges the built-in check afresh, never from a run cached under the same tree');
   assert.deepEqual(judgedCommits, [null, headSha, headSha], 'session check judges the working tree, a merge judges the commit that lands');
+  const cachedUnderSameTree = await verification.checkNow('built-in-gate', 10_000);
+  assert.deepEqual(cachedUnderSameTree.ok ? cachedUnderSameTree.run?.checks.map((check) => `${check.id} ${check.status}`) : [], ['codemap fail'], 'session check reuses its run while neither the tree nor the built-in freshness moved');
+  builtInFreshness = 'board@2';
+  const rerunAfterBoardChange = await verification.checkNow('built-in-gate', 10_000);
+  assert.deepEqual(rerunAfterBoardChange.ok ? rerunAfterBoardChange.run?.checks.map((check) => `${check.id} ${check.status}`) : [], ['codemap pass'], 'a built-in freshness change, such as a board edit, reruns session check under the same tree');
 });

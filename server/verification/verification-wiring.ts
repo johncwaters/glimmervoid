@@ -43,9 +43,10 @@ interface VerifiableSession {
 interface BuiltInChecks {
   outcomesOf(session: VerifiableSession, commitSha: string | null): Promise<CheckOutcome[]>;
   requiredIdsOf(session: VerifiableSession): Promise<string[]>;
+  freshnessOf(session: VerifiableSession): string;
 }
 
-const NO_BUILT_IN_CHECKS: BuiltInChecks = { outcomesOf: async () => [], requiredIdsOf: async () => [] };
+const NO_BUILT_IN_CHECKS: BuiltInChecks = { outcomesOf: async () => [], requiredIdsOf: async () => [], freshnessOf: () => '' };
 
 interface VerificationWiringDependencies {
   getVerificationConfig: () => unknown;
@@ -228,7 +229,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
   }
 
   function runKeyOf(session: VerifiableSession, settings: VerificationSettings, sig: string): string {
-    return `${sig}\0${settingsFingerprint(settings)}\0${JSON.stringify(agentChecksOf(session))}`;
+    return `${sig}\0${settingsFingerprint(settings)}\0${JSON.stringify(agentChecksOf(session))}\0${builtInChecks.freshnessOf(session)}`;
   }
 
   function ensureRun(session: VerifiableSession, settings: VerificationSettings, sig: string, { reuseFailed }: { reuseFailed: boolean }): Promise<VerificationRun> {

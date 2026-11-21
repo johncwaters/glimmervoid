@@ -364,7 +364,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), claimsByOthersOf: fileClaims.claimsByOthersOf });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
-    builtInChecks: { outcomesOf: (session, commitSha) => codemap.builtInChecksOf(session, commitSha), requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session) },
+    builtInChecks: { outcomesOf: async (session, commitSha) => [...await codemap.builtInChecksOf(session, commitSha), ...await whiteboards.layoutChecksOf(session.id)], requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session), freshnessOf: (session) => whiteboards.layoutFreshnessOf(session.id) },
     isSessionSandboxOn: () => configStore.config.sessionSandbox === true,
     broadcastControl: broadcastControlFromWebSockets,
     logger: console,

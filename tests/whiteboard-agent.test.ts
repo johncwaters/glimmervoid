@@ -1966,6 +1966,15 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.deepEqual(frameAfterOperatorEdit?.kind === 'frame' ? [frameAfterOperatorEdit.title, frameAfterOperatorEdit.contains] : null, ['Renamed by operator', ['shown-1', 'shown-2']], 'show leaves a frame the operator changed unread as the operator left it');
   assert.ok(drawnThirdOwn && drawnFarBelow && drawnThirdOwn.y < drawnFarBelow.y && drawnThirdOwn.x === drawnSecond.x, `with no operator view a card lands beside the session's previous card, not below the board: ${JSON.stringify([drawnThirdOwn, drawnFarBelow])}`);
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'remove', id: 'shown-3' }, { op: 'remove', id: 'far-below' }]) })).status, 200);
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'wire-start', title: 'Start', place: { at: { x: 3040, y: 234 } } } },
+    { op: 'add', element: { kind: 'box', id: 'wire-end', title: 'End', place: { at: { x: 3350, y: 110 } } } },
+    { op: 'add', element: { kind: 'wire', id: 'crossing', from: 'wire-start', to: 'wire-end' } },
+  ]) })).status, 200);
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'in-the-way', title: 'In the way', place: { at: { x: 3250, y: 110 } } } }]) })).status, 200);
+  const [layoutCheck] = await wiring.layoutChecksOf(shower.id);
+  assert.ok(layoutCheck?.status === 'fail' && layoutCheck.outputTail.includes('wire crossing runs through box in-the-way'), `the board layout check fails on a warning naming an element the session wrote: ${JSON.stringify(layoutCheck)}`);
+  assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse(['crossing', 'wire-start', 'wire-end', 'in-the-way'].map((id) => ({ op: 'remove', id }))) })).status, 200);
 
   const operatorView = { x: 3000, y: 2000, width: 1600, height: 960 };
   const planSteps = ['plan-a', 'plan-b', 'plan-c'].map((stepId) => ({ op: 'add', element: { kind: 'box', id: stepId, title: stepId, place: 'plan', step: { status: 'planned' } } }));

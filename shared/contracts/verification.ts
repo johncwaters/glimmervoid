@@ -11,7 +11,8 @@ export const PANEL_MIN_CHANGED_LINES = 20;
 export function agentDoneCheckIdOf(lineIndex: number): string {
   return `${AGENT_DONE_CHECK_ID_PREFIX}${lineIndex + 1}`;
 }
-const BUILT_IN_CHECK_IDS: readonly string[] = [CODEMAP_CHECK_ID];
+export const BOARD_LAYOUT_CHECK_ID = 'board-layout';
+const BUILT_IN_CHECK_IDS: readonly string[] = [CODEMAP_CHECK_ID, BOARD_LAYOUT_CHECK_ID];
 const VERIFICATION_RUN_CHECK_LIMIT = VERIFICATION_CHECK_LIMIT + DONE_MEANS_MAX_LINES + BUILT_IN_CHECK_IDS.length + 1;
 
 const checkId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
