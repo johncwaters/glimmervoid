@@ -12,6 +12,7 @@ import type { ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { DecisionEntry } from "./core/decision-log.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { clock } from '../shared/clock.ts';
+import { BACKGROUND_TASK_SIGNAL_EVENT, type BackgroundTaskSignal } from "../shared/contracts/trace.ts";
 
 interface SessionPort {
   state: () => SessionState;
@@ -65,6 +66,7 @@ interface SessionBackgroundTracking {
   expiredOpenWork(): ExpiredOpenWork;
   emitAgentsChange(): void;
   clearAgents(): void;
+  stopAnnouncedBackgroundTasks(): void;
   stashGateHeldReady(signal: ResolvedStatusSignal): void;
   clearGateHeldReady(): void;
   trackWakeup(raw: HookSignal): void;
@@ -98,6 +100,7 @@ function createSessionBackgroundTracking({
 }: BackgroundTrackingOptions): SessionBackgroundTracking {
   const tasks = agentTracker.createTaskRegistry({ agentTtlMs, shellTaskTtlMs, teammateTaskTtlMs });
 
+  const announcedBackgroundTaskTypes = new Map<string, string | null>();
   let gateHeldReady: GateHeldReady | null = null;
   let gateHeldReadyTimer: NodeJS.Timeout | null = null;
 
@@ -251,11 +254,35 @@ function createSessionBackgroundTracking({
     return tasks.expiredOpenWork();
   }
 
+  function emitBackgroundTaskSignal(phase: BackgroundTaskSignal["phase"], taskId: string): void {
+    if (port.isDestroyed()) return;
+    const signal: BackgroundTaskSignal = { phase, taskId, taskType: announcedBackgroundTaskTypes.get(taskId) ?? null, ts: clock.nowMs() };
+    port.emit(BACKGROUND_TASK_SIGNAL_EVENT, signal);
+  }
+
+  function announceBackgroundTasksRunning(entries: readonly agentTracker.DeclaredEntry[]): void {
+    const { started, stoppedIds } = agentTracker.backgroundTaskChanges(new Set(announcedBackgroundTaskTypes.keys()), entries);
+    announceBackgroundTasksStopped(stoppedIds);
+    for (const task of started) {
+      announcedBackgroundTaskTypes.set(task.id, task.type);
+      emitBackgroundTaskSignal("start", task.id);
+    }
+  }
+
+  function announceBackgroundTasksStopped(taskIds: readonly string[]): void {
+    for (const taskId of taskIds) {
+      if (!announcedBackgroundTaskTypes.has(taskId)) continue;
+      emitBackgroundTaskSignal("stop", taskId);
+      announcedBackgroundTaskTypes.delete(taskId);
+    }
+  }
+
   function applyBackgroundTasks(payload: unknown): void {
     if (!detectBackgroundAgents) return;
     const entries = agentTracker.extractBackgroundTasks(payload);
     if (entries === null) return;
     withAgentCount(() => tasks.reconcileDeclared(entries));
+    announceBackgroundTasksRunning(entries);
   }
 
   function clearBgDeclared(): void {
@@ -296,6 +323,7 @@ function createSessionBackgroundTracking({
     const deliveredTaskIds = extractNotifiedTaskIds(prompt);
     if (deliveredTaskIds.length === 0) return;
     withAgentCount(() => tasks.noteTaskNotificationsDelivered(deliveredTaskIds));
+    announceBackgroundTasksStopped(deliveredTaskIds);
   }
 
   function trackSubagent(raw: HookSignal): void {
@@ -349,7 +377,12 @@ function createSessionBackgroundTracking({
   function clearAgents(): void {
     const had = activeAgentCount() > 0;
     tasks.clear();
+    stopAnnouncedBackgroundTasks();
     if (had) emitAgentsChange();
+  }
+
+  function stopAnnouncedBackgroundTasks(): void {
+    announceBackgroundTasksStopped([...announcedBackgroundTaskTypes.keys()]);
   }
 
   function trackWakeup(raw: HookSignal): void {
@@ -452,6 +485,7 @@ function createSessionBackgroundTracking({
     expiredOpenWork,
     emitAgentsChange,
     clearAgents,
+    stopAnnouncedBackgroundTasks,
     stashGateHeldReady,
     clearGateHeldReady,
     trackWakeup,

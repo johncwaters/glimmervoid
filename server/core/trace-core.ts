@@ -237,6 +237,16 @@ function launchedSubagentField(toolUseResult: unknown): { subagentId?: string } 
   return { subagentId };
 }
 
+function launchedBackgroundTaskField(toolUseResult: unknown): { backgroundTaskId?: string } {
+  if (typeof toolUseResult !== 'object' || toolUseResult === null) return {};
+  const shellTaskId = 'backgroundTaskId' in toolUseResult ? toolUseResult.backgroundTaskId : null;
+  if (typeof shellTaskId === 'string' && shellTaskId !== '') return { backgroundTaskId: shellTaskId };
+  const isLaunchedTask = 'taskType' in toolUseResult && typeof toolUseResult.taskType === 'string';
+  const launchedTaskId = isLaunchedTask && 'taskId' in toolUseResult ? toolUseResult.taskId : null;
+  if (typeof launchedTaskId !== 'string' || launchedTaskId === '') return {};
+  return { backgroundTaskId: launchedTaskId };
+}
+
 function mapUserLine(
   rawLine: string,
   line: TranscriptLine,
@@ -259,6 +269,7 @@ function mapUserLine(
       isError: toolResult.is_error === true,
       truncated: bounded.truncated || unwrapped.isSpilled,
       ...launchedSubagentField(line.toolUseResult),
+      ...launchedBackgroundTaskField(line.toolUseResult),
     }];
   }
 

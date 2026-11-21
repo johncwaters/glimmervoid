@@ -5,7 +5,7 @@ import { createTailState } from '../core/transcript-tail-core.ts';
 import { createJsonStateWriter } from '../json-file.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
-import { MAX_RAW_LINE_CHARS, SUBAGENT_SIGNAL_EVENT, SubagentSignal } from '../../shared/contracts/trace.ts';
+import { BACKGROUND_TASK_SIGNAL_EVENT, BackgroundTaskSignal, MAX_RAW_LINE_CHARS, SUBAGENT_SIGNAL_EVENT, SubagentSignal } from '../../shared/contracts/trace.ts';
 import { MAX_REMEMBERED_CLOSED_SESSIONS, trimOldest } from './trace-wiring-context.ts';
 import { containmentRootFor, relaySourceOf, transcriptSourceOf } from './conversation-sources.ts';
 import type { TranscriptConversationSource } from './conversation-sources.ts';
@@ -253,6 +253,14 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     appendConversationRecords(glimmervoidSessionId, [{ uuid: null, parentUuid: null, vendorSessionId, kind: 'subagent', ...parsed.data }]);
   }
 
+  function appendBackgroundTaskSignal(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
+    const parsed = BackgroundTaskSignal.safeParse(payload);
+    if (!parsed.success) return;
+    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
+    if (!vendorSessionId) return;
+    appendConversationRecords(glimmervoidSessionId, [{ uuid: null, parentUuid: null, vendorSessionId, kind: 'background-task', ...parsed.data }]);
+  }
+
   function appendManagerDecisionNotice(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = ManagerDecision.safeParse(payload.decision);
     if (!parsed.success) return;
@@ -281,6 +289,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     session.on(MANAGER_DECISION_EVENT, (payload) => { appendManagerDecisionNotice(session.id, payload); });
     session.on('chat-attachments-sent', (payload) => { appendSentAttachments(session.id, payload); });
     session.on(SUBAGENT_SIGNAL_EVENT, (payload) => { appendSubagentSignal(session.id, payload); });
+    session.on(BACKGROUND_TASK_SIGNAL_EVENT, (payload) => { appendBackgroundTaskSignal(session.id, payload); });
     session.on('exit', () => { detachSession(session.id); });
     session.on('teardown', () => { closeSession(session.id); });
   }

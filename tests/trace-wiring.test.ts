@@ -1276,3 +1276,48 @@ test('a subagent start and stop append subagent records and a Claude Agent resul
   await harness.wiring.stop();
   fs.rmSync(configDirectory, { recursive: true, force: true });
 });
+
+test('a background shell launched by a tool call appends start and stop background-task records as the Stop payloads, its task notification and the session end report it', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('background-task-signal');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, '', 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const session = new Session({
+    id: 'background-task-session',
+    name: 'background-task-session',
+    path: process.cwd(),
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: () => fakePty(),
+  });
+  harness.wiring.attachSession(session);
+
+  session.emit('claude-session-id', { id: 'vendor-session', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  fs.appendFileSync(transcriptPath, transcriptLine({
+    type: 'user',
+    uuid: 'bash-result',
+    parentUuid: null,
+    sessionId: 'vendor-session',
+    timestamp: '2026-08-22T18:47:30.724Z',
+    message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_bash', content: 'Command running in background with ID: b1' }] },
+    toolUseResult: { backgroundTaskId: 'b1' },
+  }), 'utf8');
+  await harness.poll();
+  session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 10, payload: { background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }, { id: 'a9', type: 'subagent', status: 'running' }] } });
+  session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 20, payload: { background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }, { id: 'm2', type: 'monitor', status: 'running' }] } });
+  session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 30, payload: { prompt: '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>' } });
+  session.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 40, payload: { background_tasks: [{ id: 'b3', type: 'shell', status: 'running' }] } });
+  session.destroy('server_stopped');
+  await harness.wiring.whenIdle();
+
+  const records = readTrace(harness.tracePath('background-task-session'));
+  const backgroundTaskRecords = records.flatMap((record) => record.kind === 'background-task' ? [[record.phase, record.taskId, record.taskType]] : []);
+  assert.deepEqual(backgroundTaskRecords, [['start', 'b1', 'shell'], ['start', 'm2', 'monitor'], ['stop', 'b1', 'shell'], ['stop', 'm2', 'monitor'], ['start', 'b3', 'shell'], ['stop', 'b3', 'shell']]);
+  const bashResult = records.find((record) => record.kind === 'tool_result');
+  assert.equal(bashResult?.kind === 'tool_result' ? bashResult.backgroundTaskId : null, 'b1');
+
+  session.destroy();
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});

@@ -2744,6 +2744,7 @@ class Session extends EventEmitter {
   }
 
   destroy(cause: SessionEndCause = "removed"): void {
+    this.backgroundTracking.stopAnnouncedBackgroundTasks();
     if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
     this._chatOutbox.dispose();
     this._agentToken = null;

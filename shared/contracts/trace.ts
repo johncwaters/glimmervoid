@@ -27,6 +27,17 @@ const SubagentSignalFields = {
 export const SubagentSignal = z.strictObject({ ...SubagentSignalFields, ts: z.number() });
 export type SubagentSignal = z.infer<typeof SubagentSignal>;
 
+export const BACKGROUND_TASK_SIGNAL_EVENT = 'background-task-signal';
+
+const BackgroundTaskSignalFields = {
+  phase: z.enum(['start', 'stop']),
+  taskId: z.string().min(1),
+  taskType: z.string().min(1).nullable(),
+};
+
+export const BackgroundTaskSignal = z.strictObject({ ...BackgroundTaskSignalFields, ts: z.number() });
+export type BackgroundTaskSignal = z.infer<typeof BackgroundTaskSignal>;
+
 export const TraceRecord = z.discriminatedUnion('kind', [
   TraceRecordBase.extend({
     kind: z.literal('prompt'),
@@ -58,8 +69,10 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     isError: z.boolean(),
     truncated: z.boolean(),
     subagentId: z.string().min(1).optional(),
+    backgroundTaskId: z.string().min(1).optional(),
   }),
   TraceRecordBase.extend({ kind: z.literal('subagent'), ...SubagentSignalFields }),
+  TraceRecordBase.extend({ kind: z.literal('background-task'), ...BackgroundTaskSignalFields }),
   TraceRecordBase.extend({
     kind: z.literal('session'),
     vendor: z.string().min(1),

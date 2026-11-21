@@ -78,6 +78,17 @@ interface DeclaredEntry {
 
 const DEFAULT_TEAMMATE_TASK_TTL_MS = 90 * 1000;
 
+type RunningBackgroundTask = { id: string; type: string | null };
+
+function backgroundTaskChanges(announcedIds: ReadonlySet<string>, declaredEntries: readonly DeclaredEntry[]): { started: RunningBackgroundTask[]; stoppedIds: string[] } {
+  const runningTasks = declaredEntries.flatMap((entry) => entry.id && entry.type !== 'subagent' ? [{ id: entry.id, type: entry.type ?? null }] : []);
+  const runningIds = new Set(runningTasks.map((task) => task.id));
+  return {
+    started: runningTasks.filter((task) => !announcedIds.has(task.id)),
+    stoppedIds: [...announcedIds].filter((id) => !runningIds.has(id)),
+  };
+}
+
 const DEFAULT_NOTIFICATION_DELIVERY_WINDOW_MS = 10 * 1000;
 
 function declaredActiveCount(
@@ -564,5 +575,5 @@ function createTaskRegistry({
   };
 }
 
-export { extractBackgroundTasks, msUntilNextDrain, createTaskRegistry, DEFAULT_AGENT_TTL_MS, DEFAULT_SHELL_TASK_TTL_MS, DEFAULT_TEAMMATE_TASK_TTL_MS };
-export type { ExpiredOpenWork, LateFinish, TaskRegistryBreakdown, TaskRegistryOptions };
+export { backgroundTaskChanges, extractBackgroundTasks, msUntilNextDrain, createTaskRegistry, DEFAULT_AGENT_TTL_MS, DEFAULT_SHELL_TASK_TTL_MS, DEFAULT_TEAMMATE_TASK_TTL_MS };
+export type { DeclaredEntry, ExpiredOpenWork, LateFinish, TaskRegistryBreakdown, TaskRegistryOptions };

@@ -93,6 +93,7 @@ const TRACE_TAG_BY_KIND: Record<TraceRecord['kind'], string> = {
   usage_limit: 'LIMIT',
   attachments: 'ATTACHED',
   subagent: 'SUBAGENT',
+  'background-task': 'BACKGROUND',
   raw: 'RAW',
 };
 
@@ -111,6 +112,7 @@ function traceLabelParts(record: TraceRecord, toolCallByUseId: ReadonlyMap<strin
   if (record.kind === 'attachments') return { prefix: 'Attached: ', text: record.files.join(', ') };
   if (record.kind === 'session') return { prefix: 'Session: ', text: `${record.vendor} ${record.vendorSessionId}` };
   if (record.kind === 'subagent') return { prefix: 'Subagent: ', text: `${record.phase} ${record.subagentType ?? record.subagentId}${record.task ? ` ${record.task}` : ''}` };
+  if (record.kind === 'background-task') return { prefix: 'Background task: ', text: `${record.phase} ${record.taskType ?? record.taskId}` };
   if (record.kind === 'expansion') return { prefix: 'Expansion: ', text: expansionName(record, toolCallByUseId) };
   if (record.kind === 'tool_call') {
     const detail = toolDetailLine(record.name, record.input);
