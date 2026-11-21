@@ -48,6 +48,7 @@ import { sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
 import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardFlowLayer } from './board-flow-layer.ts';
+import { followBoardSessionFeed } from './board-session-feed.ts';
 import { createBoardMediaLayer, fetchBoardDocText, fetchBoardSheetText, tunePageOnLoad } from './board-media-layer.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import { applyPageGesture, attachMediaZoom } from './media-zoom.ts';
@@ -1701,6 +1702,7 @@ export function mountBoardHost(): HTMLElement {
     onZoomFromPage: (clientX, clientY, viewWidthFactor) => editor?.zoomAroundClientPoint(clientX, clientY, viewWidthFactor),
     onPanFromPage: (deltaX, deltaY) => editor?.panByPixels(deltaX, deltaY),
   });
+  followBoardSessionFeed(mediaLayer.showFeed);
   world.append(svg, mediaLayer.element);
   const glCanvas = el('canvas', 'wb-gl');
   glCanvas.setAttribute('aria-hidden', 'true');

@@ -6,6 +6,7 @@ import { BOX_SHAPES, SHAPE_TRAITS } from '../whiteboard-shapes.ts';
 import { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox } from '../whiteboard-constants.ts';
 import type { NoteTone, TextSize } from '../whiteboard-constants.ts';
 import { elementTableOf, isElementTable } from './whiteboard-element-table.ts';
+import { STATES } from '../states.ts';
 import type { ElementTable } from './whiteboard-element-table.ts';
 
 export { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox };
@@ -75,6 +76,14 @@ export const BOARD_PAGE_ESCAPE_MESSAGE = 'glimmervoid-board-page-escape';
 export const BOARD_PAGE_ARROW_MESSAGE = 'glimmervoid-board-page-arrow';
 export const BOARD_PAGE_ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const;
 export const BOARD_PAGE_PARAMS_MESSAGE = 'glimmervoid-params';
+export const BOARD_PAGE_FEED_MESSAGE = 'glimmervoid-feed';
+const BOARD_PAGE_FEED_TOPICS = ['sessions'] as const;
+export const BoardPageFeed = z.object({
+  type: z.literal(BOARD_PAGE_FEED_MESSAGE),
+  topic: z.literal('sessions'),
+  sessions: z.array(z.object({ name: z.string(), agent: z.string(), state: z.enum(STATES) }).strict()),
+}).strict();
+export type BoardPageFeed = z.infer<typeof BoardPageFeed>;
 export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';
 export const BOARD_PAGE_THEME_MESSAGE = 'glimmervoid-theme';
 export const BOARD_PAGE_GESTURE_MESSAGE = 'glimmervoid-board-page-gesture';
@@ -216,6 +225,7 @@ const boxFields = {
   titleGradient: z.boolean().default(false).describe('true draws the title in a gradient from purple to blue to red'),
   fullBleed: z.boolean().default(false).describe('true on a box with media drops its title, lines and padding so the media fills the box, and Present fills the view with it'),
   autoplay: z.boolean().default(false).describe('true on a box showing a video plays it muted and looping on the board while it is on screen'),
+  feeds: z.array(z.enum(BOARD_PAGE_FEED_TOPICS)).max(BOARD_PAGE_FEED_TOPICS.length).default([]).describe('live data a box showing a page receives: sessions sends each session name, agent and state to the page as window.glimmervoidFeed and a glimmervoid:feed event'),
   backdrop: z.boolean().default(false).describe('true on a box showing a page, video or image also fills the whole board view behind every element with it; the first such box on the board wins'),
   angle: z.number().int().min(0, { error: 'a box angle is 0 to 359 degrees' }).max(359, { error: 'a box angle is 0 to 359 degrees' }).default(0).describe('the clockwise rotation in whole degrees around the box center'),
   device: DeviceName.nullable().default(null),
@@ -670,7 +680,7 @@ export function filledBox(box: SparseBox): Box {
   return {
     kind: 'box', id: box.id, shape: box.shape ?? 'box', title: box.title, icon: box.icon ?? null, place: box.place,
     order: box.order ?? 0, width: box.width ?? null, height: box.height ?? null,
-    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, fullBleed: box.fullBleed ?? false, autoplay: box.autoplay ?? false, backdrop: box.backdrop ?? false, angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
+    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, fullBleed: box.fullBleed ?? false, autoplay: box.autoplay ?? false, backdrop: box.backdrop ?? false, feeds: box.feeds ?? [], angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, refHashes: box.refHashes ?? {},

@@ -11,7 +11,7 @@ function exportedMediaOf(media: BoxMedia): BoxMedia {
 
 function exportedElementOf(element: Element): Element {
   if (element.kind !== 'box') return element;
-  return { ...element, ask: null, media: element.media ? exportedMediaOf(element.media) : null };
+  return { ...element, ask: null, feeds: [], media: element.media ? exportedMediaOf(element.media) : null };
 }
 
 function exportedBoardOf(board: Board): ExportedBoard {
@@ -46,12 +46,12 @@ function importedElementsOf(file: BoardFile, adoptedByExportedFilename: Readonly
       continue;
     }
     if (!element.media) {
-      elements.push({ ...element, ask: null });
+      elements.push({ ...element, ask: null, feeds: [] });
       continue;
     }
     const adopted = adoptedByExportedFilename.get(boardMediaOriginalFilename(element.media));
     if (!adopted) return { error: `box ${element.id} shows media ${element.media.asset}, which the board file does not carry` };
-    elements.push({ ...element, ask: null, media: importedMediaOf(element.media, adopted.media, adopted.name) });
+    elements.push({ ...element, ask: null, feeds: [], media: importedMediaOf(element.media, adopted.media, adopted.name) });
   }
   return elements;
 }

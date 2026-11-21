@@ -1,4 +1,4 @@
-import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_SCROLL_MESSAGE, BoardPageGesture, BoardPageScrolled, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, boardSheetTextFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_PARAMS_MESSAGE, BOARD_PAGE_SCROLL_MESSAGE, type BoardPageFeed, BoardPageGesture, BoardPageScrolled, BOARD_PAGE_THEME_MESSAGE, BOARD_PAGE_TUNED_QUERY, boardMediaOriginalFilename, boardPagePath, boardSheetTextFilename, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { BoxMedia, DialValue, LinkStateOfBox } from '#shared/contracts/whiteboard.ts';
 import type { BoardBackdrop } from '#shared/contracts/whiteboard-tiles.ts';
 import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
@@ -35,6 +35,7 @@ interface PlacedPage {
   node: HTMLElement;
   frame: HTMLIFrameElement | null;
   postedDialValues: string;
+  postedFeed: string;
 }
 
 function isPageMedia(media: LaidOutMedia | null): media is PageMedia {
@@ -274,18 +275,18 @@ function placedPageOf(page: ShownPage, latestDialValues: () => Readonly<Record<s
   if (media.kind === 'video') {
     node.append(autoplayVideoOf(media));
     placeNode(node, media, viewportWidth, turn);
-    return { identity, node, frame: null, postedDialValues: '{}' };
+    return { identity, node, frame: null, postedDialValues: '{}', postedFeed: '' };
   }
   const textCardOf = TEXT_CARD_BUILDER_BY_KIND[media.kind];
   if (textCardOf) {
     node.append(textCardOf(media));
     placeNode(node, media, viewportWidth, turn);
-    return { identity, node, frame: null, postedDialValues: '{}' };
+    return { identity, node, frame: null, postedDialValues: '{}', postedFeed: '' };
   }
   const frame = pageFrameOf(media);
   node.append(frame);
   placeNode(node, media, viewportWidth, turn);
-  const placed = { identity, node, frame, postedDialValues: JSON.stringify(media.dialValues) };
+  const placed = { identity, node, frame, postedDialValues: JSON.stringify(media.dialValues), postedFeed: '' };
   tunePageOnLoad(frame, node, () => {
     const dialValues = latestDialValues();
     placed.postedDialValues = JSON.stringify(dialValues);
@@ -313,6 +314,7 @@ interface ShownPage {
   identity: string;
   maskImage: string | null;
   isTransparent: boolean;
+  isSessionFed: boolean;
 }
 
 interface BoardMediaLayerOptions {
@@ -393,6 +395,47 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     return true;
   }
 
+  let latestFeed: BoardPageFeed | null = null;
+
+  const backdropFeedState = { postedFeed: '' };
+
+  function postFeedTo(frame: HTMLIFrameElement | null, isFed: boolean, feedState: { postedFeed: string }): void {
+    if (!isFed || !frame || !latestFeed) return;
+    const feedText = JSON.stringify(latestFeed);
+    if (feedState.postedFeed === feedText) return;
+    feedState.postedFeed = feedText;
+    frame.contentWindow?.postMessage(latestFeed, '*');
+  }
+
+  function feedEveryLoadOf(frame: HTMLIFrameElement, isFed: () => boolean, feedState: { postedFeed: string }): void {
+    feedState.postedFeed = JSON.stringify(latestFeed);
+    frame.addEventListener('load', () => {
+      feedState.postedFeed = '';
+      postFeedTo(frame, isFed(), feedState);
+    });
+  }
+
+  function isBoxSessionFed(boxId: string): boolean {
+    return shownPages.find((page) => page.boxId === boxId)?.isSessionFed ?? false;
+  }
+
+  function isBackdropSessionFed(): boolean {
+    return latestBackdrop?.isSessionFed ?? false;
+  }
+
+  function postChangedFeed(page: ShownPage, placed: PlacedPage): void {
+    postFeedTo(placed.frame, page.isSessionFed, placed);
+  }
+
+  function showFeed(feed: BoardPageFeed): void {
+    latestFeed = feed;
+    for (const page of shownPages) {
+      const placed = placedByBoxId.get(page.boxId);
+      if (placed) postChangedFeed(page, placed);
+    }
+    postFeedTo(backdropFrame, isBackdropSessionFed(), backdropFeedState);
+  }
+
   function latestDialValuesOf(boxId: string): Readonly<Record<string, DialValue>> {
     return shownPages.find((page) => page.boxId === boxId)?.media.dialValues ?? {};
   }
@@ -470,10 +513,12 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
         applyMask(placed.node, page.maskImage);
         placed.node.classList.toggle('is-transparent', page.isTransparent);
         postChangedDialValues(page, placed);
+        postChangedFeed(page, placed);
         paintLinkChip(placed.node, linkStateByBoxId.get(page.boxId));
         continue;
       }
       const replacement = placedPageOf(page, () => latestDialValuesOf(page.boxId));
+      if (replacement.frame) feedEveryLoadOf(replacement.frame, () => isBoxSessionFed(page.boxId), replacement);
       applyMask(replacement.node, page.maskImage);
       replacement.node.classList.toggle('is-transparent', page.isTransparent);
       markInteractive(page.boxId, replacement);
@@ -507,12 +552,14 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     backdropFrame = content;
     postedBackdropDialValues = JSON.stringify(shown.dialValues);
     tunePageOnLoad(content, backdrop, latestBackdropDialValues);
+    feedEveryLoadOf(content, isBackdropSessionFed, backdropFeedState);
   }
 
   function showBackdrop(shown: BoardBackdrop | null): void {
     latestBackdrop = shown;
     const identity = shown ? JSON.stringify([shown.kind, shown.asset, shown.mime]) : null;
     if (identity !== shownBackdropIdentity) replaceBackdrop(shown, identity);
+    postFeedTo(backdropFrame, isBackdropSessionFed(), backdropFeedState);
     if (!backdropFrame || !shown || JSON.stringify(shown.dialValues) === postedBackdropDialValues) return;
     postDialValues(backdropFrame, latestBackdropDialValues());
   }
@@ -526,7 +573,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
       if (!media) return [];
       const turn = { angle: element.angle, pivot: { x: element.x + element.width / 2, y: element.y + element.height / 2 } };
       const occluders = occludersAbove(element.id, { x: element.x, y: element.y, width: element.width, height: element.height, angle: element.angle }, elementsInPaintOrder);
-      return [{ boxId: element.id, media, turn, viewportWidth: viewportWidthOf(element, media), identity: identityOf(media), maskImage: pageMaskImage(media, occluders, turn), isTransparent: isTransparentPageBox(element) }];
+      return [{ boxId: element.id, media, turn, viewportWidth: viewportWidthOf(element, media), identity: identityOf(media), maskImage: pageMaskImage(media, occluders, turn), isTransparent: isTransparentPageBox(element), isSessionFed: element.isSessionFed }];
     });
     placeLivePages();
   }
@@ -549,7 +596,7 @@ export function createBoardMediaLayer(options: BoardMediaLayerOptions) {
     setInteractiveBox(null);
   }
 
-  return { element: layer, backdrop, showBackdrop, sync, showArea, clear, setInteractiveBox, setLinkStates, takesWheel };
+  return { element: layer, backdrop, showBackdrop, showFeed, sync, showArea, clear, setInteractiveBox, setLinkStates, takesWheel };
 }
 
 export type BoardMediaLayer = ReturnType<typeof createBoardMediaLayer>;

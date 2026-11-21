@@ -142,7 +142,7 @@ function backdropOfBoard(board: Board): BoardBackdrop | null {
   for (const box of elementsOfKind(board, 'box')) {
     const media = box.media;
     if (!box.backdrop || !isBackdropMedia(media)) continue;
-    return { kind: media.kind, asset: media.asset, mime: media.mime, dialValues: dialValuesOfBox(box) };
+    return { kind: media.kind, asset: media.asset, mime: media.mime, dialValues: dialValuesOfBox(box), isSessionFed: media.kind === 'page' && box.feeds.includes('sessions') };
   }
   return null;
 }
