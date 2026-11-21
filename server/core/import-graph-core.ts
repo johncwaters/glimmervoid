@@ -38,20 +38,36 @@ function quotedStringEnd(sourceText: string, start: number): number {
   return sourceText.length;
 }
 
-function regexLiteralEnd(sourceText: string, start: number): number | null {
+const UNKNOWN_REGEX_OUTCOME = 0;
+const UNCLOSED_REGEX_OUTCOME = -1;
+
+function regexLiteralEnd(sourceText: string, start: number, outcomesByScanState: Int32Array): number | null {
+  const visitedScanStates: number[] = [];
   let isInClass = false;
+  let outcome = UNCLOSED_REGEX_OUTCOME;
   for (let index = start + 1; index < sourceText.length; index++) {
     const character = sourceText[index];
-    if (character === '\n') return null;
+    if (character === '\n') break;
+    const scanState = index * 2 + (isInClass ? 1 : 0);
+    const knownOutcome = outcomesByScanState[scanState];
+    if (knownOutcome !== UNKNOWN_REGEX_OUTCOME) {
+      outcome = knownOutcome;
+      break;
+    }
+    visitedScanStates.push(scanState);
     if (character === '\\') {
       index++;
       continue;
     }
     if (character === '[') isInClass = true;
     if (character === ']') isInClass = false;
-    if (character === '/' && !isInClass) return index + 1;
+    if (character === '/' && !isInClass) {
+      outcome = index + 1;
+      break;
+    }
   }
-  return null;
+  for (const scanState of visitedScanStates) outcomesByScanState[scanState] = outcome;
+  return outcome === UNCLOSED_REGEX_OUTCOME ? null : outcome;
 }
 
 function templateTextEnd(sourceText: string, start: number): { end: number; opensExpression: boolean } | null {
@@ -82,14 +98,20 @@ function maskedSourceOf(sourceText: string): string {
   let braceDepth = 0;
   let keptFrom = 0;
   let index = 0;
+  let unclosedTemplateFrom = Number.POSITIVE_INFINITY;
+  let commentCloseMissingFrom = Number.POSITIVE_INFINITY;
+  let regexOutcomesByScanState: Int32Array | null = null;
   function blank(start: number, end: number): void {
     maskedParts.push(sourceText.slice(keptFrom, start), blankedRange(sourceText, start, end));
     index = end;
     keptFrom = end;
   }
   function continueTemplate(): void {
-    const templateText = templateTextEnd(sourceText, index);
-    if (!templateText) return;
+    const templateText = index < unclosedTemplateFrom ? templateTextEnd(sourceText, index) : null;
+    if (!templateText) {
+      unclosedTemplateFrom = Math.min(unclosedTemplateFrom, index);
+      return;
+    }
     const { end, opensExpression } = templateText;
     blank(index, end);
     if (!opensExpression) return;
@@ -110,7 +132,8 @@ function maskedSourceOf(sourceText: string): string {
       continue;
     }
     if (character === '/' && nextCharacter === '*') {
-      const commentClose = sourceText.indexOf('*/', startIndex + 2);
+      const commentClose = startIndex < commentCloseMissingFrom ? sourceText.indexOf('*/', startIndex + 2) : -1;
+      if (commentClose < 0) commentCloseMissingFrom = Math.min(commentCloseMissingFrom, startIndex);
       if (commentClose >= 0) blank(startIndex, commentClose + 2);
       continue;
     }
@@ -127,7 +150,8 @@ function maskedSourceOf(sourceText: string): string {
       continue;
     }
     if (character === '/' && slashStartsRegexLiteral(sourceText, startIndex)) {
-      const literalEnd = regexLiteralEnd(sourceText, startIndex);
+      regexOutcomesByScanState ??= new Int32Array(sourceText.length * 2 + 2);
+      const literalEnd = regexLiteralEnd(sourceText, startIndex, regexOutcomesByScanState);
       if (literalEnd !== null) blank(startIndex, literalEnd);
       continue;
     }
