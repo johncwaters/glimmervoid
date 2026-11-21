@@ -101,9 +101,32 @@ test('board content and the doc paper pin their text to the root sizes, so the p
   assert.deepEqual(typeTokenValues('.doc-markup-paper'), pinnedSizes);
 });
 
-test('the dashboard shell and the login page set sizes only on the type scale', () => {
+function bibleLineHeightsBySize(): Map<string, Set<string>> {
+  const scaleBlock = typographyBible.match(/^scale:\n((?: {2}.*\n)+)/m)?.[1] ?? '';
+  const lineHeightsBySize = new Map<string, Set<string>>();
+  for (const match of scaleBlock.matchAll(/[{ ]sizePx: (\d+),.*lineHeight: ([\d.]+)/g)) {
+    const size = `${match[1]}px`;
+    lineHeightsBySize.set(size, (lineHeightsBySize.get(size) ?? new Set()).add(match[2]));
+  }
+  return lineHeightsBySize;
+}
+
+function declaredLineHeights(rule: StyleRule): string[] {
+  const shorthandLineHeights = fontShorthands(rule).flatMap((value) => value.match(/\/\s*([^\s]+)/)?.slice(1, 2) ?? []);
+  return [...declaredValues(rule, /line-height:\s*([^;}]+)/g), ...shorthandLineHeights];
+}
+
+test('the dashboard shell and the login page set sizes only on the type scale, each with its brand bible line height', () => {
+  const lineHeightsBySize = bibleLineHeightsBySize();
+  assert.ok(lineHeightsBySize.get('12px')?.has('1.55'), 'brand-bible/typography.yaml scale did not parse');
   const offScale = [shellInlineStylesheet, loginPageStylesheet].flatMap((stylesheet) =>
-    styleRules(stylesheet).flatMap((rule) => declaredSizes(rule).filter((size) => !LITERAL_SIZE_TOKENS.has(size)).map((size) => `${rule.selector}: ${size}`)),
+    styleRules(stylesheet).flatMap((rule) => declaredSizes(rule).flatMap((size) => {
+      if (!LITERAL_SIZE_TOKENS.has(size)) return [`${rule.selector}: ${size}`];
+      const lineHeights = declaredLineHeights(rule);
+      const allowedLineHeights = lineHeightsBySize.get(size) ?? new Set<string>();
+      if (lineHeights.length === 1 && allowedLineHeights.has(lineHeights[0])) return [];
+      return [`${rule.selector}: ${size} wants line-height ${[...allowedLineHeights].join(' or ')}, has ${lineHeights.join(', ') || 'none'}`];
+    })),
   );
   assert.deepEqual(offScale, []);
 });
