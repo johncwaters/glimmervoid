@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Chat: a calmer activity line**: The activity mark and its words use one accent color with no glow. Each tool call gives the mark a quarter turn instead of a full spin, the file or command it works on types in after the words, and when the turn ends the mark spins once, locks and reads "Ready".
 - **Chat: replies arrive faster**: A reply that comes in while you watch now rises in block by block over 150ms instead of fading in through a blur, and its last line shows within 600ms instead of 1.2s.
 - **glimmervoid.dev: link to any section**: Every homepage section heading links to its own section, so you can copy a link like glimmervoid.dev/#status. The Glimmervoid Cloud section moves to the bottom of the page, without the alpha badge and the waitlist note.
 - **Settings controls line up on the right, and the dashboard opens without jumping.** Action buttons such as Delete my data, Send test message, Test connection, Connect GitHub and Set up sit at the right edge of their row with their status beside them, choices like Alert sound and Vault Source show their whole labels, phone rows no longer leave an empty gap under each control, and the header tabs no longer move after the dashboard appears.

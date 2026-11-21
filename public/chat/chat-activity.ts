@@ -24,10 +24,12 @@ const DIAL_CLAMP_PX = 8;
 const CLAMP_MS = 480;
 const LIGHT_THUMP_MS = 420;
 const DIAL_SPIN_MS = 1100;
+const BEAT_SPIN_DEGREES = 90;
 const TYPE_STEP_MS = 28;
+const DETAIL_PAUSE_MS = 120;
+const READY_LABEL = 'Ready';
 const STARTING_LABEL = BADGE_LABELS[STATES.STARTING];
 const STARTING_MEANING = legendMeaningOf(STATES.STARTING);
-const READY_MEANING = legendMeaningOf(STATES.IDLE);
 const reducedMotionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 function prefersReducedMotion(): boolean {
@@ -67,30 +69,54 @@ export function createChatActivity(): ChatActivity {
   let shownBeatKey = '';
   let shownPhase: ChatPhase = 'quiet';
   let shownReply: string | null = null;
+  let shownDetail = '';
+  let isDetailWaitingOnVerb = false;
   let typingTimer: ReturnType<typeof setInterval> | undefined;
+  let detailTimer: ReturnType<typeof setTimeout> | undefined;
   let readyTimer: ReturnType<typeof setTimeout> | undefined;
 
   const stopTyping = () => {
+    isDetailWaitingOnVerb = false;
     clearInterval(typingTimer);
+    clearTimeout(detailTimer);
     element.toggleAttribute('data-typing', false);
+  };
+
+  const typeInto = (target: HTMLElement, phrase: string, onTyped: () => void) => {
+    let shownCount = 0;
+    target.textContent = '';
+    element.toggleAttribute('data-typing', true);
+    typingTimer = setInterval(() => {
+      shownCount += 1;
+      target.textContent = phrase.slice(0, shownCount);
+      if (shownCount < phrase.length) return;
+      clearInterval(typingTimer);
+      onTyped();
+    }, TYPE_STEP_MS);
+  };
+
+  const typeDetail = () => {
+    stopTyping();
+    if (prefersReducedMotion() || shownDetail === '') {
+      detail.textContent = shownDetail;
+      return;
+    }
+    typeInto(detail, shownDetail, stopTyping);
   };
 
   const showVerb = (phrase: string) => {
     stopTyping();
     element.setAttribute('aria-label', phrase);
+    detail.textContent = '';
     if (prefersReducedMotion()) {
       verb.textContent = phrase;
+      detail.textContent = shownDetail;
       return;
     }
-    let shownCount = 0;
-    verb.textContent = '';
-    element.toggleAttribute('data-typing', true);
-    typingTimer = setInterval(() => {
-      shownCount += 1;
-      verb.textContent = phrase.slice(0, shownCount);
-      if (shownCount < phrase.length) return;
-      stopTyping();
-    }, TYPE_STEP_MS);
+    isDetailWaitingOnVerb = true;
+    typeInto(verb, phrase, () => {
+      detailTimer = setTimeout(typeDetail, DETAIL_PAUSE_MS);
+    });
   };
 
   const clampBrackets = (clampPx: number, keyframeOffset: number, durationMs: number, holdUntil: number | null) => {
@@ -103,6 +129,7 @@ export function createChatActivity(): ChatActivity {
   };
 
   const playBeat = () => {
+    mark.animate([{ transform: 'rotate(0deg)' }, { transform: `rotate(${BEAT_SPIN_DEGREES}deg)` }], { duration: CLAMP_MS, easing: SETTLE_EASING });
     clampBrackets(CLAMP_PX, 0.3, CLAMP_MS, null);
     light.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.45)', offset: 0.3 }, { transform: 'scale(1)' }], { duration: LIGHT_THUMP_MS, easing: SETTLE_EASING });
   };
@@ -116,31 +143,25 @@ export function createChatActivity(): ChatActivity {
     ], { duration: DIAL_SPIN_MS });
     clampBrackets(DIAL_CLAMP_PX, 0.82, DIAL_SPIN_MS, 0.7);
     light.animate([
-      { transform: 'scale(1)', filter: 'none' },
+      { transform: 'scale(1)' },
       { transform: 'scale(1)', offset: 0.72 },
-      { transform: 'scale(1.8)', filter: 'drop-shadow(0 0 6px var(--accent))', offset: 0.84 },
-      { transform: 'scale(1)', filter: 'none' },
+      { transform: 'scale(1.8)', offset: 0.84 },
+      { transform: 'scale(1)' },
     ], { duration: DIAL_SPIN_MS });
   };
 
-  const show = (beat: ActivityBeat, hasGlimmervoidCall: boolean) => {
-    element.dataset.workKind = beat.glimmervoidTool === null ? beat.workKind : 'glimmervoid';
+  const show = (beat: ActivityBeat) => {
     const key = beatKey(beat);
     if (key !== shownBeatKey && shownReply === null) {
       shownBeatKey = key;
       showVerb(pickedVerb(beat));
     }
     if (prefersReducedMotion()) return;
-    if (hasGlimmervoidCall) {
-      playDialSpin();
-      return;
-    }
     playBeat();
   };
 
   const showStarting = () => {
     element.toggleAttribute('data-idle', false);
-    delete element.dataset.workKind;
     shownBeatKey = '';
     stopTyping();
     detail.textContent = STARTING_MEANING;
@@ -151,10 +172,9 @@ export function createChatActivity(): ChatActivity {
   const showWorking = (wasStarting: boolean) => {
     element.toggleAttribute('data-idle', false);
     if (!wasStarting) {
-      show(BUSY_BEAT, false);
+      show(BUSY_BEAT);
       return;
     }
-    element.dataset.workKind = BUSY_BEAT.workKind;
     shownBeatKey = beatKey(BUSY_BEAT);
     showVerb(pickedVerb(BUSY_BEAT));
     if (!prefersReducedMotion()) playDialSpin();
@@ -162,7 +182,6 @@ export function createChatActivity(): ChatActivity {
 
   const showMonitoring = () => {
     element.toggleAttribute('data-idle', false);
-    delete element.dataset.workKind;
     shownBeatKey = '';
     showVerb(MONITORING_VERB);
   };
@@ -174,8 +193,7 @@ export function createChatActivity(): ChatActivity {
       element.toggleAttribute('data-idle', true);
       return;
     }
-    delete element.dataset.workKind;
-    showVerb(READY_MEANING);
+    showVerb(READY_LABEL);
     playDialSpin();
     readyTimer = setTimeout(() => element.toggleAttribute('data-idle', true), DIAL_SPIN_MS);
   };
@@ -185,10 +203,12 @@ export function createChatActivity(): ChatActivity {
     setPhase: (phase) => {
       if (phase === shownPhase) return;
       const wasStarting = shownPhase === 'starting';
+      const wasBusy = wasStarting || shownPhase === 'working' || shownPhase === 'monitoring';
       shownPhase = phase;
       clearTimeout(readyTimer);
       shownReply = null;
       element.dataset.phase = phase;
+      shownDetail = '';
       detail.textContent = '';
       element.removeAttribute('aria-label');
       if (phase === 'starting') {
@@ -203,17 +223,24 @@ export function createChatActivity(): ChatActivity {
         showMonitoring();
         return;
       }
-      showQuiet(wasStarting && phase === 'quiet');
+      showQuiet(wasBusy && phase === 'quiet');
     },
     beat: (beats) => {
       const shownBeat = beats.at(-1);
       if (shownPhase !== 'working' || shownBeat === undefined) return;
-      show(shownBeat, beats.some((beat) => beat.glimmervoidTool !== null));
+      show(shownBeat);
     },
     narrate: (reply, callLabel) => {
       if (shownPhase !== 'working') return;
-      detail.textContent = callLabel ?? '';
-      if (reply === shownReply) return;
+      const nextDetail = callLabel ?? '';
+      if (reply === shownReply) {
+        if (nextDetail === shownDetail) return;
+        shownDetail = nextDetail;
+        if (isDetailWaitingOnVerb) return;
+        typeDetail();
+        return;
+      }
+      shownDetail = nextDetail;
       shownReply = reply;
       shownBeatKey = '';
       if (reply === null) {

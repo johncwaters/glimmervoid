@@ -461,8 +461,11 @@ async function verifyInterimRepliesRideActivityLine(page: Page): Promise<void> {
   const runningTexts = await shownTurnTextsOf();
   assert.equal(runningTexts.length, 1, `a running turn shows only its long reply, not the short ones (${runningTexts.join(' | ')})`);
   assert.match(runningTexts[0] ?? '', /^Build passed/, 'the long reply stays in the turn');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
+  await page.waitForFunction(() => document.querySelector('.session-chat .chat-activity:not([data-idle]) .chat-activity-verb')?.textContent === 'Ready', undefined, { timeout: CARD_TIMEOUT_MS, polling: 'raf' });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.waitForFunction(() => [...document.querySelectorAll('.session-chat .chat-log .chat-turn[data-over] .chat-turn-text')].some((text) => text.textContent?.trim() === 'All green.'), undefined, { timeout: CARD_TIMEOUT_MS });
   assert.deepEqual(await shownTurnTextsOf(), ['All green.'], 'the ended turn shows its short final reply');
 }
