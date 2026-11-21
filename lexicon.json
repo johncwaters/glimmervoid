@@ -1518,6 +1518,10 @@
     {
       "name": "fountain",
       "definition": "The plain-text screenplay format (.fountain) a whiteboard document card can show and the board lays out as a script"
+    },
+    {
+      "name": "alert",
+      "definition": "A signal that a session needs the operator, raised as an alert sound, a desktop notification or a Telegram message until acknowledged"
     }
   ],
   "retired": [
