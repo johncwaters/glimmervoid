@@ -505,7 +505,7 @@ test('every board just past the picture width still pictures instead of being re
 test('codemap answers map, where, impact and check from the project mainline commit, the same text on every read, overlays the calling session, shrinks the allowed imports mainline lost, gates only value imports from non-test files while refusing unresolved ones and new module cycles, exports a lint config and CODEMAP.md the setup enables and refuses a stale CODEMAP.md, and refuses an agent allowing a module import', async () => {
   const { credential, projectDir } = bootedBackend();
   fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
-  fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export function readStore() { return 1; }\n');
+  fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), "// import { main } from '../main.ts';\n/* export * from '../main.ts'; */\nconst quotesPattern = /['\"]/;\nexport const hint = 'import data from \"../main.ts\" first';\nexport function readStore() { return quotesPattern.test(hint) ? 1 : 0; }\n");
   fs.writeFileSync(path.join(projectDir, 'main.ts'), "import { readStore } from './lib/store.ts';\nreadStore();\n");
   git(['init', '--quiet', '--initial-branch', 'main'], projectDir);
   git(['add', 'main.ts', 'lib/store.ts'], projectDir);

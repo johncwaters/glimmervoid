@@ -9,29 +9,165 @@ import {
 export const CALL_IMPORT = /\b(?:require|import)\s*\(\s*(['"])([^'"]+)\1\s*\)/g;
 export const STATIC_IMPORT = /\bimport\b(?:(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom)?\s*(['"])([^'"]+)\1/g;
 export const EXPORT_FROM =/\bexport\b(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom\s*(['"])([^'"]+)\1/g;
-const TYPE_ONLY_IMPORT = /\b(?:import|export)\s+type(?=\s*[{*]|\s+(?!from\b)[A-Za-z_$])(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom\s*(['"])([^'"]+)\1/g;
+const TYPE_ONLY_IMPORT = /\b(?:import|export)\s+type(?=\s*[{*]|\s+(?!from\b)[A-Za-z_$])(?:(?!\b(?:import|export)\b)[^'";])*?\bfrom\s*(['"])([^'"]+)\1/dg;
+const SPECIFIER_PATTERNS = [CALL_IMPORT, STATIC_IMPORT, EXPORT_FROM].map((pattern) => new RegExp(pattern.source, 'dg'));
+const MASKING_START = /[/'"`{}]/g;
+const WORD_BEFORE = /[\w$]+$/;
+const KEYWORDS_BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'instanceof', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'of']);
 
 interface ImportGraph {
   dependentsByPath: Map<string, Set<string>>;
 }
 
-export function extractImportSpecifiers(sourceText: string): string[] {
-  const matches: { index: number; specifier: string }[] = [];
-  for (const pattern of [CALL_IMPORT, STATIC_IMPORT, EXPORT_FROM]) {
-    pattern.lastIndex = 0;
-    for (const match of sourceText.matchAll(pattern)) {
-      matches.push({ index: match.index, specifier: match[2] });
-    }
-  }
+function blankedRange(sourceText: string, start: number, end: number): string {
+  const range = sourceText.slice(start, end);
+  return range.includes('\n') ? range.replace(/[^\n]/g, ' ') : ' '.repeat(range.length);
+}
 
+function quotedStringEnd(sourceText: string, start: number): number {
+  const quote = sourceText[start];
+  for (let index = start + 1; index < sourceText.length; index++) {
+    const character = sourceText[index];
+    if (character === '\\') {
+      index++;
+      continue;
+    }
+    if (character === quote) return index + 1;
+    if (character === '\n') return index;
+  }
+  return sourceText.length;
+}
+
+function regexLiteralEnd(sourceText: string, start: number): number | null {
+  let isInClass = false;
+  for (let index = start + 1; index < sourceText.length; index++) {
+    const character = sourceText[index];
+    if (character === '\n') return null;
+    if (character === '\\') {
+      index++;
+      continue;
+    }
+    if (character === '[') isInClass = true;
+    if (character === ']') isInClass = false;
+    if (character === '/' && !isInClass) return index + 1;
+  }
+  return null;
+}
+
+function templateTextEnd(sourceText: string, start: number): { end: number; opensExpression: boolean } | null {
+  for (let index = start; index < sourceText.length; index++) {
+    const character = sourceText[index];
+    if (character === '\\') {
+      index++;
+      continue;
+    }
+    if (character === '`') return { end: index + 1, opensExpression: false };
+    if (character === '$' && sourceText[index + 1] === '{') return { end: index + 2, opensExpression: true };
+  }
+  return null;
+}
+
+function slashStartsRegexLiteral(sourceText: string, slashIndex: number): boolean {
+  let previousIndex = slashIndex - 1;
+  while (previousIndex >= 0 && /\s/.test(sourceText[previousIndex])) previousIndex--;
+  if (previousIndex < 0) return true;
+  const previousCharacter = sourceText[previousIndex];
+  if (/[\w$]/.test(previousCharacter)) return KEYWORDS_BEFORE_REGEX.has(WORD_BEFORE.exec(sourceText.slice(Math.max(0, previousIndex - 16), previousIndex + 1))?.[0] ?? '');
+  return !')]}\'"`'.includes(previousCharacter);
+}
+
+function maskedSourceOf(sourceText: string): string {
+  const maskedParts: string[] = [];
+  const braceDepthsOutsideTemplates: number[] = [];
+  let braceDepth = 0;
+  let keptFrom = 0;
+  let index = 0;
+  function blank(start: number, end: number): void {
+    maskedParts.push(sourceText.slice(keptFrom, start), blankedRange(sourceText, start, end));
+    index = end;
+    keptFrom = end;
+  }
+  function continueTemplate(): void {
+    const templateText = templateTextEnd(sourceText, index);
+    if (!templateText) return;
+    const { end, opensExpression } = templateText;
+    blank(index, end);
+    if (!opensExpression) return;
+    braceDepthsOutsideTemplates.push(braceDepth);
+    braceDepth = 0;
+  }
+  while (index < sourceText.length) {
+    MASKING_START.lastIndex = index;
+    const found = MASKING_START.exec(sourceText);
+    if (!found) break;
+    const startIndex = found.index;
+    const character = found[0];
+    const nextCharacter = sourceText[startIndex + 1];
+    index = startIndex + 1;
+    if (character === '/' && nextCharacter === '/') {
+      const lineEnd = sourceText.indexOf('\n', startIndex);
+      blank(startIndex, lineEnd < 0 ? sourceText.length : lineEnd);
+      continue;
+    }
+    if (character === '/' && nextCharacter === '*') {
+      const commentClose = sourceText.indexOf('*/', startIndex + 2);
+      if (commentClose >= 0) blank(startIndex, commentClose + 2);
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      const stringEnd = quotedStringEnd(sourceText, startIndex);
+      const hasClosingQuote = sourceText[stringEnd - 1] === character && stringEnd - 1 > startIndex;
+      blank(startIndex + 1, hasClosingQuote ? stringEnd - 1 : stringEnd);
+      index = stringEnd;
+      continue;
+    }
+    if (character === '`') {
+      blank(startIndex, startIndex + 1);
+      continueTemplate();
+      continue;
+    }
+    if (character === '/' && slashStartsRegexLiteral(sourceText, startIndex)) {
+      const literalEnd = regexLiteralEnd(sourceText, startIndex);
+      if (literalEnd !== null) blank(startIndex, literalEnd);
+      continue;
+    }
+    if (character === '}' && braceDepth === 0 && braceDepthsOutsideTemplates.length > 0) {
+      braceDepth = braceDepthsOutsideTemplates.pop() ?? 0;
+      blank(startIndex, startIndex + 1);
+      continueTemplate();
+      continue;
+    }
+    if (character === '{') braceDepth++;
+    if (character === '}') braceDepth--;
+  }
+  maskedParts.push(sourceText.slice(keptFrom));
+  return maskedParts.join('');
+}
+
+function specifierSlicedFrom(sourceText: string, match: RegExpExecArray): string {
+  const [specifierStart, specifierEnd] = match.indices?.[2] ?? [0, 0];
+  return sourceText.slice(specifierStart, specifierEnd);
+}
+
+function specifiersMatchedIn(sourceText: string, maskedText: string): string[] {
+  const matches: { index: number; specifier: string }[] = [];
+  for (const pattern of SPECIFIER_PATTERNS) {
+    for (const match of maskedText.matchAll(pattern)) matches.push({ index: match.index, specifier: specifierSlicedFrom(sourceText, match) });
+  }
   matches.sort((left, right) => left.index - right.index);
   return [...new Set(matches.map((match) => match.specifier))];
 }
 
+export function extractImportSpecifiers(sourceText: string): string[] {
+  return specifiersMatchedIn(sourceText, maskedSourceOf(sourceText));
+}
+
 export function extractTypeOnlySpecifiers(sourceText: string): string[] {
-  const typeOnlySpecifiers = [...sourceText.matchAll(TYPE_ONLY_IMPORT)].map((match) => match[2]);
+  const maskedText = maskedSourceOf(sourceText);
+  const typeOnlySpecifiers = [...maskedText.matchAll(TYPE_ONLY_IMPORT)].map((match) => specifierSlicedFrom(sourceText, match));
   if (typeOnlySpecifiers.length === 0) return [];
-  const valueSpecifiers = new Set(extractImportSpecifiers(sourceText.replace(TYPE_ONLY_IMPORT, '')));
+  const maskedWithoutTypeOnly = maskedText.replace(TYPE_ONLY_IMPORT, (typeOnlyStatement) => ' '.repeat(typeOnlyStatement.length));
+  const valueSpecifiers = new Set(specifiersMatchedIn(sourceText, maskedWithoutTypeOnly));
   return [...new Set(typeOnlySpecifiers)].filter((specifier) => !valueSpecifiers.has(specifier));
 }
 
