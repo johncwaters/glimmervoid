@@ -97,8 +97,8 @@ export const BROWSER_NOTIFICATIONS: SettingsSection = {
 export const BROWSER_SHORTCUTS: SettingsSection = {
   id: 'browser-shortcuts',
   level: 'browser',
-  title: 'Shortcuts',
-  description: 'Keyboard shortcuts.',
+  title: 'Keyboard shortcuts',
+  description: 'Keys that jump around the dashboard.',
   legacyIds: ['shortcuts'],
   settings: [
     {

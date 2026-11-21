@@ -39,22 +39,18 @@ const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHo
 const SEGMENTED_CHOICE_LIMIT = 3;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
-const SETTINGS_NAVIGATION_HEADINGS = ['', 'This browser', 'Sessions', 'Machine', 'Lanes'] as const;
-type SettingsNavigationHeading = typeof SETTINGS_NAVIGATION_HEADINGS[number];
-const NAVIGATION_HEADING_BY_SECTION_ID: ReadonlyMap<string, SettingsNavigationHeading> = new Map([
-  ['machine-home', ''],
-  ['machine-sessions', 'Sessions'],
-  ['machine-accounts', 'Sessions'],
-  ['machine-safety', 'Sessions'],
-  ['machine-vault', 'Sessions'],
-  ['machine-github', 'Sessions'],
-  ['machine-packs', 'Sessions'],
-  ['machine-hooks', 'Sessions'],
-  ['browser-about', 'Machine'],
-]);
+const SETTINGS_NAVIGATION_GROUPS = [
+  { heading: '', sectionIds: ['machine-home'] },
+  { heading: 'Preferences', sectionIds: ['browser-appearance', 'browser-notifications', 'browser-shortcuts', 'browser-status-key'] },
+  { heading: 'Agents', sectionIds: ['machine-sessions', 'machine-accounts', 'machine-github', 'machine-hooks', 'machine-packs'] },
+  { heading: 'Lanes', sectionIds: ['lanes-features', 'lanes-background-jobs', 'lanes-team-review', 'lanes-posthog', 'lanes-community'] },
+  { heading: 'Privacy and security', sectionIds: ['machine-safety', 'machine-vault', 'machine-privacy'] },
+  { heading: 'System', sectionIds: ['machine-usage', 'machine-updates', 'machine-server', 'browser-about'] },
+] as const;
+type SettingsNavigationHeading = typeof SETTINGS_NAVIGATION_GROUPS[number]['heading'];
 const NAVIGATION_HEADING_BY_LEVEL: Readonly<Record<SettingsSection['level'], SettingsNavigationHeading>> = {
-  browser: 'This browser',
-  machine: 'Machine',
+  browser: 'Preferences',
+  machine: 'Agents',
   lanes: 'Lanes',
 };
 
@@ -190,8 +186,13 @@ export function topLevelSectionsOf(sections: readonly SettingsSection[]): Settin
 }
 
 export function settingsNavigationGroupsOf(sections: readonly SettingsSection[]): { heading: string; sections: SettingsSection[] }[] {
-  const headingOf = (section: SettingsSection) => NAVIGATION_HEADING_BY_SECTION_ID.get(section.id) ?? NAVIGATION_HEADING_BY_LEVEL[section.level];
-  const groups = SETTINGS_NAVIGATION_HEADINGS.map((heading) => ({ heading, sections: sections.filter((section) => headingOf(section) === heading) }));
+  const listedSectionIds = new Set<string>(SETTINGS_NAVIGATION_GROUPS.flatMap((group) => group.sectionIds));
+  const sectionById = new Map(sections.map((section) => [section.id, section]));
+  const groups = SETTINGS_NAVIGATION_GROUPS.map((group) => {
+    const listedSections = group.sectionIds.flatMap((sectionId) => sectionById.get(sectionId) ?? []);
+    const unlistedSections = sections.filter((section) => !listedSectionIds.has(section.id) && NAVIGATION_HEADING_BY_LEVEL[section.level] === group.heading);
+    return { heading: group.heading, sections: [...listedSections, ...unlistedSections] };
+  });
   return groups.filter((group) => group.sections.length > 0);
 }
 
