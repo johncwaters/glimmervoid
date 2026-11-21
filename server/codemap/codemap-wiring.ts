@@ -5,6 +5,7 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { CODEMAP_CHECK_ID, CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_BOX_CHOICES_MAX } from '../../shared/contracts/control/board-session-messages.ts';
 import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
@@ -15,7 +16,7 @@ import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -514,6 +515,27 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return null;
   }
 
+  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[] } | { ok: false; error: string }> {
+    const map = await currentMap({ repoDir });
+    if ('error' in map) return { ok: false, error: map.error };
+    const model = map.model;
+    if (!model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
+    const boxIdOfPath = (repoPath: string) => moduleBoxIdOf(moduleOfPath(model, repoPath));
+    const repoRelativePaths = paths.filter((repoPath) => !path.isAbsolute(repoPath) && !repoPath.startsWith('..'));
+    const overlay = await sessionOverlayOf(repoDir, sessionId);
+    const boardId = whiteboards ? await mapBoardIdOf(whiteboards, repoDir) : null;
+    return {
+      ok: true,
+      boardId,
+      boxIdByPath: Object.fromEntries(repoRelativePaths.map((repoPath) => [repoPath, boxIdOfPath(repoPath)])),
+      changedBoxIds: [...new Set((overlay?.paths ?? []).map(boxIdOfPath))].sort(),
+      boxChoices: [
+        ...model.modules.flatMap((summary) => summary.id === '.' ? [] : [{ boxId: moduleBoxIdOf(summary.id), title: summary.id.slice(-WHITEBOARD_LIMITS.title) }]),
+        ...model.paths.map((repoPath) => ({ boxId: boxIdOfPath(repoPath), title: repoPath.slice(-WHITEBOARD_LIMITS.title) })),
+      ].slice(0, CODEMAP_BOX_CHOICES_MAX),
+    };
+  }
+
   function overlayTextOf(repoName: string, drawing: OverlayDrawing): string {
     const sessionText = drawing.stamp ? [`${drawing.stamp.title.toLowerCase()} ${drawing.stamp.lines.join(', ')}`] : [];
     const specText = drawing.specPlan ? [`spec ${drawing.specPlan.slug} draws ${drawing.specPlan.units.length} units as plan steps, ${drawing.specPlan.landedUnitIds.size} landed`] : [];
@@ -620,7 +642,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

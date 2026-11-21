@@ -7,6 +7,7 @@ import type { ElementTable } from '../whiteboard-element-table.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
   elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, boxHeightMax: 2400, dialsPerPage: 16, dialChoices: 12, strokePoints: 1000, strokes: 500, strokeWidthMax: 24,
+  askQuestion: 200, askOptions: 4, askOption: 80,
   wireLabel: 40, wireBends: 32, lineKey: 40, caption: 400, ref: 200, refsPerElement: 8, legendEntries: 12, legendLabel: 40,
 });
 
@@ -16,6 +17,14 @@ const ElementId = z.string({ error: 'an id must be a string' })
   .meta({ id: 'ElementId' });
 
 const Title = z.string().max(WHITEBOARD_LIMITS.title, { error: `a title is at most ${WHITEBOARD_LIMITS.title} characters` });
+
+const AskQuestion = z.string().trim().min(1, { error: 'an ask needs a question' }).max(WHITEBOARD_LIMITS.askQuestion, { error: `an ask question is at most ${WHITEBOARD_LIMITS.askQuestion} characters` });
+const AskOptions = z.array(z.string().trim().min(1).max(WHITEBOARD_LIMITS.askOption, { error: `an ask option is at most ${WHITEBOARD_LIMITS.askOption} characters` }))
+  .max(WHITEBOARD_LIMITS.askOptions, { error: `an ask offers at most ${WHITEBOARD_LIMITS.askOptions} options` });
+
+export const BoardAsk = z.object({ sessionId: z.string().min(1), question: AskQuestion, options: AskOptions }).strict()
+  .describe('a question a session asked the operator on the board; the server sets it');
+export type BoardAsk = z.infer<typeof BoardAsk>;
 
 export const AnchorRef = z.string().min(1).max(WHITEBOARD_LIMITS.ref, { error: `a ref is at most ${WHITEBOARD_LIMITS.ref} characters` })
   .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' })
@@ -216,10 +225,11 @@ const boxFields = {
   was: Title.nullable().default(null).describe('the old title, required when change is relabeled'),
   step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
   author: z.string().min(1).max(WHITEBOARD_LIMITS.title).nullable().default(null).describe('who wrote a note; the server sets it'),
+  ask: BoardAsk.nullable().default(null),
   refHashes: RefHashes,
 };
 
-type ShapeCheckedBox = Pick<z.infer<z.ZodObject<typeof boxFields>>, 'id' | 'shape' | 'icon' | 'device' | 'fit' | 'tone' | 'borderless' | 'lines' | 'media' | 'step' | 'author'> & { place: unknown };
+type ShapeCheckedBox = Pick<z.infer<z.ZodObject<typeof boxFields>>, 'id' | 'shape' | 'icon' | 'device' | 'fit' | 'tone' | 'borderless' | 'lines' | 'media' | 'step' | 'author' | 'ask'> & { place: unknown };
 
 function boxShapeProblemsOf(box: ShapeCheckedBox): string[] {
   const traits = SHAPE_TRAITS[box.shape];
@@ -234,6 +244,7 @@ function boxShapeProblemsOf(box: ShapeCheckedBox): string[] {
     !traits.holdsMedia && box.media !== null && `a ${box.shape} box holds no media, so set shape to box first`,
     box.place === 'plan' && box.step === null && 'place plan is for plan steps',
     box.shape !== 'note' && box.author !== null && 'only a note has an author',
+    box.shape !== 'note' && box.ask !== null && 'only a note carries an ask',
   ];
   return problems.filter((problem) => typeof problem === 'string');
 }
@@ -489,7 +500,13 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
   z.object({ sub: z.literal('export'), board: BoardRef }).strict(),
   z.object({ sub: z.literal('import'), path: z.string().min(1, { error: 'import needs the board file path' }).max(4096) }).strict(),
   z.object({ sub: z.literal('run'), board: BoardRef }).strict(),
-], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach, show, export, import or run' });
+  z.object({
+    sub: z.literal('ask'),
+    about: z.string().trim().min(1, { error: 'ask needs about, a box id or a repo path' }).max(WHITEBOARD_LIMITS.ref),
+    question: AskQuestion,
+    options: AskOptions.default([]),
+  }).strict(),
+], { error: 'whiteboard takes new, list, connect, disconnect, get, query, put, doc, delete, attach, show, export, import, run or ask' });
 
 export const WorthALookPath = z.object({ path: z.string(), reason: z.string() }).strict();
 
@@ -540,6 +557,7 @@ export const WhiteboardAgentReply = z.union([
   z.object({ ok: z.literal(true), version: z.number().int(), warnings: z.array(z.string()).max(WHITEBOARD_LIMITS.layoutWarnings).optional() }).strict(),
   z.object({ ok: z.literal(true), media: BoxMedia, note: z.string() }).strict(),
   z.object({ ok: z.literal(true), box: ElementId, text: z.string().max(BOARD_DOC_CAP_BYTES) }).strict(),
+  z.object({ ok: z.literal(true), boardId: z.string(), ask: ElementId, note: z.string() }).strict(),
 ]);
 
 function isDefaultValue(value: unknown, defaultValue: unknown): boolean {
@@ -668,7 +686,7 @@ export function filledBox(box: SparseBox): Box {
     borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
-    step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, refHashes: box.refHashes ?? {},
+    step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, refHashes: box.refHashes ?? {},
   };
 }
 

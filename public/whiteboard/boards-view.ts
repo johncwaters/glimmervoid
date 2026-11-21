@@ -1785,6 +1785,7 @@ export function showBoardBeside(boardId: string | null, sessionId: string | null
 export function reopenSelectedBoard(): void {
   paintList();
   reviewRequestKey = null;
+  renderer?.resendView();
   resendTilesView();
   paintBoard();
 }

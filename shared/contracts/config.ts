@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { DONE_MEANS_MAX_LINES, TaskTitle } from './session.ts';
+import { BranchLink, DONE_MEANS_MAX_LINES, TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject, WorktreeControlSettings,
@@ -138,6 +138,7 @@ export const ProjectConfig = z.object({
   raceId: RaceId.optional(),
   startSha: GitObjectSha.optional(),
   isStartPinned: z.boolean().optional(),
+  branchOf: BranchLink.optional().catch(undefined),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
 }).passthrough();

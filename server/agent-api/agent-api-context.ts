@@ -21,6 +21,7 @@ import type { FileClaims } from '../file-claims.ts';
 import type { VerificationWiring } from '../verification/verification-wiring.ts';
 import type { SessionPreviews } from '../session/session-previews.ts';
 import type { CodemapService } from '../codemap/codemap-wiring.ts';
+import type { BoardAsks } from '../whiteboard/board-ask.ts';
 import type { ClearTimeoutFn, SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
 
 const AGENT_LANE_TAG = 'agent-spawn';
@@ -69,6 +70,7 @@ interface AgentApiWiringOptions {
   sessionPreviews?: Pick<SessionPreviews, 'handle'> | null;
   verification?: Pick<VerificationWiring, 'checkNow'> | null;
   codemap?: Pick<CodemapService, 'handle'> | null;
+  boardAsks?: Pick<BoardAsks, 'ask'> | null;
   budgetHoldReason?: () => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;

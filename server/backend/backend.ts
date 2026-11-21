@@ -87,6 +87,8 @@ import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLau
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionPreviews } from '../session/session-previews.ts';
 import { createCodemapService } from '../codemap/codemap-wiring.ts';
+import { createBranchMerge } from '../board-session/branch-merge.ts';
+import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -340,6 +342,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return { name: session.name, repos: changeMap.repos.map((repo) => ({ root: repo.root, paths: repo.files.map((file) => file.path) })) };
     },
   });
+  const boardAsks = createBoardAsks({
+    boards: whiteboards,
+    mapOf: (repoDir, sessionId, paths) => codemap.boxesOfSession(repoDir, sessionId, paths),
+    sendToSession: (sessionId, text) => {
+      const session = getSessionAny(sessionId);
+      if (!session) return { ok: false, error: 'The session that asked is gone.' };
+      const queued = session.queueChatMessage(text, []);
+      return queued.ok ? { ok: true } : { ok: false, error: queued.error };
+    },
+  });
   const reviews = createReviewWiring({
     reviewsRoot: configSiblingPath(configStore.configPath, REVIEWS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -535,6 +547,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sessionPreviews,
     verification,
     codemap,
+    boardAsks,
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -578,9 +591,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
 
+  const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, logger: console });
+
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);
     codemap.attachSession(session);
+    branchMerge.attachSession(session);
     agentApi?.watchSessionWakes(session);
     secretsWiring.seedSessionMasks(session);
   }
@@ -943,6 +959,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     commitSigning,
     hostReady,
     whiteboards,
+    codemap,
+    boardAsks,
     reviews,
     changeMaps,
     verification,

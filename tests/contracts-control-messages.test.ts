@@ -77,6 +77,7 @@ const SESSION = {
   passedQuestionSeq: 0,
   isQuestionManagerOn: true,
   accountId: null,
+  branchOf: null,
   modelSelection: { agent: 'claude-code', model: 'opus', options: [] },
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],
@@ -251,14 +252,14 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
     type: 'whiteboard-result', requestId: 'wb-1', ok: true, error: null,
     board: {
       id: 'board-1', title: 'Ingest plan', version: 1, caption: null, legend: [], codeSessionId: null, project: null, link: null,
-      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 40, y: 40 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', angle: 0, author: null, refHashes: {}, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null } },
+      elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 40, y: 40 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', angle: 0, ask: null, author: null, refHashes: {}, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null } },
       createdAt: NOW, updatedAt: NOW,
     },
     summary: { id: 'board-1', title: 'Ingest plan', version: 1, updatedAt: NOW, project: null, isArchived: false, connectedSessionIds: [], queuedBySessionId: {}, link: null },
     patch: {
       boardId: 'board-1', fromVersion: 0, toVersion: 1, author: { id: 'operator', name: 'operator' }, updatedAt: NOW,
       diff: { fields: { title: 'Ingest plan' }, elements: { parse: ['patch', { place: { at: { x: 40, y: 40 } } }], old: ['remove'] } },
-      before: { fields: { title: 'Ingest' }, elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 0, y: 0 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', angle: 0, author: null, refHashes: {}, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null }, old: null } },
+      before: { fields: { title: 'Ingest' }, elements: { parse: { kind: 'box', id: 'parse', title: 'Parse feed', icon: null, lines: [], refs: [], change: 'none', was: null, order: 0, place: { at: { x: 0, y: 0 } }, shape: 'box', borderless: null, tone: null, textSize: 'M', angle: 0, ask: null, author: null, refHashes: {}, device: null, fit: 'fill', media: null, params: {}, width: null, height: null, step: null }, old: null } },
     },
   },
   { type: 'session-worktree-warning', id: 'session-1', session: 'Session 1', branch: 'glimmervoid/session/session-1', notice: 'offline', timestamp: NOW },
@@ -305,6 +306,9 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'race-pick-winner-result', requestId: 'r9', ok: false, error: 'This race already has a different winner.' },
   { type: 'race-cases-result', requestId: 'r10', ok: true, error: null, cases: [{ key: 'acme-math/pr-7', title: 'Fix add', url: 'https://github.com/acme/math/pull/7', reviewCase: { caseId: 'pr-7', repo: 'acme/math', baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), changedFiles: ['add.ts'], references: [{ id: 'r1', text: 'add subtracts', tags: ['logic'], path: 'add.ts', line: 1 }] } }] },
   { type: 'race-mine-cases-result', requestId: 'r11', ok: true, error: null, mined: 3, refused: 27 },
+  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], error: null },
+  { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
+  { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {

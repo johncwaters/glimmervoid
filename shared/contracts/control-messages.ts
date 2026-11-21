@@ -13,6 +13,7 @@ import { raceClientVariants, raceServerVariants } from './control/race-messages.
 import { systemClientVariants, systemServerVariants } from './control/system-messages.ts';
 import { packClientVariants, packServerVariants } from './control/pack-messages.ts';
 import { reviewClientVariants, reviewServerVariants } from './control/review-messages.ts';
+import { boardSessionClientVariants, boardSessionServerVariants } from './control/board-session-messages.ts';
 
 export {
   CHANGES_POLL_INTERVAL_MS,
@@ -83,6 +84,7 @@ const clientVariants = [
   ...systemClientVariants,
   ...packClientVariants,
   ...reviewClientVariants,
+  ...boardSessionClientVariants,
   ...idOnlyClientVariants,
 ] as const;
 
@@ -102,6 +104,7 @@ const serverVariants = [
   ...systemServerVariants,
   ...packServerVariants,
   ...reviewServerVariants,
+  ...boardSessionServerVariants,
 ] as const;
 
 export const ServerMessage = z.discriminatedUnion('type', serverVariants);

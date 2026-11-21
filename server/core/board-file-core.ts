@@ -10,8 +10,8 @@ function exportedMediaOf(media: BoxMedia): BoxMedia {
 }
 
 function exportedElementOf(element: Element): Element {
-  if (element.kind !== 'box' || !element.media) return element;
-  return { ...element, media: exportedMediaOf(element.media) };
+  if (element.kind !== 'box') return element;
+  return { ...element, ask: null, media: element.media ? exportedMediaOf(element.media) : null };
 }
 
 function exportedBoardOf(board: Board): ExportedBoard {
@@ -41,13 +41,17 @@ function elementsInAddOrder(elements: Iterable<Element>): Element[] {
 function importedElementsOf(file: BoardFile, adoptedByExportedFilename: ReadonlyMap<string, { media: BoxMedia; name: string }>): Element[] | { error: string } {
   const elements: Element[] = [];
   for (const element of file.board.elements.values()) {
-    if (element.kind !== 'box' || !element.media) {
+    if (element.kind !== 'box') {
       elements.push(element);
+      continue;
+    }
+    if (!element.media) {
+      elements.push({ ...element, ask: null });
       continue;
     }
     const adopted = adoptedByExportedFilename.get(boardMediaOriginalFilename(element.media));
     if (!adopted) return { error: `box ${element.id} shows media ${element.media.asset}, which the board file does not carry` };
-    elements.push({ ...element, media: importedMediaOf(element.media, adopted.media, adopted.name) });
+    elements.push({ ...element, ask: null, media: importedMediaOf(element.media, adopted.media, adopted.name) });
   }
   return elements;
 }
@@ -80,8 +84,14 @@ function withLocalMediaKept(current: Board, element: Element): Element {
   return { ...element, media: { ...element.media, source: existing.media.source, link: existing.media.link } };
 }
 
+function withBoardAskKept(current: Board, element: Element): Element {
+  if (element.kind !== 'box') return element;
+  const existing = current.elements.get(element.id);
+  return { ...element, ask: existing?.kind === 'box' ? existing.ask : null };
+}
+
 function boardDiffOps(current: Board, target: BoardContent): Op[] {
-  const targetElements = target.elements.map((element) => withLocalMediaKept(current, element));
+  const targetElements = target.elements.map((element) => withBoardAskKept(current, withLocalMediaKept(current, element)));
   const targetById = new Map(targetElements.map((element) => [element.id, element]));
   const isKindChanged = (element: Element) => { const existingKind = current.elements.get(element.id)?.kind; return existingKind !== undefined && existingKind !== element.kind; };
   const replacedIds = new Set(targetElements.filter(isKindChanged).map((element) => element.id));

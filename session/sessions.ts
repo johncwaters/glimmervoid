@@ -13,6 +13,7 @@ import fs from "node:fs";
 import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
 import { maskSecrets } from "../shared/secret-patterns.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
+import type { BranchLink } from "../shared/contracts/session.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
 import type { PromptContextReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
@@ -257,6 +258,7 @@ interface SessionOptions {
   agentDepth?: number;
   ownerId?: string | null;
   raceId?: string | null;
+  branchOf?: BranchLink | null;
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
@@ -405,6 +407,7 @@ class Session extends EventEmitter {
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
+  readonly branchOf: BranchLink | null;
   readonly doneMeans: readonly string[];
   agentDoneLines: readonly AgentDoneLine[];
   readonly attentionOwner: AttentionOwner;
@@ -539,6 +542,7 @@ class Session extends EventEmitter {
     agentDepth = 0,
     ownerId = null,
     raceId = null,
+    branchOf = null,
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
     resolveHostSigningEnv = null,
@@ -548,6 +552,7 @@ class Session extends EventEmitter {
     super();
     this.id = id;
     this.ownerId = ownerId;
+    this.branchOf = branchOf;
     this.doneMeans = doneMeans;
     this.agentDoneLines = agentDoneLines.map((line) => ({ ...line }));
     this.attentionOwner = attentionOwnerOf(ownerId, raceId);
@@ -1589,6 +1594,7 @@ class Session extends EventEmitter {
   get worktreeNotice(): string | null { return this.worktreeLifecycle.snapshot().worktreeNotice; }
 
   get isWorktree(): boolean { return this.worktreeLifecycle.snapshot().isWorktree; }
+  get isAutoRebasing(): boolean { return this.worktreeLifecycle.snapshot().isAutoRebasing; }
   get isWorkspace(): boolean { return this.worktreeLifecycle.snapshot().isWorkspace; }
 
   getWorktreeCarry() { return this.worktreeLifecycle.getCarry(); }
@@ -1731,6 +1737,7 @@ class Session extends EventEmitter {
       passedQuestionSeq: this.passedQuestionSeq,
       isQuestionManagerOn: this.isQuestionManagerOn,
       accountId: this.accountId,
+      branchOf: this.branchOf,
       agentSetup: this._agentSetup,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,

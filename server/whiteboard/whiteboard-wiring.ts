@@ -95,7 +95,7 @@ interface WhiteboardCaller {
   cwd?: string;
 }
 
-type BoardAgentRequest = Exclude<WhiteboardAgentRequest, { sub: 'run' }>;
+type BoardAgentRequest = Exclude<WhiteboardAgentRequest, { sub: 'run' | 'ask' }>;
 
 interface WhiteboardReply {
   status: number;
@@ -175,6 +175,8 @@ interface WhiteboardPort {
   assets: WhiteboardAssetStore;
   handleAgent(caller: WhiteboardCaller, request: BoardAgentRequest): Promise<WhiteboardReply>;
   putWithoutReadCheck(caller: WhiteboardCaller, boardRef: string, ops: readonly Op[]): Promise<WhiteboardReply>;
+  putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply>;
+  boardOf(boardId: string): Promise<Board | null>;
   readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
   handleOperator: {
     create(title: string): Promise<OperatorReply>;
@@ -1455,6 +1457,11 @@ function createWhiteboardWiring({
     return reviewedPut(found.boardId, ops, { id: caller.id, name: caller.name }, { checksReads: false });
   }
 
+  async function putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {
+    await loaded;
+    return applyPut(boardId, () => ops, { ...author, setsAsks: true }, { confirmsRefs: false });
+  }
+
   async function loadedBoardOf(boardId: string): Promise<Board | null> {
     const loading = await loadedRecordOf(boardId);
     return loading.ok ? loading.record.board : null;
@@ -1517,7 +1524,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, putWithoutReadCheck, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, putWithoutReadCheck, putAsks, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

@@ -37,6 +37,7 @@ interface ViewDefinitionFields {
   hasOwnPhoneScreen?: boolean;
   isPhoneNavScreen?: boolean;
   isPhoneOnly?: boolean;
+  isDesktopOnly?: boolean;
   hasPanelChrome?: boolean;
 }
 

@@ -450,7 +450,8 @@ async function main(): Promise<number> {
     for (const projectDirectory of projectDirs) fs.mkdirSync(projectDirectory, { recursive: true });
     for (const [index, harnessCase] of cases.entries()) {
       if (!needsGitOrigin(harnessCase.scenario)) continue;
-      await createProject(tempDirectory, `case-${index}`);
+      const seedDirectory = harnessCase.scenario.projectSeed === undefined ? undefined : path.join(REPO_ROOT, 'harness', 'site-capture', 'fixtures', 'demo', harnessCase.scenario.projectSeed);
+      await createProject(tempDirectory, `case-${index}`, seedDirectory);
     }
     const sessionIds = cases.map(() => crypto.randomUUID());
     const port = await findFreeHighPort();

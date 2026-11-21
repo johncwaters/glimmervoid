@@ -109,6 +109,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
 
     path: asText(options.path),
     ownerId: options.ownerId ?? null,
+    branchOf: options.branchOf ?? null,
     attentionOwner: options.attentionOwner ?? 'operator',
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : clock.nowMs(),

@@ -152,6 +152,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', iconPath: FOCUS_ICON_PATH, panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, refreshOn: ['connected'], module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView, refresh: reopenFocusBoard } },
+    { view: 'board-session', label: 'Board', iconPath: BOARDS_ICON_PATH, panelClass: 'board-session-view', isDesktopOnly: true, hasPanelChrome: false, load: () => import('./board-session/board-session-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'session-added', 'session-removed'] },
     { view: 'prs', label: 'Reviews', iconPath: REVIEWS_ICON_PATH, panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('./github/review-queue-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);

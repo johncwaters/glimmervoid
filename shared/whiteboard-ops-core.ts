@@ -8,7 +8,7 @@ import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/w
 import { elementTableOf, isArrayIndexKey } from './whiteboard-element-table.ts';
 import { appendElement, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, storeElement } from './whiteboard-board-index.ts';
 
-type Author = { id: string; name: string };
+type Author = { id: string; name: string; setsAsks?: boolean };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff; before: DiffBefore } | { ok: false; error: string; opIndex: number };
 type StagedOps = {
   ok: true;
@@ -46,9 +46,14 @@ const CODEMAP_AUTHOR: Author = Object.freeze({ id: 'codemap', name: 'codemap' })
 const CODEMAP_ID_PREFIXES = Object.freeze({ map: 'cm-', overlay: 'cmo-', steps: 'cms-' });
 const CODEMAP_OWNED_REFUSAL = 'ids starting cm-, cmo- or cms- belong to codemap, which regenerates them; anyone may change place, step status on a cms- step, and the operator may add or remove one';
 const NO_PLAN_STEPS = new Map<string, never>();
+const ASK_REFUSAL = 'ask is set only by the whiteboard ask action';
 
 function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
+}
+
+function canSetAsks(author: Author): boolean {
+  return author.setsAsks === true || isOperatorAuthor(author);
 }
 
 function isCodemapOwnedId(id: string): boolean {
@@ -194,6 +199,7 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (element.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator draws strokes; an agent may read or remove one');
   if (isOwnedByCodemapFor(element.id, author) && !isOperatorAuthor(author)) return refuse(CODEMAP_OWNED_REFUSAL);
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
+  if (element.kind === 'box' && element.ask !== null && !canSetAsks(author)) return refuse(ASK_REFUSAL);
   const placed = placedAtNear(draft, isOperatorAuthor(author) ? element : withFittedWidth(element));
   if (!placed.ok) return placed;
   const stored = authoredNote(placed.element, undefined, author);
@@ -227,6 +233,7 @@ function existingFieldsKeptBy(existing: Element, fields: Record<string, unknown>
     device: traits.needsDevice ? existing.device : null,
     fit: traits.needsDevice ? existing.fit : 'fill',
     author: fields.shape === 'note' ? existing.author : null,
+    ask: fields.shape === 'note' ? existing.ask : null,
   };
 }
 
@@ -236,6 +243,7 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   if (isOwnedByCodemapFor(id, author) && !isOpenToEveryone(id, rawFields)) return refuse(CODEMAP_OWNED_REFUSAL);
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
+  if ('ask' in fields && !canSetAsks(author)) return refuse(ASK_REFUSAL);
   if (existing.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator changes strokes; an agent may read or remove one');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);

@@ -35,6 +35,8 @@ import type { CommitSigning } from '../commit-signing.ts';
 import type { VerificationWiring } from '../verification/verification-wiring.ts';
 import type { SessionReviewWiring } from '../review/session-review-wiring.ts';
 import type { HostReadyReader } from '../ready-host.ts';
+import type { CodemapService } from '../codemap/codemap-wiring.ts';
+import type { BoardAsks } from '../whiteboard/board-ask.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -121,6 +123,8 @@ interface BackendControlDependencies {
   commitSigning: Pick<CommitSigning, 'act'>;
   hostReady: HostReadyReader;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
+  codemap: Pick<CodemapService, 'boxesOfSession'> | null;
+  boardAsks: Pick<BoardAsks, 'answer'> | null;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;
   verification: Pick<VerificationWiring, 'latestRun'>;
@@ -213,6 +217,8 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     commitSigning: dependencies.commitSigning,
     hostReady: dependencies.hostReady,
     whiteboards: dependencies.whiteboards,
+    codemap: dependencies.codemap,
+    boardAsks: dependencies.boardAsks,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
     verification: dependencies.verification,

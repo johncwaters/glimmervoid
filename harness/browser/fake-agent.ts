@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
 import { AGENT_DONE_LINE, DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +10,8 @@ const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
 const WORKING_GLYPH = String.fromCharCode(0x280b);
 const IDLE_GLYPH = String.fromCharCode(0x2733);
-const SESSION_ID = '00000000-0000-4000-8000-0000000fa4e0';
+const RESUMED_SESSION_ID = process.argv[process.argv.indexOf('--resume') + 1];
+const SESSION_ID = process.argv.includes('--resume') && RESUMED_SESSION_ID ? RESUMED_SESSION_ID : randomUUID();
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const DEFAULT_BURST_LINES = 100;
@@ -107,6 +110,23 @@ function readEndpoint(settingsPath: string | null): HookEndpoint | null {
 
 const endpoint = readEndpoint(settingsPathFromArgv(process.argv.slice(2)));
 
+const BOARD_ANSWER_PREFIX = 'Answer to your board question';
+const BRANCH_FOLLOW_UP = 'branch-follow-up';
+const GIT_IDENTITY_ARGS = ['-c', 'user.name=Fake Agent', '-c', 'user.email=fake-agent@localhost', '-c', 'commit.gpgsign=false'];
+
+function commitRefunds(): void {
+  fs.mkdirSync(path.join('src', 'payments'), { recursive: true });
+  fs.writeFileSync(path.join('src', 'payments', 'refund-policy.js'), "export function refund(charge) {\n  return { ...charge, refunded: true };\n}\n");
+  execFileSync('git', ['add', 'src/payments/refund-policy.js'], { stdio: 'ignore' });
+  execFileSync('git', [...GIT_IDENTITY_ARGS, 'commit', '--no-verify', '-m', 'Add refunds beside the card module'], { stdio: 'ignore' });
+}
+
+function answerPrompt(command: string, replyText: string): void {
+  postHook('userpromptsubmit', { hook_event_name: 'UserPromptSubmit', prompt: command });
+  appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+  appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: replyText }] } });
+}
+
 function postHook(event: string, payload: Record<string, unknown>): void {
   if (!endpoint) return;
   fetch(`${endpoint.base}/${event}${endpoint.query}`, {
@@ -133,6 +153,13 @@ function replyThenRun(replyText: string, command: string): void {
   const toolUseId = `toolu_${randomUUID().replaceAll('-', '')}`;
   appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: replyText }, { type: 'tool_use', id: toolUseId, name: 'Bash', input: { command } }] } });
   appendTranscriptLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok' }] } });
+}
+
+function editThenReply(filePath: string, replyText: string): void {
+  const toolUseId = `toolu_${randomUUID().replaceAll('-', '')}`;
+  appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'Edit', input: { file_path: filePath, old_string: 'a', new_string: 'b' } }] } });
+  appendTranscriptLine({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok' }] } });
+  appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: replyText }] } });
 }
 
 function setTitle(glyph: string, label: string): void {
@@ -316,6 +343,34 @@ function dispatch(command: string): void {
     replyThenRun('Build passed. The rail now shows the agent logo and the meters color by level, so next I check the board.', 'npm run build');
     replyThenRun('Checking the board.', 'npm run board');
     isNarrating = true;
+    return;
+  }
+  if (command === 'edit-shop') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    editThenReply('src/checkout/checkout.js', 'The charge goes through src/payments/card.js, so I left it alone.');
+    dispatch('stop');
+    return;
+  }
+  if (command.startsWith(BOARD_ANSWER_PREFIX)) {
+    answerPrompt(command, 'Noted.');
+    dispatch('stop');
+    return;
+  }
+  if (command.startsWith(BRANCH_PROMPT_PREFIX)) {
+    setTitle(WORKING_GLYPH, 'working');
+    commitRefunds();
+    answerPrompt(command, 'Committed refunds in src/payments/refund-policy.js.');
+    dispatch('stop');
+    return;
+  }
+  if (command === BRANCH_FOLLOW_UP) {
+    answerPrompt(command, 'Refunds reuse the charge from src/payments/card.js.');
+    dispatch('stop');
+    return;
+  }
+  if (command === 'ask-shop') {
+    postAgentVerb('whiteboard', { sub: 'ask', about: 'src/payments/card.js', question: 'Should refunds go through the card module too?', options: ['Yes, reuse it', 'No, keep them apart'] });
     return;
   }
   if (command === 'exit') process.exit(0);

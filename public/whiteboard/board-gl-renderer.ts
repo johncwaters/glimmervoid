@@ -60,6 +60,7 @@ interface BoardRenderer {
   paintElements(elements: readonly LaidOutElement[]): void;
   layout(): BoardLayout | null;
   setCamera(camera: Camera): void;
+  resendView(): void;
   hitTest(point: Point): BoardHit | null;
   boundsOf(elementId: string): Rect | null;
   boxTextRectsOf(boxId: string): BoxTextRects | null;
@@ -1759,6 +1760,10 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       placeGrid();
       reportView();
       requestDraw();
+    },
+    resendView: () => {
+      lastViewKey = '';
+      reportView();
     },
     hitTest,
     boundsOf,

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { PlanGate } from '../plan-gate.ts';
 import { GH_SEGMENT } from '../github-ids.ts';
 import { WHITEBOARD_LIMITS } from '../whiteboard.ts';
-import { AgentDoneLine, AttentionNote, AttentionOwner, CHAT_OUTBOX_MAX_ENTRIES, ChatOutboxEntry, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome, UsageLimit } from '../session.ts';
+import { AgentDoneLine, AttentionNote, BranchLink, AttentionOwner, CHAT_OUTBOX_MAX_ENTRIES, ChatOutboxEntry, ConversationApproval, SESSION_DOC_PATH_MAX_CHARS, SessionState, TaskTitle, UnseenOutcome, UsageLimit } from '../session.ts';
 import { UpdateChannel, UpdateJournalSummary } from '../update-journal.ts';
 import { LinkedPr, SessionPrLinks } from '../my-prs.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
@@ -103,6 +103,7 @@ export const SessionCardFields = z.object({
   resumeSessionId: nullableString,
   ephemeral: z.boolean().optional(),
   ownerId: sessionId.optional(),
+  branchOf: BranchLink.optional(),
   attentionOwner: AttentionOwner.optional(),
   linkedPrs: z.array(LinkedPr).optional(),
   doneMeans: z.array(z.string()).optional(),
@@ -237,7 +238,7 @@ export const InstallDetail = z.object({
 export type InstallDetail = z.infer<typeof InstallDetail>;
 
 export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'board_graphics_reset'] as const);
-export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'trace', 'benchmarks', 'packs', 'settings'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'board-session', 'trace', 'benchmarks', 'packs', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],

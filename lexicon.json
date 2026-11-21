@@ -1506,6 +1506,10 @@
     {
       "name": "software",
       "definition": "Program code distributed under a license, as the MIT license text in a pack NOTICE names it"
+    },
+    {
+      "name": "board ask",
+      "definition": "A question a session puts to the operator on its repo's code map with the whiteboard ask action: a note box carrying the ask field, wired dashed to the box it is about; answering it on the Board tab sends the answer to that session as a chat message, then removes the note"
     }
   ],
   "retired": [

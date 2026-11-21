@@ -11,7 +11,7 @@ const OWNER_TITLE_WRITE_BY_FILE = new Map([
   [path.join(PUBLIC_DIR, "ui", "pressable.ts"), "pressable.title = shortcutKey ?"],
 ]);
 const LABEL_ICON_PRESSABLE_HOME = path.join(PUBLIC_DIR, "ui", "pressable.ts");
-const LABEL_ICON_PRESSABLE_CALLERS = new Set([path.join(PUBLIC_DIR, "whiteboard", "boards-view.ts")]);
+const LABEL_ICON_PRESSABLE_CALLERS = new Set([path.join(PUBLIC_DIR, "whiteboard", "boards-view.ts"), path.join(PUBLIC_DIR, "board-session", "dock.ts")]);
 const HOVER_REVEALED_CONTENT = /[^{}]*:(?:hover|focus(?:-visible|-within)?)[^{}]*\{[^}]*\bcontent\s*:[^}]*\}/g;
 const FLOATING_OR_ATTRIBUTE_TEXT = /\bcontent\s*:[^;}]*\battr\(|\bposition\s*:\s*(?:absolute|fixed)/;
 const NEVER_RENDERED_SOURCES = new Set([path.join(PUBLIC_DIR, "perf.html"), path.join(PUBLIC_DIR, "favicon-core.ts")]);

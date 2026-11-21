@@ -1,6 +1,6 @@
 import type { PrimaryView } from '../view-registry-core.ts';
 
-type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'iconPath' | 'el' | 'hasOwnPhoneScreen' | 'isPhoneNavScreen'>;
+type DesktopView<PanelElement> = Pick<PrimaryView<PanelElement>, 'view' | 'label' | 'iconPath' | 'el' | 'hasOwnPhoneScreen' | 'isPhoneNavScreen' | 'isDesktopOnly'>;
 
 export interface PhonePanel<PanelElement> {
   id: string;
@@ -12,7 +12,7 @@ export interface PhonePanel<PanelElement> {
 
 export function phonePanelsFromDesktopViews<PanelElement>(desktopViews: readonly DesktopView<PanelElement>[]): PhonePanel<PanelElement>[] {
   return desktopViews
-    .filter((desktopView) => !desktopView.hasOwnPhoneScreen)
+    .filter((desktopView) => !desktopView.hasOwnPhoneScreen && !desktopView.isDesktopOnly)
     .map((desktopView) => ({
       id: desktopView.view,
       label: desktopView.label.trim(),

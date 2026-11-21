@@ -57,6 +57,9 @@ import { createSessionHandlers } from './control/handlers/session-handlers.ts';
 import type { WakeView } from '../shared/contracts/wakes.ts';
 import { createSettingsHandlers } from './control/handlers/settings-handlers.ts';
 import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers.ts';
+import type { CodemapService } from './codemap/codemap-wiring.ts';
+import type { BoardAsks } from './whiteboard/board-ask.ts';
+import { createBoardSessionHandlers } from './control/handlers/board-session-handlers.ts';
 import { createReviewHandlers } from './control/handlers/review-handlers.ts';
 import type { VerificationWiring } from './verification/verification-wiring.ts';
 import type { SessionReviewWiring } from './review/session-review-wiring.ts';
@@ -174,6 +177,8 @@ interface ControlHandlerDeps {
   commitSigning?: Pick<CommitSigning, 'act'> | null;
   hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
+  codemap?: Pick<CodemapService, 'boxesOfSession'> | null;
+  boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'setDefault' | 'setLaneAccount' | 'signIn' | 'signInRefusal' | 'submitCode'> | null;
@@ -216,6 +221,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),
     createWhiteboardHandlers(context, deps),
+    createBoardSessionHandlers(context, deps),
     createReviewHandlers(context, deps),
     createInspectHandlers(context, deps),
   ]);

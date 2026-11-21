@@ -11,6 +11,7 @@ import { verifyBoardPane, verifyRailDrag, verifyBoardScale, verifyBoards } from 
 import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, verifyKeyStripContexts } from './key-strip.ts';
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
+import { verifyBoardSession } from './board-session.ts';
 import { verifyChatApprovals, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
@@ -1261,6 +1262,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-terminal') {
       await verifyChatTerminal(viewer.page);
       return passedOutcome('chat-terminal', 'a prompt Chat cannot answer shows the live terminal inline, and the terminal goes home once the wait ends');
+    }
+    if (step.kind === 'assert-board-session') {
+      await verifyBoardSession(viewer.page, projectDirectory);
+      return passedOutcome('board-session', 'the Board tab names the session, reads its code map, sends from the pill, answers a board ask, starts a branch from @ a box whose commits reach the parent, follows up by clicking its teal reply, shows bubbles with no layout shift, and Focus opens after it');
     }
     if (step.kind === 'assert-chat-sign-in') {
       await verifyChatSignIn(viewer.page);

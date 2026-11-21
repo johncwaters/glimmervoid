@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { AgentDoneLine, AttentionNote, AttentionOwner, ChatOutboxEntry, ConversationApproval, UnseenOutcome, UsageLimit } from "../../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionNote, AttentionOwner, BranchLink, ChatOutboxEntry, ConversationApproval, UnseenOutcome, UsageLimit } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 import type { PlanGate } from "../../shared/contracts/plan-gate.ts";
 import type { AgentSetup, ModelSelection } from "../../shared/contracts/agent-models.ts";
@@ -17,6 +17,7 @@ interface SessionCardSource {
   saneYolo?: boolean;
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
+  branchOf?: BranchLink | null;
   isWorktree?: boolean;
   isWorkspace?: boolean;
   resumeSessionId?: string | null;
@@ -64,6 +65,7 @@ function projectSessionCard(
     ...(source.doneMeans?.length ? { doneMeans: [...source.doneMeans] } : {}),
     ...(source.agentDoneLines?.length ? { agentDoneLines: source.agentDoneLines.map((line) => ({ ...line })) } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
+    ...(source.branchOf ? { branchOf: { ...source.branchOf } } : {}),
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
     ...(source.accountId ? { accountId: source.accountId } : {}),
@@ -109,6 +111,7 @@ interface SnapshotSource {
   passedQuestionSeq?: number;
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
+  branchOf?: BranchLink | null;
   agentSetup?: AgentSetup | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
@@ -156,6 +159,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     passedQuestionSeq: source.passedQuestionSeq ?? 0,
     isQuestionManagerOn: source.isQuestionManagerOn ?? null,
     accountId: source.accountId ?? null,
+    branchOf: source.branchOf ?? null,
     modelSelection: modelSelectionOf(source.agentSetup),
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,

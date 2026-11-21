@@ -16,6 +16,7 @@ export type Step =
   | { kind: 'assert-chat-approvals'; viewer?: ViewerId }
   | { kind: 'assert-chat-done-means'; viewer?: ViewerId }
   | { kind: 'assert-chat-terminal'; viewer?: ViewerId }
+  | { kind: 'assert-board-session'; viewer?: ViewerId }
   | { kind: 'assert-chat-sign-in'; viewer?: ViewerId }
   | { kind: 'assert-chat-usage-limit'; viewer?: ViewerId }
   | { kind: 'assert-chat-default'; viewer?: ViewerId }
@@ -86,6 +87,7 @@ export interface Scenario {
   runsOnlyWhenNamed?: boolean;
   agent?: string;
   skipsPermissions?: boolean;
+  projectSeed?: string;
 }
 
 export interface ResolvedScenario extends Omit<Scenario, 'steps'> {
@@ -280,6 +282,12 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'chat-default-phone',
     viewports: ['phone-393'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'assert-chat-default-phone' }],
+  },
+  {
+    name: 'board-session',
+    viewports: ['desktop-1280'],
+    projectSeed: 'shop',
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-board-session' }, { kind: 'shot', name: 'board-session' }],
   },
   {
     name: 'chat-terminal',
@@ -786,10 +794,11 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
+  if (scenario.projectSeed !== undefined) return true;
   return scenario.steps.some((step) => step.kind === 'assert-review-changes' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-board-pane' || step.kind === 'assert-phone-changes');
 }
 

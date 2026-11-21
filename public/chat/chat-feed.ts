@@ -24,6 +24,7 @@ interface ChatFeedOptions {
   onReset: () => void;
   onRebuilt: (rebuiltParts: readonly ChatPart[], replacedPartIds: readonly string[]) => void;
   onFailure: (failureText: string | null) => void;
+  onRecords?: (appendedRecords: readonly TraceRecord[]) => void;
 }
 
 export interface ChatFeed {
@@ -88,6 +89,7 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
       hasDroppedEarliestRecords = true;
     }
     const appended = appendChatRecords(partsState, reply.records);
+    options.onRecords?.(reply.records);
     const endedTurnParts = options.isTurnOver() ? endChatTurn(partsState) : [];
     const changedParts = appended.parts.map((part) => endedTurnParts.find((ended) => ended.id === part.id) ?? part);
     const endedTurnPartsNotChanged = endedTurnParts.filter((ended) => !appended.parts.some((part) => part.id === ended.id));

@@ -85,7 +85,7 @@ function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapReques
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
@@ -260,6 +260,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
 
   function whiteboard(session: Session, request: WhiteboardAgentRequest): Promise<AgentReplyOf<'whiteboard'>> | AgentReplyOf<'whiteboard'> {
     if (!whiteboards) return refusal(503, 'whiteboards are not available in this Glimmervoid');
+    if (request.sub === 'ask') return boardAsks ? boardAsks.ask(session, request) : refusal(503, 'board asks are not available in this Glimmervoid');
     if (request.sub !== 'run') return whiteboards.handleAgent(whiteboardCallerOf(session), request);
     const spawnVerdict = COMMAND_ROUTES.spawn(roleFactsOf(session));
     if (!spawnVerdict.answers) return refusal(403, `whiteboard run spawns a session per ready step, and ${spawnVerdict.reason}`);
