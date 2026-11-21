@@ -19,6 +19,7 @@ export type Step =
   | { kind: 'assert-board-session'; viewer?: ViewerId }
   | { kind: 'assert-chat-sign-in'; viewer?: ViewerId }
   | { kind: 'assert-chat-usage-limit'; viewer?: ViewerId }
+  | { kind: 'assert-chat-away-reply'; viewer?: ViewerId }
   | { kind: 'assert-chat-default'; viewer?: ViewerId }
   | { kind: 'assert-chat-default-phone'; viewer?: ViewerId }
   | { kind: 'assert-phone-changes'; viewer?: ViewerId }
@@ -300,6 +301,12 @@ export const SCENARIOS: readonly Scenario[] = [
     viewports: ['desktop-1280'],
     skipsPermissions: true,
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-sign-in' }, { kind: 'shot', name: 'chat-sign-in' }],
+  },
+  {
+    name: 'chat-away-reply',
+    viewports: ['desktop-1280'],
+    skipsPermissions: true,
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-away-reply' }],
   },
   {
     name: 'chat-usage-limit',
@@ -794,7 +801,7 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-away-reply' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
@@ -842,6 +849,7 @@ export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
 
 export const DONE_CHILD_NAME = 'done-child';
 export const DONE_CHILD_LINES = ['The status check passes', 'done-means.txt is committed'];
+export const AWAY_REPLY_TEXT = 'Written while you were away.';
 export const AGENT_DONE_LINE = { text: 'node starts in the worktree', command: 'node --version' };
 
 export function needsDoneMeansChecks(scenario: Scenario): boolean {

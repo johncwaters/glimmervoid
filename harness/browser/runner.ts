@@ -12,7 +12,7 @@ import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, ve
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
 import { verifyBoardSession } from './board-session.ts';
-import { verifyChatApprovals, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
+import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1270,6 +1270,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-sign-in') {
       await verifyChatSignIn(viewer.page);
       return passedOutcome('chat-sign-in', 'a failed Claude Code login shows a sign-in card, Sign in runs /login in the card, and the card reads Signed in once the agent reports it');
+    }
+    if (step.kind === 'assert-chat-away-reply') {
+      await verifyChatAwayReply(viewer.page);
+      return passedOutcome('chat-away-reply', 'a reply that comes in while Chat is watched animates in, and one written while Chat was closed shows at once when Chat opens');
     }
     if (step.kind === 'assert-chat-usage-limit') {
       await verifyChatUsageLimit(viewer.page);

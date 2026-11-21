@@ -22,9 +22,8 @@ function createDeferredPages() {
   return { requests, requestPage, settleNext };
 }
 
-test('a near-top request that arrives while a live refresh is in flight loads the earlier page once that refresh settles', async () => {
-  const pages = createDeferredPages();
-  const feed = createChatFeed({
+function createFeedOver(pages: ReturnType<typeof createDeferredPages>) {
+  return createChatFeed({
     sessionId: 'session',
     workingDirectory: null,
     requestPage: pages.requestPage,
@@ -36,6 +35,27 @@ test('a near-top request that arrives while a live refresh is in flight loads th
     onRebuilt: () => {},
     onFailure: () => {},
   });
+}
+
+test('a caught-up callback waits until a forward read reaches the end of the trace, past a full page of backlog', async () => {
+  const pages = createDeferredPages();
+  const feed = createFeedOver(pages);
+  feed.refresh();
+  await pages.settleNext(traceReply(0, 500));
+  let caughtUpCount = 0;
+  feed.whenCaughtUp(() => { caughtUpCount += 1; });
+  feed.refresh();
+  await pages.settleNext(traceReply(500, 900));
+
+  assert.equal(caughtUpCount, 0);
+  assert.deepEqual(pages.requests.map((request) => request.payload), [{ id: 'session', after: 900 }]);
+  await pages.settleNext(traceReply(900, 900));
+  assert.equal(caughtUpCount, 1);
+});
+
+test('a near-top request that arrives while a live refresh is in flight loads the earlier page once that refresh settles', async () => {
+  const pages = createDeferredPages();
+  const feed = createFeedOver(pages);
   feed.refresh();
   await pages.settleNext(traceReply(500, 900));
   feed.refresh();

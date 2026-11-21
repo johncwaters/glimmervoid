@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { AGENT_DONE_LINE, DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
+import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
@@ -349,6 +349,11 @@ function dispatch(command: string): void {
     dispatch('work');
     appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
     editThenReply('src/checkout/checkout.js', 'The charge goes through src/payments/card.js, so I left it alone.');
+    dispatch('stop');
+    return;
+  }
+  if (command === 'away-reply') {
+    answerPrompt(command, AWAY_REPLY_TEXT);
     dispatch('stop');
     return;
   }

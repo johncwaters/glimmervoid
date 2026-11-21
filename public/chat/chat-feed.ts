@@ -142,6 +142,11 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     }
     if (outcome === 'prepend') showEarlierRecords(reply);
     if (outcome === 'seed' || outcome === 'append') showRecords(reply, outcome === 'append');
+    const hasMoreToRead = outcome === 'append' && reply.next > reply.start;
+    if (hasMoreToRead && callbacksOfPendingRequest.length > 0) {
+      deferCallbacksOfPendingRequest();
+      queuedDirections.add('forward');
+    }
     runCallbacksOfPendingRequest();
     startQueuedRequest();
   };

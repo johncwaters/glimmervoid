@@ -78,6 +78,7 @@ interface MountedChat {
   showRail(): void;
   showDone(): void;
   showBoardChanges(): void;
+  catchUp(): void;
   resumeRail(): void;
   park(): void;
   close(): void;
@@ -351,7 +352,17 @@ function buildChat(sessionId: string): MountedChat {
     for (const promptPart of newPromptParts) shownPromptPartIds.add(promptPart.id);
     return newPromptParts;
   };
+  let feedPosition: 'unseeded' | 'catching-up' | 'following' = 'unseeded';
+  const isOperatorWatching = () => feedPosition === 'following' && mountedChat?.sessionId === sessionId && document.visibilityState === 'visible';
+  const catchUp = () => {
+    if (feedPosition === 'following') feedPosition = 'catching-up';
+    feed.whenCaughtUp(() => {
+      if (feedPosition === 'catching-up') feedPosition = 'following';
+    });
+    feed.refresh();
+  };
   const arrivingPartIdsOf = (changedParts: readonly ChatPart[], newPromptParts: readonly ChatPart[]): ReadonlySet<string> => {
+    if (!isOperatorWatching()) return NO_ARRIVING_PARTS;
     const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, standInByEntryId.size).map((part) => part.id));
     return new Set(changedParts.map((part) => part.id).filter((partId) => !promptIdsTakingStandIns.has(partId)));
   };
@@ -468,7 +479,6 @@ function buildChat(sessionId: string): MountedChat {
   let signInCardSerial = 0;
   const promptAtByPartId = new Map<string, number>();
   let boardChangeByCardId = new Map<string, AgentChip>();
-  let hasCaughtUpOnce = false;
 
   const notePromptTimes = (changedParts: readonly ChatPart[]) => {
     for (const part of changedParts) {
@@ -500,11 +510,11 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const showBoardChanges = () => {
-    if (hasCaughtUpOnce) placeBoardChangeCards(true);
+    if (feedPosition !== 'unseeded') placeBoardChangeCards(isOperatorWatching());
   };
 
   const showBoardChangesOnceCaughtUp = () => {
-    hasCaughtUpOnce = true;
+    feedPosition = 'following';
     placeBoardChangeCards(false);
   };
 
@@ -850,7 +860,7 @@ function buildChat(sessionId: string): MountedChat {
       chatView.remove(droppedPartIds);
       if (isLive) swapStandInsForPrompts(newPromptParts.length);
       notePromptTimes(changedParts);
-      if (hasCaughtUpOnce && changedParts.some((part) => part.kind === 'prompt')) placeBoardChangeCards(false);
+      if (feedPosition !== 'unseeded' && changedParts.some((part) => part.kind === 'prompt')) placeBoardChangeCards(false);
       keepPendingPartsLast();
       keepRunTimesTicking();
     },
@@ -861,7 +871,7 @@ function buildChat(sessionId: string): MountedChat {
       }
       chatView.replaceLogParts(replacedPartIds, rebuiltParts);
       notePromptTimes(rebuiltParts);
-      if (hasCaughtUpOnce) placeBoardChangeCards(false);
+      if (feedPosition !== 'unseeded') placeBoardChangeCards(false);
       keepPendingPartsLast();
       keepRunTimesTicking();
     },
@@ -884,7 +894,7 @@ function buildChat(sessionId: string): MountedChat {
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       boardChangeByCardId = new Map();
-      hasCaughtUpOnce = false;
+      feedPosition = 'unseeded';
       feed.whenCaughtUp(showBoardChangesOnceCaughtUp);
       if (signInCard) showSignInCard(signInCard);
       runningSubagents = [];
@@ -919,6 +929,7 @@ function buildChat(sessionId: string): MountedChat {
     showRail,
     showDone,
     showBoardChanges,
+    catchUp,
     resumeRail: () => {
       showRail();
       if (railTimer === null) railTimer = setInterval(showRail, RAIL_TICK_MS);
@@ -1000,8 +1011,8 @@ export function applyChatSnapshot(rows: readonly { id: string; conversationAppro
     noteChatAgentDoneLines(row.id, row.agentDoneLines ?? []);
   }
   if (!mountedChat) return;
+  mountedChat.catchUp();
   applyChatSessionStatus(mountedChat.sessionId);
-  mountedChat.feed.refresh();
 }
 
 export function applyChatSessionStatus(sessionId: string): void {
@@ -1063,8 +1074,8 @@ export const chatPage: SessionPage = {
     mountedChat.showOutbox();
     mountedChat.resumeRail();
     mountedChat.showDone();
+    mountedChat.catchUp();
     applyChatSessionStatus(sessionId);
-    mountedChat.feed.refresh();
     mountedChat.showBoardChanges();
     if (!isOperatorTypingOutside(mountedChat.root)) focusMountedComposer();
   },

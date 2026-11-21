@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
-import { AGENT_DONE_LINE, DONE_CHILD_NAME } from './cases-core.ts';
+import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME } from './cases-core.ts';
 import { PANEL_MIN_CHANGED_LINES } from '../../shared/contracts/verification.ts';
 
 const CARD_TIMEOUT_MS = 20000;
@@ -387,6 +387,66 @@ async function verifyHeldMessageWaitsForTurnEnd(page: Page): Promise<void> {
   await chat.getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   await waitForTurnRunning(page, true);
+}
+
+async function startWatchingArrivingText(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const root = document.documentElement;
+    delete root.dataset.sawArrivingText;
+    new MutationObserver(() => {
+      if (document.querySelector('.session-chat .chat-turn-text[data-arriving]')) root.dataset.sawArrivingText = 'true';
+    }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-arriving'] });
+  });
+}
+
+async function waitForAwayReplyCount(page: Page, expectedCount: number): Promise<void> {
+  await page.waitForFunction(({ expected, replyText }) => {
+    const texts = [...document.querySelectorAll('.session-chat .chat-log .chat-turn-text')].filter((text) => text.textContent?.trim() === replyText);
+    return texts.length === expected;
+  }, { expected: expectedCount, replyText: AWAY_REPLY_TEXT }, { timeout: CARD_TIMEOUT_MS });
+}
+
+export async function verifyChatAwayReply(page: Page): Promise<void> {
+  await openChat(page);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const sawArrivingText = () => page.evaluate(() => document.documentElement.dataset.sawArrivingText === 'true');
+  await startWatchingArrivingText(page);
+  await sendFromComposer(page, 'away-reply');
+  await waitForAwayReplyCount(page, 1);
+  assert.equal(await sawArrivingText(), true, 'a reply that comes in while Chat is watched animates in');
+  await waitForTurnRunning(page, false);
+  await page.locator('.session-chat .chat-log').evaluate((chatLog) => {
+    const tallFiller = document.createElement('div');
+    tallFiller.className = 'chat-test-filler';
+    tallFiller.style.height = '1600px';
+    chatLog.prepend(tallFiller);
+  });
+  const scrollerBox = await page.locator('.session-chat .chat-scroller').boundingBox();
+  assert.ok(scrollerBox, 'the chat scroller has a box');
+  await page.mouse.move(scrollerBox.x + scrollerBox.width / 2, scrollerBox.y + scrollerBox.height / 2);
+  await page.mouse.wheel(0, -600);
+  await page.locator('.session-chat').getByRole('button', { name: 'Jump to latest' }).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.locator('.session-page-bar').getByRole('button', { name: 'Chat', exact: true }).click();
+  await page.locator('.session-chat').waitFor({ state: 'detached', timeout: CARD_TIMEOUT_MS });
+  await page.evaluate(() => { delete document.documentElement.dataset.sawArrivingText; });
+  await page.evaluate(async ({ replyText, timeoutMs }) => {
+    const sessionId = document.querySelector('.session-card[data-id]')?.getAttribute('data-id') ?? '';
+    const controlWsUrl = '/control-ws.ts';
+    const { sendControlRequest } = await import(controlWsUrl);
+    const traceRecordsWithReply = async () => {
+      const reply = await sendControlRequest('session-trace', { id: sessionId, endingAt: 'tail' });
+      const records: unknown[] = Array.isArray(reply?.records) ? reply.records : [];
+      return records.filter((record) => JSON.stringify(record).includes(replyText)).length;
+    };
+    const repliesBefore = await traceRecordsWithReply();
+    await sendControlRequest('chat-send', { id: sessionId, text: 'away-reply', attachments: [] });
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline && await traceRecordsWithReply() <= repliesBefore) await new Promise((resolve) => setTimeout(resolve, 250));
+  }, { replyText: AWAY_REPLY_TEXT, timeoutMs: CARD_TIMEOUT_MS });
+  await openChat(page);
+  await waitForAwayReplyCount(page, 2);
+  assert.equal(await sawArrivingText(), false, 'a reply written while Chat was closed shows at once when Chat opens');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
 }
 
 async function verifyInterimRepliesRideActivityLine(page: Page): Promise<void> {
