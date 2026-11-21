@@ -13,6 +13,7 @@ import { labelWidthOf, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '../wh
 const CHUNK_SIZE = 2048;
 const FULL_MIN_SCALE = 0.3;
 const TITLES_MIN_SCALE = 0.12;
+const FULL_DETAIL_ELEMENT_MAX = 1000;
 const VIEW_MARGIN = 0.5;
 const MAX_BLOCK_TILES_ACROSS = 6;
 const MAX_TILES_PER_VIEW = 256;
@@ -46,7 +47,8 @@ interface TilePatch {
   recordChangedIds: readonly string[];
 }
 
-function lodForScale(scale: number): TileLod {
+function lodForScale(scale: number, elementCount: number | null): TileLod {
+  if (elementCount !== null && elementCount <= FULL_DETAIL_ELEMENT_MAX) return 'full';
   if (scale >= FULL_MIN_SCALE) return 'full';
   if (scale >= TITLES_MIN_SCALE) return 'titles';
   return 'blocks';
