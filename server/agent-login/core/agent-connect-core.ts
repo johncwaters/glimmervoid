@@ -121,6 +121,7 @@ interface AccountIdentity {
   isChecked: boolean;
   isSignedIn: boolean;
   label: string | null;
+  plan: string | null;
   detail: string | null;
 }
 
@@ -134,8 +135,8 @@ function capitalized(word: string): string {
 }
 
 function readClaudeIdentity(statusOutput: string): AccountIdentity {
-  const unchecked: AccountIdentity = { isChecked: false, isSignedIn: false, label: null, detail: null };
-  const signedOut: AccountIdentity = { isChecked: true, isSignedIn: false, label: null, detail: null };
+  const unchecked: AccountIdentity = { isChecked: false, isSignedIn: false, label: null, plan: null, detail: null };
+  const signedOut: AccountIdentity = { isChecked: true, isSignedIn: false, label: null, plan: null, detail: null };
   const parsed: unknown = (() => {
     try {
       return JSON.parse(statusOutput);
@@ -150,13 +151,14 @@ function readClaudeIdentity(statusOutput: string): AccountIdentity {
   const plan = textField(status, 'subscriptionType');
   const email = textField(status, 'email');
   const isPersonalOrg = orgName !== null && email !== null && orgName === `${email}'s Organization`;
-  const label = [isPersonalOrg ? 'Personal' : orgName, plan === null ? null : capitalized(plan)].filter((part) => part !== null).join(' ');
-  return { isChecked: true, isSignedIn: true, label: label === '' ? email : label, detail: email };
+  const planText = [isPersonalOrg ? 'Personal' : orgName, plan === null ? null : capitalized(plan)].filter((part) => part !== null).join(' ');
+  const planOrNull = planText === '' ? null : planText;
+  return { isChecked: true, isSignedIn: true, label: planOrNull ?? email, plan: planOrNull, detail: email };
 }
 
 function readAccountIdentity(agent: ConnectableAgent, statusOutput: string, exitCode: number | null): AccountIdentity {
   if (agent === 'claude-code') return readClaudeIdentity(statusOutput);
-  return { isChecked: exitCode !== null, isSignedIn: exitCode === 0, label: null, detail: statusOutput.trim().split('\n')[0] || null };
+  return { isChecked: exitCode !== null, isSignedIn: exitCode === 0, label: null, plan: null, detail: statusOutput.trim().split('\n')[0] || null };
 }
 
 export {

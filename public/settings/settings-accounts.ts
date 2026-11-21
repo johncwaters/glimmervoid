@@ -1,21 +1,21 @@
-import '../host-ready/host-ready.css';
 import './settings-accounts.css';
 
 import { LANE_ACCOUNT_AGENT_ID, LaneAccountLane } from '#shared/contracts/agent-accounts.ts';
 import type { AgentAccountStatus } from '#shared/contracts/agent-accounts.ts';
-import type { StatusIcon } from '#shared/state-icons.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import { agentAccountsOf, applyAgentAccounts, CONNECTABLE_AGENT_NAMES } from '../agent-logins.ts';
 import { openAgentAccountDialog } from '../dialogs.ts';
 import { el } from '../dom-helpers.ts';
+import { accountColourOf } from '../agent-account-colour.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
-import { openConfirmDialog } from '../session-card/modal.ts';
-import { paintStatusIcon } from '../status-icon.ts';
-import { button } from '../ui/button.ts';
+import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
+import { button, menuButton } from '../ui/button.ts';
+import { radio } from '../ui/checkbox.ts';
+import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
 import { select } from '../ui/select.ts';
-import { tag } from '../ui/tag.ts';
+import { textInput } from '../ui/text-input.ts';
 
 type AccountAgent = 'claude-code' | 'codex';
 type LoginState = AgentAccountStatus['login']['state'];
@@ -32,18 +32,10 @@ const LANE_TITLES: Readonly<Record<LaneAccountLane, string>> = Object.freeze({
 
 const LOGIN_STATE_TEXT: Readonly<Record<LoginState, string>> = Object.freeze({
   'signed-in': 'Signed in',
-  'signed-out': 'Signed out',
+  'signed-out': 'Not signed in',
   connecting: 'Signing in',
   failed: 'Sign-in failed',
   unchecked: 'Sign-in not checked',
-});
-
-const LOGIN_STATE_ICON: Readonly<Record<LoginState, StatusIcon>> = Object.freeze({
-  'signed-in': 'complete',
-  'signed-out': 'needs-input',
-  connecting: 'starting',
-  failed: 'failed',
-  unchecked: 'not-started',
 });
 
 const FOLLOWS_DEFAULT_VALUE = 'default';
@@ -77,57 +69,107 @@ function confirmAccountRemoval(agent: AccountAgent, account: AgentAccountStatus)
   });
 }
 
-function accountDetailText(account: AgentAccountStatus) {
-  const isSignedIn = account.login.state === 'signed-in';
-  return [isSignedIn ? null : LOGIN_STATE_TEXT[account.login.state], account.detail]
-    .filter((part) => part !== null && part !== '')
-    .join(', ');
+async function renameAgentAccount(accountId: string, label: string): Promise<string | null> {
+  const reply = await requestWithStatus('agent-account-rename', { accountId, label }, accountActionStatus, { busyText: `Renaming ${label}.` });
+  if (reply?.type !== 'agent-accounts') return 'Could not rename the account.';
+  applyAgentAccounts(reply.accounts);
+  return reply.error ?? null;
 }
 
-function buildAccountControls(agent: AccountAgent, account: AgentAccountStatus) {
-  const controls = el('div', 'host-ready-controls');
-  if (account.isDefault) controls.append(tag({ text: 'Default', tone: 'neutral' }));
-  if (!account.isDefault && !account.isPending) {
-    controls.append(button({ variant: 'secondary', size: 'small', label: 'Make default', action: 'make-default-agent-account', onClick: () => { void makeAgentAccountDefault(agent, account); } }));
+function openRenameDialog(accountId: string, currentLabel: string) {
+  const { dialog, close, actions, btnCancel } = buildDialogShell({ title: `Rename ${currentLabel}` });
+  const input = textInput({ value: currentLabel, label: 'Account name' });
+  const errorText = el('div', 'dialog-error');
+  errorText.setAttribute('role', 'alert');
+  const btnRename = button({ variant: 'primary', label: 'Rename', action: 'rename-agent-account' });
+  actions.append(btnRename);
+  dialog.append(input, errorText, actions);
+  async function submitRename() {
+    btnRename.disabled = true;
+    const error = await renameAgentAccount(accountId, input.value);
+    btnRename.disabled = false;
+    if (error === null) {
+      close();
+      return;
+    }
+    errorText.textContent = error;
   }
+  btnCancel.addEventListener('click', close);
+  btnRename.addEventListener('click', () => { void submitRename(); });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') void submitRename();
+  });
+  requestAnimationFrame(() => input.select());
+}
+
+function accountSubText(account: AgentAccountStatus) {
+  if (account.login.state !== 'signed-in') return LOGIN_STATE_TEXT[account.login.state];
+  return [account.plan, account.detail].filter((part) => part !== null && part !== '').join(' \u00b7 ');
+}
+
+function buildAccountMenu(agent: AccountAgent, account: AgentAccountStatus, accountId: string, signal: AbortSignal) {
+  const wrap = el('div', 'settings-accounts-menu');
+  const trigger = menuButton({ label: `${account.label} actions`, action: 'agent-account-menu' });
+  const menu = el('div', 'popup-menu settings-accounts-menu-panel');
+  const renameItem = buildMenuItem('Rename', 'settings-accounts-menu-item');
+  renameItem.addEventListener('click', () => openRenameDialog(accountId, account.label));
+  const signInItem = buildMenuItem('Sign in again', 'settings-accounts-menu-item');
+  signInItem.addEventListener('click', () => openAgentAccountDialog(agent, accountId));
+  const removeItem = buildMenuItem('Remove', 'settings-accounts-menu-item');
+  removeItem.addEventListener('click', () => confirmAccountRemoval(agent, account));
+  menu.append(renameItem, signInItem, removeItem);
+  popupMenu({ trigger, menu, signal });
+  wrap.append(trigger, menu);
+  return wrap;
+}
+
+function buildAccountDefaultRadio(agent: AccountAgent, account: AgentAccountStatus) {
+  return radio({
+    name: `settings-default-account-${agent}`,
+    value: account.accountId ?? MACHINE_LOGIN_VALUE,
+    label: '',
+    accessibleName: `Make ${account.label} the default`,
+    checked: account.isDefault,
+    disabled: account.isPending,
+    onSelect: () => { void makeAgentAccountDefault(agent, account); },
+  }).element;
+}
+
+function buildAccountRow(agent: AccountAgent, account: AgentAccountStatus, hasDefaultChoice: boolean, signal: AbortSignal) {
+  const row = el('div', 'settings-accounts-row');
+  const isSignedIn = account.login.state === 'signed-in';
+  row.dataset.signedIn = String(isSignedIn);
+  row.dataset.hasDefaultChoice = String(hasDefaultChoice);
+  if (hasDefaultChoice) row.append(buildAccountDefaultRadio(agent, account));
+  const swatch = el('span', 'settings-accounts-swatch');
+  swatch.style.background = accountColourOf(account.accountId);
+  const name = el('div', 'settings-accounts-name');
+  name.append(swatch, account.label);
+  const body = el('div', 'settings-accounts-body');
+  body.append(name, el('div', 'settings-accounts-sub', accountSubText(account)));
+  const actionSlot = el('div', 'settings-accounts-action');
   const accountId = account.accountId;
-  if (accountId === null) return controls;
-  if (account.login.state !== 'signed-in' && !account.isPending) {
-    controls.append(button({ variant: 'secondary', size: 'small', label: 'Sign in', action: 'sign-in-agent-account', onClick: () => openAgentAccountDialog(agent, accountId) }));
+  if (!isSignedIn && !account.isPending && accountId !== null) {
+    actionSlot.append(button({ variant: 'secondary', size: 'small', label: 'Sign in', action: 'sign-in-agent-account', onClick: () => openAgentAccountDialog(agent, accountId) }));
   }
-  controls.append(button({ variant: 'danger', size: 'small', label: 'Remove', action: 'remove-agent-account', onClick: () => confirmAccountRemoval(agent, account) }));
-  return controls;
-}
-
-function buildAccountRow(agent: AccountAgent, account: AgentAccountStatus) {
-  const row = el('div', 'host-ready-row settings-accounts-row');
-  const isSignedIn = account.login.state === 'signed-in';
-  row.dataset.hostReadyState = isSignedIn ? 'ready' : 'needs-action';
-  const mark = el('span', 'host-ready-mark');
-  mark.setAttribute('role', 'img');
-  mark.setAttribute('aria-label', LOGIN_STATE_TEXT[account.login.state]);
-  paintStatusIcon(mark, LOGIN_STATE_ICON[account.login.state]);
-  const name = el('span', 'host-ready-name settings-accounts-name');
-  name.append(mark, account.label);
-  const body = el('div', 'host-ready-body');
-  body.append(name, el('p', 'host-ready-text', accountDetailText(account)));
-  row.append(body, buildAccountControls(agent, account));
+  const menuSlot = accountId === null || account.isPending ? el('span') : buildAccountMenu(agent, account, accountId, signal);
+  row.append(body, actionSlot, menuSlot);
   return row;
 }
 
-function buildAgentGroup(agent: AccountAgent) {
-  const group = el('section', 'settings-accounts-group');
-  const head = el('div', 'settings-accounts-group-head');
+function buildAgentCard(agent: AccountAgent, signal: AbortSignal) {
+  const card = el('section', 'settings-accounts-card');
+  const head = el('div', 'settings-accounts-card-head');
   const agentMark = el('span', 'agent-mark');
   agentMark.setAttribute('aria-hidden', 'true');
   paintAgentMark(agentMark, agent, CONNECTABLE_AGENT_NAMES[agent]);
-  const title = el('h3', 'settings-accounts-group-title');
+  const title = el('h3', 'settings-accounts-card-title');
   title.append(agentMark, CONNECTABLE_AGENT_NAMES[agent]);
-  head.append(title, button({ variant: 'secondary', size: 'small', label: 'Add account', action: 'add-agent-account', onClick: () => openAgentAccountDialog(agent) }));
-  const rows = el('div', 'host-ready-rows');
-  rows.append(...agentAccountsOf(agent).map((account) => buildAccountRow(agent, account)));
-  group.append(head, rows);
-  return group;
+  head.append(title, button({ variant: 'primary', size: 'small', label: 'Add account', action: 'add-agent-account', onClick: () => openAgentAccountDialog(agent) }));
+  const accounts = agentAccountsOf(agent);
+  const hasDefaultChoice = accounts.filter((account) => !account.isPending).length > 1;
+  card.append(head, ...accounts.map((account) => buildAccountRow(agent, account, hasDefaultChoice, signal)));
+  return card;
 }
 
 function optionValueOf(account: AgentAccountStatus): string {
@@ -183,10 +225,15 @@ function buildLaneAccountsBlock(status: ActionStatus): HTMLElement {
   return block;
 }
 
+let accountsBlockListeners = new AbortController();
+
 export function buildAgentAccountsBlock(): HTMLElement {
+  accountsBlockListeners.abort();
+  accountsBlockListeners = new AbortController();
+  const { signal } = accountsBlockListeners;
   const block = el('div', 'settings-accounts');
   const groups = el('div', 'settings-accounts-groups');
-  groups.append(...ACCOUNT_AGENTS.map(buildAgentGroup));
+  groups.append(...ACCOUNT_AGENTS.map((agent) => buildAgentCard(agent, signal)));
   block.append(groups, buildLaneAccountsBlock(accountActionStatus), accountActionStatus.element);
   return block;
 }

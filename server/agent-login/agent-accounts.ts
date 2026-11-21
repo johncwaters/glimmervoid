@@ -7,8 +7,8 @@ import { CONNECT_RECIPES, readAccountIdentity } from './core/agent-connect-core.
 import type { AccountIdentity } from './core/agent-connect-core.ts';
 import { prepareAccountHome } from '../../session/agent-home.ts';
 import { getAdapter } from '../../session/adapters/index.ts';
-import { LANE_ACCOUNT_AGENT_ID, LaneAccountLane } from '../../shared/contracts/agent-accounts.ts';
-import type { AgentAccount, AgentAccountLogin, AgentAccountStatus, LaneAccounts } from '../../shared/contracts/agent-accounts.ts';
+import { AgentAccount, LANE_ACCOUNT_AGENT_ID, LaneAccountLane } from '../../shared/contracts/agent-accounts.ts';
+import type { AgentAccountLogin, AgentAccountStatus, LaneAccounts } from '../../shared/contracts/agent-accounts.ts';
 import type { AgentLoginStatus, ConnectableAgent } from '../../shared/contracts/control-messages.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 
@@ -43,9 +43,8 @@ type AccountReply = { ok: true; accountId?: string } | { ok: false; error: strin
 
 const ACCOUNT_AGENTS: readonly ConnectableAgent[] = Object.freeze(['claude-code', 'codex']);
 
-function machineLoginLabel(identityLabel: string | null): string {
-  return identityLabel === null ? 'This machine' : `This machine (${identityLabel})`;
-}
+const MACHINE_LOGIN_LABEL = 'This machine';
+const MAX_ACCOUNT_LABEL_LENGTH = 60;
 
 function loginOf(state: AgentAccountLogin['state'], reason: string | null = null): AgentAccountLogin {
   return { state, verificationUrl: null, userCode: null, needsPastedCode: false, reason };
@@ -119,10 +118,10 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     const identity = identityByKey.get(identityKey(agent, account?.id ?? null)) ?? null;
     const login = loginFor(identity);
     if (account === null) {
-      return { accountId: null, agent, label: machineLoginLabel(identity?.label ?? null), detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault, lanes };
+      return { accountId: null, agent, label: MACHINE_LOGIN_LABEL, plan: identity?.plan ?? null, detail: identity?.detail ?? null, login, usedBy: [], isPending: false, isDefault, lanes };
     }
     const pendingLogin = pendingById.get(account.id)?.login ?? null;
-    return { accountId: account.id, agent, label: account.label, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault, lanes };
+    return { accountId: account.id, agent, label: account.label, plan: identity?.plan ?? null, detail: identity?.detail ?? null, login: pendingLogin ?? login, usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault, lanes };
   }
 
   function uncheckedAgentStatuses(): AgentAccountStatus[] {
@@ -132,8 +131,8 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       const defaultId = configStore.config.agentAccountDefaults?.[agent] ?? null;
       const agentAccounts = accounts.filter((account) => account.agent === agent);
       const isMachineDefault = !agentAccounts.some((account) => account.id === defaultId);
-      const machineRow: AgentAccountStatus = { accountId: null, agent, label: machineLoginLabel(null), detail: null, login: loginOf('unchecked'), usedBy: [], isPending: false, isDefault: isMachineDefault, lanes: [] };
-      return [machineRow, ...agentAccounts.map((account) => ({ accountId: account.id, agent, label: account.label, detail: null, login: loginOf('unchecked'), usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault: account.id === defaultId, lanes: [] }))];
+      const machineRow: AgentAccountStatus = { accountId: null, agent, label: MACHINE_LOGIN_LABEL, plan: null, detail: null, login: loginOf('unchecked'), usedBy: [], isPending: false, isDefault: isMachineDefault, lanes: [] };
+      return [machineRow, ...agentAccounts.map((account) => ({ accountId: account.id, agent, label: account.label, plan: null, detail: null, login: loginOf('unchecked'), usedBy: liveSessionNamesUsing(account.id), isPending: false, isDefault: account.id === defaultId, lanes: [] }))];
     });
   }
 
@@ -144,7 +143,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       for (const account of configuredAccounts().filter((candidate) => candidate.agent === agent)) statuses.push(statusOf(agent, account));
       for (const pending of pendingById.values()) {
         if (pending.agent !== agent || pending.isExisting) continue;
-        statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, detail: null, login: pending.login, usedBy: [], isPending: true, isDefault: false, lanes: [] });
+        statuses.push({ accountId: pending.id, agent, label: `New ${CONNECT_RECIPES[agent].displayName} account`, plan: null, detail: null, login: pending.login, usedBy: [], isPending: true, isDefault: false, lanes: [] });
       }
     }
     statuses.push(...uncheckedAgentStatuses());
@@ -158,7 +157,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
   async function readIdentity(agent: ConnectableAgent, folder: string | null): Promise<AccountIdentity> {
     const recipe = CONNECT_RECIPES[agent];
     const launch = launchFor(agent, recipe.statusArgs);
-    if (launch === null) return { isChecked: false, isSignedIn: false, label: null, detail: `The ${recipe.displayName} command could not be found on this machine.` };
+    if (launch === null) return { isChecked: false, isSignedIn: false, label: null, plan: null, detail: `The ${recipe.displayName} command could not be found on this machine.` };
     const statusLaunch = folder === null ? launch : accountLaunch(agent, launch, folder);
     const outcome = await runCommandSafely(statusLaunch.file, statusLaunch.args, { cwd: folder ?? accountsRoot, env: statusLaunch.env, timeoutMs: STATUS_TIMEOUT_MS, maxBufferBytes: STATUS_OUTPUT_LIMIT_BYTES, signal: stopProbes.signal });
     return readAccountIdentity(agent, outcome.stdout, outcome.exitCode);
@@ -212,7 +211,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
       announce();
       return;
     }
-    const account: AgentAccount = { id: pending.id, agent: pending.agent, label: (identity.label ?? pending.id).slice(0, 60), folder: pending.folder };
+    const account: AgentAccount = { id: pending.id, agent: pending.agent, label: (identity.label ?? pending.id).slice(0, MAX_ACCOUNT_LABEL_LENGTH), folder: pending.folder };
     const freshConfig = configStore.save((config) => {
       config.agentAccounts = [...(config.agentAccounts ?? []), account];
     });
@@ -396,6 +395,19 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     return { ok: true };
   }
 
+  function rename(accountId: string, label: string): AccountReply {
+    const parsedLabel = AgentAccount.shape.label.safeParse(label.trim());
+    if (!parsedLabel.success) return { ok: false, error: `Enter a name of 1 to ${MAX_ACCOUNT_LABEL_LENGTH} characters.` };
+    if (!configuredAccounts().some((account) => account.id === accountId)) return { ok: false, error: 'That account is not in config.json.' };
+    const freshConfig = configStore.save((config) => {
+      config.agentAccounts = (config.agentAccounts ?? []).map((account) => (account.id === accountId ? { ...account, label: parsedLabel.data } : account));
+    });
+    if (!freshConfig) return { ok: false, error: 'Could not write config.json' };
+    onConfigSaved(freshConfig);
+    announce();
+    return { ok: true };
+  }
+
   async function signInRefusal(agent: string, accountId: string | null): Promise<{ error: string; needsSignIn: boolean } | null> {
     const accountAgent = ACCOUNT_AGENTS.find((candidate) => candidate === agent);
     if (!accountAgent) return null;
@@ -407,7 +419,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     identityByKey.set(identityKey(accountAgent, account?.id ?? null), identity);
     announce();
     if (identity.isSignedIn) return null;
-    return { error: `${label} is signed out. Sign in to it in Settings > General, then switch again.`, needsSignIn: true };
+    return { error: `${label} is signed out. Sign in to it in Settings > Accounts, then switch again.`, needsSignIn: true };
   }
 
   function stop(): void {
@@ -415,7 +427,7 @@ function createAgentAccounts({ accountsRoot, configStore, launchFor, liveSession
     for (const pending of pendingById.values()) pending.connect.stop();
   }
 
-  return { add, cancel, list, refresh, remove, setDefault, setLaneAccount, signIn, signInRefusal, stop, submitCode };
+  return { add, cancel, list, refresh, remove, rename, setDefault, setLaneAccount, signIn, signInRefusal, stop, submitCode };
 }
 
 type AgentAccounts = ReturnType<typeof createAgentAccounts>;

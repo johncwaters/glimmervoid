@@ -8,41 +8,93 @@
   font-size: var(--type-meta);
 }
 
-.settings-accounts-group {
+.settings-accounts-groups {
   display: grid;
-  gap: 6px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border-dim);
+  gap: 14px;
 }
 
-.settings-accounts-group:last-child {
-  border-bottom: 1px solid var(--border-dim);
+.settings-accounts-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
 }
 
-.settings-accounts-group-head {
+.settings-accounts-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 28px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
 }
 
-.settings-accounts-group-title {
+.settings-accounts-card-title {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
   color: var(--text-head);
-  font-size: var(--type-meta);
-  font-weight: 700;
+  font-size: var(--type-body);
+  font-weight: 400;
 }
 
 .settings-accounts-row {
-  padding-left: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-dim);
 }
 
-.host-ready-name.settings-accounts-name {
-  flex: 0 1 34ch;
+.settings-accounts-row:last-child {
+  border-bottom: none;
+}
+
+.settings-accounts-row[data-has-default-choice="true"] {
+  grid-template-columns: 18px minmax(0, 1fr) auto 28px;
+}
+
+.settings-accounts-row .ui-checkbox-text:empty {
+  display: none;
+}
+
+.settings-accounts-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-head);
+  font-size: var(--type-body);
+}
+
+.settings-accounts-swatch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.settings-accounts-sub {
+  padding-left: 16px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.settings-accounts-row[data-signed-in="false"] .settings-accounts-sub {
+  color: var(--state-waiting);
+}
+
+.settings-accounts-menu {
+  position: relative;
+  justify-self: end;
+}
+
+.settings-accounts-menu-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+  margin-top: 4px;
 }
 
 .settings-accounts-lanes {
@@ -84,7 +136,7 @@
 }
 
 [data-layout="phone"] .settings-accounts-row {
-  padding-left: 0;
+  padding: 10px;
 }
 
 }

@@ -226,8 +226,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     notifications: 'machine-telegram',
     'machine-general': 'machine-sessions',
     general: 'machine-sessions',
-    'machine-accounts': 'machine-home',
-    accounts: 'machine-home',
+    accounts: 'machine-accounts',
     'machine-repositories': 'machine-sessions',
     repos: 'machine-sessions',
     repositories: 'machine-sessions',
@@ -253,6 +252,7 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
     'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
     'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs' },
+    'machine-home': { 'agent-accounts': 'machine-accounts' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
     'machine-sessions': { 'remote-setup': 'machine-server', 'hint-cards': 'machine-usage' },
     'machine-vault': { 'lanes-fetch-domains': 'lanes-team-review' },

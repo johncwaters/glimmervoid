@@ -172,13 +172,22 @@ export const MACHINE_HOME: SettingsSection = {
   id: 'machine-home',
   level: 'machine',
   title: 'General',
-  description: 'Who Glimmervoid works as: your GitHub sign-in, and the agent accounts a session can run under beside the login already on this machine.',
-  legacyIds: ['machine-accounts', 'accounts'],
+  description: 'Who Glimmervoid works as: your GitHub sign-in, git identity and commit signing.',
+  settings: [],
+};
+
+export const MACHINE_ACCOUNTS: SettingsSection = {
+  id: 'machine-accounts',
+  level: 'machine',
+  title: 'Accounts',
+  description: 'Each account is its own login. Settings, skills, plugins, MCP servers and conversations are shared with this machine.',
+  legacyIds: ['accounts'],
   settings: [
     {
       id: 'agent-accounts', path: 'status:agent-accounts', title: 'Agent accounts',
-      description: 'Each added account keeps its own login and shares settings, skills, plugins, MCP servers and conversations with this machine.',
-      control: 'readonly', keywords: ['claude', 'login', 'sign in', 'organization', 'team', 'account', 'switch'], status: 'agent-accounts', ...READOUT,
+      description: 'The default account is the one new sessions start under.',
+      legacyIds: [{ sectionId: 'machine-home', settingId: 'agent-accounts' }],
+      control: 'readonly', keywords: ['claude', 'codex', 'login', 'sign in', 'organization', 'team', 'account', 'switch', 'plan', 'limits'], status: 'agent-accounts', ...READOUT,
     },
   ],
 };

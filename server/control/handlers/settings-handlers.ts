@@ -165,7 +165,7 @@ function incomingSettingsBlocksError(blocks: readonly IncomingSettingsBlock[]): 
 }
 
 const AGENT_ACCOUNTS_UNAVAILABLE = 'Agent accounts are not available on this server.';
-type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-default' | 'agent-lane-account';
+type AgentAccountMessageType = 'get-agent-accounts' | 'agent-account-add' | 'agent-account-sign-in' | 'agent-account-cancel' | 'agent-account-code' | 'agent-account-remove' | 'agent-account-rename' | 'agent-account-default' | 'agent-lane-account';
 
 const CLONE_JOBS_BROADCAST_GAP_MS = 250;
 
@@ -525,6 +525,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-account-cancel': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.cancel(msg.accountId)),
     'agent-account-code': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.submitCode(msg.accountId, msg.code)),
     'agent-account-remove': (msg, ws) => answerAgentAccounts(msg, ws, (accounts) => accounts.remove(msg.accountId)),
+    'agent-account-rename': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.rename(msg.accountId, msg.label)),
     'agent-account-default': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setDefault(msg.agent, msg.accountId)),
     'agent-lane-account': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setLaneAccount(msg.lane, msg.followsDefault ? { followsDefault: true } : { followsDefault: false, accountId: msg.accountId })),
     'update-settings': handleUpdateSettings,
@@ -558,6 +559,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-account-cancel': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-code': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-remove': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
+    'agent-account-rename': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-account-default': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'agent-lane-account': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'update-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),

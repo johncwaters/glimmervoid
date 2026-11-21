@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Whiteboard: shown cards stack in a straight column**: A card an agent shows while you are not looking at the board now lines up under the last shown card instead of stepping 40px further left each time.
 
+### Changed
+
+- **Agent accounts have their own Accounts page in Settings.** They moved out of General into Settings > Accounts, one card per agent. Each account shows its colour, its plan and its email; a radio picks the default once an agent has two accounts, Sign in shows only on an account that is not signed in, and each added account has a menu to rename it, sign in again or remove it. This machine's login now reads plainly as This machine, with its plan underneath.
+
 ## [0.62.11] - 2026-11-20
 
 ### Added

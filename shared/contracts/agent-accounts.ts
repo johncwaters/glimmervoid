@@ -53,6 +53,7 @@ export const AgentAccountStatus = z.strictObject({
   accountId: AgentAccountId.nullable(),
   agent: z.string(),
   label: z.string(),
+  plan: z.string().nullable(),
   detail: z.string().nullable(),
   login: AgentAccountLogin,
   usedBy: z.array(z.string()),
