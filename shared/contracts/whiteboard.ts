@@ -214,6 +214,7 @@ const boxFields = {
   tone: z.enum(NOTE_TONES).nullable().default(null).describe('a fill tint for a box, decision, ellipse or note'),
   textSize: z.enum(TEXT_SIZES).default('M').describe('the title size: S small, M the default, L large, XL extra large'),
   titleGradient: z.boolean().default(false).describe('true draws the title in a gradient from purple to blue to red'),
+  fullBleed: z.boolean().default(false).describe('true on a box with media drops its title, lines and padding so the media fills the box, and Present fills the view with it'),
   angle: z.number().int().min(0, { error: 'a box angle is 0 to 359 degrees' }).max(359, { error: 'a box angle is 0 to 359 degrees' }).default(0).describe('the clockwise rotation in whole degrees around the box center'),
   device: DeviceName.nullable().default(null),
   fit: DeviceFit,
@@ -666,7 +667,7 @@ export function filledBox(box: SparseBox): Box {
   return {
     kind: 'box', id: box.id, shape: box.shape ?? 'box', title: box.title, icon: box.icon ?? null, place: box.place,
     order: box.order ?? 0, width: box.width ?? null, height: box.height ?? null,
-    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
+    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, fullBleed: box.fullBleed ?? false, angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, refHashes: box.refHashes ?? {},

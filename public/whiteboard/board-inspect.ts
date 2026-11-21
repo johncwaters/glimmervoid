@@ -355,6 +355,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     fieldRow('Angle', angleField(box.angle, (angle) => set({ angle }))),
     ...(box.shape === 'note' ? [] : [checkboxField('borderless', 'Borderless', isBorderlessBox(box), (borderless) => set({ borderless }))]),
     checkboxField('titleGradient', 'Gradient title', box.titleGradient, (titleGradient) => set({ titleGradient })),
+    ...(box.media && box.shape !== 'device' ? [checkboxField('fullBleed', 'Full bleed', box.fullBleed, (fullBleed) => set({ fullBleed }))] : []),
     ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),
     ...(box.change === 'relabeled' ? [fieldRow('Was', textField('was', box.was ?? '', WHITEBOARD_LIMITS.title, (was) => {
