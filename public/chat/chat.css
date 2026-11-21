@@ -394,9 +394,11 @@
 
 .chat-activity-verb { color: var(--activity-hue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.chat-activity-detail { min-width: 0; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-activity-detail { flex: 1 1 0; min-width: 0; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .chat-activity-detail:empty { display: none; }
+
+.chat-activity[data-typing] .chat-activity-detail { visibility: hidden; }
 
 .chat-activity[data-phase="starting"] { --activity-hue: var(--state-starting); }
 

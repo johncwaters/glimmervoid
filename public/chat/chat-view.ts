@@ -8,7 +8,7 @@ import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import type { TurnEnd } from './chat-parts.ts';
 import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
-import { interimReplyText } from './turn-digest-core.ts';
+import { currentCallOf, interimReplyText } from './turn-digest-core.ts';
 import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
 import type { RailField } from './status-rail-core.ts';
 
@@ -163,6 +163,11 @@ function interimReplyOf(turn: TurnPart): string | null {
   return interimReplyText(latestSegment.text);
 }
 
+function runningCallLabelOf(turn: TurnPart): string | null {
+  if (turn.segments.at(-1)?.kind !== 'tools') return null;
+  return currentCallOf(turn.segments);
+}
+
 export function createChatView(uploadUrlOf: (fileName: string) => string): ChatView {
   const element = el('section', 'chat-view');
   const scroller = el('div', 'chat-scroller');
@@ -205,7 +210,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     chatLog.upsert(parts, arrivingPartIds);
     announceNearTop();
     const runningTurn = parts.findLast((part): part is TurnPart => part.kind === 'turn' && !part.isOver);
-    if (runningTurn !== undefined) activity.narrate(interimReplyOf(runningTurn));
+    if (runningTurn !== undefined) activity.narrate(interimReplyOf(runningTurn), runningCallLabelOf(runningTurn));
   };
   keepChatKeyed({ element, logElement: chatLog.element, toggleTurn: chatLog.toggleTurn });
   const setPhase = (phase: ChatPhase, isTurnRunning: boolean) => {

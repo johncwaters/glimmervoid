@@ -1,5 +1,5 @@
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
-import type { ChatPart } from '../../../public/chat/chat-part.ts';
+import type { ChatPart, TurnPart } from '../../../public/chat/chat-part.ts';
 import { appendChatRecords, createChatPartsState, endChatTurn } from '../../../public/chat/chat-parts-core.ts';
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
 import { railFieldsOf } from '../../../public/chat/status-rail-core.ts';
@@ -162,6 +162,23 @@ if (new URLSearchParams(location.search).has('rail-updates')) {
 if (harnessMode.has('monitoring')) {
   chatView.setPhase('monitoring', false);
   setInterval(() => chatView.tickRunTimes(), 1000);
+}
+if (harnessMode.has('narrating')) {
+  chatView.setPhase('working', true);
+  const narration = { kind: 'text', text: "Checking bisect step it's on:" } as const;
+  const narrationTurnStates: TurnPart['segments'][] = [
+    [narration, { kind: 'tools', labels: ['git bisect log'], callCount: 1 }],
+    [narration, { kind: 'tools', labels: ['git bisect log', 'Read the bisect script and its trail of skipped commits'], callCount: 2 }],
+    [narration, { kind: 'tools', labels: ['git bisect log', 'Read the bisect script and its trail of skipped commits', 'git status'], callCount: 3 }],
+  ];
+  let narrationStep = 0;
+  const showNextNarrationState = () => {
+    const segments = narrationTurnStates[narrationStep % narrationTurnStates.length] ?? [];
+    narrationStep += 1;
+    chatView.upsert([{ kind: 'turn', id: 'narrating-turn', segments, droppedSegmentCount: 0, toolCount: 0, fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: false }, durationText: null, isOver: false }], NO_ARRIVING_PARTS);
+  };
+  showNextNarrationState();
+  setInterval(showNextNarrationState, 700);
 }
 document.addEventListener('chat-card', (event) => {
   if (event instanceof CustomEvent) document.body.dataset.lastCardAction = JSON.stringify(event.detail);

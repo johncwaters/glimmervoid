@@ -9,7 +9,7 @@ interface ChatActivity {
   element: HTMLElement;
   setPhase(phase: ChatPhase): void;
   beat(beats: readonly ActivityBeat[]): void;
-  narrate(reply: string | null): void;
+  narrate(reply: string | null, callLabel: string | null): void;
 }
 
 const INWARD_BY_SIDE: Record<BrandMarkSide, { dx: number; dy: number }> = {
@@ -70,8 +70,13 @@ export function createChatActivity(): ChatActivity {
   let typingTimer: ReturnType<typeof setInterval> | undefined;
   let readyTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const showVerb = (phrase: string) => {
+  const stopTyping = () => {
     clearInterval(typingTimer);
+    element.toggleAttribute('data-typing', false);
+  };
+
+  const showVerb = (phrase: string) => {
+    stopTyping();
     element.setAttribute('aria-label', phrase);
     if (prefersReducedMotion()) {
       verb.textContent = phrase;
@@ -79,10 +84,12 @@ export function createChatActivity(): ChatActivity {
     }
     let shownCount = 0;
     verb.textContent = '';
+    element.toggleAttribute('data-typing', true);
     typingTimer = setInterval(() => {
       shownCount += 1;
       verb.textContent = phrase.slice(0, shownCount);
-      if (shownCount >= phrase.length) clearInterval(typingTimer);
+      if (shownCount < phrase.length) return;
+      stopTyping();
     }, TYPE_STEP_MS);
   };
 
@@ -135,7 +142,7 @@ export function createChatActivity(): ChatActivity {
     element.toggleAttribute('data-idle', false);
     delete element.dataset.workKind;
     shownBeatKey = '';
-    clearInterval(typingTimer);
+    stopTyping();
     detail.textContent = STARTING_MEANING;
     verb.textContent = STARTING_LABEL;
     element.setAttribute('aria-label', `${STARTING_LABEL}. ${STARTING_MEANING}`);
@@ -161,7 +168,7 @@ export function createChatActivity(): ChatActivity {
   };
 
   const showQuiet = (hasJustBecomeReady: boolean) => {
-    clearInterval(typingTimer);
+    stopTyping();
     shownBeatKey = '';
     if (!hasJustBecomeReady || prefersReducedMotion()) {
       element.toggleAttribute('data-idle', true);
@@ -203,8 +210,10 @@ export function createChatActivity(): ChatActivity {
       if (shownPhase !== 'working' || shownBeat === undefined) return;
       show(shownBeat, beats.some((beat) => beat.glimmervoidTool !== null));
     },
-    narrate: (reply) => {
-      if (shownPhase !== 'working' || reply === shownReply) return;
+    narrate: (reply, callLabel) => {
+      if (shownPhase !== 'working') return;
+      detail.textContent = callLabel ?? '';
+      if (reply === shownReply) return;
       shownReply = reply;
       shownBeatKey = '';
       if (reply === null) {

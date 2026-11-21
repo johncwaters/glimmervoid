@@ -7,7 +7,7 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
-import { digestTurn, isInterimReply } from './turn-digest-core.ts';
+import { currentCallOf, digestTurn, isInterimReply } from './turn-digest-core.ts';
 import type { TurnSegment } from './turn-digest-core.ts';
 
 type FlatPartKind = Exclude<ChatPartKind, 'turn'>;
@@ -150,11 +150,6 @@ function workRowsOf(part: TurnPart): HTMLElement[] {
   });
   if (part.droppedSegmentCount === 0) return rows;
   return [el('div', 'chat-turn-call', `+ ${part.droppedSegmentCount} earlier steps`), ...rows];
-}
-
-function currentCallOf(segments: readonly TurnSegment[]): string {
-  const lastRun = segments.findLast((segment): segment is ToolsSegment => segment.kind === 'tools');
-  return lastRun?.labels.at(-1) ?? '';
 }
 
 function renderAsked(asked: string): HTMLElement {

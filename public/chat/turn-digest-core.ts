@@ -71,6 +71,11 @@ export function interimReplyText(text: string): string | null {
   return normalizedSpace(inlineText(onlyBlock.children));
 }
 
+export function currentCallOf(segments: readonly TurnSegment[]): string {
+  const lastRun = segments.findLast((segment) => segment.kind === 'tools');
+  return lastRun?.kind === 'tools' ? lastRun.labels.at(-1) ?? '' : '';
+}
+
 export function isInterimReply(text: string): boolean {
   return interimReplyText(text) !== null;
 }

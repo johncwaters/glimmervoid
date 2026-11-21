@@ -456,6 +456,7 @@ async function verifyInterimRepliesRideActivityLine(page: Page): Promise<void> {
   });
   await sendFromComposer(page, 'narrate');
   await page.waitForFunction(() => document.querySelector('.session-chat .chat-activity-verb')?.textContent === 'Checking the board.', undefined, { timeout: CARD_TIMEOUT_MS });
+  await page.waitForFunction(() => document.querySelector('.session-chat .chat-activity-detail')?.textContent?.includes('npm run board') === true, undefined, { timeout: CARD_TIMEOUT_MS });
   const runningTexts = await shownTurnTextsOf();
   assert.equal(runningTexts.length, 1, `a running turn shows only its long reply, not the short ones (${runningTexts.join(' | ')})`);
   assert.match(runningTexts[0] ?? '', /^Build passed/, 'the long reply stays in the turn');
