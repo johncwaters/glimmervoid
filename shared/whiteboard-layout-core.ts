@@ -962,7 +962,7 @@ function turnedRectKeepingAnchor(start: Rect, resized: Rect, angle: number, side
 }
 
 export {
-  FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
+  FRAME_TITLE_HEIGHT, MARGIN, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
   customLegendLabelByKey, defaultWireStyleLabel, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, placingBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,

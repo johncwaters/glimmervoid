@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { Board as BoardSchema, BoxInput, Near as NearSchema, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { DiffBefore } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Element, Near, Op } from '../../shared/contracts/whiteboard.ts';
-import { isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
+import { MARGIN as BOARD_MARGIN, isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
 import { currentStoredBox } from '../../shared/whiteboard-stored-box.ts';
 import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
 import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
@@ -564,16 +564,21 @@ function freeSpotIn(view: BoardBounds, boxesInView: readonly BoardBounds[], card
   return freeSpot ?? null;
 }
 
-function drawnShownCardPoint(context: ShowPlacementContext, media: BoxMedia): { x: number; y: number } {
+function storedLeftOf(element: Element | undefined): number | null {
+  if (element?.kind !== 'box' || typeof element.place !== 'object') return null;
+  return element.place.at.x;
+}
+
+function drawnShownCardPoint(context: ShowPlacementContext, media: BoxMedia, newestShownLeft: number | null): { x: number; y: number } {
   const inView = context.operatorView ? freeSpotIn(context.operatorView, context.boxesInView, shownCardHeight(media)) : null;
   if (inView) return inView;
   const { contentBounds } = context;
-  return { x: contentBounds.x, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
+  return { x: newestShownLeft ?? contentBounds.x + BOARD_MARGIN, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
 }
 
-function newShownCardPoint(board: Board, context: ShowPlacementContext, media: BoxMedia): { x: number; y: number } {
+function newShownCardPoint(board: Board, context: ShowPlacementContext, media: BoxMedia, lastShownNumber: number): { x: number; y: number } {
   if (board.elements.size === 0) return EMPTY_BOARD_ORIGIN;
-  const drawnPoint = drawnShownCardPoint(context, media);
+  const drawnPoint = drawnShownCardPoint(context, media, storedLeftOf(board.elements.get(`shown-${lastShownNumber}`)));
   return { x: drawnPoint.x, y: drawnPoint.y - context.pinnedOffsetY };
 }
 
@@ -587,7 +592,7 @@ function shownBoxOp(board: Board, context: ShowPlacementContext, card: ShownCard
   const lastShownNumber = Math.max(0, ...shownBoxNumbers(board));
   const boxId = `shown-${lastShownNumber + 1}`;
   const { title, caption, media } = shownCardFields(card);
-  const placement = { at: newShownCardPoint(board, context, media) };
+  const placement = { at: newShownCardPoint(board, context, media, lastShownNumber) };
   const box = BoxInput.safeParse({
     kind: 'box',
     id: boxId,

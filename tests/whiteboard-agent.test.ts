@@ -1947,6 +1947,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const drawnFirst = drawnCards.find((element) => element.id === 'shown-1');
   const drawnSecond = drawnCards.find((element) => element.id === 'shown-2');
   assert.ok(drawnFirst && drawnSecond && drawnSecond.y >= drawnFirst.y + drawnFirst.height + 60, JSON.stringify([drawnFirst, drawnSecond]));
+  assert.equal(drawnSecond.x, drawnFirst.x, 'a card shown with no operator view lines up under the card before it');
 
   const operatorView = { x: 3000, y: 2000, width: 1600, height: 960 };
   const planSteps = ['plan-a', 'plan-b', 'plan-c'].map((stepId) => ({ op: 'add', element: { kind: 'box', id: stepId, title: stepId, place: 'plan', step: { status: 'planned' } } }));
