@@ -1,76 +1,92 @@
-.ui-segmented {
-  --segmented-height: var(--control-height);
-  --segmented-padding-inline: var(--control-padding-inline);
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: stretch;
-  width: fit-content;
-  height: var(--segmented-height);
-  max-width: 100%;
-  border: 1px solid var(--border-dim);
-  border-radius: var(--radius);
+@layer primitive-layout {
+  .ui-segmented {
+    display: inline-flex;
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .ui-segmented[data-width="fill"] {
+    display: flex;
+    width: 100%;
+  }
+
+  .ui-segmented-option {
+    margin: 0;
+  }
+
+  .ui-segmented[data-width="fill"] > .ui-segmented-option {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .ui-segmented-option:focus-visible {
+    position: relative;
+  }
 }
 
-.ui-segmented[data-size="small"] {
-  --segmented-height: var(--control-height-small);
-  --segmented-padding-inline: var(--control-padding-inline-small);
-}
+@layer primitive-look {
+  .ui-segmented {
+    --segmented-height: var(--control-height);
+    --segmented-padding-inline: var(--control-padding-inline);
+    box-sizing: border-box;
+    align-items: stretch;
+    height: var(--segmented-height);
+    border: 1px solid var(--border-dim);
+    border-radius: var(--radius);
+  }
 
-.ui-segmented[data-width="fill"] {
-  display: flex;
-  width: 100%;
-}
+  .ui-segmented[data-size="small"] {
+    --segmented-height: var(--control-height-small);
+    --segmented-padding-inline: var(--control-padding-inline-small);
+  }
 
-.ui-segmented-option {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0 var(--segmented-padding-inline);
-  border: 0;
-  border-right: 1px solid var(--border-dim);
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color var(--transition-fast), color var(--transition-fast);
-}
+  .ui-segmented-option {
+    box-sizing: border-box;
+    padding: 0 var(--segmented-padding-inline);
+    border: 0;
+    border-right: 1px solid var(--border-dim);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--type-meta);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+  }
 
-.ui-segmented-option:first-child { border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px); }
+  .ui-segmented-option:first-child { border-radius: calc(var(--radius) - 1px) 0 0 calc(var(--radius) - 1px); }
 
-.ui-segmented-option:last-child {
-  border-right: 0;
-  border-radius: 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0;
-}
+  .ui-segmented-option:last-child {
+    border-right: 0;
+    border-radius: 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0;
+  }
 
-.ui-segmented-option:only-child { border-radius: calc(var(--radius) - 1px); }
+  .ui-segmented-option:only-child { border-radius: calc(var(--radius) - 1px); }
 
-.ui-segmented[data-width="fill"] > .ui-segmented-option {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  .ui-segmented[data-width="fill"] > .ui-segmented-option {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
-@media (hover: hover) {
-  .ui-segmented-option:hover { color: var(--text); }
-}
+  @media (hover: hover) {
+    .ui-segmented-option:hover { color: var(--text); }
+  }
 
-.ui-segmented-option[aria-checked="true"] {
-  color: var(--text-head);
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-}
+  .ui-segmented-option[aria-checked="true"] {
+    color: var(--text-head);
+    background: color-mix(in oklab, var(--accent) 14%, transparent);
+  }
 
-.ui-segmented-option:focus-visible {
-  position: relative;
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+  .ui-segmented-option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 
-html[data-layout="phone"] .ui-segmented-option {
-  font-size: var(--type-title);
+  html[data-layout="phone"] .ui-segmented-option {
+    font-size: var(--type-title);
+  }
 }

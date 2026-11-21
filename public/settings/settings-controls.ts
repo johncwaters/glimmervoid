@@ -274,7 +274,6 @@ function renderList(setting: SettingsSetting) {
   const storedEntries = () => listValue(storedValue(setting));
   const storedText = () => storedEntries().join('\n');
   const input = textArea({ value: storedText(), placeholder: setting.listPlaceholder ?? '', labelledBy: setting.id, spellcheck: false });
-  input.classList.add('settings-view-list-input');
   trackDraft(setting, input);
   input.addEventListener('blur', () => commitFieldDraft(setting, input, storedText()));
   input.addEventListener('keydown', (event) => {

@@ -201,7 +201,6 @@
 
 .packs-sources-summary {
   gap: 8px;
-  color: inherit;
 }
 
 .packs-sources-body {
@@ -264,10 +263,6 @@
   width: min(560px, calc(100% - 32px));
   max-height: min(80vh, 720px);
   overflow: auto;
-}
-
-.packs-detail-dialog .pack-approval-actions {
-  background: inherit;
 }
 
 }

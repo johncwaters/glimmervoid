@@ -2,9 +2,12 @@ import { nextRovingIndex } from '../roving-keys-core.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { createPressable } from './pressable.ts';
 
-export function buildMenuItem(label: string, className: string) {
+type MenuItemTone = 'neutral' | 'warning' | 'danger';
+
+export function buildMenuItem(label: string, className: string, { tone = 'neutral' }: { tone?: MenuItemTone } = {}) {
   const menuItem = createPressable(`popup-menu-item ${className}`, label);
   menuItem.setAttribute('role', 'menuitem');
+  if (tone !== 'neutral') menuItem.dataset.tone = tone;
   return menuItem;
 }
 

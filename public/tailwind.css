@@ -1,4 +1,4 @@
-@layer tailwind, xterm, primitives, components;
+@layer tailwind, xterm, primitive-layout, components, primitive-look;
 @import "tailwindcss" layer(tailwind);
 @import "@xterm/xterm/css/xterm.css" layer(xterm);
 
@@ -40,21 +40,21 @@
   }
 }
 
-@import "./ui/button.css" layer(primitives);
-@import "./ui/switch.css" layer(primitives);
-@import "./ui/section-heading.css" layer(primitives);
-@import "./ui/select.css" layer(primitives);
-@import "./ui/tag.css" layer(primitives);
-@import "./ui/empty-state.css" layer(primitives);
-@import "./ui/disclosure.css" layer(primitives);
-@import "./ui/checkbox.css" layer(primitives);
-@import "./ui/segmented.css" layer(primitives);
-@import "./ui/copy-button.css" layer(primitives);
-@import "./ui/text-input.css" layer(primitives);
-@import "./ui/field.css" layer(primitives);
-@import "./ui/popup-menu.css" layer(primitives);
-@import "./ui/meter.css" layer(primitives);
-@import "./ui/keycap.css" layer(primitives);
+@import "./ui/button.css";
+@import "./ui/switch.css";
+@import "./ui/section-heading.css";
+@import "./ui/select.css";
+@import "./ui/tag.css";
+@import "./ui/empty-state.css";
+@import "./ui/disclosure.css";
+@import "./ui/checkbox.css";
+@import "./ui/segmented.css";
+@import "./ui/copy-button.css";
+@import "./ui/text-input.css";
+@import "./ui/field.css";
+@import "./ui/popup-menu.css";
+@import "./ui/meter.css";
+@import "./ui/keycap.css";
 @import "./style.css" layer(components);
 @import "./session-card/session-card.css" layer(components);
 @import "./dialogs.css" layer(components);
@@ -76,7 +76,7 @@
 @import "./dialog-advanced.css" layer(components);
 @import "./phone/phone.css" layer(components);
 @import "./debug-overlay.css" layer(components);
-@import "./ui/notice.css" layer(components);
+@import "./ui/notice.css";
 @import "./flying-animals.css" layer(components);
 @import "./github/reviews-refresh.css" layer(components);
 @import "./onboarding/first-run.css" layer(components);

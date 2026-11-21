@@ -104,7 +104,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenu.hidden = true;
   btnSessionMenu.setAttribute('aria-controls', sessionMenu.id);
 
-  const btnRestart = buildMenuItem('Restart', 'overflow-restart');
+  const btnRestart = buildMenuItem('Restart', 'overflow-restart', { tone: 'warning' });
   btnRestart.setAttribute('aria-haspopup', 'dialog');
   const btnWorkspaceRepos = buildMenuItem('Edit repositories', 'overflow-workspace-repos');
   const btnLinkPr = buildMenuItem('Pull requests', 'overflow-link-pr visible');
@@ -137,7 +137,7 @@ export function buildCardDOM(sessionId: string, sessionName: string, initialStat
   sessionMenuWrap.append(btnSessionMenu, sessionMenu);
 
   const btnRemove = button({ variant: 'icon', size: 'small', label: 'Remove session', icon: createLineIcon(CLOSE_ICON_PATH), action: 'remove-session' });
-  const btnRemoveMenuItem = buildMenuItem('Remove session', 'overflow-remove visible');
+  const btnRemoveMenuItem = buildMenuItem('Remove session', 'overflow-remove visible', { tone: 'danger' });
   btnRemoveMenuItem.onclick = () => btnRemove.click();
   const removeDivider = el('div', 'menu-divider');
   removeDivider.setAttribute('role', 'separator');

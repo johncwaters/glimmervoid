@@ -1,53 +1,69 @@
-.ui-empty-state {
-  box-sizing: border-box;
-  margin: 0;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+@layer primitive-layout {
+  .ui-empty-state {
+    margin: 0;
+  }
+
+  .ui-empty-state[hidden] { display: none; }
+
+  p.ui-empty-state,
+  .ui-empty-state-text {
+    max-width: 78ch;
+    margin: 0;
+  }
+
+  .ui-empty-state-title {
+    margin: 0 0 8px;
+  }
+
+  .ui-empty-state-actions {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .ui-empty-state[data-variant="centered"] {
+    margin: auto;
+  }
+
+  .ui-empty-state[data-variant="centered"] .ui-empty-state-text,
+  p.ui-empty-state[data-variant="centered"] {
+    max-width: 44ch;
+    margin-inline: auto;
+  }
 }
 
-.ui-empty-state[hidden] { display: none; }
+@layer primitive-look {
+  .ui-empty-state {
+    box-sizing: border-box;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--type-meta);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
 
-p.ui-empty-state,
-.ui-empty-state-text {
-  max-width: 78ch;
-  margin: 0;
+  .ui-empty-state-title {
+    color: var(--text-head);
+    font-size: var(--type-body);
+    font-weight: 700;
+  }
+
+  .ui-empty-state-actions {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ui-empty-state[data-variant="boxed"] {
+    padding: 16px 12px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+  }
+
+  .ui-empty-state[data-variant="centered"] {
+    padding: 24px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  .ui-empty-state[data-variant="centered"] .ui-empty-state-actions { justify-content: center; }
 }
-
-.ui-empty-state-title {
-  margin: 0 0 8px;
-  color: var(--text-head);
-  font-size: var(--type-body);
-  font-weight: 700;
-}
-
-.ui-empty-state-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.ui-empty-state[data-variant="boxed"] {
-  padding: 16px 12px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-}
-
-.ui-empty-state[data-variant="centered"] {
-  margin: auto;
-  padding: 24px;
-  color: var(--text-dim);
-  text-align: center;
-}
-
-.ui-empty-state[data-variant="centered"] .ui-empty-state-text,
-p.ui-empty-state[data-variant="centered"] {
-  max-width: 44ch;
-  margin-inline: auto;
-}
-
-.ui-empty-state[data-variant="centered"] .ui-empty-state-actions { justify-content: center; }

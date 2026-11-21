@@ -1,56 +1,72 @@
-.ui-checkbox {
-  --checkbox-glyph-size: 13px;
-  display: grid;
-  grid-template-columns: auto minmax(0, max-content);
-  justify-content: start;
-  align-items: center;
-  column-gap: 8px;
-  row-gap: 0;
-  min-height: var(--control-height);
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  cursor: pointer;
-}
+@layer primitive-layout {
+  .ui-checkbox {
+    display: grid;
+  }
 
-.ui-checkbox-input {
-  width: var(--checkbox-glyph-size);
-  height: var(--checkbox-glyph-size);
-  margin: 0;
-  accent-color: var(--accent);
-  cursor: inherit;
-}
+  .ui-checkbox-input {
+    width: var(--checkbox-glyph-size);
+    margin: 0;
+  }
 
-.ui-checkbox-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+  .ui-checkbox-text {
+    display: flex;
+    min-width: 0;
+  }
 
-.ui-checkbox-text {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.ui-checkbox-hint {
-  grid-column: 2;
-  color: var(--text-muted);
-  line-height: 1.3;
-}
-
-.ui-checkbox:has(> .ui-checkbox-input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-@media (hover: hover) {
-  .ui-checkbox:hover:not(:has(> .ui-checkbox-input:disabled)) {
-    color: var(--text-head);
+  .ui-checkbox-hint {
+    grid-column: 2;
   }
 }
 
-html[data-layout="phone"] .ui-checkbox {
-  --checkbox-glyph-size: 20px;
-  font-size: var(--type-body);
+@layer primitive-look {
+  .ui-checkbox {
+    --checkbox-glyph-size: 13px;
+    grid-template-columns: auto minmax(0, max-content);
+    justify-content: start;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 0;
+    min-height: var(--control-height);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--type-meta);
+    cursor: pointer;
+  }
+
+  .ui-checkbox-input {
+    height: var(--checkbox-glyph-size);
+    accent-color: var(--accent);
+    cursor: inherit;
+  }
+
+  .ui-checkbox-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .ui-checkbox-text {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .ui-checkbox-hint {
+    color: var(--text-muted);
+    line-height: 1.3;
+  }
+
+  .ui-checkbox:has(> .ui-checkbox-input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  @media (hover: hover) {
+    .ui-checkbox:hover:not(:has(> .ui-checkbox-input:disabled)) {
+      color: var(--text-head);
+    }
+  }
+
+  html[data-layout="phone"] .ui-checkbox {
+    --checkbox-glyph-size: 20px;
+    font-size: var(--type-body);
+  }
 }

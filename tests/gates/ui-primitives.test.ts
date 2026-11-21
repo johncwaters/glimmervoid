@@ -115,6 +115,91 @@ test('only public/ui/ styles the button component', () => {
   assert.deepEqual(offenders, [], `Button looks live in public/ui/button.css; lay buttons out from their container instead:\n  ${offenders.join('\n  ')}`);
 });
 
+test('retired button classes are gone from every stylesheet and source', () => {
+  const offenders = collectFiles(PUBLIC_DIR, /\.(css|ts|html)$/).flatMap((file) => {
+    const contents = fs.readFileSync(file, 'utf8');
+    return RETIRED_CLASSES.filter((className) => new RegExp(`(?<![\\w-])${className}(?![\\w-])`).test(contents)).map((className) => `${relativeToRoot(file)}: ${className}`);
+  });
+  assert.deepEqual(offenders, [], `These classes were retired by the button component:\n  ${offenders.join('\n  ')}`);
+});
+
+test('only public/ui/ sets an outlined button state', () => {
+  const offenders = collectFiles(PUBLIC_DIR, /\.(ts|html)$/)
+    .filter((file) => !file.startsWith(UI_DIR + path.sep))
+    .filter((file) => OUTLINE_STATE_WRITE.test(fs.readFileSync(file, 'utf8')))
+    .map(relativeToRoot);
+  assert.deepEqual(offenders, [], `Set an outlined button's state through the setState of the handle outlineIconButton() returns:\n  ${offenders.join('\n  ')}`);
+});
+
+function topLevelBlocksOf(stylesheet: string): { prelude: string; body: string }[] {
+  const blocks: { prelude: string; body: string }[] = [];
+  let depth = 0;
+  let preludeStart = 0;
+  let bodyStart = 0;
+  for (let index = 0; index < stylesheet.length; index += 1) {
+    const character = stylesheet[index];
+    if (character === '{') {
+      if (depth === 0) bodyStart = index + 1;
+      depth += 1;
+      continue;
+    }
+    if (character !== '}') continue;
+    depth -= 1;
+    if (depth !== 0) continue;
+    blocks.push({ prelude: stylesheet.slice(preludeStart, bodyStart - 1).replace(/[;}]/g, '').trim(), body: stylesheet.slice(bodyStart, index) });
+    preludeStart = index + 1;
+  }
+  return blocks;
+}
+
+const PRIMITIVE_LAYERS = ['@layer primitive-layout', '@layer primitive-look'];
+const LAYER_ORDER = '@layer tailwind, xterm, primitive-layout, components, primitive-look;';
+const TAILWIND_ENTRY = path.join(PUBLIC_DIR, 'tailwind.css');
+
+function propertiesOf(stylesheet: string): string[] {
+  const withoutKeyframes = stylesheet.replace(/@keyframes[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+  return [...withoutKeyframes.matchAll(/\{([^{}]*)\}/g)].flatMap((block) => [...block[1].matchAll(/(?:^|;)\s*([-a-zA-Z]+)\s*:/g)].map((declaration) => declaration[1].toLowerCase()));
+}
+
+function primitiveLayerBody(stylesheet: string, layer: string): string {
+  return topLevelBlocksOf(withoutCssComments(stylesheet)).filter((block) => block.prelude === layer).map((block) => block.body).join('\n');
+}
+
+test('public/tailwind.css stacks primitive look above components and primitive layout below them', () => {
+  const entry = withoutCssComments(fs.readFileSync(TAILWIND_ENTRY, 'utf8'));
+  assert.ok(entry.includes(LAYER_ORDER), `public/tailwind.css must declare ${LAYER_ORDER}, so a component stylesheet can place a primitive but never restyle it`);
+  const localImports = [...entry.matchAll(/@import\s+"(\.\/[^"]+)"\s*([^;]*);/g)];
+  const misplaced = localImports.filter(([, importPath, layer]) => (importPath.startsWith('./ui/') ? layer.trim() !== '' : layer.trim() !== 'layer(components)')).map(([statement]) => statement);
+  assert.deepEqual(misplaced, [], 'A public/ui/ import declares its own layers; every other local import goes into layer(components)');
+});
+
+test('every public/ui/ stylesheet keeps layout declarations in primitive-layout and the rest in primitive-look', () => {
+  const offenders = fs.globSync('*.css', { cwd: UI_DIR }).sort().flatMap((name) => {
+    const stylesheet = fs.readFileSync(path.join(UI_DIR, name), 'utf8');
+    const strayBlocks = topLevelBlocksOf(withoutCssComments(stylesheet)).filter((block) => !PRIMITIVE_LAYERS.includes(block.prelude)).map((block) => `public/ui/${name}: ${block.prelude} outside the primitive layers`);
+    const lookInLayout = propertiesOf(primitiveLayerBody(stylesheet, '@layer primitive-layout')).filter((property) => !PRIMITIVE_LAYOUT_PROPERTY.test(property)).map((property) => `public/ui/${name}: ${property} in primitive-layout`);
+    const layoutInLook = propertiesOf(primitiveLayerBody(stylesheet, '@layer primitive-look')).filter((property) => PRIMITIVE_LAYOUT_PROPERTY.test(property)).map((property) => `public/ui/${name}: ${property} in primitive-look`);
+    return [...strayBlocks, ...lookInLayout, ...layoutInLook];
+  });
+  assert.deepEqual(offenders, [], `Layout a container may override goes in primitive-layout; the look goes in primitive-look, above every component stylesheet:\n  ${offenders.join('\n  ')}`);
+});
+
+test('every stylesheet outside public/ui/ sits in the components layer and uses no !important', () => {
+  const entry = withoutCssComments(fs.readFileSync(TAILWIND_ENTRY, 'utf8'));
+  const offenders = collectFiles(PUBLIC_DIR, /\.css$/)
+    .filter((file) => !file.startsWith(UI_DIR + path.sep) && file !== TAILWIND_ENTRY)
+    .flatMap((file) => {
+      const stylesheet = withoutCssComments(fs.readFileSync(file, 'utf8')).trim();
+      const importedIntoComponents = entry.includes(`@import "./${path.relative(PUBLIC_DIR, file).split(path.sep).join('/')}" layer(components);`);
+      const wrapsItselfInComponents = /^@layer components\s*\{[\s\S]*\}$/.test(stylesheet) && topLevelBlocksOf(stylesheet).length === 1;
+      const problems: string[] = [];
+      if (!importedIntoComponents && !wrapsItselfInComponents) problems.push(`${relativeToRoot(file)}: unlayered, so it outranks every primitive layer`);
+      if (/!important/.test(stylesheet)) problems.push(`${relativeToRoot(file)}: !important outranks a primitive's look`);
+      return problems;
+    });
+  assert.deepEqual(offenders, [], `Import a stylesheet into layer(components) in public/tailwind.css or wrap it in @layer components:\n  ${offenders.join('\n  ')}`);
+});
+
 function subjectCompoundOf(selector: string): string {
   let depth = 0;
   let compoundStart = 0;
@@ -162,7 +247,7 @@ test('outside public/ui/ no stylesheet nests a style rule, so the primitive rest
   assert.deepEqual(offenders, [], `Flatten these nested rules:\n  ${offenders.join('\n  ')}`);
 });
 
-test('outside public/ui/ a stylesheet only lays out a primitive, never restyles it', () => {
+test('outside public/ui/ a stylesheet only lays out a primitive, never restyles it, even through a property the primitive leaves unset', () => {
   const offenders = collectFiles(PUBLIC_DIR, /\.css$/)
     .filter((file) => !file.startsWith(UI_DIR + path.sep))
     .flatMap((file) => rulesOf(fs.readFileSync(file, 'utf8')).flatMap((rule) => {
@@ -173,48 +258,27 @@ test('outside public/ui/ a stylesheet only lays out a primitive, never restyles 
   assert.deepEqual(offenders, [], `A primitive's look lives in public/ui/; give it an option there and set only layout from the container:\n  ${offenders.join('\n  ')}`);
 });
 
-test('retired button classes are gone from every stylesheet and source', () => {
-  const offenders = collectFiles(PUBLIC_DIR, /\.(css|ts|html)$/).flatMap((file) => {
-    const contents = fs.readFileSync(file, 'utf8');
-    return RETIRED_CLASSES.filter((className) => new RegExp(`(?<![\\w-])${className}(?![\\w-])`).test(contents)).map((className) => `${relativeToRoot(file)}: ${className}`);
+test('every public/ui/ transition runs on a motion token and every animation waits for no-preference, so reduced motion reaches primitives above components', () => {
+  const offenders = fs.globSync('*.css', { cwd: UI_DIR }).sort().flatMap((name) => {
+    const stylesheet = withoutCssComments(fs.readFileSync(path.join(UI_DIR, name), 'utf8')).replace(/@keyframes[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+    const literalTransitions = [...stylesheet.matchAll(/(?:^|[;{\s])transition(?:-duration)?\s*:\s*([^;}]+)/g)]
+      .map((match) => match[1].trim())
+      .filter((value) => value !== 'none' && /(?<![\w-])\d*\.?\d+m?s\b/.test(value.replace(/var\([^)]*\)/g, '')))
+      .map((value) => `public/ui/${name}: transition ${value}`);
+    const unguardedAnimations = topLevelBlocksOf(stylesheet).flatMap((layerBlock) => topLevelBlocksOf(layerBlock.body))
+      .filter((block) => !/prefers-reduced-motion:\s*no-preference/.test(block.prelude))
+      .filter((block) => /(?:^|[;{\s])animation(?:-name)?\s*:\s*(?!none)/.test(block.body))
+      .map((block) => `public/ui/${name}: animation in ${block.prelude}`);
+    return [...literalTransitions, ...unguardedAnimations];
   });
-  assert.deepEqual(offenders, [], `These classes were retired by the button component:\n  ${offenders.join('\n  ')}`);
+  assert.deepEqual(offenders, [], `Time a primitive transition with var(--transition-fast), which public/style.css shortens under prefers-reduced-motion, and wrap a primitive animation in @media (prefers-reduced-motion: no-preference):\n  ${offenders.join('\n  ')}`);
 });
 
-test('only public/ui/ sets an outlined button state', () => {
-  const offenders = collectFiles(PUBLIC_DIR, /\.(ts|html)$/)
-    .filter((file) => !file.startsWith(UI_DIR + path.sep))
-    .filter((file) => OUTLINE_STATE_WRITE.test(fs.readFileSync(file, 'utf8')))
-    .map(relativeToRoot);
-  assert.deepEqual(offenders, [], `Set an outlined button's state through the setState of the handle outlineIconButton() returns:\n  ${offenders.join('\n  ')}`);
-});
-
-function topLevelBlocksOf(stylesheet: string): { prelude: string; body: string }[] {
-  const blocks: { prelude: string; body: string }[] = [];
-  let depth = 0;
-  let preludeStart = 0;
-  let bodyStart = 0;
-  for (let index = 0; index < stylesheet.length; index += 1) {
-    const character = stylesheet[index];
-    if (character === '{') {
-      if (depth === 0) bodyStart = index + 1;
-      depth += 1;
-      continue;
-    }
-    if (character !== '}') continue;
-    depth -= 1;
-    if (depth !== 0) continue;
-    blocks.push({ prelude: stylesheet.slice(preludeStart, bodyStart - 1).replace(/[;}]/g, '').trim(), body: stylesheet.slice(bodyStart, index) });
-    preludeStart = index + 1;
-  }
-  return blocks;
-}
-
-test('the button hit area is locked in the primitives layer, so no other stylesheet can shrink it', () => {
-  assert.match(fs.readFileSync(path.join(PUBLIC_DIR, 'tailwind.css'), 'utf8'), /@import\s+"\.\/ui\/button\.css"\s+layer\(primitives\)/, 'public/tailwind.css must import public/ui/button.css into the primitives layer, where an !important declaration outranks every later layer');
-  const blocks = topLevelBlocksOf(withoutCssComments(fs.readFileSync(path.join(UI_DIR, 'button.css'), 'utf8')));
-  const extension = blocks.find((block) => block.prelude === '.ui-button::after')?.body ?? '';
-  const coarseBody = blocks.find((block) => /^@media\s*\(pointer:\s*coarse\)$/.test(block.prelude))?.body ?? '';
+test('the button hit area is locked with !important in the primitive layers, so no other stylesheet can shrink it', () => {
+  const stylesheet = fs.readFileSync(path.join(UI_DIR, 'button.css'), 'utf8');
+  const layerBlocks = PRIMITIVE_LAYERS.flatMap((layer) => topLevelBlocksOf(primitiveLayerBody(stylesheet, layer)));
+  const extension = layerBlocks.filter((block) => block.prelude === '.ui-button::after').map((block) => block.body).join('\n');
+  const coarseBody = layerBlocks.filter((block) => /^@media\s*\(pointer:\s*coarse\)$/.test(block.prelude)).map((block) => block.body).join('\n');
   for (const declaration of [/all:\s*initial\s*!important/, /pointer-events:\s*inherit\s*!important/, /visibility:\s*inherit\s*!important/, /content:\s*''\s*!important/, /display:\s*block\s*!important/, /position:\s*absolute\s*!important/, /inset:\s*min\(-1px,\s*calc\(50%\s*-\s*16px\)\)\s+0\s*!important/]) {
     assert.match(extension, declaration, `public/ui/button.css: .ui-button::after must lock ${declaration.source}, a 32px tall mouse hit area that never reaches sideways into a neighbor`);
   }

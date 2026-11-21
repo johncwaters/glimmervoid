@@ -111,6 +111,8 @@ Shadows exist for one job: lifting true overlays (dialogs, menus) off the plane.
 
 ## 5. Components
 
+A primitive's look sits in the `primitive-look` cascade layer above every component stylesheet, and only its layout sits in `primitive-layout` below them (`public/tailwind.css`), so a container can place a primitive but never restyle it; `tests/gates/ui-primitives.test.ts` fails on a declaration in the wrong layer, an unlayered stylesheet, or `!important` outside `public/ui/`.
+
 Every interactive element ships default, hover, focus-visible, active, and disabled states. Focus is always a visible 2px lavender outline with an offset; it is never removed without replacement.
 
 ### Control sizes

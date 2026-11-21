@@ -1,65 +1,84 @@
-.ui-keycap {
-  display: inline-flex;
-  box-sizing: border-box;
-  flex: none;
-  align-items: center;
-  height: var(--chip-height);
-  padding: 0 var(--chip-padding-inline);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  background: var(--bg-surface);
-  color: var(--text-head);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
+@layer primitive-layout {
+  .ui-keycap {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .ui-key-chord {
+    display: inline-flex;
+  }
+
+  .ui-key-chord[data-look="raised"] > .ui-keycap {
+    position: relative;
+    min-width: 24px;
+    margin-bottom: var(--keycap-depth);
+  }
+
+  .ui-key-chord[data-look="raised"] > .ui-keycap::before {
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+  }
+
+  .ui-key-chord[data-look="raised"] > .ui-keycap::after {
+    position: absolute;
+    inset: var(--keycap-depth) -1px calc(-1px - var(--keycap-depth));
+    z-index: -2;
+  }
 }
 
-.ui-key-chord {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
+@layer primitive-look {
+  .ui-keycap {
+    box-sizing: border-box;
+    align-items: center;
+    height: var(--chip-height);
+    padding: 0 var(--chip-padding-inline);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: var(--bg-surface);
+    color: var(--text-head);
+    font-family: var(--font-mono);
+    font-size: var(--type-meta);
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+  }
 
-.ui-key-chord-sep {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-}
+  .ui-key-chord {
+    align-items: center;
+    gap: 6px;
+  }
 
-.ui-keycap[data-tone="accent"] {
-  border-color: var(--accent-dim);
-  color: var(--accent);
-}
+  .ui-key-chord-sep {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--type-meta);
+  }
 
-.ui-key-chord[data-look="raised"] > .ui-keycap {
-  --keycap-depth: 3px;
-  position: relative;
-  isolation: isolate;
-  justify-content: center;
-  min-width: 24px;
-  margin-bottom: var(--keycap-depth);
-  background: transparent;
-  border-color: transparent;
-  border-radius: var(--radius);
-}
+  .ui-keycap[data-tone="accent"] {
+    border-color: var(--accent-dim);
+    color: var(--accent);
+  }
 
-.ui-key-chord[data-look="raised"] > .ui-keycap::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  background: color-mix(in srgb, var(--keycap-tone, var(--accent)) 16%, var(--bg-surface));
-  border: 1px solid var(--keycap-tone, var(--accent));
-  border-radius: var(--radius);
-}
+  .ui-key-chord[data-look="raised"] > .ui-keycap {
+    --keycap-depth: 3px;
+    isolation: isolate;
+    justify-content: center;
+    background: transparent;
+    border-color: transparent;
+    border-radius: var(--radius);
+  }
 
-.ui-key-chord[data-look="raised"] > .ui-keycap::after {
-  content: '';
-  position: absolute;
-  inset: var(--keycap-depth) -1px calc(-1px - var(--keycap-depth));
-  z-index: -2;
-  background: var(--keycap-tone, var(--accent));
-  border-radius: var(--radius);
+  .ui-key-chord[data-look="raised"] > .ui-keycap::before {
+    content: '';
+    background: color-mix(in srgb, var(--keycap-tone, var(--accent)) 16%, var(--bg-surface));
+    border: 1px solid var(--keycap-tone, var(--accent));
+    border-radius: var(--radius);
+  }
+
+  .ui-key-chord[data-look="raised"] > .ui-keycap::after {
+    content: '';
+    background: var(--keycap-tone, var(--accent));
+    border-radius: var(--radius);
+  }
 }

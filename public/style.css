@@ -159,6 +159,10 @@ html[data-layout="phone"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0.01ms linear;
+  }
+
   *, *::before, *::after {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;

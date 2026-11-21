@@ -1,41 +1,48 @@
-.ui-tag {
-  --tag-color: var(--text-muted);
-  --tag-border: var(--border);
-  display: inline-flex;
-  box-sizing: border-box;
-  flex: none;
-  align-items: center;
-  height: var(--chip-height);
-  padding: 0 var(--chip-padding-inline);
-  border: 1px solid var(--tag-border);
-  border-radius: 2px;
-  color: var(--tag-color);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
+@layer primitive-layout {
+  .ui-tag {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .ui-tag:empty { display: none; }
 }
 
-.ui-tag:empty { display: none; }
+@layer primitive-look {
+  .ui-tag {
+    --tag-color: var(--text-muted);
+    --tag-border: var(--border);
+    box-sizing: border-box;
+    align-items: center;
+    height: var(--chip-height);
+    padding: 0 var(--chip-padding-inline);
+    border: 1px solid var(--tag-border);
+    border-radius: 2px;
+    color: var(--tag-color);
+    font-family: var(--font-mono);
+    font-size: var(--type-meta);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
 
-.ui-tag[data-shape="pill"] { border-radius: 999px; }
+  .ui-tag[data-shape="pill"] { border-radius: 999px; }
 
-.ui-tag[data-tone="neutral"] { --tag-color: var(--text-dim); }
+  .ui-tag[data-tone="neutral"] { --tag-color: var(--text-dim); }
 
-.ui-tag[data-tone="accent"] {
-  --tag-color: var(--accent);
-  --tag-border: var(--accent-dim);
-}
+  .ui-tag[data-tone="accent"] {
+    --tag-color: var(--accent);
+    --tag-border: var(--accent-dim);
+  }
 
-.ui-tag[data-tone="warning"] {
-  --tag-color: var(--state-waiting);
-  --tag-border: color-mix(in oklab, var(--state-waiting) 55%, transparent);
-}
+  .ui-tag[data-tone="warning"] {
+    --tag-color: var(--state-waiting);
+    --tag-border: color-mix(in oklab, var(--state-waiting) 55%, transparent);
+  }
 
-.ui-tag[data-tone="failed"] {
-  --tag-color: var(--state-failed);
-  --tag-border: color-mix(in oklab, var(--state-failed) 55%, transparent);
+  .ui-tag[data-tone="failed"] {
+    --tag-color: var(--state-failed);
+    --tag-border: color-mix(in oklab, var(--state-failed) 55%, transparent);
+  }
 }

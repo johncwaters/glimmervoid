@@ -1,52 +1,65 @@
-.ui-input {
-  --input-height: var(--control-height);
-  --input-padding-inline: var(--control-padding-inline);
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  height: var(--input-height);
-  margin: 0;
-  padding: 0 var(--input-padding-inline);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  outline: none;
-  background: var(--bg-surface);
-  color: var(--text-head);
-  font-family: var(--font-mono);
-  font-size: var(--type-body);
-  transition: border-color var(--transition-fast);
+@layer primitive-layout {
+  .ui-input {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+  }
 }
 
-.ui-input[data-size="small"] {
-  --input-height: var(--control-height-small);
-  --input-padding-inline: var(--control-padding-inline-small);
-  font-size: var(--type-meta);
-}
+@layer primitive-look {
+  .ui-input {
+    --input-height: var(--control-height);
+    --input-padding-inline: var(--control-padding-inline);
+    box-sizing: border-box;
+    height: var(--input-height);
+    padding: 0 var(--input-padding-inline);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    outline: none;
+    background: var(--bg-surface);
+    color: var(--text-head);
+    font-family: var(--font-mono);
+    font-size: var(--type-body);
+    transition: border-color var(--transition-fast);
+  }
 
-textarea.ui-input {
-  height: auto;
-  min-height: var(--control-height);
-  padding: 6px var(--input-padding-inline);
-  line-height: 1.4;
-  resize: vertical;
-}
+  .ui-input[data-size="small"] {
+    --input-height: var(--control-height-small);
+    --input-padding-inline: var(--control-padding-inline-small);
+    font-size: var(--type-meta);
+  }
 
-.ui-input::placeholder {
-  color: var(--text-muted);
-}
+  textarea.ui-input {
+    height: auto;
+    min-height: var(--control-height);
+    padding: 6px var(--input-padding-inline);
+    line-height: 1.4;
+    resize: vertical;
+  }
 
-.ui-input:focus,
-.ui-input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
+  .ui-input::placeholder {
+    color: var(--text-muted);
+  }
 
-.ui-input:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+  .ui-input:focus,
+  .ui-input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+  }
 
-html[data-layout="phone"] .ui-input {
-  --input-height: var(--control-height);
-  font-size: var(--type-field);
+  .ui-input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  html[data-layout="phone"] .ui-input {
+    --input-height: var(--control-height);
+    font-size: var(--type-field);
+  }
+
+  @media (pointer: coarse) {
+    .ui-input {
+      font-size: var(--type-field);
+    }
+  }
 }

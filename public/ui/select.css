@@ -1,47 +1,60 @@
-.ui-select {
-  --select-height: var(--control-height);
-  --select-padding-inline: var(--control-padding-inline);
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  height: var(--select-height);
-  margin: 0;
-  padding: 0 var(--select-padding-inline);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  outline: none;
-  background: var(--bg-surface);
-  color: var(--text-head);
-  font-family: var(--font-mono);
-  font-size: var(--type-body);
-  cursor: pointer;
-  transition: border-color var(--transition-fast);
-}
-
-.ui-select[data-size="small"] {
-  --select-height: var(--control-height-small);
-  --select-padding-inline: var(--control-padding-inline-small);
-  font-size: var(--type-meta);
-}
-
-.ui-select:focus,
-.ui-select:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-
-@media (hover: hover) {
-  .ui-select:hover:not(:disabled, :focus) {
-    border-color: var(--border-hover);
+@layer primitive-layout {
+  .ui-select {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
   }
 }
 
-.ui-select:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
+@layer primitive-look {
+  .ui-select {
+    --select-height: var(--control-height);
+    --select-padding-inline: var(--control-padding-inline);
+    box-sizing: border-box;
+    height: var(--select-height);
+    padding: 0 var(--select-padding-inline);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    outline: none;
+    background: var(--bg-surface);
+    color: var(--text-head);
+    font-family: var(--font-mono);
+    font-size: var(--type-body);
+    cursor: pointer;
+    transition: border-color var(--transition-fast);
+  }
 
-html[data-layout="phone"] .ui-select {
-  --select-height: var(--control-height);
-  font-size: var(--type-field);
+  .ui-select[data-size="small"] {
+    --select-height: var(--control-height-small);
+    --select-padding-inline: var(--control-padding-inline-small);
+    font-size: var(--type-meta);
+  }
+
+  .ui-select:focus,
+  .ui-select:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  @media (hover: hover) {
+    .ui-select:hover:not(:disabled, :focus) {
+      border-color: var(--border-hover);
+    }
+  }
+
+  .ui-select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  html[data-layout="phone"] .ui-select {
+    --select-height: var(--control-height);
+    font-size: var(--type-field);
+  }
+
+  @media (pointer: coarse) {
+    .ui-select {
+      font-size: var(--type-field);
+    }
+  }
 }

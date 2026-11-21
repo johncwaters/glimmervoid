@@ -986,8 +986,6 @@
 
 .wb-top-right > * { pointer-events: auto; }
 
-}
-
 .wb-icon-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 .wb-inspect-title-row > .wb-icon-picker { display: contents; }
 .wb-inspect-title-row > .wb-icon-picker > .wb-icon-popover { order: 1; }
@@ -1037,3 +1035,4 @@
 
 .wb-canvas[data-presenting='true'] > :is(.wb-top, .wb-bottom-left, .wb-empty-board) { display: none; }
 .wb-canvas[data-presenting='true'] { position: fixed; inset: 0; z-index: 150; border: 0; border-radius: 0; }
+}

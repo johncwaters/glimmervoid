@@ -463,10 +463,6 @@
   font-size: var(--type-meta);
 }
 
-.settings-view-list-input {
-  min-height: 72px;
-}
-
 .settings-view-number {
   display: flex;
   align-items: center;

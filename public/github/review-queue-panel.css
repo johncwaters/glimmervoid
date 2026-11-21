@@ -262,7 +262,7 @@ html[data-layout="phone"] .pr-comment-header { min-height: 44px; }
 html[data-layout="phone"] .pr-body-input { font-size: var(--type-field); }
 html[data-layout="phone"] .pr-progress-tracker { gap: 6px; }
 html[data-layout="phone"] .pr-progress-stage { font-size: var(--type-meta); }
-html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1fr); gap: 6px; } }
+html[data-layout="phone"] .pr-step { grid-template-columns: 5ch 8ch minmax(0, 1fr); gap: 6px; }
 
 .review-queue-action { flex: none; min-width: 6ch; font-size: var(--type-meta); font-weight: 700; }
 .review-queue-action[data-tone="danger"] { color: var(--state-failed); }
@@ -362,4 +362,5 @@ html[data-layout="phone"] .review-queue .pr-queue-foot > .ui-segmented { display
 .review-board [data-lifted="true"] { display: none; }
 .review-board-cards:has(> .review-board-slot:not([data-closing])) > .review-board-drop-hint { display: none; }
 .review-board-drop-hint { margin: 0; padding: 12px 8px; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--text-muted); text-align: center; }
+}
 }

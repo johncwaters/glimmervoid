@@ -1,34 +1,36 @@
-.pack-panel-view {
-  position: relative;
-  display: flex;
-  min-height: 0;
-  flex: 1 1 auto;
-}
+@layer components {
+  .pack-panel-view {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
 
-.pack-panel-view[hidden] { display: none; }
+  .pack-panel-view[hidden] { display: none; }
 
-.pack-panel-frame {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
-  border: 0;
-  background: var(--bg);
-}
+  .pack-panel-frame {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: var(--bg);
+  }
 
-.pack-panel-notice {
-  position: absolute;
-  inset: 12px 12px auto;
-  padding: 10px 12px;
-  border: 1px solid var(--state-waiting);
-  border-radius: 6px;
-  background: var(--bg-card);
-  color: var(--text);
-  font-size: var(--type-body);
-  line-height: 1.4;
-}
+  .pack-panel-notice {
+    position: absolute;
+    inset: 12px 12px auto;
+    padding: 10px 12px;
+    border: 1px solid var(--state-waiting);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--text);
+    font-size: var(--type-body);
+    line-height: 1.4;
+  }
 
-.pack-tab-icon {
-  width: 16px;
-  height: 16px;
-  flex: none;
+  .pack-tab-icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
 }
