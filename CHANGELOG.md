@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Agent accounts have their own Accounts page in Settings.** They moved out of General into Settings > Accounts, one card per agent. Each account shows its colour, its plan and its email; a radio picks the default once an agent has two accounts, Sign in shows only on an account that is not signed in, and each added account has a menu to rename it, sign in again or remove it. This machine's login now reads plainly as This machine, with its plan underneath.
+- **Lane accounts moved to Settings > Background jobs.** Each lane (Team review, Radar, Community, Task titles, Question manager) now has its own row under Lanes with what it does, an account picker that names the default it follows, and which plan the lane bills.
 
 ## [0.62.11] - 2026-11-20
 

@@ -13,7 +13,6 @@ import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import { button, menuButton } from '../ui/button.ts';
 import { radio } from '../ui/checkbox.ts';
 import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
-import { sectionHeading } from '../ui/section-heading.ts';
 import { select } from '../ui/select.ts';
 import { textInput } from '../ui/text-input.ts';
 
@@ -30,6 +29,14 @@ const LANE_TITLES: Readonly<Record<LaneAccountLane, string>> = Object.freeze({
   'question-manager': 'Question manager',
 });
 
+const LANE_DESCRIPTIONS: Readonly<Record<LaneAccountLane, string>> = Object.freeze({
+  'team-review': 'Reviews the pull requests your teams are asked on.',
+  radar: 'Investigates PostHog errors and traffic spikes.',
+  community: 'Researches community questions and drafts replies.',
+  'task-title': 'Names session cards from their first prompt.',
+  'question-manager': 'Answers the questions sessions hold for you.',
+});
+
 const LOGIN_STATE_TEXT: Readonly<Record<LoginState, string>> = Object.freeze({
   'signed-in': 'Signed in',
   'signed-out': 'Not signed in',
@@ -42,6 +49,7 @@ const FOLLOWS_DEFAULT_VALUE = 'default';
 const MACHINE_LOGIN_VALUE = 'machine';
 
 const accountActionStatus = createActionStatus('settings-agent-accounts-status');
+const laneActionStatus = createActionStatus('settings-lane-accounts-status');
 
 async function removeAgentAccount(account: AgentAccountStatus) {
   const reply = await requestWithStatus('agent-account-remove', { accountId: account.accountId }, accountActionStatus, { busyText: `Removing ${account.label}.` });
@@ -194,34 +202,48 @@ async function chooseLaneAccount(lane: LaneAccountLane, value: string, status: A
   if (reply.error) status.show('error', reply.error);
 }
 
+function resolvedLaneAccountOf(lane: LaneAccountLane, accounts: readonly AgentAccountStatus[]): AgentAccountStatus | undefined {
+  return accounts.find((account) => account.lanes.includes(lane)) ?? accounts.find((account) => account.isDefault);
+}
+
+function billsText(account: AgentAccountStatus | undefined): string {
+  if (account === undefined) return 'Bills the default account';
+  if (account.plan === null) return `Bills ${account.label}`;
+  return `Bills ${account.plan}`;
+}
+
 function buildLaneAccountRow(lane: LaneAccountLane, accounts: readonly AgentAccountStatus[], status: ActionStatus) {
-  const row = el('div', 'settings-accounts-lane');
+  const row = el('div', 'settings-background-job');
   const selectId = `settings-lane-account-${lane}`;
-  const label = el('label', 'settings-accounts-lane-name', LANE_TITLES[lane]);
-  label.htmlFor = selectId;
+  const title = el('label', 'settings-background-job-title', LANE_TITLES[lane]);
+  title.htmlFor = selectId;
+  const body = el('div', 'settings-background-job-body');
+  body.append(title, el('div', 'settings-background-job-text', LANE_DESCRIPTIONS[lane]));
+  const defaultAccount = accounts.find((account) => account.isDefault);
   const laneSelect = select({
     id: selectId,
     options: [
-      { value: FOLLOWS_DEFAULT_VALUE, label: 'Default account' },
+      { value: FOLLOWS_DEFAULT_VALUE, label: defaultAccount ? `Follows default ${defaultAccount.label}` : 'Follows default' },
       ...accounts.map((account) => ({ value: optionValueOf(account), label: account.label })),
     ],
     value: chosenValueOf(lane, accounts),
     onChange: (value) => { void chooseLaneAccount(lane, value, status); },
   });
-  row.append(label, laneSelect.element);
+  const resolvedAccount = resolvedLaneAccountOf(lane, accounts);
+  const swatch = el('span', 'settings-accounts-swatch');
+  swatch.style.background = accountColourOf(resolvedAccount?.accountId ?? null);
+  const bills = el('div', 'settings-background-job-bills');
+  bills.append(swatch, billsText(resolvedAccount));
+  const choice = el('div', 'settings-background-job-choice');
+  choice.append(laneSelect.element, bills);
+  row.append(body, choice);
   return row;
 }
 
-function buildLaneAccountsBlock(status: ActionStatus): HTMLElement {
-  const block = el('section', 'settings-accounts-lanes');
-  block.append(
-    sectionHeading({ title: 'Lanes', level: 3 }).element,
-    el('p', 'settings-accounts-lanes-text', 'The Claude Code account each lane runs under. Lanes running another agent use this machine\'s login.'),
-  );
+export function buildLaneAccountsBlock(): HTMLElement {
+  const block = el('div', 'settings-background-jobs');
   const accounts = agentAccountsOf(LANE_ACCOUNT_AGENT_ID).filter((account) => !account.isPending);
-  const rows = el('div', 'settings-accounts-lane-rows');
-  rows.append(...LaneAccountLane.options.map((lane) => buildLaneAccountRow(lane, accounts, status)));
-  block.append(rows);
+  block.append(...LaneAccountLane.options.map((lane) => buildLaneAccountRow(lane, accounts, laneActionStatus)), laneActionStatus.element);
   return block;
 }
 
@@ -234,6 +256,6 @@ export function buildAgentAccountsBlock(): HTMLElement {
   const block = el('div', 'settings-accounts');
   const groups = el('div', 'settings-accounts-groups');
   groups.append(...ACCOUNT_AGENTS.map((agent) => buildAgentCard(agent, signal)));
-  block.append(groups, buildLaneAccountsBlock(accountActionStatus), accountActionStatus.element);
+  block.append(groups, accountActionStatus.element);
   return block;
 }

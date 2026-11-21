@@ -2,6 +2,20 @@ import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, POSITIVE_NUMBER_RANGE, WORKFLOWS_
 import { MACHINE_NOW, READOUT, INVESTIGATIONS, SESSIONS, MINUTES, HOURS, DAYS, USERS } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
+export const LANES_BACKGROUND_JOBS: SettingsSection = {
+  id: 'lanes-background-jobs',
+  level: 'lanes',
+  title: 'Background jobs',
+  description: 'The Claude Code account each lane runs under, and which plan pays for it. Lanes running another agent use this machine\'s login.',
+  settings: [
+    {
+      id: 'lane-accounts', path: 'status:lane-accounts', title: 'Lane accounts',
+      description: 'A lane that follows the default moves with it when you change the default on the Accounts page.',
+      control: 'readonly', keywords: ['claude', 'account', 'plan', 'billing', 'team review', 'radar', 'community', 'task titles', 'question manager', 'lanes'], status: 'lane-accounts', ...READOUT,
+    },
+  ],
+};
+
 export const LANES_POSTHOG: SettingsSection = {
   id: 'lanes-posthog',
   level: 'lanes',

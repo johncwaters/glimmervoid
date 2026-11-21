@@ -14,7 +14,7 @@ import type { WorkflowRuleToggleRow } from './settings-view-core.ts';
 import { usageStatusLines } from '../usage/usage-store.ts';
 import { applySettingsBroadcast, mergeSettingsPayload } from './settings-store.ts';
 import { openRemoteSetupDialog } from '../dialogs.ts';
-import { buildAgentAccountsBlock } from './settings-accounts.ts';
+import { buildAgentAccountsBlock, buildLaneAccountsBlock } from './settings-accounts.ts';
 import { buildVaultConnectionSlot } from '../secrets/secrets-settings.ts';
 import { panelRefresher, setSettingsPayload, settingsPayload, websiteUrl } from './settings-panel-state.ts';
 import { buildUpdateStatusBlock } from './settings-update-status.ts';
@@ -155,6 +155,7 @@ function buildServerPowerStatus() {
 function renderReadout(setting: SettingsSetting) {
   if (setting.status === 'server-power') return buildServerPowerStatus();
   if (setting.status === 'agent-accounts') return buildAgentAccountsBlock();
+  if (setting.status === 'lane-accounts') return buildLaneAccountsBlock();
   if (setting.status === 'remote-setup') return buildRemoteSetupStatus();
   if (setting.status === 'update-actions') return buildUpdateStatusBlock();
   if (setting.status === 'custom-agents') return buildCustomAgentsStatus();
