@@ -337,7 +337,7 @@ function boxMarkup(box: LaidOutBox, assetHref: AssetHref): string {
     parts.push(text(line, textLeft, firstTitleBaseline + index * titleLineHeight, 'wb-box-was', textAnchor));
   });
   const titleTop = firstTitleBaseline + box.wasLines.length * titleLineHeight;
-  const titleIcon = isIconBox ? null : box.icon;
+  const titleIcon = isIconBox || box.isFullBleed ? null : box.icon;
   if (titleIcon) parts.push(iconMarkup(titleIcon, textLeft, titleTop - TITLE_ICON_RISE, TITLE_ICON_SIZE, 'wb-title-icon'));
   const titleLeft = titleIcon ? textLeft + TITLE_ICON_CHARS * TITLE_CHAR_WIDTH : textLeft;
   box.titleLines.forEach((line, index) => {

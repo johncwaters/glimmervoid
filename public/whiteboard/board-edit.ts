@@ -9,7 +9,7 @@ import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
 import { menuButton } from '../ui/button.ts';
 import { CLOSED_LINE_EDIT, EMPTY_LINE, isSameLines, LINE_STYLE_LABELS, lineWithStyle, linesAfter, nextLineEdit } from './board-line-edit.ts';
 import type { LineEditEvent, LineEditState, LineOp } from './board-line-edit.ts';
-import { createDragPreview, handleSidesOf, isInStepBand, laidOutBox, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor } from '#shared/whiteboard-layout-core.ts';
+import { createDragPreview, handleSidesOf, isFullBleedBox, isInStepBand, laidOutBox, layoutBoard, movedBox, pinnedOffsetYAfterLeaving, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor } from '#shared/whiteboard-layout-core.ts';
 import type { BoardLayout, DragPreview, LaidOutElement, Rect, ResizeHandle, ResizeStretch } from '#shared/whiteboard-layout-core.ts';
 import { elbowCornersAfterShift, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
@@ -1998,9 +1998,25 @@ export function createBoardEditor(options: BoardEditorOptions) {
     return [...board.elements.values()].filter((element) => element.kind === 'wire');
   }
 
+  function isFullBleedSlide(boxId: string): boolean {
+    const element = options.currentBoard()?.elements.get(boxId);
+    return element?.kind === 'box' && isFullBleedBox(element);
+  }
+
+  function viewCoveringCropOf(bounds: Rect): Rect {
+    const viewAspect = viewport.clientWidth / Math.max(1, viewport.clientHeight);
+    const width = Math.min(bounds.width, bounds.height * viewAspect);
+    const height = Math.min(bounds.height, bounds.width / viewAspect);
+    return { x: bounds.x + (bounds.width - width) / 2, y: bounds.y + (bounds.height - height) / 2, width, height };
+  }
+
   function showPresentedBox(): void {
     const bounds = presentedBoxId ? slideBoundsOf(presentedBoxId) : null;
-    if (!bounds) return;
+    if (!bounds || !presentedBoxId) return;
+    if (isFullBleedSlide(presentedBoxId)) {
+      fitArea(viewCoveringCropOf(bounds), PRESENT_MAX_ZOOM);
+      return;
+    }
     const marginUnits = Math.max(bounds.width, bounds.height) * PRESENT_MARGIN_RATIO;
     fitArea({ x: bounds.x - marginUnits, y: bounds.y - marginUnits, width: bounds.width + marginUnits * 2, height: bounds.height + marginUnits * 2 }, PRESENT_MAX_ZOOM);
   }

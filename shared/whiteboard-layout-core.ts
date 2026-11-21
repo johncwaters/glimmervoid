@@ -41,6 +41,7 @@ const OVERLAP_CELL_SIZE = 256;
 const ICON_BOX_WIDTH = 160;
 const SOFT_BREAK_CHARS = '_./:,-';
 const FITTED_BOX_WIDTH_MAX = 480;
+const TITLE_FIT_WIDTH_MAX = 960;
 const FITTED_BOX_WIDTH_STEP = 20;
 
 
@@ -228,12 +229,12 @@ function contentArtOf(content: BoxContent, boxWidth: number): ContentArt | null 
   return content.media ? mediaArtOf(content.media, boxWidth) : null;
 }
 
-function laidOutMedia(content: BoxContent, position: Point, artTop: number, art: ContentArt | null): LaidOutMedia | null {
+function laidOutMedia(content: BoxContent, position: Point, artLeft: number, artTop: number, art: ContentArt | null): LaidOutMedia | null {
   const { media } = content;
   if (!media || !art) return null;
   return {
     kind: media.kind, asset: media.asset, mime: media.mime, hasPreview: media.hasPreview, alt: media.alt, fit: content.fit, dialValues: content.dialValues,
-    x: position.x + BOX_PADDING + art.screen.x, y: position.y + artTop + art.screen.y, width: art.screen.width, height: art.screen.height,
+    x: position.x + artLeft + art.screen.x, y: position.y + artTop + art.screen.y, width: art.screen.width, height: art.screen.height,
   };
 }
 
@@ -263,7 +264,12 @@ interface BoxText {
   bodyLines: LaidOutLine[];
 }
 
+function isFullBleedBox(box: Pick<Box, 'fullBleed' | 'media' | 'shape'>): boolean {
+  return box.fullBleed && box.media !== null && box.shape !== 'device' && box.shape !== 'icon';
+}
+
 function boxTextOf(box: BoxWithoutPlace, boxWidth: number): BoxText {
+  if (isFullBleedBox(box)) return { titleLines: [], wasLines: [], bodyLines: [] };
   const content = boxContentOf(box);
   const titleCharsPerLine = titleCharsPerLineAt(box.textSize, boxWidth);
   return {
@@ -311,13 +317,21 @@ function fittedBoxWidthOf(box: BoxWithoutPlace): number | null {
 
 function titleCutWarningOf(box: BoxWithoutPlace): string | null {
   const boxWidth = boxWidthOf(box);
-  if (box.shape === 'icon' || box.shape === 'device' || !textFitAt(box, boxWidth).isTitleCutMidWord) return null;
-  const fittingWidth = firstWidthWhere(boxWidth + FITTED_BOX_WIDTH_STEP, WHITEBOARD_LIMITS.boxWidthMax, (fit) => !fit.isTitleCutMidWord, box);
+  if (box.shape === 'icon' || box.shape === 'device' || isFullBleedBox(box) || !textFitAt(box, boxWidth).isTitleCutMidWord) return null;
+  const fittingWidth = firstWidthWhere(boxWidth + FITTED_BOX_WIDTH_STEP, TITLE_FIT_WIDTH_MAX, (fit) => !fit.isTitleCutMidWord, box);
   const cutText = `box ${box.id} title is cut mid-word at width ${boxWidth}`;
   return fittingWidth === null ? cutText : `${cutText}; set width ${fittingWidth}`;
 }
 
+function fullBleedBoxShape(box: BoxWithoutPlace, media: BoxMedia) {
+  const width = boxWidthOf(box);
+  const height = box.height ?? Math.min(WHITEBOARD_LIMITS.boxHeightMax, Math.max(1, Math.round(width * media.height / media.width)));
+  const art: ContentArt = { width, height, scale: 1, screen: { x: 0, y: 0, width, height } };
+  return { headerHeight: height, content: { ...boxContentOf(box), fit: 'fill' as const }, artLeft: 0, artTop: 0, art, height };
+}
+
 function measuredBoxShape(box: BoxWithoutPlace) {
+  if (box.media && isFullBleedBox(box)) return fullBleedBoxShape(box, box.media);
   const content = boxContentOf(box);
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   const boxWidth = boxWidthOf(box);
@@ -326,7 +340,7 @@ function measuredBoxShape(box: BoxWithoutPlace) {
   const naturalArt = contentArtOf(content, boxWidth);
   const art = artFillingSpareHeight(content, naturalArt, (box.height ?? 0) - (textHeight + BOX_PADDING + artRoomOf(naturalArt)));
   const headerHeight = textHeight + BOX_PADDING + artRoomOf(art);
-  return { headerHeight, content, artTop: textHeight + MEDIA_GAP, art, height: Math.max(headerHeight, box.height ?? 0) };
+  return { headerHeight, content, artLeft: BOX_PADDING, artTop: textHeight + MEDIA_GAP, art, height: Math.max(headerHeight, box.height ?? 0) };
 }
 
 function artRoomOf(art: ContentArt | null): number {
@@ -385,7 +399,7 @@ function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: BoxWithout
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     icon: box.icon, change: box.change,
-    shape: box.shape, tone: box.tone, textSize: box.textSize, hasTitleGradient: box.titleGradient, angle: box.angle, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
+    shape: box.shape, tone: box.tone, textSize: box.textSize, hasTitleGradient: box.titleGradient, isFullBleed: isFullBleedBox(box), angle: box.angle, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artLeft, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
   };
 }
 
@@ -953,6 +967,6 @@ export {
   FRAME_TITLE_HEIGHT, RESIZE_HANDLES, STACK_SPREAD, TITLE_SCALE_BY_TEXT_SIZE,
   handleSidesOf, titleLineHeightOf, resizedRectOf, scaledRectWithin, turnedRectKeepingAnchor,
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, createDragPreview, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, isInStepBand,
-  customLegendLabelByKey, defaultWireStyleLabel, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
+  customLegendLabelByKey, defaultWireStyleLabel, isFullBleedBox, dressedElement, titlesOnlyBox, dressedLayout, fittedBoxWidthOf, titleCutWarningOf, laidOutBox, nearPosition, laidOutFrameOf, laidOutStrokeOf, titleObstacleOf, wireEndingAtCard, wireShiftedBy, laidOutNearBox, layoutBoard, legendEntriesFrom, placeBoardWithMemory, movedBox, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, stepBandOf, storedRectsOfBoxes, wireCeilingOf, wireStyleKey,
 };
 export type { BoardLayout, DragPreview, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendEntry, PlacedBox, PlacedElement, PlacedLayout, Rect, ResizeHandle, ResizeStretch };

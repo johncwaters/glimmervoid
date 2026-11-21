@@ -513,7 +513,7 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     pushText(part, glyphs, line, textLeft, firstTitleBaseline + index * titleLineHeight, { size: titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true, anchor: textAnchor });
   });
   const titleTop = firstTitleBaseline + box.wasLines.length * titleLineHeight;
-  const titleIcon = isIconBox ? null : box.icon;
+  const titleIcon = isIconBox || box.isFullBleed ? null : box.icon;
   if (titleIcon) pushIcon(part, titleIcon, textLeft, titleTop - TITLE_ICON_RISE, TITLE_ICON_SIZE, faded(palette.ink, opacity), detailMinScale);
   const titleLeft = titleIcon ? textLeft + TITLE_ICON_CHARS * TITLE_CHAR_WIDTH : textLeft;
   const titleStyle: TextStyle = { size: titleSize, color: faded(palette.ink, opacity), isBold: true, isStruckThrough: box.change === 'removed', anchor: textAnchor };

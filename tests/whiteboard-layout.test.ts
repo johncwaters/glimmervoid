@@ -565,8 +565,8 @@ test('a box width rewraps its text and grows its picture, a box height is a mini
   assert.deepEqual([tallPicture?.media?.width, tallPicture?.media?.height], [196, 98], 'a picture keeps its aspect in a tall box');
   assert.deepEqual([boxById.get('short-page')?.media?.width, boxById.get('short-page')?.media?.height], [196, 123], 'a page with no set height keeps its aspect size');
   assert.equal(next.x, wide.x + wide.width + 90, 'a box beside the widened one clears its new width');
-  const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 2000 } }], { id: 'agent', name: 'agent' }, 0);
-  assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 960');
+  const refused = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { width: 3000 } }], { id: 'agent', name: 'agent' }, 0);
+  assert.equal(refused.ok ? '' : refused.error, 'op 1: narrow: a box width is 160 to 2400');
   const tooTall = applyOps(sizedBoard, [{ op: 'set', id: 'narrow', fields: { height: 5000 } }], { id: 'agent', name: 'agent' }, 0);
   assert.equal(tooTall.ok ? '' : tooTall.error, 'op 1: narrow: a box height is 1 to 2400');
 });
