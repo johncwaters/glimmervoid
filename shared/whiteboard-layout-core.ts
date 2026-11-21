@@ -6,12 +6,12 @@ import type { DeviceFit, DeviceName } from './whiteboard-devices.ts';
 import { ICON_BOX_GLYPH_GAP, ICON_BOX_GLYPH_SIZE, TITLE_ICON_CHARS } from './whiteboard-icons.ts';
 import { planSteps, stepBoxesOf } from './whiteboard-plan-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, previewWires, rectsOverlap, rotatedAbout, routingWires, unionOf, warningListOf, wireExtentOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, pairWarningOf, previewWires, rectsOverlap, rotatedAbout, routingWires, unionOf, warningListOf, warningOf, wireExtentOf } from './whiteboard-route-core.ts';
 import { drained } from './generator-steps.ts';
 import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, RouteResult, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
-import type { LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { LayoutWarning, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 
 const MARGIN = 40;
@@ -310,12 +310,12 @@ function fittedBoxWidthOf(box: BoxWithoutPlace): number | null {
   return fitted === DEFAULT_BOX_WIDTH ? null : fitted;
 }
 
-function titleCutWarningOf(box: BoxWithoutPlace): string | null {
+function titleCutWarningOf(box: BoxWithoutPlace): LayoutWarning | null {
   const boxWidth = boxWidthOf(box);
   if (box.shape === 'icon' || box.shape === 'device' || !textFitAt(box, boxWidth).isTitleCutMidWord) return null;
   const fittingWidth = firstWidthWhere(boxWidth + FITTED_BOX_WIDTH_STEP, WHITEBOARD_LIMITS.boxWidthMax, (fit) => !fit.isTitleCutMidWord, box);
   const cutText = `box ${box.id} title is cut mid-word at width ${boxWidth}`;
-  return fittingWidth === null ? cutText : `${cutText}; set width ${fittingWidth}`;
+  return warningOf(fittingWidth === null ? cutText : `${cutText}; set width ${fittingWidth}`, box.id);
 }
 
 function measuredBoxShape(box: BoxWithoutPlace) {
@@ -554,7 +554,7 @@ function boundsOf(elements: readonly PlacedElement[], wireExtent: Rect | null, b
 
 interface PlacedBoard {
   boxesById: Map<string, PlacedBox>;
-  collectPlacementWarnings: () => string[];
+  collectPlacementWarnings: () => LayoutWarning[];
   frames: LaidOutFrame[];
   routing: RouteResult;
 }
@@ -575,15 +575,15 @@ interface PlacedBoardWithMemory {
   warningLists: WarningList[];
 }
 
-function boxOverlapWarning(firstBoxId: string, secondBoxId: string): string {
-  return `box ${firstBoxId} overlaps box ${secondBoxId}`;
+function boxOverlapWarning(firstBoxId: string, secondBoxId: string): LayoutWarning {
+  return pairWarningOf('box', firstBoxId, 'overlaps', secondBoxId);
 }
 
-function coveredTitleWarning(boxId: string, frameId: string): string {
-  return `box ${boxId} covers the title of frame ${frameId}`;
+function coveredTitleWarning(boxId: string, frameId: string): LayoutWarning {
+  return warningOf(`box ${boxId} covers the title of frame ${frameId}`, boxId, frameId);
 }
 
-function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: readonly LaidOutFrame[], board: IndexedBoard): string[] {
+function overlapWarnings(boxesById: ReadonlyMap<string, PlacedBox>, frames: readonly LaidOutFrame[], board: IndexedBoard): LayoutWarning[] {
   const boxes = [...boxesById.values()];
   const boxOverlaps = touchingPairsWithin(boxes).flatMap(([firstIndex, secondIndex]) => {
     const first = boxes[firstIndex];

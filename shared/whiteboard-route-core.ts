@@ -1,6 +1,6 @@
 import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Wire, WireEnd } from './contracts/whiteboard.ts';
-import type { RememberedRoute } from './contracts/whiteboard-tiles.ts';
+import type { LayoutWarning, RememberedRoute } from './contracts/whiteboard-tiles.ts';
 import type { PlacedBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, forEachTouchingPairWithin, orderOfPairs, setFlatRect } from './whiteboard-sweep-core.ts';
 import type { FlatRects } from './whiteboard-sweep-core.ts';
@@ -105,7 +105,7 @@ interface WarningPairs {
 
 interface WarningList {
   count: number;
-  messageAt: (index: number) => string;
+  warningAt: (index: number) => LayoutWarning;
 }
 
 interface RouteMemory {
@@ -308,8 +308,18 @@ function pathOf(points: readonly Point[]): string {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 }
 
-function warningListOf(messages: readonly string[]): WarningList {
-  return { count: messages.length, messageAt: (index) => messages[index] ?? '' };
+function warningOf(text: string, ...elementIds: string[]): LayoutWarning {
+  return { text, elementIds, kind: 'plain', mirrorText: null };
+}
+
+function pairWarningOf(kind: string, firstId: string, verb: string, secondId: string): LayoutWarning {
+  return { text: `${kind} ${firstId} ${verb} ${kind} ${secondId}`, elementIds: [firstId, secondId], kind: 'pair', mirrorText: `${kind} ${secondId} ${verb} ${kind} ${firstId}` };
+}
+
+const NO_WARNING: LayoutWarning = warningOf('');
+
+function warningListOf(warnings: readonly LayoutWarning[]): WarningList {
+  return { count: warnings.length, warningAt: (index) => warnings[index] ?? NO_WARNING };
 }
 
 function cappedWarningLists(lists: readonly WarningList[]): string[] {
@@ -317,13 +327,13 @@ function cappedWarningLists(lists: readonly WarningList[]): string[] {
   const shownCount = total <= WHITEBOARD_LIMITS.layoutWarnings ? total : WHITEBOARD_LIMITS.layoutWarnings - 1;
   const shown: string[] = [];
   for (const list of lists) {
-    for (let index = 0; index < list.count && shown.length < shownCount; index += 1) shown.push(list.messageAt(index));
+    for (let index = 0; index < list.count && shown.length < shownCount; index += 1) shown.push(list.warningAt(index).text);
   }
   return total === shownCount ? shown : [...shown, `and ${total - shownCount} more`];
 }
 
 function cappedWarnings(warnings: readonly string[]): string[] {
-  return cappedWarningLists([warningListOf(warnings)]);
+  return cappedWarningLists([warningListOf(warnings.map((text) => warningOf(text)))]);
 }
 
 function hasHorizontalGap(first: Rect, second: Rect): boolean {
@@ -701,12 +711,12 @@ function alignLonePorts(plans: readonly WirePlan[], groupOrderBySide: ReadonlyMa
   }
 }
 
-function crowdedSideWarnings(requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>): string[] {
+function crowdedSideWarnings(requestsBySide: ReadonlyMap<string, readonly PortRequest[]>, groupOrderBySide: ReadonlyMap<string, readonly string[]>): LayoutWarning[] {
   return [...requestsBySide.entries()].flatMap(([sideKey, sideRequests]) => {
     const first = sideRequests[0];
     const portCount = groupOrderBySide.get(sideKey)?.length ?? 0;
     if (!first || portCount <= portCapacity(first.box, first.side)) return [];
-    return [`box ${first.box.id} has ${portCount} wires on its ${first.side} side, more than fit`];
+    return [{ text: `box ${first.box.id} has ${portCount} wires on its ${first.side} side, more than fit`, elementIds: [first.box.id], kind: 'crowded-side' as const, mirrorText: null }];
   });
 }
 
@@ -1207,7 +1217,7 @@ function labelCandidates(segments: readonly Segment[], width: number): Point[] {
   }), ...flushLabelCandidates(segment, width)]);
 }
 
-function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: string[]): Map<string, { at: Point; bounds: Rect }> {
+function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: LayoutWarning[]): Map<string, { at: Point; bounds: Rect }> {
   const placedById = new Map<string, { at: Point; bounds: Rect }>();
   const allSegments = drawn.flatMap((wire) => wire.segments);
   const segmentGrid = gridOfRects(allSegments.map((segment) => pointBoundsOf(segment.from, segment.to)), LABEL_CELL_SIZE);
@@ -1236,7 +1246,7 @@ function placeLabels(drawn: readonly DrawnWire[], input: RouteInput, warnings: s
     };
     const clearSpot = candidates.find(isClearBy(LABEL_BOX_CLEARANCE)) ?? candidates.find(isClearBy(0));
     const at = clearSpot ?? candidates[0] ?? centerOf(wire.plan.from);
-    if (!clearSpot) warnings.push(`wire ${wire.plan.wire.id} label "${label}" has no clear spot`);
+    if (!clearSpot) warnings.push(warningOf(`wire ${wire.plan.wire.id} label "${label}" has no clear spot`, wire.plan.wire.id));
     const placedLabelBounds = labelBoundsAt(at, width);
     placedById.set(wire.plan.wire.id, { at: { x: Math.round(at.x), y: Math.round(at.y) }, bounds: placedLabelBounds });
     placeSlot(placedGrid, placedBounds.length, placedLabelBounds);
@@ -1370,13 +1380,13 @@ function wirePairsOf(drawn: readonly DrawnWire[], pieces: WirePieces, reusable: 
   return appendPairKeys(kept, isCrossingByPairKey, drawn.length);
 }
 
-function orderedWarningList(pairs: IndexPairs, firstCount: number, secondCount: number, messageOf: (first: number, second: number, isCrossing: boolean) => string): WarningList {
+function orderedWarningList(pairs: IndexPairs, firstCount: number, secondCount: number, warningOfPair: (first: number, second: number, isCrossing: boolean) => LayoutWarning): WarningList {
   const order = orderOfPairs(pairs.firsts, pairs.seconds, firstCount, secondCount);
   return {
     count: order.length,
-    messageAt: (index) => {
+    warningAt: (index) => {
       const position = order[index] ?? 0;
-      return messageOf(pairs.firsts[position] ?? 0, pairs.seconds[position] ?? 0, pairs.isCrossings[position] === true);
+      return warningOfPair(pairs.firsts[position] ?? 0, pairs.seconds[position] ?? 0, pairs.isCrossings[position] === true);
     },
   };
 }
@@ -1464,18 +1474,19 @@ function crossingWarningsOf(drawn: readonly DrawnWire[], input: RouteInput, chan
   if (memory) {
     memory.warningPairs = { wireIds: drawn.map((wire) => wire.plan.wire.id), wireSignatureById: new Map(drawn.map((wire, index) => [wire.plan.wire.id, signatures[index] ?? ''])), solidKeys: solids.map(solidKeyOf), wirePairs, runsThroughPairs };
   }
-  const wireIdAt = (index: number) => drawn[index]?.plan.wire.id;
+  const wireIdAt = (index: number) => drawn[index]?.plan.wire.id ?? '';
   return [
-    orderedWarningList(runsThroughPairs, drawn.length, solids.length, (wireIndex, solidIndex) => `wire ${wireIdAt(wireIndex)} runs through ${solids[solidIndex]?.kind} ${solids[solidIndex]?.id}`),
-    orderedWarningList(wirePairs, drawn.length, drawn.length, (first, second, isCrossing) => `wire ${wireIdAt(first)} ${isCrossing ? 'crosses' : 'overlaps'} wire ${wireIdAt(second)}`),
+    orderedWarningList(runsThroughPairs, drawn.length, solids.length, (wireIndex, solidIndex) => warningOf(`wire ${wireIdAt(wireIndex)} runs through ${solids[solidIndex]?.kind} ${solids[solidIndex]?.id}`, wireIdAt(wireIndex), solids[solidIndex]?.id ?? '')),
+    orderedWarningList(wirePairs, drawn.length, drawn.length, (first, second, isCrossing) => pairWarningOf('wire', wireIdAt(first), isCrossing ? 'crosses' : 'overlaps', wireIdAt(second))),
   ];
 }
 
-function routeQualityWarnings(drawn: readonly DrawnWire[]): string[] {
+function routeQualityWarnings(drawn: readonly DrawnWire[]): LayoutWarning[] {
   return drawn.flatMap((wire) => {
-    if (!wire.states) return [`wire ${wire.plan.wire.id} found no clear route, so it is drawn as a straight dog-leg`];
+    const wireId = wire.plan.wire.id;
+    if (!wire.states) return [warningOf(`wire ${wireId} found no clear route, so it is drawn as a straight dog-leg`, wireId)];
     const bends = bendCountOf(wire);
-    return bends > MAX_BENDS ? [`wire ${wire.plan.wire.id} bends ${bends} times`] : [];
+    return bends > MAX_BENDS ? [warningOf(`wire ${wireId} bends ${bends} times`, wireId)] : [];
   });
 }
 
@@ -1859,7 +1870,7 @@ function* routingWires(unindexedInput: RouteInput, previous: RouteMemory | null)
   const groupOrderBySide = defaultPortOrders(requestsBySide);
   const drawn = yield* routingWithPortOrder(planned, input, requestsBySide, groupOrderBySide, reuse);
   yield;
-  const labelWarnings: string[] = [];
+  const labelWarnings: LayoutWarning[] = [];
   const labelById = placeLabels(drawn, input, labelWarnings);
   const laidOutDirectWires = directWires.map(laidOutDirectWireOf);
   const wires = [...laidOutWiresOf(drawn, labelById), ...laidOutDirectWires];
@@ -1949,6 +1960,6 @@ function wireExtentOf(wire: LaidOutWire): Rect | null {
   return unionOf(wire.label ? [...pointRects, labelBoundsAt(wire.labelAt, labelWidthOf(wire.label))] : pointRects);
 }
 
-export { WIRE_CORNER_RADIUS, roundedCornerPath, roundedCornerPoints, cappedWarningLists, cappedWarnings, elbowCornersAfterShift, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routingWires, unionOf, wireExtentOf, wireHandlesOf };
+export { WIRE_CORNER_RADIUS, roundedCornerPath, roundedCornerPoints, cappedWarningLists, cappedWarnings, elbowCornersAfterShift, pairWarningOf, warningOf, rotatedAbout, rotatedBoundsOf, inflated, labelWidthOf, obstacleRectsByKey, warningListOf, pathOf, pointsOfPath, previewWires, rectsOverlap, routingWires, unionOf, wireExtentOf, wireHandlesOf };
 export type { WireHandle };
 export type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, RouteResult, SoftObstacle, WarningList };

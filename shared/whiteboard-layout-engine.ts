@@ -1,6 +1,6 @@
 import { boxIdOfEnd, boxIdsOfWire, pointOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
 import type { Board, Element } from './contracts/whiteboard.ts';
-import type { PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
+import type { LayoutWarning, PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';
 import {
   boxOverlapWarning, chromeAround, contentBoundsOf, coveredTitleWarning, elementSignature, frameTitleStripOf, headerRectOf, innerWireExtentsOf, isAsideBox, laidOutBox, laidOutFrameOf, laidOutStrokeOf, wireEndingAtCard, wireShiftedBy,
@@ -8,7 +8,7 @@ import {
 } from './whiteboard-layout-core.ts';
 import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
 import type { PlanStep } from './whiteboard-plan-core.ts';
-import { cappedWarningLists, inflated, obstacleRectsByKey, pointsOfPath, rectsOverlap, rotatedBoundsOf, routingWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
+import { cappedWarningLists, inflated, warningListOf, warningOf, obstacleRectsByKey, pointsOfPath, rectsOverlap, rotatedBoundsOf, routingWires, unionOf, wireExtentOf } from './whiteboard-route-core.ts';
 import type { AreaObstacles, Point, RememberedRoute, RouteInput, RouteMemory, RouteResult, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
 import type { SpatialGrid } from './spatial-grid-core.ts';
@@ -19,8 +19,6 @@ const INCREMENTAL_MIN_ELEMENTS = 2000;
 const SOLID_CELL_SIZE = 1024;
 const WIRE_CELL_SIZE = 1024;
 const MAX_CONTEXT_ROUNDS = 4;
-const MENTIONED_ID = /\b(?:box|wire|frame|note) ([a-z0-9][a-z0-9-]*)/g;
-const PAIR_WARNING = /^(box|wire) ([a-z0-9][a-z0-9-]*) (overlaps|crosses) \1 ([a-z0-9][a-z0-9-]*)$/;
 const NO_PLAN_STEPS: ReadonlyMap<string, PlanStep> = new Map();
 
 interface IdGrid {
@@ -31,14 +29,14 @@ interface IdGrid {
 }
 
 interface WarningBook {
-  idsByText: Map<string, string[]>;
+  warningByText: Map<string, LayoutWarning>;
   textsById: Map<string, Set<string>>;
-  presenceByChangedText: Map<string, boolean>;
+  changeByText: Map<string, { warning: LayoutWarning; isPresent: boolean }>;
 }
 
 interface WarningChange {
   book: 'route' | 'placement';
-  text: string;
+  warning: LayoutWarning;
   isPresent: boolean;
 }
 
@@ -49,8 +47,8 @@ interface WorldChanges {
 
 interface SavedWorldParts {
   routeById: ReadonlyMap<string, RememberedRoute>;
-  routeWarnings: readonly string[];
-  placementWarnings: readonly string[];
+  routeWarnings: readonly LayoutWarning[];
+  placementWarnings: readonly LayoutWarning[];
 }
 
 interface SavedWorld extends SavedWorldParts {
@@ -154,38 +152,27 @@ function* inSlices<Item>(items: Iterable<Item>, elementsPerSlice: number, visit:
 }
 
 function createWarningBook(): WarningBook {
-  return { idsByText: new Map(), textsById: new Map(), presenceByChangedText: new Map() };
+  return { warningByText: new Map(), textsById: new Map(), changeByText: new Map() };
 }
 
-function swappedPairOf(text: string): string | null {
-  const pair = PAIR_WARNING.exec(text);
-  return pair ? `${pair[1]} ${pair[4]} ${pair[3]} ${pair[1]} ${pair[2]}` : null;
-}
-
-function isPairWithOutsider(text: string, id: string, insiders: ReadonlyMap<string, unknown>): boolean {
-  const pair = PAIR_WARNING.exec(text);
-  if (!pair) return false;
-  const otherId = pair[2] === id ? pair[4] : pair[2];
+function isPairWithOutsider(warning: LayoutWarning, id: string, insiders: ReadonlyMap<string, unknown>): boolean {
+  if (warning.kind !== 'pair') return false;
+  const otherId = warning.elementIds.find((elementId) => elementId !== id);
   return otherId !== undefined && !insiders.has(otherId);
 }
 
-function noteWarningChange(book: WarningBook, text: string, isPresent: boolean): void {
-  book.presenceByChangedText.delete(text);
-  book.presenceByChangedText.set(text, isPresent);
+function noteWarningChange(book: WarningBook, warning: LayoutWarning, isPresent: boolean): void {
+  book.changeByText.delete(warning.text);
+  book.changeByText.set(warning.text, { warning, isPresent });
 }
 
-function idsMentionedBy(warning: string): string[] {
-  return [...warning.matchAll(MENTIONED_ID)].flatMap((match) => match[1] ?? []);
-}
-
-function addWarning(book: WarningBook, text: string): void {
-  if (book.idsByText.has(text)) return;
-  const swapped = swappedPairOf(text);
-  if (swapped !== null && book.idsByText.has(swapped)) return;
-  const ids = idsMentionedBy(text);
-  book.idsByText.set(text, ids);
-  noteWarningChange(book, text, true);
-  for (const id of ids) {
+function addWarning(book: WarningBook, warning: LayoutWarning): void {
+  const { text } = warning;
+  if (book.warningByText.has(text)) return;
+  if (warning.mirrorText !== null && book.warningByText.has(warning.mirrorText)) return;
+  book.warningByText.set(text, warning);
+  noteWarningChange(book, warning, true);
+  for (const id of warning.elementIds) {
     const texts = book.textsById.get(id) ?? new Set<string>();
     texts.add(text);
     book.textsById.set(id, texts);
@@ -193,20 +180,21 @@ function addWarning(book: WarningBook, text: string): void {
 }
 
 function dropWarning(book: WarningBook, text: string): void {
-  const ids = book.idsByText.get(text);
-  if (!ids) return;
-  book.idsByText.delete(text);
-  noteWarningChange(book, text, false);
-  for (const id of ids) {
+  const warning = book.warningByText.get(text);
+  if (!warning) return;
+  book.warningByText.delete(text);
+  noteWarningChange(book, warning, false);
+  for (const id of warning.elementIds) {
     const texts = book.textsById.get(id);
     texts?.delete(text);
     if (texts?.size === 0) book.textsById.delete(id);
   }
 }
 
-function dropWarningsMentioning(book: WarningBook, id: string, accepts: (text: string) => boolean = () => true): void {
+function dropWarningsMentioning(book: WarningBook, id: string, accepts: (warning: LayoutWarning) => boolean = () => true): void {
   for (const text of [...book.textsById.get(id) ?? []]) {
-    if (accepts(text)) dropWarning(book, text);
+    const warning = book.warningByText.get(text);
+    if (warning && accepts(warning)) dropWarning(book, text);
   }
 }
 
@@ -214,7 +202,7 @@ function* addingWarningLists(book: WarningBook, lists: readonly WarningList[], w
   let addedSinceYield = 0;
   for (const list of lists) {
     for (let index = 0; index < list.count; index += 1) {
-      addWarning(book, list.messageAt(index));
+      addWarning(book, list.warningAt(index));
       addedSinceYield += 1;
       if (addedSinceYield < warningsPerSlice) continue;
       addedSinceYield = 0;
@@ -229,7 +217,7 @@ function addWarningLists(book: WarningBook, lists: readonly WarningList[]): void
 
 function firstTextsOf(book: WarningBook, count: number): string[] {
   const texts: string[] = [];
-  for (const text of book.idsByText.keys()) {
+  for (const text of book.warningByText.keys()) {
     if (texts.length >= count) break;
     texts.push(text);
   }
@@ -240,7 +228,7 @@ function warningsOf(world: LayoutWorld): string[] {
   const books = [world.routeWarnings, world.placementWarnings];
   return cappedWarningLists(books.map((book) => {
     const shown = firstTextsOf(book, WHITEBOARD_LIMITS.layoutWarnings);
-    return { count: book.idsByText.size, messageAt: (index: number) => shown[index] ?? '' };
+    return { count: book.warningByText.size, warningAt: (index: number) => book.warningByText.get(shown[index] ?? '') ?? warningOf('') };
   }));
 }
 
@@ -347,10 +335,6 @@ function* rebuildingWorld(board: Board, previous: LayoutWorld | null, minIncreme
   return world;
 }
 
-function warningListOfTexts(texts: readonly string[]): WarningList {
-  return { count: texts.length, messageAt: (index) => texts[index] ?? '' };
-}
-
 function* obstacleRectsInSlices(contentTop: number, laidOut: readonly PlacedElement[], elementsPerSlice: number): Generator<void, Map<string, Rect>> {
   const rectByKey = new Map<string, Rect>();
   for (let start = 0; start < laidOut.length; start += elementsPerSlice) {
@@ -364,7 +348,7 @@ function* resumingLayoutWorld(board: Board, saved: SavedWorld, elementsPerSlice:
   const contentTop = wireCeilingOf(stepBandOf(board).bottom);
   const rectByKey = yield* obstacleRectsInSlices(contentTop, saved.laidOut, elementsPerSlice);
   const routeMemory: RouteMemory = { contentTop, rectByKey, routeById: new Map(saved.routeById), warningPairs: null };
-  const warningLists = [warningListOfTexts(saved.routeWarnings), warningListOfTexts(saved.placementWarnings)];
+  const warningLists = [warningListOf(saved.routeWarnings), warningListOf(saved.placementWarnings)];
   return yield* buildingWorld(board, { laidOut: saved.laidOut, chrome: saved.chrome, routeMemory, warningLists }, minIncrementalElements, elementsPerSlice);
 }
 
@@ -374,7 +358,7 @@ function resumeLayoutWorld(board: Board, saved: SavedWorld, minIncrementalElemen
 
 function savedWorldOf(world: LayoutWorld): SavedWorldParts {
   bookUnbookedWarnings(world);
-  return { routeById: world.routeMemory.routeById, routeWarnings: [...world.routeWarnings.idsByText.keys()], placementWarnings: [...world.placementWarnings.idsByText.keys()] };
+  return { routeById: world.routeMemory.routeById, routeWarnings: [...world.routeWarnings.warningByText.values()], placementWarnings: [...world.placementWarnings.warningByText.values()] };
 }
 
 function createLayoutWorld(board: Board, previous: LayoutWorld | null = null, minIncrementalElements = INCREMENTAL_MIN_ELEMENTS): LayoutWorld {
@@ -776,9 +760,9 @@ function* reroutingWires(world: LayoutWorld, board: Board, changes: ReadonlyMap<
   for (const [id, wire] of routed.routedWires) {
     const previous = world.laidOutById.get(id);
     const isMoved = !previous || elementSignature(previous) !== elementSignature(wire);
-    dropWarningsMentioning(world.routeWarnings, id, (text) => isMoved || !isPairWithOutsider(text, id, routed.routedWires));
+    dropWarningsMentioning(world.routeWarnings, id, (warning) => isMoved || !isPairWithOutsider(warning, id, routed.routedWires));
   }
-  for (const boxId of routed.completeBoxIds) dropWarningsMentioning(world.routeWarnings, boxId, (text) => text.startsWith(`box ${boxId} has `));
+  for (const boxId of routed.completeBoxIds) dropWarningsMentioning(world.routeWarnings, boxId, (warning) => warning.kind === 'crowded-side');
   for (const [id, wire] of routed.routedWires) commitElement(world, commit, id, wire);
   for (const id of seedIds) {
     if (!routed.routedWires.has(id)) commitElement(world, commit, id, null);
@@ -825,14 +809,14 @@ function refitFramesAroundInnerWires(world: LayoutWorld, board: Board, changes: 
 }
 
 function worldChangesOf(world: LayoutWorld): WorldChanges {
-  const changesIn = (book: WarningBook, name: WarningChange['book']) => [...book.presenceByChangedText].map(([text, isPresent]) => ({ book: name, text, isPresent }));
+  const changesIn = (book: WarningBook, name: WarningChange['book']) => [...book.changeByText.values()].map(({ warning, isPresent }) => ({ book: name, warning, isPresent }));
   return { routeIds: [...world.changedRouteIds], warnings: [...changesIn(world.routeWarnings, 'route'), ...changesIn(world.placementWarnings, 'placement')] };
 }
 
 function forgetWorldChanges(world: LayoutWorld): void {
   world.changedRouteIds.clear();
-  world.routeWarnings.presenceByChangedText.clear();
-  world.placementWarnings.presenceByChangedText.clear();
+  world.routeWarnings.changeByText.clear();
+  world.placementWarnings.changeByText.clear();
 }
 
 function* applyingIncrementally(world: LayoutWorld, board: Board, changes: ReadonlyMap<string, ElementChange>): Generator<void, LayoutDelta | null> {

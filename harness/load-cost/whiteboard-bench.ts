@@ -221,7 +221,7 @@ const ROUTE_WARNING_KINDS = [
 
 function routeQualityOf(world: LayoutWorld, layout: PlacedLayout): RouteQuality {
   const countByKind = { unrouted: 0, overlaps: 0, crossings: 0, runsThrough: 0, labelsWithoutSpot: 0 };
-  for (const text of world.routeWarnings.idsByText.keys()) {
+  for (const text of world.routeWarnings.warningByText.keys()) {
     const kind = ROUTE_WARNING_KINDS.find((candidate) => candidate.pattern.test(text));
     if (kind) countByKind[kind.key] += 1;
   }

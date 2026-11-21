@@ -4,7 +4,7 @@ import { performance } from 'node:perf_hooks';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { z } from 'zod';
 
-import { BoardChrome, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
+import { BoardChrome, LayoutWarning, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
 import { elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS saved_warning (
   PRIMARY KEY (board_id, book, text)
 ) STRICT;
 `;
+
+function storedWarningTextOf(warning: LayoutWarning): string {
+  return JSON.stringify({ text: warning.text, elementIds: warning.elementIds, kind: warning.kind, mirrorText: warning.mirrorText });
+}
 
 const HeadRow = z.object({ version: z.number().int(), updated_at: z.number().int(), code_stamp: z.string(), chrome: z.string() });
 const RouteRow = z.object({ wire_id: z.string(), body: z.string() });
@@ -207,19 +211,21 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
       if (!routeRow.success || !route?.success) return null;
       routeById.set(routeRow.data.wire_id, route.data);
     }
-    const textsByBook = { route: [] as string[], placement: [] as string[] };
+    const warningsByBook = { route: [] as LayoutWarning[], placement: [] as LayoutWarning[] };
     for (const row of statements.warnings.iterate(boardId)) {
-      const warning = WarningRow.safeParse(row);
-      if (!warning.success) return null;
-      textsByBook[warning.data.book].push(warning.data.text);
+      const warningRow = WarningRow.safeParse(row);
+      const warning = warningRow.success ? LayoutWarning.safeParse(parsedJson(warningRow.data.text)) : null;
+      if (!warningRow.success || !warning?.success) return null;
+      warningsByBook[warningRow.data.book].push(warning.data);
     }
-    return { routeById, routeWarnings: textsByBook.route, placementWarnings: textsByBook.placement };
+    return { routeById, routeWarnings: warningsByBook.route, placementWarnings: warningsByBook.placement };
   }
 
   function writeWarningChanges(boardId: string, warnings: readonly WarningChange[]): void {
-    for (const { book, text, isPresent } of warnings) {
-      statements.removeWarning.run(boardId, book, text);
-      if (isPresent) statements.insertWarning.run(boardId, book, text);
+    for (const { book, warning, isPresent } of warnings) {
+      const storedText = storedWarningTextOf(warning);
+      statements.removeWarning.run(boardId, book, storedText);
+      if (isPresent) statements.insertWarning.run(boardId, book, storedText);
     }
   }
 
@@ -307,8 +313,8 @@ function cacheOver(database: DatabaseSync, codeStamp: string): OpenCache {
     if (!whole) return false;
     const { routeWarnings, placementWarnings } = whole.savedWorld();
     inTransaction(database, () => {
-      for (const text of routeWarnings) statements.insertWarning.run(boardId, 'route', text);
-      for (const text of placementWarnings) statements.insertWarning.run(boardId, 'placement', text);
+      for (const warning of routeWarnings) statements.insertWarning.run(boardId, 'route', storedWarningTextOf(warning));
+      for (const warning of placementWarnings) statements.insertWarning.run(boardId, 'placement', storedWarningTextOf(warning));
       writeHead(boardId, whole.stamp, whole.chrome);
     });
     truncateWriteAheadLogLikeAutocheckpoint(database);

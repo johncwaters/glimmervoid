@@ -12,7 +12,7 @@ import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireExtentOf, wireH
 import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
-import { PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
+import { LayoutWarning, PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
 import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
 import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
@@ -618,7 +618,7 @@ test('a board laid out under the incremental threshold keeps every warning namin
     crossing: { kind: 'wire', id: 'crossing', from: 'wire-start', to: 'wire-end' },
     'in-the-way': { kind: 'box', id: 'in-the-way', title: 'Block', place: { at: { x: 3250, y: 110 } } },
   } });
-  assert.ok(savedWorldOf(createLayoutWorld(board, null, 5)).routeWarnings.includes(crossingWarning), 'a whole save of a small board carries its warnings');
+  assert.ok(savedWorldOf(createLayoutWorld(board, null, 5)).routeWarnings.some((warning) => warning.text === crossingWarning), 'a whole save of a small board carries its warnings');
   const world = createLayoutWorld(board, null, 5);
   const grown = stageOps(board, [Op.parse({ op: 'add', element: { kind: 'box', id: 'late', title: 'Late', place: { at: { x: 3250, y: 110 } } } })], author, 0, null);
   assert.ok(grown.ok);
@@ -627,6 +627,19 @@ test('a board laid out under the incremental threshold keeps every warning namin
   const applied = applyLayoutDelta(world, grown.board, changes);
   assert.deepEqual(warningsNamingOfWorld(applied.world, ['crossing', 'late']), warningsNamingOfWorld(createLayoutWorld(grown.board, null, 5), ['crossing', 'late']));
   assert.ok(warningsNamingOfWorld(applied.world, ['late']).length > 0, 'the box the change adds over another box is warned about');
+});
+
+test('a layout warning is filed under the elements its producer named, never under an id its text happens to quote', () => {
+  const labelText = 'box decoy is the long label text here';
+  const board = Board.parse({ id: 'quoting', title: 'quoting', version: 1, caption: null, createdAt: 0, updatedAt: 0, elements: {
+    left: { kind: 'box', id: 'left', title: 'Left', place: { at: { x: 0, y: 0 } } },
+    right: { kind: 'box', id: 'right', title: 'Right', place: { at: { x: 220, y: 0 } } },
+    decoy: { kind: 'box', id: 'decoy', title: 'Decoy', place: { at: { x: 0, y: 600 } } },
+    link: { kind: 'wire', id: 'link', from: 'left', to: 'right', label: labelText },
+  } });
+  const world = createLayoutWorld(board, null, 0);
+  assert.deepEqual(warningsNamingOfWorld(world, ['link']), [`wire link label "${labelText}" has no clear spot`]);
+  assert.deepEqual(warningsNamingOfWorld(world, ['decoy']), []);
 });
 
 test('a wire ends at a free point or a box edge, rotated or not, runs sharp, curved or elbow through its bend points, carries arrowheads at none, one or both ends, and its points move with the plan band', () => {
@@ -742,8 +755,8 @@ function savedThroughJson(world: LayoutWorld) {
     laidOut: z.array(PlacedElementShape).parse(saved.laidOut),
     chrome: saved.chrome,
     routeById: new Map(z.array(z.tuple([z.string(), RememberedRoute])).parse(saved.routeById)),
-    routeWarnings: z.array(z.string()).parse(saved.routeWarnings),
-    placementWarnings: z.array(z.string()).parse(saved.placementWarnings),
+    routeWarnings: z.array(LayoutWarning).parse(saved.routeWarnings),
+    placementWarnings: z.array(LayoutWarning).parse(saved.placementWarnings),
   };
 }
 
@@ -822,7 +835,7 @@ test('a layout world kept across puts places what a fresh layout places, and its
   ];
   const resumeAfterPut = 4;
   let resumed: LayoutWorld | null = null;
-  let savedMirror: { routeById: Map<string, unknown>; routeWarnings: string[]; placementWarnings: string[] } | null = null;
+  let savedMirror: { routeById: Map<string, unknown>; routeWarnings: LayoutWarning[]; placementWarnings: LayoutWarning[] } | null = null;
   for (const [putIndex, ops] of puts.entries()) {
     if (putIndex === resumeAfterPut) {
       const saved = savedThroughJson(world);
@@ -847,11 +860,11 @@ test('a layout world kept across puts places what a fresh layout places, and its
         if (route) savedMirror.routeById.set(id, route);
         if (!route) savedMirror.routeById.delete(id);
       }
-      for (const { book, text, isPresent } of applied.delta.worldChanges.warnings) {
-        const texts = book === 'route' ? savedMirror.routeWarnings : savedMirror.placementWarnings;
-        const kept = texts.filter((known) => known !== text);
-        if (isPresent) kept.push(text);
-        texts.splice(0, texts.length, ...kept);
+      for (const { book, warning, isPresent } of applied.delta.worldChanges.warnings) {
+        const warnings = book === 'route' ? savedMirror.routeWarnings : savedMirror.placementWarnings;
+        const kept = warnings.filter((known) => known.text !== warning.text);
+        if (isPresent) kept.push(warning);
+        warnings.splice(0, warnings.length, ...kept);
       }
     }
   }
