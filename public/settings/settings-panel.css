@@ -182,7 +182,8 @@
 }
 
 .settings-view-nav-subitem {
-  padding-left: 26px;
+  width: calc(100% - 16px);
+  margin-left: 16px;
 }
 
 .settings-view-nav-item[aria-current="page"] {
