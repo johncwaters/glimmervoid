@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BRAND_ACCENT } from '../brand-mark.ts';
 import { DEVICE_FITS, DEVICE_NAMES } from '../whiteboard-devices.ts';
 import { ICON_NAMES } from '../whiteboard-icons.ts';
 import { BOX_SHAPES, SHAPE_TRAITS } from '../whiteboard-shapes.ts';
@@ -211,7 +212,8 @@ const boxFields = {
   height: BoxHeight.nullable().default(null).describe('the least height; content can still grow the box'),
   borderless: z.boolean().nullable().default(null).describe('true draws no card fill or outline; null is the shape default, bare for icon and device; a note always draws its card'),
   tone: z.enum(NOTE_TONES).nullable().default(null).describe('a fill tint for a box, decision, ellipse or note'),
-  textSize: z.enum(TEXT_SIZES).default('M').describe('the title size: S small, M the default, L large'),
+  textSize: z.enum(TEXT_SIZES).default('M').describe('the title size: S small, M the default, L large, XL extra large'),
+  titleGradient: z.boolean().default(false).describe('true draws the title in a gradient from purple to blue to red'),
   angle: z.number().int().min(0, { error: 'a box angle is 0 to 359 degrees' }).max(359, { error: 'a box angle is 0 to 359 degrees' }).default(0).describe('the clockwise rotation in whole degrees around the box center'),
   device: DeviceName.nullable().default(null),
   fit: DeviceFit,
@@ -350,8 +352,8 @@ export const BoardHead = Board.omit({ elements: true });
 export const BOARD_FILE_EXTENSION = '.glimmerboard';
 export const BOARD_FILE_DOWNLOAD_NAME = `board${BOARD_FILE_EXTENSION}`;
 export const BOARD_FILE_FORMAT = 'glimmervoid-board';
-export const BOARD_FILE_VERSION = 4;
-const READABLE_BOARD_FILE_VERSIONS = [1, 2, 3, BOARD_FILE_VERSION] as const;
+export const BOARD_FILE_VERSION = 5;
+const READABLE_BOARD_FILE_VERSIONS = [1, 2, 3, 4, BOARD_FILE_VERSION] as const;
 const ASSET_ID_KEYED_BOARD_FILE_VERSIONS: ReadonlySet<number> = new Set([1, 2]);
 export const BOARD_FILE_CAP_BYTES = 256 * 1024 * 1024;
 export const BOARD_FILE_ELEMENTS_MAX = 20_000;
@@ -664,7 +666,7 @@ export function filledBox(box: SparseBox): Box {
   return {
     kind: 'box', id: box.id, shape: box.shape ?? 'box', title: box.title, icon: box.icon ?? null, place: box.place,
     order: box.order ?? 0, width: box.width ?? null, height: box.height ?? null,
-    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
+    borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
     step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, refHashes: box.refHashes ?? {},

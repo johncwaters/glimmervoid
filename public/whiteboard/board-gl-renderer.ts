@@ -1,4 +1,4 @@
-import { boardMediaDrawnFilename, NOTE_TONE_HEX, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
+import { boardMediaDrawnFilename, NOTE_TONE_HEX, TITLE_GRADIENT_HEX, WHITEBOARD_ASSET_ROUTE } from '#shared/contracts/whiteboard.ts';
 import type { NoteTone } from '#shared/contracts/whiteboard.ts';
 import { BLOCK_RASTER_PX } from '#shared/contracts/whiteboard-tiles.ts';
 import type { Board } from '#shared/contracts/whiteboard.ts';
@@ -548,6 +548,7 @@ function resolvePalette(host: HTMLElement): BoardPalette {
     edgeByTone: toneColorsOf((tone) => reader.colorOf(`color-mix(in oklab, ${NOTE_TONE_HEX[tone]} 70%, var(--wb-board))`)),
     frameFill: reader.colorOf('color-mix(in srgb, var(--accent) 4%, transparent)'),
     placeholderFill: reader.colorOf('color-mix(in oklab, var(--accent) 8%, var(--wb-board))'),
+    titleGradient: TITLE_GRADIENT_HEX.map((hex) => reader.colorOf(hex)),
     metaSize: reader.sizeOf('var(--type-meta)'),
     bodySize: reader.sizeOf('var(--type-body)'),
     titleSize: reader.sizeOf('var(--type-title)'),

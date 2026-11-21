@@ -1,4 +1,4 @@
-import { BOX_CHANGES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
+import { BOX_CHANGES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
 import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, TextSize, Wire, WireEnd } from './contracts/whiteboard.ts';
 import { BYLINE_PREFIX, isBorderlessBox, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
@@ -24,7 +24,7 @@ const BODY_LINE_HEIGHT = 18;
 const MAX_KEY_INDENT_CHARS = 12;
 const ITEM_INDENT_CHARS = 2;
 const TITLE_CHARS_PER_LINE = 20;
-const TITLE_SCALE_BY_TEXT_SIZE: Readonly<Record<TextSize, number>> = { S: 0.8, M: 1, L: 1.5 };
+const TITLE_SCALE_BY_TEXT_SIZE: Readonly<Record<TextSize, number>> = { S: 0.8, M: 1, L: 1.5, XL: 2.25 };
 const BODY_CHARS_PER_LINE = 26;
 const FRAME_PADDING = 18;
 const FRAME_TITLE_HEIGHT = 26;
@@ -34,7 +34,7 @@ const PLAN_TITLE_BASELINE = 16;
 const PLAN_TITLE_HEIGHT = 30;
 const PLAN_BAND_GAP = 40;
 const STEP_HEADER_HEIGHT = 18;
-const TEXT_SIZES_LARGEST_FIRST: readonly TextSize[] = ['L', 'M', 'S'];
+const TEXT_SIZES_LARGEST_FIRST: readonly TextSize[] = [...TEXT_SIZES].sort((first, second) => TITLE_SCALE_BY_TEXT_SIZE[second] - TITLE_SCALE_BY_TEXT_SIZE[first]);
 const MEDIA_GAP = 8;
 const MEDIA_MAX_HEIGHT = 320;
 const OVERLAP_CELL_SIZE = 256;
@@ -385,7 +385,7 @@ function laidOutBox(planStepById: ReadonlyMap<string, PlanStep>, box: BoxWithout
   return {
     kind: 'box', id: box.id, x: position.x, y: position.y, width, height: shape.height,
     icon: box.icon, change: box.change,
-    shape: box.shape, tone: box.tone, textSize: box.textSize, angle: box.angle, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
+    shape: box.shape, tone: box.tone, textSize: box.textSize, hasTitleGradient: box.titleGradient, angle: box.angle, isBorderless: isBorderlessBox(box), headerHeight: shape.headerHeight, media: laidOutMedia(shape.content, position, shape.artTop, shape.art), device: laidOutDevice(shape.content, position, shape.artTop, shape.art), step: laidOutStep(planStepById, box),
   };
 }
 

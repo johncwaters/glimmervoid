@@ -41,6 +41,7 @@ interface BoardPalette {
   edgeByTone: Readonly<Record<NoteTone, Rgba>>;
   frameFill: Rgba;
   placeholderFill: Rgba;
+  titleGradient: readonly Rgba[];
   metaSize: number;
   bodySize: number;
   titleSize: number;
@@ -301,6 +302,27 @@ function pushText(part: PartBuilder, glyphs: GlyphSource, content: string, x: nu
   if (style.isStruckThrough) pushPolyline(part, [{ x: left, y: baseline - style.size * 0.3 }, { x: left + width, y: baseline - style.size * 0.3 }], 1, color, SOLID, minScale);
 }
 
+function gradientColorAt(stops: readonly Rgba[], share: number): Rgba {
+  const scaled = Math.min(1, Math.max(0, share)) * (stops.length - 1);
+  const lowerIndex = Math.min(stops.length - 2, Math.floor(scaled));
+  const lower = stops[lowerIndex] ?? TRANSPARENT;
+  const upper = stops[lowerIndex + 1] ?? lower;
+  return mixed(upper, lower, scaled - lowerIndex);
+}
+
+function pushGradientText(part: PartBuilder, glyphs: GlyphSource, content: string, x: number, baseline: number, style: TextStyle, stops: readonly Rgba[]): void {
+  const characters = [...(style.isUppercase ? content.toUpperCase() : content)];
+  const advance = textAdvance(style);
+  const width = characters.length * advance;
+  const anchorShift = style.anchor === 'middle' ? width / 2 : style.anchor === 'end' ? width : 0;
+  const left = x - anchorShift;
+  const lastIndex = Math.max(1, characters.length - 1);
+  characters.forEach((character, index) => {
+    pushText(part, glyphs, character, left + index * advance, baseline, { ...style, anchor: 'start', isStruckThrough: false, color: faded(gradientColorAt(stops, index / lastIndex), style.color[3]) });
+  });
+  if (style.isStruckThrough) pushPolyline(part, [{ x: left, y: baseline - style.size * 0.3 }, { x: left + width, y: baseline - style.size * 0.3 }], 1, style.color, SOLID, textMinScale(style));
+}
+
 function pushIcon(part: PartBuilder, name: IconName, x: number, y: number, size: number, color: Rgba, minScale: number): void {
   const unit = size / ICON_VIEWBOX_SIZE;
   const strokeWidth = ICON_STROKE_UNITS * unit;
@@ -494,8 +516,14 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   const titleIcon = isIconBox ? null : box.icon;
   if (titleIcon) pushIcon(part, titleIcon, textLeft, titleTop - TITLE_ICON_RISE, TITLE_ICON_SIZE, faded(palette.ink, opacity), detailMinScale);
   const titleLeft = titleIcon ? textLeft + TITLE_ICON_CHARS * TITLE_CHAR_WIDTH : textLeft;
+  const titleStyle: TextStyle = { size: titleSize, color: faded(palette.ink, opacity), isBold: true, isStruckThrough: box.change === 'removed', anchor: textAnchor };
   box.titleLines.forEach((line, index) => {
-    pushText(part, glyphs, line, titleLeft, titleTop + index * titleLineHeight, { size: titleSize, color: faded(palette.ink, opacity), isBold: true, isStruckThrough: box.change === 'removed', anchor: textAnchor });
+    const baseline = titleTop + index * titleLineHeight;
+    if (box.hasTitleGradient) {
+      pushGradientText(part, glyphs, line, titleLeft, baseline, titleStyle, palette.titleGradient);
+      return;
+    }
+    pushText(part, glyphs, line, titleLeft, baseline, titleStyle);
   });
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
   const bodyTop = titleTop + box.titleLines.length * titleLineHeight;

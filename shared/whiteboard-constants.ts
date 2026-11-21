@@ -1,3 +1,4 @@
+import { BRAND_ACCENT } from './brand-mark.ts';
 import type { Box, DialValue, WireEnd } from './contracts/whiteboard.ts';
 
 export const WHITEBOARD_LIMITS = Object.freeze({
@@ -9,10 +10,11 @@ export const WHITEBOARD_LIMITS = Object.freeze({
 export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
 export const WIRE_TONES = ['plain', 'fail', 'join'] as const;
 export const NOTE_TONES = ['yellow', 'pink', 'green', 'blue', 'violet'] as const;
-export const TEXT_SIZES = ['S', 'M', 'L'] as const;
+export const TEXT_SIZES = ['S', 'M', 'L', 'XL'] as const;
 export type NoteTone = (typeof NOTE_TONES)[number];
 export type TextSize = (typeof TEXT_SIZES)[number];
 export const NOTE_TONE_HEX: Readonly<Record<NoteTone, string>> = { yellow: '#f5d565', pink: '#f28bb6', green: '#7fd49a', blue: '#7cb4f2', violet: '#b49cf5' };
+export const TITLE_GRADIENT_HEX: readonly string[] = [BRAND_ACCENT, NOTE_TONE_HEX.blue, '#ef4444'];
 export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 export const BLOCK_RASTER_PX = 64;
 

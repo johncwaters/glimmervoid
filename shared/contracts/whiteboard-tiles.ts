@@ -45,6 +45,7 @@ export const LaidOutBox = z.object({
   shape: z.enum(BOX_SHAPES),
   tone: z.enum(NOTE_TONES).nullable().default(null),
   textSize: z.enum(TEXT_SIZES).default('M'),
+  hasTitleGradient: z.boolean().default(false),
   angle: z.number().default(0),
   isBorderless: z.boolean().default(false),
   headerHeight: z.number(),
