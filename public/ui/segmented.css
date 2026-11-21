@@ -50,7 +50,7 @@
 .ui-segmented-option:only-child { border-radius: calc(var(--radius) - 1px); }
 
 .ui-segmented[data-width="fill"] > .ui-segmented-option {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

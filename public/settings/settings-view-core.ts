@@ -37,6 +37,7 @@ export const SECRET_PRESENCE_SUFFIX = 'Configured';
 const STORED_SECRET_MASK = String.fromCharCode(0x2022).repeat(12);
 const POSTHOG_PROJECTS_ERROR = 'Each line must be a positive whole-number PostHog project id, or the one word none.';
 const SEGMENTED_CHOICE_LIMIT = 3;
+const SEGMENTED_LABEL_CHARACTER_BUDGET = 18;
 const PATHS_SUMMARIZED_IN_PAYLOAD: ReadonlySet<string> = new Set(['customAgents']);
 const INTEGER_TOLERANCE = 1e-9;
 const SETTINGS_NAVIGATION_GROUPS = [
@@ -412,7 +413,9 @@ export function isAtDefault(setting: SettingsSetting, value: unknown): boolean {
 
 export function choicePresentation(setting: SettingsSetting): SettingsChoicePresentation {
   if (setting.presentation) return setting.presentation;
-  return (setting.options?.length ?? 0) <= SEGMENTED_CHOICE_LIMIT ? 'segmented' : 'select';
+  const optionLabels = (setting.options ?? []).map((option) => option.label);
+  if (optionLabels.length > SEGMENTED_CHOICE_LIMIT) return 'select';
+  return optionLabels.join('').length <= SEGMENTED_LABEL_CHARACTER_BUDGET ? 'segmented' : 'select';
 }
 
 function isNonEmptyValue(value: unknown): boolean {

@@ -997,15 +997,6 @@
   margin: 0 0 0 auto;
 }
 
-html:not([data-layout="phone"]) .settings-view-setting:has(> .settings-view-setting-control > .ui-segmented) {
-  grid-template-columns: minmax(0, 1fr) minmax(280px, max-content);
-}
-
-html:not([data-layout="phone"]) .settings-view-setting-control > .ui-segmented > .ui-segmented-option {
-  flex: 1 0 auto;
-  overflow: visible;
-}
-
 .settings-telegram-test .settings-telegram-test-status,
 .settings-telegram-test .settings-vault-test-status,
 .settings-telemetry-data .settings-telemetry-deletion-status {
