@@ -46,6 +46,7 @@ import { createWatcherLink } from '../../cloud/link/watcher-link.ts';
 import { startIdleStop } from '../idle-stop-wiring.ts';
 import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
+import { createGithubSource } from '../github/github-source.ts';
 import { startDiskAlerts } from '../disk-headroom.ts';
 import { diskReserveBytes } from '../core/disk-headroom-core.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
@@ -95,7 +96,7 @@ import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
 import { buildSettingsPayload } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
-import { decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
+import { buildSetupSnapshot, decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
 import { lookupWhy } from '../why-lookup.ts';
 import { createSecretsBroker } from '../secrets/secrets-broker.ts';
@@ -167,6 +168,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const installFlavor = detectInstallFlavor(packageRoot).flavor;
   let broadcastSettings: (() => void) | null = null;
+  let githubUserCredentialOfLink: () => Promise<GithubUserGrant | null> = async () => null;
+  const githubSource = createGithubSource({ userCredential: () => githubUserCredentialOfLink() });
   const telemetry = createTelemetry({
     config,
     env: process.env,
@@ -186,6 +189,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getActiveSessionCount: () => sessions.size + agentSessions.size,
     takeWatcherRollup: () => watcherLink.takeRollup(),
     readAccountIds: createAccountIdReader({ env: process.env, homeDir: os.homedir() }),
+    readSetupSnapshot: async () => buildSetupSnapshot(configStore.config, (await githubSource.current()).kind),
     onInstallIdChange: () => broadcastSettings?.(),
   });
   telemetry.watchForCrashes();
@@ -411,7 +415,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
 
   const provenanceWriterId = createProvenanceWriterId(configSiblingPath(configStore.configPath, PROVENANCE_WRITER_FILE_NAME), console);
   let githubAppGrantsOfLink: GithubAppGrants = NO_GITHUB_APP_GRANTS;
-  let githubUserCredentialOfLink: () => Promise<GithubUserGrant | null> = async () => null;
   const githubAppGrants: GithubAppGrants = {
     tokenFor: (owner) => githubAppGrantsOfLink.tokenFor(owner),
     tokens: () => githubAppGrantsOfLink.tokens(),
@@ -423,6 +426,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     frameSecret,
     githubAppGrants,
     githubUserCredential: () => githubUserCredentialOfLink(),
+    githubSource,
     appVersion: packageJson.version,
     provenanceWriterId,
     configStore,

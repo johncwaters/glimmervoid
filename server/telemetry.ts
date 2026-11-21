@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { ClientErrorReport } from '../shared/contracts/control-messages.ts';
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
-import type { ExceptionProperties, TelemetryEventName, TelemetryEventProperties, WatcherRollup } from '../shared/contracts/telemetry.ts';
+import type { ExceptionProperties, SetupSnapshot, TelemetryEventName, TelemetryEventProperties, WatcherRollup } from '../shared/contracts/telemetry.ts';
 import {
   buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
   buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, POSTHOG_INGEST_HOST_ENV, isIngestOverrideIgnored, nodeMajorVersion, resolveProjectToken,
@@ -25,6 +25,7 @@ const FLUSH_AT_EVENT_COUNT = 20;
 const FLUSH_INTERVAL_MS = 60_000;
 const SEND_TIMEOUT_MS = 5000;
 const STOP_SEND_TIMEOUT_MS = 2500;
+const STOP_SETUP_SNAPSHOT_WAIT_MS = 400;
 const ACTIVE_HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const REMOTE_SWITCH_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_REPORTED_EXCEPTION_FINGERPRINTS = 256;
@@ -69,6 +70,7 @@ interface TelemetryOptions {
   getActiveSessionCount?: () => number;
   takeWatcherRollup?: () => WatcherRollup;
   readAccountIds?: () => Promise<AccountIds>;
+  readSetupSnapshot?: () => Promise<SetupSnapshot>;
   onInstallIdChange?: () => void;
   logger?: LaneLogger | null;
   now?: () => Date;
@@ -207,10 +209,29 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     }
   }
 
-  async function withPersonProperties(batch: QueuedEvent[]): Promise<QueuedEvent[]> {
+  async function readSetupSnapshotOrNone(maxWaitMs: number): Promise<Partial<SetupSnapshot>> {
+    if (!options.readSetupSnapshot) return {};
+    let timer: NodeJS.Timeout | undefined;
+    const waitedTooLong = new Promise<Partial<SetupSnapshot>>((resolve) => {
+      if (!Number.isFinite(maxWaitMs)) return;
+      timer = setTimeout(() => resolve({}), maxWaitMs);
+      timer.unref();
+    });
+    try {
+      return await Promise.race([options.readSetupSnapshot(), waitedTooLong]);
+    } catch (error) {
+      log.warnOnce('setup-snapshot-failed', 'could not read the setup snapshot', { error: errorKind(error) });
+      return {};
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function withInstallProperties(batch: QueuedEvent[], setupSnapshotMaxWaitMs: number): Promise<QueuedEvent[]> {
     if (!batch.some((queued) => PERSON_PROPERTY_EVENTS.has(queued.event))) return batch;
-    const personProperties = buildPersonProperties(await readAccountIdsOrNone(), firstSeen);
-    return batch.map((queued) => (PERSON_PROPERTY_EVENTS.has(queued.event) ? { ...queued, properties: { ...queued.properties, ...personProperties } } : queued));
+    const [accountIds, setupSnapshot] = await Promise.all([readAccountIdsOrNone(), readSetupSnapshotOrNone(setupSnapshotMaxWaitMs)]);
+    const personProperties = buildPersonProperties(accountIds, firstSeen);
+    return batch.map((queued) => (PERSON_PROPERTY_EVENTS.has(queued.event) ? { ...queued, properties: { ...setupSnapshot, ...queued.properties, ...personProperties } } : queued));
   }
 
   function captureExceptionOnce(properties: ExceptionProperties): void {
@@ -293,9 +314,9 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     for (const properties of buildAiGenerationEvents(rows, installId)) capture('$ai_generation', properties);
   }
 
-  async function send(batch: QueuedEvent[], timeoutMs: number): Promise<boolean> {
+  async function send(batch: QueuedEvent[], timeoutMs: number, setupSnapshotMaxWaitMs = Number.POSITIVE_INFINITY): Promise<boolean> {
     try {
-      const outgoing = await withPersonProperties(batch);
+      const outgoing = await withInstallProperties(batch, setupSnapshotMaxWaitMs);
       const { installId } = await ensureInstallState();
       if (!isCaptureAllowed()) return false;
       return await post(outgoing, installId, timeoutMs);
@@ -402,7 +423,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     clearFlushTimer();
     const remaining = queue;
     queue = [];
-    if (isConsentGiven && remaining.length > 0) await send(remaining, STOP_SEND_TIMEOUT_MS);
+    if (isConsentGiven && remaining.length > 0) await send(remaining, STOP_SEND_TIMEOUT_MS, STOP_SETUP_SNAPSHOT_WAIT_MS);
     await stateStore.idle();
   }
 

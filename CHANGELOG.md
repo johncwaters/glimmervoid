@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Session check: board layout**: Checked at turn end now fails when a board's layout warnings (a wire through a box, overlapping boxes) name something that session drew, so an agent fixes its own mess before it stops. It counts only what the session changed last (once you edit an element it is yours) and still holds after Glimmervoid restarts.
 - **Whiteboard: an agent's shown cards stay together**: While you are not looking at the board, a card an agent shows lands beside that agent's previous card instead of below everything, and once it has shown two, its cards sit in one frame titled after the session.
 - **Whiteboard: show beside a box**: An agent can pass `near` to `show` to put the card next to the box it belongs to in one call.
+- **Usage telemetry: setup**: The start and daily usage events now say how GitHub is reached (gh, a connection made in Settings, or neither), how many agent accounts you added and for which kinds of agent, whether Telegram is set up, how many packs are listed and whether the session sandbox is on. They never carry a login, account name or path, and turning telemetry off stops them like every other event.
 
 ### Fixed
 

@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 
 import { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
+import type { Config } from '../../shared/contracts/config.ts';
 import type { ClientErrorReport } from '../../shared/contracts/control-messages.ts';
 import {
   FeatureFlagsResponse, MAX_AI_MODEL_LENGTH, MAX_AI_PROVIDER_LENGTH, MAX_EXCEPTION_FRAMES, MAX_TEXT_LENGTH, TELEMETRY_KILL_SWITCH_FLAG,
 } from '../../shared/contracts/telemetry.ts';
 import type {
-  AiGenerationProperties, ExceptionFrame, ExceptionProperties, PersonProperties, SessionExitKind, TelemetryAdapter,
+  AiGenerationProperties, ExceptionFrame, ExceptionProperties, GithubSourceKind, PersonProperties, SessionExitKind, SetupSnapshot, TelemetryAdapter,
 } from '../../shared/contracts/telemetry.ts';
 import type { UsageGenerationRollupRow } from '../usage/core/usage-entry-core.ts';
 import { loopbackOverrideOrigin } from '../../shared/loopback-hosts.ts';
@@ -439,6 +440,24 @@ function buildPersonProperties(accountIds: AccountIds, firstSeen: FirstSeen): Pe
   };
 }
 
+type SetupConfig = Pick<Config, 'agentAccounts' | 'telegram' | 'packs' | 'sessionSandbox'>;
+
+function isTelegramConfigured(telegram: SetupConfig['telegram']): boolean {
+  return [telegram?.botToken, telegram?.chatId].every((field) => typeof field === 'string' && field !== '');
+}
+
+function buildSetupSnapshot(config: SetupConfig, githubSource: GithubSourceKind): SetupSnapshot {
+  const agentAccounts = config.agentAccounts ?? [];
+  return {
+    github_source: githubSource,
+    agent_account_count: agentAccounts.length,
+    agents_with_accounts: [...new Set(agentAccounts.map((account) => adapterBucket(account.agent)))].sort(),
+    telegram_configured: isTelegramConfigured(config.telegram),
+    pack_count: config.packs?.length ?? 0,
+    session_sandbox: config.sessionSandbox === true,
+  };
+}
+
 function nodeMajorVersion(nodeVersion: string): number {
   const major = Number.parseInt(nodeVersion.replace(/^v/, ''), 10);
   return Number.isFinite(major) ? major : 0;
@@ -446,7 +465,7 @@ function nodeMajorVersion(nodeVersion: string): number {
 
 export {
   FIRST_RUN_NOTICE, POSTHOG_INGEST_HOST_ENV, POSTHOG_PROJECT_TOKEN,
-  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, claudeAccountUuidOf,
+  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, buildSetupSnapshot, claudeAccountUuidOf,
   classifySessionExit, codexUserIdOf, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isIngestOverrideIgnored, isTelemetryForcedOff, nodeMajorVersion,
   parsePosthogReleaseId, resolveProjectToken, telemetryBatchUrl, telemetryFlagsUrl,
 };
