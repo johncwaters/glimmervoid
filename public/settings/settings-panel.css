@@ -158,6 +158,10 @@
 }
 
 .settings-view-nav-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
   width: 100%;
   padding: 8px 10px;
   border: 1px solid transparent;
@@ -175,6 +179,10 @@
     color: var(--text-head);
     background: color-mix(in srgb, var(--text) 6%, transparent);
   }
+}
+
+.settings-view-nav-subitem {
+  padding-left: 26px;
 }
 
 .settings-view-nav-item[aria-current="page"] {
@@ -255,9 +263,6 @@
   margin: 0;
 }
 
-.settings-view-subsection {
-  padding: 28px 0 10px;
-}
 
 .settings-view-stack {
   display: flex;
@@ -855,6 +860,11 @@
   font-size: var(--type-body);
 }
 
+[data-layout="phone"] .settings-view-nav-subitem {
+  margin-left: 20px;
+  max-width: calc(100% - 20px);
+}
+
 [data-layout="phone"] .settings-view-search {
   margin: 0;
 }
@@ -942,6 +952,10 @@
 
 .settings-view-advanced-panel {
   margin-top: 12px;
+}
+
+.settings-view-file-only {
+  margin-top: 24px;
 }
 
 .settings-telegram-test,

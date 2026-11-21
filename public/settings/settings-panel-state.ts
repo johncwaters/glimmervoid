@@ -1,7 +1,7 @@
 import { resolveSoundId, soundOptions } from '../alert-sound.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { SETTINGS_REGISTRY } from '#shared/settings/registry.ts';
-import { childSectionsOf, hydrateFromSettings, pageSectionOf } from './settings-view-core.ts';
+import { hydrateFromSettings, pageSectionOf } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues } from './settings-view-core.ts';
 import { settingsHash } from './settings-link.ts';
 import { getThemeList } from '../theme.ts';
@@ -137,14 +137,6 @@ function storedValue(setting: SettingsSetting): unknown {
   return storedValues[setting.path];
 }
 
-function pageParts(page: SettingsSection): SettingsSection[] {
-  return [page, ...childSectionsOf(viewMap, page.id)];
-}
-
-function pageSettings(page: SettingsSection): SettingsSetting[] {
-  return pageParts(page).flatMap((part) => part.settings);
-}
-
 function sectionOfSetting(setting: SettingsSetting): SettingsSection {
   return viewMap.find((section) => section.settings.some((entry) => entry.id === setting.id)) ?? selectedPage;
 }
@@ -216,5 +208,5 @@ function panelRefresher(): PanelRefresher {
   return installedRefresher;
 }
 
-export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, pageParts, pageSettings, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, websiteUrl };
+export { ABOUT_PAGE_ID, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, availableSettingsSections, draftByControl, fieldErrorById, hydrate, panelRefresher, contentEl, isAutoUpdateCheckAwaitingStatus, selectedPage, settingsPayload, storedValues, viewMap, setContentEl, setSelectedPage, setSettingsPayload, setAutoUpdateCheckAwaitingStatus, pendingSaveById, rebuildSettingsViewMap, replaceSettingsHash, saveStatusById, sectionOfSetting, setPanelRefresher, settingById, storedValue, websiteUrl };
 export type { SaveStatus };

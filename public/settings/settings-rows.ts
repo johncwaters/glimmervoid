@@ -5,9 +5,9 @@ import { copyButton } from '../ui/copy-button.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, isExperimentalSetting } from '#shared/settings/registry.ts';
-import { hasUnsavedEdit, isAtDefault, pageScopeOf, pageSectionOf, resetConfirmationOf, resetValueOf, rowChipsOf, secretEnvironmentSource, shouldShowDangerWarning } from './settings-view-core.ts';
+import { hasUnsavedEdit, isAtDefault, pageScopeOf, resetConfirmationOf, resetValueOf, rowChipsOf, secretEnvironmentSource, shouldShowDangerWarning } from './settings-view-core.ts';
 import { settingsHash } from './settings-link.ts';
-import { contentEl, draftByControl, fieldErrorById, pageSettings, replaceSettingsHash, saveStatusById, sectionOfSetting, selectedPage, settingsPayload, storedValue, viewMap } from './settings-panel-state.ts';
+import { contentEl, draftByControl, fieldErrorById, replaceSettingsHash, saveStatusById, sectionOfSetting, selectedPage, settingsPayload, storedValue } from './settings-panel-state.ts';
 import { buildExperimentalTag, buildStatusSlot, renderReadout } from './settings-readouts.ts';
 import { commitSetting } from './settings-save.ts';
 import { isTextField, renderControl } from './settings-controls.ts';
@@ -19,7 +19,7 @@ function renderSettingHeading(setting: SettingsSetting) {
   heading.id = setting.id;
   heading.addEventListener('click', () => replaceSettingsHash(section.id, setting.id));
   row.appendChild(heading);
-  if (isExperimentalSetting(setting) && !isExperimentalSection(pageSectionOf(viewMap, section.id) ?? section)) row.appendChild(buildExperimentalTag());
+  if (isExperimentalSetting(setting) && !isExperimentalSection(section)) row.appendChild(buildExperimentalTag());
   row.appendChild(copyButton({
     variant: 'quiet',
     size: 'small',
@@ -32,8 +32,7 @@ function renderSettingHeading(setting: SettingsSetting) {
 }
 
 function pageScopeOfSetting(setting: SettingsSetting) {
-  const page = pageSectionOf(viewMap, sectionOfSetting(setting).id);
-  return page ? pageScopeOf(pageSettings(page)) : null;
+  return pageScopeOf(sectionOfSetting(setting).settings);
 }
 
 function renderChips(setting: SettingsSetting, pageScope: SettingsSetting['scope'] | null) {
@@ -175,7 +174,7 @@ function refreshReadout(setting: SettingsSetting) {
 }
 
 function refreshVisibleRows() {
-  for (const setting of pageSettings(selectedPage)) {
+  for (const setting of selectedPage.settings) {
     if (setting.control === 'readonly') {
       refreshReadout(setting);
       continue;
@@ -193,7 +192,7 @@ function refreshRowStatusSlot(setting: SettingsSetting, row: Element) {
 }
 
 function refreshSettingsStatus() {
-  for (const setting of pageSettings(selectedPage)) {
+  for (const setting of selectedPage.settings) {
     if (!setting.status) continue;
     const row = rowOf(setting);
     if (!row) continue;

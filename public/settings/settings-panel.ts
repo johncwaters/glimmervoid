@@ -8,6 +8,7 @@ import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
 import { copyButton } from '../ui/copy-button.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { disclosure } from '../ui/disclosure.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
@@ -15,7 +16,7 @@ import { isExperimentalSection, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETT
 import { MACHINE_HOME } from '#shared/settings/machine-sections.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
-import { SCOPE_LABELS, fileOnlySearchCard, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
+import { SCOPE_LABELS, childSectionsOf, fileOnlySearchCard, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
 import { createSettingsLink, parseSettingsSearchHash, settingsSearchHash } from './settings-link.ts';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
@@ -31,7 +32,7 @@ import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
 import { onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
-import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, pageParts, pageSettings, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, viewMap, websiteUrl } from './settings-panel-state.ts';
+import { ABOUT_PAGE_ID, availableSettingsSections, contentEl, FEATURES_PAGE_ID, GITHUB_PAGE_ID, HOOKS_PAGE_ID, PACKS_PAGE_ID, VAULT_PAGE_ID, hydrate, isAutoUpdateCheckAwaitingStatus, rebuildSettingsViewMap, replaceSettingsHash, selectedPage, setContentEl, setPanelRefresher, setSelectedPage, setSettingsPayload, settingById, settingsPayload, SHORTCUTS_PAGE_ID, STATUS_KEY_PAGE_ID, storedValue, storedValues, viewMap, websiteUrl } from './settings-panel-state.ts';
 import { checkUpdatesIfStale } from './settings-update-status.ts';
 import { buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksTabLink } from '../packs/packs-catalog.ts';
@@ -186,14 +187,6 @@ function renderAnimalGalleryToggle() {
   return disclosure;
 }
 
-function renderSubsectionHeader(section: SettingsSection) {
-  const header = el('header', 'settings-view-subsection');
-  const title = el('h2', 'settings-view-subsection-title', section.title);
-  title.addEventListener('click', () => replaceSettingsHash(section.id));
-  header.append(title, el('p', 'settings-view-section-description', section.description));
-  return header;
-}
-
 function renderPart(stack: HTMLElement, part: SettingsSection) {
   for (const setting of part.settings.filter((entry) => entry.access !== 'advanced')) {
     stack.appendChild(renderRow(setting));
@@ -203,17 +196,33 @@ function renderPart(stack: HTMLElement, part: SettingsSection) {
   if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings));
 }
 
-function renderFileOnlyPart(stack: HTMLElement, groupId: string) {
-  for (const setting of SETTINGS_REGISTRY.fileOnly.filter((entry) => entry.group === groupId)) {
-    const card = el('div', 'settings-view-search-result settings-view-search-file-only');
-    card.append(
-      el('span', 'settings-view-setting-title', setting.title),
-      el('p', 'settings-view-setting-description', setting.description),
-      el('code', 'settings-view-key-path', setting.path),
-    );
-    appendFileOnlyDetails(card, setting);
-    stack.appendChild(card);
-  }
+function renderFileOnlyCard(setting: (typeof SETTINGS_REGISTRY.fileOnly)[number]) {
+  const card = el('div', 'settings-view-search-result settings-view-search-file-only');
+  card.append(
+    el('span', 'settings-view-setting-title', setting.title),
+    el('p', 'settings-view-setting-description', setting.description),
+    el('code', 'settings-view-key-path', setting.path),
+  );
+  appendFileOnlyDetails(card, setting);
+  return card;
+}
+
+function isFileOnlyDisclosureOpenFor(pageId: string) {
+  const shownDisclosure = contentEl?.querySelector<HTMLDetailsElement>('details.settings-view-file-only');
+  return shownDisclosure?.dataset.settingsPage === pageId && shownDisclosure.open;
+}
+
+function renderFileOnlyDisclosure(groupId: string, isOpen: boolean) {
+  const fileOnlySettings = SETTINGS_REGISTRY.fileOnly.filter((entry) => entry.group === groupId);
+  if (fileOnlySettings.length === 0) return null;
+  const fileOnly = disclosure({
+    summary: 'Settings in config.json only',
+    body: () => fileOnlySettings.map(renderFileOnlyCard),
+    open: isOpen,
+  });
+  fileOnly.element.classList.add('settings-view-file-only');
+  fileOnly.element.dataset.settingsPage = groupId;
+  return fileOnly.element;
 }
 
 function renderContent() {
@@ -223,6 +232,7 @@ function renderContent() {
     return;
   }
   if (!contentEl) return;
+  const isFileOnlyOpen = isFileOnlyDisclosureOpenFor(selectedPage.id);
   contentEl.textContent = '';
   const header = el('header', 'settings-view-section-header');
   const title = el('h1', 'settings-view-section-title', selectedPage.title);
@@ -232,7 +242,7 @@ function renderContent() {
   titleRow.appendChild(title);
   const isExperimentalPage = isExperimentalSection(selectedPage);
   if (isExperimentalPage) title.append(' ', buildExperimentalTag());
-  const pageScope = pageScopeOf(pageSettings(selectedPage));
+  const pageScope = pageScopeOf(selectedPage.settings);
   if (pageScope) titleRow.appendChild(tag({ text: SCOPE_LABELS[pageScope], tone: 'neutral' }));
   header.append(titleRow, el('p', 'settings-view-section-description', selectedPage.description));
   if (isExperimentalPage) header.appendChild(el('p', 'settings-view-warning settings-view-experimental-caution', 'Experimental: this may change or break between releases.'));
@@ -275,12 +285,10 @@ function renderContent() {
   if (selectedPage.id === GITHUB_PAGE_ID) renderGithubPage(contentEl);
 
   const stack = el('div', 'settings-view-stack');
-  for (const part of pageParts(selectedPage)) {
-    if (part.id !== selectedPage.id) stack.appendChild(renderSubsectionHeader(part));
-    renderPart(stack, part);
-    renderFileOnlyPart(stack, part.id);
-  }
+  renderPart(stack, selectedPage);
   contentEl.appendChild(stack);
+  const fileOnlyDisclosure = renderFileOnlyDisclosure(selectedPage.id, isFileOnlyOpen);
+  if (fileOnlyDisclosure) contentEl.appendChild(fileOnlyDisclosure);
 }
 
 function selectSection(
@@ -292,15 +300,16 @@ function selectSection(
     if (searchEl) searchEl.value = '';
   }
   const page = pageSectionOf(viewMap, sectionId) ?? selectedPage;
-  if (selectedPage.id !== page.id) isAdvancedSettingsExpanded = false;
+  const isPageChange = selectedPage.id !== page.id;
+  if (isPageChange) isAdvancedSettingsExpanded = false;
   setSelectedPage(page);
-  const targetSection = viewMap.find((section) => section.id === sectionId) ?? page;
   markCurrentSection(navigationEl);
-  if (openPhoneSection && isPhoneLayout()) phoneSectionId = targetSection.id;
+  if (openPhoneSection && isPhoneLayout()) phoneSectionId = page.id;
   renderContent();
+  if (isPageChange && contentEl) contentEl.scrollTop = 0;
   if (isAlertSoundPage(selectedPage)) reloadCustomSounds();
   if (selectedPage.id === UPDATES_SECTION_ID) checkUpdatesIfStale();
-  if (updateHash) replaceSettingsHash(targetSection.id, settingId);
+  if (updateHash) replaceSettingsHash(page.id, settingId);
   if (settingId) flashSetting(settingId);
   if (focusContent) contentEl?.querySelector('h1')?.focus();
 }
@@ -425,6 +434,14 @@ function returnToList() {
   navigationEl?.querySelector<HTMLElement>(`[data-settings-section="${previousPageId}"]`)?.focus();
 }
 
+function renderNavigationItem(section: SettingsSection, className: string) {
+  const navItem = createPressable(className, section.title);
+  if (isExperimentalSection(section)) navItem.append(' ', buildExperimentalTag());
+  navItem.dataset.settingsSection = section.id;
+  navItem.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
+  return navItem;
+}
+
 function renderNavigation() {
   if (!navigationEl || !shellEl) return;
   navigationEl.textContent = '';
@@ -432,11 +449,8 @@ function renderNavigation() {
     const group = el('div', 'settings-view-nav-group');
     if (navigationGroup.heading) group.appendChild(el('div', 'settings-view-nav-heading', navigationGroup.heading));
     for (const section of navigationGroup.sections) {
-      const navItem = createPressable('settings-view-nav-item', section.title);
-      if (isExperimentalSection(section)) navItem.append(' ', buildExperimentalTag());
-      navItem.dataset.settingsSection = section.id;
-      navItem.addEventListener('click', () => selectSection(section.id, { focusContent: isPhoneLayout() }));
-      group.appendChild(navItem);
+      group.appendChild(renderNavigationItem(section, 'settings-view-nav-item'));
+      for (const childSection of childSectionsOf(viewMap, section.id)) group.appendChild(renderNavigationItem(childSection, 'settings-view-nav-item settings-view-nav-subitem'));
     }
     navigationEl.appendChild(group);
   }
@@ -538,7 +552,7 @@ function reloadCustomSounds() {
 }
 
 function isAlertSoundPage(page: SettingsSection) {
-  return pageSettings(page).some((setting) => setting.path === 'pref:soundId');
+  return page.settings.some((setting) => setting.path === 'pref:soundId');
 }
 
 function refreshSoundOptions() {

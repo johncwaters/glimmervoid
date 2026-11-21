@@ -175,10 +175,7 @@ export function childSectionsOf(sections: readonly SettingsSection[], sectionId:
 }
 
 export function pageSectionOf(sections: readonly SettingsSection[], sectionId: string): SettingsSection | null {
-  const section = sections.find((entry) => entry.id === sectionId);
-  if (!section) return null;
-  if (!section.parent) return section;
-  return sections.find((entry) => entry.id === section.parent) ?? section;
+  return sections.find((entry) => entry.id === sectionId) ?? null;
 }
 
 export function topLevelSectionsOf(sections: readonly SettingsSection[]): SettingsSection[] {
