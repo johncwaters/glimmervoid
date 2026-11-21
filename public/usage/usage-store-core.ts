@@ -131,7 +131,7 @@ export function formatTokens(value: unknown) {
   return `${sign}${trimTrailingZeros((abs / 1e9).toFixed(2))}B`;
 }
 
-function planWindowTone(pct: unknown) {
+export function planWindowTone(pct: unknown) {
   if (typeof pct !== 'number' || !Number.isFinite(pct)) return 'ok';
   if (pct >= 100) return 'crit';
   if (pct >= TOKEN_LIMIT_WARN_PCT) return 'warn';

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { YourDay } from '../your-day.ts';
+import { AgentAccountId } from '../agent-accounts.ts';
 import { requestId, sessionId, loose, openObject, nullableString, timestamp, optionalTimestamp, optionalError, opaqueObject, opaqueArray, PlanLimitsVendor } from './control-fields.ts';
 
 export const SessionMeterReading = z.object({
@@ -55,6 +56,14 @@ export const laneServerVariants = [
     sevenDay: z.unknown().nullable(),
     source: z.string(),
     vendor: PlanLimitsVendor.optional(),
+  }),
+  loose('account-plan-limits', {
+    ts: timestamp,
+    fiveHour: z.unknown().nullable(),
+    sevenDay: z.unknown().nullable(),
+    source: z.string(),
+    vendor: PlanLimitsVendor,
+    accountId: AgentAccountId.nullable(),
   }),
   loose('session-meter', { id: sessionId, ts: timestamp, ...SessionMeterReading.shape }),
   loose('usage-budget-alert', {

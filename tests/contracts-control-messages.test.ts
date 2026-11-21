@@ -228,6 +228,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'session-meter', id: 'session-1', ts: NOW, model: 'Opus 5.5', effort: 'medium', contextTokens: 38710, contextWindow: 1000000, callCostUSD: 0.0193, outputStyle: 'default' },
   { type: 'usage-report', requestId: 'usage-1', ts: NOW, tz: 'UTC', blockHours: 5, totals: {}, daily: [], models: [], sessions: [], blocks: [], activeBlock: null, anomaly: null, byLane: {}, budget: {}, savings: {}, pricing: {}, scan: {}, warning: null, error: null },
   { type: 'plan-limits', ts: NOW, fiveHour: { pct: 10, resetsAtMs: NOW + 1000 }, sevenDay: null, source: 'statusline' },
+  { type: 'account-plan-limits', ts: NOW, fiveHour: { pct: 40, resetsAtMs: NOW + 1000 }, sevenDay: null, source: 'statusline', vendor: 'claude', accountId: 'claude-a1b2c3' },
   { type: 'usage-budget-alert', scope: 'daily', periodKey: '2026-08-26', threshold: 50, spentUsd: 5, budgetUsd: 10, text: 'budget crossed', ts: NOW },
   { type: 'client-trust', trust: 'local' },
   { type: 'whiteboards-snapshot', boards: [{ id: 'board-1', title: 'Ingest plan', version: 3, updatedAt: NOW, project: null, isArchived: false, connectedSessionIds: ['session-1'], queuedBySessionId: { 'session-1': 2 }, link: { path: 'boards/ingest', state: 'in-sync', text: 'In sync with the folder' } }] },

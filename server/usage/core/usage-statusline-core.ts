@@ -116,6 +116,16 @@ function buildPlanLimitsMessage(
   };
 }
 
+function buildAccountPlanLimitsMessage(
+  snapshot: { rateLimits?: RateLimitWindows | null; ts?: number } | null | undefined,
+  vendor: PlanLimitsVendor,
+  accountId: string | null,
+) {
+  const vendorMessage = buildPlanLimitsMessage(snapshot, vendor);
+  if (!vendorMessage) return null;
+  return { ...vendorMessage, type: 'account-plan-limits', accountId };
+}
+
 type CallCostOf = (modelId: string, contextTokens: number) => number | null;
 
 function contextTokensOf(context: Record<string, unknown> | null): number | null {
@@ -159,5 +169,5 @@ function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | n
   return recordedCostUSD ?? null;
 }
 
-export { normalizeStatuslinePayload, rateLimitWindow, sessionMeterOf, shouldBroadcastPlanLimits, buildPlanLimitsMessage, selectOfficialSessionCost };
+export { normalizeStatuslinePayload, rateLimitWindow, sessionMeterOf, shouldBroadcastPlanLimits, buildPlanLimitsMessage, buildAccountPlanLimitsMessage, selectOfficialSessionCost };
 export type { PlanLimitsVendor };

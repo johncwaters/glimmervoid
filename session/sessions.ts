@@ -391,6 +391,7 @@ class Session extends EventEmitter {
   _accountEnv: Record<string, string> = {};
   _accountFolder: string | null = null;
   accountIdInUse: string | null = null;
+  accountInUseSinceMs: number | null = null;
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
@@ -2242,6 +2243,7 @@ class Session extends EventEmitter {
     this._accountEnv = {};
     this._accountFolder = null;
     this.accountIdInUse = null;
+    this.accountInUseSinceMs = clock.nowMs();
     const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
     if (accountHome.kind === "machine-login") return this._prepareSandboxedConfigHome();
     if (accountHome.kind === "refused") return accountHome.reason;

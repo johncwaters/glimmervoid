@@ -14,6 +14,7 @@ import type { PassOutcome } from './core/usage-scan-core.ts';
 import { computeCacheSavings } from './core/usage-savings-core.ts';
 import {
   buildPlanLimitsMessage,
+  buildAccountPlanLimitsMessage,
   normalizeStatuslinePayload,
   selectOfficialSessionCost,
   sessionMeterOf,
@@ -73,6 +74,7 @@ const IO_FAILURE_EVALUATION_LIMIT = 3;
 const KIMI_IDLE_POLL_MS = 15 * 60 * 1000;
 const KIMI_VIEWED_POLL_MS = 60 * 1000;
 const KIMI_AGENT_ID = 'kimi';
+const CODEX_AGENT_ID = 'codex';
 
 const COST_MODES = new Set<string>(USAGE_COST_MODES);
 const INTEGER_RANGES = USAGE_INTEGER_RANGES;
@@ -101,6 +103,8 @@ interface WiringConfig {
 interface WiringSession {
   ephemeral?: boolean;
   resumeSessionId?: string | null;
+  accountIdInUse?: string | null;
+  accountInUseSinceMs?: number | null;
   agentId?: string;
   hasLivePty?: boolean;
 }
@@ -280,6 +284,7 @@ function createUsageWiring({
   let ioFailureStreakId = 0;
 
   const planLimitsByVendor: Record<PlanLimitsVendor, PlanLimitsSnapshot | null> = { claude: null, codex: null, kimi: null };
+  const accountPlanLimitsByKey = new Map<string, { vendor: PlanLimitsVendor; accountId: string | null; snapshot: PlanLimitsSnapshot }>();
   let lastKimiPollMs: number | null = null;
   let kimiPollInFlight: Promise<void> | null = null;
   const officialCostByClaudeId = new Map<string, number>();
@@ -383,6 +388,7 @@ function createUsageWiring({
 
     if (result) {
       ingestCodexRateLimits(scanner.latestCodexRateLimits());
+      ingestCodexAccountRateLimits(scanner.drainCodexRateLimits());
       laneLog.debugNote(
         () => 'pass complete',
         () => ({
@@ -573,6 +579,41 @@ function createUsageWiring({
     rememberOfficialCost(snapshot);
     if (!snapshot.rateLimits) return;
     adoptPlanLimits('claude', snapshot);
+    adoptAccountPlanLimits('claude', sessions.get(glimmervoidId)?.accountIdInUse ?? null, snapshot);
+  }
+
+  function adoptAccountPlanLimits(vendor: PlanLimitsVendor, accountId: string | null, snapshot: PlanLimitsSnapshot): void {
+    const key = `${vendor}:${accountId ?? ''}`;
+    const previous = accountPlanLimitsByKey.get(key)?.snapshot ?? null;
+    if (previous && snapshot.ts < previous.ts) return;
+    accountPlanLimitsByKey.set(key, { vendor, accountId, snapshot });
+    if (!shouldBroadcastPlanLimits(previous, snapshot)) return;
+    const message = buildAccountPlanLimitsMessage(snapshot, vendor, accountId);
+    if (message) broadcast(message);
+  }
+
+  function liveCodexSessionOf(agentSessionId: string): WiringSession | null {
+    for (const session of sessions.values()) {
+      if (session.agentId === CODEX_AGENT_ID && session.hasLivePty === true && session.resumeSessionId === agentSessionId) return session;
+    }
+    return null;
+  }
+
+  function ingestCodexAccountRateLimits(drained: readonly { agentSessionId: string; snapshot: CodexRateLimitSnapshot }[]): void {
+    if (stopped || !cfg.enabled || !cfg.planLimits) return;
+    for (const { agentSessionId, snapshot } of drained) {
+      const liveSession = liveCodexSessionOf(agentSessionId);
+      if (!liveSession) continue;
+      if (snapshot.ts < (liveSession.accountInUseSinceMs ?? Number.POSITIVE_INFINITY)) continue;
+      adoptAccountPlanLimits('codex', liveSession.accountIdInUse ?? null, snapshot);
+    }
+  }
+
+  function getAccountPlanLimitsMessages() {
+    if (!cfg.enabled || !cfg.planLimits) return [];
+    return [...accountPlanLimitsByKey.values()]
+      .map(({ vendor, accountId, snapshot }) => buildAccountPlanLimitsMessage(snapshot, vendor, accountId))
+      .filter((message) => message !== null);
   }
 
   function adoptPlanLimits(vendor: PlanLimitsVendor, snapshot: PlanLimitsSnapshot, { isFreshPoll = false } = {}): void {
@@ -873,6 +914,7 @@ function createUsageWiring({
     requestReport,
     ingestStatusline,
     getPlanLimitsMessage,
+    getAccountPlanLimitsMessages,
     getSessionMeterMessages,
     budgetHoldReason,
     readBudgetHoldReason,

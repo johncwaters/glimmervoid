@@ -467,6 +467,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let lastOutcome: PassOutcome | null = null;
   let lastIoFailures = 0;
   let latestCodexRateLimitSnapshot: CodexRateLimitSnapshot | null = null;
+  const undrainedCodexRateLimitsBySessionId = new Map<string, CodexRateLimitSnapshot>();
   let activePass: Promise<PassResult> | null = null;
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
@@ -628,6 +629,19 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return latestCodexRateLimitSnapshot;
   }
 
+  function noteCodexSessionRateLimits(snapshot: CodexRateLimitSnapshot | null, agentSessionId: string | null): void {
+    if (!snapshot || !agentSessionId) return;
+    const previous = undrainedCodexRateLimitsBySessionId.get(agentSessionId);
+    if (previous && snapshot.ts < previous.ts) return;
+    undrainedCodexRateLimitsBySessionId.set(agentSessionId, snapshot);
+  }
+
+  function drainCodexRateLimits(): { agentSessionId: string; snapshot: CodexRateLimitSnapshot }[] {
+    const drained = [...undrainedCodexRateLimitsBySessionId].map(([agentSessionId, snapshot]) => ({ agentSessionId, snapshot }));
+    undrainedCodexRateLimitsBySessionId.clear();
+    return drained;
+  }
+
   function noteActivity(vendor: string, activity: ParsedActivity, fallbackSessionId: string | null): void {
     const sessionId = activity.sessionId ?? fallbackSessionId;
     if (!sessionId) return;
@@ -655,7 +669,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     },
   ): number {
     if (vendor === 'codex') {
-      noteCodexRateLimits(parseCodexRateLimitsLine(line));
+      const codexRateLimits = parseCodexRateLimitsLine(line);
+      noteCodexRateLimits(codexRateLimits);
+      noteCodexSessionRateLimits(codexRateLimits, codexSessionIdFromPath(file));
       const codexActivity = parseCodexActivityLine(line);
       if (codexActivity) noteActivity('codex', codexActivity, codexSessionIdFromPath(file));
       const parsedCodexEntry = parseCodexUsageLine(line, vendorState ?? createCodexUsageState());
@@ -1229,6 +1245,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     stats,
     budgetSpend,
     latestCodexRateLimits,
+    drainCodexRateLimits,
     _entriesForTest: () => entries.map((entry) => entry),
   };
   Object.defineProperty(api, '_entriesForTest', { enumerable: false });

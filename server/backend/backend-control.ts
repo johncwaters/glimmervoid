@@ -73,6 +73,7 @@ interface UsageControl {
   getCachedReport: () => Record<string, unknown> | null;
   requestReport: (args: { days?: number; force?: boolean; requestId?: string | null }) => Promise<Record<string, unknown>>;
   getPlanLimitsMessage: (vendor?: PlanLimitsVendor) => Record<string, unknown> | null;
+  getAccountPlanLimitsMessages: () => readonly Record<string, unknown>[];
   getSessionMeterMessages: () => readonly Record<string, unknown>[];
 }
 
@@ -207,7 +208,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getUsageSessions: () => usage.getSessionsMessage(),
     getUsageReport: () => usage.getCachedReport(),
     requestUsageReport: (args) => usage.requestReport(args),
-    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex'), usage.getPlanLimitsMessage('kimi')],
+    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex'), usage.getPlanLimitsMessage('kimi'), ...usage.getAccountPlanLimitsMessages()],
     getSessionMeters: () => usage.getSessionMeterMessages(),
     readTracePage: dependencies.readTracePage,
     sessionDocs: dependencies.sessionDocs,

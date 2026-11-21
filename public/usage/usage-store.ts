@@ -170,6 +170,20 @@ export function planLimitsOf(vendor: PlanLimitsVendor): PlanLimits | null {
   return planLimitsByVendor[vendor];
 }
 
+const accountPlanLimitsByKey = new Map<string, PlanLimits>();
+
+function accountPlanLimitsKey(vendor: unknown, accountId: unknown): string {
+  return `${String(vendor)}:${typeof accountId === 'string' ? accountId : ''}`;
+}
+
+export function accountPlanLimitsOf(vendor: PlanLimitsVendor, accountId: string | null): PlanLimits | null {
+  return accountPlanLimitsByKey.get(accountPlanLimitsKey(vendor, accountId)) ?? null;
+}
+
+export function applyAccountPlanLimits(msg: ServerMessageOf<'account-plan-limits'>): void {
+  accountPlanLimitsByKey.set(accountPlanLimitsKey(msg.vendor, msg.accountId), msg as PlanLimits);
+}
+
 export function applyPlanLimits(msg: unknown): void {
   const planLimits = msg as PlanLimits;
   planLimitsByVendor = { ...planLimitsByVendor, [planLimitsVendorOf(planLimits)]: planLimits };

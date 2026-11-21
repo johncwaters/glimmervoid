@@ -716,3 +716,53 @@ test('a session meter taken before pricing loads gets its call cost once pricing
   assert.deepEqual(meters, [null, 0.02]);
   await wiring.stop();
 });
+
+test('a Claude plan limits reading updates only the meters of the account its session runs under', async () => {
+  const accountReadings: { accountId: unknown; fiveHour: unknown }[] = [];
+  const vendorReadings: unknown[] = [];
+  const wiring = createUsageWiring({
+    config: {},
+    sessions: new Map([['card-work', { accountIdInUse: 'claude-work' }], ['card-machine', { accountIdInUse: null }]]),
+    broadcast: (message) => {
+      if (message.type === 'account-plan-limits') accountReadings.push({ accountId: message.accountId, fiveHour: message.fiveHour });
+      if (message.type === 'plan-limits') vendorReadings.push(message.fiveHour);
+    },
+    createScanner: () => scriptedScanner([], [COMPLETE_PASS]),
+    logger: { warn: () => {}, log: () => {} },
+  });
+  const rateLimitsAt = (fivePct: number) => ({ rate_limits: { five_hour: { used_percentage: fivePct, resets_at: 1_900_003_600 }, seven_day: { used_percentage: 10, resets_at: 1_900_400_000 } } });
+  wiring.ingestStatusline(rateLimitsAt(40), 'card-work');
+  wiring.ingestStatusline(rateLimitsAt(70), 'card-machine');
+  assert.deepEqual(accountReadings.map((reading) => reading.accountId), ['claude-work', null]);
+  assert.equal(vendorReadings.length, 2);
+  assert.deepEqual(wiring.getAccountPlanLimitsMessages().map((message) => [message.accountId, (message.fiveHour as { pct: number }).pct]), [['claude-work', 40], [null, 70]]);
+  await wiring.stop();
+});
+
+test('a Codex plan limits reading counts only for a live card and only when taken after it started under its account', async () => {
+  const accountReadings: unknown[] = [];
+  const rateLimits = (fivePct: number) => ({ fiveHour: { pct: fivePct, resetsAtMs: null }, sevenDay: null });
+  const sessionStartMs = 1_900_000_000_000;
+  const scanner = scriptedScanner([], [COMPLETE_PASS]);
+  scanner.drainCodexRateLimits = () => [
+    { agentSessionId: 'rollout-live', snapshot: { rateLimits: rateLimits(30), ts: sessionStartMs - 1 } },
+    { agentSessionId: 'rollout-live', snapshot: { rateLimits: rateLimits(55), ts: sessionStartMs + 1 } },
+    { agentSessionId: 'rollout-exited', snapshot: { rateLimits: rateLimits(91), ts: sessionStartMs + 1 } },
+  ];
+  const wiring = createUsageWiring({
+    config: {},
+    sessions: new Map([
+      ['card-live', { agentId: 'codex', resumeSessionId: 'rollout-live', hasLivePty: true, accountIdInUse: 'codex-work', accountInUseSinceMs: sessionStartMs }],
+      ['card-exited', { agentId: 'codex', resumeSessionId: 'rollout-exited', hasLivePty: false, accountIdInUse: null, accountInUseSinceMs: sessionStartMs }],
+    ]),
+    broadcast: (message) => {
+      if (message.type === 'account-plan-limits') accountReadings.push([message.accountId, (message.fiveHour as { pct: number }).pct]);
+    },
+    createScanner: () => scanner,
+    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    logger: { warn: () => {}, log: () => {} },
+  });
+  await wiring.start();
+  assert.deepEqual(accountReadings, [['codex-work', 55]]);
+  await wiring.stop();
+});

@@ -13,6 +13,10 @@ import { buildDialogShell, openConfirmDialog } from '../session-card/modal.ts';
 import { button, menuButton } from '../ui/button.ts';
 import { radio } from '../ui/checkbox.ts';
 import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
+import { accountPlanLimitsOf } from '../usage/usage-store.ts';
+import { NO_VALUE, planWindowOf, planWindowTone } from '../usage/usage-store-core.ts';
+import type { PlanLimits, PlanLimitsVendor } from '../usage/usage-store-core.ts';
+import { buildMeter } from '../usage/usage-panel-parts.ts';
 import { select } from '../ui/select.ts';
 import { textInput } from '../ui/text-input.ts';
 
@@ -143,6 +147,30 @@ function buildAccountDefaultRadio(agent: AccountAgent, account: AgentAccountStat
   }).element;
 }
 
+const PLAN_VENDOR_BY_AGENT: Readonly<Record<AccountAgent, PlanLimitsVendor>> = Object.freeze({ 'claude-code': 'claude', codex: 'codex' });
+
+const PLAN_WINDOW_LABELS: Readonly<Record<'fiveHour' | 'sevenDay', string>> = Object.freeze({ fiveHour: '5h', sevenDay: '7d' });
+
+function buildPlanWindowMeter(planLimits: PlanLimits, key: 'fiveHour' | 'sevenDay', accountLabel: string) {
+  const usedPct = planWindowOf(planLimits, key)?.pct ?? null;
+  const line = el('div', 'settings-accounts-meter');
+  const percentText = usedPct === null ? NO_VALUE : `${Math.round(usedPct)}%`;
+  line.append(
+    el('span', 'settings-accounts-meter-label', PLAN_WINDOW_LABELS[key]),
+    buildMeter(usedPct ?? 0, planWindowTone(usedPct), `${accountLabel} ${PLAN_WINDOW_LABELS[key]} plan limit used`),
+    el('span', 'settings-accounts-meter-value', percentText),
+  );
+  return line;
+}
+
+function buildPlanMeters(agent: AccountAgent, account: AgentAccountStatus) {
+  const planLimits = accountPlanLimitsOf(PLAN_VENDOR_BY_AGENT[agent], account.accountId);
+  if (planLimits === null) return el('div', 'settings-accounts-no-reading', 'No reading yet');
+  const meters = el('div', 'settings-accounts-meters');
+  meters.append(buildPlanWindowMeter(planLimits, 'fiveHour', account.label), buildPlanWindowMeter(planLimits, 'sevenDay', account.label));
+  return meters;
+}
+
 function buildAccountRow(agent: AccountAgent, account: AgentAccountStatus, hasDefaultChoice: boolean, signal: AbortSignal) {
   const row = el('div', 'settings-accounts-row');
   const isSignedIn = account.login.state === 'signed-in';
@@ -157,6 +185,7 @@ function buildAccountRow(agent: AccountAgent, account: AgentAccountStatus, hasDe
   body.append(name, el('div', 'settings-accounts-sub', accountSubText(account)));
   const actionSlot = el('div', 'settings-accounts-action');
   const accountId = account.accountId;
+  if (isSignedIn) actionSlot.append(buildPlanMeters(agent, account));
   if (!isSignedIn && !account.isPending && accountId !== null) {
     actionSlot.append(button({ variant: 'secondary', size: 'small', label: 'Sign in', action: 'sign-in-agent-account', onClick: () => openAgentAccountDialog(agent, accountId) }));
   }

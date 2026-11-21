@@ -47,6 +47,7 @@ function fakeScanner(
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcomeOf(), isHistoryCaughtUp: outcomeOf() === 'complete', resolutionError: null }),
     budgetSpend: spend,
     latestCodexRateLimits: () => null,
+    drainCodexRateLimits: () => [],
     buildReport: () => ({
       ts: 0,
       tz: 'UTC',
