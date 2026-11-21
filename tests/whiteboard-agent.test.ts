@@ -883,7 +883,11 @@ test('a board file carries its board id, so importing it overwrites that board i
   assert.equal(await boardCount(), boardsBeforeImports, 'importing a board already here adds no board');
 
   const elsewhere = { ...structuredClone(friendEdit), board: { ...structuredClone(friendEdit.board), id: crypto.randomUUID() } };
+  const elsewhereDemo = elsewhere.board.elements.demo;
+  assert.ok(elsewhereDemo);
+  elsewhereDemo.feeds = ['sessions'];
   const opened = await importFile('elsewhere.glimmerboard', gzippedFile(elsewhere));
+  assert.deepEqual((await boardOf(PLANNER_ID, elsewhere.board.id)).board.elements.demo?.feeds, [], 'an imported page never brings the session feed with it, since its frame can reach the network');
   assert.deepEqual([(opened.body.board as { id: string }).id, (opened.body.board as { title: string }).title], [elsewhere.board.id, 'Shared flow, reviewed (2)'], 'a board not here opens under the file id, numbered beside a clashing title');
   const reopened = await importFile('elsewhere.glimmerboard', gzippedFile(elsewhere));
   assert.deepEqual([(reopened.body.board as { id: string }).id, (reopened.body.board as { title: string }).title], [elsewhere.board.id, 'Shared flow, reviewed (2)'], 'importing the same file again changes no name');

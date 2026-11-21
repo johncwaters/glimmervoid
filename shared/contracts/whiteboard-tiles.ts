@@ -47,6 +47,7 @@ export const LaidOutBox = z.object({
   hasTitleGradient: z.boolean().default(false),
   isFullBleed: z.boolean().default(false),
   isAutoplay: z.boolean().default(false),
+  isSessionFed: z.boolean().default(false),
   angle: z.number().default(0),
   isBorderless: z.boolean().default(false),
   headerHeight: z.number(),
@@ -104,6 +105,7 @@ export const BoardBackdrop = z.object({
   asset: z.string(),
   mime: BoxMedia.shape.mime,
   dialValues: z.record(z.string(), DialValue),
+  isSessionFed: z.boolean().default(false),
 });
 
 export const BoardChrome = z.object({

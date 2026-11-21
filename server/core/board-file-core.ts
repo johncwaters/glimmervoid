@@ -11,7 +11,7 @@ function exportedMediaOf(media: BoxMedia): BoxMedia {
 
 function exportedElementOf(element: Element): Element {
   if (element.kind !== 'box' || !element.media) return element;
-  return { ...element, media: exportedMediaOf(element.media) };
+  return { ...element, media: exportedMediaOf(element.media), feeds: [] };
 }
 
 function exportedBoardOf(board: Board): ExportedBoard {
@@ -47,7 +47,7 @@ function importedElementsOf(file: BoardFile, adoptedByExportedFilename: Readonly
     }
     const adopted = adoptedByExportedFilename.get(boardMediaOriginalFilename(element.media));
     if (!adopted) return { error: `box ${element.id} shows media ${element.media.asset}, which the board file does not carry` };
-    elements.push({ ...element, media: importedMediaOf(element.media, adopted.media, adopted.name) });
+    elements.push({ ...element, media: importedMediaOf(element.media, adopted.media, adopted.name), feeds: [] });
   }
   return elements;
 }

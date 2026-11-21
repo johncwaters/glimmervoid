@@ -358,6 +358,7 @@ function boxSections(box: Box, latest: () => BoardElement | undefined, layout: B
     checkboxField('titleGradient', 'Gradient title', box.titleGradient, (titleGradient) => set({ titleGradient })),
     ...(box.media && box.shape !== 'device' ? [checkboxField('fullBleed', 'Full bleed', box.fullBleed, (fullBleed) => set({ fullBleed }))] : []),
     ...(box.media?.kind === 'video' ? [checkboxField('autoplay', 'Autoplay', box.autoplay, (autoplay) => set({ autoplay }))] : []),
+    ...(box.media?.kind === 'page' ? [checkboxField('feeds', 'Session feed', box.feeds.includes('sessions'), (isFed) => set({ feeds: isFed ? ['sessions'] : [] }))] : []),
     ...(isBackdropMedia(box.media) ? [checkboxField('backdrop', 'Board backdrop', box.backdrop, (backdrop) => set({ backdrop }))] : []),
     ...(traits.holdsLines ? [linesEditor('this box', box.lines, latestLines, (lines) => set({ lines }))] : []),
     fieldRow('Change', selectField('change', CHANGE_CHOICES, box.change, commitChange)),

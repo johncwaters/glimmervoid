@@ -1,6 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { setSessionPlanGate } from '../plan/plan-gate-panel.ts';
 import { STATES } from '#shared/states.ts';
+import { SessionState } from '#shared/contracts/session.ts';
 import { clearHeaderErrorsForSession } from '../action-status.ts';
 import { refreshFavicon } from '../favicon.ts';
 import { refreshFocusRoster, restoreFocusedSession } from '../focus-view/focus-view.ts';
@@ -23,6 +24,7 @@ import { forgetReview, refreshReview } from '../review/review-store.ts';
 import { getSelectedId, setSelectedId } from '../review/selection.ts';
 import { markStatusDirty, setStatusPainter } from '../status-paint.ts';
 import { setTraceSessions } from '../trace-store.ts';
+import { showBoardSessionFeed } from '../whiteboard/board-session-feed.ts';
 import { noteSnapshotReceived } from './connection-screen.ts';
 import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 
@@ -30,6 +32,10 @@ import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 function refreshAttentionSurfaces() {
   refreshMyPrsSessionState();
   refreshPhoneBoard();
+  showBoardSessionFeed([...sessionUIs.values()].flatMap((sessionUi) => {
+    const parsedState = SessionState.safeParse(sessionUi.currentState);
+    return parsedState.success ? [{ name: sessionName(sessionUi), agent: sessionUi.agent ?? '', state: parsedState.data }] : [];
+  }));
 }
 
 function refreshRosterAndAttentionSurfaces() {
