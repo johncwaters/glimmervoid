@@ -11,6 +11,7 @@ const PRESSABLE_OWNER = path.join(UI_DIR, 'pressable.ts');
 const SKIP_DIRS = new Set(['node_modules', 'dist']);
 const BUTTON_CREATION = /\bel\(\s*['"`]button['"`]|createElement\(\s*['"`]button['"`]|<button\b/i;
 const BUTTON_LOOK_SELECTOR = /\.ui-button\b|\[data-(?:variant|size|outline-state)\b/;
+const PRIMITIVE_LAYOUT_PROPERTY = /^(?:display|visibility|order|position|inset|top|right|bottom|left|z-index|(?:min-|max-)?width|margin(?:-[a-z-]+)?|flex(?:-[a-z]+)?|grid-(?:area|column|row)(?:-[a-z]+)?|(?:align|justify|place)-self)$/;
 const OUTLINE_STATE_WRITE = /outline-?state|(?:\.element|\bbtn(?:Mute|Help))\.(?:(?:setAttribute|removeAttribute|toggleAttribute)\(\s*['"`]aria-pressed|ariaPressed\b)/i;
 const RETIRED_CLASSES: string[] = [
   'bench-action-button',
@@ -112,6 +113,64 @@ test('only public/ui/ styles the button component', () => {
     .filter((file) => !file.startsWith(UI_DIR + path.sep))
     .flatMap((file) => selectorsOf(fs.readFileSync(file, 'utf8')).filter((selector) => BUTTON_LOOK_SELECTOR.test(selector)).map((selector) => `${relativeToRoot(file)}: ${selector}`));
   assert.deepEqual(offenders, [], `Button looks live in public/ui/button.css; lay buttons out from their container instead:\n  ${offenders.join('\n  ')}`);
+});
+
+function subjectCompoundOf(selector: string): string {
+  let depth = 0;
+  let compoundStart = 0;
+  for (let index = 0; index < selector.length; index += 1) {
+    const character = selector[index];
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (depth === 0 && /[\s>+~]/.test(character)) compoundStart = index + 1;
+  }
+  return selector.slice(compoundStart).replace(/:(?:not|has)\((?:[^()]|\([^()]*\))*\)/g, '');
+}
+
+function rulesOf(stylesheet: string): { selectors: string[]; properties: string[] }[] {
+  return [...withoutCssComments(stylesheet).matchAll(/([^{};]+)\{([^{}]*)\}/g)].map((match) => ({
+    selectors: match[1].split(',').map((selector) => selector.trim()).filter(Boolean),
+    properties: [...match[2].matchAll(/(?:^|;)\s*([-a-zA-Z]+)\s*:/g)].map((declaration) => declaration[1].toLowerCase()),
+  }));
+}
+
+function nestedStyleRulesOf(stylesheet: string): string[] {
+  const openPreludes: string[] = [];
+  const nested: string[] = [];
+  let preludeStart = 0;
+  const source = withoutCssComments(stylesheet);
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    if (character === ';') preludeStart = index + 1;
+    if (character === '}') {
+      openPreludes.pop();
+      preludeStart = index + 1;
+    }
+    if (character !== '{') continue;
+    const prelude = source.slice(preludeStart, index).trim();
+    if (openPreludes.some((openPrelude) => !openPrelude.startsWith('@'))) nested.push(prelude);
+    openPreludes.push(prelude);
+    preludeStart = index + 1;
+  }
+  return nested;
+}
+
+test('outside public/ui/ no stylesheet nests a style rule, so the primitive restyle gate reads every selector', () => {
+  const offenders = collectFiles(PUBLIC_DIR, /\.css$/)
+    .filter((file) => !file.startsWith(UI_DIR + path.sep))
+    .flatMap((file) => nestedStyleRulesOf(fs.readFileSync(file, 'utf8')).map((prelude) => `${relativeToRoot(file)}: ${prelude}`));
+  assert.deepEqual(offenders, [], `Flatten these nested rules:\n  ${offenders.join('\n  ')}`);
+});
+
+test('outside public/ui/ a stylesheet only lays out a primitive, never restyles it', () => {
+  const offenders = collectFiles(PUBLIC_DIR, /\.css$/)
+    .filter((file) => !file.startsWith(UI_DIR + path.sep))
+    .flatMap((file) => rulesOf(fs.readFileSync(file, 'utf8')).flatMap((rule) => {
+      const restyledProperties = rule.properties.filter((property) => !PRIMITIVE_LAYOUT_PROPERTY.test(property));
+      if (restyledProperties.length === 0) return [];
+      return rule.selectors.filter((selector) => /\.ui-/.test(subjectCompoundOf(selector))).map((selector) => `${relativeToRoot(file)}: ${selector} { ${restyledProperties.join(', ')} }`);
+    }));
+  assert.deepEqual(offenders, [], `A primitive's look lives in public/ui/; give it an option there and set only layout from the container:\n  ${offenders.join('\n  ')}`);
 });
 
 test('retired button classes are gone from every stylesheet and source', () => {

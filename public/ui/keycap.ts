@@ -1,7 +1,11 @@
 import { el } from '../dom-helpers.ts';
 
-export function keycap(text: string): HTMLElement {
-  return el('kbd', 'ui-keycap', text);
+type KeycapTone = 'neutral' | 'accent';
+
+export function keycap(text: string, { tone = 'neutral' }: { tone?: KeycapTone } = {}): HTMLElement {
+  const cap = el('kbd', 'ui-keycap', text);
+  if (tone !== 'neutral') cap.dataset.tone = tone;
+  return cap;
 }
 
 export function keyChord(keys: readonly string[]): HTMLElement {

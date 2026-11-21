@@ -98,12 +98,12 @@
   align-self: flex-start;
 }
 
-[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .dialog-advanced-toggle, input, select, textarea, a) {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .dialog-advanced-toggle, input, select, textarea, a):where(:not(.ui-checkbox-input)) {
   min-height: 44px;
   min-width: 44px;
 }
 
-[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .dialog-advanced-toggle, input, select, textarea):where(:not(.ui-switch)) {
+[data-layout="phone"] .settings-view :is(.settings-view-nav-item, .settings-view-search-open, .dialog-advanced-toggle, input, select, textarea):where(:not(.ui-switch, .ui-checkbox-input)) {
   width: 100%;
 }
 
@@ -141,7 +141,7 @@
   min-height: 44px;
 }
 
-[data-layout="phone"] .settings-view :is(.settings-view-checkbox, .ui-checkbox-input) {
+[data-layout="phone"] .settings-view .settings-view-checkbox {
   width: 20px;
   height: 20px;
   min-width: 20px;

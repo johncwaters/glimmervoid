@@ -154,7 +154,7 @@ A labelled checkbox is `checkbox()` and one choice of a radio group is `radio()`
 - **Layout belongs to the parent:** the factories take no class; a list stacks its rows with its own gap.
 
 ### Key Caps
-A keyboard key is `keycap(text)` from `public/ui/keycap.ts` (look in `public/ui/keycap.css`), and a chord of keys is `keyChord(keys)`, the caps joined by a muted `+`; `setKeyChordKeys(chord, keys)` redraws a chord in place when its binding changes. Platform naming (Cmd or Alt) stays in `public/shortcuts.ts`, which draws through them.
+A keyboard key is `keycap(text, { tone })` (tone `neutral` or `accent`) from `public/ui/keycap.ts` (look in `public/ui/keycap.css`), and a chord of keys is `keyChord(keys)`, the caps joined by a muted `+`; `setKeyChordKeys(chord, keys)` redraws a chord in place when its binding changes, and a chord marked `data-look="raised"` draws pressed keys tinted by its container's `--keycap-tone`. Platform naming (Cmd or Alt) stays in `public/shortcuts.ts`, which draws through them.
 - **Look:** bold mono `--type-meta` in Paper on the surface fill, `--chip-height` tall with `--chip-padding-inline` each side (a tag's size), a 1px Rule border at the 2px pill radius, so a key reads as a key and not as a chip or a button. The caps of a chord sit 6px apart.
 - **Layout belongs to the parent:** neither takes a class; a surface that hides its caps on the phone, which has no keyboard, hides its own container. A button's own shortcut cap (`button({ shortcutKey })`) keeps its in-button look.
 

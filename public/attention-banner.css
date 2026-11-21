@@ -135,38 +135,4 @@
 }
 .attention-banner-jump-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 .attention-banner:not([data-jumpable]) .attention-banner-jump { opacity: 0.45; }
-.attention-banner-jump { flex: none; flex-wrap: nowrap; gap: 5px; isolation: isolate; }
-.attention-banner-jump .ui-key-chord-sep { font-size: var(--type-meta); color: var(--text-muted); }
-.attention-banner-jump .ui-keycap {
-  position: relative;
-  isolation: isolate;
-  display: inline-flex;
-  box-sizing: border-box;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  height: var(--chip-height);
-  margin-bottom: 3px;
-  padding: 0 var(--chip-padding-inline);
-  font-size: var(--type-meta);
-  background: transparent;
-  border-color: transparent;
-  border-radius: var(--radius);
-}
-.attention-banner-jump .ui-keycap::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  z-index: -1;
-  background: color-mix(in srgb, var(--st) 16%, var(--bg-surface));
-  border: 1px solid var(--st);
-  border-radius: var(--radius);
-}
-.attention-banner-jump .ui-keycap::after {
-  content: '';
-  position: absolute;
-  inset: 3px -1px -4px;
-  z-index: -2;
-  background: var(--st);
-  border-radius: var(--radius);
-}
+.attention-banner-jump { --keycap-tone: var(--st); flex: none; flex-wrap: nowrap; isolation: isolate; }

@@ -190,7 +190,7 @@ function optionRowOf(option: ShownOption, digitKey: string | null, onAnswer: (la
   const label = option.isRecommended ? withoutRecommendedSuffix(option.label) : option.label;
   const keys = el('span', 'chat-card-option-keys');
   if (option.isRecommended) keys.appendChild(el('span', 'chat-card-recommended', 'Recommended'));
-  if (shownKey !== null) keys.appendChild(keycap(shownKey));
+  if (shownKey !== null) keys.appendChild(keycap(shownKey, { tone: option.isRecommended ? 'accent' : 'neutral' }));
   optionRow.append(el('span', 'chat-card-option-label', label), keys);
   if (option.note) optionRow.appendChild(el('span', 'chat-card-option-note', option.note));
   const answerKeys = [digitKey, option.isRecommended ? ENTER_KEY : null].filter((key): key is string => key !== null);

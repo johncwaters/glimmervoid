@@ -122,6 +122,7 @@ export function buildAttentionBanner(hooks: AttentionBannerHooks, jumpKeys?: HTM
   jumpRow.append(status);
   if (jumpKeys) {
     jumpKeys.classList.add('attention-banner-jump');
+    jumpKeys.dataset.look = 'raised';
     jumpRow.append(jumpKeys);
   }
   banner.addEventListener('click', () => hooks.onJump());

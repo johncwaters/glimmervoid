@@ -27,3 +27,39 @@
   font-family: var(--font-mono);
   font-size: var(--type-meta);
 }
+
+.ui-keycap[data-tone="accent"] {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.ui-key-chord[data-look="raised"] > .ui-keycap {
+  --keycap-depth: 3px;
+  position: relative;
+  isolation: isolate;
+  justify-content: center;
+  min-width: 24px;
+  margin-bottom: var(--keycap-depth);
+  background: transparent;
+  border-color: transparent;
+  border-radius: var(--radius);
+}
+
+.ui-key-chord[data-look="raised"] > .ui-keycap::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  background: color-mix(in srgb, var(--keycap-tone, var(--accent)) 16%, var(--bg-surface));
+  border: 1px solid var(--keycap-tone, var(--accent));
+  border-radius: var(--radius);
+}
+
+.ui-key-chord[data-look="raised"] > .ui-keycap::after {
+  content: '';
+  position: absolute;
+  inset: var(--keycap-depth) -1px calc(-1px - var(--keycap-depth));
+  z-index: -2;
+  background: var(--keycap-tone, var(--accent));
+  border-radius: var(--radius);
+}
