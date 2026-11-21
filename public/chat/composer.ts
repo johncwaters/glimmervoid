@@ -104,8 +104,14 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
     if (!carriesFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
+    element.toggleAttribute('data-drop-ready', true);
+  });
+  element.addEventListener('dragleave', (event) => {
+    if (event.relatedTarget instanceof Node && element.contains(event.relatedTarget)) return;
+    element.toggleAttribute('data-drop-ready', false);
   });
   element.addEventListener('drop', (event) => {
+    element.toggleAttribute('data-drop-ready', false);
     if (!carriesFiles(event.dataTransfer)) return;
     event.preventDefault();
     attachFiles(Array.from(event.dataTransfer.files));

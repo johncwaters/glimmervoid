@@ -506,6 +506,7 @@ function settleArrivalsThatCannotAnimate(logElement: HTMLElement): void {
 export function createChatLog(uploadUrlOf: UploadUrlOf, keepTurnInPlace: (turnElement: HTMLElement, change: () => void) => void): ChatLog {
   const element = el('div', 'chat-log');
   element.setAttribute('role', 'log');
+  element.setAttribute('aria-label', 'Chat');
   const elementByPartId = new Map<string, HTMLElement>();
   const turnViewByPartId = new Map<string, TurnView>();
   const runningTimeByPartId = new Map<string, { timeElement: Element; startedAt: number }>();

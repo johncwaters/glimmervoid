@@ -515,6 +515,7 @@ function buildChat(sessionId: string): MountedChat {
 
   const showBoardChangesOnceCaughtUp = () => {
     feedPosition = 'following';
+    chatView.showLoaded();
     placeBoardChangeCards(false);
   };
 
@@ -902,7 +903,10 @@ function buildChat(sessionId: string): MountedChat {
       syncWaitingCards();
       chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
     },
-    onFailure: showFailure,
+    onFailure: (failureText) => {
+      if (failureText !== null) chatView.showLoaded();
+      showFailure(failureText);
+    },
   });
   root.addEventListener(CHAT_NEAR_TOP_EVENT, () => feed.loadEarlier());
   showOutbox();

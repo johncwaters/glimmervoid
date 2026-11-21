@@ -1,6 +1,8 @@
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { keycap } from '../ui/keycap.ts';
+import { paintStatusIcon } from '../status-icon.ts';
 import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
 import type { ChatPart, TurnPart } from './chat-part.ts';
@@ -30,6 +32,7 @@ interface ChatView {
   showRail(fields: readonly RailField[]): void;
   showTurnEnd(turnEnd: TurnEnd | null): void;
   tickRunTimes(): boolean;
+  showLoaded(): void;
 }
 
 const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, string> = {
@@ -41,6 +44,9 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
 const DOCK_CLEARANCE_PX = 20;
 const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
 const TURN_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['[', -1], [']', 1]]);
+const PROMPT_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['{', -1], ['}', 1]]);
+const PROMPT_SELECTOR = ':scope > :is(.chat-prompt, .chat-prompt-with-attachments)';
+const LOADING_SKELETON_LINE_COUNT = 3;
 
 interface KeyedChat {
   element: HTMLElement;
@@ -85,14 +91,14 @@ function shownKeyedChat(): KeyedChat | null {
   return keyedChat;
 }
 
-function stepTurnFocus(chat: KeyedChat, step: number): void {
-  const turnElements = [...chat.logElement.querySelectorAll<HTMLElement>('.chat-turn')];
-  const focusedIndex = turnElements.findIndex((turnElement) => turnElement === document.activeElement);
-  const targetIndex = focusedIndex < 0 ? turnElements.length - 1 : Math.min(turnElements.length - 1, Math.max(0, focusedIndex + step));
-  const targetTurn = turnElements[targetIndex];
-  if (!targetTurn) return;
-  targetTurn.focus({ preventScroll: true });
-  targetTurn.scrollIntoView({ block: 'nearest' });
+function stepFocusWithin(steppedElements: readonly HTMLElement[], step: number): void {
+  const focusedIndex = document.activeElement instanceof HTMLElement ? steppedElements.indexOf(document.activeElement) : -1;
+  const targetIndex = focusedIndex < 0 ? steppedElements.length - 1 : Math.min(steppedElements.length - 1, Math.max(0, focusedIndex + step));
+  const target = steppedElements[targetIndex];
+  if (!target) return;
+  target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: 'nearest' });
 }
 
 function focusedTurnOf(chat: KeyedChat): HTMLElement | null {
@@ -110,10 +116,16 @@ function handleChatKey(event: KeyboardEvent): void {
     toggleBrief();
     return;
   }
-  const step = TURN_STEP_BY_KEY.get(event.key);
-  if (step !== undefined) {
+  const turnStep = TURN_STEP_BY_KEY.get(event.key);
+  if (turnStep !== undefined) {
     event.preventDefault();
-    stepTurnFocus(chat, step);
+    stepFocusWithin([...chat.logElement.querySelectorAll<HTMLElement>('.chat-turn')], turnStep);
+    return;
+  }
+  const promptStep = PROMPT_STEP_BY_KEY.get(event.key);
+  if (promptStep !== undefined) {
+    event.preventDefault();
+    stepFocusWithin([...chat.logElement.querySelectorAll<HTMLElement>(PROMPT_SELECTOR)], promptStep);
     return;
   }
   const focusedTurn = event.key === ' ' ? focusedTurnOf(chat) : null;
@@ -157,6 +169,29 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
   return row;
 }
 
+function keyHintOf(keys: readonly string[], meaning: string): HTMLElement {
+  const hint = el('span', 'chat-empty-hint');
+  hint.append(...keys.map((key) => keycap(key)), el('span', 'chat-empty-hint-meaning', meaning));
+  return hint;
+}
+
+function renderEmptyState(): HTMLElement {
+  const empty = el('div', 'chat-empty');
+  const hints = el('div', 'chat-empty-hints');
+  hints.append(keyHintOf(['[', ']'], 'turns'), keyHintOf(['{', '}'], 'prompts'), keyHintOf(['B'], 'brief'));
+  empty.append(el('p', 'chat-empty-title', 'No messages yet'), hints);
+  return empty;
+}
+
+function renderLoadingState(): HTMLElement {
+  const loading = el('div', 'chat-loading');
+  loading.setAttribute('aria-hidden', 'true');
+  const spinner = el('span', 'chat-loading-spinner');
+  paintStatusIcon(spinner, 'working');
+  loading.append(...Array.from({ length: LOADING_SKELETON_LINE_COUNT }, () => el('span', 'chat-loading-line')), spinner);
+  return loading;
+}
+
 function interimReplyOf(turn: TurnPart): string | null {
   const latestSegment = turn.segments.findLast((segment) => segment.kind === 'text');
   if (latestSegment?.kind !== 'text') return null;
@@ -180,7 +215,13 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   const scrollContent = el('div', 'chat-scroll-content');
   const { jumpButton, followLatest, keepInPlace } = stickToBottom(scroller, scrollContent);
   const chatLog = createChatLog(uploadUrlOf, keepInPlace);
-  scrollContent.append(chatLog.element, turnEndRow, activity.element, queuedList);
+  element.toggleAttribute('data-loading', true);
+  element.setAttribute('aria-busy', 'true');
+  scrollContent.append(renderLoadingState(), renderEmptyState(), chatLog.element, turnEndRow, activity.element, queuedList);
+  const showLoaded = () => {
+    element.toggleAttribute('data-loading', false);
+    element.removeAttribute('aria-busy');
+  };
   scroller.append(scrollContent);
   const showQueued = (entries: readonly ChatOutboxEntry[]) => {
     queuedList.replaceChildren(...entries.map((entry) => queuedRowOf(entry, uploadUrlOf)));
@@ -222,5 +263,5 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
     if (turnEnd === null || isInTurnRow || turnEnd.pill.parentElement === turnEndRow) return;
     turnEndRow.replaceChildren(turnEnd.pill, turnEnd.list);
   };
-  return { element, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes };
+  return { element, upsert, remove: chatLog.remove, toggleTurn: chatLog.toggleTurn, keepLast: chatLog.keepLast, keepLogInPlace: (change) => keepInPlace(chatLog.element, change), replaceLogParts, setPhase, beat: activity.beat, readDraft: composer.readDraft, restoreDraft: composer.restoreDraft, readAttachments: composer.readAttachments, showQueued, showAttachment: composer.showAttachment, showRail: composer.showRail, showTurnEnd, tickRunTimes: chatLog.tickRunTimes, showLoaded };
 }

@@ -125,6 +125,7 @@ function showRecordsAtRest(): void {
   window.addEventListener('harness-remount-chat', () => {
     const remountedView = createChatView(harnessUploadUrlOf);
     remountedView.upsert(restingParts, NO_ARRIVING_PARTS);
+    remountedView.showLoaded();
     document.querySelector('.chat-view')?.replaceWith(remountedView.element);
   });
 }
@@ -150,6 +151,7 @@ const harnessMode = new URLSearchParams(location.search);
 if (harnessMode.has('boot')) void playBoot();
 if (harnessMode.has('live')) await playLive();
 if (harnessMode.has('earlier')) playEarlier();
+if (!harnessMode.has('loading')) chatView.showLoaded();
 if (!harnessMode.has('live') && !harnessMode.has('boot') && !harnessMode.has('earlier')) showRecordsAtRest();
 if (harnessMode.has('cards') && !harnessMode.has('earlier')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
 if (new URLSearchParams(location.search).has('rail-updates')) {
