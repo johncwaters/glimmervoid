@@ -56,7 +56,7 @@ const DEFAULT_USAGE_CONFIG = Object.freeze({
 
   budget: { dailyUsd: null, monthlyUsd: null, pauseAtLimit: false },
 
-  vendors: { codex: true, grok: true, kimi: true },
+  vendors: { codex: true, grok: true, kimi: true, antigravity: true, pi: true, opencode: true },
 });
 
 const OFFICIAL_COST_CAP = 200;
@@ -99,6 +99,7 @@ interface WiringConfig {
 }
 
 interface WiringSession {
+  name?: string;
   ephemeral?: boolean;
   resumeSessionId?: string | null;
   accountIdInUse?: string | null;
@@ -118,8 +119,13 @@ type SessionsMessage = {
   pricingSource: string | null;
   sessions: {
     id: string;
+    name?: string;
+    vendor?: string;
+    model?: string | null;
     tokens: number;
     costUSD: number;
+    lastHourCostUSD?: number;
+    cacheHitPct?: number | null;
     lastTs: number | null;
     officialCostUSD: number | null | undefined;
   }[];
@@ -483,17 +489,49 @@ function createUsageWiring({
     nudge.schedule();
   }
 
+  function vendorForAgentId(agentId: string | undefined): string {
+    if (!agentId || agentId === 'claude-code') return 'claude';
+    if (agentId === 'kimi-code') return 'kimi';
+    return agentId;
+  }
+
   function sessionUsageRows(): SessionsMessage['sessions'] | null {
     if (!scanner) return null;
-    const totals = scanner.sessionTotals();
+    const liveTargets: { vendor: string; sessionId: string }[] = [];
+    for (const [, sess] of sessions) {
+      if (sess.ephemeral || !sess.resumeSessionId) continue;
+      liveTargets.push({ vendor: vendorForAgentId(sess.agentId), sessionId: sess.resumeSessionId });
+    }
+    const liveStats = typeof scanner.liveSessionStats === 'function'
+      ? scanner.liveSessionStats(liveTargets)
+      : null;
+    const fallbackTotals = liveStats ? null : scanner.sessionTotals();
     const rows: SessionsMessage['sessions'] = [];
     for (const [id, sess] of sessions) {
       if (sess.ephemeral) continue;
       const resumeId = sess.resumeSessionId;
       if (!resumeId) continue;
-      const bucket = totals.get(resumeId) || { tokens: 0, costUSD: 0, lastTs: null };
+      const vendor = vendorForAgentId(sess.agentId);
+      const stats = liveStats?.get(`${vendor}:${resumeId}`);
+      const fallback = fallbackTotals?.get(resumeId);
+      const tokens = stats?.tokens ?? fallback?.tokens ?? 0;
+      const costUSD = stats?.costUSD ?? fallback?.costUSD ?? 0;
+      const lastTs = stats?.lastTs ?? fallback?.lastTs ?? null;
+      const totalInput = (stats?.input ?? 0) + (stats?.cacheRead ?? 0);
+      const cacheHitPct = stats && totalInput > 0 ? Math.round(((stats.cacheRead ?? 0) / totalInput) * 100) : null;
       const officialCostUSD = selectOfficialSessionCost(cfg.costMode, officialCostByClaudeId.get(resumeId));
-      rows.push({ id, tokens: bucket.tokens, costUSD: bucket.costUSD, lastTs: bucket.lastTs, officialCostUSD });
+      rows.push({
+        id,
+        name: sess.name,
+        vendor: stats?.vendor ?? vendor,
+        model: stats?.model ?? null,
+        tokens,
+        costUSD,
+        lastHourCostUSD: stats?.lastHourCostUSD ?? 0,
+        cacheHitPct,
+        lastTs,
+        officialCostUSD,
+      });
     }
     return rows;
   }

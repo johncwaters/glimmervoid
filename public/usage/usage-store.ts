@@ -25,6 +25,7 @@ export type UsageRangeKey = 'today' | 'week' | 'month';
 
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
+const sessionsById = new Map<string, UsageSessionsPush['sessions'][number]>();
 let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null };
 const accountPlanLimitsByKey = new Map<string, PlanLimits>();
 const sessionMeterBySessionId = new Map<string, SessionMeterPush>();
@@ -37,7 +38,16 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshFailureText: string | null = null;
 let isConnected = true;
 let isViewLooking: () => boolean = () => false;
+let openTerminal: (sessionId: string) => void = () => {};
 const subscribers = new Set<(change: UsageChange) => void>();
+
+export function setUsageNavigation(navigation: { openTerminal: (sessionId: string) => void }): void {
+  openTerminal = navigation.openTerminal;
+}
+
+export function openUsageSession(sessionId: string): void {
+  openTerminal(sessionId);
+}
 
 const attention = createAttentionAck({
   getAck: getUsageAttentionAck,
@@ -138,6 +148,8 @@ export function applyUsageConnectionState(connected: boolean): void {
 
 export function applyUsageSessions(msg: UsageSessionsPush): void {
   sessions = msg;
+  sessionsById.clear();
+  for (const row of msg.sessions) sessionsById.set(row.id, row);
   notifySubscribers('sessions');
 }
 
@@ -151,7 +163,7 @@ export function sessionMeterOf(sessionId: string): SessionMeterPush | null {
 }
 
 export function sessionCostOf(sessionId: string): number | null {
-  const row = sessions?.sessions.find((sessionRow) => sessionRow.id === sessionId);
+  const row = sessionsById.get(sessionId);
   if (!row) return null;
   return row.officialCostUSD ?? row.costUSD;
 }

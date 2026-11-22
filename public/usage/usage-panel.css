@@ -420,4 +420,32 @@
   width: 140px;
 }
 
+.usage-session-link {
+  color: var(--text-head);
+  font-size: var(--type-body);
+  text-align: left;
+}
+
+.usage-session-link:hover {
+  color: var(--accent);
+}
+
+.usage-ctx-bar {
+  display: inline-block;
+  position: relative;
+  width: 60px;
+  height: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border-radius: 2px;
+  background: var(--border-dim);
+  overflow: hidden;
+}
+
+.usage-ctx-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--text-dim);
+}
+
 }

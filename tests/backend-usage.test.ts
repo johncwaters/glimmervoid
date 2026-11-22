@@ -27,8 +27,13 @@ const MESSAGE_WAIT_MS = 5000;
 
 interface UsageSessionRow {
   id: string;
+  name?: string;
+  vendor?: string;
+  model?: string | null;
   tokens: number;
   costUSD: number;
+  lastHourCostUSD?: number;
+  cacheHitPct?: number | null;
   lastTs: number;
 }
 
@@ -220,6 +225,9 @@ test('usage-sessions attributes the fixture transcript to the card through its l
   const row = message.sessions[0];
   assert.equal(row.tokens, 375, 'both transcript lines counted (100+50 and 200+25)');
   assert.ok(row.costUSD > 0, 'priced from the committed snapshot');
+  assert.equal(row.vendor, 'claude');
+  assert.equal(row.model, MODEL);
+  assert.ok((row.lastHourCostUSD ?? 0) > 0, 'recent fixture entries count toward lastHourCostUSD');
   assert.equal(typeof row.lastTs, 'number');
 
   await closeSocket(client.ws);
@@ -380,6 +388,9 @@ test('a pass with no new entries pushes its changed totals, an incremental io-fa
   };
   scanner.sessionTotals = () => new Map([
     ['resume-a', totalsByPass[Math.min(passCount - 1, totalsByPass.length - 1)]],
+  ]);
+  scanner.liveSessionStats = () => new Map([
+    ['claude:resume-a', { ...totalsByPass[Math.min(passCount - 1, totalsByPass.length - 1)], lastHourCostUSD: 0 }],
   ]);
   const pushedTokens: number[] = [];
   const wiring = createUsageWiring({

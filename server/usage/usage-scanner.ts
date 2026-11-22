@@ -169,7 +169,15 @@ interface SourceFile {
 interface SessionTotal {
   tokens: number;
   costUSD: number;
+  input?: number;
+  cacheRead?: number;
+  vendor?: string;
+  model?: string | null;
   lastTs: number | null;
+}
+
+interface LiveSessionStats extends SessionTotal {
+  lastHourCostUSD: number;
 }
 
 interface UsageScannerOptions {
@@ -265,10 +273,13 @@ function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function cloneSessionTotals(source: Map<string, SessionTotal>): Map<string, SessionTotal> {
-  const clone = new Map<string, SessionTotal>();
-  for (const [key, value] of source) clone.set(key, { ...value });
-  return clone;
+function sessionKeyOf(entry: StoredEntry): string | null {
+  const key = isClaudeEntry(entry) ? entry.inlineSessionId : entry.sessionId;
+  return typeof key === 'string' && key.length > 0 ? key : null;
+}
+
+function vendorNameOf(entry: StoredEntry): string {
+  return isClaudeEntry(entry) ? 'claude' : String(entry.vendor);
 }
 
 function utf8SequenceLength(byte: number): number {
@@ -572,7 +583,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
   let resolutionError: string | null = null;
-  let cachedSessionTotals: Map<string, SessionTotal> | null = null;
+  let sessionTotalsByVendorKey: Map<string, SessionTotal> | null = new Map();
   let currentFileJournal: FileJournalAction[] | null = null;
   let currentFileGenerationRollup: Map<string, UsageGenerationRollupRow> | null = null;
   let isHistoryCaughtUp = false;
@@ -614,8 +625,41 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   });
 
   function markDirty(): void {
-    cachedSessionTotals = null;
     cachedYourDay = null;
+  }
+
+  function addEntryToSessionTotals(totalsMap: Map<string, SessionTotal>, entry: StoredEntry): void {
+    const key = sessionKeyOf(entry);
+    if (!key) return;
+    const vendor = vendorNameOf(entry);
+    const vendorKey = `${vendor}:${key}`;
+    const cost = Number.isFinite(entry.costUSD) ? Number(entry.costUSD) : 0;
+    const bucket = totalsMap.get(vendorKey) ?? {
+      tokens: 0,
+      costUSD: 0,
+      input: 0,
+      cacheRead: 0,
+      vendor,
+      model: entry.model ?? null,
+      lastTs: null,
+    };
+    bucket.tokens += totalTokensOf(entry);
+    bucket.costUSD += cost;
+    bucket.input = (bucket.input ?? 0) + (Number.isFinite(entry.input) ? entry.input : 0);
+    bucket.cacheRead = (bucket.cacheRead ?? 0) + (Number.isFinite(entry.cacheRead) ? entry.cacheRead : 0);
+    if (bucket.lastTs === null || entry.timestampMs >= bucket.lastTs) {
+      bucket.lastTs = entry.timestampMs;
+      if (entry.model) bucket.model = entry.model;
+    }
+    totalsMap.set(vendorKey, bucket);
+  }
+
+  function ensureSessionTotals(): Map<string, SessionTotal> {
+    if (sessionTotalsByVendorKey) return sessionTotalsByVendorKey;
+    const rebuilt = new Map<string, SessionTotal>();
+    for (const entry of entries) addEntryToSessionTotals(rebuilt, entry);
+    sessionTotalsByVendorKey = rebuilt;
+    return rebuilt;
   }
 
   function recordJournal(action: FileJournalAction): void {
@@ -656,6 +700,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     primaryIndex.clear();
     collisionIndex.clear();
     entries.length = 0;
+    sessionTotalsByVendorKey = new Map();
     activityByKey.clear();
     missingModels.clear();
     markDirty();
@@ -673,6 +718,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       entries[action.index] = action.oldEntry;
       reindexReplacement(action.index, action.newKeys, action.oldKeys, action.oldEntry);
     }
+    sessionTotalsByVendorKey = null;
     markDirty();
     return true;
   }
@@ -703,6 +749,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       const newIndex = entries.push(entry) - 1;
       recordJournal({ type: 'insert', index: newIndex, keys });
       indexEntry(newIndex, entry, keys);
+      if (sessionTotalsByVendorKey) addEntryToSessionTotals(sessionTotalsByVendorKey, entry);
       if (currentFileGenerationRollup && isWithinGenerationRecencyWindow(entry, nowFn())) foldEntryIntoGenerationRollup(currentFileGenerationRollup, entry, pricedModelKeyOf(entry));
       return true;
     }
@@ -713,6 +760,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     recordJournal({ type: 'replace', index: hitIndex, oldEntry, oldKeys, newKeys: keys });
     entries[hitIndex] = entry;
     reindexReplacement(hitIndex, oldKeys, keys, entry);
+    sessionTotalsByVendorKey = null;
     if (currentFileGenerationRollup && isWithinGenerationRecencyWindow(entry, nowFn())) foldReplacementIntoGenerationRollup(currentFileGenerationRollup, oldEntry, entry, pricedModelKeyOf(entry));
     markDirty();
     return false;
@@ -924,6 +972,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     for (const event of snapshot.activity) activityByKey.set(activityKey(event), event);
     noteCodexRateLimits(snapshot.codexRateLimits);
     rebuildIndexes();
+    sessionTotalsByVendorKey = null;
     rebuildMissingModels();
     markDirty();
     const savedAtMs = Date.parse(snapshot.savedAt);
@@ -994,6 +1043,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     entries.length = 0;
     entries.push(...(pruned.kept as StoredEntry[]));
     rebuildIndexes();
+    sessionTotalsByVendorKey = null;
     rebuildMissingModels();
     markDirty();
   }
@@ -1161,19 +1211,44 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function sessionTotals(): Map<string, SessionTotal> {
-    if (cachedSessionTotals) return cloneSessionTotals(cachedSessionTotals);
-    const totalsBySession = new Map<string, SessionTotal>();
-    for (const entry of entries) {
-      const key = isClaudeEntry(entry) ? entry.inlineSessionId : entry.sessionId;
-      if (!key) continue;
-      const bucket = totalsBySession.get(key) || { tokens: 0, costUSD: 0, lastTs: null };
-      bucket.tokens += totalTokensOf(entry);
-      bucket.costUSD += Number.isFinite(entry.costUSD) ? Number(entry.costUSD) : 0;
-      bucket.lastTs = Math.max(bucket.lastTs || 0, entry.timestampMs);
-      totalsBySession.set(key, bucket);
+    const totalsByVendorKey = ensureSessionTotals();
+    const totals = new Map<string, SessionTotal>();
+    for (const [vendorKey, bucket] of totalsByVendorKey) {
+      const separatorIndex = vendorKey.indexOf(':');
+      const sessionId = separatorIndex >= 0 ? vendorKey.slice(separatorIndex + 1) : vendorKey;
+      const existing = totals.get(sessionId);
+      if (!existing) {
+        totals.set(sessionId, { tokens: bucket.tokens, costUSD: bucket.costUSD, lastTs: bucket.lastTs });
+        continue;
+      }
+      existing.tokens += bucket.tokens;
+      existing.costUSD += bucket.costUSD;
+      if (bucket.lastTs !== null && (existing.lastTs === null || bucket.lastTs > existing.lastTs)) existing.lastTs = bucket.lastTs;
     }
-    cachedSessionTotals = totalsBySession;
-    return cloneSessionTotals(cachedSessionTotals);
+    return totals;
+  }
+
+  function liveSessionStats(targets: Iterable<{ vendor: string; sessionId: string }>): Map<string, LiveSessionStats> {
+    const totalsByVendorKey = ensureSessionTotals();
+    const statsByVendorKey = new Map<string, LiveSessionStats>();
+    for (const target of targets) {
+      const vendorKey = `${target.vendor}:${target.sessionId}`;
+      const bucket = totalsByVendorKey.get(vendorKey);
+      if (!bucket) continue;
+      statsByVendorKey.set(vendorKey, { ...bucket, lastHourCostUSD: 0 });
+    }
+    if (statsByVendorKey.size === 0) return statsByVendorKey;
+    const oneHourAgoMs = nowFn() - 60 * 60 * 1000;
+    for (const entry of entries) {
+      if (entry.timestampMs < oneHourAgoMs) continue;
+      const key = sessionKeyOf(entry);
+      if (!key) continue;
+      const vendorKey = `${vendorNameOf(entry)}:${key}`;
+      const target = statsByVendorKey.get(vendorKey);
+      if (!target) continue;
+      target.lastHourCostUSD += Number.isFinite(entry.costUSD) ? Number(entry.costUSD) : 0;
+    }
+    return statsByVendorKey;
   }
 
   function stats() {
@@ -1363,6 +1438,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     runPass,
     buildReport,
     sessionTotals,
+    liveSessionStats,
     stats,
     vendorCounts,
     budgetSpend,

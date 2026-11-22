@@ -43,6 +43,7 @@ function fakeScanner(
       generationRollup,
     }),
     sessionTotals: () => new Map(),
+    liveSessionStats: () => new Map(),
     stats: () => ({ dirs: [], files: 0, entries: 0, lastScanMs: 0, lastOutcome: outcomeOf(), isHistoryCaughtUp: outcomeOf() === 'complete', resolutionError: null }),
     vendorCounts: () => ({}),
     budgetSpend: spend,

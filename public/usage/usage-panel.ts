@@ -5,11 +5,14 @@ import { el, isPanelHidden } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { button } from '../ui/button.ts';
 import { emptyState } from '../ui/empty-state.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { segmented } from '../ui/segmented.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import {
+  openUsageSession,
   reportUsageAction,
   requestUsageReport,
+  sessionMeterOf,
   setUsageLookingProbe,
   setUsageRange,
   subscribeUsage,
@@ -400,6 +403,89 @@ function buildSpendSection(
   return section;
 }
 
+function buildRunningNowSection(): HTMLElement {
+  const snapshot = usageSnapshot();
+  const section = el('section', 'usage-section');
+  section.append(buildSectionHeading('Running now', 'supervised sessions, last hour first'));
+
+  const liveRows = (snapshot.sessions?.sessions ?? [])
+    .filter((row) => row.tokens > 0 || row.costUSD > 0 || (row.lastHourCostUSD ?? 0) > 0 || (row.officialCostUSD ?? 0) > 0)
+    .slice()
+    .sort((left, right) => {
+      const hourDiff = (right.lastHourCostUSD ?? 0) - (left.lastHourCostUSD ?? 0);
+      if (hourDiff !== 0) return hourDiff;
+      return (right.officialCostUSD ?? right.costUSD) - (left.officialCostUSD ?? left.costUSD);
+    });
+
+  if (liveRows.length === 0) {
+    section.append(el('p', 'usage-note', 'No running sessions have recorded usage yet.'));
+    return section;
+  }
+
+  const wrap = el('div', 'usage-table-scroll');
+  const table = el('table', 'usage-table');
+  const head = el('thead');
+  const headRow = el('tr');
+  const columns: readonly { label: string; numeric?: boolean }[] = [
+    { label: 'Session' },
+    { label: 'Agent' },
+    { label: 'Model' },
+    { label: 'Context' },
+    { label: 'Last hour', numeric: true },
+    { label: 'Session', numeric: true },
+    { label: 'Cache hit', numeric: true },
+  ];
+  for (const column of columns) {
+    const th = el('th', column.numeric ? 'usage-num' : null, column.label);
+    th.scope = 'col';
+    headRow.append(th);
+  }
+  head.append(headRow);
+  const body = el('tbody');
+  for (const row of liveRows) {
+    const tr = el('tr');
+    const sessionLink = createPressable('usage-session-link', row.name || row.id);
+    sessionLink.addEventListener('click', () => {
+      openUsageSession(row.id);
+    });
+    const sessionCell = el('td');
+    sessionCell.append(sessionLink);
+
+    const meter = sessionMeterOf(row.id);
+    const contextPct = meter && meter.contextTokens !== null && meter.contextWindow !== null && meter.contextWindow > 0
+      ? Math.round((meter.contextTokens / meter.contextWindow) * 100)
+      : null;
+    const contextCell = el('td', contextPct === null ? 'usage-muted' : null);
+    if (contextPct === null) {
+      contextCell.textContent = NO_VALUE;
+    }
+    if (contextPct !== null) {
+      const ctxBar = el('span', 'usage-ctx-bar');
+      const ctxFill = el('span', 'usage-ctx-fill');
+      ctxFill.style.width = `${clampPct(contextPct)}%`;
+      ctxBar.append(ctxFill);
+      contextCell.append(ctxBar, el('span', 'usage-num', formatPercent(contextPct)));
+    }
+
+    const displayModel = meter?.model || row.model || NO_VALUE;
+    const sessionCost = row.officialCostUSD ?? row.costUSD;
+    tr.append(
+      sessionCell,
+      el('td', null, row.vendor ? vendorLabelOf(row.vendor) : NO_VALUE),
+      el('td', displayModel === NO_VALUE ? 'usage-muted' : 'usage-mono', displayModel),
+      contextCell,
+      el('td', 'usage-num', formatUsd(row.lastHourCostUSD ?? 0)),
+      el('td', 'usage-num', formatUsd(sessionCost)),
+      el('td', 'usage-num', row.cacheHitPct === null || row.cacheHitPct === undefined ? NO_VALUE : formatPercent(row.cacheHitPct)),
+    );
+    body.append(tr);
+  }
+  table.append(head, body);
+  wrap.append(table);
+  section.append(wrap);
+  return section;
+}
+
 function buildCoverageSection(): HTMLElement {
   const snapshot = usageSnapshot();
   const section = el('section', 'usage-section');
@@ -467,6 +553,7 @@ function renderUsagePanel({ force = false }: { force?: boolean } = {}): void {
   }
 
   rootEl.append(buildLimitsSection(now));
+  rootEl.append(buildRunningNowSection());
   if (snapshot.report?.ranges) {
     rootEl.append(buildSpendSection(snapshot.report, snapshot.rangeValue, () => renderUsagePanel({ force: true })));
   }

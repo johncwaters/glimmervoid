@@ -15,7 +15,7 @@ import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
 import { setOpenInReview } from './whiteboard/board-store.ts';
 import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, PACKS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
-import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback } from './usage/usage-store.ts';
+import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback, setUsageNavigation } from './usage/usage-store.ts';
 import { packPanelModule, packTabIcon } from './packs/pack-views.ts';
 import type { PackPanelView } from './packs/pack-views.ts';
 import { packsSnapshot, subscribePacks } from './packs/packs-store.ts';
@@ -148,6 +148,7 @@ function subscribePackApprovals(notify: (attention: ViewAttention) => void): voi
 export function createDashboardViews(actions: ViewRegistryActions): DashboardView[] {
   setReviewQueueNavigation({ openTerminal: actions.openTerminal, openReviews: actions.openReviews });
   setArenaNavigation({ openTerminal: actions.openTerminal });
+  setUsageNavigation({ openTerminal: actions.openTerminal });
   setSettingsRestartHandler(actions.onRestart);
   setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [

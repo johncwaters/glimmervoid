@@ -24,8 +24,13 @@ export const laneServerVariants = [
     pricingSource: nullableString,
     sessions: z.array(openObject({
       id: sessionId,
+      name: z.string().optional(),
+      vendor: z.string().optional(),
+      model: z.string().nullable().optional(),
       tokens: z.number(),
       costUSD: z.number(),
+      lastHourCostUSD: z.number().optional(),
+      cacheHitPct: z.number().nullable().optional(),
       officialCostUSD: z.number().nullable().optional(),
     })),
   }),
