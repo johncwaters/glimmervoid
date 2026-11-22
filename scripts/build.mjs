@@ -5,6 +5,7 @@ import { build } from 'vite';
 import { fetchFnox, hostTarget } from './fetch-fnox.ts';
 import { assertBinariesFitGlibcFloor } from './check-glibc-floor.ts';
 import { packJsonSchemaText } from '../shared/contracts/pack.ts';
+import { IMPORT_GRAMMAR_NAMES } from '../server/core/import-language-core.ts';
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const distDir = path.join(repoRoot, 'dist');
@@ -63,13 +64,21 @@ async function buildBinary() {
   fs.rmSync(binaryPath, { force: true });
   const { exec: packageExecutable } = await import('@yao-pkg/pkg');
   const pkgTarget = `node${BINARY_NODE_MAJOR}-${pkgPlatform}-${process.arch}`;
-  await packageExecutable([
-    path.join(distDir, 'bin', 'binary-main.mjs'),
-    '--sea',
-    '--config', path.join(repoRoot, 'package.json'),
-    '--targets', pkgTarget,
-    '--output', binaryPath,
-  ]);
+  const binaryPkgConfigPath = path.join(repoRoot, 'pkg.binary.json');
+  const packageManifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+  const binaryPkgConfig = { ...packageManifest, pkg: { ...packageManifest.pkg, ignore: binaryPackageIgnores(process.platform, process.arch) } };
+  fs.writeFileSync(binaryPkgConfigPath, `${JSON.stringify(binaryPkgConfig, null, 2)}\n`);
+  try {
+    await packageExecutable([
+      path.join(distDir, 'bin', 'binary-main.mjs'),
+      '--sea',
+      '--config', binaryPkgConfigPath,
+      '--targets', pkgTarget,
+      '--output', binaryPath,
+    ]);
+  } finally {
+    fs.rmSync(binaryPkgConfigPath, { force: true });
+  }
   if (!fs.existsSync(binaryPath)) fail(`pkg wrote no binary at ${binaryPath}`);
   for (const moduleFile of nodeOutputFiles(distDir, '.mjs')) {
     if (!npmShapeModuleFiles.has(moduleFile)) fs.rmSync(moduleFile);
@@ -86,6 +95,41 @@ async function buildBinary() {
     fail(error.message);
   }
   console.log('build: every shipped Linux binary and native module fits the dist glibc floor');
+}
+
+function asLiteralGlob(text) {
+  return text.replace(/[()[\]{}*?!+@|]/g, (globCharacter) => `[${globCharacter}]`);
+}
+
+function grammarNamesIn(grammarDirectory) {
+  return fs.readdirSync(path.join(repoRoot, 'node_modules', grammarDirectory)).flatMap((fileName) => fileName.match(/^tree-sitter-(.+)[.]wasm$/)?.slice(1) ?? []);
+}
+
+function binaryPackageIgnores(platform, arch) {
+  const target = `${platform}-${arch}`;
+  const otherArchitectures = `!(${arch})`;
+  const windowsHelperArchitectures = platform === 'win32' ? otherArchitectures : '*';
+  const seccompArchitectures = platform === 'linux' ? otherArchitectures : '*';
+  const vscodeGrammarDirectory = '@vscode/tree-sitter-wasm/wasm';
+  const wasmsGrammarDirectory = 'tree-sitter-wasms/out';
+  const vscodeGrammarNames = grammarNamesIn(vscodeGrammarDirectory);
+  const nodeModulesGlobRoot = asLiteralGlob(fs.realpathSync(path.join(repoRoot, 'node_modules')).split(path.sep).join('/'));
+  const unusedGrammarPaths = [
+    ...vscodeGrammarNames.filter((grammarName) => !IMPORT_GRAMMAR_NAMES.includes(grammarName)).map((grammarName) => `${vscodeGrammarDirectory}/tree-sitter-${grammarName}.wasm`),
+    ...grammarNamesIn(wasmsGrammarDirectory)
+      .filter((grammarName) => !IMPORT_GRAMMAR_NAMES.includes(grammarName) || vscodeGrammarNames.includes(grammarName))
+      .map((grammarName) => `${wasmsGrammarDirectory}/tree-sitter-${grammarName}.wasm`),
+  ];
+  return [
+    '**/*.map',
+    '**/*.d.{ts,mts,cts}',
+    `@img/sharp-!(${target}|libvips-${target})/**`,
+    `node-pty/prebuilds/!(${target})/**`,
+    ...(platform === 'win32' ? [] : ['node-pty/third_party/**']),
+    `@anthropic-ai/sandbox-runtime/vendor/srt-win/${windowsHelperArchitectures}/**`,
+    `@anthropic-ai/sandbox-runtime/vendor/seccomp/${seccompArchitectures}/**`,
+    ...unusedGrammarPaths,
+  ].map((pathUnderNodeModules) => `${nodeModulesGlobRoot}/${pathUnderNodeModules}`);
 }
 
 async function buildRelayBinary(packageExecutable, pkgTarget, binaryOutputDirectory) {

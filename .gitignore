@@ -35,6 +35,7 @@ marketing/video/*/glimmervoid-*.html
 .compiled-commit-tmp/
 
 dist-binary/
+pkg.binary.json
 /glimmervoid
 /glimmervoid.exe
 /glimmervoid-fnox
