@@ -3,7 +3,7 @@ import { boundedText } from '../trace-core.ts';
 import { unwrapSpilledToolOutput } from './spill-wrappers.ts';
 import type { SpillWrappingAgent } from './spill-wrappers.ts';
 
-type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId'>;
+type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId' | 'agentId' | 'agentType'>;
 
 function parsedJson(rawLine: string): unknown {
   try {

@@ -175,10 +175,13 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       appendConversationRecords(glimmervoidSessionId, relaySource.recordsFromPayload(payload, nowFn()));
       return;
     }
-    if (hookEvent !== 'subagentstop') return;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    const payloadRecord = payload as Record<string, unknown>;
+    const isSubagentStop = hookEvent === 'subagentstop'
+      || (hookEvent === 'stop' && typeof payloadRecord.agent_id === 'string' && payloadRecord.agent_id.length > 0);
+    if (!isSubagentStop) return;
     chain(
-      () => readSubagentTranscript(glimmervoidSessionId, payload as Record<string, unknown>),
+      () => readSubagentTranscript(glimmervoidSessionId, payloadRecord),
       'subagent capture failed',
     );
   }

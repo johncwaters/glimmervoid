@@ -9,6 +9,7 @@ import type { RecordBase } from './converter-parts.ts';
 const STEP_MARKER = '"step_index"';
 const STEP_TIMING_LINE = /^(?:Created|Completed) At: .*\n/gm;
 const NONZERO_EXIT = /Command exited with code [1-9]\d*/;
+const SUBAGENT_CONVERSATION_ID_RE = /Created the following subagent:[\s\S]*?"conversationId"\s*:\s*"([^"]+)"/;
 
 const ToolCall = z.object({ name: z.string().min(1), args: z.record(z.string(), z.unknown()).default({}) });
 
@@ -34,26 +35,39 @@ function taggedText(content: string, tag: string): string | null {
   return match ? match[1] : null;
 }
 
-function plannerRecords(base: RecordBase, step: Step): TraceRecord[] {
+function plannerRecords(base: RecordBase, stepNamespace: string, step: Step): TraceRecord[] {
   const toolCalls: TraceRecord[] = step.tool_calls.map((toolCall, callIndex) => ({
     ...base,
     kind: 'tool_call',
-    toolUseId: stepId(base.vendorSessionId, step.step_index + 1 + callIndex),
+    toolUseId: stepId(stepNamespace, step.step_index + 1 + callIndex),
     name: toolCall.name,
     ...boundedToolCallInput(toolCall.args),
   }));
   return [...textRecords(base, 'thinking', step.thinking), ...textRecords(base, 'assistant', step.content), ...toolCalls];
 }
 
-function toolResultRecords(base: RecordBase, step: Step): TraceRecord[] {
-  const output = step.content.replace(STEP_TIMING_LINE, '');
-  const isError = step.status === 'ERROR' || NONZERO_EXIT.test(output);
-  return [{ ...base, kind: 'tool_result', toolUseId: stepId(base.vendorSessionId, step.step_index), isError, ...boundedToolOutput('antigravity', output) }];
+function launchedSubagentIdOf(output: string): string | undefined {
+  const match = SUBAGENT_CONVERSATION_ID_RE.exec(output);
+  return match?.[1] || undefined;
 }
 
-function recordsOfStep(base: RecordBase, step: Step): TraceRecord[] {
-  if (step.type === 'PLANNER_RESPONSE') return plannerRecords(base, step);
-  if (step.type === 'GENERIC') return toolResultRecords(base, step);
+function toolResultRecords(base: RecordBase, stepNamespace: string, step: Step): TraceRecord[] {
+  const output = step.content.replace(STEP_TIMING_LINE, '');
+  const isError = step.status === 'ERROR' || NONZERO_EXIT.test(output);
+  const subagentId = isError ? undefined : launchedSubagentIdOf(output);
+  return [{
+    ...base,
+    kind: 'tool_result',
+    toolUseId: stepId(stepNamespace, step.step_index),
+    isError,
+    ...(subagentId ? { subagentId } : {}),
+    ...boundedToolOutput('antigravity', output),
+  }];
+}
+
+function recordsOfStep(base: RecordBase, stepNamespace: string, step: Step): TraceRecord[] {
+  if (step.type === 'PLANNER_RESPONSE') return plannerRecords(base, stepNamespace, step);
+  if (step.type === 'GENERIC') return toolResultRecords(base, stepNamespace, step);
   if (step.type === 'SYSTEM_MESSAGE') return textRecords(base, 'expansion', taggedText(step.content, 'SYSTEM_MESSAGE') ?? step.content);
   if (step.type !== 'USER_INPUT') return [];
   const request = taggedText(step.content, 'USER_REQUEST') ?? step.content;
@@ -64,13 +78,16 @@ function antigravityRecordsFromLine(rawLine: string, context: TraceLineContext):
   if (!rawLine.includes(STEP_MARKER)) return [];
   const step = Step.safeParse(parsedJson(rawLine));
   if (!step.success) return [];
+  const stepNamespace = context.agentId ?? context.vendorSessionId;
   const base: RecordBase = {
     ts: parseTimestamp(step.data.created_at) ?? context.now,
-    uuid: stepId(context.vendorSessionId, step.data.step_index),
+    uuid: stepId(stepNamespace, step.data.step_index),
     parentUuid: null,
     vendorSessionId: context.vendorSessionId,
+    ...(context.agentId ? { agentId: context.agentId } : {}),
+    ...(context.agentType ? { agentType: context.agentType } : {}),
   };
-  return recordsOfStep(base, step.data);
+  return recordsOfStep(base, stepNamespace, step.data);
 }
 
 export { antigravityRecordsFromLine };

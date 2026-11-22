@@ -10,6 +10,10 @@ import antigravity from '../session/adapters/antigravity.ts';
 import type { GeneratedHomeInjection } from '../session/adapters/index.ts';
 import { renderAntigravityPlugin } from '../session/core/antigravity-plugin-core.ts';
 import { promptContextReplyOf, refocusReplyFor, relayedHookContextOutput } from '../session/core/refocus-core.ts';
+import { hintFor, toolHookFactsOf } from '../session/core/session-routes.ts';
+import { antigravityRecordsFromLine } from '../server/core/conversation/antigravity-core.ts';
+import { shouldRefreshHookPrs } from '../server/core/session-pr-link-core.ts';
+import { appendChatRecords, createChatPartsState } from '../public/chat/chat-parts-core.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 
@@ -162,4 +166,92 @@ test('Antigravity plugin wires Sane YOLO PreToolUse hook and describes its insta
   assert.ok(installed && 'hooks' in installed);
   assert.ok(installed.hooks.some((hook) => hook.route === 'saneYolo' && hook.event === 'PreToolUse'));
   assert.ok(installed.hooks.some((hook) => hook.event === 'AgentState'));
+});
+
+test('Antigravity enriches subagent metadata, transcript path, PR refresh, and command hints', () => {
+  const enrich = antigravity.hooks.createPayloadEnricher?.();
+  assert.ok(enrich);
+  enrich('PreInvocation', { conversationId: 'parent-1', invocationNum: 0, lastUserInput: 'Review diff' });
+  enrich('PreToolUse', {
+    conversationId: 'parent-1',
+    toolCall: { id: 'call-denied', name: 'invoke_subagent', args: { TypeName: 'denied-type', Role: 'Denied' } },
+  });
+  enrich('PostToolUse', {
+    conversationId: 'parent-1',
+    toolCall: { id: 'call-denied', name: 'invoke_subagent', args: { TypeName: 'denied-type', Role: 'Denied' } },
+    error: 'Permission denied',
+  });
+  enrich('PreToolUse', {
+    conversationId: 'parent-1',
+    toolCall: { id: 'call-ok', name: 'invoke_subagent', args: { TypeName: 'qa-code-reviewer', Role: 'Code Review Lane' } },
+  });
+  const subagentStart = enrich('SessionStart', { conversationId: 'sub-1' });
+  assert.equal(subagentStart.agent_id, 'sub-1');
+  assert.equal(subagentStart.agent_type, 'qa-code-reviewer');
+  assert.deepEqual(subagentStart.tool_input, { subagent_type: 'qa-code-reviewer', description: 'Code Review Lane' });
+
+  const subagentStop = enrich('Stop', { conversationId: 'sub-1', transcriptPath: '/tmp/brain/sub-1/transcript_full.jsonl' });
+  assert.equal(subagentStop.agent_id, 'sub-1');
+  assert.equal(subagentStop.agent_type, 'qa-code-reviewer');
+  assert.equal(subagentStop.agent_transcript_path, '/tmp/brain/sub-1/transcript_full.jsonl');
+
+  const parentCallRecords = antigravityRecordsFromLine(JSON.stringify({
+    step_index: 0,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    tool_calls: [{ name: 'invoke_subagent', args: { TypeName: 'qa-code-reviewer', Role: 'Code Review Lane' } }],
+  }), { vendorSessionId: 'parent-1', now: 1000 });
+  const parentResultRecords = antigravityRecordsFromLine(JSON.stringify({
+    step_index: 1,
+    source: 'TOOL',
+    type: 'GENERIC',
+    content: 'Created the following subagent:\n{\n  "conversationId": "sub-1"\n}',
+  }), { vendorSessionId: 'parent-1', now: 1010 });
+  const subagentRecords = antigravityRecordsFromLine(JSON.stringify({
+    step_index: 0,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    content: 'Subagent report',
+    tool_calls: [{ name: 'run_command', args: { CommandLine: 'git status' } }],
+  }), { vendorSessionId: 'parent-1', now: 1500, agentId: 'sub-1', agentType: 'qa-code-reviewer' });
+  assert.ok(subagentRecords.every((record) => record.agentId === 'sub-1' && record.agentType === 'qa-code-reviewer' && record.uuid?.startsWith('sub-1:step-')));
+
+  const chatState = createChatPartsState();
+  const appended = appendChatRecords(chatState, [
+    ...parentCallRecords,
+    ...parentResultRecords,
+    { ts: 1020, uuid: null, parentUuid: null, vendorSessionId: 'parent-1', kind: 'subagent', phase: 'start', subagentId: 'sub-1', subagentType: 'qa-code-reviewer', task: 'Code Review Lane' },
+    ...subagentRecords,
+    { ts: 2000, uuid: null, parentUuid: null, vendorSessionId: 'parent-1', kind: 'subagent', phase: 'stop', subagentId: 'sub-1', subagentType: 'qa-code-reviewer', task: null },
+  ]);
+  const subagentParts = appended.parts.filter((part) => part.kind === 'subagent');
+  assert.equal(subagentParts.length, 1);
+  assert.equal(subagentParts[0].subagentType, 'qa-code-reviewer');
+  assert.equal(subagentParts[0].task, 'Code Review Lane');
+  assert.equal(subagentParts[0].stepCount, 1);
+  assert.equal(subagentParts[0].report, 'Subagent report');
+  assert.equal(appended.parts.some((part) => part.kind === 'turn'), false);
+
+  const pushPayload = enrich('PostToolUse', {
+    conversationId: 'parent-1',
+    toolCall: { name: 'run_command', args: { CommandLine: 'git push origin main' } },
+  });
+  assert.equal(shouldRefreshHookPrs('PostToolUse', pushPayload), true);
+
+  const writePayload = enrich('PostToolUse', {
+    conversationId: 'parent-1',
+    toolCall: { name: 'write_file', args: { Path: '/tmp/report.html' } },
+  });
+  const writeFacts = toolHookFactsOf('PostToolUse', writePayload);
+  assert.ok(writeFacts);
+  const hintGate = { answers: () => true, hintedCommands: new Set<string>(), ranCommands: new Set<string>() };
+  assert.equal(hintFor(writeFacts, hintGate)?.command, 'show');
+
+  const subagentToolPayload = enrich('PostToolUse', {
+    conversationId: 'parent-1',
+    toolCall: { name: 'invoke_subagent', args: { TypeName: 'research', Role: 'Scout' } },
+  });
+  const subagentFacts = toolHookFactsOf('PostToolUse', subagentToolPayload);
+  assert.ok(subagentFacts);
+  assert.equal(hintFor(subagentFacts, hintGate)?.command, 'spawn');
 });

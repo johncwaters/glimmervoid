@@ -16,7 +16,7 @@ const TOOL_HOOK_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 const ANTIGRAVITY_QUESTION_TOOL_NAME = "ask_question";
 const ANTIGRAVITY_SUBAGENT_TOOL_NAME = "invoke_subagent";
 const ANTIGRAVITY_GATED_TOOL_NAMES: readonly string[] = ["run_command", "write_file", "edit_file", "create_file", "delete_file", "apply_patch"];
-const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "isTurnOpen", "pendingToolName", "prompt", "source", "tool_name", "tool_input"];
+const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "agent_transcript_path", "agent_type", "isTurnOpen", "pendingToolName", "prompt", "source", "tool_name", "tool_input"];
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
 type AntigravityPluginFileName = "plugin.json" | "hooks.json" | "mcp_config.json";
@@ -133,11 +133,12 @@ function hasRunningTask(taskCount: unknown): boolean {
   return typeof taskCount === "number" && taskCount > 0;
 }
 
-function toolCallOf(payload: HookPayloadRecord): { name: string | null; args: unknown } {
+function toolCallOf(payload: HookPayloadRecord): { id: string | null; name: string | null; args: unknown } {
   const toolCall = payload.toolCall;
-  if (typeof toolCall !== "object" || toolCall === null) return { name: null, args: null };
+  if (typeof toolCall !== "object" || toolCall === null) return { id: null, name: null, args: null };
+  const id = "id" in toolCall && typeof toolCall.id === "string" && toolCall.id ? toolCall.id : null;
   const name = "name" in toolCall && typeof toolCall.name === "string" ? toolCall.name : null;
-  return { name, args: "args" in toolCall ? toolCall.args : null };
+  return { id, name, args: "args" in toolCall ? toolCall.args : null };
 }
 
 function askUserQuestionInputOf(questionArgs: unknown): Record<string, unknown> | null {
@@ -168,11 +169,25 @@ function withAskUserQuestionFields(payload: HookPayloadRecord): HookPayloadRecor
   return toolInput === null ? payload : { ...payload, tool_name: ASK_USER_QUESTION_TOOL_NAME, tool_input: toolInput };
 }
 
+interface PendingSubagentMetadata {
+  callId: string | null;
+  typeName: string | null;
+  role: string | null;
+}
+
+function subagentMetadataOf(callId: string | null, args: unknown): PendingSubagentMetadata {
+  if (typeof args !== "object" || args === null) return { callId, typeName: null, role: null };
+  const rawTypeName = "TypeName" in args && typeof args.TypeName === "string" ? args.TypeName.trim() : "";
+  const rawRole = "Role" in args && typeof args.Role === "string" ? args.Role.trim() : "";
+  return { callId, typeName: rawTypeName || null, role: rawRole || null };
+}
+
 function createConversationTagger(): (event: string, payload: HookPayloadRecord) => HookPayloadRecord {
   const subagentConversationIds = new Set<string>();
+  const subagentMetadataById = new Map<string, PendingSubagentMetadata>();
+  const pendingSubagentQueue: PendingSubagentMetadata[] = [];
   let isTurnOpen = false;
   let pendingToolName: string | null = null;
-  let pendingSubagentStarts = 0;
   let lastOperatorPrompt: string | null = null;
   let lastInjectedStepInput: string | null = null;
 
@@ -185,17 +200,43 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   }
 
   function tagSubagentEvent(normalizedEvent: string, conversationId: string, payload: HookPayloadRecord): HookPayloadRecord {
-    if (normalizedEvent === "stop") subagentConversationIds.delete(conversationId);
-    return { ...payload, agent_id: conversationId };
+    const metadata = subagentMetadataById.get(conversationId) ?? null;
+    const enriched: HookPayloadRecord = { ...payload, agent_id: conversationId };
+    if (metadata?.typeName) enriched.agent_type = metadata.typeName;
+    if (normalizedEvent === "sessionstart" && (metadata?.typeName || metadata?.role)) {
+      enriched.tool_input = {
+        ...(metadata.typeName ? { subagent_type: metadata.typeName } : {}),
+        ...(metadata.role ? { description: metadata.role } : {}),
+      };
+    }
+    if (normalizedEvent === "stop") {
+      if (typeof payload.transcriptPath === "string" && payload.transcriptPath) {
+        enriched.agent_transcript_path = payload.transcriptPath;
+      }
+      subagentConversationIds.delete(conversationId);
+      subagentMetadataById.delete(conversationId);
+    }
+    return enriched;
   }
 
   function trackParentTurn(normalizedEvent: string, payload: HookPayloadRecord): void {
     if (normalizedEvent === "preinvocation") isTurnOpen = true;
     if (normalizedEvent === "stop" && payload.fullyIdle === true) isTurnOpen = false;
-    if (normalizedEvent === "stop") pendingSubagentStarts = 0;
-    if (normalizedEvent === "pretooluse") pendingToolName = toolCallOf(payload).name;
-    if (normalizedEvent === "pretooluse" && pendingToolName === ANTIGRAVITY_SUBAGENT_TOOL_NAME) pendingSubagentStarts += 1;
-    if (normalizedEvent === "posttooluse") pendingToolName = null;
+    if (normalizedEvent === "stop") pendingSubagentQueue.length = 0;
+    if (normalizedEvent === "pretooluse") {
+      const { id, name, args } = toolCallOf(payload);
+      pendingToolName = name;
+      if (name === ANTIGRAVITY_SUBAGENT_TOOL_NAME) pendingSubagentQueue.push(subagentMetadataOf(id, args));
+    }
+    if (normalizedEvent === "posttooluse") {
+      pendingToolName = null;
+      const { id, name } = toolCallOf(payload);
+      const hasToolError = typeof payload.error === "string" && payload.error.length > 0;
+      if (name === ANTIGRAVITY_SUBAGENT_TOOL_NAME && hasToolError && pendingSubagentQueue.length > 0) {
+        const failedIndex = id === null ? 0 : pendingSubagentQueue.findIndex((entry) => entry.callId === id);
+        pendingSubagentQueue.splice(failedIndex >= 0 ? failedIndex : 0, 1);
+      }
+    }
   }
 
   function withOperatorPrompt(normalizedEvent: string, payload: HookPayloadRecord): HookPayloadRecord {
@@ -222,9 +263,10 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
     const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : null;
     const questionPayload = heldPayloadFor(normalizedEvent, payload);
     if (conversationId === null) return questionPayload;
-    if (normalizedEvent === "sessionstart" && pendingSubagentStarts > 0) {
-      pendingSubagentStarts -= 1;
+    if (normalizedEvent === "sessionstart" && pendingSubagentQueue.length > 0) {
+      const metadata = pendingSubagentQueue.shift() ?? { callId: null, typeName: null, role: null };
       subagentConversationIds.add(conversationId);
+      subagentMetadataById.set(conversationId, metadata);
     }
     if (subagentConversationIds.has(conversationId)) return tagSubagentEvent(normalizedEvent, conversationId, questionPayload);
     trackParentTurn(normalizedEvent, payload);
