@@ -1,4 +1,5 @@
-const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+import { GH_SEGMENT } from '../git-text.ts';
+
 const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const NODE_ID_RE = /^[A-Za-z0-9_=-]+$/;
 

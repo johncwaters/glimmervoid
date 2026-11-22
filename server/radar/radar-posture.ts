@@ -1,4 +1,4 @@
-import { absolutePathReadRule } from '../github/core/team-review-core.ts';
+import { absolutePathReadRule } from '../../shared/lane-report-core.ts';
 import { LANE_CONFIG_EDIT_DENY_RULES } from '../lanes/core/lane-permissions-core.ts';
 import type { LaneAccess } from '../lanes/core/lane-permissions-core.ts';
 

@@ -6,7 +6,7 @@ import type { Express, RequestHandler } from 'express';
 import { z } from 'zod';
 import { errorMessage } from '../../shared/text.ts';
 import { panelActionDecision } from '../../shared/contracts/pack-action-core.ts';
-import { readCappedBody } from '../backend/http/backend-http-body.ts';
+import { readCappedBody } from '../http-body.ts';
 import { parseJsonRecord } from '../core/json-core.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
 import { packFileHeaders } from './core/pack-core.ts';

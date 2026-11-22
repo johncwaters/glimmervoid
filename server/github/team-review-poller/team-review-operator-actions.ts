@@ -1,6 +1,6 @@
 import { comparablePrKey } from '../../../shared/contracts/github-prs.ts';
 import { pullRequestKeyFromReference } from '../../../shared/contracts/control-messages.ts';
-import { githubStoreRateLimitedError } from '../github-store-poller.ts';
+import { githubStoreRateLimitedError } from '../core/github-rate-limit-core.ts';
 import { countViewerThreadResolved, hasPresentableThreads, isThreadPlaceholderDraft } from '../core/team-review-threads-core.ts';
 import * as core from '../core/team-review-core.ts';
 import { ReviewDraft } from '../../../shared/contracts/team-review.ts';

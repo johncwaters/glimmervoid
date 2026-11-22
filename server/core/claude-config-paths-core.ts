@@ -63,4 +63,22 @@ function projectDirCandidates(
   return Array.from(new Set([...projectsDirsFromHomes(defaultHomes), ...projectsDirsFromHomes(extraHomes)]));
 }
 
-export { configDirOverride, expandTilde, listClaudeGlobalConfigPathCandidates, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir };
+function vendorHomes(
+  env: NodeJS.ProcessEnv,
+  varName: string,
+  defaultDirName: string,
+  homeDir: string | null,
+): string[] {
+  const rawOverride = env?.[varName];
+  const override = typeof rawOverride === 'string' ? rawOverride.trim() : '';
+  if (override) return normalizeHomeCandidates(override.split(','), env, homeDir);
+  const home = resolveHomeDir(env, homeDir);
+  if (!home) return [];
+  return [path.join(home, defaultDirName)];
+}
+
+function codexHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
+  return vendorHomes(env, 'CODEX_HOME', '.codex', homeDir);
+}
+
+export { codexHomes, configDirOverride, expandTilde, listClaudeGlobalConfigPathCandidates, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir, vendorHomes };

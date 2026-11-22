@@ -55,7 +55,7 @@ import { BOARD_PAGE_ARROW_KEYS, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_CONTENT_WID
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
-import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
+import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from '../http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
 import { mountFrameOpenRoute, mountKeyedFrameRoutes } from './http/backend-http-frames.ts';
 import type { PackFileSource } from './http/backend-http-frames.ts';

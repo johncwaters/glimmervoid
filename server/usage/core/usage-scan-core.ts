@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { configDirOverride, expandTilde, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir } from '../../core/claude-config-paths-core.ts';
+import { codexHomes, configDirOverride, expandTilde, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir, vendorHomes } from '../../core/claude-config-paths-core.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { textOr } from '../../../shared/coerce.ts';
 import { ANTIGRAVITY_TRANSCRIPT_FILENAME } from './usage-antigravity-core.ts';
@@ -97,7 +97,7 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = '2d7ae39dae036fa0';
+const SCAN_SNAPSHOT_INGEST_DIGEST = 'e68d2bb9e8934e13';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
@@ -176,24 +176,6 @@ function shouldEvaluateDespiteIoFailures(
   if (!Number.isFinite(ioFailureStreak) || !Number.isFinite(limit)) return false;
   if (limit <= 0) return false;
   return ioFailureStreak >= limit;
-}
-
-function vendorHomes(
-  env: NodeJS.ProcessEnv,
-  varName: string,
-  defaultDirName: string,
-  homeDir: string | null,
-): string[] {
-  const rawOverride = env?.[varName];
-  const override = typeof rawOverride === 'string' ? rawOverride.trim() : '';
-  if (override) return normalizeHomeCandidates(override.split(','), env, homeDir);
-  const home = resolveHomeDir(env, homeDir);
-  if (!home) return [];
-  return [path.join(home, defaultDirName)];
-}
-
-function codexHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
-  return vendorHomes(env, 'CODEX_HOME', '.codex', homeDir);
 }
 
 function grokHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {

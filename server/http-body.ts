@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 import type { Request } from 'express';
-import { parseJsonRecord } from '../../core/json-core.ts';
+import { parseJsonRecord } from './core/json-core.ts';
 
 function readCappedBody(
   req: IncomingMessage,

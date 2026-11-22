@@ -9,6 +9,10 @@ export type GithubRateLimitResources = z.infer<typeof GithubRateLimitResources>;
 
 export const GITHUB_RATE_LIMIT_WINDOW_MS = 60 * 60_000;
 
+export function githubStoreRateLimitedError(waitMs: number, readSubject = 'the pull request'): string {
+  return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading ${readSubject}. Try again then`;
+}
+
 export function githubRateLimitWaitMs(resources: GithubRateLimitResources, nowMs: number, resourceNames: readonly string[]): number | null {
   const exhaustedResetsMs = resourceNames
     .flatMap((resourceName) => resources[resourceName] ?? [])
