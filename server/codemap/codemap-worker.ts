@@ -10,7 +10,8 @@ import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_EXPORT_FILE_BY_KIND, CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { readImportsMap } from '../change-map/core/change-map-core.ts';
 import { blankOutsideScriptRegions, buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath, scriptSourceSpecifiers } from '../core/import-graph-core.ts';
-import { importLanguageOf, isSourcePath } from '../core/import-language-core.ts';
+import { importLanguageOf, isImportManifestPath, isSourcePath } from '../core/import-language-core.ts';
+import { scanGrammarImports, threadCpuMs } from '../import-scan/grammar-scan.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
 import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 
@@ -89,9 +90,25 @@ interface FileScan {
 
 const NO_IMPORTS: FileScan = { specifiers: [], typeOnlySpecifiers: [], exportedNames: [] };
 
-function scanOf(repoPath: string, sourceText: string): FileScan {
+interface GrammarAllowance {
+  remainingCpuMs: number;
+}
+
+function grammarAllowance(): GrammarAllowance {
+  return { remainingCpuMs: CODEMAP_TUNABLES.grammarScanBudgetMs };
+}
+
+async function scanOf(repoPath: string, sourceText: string, allowance: GrammarAllowance): Promise<FileScan | null> {
   const scanner = importLanguageOf(repoPath)?.scanner;
   if (!scanner) return NO_IMPORTS;
+  if (scanner.kind === 'grammar') {
+    const budgetMs = Math.min(CODEMAP_TUNABLES.grammarParseBudgetMs, allowance.remainingCpuMs);
+    if (budgetMs <= 0) return null;
+    const startedAt = threadCpuMs();
+    const specifiers = await scanGrammarImports(scanner, sourceText, budgetMs);
+    allowance.remainingCpuMs -= threadCpuMs() - startedAt;
+    return specifiers && { specifiers, typeOnlySpecifiers: [], exportedNames: [] };
+  }
   if (scanner.kind === 'python') return { specifiers: extractPythonImportSpecifiers(sourceText), typeOnlySpecifiers: [], exportedNames: [] };
   if (scanner.kind === 'typescript') return { specifiers: extractImportSpecifiers(sourceText), typeOnlySpecifiers: extractTypeOnlySpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
   const scriptText = blankOutsideScriptRegions(sourceText, scanner.host);
@@ -101,11 +118,17 @@ function scanOf(repoPath: string, sourceText: string): FileScan {
 
 async function scanFiles(root: string, repoPaths: readonly string[]): Promise<{ repoPath: string; specifiers: string[] }[]> {
   const scans: { repoPath: string; specifiers: string[] }[] = [];
+  const allowance = grammarAllowance();
   for (const repoPath of repoPaths) {
     const sourceText = await fs.promises.readFile(path.join(root, repoPath), 'utf8').catch(() => null);
     if (sourceText === null) continue;
     const isWithinBudget = Buffer.byteLength(sourceText) <= CODEMAP_TUNABLES.maxFileBytes;
-    scans.push({ repoPath, specifiers: isWithinBudget ? scanOf(repoPath, sourceText).specifiers : [] });
+    if (!isWithinBudget) {
+      scans.push({ repoPath, specifiers: [] });
+      continue;
+    }
+    const scan = await scanOf(repoPath, sourceText, allowance);
+    if (scan) scans.push({ repoPath, specifiers: scan.specifiers });
   }
   return scans;
 }
@@ -175,16 +198,24 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const entries = parseTree(treeText);
   const exportFilePaths = new Set(Object.values(CODEMAP_EXPORT_FILE_BY_KIND));
   const { kept: sourceEntries, skipped } = partitionByBudget(entries.filter((entry) => isSourcePath(entry.repoPath) && !exportFilePaths.has(entry.repoPath)));
-  const skippedPaths = skipped.map((entry) => entry.repoPath).sort();
   markPhase('list tree');
   const reusableScans = await reusableScansOf(repoDir, base, sha);
-  const packageJsonEntry = entries.find((entry) => entry.repoPath === 'package.json' && entry.sizeBytes <= CODEMAP_TUNABLES.maxFileBytes);
+  const configEntries = entries.filter((entry) => (entry.repoPath === 'package.json' || isImportManifestPath(entry.repoPath)) && entry.sizeBytes <= CODEMAP_TUNABLES.maxFileBytes);
   const unscannedEntries = sourceEntries.filter((entry) => !reusableScans.has(entry.repoPath));
-  const textByPath = await readTextsByPath(repoDir, packageJsonEntry ? [...unscannedEntries, packageJsonEntry] : unscannedEntries);
+  const textByPath = await readTextsByPath(repoDir, [...unscannedEntries, ...configEntries]);
   const configsByPath = await readTsconfigs(repoDir, entries);
   markPhase(`read blobs (${unscannedEntries.length} changed, ${sourceEntries.length - unscannedEntries.length} reused)`);
-  const paths = sourceEntries.map((entry) => entry.repoPath).sort();
-  const scans = paths.map((repoPath) => reusableScans.get(repoPath) ?? scanOf(repoPath, textByPath.get(repoPath) ?? ''));
+  const scanByPath = new Map<string, FileScan>();
+  const overBudgetPaths: string[] = [];
+  const allowance = grammarAllowance();
+  for (const repoPath of sourceEntries.map((entry) => entry.repoPath)) {
+    const scan = reusableScans.get(repoPath) ?? await scanOf(repoPath, textByPath.get(repoPath) ?? '', allowance);
+    if (scan) scanByPath.set(repoPath, scan);
+    if (!scan) overBudgetPaths.push(repoPath);
+  }
+  const skippedPaths = [...skipped.map((entry) => entry.repoPath), ...overBudgetPaths].sort();
+  const paths = [...scanByPath.keys()].sort();
+  const scans = paths.map((repoPath) => scanByPath.get(repoPath) ?? NO_IMPORTS);
   const specifiersByIndex = scans.map((scan) => scan.specifiers);
   const exportedNamesByIndex = scans.map((scan) => scan.exportedNames);
   const typeOnlySpecifiersByIndex = scans.map((scan) => scan.typeOnlySpecifiers);
@@ -197,7 +228,8 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const ignoredPaths = await ignoredPathsOf(repoDir, [...new Set(unresolvedBasePaths)].filter((basePath) => !basePath.startsWith('../')));
   const outsideGraphImportsByIndex = paths.map((repoPath, index) => (candidateImportsByIndex[index] ?? []).filter((candidate) => candidate.targetPath !== null || !ignoredPaths.has(relativeImportBasePath(repoPath, candidate.specifier))));
   markPhase('scan imports');
-  const resolution = { importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath) };
+  const manifestTextByPath = new Map([...textByPath].filter(([repoPath]) => isImportManifestPath(repoPath)));
+  const resolution = { importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath };
   const graph = buildImportGraph({ specifiersByPath, ...resolution });
   const valueGraph = buildImportGraph({ specifiersByPath: valueSpecifiersByPath, ...resolution });
   const indexByPath = new Map(paths.map((repoPath, index) => [repoPath, index]));

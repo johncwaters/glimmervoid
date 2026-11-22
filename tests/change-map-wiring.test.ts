@@ -318,7 +318,7 @@ test('tsconfig paths and NodeNext imports carry blast radius through a wizard-sh
   }
 });
 
-test('Python package imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
+test('Python and Go package imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
   const fence = '`'.repeat(3);
   const { root, base } = createPackageRepo('posthog', {}, {
     'posthog/__init__.py': '',
@@ -334,11 +334,20 @@ test('Python package imports and the script regions of Astro, Vue, Svelte, HTML 
     'site/components/Badge.svelte': "<script>\n  import { format } from '../lib/format.ts';\n</script>\n<p>{format}</p>\n",
     'site/docs/guide.mdx': `import { format } from '../lib/format.ts';\n\n${fence}js\nimport { other } from '../lib/other.ts';\n${fence}\n\nSee {format}.\n`,
     'site/index.html': '<script type="module" src="/lib/format.ts"></script>\n<script type="application/json">{"import": "x"}</script>\n',
+    'shop/go.mod': 'module example.com/shop\n\ngo 1.22\n',
+    'shop/cart/cart.go': 'package cart\n\nfunc Total() int { return 1 }\n',
+    'shop/cart/tax.go': 'package cart\n',
+    'shop/cart/cart_test.go': 'package cart\n\nimport "testing"\n',
+    'shop/cmd/shop/main.go': 'package main\n\nimport (\n\t"fmt"\n\tshopcart "example.com/shop/cart"\n)\n\n// import "example.com/shop/other"\nvar note = `import "example.com/shop/other"`\n\nfunc main() { fmt.Println(shopcart.Total(), note) }\n',
+    'shop/other/other.go': 'package other\n',
+    'shop/checkout/checkout_test.go': 'package checkout\n\nimport "example.com/shop/cart"\n',
   });
   try {
     writeRepoFile(root, 'posthog/models/user.py', 'class User: value = 1\n');
     writeRepoFile(root, 'site/lib/format.ts', 'export const format = 2;\n');
     writeRepoFile(root, 'site/lib/other.ts', 'export const other = 2;\n');
+    writeRepoFile(root, 'shop/cart/tax.go', 'package cart\n\nconst rate = 2\n');
+    writeRepoFile(root, 'shop/other/other.go', 'package other\n\nconst unused = 2\n');
     const session = fixtureSession('posthog', 'Posthog', () => [scopeOf(root, base)]);
     const map = await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
     const [repo] = map.repos;
@@ -348,6 +357,13 @@ test('Python package imports and the script regions of Astro, Vue, Svelte, HTML 
     const scriptBlast = repo.blastRadius.find((fact) => fact.path === 'site/lib/format.ts');
     assert.deepEqual(scriptBlast?.directDependents, ['site/components/Badge.svelte', 'site/components/Card.vue', 'site/docs/guide.mdx', 'site/index.html', 'site/pages/index.astro']);
     assert.deepEqual(repo.blastRadius.find((fact) => fact.path === 'site/lib/other.ts')?.directDependents ?? [], []);
+    const goBlast = repo.blastRadius.find((fact) => fact.path === 'shop/cart/tax.go');
+    assert.deepEqual(goBlast?.directDependents, ['shop/checkout/checkout_test.go', 'shop/cmd/shop/main.go']);
+    assert.deepEqual(goBlast?.dependentTests, ['shop/checkout/checkout_test.go']);
+    assert.deepEqual(repo.blastRadius.find((fact) => fact.path === 'shop/other/other.go')?.directDependents ?? [], []);
+    const extract = await createCodemapClient().extract(root, base);
+    const goEdges = [...extract.importerIndexes].map((importerIndex, edgeIndex) => `${extract.paths[importerIndex]} imports ${extract.paths[extract.importedIndexes[edgeIndex] ?? -1]}`).filter((edge) => edge.endsWith('.go'));
+    assert.deepEqual(goEdges.sort(), ['shop/checkout/checkout_test.go imports shop/cart/cart.go', 'shop/checkout/checkout_test.go imports shop/cart/tax.go', 'shop/cmd/shop/main.go imports shop/cart/cart.go', 'shop/cmd/shop/main.go imports shop/cart/tax.go']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

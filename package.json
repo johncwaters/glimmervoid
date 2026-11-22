@@ -90,6 +90,7 @@
     "@pierre/diffs": "1.6.4",
     "@revolist/revogrid": "4.31.5",
     "@stackline/xlsx": "1.0.10",
+    "@vscode/tree-sitter-wasm": "0.3.1",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-serialize": "0.14.0",
     "@xterm/addon-unicode11": "0.9.0",
@@ -103,6 +104,7 @@
     "httpxy": "0.5.6",
     "node-pty": "1.2.0-beta.18",
     "sharp": "0.35.5",
+    "tree-sitter-wasms": "0.1.13",
     "ws": "8.23.0",
     "zod": "4.6.7"
   },
@@ -126,7 +128,8 @@
   "pkg": {
     "scripts": [
       "dist/**/*.mjs",
-      "node_modules/cc-safety-net/dist/**/*.js"
+      "node_modules/cc-safety-net/dist/**/*.js",
+      "node_modules/@vscode/tree-sitter-wasm/wasm/tree-sitter.js"
     ],
     "assets": [
       "dist/client/**/*",
@@ -141,7 +144,9 @@
       "node_modules/node-pty/prebuilds/**/*",
       "node_modules/fs-native-extensions/prebuilds/**/*",
       "node_modules/cc-safety-net/package.json",
-      "node_modules/cc-safety-net/dist/**/package.json"
+      "node_modules/cc-safety-net/dist/**/package.json",
+      "node_modules/@vscode/tree-sitter-wasm/wasm/tree-sitter.wasm",
+      "node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm"
     ]
   }
 }

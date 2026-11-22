@@ -15,6 +15,8 @@ export const CODEMAP_TUNABLES = Object.freeze({
   maxSourceBytes: 128 * 1024 * 1024,
   workerHeapMb: 512,
   extractDeadlineMs: 120_000,
+  grammarParseBudgetMs: 1_000,
+  grammarScanBudgetMs: 30_000,
   failureRetryMs: 60_000,
   listedPathsPerSection: 30,
   listedModules: 300,
@@ -190,7 +192,7 @@ function cappedList(names: readonly string[]): string {
 
 function mapBodyLinesOf(model: CodemapModel): string[] {
   const lines = [`${model.modules.length} modules, ${model.paths.length} source files, ${model.moduleEdgeCount} module edges, ${model.entranceIndexes.length} entrances (files nothing imports)`];
-  if (model.skippedPaths.size > 0) lines.push(`${model.skippedPaths.size} source files skipped over the size or count caps, so their imports are missing: ${cappedList([...model.skippedPaths])}`);
+  if (model.skippedPaths.size > 0) lines.push(`${model.skippedPaths.size} source files skipped over the size, count or parse time caps, so their imports are missing: ${cappedList([...model.skippedPaths])}`);
   lines.push('modules (file count, imported by N modules): imported modules with file import counts');
   for (const summary of model.modules.slice(0, CODEMAP_TUNABLES.listedModules)) {
     lines.push(`${summary.id} (${summary.fileCount}, in ${summary.importedBy}): ${cappedList((model.edgesByModule.get(summary.id) ?? []).map((edge) => `${edge.to} ${edge.fileImports}`))}`);
@@ -311,7 +313,7 @@ function normalizedRepoPath(target: string): string {
 
 function whereOf(model: CodemapModel, target: string): { ok: true; text: string } | { ok: false; error: string } {
   const repoPath = normalizedRepoPath(target);
-  if (model.skippedPaths.has(repoPath)) return { ok: true, text: `${repoPath} is skipped over the size or count caps, so the map at ${shortSha(model.sha)} holds none of its imports or exports` };
+  if (model.skippedPaths.has(repoPath)) return { ok: true, text: `${repoPath} is skipped over the size, count or parse time caps, so the map at ${shortSha(model.sha)} holds none of its imports or exports` };
   const pathIndex = model.indexByPath.get(repoPath);
   if (pathIndex !== undefined) return { ok: true, text: whereLinesOf(model, pathIndex).join('\n') };
   const exportingIndexes = model.paths.flatMap((_repoPath, index) => ((model.exportedNamesByIndex[index] ?? []).includes(target) ? [index] : []));
@@ -350,7 +352,7 @@ function impactOf(model: CodemapModel, targets: readonly string[]): { ok: true; 
     `  dependent files: ${cappedList(reachedPaths.filter((reachedPath) => !isTestPath(reachedPath)))}`,
   ];
   if (unknownPaths.length > 0) lines.push(`  not in the map: ${cappedList(unknownPaths)}`);
-  if (model.skippedPaths.size > 0) lines.push(`  not traced, skipped over the size or count caps: ${cappedList([...model.skippedPaths])}`);
+  if (model.skippedPaths.size > 0) lines.push(`  not traced, skipped over the size, count or parse time caps: ${cappedList([...model.skippedPaths])}`);
   return { ok: true, text: lines.join('\n') };
 }
 
@@ -929,7 +931,7 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
     `  ${breach.from} -> ${breach.to} is a crossed wire held to ${breach.fileImportCeiling} file imports and now has ${breach.fileImports.length}; remove the import, or move the code both modules need into a module below them`,
     ...breach.fileImports.slice(0, CODEMAP_TUNABLES.listedPathsPerSection).map((fileImport) => `    ${fileImport}`),
   ]);
-  const unjudgedLine = unjudgedPaths.length > 0 ? [`  changed files over the size or count caps, so their imports cannot be judged: ${cappedList(unjudgedPaths)}`] : [];
+  const unjudgedLine = unjudgedPaths.length > 0 ? [`  changed files over the size, count or parse time caps, so their imports cannot be judged: ${cappedList(unjudgedPaths)}`] : [];
   const unresolvedLine = unresolvedImports.length > 0 ? [`  relative imports that resolve to no file in the repo, so they cannot be judged: ${cappedList(unresolvedImports)}`] : [];
   const cycleLines = newCycles.map((cycle) => `  module cycle ${cycle.modules.join(', ')} holds module imports mainline does not have, which no allow excuses; break the cycle: ${cycle.newEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ')}`);
   const edgeNames = unallowedEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ');

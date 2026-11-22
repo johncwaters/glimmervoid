@@ -38,7 +38,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 
 ### Working In This Directory
 
-- Everything is TypeScript ESM. Erasable syntax only (no enums, namespaces, parameter properties); relative imports carry explicit `.ts` extensions; the browser reaches `shared/` through the `#shared/*` imports map. Never `any`, never `as unknown as`.
+- Everything is TypeScript ESM; the browser reaches `shared/` through the `#shared/*` imports map. Never `as unknown as`.
 - Node >=24.15.0 (type stripping for source mode and the `.test.ts` suite; `node:sqlite` for the whiteboard store). Windows 11, Linux and macOS, developed on v24.
 - Do NOT add dependencies without explicit instruction.
 - Status detection is structural (hooks plus OSC-0 title). Never reintroduce PTY body or content scraping.
@@ -109,5 +109,7 @@ Runtime: `express`, `ws`, `node-pty` (a real PTY; needs C++ build tools, VS Buil
 `httpxy` forwards the doorman's HTTP and WebSocket traffic to each tenant server, so the doorman owns only routing, the wake hold and its header rule.
 
 `croner` parses wake times and cron patterns.
+
+`@vscode/tree-sitter-wasm` runs `tree-sitter-wasms` import grammars past TS/JS and Python: WASM, one build per platform.
 
 `@anthropic-ai/sandbox-runtime` sandboxes sessions (`sessionSandbox`; on macOS only its proxy), keeping the server's home, vault and credentials from agents.

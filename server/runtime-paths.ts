@@ -158,6 +158,24 @@ function readPackageBin(packageName: string, binName: string): string | null {
   }
 }
 
+function resolveDependencyFile(packageName: string, relativePath: string): string | null {
+  try {
+    const manifestPath = createRequire(path.join(packageRoot, 'package.json')).resolve(`${packageName}/package.json`);
+    const filePath = path.join(path.dirname(manifestPath), relativePath);
+    return fs.statSync(filePath).isFile() ? filePath : null;
+  } catch {
+    return null;
+  }
+}
+
+function treeSitterRuntimeWasmPath(): string | null {
+  return resolveDependencyFile('@vscode/tree-sitter-wasm', 'wasm/tree-sitter.wasm');
+}
+
+function grammarWasmPath(grammarName: string): string | null {
+  return resolveDependencyFile('tree-sitter-wasms', `out/tree-sitter-${grammarName}.wasm`);
+}
+
 let ffmpegPath: string | null = null;
 
 function resolveFfmpegPath(): string | null {
@@ -240,4 +258,4 @@ function extractNodePtyFromBinary(): string | null {
   }
 }
 
-export { extractNodePtyFromBinary, findNodeLauncherPath, hookLaunch, installedHookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath };
+export { extractNodePtyFromBinary, findNodeLauncherPath, grammarWasmPath, hookLaunch, installedHookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath, treeSitterRuntimeWasmPath };

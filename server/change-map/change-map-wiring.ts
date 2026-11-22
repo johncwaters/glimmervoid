@@ -20,7 +20,7 @@ import { IS_CASE_INSENSITIVE_FILESYSTEM } from '../file-claims.ts';
 import type { FileClaim } from '../core/file-claims-core.ts';
 import type { FileEditsByPath } from './core/change-ownership-core.ts';
 import { buildImportGraph, computeBlastRadius } from '../core/import-graph-core.ts';
-import { isSourcePath } from '../core/import-language-core.ts';
+import { isImportManifestPath, isSourcePath } from '../core/import-language-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
 import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from '../core/workspace-links-core.ts';
@@ -105,6 +105,7 @@ interface RepoInputs {
   repoPaths: string[];
   specifiersByPath: Map<string, string[]>;
   configsByPath: Map<string, TsconfigPaths>;
+  manifestTextByPath: Map<string, string>;
 }
 
 interface MemoizedImporterIndex {
@@ -262,6 +263,7 @@ export function createChangeMapService({
   const specifierCache = createSpecifierCache(scanFiles);
   const tsconfigCache = createFileFactCache((text) => ({ config: parseTsconfigJsonc(text) }), { config: null });
   const agentsTitleCache = createFileFactCache(readAgentsTitle, null);
+  const importManifestCache = createFileFactCache((text) => text, null);
   const packageManifestCache = createFileFactCache<PackageManifest>(readPackageManifest, null);
   const commonDirByRoot = new Map<string, string>();
   const commitsByLogKey = new Map<string, CommitFiles[]>();
@@ -401,17 +403,17 @@ export function createChangeMapService({
   async function repoFactsFor(scope: ChangeScope, files: ChangedFile[], commonDir: string, inputs: RepoInputs): Promise<RepoChangeMap> {
     const repoName = scope.name;
     const changedPaths = files.map((file) => file.path);
-    const { repoPathsText, repoPaths, specifiersByPath, configsByPath } = inputs;
+    const { repoPathsText, repoPaths, specifiersByPath, configsByPath, manifestTextByPath } = inputs;
     const agentsTitleByPath = await agentsTitleCache.readMany(scope.root, repoPaths.filter(isAgentsDocPath));
     const packageJsonText = await fs.promises.readFile(path.join(scope.root, 'package.json'), 'utf8').catch(() => null);
     const historyTip = scope.base || (await runGit(['rev-parse', 'HEAD'], scope.root)).trim();
     const memoKey = hashText(JSON.stringify([
       scope.name, scope.base, scope.committedNameStatus, scope.uncommittedNameStatus, hashText(repoPathsText),
-      specifierCache.generation(), tsconfigCache.generation(), agentsTitleCache.generation(), packageJsonText, historyTip,
+      specifierCache.generation(), tsconfigCache.generation(), importManifestCache.generation(), agentsTitleCache.generation(), packageJsonText, historyTip,
     ]));
     const memoized = repoFactsByRoot.get(scope.root);
     if (memoized && memoized.memoKey === memoKey) return memoized.repoFacts;
-    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath) });
+    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath });
     const blastRadius = computeBlastRadius({ repoName, graph, changedPaths: presentPaths(files) });
     const agentsDocs = [...agentsTitleByPath].map(([agentsPath, title]) => ({ path: agentsPath, title }));
     const commits = await commitsFor(scope.root, commonDir, historyTip);
@@ -476,7 +478,8 @@ export function createChangeMapService({
             if (listedPaths.has(parentPath) && !visitedConfigs.has(parentPath)) pendingConfigs.push(parentPath);
           }
         }
-        return { repoPathsText, repoPaths, specifiersByPath, configsByPath };
+        const manifestTextByPath = await importManifestCache.readMany(root, repoPaths.filter(isImportManifestPath));
+        return { repoPathsText, repoPaths, specifiersByPath, configsByPath, manifestTextByPath };
       })();
       inputsByRoot.set(root, inputs);
       return inputs;

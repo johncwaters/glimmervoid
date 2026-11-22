@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { matchPathPatterns } from './tsconfig-paths-core.ts';
+import { importLanguageOf } from './import-language-core.ts';
 import type { EmbeddedScriptHost } from './import-language-core.ts';
+import { manifestPrefixPatterns } from './import-resolvers/manifest-prefix.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
@@ -461,60 +463,89 @@ function sourceCandidates(candidatePath: string): string[] {
   ];
 }
 
-function resolveSpecifier({
-  fromPath,
-  specifier,
-  knownPaths,
-  importsMap,
-  tsconfigTargets = () => [],
-}: {
-  fromPath: string;
-  specifier: string;
+interface RepoResolution {
   knownPaths: Set<string>;
+  filesByDirectory: Map<string, string[]>;
   importsMap: Record<string, string>;
-  tsconfigTargets?: (fromPath: string, specifier: string) => string[];
-}): string | null {
-  if (fromPath.endsWith('.py')) return resolvePythonSpecifier(fromPath, specifier, knownPaths);
+  tsconfigTargets: (fromPath: string, specifier: string) => string[];
+  packagePatterns: Record<string, string[]>;
+  packageFilesByKey: Map<string, string[]>;
+}
+
+function filesByDirectoryOf(knownPaths: Iterable<string>): Map<string, string[]> {
+  const filesByDirectory = new Map<string, string[]>();
+  for (const knownPath of knownPaths) {
+    const directory = path.posix.dirname(knownPath);
+    const directoryFiles = filesByDirectory.get(directory) ?? [];
+    directoryFiles.push(knownPath);
+    filesByDirectory.set(directory, directoryFiles);
+  }
+  return filesByDirectory;
+}
+
+function resolveSpecifier(fromPath: string, specifier: string, repo: RepoResolution): string[] {
+  const language = importLanguageOf(fromPath);
+  if (language?.resolver.kind === 'packageDirectory') {
+    if (path.posix.normalize(specifier) !== specifier) return [];
+    const { excludedTargetPattern } = language.resolver;
+    const packageFilesOf = (directory: string) => {
+      const packageKey = `${language.id}:${path.posix.normalize(directory)}`;
+      const cached = repo.packageFilesByKey.get(packageKey);
+      if (cached) return cached;
+      const packageFiles = (repo.filesByDirectory.get(path.posix.normalize(directory)) ?? [])
+        .filter((candidate) => importLanguageOf(candidate) === language && !excludedTargetPattern.test(candidate));
+      repo.packageFilesByKey.set(packageKey, packageFiles);
+      return packageFiles;
+    };
+    return matchPathPatterns(specifier, repo.packagePatterns).map(packageFilesOf).find((packageFiles) => packageFiles.length > 0) ?? [];
+  }
+  if (language?.id === 'python') {
+    const pythonTarget = resolvePythonSpecifier(fromPath, specifier, repo.knownPaths);
+    return pythonTarget ? [pythonTarget] : [];
+  }
   const isRelative = specifier.startsWith('./') || specifier.startsWith('../');
   const aliasTargets = specifier.startsWith('#')
-    ? matchPathPatterns(specifier, Object.fromEntries(Object.entries(importsMap).map(([alias, target]) => [alias, [target]])))
+    ? matchPathPatterns(specifier, Object.fromEntries(Object.entries(repo.importsMap).map(([alias, target]) => [alias, [target]])))
     : [];
-  const targets = isRelative ? [path.posix.join(path.posix.dirname(fromPath), specifier)] : specifier.startsWith('#') ? aliasTargets : tsconfigTargets(fromPath, specifier);
+  const targets = isRelative ? [path.posix.join(path.posix.dirname(fromPath), specifier)] : specifier.startsWith('#') ? aliasTargets : repo.tsconfigTargets(fromPath, specifier);
   for (const target of targets) {
     const candidatePath = path.posix.normalize(target.replace(/^\.\//, ''));
     if (candidatePath.startsWith('../') || candidatePath === '..' || path.posix.isAbsolute(candidatePath)) continue;
-    const found = sourceCandidates(candidatePath).find((candidate) => knownPaths.has(candidate));
-    if (found) return found;
+    const found = sourceCandidates(candidatePath).find((candidate) => repo.knownPaths.has(candidate));
+    if (found) return [found];
   }
-  return null;
+  return [];
 }
 
 export function buildImportGraph({
   specifiersByPath,
   importsMap,
-  tsconfigTargets,
+  tsconfigTargets = () => [],
+  manifestTextByPath = new Map(),
 }: {
   specifiersByPath: Map<string, string[]>;
   importsMap: Record<string, string>;
   tsconfigTargets?: (fromPath: string, specifier: string) => string[];
+  manifestTextByPath?: ReadonlyMap<string, string>;
 }): ImportGraph {
   const knownPaths = new Set(specifiersByPath.keys());
+  const repo: RepoResolution = { knownPaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packagePatterns: manifestPrefixPatterns(manifestTextByPath), packageFilesByKey: new Map() };
   const dependentsByPath = new Map(
     [...knownPaths].map((knownPath): [string, Set<string>] => [knownPath, new Set()]),
   );
 
   for (const [fromPath, specifiers] of specifiersByPath) {
     for (const specifier of specifiers) {
-      const importedPath = resolveSpecifier({ fromPath, specifier, knownPaths, importsMap, tsconfigTargets });
-      if (!importedPath) continue;
-      dependentsByPath.get(importedPath)?.add(fromPath);
+      for (const importedPath of resolveSpecifier(fromPath, specifier, repo)) {
+        dependentsByPath.get(importedPath)?.add(fromPath);
+      }
     }
   }
 
   return { dependentsByPath };
 }
 
-export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$';
+export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$';
 const TEST_PATH = new RegExp(TEST_PATH_PATTERN);
 
 export function isTestPath(repoPath: string): boolean {
