@@ -452,6 +452,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telemetry,
     logger: console,
     renameSessionFromTaskTitle,
+    operatorSessionNames: () => [...sessions.values()].map((session) => session.name),
     retitleProvisionalBoard: whiteboards.retitleProvisionalBoard,
     packSessionFiles,
   });

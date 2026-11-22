@@ -118,6 +118,7 @@ interface BackendLaneDependencies {
   logger: Console;
   provenanceWriterId: () => Promise<string>;
   renameSessionFromTaskTitle?: (session: Session, proposedName: string) => void;
+  operatorSessionNames?: () => readonly string[];
   retitleProvisionalBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
   packSessionFiles: Pick<PackSessionFiles, 'sync'>;
 }
@@ -421,6 +422,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     getConfig: () => configStore.config,
     logger,
     renameSession: dependencies.renameSessionFromTaskTitle,
+    sessionNames: dependencies.operatorSessionNames,
     retitleBoard: dependencies.retitleProvisionalBoard,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,

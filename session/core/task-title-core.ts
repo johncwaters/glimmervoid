@@ -161,8 +161,10 @@ export function decideTaskTitleRefinement(input: TaskTitleRefinementGate): TaskT
   return { action: 'refine' };
 }
 
-export function buildTaskTitleRefinementPrompt({ currentTitle, recentPrompts, titleSources, resultPath, wantsSessionName = false, sessionName = null }: {
-  currentTitle: string | null; recentPrompts: readonly string[]; titleSources: TaskTitleSources; resultPath: string; wantsSessionName?: boolean; sessionName?: string | null;
+const MAX_OTHER_SESSION_NAMES = 40;
+
+export function buildTaskTitleRefinementPrompt({ currentTitle, recentPrompts, titleSources, resultPath, wantsSessionName = false, sessionName = null, otherSessionNames = [] }: {
+  currentTitle: string | null; recentPrompts: readonly string[]; titleSources: TaskTitleSources; resultPath: string; wantsSessionName?: boolean; sessionName?: string | null; otherSessionNames?: readonly string[];
 }): string {
   const titleJson = JSON.stringify(currentTitle);
   const promptsJson = JSON.stringify(recentPrompts.map(cleanTaskPrompt).filter(Boolean).slice(-5).map((prompt) => prompt.slice(0, 400)));
@@ -172,6 +174,7 @@ export function buildTaskTitleRefinementPrompt({ currentTitle, recentPrompts, ti
   const untrustedSections = fencedUntrustedSections([
     ['CURRENT_TITLE', titleJson], ['OPENING_PROMPT', openingPromptJson], ['AGENT_TITLE', agentTitleJson], ['RECENT_PROMPTS', promptsJson],
     ...(namesSessionName ? [['SESSION_NAME', JSON.stringify(sessionName)] as const] : []),
+    ...(wantsSessionName ? [['OTHER_SESSION_NAMES', JSON.stringify(otherSessionNames.slice(0, MAX_OTHER_SESSION_NAMES))] as const] : []),
   ]);
   return [
     'Use no tools except Write to the exact result file path below.',
@@ -181,7 +184,10 @@ export function buildTaskTitleRefinementPrompt({ currentTitle, recentPrompts, ti
     'Otherwise write a 2-6 word title naming what the session is working on NOW.',
     'Use sentence case, no trailing punctuation, no quotes in the title.',
     ...(wantsSessionName ? [
-      'name: a 1-4 word session name for the area of work, stable across its steps, that tells this session apart from others, using only letters, numbers, spaces and dashes.',
+      'name: a 1-4 word session name for the area of work, stable across its steps, using only letters, numbers, spaces and dashes.',
+      'The operator picks sessions by name from a list, so the name must tell this session apart at a glance: lead with the distinctive noun of the specific thing worked on, such as the feature, component, file, command or subsystem.',
+      'Never use only generic words such as fix, cleanup, update, support, work, task, page, view, new, review, doc, test or main; pair any of them with the specific noun.',
+      'The OTHER_SESSION_NAMES section lists the names of the other sessions: the name must not repeat any of them or share its distinctive noun.',
       'Take name only from the fenced sections below. If they do not say what the task is, write null for name; never name the result file, its folder or this request.',
       'The title names the current step inside that area: never start it with the name or repeat the name in it.',
     ] : []),

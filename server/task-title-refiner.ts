@@ -33,6 +33,7 @@ interface TaskTitleRefinerOptions {
   getConfig: () => { taskTitle?: unknown };
   spawnLane: LaneSpawn;
   renameSession?: (session: Session, proposedName: string) => void;
+  sessionNames?: () => readonly string[];
   retitleBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
   nowFn?: () => number;
   logger?: Pick<Console, 'warn'>;
@@ -46,6 +47,7 @@ interface RefinementRequest {
   titleSources: TaskTitleSources;
   wantsSessionName: boolean;
   sessionName: string;
+  otherSessionNames: readonly string[];
 }
 
 interface RefinementOutcome {
@@ -93,7 +95,7 @@ async function runTitleLane(laneName: string, promptFor: (resultPath: string) =>
 async function refineTaskTitle(request: RefinementRequest, model: string, spawnLane: LaneSpawn, signal: AbortSignal): Promise<RefinementOutcome> {
   const laneResult = await runTitleLane('Task title refinement', (resultPath) => buildTaskTitleRefinementPrompt({
     currentTitle: request.currentTitle, recentPrompts: request.recentPrompts, titleSources: request.titleSources, resultPath,
-    wantsSessionName: request.wantsSessionName, sessionName: request.sessionName,
+    wantsSessionName: request.wantsSessionName, sessionName: request.sessionName, otherSessionNames: request.otherSessionNames,
   }), model, spawnLane, signal);
   if (signal.aborted) return INVALID_OUTCOME;
   const proposedSessionName = request.wantsSessionName ? parseRefinedSessionName(laneResult) : null;
@@ -101,7 +103,7 @@ async function refineTaskTitle(request: RefinementRequest, model: string, spawnL
   return { refinement: parseRefinedTaskTitle(laneResult, sessionNamesToAvoid), proposedSessionName };
 }
 
-function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, retitleBoard, nowFn = () => clock.nowMs(), logger = console }: TaskTitleRefinerOptions) {
+function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, sessionNames = () => [], retitleBoard, nowFn = () => clock.nowMs(), logger = console }: TaskTitleRefinerOptions) {
   const statesBySession = new Map<Session, SessionRefinementState>();
   const queuedBySession = new Map<Session, RefinementRequest>();
   let active: ActiveRefinement | null = null;
@@ -227,6 +229,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, retitleBo
     const request: RefinementRequest = {
       session, revision: session.taskTitlePromptRevision, currentTitle: session.refinedTaskTitle, recentPrompts: session.recentTaskPrompts,
       titleSources: session.persistedTaskTitle?.sources ?? {}, wantsSessionName: Boolean(renameSession) && hasAutoSessionName(session), sessionName: session.name,
+      otherSessionNames: sessionNames().filter((name) => name !== session.name),
     };
     queuedBySession.set(session, request);
     startNext();
