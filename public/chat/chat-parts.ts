@@ -46,7 +46,6 @@ interface TurnView {
   textElements: (HTMLElement | null)[];
   droppedSegmentCount: number;
   part: TurnPart | null;
-  isOver: boolean;
   hasWork: boolean;
   isOpen: boolean;
 }
@@ -321,7 +320,7 @@ function createTurnView(): TurnView {
   const diff = el('div', 'chat-turn-diff');
   diff.hidden = true;
   element.append(body, brief, meta, work, diff);
-  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workEntries: [], workSignatures: [], workEarlier: null, workDropped: 0, workIsOver: null, segmentKinds: [], textElements: [], droppedSegmentCount: 0, part: null, isOver: false, hasWork: false, isOpen: false };
+  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workEntries: [], workSignatures: [], workEarlier: null, workDropped: 0, workIsOver: null, segmentKinds: [], textElements: [], droppedSegmentCount: 0, part: null, hasWork: false, isOpen: false };
 }
 
 function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void {
@@ -404,7 +403,6 @@ function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: 
     textElement?.toggleAttribute('data-before-final', index < finalTextIndex);
     textElement?.toggleAttribute('data-final', index === finalTextIndex);
   });
-  view.isOver = part.isOver;
   view.part = part;
   view.element.toggleAttribute('data-over', part.isOver);
   view.element.toggleAttribute('data-has-tools', part.toolCount > 0);
@@ -426,41 +424,34 @@ function subagentStepRowsOf(part: SubagentPart): HTMLElement[] {
   return [el('div', 'chat-turn-call', `+ ${unkeptStepCount} earlier`), ...stepRows];
 }
 
-function renderSubagent(part: SubagentPart): HTMLElement {
-  const subagent = el('details', 'chat-subagent');
-  subagent.toggleAttribute('data-running', part.endedAt === null);
+function renderRunRow(isRunning: boolean, typeText: string, taskText: string, timeText: string, workElements: readonly HTMLElement[]): HTMLElement {
+  const details = el('details', 'chat-subagent');
+  details.toggleAttribute('data-running', isRunning);
   const row = el('summary', 'chat-subagent-row');
   row.append(
     el('span', 'chat-subagent-dot'),
-    el('span', 'chat-subagent-type', part.subagentType),
-    el('span', 'chat-subagent-task', part.task ?? ''),
-    el('span', 'chat-subagent-time', subagentDurationText(part) ?? 'Running'),
+    el('span', 'chat-subagent-type', typeText),
+    el('span', 'chat-subagent-task', taskText),
+    el('span', 'chat-subagent-time', timeText),
     createLineIcon(CHEVRON_ICON_PATH, '1.6'),
   );
   const work = el('div', 'chat-subagent-work');
-  work.append(...subagentStepRowsOf(part));
-  if (part.report !== null) work.append(renderTextSegment(part.report));
-  if (part.endedAt === null) work.append(el('div', 'chat-turn-call', 'Running'));
-  if (part.endedAt !== null && part.report === null && part.stepCount === 0) work.append(el('div', 'chat-turn-call', 'No report'));
-  subagent.append(row, work);
-  return subagent;
+  work.append(...workElements);
+  details.append(row, work);
+  return details;
+}
+
+function renderSubagent(part: SubagentPart): HTMLElement {
+  const workElements = [...subagentStepRowsOf(part)];
+  if (part.report !== null) workElements.push(renderTextSegment(part.report));
+  if (part.endedAt === null) workElements.push(el('div', 'chat-turn-call', 'Running'));
+  if (part.endedAt !== null && part.report === null && part.stepCount === 0) workElements.push(el('div', 'chat-turn-call', 'No report'));
+  return renderRunRow(part.endedAt === null, part.subagentType, part.task ?? '', subagentDurationText(part) ?? 'Running', workElements);
 }
 
 function renderBackgroundTask(part: BackgroundTaskPart): HTMLElement {
-  const backgroundTask = el('details', 'chat-subagent');
-  backgroundTask.toggleAttribute('data-running', part.endedAt === null);
-  const row = el('summary', 'chat-subagent-row');
-  row.append(
-    el('span', 'chat-subagent-dot'),
-    el('span', 'chat-subagent-type', backgroundTaskKindText(part.taskType)),
-    el('span', 'chat-subagent-task', part.label),
-    el('span', 'chat-subagent-time', part.endedAt === null ? '' : runTimeText(part.startedAt, part.endedAt)),
-    createLineIcon(CHEVRON_ICON_PATH, '1.6'),
-  );
-  const work = el('div', 'chat-subagent-work');
-  work.append(el('div', 'chat-turn-call', part.command ?? part.label));
-  backgroundTask.append(row, work);
-  return backgroundTask;
+  const timeText = part.endedAt === null ? '' : runTimeText(part.startedAt, part.endedAt);
+  return renderRunRow(part.endedAt === null, backgroundTaskKindText(part.taskType), part.label, timeText, [el('div', 'chat-turn-call', part.command ?? part.label)]);
 }
 
 function startedAtOfRunning(part: FlatPart): number | null {
