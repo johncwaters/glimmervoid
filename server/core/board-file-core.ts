@@ -1,6 +1,6 @@
 import { BOARD_FILE_FORMAT, BOARD_FILE_VERSION, WHITEBOARD_LIMITS, boardMediaOriginalFilename, boardMediaSavedName, boxIdsOfWire, sparseElement } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardFile, BoxMedia, Element, Op } from '../../shared/contracts/whiteboard.ts';
-import { isArrayIndexKey } from '../../shared/whiteboard-element-table.ts';
+import { isArrayIndexKey } from '../../shared/contracts/whiteboard-element-table.ts';
 
 type ExportedBoard = Omit<BoardFile, 'assets' | 'board'> & { board: Pick<Board, 'id' | 'title' | 'caption' | 'legend'> & { elements: Record<string, unknown> } };
 type BoardContent = Pick<Board, 'title' | 'caption' | 'legend'> & { elements: readonly Element[] };

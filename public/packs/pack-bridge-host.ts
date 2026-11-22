@@ -1,6 +1,6 @@
 import { HostToPanel, PACK_LOG_LINES_PER_MINUTE, PanelActionEnvelope, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
 import type { PackBridgeTopic, PackBridgeTopicData, PackPanelAct, PackStoreData } from '#shared/contracts/pack-bridge.ts';
-import { panelActionDecision, panelActionLogText } from '#shared/pack-action-core.ts';
+import { panelActionDecision, panelActionLogText } from '#shared/contracts/pack-action-core.ts';
 import type { z } from 'zod';
 import { clock } from '#shared/clock.ts';
 import { errorMessage } from '#shared/text.ts';

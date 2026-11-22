@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { GithubPr, GithubPrDetailNode } from '../shared/contracts/github-prs.ts';
 import type { MyPrThread, MyPrThreadNode } from '../shared/contracts/my-prs.ts';
 import { normalizeGithubPr } from '../server/github/core/github-store-core.ts';
-import { myPrFromGithubPr } from '../shared/my-pr-merge.ts';
+import { myPrFromGithubPr } from '../shared/contracts/my-pr-merge.ts';
 import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, PrFlowSourceOutput, PrFlowsState } from '../shared/contracts/pr-flows.ts';
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';

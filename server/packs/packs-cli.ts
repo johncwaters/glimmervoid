@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { panelActionsJsonSchemaText } from '../../shared/pack-action-core.ts';
+import { panelActionsJsonSchemaText } from '../../shared/contracts/pack-action-core.ts';
 import { AGENT_REPLY_SCHEMAS, AGENT_URL_ENV } from '../../shared/contracts/session.ts';
 import type { ParsedCommand } from '../core/cli-spec-core.ts';
 import { glimmervoidHomeDir } from '../core/config-path-core.ts';

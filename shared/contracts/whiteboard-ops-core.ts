@@ -1,12 +1,12 @@
-import { Box, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, pointOfBox } from './contracts/whiteboard.ts';
-import type { Board, BoardChange, Element, ElementInput, Op, WireEnd } from './contracts/whiteboard.ts';
-import { isRecord } from './coerce.ts';
-import { BOX_SHAPES, SHAPE_TRAITS } from './whiteboard-shapes.ts';
-import { fittedBoxWidthOf, isAsideBox, laidOutBox, laidOutNearBox, layoutBoard } from './whiteboard-layout-core.ts';
-import type { PlacedBox } from './whiteboard-layout-core.ts';
-import type { BoardDiff, DiffBefore, ElementChange } from './contracts/control/whiteboard-messages.ts';
+import { Box, BoxInput, Frame, Stroke, Wire, WHITEBOARD_LIMITS, dialParamsProblemOf, pointOfBox } from './whiteboard.ts';
+import type { Board, BoardChange, Element, ElementInput, Op, WireEnd } from './whiteboard.ts';
+import { isRecord } from '../coerce.ts';
+import { BOX_SHAPES, SHAPE_TRAITS } from '../whiteboard-shapes.ts';
+import { fittedBoxWidthOf, isAsideBox, laidOutBox, laidOutNearBox, layoutBoard } from '../whiteboard-layout-core.ts';
+import type { PlacedBox } from '../whiteboard-layout-core.ts';
+import type { BoardDiff, DiffBefore, ElementChange } from './control/whiteboard-messages.ts';
 import { elementTableOf, isArrayIndexKey } from './whiteboard-element-table.ts';
-import { appendElement, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, storeElement } from './whiteboard-board-index.ts';
+import { appendElement, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, storeElement } from '../whiteboard-board-index.ts';
 
 type Author = { id: string; name: string; setsAsks?: boolean };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff; before: DiffBefore } | { ok: false; error: string; opIndex: number };

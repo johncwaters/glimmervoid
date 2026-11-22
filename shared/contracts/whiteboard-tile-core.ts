@@ -1,14 +1,14 @@
-import { BLOCK_RASTER_PX } from './contracts/whiteboard-tiles.ts';
-import { pointOfBox, sparseElement, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
-import type { Board, BoardOutline, Element, ReadElement } from './contracts/whiteboard.ts';
-import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './contracts/whiteboard-tiles.ts';
-import { dressedElement, laidOutStrokeOf, titlesOnlyBox } from './whiteboard-layout-core.ts';
-import { boardIndexOf, elementsOfKind } from './whiteboard-board-index.ts';
+import { BLOCK_RASTER_PX } from './whiteboard-tiles.ts';
+import { pointOfBox, sparseElement, WHITEBOARD_LIMITS } from './whiteboard.ts';
+import type { Board, BoardOutline, Element, ReadElement } from './whiteboard.ts';
+import type { BoardChrome, LaidOutElement, PaintedElement, PlacedElement, PlacedPaint, Tile, TileDiff, TileKey, TileLod } from './whiteboard-tiles.ts';
+import { dressedElement, laidOutStrokeOf, titlesOnlyBox } from '../whiteboard-layout-core.ts';
+import { boardIndexOf, elementsOfKind } from '../whiteboard-board-index.ts';
 import type { ElementTable } from './whiteboard-element-table.ts';
-import type { PlacedLayout, Rect } from './whiteboard-layout-core.ts';
-import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from './spatial-grid-core.ts';
-import type { SpatialGrid } from './spatial-grid-core.ts';
-import { labelWidthOf, pointsOfPath, rotatedAbout, rotatedBoundsOf } from './whiteboard-route-core.ts';
+import type { PlacedLayout, Rect } from '../whiteboard-layout-core.ts';
+import { createSpatialGrid, forEachSlotTouching, placeSlot, removeSlot } from '../spatial-grid-core.ts';
+import type { SpatialGrid } from '../spatial-grid-core.ts';
+import { labelWidthOf, pointsOfPath, rotatedAbout, rotatedBoundsOf } from '../whiteboard-route-core.ts';
 
 const CHUNK_SIZE = 2048;
 const FULL_MIN_SCALE = 0.3;

@@ -17,9 +17,9 @@ import type { Board } from '../shared/contracts/whiteboard.ts';
 import { Element, Op, pointOfBox, WHITEBOARD_LIMITS } from '../shared/contracts/whiteboard.ts';
 import { layoutBoard, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { emptyFlatRects, flatRectsOf, forEachTouchingPairAcross, setFlatRect } from '../shared/whiteboard-sweep-core.ts';
-import { applyOps, CODEMAP_AUTHOR, createBoard } from '../shared/whiteboard-ops-core.ts';
+import { applyOps, CODEMAP_AUTHOR, createBoard } from '../shared/contracts/whiteboard-ops-core.ts';
 import type { PlacedLayout } from '../shared/whiteboard-layout-core.ts';
-import { elementTableOf } from '../shared/whiteboard-element-table.ts';
+import { elementTableOf } from '../shared/contracts/whiteboard-element-table.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const TIMED_RUNS = 3;

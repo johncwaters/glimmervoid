@@ -1,5 +1,5 @@
-import type { Board, Element, Op } from './contracts/whiteboard.ts';
-import type { BoardDiff, DiffBefore } from './contracts/control/whiteboard-messages.ts';
+import type { Board, Element, Op } from './whiteboard.ts';
+import type { BoardDiff, DiffBefore } from './control/whiteboard-messages.ts';
 import { applyBoardDiff } from './whiteboard-ops-core.ts';
 import { elementTableOf } from './whiteboard-element-table.ts';
 

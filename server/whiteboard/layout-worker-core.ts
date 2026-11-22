@@ -11,10 +11,10 @@ import { drained } from '../../shared/generator-steps.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/whiteboard-tile-core.ts';
-import type { TileIndex } from '../../shared/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/contracts/whiteboard-tile-core.ts';
+import type { TileIndex } from '../../shared/contracts/whiteboard-tile-core.ts';
 import type { LayoutCache, LayoutStamp, SavedPaint, WholeSave } from './layout-cache.ts';
-import { elementTableOf, isElementTable } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOf, isElementTable } from '../../shared/contracts/whiteboard-element-table.ts';
 
 const WARM_ELEMENTS_PER_SLICE = 5000;
 const RequestId = z.number().int();

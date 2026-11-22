@@ -12,7 +12,7 @@ import type { ScreenplayElement } from './fountain-style-core.ts';
 import type { MarkDecision, MarkSegment, RevisablePart, SourceSelection, SuggestEdit, SuggestRefusal, SuggestRun, TextSegment } from './markup-core.ts';
 import { EMPTY_DOC_HISTORY, recordDocEdit, stepDocHistory } from './undo-history-core.ts';
 import type { DocHistory, EditKind } from './undo-history-core.ts';
-import type { UndoDirection } from '#shared/whiteboard-undo-core.ts';
+import type { UndoDirection } from '#shared/contracts/whiteboard-undo-core.ts';
 import { clock } from '#shared/clock.ts';
 
 function commonPrefixLength(before: readonly string[], after: readonly string[]): number {

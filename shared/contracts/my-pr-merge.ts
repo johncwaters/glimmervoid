@@ -1,6 +1,6 @@
-import type { GithubPr } from './contracts/github-prs.ts';
-import { MyPr as MyPrSchema } from './contracts/my-prs.ts';
-import type { MyPr, MyPrMergeMethod, MyPrStage } from './contracts/my-prs.ts';
+import type { GithubPr } from './github-prs.ts';
+import { MyPr as MyPrSchema } from './my-prs.ts';
+import type { MyPr, MyPrMergeMethod, MyPrStage } from './my-prs.ts';
 
 type PrStageFields = Pick<MyPr, 'state' | 'isDraft' | 'mergeable' | 'mergeStateStatus' | 'checks' | 'reviewDecision' | 'unresolvedThreads'>;
 

@@ -13,7 +13,7 @@ import { SessionCardFields } from '../../shared/contracts/control-messages.ts';
 import { StarHintState } from '../../shared/contracts/star-hint.ts';
 import { Op } from '../../shared/contracts/whiteboard.ts';
 import { emptyStarHintState } from '../../server/core/star-hint-core.ts';
-import { applyOps, createBoard } from '../../shared/whiteboard-ops-core.ts';
+import { applyOps, createBoard } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { writeJsonAtomic } from '../../server/json-file.ts';
 import { configSiblingPath } from '../../server/pairings-store.ts';
 import { CARD_REGISTRY_URL, readGrid } from '../browser/probe.ts';

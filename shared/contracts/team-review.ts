@@ -2,6 +2,7 @@ import { githubPollingShape } from './github-polling.ts';
 import { z } from 'zod';
 import { NODE_ID_RE } from './github-ids.ts';
 import { FULL_SHA_RE } from '../git-text.ts';
+import { FINDING_SEVERITIES } from '../team-review-markdown.ts';
 import { PrFlowItem } from './pr-flows.ts';
 
 export const CommitSha = z.string().regex(FULL_SHA_RE);
@@ -52,7 +53,7 @@ const storedVerdict = z.preprocess(
   ReviewVerdict,
 );
 
-export const FindingSeverity = z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+export const FindingSeverity = z.enum(FINDING_SEVERITIES);
 export type FindingSeverity = z.infer<typeof FindingSeverity>;
 
 export const DiffExcerptLine = z.object({ line: z.number().int().positive().nullable(), kind: z.enum(['add', 'del', 'context']), text: z.string() });

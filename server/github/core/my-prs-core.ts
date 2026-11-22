@@ -5,7 +5,7 @@ import { prKey } from './team-review-core.ts';
 import { mergeItems, threadCandidates } from './pr-flows-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-changed-paths-core.ts';
-import { deriveStage, myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
+import { deriveStage, myPrMergeBlocker } from '../../../shared/contracts/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrLaneEntry, MyPrStage, MyPrsState } from '../../../shared/contracts/my-prs.ts';

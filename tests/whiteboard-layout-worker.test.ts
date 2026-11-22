@@ -7,7 +7,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { benchmarkBoard } from '../harness/board-layout-cost.ts';
 import { createLayoutClient } from '../server/whiteboard/layout-client.ts';
-import { elementTableOf } from '../shared/whiteboard-element-table.ts';
+import { elementTableOf } from '../shared/contracts/whiteboard-element-table.ts';
 
 test('a small board gets its tiles while a large board is still laying out in the worker', async () => {
   const client = createLayoutClient({ cachePath: null, onSavedLayoutWritten: () => {} });

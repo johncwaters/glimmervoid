@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { MediaLink } from './contracts/whiteboard.ts';
-import type { LinkState, Op } from './contracts/whiteboard.ts';
+import { MediaLink } from './whiteboard.ts';
+import type { LinkState, Op } from './whiteboard.ts';
 
 type FileReading = { ok: true; hash: string } | { ok: false; problem: string };
 

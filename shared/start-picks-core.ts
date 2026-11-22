@@ -1,4 +1,4 @@
-import { EFFORT_OPTION_ID } from './contracts/agent-models.ts';
+import { EFFORT_OPTION_ID } from './agent-models-core.ts';
 import type { AgentModelCatalog, ModelSelection } from './contracts/agent-models.ts';
 import type { StartPicks } from './contracts/start-picks.ts';
 

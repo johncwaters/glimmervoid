@@ -1,4 +1,4 @@
-import { boxIdOfEnd } from './contracts/whiteboard.ts';
+import { boxIdOfEnd } from './whiteboard-constants.ts';
 import type { Board, Box, Step, Wire } from './contracts/whiteboard.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';
 

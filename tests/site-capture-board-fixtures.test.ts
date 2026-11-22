@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { z } from 'zod';
 import { Op } from '../shared/contracts/whiteboard.ts';
-import { applyOps, createBoard } from '../shared/whiteboard-ops-core.ts';
+import { applyOps, createBoard } from '../shared/contracts/whiteboard-ops-core.ts';
 
 const fixturesDirectory = path.resolve(import.meta.dirname, '../harness/site-capture/fixtures');
 const actor = { id: 'site-capture', name: 'site-capture' };

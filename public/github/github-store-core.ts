@@ -3,7 +3,7 @@ import type { GithubPr } from '#shared/contracts/github-prs.ts';
 import type { LinkedPr, MyPr, MyPrLaneEntry, MyPrStage, MyPrsStatus } from '#shared/contracts/my-prs.ts';
 import { DECIDING_REVIEW_STATES, decisionAsIfApprovalRequired, hasStandingViewerApproval } from '#shared/contracts/team-review.ts';
 import type { GithubReview, InFlightReview, QueuedReview, ReviewDraft, TeamReviewStatus, TeamReviewThread } from '#shared/contracts/team-review.ts';
-import { myPrFromGithubPr } from '#shared/my-pr-merge.ts';
+import { myPrFromGithubPr } from '#shared/contracts/my-pr-merge.ts';
 import type { StateTone } from '../state-tone-core.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';
 

@@ -3,9 +3,9 @@ import type { AgentChange } from '#shared/contracts/control/whiteboard-messages.
 import type { Board, BoardHead } from '#shared/contracts/whiteboard.ts';
 import type { BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from '#shared/whiteboard-layout-core.ts';
-import { lodForScale, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/whiteboard-tile-core.ts';
+import { lodForScale, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/contracts/whiteboard-tile-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
-import { elementTableOf } from '#shared/whiteboard-element-table.ts';
+import { elementTableOf } from '#shared/contracts/whiteboard-element-table.ts';
 
 const VIEW_SEND_DELAY_MS = 100;
 const AGENT_RING_MS = 8000;
