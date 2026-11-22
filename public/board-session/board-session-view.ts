@@ -32,14 +32,16 @@ import type { PresenceLayer, SessionFace } from './presence-layer.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
+import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
+import { openStudioRepoDialog } from '../session-actions.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const MAIN_ENSURE_TIMEOUT_MS = 15000;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
-const NO_SESSION_TEXT = 'Start a session to see its repo on the code map.';
-const SHOWN_REPO_KEY = 'glimmervoid.studio.repoPath';
+const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
+const OPEN_REPO_TEXT = 'Open a repo';
 const NO_MAP_TEXT = 'This session has no code map yet.';
 const NO_MAIN_TEXT = 'The main agent for this repo did not start.';
 
@@ -69,6 +71,7 @@ let shownSessionId: string | null = null;
 let ensuredRepoPath: string | null = null;
 const mainSessionIdByRepoPath = new Map<string, string>();
 let fallbackBoxId: string | null = null;
+let pendingMainId: string | null = null;
 let boardId: string | null = null;
 const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
@@ -80,7 +83,7 @@ let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
 
 function repoChoices(): RepoChoice[] {
-  const repoSessions: RepoSession[] = [...sessionUIs].flatMap(([id, ui]) => ui.branchOf ? [] : [{ id, path: ui.path }]);
+  const repoSessions: RepoSession[] = [...sessionUIs].flatMap(([id, ui]) => ui.isStudioMain ? [{ id, path: ui.path }] : []);
   return repoChoicesOf(repoSessions);
 }
 
@@ -100,7 +103,7 @@ function watchedPaths(): string[] {
 
 function repoSessionIds(): string[] {
   if (shownRepoPath === null) return [];
-  return [...sessionUIs].flatMap(([id, ui]) => ui.path === shownRepoPath ? [id] : []);
+  return [...sessionUIs].flatMap(([id, ui]) => ui.path === shownRepoPath && isStudioSession(ui) ? [id] : []);
 }
 
 function closeWatches(): void {
@@ -373,8 +376,22 @@ function ensureMainSession(repoPath: string, anchorSessionId: string): void {
 }
 
 function showPickedRepo(): void {
+  const startedMain = pendingMainId === null ? undefined : sessionUIs.get(pendingMainId);
+  if (startedMain) {
+    pendingMainId = null;
+    setJSON(SHOWN_REPO_KEY, startedMain.path);
+    showRepo(startedMain.path);
+    return;
+  }
   const knownPaths = repoChoices().map((choice) => choice.path);
   showRepo(pickedRepoPath(shownRepoPath, getJSON<string | null>(SHOWN_REPO_KEY, null), knownPaths));
+}
+
+function openStudioRepo(): void {
+  openStudioRepoDialog((mainId) => {
+    pendingMainId = mainId;
+    refreshBoardSessionView();
+  });
 }
 
 function openMenu(): void {
@@ -391,12 +408,23 @@ function openMenu(): void {
     });
     return item;
   });
-  parts.menu.replaceChildren(...items);
+  const openRepoItem = createPressable('bs-menu-item');
+  openRepoItem.setAttribute('role', 'menuitem');
+  openRepoItem.dataset.action = 'board-session-open-repo';
+  openRepoItem.append(el('span', 'bs-menu-name', OPEN_REPO_TEXT));
+  openRepoItem.addEventListener('click', () => {
+    closeMenu();
+    openStudioRepo();
+  });
+  parts.menu.replaceChildren(...items, openRepoItem);
   parts.menu.hidden = false;
   parts.chip.setAttribute('aria-expanded', 'true');
 }
 
 function mountBoardSessionView(panel: HTMLElement): void {
+  onStudioRepoRequested((repoPath) => {
+    if (isActive) showRepo(repoPath);
+  });
   const root = el('div', 'bs-root');
   const chip = createPressable('bs-chip');
   chip.setAttribute('aria-haspopup', 'menu');

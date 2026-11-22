@@ -16,9 +16,11 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 ## Invariants
 
 ### Studio
-- Studio shows a repo, never a picked session, and never follows Focus: the repo chip is the only way to change it.
-- The browser names a repo by one of its live session ids, never by a path, because the server must resolve every path it acts on (trust boundary).
-- Each repo has one main agent, marked by `isStudioMain` on its project entry in `shared/contracts/config.ts`; opening a repo ensures it (use, start, restart or create, decided in `server/core/studio-main-core.ts`), so Studio never opens blank.
+- Studio is its own place, not a view of Focus: its sessions (a repo's main, marked `isStudioMain`, and its branches, marked `branchOf`; `isStudioSession` in `studio-target.ts`) never show in Focus rows, and Focus sessions never show in Studio, because the operator found one shared pool confusing. Studio reuses shared components (board host, add-session picker, status icon) rather than copying them.
+- Studio shows a repo, never a picked session: the repo chip changes it, and opening a Studio session from elsewhere opens Studio on its repo.
+- Studio sessions stay out of Focus's attention tally as well as its rows, so the tab title and phone dot never count a session no list shows.
+- The browser names a repo by its main's session id, and a new repo only through `add-session` with `studio`, never by a bare path, because the server must resolve every path it acts on (trust boundary).
+- Studio's repos are exactly the repos with a main; `add-session` with `studio` wakes or creates it (use, start, restart or create, decided in `server/core/studio-main-core.ts`), so a repo never gets two mains.
 - The log keeps prompts and replies only; tool, skill, subagent and workflow activity shows as faces on the board, never as log rows.
 - Codemap elements are generated, so folder stacking changes only through `codemap-folder-toggle`, never by setting a frame's `collapsed`.
 - Studio draws its map through the shared Boards host (`mountBoardHost`, `showBoardBeside` with a `BoardHostGuest`), never a canvas of its own, so every board behavior reaches Studio and Boards alike; new board behavior goes in `public/whiteboard/`.

@@ -16,6 +16,7 @@ import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
 import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../attention-core.ts';
+import { isStudioSession } from '../board-session/studio-target.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
 import { closeDataWs } from './terminal-data-socket.ts';
@@ -66,7 +67,7 @@ export function refreshTerminalFonts() {
 }
 
 function tallyRowOf(ui: SessionUi) {
-  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ui.ownerId, attentionOwner: ui.attentionOwner };
+  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ui.ownerId, attentionOwner: ui.attentionOwner, isStudio: isStudioSession(ui) };
 }
 
 export function updateAttentionTitle() {
@@ -103,6 +104,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     path: asText(options.path),
     ownerId: options.ownerId ?? null,
     branchOf: options.branchOf ?? null,
+    isStudioMain: options.isStudioMain === true,
     attentionOwner: options.attentionOwner ?? 'operator',
 
     stateSince: typeof options.stateSince === 'number' && Number.isFinite(options.stateSince) ? options.stateSince : clock.nowMs(),

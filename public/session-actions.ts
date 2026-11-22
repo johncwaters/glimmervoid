@@ -9,6 +9,7 @@ import type { ServerMessage, ServerMessageOf } from '#shared/contracts/control-m
 import type { SessionUi } from './session-card/card-registry.ts';
 import { sessionName, sessionUIs } from './session-card/card-registry.ts';
 import { suggestSessionName } from './session-card/naming.ts';
+import { isStudioSession } from './board-session/studio-target.ts';
 import { getSelectedId, setSelectedId } from './review/selection.ts';
 import { markStatusDirty } from './status-paint.ts';
 import { getLastFocusedSessionId, setLastFocusedSessionId } from './ui-prefs.ts';
@@ -28,7 +29,7 @@ export function selectSession(id: string, { rememberFocus = true }: { rememberFo
 }
 
 export function getRestorableSessionId() {
-  return pickRestorableSessionId(getLastFocusedSessionId(), sessionUIs);
+  return pickRestorableSessionId(getLastFocusedSessionId(), new Map([...sessionUIs].filter(([, ui]) => !isStudioSession(ui))));
 }
 
 const removingSessionIds = new Set<string>();
@@ -36,7 +37,7 @@ const removingSessionIds = new Set<string>();
 export function readSessionRows(): SessionRow<SessionUi>[];
 export function readSessionRows<Name extends string | null>(nameOf: (ui: SessionUi) => Name): SessionRow<SessionUi, Name>[];
 export function readSessionRows(nameOf: (ui: SessionUi) => string | null = sessionName) {
-  const operatorSessions = [...sessionUIs].filter(([id]) => !removingSessionIds.has(id));
+  const operatorSessions = [...sessionUIs].filter(([id, ui]) => !removingSessionIds.has(id) && !isStudioSession(ui));
   return buildSessionRows(operatorSessions, nameOf).map((row) => {
     if (armedRemovalById.has(row.id)) return { ...row, state: CONFIRM_REMOVE_ROW_STATE, unseenOutcome: null };
     if (pendingCloseById.has(row.id)) return { ...row, state: CLOSING_ROW_STATE, unseenOutcome: null };
@@ -78,6 +79,10 @@ function openWithDialogs(openDialog: (dialogs: DialogsModule) => void) {
 
 export function openAddSessionDialog() {
   openWithDialogs((dialogs) => dialogs.createAddSessionDialog());
+}
+
+export function openStudioRepoDialog(onStudioStarted: (mainId: string) => void) {
+  openWithDialogs((dialogs) => dialogs.createAddSessionDialog(onStudioStarted));
 }
 
 let revealSessionInView: (id: string) => void = selectSession;

@@ -209,7 +209,7 @@ export function countAttentionByKind(rows: readonly AttentionCountRow[] | null |
   return counts;
 }
 
-type TallyRow = SessionAttentionRow & { ownerId: string | null };
+type TallyRow = SessionAttentionRow & { ownerId: string | null; isStudio: boolean };
 
 interface AttentionTally {
   counts: AttentionCounts;
@@ -221,6 +221,7 @@ export function createAttentionTally(): AttentionTally {
 }
 
 function adjustTally(tally: AttentionTally, row: TallyRow, delta: number) {
+  if (row.isStudio) return;
   adjustAttentionCount(tally.counts, row, delta);
   if (row.ownerId === null) return;
   const ownedCount = (tally.ownedCountByOwnerId.get(row.ownerId) ?? 0) + delta;

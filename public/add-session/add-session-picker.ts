@@ -111,9 +111,9 @@ function cancelButtons(onCancel: (() => void) | undefined): HTMLButtonElement[] 
   return [btnCancel];
 }
 
-type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void };
+type AddSessionPickerOptions = { onStarted: () => void; onCancel?: () => void; onStudioStarted?: ((mainId: string) => void) | null };
 
-export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel }: AddSessionPickerOptions) {
+export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel, onStudioStarted = null }: AddSessionPickerOptions) {
   dialog.innerHTML = addSessionHTML;
 
   const pickEl = query(dialog, '#add-session-pick');
@@ -1022,10 +1022,12 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     holdForWork('Starting the session');
     const showRefusal = (text: string) => { errorEl.textContent = text; };
     const replyTimeoutMs = requestType === 'open-issue-session' ? ISSUE_REPLY_TIMEOUT_MS : DEFAULT_REPLY_TIMEOUT_MS;
-    requestControl(requestType, message, replyTimeoutMs)
+    const isStudioRequest = onStudioStarted !== null && requestType === 'add-session';
+    requestControl(requestType, isStudioRequest ? { ...message, studio: true } : message, replyTimeoutMs)
       .then((reply) => {
         if (reply.type === 'add-session-result' && reply.ok) {
           onStarted();
+          if (isStudioRequest && reply.sessionId) return onStudioStarted(reply.sessionId);
           revealAddedSession(reply.sessionId);
           return;
         }

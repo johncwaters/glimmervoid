@@ -174,7 +174,7 @@ function rebuildAsDormantCard(msg: SessionStatusMessage) {
 
   const path = card ? card.dataset.path : undefined;
   removeSessionCard(msg.id);
-  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, accountId: card?.dataset.accountId ?? null, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom, ownerId: previousUi?.ownerId, branchOf: previousUi?.branchOf, attentionOwner: previousUi?.attentionOwner }));
+  createSessionCard(msg.id, msg.session, STATES.DORMANT, buildSessionCardOptions({ skipPerms, saneYolo, isQuestionManagerOn: msg.isQuestionManagerOn ?? sessionQuestionManagerOf(card), worktree: card?.dataset.worktree !== undefined, workspace: card?.dataset.workspace !== undefined, ephemeral: card?.dataset.ephemeral !== undefined, accountId: card?.dataset.accountId ?? null, path, stateSince: msg.timestamp, taskTitle: previousUi?.taskTitle, taskTitleIsCustom: previousUi?.taskTitleIsCustom, ownerId: previousUi?.ownerId, branchOf: previousUi?.branchOf, isStudioMain: previousUi?.isStudioMain, attentionOwner: previousUi?.attentionOwner }));
   setSessionAgent(msg.id, previousUi?.agent, previousUi?.agentDrawsAlternateScreen);
   carryOverClientSessionFields(msg.id, previousUi);
 }

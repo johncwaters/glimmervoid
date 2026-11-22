@@ -216,10 +216,10 @@ export function openRemoteSetupDialog() {
 
 let openAddSessionSheet: { dialog: HTMLElement; refresh: () => void } | null = null;
 
-export function createAddSessionDialog() {
+export function createAddSessionDialog(onStudioStarted: ((mainId: string) => void) | null = null) {
   const { overlay, dialog, close } = createModalOverlay({ dialogClass: 'dialog add-session-dialog', closeOnBackdrop: false });
   overlay.classList.add('add-session-overlay');
-  const picker = mountAddSessionPicker(dialog, { onStarted: close, onCancel: close });
+  const picker = mountAddSessionPicker(dialog, { onStarted: close, onCancel: close, onStudioStarted });
   openAddSessionSheet = { dialog, refresh: picker.refresh };
   applyDialogAria(dialog, 'add-session-title');
 }

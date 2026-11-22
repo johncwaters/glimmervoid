@@ -18,6 +18,8 @@ import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, vie
 import type { ViewRefreshReason } from '../view-registry-core.ts';
 import { confirmServerRestart } from '../server-power.ts';
 import { activatePacksHash } from './hash-routes.ts';
+import { isStudioSession, openStudioOnRepo, setStudioOpener } from '../board-session/studio-target.ts';
+import { findSessionUi } from '../session-card/card-registry.ts';
 
 function openSettings(section?: string) {
   if (section) activateSettingsSection(section);
@@ -111,6 +113,11 @@ interface ActivateViewOptions {
 }
 
 function centerSessionInFocus(id: string) {
+  const ui = findSessionUi(id);
+  if (ui && isStudioSession(ui)) {
+    openStudioOnRepo(ui.path);
+    return;
+  }
   activateView('focus');
   centerSessionQuietly(id);
 }
@@ -295,6 +302,7 @@ function restoreDesktopViews() {
 
 function mountViewTabs() {
   setFeatureTabViews(VIEW_TABS);
+  setStudioOpener(() => openView('board-session'));
   mountEagerViews(VIEW_TABS);
 
   for (const viewTab of VIEW_TABS) {

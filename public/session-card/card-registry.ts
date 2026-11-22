@@ -24,6 +24,7 @@ export interface SessionUi {
   path: string;
   ownerId: string | null;
   branchOf: BranchLink | null;
+  isStudioMain: boolean;
   attentionOwner: AttentionOwner;
   stateSince: number;
   sessionMenu: HTMLDivElement;

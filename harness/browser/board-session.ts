@@ -80,6 +80,15 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await page.locator('#tab-board-session').click();
   const chip = root.locator('button.bs-chip');
   await chip.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-chip-name').textContent(), 'No repo', 'Studio lists no Focus session repo');
+  await chip.click();
+  await root.locator('[data-action="board-session-open-repo"]').click();
+  const picker = page.locator('.add-session-dialog');
+  await picker.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await picker.locator('.add-session-row', { hasText: 'Claude Code' }).click();
+  await picker.locator('.add-session-row', { hasText: 'Any folder' }).click();
+  await picker.locator('#add-session-path').fill(projectDirectory);
+  await picker.getByRole('button', { name: 'Start session', exact: true }).click();
   await page.waitForFunction(() => {
     const name = document.querySelector('.board-session-view .bs-chip-name')?.textContent ?? '';
     return name.length > 0 && name !== 'No repo';
@@ -148,7 +157,11 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.wb-island-agent').isVisible(), false, 'Studio shows no pairing notice for its main agent');
   assert.equal(await root.locator('.bs-activity').count(), 0, 'the working status shows on the face only');
 
+  const studioMainId = await root.locator('.bs-who:has(.bs-face-main)').first().getAttribute('data-session-id');
+  assert.ok(studioMainId, 'the Studio main shows as a face');
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');
+  await page.locator('.focus-view button.session-row[data-id]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await page.locator(`.focus-view button.session-row[data-id="${studioMainId}"]`).count(), 0, 'the Studio main stays out of Focus session rows');
 }
