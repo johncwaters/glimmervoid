@@ -344,11 +344,15 @@
 }
 
 @keyframes wg-capture-pulse {
-  from {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  22% {
     opacity: 0.9;
     transform: scale(1);
   }
-  to {
+  100% {
     opacity: 0;
     transform: scale(1.22);
   }
@@ -425,20 +429,28 @@
   }
 
   .wg-army-glide {
-    animation: wg-army-glide 0.48s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: wg-army-glide 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .wg-combat-clash {
-    animation: wg-combat-clash 0.44s cubic-bezier(0.16, 1, 0.3, 1) 0.24s both;
+    animation: wg-combat-clash 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .wg-delta-callout {
-    animation: wg-delta-float 0.68s cubic-bezier(0.16, 1, 0.3, 1) 0.28s both;
+    animation: wg-delta-float 0.82s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .wg-capture-ring {
-    animation: wg-capture-pulse 0.58s cubic-bezier(0.16, 1, 0.3, 1) 0.36s both;
+    animation: wg-capture-pulse 0.64s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
+}
+
+.wg-preview-arrow {
+  pointer-events: none;
+}
+
+.wg-preview-line {
+  opacity: 0.72;
 }
 
 .wg-inspector {

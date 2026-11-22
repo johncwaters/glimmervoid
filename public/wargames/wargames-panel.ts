@@ -28,6 +28,21 @@ import {
 
 type WargamesSubTab = 'live' | 'new' | 'history';
 type WatchStreamState = 'idle' | 'loading' | 'failed';
+type PanelBodyMode = 'unmounted' | 'empty' | 'loading' | 'failed' | 'live' | 'new' | 'history';
+
+interface PersistentLiveShell {
+  readonly wrap: HTMLElement;
+  readonly factionStripSlot: HTMLElement;
+  readonly boardBarSlot: HTMLElement;
+  readonly hexIntelSlot: HTMLElement;
+}
+
+interface PersistentPanelShell {
+  readonly content: HTMLElement;
+  readonly header: HTMLElement;
+  readonly banner: HTMLElement;
+  readonly body: HTMLElement;
+}
 
 const DEFAULT_SEAT_AGENTS: readonly string[] = [
   'claude-code',
@@ -62,6 +77,9 @@ const failedAutoWatchIds = new Set<string>();
 let mapView: ReturnType<typeof createWargamesMap> | null = null;
 let inspectorView: ReturnType<typeof createWargamesInspector> | null = null;
 let persistentNewMatchSection: HTMLElement | null = null;
+let panelShell: PersistentPanelShell | null = null;
+let liveShell: PersistentLiveShell | null = null;
+let mountedBodyMode: PanelBodyMode = 'unmounted';
 
 function agentLabelOf(agentId: string): string {
   const matched = AGENT_OPTIONS.find((option) => option.value === agentId);
@@ -573,92 +591,72 @@ function buildHistorySection(): HTMLElement {
   return wrapper;
 }
 
-function buildLiveSection(state: ReturnType<typeof displayedMatchState>): HTMLElement {
-  const snap = wargamesSnapshot();
-  const analytics = displayedMatchAnalytics(state);
+function ensurePanelShell(): PersistentPanelShell {
+  if (panelShell) return panelShell;
+  const content = el('div', 'wg-content');
+  const header = el('header', 'wg-header');
+  const banner = el('div', 'wg-form-status');
+  banner.hidden = true;
+  const body = el('div', 'wg-body');
+  content.append(header, banner, body);
+  panelShell = { content, header, banner, body };
+  return panelShell;
+}
 
-  if (!state && snap.watchedMatchId !== null && watchStreamState === 'loading') {
-    const loadingBox = el('section', 'wg-form-section');
-    loadingBox.append(el('p', 'wg-empty-copy', `Connecting to match ${snap.watchedMatchId}...`));
-    return loadingBox;
-  }
-
-  if (!state && snap.watchedMatchId !== null && watchStreamState === 'failed') {
-    const failedMatchId = snap.watchedMatchId;
-    const failedBox = el('section', 'wg-form-section');
-    failedBox.append(emptyState({
-      title: 'Match stream unavailable',
-      text: `Could not load match ${failedMatchId}.`,
-      variant: 'boxed',
-      actions: [
-        button({
-          variant: 'secondary',
-          label: 'Load match',
-          onClick: () => watchMatchById(failedMatchId, false),
-        }),
-      ],
-    }));
-    return failedBox;
-  }
-
-  if (!state) {
-    const wrapper = el('section', 'wg-form-section');
-    wrapper.append(emptyState({
-      title: 'No Wargames matches yet',
-      text: 'Start a new 6-seat match to spectate live.',
-      variant: 'boxed',
-      actions: [
-        button({
-          variant: 'primary',
-          label: 'New match',
-          onClick: () => {
-            activeSubTab = 'new';
-            render();
-          },
-        }),
-      ],
-    }));
-    return wrapper;
-  }
-
-  const liveWrap = el('div', 'wg-live-wrap');
-  liveWrap.append(buildFactionBannerStrip(state));
-
-  const grid = el('div', 'wg-live-grid');
-  const mapPane = el('section', 'wg-map-pane');
-
-  const stage = el('div', 'wg-map-stage');
-  const boardBar = el('div', 'wg-board-bar');
-  const selectedSeat = spotlightSeatId ? state.seats.find((seat) => seat.config.seatId === spotlightSeatId) : null;
-  const modeHint = selectedSeat
-    ? `FOG OF WAR · ${selectedSeat.config.label.toUpperCase()} (CLICK AGAIN FOR FULL MAP)`
-    : '37-HEX TACTICAL BOARD · CLICK A FACTION FOR FOG OF WAR · CLICK A HEX FOR INTEL';
-  const followStatus = isActiveMatchStatus(state.status) ? 'FOLLOWING LIVE' : `${state.status.toUpperCase()} · ${state.spec.rulesVersion}`;
-  boardBar.append(el('span', 'wg-board-hint', modeHint), el('span', 'wg-board-hint', followStatus));
-
+function ensureLiveShell(): PersistentLiveShell {
+  if (liveShell) return liveShell;
   if (!mapView) {
     mapView = createWargamesMap((hexIndex) => {
       selectedHexIndex = hexIndex;
       render();
     });
   }
-  mapView.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
-  stage.append(boardBar, mapView.element, buildHexIntelBar(state, snap.pov), buildMapLegend());
-  mapPane.append(stage);
-
   if (!inspectorView) inspectorView = createWargamesInspector();
-  inspectorView.update(state, analytics, spotlightSeatId);
 
+  const wrap = el('div', 'wg-live-wrap');
+  const factionStripSlot = el('div');
+  const grid = el('div', 'wg-live-grid');
+  const mapPane = el('section', 'wg-map-pane');
+  const stage = el('div', 'wg-map-stage');
+  const boardBarSlot = el('div', 'wg-board-bar');
+  const hexIntelSlot = el('div');
+
+  stage.append(boardBarSlot, mapView.element, hexIntelSlot, buildMapLegend());
+  mapPane.append(stage);
   grid.append(mapPane, inspectorView.element);
-  liveWrap.append(grid);
-  return liveWrap;
+  wrap.append(factionStripSlot, grid);
+  liveShell = { wrap, factionStripSlot, boardBarSlot, hexIntelSlot };
+  return liveShell;
+}
+
+function updateLiveShell(state: MatchState): HTMLElement {
+  const snap = wargamesSnapshot();
+  const analytics = displayedMatchAnalytics(state);
+  const shell = ensureLiveShell();
+
+  shell.factionStripSlot.replaceChildren(buildFactionBannerStrip(state));
+  const selectedSeat = spotlightSeatId ? state.seats.find((seat) => seat.config.seatId === spotlightSeatId) : null;
+  const modeHint = selectedSeat
+    ? `FOG OF WAR · ${selectedSeat.config.label.toUpperCase()} (CLICK AGAIN FOR FULL MAP)`
+    : '37-HEX TACTICAL BOARD · CLICK A FACTION FOR FOG OF WAR · CLICK A HEX FOR INTEL';
+  const followStatus = isActiveMatchStatus(state.status) ? 'FOLLOWING LIVE' : `${state.status.toUpperCase()} · ${state.spec.rulesVersion}`;
+  shell.boardBarSlot.replaceChildren(el('span', 'wg-board-hint', modeHint), el('span', 'wg-board-hint', followStatus));
+
+  mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
+  shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
+  inspectorView?.update(state, analytics, spotlightSeatId);
+  return shell.wrap;
 }
 
 function render(): void {
   if (!root || !isViewActive) return;
   const state = displayedMatchState();
+  const snap = wargamesSnapshot();
+  const shell = ensurePanelShell();
+  if (shell.content.parentElement !== root) {
+    root.replaceChildren(shell.content);
+  }
 
-  const header = el('header', 'wg-header');
   const subTabs = el('div', 'wg-subtabs');
   const tabDefs: readonly { id: WargamesSubTab; label: string }[] = [
     { id: 'live', label: 'Live Match' },
@@ -714,17 +712,80 @@ function render(): void {
       }));
     }
   }
-  header.append(subTabs, meta);
+  shell.header.replaceChildren(subTabs, meta);
 
-  const body = el('div', 'wg-body');
-  if (bannerMessage) body.append(el('div', 'wg-form-status', bannerMessage));
-  if (activeSubTab === 'live') body.append(buildLiveSection(state));
-  if (activeSubTab === 'new') body.append(ensureNewMatchSection());
-  if (activeSubTab === 'history') body.append(buildHistorySection());
+  shell.banner.hidden = bannerMessage.length === 0;
+  shell.banner.textContent = bannerMessage;
 
-  const content = el('div', 'wg-content');
-  content.append(header, body);
-  root.replaceChildren(content);
+  if (activeSubTab === 'new') {
+    if (mountedBodyMode !== 'new') {
+      shell.body.replaceChildren(ensureNewMatchSection());
+      mountedBodyMode = 'new';
+    }
+    return;
+  }
+
+  if (activeSubTab === 'history') {
+    shell.body.replaceChildren(buildHistorySection());
+    mountedBodyMode = 'history';
+    return;
+  }
+
+  if (state) {
+    const liveWrap = updateLiveShell(state);
+    if (mountedBodyMode !== 'live') {
+      shell.body.replaceChildren(liveWrap);
+      mountedBodyMode = 'live';
+    }
+    return;
+  }
+
+  if (snap.watchedMatchId !== null && watchStreamState === 'loading') {
+    const loadingBox = el('section', 'wg-form-section');
+    loadingBox.append(el('p', 'wg-empty-copy', `Connecting to match ${snap.watchedMatchId}...`));
+    shell.body.replaceChildren(loadingBox);
+    mountedBodyMode = 'loading';
+    return;
+  }
+
+  if (snap.watchedMatchId !== null && watchStreamState === 'failed') {
+    const failedMatchId = snap.watchedMatchId;
+    const failedBox = el('section', 'wg-form-section');
+    failedBox.append(emptyState({
+      title: 'Match stream unavailable',
+      text: `Could not load match ${failedMatchId}.`,
+      variant: 'boxed',
+      actions: [
+        button({
+          variant: 'secondary',
+          label: 'Load match',
+          onClick: () => watchMatchById(failedMatchId, false),
+        }),
+      ],
+    }));
+    shell.body.replaceChildren(failedBox);
+    mountedBodyMode = 'failed';
+    return;
+  }
+
+  const wrapper = el('section', 'wg-form-section');
+  wrapper.append(emptyState({
+    title: 'No Wargames matches yet',
+    text: 'Start a new 6-seat match to spectate live.',
+    variant: 'boxed',
+    actions: [
+      button({
+        variant: 'primary',
+        label: 'New match',
+        onClick: () => {
+          activeSubTab = 'new';
+          render();
+        },
+      }),
+    ],
+  }));
+  shell.body.replaceChildren(wrapper);
+  mountedBodyMode = 'empty';
 }
 
 function handleStoreUpdate(): void {
