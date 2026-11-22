@@ -47,6 +47,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     const fakeClearTimeout: ClearTimeoutFn = (handle) => {
       clearTimeout(handle);
     };
+    const emptyCatalog = () => ({ agents: [], openrouter: { models: [], error: null, checkedAt: null } });
     const runner = createWargamesRunner({
       store,
       broadcast: (frame) => frames.push(frame),
@@ -54,6 +55,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
       now: () => 1_700_000_100_000,
       setTimeoutFn: fakeSetTimeout,
       clearTimeoutFn: fakeClearTimeout,
+      readAgentModels: emptyCatalog,
     });
     await runner.load();
 
@@ -161,6 +163,7 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
       broadcast: () => {},
       log: { log: () => {}, warn: () => {} },
       now: () => 1_700_000_000_000,
+      readAgentModels: () => ({ agents: [], openrouter: { models: [], error: null, checkedAt: null } }),
     });
     const started = await runner.startMatch(
       buildSpec(),
@@ -360,5 +363,53 @@ test('wargames launcher discards seat when prompt delivery fails and removes sea
   } finally {
     for (const session of fakeSessions.values()) session.destroy();
     await fsp.rm(seatRootDir, { recursive: true, force: true });
+  }
+});
+
+test('wargames runner resolves each seat modelDisplay to the specific catalog model on startMatch', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'gv-wg-models-'));
+  const store = createWargamesStore({ directory: dir, log: { warn: () => {} } });
+  const runner = createWargamesRunner({
+    store,
+    broadcast: () => {},
+    log: { log: () => {}, warn: () => {} },
+    readAgentModels: () => ({
+      agents: [
+        {
+          agent: 'claude-code',
+          configuredDefault: { model: 'claude-opus-4-6', effort: null },
+          models: [
+            { id: 'claude-opus-4-6', label: 'Opus 4.6', aliases: ['opus'], isDefault: true, options: [] },
+          ],
+          error: null,
+          checkedAt: null,
+        },
+        {
+          agent: 'codex',
+          models: [
+            { id: 'gpt-5.4', label: 'GPT-5.4', aliases: [], isDefault: true, options: [] },
+          ],
+          error: null,
+          checkedAt: null,
+        },
+      ],
+      openrouter: { models: [], error: null, checkedAt: null },
+    }),
+  });
+  try {
+    await runner.load();
+    const spec = buildSpec();
+    spec.seats[0] = { ...spec.seats[0], setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'claude-code' };
+    spec.seats[1] = { ...spec.seats[1], setup: { agent: 'codex', model: 'gpt-5.4', options: [], instructions: '' }, modelDisplay: 'codex' };
+    const started = await runner.startMatch(spec);
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const summary = runner.statusFrame().matches.find((match) => match.matchId === started.matchId);
+    assert.ok(summary);
+    assert.equal(summary.seats[0].modelDisplay, 'Opus 4.6');
+    assert.equal(summary.seats[1].modelDisplay, 'GPT-5.4');
+  } finally {
+    runner.dispose();
+    await fsp.rm(dir, { recursive: true, force: true });
   }
 });

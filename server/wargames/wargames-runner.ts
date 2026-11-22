@@ -2,6 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { WargamesSeatBinding, WargamesSeatPort, WargamesToolName, WargamesToolReply } from '../../mcp/wargames-tools.ts';
 import { clock } from '../../shared/clock.ts';
+import type { AgentModelCatalog } from '../../shared/contracts/agent-models.ts';
 import {
   ContractTerms,
   MessageChannel,
@@ -33,6 +34,7 @@ import {
   seatIndexOf,
 } from '../../shared/wargames/engine.ts';
 import type { MatchState, ReportSigner } from '../../shared/wargames/engine.ts';
+import { currentAgentModelCatalog } from '../agent-models/agent-models.ts';
 import { createAwakeTimeoutFn } from '../awake-timer.ts';
 import type { WargamesStore } from './wargames-store.ts';
 
@@ -90,6 +92,31 @@ interface WargamesRunnerDeps {
   now?: () => number;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
+  readAgentModels?: (nowMs?: number) => AgentModelCatalog;
+}
+
+function normalizeModelDisplay(candidate: string | null | undefined, fallback: string): string {
+  const normalized = candidate?.trim().slice(0, 120) ?? '';
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function resolveSeatModelDisplay(seat: SeatConfig, catalog: AgentModelCatalog): string {
+  const explicitModel = seat.setup.model?.trim() || null;
+  const entry = catalog.agents.find((candidate) => candidate.agent === seat.setup.agent);
+  if (!entry) return normalizeModelDisplay(explicitModel, seat.modelDisplay);
+  if (explicitModel) {
+    const matched = entry.models.find(
+      (model) => model.id === explicitModel || model.aliases.includes(explicitModel) || model.label === explicitModel,
+    );
+    return normalizeModelDisplay(matched ? matched.label : explicitModel, seat.modelDisplay);
+  }
+  const configuredId = entry.configuredDefault?.model?.trim() || null;
+  if (configuredId) {
+    const matched = entry.models.find((model) => model.id === configuredId || model.aliases.includes(configuredId));
+    return normalizeModelDisplay(matched ? matched.label : configuredId, seat.modelDisplay);
+  }
+  const defaultModel = entry.models.find((model) => model.isDefault);
+  return normalizeModelDisplay(defaultModel?.label, seat.modelDisplay);
 }
 
 function createHmacSigner(secretKey: Buffer): ReportSigner {
@@ -116,6 +143,7 @@ export function createWargamesRunner({
   now = clock.nowMs,
   setTimeoutFn = createAwakeTimeoutFn(),
   clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
+  readAgentModels = currentAgentModelCatalog,
 }: WargamesRunnerDeps): WargamesRunner {
   const liveByMatchId = new Map<string, LiveMatch>();
   const seatBySessionId = new Map<string, WargamesSeatBinding>();
@@ -276,8 +304,16 @@ export function createWargamesRunner({
     launchSeat?: SeatLaunchFn,
     hooks?: WargamesMatchHooks,
   ): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }> {
-    const pinnedSpec: WargamesMatchSpec = { ...spec, rulesVersion: WARGAMES_RULES_VERSION };
     const createdAtMs = now();
+    const catalog = readAgentModels(createdAtMs);
+    const pinnedSpec: WargamesMatchSpec = {
+      ...spec,
+      rulesVersion: WARGAMES_RULES_VERSION,
+      seats: spec.seats.map((seat) => ({
+        ...seat,
+        modelDisplay: resolveSeatModelDisplay(seat, catalog),
+      })),
+    };
     const matchId = `wg-${createdAtMs.toString(36)}-${randomBytes(3).toString('hex')}`;
     const initialState = createInitialMatchState(matchId, createdAtMs, pinnedSpec);
     const signer = createHmacSigner(randomBytes(32));
@@ -301,7 +337,7 @@ export function createWargamesRunner({
     await enqueueMatch(live, () => commitEventSerialized(live, { seq: 1, type: 'seating_started' }));
     if (launchSeat) {
       const launchErrors: string[] = [];
-      for (const seat of spec.seats) {
+      for (const seat of pinnedSpec.seats) {
         if (isMatchTerminal(live)) {
           return { ok: false, error: live.state.abortReason ?? 'Match aborted during launch' };
         }
