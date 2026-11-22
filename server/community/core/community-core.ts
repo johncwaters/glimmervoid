@@ -1,6 +1,7 @@
 import { CommunityDraft, CommunityItem, CommunityState, CommunityVerdict, DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from '../../../shared/contracts/community.ts';
 import type { CommunityAction, CommunityStateEntry } from '../../../shared/contracts/community.ts';
-import { resolvePosthogHost } from '../../radar/core/radar-lane-core.ts';
+import { readPosthogConnection, readPosthogReadConnection } from '../../radar/core/radar-lane-core.ts';
+import type { PosthogConnection } from '../../radar/core/radar-lane-core.ts';
 import { bulletsIn, fencedUntrusted, parsePostingFile, sectionAfter, withoutControlCharacters } from '../../lanes/core/lane-report-core.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import { laneAccessConfigOf, laneAccessEnvBlocker } from '../../lanes/core/lane-permissions-core.ts';
@@ -66,11 +67,6 @@ interface UntrustedLaneRequest {
   untrustedItems: UntrustedItem[];
 }
 
-interface PosthogConnection {
-  host: string;
-  apiKey: string;
-}
-
 function recordOf(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -85,29 +81,11 @@ function readCommunitySettings(config: { community?: unknown }): CommunitySettin
     enabled: block.enabled === true,
     skill: typeof block.skill === 'string' ? block.skill.trim() : '',
     projectId: positiveIntegerOr(block.projectId, DEFAULT_PROJECT_ID),
-    intervalMinutes: positiveIntegerOr(block.intervalMinutes, DEFAULT_INTERVAL_MINUTES),
+    intervalMinutes: DEFAULT_INTERVAL_MINUTES,
     discordChannels: Array.isArray(block.discordChannels)
       ? [...new Set(block.discordChannels.filter((channel): channel is string => typeof channel === 'string' && DISCORD_CHANNEL_NAME_RE.test(channel)))].slice(0, MAX_DISCORD_CHANNELS)
       : [],
   };
-}
-
-function posthogConnectionWith(config: { posthog?: unknown }, keyField: 'apiKey' | 'readApiKey'): PosthogConnection | null {
-  const block = recordOf(config.posthog);
-  const keyValue = block[keyField];
-  const apiKey = typeof keyValue === 'string' ? keyValue.trim() : '';
-  if (!apiKey) return null;
-  return { host: resolvePosthogHost(typeof block.host === 'string' ? block.host.trim() : null), apiKey };
-}
-
-function readPosthogConnection(config: { posthog?: unknown }): PosthogConnection | null {
-  return posthogConnectionWith(config, 'apiKey');
-}
-
-function readPosthogReadConnection(config: { posthog?: unknown }): PosthogConnection | null {
-  const connection = posthogConnectionWith(config, 'readApiKey');
-  if (connection === null || !connection.host.startsWith('https://')) return null;
-  return connection;
 }
 
 function readTelegramTarget(config: { telegram?: unknown }): { botToken: string; chatId: string } {

@@ -1,0 +1,362 @@
+import { AGENT_API_VERBS, SESSION_COMMANDS } from '../../shared/contracts/session.ts';
+import type { AgentApiVerb, SessionCommand, SessionLimits } from '../../shared/contracts/session.ts';
+import { isRecord } from '../../shared/coerce.ts';
+import { SUBAGENT_TOOL_NAMES } from '../../shared/subagent-tools.ts';
+import type { AgentNote } from '../../shared/contracts/hooks.ts';
+
+const SUPERVISION_LINE = "Glimmervoid supervises this session. Run glimmervoid --help for the commands it gives you and this session's limits.";
+const SPAWN_LINE = 'glimmervoid spawn starts a supervised session with its own dashboard card the operator can watch, an option beside an in-process subagent.';
+const HELP_COMMAND = 'glimmervoid --help';
+const SHELL_TOOL_RULE = 'Bash';
+const SHELL_PREFIX_RULE = /^Bash\((.+):\*\)$/;
+const NEVER_ASK_MODE = 'dontAsk';
+const NO_OWN_WORKTREE_REASON = 'this session has no worktree of its own, so there is nothing of its own to land';
+
+interface SessionRoleFacts {
+  isEphemeral: boolean;
+  isSpawnedChild: boolean;
+  hasOwnWorktree: boolean;
+  isRaceContestant: boolean;
+  isDoneMeansOff: boolean;
+}
+
+type SessionKindFacts = Omit<SessionRoleFacts, 'hasOwnWorktree'>;
+
+type PushRefusalCode = 'not-operator-session' | 'no-worktree';
+type RouteVerdict = { answers: true } | { answers: false; reason: string; code?: PushRefusalCode };
+
+type SessionCommandLimit = SessionLimits['commands'][number];
+
+const ANSWERS: { answers: true } = Object.freeze({ answers: true });
+
+function supervisionLine({ canSpawn = false }: { canSpawn?: boolean }): string {
+  if (!canSpawn) return SUPERVISION_LINE;
+  return `${SUPERVISION_LINE} ${SPAWN_LINE}`;
+}
+
+function coversHelpCommand(permissionRule: unknown): boolean {
+  if (typeof permissionRule !== 'string') return false;
+  if (permissionRule === SHELL_TOOL_RULE) return true;
+  const commandPrefix = SHELL_PREFIX_RULE.exec(permissionRule)?.[1];
+  if (commandPrefix === undefined) return false;
+  return HELP_COMMAND === commandPrefix || HELP_COMMAND.startsWith(`${commandPrefix} `);
+}
+
+function permissionRules(listed: unknown): unknown[] {
+  return Array.isArray(listed) ? listed : [];
+}
+
+function permitsHelpCommand(settingsPermissions: Record<string, unknown> | null): boolean {
+  if (settingsPermissions === null) return true;
+  if (permissionRules(settingsPermissions.deny).some(coversHelpCommand)) return false;
+  if (settingsPermissions.defaultMode !== NEVER_ASK_MODE) return true;
+  return permissionRules(settingsPermissions.allow).some(coversHelpCommand);
+}
+
+function pushRoute({ isEphemeral, isSpawnedChild, hasOwnWorktree }: SessionRoleFacts): RouteVerdict {
+  if (isEphemeral && !isSpawnedChild) {
+    return { answers: false, code: 'not-operator-session', reason: 'only an operator session or a session it spawned can push' };
+  }
+  if (!hasOwnWorktree) return { answers: false, code: 'no-worktree', reason: NO_OWN_WORKTREE_REASON };
+  return ANSWERS;
+}
+
+function spawnRoute({ isEphemeral, isSpawnedChild }: SessionKindFacts): RouteVerdict {
+  if (isSpawnedChild) return { answers: false, reason: 'a spawned session may not spawn another' };
+  if (isEphemeral) {
+    return { answers: false, reason: "only an operator session may spawn a session, because the new session gets an operator session's tools and permissions, which can be wider than this one's" };
+  }
+  return ANSWERS;
+}
+
+function hasOperatorCard({ isEphemeral, isSpawnedChild }: SessionKindFacts): boolean {
+  if (!isEphemeral) return true;
+  return isSpawnedChild;
+}
+
+function attentionRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot raise attention, because its notes are not delivered to the operator' };
+}
+
+function editRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot surface a file, because it has no card for the operator to open the file from' };
+}
+
+function operatorStateRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: "a lane session cannot read or queue the operator's reviews, pull requests or settings, because a lane runs on input the operator has not vetted" };
+}
+
+function commentsRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session has no Changes view, so the operator leaves it no review comments' };
+}
+
+function channelRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session has no parent or spawned sessions to message' };
+}
+
+function closeRoute({ isEphemeral, isSpawnedChild }: SessionKindFacts): RouteVerdict {
+  if (isSpawnedChild) return { answers: false, reason: 'a spawned session owns no sessions to close' };
+  if (isEphemeral) return { answers: false, reason: 'a lane session owns no sessions to close' };
+  return ANSWERS;
+}
+
+function linkPrRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot link a pull request, because it has no card to show the link on' };
+}
+
+function whiteboardRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot use a whiteboard, because a lane runs on input the operator has not vetted and has no card to show the board on' };
+}
+
+function checkoutRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot make a checkout, because a lane runs on input the operator has not vetted' };
+}
+
+function needRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot ask for secrets, because a lane runs on input the operator has not vetted' };
+}
+
+function arenaRoute(caller: SessionKindFacts): RouteVerdict {
+  if (!hasOperatorCard(caller)) return { answers: false, reason: 'a lane session cannot use Arena, because a lane runs on input the operator has not vetted' };
+  if (caller.isRaceContestant) return { answers: false, reason: "a race contestant cannot use Arena, because it could read its rivals' diffs or have its race judged early" };
+  return ANSWERS;
+}
+
+function wakeRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot schedule a wake, because a lane runs to a fixed end and has no card to show the wake on' };
+}
+
+function memoryRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot use shared memory, because a lane runs on input the operator has not vetted and could plant notes other sessions trust' };
+}
+
+function doneRoute(caller: SessionKindFacts): RouteVerdict {
+  if (caller.isDoneMeansOff) return { answers: false, reason: 'this race contestant runs with Done means off' };
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot set done lines, because it has no Chat panel to show them in' };
+}
+
+function previewRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot share a preview, because it has no card to show it on' };
+}
+
+function claimRoute(caller: SessionKindFacts): RouteVerdict {
+  if (hasOperatorCard(caller)) return ANSWERS;
+  return { answers: false, reason: 'a lane session cannot claim files, because a lane works in a throwaway folder no other session edits' };
+}
+
+const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: SessionRoleFacts) => RouteVerdict>> = Object.freeze({
+  push: pushRoute,
+  spawn: spawnRoute,
+  send: channelRoute,
+  read: channelRoute,
+  close: closeRoute,
+  answer: closeRoute,
+  attention: attentionRoute,
+  sessions: () => ANSWERS,
+  edit: editRoute,
+  done: doneRoute,
+  check: doneRoute,
+  show: whiteboardRoute,
+  review: operatorStateRoute,
+  reviews: operatorStateRoute,
+  prs: operatorStateRoute,
+  'link-pr': linkPrRoute,
+  settings: operatorStateRoute,
+  why: () => ANSWERS,
+  whiteboard: whiteboardRoute,
+  checkout: checkoutRoute,
+  packs: operatorStateRoute,
+  need: needRoute,
+  secrets: needRoute,
+  limits: () => ANSWERS,
+  arena: arenaRoute,
+  comments: commentsRoute,
+  wake: wakeRoute,
+  memory: memoryRoute,
+  claim: claimRoute,
+  preview: previewRoute,
+  codemap: () => ANSWERS,
+});
+
+type ToolHintedCommand = 'show' | 'spawn' | 'push' | 'settings' | 'review' | 'checkout';
+type HintedCommand = ToolHintedCommand | 'whiteboard';
+type ToolHookEvent = 'posttooluse' | 'posttoolusefailure';
+
+interface ToolHookFacts {
+  event: ToolHookEvent;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}
+
+interface HintGate {
+  answers: (command: HintedCommand) => boolean;
+  hintedCommands: ReadonlySet<string>;
+  ranCommands: ReadonlySet<string>;
+}
+
+type PromptHint = Pick<CommandHint, 'command' | 'text'>;
+
+interface CommandHint {
+  command: HintedCommand;
+  event: ToolHookEvent;
+  text: string;
+}
+
+const SHOWABLE_PATH = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?|pptx)(?=$|[\s'"`)|;&,])/i;
+const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'write_file', 'edit_file', 'write_to_file', 'replace_file_content', 'multi_replace_file_content']);
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'run_command']);
+const GIT_PUSH = /\bgit\s+push\b/;
+const PR_REVIEW = /\bgh\s+pr\s+review\b/;
+const NEW_CHECKOUT = /\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--?[\w-]+(?:=\S+)?))*\s+(?:worktree\s+add|clone)\b/;
+const GLIMMERVOID_CONFIG = /\.glimmervoid[\\/]config\.json\b/;
+
+function shellCommandOf({ toolName, toolInput }: ToolHookFacts): string | null {
+  if (!SHELL_TOOLS.has(toolName)) return null;
+  if (typeof toolInput.command === 'string') return toolInput.command;
+  return typeof toolInput.CommandLine === 'string' ? toolInput.CommandLine : null;
+}
+
+function filePathOf({ toolName, toolInput }: ToolHookFacts): string | null {
+  if (!FILE_WRITING_TOOLS.has(toolName)) return null;
+  if (typeof toolInput.file_path === 'string') return toolInput.file_path;
+  if (typeof toolInput.Path === 'string') return toolInput.Path;
+  return typeof toolInput.TargetFile === 'string' ? toolInput.TargetFile : null;
+}
+
+function namesShowableFile(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttooluse') return false;
+  const named = filePathOf(facts) ?? shellCommandOf(facts);
+  return named !== null && SHOWABLE_PATH.test(named);
+}
+
+function startsSubagent(facts: ToolHookFacts): boolean {
+  return facts.event === 'posttooluse' && SUBAGENT_TOOL_NAMES.has(facts.toolName);
+}
+
+function failsGitPush(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttoolusefailure') return false;
+  return GIT_PUSH.test(shellCommandOf(facts) ?? '');
+}
+
+function touchesGlimmervoidConfig(facts: ToolHookFacts): boolean {
+  const named = filePathOf(facts) ?? shellCommandOf(facts);
+  return named !== null && GLIMMERVOID_CONFIG.test(named);
+}
+
+function runsPullRequestReview(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttooluse') return false;
+  return PR_REVIEW.test(shellCommandOf(facts) ?? '');
+}
+
+function makesOwnCheckout(facts: ToolHookFacts): boolean {
+  if (facts.event !== 'posttooluse') return false;
+  return NEW_CHECKOUT.test(shellCommandOf(facts) ?? '');
+}
+
+const COMMAND_HINTS: Readonly<Record<ToolHintedCommand, { firesOn: (facts: ToolHookFacts) => boolean; text: string }>> = Object.freeze({
+  show: { firesOn: namesShowableFile, text: "Glimmervoid: the glimmervoid show tool puts an image, video, HTML, Markdown or PowerPoint file on a whiteboard the operator is watching. Anything made for the operator or their team to look at (slides, a talk, an explainer, a report, a page) goes there; never publish a Claude artifact, Claude doc or other hosted page, or ask the operator to open the file, unless the operator names that place." },
+  spawn: { firesOn: startsSubagent, text: 'Glimmervoid: glimmervoid spawn <prompt> is also available, giving the work its own supervised session and dashboard card.' },
+  push: { firesOn: failsGitPush, text: "Glimmervoid: glimmervoid push lands this session's commits on the integration branch and pushes it." },
+  settings: { firesOn: touchesGlimmervoidConfig, text: "Glimmervoid: glimmervoid settings get <key> reads Glimmervoid's settings without opening config.json." },
+  review: { firesOn: runsPullRequestReview, text: 'Glimmervoid: glimmervoid review <pr> queues a team review whose draft waits in the Reviews tab for the operator to post.' },
+  checkout: { firesOn: makesOwnCheckout, text: 'Glimmervoid owns checkouts for this session. Run glimmervoid checkout <repo> instead, so the checkout is cleaned up when the session closes.' },
+});
+
+const HINTED_COMMANDS = Object.keys(COMMAND_HINTS) as ToolHintedCommand[];
+const DRAWING_REQUEST = /\b(?:(?:graph|diagram|flowchart|whiteboard|drawing|architecture|state machine|chart|flow|map|layout)s?|draw(?:s|n)?|sketch(?:es|ing)?|visuali[sz](?:e|es|ing)|mapping|mermaid)\b/i;
+const WHITEBOARD_HINT_TEXT = "Glimmervoid: glimmervoid whiteboard new <title> draws a graph or diagram on a shared board on the operator's dashboard, where the operator can see and edit it; prefer it to a diagram in chat.";
+
+const PRESENTING_REQUEST = /\b(?:slides?|slideshow|decks?|talks?|presentations?|explainers?|explanations?|write-?ups?|one-?pagers?|mockups?|artifacts?|reports?)\b/i;
+const PROMPT_HINTS: readonly { command: HintedCommand; request: RegExp; text: string }[] = [
+  { command: 'show', request: PRESENTING_REQUEST, text: COMMAND_HINTS.show.text },
+  { command: 'whiteboard', request: DRAWING_REQUEST, text: WHITEBOARD_HINT_TEXT },
+];
+
+function promptTextOf(prompt: unknown): string {
+  if (typeof prompt === 'string') return prompt;
+  if (!Array.isArray(prompt)) return '';
+  return prompt.filter((part) => isRecord(part) && part.type === 'text' && typeof part.text === 'string').map((part) => part.text).join('\n');
+}
+
+function promptHintsFor(prompt: unknown, gate: Omit<HintGate, 'answers'>): PromptHint[] {
+  const promptText = promptTextOf(prompt);
+  return PROMPT_HINTS
+    .filter(({ command, request }) => !gate.hintedCommands.has(command) && !gate.ranCommands.has(command) && request.test(promptText))
+    .map(({ command, text }) => ({ command, text }));
+}
+
+const KIMI_MAIN_AGENT_ID = 'main';
+
+const TOOL_HOOK_EVENTS: ReadonlySet<string> = new Set<ToolHookEvent>(['posttooluse', 'posttoolusefailure']);
+
+function isToolHookEvent(event: string): event is ToolHookEvent {
+  return TOOL_HOOK_EVENTS.has(event);
+}
+
+function toolHookFactsOf(event: string, payload: Record<string, unknown>): ToolHookFacts | null {
+  const normalizedEvent = event.toLowerCase();
+  if (!isToolHookEvent(normalizedEvent)) return null;
+  if (typeof payload.tool_name !== 'string') return null;
+  if (typeof payload.agent_id === 'string' && payload.agent_id !== KIMI_MAIN_AGENT_ID) return null;
+  return { event: normalizedEvent, toolName: payload.tool_name, toolInput: isRecord(payload.tool_input) ? payload.tool_input : {} };
+}
+
+function hintFor(facts: ToolHookFacts, gate: HintGate): CommandHint | null {
+  const command = HINTED_COMMANDS.find((candidate) => !gate.hintedCommands.has(candidate)
+    && !gate.ranCommands.has(candidate)
+    && COMMAND_HINTS[candidate].firesOn(facts)
+    && gate.answers(candidate));
+  if (command === undefined) return null;
+  return { command, event: facts.event, text: COMMAND_HINTS[command].text };
+}
+
+function commandLimit(name: SessionCommand, facts: SessionRoleFacts): SessionCommandLimit {
+  const verdict = COMMAND_ROUTES[name](facts);
+  if (verdict.answers) return { name, answers: true };
+  return { name, answers: false, reason: verdict.reason };
+}
+
+function describeSessionLimits(facts: SessionRoleFacts): SessionLimits {
+  return { commands: SESSION_COMMANDS.map((name) => commandLimit(name, facts)) };
+}
+
+function formatSessionLimits(limits: SessionLimits): string[] {
+  const cliCommands = limits.commands.filter(({ name }) => (AGENT_API_VERBS as readonly string[]).includes(name));
+  const commandLines = cliCommands.map(({ name, answers, reason }) => (answers ? `  ${name}: available` : `  ${name}: not available, ${reason}`));
+  return ['This session:', ...commandLines];
+}
+
+const NEXT_PROMPT_FALLBACK = ', or the next UserPromptSubmit where the agent has no tool hook context';
+
+const COMMAND_HINT_TRIGGERS: Readonly<Record<ToolHintedCommand, { carriedBy: string; firesWhen: string }>> = Object.freeze({
+  show: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}, or UserPromptSubmit for a prompt`, firesWhen: 'a tool call names an image, video, HTML or PowerPoint file, or a prompt asks for slides, a talk, an explainer or a report' },
+  spawn: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent starts an in-process subagent' },
+  push: { carriedBy: `PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a git push fails' },
+  settings: { carriedBy: `PostToolUse or PostToolUseFailure${NEXT_PROMPT_FALLBACK}`, firesWhen: "a tool call touches Glimmervoid's config.json" },
+  review: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'the agent runs a pull request review' },
+  checkout: { carriedBy: `PostToolUse${NEXT_PROMPT_FALLBACK}`, firesWhen: 'a tool call runs git worktree add or git clone' },
+});
+
+function routeAgentNotes(): AgentNote[] {
+  const startLine: AgentNote = { name: 'Start line', carriedBy: 'UserPromptSubmit', firesWhen: 'the first prompt of a conversation, when the agent may run glimmervoid --help', text: supervisionLine({ canSpawn: true }), isTemplate: false };
+  const commandHints = HINTED_COMMANDS.map((command) => ({ name: `${command} hint`, ...COMMAND_HINT_TRIGGERS[command], text: COMMAND_HINTS[command].text, isTemplate: false }));
+  const whiteboardHint: AgentNote = { name: 'whiteboard hint', carriedBy: 'UserPromptSubmit', firesWhen: 'a prompt asks for a graph, diagram or drawing and the session is not connected to a board', text: WHITEBOARD_HINT_TEXT, isTemplate: false };
+  return [startLine, ...commandHints, whiteboardHint];
+}
+
+export type { CommandHint, HintedCommand, PromptHint };
+export { routeAgentNotes, supervisionLine, permitsHelpCommand, toolHookFactsOf, hintFor, promptHintsFor, COMMAND_ROUTES, describeSessionLimits, formatSessionLimits, NO_OWN_WORKTREE_REASON };
+export type { SessionRoleFacts };

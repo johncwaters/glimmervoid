@@ -1,8 +1,6 @@
 import { el } from './dom-helpers.ts';
-import { pickIncludedAnimalIndex } from './flying-animals-core.ts';
-import { ANIMALS } from './nyan-animals-core.ts';
+import type { ANIMALS } from './nyan-animals-core.ts';
 import { deriveNyanGeometry } from './nyan-geometry-core.ts';
-import { getFlyingAnimalsOptions } from './ui-prefs.ts';
 
 type FlyingAnimal = (typeof ANIMALS)[number];
 
@@ -17,10 +15,4 @@ export function buildFlyingAnimalPreview(animal: FlyingAnimal, extraClassName = 
   stage.append(el('div', `nyan-trail ${animal.trail}`), el('div', `nyan-sprite ${animal.sprite}`));
   preview.append(stage);
   return preview;
-}
-
-export function pickRandomIncludedAnimal(): FlyingAnimal | null {
-  const animalIndex = pickIncludedAnimalIndex(getFlyingAnimalsOptions().flyingAnimalsExcludedSprites);
-  if (animalIndex === null) return null;
-  return ANIMALS[animalIndex] ?? null;
 }

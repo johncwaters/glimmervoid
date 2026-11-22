@@ -2,6 +2,7 @@ import './helpers/isolate-home.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -528,8 +529,8 @@ test('yourDay recaps yesterday from operator-typed Claude and Codex prompts and 
   assert.equal(yourDay?.yesterday.day, '2026-08-18');
   assert.equal(yourDay?.yesterday.sessionCount, 9);
   assert.deepEqual(yourDay?.insights.map((insight) => insight.kind).sort(), ['juggling', 'longestStretch']);
-  assert.ok(yourDay?.insights.some((insight) => insight.text === 'Yesterday you went 3h 40m without a break.'));
-  assert.ok(yourDay?.insights.every((insight) => !/operator/i.test(insight.text)));
+  assert.ok(yourDay?.insights.some((insight) => insight.title === 'Yesterday you went 3h 40m without a break'));
+  assert.ok(yourDay?.insights.every((insight) => !/operator/i.test(`${insight.title} ${insight.detail}`)));
   assert.equal(yourDay?.currentStretchStartedAt, null);
 });
 
@@ -663,6 +664,262 @@ test('scanner IO failure after catch-up makes lane spend read-failing until reco
   shouldFailRead = false;
   assert.equal((await scanner.runPass()).outcome, 'complete');
   assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'known');
+});
+
+test('scanner ingests Antigravity transcripts via 1-level brain probe with metadata cwd and dedup', async () => {
+  const root = await makeTempRoot();
+  const brainRoot = path.join(root, '.gemini', 'antigravity-cli', 'brain');
+  const conversationId = 'e49c4f93-2b16-498c-ac66-a509a837905c';
+  const transcriptPath = path.join(brainRoot, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  const strayJsonl = path.join(brainRoot, conversationId, 'scratch', 'ignored.jsonl');
+  const metadataPath = path.join(root, '.gemini', 'antigravity-cli', 'cache', 'conversation_metadata.json');
+  const nowIso = new Date().toISOString();
+  const row1 = JSON.stringify({
+    step_index: 1,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    created_at: nowIso,
+    model: 'claude-sonnet-4-20250514-medium',
+    input_tokens: 1000,
+    cache_read_tokens: 4000,
+    output_tokens: 250,
+  });
+  const row2 = JSON.stringify({
+    step_index: 3,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    created_at: nowIso,
+    model: 'claude-sonnet-4-20250514-medium',
+    input_tokens: 500,
+    cache_read_tokens: 5000,
+    output_tokens: 150,
+  });
+  await writeLines(transcriptPath, [row1, row1, row2]);
+  await writeLines(strayJsonl, [row1]);
+  await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+  await fs.writeFile(metadataPath, JSON.stringify({
+    conversations: {
+      [conversationId]: { summary: { WorkspaceURIs: ['file:///tmp/demo-repo'] } },
+    },
+  }));
+
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+  });
+  const scanPass = await scanner.runPass();
+  assert.equal(scanPass.outcome, 'complete');
+  assert.equal(scanPass.newEntries, 2);
+  assert.equal(scanner.vendorCounts().antigravity, 1);
+  const report = scanner.buildReport();
+  assert.equal(report.totals.input, 1500);
+  assert.equal(report.totals.cacheRead, 9000);
+  assert.equal(report.totals.output, 400);
+  assert.ok(report.totals.costUSD > 0);
+  assert.equal(report.sessions[0]?.project, '/tmp/demo-repo');
+});
+
+test('scanner ingests pi sessions with reported cost and deduplicates forked entries', async () => {
+  const root = await makeTempRoot();
+  const piSessions = path.join(root, '.pi', 'agent', 'sessions', '--tmp-repo--');
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.parse(nowIso);
+  const header = JSON.stringify({ type: 'session', version: 3, id: 'pi-session-1', timestamp: nowIso, cwd: '/tmp/pi-repo' });
+  const forkHeader = JSON.stringify({ type: 'session', version: 3, id: 'pi-session-2', timestamp: nowIso, cwd: '/tmp/pi-repo', parentSession: 'pi-session-1' });
+  const sharedMessage = JSON.stringify({
+    type: 'message',
+    id: 'msg-1',
+    timestamp: nowIso,
+    message: {
+      role: 'assistant',
+      model: 'claude-sonnet-4-5',
+      timestamp: nowMs,
+      usage: { input: 200, output: 100, cacheRead: 1000, cacheWrite: 50, cacheWrite1h: 20, cost: { total: 0.123 } },
+    },
+  });
+  const forkOnlyMessage = JSON.stringify({
+    type: 'message',
+    id: 'msg-2',
+    timestamp: nowIso,
+    message: {
+      role: 'assistant',
+      model: 'claude-sonnet-4-5',
+      timestamp: nowMs + 1000,
+      usage: { input: 100, output: 50, cacheRead: 500, cacheWrite: 0, cost: { total: 0.05 } },
+    },
+  });
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  const firstSessionPath = path.join(piSessions, `2026-11-22_10-00-00_pi-session-1.jsonl`);
+  await writeLines(firstSessionPath, [header, sharedMessage]);
+  await writeLines(path.join(piSessions, `2026-11-22_10-00-01_pi-session-2.jsonl`), [forkHeader, sharedMessage, forkOnlyMessage]);
+
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+    snapshotPath,
+    snapshotMinIntervalMs: 0,
+  });
+  const scanPass = await scanner.runPass();
+  assert.equal(scanPass.outcome, 'complete');
+  assert.equal(scanPass.newEntries, 2);
+  assert.equal(scanner.vendorCounts().pi, 2);
+  const report = scanner.buildReport();
+  assert.equal(report.totals.input, 300);
+  assert.equal(report.totals.output, 150);
+  assert.ok(Math.abs(report.totals.costUSD - 0.173) < 1e-6);
+
+  const appendedMessage = JSON.stringify({
+    type: 'message',
+    id: 'msg-3',
+    timestamp: nowIso,
+    message: {
+      role: 'assistant',
+      model: 'claude-sonnet-4-5',
+      timestamp: nowMs + 2000,
+      usage: { input: 50, output: 25, cacheRead: 100, cacheWrite: 0, cost: { total: 0.02 } },
+    },
+  });
+  await fs.appendFile(firstSessionPath, `${appendedMessage}\n`);
+  const restartedScanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+    snapshotPath,
+    snapshotMinIntervalMs: 0,
+  });
+  const restartPass = await restartedScanner.runPass();
+  assert.equal(restartPass.outcome, 'complete');
+  assert.equal(restartPass.newEntries, 1);
+  const restartedSession = restartedScanner.buildReport().sessions.find((session) => session.id === 'pi-session-1');
+  assert.equal(restartedSession?.project, '/tmp/pi-repo');
+});
+
+test('scanner ingests OpenCode SQLite messages with reasoning folded into output, watermark updates, and stat-gated idle passes', async () => {
+  const root = await makeTempRoot();
+  const dbPath = path.join(root, '.local', 'share', 'opencode', 'opencode.db');
+  await fs.mkdir(path.dirname(dbPath), { recursive: true });
+  const nowMs = Date.now();
+  const database = new DatabaseSync(dbPath);
+  try {
+    database.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)');
+    const insertMessage = database.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)');
+    insertMessage.run(
+      'msg_1',
+      'ses_1',
+      nowMs - 2000,
+      nowMs - 2000,
+      JSON.stringify({
+        role: 'assistant',
+        modelID: 'claude-sonnet-4-20250514',
+        cost: 0.08,
+        time: { created: nowMs - 2000, completed: nowMs - 1500 },
+        path: { cwd: '/tmp/opencode-repo' },
+        tokens: { input: 400, output: 100, reasoning: 60, cache: { read: 1200, write: 50 } },
+      }),
+    );
+  } finally {
+    database.close();
+  }
+
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+    snapshotPath,
+    snapshotMinIntervalMs: 0,
+  });
+  const firstPass = await scanner.runPass();
+  assert.equal(firstPass.outcome, 'complete');
+  assert.equal(firstPass.newEntries, 1);
+  assert.equal(scanner.vendorCounts().opencode, 1);
+  const firstReport = scanner.buildReport();
+  assert.equal(firstReport.totals.input, 400);
+  assert.equal(firstReport.totals.output, 160);
+  assert.equal(firstReport.totals.cacheRead, 1200);
+  assert.equal(firstReport.totals.cacheCreate, 50);
+  assert.ok(Math.abs(firstReport.totals.costUSD - 0.08) < 1e-6);
+  assert.equal(firstReport.sessions[0]?.project, '/tmp/opencode-repo');
+
+  await fs.chmod(dbPath, 0o000);
+  try {
+    const idlePass = await scanner.runPass();
+    assert.equal(idlePass.outcome, 'complete');
+    assert.equal(idlePass.newEntries, 0);
+  } finally {
+    await fs.chmod(dbPath, 0o644);
+  }
+
+  const updateDb = new DatabaseSync(dbPath);
+  try {
+    const upsertMessage = updateDb.prepare('INSERT OR REPLACE INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)');
+    upsertMessage.run(
+      'msg_1',
+      'ses_1',
+      nowMs - 2000,
+      nowMs,
+      JSON.stringify({
+        role: 'assistant',
+        modelID: 'claude-sonnet-4-20250514',
+        cost: 0.14,
+        time: { created: nowMs - 2000, completed: nowMs },
+        path: { cwd: '/tmp/opencode-repo' },
+        tokens: { input: 400, output: 200, reasoning: 100, cache: { read: 1200, write: 50 } },
+      }),
+    );
+  } finally {
+    updateDb.close();
+  }
+
+  const updatedPass = await scanner.runPass();
+  assert.equal(updatedPass.outcome, 'complete');
+  const updatedReport = scanner.buildReport();
+  assert.equal(updatedReport.totals.output, 300);
+  assert.ok(Math.abs(updatedReport.totals.costUSD - 0.14) < 1e-6);
+});
+
+test('buildReport populates today, week, and month ranges with prior-period deltas, breakdowns, and cache hit', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const nowMs = new Date(2026, 7, 20, 15, 0, 0).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const transcript = path.join(projectsDir, 'demo-project', 'session-a.jsonl');
+  await writeLines(transcript, [
+    JSON.stringify({
+      type: 'assistant',
+      timestamp: new Date(nowMs - 60_000).toISOString(),
+      sessionId: 'sess-1',
+      requestId: 'today-1',
+      message: {
+        id: 'today-1',
+        model: 'claude-sonnet-4-20250514',
+        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 900 },
+      },
+    }),
+    usageLine({ messageId: 'yest-1', requestId: 'yest-1', timestamp: new Date(nowMs - dayMs).toISOString(), input: 200, output: 100, sessionId: 'sess-2' }),
+    usageLine({ messageId: 'old-week-1', requestId: 'old-week-1', timestamp: new Date(nowMs - 10 * dayMs).toISOString(), input: 50, output: 25, sessionId: 'sess-3' }),
+  ]);
+  const laneByKey = new Map([['claude:sess-1', 'pr-review']]);
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    nowFn: () => nowMs,
+    pricingTable,
+    laneMap: () => laneByKey,
+  });
+  await scanner.runPass();
+  const report = scanner.buildReport();
+  assert.equal(report.ranges.today.daily.length, 1);
+  assert.equal(report.ranges.week.daily.length, 7);
+  assert.equal(report.ranges.month.daily.length, 30);
+  assert.ok(report.ranges.today.costUSD > 0);
+  assert.ok((report.ranges.today.previousCostUSD ?? 0) > 0);
+  assert.ok((report.ranges.week.previousCostUSD ?? 0) > 0);
+  assert.equal(report.ranges.today.byAgent[0]?.key, 'claude');
+  assert.equal(report.ranges.today.byAgent[0]?.cacheHitPct, 90);
+  assert.equal(report.ranges.today.byLane?.[0]?.key, 'pr-review');
 });
 
 function promptLine(sessionId: string, timestampMs: number, origin: Record<string, unknown> = {}): string {

@@ -9,6 +9,12 @@ import { pathToFileURL } from 'node:url';
 
 import { STATES } from '../shared/states.ts';
 import { TraceRecord } from '../shared/contracts/trace.ts';
+import { parseAntigravityUsageLine } from '../server/usage/core/usage-antigravity-core.ts';
+import { createCodexUsageState, parseCodexUsageLine } from '../server/usage/core/usage-codex-core.ts';
+import { parseUsageLine } from '../server/usage/core/usage-entry-core.ts';
+import { parseKimiUsageLine } from '../server/usage/core/usage-kimi-core.ts';
+import { applyPiHeaderLine, createPiUsageState, parsePiUsageLine } from '../server/usage/core/usage-pi-core.ts';
+import type { UsageEntry } from '../server/usage/core/usage-entry-core.ts';
 import { relaySourceOf, transcriptSourceOf } from '../server/trace/conversation-sources.ts';
 import type { SessionState } from '../shared/states.ts';
 import { replayThroughSession } from './helpers/session-replay.ts';
@@ -64,6 +70,14 @@ const SPILLED_OUTPUT_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixtu
   opencode: { unproducible: 'OpenCode is not installed on the capture host and its truncation note is not yet known, so no spilled relay event exists to capture' },
   pi: { file: 'pi-spill.jsonl', vendorSessionId: '01a1eb36-5519-75b2-ad2e-f67b52e126e9' },
   antigravity: { file: 'antigravity-spill.jsonl', vendorSessionId: '36aa83a7-4886-494b-80f8-9aafc4c7c16a' },
+};
+const USAGE_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': CONVERSATION_FIXTURE_BY_AGENT['claude-code'],
+  codex: CONVERSATION_FIXTURE_BY_AGENT.codex,
+  kimi: CONVERSATION_FIXTURE_BY_AGENT.kimi,
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no live usage fixture can be captured' },
+  pi: CONVERSATION_FIXTURE_BY_AGENT.pi,
+  antigravity: CONVERSATION_FIXTURE_BY_AGENT.antigravity,
 };
 const STARTUP_READY_FIXTURE_BY_AGENT: Record<FirstClassAgent, string | UnproducibleScenario> = {
   'claude-code': { unproducible: 'Claude Code reports input readiness through its SessionStart hook, not its terminal output, which the control-chat startup hook tests pin' },
@@ -398,6 +412,61 @@ for (const agent of FIRST_CLASS_AGENTS) {
     assert.ok(records.some((record) => record.kind === 'tool_result' && toolCallIds.has(record.toolUseId)), `${agent} paired no tool_result to a tool_call`);
   });
 }
+
+function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
+  const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
+  const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);
+  const entries: UsageEntry[] = [];
+  const codexState = createCodexUsageState();
+  const piState = createPiUsageState();
+  const syntheticKimiPath = path.join('sessions', fixture.vendorSessionId, 'agents', 'main', 'wire.jsonl');
+  const syntheticAntigravityPath = path.join('brain', fixture.vendorSessionId, '.system_generated', 'logs', 'transcript.jsonl');
+  for (const line of lines) {
+    if (agent === 'claude-code') {
+      const entry = parseUsageLine(line);
+      if (entry) entries.push(entry);
+      continue;
+    }
+    if (agent === 'codex') {
+      const entry = parseCodexUsageLine(line, codexState);
+      if (entry) entries.push({ ...entry, sessionId: fixture.vendorSessionId });
+      continue;
+    }
+    if (agent === 'kimi') {
+      const entry = parseKimiUsageLine(line, syntheticKimiPath);
+      if (entry) entries.push(entry);
+      continue;
+    }
+    if (agent === 'pi') {
+      if (applyPiHeaderLine(line, piState)) continue;
+      const entry = parsePiUsageLine(line, fixturePath, piState);
+      if (entry) entries.push(entry);
+      continue;
+    }
+    if (agent === 'antigravity') {
+      const entry = parseAntigravityUsageLine(line, syntheticAntigravityPath);
+      if (entry) entries.push(entry);
+    }
+  }
+  return entries;
+}
+
+test('usage parsing covers every first-class agent', () => {
+  for (const agent of FIRST_CLASS_AGENTS) {
+    const fixture = USAGE_FIXTURE_BY_AGENT[agent];
+    if ('unproducible' in fixture) {
+      assert.ok(fixture.unproducible.trim().length > 0, `${agent} unproducible reason is empty`);
+      continue;
+    }
+    const entries = parsedUsageEntries(agent, fixture);
+    assert.ok(entries.length > 0, `${agent} fixture produced no usage entries`);
+    for (const entry of entries) {
+      assert.ok(Number.isFinite(entry.timestampMs), `${agent} entry missing timestampMs`);
+      assert.ok(entry.input + entry.output + entry.cacheRead + entry.cacheCreate > 0, `${agent} entry has zero tokens`);
+      if (agent !== 'codex') assert.ok(entry.model, `${agent} entry missing model`);
+    }
+  }
+});
 
 for (const agent of FIRST_CLASS_AGENTS) {
   const fixture = SPILLED_OUTPUT_FIXTURE_BY_AGENT[agent];

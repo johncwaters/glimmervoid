@@ -40,6 +40,7 @@ export const ENVIRONMENT_VARIABLES: readonly EnvironmentVariable[] = Object.free
   { name: 'GLIMMERVOID_PACK_HOOK_FILES', audience: 'internal', description: 'Set by Glimmervoid in each session environment when an approved pack carries hooks; lists the hook files the hook tool relay runs before a tool call. Not an operator setting.' },
   { name: 'GLIMMERVOID_HOOK_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment as the hook relay target. Not an operator setting.' },
   { name: 'GLIMMERVOID_AGENT_URL', audience: 'internal', description: 'Set by Glimmervoid in each session environment; `glimmervoid push`, `spawn`, `attention` and `sessions` read it. Not an operator setting.' },
+  { name: 'GLIMMERVOID_MCP_TOKEN', audience: 'internal', description: 'Set by Glimmervoid in each supervised session environment as the bearer credential for the local Glimmervoid MCP endpoint. Not an operator setting.' },
   { name: 'GLIMMERVOID_PR_ACTION_REPORT_URL', audience: 'internal', description: 'Set by Glimmervoid in the environment of each `prFlows.prActions` run; `glimmervoid pr-action report` posts the run outcome there. Not an operator setting.' },
   { name: 'GLIMMERVOID_PR_ACTION_TOKEN', audience: 'internal', description: 'The per-run token `glimmervoid pr-action report` sends with a report; it stops working once the run has a final outcome. Not an operator setting.' },
   { name: 'GLIMMERVOID_SIGN_URL', audience: 'internal', description: 'Set by Glimmervoid in each operator session environment; `glimmervoid ssh-sign`, which git runs to sign a commit, posts there so the server signs with the operator\'s forwarded ssh agent. Not an operator setting.' },
@@ -141,7 +142,7 @@ function fileOnlyGroupsMarkdown(registry: SettingsRegistry): string[] {
 }
 
 function browserPreferencesMarkdown(sections: readonly SettingsSection[]): string[] {
-  const rows = sections.filter((section) => section.level === BROWSER_LEVEL).flatMap((section) => section.settings);
+  const rows = sections.flatMap((section) => section.settings).filter((setting) => setting.scope === BROWSER_LEVEL);
   return [
     '## Browser preferences',
     '',

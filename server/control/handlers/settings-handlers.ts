@@ -403,7 +403,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     const saneYoloPath = config.saneYolo !== false ? resolvePackageBin('cc-safety-net', 'cc-safety-net') : null;
     if (saneYoloPath) hookTools.push({ id: 'saneYolo', binPath: saneYoloPath, launch: scriptLaunch(saneYoloPath, 'cc-safety-net') });
     const flags: InstalledHookFlags = {
-      detectScheduledWakeups: config.detectScheduledWakeups !== false,
+      detectScheduledWakeups: true,
       observeToolCalls: false,
       hookTools,
     };

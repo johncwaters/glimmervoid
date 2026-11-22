@@ -33,12 +33,6 @@ const DESKTOP_FONT_SIZE = 14;
 
 const TERMINAL_SCROLLBACK = 50000;
 
-let _terminalCursorBlink = false;
-
-function setTerminalCursorBlink(v: boolean) {
-  _terminalCursorBlink = v;
-}
-
 let _hasWindowBlurredSinceFocus = false;
 
 window.addEventListener('blur', () => { _hasWindowBlurredSinceFocus = true; });
@@ -58,7 +52,7 @@ function isViewerEngagedAt(card: HTMLElement) {
 function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: XtermRuntime) {
   const fontSize = window.matchMedia?.(MOBILE_WIDTH_QUERY).matches ? MOBILE_FONT_SIZE : DESKTOP_FONT_SIZE;
   const term = new xtermRuntime.Terminal({
-    cursorBlink: _terminalCursorBlink,
+    cursorBlink: false,
     fontSize,
     fontFamily: currentTerminalFontFamily(),
     theme: getTerminalTheme(),
@@ -270,4 +264,4 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
   wireTouchScroll(termWrap, term, () => showSelectionMirror(term, termWrap, () => ui._syncGrid?.()), () => ui._resetSoftKeyboardBuffer?.());
 }
 
-export { setTerminalCursorBlink, setupTerminal };
+export { setupTerminal };

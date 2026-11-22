@@ -2,7 +2,7 @@ import type { Board } from './contracts/whiteboard.ts';
 import type { BoardChrome } from './contracts/whiteboard-tiles.ts';
 import { dressedLayout } from './whiteboard-layout-core.ts';
 import type { BoardLayout, PlacedLayout } from './whiteboard-layout-core.ts';
-import type { PinPositions } from './whiteboard-ops-core.ts';
+import type { PinPositions } from './contracts/whiteboard-ops-core.ts';
 import { indexBoardInSlices } from './whiteboard-board-index.ts';
 import { INCREMENTAL_MIN_ELEMENTS, applyingLayoutDelta, layoutOf, rebuildingWorld, resumingLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld } from './whiteboard-layout-engine.ts';
 import { drained } from './generator-steps.ts';

@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { DEVICE_FITS } from '../whiteboard-devices.ts';
 import { BOX_SHAPES } from '../whiteboard-shapes.ts';
+import { BLOCK_RASTER_PX } from '../whiteboard-constants.ts';
 import { BOX_CHANGES, BoxMedia, DeviceName, DialValue, Element, IconName, LINE_STYLES, NOTE_TONES, STEP_STATUSES, STROKE_TONES, TEXT_SIZES, Wire } from './whiteboard.ts';
 
 export const TILE_LODS = ['full', 'titles', 'blocks'] as const;
-export const BLOCK_RASTER_PX = 64;
+export { BLOCK_RASTER_PX };
 
 const LayoutPoint = z.object({ x: z.number(), y: z.number() });
 const rectShape = { x: z.number(), y: z.number(), width: z.number(), height: z.number() };

@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardAsk } from '../../shared/contracts/whiteboard.ts';
-import { OPERATOR_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
-import type { Author } from '../../shared/whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
+import type { Author } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from './whiteboard-wiring.ts';
 
 type AskBoards = Pick<WhiteboardPort, 'putAsks' | 'boardOf'>;

@@ -30,8 +30,7 @@ interface BranchGcWiring {
   restartIfConfigChanged(): void;
 }
 
-function branchGcShouldStart(config: BranchGcWiringConfig): LaneRunnerGate {
-  if (config.branchGc?.enabled === false) return { start: false };
+function branchGcShouldStart(): LaneRunnerGate {
   return { start: true };
 }
 
@@ -50,20 +49,20 @@ function createBranchGcWiring({
 }: BranchGcWiringOptions): BranchGcWiring {
   const runner = createLaneRunner<BranchGcPoller>({
     tag: 'branch-gc',
-    gate: () => branchGcShouldStart(config),
+    gate: branchGcShouldStart,
     cfgKey: () => branchGcCfgKey(config),
-    emptyStatus: () => emptyLaneStatus('branch-gc-status', branchGcShouldStart(config)),
+    emptyStatus: () => emptyLaneStatus('branch-gc-status', branchGcShouldStart()),
     createPoller: ({ onTickComplete }) => createPoller({
       gitWorkspace,
       getConfig: () => config,
       liveSessionIds,
       liveWorktreePaths,
-      staleDays: config.branchGc?.staleDays ?? DEFAULT_STALE_DAYS,
+      staleDays: DEFAULT_STALE_DAYS,
       deleteUnmerged: config.branchGc?.deleteUnmerged === true,
       prefixes: config.branchGc?.prefixes ?? DEFAULT_BRANCH_GC_PREFIXES,
-      pruneWorktrees: config.branchGc?.worktrees !== false,
+      pruneWorktrees: true,
       dryRun: config.branchGc?.dryRun ?? false,
-      intervalMs: config.branchGc?.intervalMs ?? DEFAULT_INTERVAL_MS,
+      intervalMs: DEFAULT_INTERVAL_MS,
       firstTickDelayMs: bootStaggerDelay,
       log,
       decisionTrace,

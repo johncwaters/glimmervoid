@@ -1,6 +1,6 @@
 import { Element, pointOfBox } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardRecord } from '../../shared/contracts/whiteboard.ts';
-import { elementTableOf } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOf } from '../../shared/contracts/whiteboard-element-table.ts';
 
 const GROUP_PATTERN = ['box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'box', 'wire', 'wire', 'wire', 'wire', 'note', 'note', 'frame'] as const;
 const BOXES_PER_GROUP = GROUP_PATTERN.filter((kind) => kind === 'box').length;

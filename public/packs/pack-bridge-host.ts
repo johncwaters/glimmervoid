@@ -1,12 +1,12 @@
 import { HostToPanel, PACK_LOG_LINES_PER_MINUTE, PanelActionEnvelope, PanelToHost, packStoreAfterSet, packStoreSizeError } from '#shared/contracts/pack-bridge.ts';
 import type { PackBridgeTopic, PackBridgeTopicData, PackPanelAct, PackStoreData } from '#shared/contracts/pack-bridge.ts';
-import { panelActionDecision, panelActionLogText } from '#shared/pack-action-core.ts';
+import { panelActionDecision, panelActionLogText } from '#shared/contracts/pack-action-core.ts';
 import type { z } from 'zod';
 import { clock } from '#shared/clock.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { REQUEST_TIMED_OUT_TEXT } from '../updates-view-core.ts';
-import { countAttentionByKind } from '../focus-view/attention-core.ts';
+import { countAttentionByKind } from '../attention-core.ts';
 import { reviewsSnapshot } from '../github/review-queue-store.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { currentThemeColors } from '../theme.ts';

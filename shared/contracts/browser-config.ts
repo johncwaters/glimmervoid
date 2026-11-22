@@ -5,7 +5,7 @@ import { SESSION_REVIEW_AGENTS } from './session-review.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
-import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
+import { USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
 import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
@@ -44,30 +44,21 @@ export const optionalLooseObject = (field: string) => z.object({}, { error: `${f
 const TaskTitleSettings = z.object({
   refiner: z.object({
     enabled: optionalBoolean('taskTitle.refiner.enabled'),
-    model: optionalString('taskTitle.refiner.model', true),
-    minIntervalSeconds: optionalNumber('taskTitle.refiner.minIntervalSeconds', { min: 0 }),
-    timeoutSeconds: optionalNumber('taskTitle.refiner.timeoutSeconds', ranges.TASK_TITLE_TIMEOUT_RANGE),
   }, { error: 'taskTitle.refiner must be an object' }).nullable().optional(),
 }, { error: 'taskTitle must be an object' }).nullable().optional();
 
 const BRANCH_GC_SETTINGS_SHAPE = {
-  enabled: optionalBoolean('branchGc.enabled'),
-  worktrees: optionalBoolean('branchGc.worktrees'),
   prefixes: z.array(
     z.string({ error: 'branchGc.prefixes must be an array of strings' })
       .min(1, { error: 'branchGc.prefixes entries must be non-empty strings' }),
     { error: 'branchGc.prefixes must be an array of strings' },
   ).optional(),
   dryRun: optionalBoolean('branchGc.dryRun'),
-  staleDays: optionalNumber('branchGc.staleDays', ranges.BRANCH_GC_STALE_DAYS_RANGE),
   deleteUnmerged: optionalBoolean('branchGc.deleteUnmerged'),
-  intervalMs: optionalNumber('branchGc.intervalMs', ranges.BRANCH_GC_INTERVAL_MS_RANGE),
 };
 export const BranchGcFileSettings = z.object(BRANCH_GC_SETTINGS_SHAPE, { error: 'branchGc must be an object' });
 const BranchGcSettings = optionalObject('branchGc', BRANCH_GC_SETTINGS_SHAPE);
-export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true, worktrees: true }).nullable().optional();
-export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteUnmerged']);
-export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
+export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true }).nullable().optional();
 
 export const GithubSettings = z.object({
   readToken: optionalString('github.readToken', true),
@@ -87,11 +78,7 @@ const REVIEW_SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
-  keepMergeableEnabled: optionalBoolean('teamReview.keepMergeableEnabled'),
-  mergeQueueEnabled: optionalBoolean('teamReview.mergeQueueEnabled'),
-  keepMergeableTimeoutMinutes: optionalInteger('teamReview.keepMergeableTimeoutMinutes', ranges.KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE),
   org: optionalString('teamReview.org', true),
-  team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),
   extraSkills: z.array(
     z.string({ error: 'teamReview.extraSkills must be an array of skill names' }).trim()
@@ -111,7 +98,6 @@ const CommunitySettings = optionalObject('community', {
   enabled: optionalBoolean('community.enabled'),
   skill: optionalString('community.skill', true).refine((value) => value == null || !value || SKILL_NAME_RE.test(value), { message: 'community.skill must be a skill name like answering-questions, made of letters, digits, colons, dots, underscores or dashes, with no leading /' }),
   projectId: optionalInteger('community.projectId', ranges.POSTHOG_PROJECT_ID_RANGE),
-  intervalMinutes: optionalInteger('community.intervalMinutes', ranges.COMMUNITY_INTERVAL_MINUTES_RANGE),
   discordChannels: z.array(
     z.string({ error: 'community.discordChannels must be an array of channel names' }).trim().regex(DISCORD_CHANNEL_NAME_RE, { error: 'community.discordChannels entries must be Discord channel names like community-questions, lowercase with no #' }),
     { error: 'community.discordChannels must be an array of channel names' },
@@ -119,23 +105,12 @@ const CommunitySettings = optionalObject('community', {
 });
 
 const posthogNumberRanges = {
-  intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
-  investigationTimeoutSeconds: ranges.POSTHOG_INVESTIGATION_TIMEOUT_RANGE,
-  fixTimeoutSeconds: ranges.POSTHOG_FIX_TIMEOUT_RANGE,
   minUsersToInvestigate: ranges.POSTHOG_MIN_USERS_RANGE,
-  userEscalationThreshold: ranges.POSTHOG_ESCALATION_RANGE,
-  recurrenceWindowDays: ranges.POSTHOG_RECURRENCE_WINDOW_RANGE,
-  transientRecurrenceLimit: ranges.POSTHOG_TRANSIENT_RECURRENCE_RANGE,
-  trafficSpikeMultiplier: ranges.POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
-  trafficSpikeMinUsers: ranges.POSTHOG_TRAFFIC_MIN_USERS_RANGE,
-  trafficSpikeCooldownMinutes: ranges.POSTHOG_TRAFFIC_COOLDOWN_RANGE,
-  trafficSpikeBaselineDays: ranges.POSTHOG_TRAFFIC_BASELINE_RANGE,
 };
 
 const PosthogSettings = optionalObject('posthog', {
   enabled: optionalBoolean('posthog.enabled'),
-  recurrenceDedupe: optionalBoolean('posthog.recurrenceDedupe'),
   trafficSpikeEnabled: optionalBoolean('posthog.trafficSpikeEnabled'),
   autoFix: optionalBoolean('posthog.autoFix'),
   host: optionalString('posthog.host', true).refine((value) => value == null || !value || /^https?:\/\//i.test(value), { message: 'posthog.host must be an http(s) URL' }),
@@ -154,10 +129,6 @@ const PosthogSettings = optionalObject('posthog', {
   ])),
 });
 
-const usageCostModeMessage = `usage.costMode must be one of ${USAGE_COST_MODES.join(', ')}`;
-const usageVendorShape = Object.fromEntries(
-  USAGE_VENDOR_KEYS.map((key) => [key, optionalBoolean(`usage.vendors.${key}`)]),
-);
 const usageBudgetShape = Object.fromEntries(
   USAGE_BUDGET_KEYS.map((key) => [
     key,
@@ -170,15 +141,7 @@ const usageBudgetShape = Object.fromEntries(
 
 const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => optionalObject('usage', {
   enabled: optionalBoolean('usage.enabled'),
-  fetchPricing: optionalBoolean('usage.fetchPricing'),
-  planLimits: optionalBoolean('usage.planLimits'),
-  yourDay: optionalBoolean('usage.yourDay'),
-  scanIntervalMinutes: optionalInteger('usage.scanIntervalMinutes', ranges.USAGE_INTEGER_RANGES.scanIntervalMinutes),
-  retainDays: optionalInteger('usage.retainDays', ranges.USAGE_INTEGER_RANGES.retainDays),
-  warehouseRetainDays: optionalInteger('usage.warehouseRetainDays', ranges.USAGE_INTEGER_RANGES.warehouseRetainDays),
-  sessionBlockHours: optionalInteger('usage.sessionBlockHours', ranges.USAGE_INTEGER_RANGES.sessionBlockHours),
-  costMode: z.enum(USAGE_COST_MODES, { error: usageCostModeMessage }).optional(),
-  vendors: optionalObject('usage.vendors', usageVendorShape),
+  retainDays: optionalInteger('usage.retainDays', ranges.USAGE_RETAIN_DAYS_RANGE),
   budget: optionalObject('usage.budget', { ...usageBudgetShape, pauseAtLimit: optionalBoolean('usage.budget.pauseAtLimit') }),
   extraProjectsDirs: z.array(z.string({ error: 'usage.extraProjectsDirs must be an array of absolute paths' }), { error: 'usage.extraProjectsDirs must be an array of absolute paths' })
     .transform((directories) => directories.map((directory) => directory.trim()))
@@ -198,7 +161,6 @@ const LanesSettings = optionalObject('lanes', {
 export const SLACK_WEBHOOK_URL_PREFIX = 'https://hooks.slack.com/';
 
 const SlackSettings = optionalObject('slack', {
-  enabled: optionalBoolean('slack.enabled'),
   webhookUrl: z.string({ error: 'slack.webhookUrl must be a string' })
     .transform((value) => value.trim())
     .refine((value) => value === '' || value.startsWith(SLACK_WEBHOOK_URL_PREFIX), { error: `slack.webhookUrl must be a Slack incoming webhook URL starting with ${SLACK_WEBHOOK_URL_PREFIX}` })
@@ -226,11 +188,6 @@ const TelegramSettings = optionalObject('telegram', {
   chatId: optionalString('telegram.chatId', true),
   acceptReplies: optionalBoolean('telegram.acceptReplies'),
 });
-
-
-export const TraceSettings = z.object({
-  enabled: optionalBoolean('trace.enabled'),
-}, { error: 'trace must be an object' }).optional();
 
 const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
 const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: string) => boolean) => z.array(
@@ -279,18 +236,11 @@ export const WorktreeFileSettings = z.object({
   root: optionalString('worktree.root'),
   share: z.array(z.string({ error: 'worktree.share must be an array of strings' }), { error: 'worktree.share must be an array of strings' }).optional(),
   integrationBranch: optionalString('worktree.integrationBranch').nullable(),
-  autoRebase: optionalBoolean('worktree.autoRebase'),
-  syncOnStart: optionalBoolean('worktree.syncOnStart'),
-  cloneDependencies: optionalBoolean('worktree.cloneDependencies'),
-  rerere: optionalBoolean('worktree.rerere'),
 }, { error: 'worktree must be an object' });
 export const WorktreeControlSettings = WorktreeFileSettings.omit({ share: true }).nullable().optional();
 
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
-  notifyDebounceMs: z.number().finite().nonnegative().optional(),
-  phoneEscalationMs: z.number().finite().nonnegative().optional(),
-  replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   worktreeDiskReserveGB: optionalWholeNumber('worktreeDiskReserveGB', ranges.WORKTREE_DISK_RESERVE_GB_RANGE),
   packScheduledSessionsMax: optionalWholeNumber('packScheduledSessionsMax', ranges.PACK_SCHEDULED_SESSIONS_RANGE),
@@ -299,15 +249,12 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
     maxTurnsWithoutProgress: optionalWholeNumber('loopGuard.maxTurnsWithoutProgress', ranges.LOOP_GUARD_TURNS_RANGE).nullable(),
     onStuck: z.enum(ranges.LOOP_GUARD_ON_STUCK, { error: 'loopGuard.onStuck must be flag or stop' }).optional(),
   }),
-  cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   linkPreviews: optionalBoolean('linkPreviews'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),
   operatorTimezone: z.string({ error: 'operatorTimezone must be a timezone name' }).refine(isKnownTimezone, { error: 'operatorTimezone must be a known timezone name, such as Europe/Berlin' }).nullable().optional(),
   sessionOrder: z.array(z.string({ error: 'sessionOrder must be an array of session ids' }), { error: 'sessionOrder must be an array of session ids' }).optional(),
   hiddenAgents: z.array(z.string({ error: 'hiddenAgents must be an array of agent ids' }), { error: 'hiddenAgents must be an array of agent ids' }).optional(),
-  detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
-  recordSignals: optionalBoolean('recordSignals'),
   saneYolo: optionalBoolean('saneYolo'),
   saneYoloUnreadablePaths: absoluteOrHomePathList('saneYoloUnreadablePaths', isAbsolutePath),
   sandboxAllowedHosts: sandboxHostList('sandboxAllowedHosts'),
@@ -315,7 +262,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
   autoResume: optionalBoolean('autoResume'),
-  telegramNotifications: optionalBoolean('telegramNotifications'),
   worktree: WorktreeFileSettings.optional(),
   repoRoots: z.array(z.string()).optional(),
   taskTitle: TaskTitleSettings,

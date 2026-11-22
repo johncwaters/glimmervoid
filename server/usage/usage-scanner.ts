@@ -4,11 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
+import { buildRangeRollups, buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
 import { clock } from '../../shared/clock.ts';
-import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usage-anomaly-core.ts';
-import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
-import type { UsageBlock } from './core/usage-blocks-core.ts';
 import { budgetStanding, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine } from './core/usage-codex-core.ts';
 import type { CodexRateLimitSnapshot, CodexUsageState } from './core/usage-codex-core.ts';
@@ -25,11 +22,26 @@ import {
   totalTokensOf,
 } from './core/usage-entry-core.ts';
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
+import {
+  ANTIGRAVITY_TRANSCRIPT_SEGMENTS,
+  antigravityDedupIdentity,
+  parseAntigravityConversationMetadata,
+  parseAntigravityUsageLine,
+} from './core/usage-antigravity-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
-import { ANTIGRAVITY_TRANSCRIPT_SEGMENTS, antigravityDedupIdentity, isAntigravitySessionDir, parseAntigravityUsageLine } from './core/usage-antigravity-core.ts';
 import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts';
-import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
-import type { PlanWindowStarts } from './core/usage-lane-core.ts';
+import { openCodeDbPaths, openCodeDedupIdentity } from './core/usage-opencode-core.ts';
+import { readOpenCodeDbPage } from './usage-opencode-reader.ts';
+import type { OpenCodeDbCursor } from './usage-opencode-reader.ts';
+import {
+  applyPiHeaderLine,
+  createPiUsageState,
+  parsePiUsageLine,
+  piDedupIdentity,
+} from './core/usage-pi-core.ts';
+import type { PiUsageState } from './core/usage-pi-core.ts';
+import { laneRollup } from './core/usage-lane-core.ts';
+import type { UsageCoverageRow } from '../../shared/contracts/usage-report.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import { activityKey, buildYourDay, parseClaudeActivityLine, parseCodexActivityLine, pruneActivity } from './core/usage-your-day-core.ts';
 import type { ActivityEvent, ParsedActivity } from './core/usage-your-day-core.ts';
@@ -37,6 +49,8 @@ import type { YourDay } from '../../shared/contracts/your-day.ts';
 import type { UsageScanSnapshot, UsageScanSnapshotEntry } from '../../shared/contracts/usage-scan-snapshot.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
 import {
+  antigravityBrainRootCandidates,
+  antigravityMetadataPathForBrainRoot,
   codexFallbackRoots,
   codexHomes,
   codexRootCandidates,
@@ -45,9 +59,8 @@ import {
   decodeScanSnapshot,
   dedupeCodexFiles,
   grokHomes,
-  antigravityHomes,
-  antigravityRootCandidates,
   kimiHomes,
+  piSessionRootCandidates,
   sessionsRootCandidates,
   isUsageFile,
   passOutcome,
@@ -80,7 +93,20 @@ const LINE_YIELD_INTERVAL = 5000;
 const FILE_YIELD_INTERVAL = 64;
 const SYNTHETIC_PRIMARY = Symbol('syntheticPrimary');
 const REPORTED_COST = Symbol('reportedCost');
-const ANOMALY_BASELINE_DAYS = 30;
+
+const SUPPORTED_COVERAGE_VENDORS: readonly {
+  vendor: string;
+  limitSource: UsageCoverageRow['limitSource'];
+  costSource: UsageCoverageRow['costSource'];
+}[] = Object.freeze([
+  { vendor: 'claude', limitSource: 'statusline', costSource: 'list-price' },
+  { vendor: 'codex', limitSource: 'transcript', costSource: 'list-price' },
+  { vendor: 'kimi', limitSource: 'account', costSource: 'list-price' },
+  { vendor: 'antigravity', limitSource: 'none', costSource: 'list-price' },
+  { vendor: 'pi', limitSource: 'none', costSource: 'reported' },
+  { vendor: 'opencode', limitSource: 'none', costSource: 'reported' },
+  { vendor: 'grok', limitSource: 'none', costSource: 'reported' },
+]);
 
 const noopLogger = Object.freeze({ warn: () => {} });
 
@@ -121,6 +147,7 @@ interface FileState {
   carry: string;
   lineOrdinal: number;
   vendorState: CodexUsageState | null;
+  piState?: PiUsageState | null;
 }
 
 type FileJournalAction =
@@ -142,7 +169,15 @@ interface SourceFile {
 interface SessionTotal {
   tokens: number;
   costUSD: number;
+  input?: number;
+  cacheRead?: number;
+  vendor?: string;
+  model?: string | null;
   lastTs: number | null;
+}
+
+interface LiveSessionStats extends SessionTotal {
+  lastHourCostUSD: number;
 }
 
 interface UsageScannerOptions {
@@ -156,7 +191,7 @@ interface UsageScannerOptions {
   blockHours?: number;
   retainDays?: number;
   extraProjectsDirs?: string[];
-  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean };
+  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean; opencode?: boolean };
   warehousePath?: string | null;
   warehouseRetainDays?: number;
   snapshotPath?: string | null;
@@ -233,23 +268,18 @@ function isClaudeEntry(entry: { vendor?: unknown } | null | undefined): boolean 
   return vendor === '' || vendor === 'claude';
 }
 
-function entriesWithinDays(
-  sourceEntries: StoredEntry[],
-  { now, retainDays }: { now: number; retainDays: number },
-): StoredEntry[] {
-  const cutoff = now - retainDays * 24 * 60 * 60 * 1000;
-  return sourceEntries.filter((entry) => entry.timestampMs >= cutoff);
-}
-
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === 'function') return structuredClone(value);
   return JSON.parse(JSON.stringify(value));
 }
 
-function cloneSessionTotals(source: Map<string, SessionTotal>): Map<string, SessionTotal> {
-  const clone = new Map<string, SessionTotal>();
-  for (const [key, value] of source) clone.set(key, { ...value });
-  return clone;
+function sessionKeyOf(entry: StoredEntry): string | null {
+  const key = isClaudeEntry(entry) ? entry.inlineSessionId : entry.sessionId;
+  return typeof key === 'string' && key.length > 0 ? key : null;
+}
+
+function vendorNameOf(entry: StoredEntry): string {
+  return isClaudeEntry(entry) ? 'claude' : String(entry.vendor);
 }
 
 function utf8SequenceLength(byte: number): number {
@@ -288,6 +318,8 @@ function keysForEntry(entry: StoredEntry, syntheticPrimary: string | null = null
   if (entry?.vendor === 'grok') return { primary: grokDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'kimi') return { primary: kimiDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'antigravity') return { primary: antigravityDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'pi') return { primary: piDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'opencode') return { primary: openCodeDedupIdentity(entry), collision: null };
   const keys = dedupKeys(entry);
   return { primary: keys.primary || syntheticPrimary || entry?.[SYNTHETIC_PRIMARY] || null, collision: keys.collision };
 }
@@ -352,7 +384,7 @@ async function resolveVendorRootsAsync(
     fsPromises: ScannerFileSystem;
     env: NodeJS.ProcessEnv;
     homeDir: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean } | null | undefined;
     laneLog: LaneLog;
   },
 ): Promise<{ roots: ScanRoot[]; ioFailures: number }> {
@@ -376,62 +408,73 @@ async function resolveVendorRootsAsync(
     for (const root of surviving.roots) roots.push({ vendor: 'kimi', dir: root.dir, kind: root.kind });
   }
   if (vendors?.antigravity !== false) {
-    const surviving = await existingRoots(antigravityRootCandidates(antigravityHomes(env, homeDir)), fsPromises, laneLog);
+    const surviving = await existingRoots(antigravityBrainRootCandidates(env, homeDir), fsPromises, laneLog);
     ioFailures += surviving.ioFailures;
     for (const root of surviving.roots) roots.push({ vendor: 'antigravity', dir: root.dir, kind: root.kind });
+  }
+  if (vendors?.pi !== false) {
+    const surviving = await existingRoots(piSessionRootCandidates(env, homeDir), fsPromises, laneLog);
+    ioFailures += surviving.ioFailures;
+    for (const root of surviving.roots) roots.push({ vendor: 'pi', dir: root.dir, kind: root.kind });
   }
   return { roots, ioFailures };
 }
 
-async function findLiteralChildEntry(
-  parentDir: string,
-  childName: string,
-  fsPromises: ScannerFileSystem,
-  laneLog: LaneLog,
-): Promise<{ entry: Dirent | null; ioFailures: number }> {
-  try {
-    const entries = await fsPromises.readdir(parentDir, { withFileTypes: true });
-    return { entry: entries.find((entry) => entry.name === childName) ?? null, ioFailures: 0 };
-  } catch (error) {
-    if (isMissingFileError(error)) return { entry: null, ioFailures: 0 };
-    laneLog.warn('readdir failed', { path: parentDir, error: errorMessage(error) });
-    return { entry: null, ioFailures: 1 };
-  }
-}
-
-async function walkAntigravityBrainRoot(
-  dir: string,
+async function probeAntigravityBrainRoot(
+  brainRoot: string,
   fsPromises: ScannerFileSystem,
   files: string[],
   laneLog: LaneLog,
 ): Promise<number> {
-  let entries: Dirent[];
+  let conversationDirs: Dirent[];
   try {
-    entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    conversationDirs = await fsPromises.readdir(brainRoot, { withFileTypes: true });
   } catch (error) {
     if (isMissingFileError(error)) return 0;
-    laneLog.warn('readdir failed', { path: dir, error: errorMessage(error) });
+    laneLog.warn('antigravity readdir failed', { path: brainRoot, error: errorMessage(error) });
     return 1;
   }
-  const [systemGeneratedSegment, logsSegment, transcriptFileName] = ANTIGRAVITY_TRANSCRIPT_SEGMENTS;
   let ioFailures = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !isAntigravitySessionDir(entry.name)) continue;
-    const sessionDir = path.join(dir, entry.name);
-    const systemGenerated = await findLiteralChildEntry(sessionDir, systemGeneratedSegment, fsPromises, laneLog);
-    ioFailures += systemGenerated.ioFailures;
-    if (!systemGenerated.entry?.isDirectory()) continue;
-    const systemGeneratedDir = path.join(sessionDir, systemGeneratedSegment);
-    const logs = await findLiteralChildEntry(systemGeneratedDir, logsSegment, fsPromises, laneLog);
-    ioFailures += logs.ioFailures;
-    if (!logs.entry?.isDirectory()) continue;
-    const logsDir = path.join(systemGeneratedDir, logsSegment);
-    const transcript = await findLiteralChildEntry(logsDir, transcriptFileName, fsPromises, laneLog);
-    ioFailures += transcript.ioFailures;
-    if (!transcript.entry?.isFile()) continue;
-    files.push(path.join(logsDir, transcriptFileName));
-  }
+  await Promise.all(conversationDirs.map(async (entry) => {
+    if (!entry.isDirectory()) return;
+    const transcriptPath = path.join(brainRoot, entry.name, ...ANTIGRAVITY_TRANSCRIPT_SEGMENTS);
+    try {
+      const stat = await fsPromises.stat(transcriptPath);
+      if (!stat.isDirectory()) files.push(transcriptPath);
+    } catch (error) {
+      if (isMissingFileError(error)) return;
+      ioFailures += 1;
+      laneLog.warn('antigravity transcript probe failed', { path: transcriptPath, error: errorMessage(error) });
+    }
+  }));
   return ioFailures;
+}
+
+async function loadAntigravityCwdMap(
+  roots: ScanRoot[],
+  fsPromises: ScannerFileSystem,
+  laneLog: LaneLog,
+): Promise<Map<string, string>> {
+  const brainRoots = roots.filter((root) => root.vendor === 'antigravity').map((root) => root.dir);
+  const perRootMaps = await Promise.all(brainRoots.map(async (brainRoot) => {
+    const metadataPath = antigravityMetadataPathForBrainRoot(brainRoot);
+    try {
+      const rawJson = await fsPromises.readFile(metadataPath, 'utf8');
+      return parseAntigravityConversationMetadata(rawJson);
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        laneLog.warn('antigravity metadata read failed', { path: metadataPath, error: errorMessage(error) });
+      }
+      return new Map<string, string>();
+    }
+  }));
+  const cwdByConversation = new Map<string, string>();
+  for (const rootMap of perRootMaps) {
+    for (const [conversationId, workspacePath] of rootMap) {
+      if (!cwdByConversation.has(conversationId)) cwdByConversation.set(conversationId, workspacePath);
+    }
+  }
+  return cwdByConversation;
 }
 
 async function walkDir(
@@ -472,9 +515,12 @@ async function walkSourceFiles(
   let ioFailures = 0;
   for (const root of roots) {
     const found: string[] = [];
-    ioFailures += root.vendor === 'antigravity'
-      ? await walkAntigravityBrainRoot(root.dir, fsPromises, found, laneLog)
-      : await walkDir(root.dir, root.vendor, fsPromises, found, laneLog);
+    if (root.vendor === 'antigravity') {
+      ioFailures += await probeAntigravityBrainRoot(root.dir, fsPromises, found, laneLog);
+    }
+    if (root.vendor !== 'antigravity') {
+      ioFailures += await walkDir(root.dir, root.vendor, fsPromises, found, laneLog);
+    }
     for (const file of found) files.push({ file, vendor: root.vendor, kind: root.kind });
   }
   const codexFiles = dedupeCodexFiles(files.filter((entry) => entry.vendor === 'codex'));
@@ -497,7 +543,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     blockHours = 5,
     retainDays = 90,
     extraProjectsDirs = [],
-    vendors = { codex: true, grok: true, kimi: true, antigravity: true },
+    vendors = { codex: true, grok: true, kimi: true, antigravity: true, pi: true, opencode: true },
     warehousePath = null,
     warehouseRetainDays = 365,
     snapshotPath = null,
@@ -515,6 +561,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   const budget = normalizeBudgetConfig(budgetDep);
   const fileStates = new Map<string, FileState | null>();
+  const openCodeCursors = new Map<string, OpenCodeDbCursor>();
+  let antigravityCwdByConversation = new Map<string, string>();
+  let vendorFileCounts: Record<string, number> = {};
   const primaryIndex = new Map<string, number>();
   const collisionIndex = new Map<string, number>();
   const entries: StoredEntry[] = [];
@@ -534,8 +583,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
   let resolutionError: string | null = null;
-  const cachedRollupsByRange = new Map<string, ReturnType<typeof buildRollups>>();
-  let cachedSessionTotals: Map<string, SessionTotal> | null = null;
+  let sessionTotalsByVendorKey: Map<string, SessionTotal> | null = new Map();
   let currentFileJournal: FileJournalAction[] | null = null;
   let currentFileGenerationRollup: Map<string, UsageGenerationRollupRow> | null = null;
   let isHistoryCaughtUp = false;
@@ -577,9 +625,41 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   });
 
   function markDirty(): void {
-    cachedRollupsByRange.clear();
-    cachedSessionTotals = null;
     cachedYourDay = null;
+  }
+
+  function addEntryToSessionTotals(totalsMap: Map<string, SessionTotal>, entry: StoredEntry): void {
+    const key = sessionKeyOf(entry);
+    if (!key) return;
+    const vendor = vendorNameOf(entry);
+    const vendorKey = `${vendor}:${key}`;
+    const cost = Number.isFinite(entry.costUSD) ? Number(entry.costUSD) : 0;
+    const bucket = totalsMap.get(vendorKey) ?? {
+      tokens: 0,
+      costUSD: 0,
+      input: 0,
+      cacheRead: 0,
+      vendor,
+      model: entry.model ?? null,
+      lastTs: null,
+    };
+    bucket.tokens += totalTokensOf(entry);
+    bucket.costUSD += cost;
+    bucket.input = (bucket.input ?? 0) + (Number.isFinite(entry.input) ? entry.input : 0);
+    bucket.cacheRead = (bucket.cacheRead ?? 0) + (Number.isFinite(entry.cacheRead) ? entry.cacheRead : 0);
+    if (bucket.lastTs === null || entry.timestampMs >= bucket.lastTs) {
+      bucket.lastTs = entry.timestampMs;
+      if (entry.model) bucket.model = entry.model;
+    }
+    totalsMap.set(vendorKey, bucket);
+  }
+
+  function ensureSessionTotals(): Map<string, SessionTotal> {
+    if (sessionTotalsByVendorKey) return sessionTotalsByVendorKey;
+    const rebuilt = new Map<string, SessionTotal>();
+    for (const entry of entries) addEntryToSessionTotals(rebuilt, entry);
+    sessionTotalsByVendorKey = rebuilt;
+    return rebuilt;
   }
 
   function recordJournal(action: FileJournalAction): void {
@@ -616,9 +696,11 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   function resetStore(): void {
     fileStates.clear();
+    openCodeCursors.clear();
     primaryIndex.clear();
     collisionIndex.clear();
     entries.length = 0;
+    sessionTotalsByVendorKey = new Map();
     activityByKey.clear();
     missingModels.clear();
     markDirty();
@@ -636,6 +718,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       entries[action.index] = action.oldEntry;
       reindexReplacement(action.index, action.newKeys, action.oldKeys, action.oldEntry);
     }
+    sessionTotalsByVendorKey = null;
     markDirty();
     return true;
   }
@@ -666,6 +749,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       const newIndex = entries.push(entry) - 1;
       recordJournal({ type: 'insert', index: newIndex, keys });
       indexEntry(newIndex, entry, keys);
+      if (sessionTotalsByVendorKey) addEntryToSessionTotals(sessionTotalsByVendorKey, entry);
       if (currentFileGenerationRollup && isWithinGenerationRecencyWindow(entry, nowFn())) foldEntryIntoGenerationRollup(currentFileGenerationRollup, entry, pricedModelKeyOf(entry));
       return true;
     }
@@ -676,6 +760,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     recordJournal({ type: 'replace', index: hitIndex, oldEntry, oldKeys, newKeys: keys });
     entries[hitIndex] = entry;
     reindexReplacement(hitIndex, oldKeys, keys, entry);
+    sessionTotalsByVendorKey = null;
     if (currentFileGenerationRollup && isWithinGenerationRecencyWindow(entry, nowFn())) foldReplacementIntoGenerationRollup(currentFileGenerationRollup, oldEntry, entry, pricedModelKeyOf(entry));
     markDirty();
     return false;
@@ -716,16 +801,18 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   function ingestVendorLine(parsed: UsageEntry | null, file: string): number {
     if (!parsed) return 0;
-    const entry = stripIngestFields(priceEntry({ ...parsed, project: path.dirname(file) }));
+    const project = parsed.project ?? parsed.cwd ?? path.dirname(file);
+    const entry = stripIngestFields(priceEntry({ ...parsed, project }));
     return storeEntry(entry) ? 1 : 0;
   }
 
   function ingestLine(
-    { line, file, vendor, vendorState, dirs: claudeRoots, lineOrdinal }: {
+    { line, file, vendor, vendorState, piState, dirs: claudeRoots, lineOrdinal }: {
       line: string;
       file: string;
       vendor: string;
       vendorState: CodexUsageState | null;
+      piState: PiUsageState | null;
       dirs: string[];
       lineOrdinal: number;
     },
@@ -742,7 +829,12 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     }
     if (vendor === 'grok') return ingestVendorLine(parseGrokUsageLine(line), file);
     if (vendor === 'kimi') return ingestVendorLine(parseKimiUsageLine(line, file), file);
-    if (vendor === 'antigravity') return ingestVendorLine(parseAntigravityUsageLine(line, file), file);
+    if (vendor === 'antigravity') return ingestVendorLine(parseAntigravityUsageLine(line, file, antigravityCwdByConversation), file);
+    if (vendor === 'pi') {
+      const activePiState = piState ?? createPiUsageState();
+      if (applyPiHeaderLine(line, activePiState)) return 0;
+      return ingestVendorLine(parsePiUsageLine(line, file, activePiState), file);
+    }
     const activity = parseClaudeActivityLine(line);
     if (activity) noteActivity('claude', activity, identityFromRelPath(relativeToProjects(file, claudeRoots)).sessionId);
     const parsed = parseUsageLine(line);
@@ -773,7 +865,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       vendor: string;
       force: boolean;
       maxBytes: number;
-      onLine: (line: string, lineOrdinal: number, vendorState: CodexUsageState | null) => void;
+      onLine: (line: string, lineOrdinal: number, vendorState: CodexUsageState | null, piState: PiUsageState | null) => void;
       shouldYieldAfterLine: () => boolean;
     },
   ): Promise<{ bytesRead: number; partial: boolean; failed: boolean; skipped: boolean }> {
@@ -791,10 +883,11 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     const decision = decideFileRead(prior, { size: stat.size, mtimeMs: stat.mtimeMs });
     if (decision.action === 'skip') return { bytesRead: 0, partial: false, failed: false, skipped: true };
 
+    const defaultPiState = vendor === 'pi' ? createPiUsageState() : null;
     const state: FileState = decision.action === 'restart'
-      ? { size: stat.size, mtimeMs: stat.mtimeMs, offset: 0, carry: '', lineOrdinal: 0, vendorState: createVendorState(vendor) }
-      : { ...(prior || {}), size: stat.size, mtimeMs: stat.mtimeMs, offset: decision.readFrom, carry: prior?.carry || '', lineOrdinal: prior?.lineOrdinal || 0, vendorState: prior?.vendorState || createVendorState(vendor) };
-    const priorSnapshot = prior ? { ...prior, vendorState: cloneVendorState(prior.vendorState) } : null;
+      ? { size: stat.size, mtimeMs: stat.mtimeMs, offset: 0, carry: '', lineOrdinal: 0, vendorState: createVendorState(vendor), piState: defaultPiState }
+      : { ...(prior || {}), size: stat.size, mtimeMs: stat.mtimeMs, offset: decision.readFrom, carry: prior?.carry || '', lineOrdinal: prior?.lineOrdinal || 0, vendorState: prior?.vendorState || createVendorState(vendor), piState: prior?.piState ? { ...prior.piState } : defaultPiState };
+    const priorSnapshot = prior ? { ...prior, vendorState: cloneVendorState(prior.vendorState), piState: prior.piState ? { ...prior.piState } : null } : null;
     fileStates.set(file, state);
 
     let handle: ScannerFileHandle | undefined;
@@ -830,7 +923,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         state.carry = split.carry;
         for (const line of split.lines) {
           state.lineOrdinal = (state.lineOrdinal || 0) + 1;
-          onLine(line, state.lineOrdinal, state.vendorState);
+          onLine(line, state.lineOrdinal, state.vendorState, state.piState ?? null);
           if (shouldYieldAfterLine()) await yieldNowFn();
         }
       }
@@ -843,7 +936,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         state.carry = split.carry;
         for (const line of split.lines) {
           state.lineOrdinal = (state.lineOrdinal || 0) + 1;
-          onLine(line, state.lineOrdinal, state.vendorState);
+          onLine(line, state.lineOrdinal, state.vendorState, state.piState ?? null);
         }
       }
       state.size = stat.size;
@@ -862,7 +955,14 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   function restoreSnapshot(snapshot: UsageScanSnapshot): void {
     for (const [file, cursor] of Object.entries(snapshot.files)) {
-      fileStates.set(file, { ...cursor, vendorState: cursor.vendorState ? { ...cursor.vendorState } : null });
+      fileStates.set(file, {
+        ...cursor,
+        vendorState: cursor.vendorState ? { ...cursor.vendorState } : null,
+        piState: cursor.piState ? { ...cursor.piState } : null,
+      });
+    }
+    for (const [dbPath, cursor] of Object.entries(snapshot.openCodeCursors ?? {})) {
+      openCodeCursors.set(dbPath, { ...cursor });
     }
     for (const { syntheticPrimary, ...snapshotEntry } of snapshot.entries) {
       const storedEntry: StoredEntry = priceEntry(snapshotEntry);
@@ -872,6 +972,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     for (const event of snapshot.activity) activityByKey.set(activityKey(event), event);
     noteCodexRateLimits(snapshot.codexRateLimits);
     rebuildIndexes();
+    sessionTotalsByVendorKey = null;
     rebuildMissingModels();
     markDirty();
     const savedAtMs = Date.parse(snapshot.savedAt);
@@ -902,11 +1003,16 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     for (const [file, cursor] of fileStates) {
       if (cursor) files[file] = cursor;
     }
+    const serializedOpenCodeCursors: NonNullable<UsageScanSnapshot['openCodeCursors']> = {};
+    for (const [dbPath, cursor] of openCodeCursors) {
+      serializedOpenCodeCursors[dbPath] = { ...cursor };
+    }
     return {
       version: SCAN_SNAPSHOT_VERSION,
       configKey: snapshotConfigKey,
       savedAt: new Date(nowFn()).toISOString(),
       files,
+      openCodeCursors: serializedOpenCodeCursors,
       entries: entries.map(snapshotEntryOf),
       activity: [...activityByKey.values()],
       codexRateLimits: latestCodexRateLimitSnapshot,
@@ -937,6 +1043,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     entries.length = 0;
     entries.push(...(pruned.kept as StoredEntry[]));
     rebuildIndexes();
+    sessionTotalsByVendorKey = null;
     rebuildMissingModels();
     markDirty();
   }
@@ -949,7 +1056,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   async function persistWarehouse(): Promise<void> {
     if (!warehousePath) return;
     await warehouseStore.load();
-    const rollups = cachedRollupsForDays(undefined, retainDays);
+    const rollups = buildRollups(retainDays);
     const liveDays = rollups.daily.map((row) => row.day);
     const merged = mergeWarehouse(warehouseRecords, rollupFromReport(rollups.daily), { liveDays });
     warehouseRecords = pruneWarehouse(merged, { retainDays: warehouseRetainDays, todayKey: todayDayKey() });
@@ -988,32 +1095,21 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  function cachedRollupsForDays(days: number | undefined, reportRetainDays: number) {
-    const rangeKey = `${days ?? 'all'}:${clock.timezone()}:${todayDayKey()}`;
-    const cached = cachedRollupsByRange.get(rangeKey);
-    if (cached) return cached;
-    const rollups = buildRollups(reportRetainDays);
-    cachedRollupsByRange.set(rangeKey, rollups);
-    return rollups;
-  }
-
-  function budgetRollups() {
-    const lookback = entryRetentionDays();
-    if (lookback === retainDays) return cachedRollupsForDays(undefined, retainDays);
-    return cachedRollupsForDays(lookback, lookback);
-  }
-
   function sortedModels<T extends { tokens: number }>(models: T[] | null | undefined): T[] {
     return (models || []).slice().sort((a, b) => b.tokens - a.tokens);
   }
 
-  function mergedDailyRows<T extends { day: string; costUSD: number }>(liveDaily: T[]) {
-    if (warehouseRecords.length === 0) return liveDaily;
+  function historyOnlyDailyRows(liveDaily: readonly { day: string }[]) {
+    if (warehouseRecords.length === 0) return [];
     const liveDays = liveDaily.map((row) => row.day).filter(Boolean);
     const earliestLive = liveDays.length > 0 ? liveDays.slice().sort()[0] : null;
-    const historyRows = warehouseDailyRows(warehouseRecords)
+    return warehouseDailyRows(warehouseRecords)
       .filter((row) => (earliestLive === undefined || earliestLive === null ? true : row.day < earliestLive))
       .map((row) => ({ ...row, models: sortedModels(row.models), vendors: [], source: 'history' }));
+  }
+
+  function mergedDailyRows<T extends { day: string; costUSD: number }>(liveDaily: T[]) {
+    const historyRows = historyOnlyDailyRows(liveDaily);
     if (historyRows.length === 0) return liveDaily;
     return [...historyRows, ...liveDaily].sort((a, b) => a.day.localeCompare(b.day));
   }
@@ -1021,7 +1117,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   function budgetSpend() {
     const todayKey = todayDayKey();
     const monthKey = todayKey.slice(0, 7);
-    const daily = mergedDailyRows(budgetRollups().daily);
+    const daily = mergedDailyRows(buildRollups(entryRetentionDays()).daily);
     let todayUsd = 0;
     let monthUsd = 0;
     for (const row of daily) {
@@ -1042,29 +1138,20 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  function buildAnomaly(
-    daily: { day: string; costUSD?: unknown; tokens?: unknown }[],
-    blockSummary: { blocks: UsageBlock[] },
-    activeBlock: (UsageBlock & { burn: ReturnType<typeof burnRate> }) | null,
-  ) {
-    const todayKey = todayDayKey();
-    const ordered = daily.slice().sort((a, b) => a.day.localeCompare(b.day));
-    const trailing = ordered.slice(-(ANOMALY_BASELINE_DAYS + 1));
-    const baseline = dailyBaseline(trailing, { excludeDay: todayKey });
-    const todayRow = ordered.find((row) => row.day === todayKey) || null;
-    const daily30 = detectDailyAnomaly({
-      todayUsd: todayRow?.costUSD,
-      todayTokens: todayRow?.tokens,
-      baseline,
-    });
-    const burn = detectBurnAnomaly({
-      currentTokensPerMinute: activeBlock?.burn?.tokensPerMinute,
-      completedBlocks: (blockSummary.blocks || []).filter((block) => !block.isGap && !block.isActive),
-    });
-    return {
-      daily: daily30 && baseline ? { ...daily30, baselineDays: baseline.days } : null,
-      burn,
-    };
+  function buildCoverage(): UsageCoverageRow[] {
+    const lastEntryByVendor = new Map<string, number>();
+    for (const entry of entries) {
+      const vendor = isClaudeEntry(entry) ? 'claude' : String(entry.vendor);
+      const previous = lastEntryByVendor.get(vendor);
+      if (previous === undefined || entry.timestampMs > previous) lastEntryByVendor.set(vendor, entry.timestampMs);
+    }
+    return SUPPORTED_COVERAGE_VENDORS.map((spec) => ({
+      vendor: spec.vendor,
+      files: vendorFileCounts[spec.vendor] ?? 0,
+      lastEntryMs: lastEntryByVendor.get(spec.vendor) ?? null,
+      limitSource: spec.limitSource,
+      costSource: spec.costSource,
+    }));
   }
 
   function getRecordedLanes(): Map<string, string> | null {
@@ -1089,51 +1176,26 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return laneRollup(entries.filter((entry) => entry.timestampMs >= windowStartMs), lanes);
   }
 
-  function buildPlanWindowLanes(planWindowStarts: PlanWindowStarts | null | undefined, now: number) {
-    const lanes = getRecordedLanes();
-    if (!lanes) return null;
-    const claudeEntries = entries.filter((entry) => isClaudeEntry(entry));
-    const fiveHourStartMs = planWindowStarts?.fiveHour ?? null;
-    const sevenDayStartMs = planWindowStarts?.sevenDay ?? now - SEVEN_DAY_WINDOW_MS;
-    const retainedSinceMs = now - entryRetentionDays() * 24 * 60 * 60 * 1000;
-    const rollupWhenRetained = (windowStartMs: number | null) => (
-      windowStartMs === null || windowStartMs < retainedSinceMs ? null : laneRollupSince(claudeEntries, lanes, windowStartMs)
-    );
-    return {
-      fiveHour: rollupWhenRetained(fiveHourStartMs),
-      sevenDay: rollupWhenRetained(sevenDayStartMs),
-    };
-  }
-
   function buildReport(
-    { days, planWindowStarts }: { days?: number; planWindowStarts?: PlanWindowStarts | null } = {},
+    { days }: { days?: number } = {},
   ) {
     const reportRetainDays = days == null ? retainDays : days;
-    const rollups = cachedRollupsForDays(days, reportRetainDays);
+    const rollups = buildRollups(reportRetainDays);
     const now = nowFn();
-    const blockEntries = entriesWithinDays(entries, { now, retainDays: reportRetainDays })
-      .filter((entry) => isClaudeEntry(entry));
-    const blockSummary = buildBlocks(blockEntries, { blockHours, now });
-    const activeBurn = burnRate(blockSummary.activeBlock);
-    const activeBlock = blockSummary.activeBlock
-      ? { ...blockSummary.activeBlock, burn: activeBurn, projection: projectBlock(blockSummary.activeBlock, activeBurn, now) }
-      : null;
     const daily = mergedDailyRows(cloneValue(rollups.daily));
+    const historyDaily = warehouseRecords.length > 0 ? warehouseDailyRows(warehouseRecords) : [];
     return {
       ts: now,
       tz: rollups.tz,
-      blockHours: rollups.blockHours,
       totals: cloneValue(rollups.totals),
       daily,
       models: cloneValue(rollups.models),
       sessions: cloneValue(rollups.sessions),
-      blocks: blockSummary.blocks,
-      activeBlock,
-      anomaly: buildAnomaly(daily, blockSummary, activeBlock),
+      ranges: buildRangeRollups(entries, { now, laneByKey: getRecordedLanes(), historyDaily }),
+      coverage: buildCoverage(),
       budget: buildBudget(),
       byLane: buildLaneRows(reportRetainDays, now),
       yourDay: yourDayAt(now),
-      planWindowLanes: buildPlanWindowLanes(planWindowStarts, now),
       pricing: { missing: Array.from(missingModels).sort() },
       scan: {
         dirs: dirs.slice(),
@@ -1149,23 +1211,52 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   }
 
   function sessionTotals(): Map<string, SessionTotal> {
-    if (cachedSessionTotals) return cloneSessionTotals(cachedSessionTotals);
-    const totalsBySession = new Map<string, SessionTotal>();
-    for (const entry of entries) {
-      const key = isClaudeEntry(entry) ? entry.inlineSessionId : entry.sessionId;
-      if (!key) continue;
-      const bucket = totalsBySession.get(key) || { tokens: 0, costUSD: 0, lastTs: null };
-      bucket.tokens += totalTokensOf(entry);
-      bucket.costUSD += Number.isFinite(entry.costUSD) ? Number(entry.costUSD) : 0;
-      bucket.lastTs = Math.max(bucket.lastTs || 0, entry.timestampMs);
-      totalsBySession.set(key, bucket);
+    const totalsByVendorKey = ensureSessionTotals();
+    const totals = new Map<string, SessionTotal>();
+    for (const [vendorKey, bucket] of totalsByVendorKey) {
+      const separatorIndex = vendorKey.indexOf(':');
+      const sessionId = separatorIndex >= 0 ? vendorKey.slice(separatorIndex + 1) : vendorKey;
+      const existing = totals.get(sessionId);
+      if (!existing) {
+        totals.set(sessionId, { tokens: bucket.tokens, costUSD: bucket.costUSD, lastTs: bucket.lastTs });
+        continue;
+      }
+      existing.tokens += bucket.tokens;
+      existing.costUSD += bucket.costUSD;
+      if (bucket.lastTs !== null && (existing.lastTs === null || bucket.lastTs > existing.lastTs)) existing.lastTs = bucket.lastTs;
     }
-    cachedSessionTotals = totalsBySession;
-    return cloneSessionTotals(cachedSessionTotals);
+    return totals;
+  }
+
+  function liveSessionStats(targets: Iterable<{ vendor: string; sessionId: string }>): Map<string, LiveSessionStats> {
+    const totalsByVendorKey = ensureSessionTotals();
+    const statsByVendorKey = new Map<string, LiveSessionStats>();
+    for (const target of targets) {
+      const vendorKey = `${target.vendor}:${target.sessionId}`;
+      const bucket = totalsByVendorKey.get(vendorKey);
+      if (!bucket) continue;
+      statsByVendorKey.set(vendorKey, { ...bucket, lastHourCostUSD: 0 });
+    }
+    if (statsByVendorKey.size === 0) return statsByVendorKey;
+    const oneHourAgoMs = nowFn() - 60 * 60 * 1000;
+    for (const entry of entries) {
+      if (entry.timestampMs < oneHourAgoMs) continue;
+      const key = sessionKeyOf(entry);
+      if (!key) continue;
+      const vendorKey = `${vendorNameOf(entry)}:${key}`;
+      const target = statsByVendorKey.get(vendorKey);
+      if (!target) continue;
+      target.lastHourCostUSD += Number.isFinite(entry.costUSD) ? Number(entry.costUSD) : 0;
+    }
+    return statsByVendorKey;
   }
 
   function stats() {
     return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, lastOutcome, isHistoryCaughtUp, resolutionError };
+  }
+
+  function vendorCounts(): Record<string, number> {
+    return { ...vendorFileCounts };
   }
 
   async function runPassInternal({ force, scopeDirs = null }: { force: boolean; scopeDirs?: readonly string[] | null }): Promise<PassResult> {
@@ -1200,7 +1291,14 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     const walked = await walkSourceFiles(roots, fsPromises, laneLog);
     const files = walked.files;
     ioFailures += walked.ioFailures;
-    if (!scopedRoots) lastFileCount = files.length;
+    if (!scopedRoots) {
+      lastFileCount = files.length;
+      const countsByVendor: Record<string, number> = {};
+      if (vendorFileCounts.opencode !== undefined) countsByVendor.opencode = vendorFileCounts.opencode;
+      for (const file of files) countsByVendor[file.vendor] = (countsByVendor[file.vendor] ?? 0) + 1;
+      vendorFileCounts = countsByVendor;
+      antigravityCwdByConversation = await loadAntigravityCwdMap(roots, fsPromises, laneLog);
+    }
 
     for (const file of files) {
       const remainingBudget = byteBudget - bytesReadThisPass;
@@ -1215,9 +1313,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         vendor: file.vendor,
         force,
         maxBytes: remainingBudget,
-        onLine: (line, lineOrdinal, vendorState) => {
+        onLine: (line, lineOrdinal, vendorState, piState) => {
           parsedLineCount += 1;
-          fileNewEntryCount += ingestLine({ line, file: file.file, vendor: file.vendor, vendorState, dirs: claudeDirs, lineOrdinal });
+          fileNewEntryCount += ingestLine({ line, file: file.file, vendor: file.vendor, vendorState, piState, dirs: claudeDirs, lineOrdinal });
         },
         shouldYieldAfterLine: () => parsedLineCount % LINE_YIELD_INTERVAL === 0,
       });
@@ -1239,6 +1337,41 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         if (skippedFileCount % FILE_YIELD_INTERVAL === 0) await yieldNowFn();
       }
       if (partial) break;
+    }
+
+    if (!scopedRoots && !partial && vendors?.opencode !== false) {
+      let openCodeDbCount = 0;
+      for (const dbPath of openCodeDbPaths(env, homeDir)) {
+        const dbPass = await readOpenCodeDbPage({
+          dbPath,
+          cursor: force ? null : openCodeCursors.get(dbPath) ?? null,
+          force,
+          fsPromises,
+          yieldNowFn,
+          laneLog,
+        });
+        if (!dbPass.exists) {
+          openCodeCursors.delete(dbPath);
+          continue;
+        }
+        openCodeDbCount += 1;
+        if (dbPass.failed) {
+          ioFailures += 1;
+          continue;
+        }
+        if (dbPass.nextCursor) openCodeCursors.set(dbPath, dbPass.nextCursor);
+        currentFileGenerationRollup = shouldCollectGenerations ? new Map() : null;
+        for (const parsedEntry of dbPass.entries) {
+          newEntryCount += ingestVendorLine(parsedEntry, dbPath);
+        }
+        if (dbPass.entries.length > 0) bytesReadThisPass += dbPass.entries.length;
+        if (currentFileGenerationRollup) mergeGenerationRollups(passGenerationRollup, currentFileGenerationRollup);
+        currentFileGenerationRollup = null;
+        if (dbPass.partial) partial = true;
+      }
+      const { opencode: _previousOpenCode, ...nonOpenCodeCounts } = vendorFileCounts;
+      vendorFileCounts = openCodeDbCount > 0 ? { ...nonOpenCodeCounts, opencode: openCodeDbCount } : nonOpenCodeCounts;
+      if (openCodeDbCount > 0) lastFileCount += openCodeDbCount;
     }
 
     if (didRollBackAnyFile) rebuildMissingModels();
@@ -1305,7 +1438,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     runPass,
     buildReport,
     sessionTotals,
+    liveSessionStats,
     stats,
+    vendorCounts,
     budgetSpend,
     latestCodexRateLimits,
     drainCodexRateLimits,

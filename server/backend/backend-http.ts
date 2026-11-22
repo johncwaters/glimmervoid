@@ -25,6 +25,7 @@ import type { AgentApiPort } from '../agent-api-wiring.ts';
 import type { PrFlowsWiring } from '../github/pr-flows-wiring.ts';
 import { PR_ACTION_REPORT_BODY_CAP_BYTES, PR_ACTION_REPORT_ROUTE, PrActionReportBody } from '../../shared/contracts/pr-flows.ts';
 import { mountAgentMcp } from '../../mcp/server.ts';
+import type { WargamesSeatPort } from '../../mcp/wargames-tools.ts';
 import { decideAgentRequest, REFUSAL_REASON, REFUSAL_STATUS } from '../core/agent-api-core.ts';
 import { GIT_CREDENTIAL_BODY_CAP_BYTES, GIT_CREDENTIAL_PATH_PREFIX, GitCredentialRequest, SSH_SIGN_BODY_CAP_BYTES, SshSignRequest } from '../../shared/contracts/session.ts';
 import type { GitCredentialReply } from '../../shared/contracts/session.ts';
@@ -55,7 +56,7 @@ import { BOARD_PAGE_ARROW_KEYS, BOARD_PAGE_ARROW_MESSAGE, BOARD_PAGE_CONTENT_WID
 import { filePictureLimitsOf } from '../../mcp/core/board-reading.ts';
 import { PICTURE_FORMATS, boardPictureFile } from '../whiteboard/board-picture.ts';
 import { buildUploadFilename, decideUploadType, exceedsUploadCap, imageMimeForUploadFilename, isSafePathSegment } from '../core/upload-core.ts';
-import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from './http/backend-http-body.ts';
+import { declaredContentLength, decodeHeaderText, parseJsonBody, readCappedBody } from '../http-body.ts';
 import { UPLOAD_FAILURE_REPLIES, UPLOAD_OVER_CAP_ERROR, receiveUpload, streamRequestToFile } from './http/backend-http-uploads.ts';
 import { mountFrameOpenRoute, mountKeyedFrameRoutes } from './http/backend-http-frames.ts';
 import type { PackFileSource } from './http/backend-http-frames.ts';
@@ -128,6 +129,7 @@ interface BackendHttpDependencies {
   refocusContextFor?: (glimmervoidId: string) => RefocusContext;
   takePromptSupervision?: (glimmervoidId: string) => UserPromptSubmitHookResponse | null;
   getAgentApi?: () => AgentApiPort | null;
+  getWargames?: () => WargamesSeatPort | null;
   getPackFile?: PackFileSource;
   packPreviews?: BoardPackPreviews;
   frameSecret?: Buffer;
@@ -231,7 +233,7 @@ function answerLinkPreview({ req, res, remoteListenerPort, listenerPortsFor, tok
 }
 
 type AgentIngressDependencies = Pick<BackendHttpDependencies,
-  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'isPlanGateOn' | 'logger'>;
+  'allowedHosts' | 'hookRouter' | 'getSession' | 'getUsage' | 'refocusContextFor' | 'takePromptSupervision' | 'getAgentApi' | 'getWargames' | 'getWhiteboardAssets' | 'getWhiteboardLayouts' | 'getPrActionReports' | 'sshSigner' | 'githubUserCredential' | 'recordOutcome' | 'isPlanGateOn' | 'logger'>;
 
 const BOARD_PAGE_SANDBOX_POLICY = 'sandbox allow-scripts allow-popups allow-modals allow-forms';
 const BOARD_MEDIA_SANDBOX_POLICY = "default-src 'none'; sandbox";
@@ -497,6 +499,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     refocusContextFor = () => ({ taskTitle: null }),
     takePromptSupervision = () => null,
     getAgentApi = () => null,
+    getWargames = () => null,
     getWhiteboardAssets = () => null,
     getWhiteboardLayouts = () => null,
     recordOutcome = () => {},
@@ -583,7 +586,7 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
   });
 
   mountAgentMcp(app, {
-    getSession, getAgentApi, getWhiteboardAssets, getWhiteboardLayouts, isLoopback: isLoopbackRequest, logger,
+    getSession, getAgentApi, getWargames, getWhiteboardAssets, getWhiteboardLayouts, isLoopback: isLoopbackRequest, logger,
     isOriginAllowed: (req) => decideOriginAllowed(req.headers.origin, [], { listenerPorts: req.socket.localPort ?? [] }),
   });
 
@@ -591,6 +594,11 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
     const agentApi = getAgentApi();
     const session = getSession(req.params.glimmervoidId);
     const verb = req.params.verb;
+    if (session && getWargames()?.isWargamesSession(session.id)) {
+      req.resume();
+      refuseAgentRequest(res);
+      return;
+    }
     const verdict = decideAgentRequest({
       sessionId: req.params.glimmervoidId,
       presentedToken: presentedToken(req),

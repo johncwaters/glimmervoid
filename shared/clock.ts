@@ -115,10 +115,6 @@ function shiftDayKey(dayKey: string, days: number): string | null {
   return dayKeyFromUtcDate(date);
 }
 
-function weekdayOfDayKey(dayKey: string): number | null {
-  return utcDateOfDayKey(dayKey)?.getUTCDay() ?? null;
-}
-
 function offsetMsIn(timezone: string, ms: number): number {
   const parts = wallClockPartsIn(timezone, ms);
   const wallAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
@@ -184,5 +180,5 @@ function setOperatorTimezoneSource(source: () => string | null | undefined): voi
 
 const clock: Clock = createClock({ timezone: () => operatorTimezoneSource() ?? systemTimezone() });
 
-export { clock, isKnownTimezone, setOperatorTimezoneSource, shiftDayKey, systemTimezone, weekdayOfDayKey };
+export { clock, isKnownTimezone, setOperatorTimezoneSource, shiftDayKey, systemTimezone };
 export type { Clock };

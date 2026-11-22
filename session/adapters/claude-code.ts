@@ -3,7 +3,7 @@ import { EXIT_PLAN_MODE_TOOL_NAME } from "../../shared/contracts/plan-gate.ts";
 import { isBrailleChar, isSpinnerChar } from "../core/title-classifier-core.ts";
 import type { AgentEnvProfile, SpawnEnv } from "../core/spawn-env.ts";
 import { createClaudeFolderTrust } from "./claude-trust.ts";
-import { mainCheckoutOf } from "../../server/github/team-review-checkouts.ts";
+import { mainCheckoutOf } from "../../server/git-checkout-root.ts";
 import { CLAUDE_HOME_PROFILE } from "../core/agent-home-core.ts";
 import type { AgentAdapterShape, AgentArgsOptions, AgentHookProfile } from "./index.ts";
 import { pathCommandLaunch } from "./path-command-launch.ts";

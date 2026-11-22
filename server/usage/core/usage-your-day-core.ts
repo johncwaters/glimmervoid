@@ -1,5 +1,6 @@
 import { clock } from '../../../shared/clock.ts';
 import type { YourDay, YourDayInsight } from '../../../shared/contracts/your-day.ts';
+import { twoUnitDurationText } from '../../../shared/display-text.ts';
 import { parseJsonRecord } from '../../core/json-core.ts';
 
 type ActivityKind = 'prompt' | 'turnEnd';
@@ -123,9 +124,13 @@ function durationText(ms: number): string {
   return `${hours}h ${minutes}m`;
 }
 
-function ratioText(ratio: number): string {
-  return `${ratio.toFixed(1)}x`;
+function replyDurationText(ms: number): string {
+  return twoUnitDurationText(Math.max(1, Math.round(ms / 1000)), { smallestUnit: 's', dropsZeroRemainder: true });
 }
+
+const BASELINE_TEXT = `Over the last ${BASELINE_DAYS} days`;
+const IDLE_AGENT_TEXT = 'and an agent sits idle until you answer.';
+const BREAK_COST_TEXT = `Agents keep their place, so a ${BREAK_MS / MINUTE_MS}m break costs them nothing.`;
 
 function splitStretches(promptTimes: readonly number[]): Array<{ start: number; end: number }> {
   const stretches: Array<{ start: number; end: number }> = [];
@@ -206,21 +211,29 @@ function waitingThresholdInsight(samples: readonly ReplySample[]): YourDayInsigh
     const calm = samples.filter((sample) => sample.waitingDepth <= threshold).map((sample) => sample.replyMs);
     const crowded = samples.filter((sample) => sample.waitingDepth > threshold).map((sample) => sample.replyMs);
     if (calm.length < MIN_SAMPLES_PER_SIDE || crowded.length < MIN_SAMPLES_PER_SIDE) continue;
-    const slowdown = median(crowded) / Math.max(median(calm), 1);
+    const calmMedianMs = median(calm);
+    const crowdedMedianMs = median(crowded);
+    const slowdown = crowdedMedianMs / Math.max(calmMedianMs, 1);
     if (slowdown < 2) continue;
-    return { kind: 'waitingThreshold', text: `Replies took ${ratioText(slowdown)} longer once more than ${threshold} sessions waited on you.`, deviation: slowdown };
+    return {
+      kind: 'waitingThreshold',
+      title: `Past ${threshold} waiting sessions, every agent waits longer`,
+      detail: `${BASELINE_TEXT} you answered in ${replyDurationText(calmMedianMs)} with ${threshold} or fewer waiting and ${replyDurationText(crowdedMedianMs)} with more, ${IDLE_AGENT_TEXT} Start a new session when one finishes, not before.`,
+      deviation: slowdown,
+    };
   }
   return null;
+}
+
+function isInSharpWindow(ts: number, startHour: number): boolean {
+  return (clock.hourOf(ts) - startHour + 24) % 24 < SHARP_WINDOW_HOURS;
 }
 
 function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight | null {
   const overallMedian = median(samples.map((sample) => sample.replyMs));
   let best: { startHour: number; medianMs: number } | null = null;
   for (let startHour = 0; startHour < 24; startHour += 1) {
-    const inWindow = samples.filter((sample) => {
-      const hour = clock.hourOf(sample.ts);
-      return (hour - startHour + 24) % 24 < SHARP_WINDOW_HOURS;
-    });
+    const inWindow = samples.filter((sample) => isInSharpWindow(sample.ts, startHour));
     if (inWindow.length < MIN_SAMPLES_PER_WINDOW) continue;
     const windowMedian = median(inWindow.map((sample) => sample.replyMs));
     if (!best || windowMedian < best.medianMs) best = { startHour, medianMs: windowMedian };
@@ -228,7 +241,18 @@ function sharpestHoursInsight(samples: readonly ReplySample[]): YourDayInsight |
   if (!best) return null;
   const quickness = overallMedian / Math.max(best.medianMs, 1);
   if (quickness < MIN_DEVIATION) return null;
-  return { kind: 'sharpestHours', text: `You replied to agents fastest ${hourText(best.startHour)} to ${hourText(best.startHour + SHARP_WINDOW_HOURS)}, ${ratioText(quickness)} your usual pace.`, deviation: quickness };
+  const sharpestStartHour = best.startHour;
+  const hoursAfterWindowStart = samples.filter((sample) => isInSharpWindow(sample.ts, sharpestStartHour)).map((sample) => (clock.hourOf(sample.ts) - sharpestStartHour + 24) % 24);
+  const firstActiveHour = sharpestStartHour + Math.min(...hoursAfterWindowStart);
+  const endHour = sharpestStartHour + Math.max(...hoursAfterWindowStart) + 1;
+  const outsideWindow = samples.filter((sample) => !isInSharpWindow(sample.ts, sharpestStartHour)).map((sample) => sample.replyMs);
+  const outsideMedianMs = outsideWindow.length > 0 ? median(outsideWindow) : overallMedian;
+  return {
+    kind: 'sharpestHours',
+    title: `Agents get your fastest answers ${hourText(firstActiveHour)} to ${hourText(endHour)}`,
+    detail: `${BASELINE_TEXT} you answered in ${replyDurationText(best.medianMs)} then and ${replyDurationText(outsideMedianMs)} the rest of the day, ${IDLE_AGENT_TEXT} Put the tasks with the most back and forth there.`,
+    deviation: quickness,
+  };
 }
 
 function recapDayLabel(recapDay: string, now: number): string {
@@ -241,8 +265,13 @@ function longestStretchInsight(yesterday: DayStats, dayLabel: string, usualStret
   if (yesterday.longestStretchMs < MIN_LONG_STRETCH_MS) return null;
   const deviation = yesterday.longestStretchMs / Math.max(usualStretchMs, MINUTE_MS);
   if (deviation < MIN_DEVIATION) return null;
-  const comparedToUsual = usualStretchMs >= MINUTE_MS ? `, ${ratioText(deviation)} your usual` : '';
-  return { kind: 'longestStretch', text: `${dayLabel} you went ${durationText(yesterday.longestStretchMs)} without a break${comparedToUsual}.`, deviation };
+  const usualText = usualStretchMs >= MINUTE_MS ? `Your usual longest run is ${durationText(usualStretchMs)}. ` : '';
+  return {
+    kind: 'longestStretch',
+    title: `${dayLabel} you went ${durationText(yesterday.longestStretchMs)} without a break`,
+    detail: `${usualText}Attention fades deep into a run, which is when an agent's mistake gets approved. ${BREAK_COST_TEXT}`,
+    deviation,
+  };
 }
 
 function jugglingInsight(yesterday: DayStats, dayLabel: string, usualJuggling: number): YourDayInsight | null {
@@ -250,7 +279,14 @@ function jugglingInsight(yesterday: DayStats, dayLabel: string, usualJuggling: n
   const deviation = yesterday.peakJuggling / Math.max(usualJuggling, 1);
   if (deviation < MIN_DEVIATION) return null;
   const peakHour = clock.hourOf(yesterday.peakJugglingAt);
-  return { kind: 'juggling', text: `${dayLabel} at ${hourText(peakHour)} you switched between ${yesterday.peakJuggling} sessions within ${JUGGLING_WINDOW_MS / MINUTE_MS}m.`, deviation };
+  const usualPeak = Math.round(usualJuggling);
+  const usualText = usualPeak >= 1 ? `Most days you top out at ${usualPeak}. ` : '';
+  return {
+    kind: 'juggling',
+    title: `${dayLabel} at ${hourText(peakHour)} you switched between ${yesterday.peakJuggling} sessions in ${JUGGLING_WINDOW_MS / MINUTE_MS}m`,
+    detail: `${usualText}Every switch means rereading where that session left off, so each one waits longer for you. Queue new tasks and start them as others finish.`,
+    deviation,
+  };
 }
 
 function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null }: { now: number; laneByKey?: ReadonlyMap<string, string> | null }): YourDay | null {
@@ -291,7 +327,7 @@ function buildYourDay(events: readonly ActivityEvent[], { now, laneByKey = null 
   const latestStretch = allStretches.at(-1);
   const isStretchOngoing = latestStretch !== undefined && now - latestStretch.end <= BREAK_MS;
   return {
-    yesterday: { day: yesterday.day, sessionCount: yesterday.sessionCount, activeMs: yesterday.activeMs },
+    yesterday: { day: yesterday.day, sessionCount: yesterday.sessionCount, activeMs: yesterday.activeMs, longestStretchMs: yesterday.longestStretchMs },
     insights,
     usual: { peakWaiting: median(baselineDays.map((day) => day.peakWaiting)), stretchMs: usualStretchMs },
     currentStretchStartedAt: isStretchOngoing ? latestStretch.start : null,

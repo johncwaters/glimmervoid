@@ -3,11 +3,11 @@ import type { BoardChrome, TileKey, TileLod } from '../../shared/contracts/white
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { LaidOutMedia, Rect } from '../../shared/whiteboard-layout-core.ts';
 import type { PictureOptions } from '../../mcp/core/board-reading.ts';
-import type { Author, PinPositions } from '../../shared/whiteboard-ops-core.ts';
-import { OPERATOR_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
+import type { Author, PinPositions } from '../../shared/contracts/whiteboard-ops-core.ts';
+import { OPERATOR_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { AGENT_CHANGE_BOXES_MAX } from '../../shared/contracts/control/whiteboard-messages.ts';
 import type { AgentChange } from '../../shared/contracts/control/whiteboard-messages.ts';
-import { tileIdOf, tileKeysFor } from '../../shared/whiteboard-tile-core.ts';
+import { tileIdOf, tileKeysFor } from '../../shared/contracts/whiteboard-tile-core.ts';
 import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';

@@ -34,7 +34,6 @@ export const QuestionRule = z.union([PlainLanguageRule, QuestionMatchRule, Quest
 
 export const QuestionManagerSettings = z.object({
   rules: z.array(QuestionRule, { error: 'questionManager.rules must be an array' }).max(QUESTION_MANAGER_RULES_MAX).optional(),
-  model: z.string({ error: 'questionManager.model must be a model name' }).trim().min(1).max(100).optional(),
 }, { error: 'questionManager must be an object' });
 
 export type QuestionMatchRule = z.infer<typeof QuestionMatchRule>;

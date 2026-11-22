@@ -34,7 +34,6 @@ interface ImportLanguage {
 const FILE_RESOLVER: ImportResolver = { kind: 'file' };
 const CANDIDATE_RESOLVER: ImportResolver = { kind: 'candidates', manifestName: null };
 const PHP_INCLUDE_TYPES = ['require_expression', 'require_once_expression', 'include_expression', 'include_once_expression'];
-const SWIFT_IMPORT_LINE = /^[ \t]*(?:[@\w]+(?:\([^)\n]*\))?[ \t]+)*import\b[^\n]*/gm;
 const JVM_HEADER_SECTION: ImportSection = { kind: 'throughLastMatch', pattern: /^[ \t]*(?:package|import)\b[^\n]*/gm };
 const SCALA_IMPORT_STATEMENTS: ImportSection = {
   kind: 'matchesOnly',
@@ -144,12 +143,6 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
   },
   { id: 'php', extensions: ['.php'], scanner: grammarScanner('php', ['namespace_use_declaration', ...PHP_INCLUDE_TYPES], PHP_IMPORT_QUERY), resolver: { kind: 'candidates', manifestName: 'composer.json' } },
   {
-    id: 'swift',
-    extensions: ['.swift'],
-    scanner: { ...grammarScanner('swift', ['import_declaration'], '(import_declaration (identifier . (simple_identifier) @specifier))'), isTopLevelOnly: true, importSection: { kind: 'throughLastMatch', pattern: SWIFT_IMPORT_LINE } },
-    resolver: { kind: 'packageDirectory', manifestName: 'Package.swift', excludedTargetPattern: null, isRecursive: true },
-  },
-  {
     id: 'csharp',
     extensions: ['.cs'],
     scanner: grammarScanner(
@@ -183,6 +176,8 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
   },
   { id: 'elixir', extensions: ['.ex', '.exs'], scanner: grammarScanner('elixir', ['call'], ELIXIR_IMPORT_QUERY), resolver: { kind: 'declaredNamespace', family: 'elixir' } },
 ];
+
+export const IMPORT_LANGUAGE_IDS: readonly string[] = [...new Set(IMPORT_LANGUAGES.map((language) => language.id))].sort();
 
 export const IMPORT_GRAMMAR_NAMES: readonly string[] = [...new Set(IMPORT_LANGUAGES.flatMap((language) => (language.scanner.kind === 'grammar' ? [language.scanner.grammar] : [])))];
 

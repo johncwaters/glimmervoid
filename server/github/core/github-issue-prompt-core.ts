@@ -1,5 +1,5 @@
-import { sanitizeSessionName } from '../../radar/core/radar-lane-core.ts';
-import { fencedUntrusted, withoutControlCharacters } from '../../lanes/core/lane-report-core.ts';
+import { sanitizeSessionName } from '../../../shared/session-naming.ts';
+import { fencedUntrusted, withoutControlCharacters } from '../../../shared/lane-report-core.ts';
 import type { GithubIssue } from '../../../shared/contracts/github-issue.ts';
 
 const ISSUE_BODY_MAX_CHARS = 12000;

@@ -24,11 +24,8 @@ const DEFAULT_PHONE_ESCALATION_MS = 300000;
 const TELEGRAM_TEST_TEXT = 'Glimmervoid test message. Session notifications reach this chat.';
 
 interface NotificationConfig {
-  phoneEscalationMs?: number;
-  notifyDebounceMs?: number;
-  telegramNotifications?: boolean;
   telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null;
-  slack?: { enabled?: boolean; webhookUrl?: string } | null;
+  slack?: { webhookUrl?: string } | null;
 }
 
 interface NotificationWsServer {
@@ -57,11 +54,11 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     config, configStore, sessions, controlWss, onControlConnection, viewerControlClientCount,
     dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
-  const alertGroupWindowMs = () => config.notifyDebounceMs ?? DEFAULT_ALERT_GROUP_WINDOW_MS;
+  const alertGroupWindowMs = () => DEFAULT_ALERT_GROUP_WINDOW_MS;
   const notificationTimings = () => ({
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
     alertGroupWindowMs: alertGroupWindowMs(),
-    phoneEscalationMs: config.phoneEscalationMs ?? DEFAULT_PHONE_ESCALATION_MS,
+    phoneEscalationMs: DEFAULT_PHONE_ESCALATION_MS,
   });
   const notificationManager = new NotificationManager({ ...notificationTimings(), recordOutcome });
   notificationManager.registerChannel('web', createWebNotificationChannel(broadcastControl));
@@ -81,7 +78,6 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   function telegramDeliveryStatus(): TelegramDeliveryStatus {
     return {
       setupWarning: telegramSetupWarning({
-        isEnabled: config.telegramNotifications === true,
         botToken: config.telegram?.botToken,
         chatId: config.telegram?.chatId,
       }),
@@ -105,7 +101,6 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     taggedOutbox: telegramOutbox,
   });
   const canTelegramEscalate = () => decideTelegramNotification({
-    enabled: config.telegramNotifications === true,
     botToken: config.telegram?.botToken,
     chatId: config.telegram?.chatId,
     connectionCount: 0,

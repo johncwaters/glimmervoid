@@ -18,7 +18,7 @@ const NULL_REJECT_FIELDS = Object.freeze([
   ['message', 'usage', 'cache_creation_input_tokens'],
 ]);
 
-export interface TokenCountsSource {
+interface TokenCountsSource {
   input?: number;
   output?: number;
   cacheCreate?: number;

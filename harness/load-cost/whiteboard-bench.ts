@@ -27,7 +27,7 @@ import { createLayoutWorld, layoutOf } from '../../shared/whiteboard-layout-engi
 import type { LayoutWorld } from '../../shared/whiteboard-layout-engine.ts';
 import { pointsOfPath } from '../../shared/whiteboard-route-core.ts';
 import type { PlacedLayout } from '../../shared/whiteboard-layout-core.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, tileIndexOf } from '../../shared/contracts/whiteboard-tile-core.ts';
 import { isolateTranscriptHomes } from '../../tests/helpers/transcript-homes.ts';
 import { runCommand, snapshotEnvironment } from '../site-capture/isolated-glimmervoid.ts';
 import { connectControl, prepareIsolatedEnvironment, removeHarnessTempDirectory } from '../support/backend-harness.ts';

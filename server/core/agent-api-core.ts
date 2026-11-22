@@ -19,9 +19,9 @@ import { WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import { renderOverviewLine } from './cli-spec-core.ts';
 import type { CommandSpec, OptionSpec, PositionalSpec } from './cli-spec-core.ts';
 import type { TeamReviewStatus } from '../../shared/contracts/team-review.ts';
-import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from '../../session/core/session-routes.ts';
-import { extractPromptTaskTitle } from '../../session/core/task-title-core.ts';
-import type { SessionRoleFacts } from '../../session/core/session-routes.ts';
+import { COMMAND_ROUTES, NO_OWN_WORKTREE_REASON } from './session-routes-core.ts';
+import { extractPromptTaskTitle } from './task-title-text-core.ts';
+import type { SessionRoleFacts } from './session-routes-core.ts';
 
 const REMOTE_URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\/|^[^/\\\s]+@[^/\\\s]+:/i;
 const MAX_LIFETIME_SPAWNS = 100;

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CommitSha } from './team-review.ts';
 import { MyPrSearchNode, repositoryName } from './my-prs.ts';
 import { GH_SEGMENT } from './github-ids.ts';
-import { WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE } from '../settings-ranges.ts';
+import { WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE } from '../settings-ranges.ts';
 
 const WORKFLOW_TRIGGERS = Object.freeze(['opened', 'checks-failed', 'review-requested', 'approved', 'commented', 'merged'] as const);
 const WORKFLOW_ACTION_TYPES = Object.freeze(['notify', 'spawn', 'label', 'comment'] as const);
@@ -21,7 +21,6 @@ const integerInRange = (field: string, range: { min: number; max: number }) => {
 };
 const workflowsEnabled = z.boolean({ error: 'workflows.enabled must be a boolean' });
 const workflowsMaxConcurrentSessions = integerInRange('workflows.maxConcurrentSessions', WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE);
-const workflowsMaxActionsPerPoll = integerInRange('workflows.maxActionsPerPoll', WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE);
 
 const nonEmptyList = <Item extends z.ZodType>(field: string, item: Item) => z.array(item, { error: `${field} must be an array` })
   .min(1, { error: `${field} must list at least one entry when present` });
@@ -85,7 +84,6 @@ export type WorkflowRule = z.infer<typeof WorkflowRule>;
 export const WorkflowsSettings = z.strictObject({
   enabled: workflowsEnabled.default(true),
   maxConcurrentSessions: workflowsMaxConcurrentSessions.default(DEFAULT_WORKFLOW_MAX_CONCURRENT_SESSIONS),
-  maxActionsPerPoll: workflowsMaxActionsPerPoll.default(DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL),
   rules: z.array(WorkflowRule, { error: 'workflows.rules must be an array' }).default([]),
 }, { error: 'workflows must be an object' }).superRefine((settings, ctx) => {
   const claimedIds = new Set<string>();
@@ -107,9 +105,8 @@ const WorkflowRuleToggle = z.strictObject({
 export const WorkflowsSettingsUpdate = z.strictObject({
   enabled: workflowsEnabled.optional(),
   maxConcurrentSessions: workflowsMaxConcurrentSessions.optional(),
-  maxActionsPerPoll: workflowsMaxActionsPerPoll.optional(),
   rules: z.array(WorkflowRuleToggle, { error: 'workflows.rules must be an array' }).optional(),
-}, { error: 'a dashboard update of workflows carries only enabled, maxConcurrentSessions, maxActionsPerPoll and rule toggles' });
+}, { error: 'a dashboard update of workflows carries only enabled, maxConcurrentSessions and rule toggles' });
 export type WorkflowsSettingsUpdate = z.infer<typeof WorkflowsSettingsUpdate>;
 
 const nonnegativeInteger = z.number().int().nonnegative();

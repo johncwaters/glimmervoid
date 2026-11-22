@@ -1,7 +1,6 @@
 import type { TraceRecord } from '../../../shared/contracts/trace.ts';
-import { boundedText } from '../trace-core.ts';
-import { unwrapSpilledToolOutput } from './spill-wrappers.ts';
-import type { SpillWrappingAgent } from './spill-wrappers.ts';
+import { boundedText, unwrapSpilledToolOutput } from '../trace-core.ts';
+import type { SpillWrappingAgent } from '../trace-core.ts';
 
 type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId' | 'agentId' | 'agentType'>;
 

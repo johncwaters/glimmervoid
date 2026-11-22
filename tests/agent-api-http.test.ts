@@ -785,6 +785,14 @@ test('arena start races in the caller\'s project with the caller\'s permissions,
       contestantPermissions.push([dangerouslySkipPermissions, saneYolo]);
       return { ok: false, error: 'not in this fixture' };
     },
+    isExistingDirectory: (folderPath) => {
+      try {
+        return fs.statSync(folderPath).isDirectory();
+      } catch {
+        return false;
+      }
+    },
+    missingFolderError: (folderPath) => `Folder not found: ${folderPath}`,
   });
   const races = { status: () => ({ type: 'race-status' as const, races: loadedRaces }), judge: async () => ({ ok: true as const }), contestantDiffText: async () => ({ ok: true as const, diff: '' }) };
   const fixture = wiringFixture({ parentSkipsPermissions: false, arena: { races, startRace: launcher.start } });

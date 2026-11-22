@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseJsonOrNull } from '../../core/json-core.ts';
+import { parseJsonOrNull } from '../../../shared/coerce.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 
 const RateLimitResource = z.object({ remaining: z.number(), reset: z.number(), used: z.number().optional(), limit: z.number().optional() });
@@ -8,6 +8,10 @@ type RateLimitResource = z.infer<typeof RateLimitResource>;
 export type GithubRateLimitResources = z.infer<typeof GithubRateLimitResources>;
 
 export const GITHUB_RATE_LIMIT_WINDOW_MS = 60 * 60_000;
+
+export function githubStoreRateLimitedError(waitMs: number, readSubject = 'the pull request'): string {
+  return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading ${readSubject}. Try again then`;
+}
 
 export function githubRateLimitWaitMs(resources: GithubRateLimitResources, nowMs: number, resourceNames: readonly string[]): number | null {
   const exhaustedResetsMs = resourceNames

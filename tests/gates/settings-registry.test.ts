@@ -6,15 +6,15 @@ import path from 'node:path';
 
 import { DEFAULT_CONFIG } from '../../server/config-store.ts';
 import { BranchGcFileSettings, Config, ConfigUpdate } from '../../shared/contracts/config.ts';
-import { FLYING_ANIMALS_DEFAULTS } from '../../shared/settings-ranges.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../../shared/settings/registry.ts';
 import type { SettingsSetting } from '../../shared/settings/registry.ts';
 import {
   SETTINGS_INDEX, displayValue, indexSettings, parseSettingsHash, scoreSettingsSearch, settingsBlockSpec, settingsGroupOf, settingsOf, wireValue,
 } from '../../shared/settings/registry-core.ts';
-import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../../public/radar/radar-core.ts';
+import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../../public/feature-surfaces-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, TEAM_REVIEW_SKILL_SETTING_ID } from '../../public/github/team-review-view-core.ts';
 import { OPTIONAL_FEATURE_SURFACES } from '../../public/feature-surfaces-core.ts';
+import { gatesOnPath, hydrateFromSettings, isSettingShown } from '../../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from '../helpers/settings-allow-list.ts';
 
 const ROOT = path.join(import.meta.dirname, '../..');
@@ -35,9 +35,9 @@ test('search match spans expose original text without changing partial-word rank
       }
     }
   }
-  const hit = scoreSettingsSearch(SETTINGS_REGISTRY.sections, 'replay', SETTINGS_REGISTRY.fileOnly)[0];
+  const hit = scoreSettingsSearch(SETTINGS_REGISTRY.sections, 'spike', SETTINGS_REGISTRY.fileOnly)[0];
   const title = hit.matches.find((match) => match.field === 'title');
-  assert.equal(title?.text.slice(title.spans[0].start, title.spans[0].end), 'Replay');
+  assert.equal(title?.text.slice(title.spans[0].start, title.spans[0].end), 'spike');
 });
 const SCOPES = new Set(['browser', 'machine']);
 const ACCESS_VALUES = new Set(['editable', 'advanced', 'readout', 'file-only']);
@@ -113,7 +113,7 @@ function expectedControls(def: SchemaDef): readonly string[] {
   if (def.type === 'number') return ['number'];
   if (def.type === 'string') return ['text', 'password'];
   if (def.type === 'enum') return ['select'];
-  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'tab-order', 'agent-visibility'] : ['json'];
+  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'agent-visibility'] : ['json'];
   if (def.type === 'record' || def.type === 'object') return ['json'];
   if (def.type === 'union') return ['list'];
   assert.fail(`no control is defined for a ${def.type} leaf`);
@@ -157,7 +157,7 @@ test('each control agrees with its schema type', () => {
 
 test('each number has a unit and a range the schema agrees with at its edges', () => {
   const numbers = CONFIG_ENTRIES.filter((setting) => setting.control === 'number');
-  assert.ok(numbers.length > 30);
+  assert.ok(numbers.length > 10);
   for (const setting of numbers) {
     const { range, unit } = setting;
     assert.ok(range, `${setting.path} has no range`);
@@ -214,7 +214,7 @@ test('every default equals DEFAULT_CONFIG wherever that names the path', () => {
     compared += 1;
     assert.deepEqual(setting.defaultValue, serverDefault, `${setting.path} default drifted from DEFAULT_CONFIG`);
   }
-  assert.ok(compared > 40, `expected DEFAULT_CONFIG to name most registry paths, compared ${compared}`);
+  assert.ok(compared > 25, `expected DEFAULT_CONFIG to name most registry paths, compared ${compared}`);
 });
 
 test('the alias and moved-setting tables come from the legacy ids and resolve to live sections and settings', () => {
@@ -250,12 +250,12 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     shortcuts: 'browser-shortcuts',
   });
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
-    'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
-    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs' },
+    'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications', 'reviews-turn-limit': 'lanes-team-review' },
+    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'lanes-fetch-domains': 'machine-privacy' },
     'machine-home': { 'agent-accounts': 'machine-accounts' },
-    'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
-    'machine-sessions': { 'remote-setup': 'machine-server', 'hint-cards': 'machine-usage' },
-    'machine-vault': { 'lanes-fetch-domains': 'lanes-team-review' },
+    'machine-safety': { 'branch-gc-delete-unmerged': 'machine-worktrees' },
+    'machine-sessions': { 'remote-setup': 'machine-server', 'branch-gc-delete-unmerged': 'machine-worktrees' },
+    'machine-vault': { 'lanes-fetch-domains': 'machine-privacy' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });
   const sectionIds = new Set(SETTINGS_REGISTRY.sections.map((section) => section.id));
@@ -284,18 +284,19 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
 test('the byId and byPath maps cover every entry from one pass', () => {
   assert.equal(SETTINGS_INDEX.byId.size, ALL_ENTRIES.length);
   assert.equal(SETTINGS_INDEX.byPath.size, ALL_ENTRIES.length);
-  assert.equal(SETTINGS_INDEX.byPath.get('cursorBlink')?.id, 'file-cursor-blink');
+  assert.equal(SETTINGS_INDEX.byPath.get('debugMode')?.id, 'file-debug-mode');
   const small = indexSettings({ sections: [SETTINGS_REGISTRY.sections[0]], fileOnly: [] });
   assert.deepEqual([...small.byId.keys()], SETTINGS_REGISTRY.sections[0].settings.map((setting) => setting.id));
 });
 
 test('unit conversion scales both ways and rounds whole-number settings', () => {
-  const debounce = SETTINGS_INDEX.byPath.get('notifyDebounceMs');
-  assert.ok(debounce);
-  assert.equal(displayValue(debounce, 30000), 30);
-  assert.equal(wireValue(debounce, 30), 30000);
-  assert.equal(wireValue({ ...debounce, integer: true }, 0.0004), 0);
-  assert.equal(wireValue(debounce, 0.0004), 0.4);
+  const sampleNumber = CONFIG_ENTRIES.find((entry) => entry.control === 'number');
+  assert.ok(sampleNumber);
+  const scaled = { ...sampleNumber, integer: false, unit: { label: 'seconds', storedPerDisplay: 1000, storedLabel: 'ms' } };
+  assert.equal(displayValue(scaled, 30000), 30);
+  assert.equal(wireValue(scaled, 30), 30000);
+  assert.equal(wireValue({ ...scaled, integer: true }, 0.0004), 0);
+  assert.equal(wireValue(scaled, 0.0004), 0.4);
   for (const setting of CONFIG_ENTRIES.filter((entry) => entry.control === 'number' && typeof entry.defaultValue === 'number')) {
     assert.equal(wireValue(setting, displayValue(setting, setting.defaultValue)), setting.defaultValue, setting.path);
   }
@@ -383,11 +384,14 @@ test('the pre-existing deep links from the banner, the notice and the panels sti
     ['machine-usage', 'usage-daily-budget', '#settings/machine-usage/usage-daily-budget'],
     ['lanes-posthog', 'posthog-enabled', '#settings/lanes-posthog/posthog-enabled'],
     [TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, '#settings/lanes-team-review/team-review-enabled'],
-    ['machine-general', 'auto-resume', '#settings/machine-sessions/auto-resume'],
+    ['machine-general', 'repository-roots', '#settings/machine-sessions/repository-roots'],
+    ['browser-appearance', 'reviews-turn-limit', '#settings/lanes-team-review/reviews-turn-limit'],
+    ['machine-sessions', 'branch-gc-delete-unmerged', '#settings/machine-worktrees/branch-gc-delete-unmerged'],
+    ['lanes-team-review', 'lanes-fetch-domains', '#settings/machine-privacy/lanes-fetch-domains'],
     ['lanes-unattended', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
     ['machine-guardrails', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
-    ['browser-flying-animals', 'animals-on-phone', '#settings/browser-appearance/animals-on-phone'],
-    ['notifications', 'telegram-session-notifications', '#settings/machine-telegram/telegram-session-notifications'],
+    ['browser-flying-animals', 'flying-animals', '#settings/browser-appearance/flying-animals'],
+    ['notifications', 'telegram-chat-id', '#settings/machine-telegram/telegram-chat-id'],
   ]) {
     const resolved = parseSettingsHash(`#settings/${sectionId}/${settingId}`, SETTINGS_REGISTRY.sections, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
     assert.equal(resolved?.hash, canonical, `#settings/${sectionId}/${settingId}`);
@@ -466,24 +470,19 @@ test('the update deep link the banner and the Radar ops row share resolves to a 
   assert.ok(section.settings.some((setting) => setting.id === UPDATES_ACTIONS_SETTING_ID), 'the deep link names a missing setting');
 });
 
-test('the tuning knobs, diagnostics and legacy team keys are the file-only listing', () => {
+test('the tuning knobs and diagnostics are the file-only listing', () => {
   const fileOnlyPaths = SETTINGS_REGISTRY.fileOnly.map((setting) => setting.path);
   for (const settingPath of [
-    'teamReview.team',
-    'posthog.investigationTimeoutSeconds', 'posthog.fixTimeoutSeconds', 'posthog.userEscalationThreshold',
-    'posthog.trafficSpikeMultiplier', 'posthog.trafficSpikeMinUsers', 'posthog.trafficSpikeCooldownMinutes', 'posthog.trafficSpikeBaselineDays',
-    'workflows.maxActionsPerPoll',
-    'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok', 'usage.vendors.kimi',
-    'replayBufferKB', 'cursorBlink',
-    'debugMode', 'recordSignals', 'trace.enabled', 'detectScheduledWakeups',
-    'notifyDebounceMs', 'phoneEscalationMs',
+    'autoResume',
+    'spawnedSessionsMax',
+    'usage.retainDays',
+    'workflows.maxConcurrentSessions',
+    'debugMode',
   ]) {
     assert.ok(fileOnlyPaths.includes(settingPath), `${settingPath} should be file-only`);
   }
   const editable = settingsOf(SECTIONS).filter((setting) => setting.access === 'editable' || setting.access === 'advanced');
-  assert.ok(editable.length >= 60 && editable.length <= 90, `${editable.length} editable entries`);
-  assert.equal(settingById('file-team-review-team').group, 'lanes-team-review');
-  assert.match(settingById('file-team-review-team').fileOnlyReason ?? '', /legacy/);
+  assert.ok(editable.length >= 30 && editable.length <= 90, `${editable.length} editable entries`);
 });
 
 test('the agent API row is gone, the custom agents readout sits beside its file-only key, and no section edits a by-rule path', () => {
@@ -504,7 +503,7 @@ test('the agent API row is gone, the custom agents readout sits beside its file-
   }
 });
 
-test('the Team review lane section owns its settings and deep link, with the legacy team left to config.json', () => {
+test('the Team review lane section owns its settings and deep link, with the legacy team and tuning keys left to config.json', () => {
   const section = sectionById(TEAM_REVIEW_SETTINGS_SECTION_ID);
   assert.equal(section.level, 'lanes');
   assert.equal(SETTINGS_SECTION_ALIASES['team-review'], TEAM_REVIEW_SETTINGS_SECTION_ID);
@@ -512,37 +511,35 @@ test('the Team review lane section owns its settings and deep link, with the leg
     ['team-review-enabled', 'teamReview.enabled', 'toggle'],
     ['github-teams', 'github.teams', 'list'],
     ['team-review-org', 'teamReview.org', 'text'],
-    ['team-review-re-review-after-hours', 'teamReview.reReviewAfterHours', 'number'],
-    ['team-review-skip-idle-after-days', 'teamReview.skipIdleAfterDays', 'number'],
     ['team-review-skill', 'teamReview.skill', 'text'],
-    ['team-review-extra-skills', 'teamReview.extraSkills', 'list'],
-    ['team-review-reviewer-model', 'teamReview.reviewer.model', 'text'],
-    ['team-review-reviewer-effort', 'teamReview.reviewer.effort', 'text'],
-    ['team-review-stamp-reviewer-model', 'teamReview.stampReviewer.model', 'text'],
-    ['team-review-stamp-reviewer-effort', 'teamReview.stampReviewer.effort', 'text'],
     ['team-review-sandbox-load-mcp-servers', 'teamReview.sandbox.loadMcpServers', 'toggle'],
-    ['lanes-fetch-domains', 'lanes.fetchDomains', 'list'],
+    ['reviews-turn-limit', 'pref:reviewsTurnLimit', 'number'],
   ]);
-  assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path).slice(0, 4), [
-    'teamReview.autoRebaseMyPrs', 'teamReview.keepMergeableEnabled', 'teamReview.keepMergeableTimeoutMinutes', 'teamReview.mergeQueueEnabled',
+  assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path), [
+    'teamReview.autoRebaseMyPrs', 'workflows.enabled', 'status:workflow-rules',
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
-  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(settableFromDashboard(setting.path), true, setting.path);
-  assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), ['teamReview.team']);
+  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly' && !entry.path.startsWith('pref:'))) assert.equal(settableFromDashboard(setting.path), true, setting.path);
+  assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), [
+    'teamReview.reReviewAfterHours',
+    'teamReview.skipIdleAfterDays',
+    'teamReview.extraSkills',
+    'teamReview.reviewer.model',
+    'teamReview.reviewer.effort',
+    'teamReview.stampReviewer.model',
+    'teamReview.stampReviewer.effort',
+  ]);
 });
 
-test('Flying animals follows Appearance and owns its stable toggle and searchable advanced controls', () => {
+test('Flying animals follows Appearance with its single toggle', () => {
   const animals = sectionById('browser-appearance');
   assert.equal(animals.level, 'browser');
   assert.equal(SETTINGS_SECTION_ALIASES.animals, animals.id);
   assert.equal(SETTINGS_SECTION_ALIASES['flying-animals'], animals.id);
   const settings = animals.settings;
   assert.equal(settings.find((setting) => setting.id === 'flying-animals')?.path, 'pref:flyingAnimalsEnabled');
-  assert.equal(settings.filter((setting) => setting.access === 'advanced').length, 6);
+  assert.equal(settings.filter((setting) => setting.access === 'advanced').length, 0);
   assert.equal(settings.every((setting) => setting.path.startsWith('pref:') && setting.scope === 'browser'), true);
-  for (const [key, value] of Object.entries(FLYING_ANIMALS_DEFAULTS)) {
-    assert.equal(settings.find((setting) => setting.path === `pref:${key}`)?.defaultValue, value, key);
-  }
 });
 
 test('the machine Privacy section owns the telemetry toggle and the privacy deep link', () => {
@@ -553,4 +550,43 @@ test('the machine Privacy section owns the telemetry toggle and the privacy deep
   assert.equal(toggle?.control, 'toggle');
   assert.equal(toggle?.defaultValue, DEFAULT_CONFIG.telemetry.enabled);
   assert.equal(settableFromDashboard('telemetry.enabled'), true);
+});
+
+test('visibleWhen gates platform, sandbox, vault, team org, loop guard, PostHog and Community rows', () => {
+  const settingById = (id: string): SettingsSetting => {
+    const found = SETTINGS_INDEX.byId.get(id);
+    assert.ok(found, `missing setting ${id}`);
+    return found;
+  };
+  const defaults = hydrateFromSettings(SETTINGS_REGISTRY.sections, {});
+  const linuxNoSandbox = { serverPlatform: 'linux', sessionSandbox: false };
+  const linuxSandbox = { serverPlatform: 'linux', sessionSandbox: true };
+  const macSandbox = { serverPlatform: 'darwin', sessionSandbox: true };
+
+  assert.equal(isSettingShown(settingById('sandbox-allowed-hosts'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('sandbox-allowed-hosts'), defaults, linuxSandbox), true);
+  assert.equal(isSettingShown(settingById('sandbox-weaker-network-isolation'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('sandbox-weaker-network-isolation'), defaults, linuxSandbox), false);
+  assert.equal(isSettingShown(settingById('sandbox-weaker-network-isolation'), defaults, macSandbox), true);
+
+  assert.equal(isSettingShown(settingById('vault-look-in'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('vault-look-in'), { ...defaults, 'vault.manager': '1password' }, linuxNoSandbox), true);
+  assert.equal(settingById('vault-source').status, 'vault-connection');
+
+  assert.equal(isSettingShown(settingById('team-review-org'), defaults, linuxNoSandbox), true);
+  assert.equal(isSettingShown(settingById('team-review-org'), { ...defaults, 'github.teams': ['org/team'] }, linuxNoSandbox), false);
+
+  assert.equal(isSettingShown(settingById('loop-guard-on-stuck'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('loop-guard-on-stuck'), { ...defaults, 'loopGuard.maxTurnsWithoutProgress': 4 }, linuxNoSandbox), true);
+
+  assert.equal(isSettingShown(settingById('posthog-host'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('posthog-host'), { ...defaults, 'posthog.enabled': true }, linuxNoSandbox), true);
+  assert.equal(isSettingShown(settingById('posthog-host'), { ...defaults, 'community.enabled': true }, linuxNoSandbox), true);
+  assert.equal(isSettingShown(settingById('posthog-projects'), { ...defaults, 'community.enabled': true }, linuxNoSandbox), false);
+  assert.equal(gatesOnPath(sectionById('lanes-posthog').settings, 'posthog.enabled'), true);
+  assert.equal(gatesOnPath(sectionById('lanes-posthog').settings, 'community.enabled'), true);
+
+  assert.equal(isSettingShown(settingById('community-skill'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('community-skill'), { ...defaults, 'community.enabled': true }, linuxNoSandbox), true);
+  assert.equal(gatesOnPath(sectionById('lanes-community').settings, 'community.enabled'), true);
 });

@@ -14,7 +14,7 @@ import { normalizeLegacyConfigNumbers } from '../../shared/contracts/config-numb
 import { WorktreeFileSettings } from '../../shared/contracts/browser-config.ts';
 import type { GlimmervoidConfig, ConfigValidation, ConfigFileSave, EnvSecrets } from './config-types.ts';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_BY_KEY } from './config-defaults.ts';
-import { moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
+import { dropRetiredSettings, moveRenamedKeys, resolveBranchGc } from './config-migrations.ts';
 import { configBackupPath, configSecretsPath, retiredConfigBackupPaths } from '../secrets/core/secret-files-core.ts';
 import { defaultRepoRootOf } from '../core/repository-source-core.ts';
 import { SETTINGS_REGISTRY } from '../../shared/settings/registry.ts';
@@ -69,7 +69,6 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (issue.code === 'custom') return issue.message;
       const [root, index, field] = issue.path;
       if (root === 'port') return 'port must be an integer from 0 to 65535';
-      if (root === 'replayBufferKB') return issue.message;
       if (root === 'repoRoots') return `${root} must be an array of strings`;
       if (root === 'remote') return 'remote must be a plain object';
       if (root !== 'projects' && typeof DEFAULT_CONFIG_BY_KEY[String(root)] === 'number') {
@@ -110,6 +109,8 @@ function normalizeConfigFile(candidate: unknown, renamedKeyMessages: string[] = 
   if (!isRecord(candidate)) throw new Error('config must be a plain object');
   const draft = normalizeLegacyConfigNumbers(candidate);
   renamedKeyMessages.push(...moveRenamedKeys(draft));
+  const retiredMessage = dropRetiredSettings(draft);
+  if (retiredMessage !== null) renamedKeyMessages.push(retiredMessage);
   replaceInvalidWorktreeLeaves(draft);
   for (const [key, fallback] of Object.entries(DEFAULT_CONFIG_BY_KEY)) {
     if (fallback === null || typeof fallback === 'object') continue;

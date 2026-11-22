@@ -1,7 +1,7 @@
 import path from "node:path";
 import { AGENT_URL_ENV, GIT_CREDENTIAL_URL_ENV, SIGN_URL_ENV } from "../../shared/contracts/session.ts";
 import { HOOK_URL_ENV } from "./hook-relay-core.ts";
-import { MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX } from "../../mcp/core/agent-config.ts";
+import { MCP_CREDENTIAL_ENV, PACK_SECRET_ENV_PREFIX } from "../../server/core/mcp-env-core.ts";
 import { SANE_YOLO_PATH_ENV, saneYoloEnv } from "./sane-yolo.ts";
 import { PACK_HOOK_FILES_ENV } from "./pack-hook-core.ts";
 import { ENV_SECRET_BINDINGS } from "../../server/core/config-secrets-core.ts";

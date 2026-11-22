@@ -1,0 +1,310 @@
+import type { ManagerDecision } from '#shared/contracts/question-manager.ts';
+import type { SessionState } from '#shared/states.ts';
+import { STATES } from '#shared/states.ts';
+import { UnseenOutcome, type AttentionOwner } from '#shared/contracts/session.ts';
+import type { SessionStateSource } from './session-actions-core.ts';
+import { moveViewId } from './view-registry-core.ts';
+
+type SessionAttentionTier = 'now' | 'later' | 'resting';
+interface SessionAttentionRow {
+  state?: unknown;
+  unseenOutcome?: unknown;
+  attentionOwner?: AttentionOwner;
+}
+
+const SESSION_ATTENTION_TIER_BY_STATE: Readonly<Record<SessionState, SessionAttentionTier>> = {
+  WAITING: 'now',
+  COMPLETE: 'later',
+  FAILED: 'resting',
+  IDLE: 'resting',
+  RUNNING: 'resting',
+  STARTING: 'resting',
+  INITIALIZING: 'resting',
+  DORMANT: 'resting',
+  DONE: 'resting',
+};
+const attentionTierByState: ReadonlyMap<string, SessionAttentionTier> = new Map(Object.entries(SESSION_ATTENTION_TIER_BY_STATE));
+
+export function sessionAttentionTier(row: SessionAttentionRow): SessionAttentionTier {
+  const tier = typeof row.state === 'string' ? attentionTierByState.get(row.state) : undefined;
+  return tier ?? 'resting';
+}
+
+interface RosterEntry {
+  id: string;
+  isDormant?: boolean;
+  ownerId?: string | null;
+}
+
+export interface SessionRow<Session, Name = string> extends RosterEntry {
+  id: string;
+  ui: Session;
+  name: Name;
+  isDormant: boolean;
+  state: string;
+  unseenOutcome: UnseenOutcome | null;
+  ownerId: string | null;
+  attentionOwner: AttentionOwner;
+}
+
+export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null; attentionOwner?: AttentionOwner; unseenOutcome?: UnseenOutcome | null }, Name>(
+  sessions: Iterable<readonly [string, Session]>,
+  nameOf: (session: Session) => Name,
+): SessionRow<Session, Name>[] {
+  return [...sessions].map(([id, ui]) => {
+    const state = ui.currentState || STATES.DORMANT;
+    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseenOutcome: ui.unseenOutcome ?? null, ownerId: ui.ownerId ?? null, attentionOwner: ui.attentionOwner ?? 'operator' };
+  });
+}
+
+function placeOwnedAfterOwners<Row extends RosterEntry>(rows: readonly Row[]): Row[] {
+  const presentIds = new Set(rows.map(({ id }) => id));
+  const presentOwnerIdOf = (row: Row) => (row.ownerId && presentIds.has(row.ownerId) ? row.ownerId : null);
+  const ownedRowsByOwnerId = new Map<string, Row[]>();
+  for (const row of rows) {
+    const ownerId = presentOwnerIdOf(row);
+    if (ownerId) ownedRowsByOwnerId.set(ownerId, [...(ownedRowsByOwnerId.get(ownerId) ?? []), row]);
+  }
+  return rows.flatMap((row) => (presentOwnerIdOf(row) ? [] : [row, ...(ownedRowsByOwnerId.get(row.id) ?? [])]));
+}
+
+export function orderRoster<Row extends RosterEntry>(list: readonly Row[], manualOrder: readonly string[] = []): Row[] {
+  const manualRankById = new Map(manualOrder.map((id, index) => [id, index]));
+  const manualRankOf = (row: Row) => manualRankById.get(row.id) ?? manualOrder.length;
+  const dormantRankOf = (row: Row) => Number(row.isDormant === true);
+  return placeOwnedAfterOwners([...list].sort((a, b) => dormantRankOf(a) - dormantRankOf(b) || manualRankOf(a) - manualRankOf(b)));
+}
+
+export function sessionOrderOf(settings: Readonly<Record<string, unknown>>): string[] {
+  const sessionOrder = settings.sessionOrder;
+  if (!Array.isArray(sessionOrder)) return [];
+  return sessionOrder.filter((id): id is string => typeof id === 'string');
+}
+
+export function canDropRow<Row extends RosterEntry>(dragged: Row, target: Row, groupKeyOf: (row: Row) => string, presentIds: ReadonlySet<string>): boolean {
+  if (dragged.id === target.id) return false;
+  if (groupKeyOf(dragged) !== groupKeyOf(target)) return false;
+  if ((dragged.isDormant === true) !== (target.isDormant === true)) return false;
+  const presentOwnerOf = (row: Row) => (row.ownerId && presentIds.has(row.ownerId) ? row.ownerId : null);
+  return presentOwnerOf(dragged) === presentOwnerOf(target);
+}
+
+export function dropAnchorId(railRows: readonly RosterEntry[], targetId: string, side: 'before' | 'after'): string {
+  if (side === 'before') return targetId;
+  const targetIndex = railRows.findIndex(({ id }) => id === targetId);
+  let anchorIndex = targetIndex;
+  while (anchorIndex + 1 < railRows.length && railRows[anchorIndex + 1]?.ownerId === targetId) anchorIndex += 1;
+  return railRows[anchorIndex]?.id ?? targetId;
+}
+
+export function sessionOrderAfterDrop(railRows: readonly RosterEntry[], savedOrder: readonly string[], movedId: string, targetId: string, side: 'before' | 'after'): string[] {
+  const railIds = railRows.map(({ id }) => id);
+  const railIdSet = new Set(railIds);
+  const savedIdsNotInRail = savedOrder.filter((id) => !railIdSet.has(id));
+  const anchorIndex = railIds.filter((id) => id !== movedId).indexOf(dropAnchorId(railRows, targetId, side));
+  if (anchorIndex === -1) return [...savedOrder];
+  return [...moveViewId(railIds, movedId, side === 'before' ? anchorIndex : anchorIndex + 1), ...savedIdsNotInRail];
+}
+
+export function describeOwnership({ ownerName, ownedCount }: { ownerName: string | null; ownedCount: number }): string | null {
+  if (ownerName !== null) return `Owned by ${ownerName}`;
+  if (ownedCount === 1) return 'Owns 1 session';
+  if (ownedCount > 1) return `Owns ${ownedCount} sessions`;
+  return null;
+}
+
+export function pickAdjacent(orderedIds: readonly string[], currentId: string | null | undefined, dir: number) {
+  if (!orderedIds.length) return null;
+  const step = dir < 0 ? -1 : 1;
+  const cur = currentId == null ? -1 : orderedIds.indexOf(currentId);
+  const start = cur === -1 ? (step === 1 ? -1 : 0) : cur;
+  return orderedIds[(start + step + orderedIds.length) % orderedIds.length];
+}
+
+export type AttentionKind = 'waiting' | UnseenOutcome;
+
+export interface AttentionTile {
+  id: string;
+  kind: AttentionKind;
+  name: string;
+}
+
+function outcomeKindOf({ state, unseenOutcome }: SessionAttentionRow): AttentionKind | null {
+  if (state === STATES.WAITING) return 'waiting';
+  const parsedUnseenOutcome = UnseenOutcome.safeParse(unseenOutcome);
+  return parsedUnseenOutcome.success ? parsedUnseenOutcome.data : null;
+}
+
+function attentionKindOf(row: SessionAttentionRow): AttentionKind | null {
+  if (row.attentionOwner !== undefined && row.attentionOwner !== 'operator') return null;
+  return outcomeKindOf(row);
+}
+
+export function needsAttention(row: SessionAttentionRow = {}) {
+  return outcomeKindOf(row) !== null;
+}
+
+const JUMP_RANK_BY_KIND: ReadonlyMap<AttentionKind, number> = new Map<AttentionKind, number>([
+  ['failed', 0],
+  ['waiting', 1],
+  ['finished', 2],
+]);
+
+function jumpRankOf(row: SessionAttentionRow): number | undefined {
+  const kind = attentionKindOf(row);
+  return kind === null ? undefined : JUMP_RANK_BY_KIND.get(kind);
+}
+
+function orderAttentionQueue<Row extends SessionAttentionRow & { id: string }>(rosterOrderedRows: readonly Row[]): string[] {
+  return rosterOrderedRows
+    .filter((row) => jumpRankOf(row) !== undefined)
+    .sort((first, second) => (jumpRankOf(first) ?? 0) - (jumpRankOf(second) ?? 0))
+    .map(({ id }) => id);
+}
+
+export function orderAttentionLine<Row extends SessionAttentionRow & { id: string; name?: string | null }>(rosterOrderedRows: readonly Row[], focusedId: string | null | undefined): AttentionTile[] {
+  const rowById = new Map(rosterOrderedRows.map((row) => [row.id, row]));
+  return orderAttentionQueue(rosterOrderedRows).flatMap((id) => {
+    const row = rowById.get(id);
+    const kind = row ? attentionKindOf(row) : null;
+    if (!row || kind === null || id === focusedId) return [];
+    return [{ id, kind, name: row.name ?? '' }];
+  });
+}
+
+export const ATTENTION_TILE_SIZES_PX = { headTile: 32, tile: 26, tileGap: 4, overflowSlot: 40 } as const;
+
+export function fitAttentionTiles(availableWidthPx: number, tileCount: number) {
+  if (tileCount === 0) return 0;
+  const { headTile, tile, tileGap, overflowSlot } = ATTENTION_TILE_SIZES_PX;
+  const tileStepPx = tile + tileGap;
+  if (headTile + (tileCount - 1) * tileStepPx <= availableWidthPx) return tileCount;
+  const roomBeforeOverflowPx = availableWidthPx - overflowSlot - tileGap - headTile;
+  const tilesAfterHead = Math.floor(roomBeforeOverflowPx / tileStepPx);
+  return Math.max(1, Math.min(tileCount - 1, 1 + tilesAfterHead));
+}
+
+type AttentionCountRow = SessionAttentionRow | null | undefined;
+
+export interface AttentionCounts {
+  waitingCount: number;
+  finishedCount: number;
+  failedCount: number;
+}
+
+const COUNT_KEY_BY_KIND: Readonly<Record<AttentionKind, keyof AttentionCounts>> = {
+  waiting: 'waitingCount',
+  failed: 'failedCount',
+  finished: 'finishedCount',
+};
+
+function adjustAttentionCount(counts: AttentionCounts, row: AttentionCountRow, delta: number) {
+  const kind = attentionKindOf(row || {});
+  if (kind !== null) counts[COUNT_KEY_BY_KIND[kind]] += delta;
+}
+
+export function countAttentionByKind(rows: readonly AttentionCountRow[] | null | undefined): AttentionCounts {
+  const counts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };
+  for (const row of (rows || [])) adjustAttentionCount(counts, row, 1);
+  return counts;
+}
+
+type TallyRow = SessionAttentionRow & { ownerId: string | null };
+
+interface AttentionTally {
+  counts: AttentionCounts;
+  ownedCountByOwnerId: Map<string, number>;
+}
+
+export function createAttentionTally(): AttentionTally {
+  return { counts: { waitingCount: 0, finishedCount: 0, failedCount: 0 }, ownedCountByOwnerId: new Map() };
+}
+
+function adjustTally(tally: AttentionTally, row: TallyRow, delta: number) {
+  adjustAttentionCount(tally.counts, row, delta);
+  if (row.ownerId === null) return;
+  const ownedCount = (tally.ownedCountByOwnerId.get(row.ownerId) ?? 0) + delta;
+  if (ownedCount > 0) {
+    tally.ownedCountByOwnerId.set(row.ownerId, ownedCount);
+    return;
+  }
+  tally.ownedCountByOwnerId.delete(row.ownerId);
+}
+
+export function tallyAdd(tally: AttentionTally, row: TallyRow) {
+  adjustTally(tally, row, 1);
+}
+
+export function tallyRemove(tally: AttentionTally, row: TallyRow) {
+  adjustTally(tally, row, -1);
+}
+
+export function jumpTargetCount({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
+  return waitingCount + failedCount + finishedCount;
+}
+
+export function titleAlertCount({ waitingCount, failedCount }: AttentionCounts) {
+  return waitingCount + failedCount;
+}
+
+export function attentionSummaryText({ waitingCount, finishedCount, failedCount }: AttentionCounts) {
+  const parts: string[] = [];
+  if (failedCount > 0) parts.push(`${failedCount} FAILED`);
+  if (waitingCount === 1) parts.push('1 NEEDS YOU');
+  if (waitingCount > 1) parts.push(`${waitingCount} NEED YOU`);
+  if (finishedCount > 0) parts.push(`${finishedCount} FINISHED`);
+  if (parts.length === 0) return 'ALL CLEAR';
+  return parts.join(', ');
+}
+
+const ATTENTION_RANK_BY_LEVEL = new Map<string, number>([['hand', 2]]);
+const ATTENTION_RANK_PRESENT = 1;
+
+type AttentionLevel = string | boolean | null | undefined;
+
+function attentionRank(level: AttentionLevel) {
+  if (!level) return 0;
+  if (typeof level === 'string') return ATTENTION_RANK_BY_LEVEL.get(level) || ATTENTION_RANK_PRESENT;
+  return ATTENTION_RANK_PRESENT;
+}
+
+export function pickStrongestAttention(levels?: readonly AttentionLevel[] | null): string | boolean {
+  let strongest: string | boolean = false;
+  let strongestRank = 0;
+  for (const level of (levels || [])) {
+    const rank = attentionRank(level);
+    if (rank <= strongestRank) continue;
+    strongest = typeof level === 'string' ? level : true;
+    strongestRank = rank;
+  }
+  return strongest;
+}
+
+export function managerDecisionText(decision: ManagerDecision): string {
+  if (decision.outcome === 'escalated') return `Passed to you: ${decision.questions.join('; ')} (${decision.reason})`;
+  const answered = Object.entries(decision.answers).map(([question, answer]) => `${question}: ${answer}`).join('; ');
+  return `Answered ${answered} (${decision.rule})`;
+}
+
+export function decisionsAfter(decisions: readonly ManagerDecision[], seenSeq: number): ManagerDecision[] {
+  return decisions.filter((decision) => decision.seq > seenSeq);
+}
+
+export function unseenAnswers(decisions: readonly ManagerDecision[], seenSeq: number): ManagerDecision[] {
+  return decisionsAfter(decisions, seenSeq).filter((decision) => decision.outcome === 'answered');
+}
+
+export function passedOnReason(decisions: readonly ManagerDecision[], seenSeq: number): string | null {
+  const latest = decisions.at(-1);
+  if (!latest || latest.seq <= seenSeq || latest.outcome !== 'escalated') return null;
+  return latest.reason;
+}
+
+export function answersAckSeq(decisions: readonly ManagerDecision[], seenSeq: number, listedThroughSeq: number): number {
+  const firstUnseenEscalation = decisionsAfter(decisions, seenSeq).find((decision) => decision.outcome === 'escalated');
+  return firstUnseenEscalation ? Math.min(listedThroughSeq, firstUnseenEscalation.seq - 1) : listedThroughSeq;
+}
+
+export function answeredForYouText(answeredCount: number): string {
+  return `${answeredCount} answered for you`;
+}

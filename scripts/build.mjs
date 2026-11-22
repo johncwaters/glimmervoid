@@ -210,9 +210,9 @@ function assertLazyViewsStayOutOfEntry() {
     staticallyReachedFiles.add(chunk.file);
     pendingKeys.push(...(chunk.imports ?? []));
   }
-  const registrySource = fs.readFileSync(path.join(repoRoot, 'public', 'view-registry.ts'), 'utf8');
-  const lazyViewSources = [...registrySource.matchAll(/import\('\.\/([^']+)'\)/g)].map((match) => match[1]);
-  if (lazyViewSources.length === 0) fail('public/view-registry.ts loads no view through load()');
+  const registrySource = fs.readFileSync(path.join(repoRoot, 'public', 'boot', 'view-registry.ts'), 'utf8');
+  const lazyViewSources = [...registrySource.matchAll(/import\('\.\.\/([^']+)'\)/g)].map((match) => match[1]);
+  if (lazyViewSources.length === 0) fail('public/boot/view-registry.ts loads no view through load()');
   for (const source of lazyViewSources) {
     const chunk = manifest[source];
     if (!chunk?.isDynamicEntry || staticallyReachedFiles.has(chunk.file)) fail(`public/${source} is statically reachable from the entry chunk; import its store instead of the panel`);

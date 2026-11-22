@@ -5,7 +5,7 @@ import path from 'node:path';
 import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus as MyPrsStatusType } from '../../shared/contracts/my-prs.ts';
-import { myPrMergeRefusal } from '../../shared/my-pr-merge.ts';
+import { myPrMergeRefusal } from '../../shared/contracts/my-pr-merge.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import * as core from './core/my-prs-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';
@@ -364,7 +364,6 @@ interface MyPrsWiringOptions {
 export function createMyPrsWiring({ config, broadcast, log = console, homeDir = glimmervoidHomeDir(), github, store, createPoller = createMyPrsPoller, clock, fixMergeability, sweepLeftovers }: MyPrsWiringOptions) {
   const stateIo = createMyPrsStateIo(path.join(homeDir, core.MY_PRS_STATE_FILENAME), log);
   const settings = () => readTeamReviewSettings(config);
-  const features = () => core.readMyPrsFeatureSettings(config);
   const gate = () => core.myPrsShouldStart(settings());
   const emptyStatus = () => {
     const verdict = gate();
@@ -375,7 +374,6 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     gate,
     cfgKey: () => JSON.stringify({
       enabled: settings().enabled, org: settings().org, autoRebaseMyPrs: settings().autoRebaseMyPrs,
-      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled,
     }),
     emptyStatus,
     broadcast: (status) => {
@@ -384,7 +382,7 @@ export function createMyPrsWiring({ config, broadcast, log = console, homeDir = 
     },
     createPoller: ({ onTickComplete }) => createPoller({
       org: settings().org, shouldAutoRebase: settings().autoRebaseMyPrs,
-      isKeepMergeableEnabled: features().isKeepMergeableEnabled, isMergeQueueEnabled: features().isMergeQueueEnabled, github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
+      github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay,
       readState: stateIo.readState, writeState: stateIo.writeState, fixMergeability, beforeStart: sweepLeftovers,
       mergePr: (queuedPr) => mergeTrackedPr(queuedPr.key, queuedPr, queuedPr.headRefOid),
     }),

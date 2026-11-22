@@ -134,7 +134,7 @@ test('settings export prints config without secrets, and set --file applies it b
   const refusals: [Record<string, unknown> | string, RegExp][] = [
     [{ posthog: null }, /posthog holds a saved secret/],
     [{ url: 'x', token: 'y' }, /url, token are not config keys/],
-    [{ usage: { scanIntervalMinutes: 0 } }, /usage\.scanIntervalMinutes must be/],
+    [{ usage: { retainDays: 0 } }, /usage\.retainDays must be/],
     [{ remote: { port: 3000 } }, /remote\.port \(3000\) must differ from the local port/],
     ['WLK_not_json', /is not valid JSON$/m],
   ];

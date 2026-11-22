@@ -39,6 +39,7 @@ interface BackendShutdownDependencies {
   community?: { stopPoller: () => unknown } | null;
   workflows?: { stopPoller: () => unknown } | null;
   races?: { stopWatching: () => unknown } | null;
+  wargames?: { dispose: () => unknown } | null;
   usage: Stoppable;
   verification?: Stoppable | null;
   starHint?: Stoppable | null;
@@ -98,6 +99,7 @@ function createBackendShutdown(dependencies: BackendShutdownDependencies): () =>
     dependencies.notificationManager.destroy();
     dependencies.telegramChannel.destroy();
     if (dependencies.races) stoppers.add('races', () => dependencies.races?.stopWatching());
+    if (dependencies.wargames) stoppers.add('wargames', () => dependencies.wargames?.dispose());
     const pendingReaps: Promise<unknown>[] = [];
     destroySessions([dependencies.sessions], pendingReaps);
     if (dependencies.taskTitleRefiner) stoppers.add('task-title', () => dependencies.taskTitleRefiner?.stop());

@@ -15,7 +15,7 @@ import { onSessionTick, sessionElapsedText } from '../session-card/session-tick.
 import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { paintSessionRowStatus } from '../session-row.ts';
-import { createSessionPageButtons } from '../session-pages/session-pages.ts';
+import { createSessionPageButtons } from '../page-registry.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { decideStripContext } from '../mobile-keys.ts';

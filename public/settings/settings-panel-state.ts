@@ -3,9 +3,9 @@ import type { SettingsSection, SettingsSetting } from '#shared/settings/registry
 import { SETTINGS_REGISTRY } from '#shared/settings/registry.ts';
 import { hydrateFromSettings, pageSectionOf } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues } from './settings-view-core.ts';
-import { settingsHash } from './settings-link.ts';
+import { settingsHash } from '../settings-link.ts';
 import { getThemeList } from '../theme.ts';
-import { isFlyingAnimalsEnabled, getFlyingAnimalsEnteredValues, getSoundId, getThemeId, isNotificationsEnabled, isPhoneArrowPad, isSoundEnabled, isChatBriefOff, getNextAttentionKeyCode, getReviewsTurnLimit } from '../ui-prefs.ts';
+import { isFlyingAnimalsEnabled, getSoundId, getThemeId, isNotificationsEnabled, isPhoneArrowPad, isSoundEnabled, getNextAttentionKeyCode, getReviewsTurnLimit } from '../ui-prefs.ts';
 import { settingsPayloadSnapshot } from './settings-store.ts';
 
 type SaveTone = 'saving' | 'saved' | 'error';
@@ -117,12 +117,10 @@ function browserPreferences() {
   return {
     themeId: getThemeId(),
     flyingAnimalsEnabled: isFlyingAnimalsEnabled(),
-    ...getFlyingAnimalsEnteredValues(),
     soundEnabled: isSoundEnabled(),
     soundId: resolveSoundId(getSoundId()),
     notificationsEnabled: isNotificationsEnabled(),
     phoneArrowPad: isPhoneArrowPad(),
-    chatBrief: !isChatBriefOff(),
     reviewsTurnLimit: getReviewsTurnLimit(),
     nextAttentionKeyCode: getNextAttentionKeyCode(),
   };

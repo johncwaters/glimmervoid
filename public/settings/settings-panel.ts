@@ -10,14 +10,14 @@ import { copyButton } from '../ui/copy-button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import { BACK_ICON_PATH, createLineIcon } from '../svg-dom.ts';
-import { UPDATES_SECTION_ID } from '../radar/radar-core.ts';
+import { UPDATES_SECTION_ID } from '../feature-surfaces-core.ts';
 import type { SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '#shared/settings/registry.ts';
 import { MACHINE_HOME } from '#shared/settings/machine-sections.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
-import { SCOPE_LABELS, childSectionsOf, fileOnlySearchCard, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
-import { createSettingsLink, parseSettingsSearchHash, settingsSearchHash } from './settings-link.ts';
+import { SCOPE_LABELS, childSectionsOf, fileOnlySearchCard, gatesOnPath, isSettingShown, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
+import { createSettingsLink, parseSettingsSearchHash, settingsSearchHash } from '../settings-link.ts';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
@@ -25,8 +25,7 @@ import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts'
 import { keyChord } from '../ui/keycap.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
-import { applyFlyingAnimals } from '../flying-animals.ts';
-import { isFlyingAnimalsEnabled, resetFlyingAnimalsAdvanced, getSoundId } from '../ui-prefs.ts';
+import { getSoundId } from '../ui-prefs.ts';
 import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settingsFeatureTabViews, settingsPayloadSnapshot, subscribeSettings, takePendingSettingsActivation, returnToSettingsList } from './settings-store.ts';
 import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
@@ -38,7 +37,7 @@ import { buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksTabLink } from '../packs/packs-catalog.ts';
 import { renderGithubPage, renderSecretsPage } from '../secrets/secrets-settings.ts';
 import { refreshHooksPage, renderHooksPage } from '../hooks-panel.ts';
-import { refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow } from './settings-rows.ts';
+import { focusControl, refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow } from './settings-rows.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
 
@@ -134,20 +133,6 @@ function syncSoundEnabledValue(enabled: boolean) {
   if (setting) refreshRow(setting);
 }
 
-function renderFlyingAnimalsReset() {
-  return button({
-    variant: 'secondary',
-    label: 'Reset all to defaults',
-    action: 'reset-flying-animals',
-    onClick: () => {
-      resetFlyingAnimalsAdvanced();
-      hydrate(settingsPayload);
-      applyFlyingAnimals(isFlyingAnimalsEnabled());
-      renderContent();
-    },
-  });
-}
-
 function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
   const advanced = el('div', 'settings-view-advanced');
   const toggle = createPressable('dialog-advanced-toggle settings-view-advanced-toggle', 'Advanced');
@@ -162,7 +147,6 @@ function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
     toggle.setAttribute('aria-expanded', String(isAdvancedSettingsExpanded));
   });
   for (const setting of advancedSettings) panel.append(renderRow(setting));
-  if (selectedPage.id === APPEARANCE_PAGE_ID) panel.append(renderFlyingAnimalsReset());
   advanced.append(toggle, panel);
   return advanced;
 }
@@ -187,12 +171,17 @@ function renderAnimalGalleryToggle() {
   return disclosure;
 }
 
+function visibleSettingsOf(part: SettingsSection): SettingsSetting[] {
+  return part.settings.filter((entry) => isSettingShown(entry, storedValues, settingsPayload));
+}
+
 function renderPart(stack: HTMLElement, part: SettingsSection) {
-  for (const setting of part.settings.filter((entry) => entry.access !== 'advanced')) {
+  const visible = visibleSettingsOf(part);
+  for (const setting of visible.filter((entry) => entry.access !== 'advanced')) {
     stack.appendChild(renderRow(setting));
     if (setting.id === FLYING_ANIMALS_SETTING_ID) stack.appendChild(renderAnimalGalleryToggle());
   }
-  const advancedSettings = part.settings.filter((entry) => entry.access === 'advanced');
+  const advancedSettings = visible.filter((entry) => entry.access === 'advanced');
   if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings));
 }
 
@@ -334,7 +323,11 @@ function chooseSearchResult(searchResult: SectionSearchResult) {
 }
 
 function searchSettings(query: string) {
-  return scoreSettingsSearch(availableSettingsSections(), query, SETTINGS_REGISTRY.fileOnly);
+  const visibleSections = availableSettingsSections().map((section) => ({
+    ...section,
+    settings: visibleSettingsOf(section),
+  }));
+  return scoreSettingsSearch(visibleSections, query, SETTINGS_REGISTRY.fileOnly);
 }
 
 function highlightedSearchText(
@@ -595,11 +588,32 @@ function activatePendingSection() {
   activateSection(activation.sectionId, activation.settingId, activation.hashAtRequest);
 }
 
+function shownSettingIdsOf(part: SettingsSection): string[] {
+  return visibleSettingsOf(part).map((setting) => setting.id);
+}
+
+function sameStringList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function rerenderKeepingRowFocus() {
+  const activeSettingId = document.activeElement?.closest<HTMLElement>('[data-setting-id]')?.dataset.settingId ?? null;
+  renderContent();
+  if (!activeSettingId) return;
+  const row = contentEl?.querySelector<HTMLElement>(`[data-setting-id="${activeSettingId}"]`);
+  if (row) focusControl(row);
+}
+
 function showBroadcastSettings() {
+  const previousIds = shownSettingIdsOf(selectedPage);
   setSettingsPayload(settingsPayloadSnapshot());
   hydrate(settingsPayload);
   if (searchQuery) {
     renderSearchContent();
+    return;
+  }
+  if (!sameStringList(previousIds, shownSettingIdsOf(selectedPage))) {
+    rerenderKeepingRowFocus();
     return;
   }
   refreshVisibleRows();
@@ -651,7 +665,15 @@ function refreshShortcutGroups() {
   if (shortcutGroups) renderShortcutGroups(shortcutGroups);
 }
 
-setPanelRefresher({ refreshRow, refreshRowFoot, refreshSettingsStatus, refreshShortcutGroups });
+function refreshRowOrSection(setting: SettingsSetting, options?: { force?: boolean }) {
+  if (gatesOnPath(selectedPage.settings, setting.path)) {
+    rerenderKeepingRowFocus();
+    return;
+  }
+  refreshRow(setting, options);
+}
+
+setPanelRefresher({ refreshRow: refreshRowOrSection, refreshRowFoot, refreshSettingsStatus, refreshShortcutGroups });
 
 function refreshSettingsView(reason: ViewRefreshReason) {
   if (selectedPage.id === HOOKS_PAGE_ID) refreshHooksPage(reason);

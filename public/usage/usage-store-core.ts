@@ -1,99 +1,26 @@
 import { attentionSignature } from '../attention-ack-core.ts';
-import type { PlanLimitsVendor } from '#shared/contracts/control-messages.ts';
-import type { YourDay } from '#shared/contracts/your-day.ts';
+import type { PlanLimitsVendor, ServerMessageOf } from '#shared/contracts/control-messages.ts';
+import type { UsageBudgetRow, UsageScanSummary } from '#shared/contracts/usage-report.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 
-export interface UsageBlock {
-  startTs?: unknown;
-  endTs?: unknown;
-  tokens?: unknown;
-  costUSD?: unknown;
-  isActive?: unknown;
-  isGap?: unknown;
-}
-
-export interface UsageBudgetRow {
-  scope?: unknown;
-  budgetUsd?: unknown;
-  spentUsd?: unknown;
-  pct?: unknown;
-  tone?: unknown;
-}
-
-export interface UsageAnomaly {
-  daily?: { baselineDays?: unknown; ratio?: unknown; todayUsd?: unknown; baselineUsd?: unknown } | null;
-  burn?: { ratio?: unknown; current?: unknown; baseline?: unknown } | null;
-}
-
-export interface CacheSavings {
-  cacheReadTokens?: unknown;
-  savedUSD?: unknown;
-  unpricedModels?: unknown;
-}
-
-export interface UsageSavings {
-  cache?: CacheSavings | null;
-}
-
-interface UsageVendorTotals {
-  tokens?: unknown;
-  costUSD?: unknown;
-}
-
-export interface UsageTotals {
-  costUSD?: unknown;
-  tokens?: unknown;
-  input?: unknown;
-  output?: unknown;
-  cacheCreate?: unknown;
-  cacheRead?: unknown;
-  byVendor?: Record<string, UsageVendorTotals | null | undefined>;
-}
-
-interface UsageScan {
-  dirs?: unknown;
-  files?: unknown;
-  entries?: unknown;
-  lastScanMs?: unknown;
-  partial?: unknown;
-}
-
-export interface UsageReport {
-  ts?: unknown;
-  tz?: unknown;
-  error?: unknown;
-  warning?: unknown;
-  byLane?: unknown;
-  planWindowLanes?: { fiveHour?: unknown; sevenDay?: unknown } | null;
-  budget?: { rows?: unknown } | null;
-  anomaly?: UsageAnomaly | null;
-  daily?: unknown;
-  blocks?: unknown;
-  models?: unknown;
-  sessions?: unknown;
-  blockHours?: unknown;
-  totals?: UsageTotals;
-  savings?: UsageSavings;
-  scan?: UsageScan;
-  pricing?: { missing?: unknown; fetchedAt?: unknown; source?: unknown } | null;
-  yourDay?: YourDay | null;
-}
+export type UsageReport = ServerMessageOf<'usage-report'>;
+export type { PlanLimitsVendor };
 
 export const NO_VALUE = '-';
 
 const TOKEN_LIMIT_WARN_PCT = 80;
-export const RANGE_OPTIONS: readonly { value: string; label: string; days: number }[] = Object.freeze([
-  { value: 'day', label: 'Today', days: 1 },
-  { value: 'week', label: 'Last 7 days', days: 7 },
-  { value: 'month', label: 'Last 30 days', days: 30 },
+export const DEFAULT_RANGE_VALUE: 'today' | 'week' | 'month' = 'week';
+export const RANGE_OPTIONS: readonly { value: 'today' | 'week' | 'month'; label: string }[] = Object.freeze([
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: '7 days' },
+  { value: 'month', label: '30 days' },
 ]);
-export const DEFAULT_RANGE_VALUE = 'week';
 
 function groupThousands(digits: string) {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-export function trimTrailingZeros(fixed: string) {
+function trimTrailingZeros(fixed: string) {
   if (!fixed.includes('.')) return fixed;
   return fixed.replace(/0+$/, '').replace(/\.$/, '');
 }
@@ -124,9 +51,7 @@ export function formatTokens(value: unknown) {
     const rounded = Math.round(abs);
     return `${rounded === 0 ? '' : sign}${rounded}`;
   }
-
   if (abs < 999950) return `${sign}${trimTrailingZeros((abs / 1000).toFixed(1))}k`;
-
   if (abs < 999995000) return `${sign}${trimTrailingZeros((abs / 1e6).toFixed(2))}M`;
   return `${sign}${trimTrailingZeros((abs / 1e9).toFixed(2))}B`;
 }
@@ -143,10 +68,10 @@ const BUDGET_ATTENTION_PCT = 90;
 export function budgetRows(report: UsageReport | null | undefined): UsageBudgetRow[] {
   const rows = report?.budget?.rows;
   if (!Array.isArray(rows)) return [];
-  return (rows as UsageBudgetRow[]).filter((row) => row && numberOr(row.budgetUsd, null) !== null);
+  return rows.filter((row) => numberOr(row.budgetUsd, null) !== null);
 }
 
-export function budgetRowPct(row: UsageBudgetRow | null | undefined) {
+function budgetRowPct(row: UsageBudgetRow | null | undefined) {
   const pct = numberOr(row?.pct, null);
   if (pct === null) return 0;
   return pct;
@@ -160,7 +85,8 @@ interface PlanWindow {
 export interface PlanLimits {
   ts?: unknown;
   vendor?: unknown;
-
+  accountId?: string | null;
+  source?: unknown;
   fiveHour?: PlanWindow | null;
   sevenDay?: PlanWindow | null;
 }
@@ -174,8 +100,6 @@ export function planWindowOf(planLimits: PlanLimits | null | undefined, key: 'fi
   return { pct, resetsAtMs };
 }
 
-export type { PlanLimitsVendor };
-
 export function planLimitsVendorOf(planLimits: PlanLimits | null | undefined): PlanLimitsVendor {
   if (planLimits?.vendor === 'codex' || planLimits?.vendor === 'kimi' || planLimits?.vendor === 'antigravity') return planLimits.vendor;
   return 'claude';
@@ -185,8 +109,6 @@ export function usageAttentionSignature(report: UsageReport | null | undefined, 
   const parts: string[] = [];
   const tone = planWindowTone(planWindowOf(planLimits, 'fiveHour')?.pct);
   if (tone !== 'ok') parts.push(`block:${tone}`);
-  if (report?.anomaly?.daily) parts.push('anomaly:daily');
-  if (report?.anomaly?.burn) parts.push('anomaly:burn');
   for (const row of budgetRows(report)) {
     const pct = budgetRowPct(row);
     if (pct < BUDGET_ATTENTION_PCT) continue;
@@ -221,18 +143,13 @@ export function pricingFetchedAtMs(value: unknown): number | null {
   return parsed;
 }
 
-function countOf(value: unknown) {
-  if (Array.isArray(value)) return value.length;
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return null;
-  return numeric;
-}
-
-export function scanLine(scan: UsageScan | null | undefined) {
+export function scanLine(scan: UsageScanSummary | null | undefined) {
   if (!scan || typeof scan !== 'object') return '';
   const parts: string[] = [];
-  const dirs = countOf(scan.dirs);
-  if (dirs !== null) parts.push(`${formatCount(dirs)} transcript ${dirs === 1 ? 'directory' : 'directories'}`);
+  if (Array.isArray(scan.dirs)) {
+    const dirCount = scan.dirs.length;
+    parts.push(`${formatCount(dirCount)} transcript ${dirCount === 1 ? 'directory' : 'directories'}`);
+  }
   if (Number.isFinite(scan.files)) parts.push(`${formatCount(scan.files)} files`);
   if (Number.isFinite(scan.entries)) parts.push(`${formatCount(scan.entries)} entries`);
   if (Number.isFinite(scan.lastScanMs)) parts.push(`last pass ${formatCount(scan.lastScanMs)}ms`);
@@ -249,7 +166,6 @@ export function usageErrorLine(report: UsageReport | null | undefined) {
 export function shouldApplyUsageReport(msg: unknown, latestRequestId: unknown) {
   if (!msg || typeof msg !== 'object') return false;
   const id = (msg as { requestId?: unknown }).requestId;
-
   if (id == null) return true;
   return id === latestRequestId;
 }

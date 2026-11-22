@@ -27,8 +27,13 @@ const MESSAGE_WAIT_MS = 5000;
 
 interface UsageSessionRow {
   id: string;
+  name?: string;
+  vendor?: string;
+  model?: string | null;
   tokens: number;
   costUSD: number;
+  lastHourCostUSD?: number;
+  cacheHitPct?: number | null;
   lastTs: number;
 }
 
@@ -39,13 +44,12 @@ type ControlFrame =
     requestId: string | null;
     error: string | null;
     warning?: string | null;
-    blockHours?: number;
-    totals?: { tokens: number; input: number; output: number };
-    daily?: unknown[];
-    models?: { model: string }[];
-    sessions?: unknown[];
-    blocks?: unknown[];
-    activeBlock?: unknown;
+    ranges?: {
+      today: { costUSD: number; daily: unknown[]; byAgent: unknown[]; byModel: unknown[]; byProject: unknown[]; byLane: unknown[] | null };
+      week: { costUSD: number; daily: unknown[]; byAgent: unknown[]; byModel: unknown[]; byProject: unknown[]; byLane: unknown[] | null };
+      month: { costUSD: number; daily: unknown[]; byAgent: unknown[]; byModel: unknown[]; byProject: unknown[]; byLane: unknown[] | null };
+    };
+    coverage?: { vendor: string; files: number; lastEntryMs: number | null; limitSource: string; costSource: string }[];
     pricing?: { source: string; missing: string[] };
     scan?: { files: number; entries: number; partial: boolean; dirs: string[] };
   }
@@ -221,6 +225,9 @@ test('usage-sessions attributes the fixture transcript to the card through its l
   const row = message.sessions[0];
   assert.equal(row.tokens, 375, 'both transcript lines counted (100+50 and 200+25)');
   assert.ok(row.costUSD > 0, 'priced from the committed snapshot');
+  assert.equal(row.vendor, 'claude');
+  assert.equal(row.model, MODEL);
+  assert.ok((row.lastHourCostUSD ?? 0) > 0, 'recent fixture entries count toward lastHourCostUSD');
   assert.equal(typeof row.lastTs, 'number');
 
   await closeSocket(client.ws);
@@ -239,15 +246,13 @@ test('request-usage-report replies to the requesting socket only, with the full 
   assert.equal(report.requestId, 'r1');
   assert.equal(report.error, null);
   assert.equal(report.warning, null);
-  assert.equal(report.blockHours, 5);
-  assert.equal(report.totals?.tokens, 375);
-  assert.equal(report.totals?.input, 300);
-  assert.equal(report.totals?.output, 75);
-  assert.equal(report.daily?.length, 1, 'both entries land in one local-tz day');
-  assert.deepEqual(report.models?.map((m) => m.model), [MODEL]);
-  assert.equal(report.sessions?.length, 1);
-  assert.ok((report.blocks?.length ?? 0) >= 1);
-  assert.ok(report.activeBlock, 'the fixture entries are minutes old, so the block is still active');
+  assert.ok(report.ranges?.today);
+  assert.ok(report.ranges?.week);
+  assert.ok(report.ranges?.month);
+  const claudeCoverage = report.coverage?.find((row) => row.vendor === 'claude');
+  assert.equal(claudeCoverage?.files, 1);
+  assert.equal(claudeCoverage?.limitSource, 'statusline');
+  assert.equal(claudeCoverage?.costSource, 'list-price');
   assert.equal(report.pricing?.source, 'snapshot');
   assert.deepEqual(report.pricing?.missing, []);
   assert.equal(report.scan?.files, 1);
@@ -261,7 +266,7 @@ test('request-usage-report replies to the requesting socket only, with the full 
   const latecomer = await openControl(dash);
   const replayed = await waitForMessage(latecomer.received, isUsageReport, 'the replayed report');
   assert.equal(replayed.requestId, null);
-  assert.equal(replayed.totals?.tokens, 375);
+  assert.equal(replayed.scan?.entries, 2);
 
   await closeSocket(asker.ws);
   await closeSocket(bystander.ws);
@@ -282,7 +287,7 @@ test('usage.enabled false: no scanner, no messages, and a refused report request
   assert.equal(report.requestId, 'r9');
   assert.ok(report.error, 'the refusal names a reason');
   assert.match(report.error, /disabled/);
-  assert.equal(report.totals, undefined, 'a refusal carries no report body');
+  assert.equal(report.ranges, undefined, 'a refusal carries no report body');
   assert.equal(counts.scanners, 0, 'the refused request still constructed nothing');
 
   await closeSocket(client.ws);
@@ -293,7 +298,7 @@ test('a settings save restarts the lane only when the usage block actually chang
   await waitForMessage(client.received, isUsageSessions, 'the boot push');
   assert.equal(counts.scanners, 1);
 
-  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 's1', settings: { cursorBlink: true } }));
+  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 's1', settings: { debugMode: true } }));
   await waitForMessage(client.received, settingsUpdatedFor('s1'), 'the unrelated save');
   await settle();
   assert.equal(counts.scanners, 1, 'a save that touches no usage key leaves the warm scanner alone');
@@ -301,12 +306,12 @@ test('a settings save restarts the lane only when the usage block actually chang
   client.ws.send(JSON.stringify({
     type: 'update-settings',
     requestId: 's2',
-    settings: { usage: { enabled: true, fetchPricing: false, scanIntervalMinutes: 7, costMode: 'calculate' } },
+    settings: { usage: { enabled: true, retainDays: 30 } },
   }));
   const updated = await waitForMessage(client.received, settingsUpdatedFor('s2'), 'the usage save');
   await waitUntil(() => counts.scanners === 2, 'the lane to restart with a fresh scanner');
 
-  assert.deepEqual(updated.settings.usage, { enabled: true, fetchPricing: false, scanIntervalMinutes: 7, costMode: 'calculate' });
+  assert.deepEqual(updated.settings.usage, { enabled: true, retainDays: 30 });
 
   await closeSocket(client.ws);
 }));
@@ -384,6 +389,9 @@ test('a pass with no new entries pushes its changed totals, an incremental io-fa
   scanner.sessionTotals = () => new Map([
     ['resume-a', totalsByPass[Math.min(passCount - 1, totalsByPass.length - 1)]],
   ]);
+  scanner.liveSessionStats = () => new Map([
+    ['claude:resume-a', { ...totalsByPass[Math.min(passCount - 1, totalsByPass.length - 1)], lastHourCostUSD: 0 }],
+  ]);
   const pushedTokens: number[] = [];
   const wiring = createUsageWiring({
     config: {},
@@ -424,7 +432,7 @@ test('a byte-limited continuation re-arms while a real scan is in flight without
   const passBarrier = new Promise<void>((resolve) => { releasePass = resolve; });
   const wiring = createUsageWiring({
     ...options,
-    config: { usage: { vendors: { codex: false, grok: false } } },
+    config: { usage: {} },
     scannerDeps: {
       ...options.scannerDeps,
       byteBudget: Buffer.byteLength(transcript.split('\n')[0]) + 1,
@@ -482,8 +490,8 @@ test('a byte-limited continuation re-arms while a real scan is in flight without
   assert.equal(completedPasses.at(-1)?.outcome, 'complete');
   assert.equal(continuations.length, 2, 'a complete scan schedules no further continuation');
   const report = await wiring.requestReport();
-  assert.ok(report.totals && typeof report.totals === 'object' && 'tokens' in report.totals);
-  assert.equal(report.totals.tokens, 375);
+  assert.ok(report.scan && typeof report.scan === 'object' && 'entries' in report.scan);
+  assert.equal(report.scan.entries, 2);
 });
 
 test('io-failed passes retry with capped backoff and warn once per standing failure', async (context) => {
@@ -552,7 +560,7 @@ test('a config with no usage block never materializes one on an unrelated save',
   const client = await openControl(dash);
   await waitForMessage(client.received, isSnapshot, 'the snapshot');
 
-  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 'u1', settings: { cursorBlink: false } }));
+  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 'u1', settings: { debugMode: false } }));
   const updated = await waitForMessage(client.received, settingsUpdatedFor('u1'), 'the save');
   assert.equal(updated.settings.usage, null, 'getSettings echoes null while the block is unconfigured');
   assert.equal(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).usage, undefined, 'config.json still has no usage key');
@@ -819,47 +827,4 @@ test('Antigravity AgentState populates session meter with model.effort, deduplic
   assert.equal(ServerMessage.safeParse(antigravityLimits).success, true);
   assert.equal(planLimits.length, 1);
   await wiring.stop();
-});
-
-test('antigravity usage scans transcript_full.jsonl via one-level brain discovery and deduplicates across passes', async () => {
-  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-antigravity-'));
-  try {
-    const conversationId = '11111111-2222-4333-8444-555555555555';
-    const logsDir = path.join(directory, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs');
-    const stepsDir = path.join(directory, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'steps', '1');
-    await realFsp.mkdir(logsDir, { recursive: true });
-    await realFsp.mkdir(stepsDir, { recursive: true });
-    const createdAt = new Date().toISOString();
-    const plannerLine = JSON.stringify({
-      step_index: 3,
-      source: 'MODEL',
-      type: 'PLANNER_RESPONSE',
-      status: 'DONE',
-      created_at: createdAt,
-      model: 'gemini-2.5-pro',
-      input_tokens: 1200,
-      cache_read_tokens: 4500,
-      output_tokens: 300,
-    });
-    const ignoredLine = JSON.stringify({ step_index: 4, source: 'TOOL', type: 'GENERIC', created_at: createdAt });
-    const negativeLine = JSON.stringify({ step_index: 5, source: 'MODEL', type: 'PLANNER_RESPONSE', created_at: createdAt, model: 'gemini-2.5-pro', input_tokens: 1, output_tokens: -500 });
-    const duplicateLogsDir = path.join(directory, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs');
-    await realFsp.mkdir(duplicateLogsDir, { recursive: true });
-    await realFsp.writeFile(path.join(logsDir, 'transcript_full.jsonl'), `${plannerLine}\n${ignoredLine}\n${negativeLine}\n`);
-    await realFsp.writeFile(path.join(duplicateLogsDir, 'transcript_full.jsonl'), `${plannerLine}\n`);
-    await realFsp.writeFile(path.join(stepsDir, 'transcript_full.jsonl'), `${plannerLine}\n`);
-    const scanner = createUsageScanner({
-      env: { HOME: directory, CLAUDE_CONFIG_DIR: path.join(directory, 'no-claude'), CODEX_HOME: path.join(directory, 'no-codex'), GROK_HOME: path.join(directory, 'no-grok'), KIMI_CODE_HOME: path.join(directory, 'no-kimi') },
-      homeDir: directory,
-      pricingTable: new Map(),
-    });
-    await scanner.runPass({ force: true });
-    await scanner.runPass();
-    const antigravityEntries = scanner._entriesForTest().filter((entry) => entry.vendor === 'antigravity');
-    assert.deepEqual(antigravityEntries.map((entry) => [entry.sessionId, entry.model, entry.input, entry.output, entry.cacheRead]), [
-      [conversationId, 'gemini-2.5-pro', 1200, 300, 4500],
-    ]);
-  } finally {
-    await realFsp.rm(directory, { recursive: true, force: true });
-  }
 });

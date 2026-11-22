@@ -83,10 +83,15 @@ interface SessionHookOptions {
   recordDecision: (entry: DecisionEntry) => void;
 }
 
+type SaneYoloState = "inactive" | "pending" | "active";
+
 interface SessionHookLifecycle {
   prepare(): Promise<void>;
   inject(): HookInjectionResult;
   cleanup(): void;
+  confirmSaneYoloActive(): void;
+  deactivateSaneYolo(): void;
+  isSaneYoloActive(): boolean;
   token(): string | null;
   listenerPort(): number | null;
   hasInjection(): boolean;
@@ -105,6 +110,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   let token: string | null = null;
   let settingsHandle: ReturnType<typeof writeSessionSettings> | null = null;
   let hasWarnedSaneYoloHookMissing = false;
+  let saneYoloState: SaneYoloState = "inactive";
   let heldGeneratedHome: { releaseHome: (home: string) => void; home: string } | null = null;
 
   function saneYoloTool(): ResolvedHookTool | undefined {
@@ -126,6 +132,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   }
 
   function cleanup(): void {
+    if (saneYoloState === "pending") saneYoloState = "inactive";
     releaseGeneratedHome();
     if (!token && !settingsHandle) return;
     if (options.hookRouter) {
@@ -335,10 +342,15 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
   function inject(): HookInjectionResult {
     const injected = injectHooks();
     if (options.isCleanHome && !injected.refusal && !heldGeneratedHome && !settingsHandle) {
+      saneYoloState = "inactive";
       cleanup();
       return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start in a clean home: its hooks could not be injected, so it would read your own home` };
     }
-    if (!options.requiresHooks || injected.refusal || injected.isSaneYoloActive) return injected;
+    if (!options.requiresHooks || injected.refusal || injected.isSaneYoloActive) {
+      saneYoloState = !injected.refusal && injected.isSaneYoloActive ? "pending" : "inactive";
+      return injected;
+    }
+    saneYoloState = "inactive";
     cleanup();
     return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: Sane YOLO hooks could not be injected` };
   }
@@ -400,6 +412,9 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
     prepare,
     inject,
     cleanup,
+    confirmSaneYoloActive: () => { if (saneYoloState === "pending") saneYoloState = "active"; },
+    deactivateSaneYolo: () => { saneYoloState = "inactive"; },
+    isSaneYoloActive: () => saneYoloState === "active",
     token: () => token,
     listenerPort: resolveListenerPort,
     hasInjection: () => token !== null,

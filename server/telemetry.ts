@@ -11,8 +11,7 @@ import {
   telemetryBatchUrl, telemetryFlagsUrl,
 } from './core/telemetry-core.ts';
 import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
-import { listClaudeGlobalConfigPathCandidates } from './core/claude-config-paths-core.ts';
-import { codexHomes } from './usage/core/usage-scan-core.ts';
+import { codexHomes, listClaudeGlobalConfigPathCandidates } from './core/claude-config-paths-core.ts';
 import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lanes/lane-log.ts';

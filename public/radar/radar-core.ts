@@ -116,9 +116,6 @@ interface RadarProjectAlert {
   staleMs: number;
 }
 
-export const UPDATES_SECTION_ID = 'machine-updates';
-export const UPDATES_ACTIONS_SETTING_ID = 'update-actions';
-
 const CHANGE_RANK: Record<string, number> = {
   spiking: 0,
   regressed: 1,

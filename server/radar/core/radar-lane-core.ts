@@ -1,11 +1,36 @@
 import { isWorkflowPath } from '../../git/core/git-changed-paths-core.ts';
+import { isRecord, toCount } from '../../../shared/coerce.ts';
+import { sanitizeSessionName } from '../../../shared/session-naming.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';
 
+export interface PosthogConnection {
+  host: string;
+  apiKey: string;
+}
+
 export function resolvePosthogHost(host: string | null | undefined): string {
   return host || DEFAULT_POSTHOG_HOST;
+}
+
+function posthogConnectionWith(config: { posthog?: unknown }, keyField: 'apiKey' | 'readApiKey'): PosthogConnection | null {
+  const block = isRecord(config.posthog) ? config.posthog : {};
+  const keyValue = block[keyField];
+  const apiKey = typeof keyValue === 'string' ? keyValue.trim() : '';
+  if (!apiKey) return null;
+  return { host: resolvePosthogHost(typeof block.host === 'string' ? block.host.trim() : null), apiKey };
+}
+
+export function readPosthogConnection(config: { posthog?: unknown }): PosthogConnection | null {
+  return posthogConnectionWith(config, 'apiKey');
+}
+
+export function readPosthogReadConnection(config: { posthog?: unknown }): PosthogConnection | null {
+  const connection = posthogConnectionWith(config, 'readApiKey');
+  if (connection === null || !connection.host.startsWith('https://')) return null;
+  return connection;
 }
 const DEFAULT_USER_ESCALATION_THRESHOLD = 25;
 const DEFAULT_MIN_USERS_TO_INVESTIGATE = 1;
@@ -143,12 +168,6 @@ const MAX_PR_BODY_CHARS = 4000;
 
 function stripProtocol(host: unknown): string {
   return String(host || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-}
-
-function toCount(value: unknown, fallback = 0): number {
-  const n = Number(value);
-  if (Number.isFinite(n)) return n;
-  return fallback;
 }
 
 function issueKey(host: unknown, projectId: unknown, issueId: unknown): string {
@@ -642,18 +661,6 @@ function pickDirectoryForProjectName(projectName: unknown, candidates: unknown):
   }
   if (matches.length !== 1) return null;
   return matches[0];
-}
-
-function sanitizeSessionName(value: unknown): string | null {
-  const name = String(value ?? '')
-    .replace(/[^a-zA-Z0-9_\-. ()]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .trim()
-    .replace(/^[-.\s]+|[-.\s]+$/g, '')
-    .slice(0, 64)
-    .trim();
-  if (!name) return null;
-  return name;
 }
 
 function scrubForPaste(text: unknown, maxChars: number = MAX_PING_TITLE_CHARS): string {

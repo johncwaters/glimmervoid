@@ -1,4 +1,4 @@
-import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
 import type { Wire, WireEnd } from './contracts/whiteboard.ts';
 import type { LayoutWarning, RememberedRoute } from './contracts/whiteboard-tiles.ts';
 import type { PlacedBox, LaidOutWire, Rect } from './whiteboard-layout-core.ts';

@@ -91,7 +91,7 @@ function createQuestionManager({ getSettings, getLane = () => null }: QuestionMa
       const lane = getLane();
       if (!questions || plainRules.length === 0 || !lane) return { kind: 'escalate', reason: NO_RULE_REASON };
       const pins = pinByRules(questions, rulesOf(settings));
-      const request = { questions: pins.unmatched, plainRules, task: { title: taskTitle, repo: projectPath }, model: settings.model ?? DEFAULT_MODELS.questionManager, signal: deadline };
+      const request = { questions: pins.unmatched, plainRules, task: { title: taskTitle, repo: projectPath }, model: DEFAULT_MODELS.questionManager, signal: deadline };
       return lane(request)
         .then((laneVerdict) => withRulePins(laneVerdict, pins))
         .catch((): ManagerVerdict => ({ kind: 'escalate', reason: 'the manager lane failed' }));

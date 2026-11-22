@@ -14,6 +14,8 @@ import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
 import { selectionArgs } from '../../shared/agent-models-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { createRaceStore } from '../race/race-store.ts';
+import { createWargamesStore } from '../wargames/wargames-store.ts';
+import { createWargamesRunner } from '../wargames/wargames-runner.ts';
 import { createReviewCaseLibrary } from '../race/review-cases.ts';
 import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
 import { runCommandSafely } from '../child-process-safe.ts';
@@ -21,7 +23,7 @@ import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { KILLABLE_STATES } from '../../shared/states.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
-import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
+import { ABORT_CONFIG_SAVE, glimmervoidHomeDir } from '../config-store.ts';
 import { PrFlowsSettings, prActionReportPath } from '../../shared/contracts/pr-flows.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -68,7 +70,7 @@ import { createGithubStatus, createProviderStatus } from '../github/github-statu
 import { createGithubStoreWiring } from '../github/github-store-wiring.ts';
 import type { GithubSourceReader } from '../github/github-source.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
-import { createUsageWiring, resolveUsageConfig } from '../usage/usage-wiring.ts';
+import { createUsageWiring, USAGE_WAREHOUSE_RETAIN_DAYS } from '../usage/usage-wiring.ts';
 import { createLaneLedger } from '../usage/usage-lane-ledger.ts';
 import { createTraceWiring } from '../trace-wiring.ts';
 import { createTraceChangeBroadcast } from '../trace-control.ts';
@@ -161,14 +163,14 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   ].flatMap((sessionId) => [sessionId, sanitizeWorktreeName(sessionId)]));
   const provenanceNotesRef = async (projectPath: string): Promise<string | null> => (configStore.config.shareCommitProvenance === false ? null : repoNotesRefFor(projectPath, await provenanceWriterId()));
   const gitWorkspace = createGitWorkspace({
-    rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs,
+    rerere: true, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs,
     githubPushToken: async () => (await githubUserCredential())?.token ?? null,
     readDiskReserveBytes: () => diskReserveBytes(configStore.config),
   });
   const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),
-    retainDays: resolveUsageConfig(config.usage).warehouseRetainDays,
+    retainDays: USAGE_WAREHOUSE_RETAIN_DAYS,
     logger,
   });
   void laneLedger.load();
@@ -214,7 +216,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const community = createCommunityWiring({
     config, githubAppGrants, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
     controlClientCount: viewerControlClientCount,
-    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
+    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
   });
   const providerStatus = createProviderStatus({ log: logger, onChange: () => broadcastPacksIfChanged() });
   const githubStatus = createGithubStatus({ providerStatus });
@@ -269,7 +271,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       log: logger,
       spawnSession: createTeamReviewSpawn({
         reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-        replayBufferKB: config.replayBufferKB, laneName: 'my-prs', hookToolConfig: config,
+        laneName: 'my-prs', hookToolConfig: config,
       }),
     }),
   });
@@ -338,7 +340,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
         repoCache: sharedRepoCache,
         spawnSession: createTeamReviewSpawn({
           reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-          replayBufferKB: config.replayBufferKB, laneName: 'workflows', hookToolConfig: config,
+          laneName: 'workflows', hookToolConfig: config,
         }),
       }),
     }),
@@ -369,7 +371,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     },
     spawnJudge: ({ setup, readPaths, ...request }) => createLaneSpawn({
       sessions: raceSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       allowTools: RACE_JUDGE_TOOLS,
     })({
       ...request, agent: setup.agent, model: setup.model,
@@ -380,13 +382,19 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const wargames = createWargamesRunner({
+    store: createWargamesStore({ directory: path.join(glimmervoidHome, 'wargames'), log: logger }),
+    broadcast: broadcastControl,
+    log: logger,
+  });
+
   const sessionReview = createSessionReviewWiring({
     getSessionReviewConfig: () => configStore.config.sessionReview,
     broadcastControl,
     logger,
     spawnReviewer: ({ reviewer, readPaths, ...request }) => createLaneSpawn({
       sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'session-review', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      laneName: 'session-review', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       allowTools: SESSION_REVIEW_TOOLS,
     })({
       ...request, agent: reviewer.agent, model: reviewer.model,
@@ -394,22 +402,17 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
-  const isTraceEnabled = config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled;
-  const traceWiring = isTraceEnabled
-    ? createTraceWiring({
-      configPath: configStore.configPath,
-      logger,
-      debug: () => configStore.getSettings().debugMode === true,
-    })
-    : null;
+  const traceWiring = createTraceWiring({
+    configPath: configStore.configPath,
+    logger,
+    debug: () => configStore.getSettings().debugMode === true,
+  });
   const uploadsWiring = createUploadsWiring({
     configPath: configStore.configPath,
     liveSessionIds: () => new Set(allLiveSessions().map((session) => session.id)),
   });
-  const traceChangeBroadcast = traceWiring
-    ? createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl })
-    : null;
-  traceWiring?.on('trace-appended', ({ id, opensOperatorTurn, usageLimit }) => {
+  const traceChangeBroadcast = createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl });
+  traceWiring.on('trace-appended', ({ id, opensOperatorTurn, usageLimit }) => {
     if (opensOperatorTurn) sessions.get(id)?.noteChatPromptRecorded();
     if (usageLimit !== null) sessions.get(id)?.noteUsageLimit(usageLimit);
   });
@@ -421,7 +424,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     retitleBoard: dependencies.retitleProvisionalBoard,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       accountHomeFor: laneAccountHomeFor(() => configStore.config, 'task-title'),
     }),
   });
@@ -429,7 +432,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const questionManagerSessions = new Map<string, Session>();
   const questionManagerLane = createQuestionManagerLane(createLaneSpawn({
     sessions: questionManagerSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-    replayBufferKB: config.replayBufferKB, laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+    laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
     accountHomeFor: laneAccountHomeFor(() => configStore.config, 'question-manager'),
   }));
 
@@ -501,6 +504,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void deleteRetiredIssuesCache(glimmervoidHome, logger),
       () => void deleteRetiredRemoteSessionData(glimmervoidHome, configSiblingPath(configStore.configPath, 'agent-logins'), logger),
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
+      () => void wargames.load().catch((error: unknown) => logger.warn(`[wargames] load failed: ${errorMessage(error)}`)),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
     ];
@@ -525,6 +529,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     findLiveSession,
     raceSessions,
     races,
+    wargames,
     branchGc,
     taskTitleRefiner,
     taskTitleSessions,

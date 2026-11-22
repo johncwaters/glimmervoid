@@ -68,6 +68,7 @@ export const CodemapSetup = z.strictObject({
   modules: z.array(CodemapModuleName),
   allow: z.array(CodemapAllowEntry),
   exports: z.array(z.enum(CODEMAP_EXPORT_KINDS)),
+  languages: z.array(z.string().min(1)).optional(),
 });
 export type CodemapSetup = z.infer<typeof CodemapSetup>;
 

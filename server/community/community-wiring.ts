@@ -214,7 +214,7 @@ function createCommunityWiring({
     broadcast({ type: 'notify', session: entry.item.key, category: core.NOTIFICATION_CATEGORY, message, escalationCount: 0 });
     const { botToken, chatId } = core.readTelegramTarget(config);
     const decision = decideTelegramNotification({
-      enabled: config.telegramNotifications === true, botToken, chatId, connectionCount: controlClientCount(),
+      botToken, chatId, connectionCount: controlClientCount(),
     });
     if (!decision.send) return;
     void sendTelegram({ botToken, chatId, text: message, tag: core.COMMUNITY_LANE_ID });

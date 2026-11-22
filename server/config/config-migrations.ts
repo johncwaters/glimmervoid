@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { BranchGcFileSettings, configIssueMessage } from '../../shared/contracts/index.ts';
+import { repoParts } from '../../shared/contracts/github-ids.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { vaultManagerOf } from '../../shared/contracts/secrets.ts';
 import type { GlimmervoidConfig } from './config-types.ts';
@@ -83,7 +84,7 @@ function dropRetiredBenchmarks(config: GlimmervoidConfig): string | null {
 function dropRetiredHintCards(config: GlimmervoidConfig): string | null {
   if (!Object.hasOwn(config, 'hintCards')) return null;
   delete config.hintCards;
-  return '[config] Removed hintCards: hint cards folded into Usage, Your day, which usage.yourDay turns on and off.';
+  return '[config] Removed hintCards: hint cards folded into Usage, Your day.';
 }
 
 function dropRetiredPlanReview(config: GlimmervoidConfig): string | null {
@@ -220,11 +221,89 @@ const WORKTREE_KEY_MOVES: readonly KeyMove[] = Object.freeze([
   { from: 'worktreeRoot', to: 'root' },
   { from: 'worktreeShare', to: 'share' },
   { from: 'integrationBranch', to: 'integrationBranch' },
-  { from: 'worktreeAutoRebase', to: 'autoRebase' },
-  { from: 'worktreeSyncOnStart', to: 'syncOnStart' },
-  { from: 'worktreeCloneDependencies', to: 'cloneDependencies' },
-  { from: 'worktreeRerere', to: 'rerere' },
 ]);
+
+const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
+  'detectBackgroundAgents',
+  'recordSignals',
+  'trace',
+  'detectScheduledWakeups',
+  'worktree.autoRebase',
+  'worktree.syncOnStart',
+  'worktree.cloneDependencies',
+  'worktree.rerere',
+  'worktreeAutoRebase',
+  'worktreeSyncOnStart',
+  'worktreeCloneDependencies',
+  'worktreeRerere',
+  'telegramNotifications',
+  'slack.enabled',
+  'teamReview.keepMergeableEnabled',
+  'teamReview.mergeQueueEnabled',
+  'teamReview.keepMergeableTimeoutMinutes',
+  'usage.yourDay',
+  'posthog.intervalMinutes',
+  'posthog.investigationTimeoutSeconds',
+  'posthog.fixTimeoutSeconds',
+  'posthog.userEscalationThreshold',
+  'posthog.trafficSpikeMultiplier',
+  'posthog.trafficSpikeMinUsers',
+  'posthog.trafficSpikeCooldownMinutes',
+  'posthog.trafficSpikeBaselineDays',
+  'posthog.recurrenceDedupe',
+  'posthog.recurrenceWindowDays',
+  'posthog.transientRecurrenceLimit',
+  'community.intervalMinutes',
+  'usage.vendors',
+  'usage.scanIntervalMinutes',
+  'usage.warehouseRetainDays',
+  'usage.sessionBlockHours',
+  'usage.fetchPricing',
+  'usage.planLimits',
+  'usage.costMode',
+  'notifyDebounceMs',
+  'phoneEscalationMs',
+  'branchGc.enabled',
+  'branchGc.worktrees',
+  'branchGc.staleDays',
+  'branchGc.intervalMs',
+  'taskTitle.refiner.model',
+  'taskTitle.refiner.minIntervalSeconds',
+  'taskTitle.refiner.timeoutSeconds',
+  'questionManager.model',
+  'replayBufferKB',
+  'cursorBlink',
+  'teamReview.team',
+  'workflows.maxActionsPerPoll',
+]);
+
+function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {
+  const segments = dottedPath.split('.');
+  const parents: { container: Record<string, unknown>; key: string }[] = [];
+  let cursor: Record<string, unknown> = root;
+  for (const segment of segments.slice(0, -1)) {
+    const next = cursor[segment];
+    if (!isRecord(next)) return false;
+    parents.push({ container: cursor, key: segment });
+    cursor = next;
+  }
+  const leaf = segments[segments.length - 1];
+  if (!Object.hasOwn(cursor, leaf)) return false;
+  delete cursor[leaf];
+  for (let index = parents.length - 1; index >= 0; index -= 1) {
+    const { container, key } = parents[index];
+    const child = container[key];
+    if (!isRecord(child) || Object.keys(child).length > 0) break;
+    delete container[key];
+  }
+  return true;
+}
+
+function dropRetiredSettings(config: Record<string, unknown>): string | null {
+  const dropped = RETIRED_SETTING_PATHS.filter((settingPath) => deleteRetiredPath(config, settingPath));
+  if (dropped.length === 0) return null;
+  return `[config] Removed ${dropped.join(', ')}: Glimmervoid now owns these behaviors.`;
+}
 
 function nestWorktreeKeys(config: Record<string, unknown>): string | null {
   if (!WORKTREE_KEY_MOVES.some((move) => Object.hasOwn(config, move.from))) return null;
@@ -232,8 +311,25 @@ function nestWorktreeKeys(config: Record<string, unknown>): string | null {
   return keyMoveMessage(outcome, (move) => ({ from: move.from, to: `worktree.${move.to}` }));
 }
 
+function moveLegacyTeamReviewTeam(config: Record<string, unknown>): string | null {
+  const teamReview = config.teamReview;
+  if (!isRecord(teamReview) || !Object.hasOwn(teamReview, 'team')) return null;
+  const legacyTeam = typeof teamReview.team === 'string' ? teamReview.team.trim() : '';
+  const legacyOrg = typeof teamReview.org === 'string' ? teamReview.org.trim() : '';
+  delete teamReview.team;
+  if (Object.keys(teamReview).length === 0) delete config.teamReview;
+  const github = config.github;
+  const existingTeams = isRecord(github) && Array.isArray(github.teams) ? github.teams : [];
+  if (existingTeams.length > 0) return '[config] Dropped teamReview.team (github.teams is already set and takes its place).';
+  if (!legacyOrg || !legacyTeam) return '[config] Removed teamReview.team: github.teams takes its place.';
+  const teamEntry = `${legacyOrg}/${legacyTeam}`;
+  if (repoParts(teamEntry) === null) return '[config] Removed invalid teamReview.team: set github.teams as org/team-slug instead.';
+  blockOf(config, 'github').teams = [teamEntry];
+  return `[config] Moved teamReview.team to github.teams (${teamEntry}).`;
+}
+
 function moveRenamedKeys(config: Record<string, unknown>): string[] {
-  return [moveWatcherUrlToRemote(config), nestWorktreeKeys(config)].filter((message) => message !== null);
+  return [moveWatcherUrlToRemote(config), nestWorktreeKeys(config), moveLegacyTeamReviewTeam(config)].filter((message) => message !== null);
 }
 
 function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {
@@ -281,4 +377,4 @@ function dropLegacyCodemapChecks(config: GlimmervoidConfig): string | null {
   return `[config] Dropped the codemap check from verification.repos for ${legacyRepoKeys.join(', ')}: the import gate is now built in and follows the code map setup.`;
 }
 
-export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredSettings, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

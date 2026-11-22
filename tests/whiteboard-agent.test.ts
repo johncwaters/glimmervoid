@@ -36,7 +36,7 @@ import { layoutBoard } from '../shared/whiteboard-layout-core.ts';
 import { execFileAsync } from '../server/child-process-safe.ts';
 import { resolveFfmpegPath, stableLauncherPath } from '../server/runtime-paths.ts';
 import { waitFor } from './helpers/wait-for.ts';
-import { undoStepOf } from '../shared/whiteboard-undo-core.ts';
+import { undoStepOf } from '../shared/contracts/whiteboard-undo-core.ts';
 import type { DiffBefore } from '../shared/contracts/control/whiteboard-messages.ts';
 import type { WhiteboardPatch } from '../shared/contracts/control/whiteboard-messages.ts';
 

@@ -21,6 +21,7 @@ import type { TerminalColors } from '../../session/core/terminal-color-query.ts'
 import { createPackSessionFiles } from '../packs/pack-session-files.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import { createSessionSandbox } from '../sandbox/sandbox-wiring.ts';
+import { listenAgentIngressSocket } from './backend-http.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import type { PackMcpServer } from '../../shared/contracts/pack.ts';
 
@@ -94,6 +95,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     glimmervoidHome: glimmervoidHomeDir(),
     configPath: dependencies.configStore.configPath,
     agentIngressServer,
+    listenIngressSocket: listenAgentIngressSocket,
     getIngressPort: getHookPort,
     getExtraAllowedHosts: () => dependencies.configStore.config.sandboxAllowedHosts ?? [],
     isWeakerNetworkIsolationOn: () => dependencies.configStore.config.sandboxWeakerNetworkIsolation === true,

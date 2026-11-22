@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { upgradedBoardRecord } from '../core/whiteboard-store-core.ts';
 import { BoardRecord } from '../../shared/contracts/whiteboard.ts';
 import type { Board, Element } from '../../shared/contracts/whiteboard.ts';
-import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind, jsonOfStored } from '../../shared/whiteboard-element-table.ts';
-import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
-import type { StagedOps } from '../../shared/whiteboard-ops-core.ts';
+import { ELEMENT_KIND_NAMES, elementTableOf, isElementKind, jsonOfStored } from '../../shared/contracts/whiteboard-element-table.ts';
+import type { ElementTable, StoredElementRow } from '../../shared/contracts/whiteboard-element-table.ts';
+import type { StagedOps } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { assetIdOf } from '../../shared/whiteboard-board-index.ts';
 
 type StagedElements = Pick<Extract<StagedOps, { ok: true }>, 'diff' | 'afterById'> & { writtenBy: string | null };

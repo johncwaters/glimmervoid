@@ -4,7 +4,7 @@ import { BranchLink, DONE_MEANS_MAX_LINES, TaskTitle } from './session.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject, WorktreeControlSettings,
-  TelemetryFileSettings, TraceSettings, VaultFileSettings,
+  TelemetryFileSettings, VaultFileSettings,
 } from './browser-config.ts';
 import { WorkflowsSettingsUpdate } from './workflows.ts';
 import { isLinkUrlSafe } from './watcher-link.ts';
@@ -14,7 +14,6 @@ import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema, WorktreeFileSettings } from './browser-config.ts';
 
 export {
-  BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
   BranchGcFileSettings,
 } from './browser-config.ts';
 
@@ -22,8 +21,6 @@ export const BrowserConfig = createBrowserConfig(path.isAbsolute);
 const BROWSER_CONFIG_SHAPE = BrowserConfig.shape;
 export const ConfigUpdate = z.object({
   ...BROWSER_CONFIG_SHAPE,
-  notifyDebounceMs: z.number({ error: 'notifyDebounceMs must be a positive number' }).finite().positive({ error: 'notifyDebounceMs must be a positive number' }).optional(),
-  phoneEscalationMs: z.number({ error: 'phoneEscalationMs must be a positive number' }).finite().positive({ error: 'phoneEscalationMs must be a positive number' }).optional(),
   branchGc: BranchGcControlSettings,
   worktree: WorktreeControlSettings,
   shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
@@ -166,7 +163,6 @@ const FILE_CONFIG_SHAPE = {
   verification: optionalLooseObject('verification'),
   sessionSandbox: optionalBoolean('sessionSandbox'),
   telemetry: TelemetryFileSettings,
-  trace: TraceSettings,
   customAgents: CustomAgentDeclarations.optional(),
   agentAccounts: AgentAccounts.optional(),
   agentAccountDefaults: AgentAccountDefaults.optional(),
@@ -174,7 +170,6 @@ const FILE_CONFIG_SHAPE = {
 };
 export const Config = z.object({
   ...FILE_CONFIG_SHAPE,
-  detectScheduledWakeups: optionalBoolean('detectScheduledWakeups'),
   shareCommitProvenance: optionalBoolean('shareCommitProvenance'),
   hooks: z.unknown().optional(),
   remote: z.object({
@@ -219,7 +214,6 @@ export const RUNTIME_CONFIG_SCALAR_KEYS = Object.freeze([
   'shareCommitProvenance',
 ]);
 export const HIDDEN_CONFIG_KEYS = Object.freeze([
-  'detectScheduledWakeups',
   'shareCommitProvenance',
   'hooks',
   'remote',

@@ -1,12 +1,11 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
-import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../../shared/lane-report-core.ts';
 import { prKey } from './team-review-core.ts';
 import { mergeItems, threadCandidates } from './pr-flows-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
-import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
-import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-changed-paths-core.ts';
-import { deriveStage, myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
+import { isCredentialLikePath, isGithubDirectoryPath } from '../../../shared/git-text.ts';
+import { deriveStage, myPrMergeBlocker } from '../../../shared/contracts/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { MyPrAutoRebase as MyPrAutoRebaseSchema, MyPrLaneEntry, MyPrStage, MyPrsState } from '../../../shared/contracts/my-prs.ts';
@@ -426,29 +425,8 @@ export function myPrsStatus({ ts, configured, reason = null, viewer = null, prs 
   return { type: 'my-prs-status', ts, configured, reason, viewer, prs, error, truncatedNote, isKeepMergeableEnabled, isMergeQueueEnabled };
 }
 
-interface MyPrsFeatureSettings {
-  isKeepMergeableEnabled: boolean;
-  isMergeQueueEnabled: boolean;
-  keepMergeableTimeoutMinutes: number;
-}
-
-function isKeepMergeableTimeoutInRange(value: unknown): value is number {
-  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
-  return value >= KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE.min && value <= KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE.max;
-}
-
-export function readMyPrsFeatureSettings(config: TeamReviewSettingsSource): MyPrsFeatureSettings {
-  const block = config.teamReview;
-  const timeoutMinutes = block?.keepMergeableTimeoutMinutes;
-  return {
-    isKeepMergeableEnabled: block?.keepMergeableEnabled !== false,
-    isMergeQueueEnabled: block?.mergeQueueEnabled !== false,
-    keepMergeableTimeoutMinutes: isKeepMergeableTimeoutInRange(timeoutMinutes) ? timeoutMinutes : DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES,
-  };
-}
-
-export function keepMergeableTimeoutSeconds(config: TeamReviewSettingsSource): number {
-  return readMyPrsFeatureSettings(config).keepMergeableTimeoutMinutes * 60;
+export function keepMergeableTimeoutSeconds(_config?: TeamReviewSettingsSource): number {
+  return DEFAULT_KEEP_MERGEABLE_TIMEOUT_MINUTES * 60;
 }
 
 export function currentKeepMergeableAttempt(pr: Pick<MyPr, 'key' | 'headRefOid'>, attempt: MyPrKeepMergeableAttemptRecord | undefined): MyPr['keepMergeableAttempt'] {

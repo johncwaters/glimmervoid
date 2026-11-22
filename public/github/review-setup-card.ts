@@ -7,7 +7,7 @@ import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { buildCommandRow, buildSetupStep } from '../onboarding/setup-step.ts';
 import { buildGithubConnectSection, isConnectOffered } from '../secrets/github-connect.ts';
-import { createSettingsLink } from '../settings/settings-link.ts';
+import { createSettingsLink } from '../settings-link.ts';
 import { applySettingsBroadcast, subscribeSettings } from '../settings/settings-store.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID } from './team-review-view-core.ts';
 import { decideReviewSetupSteps, orgToSave, teamOptionsOf, teamsToSave } from './review-setup-core.ts';
@@ -163,7 +163,7 @@ export function createReviewSetupCard() {
       return;
     }
     reportReviewSetupAction('save-github-org');
-    await saveSettings({ teamReview: { org, team: '' } }, saveButton, saveStatus);
+    await saveSettings({ teamReview: { org } }, saveButton, saveStatus);
   }
 
   async function saveTeams(typedText: string, saveButton: HTMLButtonElement, saveStatus: ReturnType<typeof createActionStatus>): Promise<void> {

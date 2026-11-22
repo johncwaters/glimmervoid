@@ -67,7 +67,7 @@ export function mergeWorkflowsUpdateOverStored(stored: unknown, update: Workflow
   if (unknownToggle) return { ok: false, error: `workflows.rules has no rule with id "${unknownToggle.id}"` };
   const enabledByRuleId = new Map(ruleToggles.map((toggle) => [toggle.id, toggle.enabled]));
   const merged: Record<string, unknown> = { ...storedBlock };
-  for (const key of ['enabled', 'maxConcurrentSessions', 'maxActionsPerPoll'] as const) {
+  for (const key of ['enabled', 'maxConcurrentSessions'] as const) {
     if (update[key] !== undefined) merged[key] = update[key];
   }
   if (update.rules) {

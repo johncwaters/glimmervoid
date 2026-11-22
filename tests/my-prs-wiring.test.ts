@@ -585,14 +585,13 @@ test('keep mergeable refuses a workflow file whose name git would print C-quoted
   }));
 });
 
-test('keep mergeable aborts a session past the deadline read from teamReview.keepMergeableTimeoutMinutes and pushes nothing', async () => {
+test('keep mergeable aborts a session past its 30-minute deadline and pushes nothing', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'my-prs-fix-deadline-'));
   let sessionSignal: AbortSignal | null = null;
   const timers = manualTimers();
-  const config = { teamReview: { keepMergeableTimeoutMinutes: 7 } };
   try {
     const harness = await fixHarness(root, {
-      timeoutSeconds: () => keepMergeableTimeoutSeconds(config),
+      timeoutSeconds: () => keepMergeableTimeoutSeconds(),
       setTimeoutFn: timers.setTimeoutFn,
       clearTimeoutFn: timers.clearTimeoutFn,
       spawnSession: async ({ cwd, signal }) => {
@@ -604,11 +603,11 @@ test('keep mergeable aborts a session past the deadline read from teamReview.kee
         await aborted;
       },
     });
-    assert.deepEqual(await harness.fix(conflictingPr(harness.headSha), new AbortController().signal), { outcome: 'timed-out', reason: 'not pushed: the session ran past its 420s deadline' });
+    assert.deepEqual(await harness.fix(conflictingPr(harness.headSha), new AbortController().signal), { outcome: 'timed-out', reason: 'not pushed: the session ran past its 1800s deadline' });
     assert.equal((sessionSignal as AbortSignal | null)?.aborted, true);
     assert.deepEqual(harness.pushes, []);
-    assert.ok(harness.warnings.some((warning) => warning.includes('420s deadline')));
-    assert.deepEqual(timers.pending.map((timer) => timer.ms), [420000]);
+    assert.ok(harness.warnings.some((warning) => warning.includes('1800s deadline')));
+    assert.deepEqual(timers.pending.map((timer) => timer.ms), [1800000]);
     assert.ok(timers.pending.every((timer) => timer.cleared));
     assert.deepEqual(await fs.readdir(harness.workRoot), []);
   } finally {

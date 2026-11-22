@@ -2,14 +2,13 @@ import { z } from 'zod';
 import { DEVICE_FITS, DEVICE_NAMES } from '../whiteboard-devices.ts';
 import { ICON_NAMES } from '../whiteboard-icons.ts';
 import { BOX_SHAPES, SHAPE_TRAITS } from '../whiteboard-shapes.ts';
-import { elementTableOf, isElementTable } from '../whiteboard-element-table.ts';
-import type { ElementTable } from '../whiteboard-element-table.ts';
+import { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox } from '../whiteboard-constants.ts';
+import type { NoteTone, TextSize } from '../whiteboard-constants.ts';
+import { elementTableOf, isElementTable } from './whiteboard-element-table.ts';
+import type { ElementTable } from './whiteboard-element-table.ts';
 
-export const WHITEBOARD_LIMITS = Object.freeze({
-  elements: 1_000_000, opsPerPut: 5000, putBytes: 1_728_576, title: 80, line: 120, linesPerBox: 12, noteText: 400, logEntries: 2000, layoutWarnings: 20, readPage: 150, readPageChars: 32_000, outlineClusters: 40, queryText: 200, boxWidthMin: 160, boxWidthMax: 960, boxHeightMax: 2400, dialsPerPage: 16, dialChoices: 12, strokePoints: 1000, strokes: 500, strokeWidthMax: 24,
-  askQuestion: 200, askOptions: 4, askOption: 80,
-  wireLabel: 40, wireBends: 32, lineKey: 40, caption: 400, ref: 200, refsPerElement: 8, legendEntries: 12, legendLabel: 40,
-});
+export { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox };
+export type { NoteTone, TextSize };
 
 
 const ElementId = z.string({ error: 'an id must be a string' })
@@ -51,18 +50,9 @@ export const BoxLine = z.object({
 
 const Point = z.object({ x: z.number(), y: z.number() }).strict().meta({ id: 'Point' });
 
-export const BOX_CHANGES = ['none', 'added', 'removed', 'relabeled'] as const;
-export const WIRE_TONES = ['plain', 'fail', 'join'] as const;
-export const NOTE_TONES = ['yellow', 'pink', 'green', 'blue', 'violet'] as const;
-export const TEXT_SIZES = ['S', 'M', 'L'] as const;
 export const WIRE_WIDTHS = ['thin', 'bold'] as const;
 export const WIRE_ARROWS = ['none', 'end', 'both'] as const;
 export const WIRE_ROUTES = ['elbow', 'sharp', 'curved'] as const;
-export type NoteTone = (typeof NOTE_TONES)[number];
-export type TextSize = (typeof TEXT_SIZES)[number];
-export const NOTE_TONE_HEX: Readonly<Record<NoteTone, string>> = { yellow: '#f5d565', pink: '#f28bb6', green: '#7fd49a', blue: '#7cb4f2', violet: '#b49cf5' };
-
-export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 
 export const SIDES = ['left', 'right', 'top', 'bottom'] as const;
 const Side = z.enum(SIDES).meta({ id: 'Side' });
@@ -256,16 +246,6 @@ function addBoxShapeProblems(box: ShapeCheckedBox, context: z.RefinementCtx): vo
 export const Box = z.object(boxFields).strict().superRefine(addBoxShapeProblems);
 export const BoxInput = z.object({ ...boxFields, place: PlaceInput }).strict().superRefine(addBoxShapeProblems);
 
-export function pointOfBox(box: Pick<Box, 'place'>): Point | null {
-  return typeof box.place === 'object' ? box.place.at : null;
-}
-
-export function dialValuesOfBox(box: Pick<Box, 'media' | 'params'>): Record<string, DialValue> {
-  const { media, params } = box;
-  if (media?.kind !== 'page') return {};
-  return Object.fromEntries(media.dials.map((dial) => [dial.id, Object.hasOwn(params, dial.id) ? params[dial.id] ?? dial.default : dial.default]));
-}
-
 function isDialValueSuited(dial: Dial, value: DialValue): boolean {
   switch (dial.kind) {
     case 'range': return typeof value === 'number' && value >= dial.min && value <= dial.max;
@@ -296,14 +276,6 @@ export const Frame = z.object({
 const WirePoint = z.object({ x: z.number().int(), y: z.number().int() }).strict();
 const WireEnd = z.union([ElementId, WirePoint], { error: 'a wire end is a box id or a point {"x":0,"y":0}' });
 export type WireEnd = z.infer<typeof WireEnd>;
-
-export function boxIdOfEnd(end: WireEnd): string | null {
-  return typeof end === 'string' ? end : null;
-}
-
-export function boxIdsOfWire(wire: { from: WireEnd; to: WireEnd }): string[] {
-  return [wire.from, wire.to].flatMap((end) => boxIdOfEnd(end) ?? []);
-}
 
 export const Wire = z.object({
   kind: z.literal('wire'),

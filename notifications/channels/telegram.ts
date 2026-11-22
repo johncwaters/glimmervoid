@@ -9,8 +9,6 @@ interface TelegramDecision {
 }
 
 interface TelegramGateInput {
-  enabled: unknown;
-
   botToken: string | undefined;
 
   chatId: string | undefined;
@@ -23,7 +21,6 @@ interface TelegramGateInput {
 }
 
 interface OffDashboardGateInput {
-  isEnabled: boolean;
   isConfigured: boolean;
   connectionCount: number;
   phoneEscalation: boolean;
@@ -31,8 +28,7 @@ interface OffDashboardGateInput {
   activeAgents: number;
 }
 
-function decideOffDashboardChannel({ isEnabled, isConfigured, connectionCount, phoneEscalation, category, activeAgents }: OffDashboardGateInput): TelegramDecision {
-  if (!isEnabled) return { send: false, reason: 'disabled' };
+function decideOffDashboardChannel({ isConfigured, connectionCount, phoneEscalation, category, activeAgents }: OffDashboardGateInput): TelegramDecision {
   if (!isConfigured) return { send: false, reason: 'not-configured' };
   if (category === 'complete' && activeAgents > 0) return { send: false, reason: 'active-agents' };
   if (phoneEscalation) return { send: true, reason: 'unacknowledged-escalation' };
@@ -41,7 +37,6 @@ function decideOffDashboardChannel({ isEnabled, isConfigured, connectionCount, p
 }
 
 function decideTelegramNotification({
-  enabled,
   botToken,
   chatId,
   connectionCount,
@@ -50,8 +45,7 @@ function decideTelegramNotification({
   activeAgents = 0,
 }: TelegramGateInput): TelegramDecision {
   return decideOffDashboardChannel({
-    isEnabled: enabled === true,
-    isConfigured: Boolean(botToken && chatId),
+    isConfigured: Boolean(botToken?.trim() && chatId?.trim()),
     connectionCount,
     phoneEscalation: phoneEscalation === true,
     category,
@@ -64,7 +58,7 @@ function formatTelegramText(sessionName: string, message: string): string {
 }
 
 interface TelegramChannelDeps {
-  getConfig: () => { telegramNotifications?: boolean; telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null } | null;
+  getConfig: () => { telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null } | null;
 
   getConnectionCount: () => number;
   getActiveAgentCount?: (sessionId: string) => number;
@@ -93,7 +87,6 @@ function createTelegramChannel({
     const chatId = telegram.chatId;
     const activeAgents = category === 'complete' ? getActiveAgentCount(sessionId) : 0;
     const decision = decideTelegramNotification({
-      enabled: config.telegramNotifications === true,
       botToken,
       chatId,
       connectionCount: getConnectionCount(),

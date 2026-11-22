@@ -117,7 +117,7 @@ export function createWorkflowsWiring({
       return createPoller({
         rules: resolved.ok ? core.enabledWorkflowRules(resolved.rules) : [],
         areActionsEnabled: () => core.areWorkflowActionsEnabled(settings()),
-        maxActionsPerPoll: resolved.ok ? resolved.maxActionsPerPoll : core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
+        maxActionsPerPoll: core.DEFAULT_WORKFLOW_MAX_ACTIONS_PER_POLL,
         teamName: teamName(),
         github, store, log, onTickComplete, clock, firstTickDelayMs: bootStaggerDelay, beforeStart: sweepLeftoversBeforeFirstStart,
         readState: stateIo.readState, writeState: stateIo.writeState,

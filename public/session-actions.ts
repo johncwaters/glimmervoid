@@ -1,7 +1,7 @@
 import { clearHeaderError, DEFAULT_REPLY_TIMEOUT_MS, reportHeaderError, requestFailureText } from './action-status.ts';
 import { sendControlMsg, sendControlRequest } from './control-ws.ts';
-import type { SessionRow } from './focus-view/attention-core.ts';
-import { buildSessionRows } from './focus-view/attention-core.ts';
+import type { SessionRow } from './attention-core.ts';
+import { buildSessionRows } from './attention-core.ts';
 import type { SessionOpenStatePolicy } from './session-actions-core.ts';
 import { decideSessionOpenAction, pickRestorableSessionId } from './session-actions-core.ts';
 import { sendSessionAction } from './session-card/card-actions.ts';

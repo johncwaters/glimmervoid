@@ -166,8 +166,10 @@ test('the refiner tells the lane the session name and refuses a title that start
   const offeredTitles = ['Markdown editor WYSIWYG examples', 'WYSIWYG examples'];
   const lanePrompts: string[] = [];
   const unusableTitleWarnings: string[] = [];
+  let currentTimeMs = 1_000_000;
   const refiner = createTaskTitleRefiner({
-    getConfig: () => ({ taskTitle: { refiner: { minIntervalSeconds: 0 } } }),
+    getConfig: () => ({}),
+    nowFn: () => currentTimeMs,
     logger: { warn: (message: string) => unusableTitleWarnings.push(message) },
     spawnLane: async ({ cwd }) => {
       lanePrompts.push(await readFile(path.join(cwd, 'task-title-prompt.txt'), 'utf8'));
@@ -193,6 +195,7 @@ test('the refiner tells the lane the session name and refuses a title that start
     await waitUntil(() => unusableTitleWarnings.length > 0);
     assert.match(lanePrompts[0], /"Markdown editor"/);
     assert.equal(session.refinedTaskTitle, null);
+    currentTimeMs += 60_000;
     session.ingestHookSignal({ event: 'userpromptsubmit', signal: 'resume', source: 'hook', ts: 2, payload: { prompt: 'Add two more WYSIWYG examples please' } });
     refiner.onTurnEnd(session);
     await waitUntil(() => lanePrompts.length === 2 && session.refinedTaskTitle !== null);

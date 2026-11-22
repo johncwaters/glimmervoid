@@ -10,7 +10,7 @@ import { resolvePackageBin } from './runtime-paths.ts';
 interface SettingsPayloadOptions {
   configStore: {
     getSettings: () => Record<string, unknown>;
-    config: { customAgents?: CustomAgentDeclaration[] } & Partial<TeamReviewSettingsSource>;
+    config: { customAgents?: CustomAgentDeclaration[]; sessionSandbox?: boolean } & Partial<TeamReviewSettingsSource>;
   };
   telegramDelivery?: TelegramDeliveryStatus | null;
   readTeamReviewEnvironment?: () => TeamReviewEnvironment;
@@ -36,6 +36,8 @@ function buildSettingsPayload({
 }: SettingsPayloadOptions): Record<string, unknown> {
   return {
     ...configStore.getSettings(),
+    serverPlatform: process.platform,
+    sessionSandbox: configStore.config.sessionSandbox === true,
     saneYoloAvailable: !!resolvePackageBin('cc-safety-net', 'cc-safety-net'),
     customAgents: summarizeCustomAgents(configStore.config.customAgents ?? []),
     telegramDelivery,

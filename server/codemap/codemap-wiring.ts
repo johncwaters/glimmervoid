@@ -12,11 +12,11 @@ import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, Codemap
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { BoxMedia, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
+import { CODEMAP_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -74,7 +74,7 @@ async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha, mainli
   const exportVerdicts = await Promise.all(setup.exports.map(async (kind) => exportVerdictOf(kind, await fileTextAtCommit(worktreeDir, tree.treeSha, CODEMAP_EXPORT_FILE_BY_KIND[kind]), kind === 'lint' ? lintConfigTextOf(setup) : exportedMapTextOf(model))));
   const staleExports = exportVerdicts.flatMap((verdict) => (verdict.refusal ? [verdict.refusal] : []));
   const exportNotes = exportVerdicts.flatMap((verdict) => (verdict.note ? [verdict.note] : []));
-  const findings = { staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, changedPaths, setup.allow), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, setup.allow), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, setup.allow) };
+  const findings = { staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, mainlineView.model, changedPaths, setup.allow), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, setup.allow), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, setup.allow) };
   const gateNote = setup.gate ? null : 'The import gate is off for this repo, so these never refuse a merge.';
   return { ok: true, isGateOn: setup.gate, isRefusing: setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
 }
@@ -395,11 +395,11 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (!repoKey) return;
     const lookup = await readCodemapSetup(setupHome, repoKey);
     if (lookup.kind === 'invalid') return;
-    const isRatchetUnchanged = (allow: CodemapSetup['allow']) => JSON.stringify(shrunkAllowListOf(model, allow).allow) === JSON.stringify(allow);
-    if (lookup.kind === 'ok' && isRatchetUnchanged(lookup.setup.allow)) return;
+    const isSetupUnchanged = (setup: CodemapSetup) => JSON.stringify(settledSetupOf(model, setup)) === JSON.stringify(setup);
+    if (lookup.kind === 'ok' && isSetupUnchanged(lookup.setup)) return;
     const updated = updateCodemapSetup(setupHome, repoKey, (current) => {
       if (!current) return seededSetupOf(repoKey, model);
-      return isRatchetUnchanged(current.allow) ? null : { ...current, allow: shrunkAllowListOf(model, current.allow).allow };
+      return isSetupUnchanged(current) ? null : settledSetupOf(model, current);
     });
     if (updated.kind === 'invalid') throw new Error(updated.message);
   }

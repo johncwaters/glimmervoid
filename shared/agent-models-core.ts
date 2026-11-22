@@ -1,5 +1,9 @@
-import { EFFORT_OPTION_ID, OPENROUTER_AGENT_IDS, OPENROUTER_KEY_NAME, SAFE_LAUNCH_ARGUMENT_PATTERN } from './contracts/agent-models.ts';
 import type { CatalogModel, ConfiguredDefault, ModelOption, ModelSelection } from './contracts/agent-models.ts';
+
+export const EFFORT_OPTION_ID = 'effort';
+export const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
+export const OPENROUTER_KEY_NAME = 'OPENROUTER_API_KEY';
+export const OPENROUTER_AGENT_IDS: readonly string[] = ['claude-code', 'codex', 'opencode', 'pi'];
 
 const CLAUDE_DEFAULT_POINTER = 'default';
 const CODEX_HIDDEN_VISIBILITY = 'hide';

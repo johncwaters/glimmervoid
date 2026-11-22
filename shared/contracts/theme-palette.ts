@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { THEME_STATE_NAMES } from '../theme-palettes.ts';
+import type { ThemeStateName } from '../theme-palettes.ts';
 
 const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, { error: (issue) => issue.input === undefined ? 'missing; a theme sets every color as #rrggbb' : `a color is #rrggbb, not ${JSON.stringify(issue.input)}` });
 
@@ -10,8 +12,8 @@ const ThemeStates = z.strictObject({
   running: stateColorFor('running'), waiting: stateColorFor('waiting'), failed: stateColorFor('failed'), monitoring: stateColorFor('monitoring'), done: stateColorFor('done'),
   initializing: stateColorFor('initializing'), idle: stateColorFor('idle'), starting: stateColorFor('starting'), complete: stateColorFor('complete'),
 });
-export type ThemeStateName = keyof z.infer<typeof ThemeStates>;
-export const THEME_STATE_NAMES = ThemeStates.keyof().options;
+export { THEME_STATE_NAMES };
+export type { ThemeStateName };
 
 function colorFor(role: string) {
   return HexColor.describe(role);

@@ -39,6 +39,11 @@ const CodexTokenUsageSnapshot = z.object({
   total_tokens: z.unknown().optional(),
 });
 
+const PiUsageStateSnapshot = z.object({
+  sessionId: z.string().nullable(),
+  cwd: z.string().nullable(),
+});
+
 const UsageScanSnapshotCursor = z.object({
   size: z.number(),
   mtimeMs: z.number(),
@@ -49,6 +54,7 @@ const UsageScanSnapshotCursor = z.object({
     model: z.string().nullable(),
     totalTokenUsage: CodexTokenUsageSnapshot.nullable(),
   }).nullable(),
+  piState: PiUsageStateSnapshot.nullable().optional(),
 });
 
 const UsageScanSnapshotActivity = z.object({
@@ -63,11 +69,22 @@ const RateLimitWindowSnapshot = z.object({
   resetsAtMs: z.number().nullable(),
 }).nullable();
 
+const OpenCodeDbCursorSnapshot = z.object({
+  dbSize: z.number(),
+  dbMtimeMs: z.number(),
+  walSize: z.number(),
+  walMtimeMs: z.number(),
+  watermarkUpdatedMs: z.number(),
+  watermarkId: z.string(),
+  hasMore: z.boolean(),
+});
+
 export const UsageScanSnapshot = z.object({
   version: z.number().int(),
   configKey: z.string(),
   savedAt: z.string(),
   files: z.record(z.string(), UsageScanSnapshotCursor),
+  openCodeCursors: z.record(z.string(), OpenCodeDbCursorSnapshot).optional(),
   entries: z.array(UsageScanSnapshotEntry),
   activity: z.array(UsageScanSnapshotActivity),
   codexRateLimits: z.object({

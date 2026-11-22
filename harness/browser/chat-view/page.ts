@@ -81,6 +81,7 @@ async function playLive(): Promise<void> {
   const partTopsAfter = partTops();
   const turnEndShiftPx = Math.max(0, ...partTopsBefore.map((top, partIndex) => Math.abs(top - (partTopsAfter[partIndex] ?? top))));
   document.body.dataset.turnEndShiftPx = String(turnEndShiftPx);
+  document.body.dataset.liveDone = 'true';
 }
 
 const EARLIER_PAGE_RECORDS = 40;
@@ -147,7 +148,89 @@ async function playBoot(): Promise<void> {
   document.body.dataset.bootDone = 'true';
 }
 
+const VOLATILE_TEXT_SELECTOR = '.chat-activity-verb, .chat-activity-detail, .chat-subagent-time, .chat-limit-countdown';
+const VOLATILE_ATTRIBUTES_BY_SELECTOR: readonly [string, readonly string[]][] = [
+  ['.chat-activity', ['aria-label', 'data-typing']],
+  ['.chat-card', ['data-keys-ready']],
+];
+
+function volatileAttributesOf(element: Element): ReadonlySet<string> {
+  return new Set(VOLATILE_ATTRIBUTES_BY_SELECTOR.flatMap(([selector, attributeNames]) => (element.matches(selector) ? attributeNames : [])));
+}
+
+function directTextOf(element: Element): string {
+  if (element.matches(VOLATILE_TEXT_SELECTOR)) return '<volatile>';
+  const directText = [...element.childNodes].filter((child) => child.nodeType === Node.TEXT_NODE).map((child) => child.textContent ?? '').join('');
+  return directText.replace(/\s+/g, ' ').trim();
+}
+
+function normalizedAttributeValue(name: string, value: string): string {
+  if (name !== 'src' && name !== 'href') return value;
+  const withoutOrigin = value.startsWith(location.origin) ? value.slice(location.origin.length) : value;
+  return withoutOrigin.replace(/^\/@fs\/.*\/(public\/.*)$/, '/$1');
+}
+
+function elementLineOf(element: Element, depth: number): string {
+  const volatileAttributes = volatileAttributesOf(element);
+  const attributes = [...element.attributes]
+    .filter((attribute) => !volatileAttributes.has(attribute.name))
+    .map((attribute) => `${attribute.name}=${JSON.stringify(normalizedAttributeValue(attribute.name, attribute.value))}`)
+    .sort();
+  const text = directTextOf(element);
+  const value = element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement ? ` value=${JSON.stringify(element.value)}` : '';
+  return `${'  '.repeat(depth)}${element.tagName.toLowerCase()} ${attributes.join(' ')}${value}${text === '' ? '' : ` | ${text}`}`;
+}
+
+function fingerprintLinesOf(root: Element): string[] {
+  const lines: string[] = [];
+  const pendingElements: { element: Element; depth: number }[] = [{ element: root, depth: 0 }];
+  while (pendingElements.length > 0) {
+    const pending = pendingElements.pop();
+    if (!pending) continue;
+    lines.push(elementLineOf(pending.element, pending.depth));
+    pendingElements.push(...[...pending.element.children].reverse().map((child) => ({ element: child, depth: pending.depth + 1 })));
+  }
+  return lines;
+}
+
+function medianOf(samples: readonly number[]): number {
+  const sorted = [...samples].sort((first, second) => first - second);
+  return Math.round((sorted[Math.floor(sorted.length / 2)] ?? 0) * 100) / 100;
+}
+
+function measureRendering(runCount: number): void {
+  const partsMs: number[] = [];
+  const restUpsertMs: number[] = [];
+  const rebuildMs: number[] = [];
+  let partCount = 0;
+  for (let run = 0; run < runCount; run += 1) {
+    const partsStart = performance.now();
+    const partsState = createChatPartsState();
+    const appended = appendChatRecords(partsState, traceRecords);
+    const restingParts = [...appended.parts, ...endChatTurn(partsState)];
+    const upsertStart = performance.now();
+    const measuredView = createChatView(harnessUploadUrlOf);
+    chatHost?.replaceChildren(measuredView.element);
+    measuredView.showLoaded();
+    measuredView.upsert(restingParts, NO_ARRIVING_PARTS);
+    void measuredView.element.offsetHeight;
+    const rebuildStart = performance.now();
+    measuredView.replaceLogParts(restingParts.map((part) => part.id), restingParts);
+    void measuredView.element.offsetHeight;
+    const rebuildEnd = performance.now();
+    partsMs.push(upsertStart - partsStart);
+    restUpsertMs.push(rebuildStart - upsertStart);
+    rebuildMs.push(rebuildEnd - rebuildStart);
+    partCount = restingParts.length;
+  }
+  document.body.dataset.perf = JSON.stringify({ records: traceRecords.length, parts: partCount, runs: runCount, partsMs: medianOf(partsMs), restUpsertMs: medianOf(restUpsertMs), rebuildMs: medianOf(rebuildMs) });
+}
+
+Object.assign(window, { chatFingerprint: () => fingerprintLinesOf(document.querySelector('.chat-view') ?? document.body) });
+
 const harnessMode = new URLSearchParams(location.search);
+const perfRunCount = Number(harnessMode.get('perf') ?? '0');
+if (perfRunCount > 0) measureRendering(perfRunCount);
 if (harnessMode.has('boot')) void playBoot();
 if (harnessMode.has('live')) await playLive();
 if (harnessMode.has('earlier')) playEarlier();

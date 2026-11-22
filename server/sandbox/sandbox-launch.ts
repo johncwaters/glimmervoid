@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RequestListener } from 'node:http';
 import tls from 'node:tls';
-import { listenAgentIngressSocket } from '../backend/backend-http.ts';
 import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -30,6 +29,7 @@ interface SessionSandboxDependencies {
   glimmervoidHome: string;
   configPath: string;
   ingressRequestListener: RequestListener;
+  listenIngressSocket: (options: { socketPath: string; ingressApp: RequestListener }) => Promise<{ close(): Promise<void> }>;
   getIngressPort: () => number | null;
   resolveTools: () => Promise<SandboxTools | { refusal: string }>;
   getExtraAllowedHosts: () => readonly string[];
@@ -250,7 +250,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
   const socketFolder = await fsp.mkdtemp(SHORT_SOCKET_FOLDER_PREFIX);
   const ingressSocketPath = ingressSocketPathIn(socketFolder);
   const removeSocketFolder = () => fsp.rm(socketFolder, { recursive: true, force: true });
-  const ingressSocket = await listenAgentIngressSocket({ socketPath: ingressSocketPath, ingressApp: dependencies.ingressRequestListener })
+  const ingressSocket = await dependencies.listenIngressSocket({ socketPath: ingressSocketPath, ingressApp: dependencies.ingressRequestListener })
     .catch((error: unknown) => ({ refusal: `the session bridge could not listen: ${errorMessage(error)}` }));
   if ('refusal' in ingressSocket) {
     await removeSocketFolder();

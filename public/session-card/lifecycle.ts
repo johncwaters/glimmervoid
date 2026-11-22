@@ -15,12 +15,11 @@ import { closeDebugOverlay, setDebugMode } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
+import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
 import { closeDataWs } from './terminal-data-socket.ts';
 import { setLinkPreviewsEnabled } from './terminal-link-popup.ts';
-import { setTerminalCursorBlink } from './terminal-setup.ts';
 import { releaseWebgl } from './webgl-pool.ts';
 import { currentTerminalFontFamily } from '../mono-font.ts';
 import { applyTerminalFontFamily } from '../mono-font-core.ts';
@@ -54,17 +53,11 @@ export function getSessionCount() {
 }
 
 export function applyTerminalSettings(settings: unknown) {
-
-  const terminalSettings = (settings || {}) as { cursorBlink?: boolean; debugMode?: boolean; linkPreviews?: boolean };
+  const terminalSettings = (settings || {}) as { debugMode?: boolean; linkPreviews?: boolean };
   if (terminalSettings.linkPreviews != null) setLinkPreviewsEnabled(terminalSettings.linkPreviews);
-  if (terminalSettings.cursorBlink != null) setTerminalCursorBlink(terminalSettings.cursorBlink);
   if (terminalSettings.debugMode != null) {
     setDebugMode(terminalSettings.debugMode);
     setHealthMonitorDebugMode(terminalSettings.debugMode);
-  }
-  for (const [, ui] of sessionUIs) {
-    if (!ui.term) continue;
-    if (terminalSettings.cursorBlink != null) ui.term.options.cursorBlink = terminalSettings.cursorBlink;
   }
 }
 

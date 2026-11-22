@@ -1,5 +1,5 @@
 import type { AgentDoneLine } from '#shared/contracts/session.ts';
-import { AGENT_DONE_CHECK_ID_PREFIX, agentDoneCheckIdOf } from '#shared/contracts/verification.ts';
+import { AGENT_DONE_CHECK_ID_PREFIX, CHECK_STATUS_WORDS, agentDoneCheckIdOf } from '#shared/contracts/verification.ts';
 import type { CheckOutcome, VerificationRun } from '#shared/contracts/verification.ts';
 import type { ChatPhase } from './chat-activity-core.ts';
 
@@ -9,8 +9,6 @@ type DonePillTone = 'running' | 'passed' | 'partial' | 'skipped' | 'failed';
 export type DonePanelModel =
   | { kind: 'running'; runKey: string }
   | { kind: 'settled'; runKey: string; failedLines: DoneLine[]; skippedLines: DoneLine[]; passedLines: DoneLine[] };
-
-export const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = { pass: 'Passed', fail: 'Failed', timeout: 'Timed out', skipped: 'Skipped' };
 
 const FINISHED_PHASES: readonly ChatPhase[] = ['quiet', 'stopped'];
 const LINE_STATUS_BY_CHECK_STATUS: Record<CheckOutcome['status'], DoneLineStatus> = { pass: 'passed', fail: 'failed', timeout: 'failed', skipped: 'not-checked' };

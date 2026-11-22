@@ -1,8 +1,11 @@
 import path from 'node:path';
+import { codexHomes, configDirOverride, expandTilde, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir, vendorHomes } from '../../core/claude-config-paths-core.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { rawTextOr } from '../../../shared/coerce.ts';
-import { ANTIGRAVITY_USAGE_FILENAME } from './usage-antigravity-core.ts';
+import { textOr } from '../../../shared/coerce.ts';
+import { ANTIGRAVITY_TRANSCRIPT_FILENAME } from './usage-antigravity-core.ts';
+import { splitLines } from '../../../shared/text.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
+import { openCodeDbPaths } from './usage-opencode-core.ts';
 import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
@@ -63,13 +66,6 @@ function decideFileRead(
   return { action: 'append', readFrom: prior.offset || 0 };
 }
 
-function splitLines(carry: string | null | undefined, chunkText: string | null | undefined): { lines: string[]; carry: string } {
-  const text = `${carry || ''}${chunkText || ''}`;
-  const lines = text.split(/\r?\n/);
-  const nextCarry = text.endsWith('\n') || text.endsWith('\r\n') ? '' : lines.pop();
-  return { lines: lines.filter((line) => line.length > 0), carry: nextCarry || '' };
-}
-
 function resolveProjectsDirs(
   env: NodeJS.ProcessEnv = process.env,
   extraDirs: string[] = [],
@@ -82,60 +78,6 @@ function resolveProjectsDirs(
   const overrideSurvivors = projectDirCandidates(env, [], homeDir).filter(isDirectory);
   if (overrideSurvivors.length === 0) throw new Error('CLAUDE_CONFIG_DIR is set but no projects directory exists');
   return surviving;
-}
-
-function projectDirCandidates(
-  env: NodeJS.ProcessEnv = process.env,
-  extraDirs: string[] = [],
-  homeDir: string | null = null,
-): string[] {
-  const override = configDirOverride(env);
-  const extraHomes = normalizeHomeCandidates(extraDirs, env, homeDir);
-  if (override) {
-    const overrideHomes = normalizeHomeCandidates(override.split(','), env, homeDir);
-    return uniqueStrings([...projectsDirsFromHomes(overrideHomes), ...projectsDirsFromHomes(extraHomes)]);
-  }
-
-  const resolvedHomeDir = resolveHomeDir(env, homeDir);
-  if (!resolvedHomeDir) return uniqueStrings(projectsDirsFromHomes(extraHomes));
-  const xdgConfigHome = rawTextOr(env.XDG_CONFIG_HOME, null) || path.join(resolvedHomeDir, '.config');
-  const defaultHomes = [path.join(xdgConfigHome, 'claude'), path.join(resolvedHomeDir, '.claude')];
-  return uniqueStrings([...projectsDirsFromHomes(defaultHomes), ...projectsDirsFromHomes(extraHomes)]);
-}
-
-function configDirOverride(env: NodeJS.ProcessEnv): string {
-  const override = typeof env.CLAUDE_CONFIG_DIR === 'string' ? env.CLAUDE_CONFIG_DIR : '';
-  return override.trim();
-}
-
-function projectsDirsFromHomes(homes: string[]): string[] {
-  const projectsDirs: string[] = [];
-  for (const candidate of homes) {
-    const home = path.basename(candidate) === 'projects' ? path.dirname(candidate) : candidate;
-    const projectsDir = path.join(home, 'projects');
-    projectsDirs.push(projectsDir);
-  }
-  return projectsDirs;
-}
-
-function normalizeHomeCandidates(candidates: unknown, env: NodeJS.ProcessEnv, homeDir: string | null): string[] {
-  if (!Array.isArray(candidates)) return [];
-  return candidates
-    .map((candidate) => expandTilde(String(candidate || '').trim(), env, homeDir))
-    .filter(Boolean);
-}
-
-function expandTilde(candidate: string, env: NodeJS.ProcessEnv, homeDir: string | null): string {
-  if (!candidate.startsWith('~')) return candidate;
-  const home = resolveHomeDir(env, homeDir);
-  if (!home) return '';
-  if (candidate === '~') return home;
-  if (!candidate.startsWith(`~${path.sep}`) && !candidate.startsWith('~/')) return candidate;
-  return path.join(home, candidate.slice(2));
-}
-
-function resolveHomeDir(env: NodeJS.ProcessEnv, homeDir: string | null): string | null {
-  return rawTextOr(env.HOME, null) || rawTextOr(env.USERPROFILE, null) || homeDir;
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -159,13 +101,13 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = '3f25d0c07fa0e06b';
+const SCAN_SNAPSHOT_INGEST_DIGEST = '9337e800e439b78f';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
   { appVersion, vendors, extraProjectsDirs, costMode, retainDays, hasMonthlyBudget, env, homeDir }: {
     appVersion: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean; opencode?: boolean } | null | undefined;
     extraProjectsDirs: string[];
     costMode: string;
     retainDays: number;
@@ -181,11 +123,15 @@ function scanConfigKey(
     grok: vendors?.grok !== false,
     kimi: vendors?.kimi !== false,
     antigravity: vendors?.antigravity !== false,
+    pi: vendors?.pi !== false,
+    opencode: vendors?.opencode !== false,
     claudeRoots: projectDirCandidates(env, extraProjectsDirs, homeDir),
     codexHomes: codexHomes(env, homeDir),
     grokHomes: grokHomes(env, homeDir),
     kimiHomes: kimiHomes(env, homeDir),
-    antigravityHomes: antigravityHomes(env, homeDir),
+    antigravityBrainRoots: antigravityBrainRoots(env, homeDir),
+    piSessionRoots: piSessionRootCandidates(env, homeDir).map((root) => root.dir),
+    openCodeDbPaths: openCodeDbPaths(env, homeDir),
     costMode,
     retainDays,
     hasMonthlyBudget,
@@ -236,24 +182,6 @@ function shouldEvaluateDespiteIoFailures(
   return ioFailureStreak >= limit;
 }
 
-function vendorHomes(
-  env: NodeJS.ProcessEnv,
-  varName: string,
-  defaultDirName: string,
-  homeDir: string | null,
-): string[] {
-  const rawOverride = env?.[varName];
-  const override = typeof rawOverride === 'string' ? rawOverride.trim() : '';
-  if (override) return normalizeHomeCandidates(override.split(','), env, homeDir);
-  const home = resolveHomeDir(env, homeDir);
-  if (!home) return [];
-  return [path.join(home, defaultDirName)];
-}
-
-function codexHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
-  return vendorHomes(env, 'CODEX_HOME', '.codex', homeDir);
-}
-
 function grokHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
   return vendorHomes(env, 'GROK_HOME', '.grok', homeDir);
 }
@@ -262,14 +190,38 @@ function kimiHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null 
   return vendorHomes(env, 'KIMI_CODE_HOME', '.kimi-code', homeDir);
 }
 
-function antigravityHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
+const ANTIGRAVITY_BRAIN_FOLDERS = Object.freeze(['antigravity-cli', 'antigravity'] as const);
+
+function antigravityBrainRoots(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
+  const override = textOr(env?.ANTIGRAVITY_BRAIN_DIR, null);
+  if (override) return normalizeHomeCandidates(override.split(','), env, homeDir);
   const home = resolveHomeDir(env, homeDir);
   if (!home) return [];
-  return [path.join(home, '.gemini', 'antigravity-cli', 'brain'), path.join(home, '.gemini', 'antigravity', 'brain')];
+  return ANTIGRAVITY_BRAIN_FOLDERS.map((folder) => path.join(home, '.gemini', folder, 'brain'));
 }
 
-function antigravityRootCandidates(homes: string[]): VendorRoot[] {
-  return homes.map((home) => ({ dir: home, kind: 'active', home }));
+function antigravityBrainRootCandidates(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): VendorRoot[] {
+  return antigravityBrainRoots(env, homeDir).map((dir) => ({ dir, kind: 'active', home: path.dirname(dir) }));
+}
+
+function antigravityMetadataPathForBrainRoot(brainRoot: string): string {
+  return path.join(path.dirname(brainRoot), 'cache', 'conversation_metadata.json');
+}
+
+function piSessionRootCandidates(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): VendorRoot[] {
+  const home = resolveHomeDir(env, homeDir);
+  const agentDirOverride = textOr(env?.PI_CODING_AGENT_DIR, null);
+  const agentDir = agentDirOverride
+    ? expandTilde(agentDirOverride, env, homeDir)
+    : (home ? path.join(home, '.pi', 'agent') : '');
+  const sessionDirOverride = textOr(env?.PI_CODING_AGENT_SESSION_DIR, null);
+  const candidates: string[] = [];
+  if (sessionDirOverride) {
+    const expanded = expandTilde(sessionDirOverride, env, homeDir);
+    if (expanded) candidates.push(expanded);
+  }
+  if (agentDir) candidates.push(path.join(agentDir, 'sessions'));
+  return uniqueStrings(candidates).map((dir) => ({ dir, kind: 'active', home: agentDir || path.dirname(dir) }));
 }
 
 function codexRootCandidates(homes: string[]): VendorRoot[] {
@@ -296,7 +248,7 @@ function isUsageFile(vendor: string, fileName: unknown): boolean {
   if (typeof fileName !== 'string') return false;
   if (vendor === 'grok') return fileName === GROK_USAGE_FILENAME;
   if (vendor === 'kimi') return fileName === KIMI_USAGE_FILENAME;
-  if (vendor === 'antigravity') return fileName === ANTIGRAVITY_USAGE_FILENAME;
+  if (vendor === 'antigravity') return fileName === ANTIGRAVITY_TRANSCRIPT_FILENAME;
   return fileName.endsWith('.jsonl');
 }
 
@@ -321,4 +273,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, antigravityHomes, antigravityRootCandidates, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, antigravityBrainRoots, antigravityBrainRootCandidates, antigravityMetadataPathForBrainRoot, piSessionRootCandidates, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };

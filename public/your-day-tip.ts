@@ -5,14 +5,13 @@ import { isHintCardShown, showHintCard } from './feature-hint.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
 import { attentionTally } from './session-card/card-registry.ts';
 import { requestUsageReport, subscribeUsage, usageSnapshot } from './usage/usage-store.ts';
+import { yourDayRecapLabel, yourDaySessionWord } from '#shared/your-day-text.ts';
 
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 const LIVE_TIP_GAP_MS = 3 * HOUR_MS;
 const MORNING_START_HOUR = 4;
-const AFTERNOON_START_HOUR = 12;
-const EVENING_START_HOUR = 17;
 const CHECK_INTERVAL_MS = MINUTE_MS;
 const REPORT_REFRESH_MS = 30 * MINUTE_MS;
 
@@ -47,14 +46,8 @@ function claim(category: string, now: number, ttlMs: number) {
   }
 }
 
-function liveTipText(waitingCount: number, stretchMs: number) {
-  return `${waitingCount} sessions are waiting and it has been ${minutesText(stretchMs)} since a break. They will keep. Step away for 15 minutes.`;
-}
-
-function greetingForHour(hour: number) {
-  if (hour < AFTERNOON_START_HOUR) return 'Morning';
-  if (hour < EVENING_START_HOUR) return 'Afternoon';
-  return 'Evening';
+function liveTipDetail(usual: YourDay['usual']) {
+  return `That is past your usual ${minutesText(usual.stretchMs)} run and ${Math.round(usual.peakWaiting)} waiting. Agents keep their place while you are away, so 15 minutes off costs them nothing.`;
 }
 
 function tryDailyTip(yourDay: YourDay, now: number) {
@@ -62,7 +55,21 @@ function tryDailyTip(yourDay: YourDay, now: number) {
   const hour = clock.hourOf(now);
   if (!topInsight || hour < MORNING_START_HOUR) return false;
   if (!claim(`morning-${clock.dayKeyOf(now)}`, now, DAY_MS)) return false;
-  showHintCard({ text: `${greetingForHour(hour)}. ${topInsight.text}`, ariaLabel: 'Your day tip', onOpen: openUsageView, onDismiss: () => {} });
+  const { sessionCount, activeMs, longestStretchMs } = yourDay.yesterday;
+  showHintCard({
+    eyebrow: yourDayRecapLabel(yourDay, now),
+    facts: [
+      { value: String(sessionCount), label: yourDaySessionWord(sessionCount) },
+      { value: minutesText(activeMs), label: 'active' },
+      { value: minutesText(longestStretchMs), label: 'longest run' },
+    ],
+    title: topInsight.title,
+    detail: topInsight.detail,
+    ariaLabel: 'Your day',
+    openLabel: 'Open usage',
+    onOpen: openUsageView,
+    onDismiss: () => {},
+  });
   return true;
 }
 
@@ -76,8 +83,11 @@ function tryLiveTip(yourDay: YourDay, now: number) {
   if (readStorage(silencedKey)) return;
   if (!claim('live', now, LIVE_TIP_GAP_MS)) return;
   showHintCard({
-    text: liveTipText(waitingCount, stretchMs),
-    ariaLabel: 'Your day tip',
+    eyebrow: 'Right now',
+    title: `${minutesText(stretchMs)} without a break, ${waitingCount} sessions waiting`,
+    detail: liveTipDetail(yourDay.usual),
+    ariaLabel: 'Your day',
+    openLabel: 'Open usage',
     onOpen: openUsageView,
     onDismiss: () => writeStorage(silencedKey, String(now)),
   });

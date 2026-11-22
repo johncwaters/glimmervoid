@@ -1,4 +1,4 @@
-import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
 import { isRecord } from './coerce.ts';
 import { BOX_SHAPES, BYLINE_PREFIX } from './whiteboard-shapes.ts';
 

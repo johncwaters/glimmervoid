@@ -16,6 +16,7 @@ interface SessionSandboxWiring {
   glimmervoidHome: string;
   configPath: string;
   agentIngressServer: Server;
+  listenIngressSocket: (options: { socketPath: string; ingressApp: RequestListener }) => Promise<{ close(): Promise<void> }>;
   getIngressPort: () => number | null;
   getExtraAllowedHosts: () => readonly string[];
   isWeakerNetworkIsolationOn: () => boolean;
@@ -100,6 +101,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
     glimmervoidHome: wiring.glimmervoidHome,
     configPath: wiring.configPath,
     ingressRequestListener: ((request, response) => { wiring.agentIngressServer.emit('request', request, response); }) satisfies RequestListener,
+    listenIngressSocket: wiring.listenIngressSocket,
     getIngressPort: wiring.getIngressPort,
     getExtraAllowedHosts: wiring.getExtraAllowedHosts,
     isWeakerNetworkIsolationOn: wiring.isWeakerNetworkIsolationOn,

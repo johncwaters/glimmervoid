@@ -47,7 +47,6 @@ export const timestamp = z.number().finite();
 export const optionalTimestamp = timestamp.optional();
 export const optionalError = nullableString.optional();
 export const opaqueObject = openObject();
-export const opaqueArray = z.array(z.unknown());
 export const sessionDocPath = z.string().min(1).max(SESSION_DOC_PATH_MAX_CHARS);
 export const trailSteps = z.array(z.union([
   openObject({ at: timestamp, tool: z.string(), detail: z.string() }),
@@ -238,7 +237,7 @@ export const InstallDetail = z.object({
 export type InstallDetail = z.infer<typeof InstallDetail>;
 
 export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'board_graphics_reset'] as const);
-export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'board-session', 'trace', 'benchmarks', 'packs', 'settings'] as const);
+export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'board-session', 'trace', 'benchmarks', 'wargames', 'packs', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
   radar: ['report', 'open-session', 'resolve', 'suppress', 'archive-investigation', 'approve-fix', 'dismiss-fix'],

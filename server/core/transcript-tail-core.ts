@@ -1,4 +1,4 @@
-import { splitLines } from '../usage/core/usage-scan-core.ts';
+import { splitLines } from '../../shared/text.ts';
 import { coercedNumberOr } from '../../shared/coerce.ts';
 
 interface TailStat {

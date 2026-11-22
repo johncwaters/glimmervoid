@@ -51,6 +51,7 @@ interface LaneReader {
   packSources: NonNullable<ControlHandlerDeps['packSources']>;
   packLaunchers: NonNullable<ControlHandlerDeps['packLaunchers']>;
   races: NonNullable<ControlHandlerDeps['races']>;
+  wargames: NonNullable<ControlHandlerDeps['wargames']>;
   readGithubIssue: NonNullable<ControlHandlerDeps['readGithubIssue']>;
 }
 
@@ -198,6 +199,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     packSources: laneAssembly.packSources,
     packLaunchers: laneAssembly.packLaunchers,
     races: laneAssembly.races,
+    wargames: laneAssembly.wargames,
     readGithubIssue: laneAssembly.readGithubIssue,
     startPicks: createStartPicksStore({ filePath: path.join(glimmervoidHomeDir(), 'start-picks.json'), logger: console }),
     githubStore: laneAssembly.githubStore,

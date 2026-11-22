@@ -1,6 +1,7 @@
 const SHORT_SHA_CHARS = 7;
 const HEX_SHA_RE = /^[0-9a-f]{7,40}$/i;
 const FULL_SHA_RE = /^[0-9a-f]{40}$/;
+const GH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function shortSha(sha: unknown, { chars = SHORT_SHA_CHARS, validate = false }: { chars?: number; validate?: boolean } = {}): string {
   if (typeof sha !== 'string' || !sha) return '';
@@ -66,4 +67,26 @@ function parseRawCommitLog(rawLog: string): RawLoggedCommit[] {
   return entries.flatMap((lines) => rawLoggedCommitOf(lines.join('\n')) ?? []);
 }
 
-export { FULL_SHA_RE, HEX_SHA_RE, diffHeaderPathsOf, parseRawCommitLog, shortSha };
+const GITHUB_DIRECTORY_ENTRY = '.github';
+const CREDENTIAL_LIKE_FILE_NAMES = [/^\.env/i, /\.pem$/i, /^id_rsa/i, /^\.npmrc$/i, /^\.netrc$/i, /^credentials/i, /\.key$/i];
+
+function isGithubDirectoryPath(filePath: string): boolean {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  return normalizedPath === GITHUB_DIRECTORY_ENTRY || normalizedPath.startsWith(`${GITHUB_DIRECTORY_ENTRY}/`);
+}
+
+function isCredentialLikePath(filePath: string): boolean {
+  const fileName = filePath.replace(/\\/g, '/').split('/').at(-1) ?? '';
+  return CREDENTIAL_LIKE_FILE_NAMES.some((pattern) => pattern.test(fileName));
+}
+
+function githubRepoSlugFromRemote(remoteUrl: string): string | null {
+  const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/?#]+)\/([^/?#]+)\/?$/i.exec(remoteUrl.trim());
+  if (!match) return null;
+  const owner = match[1];
+  const name = match[2]?.replace(/\.git$/i, '');
+  if (!owner || !name || !GH_SEGMENT.test(owner) || !GH_SEGMENT.test(name)) return null;
+  return `${owner}/${name}`;
+}
+
+export { FULL_SHA_RE, GH_SEGMENT, HEX_SHA_RE, diffHeaderPathsOf, githubRepoSlugFromRemote, isCredentialLikePath, isGithubDirectoryPath, parseRawCommitLog, shortSha };

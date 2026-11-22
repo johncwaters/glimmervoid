@@ -17,6 +17,8 @@ import type { ToolImageResult } from './core/tool-result.ts';
 import { toolErrorResult, toolResultFromReply } from './core/tool-result.ts';
 import { GROUPED_TOOLS, allowedActionNames, combinedAnnotations, inputSchemaFor, routeToolCall } from './core/tools.ts';
 import type { CallContext, GroupedTool, Presenter, ToolArguments } from './core/tools.ts';
+import { buildWargamesSeatServer } from './wargames-tools.ts';
+import type { WargamesSeatPort } from './wargames-tools.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
 
 const MCP_ROUTE = '/mcp';
@@ -32,6 +34,7 @@ interface FileStores {
 interface AgentMcpDependencies extends FileStores {
   getSession(id: string): Session | null;
   getAgentApi(): AgentApiPort | null;
+  getWargames?: () => WargamesSeatPort | null;
   isLoopback(req: Request): boolean;
   isOriginAllowed(req: Request): boolean;
   logger: Pick<Console, 'warn'>;
@@ -121,8 +124,17 @@ function authenticatedSession(req: Request, dependencies: AgentMcpDependencies):
 function mountAgentMcp(app: Express, dependencies: AgentMcpDependencies): void {
   const handler = createMcpHandler(({ authInfo }) => {
     const session = authInfo ? dependencies.getSession(authInfo.clientId) : null;
+    if (!session) throw new Error('the MCP request lost its session');
+    const wargames = dependencies.getWargames?.() ?? null;
+    const seatBinding = wargames?.seatForSession(session.id) ?? null;
+    if (wargames && seatBinding) {
+      return buildWargamesSeatServer(seatBinding.matchId, seatBinding.seatId, wargames);
+    }
+    if (wargames?.isWargamesSession(session.id)) {
+      throw new Error('Wargames seat session is not allowed to access operator tools');
+    }
     const agentApi = dependencies.getAgentApi();
-    if (!session || !agentApi) throw new Error('the MCP request lost its session');
+    if (!agentApi) throw new Error('the MCP request lost its session');
     return buildSessionServer(session, agentApi, dependencies);
   }, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });
   const nodeHandler = toNodeHandler(handler, { onerror: (error) => dependencies.logger.warn(`[mcp] ${error.message}`) });

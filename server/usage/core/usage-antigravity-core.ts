@@ -1,54 +1,92 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseJsonLine, vendorUsageEntry } from './usage-entry-core.ts';
 import type { DedupIdentityEntry, UsageEntry } from './usage-entry-core.ts';
 import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
-const ANTIGRAVITY_USAGE_FILENAME = 'transcript_full.jsonl';
-const ANTIGRAVITY_TRANSCRIPT_SEGMENTS = ['.system_generated', 'logs', ANTIGRAVITY_USAGE_FILENAME] as const;
-const ANTIGRAVITY_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_STEP_TOKENS = 1_000_000_000;
+const ANTIGRAVITY_TRANSCRIPT_FILENAME = 'transcript.jsonl';
+const ANTIGRAVITY_TRANSCRIPT_SEGMENTS = Object.freeze(['.system_generated', 'logs', ANTIGRAVITY_TRANSCRIPT_FILENAME] as const);
 
-interface AntigravityUsageLine {
-  type?: unknown;
+interface AntigravityTranscriptLine {
   step_index?: unknown;
+  source?: unknown;
+  type?: unknown;
   created_at?: unknown;
   model?: unknown;
   input_tokens?: unknown;
-  output_tokens?: unknown;
   cache_read_tokens?: unknown;
+  output_tokens?: unknown;
 }
 
-function isAntigravitySessionDir(name: string): boolean {
-  return ANTIGRAVITY_SESSION_ID_PATTERN.test(name);
-}
-
-function isValidTokenCount(value: number): boolean {
-  return value >= 0 && value <= MAX_STEP_TOKENS;
+interface AntigravityConversationMetadata {
+  conversations?: Record<string, {
+    summary?: {
+      WorkspaceURIs?: unknown;
+    } | null;
+  } | null> | null;
 }
 
 function antigravitySessionIdFromPath(filePath: string): string | null {
   const logsFolder = path.dirname(filePath);
-  const systemGeneratedFolder = path.dirname(logsFolder);
-  if (path.basename(logsFolder) !== 'logs' || path.basename(systemGeneratedFolder) !== '.system_generated') return null;
-  const sessionFolder = path.basename(path.dirname(systemGeneratedFolder));
-  return isAntigravitySessionDir(sessionFolder) ? sessionFolder : null;
+  const generatedFolder = path.dirname(logsFolder);
+  if (path.basename(logsFolder) === 'logs' && path.basename(generatedFolder) === '.system_generated') {
+    const conversationId = path.basename(path.dirname(generatedFolder));
+    return conversationId || null;
+  }
+  const fallbackFolder = path.basename(logsFolder);
+  return fallbackFolder || null;
 }
 
-function parseAntigravityUsageLine(line: unknown, filePath: string): UsageEntry | null {
-  const raw = parseJsonLine(line, '"PLANNER_RESPONSE"');
+function workspacePathFromUri(rawUri: unknown): string | null {
+  const uri = rawTextOr(rawUri, null);
+  if (!uri) return null;
+  if (!uri.startsWith('file://')) return uri;
+  try {
+    return fileURLToPath(uri);
+  } catch {
+    return null;
+  }
+}
+
+function parseAntigravityConversationMetadata(rawJson: string): Map<string, string> {
+  const cwdByConversation = new Map<string, string>();
+  let parsed: AntigravityConversationMetadata | null = null;
+  try {
+    parsed = JSON.parse(rawJson) as AntigravityConversationMetadata;
+  } catch {
+    return cwdByConversation;
+  }
+  const conversations = parsed?.conversations;
+  if (!conversations || typeof conversations !== 'object') return cwdByConversation;
+  for (const [conversationId, record] of Object.entries(conversations)) {
+    const uris = record?.summary?.WorkspaceURIs;
+    if (!Array.isArray(uris) || uris.length === 0) continue;
+    const workspacePath = workspacePathFromUri(uris[0]);
+    if (workspacePath) cwdByConversation.set(conversationId, workspacePath);
+  }
+  return cwdByConversation;
+}
+
+function parseAntigravityUsageLine(
+  line: unknown,
+  filePath: string,
+  cwdByConversation?: ReadonlyMap<string, string>,
+): UsageEntry | null {
+  const raw = parseJsonLine(line, '"input_tokens"');
   if (!raw) return null;
-  const parsed = raw as AntigravityUsageLine;
-  if (parsed.type !== 'PLANNER_RESPONSE') return null;
-  const sessionId = antigravitySessionIdFromPath(filePath);
+  const parsed = raw as AntigravityTranscriptLine;
+  if (parsed.source !== 'MODEL' || parsed.type !== 'PLANNER_RESPONSE') return null;
   const model = rawTextOr(parsed.model, null);
-  const stepIndex = numberOr(parsed.step_index, null);
-  const timestampMs = typeof parsed.created_at === 'string' ? Date.parse(parsed.created_at) : Number.NaN;
-  if (sessionId === null || model === null || stepIndex === null || !Number.isFinite(timestampMs) || timestampMs <= 0) return null;
+  const createdAt = rawTextOr(parsed.created_at, null);
+  if (!model || !createdAt) return null;
+  const timestampMs = Date.parse(createdAt);
+  if (!Number.isFinite(timestampMs)) return null;
   const input = numberOr(parsed.input_tokens, 0);
-  const output = numberOr(parsed.output_tokens, 0);
   const cacheRead = numberOr(parsed.cache_read_tokens, 0);
-  if (!isValidTokenCount(input) || !isValidTokenCount(output) || !isValidTokenCount(cacheRead)) return null;
-  if (input <= 0 && output <= 0 && cacheRead <= 0) return null;
+  const output = numberOr(parsed.output_tokens, 0);
+  const sessionId = antigravitySessionIdFromPath(filePath);
+  const stepIndex = numberOr(parsed.step_index, null);
+  const messageId = stepIndex === null ? null : String(stepIndex);
   const entry = vendorUsageEntry({
     timestampMs,
     sessionId,
@@ -59,13 +97,23 @@ function parseAntigravityUsageLine(line: unknown, filePath: string): UsageEntry 
     cacheRead,
     costUSD: null,
     vendor: 'antigravity',
+    messageId,
   });
-  return { ...entry, messageId: `step-${stepIndex}` };
+  const cwd = sessionId ? cwdByConversation?.get(sessionId) ?? null : null;
+  if (!cwd) return entry;
+  return { ...entry, cwd };
 }
 
 function antigravityDedupIdentity(entry: DedupIdentityEntry | null | undefined): string | null {
   if (!entry) return null;
-  return `${entry.vendor}:${entry.sessionId}:${entry.messageId}:${entry.model}`;
+  if (entry.messageId) return `${entry.vendor}:${entry.sessionId}:${entry.messageId}`;
+  return `${entry.vendor}:${entry.sessionId}:${entry.timestampMs}:${entry.model}`;
 }
 
-export { ANTIGRAVITY_TRANSCRIPT_SEGMENTS, ANTIGRAVITY_USAGE_FILENAME, antigravityDedupIdentity, isAntigravitySessionDir, parseAntigravityUsageLine };
+export {
+  ANTIGRAVITY_TRANSCRIPT_FILENAME,
+  ANTIGRAVITY_TRANSCRIPT_SEGMENTS,
+  antigravityDedupIdentity,
+  parseAntigravityConversationMetadata,
+  parseAntigravityUsageLine,
+};

@@ -1,22 +1,18 @@
-import { CHAT_SEND_MAX_ATTACHMENTS, UsageLimit, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
-import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
+import { CHAT_SEND_MAX_ATTACHMENTS, type AgentDoneLine, type ChatOutboxEntry, type ConversationApproval } from '#shared/contracts/session.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
-import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../session-pages/session-pages.ts';
-import type { SessionPage } from '../session-pages/session-pages.ts';
+import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../page-registry.ts';
+import type { SessionPage } from '../page-registry.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';
-import { holdCardKeys, keyTargetOf, refreshLimitCountdowns } from './chat-cards.ts';
-import { openSwitchAccountDialog } from '../session-card/card-account.ts';
+import { refreshLimitCountdowns } from './chat-cards.ts';
 import { createChatFeed } from './chat-feed.ts';
 import type { ChatFeed } from './chat-feed.ts';
-import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
-import { agentLabel } from '../arena/lineup-core.ts';
+import type { ChatCard, ChatPart } from './chat-part.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from './chat-view.ts';
 import { type ChatPhase, chatPhaseOf, shownChatPhaseOf } from './chat-activity-core.ts';
 import { storeFilesForChat } from '../session-upload.ts';
@@ -34,6 +30,9 @@ import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { donePanelModelOf } from './done-panel-core.ts';
+import { chatSessionStateOf, clearChatSnapshotState } from './chat-session-state.ts';
+import { createOutboxEchoState, isOutboxAwaitingTurn, newestCancellableOutboxEntryOf, queuedOutboxEntriesOf, reconcileOutboxEcho, takeStandInsForPrompts } from './outbox-echo-core.ts';
+import { cardPartOf, createChatWaits } from './chat-waits.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -41,26 +40,9 @@ const CHAT_SEND_TIMEOUT_MS = 10000;
 const RAIL_TICK_MS = 30_000;
 const RUN_TIME_TICK_MS = 1000;
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
-const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
-const uploadingCountBySessionId = new Map<string, number>();
 const STAND_IN_UNRECORDED_MAX_MS = 5000;
-const SENT_OUTBOX_STATES: ReadonlySet<ChatOutboxEntry['state']> = new Set(['sending', 'submitted']);
-
-const LOGIN_COMMAND_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': '/login' };
-const LOGIN_SUBMIT_DELAY_MS = 300;
-const SIGNED_IN_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
-
-type SignInCard = Extract<ChatCard, { cardType: 'sign-in' }>;
-
-type TerminalCardState = 'hidden' | 'borrowed' | 'released';
-
-interface ShownApproval {
-  approval: ConversationApproval;
-  cards: ChatCard[];
-  answers: Map<string, string>;
-}
 
 interface MountedChat {
   sessionId: string;
@@ -84,11 +66,6 @@ interface MountedChat {
   close(): void;
 }
 
-const approvalBySessionId = new Map<string, ConversationApproval | null>();
-const draftBySessionId = new Map<string, string>();
-const draftAttachmentsBySessionId = new Map<string, string[]>();
-const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
-const agentDoneLinesBySessionId = new Map<string, readonly AgentDoneLine[]>();
 let mountedChat: MountedChat | null = null;
 const keptChatBySessionId = new Map<string, MountedChat>();
 let wasChatEnabled = false;
@@ -111,86 +88,80 @@ function isSessionWorking(sessionId: string): boolean {
   return sessionPhaseOf(sessionId) === 'working';
 }
 
-function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
-  const requestKey = `approval-${approval.requestId}`;
-  if (approval.kind === 'permission') {
-    const title = approval.toolName ? `Allow ${approval.toolName}?` : 'Allow this tool?';
-    return [{ cardType: 'permission', cardId: requestKey, data: { title, detail: approval.summary }, resolution: null }];
-  }
-  const questions = approval.questions ?? [];
-  const isStacked = questions.length > 1;
-  return questions.map((question, index) => ({
-    cardType: 'question',
-    cardId: `${requestKey}-${index}`,
-    data: { question: question.question, detail: question.header, ...(isStacked ? { step: `${index + 1} of ${questions.length}` } : {}), options: question.options.map((option) => ({ label: option.label, note: option.description })) },
-    resolution: null,
-  }));
+function detailFieldOf(event: Event, key: string): unknown {
+  if (!(event instanceof CustomEvent) || typeof event.detail !== 'object' || event.detail === null) return undefined;
+  return Reflect.get(event.detail, key);
 }
 
-function cardPartOf(card: ChatCard): ChatPart {
-  return { kind: 'card', id: card.cardId, card };
+function stringDetailOf(event: Event, key: string): string | null {
+  const value = detailFieldOf(event, key);
+  return typeof value === 'string' ? value : null;
 }
 
-function usageLimitOfActionValue(value: string): UsageLimit | null {
-  const parsed = UsageLimit.safeParse(JSON.parse(value));
-  return parsed.success ? parsed.data : null;
+interface ChatListenerTargets {
+  sessionId: string;
+  root: HTMLElement;
+  readAttachmentCount: () => number;
+  showFailure: (failureText: string | null) => void;
+  newestCancellableEntryId: () => string | null;
+  answerCard: (cardId: string, action: string, value: string) => void;
+  handleKeydown: (event: KeyboardEvent) => void;
 }
 
-function cardDetailOf(event: Event): { cardId: string; action: string; value: string } | null {
-  if (!(event instanceof CustomEvent)) return null;
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null) return null;
-  if (!('cardId' in detail) || !('action' in detail) || !('value' in detail)) return null;
-  const { cardId, action, value } = detail;
-  if (typeof cardId !== 'string' || typeof action !== 'string' || typeof value !== 'string') return null;
-  return { cardId, action, value };
-}
-
-function attachedFilesOf(event: Event): File[] {
-  if (!(event instanceof CustomEvent)) return [];
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null || !('files' in detail) || !Array.isArray(detail.files)) return [];
-  return detail.files.filter((file): file is File => file instanceof File);
-}
-
-function entryIdOf(event: Event): string | null {
-  if (!(event instanceof CustomEvent)) return null;
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null || !('entryId' in detail) || typeof detail.entryId !== 'string') return null;
-  return detail.entryId;
-}
-
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'usage-limit', 'live-terminal'] as const;
-const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
-const OPEN_ANSWERABLE_CARD_SELECTOR = `.chat-card[data-resolved="false"][data-keys-ready]${ANSWERABLE_CARD_TYPE_MATCH}`;
-const UNANSWERED_CARD_SELECTOR = `.chat-card[data-resolved="false"]${ANSWERABLE_CARD_TYPE_MATCH}`;
-const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, summary, [contenteditable="true"], [role="button"], [tabindex]:not([tabindex="-1"])';
-
-function isFocusOnOtherControl(): boolean {
-  const focused = document.activeElement;
-  if (!(focused instanceof HTMLElement)) return false;
-  if (focused.classList.contains('chat-composer-input')) return false;
-  return focused.closest(FOCUSABLE_CONTROL_SELECTOR) !== null;
-}
-
-const UNANSWERED_QUESTION_CARD_SELECTOR = '.chat-card[data-card-type="question"][data-resolved="false"]';
-
-function isPlainEscapeKeydown(event: KeyboardEvent): boolean {
-  if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || event.isComposing) return false;
-  return !(event.altKey || event.ctrlKey || event.metaKey || event.shiftKey);
-}
-
-function isCardPickKeydown(event: KeyboardEvent): boolean {
-  if (event.defaultPrevented || event.repeat || event.isComposing) return false;
-  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
-  if (isFocusOnOtherControl()) return false;
-  return !isRealInputOwningKey(event);
-}
-
-function chatKeyTargetOf(root: HTMLElement, key: string): HTMLElement | null {
-  const firstUnansweredCard = root.querySelector<HTMLElement>(UNANSWERED_CARD_SELECTOR);
-  if (!firstUnansweredCard?.matches(OPEN_ANSWERABLE_CARD_SELECTOR)) return null;
-  return keyTargetOf(firstUnansweredCard, key);
+function attachChatListeners(targets: ChatListenerTargets): void {
+  const { sessionId, root, readAttachmentCount, showFailure, newestCancellableEntryId, answerCard, handleKeydown } = targets;
+  const sessionState = chatSessionStateOf(sessionId);
+  root.addEventListener('chat-attach', (event) => {
+    const rawFiles = detailFieldOf(event, 'files');
+    const files = Array.isArray(rawFiles) ? rawFiles.filter((file): file is File => file instanceof File) : [];
+    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - readAttachmentCount() - sessionState.uploadingCount);
+    if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
+    const filesToStore = files.slice(0, openSlots);
+    if (filesToStore.length === 0) return;
+    sessionState.uploadingCount += filesToStore.length;
+    const releaseSlots = () => {
+      sessionState.uploadingCount = Math.max(0, sessionState.uploadingCount - filesToStore.length);
+    };
+    void storeFilesForChat(sessionId, filesToStore).then(
+      (storedFileNames) => {
+        releaseSlots();
+        restoreAttachmentsToSession(sessionId, storedFileNames);
+      },
+      releaseSlots,
+    );
+  });
+  root.addEventListener('chat-send', (event) => {
+    const text = stringDetailOf(event, 'text');
+    if (text === null) return;
+    const rawAttachments = detailFieldOf(event, 'attachments');
+    const attachments = Array.isArray(rawAttachments) ? rawAttachments.filter((fileName): fileName is string => typeof fileName === 'string') : [];
+    showFailure(null);
+    sendChatText(sessionId, text, attachments);
+  });
+  root.addEventListener('chat-cancel', (event) => {
+    const entryId = stringDetailOf(event, 'entryId');
+    if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
+  });
+  root.addEventListener('chat-escape', (event) => {
+    const entryId = newestCancellableEntryId();
+    if (entryId === null) return;
+    event.preventDefault();
+    cancelOutboxEntry(sessionId, entryId);
+  });
+  root.addEventListener('chat-stop', () => {
+    sendControlMsg({ type: 'chat-stop', id: sessionId });
+  });
+  root.addEventListener('chat-send-now', (event) => {
+    const entryId = stringDetailOf(event, 'entryId');
+    if (entryId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId, entryId });
+  });
+  root.addEventListener('chat-card', (event) => {
+    const cardId = stringDetailOf(event, 'cardId');
+    const action = stringDetailOf(event, 'action');
+    const value = stringDetailOf(event, 'value');
+    if (cardId !== null && action !== null && value !== null) answerCard(cardId, action, value);
+  });
+  root.addEventListener('keydown', handleKeydown, { capture: true });
 }
 
 const TYPING_CONTROL_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
@@ -218,7 +189,8 @@ function restoreAttachmentsToSession(sessionId: string, fileNames: readonly stri
     builtChat.restoreAttachments(fileNames);
     return;
   }
-  draftAttachmentsBySessionId.set(sessionId, [...(draftAttachmentsBySessionId.get(sessionId) ?? []), ...fileNames]);
+  const sessionState = chatSessionStateOf(sessionId);
+  sessionState.draftAttachments = [...sessionState.draftAttachments, ...fileNames];
 }
 
 function restoreTextToSession(sessionId: string, text: string): void {
@@ -228,7 +200,8 @@ function restoreTextToSession(sessionId: string, text: string): void {
     builtChat.restoreText(text);
     return;
   }
-  draftBySessionId.set(sessionId, draftWithRestoredText(text, draftBySessionId.get(sessionId) ?? ''));
+  const sessionState = chatSessionStateOf(sessionId);
+  sessionState.draft = draftWithRestoredText(text, sessionState.draft);
 }
 
 function showSessionFailure(sessionId: string, failureText: string): void {
@@ -265,14 +238,6 @@ function sendChatText(sessionId: string, text: string, attachments: readonly str
       failSend(reply.error ?? NOT_SENT_TEXT);
     })
     .catch((reason: unknown) => failSend(`Could not confirm the message was queued: ${errorMessage(reason)}`));
-}
-
-function chatSendOf(event: Event): { text: string; attachments: string[] } | null {
-  if (!(event instanceof CustomEvent)) return null;
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null || !('text' in detail) || typeof detail.text !== 'string') return null;
-  const attachments = 'attachments' in detail && Array.isArray(detail.attachments) ? detail.attachments.filter((fileName): fileName is string => typeof fileName === 'string') : [];
-  return { text: detail.text, attachments };
 }
 
 interface RememberedBoardChange {
@@ -319,22 +284,26 @@ function boardChangeCardOf(cardId: string, boardChange: AgentChip): ChatCard {
 }
 
 function buildChat(sessionId: string): MountedChat {
+  const sessionState = chatSessionStateOf(sessionId);
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
-  let chatView = createChatView(uploadUrlFor(sessionId));
-  chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
-  for (const fileName of draftAttachmentsBySessionId.get(sessionId) ?? []) chatView.showAttachment(fileName);
-  draftAttachmentsBySessionId.delete(sessionId);
-  const standInByEntryId = new Map<string, ChatPart>();
-  const entryIdsTakenByPrompt = new Set<string>();
+  const createSeededView = (draft: string, attachments: readonly string[]) => {
+    const view = createChatView(uploadUrlFor(sessionId));
+    view.restoreDraft(draft);
+    for (const fileName of attachments) view.showAttachment(fileName);
+    return view;
+  };
+  let chatView = createSeededView(sessionState.draft, sessionState.draftAttachments);
+  sessionState.draftAttachments = [];
+  const outboxEcho = createOutboxEchoState();
   const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
   const shownPromptPartIds = new Set<string>();
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
-      const standIn = standInByEntryId.get(entryId);
+      const standIn = outboxEcho.standInByEntryId.get(entryId);
       if (standIn) chatView.remove([standIn.id]);
-      standInByEntryId.delete(entryId);
+      outboxEcho.standInByEntryId.delete(entryId);
       clearTimeout(unrecordedTimerByEntryId.get(entryId));
       unrecordedTimerByEntryId.delete(entryId);
     }
@@ -363,70 +332,47 @@ function buildChat(sessionId: string): MountedChat {
   };
   const arrivingPartIdsOf = (changedParts: readonly ChatPart[], newPromptParts: readonly ChatPart[]): ReadonlySet<string> => {
     if (!isOperatorWatching()) return NO_ARRIVING_PARTS;
-    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, standInByEntryId.size).map((part) => part.id));
+    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, outboxEcho.standInByEntryId.size).map((part) => part.id));
     return new Set(changedParts.map((part) => part.id).filter((partId) => !promptIdsTakingStandIns.has(partId)));
   };
   const swapStandInsForPrompts = (newPromptCount: number) => {
-    const takenEntryIds = [...standInByEntryId.keys()].slice(0, newPromptCount);
-    for (const entryId of takenEntryIds) entryIdsTakenByPrompt.add(entryId);
-    removeStandIns(takenEntryIds);
-  };
-  const isSentOutsideTurnByEntryId = new Map<string, boolean>();
-  const entryIdsAwaitingTurn = new Set<string>();
-  const noteOutboxEntries = (entries: readonly ChatOutboxEntry[]) => {
-    for (const entryId of isSentOutsideTurnByEntryId.keys()) {
-      if (entries.some((entry) => entry.entryId === entryId)) continue;
-      isSentOutsideTurnByEntryId.delete(entryId);
-      entryIdsAwaitingTurn.delete(entryId);
-    }
-    const isTurnRunning = isSessionWorking(sessionId);
-    for (const entry of entries) {
-      if (isSentOutsideTurnByEntryId.has(entry.entryId)) continue;
-      isSentOutsideTurnByEntryId.set(entry.entryId, !isTurnRunning);
-      if (!isTurnRunning) entryIdsAwaitingTurn.add(entry.entryId);
-    }
-  };
-  const isOutboxStalled = () => (outboxBySessionId.get(sessionId) ?? []).some((entry) => entry.state === 'failed');
-  const isShownAsSent = (entry: ChatOutboxEntry) => {
-    if (SENT_OUTBOX_STATES.has(entry.state)) return true;
-    return (entry.state === 'held' || entry.state === 'next') && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
-  };
-  let terminalCardState: TerminalCardState = 'hidden';
-  const phaseToShow = () => {
-    if (terminalCardState === 'borrowed') return 'quiet';
-    const phase = sessionPhaseOf(sessionId);
-    if (phase === 'working') entryIdsAwaitingTurn.clear();
-    const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
-    return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
-  };
-  const showOutbox = () => {
-    const entries = outboxBySessionId.get(sessionId) ?? [];
-    noteOutboxEntries(entries);
-    const sentEntries = entries.filter(isShownAsSent);
-    for (const entryId of entryIdsTakenByPrompt) {
-      if (!sentEntries.some((entry) => entry.entryId === entryId)) entryIdsTakenByPrompt.delete(entryId);
-    }
-    for (const entry of sentEntries) {
-      if (standInByEntryId.has(entry.entryId) || entryIdsTakenByPrompt.has(entry.entryId)) continue;
-      const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: clock.nowMs(), attachments: [...entry.attachments] };
-      standInByEntryId.set(entry.entryId, standIn);
-      chatView.upsert([standIn], new Set([standIn.id]));
-    }
-    const unsentEntries = entries.filter((entry) => !isShownAsSent(entry));
-    removeStandIns(unsentEntries.map((entry) => entry.entryId).filter((entryId) => standInByEntryId.has(entryId)));
-    chatView.showQueued(unsentEntries);
-    if (mountedChat?.sessionId === sessionId) applyShownPhase(mountedChat);
-    const clearedEntryIds = [...standInByEntryId.keys()].filter((entryId) => !entries.some((entry) => entry.entryId === entryId));
-    if (clearedEntryIds.length === 0) return;
-    for (const entryId of clearedEntryIds) awaitPromptFor(entryId);
-    feed.refresh();
+    removeStandIns(takeStandInsForPrompts(outboxEcho, newPromptCount));
   };
   const showFailure = (failureText: string | null) => {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
   };
+  const sendOrFail = (message: Parameters<typeof sendControlMsg>[0]): boolean => {
+    if (sendControlMsg(message)) return true;
+    showFailure(NOT_SENT_TEXT);
+    return false;
+  };
+  const waits = createChatWaits({
+    sessionId,
+    root,
+    view: () => chatView,
+    getApproval: () => sessionState.approval,
+    showFailure,
+    sendOrFail,
+  });
+  const phaseToShow = () => {
+    if (waits.isTerminalBorrowed()) return 'quiet';
+    const phase = sessionPhaseOf(sessionId);
+    const isSentMessageAwaitingTurn = isOutboxAwaitingTurn(outboxEcho, sessionState.outbox, phase === 'working');
+    return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
+  };
+  const showOutbox = () => {
+    const update = reconcileOutboxEcho(outboxEcho, sessionState.outbox, isSessionWorking(sessionId), clock.nowMs());
+    if (update.addedStandIns.length > 0) chatView.upsert(update.addedStandIns, new Set(update.addedStandIns.map((standIn) => standIn.id)));
+    removeStandIns(update.removedStandInEntryIds);
+    chatView.showQueued(update.queuedEntries);
+    if (mountedChat?.sessionId === sessionId) applyShownPhase(mountedChat);
+    if (update.clearedStandInEntryIds.length === 0) return;
+    for (const entryId of update.clearedStandInEntryIds) awaitPromptFor(entryId);
+    feed.refresh();
+  };
   const donePanel = createDonePanel(chatView.showTurnEnd);
-  const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) }));
+  const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: sessionState.agentDoneLines, phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
   root.append(failureLine, chatView.element);
   let runningSubagents: readonly RunningSubagent[] = [];
@@ -470,13 +416,6 @@ function buildChat(sessionId: string): MountedChat {
     stopRunTimes();
   };
   chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
-  let shownApproval: ShownApproval | null = null;
-  let terminalCardSerial = 0;
-  let terminalCardId: string | null = null;
-  let terminalHome: HTMLElement | null = null;
-  let strayChildWatcher: MutationObserver | null = null;
-  let signInCard: SignInCard | null = null;
-  let signInCardSerial = 0;
   const promptAtByPartId = new Map<string, number>();
   let boardChangeByCardId = new Map<string, AgentChip>();
 
@@ -520,192 +459,8 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const keepPendingPartsLast = () => {
-    const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
-    const terminalCardIds = [terminalCardId, signInCard?.cardId ?? null].filter((cardId): cardId is string => cardId !== null);
-    const standInIds = [...standInByEntryId.values()].map((standIn) => standIn.id);
-    chatView.keepLast([...standInIds, ...openCardIds, ...terminalCardIds]);
-  };
-
-  const releaseTerminal = () => {
-    if (terminalCardState !== 'borrowed') return;
-    terminalCardState = 'released';
-    strayChildWatcher?.disconnect();
-    strayChildWatcher = null;
-    const ui = sessionUIs.get(sessionId);
-    if (ui) releaseElement(ui.termWrap, ui.card);
-    terminalHome?.remove();
-    terminalHome = null;
-    if (terminalCardId) chatView.remove([terminalCardId]);
-    terminalCardId = null;
-  };
-
-  const sendStrayChildrenHome = (slot: HTMLElement, termWrap: HTMLElement) => {
-    for (const child of [...slot.children]) {
-      if (child !== termWrap) terminalHome?.before(child);
-    }
-  };
-
-  const lendTerminalToCard = (cardId: string): boolean => {
-    const ui = sessionUIs.get(sessionId);
-    const slot = [...chatView.element.querySelectorAll<HTMLElement>('.chat-terminal-slot')].find((candidate) => candidate.closest<HTMLElement>('[data-part-id]')?.dataset.partId === cardId);
-    if (!ui || !slot) return false;
-    terminalCardState = 'borrowed';
-    terminalHome = el('div', 'terminal-wrap-home');
-    terminalHome.hidden = true;
-    ui.termWrap.before(terminalHome);
-    adoptElement(ui.termWrap, slot);
-    strayChildWatcher = new MutationObserver(() => sendStrayChildrenHome(slot, ui.termWrap));
-    strayChildWatcher.observe(slot, { childList: true });
-    ui._ensureTerminalReady?.();
-    return true;
-  };
-
-  const borrowTerminal = () => {
-    if (terminalCardState === 'borrowed') return;
-    const agent = sessionUIs.get(sessionId)?.agent;
-    if (agent === undefined) return;
-    terminalCardSerial += 1;
-    const heading = `${agent === null ? 'The agent' : agentLabel(agent)} is waiting in its terminal`;
-    const card: ChatCard = { cardType: 'live-terminal', cardId: `live-terminal-${terminalCardSerial}`, data: { heading }, resolution: null };
-    chatView.upsert([cardPartOf(card)], new Set([card.cardId]));
-    if (lendTerminalToCard(card.cardId)) terminalCardId = card.cardId;
-  };
-
-  const showSignInCard = (card: SignInCard) => {
-    signInCard = card;
-    chatView.upsert([cardPartOf(card)], new Set([card.cardId]));
-  };
-
-  const settleSignInCard = () => {
-    const shownCard = signInCard;
-    if (!shownCard) return;
-    signInCard = null;
-    if (shownCard.data.stage === 'signing-in') releaseTerminal();
-    const sessionState = sessionUIs.get(sessionId)?.currentState;
-    const hasSignedIn = shownCard.data.stage !== 'refused-key' && sessionState !== undefined && SIGNED_IN_STATES.has(sessionState);
-    if (!hasSignedIn) {
-      chatView.remove([shownCard.cardId]);
-      return;
-    }
-    chatView.upsert([cardPartOf({ ...shownCard, resolution: { isSignedIn: true } })], NO_ARRIVING_PARTS);
-  };
-
-  const relendSignInTerminal = () => {
-    if (signInCard?.data.stage !== 'signing-in' || terminalCardState === 'borrowed') return;
-    lendTerminalToCard(signInCard.cardId);
-  };
-
-  const offerSignInCard = (loginKind: string) => {
-    if (signInCard) {
-      relendSignInTerminal();
-      return;
-    }
-    const agent = sessionUIs.get(sessionId)?.agent ?? '';
-    const stage: SignInStage = loginKind === API_KEY_PROMPT_KIND ? 'refused-key' : 'offered';
-    releaseTerminal();
-    signInCardSerial += 1;
-    showSignInCard({ cardType: 'sign-in', cardId: `sign-in-${signInCardSerial}`, data: { agentName: agentLabel(agent), stage }, resolution: null });
-  };
-
-  const startSignIn = () => {
-    const ui = sessionUIs.get(sessionId);
-    const loginCommand = LOGIN_COMMAND_BY_AGENT[ui?.agent ?? ''];
-    if (!signInCard || signInCard.data.stage !== 'offered' || !ui || !loginCommand) return;
-    if (!sendTerminalInput(ui, loginCommand)) {
-      showFailure(NOT_SENT_TEXT);
-      return;
-    }
-    window.setTimeout(() => sendTerminalInput(ui, '\r'), LOGIN_SUBMIT_DELAY_MS);
-    const signingInCard: SignInCard = { ...signInCard, data: { ...signInCard.data, stage: 'signing-in' } };
-    chatView.keepLogInPlace(() => {
-      showSignInCard(signingInCard);
-      lendTerminalToCard(signingInCard.cardId);
-    });
-  };
-
-  const loginKindOfSession = (): string | null => {
-    const ui = sessionUIs.get(sessionId);
-    const kind = ui?.pendingPromptKind ?? null;
-    if (ui?.currentState !== STATES.WAITING || kind === null || !LOGIN_PROMPT_KINDS.has(kind)) return null;
-    if (kind !== API_KEY_PROMPT_KIND && !LOGIN_COMMAND_BY_AGENT[ui.agent ?? '']) return null;
-    return kind;
-  };
-
-  const settleShownApproval = () => {
-    if (!shownApproval) return;
-    const unanswered = shownApproval.cards.filter((card) => card.resolution === null).map((card) => card.cardId);
-    chatView.remove(unanswered);
-    shownApproval = null;
-  };
-
-  const syncWaitingCards = () => {
-    const approval = approvalBySessionId.get(sessionId) ?? null;
-    if (shownApproval && shownApproval.approval.requestId !== approval?.requestId) settleShownApproval();
-    if (approval && !shownApproval) {
-      shownApproval = { approval, cards: approvalCardsOf(approval), answers: new Map() };
-      chatView.upsert(shownApproval.cards.map(cardPartOf), new Set(shownApproval.cards.map((card) => card.cardId)));
-    }
-    const isAnswerableFromChat = shownApproval !== null && shownApproval.cards.length > 0;
-    const loginKind = isAnswerableFromChat ? null : loginKindOfSession();
-    if (loginKind === null) settleSignInCard();
-    if (loginKind !== null) {
-      offerSignInCard(loginKind);
-      return;
-    }
-    const ui = sessionUIs.get(sessionId);
-    const isWaitingOnLimit = ui?.pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
-    const isWaitingOnTerminal = ui?.currentState === STATES.WAITING && !isAnswerableFromChat && !isWaitingOnLimit;
-    if (isWaitingOnTerminal) {
-      borrowTerminal();
-      return;
-    }
-    releaseTerminal();
-  };
-
-  const resolveCard = (card: ChatCard) => {
-    if (!shownApproval) return;
-    shownApproval.cards = shownApproval.cards.map((shownCard) => (shownCard.cardId === card.cardId ? card : shownCard));
-    chatView.upsert([cardPartOf(card)], NO_ARRIVING_PARTS);
-  };
-
-  const dismissShownQuestion = () => {
-    const shown = shownApproval;
-    if (shown?.approval.kind !== 'question') return;
-    if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' })) {
-      showFailure(NOT_SENT_TEXT);
-      return;
-    }
-    shown.answers.clear();
-    for (const card of shown.cards) {
-      if (card.cardType === 'question') resolveCard({ ...card, resolution: { isDismissed: true } });
-    }
-  };
-
-  const dismissQuestionOnEscape = (event: KeyboardEvent): boolean => {
-    if (!isPlainEscapeKeydown(event)) return false;
-    const openQuestionCard = root.querySelector<HTMLElement>(UNANSWERED_QUESTION_CARD_SELECTOR);
-    if (!openQuestionCard) return false;
-    event.preventDefault();
-    event.stopPropagation();
-    if (openQuestionCard.dataset.keysReady !== undefined) dismissShownQuestion();
-    return true;
-  };
-
-  const cardIdsSettingLimitWake = new Set<string>();
-  const continueAtLimitReset = (cardId: string, value: string) => {
-    const usageLimit = usageLimitOfActionValue(value);
-    if (usageLimit === null || cardIdsSettingLimitWake.has(cardId)) return;
-    cardIdsSettingLimitWake.add(cardId);
-    sendControlRequest('wake-at-limit-reset', { id: sessionId })
-      .finally(() => cardIdsSettingLimitWake.delete(cardId))
-      .then((reply) => {
-        if (reply.type !== 'wake-at-limit-reset-result' || !reply.ok) {
-          showFailure(reply.type === 'wake-at-limit-reset-result' ? reply.error ?? WAKE_NOT_SET_TEXT : WAKE_NOT_SET_TEXT);
-          return;
-        }
-        chatView.upsert([cardPartOf({ cardType: 'usage-limit', cardId, data: usageLimit, resolution: { isContinuingAtReset: true } })], NO_ARRIVING_PARTS);
-      })
-      .catch((error: unknown) => showFailure(errorMessage(error)));
+    const standInIds = [...outboxEcho.standInByEntryId.values()].map((standIn) => standIn.id);
+    chatView.keepLast([...standInIds, ...waits.pendingCardIds()]);
   };
 
   const answerCard = (cardId: string, action: string, value: string) => {
@@ -715,59 +470,7 @@ function buildChat(sessionId: string): MountedChat {
       openBoardAtAgentChange(boardChange.boardId, sessionId, boardChange.change);
       return;
     }
-    if (signInCard?.cardId === cardId && action === 'sign-in') {
-      startSignIn();
-      return;
-    }
-    if (action === 'open-terminal') {
-      setSessionView('terminal');
-      closeSessionPage();
-      return;
-    }
-    if (action === 'switch-account') {
-      openSwitchAccountDialog(sessionId);
-      return;
-    }
-    if (action === 'continue-at-reset') {
-      continueAtLimitReset(cardId, value);
-      return;
-    }
-    const shown = shownApproval;
-    const card = shown?.cards.find((shownCard) => shownCard.cardId === cardId);
-    if (!shown || !card || card.resolution !== null) return;
-    const { requestId } = shown.approval;
-    if (card.cardType === 'permission' && action === 'decide' && (value === 'allow' || value === 'deny')) {
-      if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId, decision: value })) {
-        showFailure(NOT_SENT_TEXT);
-        return;
-      }
-      resolveCard({ ...card, resolution: { decision: value } });
-      return;
-    }
-    if (card.cardType === 'permission' && action === 'deny-with-message') {
-      if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value })) {
-        showFailure(NOT_SENT_TEXT);
-        return;
-      }
-      resolveCard({ ...card, resolution: { decision: 'deny', message: value } });
-      return;
-    }
-    if (card.cardType === 'question' && action === 'dismiss') {
-      dismissShownQuestion();
-      return;
-    }
-    if (card.cardType !== 'question' || action !== 'answer') return;
-    shown.answers.set(card.data.question, value);
-    if (shown.answers.size < shown.cards.length) {
-      resolveCard({ ...card, resolution: { answer: value } });
-      return;
-    }
-    if (!sendControlMsg({ type: 'answer-approval', id: sessionId, requestId, answers: Object.fromEntries(shown.answers) })) {
-      shown.answers.delete(card.data.question);
-      showFailure(NOT_SENT_TEXT);
-      return;
-    }
-    resolveCard({ ...card, resolution: { answer: value } });
+    waits.answerCard(cardId, action, value);
   };
 
   root.addEventListener('chat-change-model', (event) => {
@@ -794,66 +497,15 @@ function buildChat(sessionId: string): MountedChat {
       },
     });
   });
-  root.addEventListener('chat-attach', (event) => {
-    const files = attachedFilesOf(event);
-    const uploadingCount = uploadingCountBySessionId.get(sessionId) ?? 0;
-    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length - uploadingCount);
-    if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
-    const filesToStore = files.slice(0, openSlots);
-    if (filesToStore.length === 0) return;
-    uploadingCountBySessionId.set(sessionId, uploadingCount + filesToStore.length);
-    const releaseSlots = () => uploadingCountBySessionId.set(sessionId, Math.max(0, (uploadingCountBySessionId.get(sessionId) ?? 0) - filesToStore.length));
-    void storeFilesForChat(sessionId, filesToStore).then(
-      (storedFileNames) => {
-        releaseSlots();
-        restoreAttachmentsToSession(sessionId, storedFileNames);
-      },
-      releaseSlots,
-    );
+  attachChatListeners({
+    sessionId,
+    root,
+    readAttachmentCount: () => chatView.readAttachments().length,
+    showFailure,
+    newestCancellableEntryId: () => newestCancellableOutboxEntryOf(outboxEcho, sessionState.outbox)?.entryId ?? null,
+    answerCard,
+    handleKeydown: waits.handleKeydown,
   });
-
-  root.addEventListener('chat-send', (event) => {
-    const chatSend = chatSendOf(event);
-    if (chatSend === null) return;
-    showFailure(null);
-    sendChatText(sessionId, chatSend.text, chatSend.attachments);
-  });
-  root.addEventListener('chat-cancel', (event) => {
-    const entryId = entryIdOf(event);
-    if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
-  });
-  root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'failed') && !isShownAsSent(entry));
-    if (!newestCancellable) return;
-    event.preventDefault();
-    cancelOutboxEntry(sessionId, newestCancellable.entryId);
-  });
-  root.addEventListener('chat-stop', () => {
-    sendControlMsg({ type: 'chat-stop', id: sessionId });
-  });
-  root.addEventListener('chat-send-now', (event) => {
-    const entryId = entryIdOf(event);
-    if (entryId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId, entryId });
-  });
-  root.addEventListener('chat-card', (event) => {
-    const detail = cardDetailOf(event);
-    if (detail) answerCard(detail.cardId, detail.action, detail.value);
-  });
-  root.addEventListener('keydown', (event) => {
-    if (dismissQuestionOnEscape(event)) return;
-    if (!isCardPickKeydown(event)) return;
-    if (chatView.readDraft() !== '' || chatView.readAttachments().length > 0) return;
-    const keyTarget = chatKeyTargetOf(root, event.key);
-    if (!keyTarget) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (keyTarget instanceof HTMLInputElement) {
-      keyTarget.focus();
-      return;
-    }
-    keyTarget.click();
-    root.querySelectorAll<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR).forEach(holdCardKeys);
-  }, { capture: true });
 
   const feed = createChatFeed({
     sessionId,
@@ -887,24 +539,21 @@ function buildChat(sessionId: string): MountedChat {
     isTurnOver: () => !isSessionWorking(sessionId),
     onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
-      releaseTerminal();
-      shownApproval = null;
-      const freshView = createChatView(uploadUrlFor(sessionId));
-      freshView.restoreDraft(chatView.readDraft());
-      for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
-      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !isShownAsSent(entry)));
+      waits.releaseTerminal();
+      waits.clearApproval();
+      const freshView = createSeededView(chatView.readDraft(), chatView.readAttachments());
+      freshView.showQueued(queuedOutboxEntriesOf(outboxEcho, sessionState.outbox));
       shownPromptPartIds.clear();
-      freshView.upsert([...standInByEntryId.values()], NO_ARRIVING_PARTS);
-      freshView.setPhase(phaseToShow(), isSessionWorking(sessionId));
+      freshView.upsert([...outboxEcho.standInByEntryId.values()], NO_ARRIVING_PARTS);
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       boardChangeByCardId = new Map();
       feedPosition = 'unseeded';
       feed.whenCaughtUp(showBoardChangesOnceCaughtUp);
-      if (signInCard) showSignInCard(signInCard);
+      waits.restoreSignIn();
       runningSubagents = [];
       showRail();
-      syncWaitingCards();
+      waits.sync();
       chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
     },
     onFailure: (failureText) => {
@@ -933,7 +582,7 @@ function buildChat(sessionId: string): MountedChat {
       for (const fileName of fileNames) chatView.showAttachment(fileName);
     },
     showFailure,
-    syncWaitingCards,
+    syncWaitingCards: waits.sync,
     showRail,
     showDone,
     showBoardChanges,
@@ -945,14 +594,14 @@ function buildChat(sessionId: string): MountedChat {
     },
     park: () => {
       stopRail();
-      draftBySessionId.set(sessionId, chatView.readDraft());
-      releaseTerminal();
+      sessionState.draft = chatView.readDraft();
+      waits.releaseTerminal();
     },
     close: () => {
       stopRail();
-      draftBySessionId.set(sessionId, chatView.readDraft());
-      draftAttachmentsBySessionId.set(sessionId, chatView.readAttachments());
-      releaseTerminal();
+      sessionState.draft = chatView.readDraft();
+      sessionState.draftAttachments = chatView.readAttachments();
+      waits.releaseTerminal();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       feed.close();
     },
@@ -991,16 +640,16 @@ function dropAllKeptChats(): void {
 }
 
 export function noteChatApproval(sessionId: string, approval: ConversationApproval | null): void {
-  approvalBySessionId.set(sessionId, approval);
+  chatSessionStateOf(sessionId).approval = approval;
 }
 
 export function noteChatAgentDoneLines(sessionId: string, agentDoneLines: readonly AgentDoneLine[]): void {
-  agentDoneLinesBySessionId.set(sessionId, agentDoneLines);
+  chatSessionStateOf(sessionId).agentDoneLines = agentDoneLines;
   if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
 }
 
 export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
-  outboxBySessionId.set(sessionId, entries);
+  chatSessionStateOf(sessionId).outbox = entries;
   if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
 }
 
@@ -1010,9 +659,7 @@ export function applyChatTraceChanged(sessionId: string): void {
 }
 
 export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
-  approvalBySessionId.clear();
-  outboxBySessionId.clear();
-  agentDoneLinesBySessionId.clear();
+  clearChatSnapshotState();
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
     noteChatOutbox(row.id, row.chatOutbox ?? []);

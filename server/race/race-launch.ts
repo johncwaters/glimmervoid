@@ -6,7 +6,6 @@ import type { RaceContestant } from '../../shared/contracts/race.ts';
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import type { ControlContext } from '../control/control-context.ts';
-import { isExistingDirectory, missingFolderError } from '../control/control-context.ts';
 import { machineSkipsPermissionsByDefault } from '../session/core/session-registry-core.ts';
 import { contestantPrompt, contestantSessionName } from './core/race-core.ts';
 import type { RaceWiring } from './race-wiring.ts';
@@ -30,9 +29,14 @@ interface RaceLauncherDeps {
   sessions: ControlContext['sessions'];
   config: GlimmervoidConfig;
   createProjectSession: ControlContext['createProjectSession'];
+  isExistingDirectory: (folderPath: string) => boolean;
+  missingFolderError: (folderPath: string) => string;
 }
 
-function refusalOf(spec: RaceSpec): string | null {
+function refusalOf(
+  spec: RaceSpec,
+  { isExistingDirectory, missingFolderError }: Pick<RaceLauncherDeps, 'isExistingDirectory' | 'missingFolderError'>,
+): string | null {
   if (!isExistingDirectory(spec.repoPath)) return missingFolderError(spec.repoPath);
   const unknownAgent = spec.contestants.find((contestant) => contestant.setup.agent === SHELL_AGENT_ID || !isKnownAgentId(contestant.setup.agent));
   if (unknownAgent) return `"${unknownAgent.setup.agent}" cannot race: a contestant must be a coding agent`;
@@ -44,7 +48,7 @@ function refusalOf(spec: RaceSpec): string | null {
   return providerRefusalOf(spec.contestants.map((contestant) => contestant.setup));
 }
 
-function createRaceLauncher({ races, sessions, config, createProjectSession }: RaceLauncherDeps): RaceLauncher {
+function createRaceLauncher({ races, sessions, config, createProjectSession, isExistingDirectory, missingFolderError }: RaceLauncherDeps): RaceLauncher {
   function launchContestant(spec: RaceSpec, contestant: RaceContestant, race: { raceId: string; startSha: string }, permissions: ContestantPermissions) {
     const agent = contestant.setup.agent;
     const created = createProjectSession({
@@ -73,7 +77,7 @@ function createRaceLauncher({ races, sessions, config, createProjectSession }: R
     const parsed = RaceSpec.safeParse(candidate);
     if (!parsed.success) return { ok: false, error: configIssueMessage(parsed.error) };
     const spec = parsed.data;
-    const refusal = refusalOf(spec);
+    const refusal = refusalOf(spec, { isExistingDirectory, missingFolderError });
     if (refusal) return { ok: false, error: refusal };
     return races.start(spec, (contestant, race) => launchContestant(spec, contestant, race, permissions));
   }

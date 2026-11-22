@@ -1,5 +1,4 @@
-import { FLYING_ANIMALS_DEFAULTS, normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flying-animals-core.ts';
-import type { FlyingAnimalsOptions } from './flying-animals-core.ts';
+import { normalizeExcludedSprites, normalizeFlyingAnimalsOptions } from './flying-animals-core.ts';
 import { DEFAULT_SOUND_ID } from './alert-sound-core.ts';
 import type { FocusLayout } from '#shared/contracts/focus-layout.ts';
 import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '#shared/settings-ranges.ts';
@@ -14,12 +13,13 @@ const STORAGE_KEY = 'glimmervoid-ui-prefs';
 export type ReviewsLayout = 'board' | 'list';
 type SessionView = 'terminal' | 'chat';
 
-interface UiPrefs extends FlyingAnimalsOptions {
+interface UiPrefs {
   soundEnabled: boolean;
   soundId: string;
   themeId: string;
   themeColors: Record<string, string>;
   flyingAnimalsEnabled: boolean;
+  flyingAnimalsExcludedSprites: string[];
   notificationsEnabled: boolean;
   phoneArrowPad: boolean;
   nextAttentionKeyCode: string;
@@ -56,7 +56,6 @@ const asBoolean = (fallback: boolean) => (value: unknown): boolean => (typeof va
 const asString = (fallback: string) => (value: unknown): string => (typeof value === 'string' ? value : fallback);
 const asNullableString = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 const asNullableNumber = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
-const asFiniteNumber = (fallback: number) => (value: unknown): number => asNullableNumber(value) ?? fallback;
 const asCustomPropertyMap = (value: unknown): Record<string, string> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[0].startsWith('--') && typeof entry[1] === 'string'));
@@ -75,12 +74,6 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   themeId: asString('glimmer'),
   themeColors: asCustomPropertyMap,
   flyingAnimalsEnabled: asBoolean(false),
-  flyingAnimalsMinGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds),
-  flyingAnimalsMaxGapSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds),
-  flyingAnimalsMinDurationSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinDurationSeconds),
-  flyingAnimalsMaxDurationSeconds: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxDurationSeconds),
-  flyingAnimalsScale: asFiniteNumber(FLYING_ANIMALS_DEFAULTS.flyingAnimalsScale),
-  flyingAnimalsOnPhone: asBoolean(FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone),
   flyingAnimalsExcludedSprites: normalizeExcludedSprites,
   notificationsEnabled: asBoolean(true),
   phoneArrowPad: asBoolean(false),
@@ -242,25 +235,6 @@ export const setUsageAttentionAck = (signature: string) => write('usageAttention
 export const getLastFocusedSessionId = () => read('lastFocusedSessionId');
 export const setLastFocusedSessionId = (id: string | null) => write('lastFocusedSessionId', id);
 
-export const setFlyingAnimalsMinGapSeconds = (value: number) => write('flyingAnimalsMinGapSeconds', value);
-
-export const setFlyingAnimalsMaxGapSeconds = (value: number) => write('flyingAnimalsMaxGapSeconds', value);
-
-export const setFlyingAnimalsMinDurationSeconds = (value: number) => write('flyingAnimalsMinDurationSeconds', value);
-
-export const setFlyingAnimalsMaxDurationSeconds = (value: number) => write('flyingAnimalsMaxDurationSeconds', value);
-
-export const setFlyingAnimalsScale = (value: number) => write('flyingAnimalsScale', value);
-
-export const setFlyingAnimalsOnPhone = (value: boolean) => write('flyingAnimalsOnPhone', value);
-
 export const setFlyingAnimalsExcludedSprites = (value: string[]) => write('flyingAnimalsExcludedSprites', value);
 
-export const getFlyingAnimalsOptions = () => normalizeFlyingAnimalsOptions(load());
-
-export const getFlyingAnimalsEnteredValues = () => {
-  const prefs = load();
-  return Object.fromEntries((Object.keys(FLYING_ANIMALS_DEFAULTS) as (keyof typeof FLYING_ANIMALS_DEFAULTS)[]).map((key) => [key, prefs[key]]));
-};
-
-export const resetFlyingAnimalsAdvanced = () => setJSON(STORAGE_KEY, { ...load(), ...FLYING_ANIMALS_DEFAULTS });
+export const getFlyingAnimalsOptions = () => normalizeFlyingAnimalsOptions({ flyingAnimalsExcludedSprites: read('flyingAnimalsExcludedSprites') });

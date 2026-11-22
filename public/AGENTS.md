@@ -51,7 +51,7 @@ The browser dashboard frontend: ES modules bundled by Vite (dev server with HMR 
 | `review/` | Worktree review: `review-store.ts` owns per-session merge state and sends the merge, discard and diff control messages; the change reader and the Focus review bar only render it. `selection.ts` is the one source of the selected session |
 | `usage/` | Usage tab: the DOM shell and its pure formatting core |
 | `github/` | GitHub views: my PRs, team review, the PR queue and status icons, and the shared polling retry text |
-| `settings/` | Settings view: the DOM shell over the shared registry, pure search, hash, draft and phone-screen rules, and `settings-link.ts`, the one builder for `#settings/` and `#settings?q=` links |
+| `settings/` | Settings view: the DOM shell over the shared registry, pure search, hash, draft and phone-screen rules (`settings-link.ts` builds `#settings/` and `#settings?q=` links) |
 | `radar/` | Radar panel: the DOM shell, its pure view core and the hold rules |
 | `components/` | Static HTML fragments imported `?raw` (see `components/AGENTS.md`) |
 
@@ -94,7 +94,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 - Two first-class layouts, not one responsive shell. `decideLayout` needs a coarse pointer AND a narrow viewport: a narrowed desktop window keeps the three-panel IA, and a coarse-pointer tablet has room for it. All phone styling keys off `[data-layout="phone"]`.
 - Nothing is duplicated; live elements are RE-PARENTED into the phone screens and back, a second copy meaning a second state pipeline for the same facts. The card-borrow seam holds one borrower per slot and moves a card out of the other slot, a session owning one xterm.
-- The Board and the rail share name order, the project group header (`public/focus-view/roster-group-header.ts`) and the Needs you banner (`public/attention-banner.ts`), one source each so the two cannot drift. The "needs you" RULE lives once, in `public/focus-view/attention-core.ts`.
+- The Board and the rail share name order, the project group header (`public/focus-view/roster-group-header.ts`) and the Needs you banner (`public/attention-banner.ts`), one source each so the two cannot drift. The "needs you" RULE lives once, in `public/attention-core.ts`.
 - Touch scroll is ours because xterm 6.0.0 has no touch path at all. The alternate buffer re-emits the drag as synthetic wheel notches so xterm's OWN listeners decide the meaning.
 - Predictive text bypasses xterm's input path on PHONE ONLY: xterm 6.0.0 mishandles autocorrect events (upstream `xtermjs/xterm.js#3600`, open). Desktop is untouched, where the same takeover would regress CJK composition.
 

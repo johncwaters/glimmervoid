@@ -1,5 +1,5 @@
-import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, POSITIVE_NUMBER_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE } from '../settings-ranges.ts';
-import { MACHINE_NOW, READOUT, INVESTIGATIONS, SESSIONS, MINUTES, HOURS, DAYS, USERS } from './registry-fields.ts';
+import { POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
+import { BROWSER_NOW, MACHINE_NOW, READOUT } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const LANES_BACKGROUND_JOBS: SettingsSection = {
@@ -16,6 +16,10 @@ export const LANES_BACKGROUND_JOBS: SettingsSection = {
   ],
 };
 
+const POSTHOG_ENABLED = { path: 'posthog.enabled', equals: true } as const;
+const COMMUNITY_ENABLED = { path: 'community.enabled', equals: true } as const;
+const POSTHOG_CONNECTION_USED = { anyOf: [POSTHOG_ENABLED, COMMUNITY_ENABLED] } as const;
+
 export const LANES_POSTHOG: SettingsSection = {
   id: 'lanes-posthog',
   level: 'lanes',
@@ -31,49 +35,34 @@ export const LANES_POSTHOG: SettingsSection = {
     {
       id: 'posthog-host', path: 'posthog.host', title: 'Host',
       description: 'PostHog cloud or self-hosted URL.',
-      control: 'text', keywords: ['url', 'server'], defaultValue: 'https://us.posthog.com', ...MACHINE_NOW,
+      control: 'text', keywords: ['url', 'server'], defaultValue: 'https://us.posthog.com', visibleWhen: POSTHOG_CONNECTION_USED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-api-key', path: 'posthog.apiKey', title: 'Personal API key',
       description: 'Personal API key with read access to your projects.',
-      control: 'password', keywords: ['credential', 'token'], defaultValue: '', ...MACHINE_NOW,
+      control: 'password', keywords: ['credential', 'token'], defaultValue: '', visibleWhen: POSTHOG_CONNECTION_USED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-read-api-key', path: 'posthog.readApiKey', title: 'Read-only API key for the watcher',
       description: 'Personal API key with read scopes only. The watcher uses it to notice new errors and community questions, so Radar and Community stop polling on a timer.',
-      control: 'password', keywords: ['credential', 'token', 'watcher', 'read access'], defaultValue: '', ...MACHINE_NOW,
+      control: 'password', keywords: ['credential', 'token', 'watcher', 'read access'], defaultValue: '', visibleWhen: POSTHOG_CONNECTION_USED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-projects', path: 'posthog.projects', title: 'Projects',
       description: 'Project ids to watch, where empty watches all and none watches none.',
       control: 'list', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects',
-      listPlaceholder: 'Project id', listEmptyText: 'Every project the key can read.', ...MACHINE_NOW,
-    },
-    {
-      id: 'posthog-interval', path: 'posthog.intervalMinutes', title: 'Poll interval',
-      description: 'Time between PostHog checks.',
-      control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 15, ...MACHINE_NOW,
-    },
-    {
-      id: 'posthog-max-investigations', path: 'posthog.maxConcurrentInvestigations', title: 'Max concurrent investigations',
-      description: 'Most investigations running at once.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: INVESTIGATIONS, keywords: ['parallel', 'workers'], defaultValue: 2, ...MACHINE_NOW,
-    },
-    {
-      id: 'posthog-min-users', path: 'posthog.minUsersToInvestigate', title: 'Min users to investigate',
-      description: 'Fewest affected users before a new issue is investigated.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'affected'], defaultValue: 1, ...MACHINE_NOW,
+      listPlaceholder: 'Project id', listEmptyText: 'Every project the key can read.', visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-traffic-enabled', path: 'posthog.trafficSpikeEnabled', title: 'Traffic spike alerts',
       description: 'Alert when unique users jump above normal.',
-      control: 'toggle', keywords: ['analytics', 'alert'], defaultValue: true, ...MACHINE_NOW,
+      control: 'toggle', keywords: ['analytics', 'alert'], defaultValue: true, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
       description: 'Let an agent fix an issue on a local branch, opening a pull request only after you approve.',
       control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
-      warning: 'Enabling this control lets an agent that read PostHog error data edit code onto a local branch; nothing is pushed until you approve it.', defaultValue: false, ...MACHINE_NOW,
+      warning: 'Enabling this control lets an agent that read PostHog error data edit code onto a local branch; nothing is pushed until you approve it.', defaultValue: false, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
   ],
 };
@@ -99,48 +88,13 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
     {
       id: 'team-review-org', path: 'teamReview.org', title: 'GitHub organization',
       description: 'Organization whose pull requests that request your review directly are drafted. Needed only when no GitHub team is set.',
-      control: 'text', keywords: ['github', 'organization', 'org', 'review requests'], defaultValue: '', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after',
-      description: 'Review a pull request again after a new push, once this much time has passed.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: HOURS, keywords: ['review', 'delay'], defaultValue: 24, integer: false, step: 0.5, ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-skip-idle-after-days', path: 'teamReview.skipIdleAfterDays', title: 'Skip PRs idle for',
-      description: 'Skip pull requests with no activity for this long.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['idle', 'activity'], defaultValue: 14, integer: false, step: 0.5, ...MACHINE_NOW,
+      control: 'text', keywords: ['github', 'organization', 'org', 'review requests'], defaultValue: '',
+      visibleWhen: { path: 'github.teams', isSet: false }, ...MACHINE_NOW,
     },
     {
       id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
       description: 'Skill Claude Code follows for each review, or none when empty.',
       control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-extra-skills', path: 'teamReview.extraSkills', title: 'Skills the review skill calls',
-      description: "Other skills the review skill may run, whose allowed-tools grants then apply to the review.",
-      control: 'list', keywords: ['skill', 'sub-skill', 'claude code', 'pr review'], defaultValue: [],
-      listPlaceholder: 'Skill name', listEmptyText: 'Only the review skill.', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
-      description: "Model for reviews, or the agent's default when empty.",
-      control: 'text', keywords: ['model', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-reviewer-effort', path: 'teamReview.reviewer.effort', title: 'Review effort',
-      description: "Effort for reviews, or the agent's default when empty.",
-      control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-efforts', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Docs and tests PR model',
-      description: 'Model for pull requests that only touch docs and tests.',
-      control: 'text', keywords: ['stamp', 'model', 'small pull requests', 'docs', 'tests'], defaultValue: '', suggestionsFrom: 'review-stamp-models', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Docs and tests PR effort',
-      description: 'Effort for pull requests that only touch docs and tests.',
-      control: 'text', keywords: ['stamp', 'effort', 'small pull requests', 'docs', 'tests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
     },
     {
       id: 'team-review-sandbox-load-mcp-servers', path: 'teamReview.sandbox.loadMcpServers', title: 'Load my MCP servers',
@@ -149,11 +103,10 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
       warning: 'Enabling this control gives the review agent, which reads untrusted pull request text, every tool your MCP servers expose.', defaultValue: false, ...MACHINE_NOW,
     },
     {
-      id: 'lanes-fetch-domains', path: 'lanes.fetchDomains', title: 'Extra fetch domains',
-      description: 'Domains lanes may fetch pages from, beyond GitHub and posthog.com.',
-      control: 'list', keywords: ['web', 'fetch', 'domains', 'allowlist'], defaultValue: [],
-      listPlaceholder: 'docs.example.com', listEmptyText: 'Only the built-in domains.', ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'machine-vault', settingId: 'lanes-fetch-domains' }],
+      id: 'reviews-turn-limit', path: 'pref:reviewsTurnLimit', title: 'Reviewing now limit',
+      description: 'How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap.', control: 'number', integer: true, step: 1,
+      range: REVIEWS_TURN_LIMIT_RANGE, keywords: ['reviews', 'board', 'wip', 'limit'], defaultValue: REVIEWS_TURN_LIMIT_DEFAULT,
+      legacyIds: [{ sectionId: 'browser-appearance', settingId: 'reviews-turn-limit' }], ...BROWSER_NOW,
     },
   ],
 };
@@ -174,32 +127,9 @@ export const LANES_MY_PRS: SettingsSection = {
       legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-auto-rebase-my-prs' }],
     },
     {
-      id: 'team-review-keep-mergeable-enabled', path: 'teamReview.keepMergeableEnabled', title: 'Keep mergeable',
-      description: 'Offer Keep mergeable: an agent fixes conflicts and failing checks on your pull requests.',
-      control: 'toggle', keywords: ['repair', 'conflicts', 'my prs'], defaultValue: true, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-keep-mergeable-enabled' }],
-    },
-    {
-      id: 'team-review-keep-mergeable-timeout', path: 'teamReview.keepMergeableTimeoutMinutes', title: 'Keep mergeable deadline',
-      description: 'Longest a Keep mergeable repair may run.',
-      control: 'number', range: KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, unit: MINUTES, keywords: ['timeout', 'repair'], defaultValue: 30, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-keep-mergeable-timeout' }],
-    },
-    {
-      id: 'team-review-merge-queue-enabled', path: 'teamReview.mergeQueueEnabled', title: 'Merge when ready',
-      description: 'Offer Merge when ready: queued pull requests merge once they pass.',
-      control: 'toggle', keywords: ['merge queue', 'auto merge', 'my prs'], defaultValue: true, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-merge-queue-enabled' }],
-    },
-    {
       id: 'workflows-enabled', path: 'workflows.enabled', title: 'Run workflows',
       description: 'Watch the repositories your rules name and run their actions.',
       control: 'toggle', keywords: ['pull requests', 'automation', 'master switch'], defaultValue: true, ...MACHINE_NOW,
-    },
-    {
-      id: 'workflows-max-concurrent-sessions', path: 'workflows.maxConcurrentSessions', title: 'Concurrent agent sessions',
-      description: 'Most workflow sessions running at once.',
-      control: 'number', range: WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, unit: SESSIONS, keywords: ['parallel', 'spawn'], defaultValue: 2, ...MACHINE_NOW,
     },
     {
       id: 'workflows-rules', path: 'status:workflow-rules', title: 'Workflow rules',
@@ -223,22 +153,17 @@ export const LANES_COMMUNITY: SettingsSection = {
     {
       id: 'community-skill', path: 'community.skill', title: 'Research skill',
       description: 'Skill the research agent follows, or none when empty.',
-      control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', ...MACHINE_NOW,
+      control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'community-project-id', path: 'community.projectId', title: 'PostHog project',
       description: 'PostHog project holding the community forum and Discord data.',
-      control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, ...MACHINE_NOW,
-    },
-    {
-      id: 'community-interval', path: 'community.intervalMinutes', title: 'Poll interval',
-      description: 'Time between community checks.',
-      control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 30, ...MACHINE_NOW,
+      control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',
       description: 'Discord channels to watch for questions, without the #, or none to skip Discord.',
-      control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], ...MACHINE_NOW,
+      control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
   ],
 };
