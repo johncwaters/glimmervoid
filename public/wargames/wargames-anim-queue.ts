@@ -171,7 +171,7 @@ interface TurnHexImpactInput {
 
 export function directTurnEvents<EventItem extends TurnHexImpactInput>(
   events: readonly EventItem[],
-): { lowImpact: EventItem[]; highImpact: EventItem[] } {
+): { lowImpactBatches: EventItem[][]; highImpact: EventItem[] } {
   const lowImpact: EventItem[] = [];
   const highImpact: EventItem[] = [];
   for (const item of events) {
@@ -185,5 +185,10 @@ export function directTurnEvents<EventItem extends TurnHexImpactInput>(
     }
     lowImpact.push(item);
   }
-  return { lowImpact, highImpact };
+  const lowImpactBatches = lowImpact.length === 0
+    ? []
+    : highImpact.length === 0
+      ? lowImpact.map((item) => [item])
+      : [lowImpact];
+  return { lowImpactBatches, highImpact };
 }

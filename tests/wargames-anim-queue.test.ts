@@ -138,6 +138,13 @@ test('directTurnEvents merges low-impact training and departures while isolating
     { id: 'capture', troopDelta: 0, loyaltyDelta: 0, ownerChanged: true, hasIncomingGlide: true, hasHostileGlide: true },
   ]);
 
-  assert.deepEqual(directed.lowImpact.map((item) => item.id), ['train', 'departure', 'reinforce']);
+  assert.deepEqual(directed.lowImpactBatches.map((batch) => batch.map((item) => item.id)), [['train', 'departure', 'reinforce']]);
   assert.deepEqual(directed.highImpact.map((item) => item.id), ['bounce', 'casualties', 'loyalty', 'capture']);
+
+  const quietTurn = directTurnEvents([
+    { id: 'train', troopDelta: 4, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
+    { id: 'reinforce', troopDelta: 5, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
+  ]);
+  assert.deepEqual(quietTurn.lowImpactBatches.map((batch) => batch.map((item) => item.id)), [['train'], ['reinforce']]);
+  assert.deepEqual(quietTurn.highImpact, []);
 });

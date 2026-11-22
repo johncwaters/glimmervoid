@@ -330,17 +330,49 @@ function appendGlidingArmy(
   toSlot: HexNodeSlot,
   army: ArmySnapshot,
   durationMs: number,
+  slotOffsetIndex = 0,
+  totalConverging = 1,
 ): SVGElement | null {
-  const deltaX = fromSlot.centerX - toSlot.centerX;
-  const deltaY = fromSlot.centerY - toSlot.centerY;
-  if (Math.hypot(deltaX, deltaY) < 1) return null;
+  const vectorX = toSlot.centerX - fromSlot.centerX;
+  const vectorY = toSlot.centerY - fromSlot.centerY;
+  const distance = Math.hypot(vectorX, vectorY);
+  if (distance < 1) return null;
+
+  const unitX = vectorX / distance;
+  const unitY = vectorY / distance;
+  const pullback = totalConverging > 1 ? Math.min(22, distance * 0.34) : 0;
+  const lateralStep = totalConverging > 1 ? (slotOffsetIndex - (totalConverging - 1) / 2) * 10 : 0;
+  const landX = toSlot.centerX - unitX * pullback - unitY * lateralStep;
+  const landY = toSlot.centerY - unitY * pullback + unitX * lateralStep;
+  const deltaX = fromSlot.centerX - landX;
+  const deltaY = fromSlot.centerY - landY;
+
+  const wrapper = createSvgShape('g', {});
+  if (totalConverging > 1) {
+    const trim = Math.min(16, distance * 0.25);
+    wrapper.append(
+      createSvgShape('line', {
+        x1: (fromSlot.centerX + unitX * trim).toFixed(1),
+        y1: (fromSlot.centerY + unitY * trim).toFixed(1),
+        x2: (toSlot.centerX - unitX * trim).toFixed(1),
+        y2: (toSlot.centerY - unitY * trim).toFixed(1),
+        stroke: SEAT_COLORS[army.owner],
+        'stroke-width': '2',
+        'stroke-dasharray': '5 3',
+        opacity: '0.85',
+        'marker-end': `url(#wg-arrow-${army.owner})`,
+      }),
+    );
+  }
+
   const glideGroup = createSvgShape('g', { class: 'wg-army-glide' });
   glideGroup.style.setProperty('--wg-dx', `${deltaX.toFixed(1)}px`);
   glideGroup.style.setProperty('--wg-dy', `${deltaY.toFixed(1)}px`);
   glideGroup.style.animationDuration = `${durationMs}ms`;
-  renderArmyPill(glideGroup, toSlot.centerX, toSlot.centerY, army.owner, army.troops, SEAT_COLORS[army.owner]);
-  fxLayer.append(glideGroup);
-  return glideGroup;
+  renderArmyPill(glideGroup, landX, landY, army.owner, army.troops, SEAT_COLORS[army.owner]);
+  wrapper.append(glideGroup);
+  fxLayer.append(wrapper);
+  return wrapper;
 }
 
 function renderMarchVector(
@@ -915,18 +947,32 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       }];
     });
 
-    const { lowImpact, highImpact } = directTurnEvents(hexEvents);
+    const { lowImpactBatches, highImpact } = directTurnEvents(hexEvents);
 
-    if (lowImpact.length > 0) {
+    for (let batchIndex = 0; batchIndex < lowImpactBatches.length; batchIndex += 1) {
+      const batch = lowImpactBatches[batchIndex];
+      const isQuietIndividualBeat = highImpact.length === 0 && batch.length === 1;
       beats.push({
-        id: `low-impact-${resolvedTick}`,
-        durationMs: 850,
+        id: `low-impact-${resolvedTick}-${batchIndex}`,
+        durationMs: isQuietIndividualBeat ? 1100 : 1400,
         start: (durationMs) => {
           const mounted: SVGElement[] = [];
           const deferredUpdates: (() => void)[] = [];
-          for (const item of lowImpact) {
-            for (const glide of item.glides) {
-              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs);
+          if (isQuietIndividualBeat) {
+            mounted.push(appendFocusRing(fxLayer, batch[0].slot.centerX, batch[0].slot.centerY));
+          }
+          for (const item of batch) {
+            for (let glideIndex = 0; glideIndex < item.glides.length; glideIndex += 1) {
+              const glide = item.glides[glideIndex];
+              const node = appendGlidingArmy(
+                fxLayer,
+                glide.fromSlot,
+                glide.toSlot,
+                glide.army,
+                durationMs,
+                glideIndex,
+                item.glides.length,
+              );
               if (node) mounted.push(node);
             }
             if (item.delta) {
@@ -962,11 +1008,20 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       if (glides.length > 0) {
         beats.push({
           id: `march-${resolvedTick}-${hexIndex}`,
-          durationMs: 650,
+          durationMs: 1250,
           start: (durationMs) => {
             const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
-            for (const glide of glides) {
-              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs);
+            for (let glideIndex = 0; glideIndex < glides.length; glideIndex += 1) {
+              const glide = glides[glideIndex];
+              const node = appendGlidingArmy(
+                fxLayer,
+                glide.fromSlot,
+                glide.toSlot,
+                glide.army,
+                durationMs,
+                glideIndex,
+                glides.length,
+              );
               if (node) mounted.push(node);
             }
             return () => {
@@ -979,7 +1034,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       if (delta || item.hasHostileGlide) {
         beats.push({
           id: `impact-${resolvedTick}-${hexIndex}`,
-          durationMs: 900,
+          durationMs: 1500,
           start: (durationMs) => {
             if (delta) {
               const currentDisplayed = displayedVillages[hexIndex];
@@ -1019,7 +1074,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           const ownerColor = SEAT_COLORS[delta.targetVillage.owner];
           beats.push({
             id: `capture-${resolvedTick}-${hexIndex}`,
-            durationMs: 750,
+            durationMs: 1200,
             start: (durationMs) => {
               displayedVillages[hexIndex] = cloneVillage(delta.targetVillage);
               if (latestState) {
