@@ -156,7 +156,6 @@
       "node_modules/tree-sitter-wasms/out/tree-sitter-kotlin.wasm",
       "node_modules/tree-sitter-wasms/out/tree-sitter-scala.wasm",
       "node_modules/tree-sitter-wasms/out/tree-sitter-solidity.wasm",
-      "node_modules/tree-sitter-wasms/out/tree-sitter-swift.wasm",
       "node_modules/tree-sitter-wasms/out/tree-sitter-zig.wasm"
     ]
   }

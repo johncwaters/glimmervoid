@@ -740,7 +740,7 @@ export function directDependentsOf(graph: ImportGraph, importedPath: string): Se
   return directDependents;
 }
 
-export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$|(^|/)Tests/.*[.]swift$|(^|/)src/[A-Za-z]+Test/|_test[.]exs$|(^|/)[^/]*[.]Tests?/.*[.]cs$';
+export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$|(^|/)src/[A-Za-z]+Test/|_test[.]exs$|(^|/)[^/]*[.]Tests?/.*[.]cs$';
 const TEST_PATH = new RegExp(TEST_PATH_PATTERN);
 
 export function isTestPath(repoPath: string): boolean {

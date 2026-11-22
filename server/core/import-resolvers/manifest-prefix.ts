@@ -20,8 +20,6 @@ const GO_MODULE_DIRECTIVE = /^\s*module\s+"?([^\s"]+)"?/m;
 const TOML_SECTION_HEADER = /^\s*\[\[?([^\]]*)\]\]?\s*$/;
 const TOML_STRING_KEY = /^\s*(name|path)\s*=\s*"([^"]*)"/;
 const PUBSPEC_NAME = /^name:\s*["']?([A-Za-z_]\w*)/m;
-const SWIFT_TARGET_CALL = /\.(target|executableTarget|testTarget|macro)\s*\(\s*name\s*:\s*"([^"]+)"/g;
-const SWIFT_TARGET_PATH = /\bpath\s*:\s*"([^"]+)"/;
 const PHP_NAMESPACE_SEPARATOR = '\\';
 const MAX_PACKAGES_PER_MANIFEST = 256;
 const MAX_PACKAGES_PER_NAME = 16;
@@ -93,42 +91,11 @@ function readComposerAutoload(manifestText: string, manifestDirectory: string): 
   });
 }
 
-function callEndOf(text: string, openParenIndex: number): number {
-  let depth = 0;
-  for (let index = openParenIndex; index < text.length; index++) {
-    const character = text[index];
-    if (character === '"') {
-      for (index++; index < text.length && text[index] !== '"'; index++) if (text[index] === '\\') index++;
-      continue;
-    }
-    if (character === '(') depth++;
-    if (character === ')') depth--;
-    if (depth === 0) return index + 1;
-  }
-  return text.length;
-}
-
-function readSwiftTargets(manifestText: string, manifestDirectory: string): ManifestPackage[] {
-  const targets: ManifestPackage[] = [];
-  let enclosingCallEnd = 0;
-  for (const targetCall of manifestText.matchAll(SWIFT_TARGET_CALL)) {
-    if (targetCall.index < enclosingCallEnd) continue;
-    const [, targetKind, targetName] = targetCall;
-    const openParenIndex = manifestText.indexOf('(', targetCall.index);
-    enclosingCallEnd = callEndOf(manifestText, openParenIndex);
-    const declaredPath = SWIFT_TARGET_PATH.exec(manifestText.slice(openParenIndex, enclosingCallEnd))?.[1];
-    const defaultPath = `${targetKind === 'testTarget' ? 'Tests' : 'Sources'}/${targetName}`;
-    targets.push(packageAt('Package.swift', manifestDirectory, targetName, path.posix.join(manifestDirectory, declaredPath ?? defaultPath)));
-  }
-  return targets;
-}
-
 const PACKAGE_READER_BY_MANIFEST: Record<string, PackageReader> = {
   'go.mod': readGoModule,
   'Cargo.toml': readCargoCrate,
   'pubspec.yaml': readPubPackage,
   'composer.json': readComposerAutoload,
-  'Package.swift': readSwiftTargets,
 };
 
 const NAME_SEPARATOR_BY_MANIFEST: Record<string, string> = { 'go.mod': '/', 'composer.json': PHP_NAMESPACE_SEPARATOR };
