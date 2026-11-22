@@ -16,7 +16,7 @@ import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -215,6 +215,7 @@ const OpList = z.array(Op);
 
 function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, homeDir = null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
   const overlayByRepoDir = new Map<string, SessionOverlay>();
+  const folderChoicesByRepoDir = new Map<string, Map<string, boolean>>();
   const specPlanByRepoDir = new Map<string, SpecPlan>();
   let startedOverlayRefreshCount = 0;
   const drawingByRepoDir = new Map<string, Promise<boolean>>();
@@ -297,7 +298,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const stamp = overlay ? { title: `Session ${overlay.sessionName}`, lines: [`changes ${overlay.paths.length} files in ${overlaidModules.length} modules`, ...overlaidModules] } : null;
     const specPlan = specPlanByRepoDir.get(repoDir) ?? null;
     const specKey = specPlan ? { ...specPlan, landedUnitIds: [...specPlan.landedUnitIds].sort() } : null;
-    return { key: JSON.stringify([stamp, overlaidModules, specKey]), specPlan, decorations: { churnByModule: state.churnByModule, overlaidModules: new Set(overlaidModules), matrixMedia: null }, stamp };
+    const folderChoices = [...folderChoicesByRepoDir.get(repoDir) ?? []].sort(([left], [right]) => left.localeCompare(right));
+    return { key: JSON.stringify([stamp, overlaidModules, specKey, folderChoices]), specPlan, decorations: { churnByModule: state.churnByModule, overlaidModules: new Set(overlaidModules), folderChoices: new Map(folderChoices), matrixMedia: null }, stamp };
   }
 
   async function keepMapBoardDrawn(state: RepoMapState, repoDir: string, status: CodemapStatus): Promise<boolean> {
@@ -515,6 +517,24 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return null;
   }
 
+  async function toggleFolder(repoDir: string, boxId: string): Promise<{ ok: true; isOpen: boolean } | { ok: false; error: string }> {
+    const map = await currentMap({ repoDir });
+    if ('error' in map) return { ok: false, error: map.error };
+    if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
+    const folder = folderOfMapBoxId(map.model, boxId);
+    if (folder === null) return { ok: false, error: 'that box is not a folder on the code map' };
+    const folderChoices = folderChoicesByRepoDir.get(repoDir) ?? new Map<string, boolean>();
+    const previousChoice = folderChoices.get(folder);
+    const isOpen = !isFolderOpenOf(map.model, folder, overlayDrawingOf(stateOf(repoDir), repoDir).decorations.overlaidModules, folderChoices);
+    folderChoices.set(folder, isOpen);
+    folderChoicesByRepoDir.set(repoDir, folderChoices);
+    const redrawn = await currentMap({ repoDir });
+    if (!('error' in redrawn) && redrawn.isBoardDrawn) return { ok: true, isOpen };
+    if (previousChoice === undefined) folderChoices.delete(folder);
+    if (previousChoice !== undefined) folderChoices.set(folder, previousChoice);
+    return { ok: false, error: 'error' in redrawn ? redrawn.error : `the code map of ${path.basename(repoDir)} was not redrawn` };
+  }
+
   async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[]; mapState: CodemapStatus } | { ok: false; error: string }> {
     const map = await currentMap({ repoDir });
     if ('error' in map) return { ok: false, error: map.error };
@@ -643,7 +663,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, toggleFolder };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

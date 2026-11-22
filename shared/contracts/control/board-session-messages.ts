@@ -13,6 +13,8 @@ export const boardSessionClientVariants = [
   loose('codemap-boxes-of', { id: sessionId, requestId, paths: z.array(RepoPath).max(CODEMAP_BOXES_MAX_PATHS).default([]) }),
   loose('board-ask-answer', { requestId, boardId: z.string().min(1).max(200), askBoxId: z.string().min(1).max(40), answer: z.string().trim().min(1).max(ASK_ANSWER_MAX_CHARS) }),
   loose('branch-spawn', { id: sessionId, requestId, aboutBoxId: z.string().min(1).max(40), aboutTitle: z.string().min(1).max(80), prompt: z.string().trim().min(1).max(BRANCH_PROMPT_MAX_CHARS) }),
+  loose('studio-main-ensure', { id: sessionId, requestId }),
+  loose('codemap-folder-toggle', { id: sessionId, requestId, boxId: z.string().min(1).max(40) }),
 ] as const;
 
 export const boardSessionServerVariants = [
@@ -29,4 +31,6 @@ export const boardSessionServerVariants = [
   }),
   loose('board-ask-answer-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('branch-spawn-result', { id: sessionId, requestId, ok: z.boolean(), branchId: z.string().nullable().default(null), error: optionalError }),
+  loose('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
+  loose('codemap-folder-toggle-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
 ] as const;

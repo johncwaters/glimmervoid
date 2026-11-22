@@ -124,7 +124,7 @@ interface BackendControlDependencies {
   commitSigning: Pick<CommitSigning, 'act'>;
   hostReady: HostReadyReader;
   whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
-  codemap: Pick<CodemapService, 'boxesOfSession'> | null;
+  codemap: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
   boardAsks: Pick<BoardAsks, 'answer'> | null;
   reviews: ReviewPort;
   changeMaps: ChangeMapService;

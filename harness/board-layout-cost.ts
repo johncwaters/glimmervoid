@@ -163,7 +163,7 @@ async function codemapBoard(repoDir: string): Promise<Board> {
   const setupLookup = await readCodemapSetup(glimmervoidHomeDir(os.homedir(), process.env), repoKey);
   const moduleLayout = setupLookup.kind === 'ok' ? setupLookup.setup.modules : null;
   const model = buildCodemapModel(await createCodemapClient().extract(repoDir, head.out.trim()), moduleLayout);
-  const ops = z.array(Op).parse(mapBoardOpsOf(model, new Map(), { churnByModule: null, overlaidModules: new Set(), matrixMedia: null }));
+  const ops = z.array(Op).parse(mapBoardOpsOf(model, new Map(), { churnByModule: null, overlaidModules: new Set(), folderChoices: new Map(), matrixMedia: null }));
   const drawn = applyOps(createBoard({ id: '00000000-0000-4000-8000-000000000001', title: `Code map: ${path.basename(repoDir)}`, nowMs: 0 }), ops, CODEMAP_AUTHOR, 0);
   if (!drawn.ok) throw new Error(`the code map of ${repoDir} did not draw: ${drawn.error}`);
   return drawn.board;

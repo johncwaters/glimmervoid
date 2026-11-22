@@ -387,6 +387,7 @@ function fieldsToRefresh(element: Record<string, unknown>): Record<string, unkno
 interface MapDecorations {
   churnByModule: ReadonlyMap<string, number> | null;
   overlaidModules: ReadonlySet<string>;
+  folderChoices: ReadonlyMap<string, boolean>;
   matrixMedia: BoxMedia | null;
 }
 
@@ -518,6 +519,30 @@ function folderFrameIdOf(folder: string): string {
   return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} frame`, `frame\n${folder}`);
 }
 
+function focusModulesOf(layers: ModuleLayers, overlaidModules: ReadonlySet<string>): Set<string> {
+  return new Set([...overlaidModules, ...layers.judgedEdges.flatMap((edge) => (overlaidModules.has(edge.from) ? [edge.to] : overlaidModules.has(edge.to) ? [edge.from] : []))]);
+}
+
+function openFoldersOf(focusModules: ReadonlySet<string>, folderChoices: ReadonlyMap<string, boolean>): Set<string> {
+  const openFolders = new Set([...focusModules].map(folderOf));
+  for (const [folder, isOpen] of folderChoices) {
+    if (isOpen) openFolders.add(folder);
+    if (!isOpen) openFolders.delete(folder);
+  }
+  return openFolders;
+}
+
+function isFolderOpenOf(model: CodemapModel, folder: string, overlaidModules: ReadonlySet<string>, folderChoices: ReadonlyMap<string, boolean>): boolean {
+  return openFoldersOf(focusModulesOf(moduleLayersOf(model), overlaidModules), folderChoices).has(folder);
+}
+
+function folderOfMapBoxId(model: CodemapModel, boxId: string): string | null {
+  for (const folder of new Set(model.modules.map((summary) => folderOf(summary.id)))) {
+    if (boxId === folderCardIdOf(folder) || boxId === folderFrameIdOf(folder)) return folder;
+  }
+  return null;
+}
+
 const MATRIX_BOX_ID = generatedIdOf(CODEMAP_ID_PREFIXES.map, 'folder matrix', `matrix${String.fromCharCode(0)}`);
 const MODULE_COLUMNS_PER_FOLDER = 6;
 const MATRIX_BOX_WIDTH = 640;
@@ -585,10 +610,10 @@ function folderMatrixCsvOf(model: CodemapModel): string {
   return `${[header, ...rows].join('\n')}\n`;
 }
 
-function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules, matrixMedia }: MapDecorations): Record<string, unknown>[] {
+function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules, folderChoices, matrixMedia }: MapDecorations): Record<string, unknown>[] {
   const layers = moduleLayersOf(model);
-  const focusModules = new Set([...overlaidModules, ...layers.judgedEdges.flatMap((edge) => (overlaidModules.has(edge.from) ? [edge.to] : overlaidModules.has(edge.to) ? [edge.from] : []))]);
-  const focusFolders = new Set([...focusModules].map(folderOf));
+  const focusModules = focusModulesOf(layers, overlaidModules);
+  const focusFolders = openFoldersOf(focusModules, folderChoices);
   const placeById = placedFoldersOf(layers, focusFolders);
   const isFeedback = (edge: WeightedEdge) => {
     const folder = folderOf(edge.from);
@@ -953,5 +978,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

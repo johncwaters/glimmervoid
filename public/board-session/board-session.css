@@ -182,7 +182,7 @@
   .bs-who .bs-presence-face { width: 28px; height: 28px; border: 0; box-shadow: 0 0 0 2px var(--bg); cursor: pointer; }
   .bs-who .bs-presence-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .bs-who .bs-face-main { outline: 1.5px solid var(--accent); outline-offset: 2px; }
-  .bs-face-sub { width: 18px; height: 18px; padding: 0; font-size: 9px; box-shadow: 0 0 0 2px var(--bg); }
+  .bs-face-sub { width: 18px; height: 18px; padding: 0; font-size: var(--type-meta); box-shadow: 0 0 0 2px var(--bg); }
   .bs-who-subagents { color: var(--text-muted); font-size: var(--type-meta); }
   .bs-who-status { color: var(--accent); font-family: var(--font-mono); font-size: var(--type-meta); }
   .bs-who[data-phase='starting'] .bs-who-status { color: var(--state-starting); }

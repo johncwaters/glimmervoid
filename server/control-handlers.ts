@@ -177,7 +177,7 @@ interface ControlHandlerDeps {
   commitSigning?: Pick<CommitSigning, 'act'> | null;
   hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
-  codemap?: Pick<CodemapService, 'boxesOfSession'> | null;
+  codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
   boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;

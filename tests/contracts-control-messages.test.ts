@@ -310,6 +310,8 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], mapState: { sha: 'a'.repeat(40), mainlineSha: 'b'.repeat(40), state: 'behind', reason: null }, error: null },
   { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
   { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
+  { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null },
+  { type: 'codemap-folder-toggle-result', id: 's1', requestId: 'b5', ok: true, isOpen: true, error: null },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {

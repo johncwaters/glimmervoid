@@ -139,6 +139,7 @@ export const ProjectConfig = z.object({
   startSha: GitObjectSha.optional(),
   isStartPinned: z.boolean().optional(),
   branchOf: BranchLink.optional().catch(undefined),
+  isStudioMain: z.boolean().optional().catch(undefined),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
 }).passthrough();

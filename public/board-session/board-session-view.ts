@@ -1,3 +1,4 @@
+import { folderToggleTargetOf } from '../whiteboard/folder-toggle-core.ts';
 import '../whiteboard/whiteboard.css';
 import './board-session.css';
 import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
@@ -37,6 +38,8 @@ import type { BoxChoice } from './branch-core.ts';
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
+const MAIN_ENSURE_TIMEOUT_MS = 15000;
+const CLICK_SLOP_PX = 4;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const WHEEL_ZOOM_STEP = 1.1;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
@@ -44,6 +47,7 @@ const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10
 const NO_SESSION_TEXT = 'Start a session to see its repo on the code map.';
 const SHOWN_REPO_KEY = 'glimmervoid.studio.repoPath';
 const NO_MAP_TEXT = 'This session has no code map yet.';
+const NO_MAIN_TEXT = 'The main agent for this repo did not start.';
 
 interface SessionWatch {
   feed: ChatFeed;
@@ -71,6 +75,8 @@ let parts: ViewParts | null = null;
 let isActive = false;
 let shownRepoPath: string | null = null;
 let shownSessionId: string | null = null;
+let ensuredRepoPath: string | null = null;
+const mainSessionIdByRepoPath = new Map<string, string>();
 let mapState: CodemapStatus | null = null;
 let boardId: string | null = null;
 let changedBoxIds: ReadonlySet<string> = new Set();
@@ -281,6 +287,18 @@ function paintPresence(): void {
   paintAsks();
 }
 
+function toggleFolderAt(point: { x: number; y: number }): void {
+  if (!parts || boardId === null || shownSessionId === null) return;
+  const folderBoxId = folderToggleTargetOf(parts.renderer.hitTest(point), tiledBoardOf(boardId)?.board ?? null);
+  if (folderBoxId === null) return;
+  sendControlRequest('codemap-folder-toggle', { id: shownSessionId, boxId: folderBoxId }, { timeoutMs: BOXES_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'codemap-folder-toggle-result' || reply.ok) return;
+      showNotice(reply.error ?? NO_MAP_TEXT);
+    })
+    .catch(() => showNotice(NO_MAP_TEXT));
+}
+
 function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceRecord[]): void {
   const watch = watchBySessionId.get(sessionId);
   if (!watch) return;
@@ -382,8 +400,26 @@ function showRepo(repoPath: string | null): void {
   shownRepoPath = repoPath;
   syncWatches();
   const repoSessionIds = repoChoices().find((choice) => choice.path === repoPath)?.sessionIds ?? [];
-  const anchorSessionId = shownSessionId !== null && repoSessionIds.includes(shownSessionId) ? shownSessionId : repoSessionIds.at(-1) ?? null;
+  const mainSessionId = repoPath === null ? undefined : mainSessionIdByRepoPath.get(repoPath);
+  const fallbackSessionId = shownSessionId !== null && repoSessionIds.includes(shownSessionId) ? shownSessionId : repoSessionIds.at(-1) ?? null;
+  const anchorSessionId = mainSessionId !== undefined && sessionUIs.has(mainSessionId) ? mainSessionId : fallbackSessionId;
   showSession(anchorSessionId);
+  if (repoPath === null || anchorSessionId === null || repoPath === ensuredRepoPath) return;
+  ensuredRepoPath = repoPath;
+  ensureMainSession(repoPath, anchorSessionId);
+}
+
+function ensureMainSession(repoPath: string, anchorSessionId: string): void {
+  sendControlRequest('studio-main-ensure', { id: anchorSessionId }, { timeoutMs: MAIN_ENSURE_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'studio-main-ensure-result') return;
+      if (!reply.ok || reply.mainId === null) return showNotice(reply.error ?? NO_MAIN_TEXT);
+      mainSessionIdByRepoPath.set(repoPath, reply.mainId);
+      if (shownRepoPath === repoPath) showSession(reply.mainId);
+    })
+    .catch(() => {
+      if (shownRepoPath === repoPath) showNotice(NO_MAIN_TEXT);
+    });
 }
 
 function showPickedRepo(): void {
@@ -422,21 +458,31 @@ function wireCameraGestures(viewport: HTMLElement): void {
     applyCamera();
   }, { passive: false });
   let dragFrom: { x: number; y: number } | null = null;
+  let pressFrom: { x: number; y: number } | null = null;
   viewport.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     dragFrom = { x: event.clientX, y: event.clientY };
+    pressFrom = dragFrom;
     viewport.setPointerCapture(event.pointerId);
   });
   viewport.addEventListener('pointermove', (event) => {
     if (!dragFrom) return;
+    if (pressFrom && Math.hypot(event.clientX - pressFrom.x, event.clientY - pressFrom.y) > CLICK_SLOP_PX) pressFrom = null;
     camera = { ...camera, x: camera.x - (event.clientX - dragFrom.x) / camera.scale, y: camera.y - (event.clientY - dragFrom.y) / camera.scale };
     dragFrom = { x: event.clientX, y: event.clientY };
     applyCamera();
   });
   const endDrag = () => {
     dragFrom = null;
+    pressFrom = null;
   };
-  viewport.addEventListener('pointerup', endDrag);
+  viewport.addEventListener('pointerup', (event) => {
+    const wasClick = pressFrom !== null;
+    endDrag();
+    if (!wasClick) return;
+    const rect = viewport.getBoundingClientRect();
+    toggleFolderAt({ x: camera.x + (event.clientX - rect.left) / camera.scale, y: camera.y + (event.clientY - rect.top) / camera.scale });
+  });
   viewport.addEventListener('pointercancel', endDrag);
 }
 
@@ -544,6 +590,7 @@ function deactivateBoardSessionView(): void {
   isActive = false;
   closeWatches();
   shownRepoPath = null;
+  ensuredRepoPath = null;
   closeMenu();
 }
 

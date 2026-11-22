@@ -2523,6 +2523,26 @@ test('the code map board puts a moved box back at its generated place and keeps 
   for (const badSlug of ['../secrets', 'Ship']) assert.equal((await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'spec', id: badSlug })).ok, false);
   assert.equal((await codemap.handle({ repoDir }, { sub: 'overlay', layer: 'none' })).ok, true);
   assert.equal(await boxTitled('U1 Grow the parts'), null);
+
+  const toolsFrameOf = async () => {
+    const read = await wiring.readPlanBoard(reader, boardId);
+    assert.ok(read.ok);
+    const frame = [...read.board.elements.values()].find((element) => element.kind === 'frame' && element.title === 'tools/');
+    return frame?.kind === 'frame' ? frame : null;
+  };
+  const stackedFrame = await toolsFrameOf();
+  assert.equal(stackedFrame?.collapsed, true);
+  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.contains[0] ?? ''), { ok: true, isOpen: true });
+  assert.equal((await toolsFrameOf())?.collapsed, false);
+  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.id ?? ''), { ok: true, isOpen: false });
+  assert.equal((await toolsFrameOf())?.collapsed, true);
+  assert.equal((await codemap.toggleFolder(repoDir, libBoxId)).ok, false);
+  overlaidPaths = ['tools/build.ts'];
+  await codemap.handle({ repoDir, sessionId: 'worker' }, { sub: 'overlay', layer: 'session' });
+  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.id ?? ''), { ok: true, isOpen: true });
+  assert.equal((await toolsFrameOf())?.collapsed, false);
+  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.id ?? ''), { ok: true, isOpen: false });
+  assert.equal((await toolsFrameOf())?.collapsed, true);
 });
 
 test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {

@@ -92,6 +92,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
   await root.locator('.bs-fresh:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.match(await root.locator('.bs-fresh').textContent() ?? '', /^Map [0-9a-f]{7} (current|behind|failed)/, 'the freshness badge names the map sha and its state');
+  await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 
   await chip.click();
   const menu = root.getByRole('menu');
@@ -107,7 +108,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  const faceOnBox = root.locator('.bs-presence-faces .bs-who .bs-presence-face').first();
+  const faceOnBox = root.locator('.bs-presence-faces .bs-who .bs-face-main').first();
   await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.locator('#tab-focus').click();
