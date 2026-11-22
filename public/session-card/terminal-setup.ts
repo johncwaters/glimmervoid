@@ -14,7 +14,7 @@ import { reacquireWebglIfStale, releaseWebgl, tryLoadWebGL } from './webgl-pool.
 import type { XtermRuntime } from './xterm-runtime.ts';
 import { buildTerminalNotices, copyTextToClipboard, decodeOsc52Payload, offerClipboardCopy, refreshJumpToLatest, reportClipboardFailure } from './terminal-notices.ts';
 import { sendTerminalInput, wireSoftKeyboardInput } from './terminal-input.ts';
-import { ensureConnectingOverlay } from './terminal-data-socket.ts';
+import { ensureConnectingOverlay, isSnapshotDraining } from './terminal-data-socket.ts';
 
 function isDashboardShortcutInActiveView(ev: KeyboardEvent) {
   const shortcut = resolveDashboardShortcut(ev, SHORTCUT_PLATFORM, { isTerminalFocused: true }, currentNextAttentionKeyCode());
@@ -200,15 +200,19 @@ function setupTerminal(termWrap: HTMLElement, ui: SessionUi, xtermRuntime: Xterm
 
   let scrollRafId: number | null = null;
   term.onScroll(() => {
+    if (isSnapshotDraining(ui)) return;
     if (scrollRafId !== null) return;
     scrollRafId = requestAnimationFrame(() => {
       scrollRafId = null;
-      if (!ui.term) return;
+      if (!ui.term || isSnapshotDraining(ui)) return;
       ui.term.refresh(0, ui.term.rows - 1);
       refreshJumpToLatest(ui, ui.term);
     });
   });
-  term.onWriteParsed(() => refreshJumpToLatest(ui, term, { hasNewOutput: true }));
+  term.onWriteParsed(() => {
+    if (isSnapshotDraining(ui)) return;
+    refreshJumpToLatest(ui, term, { hasNewOutput: true });
+  });
 
   term.parser.registerOscHandler(52, (data) => {
     const semi = data.indexOf(';');

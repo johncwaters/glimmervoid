@@ -14,10 +14,10 @@ import { dataAttachPath, readDataFrame, shouldRequestDeepHistory } from './grid-
 import { isCardBorrowed, uiState } from '../ui-state-core.ts';
 import { decideTerminalLinkState } from './terminal-link-core.ts';
 import { reportToServerLog } from '../control-ws.ts';
-import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS } from '#shared/contracts/data-messages.ts';
+import { describeDataAttach, FAST_TERMINAL_CLOSE_MS, LOGGED_FAST_CLOSE_COUNTS, SCREEN_RESET } from '#shared/contracts/data-messages.ts';
 import { BRAND_MARK_BRACKETS, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
 import { createSvgShape } from '../svg-dom.ts';
-import { isScrolledAwayFromLatest } from './terminal-notices.ts';
+import { isScrolledAwayFromLatest, refreshJumpToLatest } from './terminal-notices.ts';
 import { isInputHeldForWakeCheck, sendQueuedInput } from './terminal-input.ts';
 
 const deepHistoryLinesFromBottomBySessionUi = new WeakMap<SessionUi, number>();
@@ -30,7 +30,38 @@ const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
 
 const sessionUisReconnectingWhenShown = new WeakSet<SessionUi>();
 
+const pendingSnapshotDrainCountBySessionUi = new WeakMap<SessionUi, number>();
+
+function isSnapshotDraining(ui: SessionUi): boolean {
+  return (pendingSnapshotDrainCountBySessionUi.get(ui) ?? 0) > 0;
+}
+
+function beginSnapshotDrain(ui: SessionUi) {
+  const nextCount = (pendingSnapshotDrainCountBySessionUi.get(ui) ?? 0) + 1;
+  pendingSnapshotDrainCountBySessionUi.set(ui, nextCount);
+  ui.card.dataset.snapshotLoading = 'true';
+}
+
+function clearSnapshotDrain(ui: SessionUi) {
+  pendingSnapshotDrainCountBySessionUi.delete(ui);
+  delete ui.card.dataset.snapshotLoading;
+}
+
+function finishSnapshotDrain(ui: SessionUi, term: Terminal, linesFromBottom: number | undefined) {
+  const remainingCount = (pendingSnapshotDrainCountBySessionUi.get(ui) ?? 0) - 1;
+  if (remainingCount > 0) {
+    pendingSnapshotDrainCountBySessionUi.set(ui, remainingCount);
+    return;
+  }
+  clearSnapshotDrain(ui);
+  if (linesFromBottom !== undefined) term.scrollToLine(Math.max(0, term.buffer.active.length - linesFromBottom));
+  if (linesFromBottom === undefined) term.scrollToBottom();
+  term.refresh(0, term.rows - 1);
+  refreshJumpToLatest(ui, term);
+}
+
 function rememberScrollOffsetForReattach(ui: SessionUi, term: Terminal) {
+  if (isSnapshotDraining(ui)) return;
   if (deepHistoryLinesFromBottomBySessionUi.has(ui)) return;
   if (!isScrolledAwayFromLatest(term)) return;
   const buffer = term.buffer.active;
@@ -43,6 +74,7 @@ function rememberScrollOffsetForReattach(ui: SessionUi, term: Terminal) {
 }
 
 function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLine: number) {
+  if (isSnapshotDraining(ui)) return;
   const term = ui.term;
   if (!term) return;
   const shouldRequest = shouldRequestDeepHistory({
@@ -143,6 +175,7 @@ function notifyTerminalLinkSubscribers() {
 
 function detachDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   rememberScrollOffsetForReattach(ui, term);
+  clearSnapshotDrain(ui);
   renderScheduler.unregister(sessionId);
   ui.dataWs = null;
   refreshTerminalLink(ui);
@@ -307,13 +340,18 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
       socketLife.hasReceivedBytes = true;
       noteSessionOutput(ui);
       if (isOutputFlowingBySocket.get(ws)) noteWakeMark('terminal-bytes');
-      const isSnapshotToScroll = isAwaitingSnapshotScroll;
-      isAwaitingSnapshotScroll = false;
+      const isResetSnapshot = frame.data.startsWith(SCREEN_RESET);
+      const isSnapshotToRestore = isAwaitingSnapshotScroll && isResetSnapshot;
+      if (isResetSnapshot) {
+        isAwaitingSnapshotScroll = false;
+        beginSnapshotDrain(ui);
+      }
       renderScheduler.enqueue(sessionId, frame.data);
-      if (!isSnapshotToScroll) return;
-      const linesFromBottom = linesFromBottomToRestore ?? 0;
+      if (!isResetSnapshot) return;
+      const linesFromBottom = isSnapshotToRestore ? linesFromBottomToRestore : undefined;
       renderScheduler.enqueueAction(sessionId, () => {
-        term.scrollToLine(Math.max(0, term.buffer.active.length - linesFromBottom));
+        if (ui.dataWs !== ws) return;
+        finishSnapshotDrain(ui, term, linesFromBottom);
       });
       return;
     }
@@ -422,8 +460,9 @@ function closeEveryTerminalUntilShown() {
 function closeDataWs(ui: SessionUi, sessionId: string) {
   const closingSocket = ui.dataWs;
   ui.dataWs = null;
+  clearSnapshotDrain(ui);
   renderScheduler.unregister(sessionId);
   if (closingSocket && closingSocket.readyState <= WebSocket.OPEN) closingSocket.close();
 }
 
-export { closeDataWs, closeEveryTerminalUntilShown, connectDataWs, countShownConnectingTerminals, ensureConnectingOverlay, isStillCurrentAndDetached, onTerminalLinkChange, prewarmDataSocket, reconnectDataWs, reconnectShownTerminals, refreshTerminalLink, requestDeepHistoryAtTop, sessionUisAwaitingXterm, syncTerminalOutputFlow };
+export { closeDataWs, closeEveryTerminalUntilShown, connectDataWs, countShownConnectingTerminals, ensureConnectingOverlay, isSnapshotDraining, isStillCurrentAndDetached, onTerminalLinkChange, prewarmDataSocket, reconnectDataWs, reconnectShownTerminals, refreshTerminalLink, requestDeepHistoryAtTop, sessionUisAwaitingXterm, syncTerminalOutputFlow };

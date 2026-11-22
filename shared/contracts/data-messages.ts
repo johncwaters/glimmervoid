@@ -38,6 +38,7 @@ export const DATA_ATTACH_OUTPUT_PARAM = 'output';
 export const DATA_ATTACH_PAUSED_OUTPUT = 'paused';
 
 export const DEEP_HISTORY_SCROLLBACK_LINES = 5000;
+export const SCREEN_RESET = '\x1bc\x1b[2J\x1b[3J\x1b[H';
 
 const DataAttachHistory = z.enum(['screen', 'deep']);
 type DataAttachHistory = z.infer<typeof DataAttachHistory>;

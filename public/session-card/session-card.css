@@ -410,6 +410,10 @@
   background: var(--bg-card);
 }
 
+.session-card[data-snapshot-loading="true"] .terminal-wrap .xterm {
+  opacity: 0;
+}
+
 .terminal-wrap::before,
 .terminal-connecting {
   position: absolute;

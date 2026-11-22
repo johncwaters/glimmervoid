@@ -1,6 +1,4 @@
-import { DEEP_HISTORY_SCROLLBACK_LINES } from '../../shared/contracts/data-messages.ts';
-
-const SCREEN_RESET = '\x1bc\x1b[2J\x1b[3J\x1b[H';
+import { DEEP_HISTORY_SCROLLBACK_LINES, SCREEN_RESET } from '../../shared/contracts/data-messages.ts';
 
 const SCREEN_KEEPER_SCROLLBACK = DEEP_HISTORY_SCROLLBACK_LINES;
 
