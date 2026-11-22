@@ -30,32 +30,65 @@ const sessionUisReattachingQuietly = new WeakSet<SessionUi>();
 
 const sessionUisReconnectingWhenShown = new WeakSet<SessionUi>();
 
-const pendingSnapshotDrainCountBySessionUi = new WeakMap<SessionUi, number>();
+type TerminalDrainKind = 'none' | 'reset-snapshot' | 'catchup';
 
-function isSnapshotDraining(ui: SessionUi): boolean {
-  return (pendingSnapshotDrainCountBySessionUi.get(ui) ?? 0) > 0;
+type OutputFlowState = 'paused' | 'resuming' | 'flowing';
+
+type SnapshotScrollTarget = 'bottom' | 'preserve' | number;
+
+const CATCHUP_HIDE_MIN_BYTES = 4096;
+
+const ERASE_SCROLLBACK_SEQUENCE = '\x1b[3J';
+
+const ERASE_SCREEN_SEQUENCE = '\x1b[2J';
+
+const FULL_RESET_SEQUENCE = '\x1bc';
+
+interface PendingSnapshotDrain {
+  count: number;
+  scrollTarget: SnapshotScrollTarget;
 }
 
-function beginSnapshotDrain(ui: SessionUi) {
-  const nextCount = (pendingSnapshotDrainCountBySessionUi.get(ui) ?? 0) + 1;
-  pendingSnapshotDrainCountBySessionUi.set(ui, nextCount);
+const pendingSnapshotDrainBySessionUi = new WeakMap<SessionUi, PendingSnapshotDrain>();
+
+function classifyTerminalDrain(frameText: string, isAwaitingResumeCatchup: boolean): TerminalDrainKind {
+  if (frameText.startsWith(SCREEN_RESET)) return 'reset-snapshot';
+  const clearsScrollback = frameText.includes(ERASE_SCROLLBACK_SEQUENCE);
+  if (clearsScrollback && frameText.length >= CATCHUP_HIDE_MIN_BYTES) return 'catchup';
+  if (!isAwaitingResumeCatchup) return 'none';
+  if (frameText.length >= CATCHUP_HIDE_MIN_BYTES || clearsScrollback || frameText.includes(ERASE_SCREEN_SEQUENCE) || frameText.includes(FULL_RESET_SEQUENCE)) return 'catchup';
+  return 'none';
+}
+
+function isSnapshotDraining(ui: SessionUi): boolean {
+  return (pendingSnapshotDrainBySessionUi.get(ui)?.count ?? 0) > 0;
+}
+
+function beginSnapshotDrain(ui: SessionUi, drainKind: Exclude<TerminalDrainKind, 'none'>, incomingTarget: SnapshotScrollTarget) {
+  const existing = pendingSnapshotDrainBySessionUi.get(ui);
+  const nextCount = (existing?.count ?? 0) + 1;
+  const scrollTarget = drainKind === 'reset-snapshot' || !existing ? incomingTarget : existing.scrollTarget;
+  pendingSnapshotDrainBySessionUi.set(ui, { count: nextCount, scrollTarget });
   ui.card.dataset.snapshotLoading = 'true';
 }
 
 function clearSnapshotDrain(ui: SessionUi) {
-  pendingSnapshotDrainCountBySessionUi.delete(ui);
+  pendingSnapshotDrainBySessionUi.delete(ui);
   delete ui.card.dataset.snapshotLoading;
 }
 
-function finishSnapshotDrain(ui: SessionUi, term: Terminal, linesFromBottom: number | undefined) {
-  const remainingCount = (pendingSnapshotDrainCountBySessionUi.get(ui) ?? 0) - 1;
+function finishSnapshotDrain(ui: SessionUi, term: Terminal) {
+  const existing = pendingSnapshotDrainBySessionUi.get(ui);
+  if (!existing) return;
+  const remainingCount = existing.count - 1;
   if (remainingCount > 0) {
-    pendingSnapshotDrainCountBySessionUi.set(ui, remainingCount);
+    pendingSnapshotDrainBySessionUi.set(ui, { count: remainingCount, scrollTarget: existing.scrollTarget });
     return;
   }
+  const { scrollTarget } = existing;
   clearSnapshotDrain(ui);
-  if (linesFromBottom !== undefined) term.scrollToLine(Math.max(0, term.buffer.active.length - linesFromBottom));
-  if (linesFromBottom === undefined) term.scrollToBottom();
+  if (typeof scrollTarget === 'number') term.scrollToLine(Math.max(0, term.buffer.active.length - scrollTarget));
+  if (scrollTarget === 'bottom') term.scrollToBottom();
   term.refresh(0, term.rows - 1);
   refreshJumpToLatest(ui, term);
 }
@@ -89,7 +122,7 @@ function requestDeepHistoryAtTop(ui: SessionUi, sessionId: string, viewportTopLi
   reconnectDataWs(sessionId);
 }
 
-const isOutputFlowingBySocket = new WeakMap<WebSocket, boolean>();
+const outputFlowBySocket = new WeakMap<WebSocket, OutputFlowState>();
 
 function isTerminalOutputWanted(sessionId: string) {
   return document.visibilityState === 'visible' && isCardBorrowed(sessionId);
@@ -100,8 +133,10 @@ function syncTerminalOutputFlow(ui: SessionUi | null | undefined, sessionId: str
   const socket = ui?.dataWs;
   if (!ui || socket?.readyState !== WebSocket.OPEN) return;
   const isWanted = isTerminalOutputWanted(sessionId);
-  if (isOutputFlowingBySocket.get(socket) === isWanted) return;
-  isOutputFlowingBySocket.set(socket, isWanted);
+  const currentFlow = outputFlowBySocket.get(socket);
+  const isAlreadyFlowing = currentFlow === 'flowing' || currentFlow === 'resuming';
+  if (currentFlow !== undefined && isAlreadyFlowing === isWanted) return;
+  outputFlowBySocket.set(socket, isWanted ? 'resuming' : 'paused');
   socket.send(JSON.stringify({ type: isWanted ? 'resume-output' : 'pause-output' }));
 }
 
@@ -315,7 +350,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const attachPath = dataAttachPath(sessionId, isDeepAttach, !isAttachedFlowing);
   const prewarmed = claimPrewarmedDataSocket(sessionId, attachPath);
   const ws = prewarmed?.socket ?? new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
-  isOutputFlowingBySocket.set(ws, isAttachedFlowing);
+  outputFlowBySocket.set(ws, isAttachedFlowing ? 'flowing' : 'paused');
   ws.binaryType = 'arraybuffer';
   ui.dataWs = ws;
   if (isAttachedFlowing) noteWakeMark('terminal-connecting');
@@ -339,19 +374,22 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
     if (frame.kind === 'bytes') {
       socketLife.hasReceivedBytes = true;
       noteSessionOutput(ui);
-      if (isOutputFlowingBySocket.get(ws)) noteWakeMark('terminal-bytes');
-      const isResetSnapshot = frame.data.startsWith(SCREEN_RESET);
-      const isSnapshotToRestore = isAwaitingSnapshotScroll && isResetSnapshot;
-      if (isResetSnapshot) {
-        isAwaitingSnapshotScroll = false;
-        beginSnapshotDrain(ui);
-      }
+      const currentFlow = outputFlowBySocket.get(ws);
+      const isAwaitingResumeCatchup = currentFlow === 'resuming';
+      if (isAwaitingResumeCatchup) outputFlowBySocket.set(ws, 'flowing');
+      if (currentFlow !== 'paused') noteWakeMark('terminal-bytes');
+      const drainKind = classifyTerminalDrain(frame.data, isAwaitingResumeCatchup);
+      const isSnapshotToRestore = isAwaitingSnapshotScroll && drainKind === 'reset-snapshot';
+      if (drainKind === 'reset-snapshot') isAwaitingSnapshotScroll = false;
+      const scrollTarget: SnapshotScrollTarget = drainKind === 'reset-snapshot'
+        ? (isSnapshotToRestore && linesFromBottomToRestore !== undefined ? linesFromBottomToRestore : 'bottom')
+        : (isScrolledAwayFromLatest(term) ? 'preserve' : 'bottom');
+      if (drainKind !== 'none') beginSnapshotDrain(ui, drainKind, scrollTarget);
       renderScheduler.enqueue(sessionId, frame.data);
-      if (!isResetSnapshot) return;
-      const linesFromBottom = isSnapshotToRestore ? linesFromBottomToRestore : undefined;
+      if (drainKind === 'none') return;
       renderScheduler.enqueueAction(sessionId, () => {
         if (ui.dataWs !== ws) return;
-        finishSnapshotDrain(ui, term, linesFromBottom);
+        finishSnapshotDrain(ui, term);
       });
       return;
     }

@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Opening a normal-buffer session terminal lands at the bottom in one frame.** Terminals with scrollback (such as Antigravity and shell sessions) used to show intermediate parse frames starting from the top and scrolling down while the attach or resume snapshot drained. The terminal now holds its canvas hidden until the snapshot finishes parsing and scrolls to the bottom (or restored offset), matching Claude Code's alternate-screen open.
+- **Opening or returning to a normal-buffer session terminal lands at the bottom in one frame.** Terminals with scrollback (such as Antigravity and shell sessions) used to show intermediate parse frames starting from the top and scrolling down while attach snapshots, `resume-output` backfills, or scrollback-clearing redraws drained. The server now coalesces held deep-attach snapshots with missed bytes into one `SCREEN_RESET` frame, and the terminal holds its canvas hidden until snapshots, resume catch-ups, or multi-kilobyte scrollback redraws finish parsing and land at the bottom (or restored scroll offset), matching Claude Code's alternate-screen open.
 
 ### Removed
 

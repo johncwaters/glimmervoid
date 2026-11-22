@@ -85,6 +85,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   let refusedOutOfBand: string | Uint8Array | null = null;
   let outputMode: 'streaming' | 'paused' | 'paused-snapshot-owed' = opts.isStartedPaused === true ? 'paused-snapshot-owed' : 'streaming';
   let heldAttachSnapshot = opts.heldAttachSnapshot ?? null;
+  let pendingResetSnapshotReader: (() => ScreenSnapshotForResume) | null = null;
   const onPausedData = opts.onPausedData ?? (() => {});
 
   const bufferedAmount = () => ws.bufferedAmount || 0;
@@ -123,6 +124,12 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
   function maybeBackfill(): void {
     if (!desynced || !source || destroyed || outputMode !== 'streaming' || !isOpen()) return;
     if (overHighWater()) return;
+    if (pendingResetSnapshotReader !== null) {
+      const readSnapshot = pendingResetSnapshotReader;
+      pendingResetSnapshotReader = null;
+      resetToScreenSnapshot(readSnapshot(), readSnapshot);
+      return;
+    }
     const { data, end, evicted } = source.getBufferSince(sentOffset);
     if (evicted) ws.send(SCREEN_RESET + data);
     if (!evicted && data) ws.send(data);
@@ -232,13 +239,17 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
     outputMode = 'paused';
   }
 
-  function resetToScreenSnapshot(snapshot: ScreenSnapshotForResume): void {
+  function resetToScreenSnapshot(snapshot: ScreenSnapshotForResume, retryReadSnapshot: () => ScreenSnapshotForResume): void {
     sendBuffer = '';
     if (overHighWater()) {
-      if (source) desynced = true;
+      if (source) {
+        pendingResetSnapshotReader = retryReadSnapshot;
+        desynced = true;
+      }
       armStallClose();
       return;
     }
+    pendingResetSnapshotReader = null;
     desynced = false;
     clearStall();
     ws.send(snapshot.data);
@@ -258,13 +269,19 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
         && !hasResizedWhilePaused
         && outputOffset - attachSnapshot.offset <= cfg.maxSendBuffer;
       if (!canResumeFromAttachSnapshot) {
-        resetToScreenSnapshot(readScreenSnapshot());
+        resetToScreenSnapshot(readScreenSnapshot(), readScreenSnapshot);
         return;
       }
-      resetToScreenSnapshot(attachSnapshot);
-      if (outputOffset <= sentOffset) return;
-      desynced = true;
-      maybeBackfill();
+      if (outputOffset <= attachSnapshot.offset) {
+        resetToScreenSnapshot(attachSnapshot, readScreenSnapshot);
+        return;
+      }
+      const tail = source.getBufferSince(attachSnapshot.offset);
+      if (tail.evicted) {
+        resetToScreenSnapshot(readScreenSnapshot(), readScreenSnapshot);
+        return;
+      }
+      resetToScreenSnapshot({ data: attachSnapshot.data + tail.data, offset: tail.end }, readScreenSnapshot);
       return;
     }
     const missedByteCount = outputOffset - sentOffset;
@@ -275,7 +292,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
       maybeBackfill();
       return;
     }
-    resetToScreenSnapshot(readScreenSnapshot());
+    resetToScreenSnapshot(readScreenSnapshot(), readScreenSnapshot);
   }
 
   function destroy(): void {
@@ -283,6 +300,7 @@ function createWsSender(ws: WsSenderSocket, opts: WsSenderOptions = {}): WsSende
     clearStall();
     refusedOutOfBand = null;
     heldAttachSnapshot = null;
+    pendingResetSnapshotReader = null;
     sendBuffer = '';
     sendScheduled = false;
     flushNextData = false;

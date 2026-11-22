@@ -322,9 +322,13 @@ test('a deep attach made while hidden still carries its deep history once the ca
   hidden.ws.send(JSON.stringify({ type: 'resume-output' }));
   await settle(300);
 
+  const resumedFrames = textFramesOf(hidden);
+  assert.equal(resumedFrames.length, 1, 'resuming a held deep attach coalesces snapshot and missed bytes into one frame');
+  assert.ok((resumedFrames[0] ?? '').startsWith(SCREEN_RESET), 'the coalesced resume frame opens with the shared reset prefix');
+
   const size = PtySizeFrame.parse(JSON.parse(binaryFramesOf(hidden)[0] ?? ''));
   const replay = newTerminal(size.cols, size.rows);
-  await write(replay, textFramesOf(hidden).join(''));
+  await write(replay, resumedFrames.join(''));
   assert.ok(replay.buffer.active.length > SCREEN_KEEPER_ATTACH_SCROLLBACK + size.rows, 'the revealed card reaches past the attach depth');
   const live = await openViewer();
   await settle(150);
