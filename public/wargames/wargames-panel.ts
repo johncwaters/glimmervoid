@@ -1,10 +1,14 @@
-import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
-import type { SeatId, WargamesMatchSpec } from '#shared/contracts/wargames.ts';
+import { WARGAMES_SEAT_IDS, WARGAMES_SQUEEZE_TICK, WARGAMES_WIN_VILLAGES } from '#shared/contracts/wargames.ts';
+import type { SeatId, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
+import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
+import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
+import { emptyState } from '../ui/empty-state.ts';
 import { createPressable } from '../ui/pressable.ts';
+import { segmented } from '../ui/segmented.ts';
 import { select } from '../ui/select.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
@@ -21,6 +25,8 @@ import {
 } from './wargames-store.ts';
 
 type WargamesSubTab = 'live' | 'new' | 'history';
+type MapVisibilityMode = 'god' | 'fog';
+type WatchStreamState = 'idle' | 'loading' | 'failed';
 
 const DEFAULT_SEAT_AGENTS: readonly string[] = [
   'claude-code',
@@ -44,39 +50,126 @@ let root: HTMLElement | null = null;
 let isViewActive = false;
 let activeSubTab: WargamesSubTab = 'live';
 let selectedHexIndex: number | null = null;
+let spotlightSeatId: SeatId | null = null;
+let visibilityMode: MapVisibilityMode = 'god';
+let watchStreamState: WatchStreamState = 'idle';
 let bannerMessage = '';
 let unsubscribe: (() => void) | null = null;
+const failedAutoWatchIds = new Set<string>();
 
 let mapView: ReturnType<typeof createWargamesMap> | null = null;
 let inspectorView: ReturnType<typeof createWargamesInspector> | null = null;
 let persistentNewMatchSection: HTMLElement | null = null;
 let persistentScrubberRange: HTMLInputElement | null = null;
+let persistentVisibilityToggle: ReturnType<typeof segmented<MapVisibilityMode>> | null = null;
 
 function formatError(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
 
+function isActiveMatchStatus(status: WargamesMatchSummary['status']): boolean {
+  return status === 'running' || status === 'seating' || status === 'lobby';
+}
+
+function pickAutoWatchMatchId(): string | null {
+  const snap = wargamesSnapshot();
+  const candidates = (snap.matches.length > 0 ? snap.matches : snap.history.matches)
+    .filter((match) => !failedAutoWatchIds.has(match.matchId));
+  if (candidates.length === 0) return null;
+  const activeMatch = candidates.find((match) => isActiveMatchStatus(match.status));
+  return activeMatch ? activeMatch.matchId : candidates[0].matchId;
+}
+
 function subscribeMatchStream(matchId: string): void {
+  watchStreamState = 'loading';
+  bannerMessage = '';
   void sendControlRequest('wargames-watch', { matchId }, { timeoutMs: 15_000 })
     .then((reply) => {
-      if (reply.type === 'wargames-watch-result' && !reply.ok) {
+      if (wargamesSnapshot().watchedMatchId !== matchId) return;
+      if (reply.type !== 'wargames-watch-result') return;
+      if (!reply.ok) {
+        watchStreamState = 'failed';
+        failedAutoWatchIds.add(matchId);
         bannerMessage = reply.error ?? 'Could not load match log.';
         render();
+        return;
       }
+      watchStreamState = 'idle';
+      failedAutoWatchIds.delete(matchId);
+      bannerMessage = '';
+      render();
     })
     .catch((reason: unknown) => {
+      if (wargamesSnapshot().watchedMatchId !== matchId) return;
+      watchStreamState = 'failed';
       bannerMessage = `Could not watch match: ${formatError(reason)}`;
       render();
     });
 }
 
-function watchMatchById(matchId: string): void {
+function watchMatchById(matchId: string, switchToLive = true): void {
   const current = wargamesSnapshot().watchedMatchId;
   if (current && current !== matchId) sendControlMsg({ type: 'wargames-unwatch', matchId: current });
+  failedAutoWatchIds.delete(matchId);
   bannerMessage = '';
+  selectedHexIndex = null;
+  spotlightSeatId = null;
+  visibilityMode = 'god';
+  setWargamesPov('god');
   selectWatchedMatch(matchId);
-  activeSubTab = 'live';
+  if (switchToLive) activeSubTab = 'live';
   subscribeMatchStream(matchId);
+  render();
+}
+
+function ensureAutoWatch(): boolean {
+  if (!isViewActive) return false;
+  const snap = wargamesSnapshot();
+  const canSwitchFromFailed = watchStreamState === 'failed' && snap.headState === null;
+  if (snap.watchedMatchId !== null && !canSwitchFromFailed) return false;
+  const candidateId = pickAutoWatchMatchId();
+  if (!candidateId || candidateId === snap.watchedMatchId) return false;
+  watchMatchById(candidateId, false);
+  return true;
+}
+
+function applyVisibilityMode(nextMode: MapVisibilityMode): void {
+  visibilityMode = nextMode;
+  if (nextMode === 'god') {
+    setWargamesPov('god');
+    render();
+    return;
+  }
+  const state = displayedMatchState();
+  const targetSeatId = spotlightSeatId ?? state?.seats[0]?.config.seatId ?? 's1';
+  spotlightSeatId = targetSeatId;
+  setWargamesPov(targetSeatId);
+  render();
+}
+
+function ensureVisibilityToggle(): ReturnType<typeof segmented<MapVisibilityMode>> {
+  if (persistentVisibilityToggle) return persistentVisibilityToggle;
+  persistentVisibilityToggle = segmented<MapVisibilityMode>({
+    label: 'Map visibility mode',
+    size: 'small',
+    value: visibilityMode,
+    options: [
+      { value: 'god', label: 'God View' },
+      { value: 'fog', label: 'Seat Fog' },
+    ],
+    onChange: (nextMode) => applyVisibilityMode(nextMode),
+  });
+  return persistentVisibilityToggle;
+}
+
+function handleFactionBannerClick(seatId: SeatId): void {
+  if (visibilityMode === 'fog') {
+    spotlightSeatId = seatId;
+    setWargamesPov(seatId);
+    render();
+    return;
+  }
+  spotlightSeatId = spotlightSeatId === seatId ? null : seatId;
   render();
 }
 
@@ -168,6 +261,137 @@ function ensureScrubberRange(): HTMLInputElement {
   return range;
 }
 
+function buildFactionBannerStrip(state: MatchState): HTMLElement {
+  const strip = el('div', 'wg-faction-strip');
+  for (const seat of state.seats) {
+    const seatId = seat.config.seatId;
+    let ownedVillages = 0;
+    let totalTroops = 0;
+    let totalGrain = 0;
+    let totalOre = 0;
+
+    for (const village of state.villages) {
+      if (!village || village.owner !== seatId) continue;
+      ownedVillages += 1;
+      totalTroops += village.troops.raider + village.troops.guard + village.troops.envoy;
+      totalGrain += village.resources.grain;
+      totalOre += village.resources.ore;
+    }
+
+    for (const army of state.armies.values()) {
+      if (army.owner !== seatId) continue;
+      if (army.status !== 'marching' && army.status !== 'returning') continue;
+      totalTroops += army.troops.raider + army.troops.guard + army.troops.envoy;
+    }
+
+    const banner = createPressable('wg-faction-banner');
+    banner.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
+    const isSelected = spotlightSeatId === seatId;
+    const isDimmed = spotlightSeatId !== null && !isSelected;
+    banner.dataset.state = isSelected ? 'active' : isDimmed ? 'dimmed' : 'idle';
+    banner.setAttribute('aria-pressed', String(isSelected));
+    banner.addEventListener('click', () => handleFactionBannerClick(seatId));
+
+    const head = el('div', 'wg-faction-head');
+    const nameWrap = el('span', 'wg-faction-name');
+    const swatch = el('span', 'wg-faction-swatch');
+    swatch.style.background = SEAT_COLORS[seatId];
+    nameWrap.append(swatch, el('span', 'wg-faction-id', `${seatId.toUpperCase()} ${seat.config.label}`));
+    head.append(nameWrap, el('span', 'wg-faction-villages', `${ownedVillages}/${WARGAMES_WIN_VILLAGES}`));
+
+    const sub = el('div', 'wg-faction-sub', `${seat.config.modelDisplay} · ${seat.status}`);
+
+    const track = el('div', 'wg-win-track');
+    const fill = el('div', 'wg-win-fill');
+    const winRatio = Math.min(100, Math.round((ownedVillages / WARGAMES_WIN_VILLAGES) * 100));
+    fill.style.width = `${winRatio}%`;
+    track.append(fill);
+
+    const stats = el('div', 'wg-faction-stats');
+    stats.append(
+      el('span', '', `${totalTroops} trp`),
+      el('span', '', `${totalGrain}G ${totalOre}O`),
+    );
+
+    banner.append(head, sub, track, stats);
+    strip.append(banner);
+  }
+  return strip;
+}
+
+function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnapshot>['pov']): HTMLElement {
+  const bar = el('div', 'wg-hex-intel');
+  if (selectedHexIndex === null) {
+    bar.append(
+      el('span', 'wg-hex-intel-lead', 'HEX INTEL'),
+      el('span', 'wg-card-meta', 'Click any hex on the map to inspect owner, loyalty, garrison, buildings, and resources.'),
+    );
+    return bar;
+  }
+
+  const tile = ALL_HEXES[selectedHexIndex];
+  const seatView = pov === 'god' ? null : projectSeatState(state, pov);
+  const village = seatView
+    ? seatView.visibleVillages.find((entry) => entry.hexIndex === selectedHexIndex) ?? null
+    : state.villages[selectedHexIndex];
+  const isFogged = seatView !== null && state.villages[selectedHexIndex] !== null && village === null;
+
+  if (isFogged) {
+    bar.append(
+      el('span', 'wg-hex-intel-lead', `HEX #${tile.index}`),
+      el('span', 'wg-card-meta', `Ring ${tile.ring} · Fog of War (outside ${pov.toUpperCase()} vision)`),
+    );
+    return bar;
+  }
+
+  if (!village) {
+    const ringNote = tile.ring === 3 ? ` · Outer ring (barren @ tick ${WARGAMES_SQUEEZE_TICK})` : '';
+    bar.append(
+      el('span', 'wg-hex-intel-lead', `HEX #${tile.index}`),
+      el('span', 'wg-card-meta', `Open terrain · Ring ${tile.ring} (${tile.q}, ${tile.r})${ringNote}`),
+    );
+    return bar;
+  }
+
+  const left = el('div', 'wg-hex-intel-group');
+  left.append(el('span', 'wg-hex-intel-lead', `HEX #${tile.index}`));
+  if (village.owner !== null) {
+    const ownerSeat = state.seats.find((seat) => seat.config.seatId === village.owner);
+    const swatch = el('span', 'wg-faction-swatch');
+    swatch.style.background = SEAT_COLORS[village.owner];
+    const ownerName = ownerSeat ? `${village.owner.toUpperCase()} ${ownerSeat.config.label}` : village.owner.toUpperCase();
+    const ownerTag = el('span', 'wg-hex-intel-owner', ownerName);
+    ownerTag.style.color = SEAT_COLORS[village.owner];
+    left.append(swatch, ownerTag);
+  }
+  if (village.owner === null) {
+    left.append(el('span', 'wg-hex-intel-owner', 'Barbarian Fort'));
+  }
+  const productionTag = village.productionState === 'barren' ? ' · BARREN' : '';
+  left.append(el('span', 'wg-card-meta', `Loyalty ${village.loyalty}%${productionTag}`));
+
+  const right = el('div', 'wg-hex-intel-group');
+  right.append(
+    el('span', 'wg-hex-intel-stat', `Garrison: ${village.troops.raider}R / ${village.troops.guard}G / ${village.troops.envoy}E`),
+    el('span', 'wg-hex-intel-stat', `Buildings: F${village.buildings.farm} M${village.buildings.mine} B${village.buildings.barracks} W${village.buildings.wall}`),
+    el('span', 'wg-hex-intel-stat', `${village.resources.grain}G ${village.resources.ore}O`),
+  );
+
+  bar.append(left, right);
+  return bar;
+}
+
+function buildMapLegend(): HTMLElement {
+  const legend = el('div', 'wg-map-legend');
+  legend.append(
+    el('span', '', 'Tinted Hex = Territory'),
+    el('span', '', 'Bottom Bar = Loyalty'),
+    el('span', '', 'Dashed Arrow = Marching Army'),
+    el('span', '', `Outer Ring = Barren @ Tick ${WARGAMES_SQUEEZE_TICK}`),
+  );
+  return legend;
+}
+
 function buildHistorySection(): HTMLElement {
   const { history, matches } = wargamesSnapshot();
   const wrapper = el('section', 'wg-history-grid');
@@ -229,39 +453,65 @@ function buildLiveSection(state: ReturnType<typeof displayedMatchState>): HTMLEl
   const snap = wargamesSnapshot();
   const analytics = displayedMatchAnalytics(state);
 
-  if (!state) {
-    const empty = el('section', 'wg-form-section');
-    empty.append(
-      el('h2', 'wg-section-title', 'No Match Selected'),
-      el('p', 'wg-empty-copy', snap.matches.length > 0 ? 'Pick a match from History & Elo or start a new 6-seat match.' : 'Start a new 6-seat match to spectate live.'),
-    );
-    if (snap.matches.length > 0) {
-      empty.append(button({
-        variant: 'primary',
-        label: 'Watch latest',
-        onClick: () => watchMatchById(snap.matches[0].matchId),
-      }));
-    }
-    return empty;
+  if (!state && snap.watchedMatchId !== null && watchStreamState === 'loading') {
+    const loadingBox = el('section', 'wg-form-section');
+    loadingBox.append(el('p', 'wg-empty-copy', `Connecting to match ${snap.watchedMatchId}...`));
+    return loadingBox;
   }
+
+  if (!state && snap.watchedMatchId !== null && watchStreamState === 'failed') {
+    const failedMatchId = snap.watchedMatchId;
+    const failedBox = el('section', 'wg-form-section');
+    failedBox.append(emptyState({
+      title: 'Match stream unavailable',
+      text: `Could not load match ${failedMatchId}.`,
+      variant: 'boxed',
+      actions: [
+        button({
+          variant: 'secondary',
+          label: 'Load match',
+          onClick: () => watchMatchById(failedMatchId, false),
+        }),
+      ],
+    }));
+    return failedBox;
+  }
+
+  if (!state) {
+    const wrapper = el('section', 'wg-form-section');
+    wrapper.append(emptyState({
+      title: 'No Wargames matches yet',
+      text: 'Start a new 6-seat match to spectate live.',
+      variant: 'boxed',
+      actions: [
+        button({
+          variant: 'primary',
+          label: 'New match',
+          onClick: () => {
+            activeSubTab = 'new';
+            render();
+          },
+        }),
+      ],
+    }));
+    return wrapper;
+  }
+
+  const liveWrap = el('div', 'wg-live-wrap');
+  liveWrap.append(buildFactionBannerStrip(state));
 
   const grid = el('div', 'wg-live-grid');
   const mapPane = el('section', 'wg-map-pane');
 
-  const povBar = el('div', 'wg-pov-bar');
-  const godBtn = createPressable('wg-pov-pill', 'God View');
-  godBtn.dataset.state = snap.pov === 'god' ? 'active' : 'idle';
-  godBtn.addEventListener('click', () => setWargamesPov('god'));
-  povBar.append(godBtn);
-  for (const seat of state.seats) {
-    const pill = createPressable('wg-pov-pill', `${seat.config.seatId.toUpperCase()} · ${seat.config.modelDisplay}`);
-    pill.dataset.state = snap.pov === seat.config.seatId ? 'active' : 'idle';
-    const dot = el('span', 'wg-dot');
-    dot.style.background = SEAT_COLORS[seat.config.seatId];
-    pill.prepend(dot);
-    pill.addEventListener('click', () => setWargamesPov(seat.config.seatId));
-    povBar.append(pill);
-  }
+  const stage = el('div', 'wg-map-stage');
+  const boardBar = el('div', 'wg-board-bar');
+  const modeHint = visibilityMode === 'fog' && spotlightSeatId
+    ? `FOG OF WAR · ${spotlightSeatId.toUpperCase()} VISION`
+    : spotlightSeatId
+      ? `SPOTLIGHT · ${spotlightSeatId.toUpperCase()} (CLICK AGAIN TO CLEAR)`
+      : '37-HEX TACTICAL BOARD · CLICK FACTION TO SPOTLIGHT · CLICK HEX FOR INTEL';
+  const followStatus = snap.scrubTick === null ? 'FOLLOWING LIVE' : `REPLAY · TICK ${snap.scrubTick}`;
+  boardBar.append(el('span', 'wg-board-hint', modeHint), el('span', 'wg-board-hint', followStatus));
 
   if (!mapView) {
     mapView = createWargamesMap((hexIndex) => {
@@ -269,21 +519,8 @@ function buildLiveSection(state: ReturnType<typeof displayedMatchState>): HTMLEl
       render();
     });
   }
-  mapView.update(state, snap.pov, selectedHexIndex);
-  const stage = el('div', 'wg-map-stage');
-  stage.append(mapView.element);
-
-  const seatStrip = el('div', 'wg-seat-strip');
-  for (const seat of state.seats) {
-    const ownedCount = state.villages.filter((village) => village !== null && village.owner === seat.config.seatId).length;
-    const tile = el('div', 'wg-seat-stat');
-    tile.append(
-      el('div', 'wg-card-title', `${seat.config.seatId.toUpperCase()} · ${ownedCount} vil`),
-      el('div', 'wg-card-meta', seat.config.modelDisplay),
-      el('div', 'wg-card-meta', seat.status),
-    );
-    seatStrip.append(tile);
-  }
+  mapView.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
+  stage.append(boardBar, mapView.element, buildHexIntelBar(state, snap.pov), buildMapLegend());
 
   const headTick = snap.headState?.tick ?? state.tick;
   const scrubber = el('div', 'wg-scrubber');
@@ -292,18 +529,18 @@ function buildLiveSection(state: ReturnType<typeof displayedMatchState>): HTMLEl
   range.value = String(snap.scrubTick ?? headTick);
   scrubber.append(
     button({ variant: 'secondary', size: 'small', label: 'Previous tick', onClick: () => setWargamesScrubTick(Math.max(0, state.tick - 1)) }),
-    button({ variant: 'secondary', size: 'small', label: 'Follow live', onClick: () => setWargamesScrubTick(null) }),
     range,
-    el('span', 'wg-card-meta', `Tick ${state.tick} / ${state.spec.maxTicks} · ${state.phase.toUpperCase()}`),
+    button({ variant: 'secondary', size: 'small', label: 'Follow live', onClick: () => setWargamesScrubTick(null) }),
   );
 
-  mapPane.append(povBar, stage, seatStrip, scrubber);
+  mapPane.append(stage, scrubber);
 
   if (!inspectorView) inspectorView = createWargamesInspector();
-  inspectorView.update(state, analytics);
+  inspectorView.update(state, analytics, spotlightSeatId);
 
   grid.append(mapPane, inspectorView.element);
-  return grid;
+  liveWrap.append(grid);
+  return liveWrap;
 }
 
 function render(): void {
@@ -329,9 +566,16 @@ function render(): void {
 
   const meta = el('div', 'wg-match-meta');
   if (state) {
+    const isLive = isActiveMatchStatus(state.status);
+    const statusLabel = isLive ? 'LIVE' : state.status.toUpperCase();
+    const statusBadge = el('span', 'wg-badge', `${statusLabel} · TICK ${state.tick}/${state.spec.maxTicks} · ${state.phase.toUpperCase()}`);
+    statusBadge.dataset.tone = isLive ? 'live' : 'done';
+    const toggle = ensureVisibilityToggle();
+    toggle.setValue(visibilityMode);
     meta.append(
-      el('span', 'wg-badge', `${state.status.toUpperCase()} · TICK ${state.tick}/${state.spec.maxTicks}`),
-      el('span', 'wg-card-meta', `Seed ${state.spec.seed}`),
+      statusBadge,
+      el('span', 'wg-match-title', state.spec.title),
+      toggle.element,
     );
     if (state.status === 'running' || state.status === 'seating') {
       meta.append(button({
@@ -375,16 +619,27 @@ function render(): void {
   root.replaceChildren(content);
 }
 
+function handleStoreUpdate(): void {
+  if (wargamesSnapshot().headState !== null && watchStreamState !== 'idle') {
+    watchStreamState = 'idle';
+    bannerMessage = '';
+  }
+  if (ensureAutoWatch()) return;
+  render();
+}
+
 export const view: ViewModule<HTMLElement> = {
   mount(panel) {
     root = panel;
     isViewActive = true;
     unsubscribe?.();
-    unsubscribe = subscribeWargames(render);
+    unsubscribe = subscribeWargames(handleStoreUpdate);
+    if (ensureAutoWatch()) return;
     render();
   },
   activate() {
     isViewActive = true;
+    if (ensureAutoWatch()) return;
     render();
   },
   deactivate() {
@@ -392,7 +647,12 @@ export const view: ViewModule<HTMLElement> = {
   },
   refresh() {
     const watchedId = wargamesSnapshot().watchedMatchId;
-    if (watchedId) subscribeMatchStream(watchedId);
+    if (watchedId) {
+      subscribeMatchStream(watchedId);
+      render();
+      return;
+    }
+    if (ensureAutoWatch()) return;
     render();
   },
 };

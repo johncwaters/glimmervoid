@@ -1,7 +1,7 @@
 @layer components {
 
 .wg-content {
-  max-width: 1320px;
+  max-width: 1640px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -44,8 +44,15 @@
 .wg-match-meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   font-size: var(--type-meta);
+}
+
+.wg-match-title {
+  color: var(--text-head);
+  font-size: var(--type-body);
+  font-weight: 700;
 }
 
 .wg-badge {
@@ -59,6 +66,16 @@
   letter-spacing: 0.08em;
 }
 
+.wg-badge[data-tone="live"] {
+  border-color: var(--state-running);
+  color: var(--state-running);
+}
+
+.wg-badge[data-tone="done"] {
+  border-color: var(--border-hover);
+  color: var(--text-dim);
+}
+
 .wg-badge[data-tone="breach"] {
   border-color: var(--state-failed);
   color: var(--state-failed);
@@ -69,9 +86,112 @@
   color: var(--state-waiting);
 }
 
+.wg-live-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wg-faction-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wg-faction-banner {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wg-faction-banner:hover {
+  border-color: color-mix(in srgb, var(--wg-seat-color) 65%, var(--border));
+}
+
+.wg-faction-banner[data-state="active"] {
+  background: color-mix(in srgb, var(--wg-seat-color) 12%, var(--bg-card));
+  border-color: var(--wg-seat-color);
+}
+
+.wg-faction-banner[data-state="dimmed"] {
+  opacity: 0.55;
+}
+
+.wg-faction-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.wg-faction-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wg-faction-swatch {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.wg-faction-id {
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wg-faction-villages {
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.wg-faction-sub {
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wg-win-track {
+  height: 3px;
+  width: 100%;
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.wg-win-fill {
+  height: 100%;
+  background: var(--wg-seat-color);
+}
+
+.wg-faction-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--text);
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+}
+
 .wg-live-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: minmax(0, 1fr) 400px;
   gap: 12px;
   align-items: start;
 }
@@ -82,78 +202,110 @@
   gap: 10px;
 }
 
-.wg-pov-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.wg-pov-pill {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  font-size: var(--type-meta);
-  height: var(--control-height-small);
-  padding: 0 var(--control-padding-inline-small);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.wg-pov-pill[data-state="active"] {
-  background: var(--bg-surface);
-  border-color: var(--accent);
-  color: var(--text-head);
-}
-
-.wg-dot {
-  width: 8px;
-  height: 8px;
-  display: inline-block;
-}
-
 .wg-map-stage {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  padding: 12px;
+  padding: 12px 14px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.wg-board-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wg-board-hint {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .wg-hex-svg {
   width: 100%;
-  max-width: 520px;
+  max-width: 760px;
   height: auto;
+  display: block;
 }
 
 .wg-hex-cell {
   cursor: pointer;
 }
 
+.wg-hex-index {
+  fill: var(--text-dim);
+  font-weight: 400;
+}
+
 .wg-hex-owner {
-  fill: var(--text-head);
-  font-size: var(--type-meta);
   font-weight: 700;
 }
 
 .wg-hex-detail {
-  fill: var(--text-dim);
+  font-weight: 400;
+}
+
+.wg-army-pill-text {
+  font-weight: 700;
+}
+
+.wg-hex-intel {
+  width: 100%;
+  min-height: 36px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
   font-size: var(--type-meta);
 }
 
-.wg-seat-strip {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
+.wg-hex-intel-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.wg-seat-stat {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: 6px 8px;
+.wg-hex-intel-lead {
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.wg-hex-intel-owner {
+  color: var(--text-head);
+  font-size: var(--type-meta);
+  font-weight: 700;
+}
+
+.wg-hex-intel-stat {
+  color: var(--text);
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.wg-map-legend {
+  width: 100%;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
 }
 
 .wg-scrubber {
@@ -206,7 +358,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 620px;
+  max-height: 760px;
   overflow-y: auto;
 }
 
@@ -219,11 +371,31 @@
   gap: 6px;
 }
 
+.wg-card-accented {
+  border-color: color-mix(in srgb, var(--wg-seat-color) 40%, var(--border));
+}
+
+.wg-card-accented[data-spotlight="active"] {
+  background: color-mix(in srgb, var(--wg-seat-color) 10%, var(--bg-surface));
+  border-color: var(--wg-seat-color);
+}
+
+.wg-card-accented[data-spotlight="dimmed"] {
+  opacity: 0.55;
+}
+
 .wg-card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+}
+
+.wg-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .wg-card-title {
@@ -370,6 +542,8 @@
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
   padding: 6px;
+  font-size: var(--type-meta);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -383,6 +557,16 @@
 .wg-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1200px) {
+  .wg-faction-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .wg-live-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 }
