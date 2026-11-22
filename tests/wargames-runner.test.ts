@@ -10,7 +10,7 @@ import { WARGAMES_SEAT_IDS, WargamesMatchSpec } from '../shared/contracts/wargam
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { hexIndexAt, replayMatch } from '../shared/wargames/engine.ts';
 import { createWargamesRunner } from '../server/wargames/wargames-runner.ts';
-import { createWargamesLauncher } from '../server/wargames/wargames-launch.ts';
+import { createWargamesLauncher, isWargamesSeatProject, pruneOrphanedWargamesProjects } from '../server/wargames/wargames-launch.ts';
 import { createWargamesStore } from '../server/wargames/wargames-store.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { Session } from '../session/sessions.ts';
@@ -258,5 +258,107 @@ test('wargames launcher appends optional seat.setup.instructions after immutable
   } finally {
     for (const session of fakeSessions.values()) session.destroy();
     await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('pruneOrphanedWargamesProjects removes current and legacy seats and keeps operator projects', async () => {
+  const seatRootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-prune-seats-'));
+  const legacyMatchDir = path.join(seatRootDir, 'wg-mws6o0sc-d3eba0');
+  const legacySeatPath = path.join(legacyMatchDir, 's1');
+  const currentMatchDir = path.join(seatRootDir, 'wg-current-1');
+  const currentSeatPath = path.join(currentMatchDir, 's2');
+  await fsp.mkdir(legacySeatPath, { recursive: true });
+  await fsp.mkdir(currentSeatPath, { recursive: true });
+  try {
+    const config = {
+      ...DEFAULT_CONFIG,
+      projects: [
+        { id: 'keep-1', name: 'glimmervoid', path: '/home/operator/glimmervoid' },
+        { id: 'legacy-s1', name: 'Wargames d3eba0 - s1', path: legacySeatPath },
+        { id: 'current-s2', name: 'Wargames rrent1 - s2', path: currentSeatPath, attentionOwner: 'wargames' as const },
+      ],
+      sessionOrder: ['keep-1', 'legacy-s1', 'current-s2'],
+    };
+    assert.equal(isWargamesSeatProject(config.projects[0], seatRootDir), false);
+    assert.equal(isWargamesSeatProject(config.projects[1], seatRootDir), true);
+    assert.equal(isWargamesSeatProject(config.projects[2], seatRootDir), true);
+
+    let saveCount = 0;
+    const configStore = {
+      save(mutate: (savedConfig: typeof config) => void) {
+        saveCount += 1;
+        const copy = structuredClone(config);
+        mutate(copy);
+        return copy;
+      },
+    };
+    const pruned = pruneOrphanedWargamesProjects({ configStore, config, seatRootDir });
+    await pruned.cleanupSeatDirs;
+
+    assert.equal(saveCount, 1);
+    assert.deepEqual(pruned.removedIds.sort(), ['current-s2', 'legacy-s1']);
+    assert.deepEqual(config.projects.map((project) => project.id), ['keep-1']);
+    assert.deepEqual(config.sessionOrder, ['keep-1']);
+    await assert.rejects(fsp.stat(legacyMatchDir));
+    await assert.rejects(fsp.stat(currentMatchDir));
+
+    const secondPass = pruneOrphanedWargamesProjects({ configStore, config, seatRootDir });
+    await secondPass.cleanupSeatDirs;
+    assert.equal(saveCount, 1);
+    assert.deepEqual(secondPass.removedIds, []);
+  } finally {
+    await fsp.rm(seatRootDir, { recursive: true, force: true });
+  }
+});
+
+test('wargames launcher discards seat when prompt delivery fails and removes seat dir on match end', async () => {
+  const seatRootDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-launch-cleanup-'));
+  const fakeSessions = new Map<string, Session>();
+  const discarded: string[] = [];
+  const onEndedHolder: { fn: ((matchId: string, sessionIds: string[]) => void) | null } = { fn: null };
+  try {
+    const launcher = createWargamesLauncher({
+      wargames: {
+        startMatch: async (spec, launchSeat, hooks) => {
+          onEndedHolder.fn = hooks?.onMatchEnded ?? null;
+          if (launchSeat) {
+            const first = await launchSeat('wg-fail-1', spec.seats[0], () => {});
+            if (!first.ok) return { ok: false, error: first.error };
+          }
+          return { ok: true, matchId: 'wg-fail-1', error: null };
+        },
+      },
+      sessions: fakeSessions,
+      config: { ...DEFAULT_CONFIG, projects: [] },
+      createProjectSession: ({ name, path: projectPath }) => {
+        const id = `sess-${name}`;
+        const session = new Session({ id, name, path: projectPath, ptySpawn: () => fakePty() });
+        session.deliver = () => ({ ok: false, kind: 'refused', reason: 'destroyed' });
+        fakeSessions.set(id, session);
+        return { ok: true, project: { id, name, path: projectPath } };
+      },
+      discardSession: async (sessionId) => {
+        discarded.push(sessionId);
+        fakeSessions.get(sessionId)?.destroy();
+        fakeSessions.delete(sessionId);
+      },
+      seatRootDir,
+    });
+    const failed = await launcher.start(buildSpec());
+    assert.equal(failed.ok, false);
+    assert.deepEqual(discarded, ['sess-Wargames fail-1 - s1']);
+
+    const matchDir = path.join(seatRootDir, 'wg-fail-1');
+    await fsp.stat(matchDir);
+    onEndedHolder.fn?.('wg-fail-1', []);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const stillExists = await fsp.stat(matchDir).then(() => true, () => false);
+      if (!stillExists) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await assert.rejects(fsp.stat(matchDir));
+  } finally {
+    for (const session of fakeSessions.values()) session.destroy();
+    await fsp.rm(seatRootDir, { recursive: true, force: true });
   }
 });

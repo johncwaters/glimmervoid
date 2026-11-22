@@ -7,6 +7,7 @@ import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
 import { WargamesMatchSpec } from '../../shared/contracts/wargames.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
+import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import type { ControlContext } from '../control/control-context.ts';
@@ -16,9 +17,68 @@ import type { WargamesRunner } from './wargames-runner.ts';
 const SEAT_PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
 const SEAT_NUDGE_TIMEOUT_MS = 15_000;
 const IDLE_NUDGE_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
+const DEFAULT_SEAT_ROOT_DIR = path.join(os.tmpdir(), 'glimmervoid-wargames-seats');
 
 type WargamesStartResult = { ok: true; matchId: string; error: string | null } | { ok: false; error: string };
 type WargamesStartPermissions = { dangerouslySkipPermissions: boolean; saneYolo: boolean };
+
+interface WargamesSeatProjectCandidate {
+  id: string;
+  path?: string;
+  attentionOwner?: string;
+}
+
+interface PruneOrphanedWargamesDeps {
+  configStore: { save: (mutate: (savedConfig: GlimmervoidConfig) => void) => GlimmervoidConfig | null };
+  config: GlimmervoidConfig;
+  seatRootDir?: string;
+  logger?: Pick<Console, 'log'>;
+}
+
+export function isWargamesSeatProject(
+  project: Pick<WargamesSeatProjectCandidate, 'path' | 'attentionOwner'>,
+  seatRootDir: string = DEFAULT_SEAT_ROOT_DIR,
+): boolean {
+  if (project.attentionOwner === 'wargames') return true;
+  if (!project.path) return false;
+  return isPathInside(seatRootDir, project.path, { allowEqual: false, foldCase: process.platform === 'win32' });
+}
+
+export function pruneOrphanedWargamesProjects({
+  configStore,
+  config,
+  seatRootDir = DEFAULT_SEAT_ROOT_DIR,
+  logger,
+}: PruneOrphanedWargamesDeps): { removedIds: string[]; cleanupSeatDirs: Promise<void> } {
+  const orphaned = config.projects.filter((project) => isWargamesSeatProject(project, seatRootDir));
+  if (orphaned.length === 0) return { removedIds: [], cleanupSeatDirs: Promise.resolve() };
+  const orphanedIds = new Set(orphaned.map((project) => project.id));
+  const saved = configStore.save((savedConfig) => {
+    savedConfig.projects = savedConfig.projects.filter((project) => !orphanedIds.has(project.id));
+    if (savedConfig.sessionOrder) {
+      savedConfig.sessionOrder = savedConfig.sessionOrder.filter((id) => !orphanedIds.has(id));
+    }
+  });
+  config.projects = saved ? saved.projects : config.projects.filter((project) => !orphanedIds.has(project.id));
+  if (saved?.sessionOrder) {
+    config.sessionOrder = saved.sessionOrder;
+  }
+  if (!saved && config.sessionOrder) {
+    config.sessionOrder = config.sessionOrder.filter((id) => !orphanedIds.has(id));
+  }
+  logger?.log(`[wargames] pruned ${orphaned.length} orphaned seat session(s) on boot`);
+  const dirsToRemove = new Set<string>();
+  const foldCase = process.platform === 'win32';
+  for (const project of orphaned) {
+    if (!project.path || !isPathInside(seatRootDir, project.path, { allowEqual: false, foldCase })) continue;
+    const matchDir = path.dirname(path.resolve(project.path));
+    dirsToRemove.add(isPathInside(seatRootDir, matchDir, { allowEqual: false, foldCase }) ? matchDir : path.resolve(project.path));
+  }
+  const cleanupSeatDirs = Promise.all(
+    [...dirsToRemove].map((dir) => fsp.rm(dir, { recursive: true, force: true }).catch(() => {})),
+  ).then(() => undefined);
+  return { removedIds: [...orphanedIds], cleanupSeatDirs };
+}
 
 export interface WargamesLauncher {
   start(candidate: unknown, permissions?: WargamesStartPermissions): Promise<WargamesStartResult>;
@@ -66,8 +126,11 @@ export function createWargamesLauncher({
   config,
   createProjectSession,
   discardSession,
-  seatRootDir = path.join(os.tmpdir(), 'glimmervoid-wargames-seats'),
+  seatRootDir = DEFAULT_SEAT_ROOT_DIR,
 }: WargamesLauncherDeps): WargamesLauncher {
+  const discardedSessionIds = new Set<string>();
+  const foldCase = process.platform === 'win32';
+
   function nudgeIdleSeats(tick: number, phase: string, sessionIds: readonly string[]): void {
     for (const sessionId of sessionIds) {
       const session = sessions.get(sessionId);
@@ -80,14 +143,32 @@ export function createWargamesLauncher({
     }
   }
 
-  function cleanupMatchSessions(sessionIds: readonly string[]): void {
+  function cleanupMatchSessions(sessionIds: readonly string[], matchId?: string): Promise<void> {
+    const removals: Promise<unknown>[] = [];
     for (const sessionId of sessionIds) {
+      if (discardedSessionIds.has(sessionId)) continue;
+      discardedSessionIds.add(sessionId);
       if (discardSession) {
-        void discardSession(sessionId).catch(() => {});
+        removals.push(
+          discardSession(sessionId)
+            .then((outcome) => {
+              if (typeof outcome === 'object' && outcome !== null && 'ok' in outcome && outcome.ok === false) {
+                sessions.get(sessionId)?.destroy();
+              }
+            })
+            .catch(() => {
+              sessions.get(sessionId)?.destroy();
+            }),
+        );
         continue;
       }
       sessions.get(sessionId)?.destroy();
     }
+    const settled = Promise.allSettled(removals).then(() => undefined);
+    if (!matchId) return settled;
+    const matchDir = path.resolve(seatRootDir, matchId);
+    if (!isPathInside(seatRootDir, matchDir, { allowEqual: false, foldCase })) return settled;
+    return settled.then(() => fsp.rm(matchDir, { recursive: true, force: true }).catch(() => {}));
   }
 
   async function start(candidate: unknown, permissions?: WargamesStartPermissions): Promise<WargamesStartResult> {
@@ -100,7 +181,10 @@ export function createWargamesLauncher({
     const skipPermissions = permissions ? permissions.dangerouslySkipPermissions : machineSkipsPermissionsByDefault(config);
     const saneYolo = permissions ? permissions.saneYolo : !skipPermissions;
     return wargames.startMatch(spec, async (matchId, seat, bindSession) => {
-      const seatDir = path.join(seatRootDir, matchId, seat.seatId);
+      const seatDir = path.resolve(seatRootDir, matchId, seat.seatId);
+      if (!isPathInside(seatRootDir, seatDir, { allowEqual: false, foldCase })) {
+        return { ok: false as const, error: `Invalid seat directory for match ${matchId}` };
+      }
       await fsp.mkdir(seatDir, { recursive: true });
       const agent = seat.setup.agent;
       const created = createProjectSession({
@@ -122,13 +206,13 @@ export function createWargamesLauncher({
         timeoutMs: SEAT_PROMPT_TIMEOUT_MS,
       });
       if (!delivered.ok) {
-        session.destroy();
+        await cleanupMatchSessions([created.project.id]);
         return { ok: false as const, error: `Could not prompt seat ${seat.seatId} (${delivered.reason})` };
       }
       return { ok: true as const, sessionId: session.id };
     }, {
       onPhaseChanged: (_matchId, tick, phase, _status, sessionIds) => nudgeIdleSeats(tick, phase, sessionIds),
-      onMatchEnded: (_matchId, sessionIds) => cleanupMatchSessions(sessionIds),
+      onMatchEnded: (matchId, sessionIds) => { void cleanupMatchSessions(sessionIds, matchId); },
     });
   }
 

@@ -67,6 +67,7 @@ import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
+import { pruneOrphanedWargamesProjects } from '../wargames/wargames-launch.ts';
 import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
 import { normalizeManagedBy, normalizeUpdateChannel } from '../core/update-core.ts';
@@ -635,10 +636,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     agentFingerprintOf: customAgentFingerprint,
     logger: console,
   });
+  const { cleanupSeatDirs: cleanupOrphanedWargamesSeatDirs } = pruneOrphanedWargamesProjects({
+    configStore,
+    config,
+    logger: console,
+  });
   sessionRegistry.initialize();
   const reconcileProjectsOnReload = sessionRegistry.applyConfigReload;
 
   const bootWork: Promise<unknown>[] = [
+    cleanupOrphanedWargamesSeatDirs,
     whiteboards.forgetClosedSessions((sessionId) => getSessionAny(sessionId) === null),
     whiteboards.fileUnfiledBoards(),
     whiteboards.followLinkedFolders(),
