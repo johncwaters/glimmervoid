@@ -38,6 +38,7 @@ import type { SessionReviewWiring } from '../review/session-review-wiring.ts';
 import type { HostReadyReader } from '../ready-host.ts';
 import type { CodemapService } from '../codemap/codemap-wiring.ts';
 import type { BoardAsks } from '../whiteboard/board-ask.ts';
+import type { BranchWiring } from '../board-session/branch-wiring.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -137,7 +138,7 @@ interface BackendControlDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
-function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher } {
+function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher; branches: BranchWiring } {
   const {
     onControlConnection,
     sessions,
@@ -253,7 +254,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => dependencies.secrets.approvalsMessage() }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
-  return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher };
+  return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher, branches: controlHandlers.branches };
 }
 
 export { createBackendControl };

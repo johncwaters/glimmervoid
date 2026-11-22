@@ -1,3 +1,6 @@
+import { STUDIO_INSTRUCTIONS_BY_ROLE } from './studio-playbook.ts';
+import type { StudioRole } from './studio-playbook.ts';
+
 const SERVER_INSTRUCTIONS = [
   'Glimmervoid supervises this session and shows it to the operator on a dashboard.',
   'The session tool can spawn a supervised session with its own dashboard card the operator can watch and its own worktree, an option beside an in-process subagent.',
@@ -11,8 +14,9 @@ const SERVER_INSTRUCTIONS = [
 
 const DONE_INSTRUCTION = "Once you understand the operator's request, call session done with what finished means for it, one line each with the command that proves it, a plain program and arguments that exits 0 when the line holds (such as the repo's test or typecheck script); call it again when the plan changes. Before you end a turn, call session check, which runs the repo checks and those commands now and returns each result; fix what fails and check again.";
 
-function serverInstructionsWith(operatorRules: readonly string[], { asksForDone }: { asksForDone: boolean }): string {
-  const instructions = asksForDone ? `${SERVER_INSTRUCTIONS} ${DONE_INSTRUCTION}` : SERVER_INSTRUCTIONS;
+function serverInstructionsWith(operatorRules: readonly string[], { asksForDone, studioRole = null }: { asksForDone: boolean; studioRole?: StudioRole | null }): string {
+  const baseInstructions = asksForDone ? `${SERVER_INSTRUCTIONS} ${DONE_INSTRUCTION}` : SERVER_INSTRUCTIONS;
+  const instructions = studioRole === null ? baseInstructions : `${baseInstructions}\n\n${STUDIO_INSTRUCTIONS_BY_ROLE[studioRole]}`;
   const ruleLines = operatorRules.map((rule) => rule.trim()).filter((rule) => rule.length > 0).map((rule) => `- ${rule}`);
   if (ruleLines.length === 0) return instructions;
   return `${instructions}\n\nThe operator's rules for every session:\n${ruleLines.join('\n')}`;

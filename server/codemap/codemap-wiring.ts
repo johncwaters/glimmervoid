@@ -557,6 +557,19 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     };
   }
 
+  async function branchTargetOf(repoDir: string, repoPath: string): Promise<{ ok: true; boxId: string; title: string } | { ok: false; error: string }> {
+    const map = await currentMap({ repoDir });
+    if ('error' in map) return { ok: false, error: map.error };
+    if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
+    const relativePath = repoPath.replace(/^\.\//, '').replace(/\/+$/, '');
+    const isInsideRepo = relativePath.length > 0 && !path.isAbsolute(relativePath) && !relativePath.split('/').includes('..');
+    const folderPath = `${relativePath}/`;
+    const isMapped = isInsideRepo && (map.model.indexByPath.has(relativePath) || map.model.paths.some((mappedPath) => mappedPath.startsWith(folderPath)));
+    if (!isMapped) return { ok: false, error: `${repoPath} is not a file or folder on the code map of ${path.basename(repoDir)}; pass a path relative to the repo root, such as server/api` };
+    const moduleId = moduleOfPath(map.model, folderPath);
+    return { ok: true, boxId: drawnBoxIdOfPath(map.model, folderPath), title: moduleId === '.' ? 'repo root' : moduleId };
+  }
+
   function overlayTextOf(repoName: string, drawing: OverlayDrawing): string {
     const sessionText = drawing.stamp ? [`${drawing.stamp.title.toLowerCase()} ${drawing.stamp.lines.join(', ')}`] : [];
     const specText = drawing.specPlan ? [`spec ${drawing.specPlan.slug} draws ${drawing.specPlan.units.length} units as plan steps, ${drawing.specPlan.landedUnitIds.size} landed`] : [];
@@ -663,7 +676,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, toggleFolder };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, branchTargetOf, toggleFolder };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

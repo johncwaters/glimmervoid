@@ -260,6 +260,9 @@ interface WiringFixtureOptions {
   arena?: Pick<AgentApiWiringOptions, 'races' | 'startRace'>;
   wargames?: Pick<AgentApiWiringOptions, 'wargames' | 'startWargames'>;
   reviewComments?: AgentApiWiringOptions['reviewComments'];
+  parentIsStudioMain?: boolean;
+  startBranch?: AgentApiWiringOptions['startBranch'];
+  budgetHoldReason?: () => string | null;
 }
 
 interface ManualClock {
@@ -315,7 +318,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, childGitWorkspace, teamReviewStatus, arena, wargames, reviewComments,
+  clock, childGitWorkspace, teamReviewStatus, arena, wargames, reviewComments, parentIsStudioMain = false, startBranch = null, budgetHoldReason = () => null,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -324,6 +327,7 @@ function wiringFixture({
     name: 'parent',
     path: process.cwd(),
     dangerouslySkipPermissions: parentSkipsPermissions,
+    isStudioMain: parentIsStudioMain,
     ptySpawn: () => fakePty(),
   });
   const created: Session[] = [];
@@ -394,6 +398,8 @@ function wiringFixture({
     ...arena,
     ...wargames,
     reviewComments,
+    startBranch,
+    budgetHoldReason,
     logger: { warn: () => {} },
     ...clock,
   });
@@ -440,6 +446,42 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
     assert.equal(grandchild.status, 403);
   } finally {
     fixture.destroyAll();
+  }
+});
+
+test('spawn with about starts a Studio branch only from a Studio main, never a child session', async () => {
+  const branchRequests: { parentId: string; about: string; prompt: string }[] = [];
+  const startBranch: NonNullable<AgentApiWiringOptions['startBranch']> = async (parent, about, prompt) => {
+    branchRequests.push({ parentId: parent.id, about, prompt });
+    return { ok: true, sessionId: 'branch-1', name: 'parent server' };
+  };
+  const focusFixture = wiringFixture({ startBranch });
+  try {
+    const refused = await focusFixture.spawn(focusFixture.parent, { prompt: 'fix the api', about: 'server/' });
+    assert.equal(refused.status, 403);
+    assert.equal(branchRequests.length, 0);
+  } finally {
+    focusFixture.destroyAll();
+  }
+  const studioFixture = wiringFixture({ parentIsStudioMain: true, startBranch });
+  try {
+    const reply = await studioFixture.spawn(studioFixture.parent, { prompt: 'fix the api', about: 'server/' });
+    assert.equal(reply.status, 200);
+    assert.equal(reply.body.ok && 'sessionId' in reply.body ? reply.body.sessionId : null, 'branch-1');
+    assert.deepEqual(branchRequests, [{ parentId: 'parent', about: 'server/', prompt: 'fix the api' }]);
+    assert.equal(studioFixture.created.length, 0, 'no child session starts beside the branch');
+    const withChildOptions = await studioFixture.spawn(studioFixture.parent, { prompt: 'fix the api', about: 'server/', model: 'opus' });
+    assert.equal(withChildOptions.status, 400);
+  } finally {
+    studioFixture.destroyAll();
+  }
+  const heldFixture = wiringFixture({ parentIsStudioMain: true, startBranch, budgetHoldReason: () => 'the weekly budget is spent' });
+  try {
+    const held = await heldFixture.spawn(heldFixture.parent, { prompt: 'fix the api', about: 'server/' });
+    assert.equal(held.status, 429);
+    assert.equal(branchRequests.length, 1, 'a held budget starts no branch');
+  } finally {
+    heldFixture.destroyAll();
   }
 });
 

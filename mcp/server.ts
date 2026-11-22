@@ -20,6 +20,7 @@ import type { CallContext, GroupedTool, Presenter, ToolArguments } from './core/
 import { buildWargamesSeatServer } from './wargames-tools.ts';
 import type { WargamesSeatPort } from './wargames-tools.ts';
 import type { AgentApiVerb } from '../shared/contracts/session.ts';
+import type { StudioRole } from './core/studio-playbook.ts';
 
 const MCP_ROUTE = '/mcp';
 const SERVER_NAME = 'glimmervoid';
@@ -103,8 +104,14 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
   });
 }
 
+function studioRoleOf(session: Session): StudioRole | null {
+  if (session.isStudioMain) return 'main';
+  if (session.branchOf !== null) return 'branch';
+  return null;
+}
+
 function buildSessionServer(session: Session, agentApi: AgentApiPort, stores: FileStores): McpServer {
-  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: serverInstructionsWith(agentApi.operatorRules(), { asksForDone: agentApi.refuseRole(session, 'done') === null }), capabilities: { tools: { listChanged: false } } });
+  const server = new McpServer({ name: SERVER_NAME, version: TOOL_SURFACE_VERSION }, { instructions: serverInstructionsWith(agentApi.operatorRules(), { asksForDone: agentApi.refuseRole(session, 'done') === null, studioRole: studioRoleOf(session) }), capabilities: { tools: { listChanged: false } } });
   for (const tool of GROUPED_TOOLS) registerGroupedTool(server, tool, session, agentApi, stores);
   return server;
 }

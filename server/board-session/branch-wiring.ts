@@ -73,3 +73,6 @@ function createBranchWiring({ findSession, createProjectSession }: BranchWiringD
 }
 
 export { createBranchWiring };
+type BranchWiring = ReturnType<typeof createBranchWiring>;
+
+export type { BranchWiring };

@@ -4,7 +4,7 @@ import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT } from '../control-context.ts';
-import { createBranchWiring } from '../../board-session/branch-wiring.ts';
+import type { BranchWiring } from '../../board-session/branch-wiring.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import type { Session } from '../../../session/sessions.ts';
 import { mainAgentNameOf } from '../../core/studio-main-core.ts';
@@ -17,10 +17,9 @@ const WORKSPACE_MAIN_TEXT = 'A workspace of several repos has no main agent; ope
 
 type MainAgentOutcome = { ok: true; mainId: string } | { ok: false; error: string };
 
-function createBoardSessionHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
+function createBoardSessionHandlers(context: ControlContext, deps: ControlHandlerDeps, branches: BranchWiring): ControlHandlerGroup {
   const { findSession, createProjectSession, findConfiguredProject, sessions } = context;
   const { codemap = null, boardAsks = null } = deps;
-  const branches = createBranchWiring({ findSession: (sessionId) => findSession({ id: sessionId }), createProjectSession });
 
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
     const repoPath = anchor.path;

@@ -62,6 +62,7 @@ import { createWhiteboardHandlers } from './control/handlers/whiteboard-handlers
 import type { CodemapService } from './codemap/codemap-wiring.ts';
 import type { BoardAsks } from './whiteboard/board-ask.ts';
 import { createBoardSessionHandlers } from './control/handlers/board-session-handlers.ts';
+import { createBranchWiring } from './board-session/branch-wiring.ts';
 import { createReviewHandlers } from './control/handlers/review-handlers.ts';
 import type { VerificationWiring } from './verification/verification-wiring.ts';
 import type { SessionReviewWiring } from './review/session-review-wiring.ts';
@@ -210,6 +211,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
   const { serverBuild = () => null, controlReplayLog = null } = deps;
   const context = createControlContext(deps);
   const session = createSessionHandlers(context, deps);
+  const branches = createBranchWiring({ findSession: (sessionId) => context.findSession({ id: sessionId }), createProjectSession: context.createProjectSession });
   const github = createGithubHandlers(context, deps);
   const race = createRaceHandlers(context, deps, { discardSession: session.discardSession });
   const wargames = createWargamesHandlers(context, deps, { discardSession: session.discardSession });
@@ -226,7 +228,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),
     createWhiteboardHandlers(context, deps),
-    createBoardSessionHandlers(context, deps),
+    createBoardSessionHandlers(context, deps, branches),
     createReviewHandlers(context, deps),
     createInspectHandlers(context, deps),
   ]);
@@ -299,7 +301,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     });
   });
 
-  return { buildSnapshot, removeExitedSession: session.removeExitedSession, raceLauncher: race.launcher, wargamesLauncher: wargames.launcher };
+  return { buildSnapshot, removeExitedSession: session.removeExitedSession, raceLauncher: race.launcher, wargamesLauncher: wargames.launcher, branches };
 }
 
 export {
