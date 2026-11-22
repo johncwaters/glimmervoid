@@ -24,4 +24,19 @@ function coercedNumberOr(value: unknown, fallback: number): number {
   return number;
 }
 
-export { coercedNumberOr, isRecord, numberOr, positiveNumberOr, rawTextOr, textOr };
+function toCount(value: unknown, fallback = 0): number {
+  const count = Number(value);
+  if (Number.isFinite(count)) return count;
+  return fallback;
+}
+
+function parseJsonOrNull(text: unknown): unknown {
+  if (typeof text !== 'string') return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+export { coercedNumberOr, isRecord, numberOr, parseJsonOrNull, positiveNumberOr, rawTextOr, textOr, toCount };

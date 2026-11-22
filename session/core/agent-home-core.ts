@@ -1,7 +1,7 @@
 import path from "node:path";
 import { parseEnv } from "node:util";
 
-import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME } from "../../mcp/core/agent-config.ts";
+import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME } from "../../server/core/mcp-env-core.ts";
 import { listClaudeGlobalConfigPathCandidates } from "../../server/core/claude-config-paths-core.ts";
 import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
 import { isRecord } from "../../shared/coerce.ts";

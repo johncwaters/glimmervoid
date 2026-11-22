@@ -1,8 +1,7 @@
 import { isRecord } from '../../../shared/coerce.ts';
+import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS, READ_ONLY_GIT_SUBCOMMANDS } from '../../../shared/lane-report-core.ts';
 import { HOOK_TOOLS } from '../../../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../../../session/core/hook-tools.ts';
-
-const ACCEPT_EDITS_MODE = 'acceptEdits';
 
 const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
   SSH_AUTH_SOCK: '', SSH_ASKPASS: '', GIT_ASKPASS: '', GIT_SSH_COMMAND: 'false', GIT_TERMINAL_PROMPT: '0',
@@ -12,16 +11,6 @@ const LANE_CREDENTIAL_ENV: Readonly<Record<string, string>> = Object.freeze({
 const LANE_CONFIG_EDIT_DENY_RULES: readonly string[] = Object.freeze([
   'Edit(**/.git/**)',
   'Edit(**/.claude/**)',
-]);
-
-const LANE_ENVIRONMENT_ARGS: readonly string[] = Object.freeze([
-  '--strict-mcp-config',
-  '--disable-slash-commands',
-  '--setting-sources', 'project,local',
-]);
-
-const READ_ONLY_GIT_SUBCOMMANDS: readonly string[] = Object.freeze([
-  'diff', 'log', 'show', 'merge-base', 'range-diff', 'rev-parse', 'blame', 'ls-files', 'cat-file',
 ]);
 
 function readOnlyGitAllowRules(checkoutPath: string, envPrefixes: readonly string[] = []): string[] {

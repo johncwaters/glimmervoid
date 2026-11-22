@@ -1,3 +1,5 @@
+import { shellQuote } from "../../shared/text.ts";
+
 const SAFE_PATH_RE = /^[A-Za-z0-9_.:/\\ -]+$/;
 const SAFE_EVENT_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
@@ -17,10 +19,6 @@ function buildHookCommand(launchPrefix: readonly string[], event: string, argvTa
     return /\s/.test(forwardSlashedPart) ? `"${forwardSlashedPart}"` : forwardSlashedPart;
   }).join(" ");
   return `${launchText} ${rawEvent}${argvTail.length ? ` ${argvTail.join(" ")}` : ""}`;
-}
-
-function shellQuote(value: string): string {
-  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 function shellLaunchText(launchPrefix: readonly string[]): string {

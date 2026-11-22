@@ -1,6 +1,6 @@
 import { TASK_TITLE_CONTROL_CHARACTERS } from '../../shared/contracts/session.ts';
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import { fencedUntrustedSections, startsWithSessionName } from '../../session/core/task-title-core.ts';
+import { fencedUntrustedSections, startsWithSessionName } from './task-title-text-core.ts';
 
 const MAX_BOARD_TITLE_WORDS = 6;
 

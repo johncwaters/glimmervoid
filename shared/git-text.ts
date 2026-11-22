@@ -66,4 +66,17 @@ function parseRawCommitLog(rawLog: string): RawLoggedCommit[] {
   return entries.flatMap((lines) => rawLoggedCommitOf(lines.join('\n')) ?? []);
 }
 
-export { FULL_SHA_RE, HEX_SHA_RE, diffHeaderPathsOf, parseRawCommitLog, shortSha };
+const GITHUB_DIRECTORY_ENTRY = '.github';
+const CREDENTIAL_LIKE_FILE_NAMES = [/^\.env/i, /\.pem$/i, /^id_rsa/i, /^\.npmrc$/i, /^\.netrc$/i, /^credentials/i, /\.key$/i];
+
+function isGithubDirectoryPath(filePath: string): boolean {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  return normalizedPath === GITHUB_DIRECTORY_ENTRY || normalizedPath.startsWith(`${GITHUB_DIRECTORY_ENTRY}/`);
+}
+
+function isCredentialLikePath(filePath: string): boolean {
+  const fileName = filePath.replace(/\\/g, '/').split('/').at(-1) ?? '';
+  return CREDENTIAL_LIKE_FILE_NAMES.some((pattern) => pattern.test(fileName));
+}
+
+export { FULL_SHA_RE, HEX_SHA_RE, diffHeaderPathsOf, isCredentialLikePath, isGithubDirectoryPath, parseRawCommitLog, shortSha };

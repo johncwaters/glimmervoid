@@ -1,7 +1,7 @@
 import { BADGE_LABELS, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { ConversationApproval } from '../../shared/contracts/session.ts';
-import { shellQuote } from '../../session/core/hook-command-core.ts';
+import { shellQuote } from '../../shared/text.ts';
 
 const MAX_UNREAD_ENTRIES_PER_SIDE = 50;
 const MAX_ENTRY_CHARS = 4000;

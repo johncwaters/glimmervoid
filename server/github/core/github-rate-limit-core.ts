@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { parseJsonOrNull } from '../../core/json-core.ts';
+import { parseJsonOrNull } from '../../../shared/coerce.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 
 const RateLimitResource = z.object({ remaining: z.number(), reset: z.number(), used: z.number().optional(), limit: z.number().optional() });
