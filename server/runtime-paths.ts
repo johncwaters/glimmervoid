@@ -173,7 +173,7 @@ function treeSitterRuntimeWasmPath(): string | null {
 }
 
 function grammarWasmPath(grammarName: string): string | null {
-  return resolveDependencyFile('tree-sitter-wasms', `out/tree-sitter-${grammarName}.wasm`);
+  return resolveDependencyFile('@vscode/tree-sitter-wasm', `wasm/tree-sitter-${grammarName}.wasm`) ?? resolveDependencyFile('tree-sitter-wasms', `out/tree-sitter-${grammarName}.wasm`);
 }
 
 let ffmpegPath: string | null = null;

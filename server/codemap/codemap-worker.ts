@@ -229,7 +229,7 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const outsideGraphImportsByIndex = paths.map((repoPath, index) => (candidateImportsByIndex[index] ?? []).filter((candidate) => candidate.targetPath !== null || !ignoredPaths.has(relativeImportBasePath(repoPath, candidate.specifier))));
   markPhase('scan imports');
   const manifestTextByPath = new Map([...textByPath].filter(([repoPath]) => isImportManifestPath(repoPath)));
-  const resolution = { importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath };
+  const resolution = { unscannedSourcePaths: skippedPaths, importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath };
   const graph = buildImportGraph({ specifiersByPath, ...resolution });
   const valueGraph = buildImportGraph({ specifiersByPath: valueSpecifiersByPath, ...resolution });
   const indexByPath = new Map(paths.map((repoPath, index) => [repoPath, index]));

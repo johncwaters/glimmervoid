@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import treeSitter from '@vscode/tree-sitter-wasm';
-import type { Node, Parser, Query, Tree } from '@vscode/tree-sitter-wasm';
+import type { Node, Parser, Query, QueryCapture, Tree } from '@vscode/tree-sitter-wasm';
 
 import type { GrammarScanner } from '../core/import-language-core.ts';
 import { grammarWasmPath, treeSitterRuntimeWasmPath } from '../runtime-paths.ts';
@@ -42,7 +42,16 @@ function unquoted(literal: string): string {
   return literal.replace(/^["'`]|["'`]$/g, '');
 }
 
-const NODES_PER_BUDGET_CHECK = 1024;
+const MAX_SPECIFIER_LENGTH = 1024;
+
+function specifierOf(capture: QueryCapture): string[] {
+  if (capture.node.endIndex - capture.node.startIndex > MAX_SPECIFIER_LENGTH) return [];
+  const specifier = unquoted(capture.node.text);
+  if (capture.name === 'specifier') return [specifier];
+  if (capture.name === 'relative') return [specifier.startsWith('.') ? specifier : `./${specifier}`];
+  return [];
+}
+
 const MICROSECONDS_PER_MILLISECOND = 1000;
 
 export function threadCpuMs(): number {
@@ -50,30 +59,19 @@ export function threadCpuMs(): number {
   return (user + system) / MICROSECONDS_PER_MILLISECOND;
 }
 
-function importNodesOf(tree: Tree, scanner: GrammarScanner, isPastBudget: () => boolean): Node[] | null {
-  const cursor = tree.walk();
-  const importNodes: Node[] = [];
-  let depth = 0;
-  for (let visitedNodes = 1; ; visitedNodes++) {
-    if (visitedNodes % NODES_PER_BUDGET_CHECK === 0 && isPastBudget()) {
-      cursor.delete();
-      return null;
-    }
-    const isImportNode = scanner.importNodeTypes.includes(cursor.nodeType);
-    if (isImportNode) importNodes.push(cursor.currentNode);
-    if (!isImportNode && depth < scanner.maxImportDepth && cursor.gotoFirstChild()) {
-      depth++;
-      continue;
-    }
-    while (!cursor.gotoNextSibling()) {
-      if (depth === 0) {
-        cursor.delete();
-        return importNodes;
-      }
-      cursor.gotoParent();
-      depth--;
-    }
+function importNodesOf(tree: Tree, scanner: GrammarScanner): Node[] {
+  const root = tree.rootNode;
+  const importNodes = root.descendantsOfType([...scanner.importNodeTypes]).filter((importNode) => importNode !== null);
+  return scanner.isTopLevelOnly ? importNodes.filter((importNode) => importNode.parent?.id === root.id) : importNodes;
+}
+
+function specifiersOf(importNodes: Node[], importQuery: Query, isPastBudget: () => boolean): string[] | null {
+  const specifiers: string[] = [];
+  for (const importNode of importNodes) {
+    if (isPastBudget()) return null;
+    specifiers.push(...importQuery.captures(importNode, { maxStartDepth: 0 }).flatMap(specifierOf));
   }
+  return specifiers;
 }
 
 export async function scanGrammarImports(scanner: GrammarScanner, sourceText: string, budgetMs: number): Promise<string[] | null> {
@@ -85,9 +83,7 @@ export async function scanGrammarImports(scanner: GrammarScanner, sourceText: st
     parser.reset();
     return null;
   }
-  const importNodes = importNodesOf(tree, scanner, isPastBudget);
-  const specifiers = (importNodes ?? []).flatMap((importNode) => importQuery.captures(importNode).map((capture) => unquoted(capture.node.text)));
+  const specifiers = specifiersOf(importNodesOf(tree, scanner), importQuery, isPastBudget);
   tree.delete();
-  if (!importNodes) return null;
-  return [...new Set(specifiers.filter(Boolean))];
+  return specifiers && [...new Set(specifiers.filter(Boolean))];
 }

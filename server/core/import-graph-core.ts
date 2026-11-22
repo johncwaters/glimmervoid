@@ -3,6 +3,7 @@ import { matchPathPatterns } from './tsconfig-paths-core.ts';
 import { importLanguageOf } from './import-language-core.ts';
 import type { EmbeddedScriptHost } from './import-language-core.ts';
 import { manifestPrefixPatterns } from './import-resolvers/manifest-prefix.ts';
+import { fileCandidatesOf } from './import-resolvers/file-candidates.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
@@ -326,7 +327,8 @@ function relativeImportCandidates(candidatePath: string): string[] {
 }
 
 export function outsideGraphImportsOf(fromPath: string, specifiers: readonly string[], graphPaths: ReadonlySet<string>, trackedPaths: ReadonlySet<string>): OutsideGraphImport[] {
-  if (fromPath.endsWith('.py')) return [];
+  const language = importLanguageOf(fromPath);
+  if (!language || language.id === 'python' || language.resolver.kind !== 'file') return [];
   return specifiers.flatMap((specifier) => {
     if (!specifier.startsWith('./') && !specifier.startsWith('../')) return [];
     const candidatePath = relativeImportBasePath(fromPath, specifier);
@@ -465,11 +467,25 @@ function sourceCandidates(candidatePath: string): string[] {
 
 interface RepoResolution {
   knownPaths: Set<string>;
+  sourcePaths: Set<string>;
   filesByDirectory: Map<string, string[]>;
   importsMap: Record<string, string>;
   tsconfigTargets: (fromPath: string, specifier: string) => string[];
   packagePatterns: Record<string, string[]>;
   packageFilesByKey: Map<string, string[]>;
+  pathsByBasename: Map<string, string[]>;
+  suffixMatchBySuffix: Map<string, string[]>;
+}
+
+function pathsByBasenameOf(knownPaths: Iterable<string>): Map<string, string[]> {
+  const pathsByBasename = new Map<string, string[]>();
+  for (const knownPath of knownPaths) {
+    const basename = path.posix.basename(knownPath);
+    const sameBasename = pathsByBasename.get(basename) ?? [];
+    sameBasename.push(knownPath);
+    pathsByBasename.set(basename, sameBasename);
+  }
+  return pathsByBasename;
 }
 
 function filesByDirectoryOf(knownPaths: Iterable<string>): Map<string, string[]> {
@@ -483,8 +499,22 @@ function filesByDirectoryOf(knownPaths: Iterable<string>): Map<string, string[]>
   return filesByDirectory;
 }
 
+function uniqueSuffixMatch(suffix: string, repo: RepoResolution): string[] {
+  const cached = repo.suffixMatchBySuffix.get(suffix);
+  if (cached) return cached;
+  const matches = (repo.pathsByBasename.get(path.posix.basename(suffix)) ?? []).filter((candidate) => candidate === suffix || candidate.endsWith(`/${suffix}`));
+  const uniqueMatch = matches.length === 1 ? matches : [];
+  repo.suffixMatchBySuffix.set(suffix, uniqueMatch);
+  return uniqueMatch;
+}
+
 function resolveSpecifier(fromPath: string, specifier: string, repo: RepoResolution): string[] {
   const language = importLanguageOf(fromPath);
+  if (language?.resolver.kind === 'candidates') {
+    const { paths, suffixes } = fileCandidatesOf(language.id, fromPath, specifier);
+    const found = paths.find((candidate) => repo.sourcePaths.has(candidate)) ?? suffixes.map((suffix) => uniqueSuffixMatch(suffix, repo)).find((matches) => matches.length > 0)?.[0];
+    return found && repo.knownPaths.has(found) ? [found] : [];
+  }
   if (language?.resolver.kind === 'packageDirectory') {
     if (path.posix.normalize(specifier) !== specifier) return [];
     const { excludedTargetPattern } = language.resolver;
@@ -522,14 +552,17 @@ export function buildImportGraph({
   importsMap,
   tsconfigTargets = () => [],
   manifestTextByPath = new Map(),
+  unscannedSourcePaths = [],
 }: {
   specifiersByPath: Map<string, string[]>;
   importsMap: Record<string, string>;
   tsconfigTargets?: (fromPath: string, specifier: string) => string[];
   manifestTextByPath?: ReadonlyMap<string, string>;
+  unscannedSourcePaths?: readonly string[];
 }): ImportGraph {
   const knownPaths = new Set(specifiersByPath.keys());
-  const repo: RepoResolution = { knownPaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packagePatterns: manifestPrefixPatterns(manifestTextByPath), packageFilesByKey: new Map() };
+  const sourcePaths = new Set([...knownPaths, ...unscannedSourcePaths]);
+  const repo: RepoResolution = { knownPaths, sourcePaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packagePatterns: manifestPrefixPatterns(manifestTextByPath), packageFilesByKey: new Map(), pathsByBasename: pathsByBasenameOf(sourcePaths), suffixMatchBySuffix: new Map() };
   const dependentsByPath = new Map(
     [...knownPaths].map((knownPath): [string, Set<string>] => [knownPath, new Set()]),
   );
@@ -545,7 +578,7 @@ export function buildImportGraph({
   return { dependentsByPath };
 }
 
-export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$';
+export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$';
 const TEST_PATH = new RegExp(TEST_PATH_PATTERN);
 
 export function isTestPath(repoPath: string): boolean {

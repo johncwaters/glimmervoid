@@ -146,7 +146,10 @@
       "node_modules/cc-safety-net/package.json",
       "node_modules/cc-safety-net/dist/**/package.json",
       "node_modules/@vscode/tree-sitter-wasm/wasm/tree-sitter.wasm",
-      "node_modules/tree-sitter-wasms/out/tree-sitter-go.wasm"
+      "node_modules/@vscode/tree-sitter-wasm/wasm/tree-sitter-*.wasm",
+      "node_modules/tree-sitter-wasms/out/tree-sitter-c.wasm",
+      "node_modules/tree-sitter-wasms/out/tree-sitter-solidity.wasm",
+      "node_modules/tree-sitter-wasms/out/tree-sitter-zig.wasm"
     ]
   }
 }

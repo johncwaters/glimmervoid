@@ -413,7 +413,8 @@ export function createChangeMapService({
     ]));
     const memoized = repoFactsByRoot.get(scope.root);
     if (memoized && memoized.memoKey === memoKey) return memoized.repoFacts;
-    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath });
+    const unscannedSourcePaths = repoPaths.filter((repoPath) => isSourcePath(repoPath) && !specifiersByPath.has(repoPath));
+    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath, unscannedSourcePaths });
     const blastRadius = computeBlastRadius({ repoName, graph, changedPaths: presentPaths(files) });
     const agentsDocs = [...agentsTitleByPath].map(([agentsPath, title]) => ({ path: agentsPath, title }));
     const commits = await commitsFor(scope.root, commonDir, historyTip);

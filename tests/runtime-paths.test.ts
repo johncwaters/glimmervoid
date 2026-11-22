@@ -1,10 +1,13 @@
 import './helpers/isolate-home.ts';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 
 import test from 'node:test';
 
+import { IMPORT_GRAMMAR_NAMES } from '../server/core/import-language-core.ts';
 import { computeRuntimePaths, relayExecutableProblemOf, relayRunnerOf } from '../server/core/runtime-paths.ts';
+import { grammarWasmPath, treeSitterRuntimeWasmPath } from '../server/runtime-paths.ts';
 
 const PACKAGE_ROOT = path.join(path.sep, 'opt', 'glimmervoid');
 
@@ -110,4 +113,15 @@ test('a binary runs the glimmervoid-fnox shipped beside it, while a checkout run
   assert.equal(binaryPaths.fnoxPath({ execPath: path.join(installDir, 'glimmervoid'), platform: 'darwin', fnoxVersion: '1.48.0' }), path.join(installDir, 'glimmervoid-fnox'));
   assert.equal(binaryPaths.fnoxPath({ execPath: path.join(installDir, 'glimmervoid.exe'), platform: 'win32', fnoxVersion: '1.48.0' }), path.join(installDir, 'glimmervoid-fnox.exe'));
   assert.equal(sourcePaths.fnoxPath({ execPath: '/usr/bin/node', platform: 'linux', fnoxVersion: '1.48.0' }), path.join(PACKAGE_ROOT, '.fnox', '1.48.0', 'fnox'));
+});
+
+test('every tree-sitter wasm the code map loads ships in the binary assets', () => {
+  const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const assetGlobs: string[] = packageJson.pkg.assets;
+  const loadedWasmPaths = [treeSitterRuntimeWasmPath(), ...IMPORT_GRAMMAR_NAMES.map(grammarWasmPath)];
+  const unshippedWasmPaths = loadedWasmPaths.map((wasmPath) => {
+    assert.ok(wasmPath, 'a grammar the code map uses is not installed');
+    return `node_modules/${wasmPath.split(`node_modules${path.sep}`).at(-1)?.split(path.sep).join('/')}`;
+  }).filter((packagePath) => !assetGlobs.some((assetGlob) => path.posix.matchesGlob(packagePath, assetGlob)));
+  assert.deepEqual(unshippedWasmPaths, []);
 });

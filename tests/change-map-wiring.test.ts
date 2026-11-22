@@ -318,7 +318,7 @@ test('tsconfig paths and NodeNext imports carry blast radius through a wizard-sh
   }
 });
 
-test('Python and Go package imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
+test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby and Rust imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
   const fence = '`'.repeat(3);
   const { root, base } = createPackageRepo('posthog', {}, {
     'posthog/__init__.py': '',
@@ -341,6 +341,24 @@ test('Python and Go package imports and the script regions of Astro, Vue, Svelte
     'shop/cmd/shop/main.go': 'package main\n\nimport (\n\t"fmt"\n\tshopcart "example.com/shop/cart"\n)\n\n// import "example.com/shop/other"\nvar note = `import "example.com/shop/other"`\n\nfunc main() { fmt.Println(shopcart.Total(), note) }\n',
     'shop/other/other.go': 'package other\n',
     'shop/checkout/checkout_test.go': 'package checkout\n\nimport "example.com/shop/cart"\n',
+    'native/util.h': '',
+    'native/util.c': '#include "util.h"\n#include <stdio.h>\n',
+    'native/include/core/api.h': '',
+    'native/app.cpp': '#include "core/api.h"\n',
+    'native/lib.sh': '',
+    'native/run.sh': 'source "$(dirname "$0")/lib.sh"\n# source ./missing.sh\n',
+    'native/util.zig': '',
+    'native/build.zig': 'const std = @import("std");\nconst util = @import("util.zig");\n',
+    'native/Token.sol': 'contract Token {}\n',
+    'native/Vault.sol': 'import "./Token.sol";\ncontract Vault {}\n',
+    'native/base.css': '',
+    'native/site.css': '@import url("base.css");\n',
+    'native/lib/shop/cart.rb': '',
+    'native/app.rb': 'require "shop/cart"\nrequire "json"\n',
+    'native/spec/cart_spec.rb': 'require_relative "../lib/shop/cart"\n',
+    'native/src/main.rs': 'mod parser;\n',
+    'native/src/parser.rs': 'mod lexer;\n',
+    'native/src/parser/lexer.rs': '',
   });
   try {
     writeRepoFile(root, 'posthog/models/user.py', 'class User: value = 1\n');
@@ -364,6 +382,19 @@ test('Python and Go package imports and the script regions of Astro, Vue, Svelte
     const extract = await createCodemapClient().extract(root, base);
     const goEdges = [...extract.importerIndexes].map((importerIndex, edgeIndex) => `${extract.paths[importerIndex]} imports ${extract.paths[extract.importedIndexes[edgeIndex] ?? -1]}`).filter((edge) => edge.endsWith('.go'));
     assert.deepEqual(goEdges.sort(), ['shop/checkout/checkout_test.go imports shop/cart/cart.go', 'shop/checkout/checkout_test.go imports shop/cart/tax.go', 'shop/cmd/shop/main.go imports shop/cart/cart.go', 'shop/cmd/shop/main.go imports shop/cart/tax.go']);
+    const nativeEdges = [...extract.importerIndexes].map((importerIndex, edgeIndex) => `${extract.paths[importerIndex]} imports ${extract.paths[extract.importedIndexes[edgeIndex] ?? -1]}`).filter((edge) => edge.startsWith('native/'));
+    assert.deepEqual(nativeEdges.sort(), [
+      'native/Vault.sol imports native/Token.sol',
+      'native/app.cpp imports native/include/core/api.h',
+      'native/app.rb imports native/lib/shop/cart.rb',
+      'native/build.zig imports native/util.zig',
+      'native/run.sh imports native/lib.sh',
+      'native/site.css imports native/base.css',
+      'native/spec/cart_spec.rb imports native/lib/shop/cart.rb',
+      'native/src/main.rs imports native/src/parser.rs',
+      'native/src/parser.rs imports native/src/parser/lexer.rs',
+      'native/util.c imports native/util.h',
+    ]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
