@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-11-22
+
 ### Added
 
 - **Usage: rebuilt around limits, running sessions, spend and all first-class agents**: the Usage tab now scans Antigravity, pi and OpenCode alongside Claude Code, Codex, Kimi Code and Grok, leads with per-account binding-window limit cards with run-out projections, shows live sessions in Running now with last-hour cost and context %, replaces token-first drill screens with a single-scroll Spend view (Today / 7 days / 30 days stacked daily bars by agent and Agent / Model / Project / Lane breakdowns with cache hit %), and lists every supported agent's transcript, limit and cost coverage.
