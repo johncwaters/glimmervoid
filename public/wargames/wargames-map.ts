@@ -63,20 +63,43 @@ const LOYALTY_BAR_HEIGHT = 3;
 const SQRT_3 = Math.sqrt(3);
 
 export const UNIT_GLYPH_PATHS: readonly { key: 'raider' | 'guard' | 'envoy'; label: string; path: string }[] = [
-  { key: 'raider', label: 'Raider', path: 'M -2.4 -2.4 L 2.6 0 L -2.4 2.4 L -1 0 Z' },
-  { key: 'guard', label: 'Guard', path: 'M -2.2 -2.4 L 2.2 -2.4 L 2.2 0.2 L 0 2.6 L -2.2 0.2 Z' },
-  { key: 'envoy', label: 'Envoy', path: 'M 0 -2.6 L 2.4 0 L 0 2.6 L -2.4 0 Z' },
+  { key: 'raider', label: 'Raider', path: 'M 3 13 L 13 3 M 10 3 H 13 V 6 M 4.5 9.5 L 6.5 11.5' },
+  { key: 'guard', label: 'Guard', path: 'M 8 2.2 L 13 4.2 V 8.2 C 13 11.2 10.7 13 8 13.8 C 5.3 13 3 11.2 3 8.2 V 4.2 Z M 8 4.5 V 11.5' },
+  { key: 'envoy', label: 'Envoy', path: 'M 2.5 12.5 L 3.5 5.5 L 6.5 8.5 L 8 4 L 9.5 8.5 L 12.5 5.5 L 13.5 12.5 Z' },
 ];
 
 export const BUILDING_GLYPH_PATHS: readonly { key: 'farm' | 'mine' | 'barracks' | 'wall'; label: string; path: string }[] = [
-  { key: 'farm', label: 'Farm', path: 'M 0 -2.6 C 2 -1.2 2.4 0.8 0 2.6 C -2.4 0.8 -2 -1.2 0 -2.6 Z' },
-  { key: 'mine', label: 'Mine', path: 'M 0 -2.6 L 2.4 -1.2 L 2.4 1.2 L 0 2.6 L -2.4 1.2 L -2.4 -1.2 Z' },
-  { key: 'barracks', label: 'Barracks', path: 'M 0 -2.6 L 2.6 -0.2 H 1.8 V 2.4 H -1.8 V -0.2 H -2.6 Z' },
-  { key: 'wall', label: 'Wall', path: 'M -2.6 -2 H -1.2 V -0.6 H -0.4 V -2 H 0.4 V -0.6 H 1.2 V -2 H 2.6 V 2 H -2.6 Z' },
+  { key: 'farm', label: 'Farm', path: 'M 2.5 8 L 8 3 L 13.5 8 M 4 7 V 13.5 H 12 V 7 M 6.5 13.5 V 9.5 H 9.5 V 13.5' },
+  { key: 'mine', label: 'Mine', path: 'M 3 13 L 10.5 5.5 M 6 3 C 9.2 3 12 5.2 13 8.5' },
+  { key: 'barracks', label: 'Barracks', path: 'M 2.5 13 L 8 3.5 L 13.5 13 Z M 6.5 13 L 8 9.5 L 9.5 13' },
+  { key: 'wall', label: 'Wall', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
 ];
 
-export const SCOUT_EYE_PATH = 'M -3 0 Q 0 -2.5 3 0 Q 0 2.5 -3 0 Z M -0.9 0 A 0.9 0.9 0 1 0 0.9 0 A 0.9 0.9 0 1 0 -0.9 0';
-const BUILD_HAMMER_PATH = 'M -2.2 -1.9 H 1.4 V -0.4 H 0.2 V 2.4 H -1 V -0.4 H -2.2 Z';
+export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
+const BUILD_HAMMER_PATH = 'M 3 13 L 9.5 6.5 M 7.5 3.5 L 12.5 8.5 L 10.8 10.2 L 5.8 5.2 Z';
+
+function createMapStrokeGlyph(
+  pathData: string,
+  centerX: number,
+  centerY: number,
+  size: number,
+  color: string,
+  strokeWidth = '1.8',
+): SVGElement {
+  const scale = size / 16;
+  const group = createSvgShape('g', {
+    transform: `translate(${(centerX - size / 2).toFixed(1)}, ${(centerY - size / 2).toFixed(1)}) scale(${scale.toFixed(3)})`,
+  });
+  group.append(createSvgShape('path', {
+    d: pathData,
+    fill: 'none',
+    stroke: color,
+    'stroke-width': strokeWidth,
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  }));
+  return group;
+}
 
 function renderArmyPill(
   armyGroup: SVGElement,
@@ -91,7 +114,7 @@ function renderArmyPill(
     .filter((unit) => troops[unit.key] > 0)
     .map((unit) => {
       const digits = String(troops[unit.key]);
-      return { unit, digits, width: 6.4 + digits.length * 5.1 };
+      return { unit, digits, width: 10.5 + digits.length * 5.1 };
     });
   const ownerTag = isReturning ? `RET ${owner.toUpperCase()}` : owner.toUpperCase();
   const ownerWidth = ownerTag.length * 5.2;
@@ -129,12 +152,9 @@ function renderArmyPill(
   cursorX += ownerWidth + gap;
 
   for (const item of active) {
-    const iconGroup = createSvgShape('g', {
-      transform: `translate(${(cursorX + 2.6).toFixed(1)}, ${(baselineY - 2.6).toFixed(1)})`,
-    });
-    iconGroup.append(createSvgShape('path', { d: item.unit.path, fill: color }));
+    const iconGroup = createMapStrokeGlyph(item.unit.path, cursorX + 4.5, baselineY - 2.8, 9, color);
     const countText = createSvgShape('text', {
-      x: (cursorX + 6.4).toFixed(1),
+      x: (cursorX + 10.2).toFixed(1),
       y: baselineY.toFixed(1),
       'text-anchor': 'start',
       'font-size': '8.5',
@@ -154,17 +174,13 @@ function renderHexUnitRow(
   items: readonly { unit: (typeof UNIT_GLYPH_PATHS)[number]; digits: string; width: number }[],
   fillColor: string,
 ): void {
-  const gap = 4;
+  const gap = 3.5;
   const totalWidth = items.reduce((sum, item) => sum + item.width, 0) + gap * (items.length - 1);
   let cursorX = centerX - totalWidth / 2;
   for (const item of items) {
-    const iconCenterX = cursorX + 2.6;
-    const iconGroup = createSvgShape('g', {
-      transform: `translate(${iconCenterX.toFixed(1)}, ${(baselineY - 2.6).toFixed(1)})`,
-    });
-    iconGroup.append(createSvgShape('path', { d: item.unit.path, fill: fillColor }));
+    const iconGroup = createMapStrokeGlyph(item.unit.path, cursorX + 4.5, baselineY - 2.8, 9, fillColor);
     const countText = createSvgShape('text', {
-      x: (cursorX + 6.4).toFixed(1),
+      x: (cursorX + 10.2).toFixed(1),
       y: baselineY.toFixed(1),
       'text-anchor': 'start',
       'font-size': '8.5',
@@ -191,7 +207,7 @@ function renderHexUnitTokens(
     .filter((unit) => troops[unit.key] > 0)
     .map((unit) => {
       const digits = String(troops[unit.key]);
-      return { unit, digits, width: 6.4 + digits.length * 5.2 };
+      return { unit, digits, width: 10.5 + digits.length * 5.2 };
     });
   if (active.length === 0) return false;
   if (hasOwnerBadge) {
@@ -414,8 +430,8 @@ function appendGlyphCallout(
   durationMs: number,
 ): SVGElement {
   const digits = String(level);
-  const contentWidth = 14 + digits.length * 5.8;
-  const pillWidth = Math.max(26, contentWidth + 8);
+  const contentWidth = 17.5 + digits.length * 5.8;
+  const pillWidth = Math.max(30, contentWidth + 8);
   const group = createSvgShape('g', { class: 'wg-delta-callout' });
   group.style.animationDuration = `${durationMs}ms`;
   group.append(
@@ -440,12 +456,9 @@ function appendGlyphCallout(
     class: 'wg-delta-text',
   });
   plusText.textContent = '+';
-  const iconGroup = createSvgShape('g', {
-    transform: `translate(${(startX + 8.5).toFixed(1)}, ${(centerY - 3).toFixed(1)})`,
-  });
-  iconGroup.append(createSvgShape('path', { d: glyphPath, fill }));
+  const iconGroup = createMapStrokeGlyph(glyphPath, startX + 10.5, centerY - 3, 9, fill);
   const levelText = createSvgShape('text', {
-    x: (startX + 13).toFixed(1),
+    x: (startX + 16.5).toFixed(1),
     y: (centerY + 0.5).toFixed(1),
     'text-anchor': 'start',
     'font-size': '9',
@@ -503,10 +516,7 @@ function renderDivisionToken(group: SVGElement, centerX: number, centerY: number
       'stroke-width': '1.6',
     }),
   );
-  const iconGroup = createSvgShape('g', {
-    transform: `translate(${centerX.toFixed(1)}, ${centerY.toFixed(1)}) scale(1.2)`,
-  });
-  iconGroup.append(createSvgShape('path', { d: leadUnitGlyphPath(troops), fill: color }));
+  const iconGroup = createMapStrokeGlyph(leadUnitGlyphPath(troops), centerX, centerY, 9, color);
   group.append(iconGroup);
 }
 
@@ -738,10 +748,7 @@ function renderMarchVector(
         'stroke-width': '1.1',
       }),
     );
-    const iconGroup = createSvgShape('g', {
-      transform: `translate(${midX.toFixed(1)}, ${midY.toFixed(1)}) scale(1.15)`,
-    });
-    iconGroup.append(createSvgShape('path', { d: options.midIconPath, fill: color, 'fill-rule': 'evenodd' }));
+    const iconGroup = createMapStrokeGlyph(options.midIconPath, midX, midY, 9, color);
     vectorGroup.append(iconGroup);
   }
   layer.append(vectorGroup);
@@ -831,13 +838,13 @@ function renderPreviewBadge(
 ): void {
   const measured = tokens.map((token) => {
     const digits = token.count === null ? '' : String(token.count);
-    const prefixWidth = token.kind === 'build' ? 12.6 : 11.2;
+    const prefixWidth = token.kind === 'build' ? 18.5 : 14.5;
     return { kind: token.kind, path: token.path, digits, width: prefixWidth + digits.length * 4.7 };
   });
   const gap = 3.5;
   const contentWidth = measured.reduce((sum, item) => sum + item.width, 0) + Math.max(0, measured.length - 1) * gap;
-  const badgeWidth = Math.max(20, contentWidth + 8);
-  const badgeHeight = 13;
+  const badgeWidth = Math.max(24, contentWidth + 8);
+  const badgeHeight = 14;
   const badgeX = centerX + 14;
   const badgeY = centerY - 15;
   const group = createSvgShape('g', { opacity });
@@ -855,14 +862,8 @@ function renderPreviewBadge(
   let cursorX = badgeX - contentWidth / 2;
   for (const item of measured) {
     if (item.kind === 'build') {
-      const hammerGroup = createSvgShape('g', {
-        transform: `translate(${(cursorX + 2.4).toFixed(1)}, ${badgeY.toFixed(1)}) scale(0.85)`,
-      });
-      hammerGroup.append(createSvgShape('path', { d: BUILD_HAMMER_PATH, fill: color }));
-      const iconGroup = createSvgShape('g', {
-        transform: `translate(${(cursorX + 9.2).toFixed(1)}, ${badgeY.toFixed(1)}) scale(0.88)`,
-      });
-      iconGroup.append(createSvgShape('path', { d: item.path, fill: color }));
+      const hammerGroup = createMapStrokeGlyph(BUILD_HAMMER_PATH, cursorX + 4, badgeY, 8, color);
+      const iconGroup = createMapStrokeGlyph(item.path, cursorX + 13.5, badgeY, 8.5, color);
       group.append(hammerGroup, iconGroup);
       cursorX += item.width + gap;
       continue;
@@ -876,14 +877,11 @@ function renderPreviewBadge(
       class: 'wg-army-pill-text',
     });
     plusText.textContent = '+';
-    const iconGroup = createSvgShape('g', {
-      transform: `translate(${(cursorX + 7.2).toFixed(1)}, ${badgeY.toFixed(1)}) scale(0.88)`,
-    });
-    iconGroup.append(createSvgShape('path', { d: item.path, fill: color }));
+    const iconGroup = createMapStrokeGlyph(item.path, cursorX + 9.2, badgeY, 8.5, color);
     group.append(plusText, iconGroup);
     if (item.digits.length > 0) {
       const countText = createSvgShape('text', {
-        x: (cursorX + 10.6).toFixed(1),
+        x: (cursorX + 14.2).toFixed(1),
         y: (badgeY + 2.6).toFixed(1),
         'text-anchor': 'start',
         'font-size': '7.5',

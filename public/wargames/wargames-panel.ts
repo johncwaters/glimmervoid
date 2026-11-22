@@ -205,18 +205,6 @@ function buildResourceReadout(grain: number, ore: number): HTMLElement {
   return wrap;
 }
 
-function createGlyphIcon(pathData: string, size: number, color: string, ariaLabel?: string): SVGSVGElement {
-  const icon = createSvgIcon(size, size);
-  icon.setAttribute('viewBox', '-4 -4 8 8');
-  if (ariaLabel) {
-    icon.removeAttribute('aria-hidden');
-    icon.setAttribute('role', 'img');
-    icon.setAttribute('aria-label', ariaLabel);
-  }
-  icon.append(createSvgShape('path', { d: pathData, fill: color }));
-  return icon;
-}
-
 function buildGlyphChips<Key extends string>(
   glyphs: readonly { key: Key; label: string; path: string }[],
   counts: Readonly<Record<Key, number>>,
@@ -225,7 +213,7 @@ function buildGlyphChips<Key extends string>(
   const group = el('span', 'wg-faction-units');
   for (const glyph of glyphs) {
     const chip = el('span', 'wg-legend-item');
-    chip.append(createGlyphIcon(glyph.path, 10, color, glyph.label), el('span', '', String(counts[glyph.key])));
+    chip.append(createWargamesGlyph(glyph.path, 13, color, glyph.label), el('span', '', String(counts[glyph.key])));
     group.append(chip);
   }
   return group;
@@ -541,7 +529,7 @@ function buildOrderElement(order: OrderItem, color: string): HTMLElement {
       const building = BUILDING_GLYPH_PATHS.find((entry) => entry.key === order.building) ?? BUILDING_GLYPH_PATHS[0];
       item.append(
         el('span', '', '+'),
-        createGlyphIcon(building.path, 10, color, building.label),
+        createWargamesGlyph(building.path, 13, color, building.label),
         el('span', '', `@#${order.hexIndex}`),
       );
       return item;
@@ -550,7 +538,7 @@ function buildOrderElement(order: OrderItem, color: string): HTMLElement {
       const unit = UNIT_GLYPH_PATHS.find((entry) => entry.key === order.troop) ?? UNIT_GLYPH_PATHS[0];
       item.append(
         el('span', '', '+'),
-        createGlyphIcon(unit.path, 10, color, unit.label),
+        createWargamesGlyph(unit.path, 13, color, unit.label),
         el('span', '', `${order.count} @#${order.hexIndex}`),
       );
       return item;
@@ -559,7 +547,7 @@ function buildOrderElement(order: OrderItem, color: string): HTMLElement {
       item.append(el('span', '', `#${order.fromHexIndex}->#${order.toHexIndex}`));
       for (const unit of UNIT_GLYPH_PATHS) {
         if (order.troops[unit.key] <= 0) continue;
-        item.append(createGlyphIcon(unit.path, 10, color, unit.label), el('span', '', String(order.troops[unit.key])));
+        item.append(createWargamesGlyph(unit.path, 13, color, unit.label), el('span', '', String(order.troops[unit.key])));
       }
       return item;
     }
@@ -949,10 +937,10 @@ function legendItem(icon: SVGSVGElement, label: string): HTMLElement {
 function buildMapLegend(): HTMLElement {
   const legend = el('div', 'wg-map-legend');
   for (const unit of UNIT_GLYPH_PATHS) {
-    legend.append(legendItem(createGlyphIcon(unit.path, 12, 'var(--text-head)'), unit.label));
+    legend.append(legendItem(createWargamesGlyph(unit.path, 14, 'var(--text-head)'), unit.label));
   }
   for (const building of BUILDING_GLYPH_PATHS) {
-    legend.append(legendItem(createGlyphIcon(building.path, 12, 'var(--text-dim)'), building.label));
+    legend.append(legendItem(createWargamesGlyph(building.path, 14, 'var(--text-dim)'), building.label));
   }
 
   const territoryIcon = createSvgIcon(12, 12);
@@ -986,7 +974,7 @@ function buildMapLegend(): HTMLElement {
   );
   legend.append(legendItem(marchIcon, 'March'));
 
-  legend.append(legendItem(createGlyphIcon(SCOUT_EYE_PATH, 12, 'var(--text-head)'), 'Scout'));
+  legend.append(legendItem(createWargamesGlyph(SCOUT_EYE_PATH, 14, 'var(--text-head)'), 'Scout'));
   return legend;
 }
 
