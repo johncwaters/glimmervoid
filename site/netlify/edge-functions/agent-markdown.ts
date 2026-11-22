@@ -25,4 +25,4 @@ export default async function serveMarkdownToAgents(request: Request): Promise<R
   });
 }
 
-export const config = { path: ['/', '/blog/*'] };
+export const config = { path: ['/'] };

@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Opening a normal-buffer session terminal lands at the bottom in one frame.** Terminals with scrollback (such as Antigravity and shell sessions) used to show intermediate parse frames starting from the top and scrolling down while the attach or resume snapshot drained. The terminal now holds its canvas hidden until the snapshot finishes parsing and scrolls to the bottom (or restored offset), matching Claude Code's alternate-screen open.
 
+### Removed
+
+- **Website: dropped the blog and the Sane YOLO nav link**: removed the `/blog/` section, its nav/footer/sitemap/`llms.txt` links, and the Sane YOLO link from the glimmervoid.dev top navigation bar.
+
 ## [0.63.0] - 2026-11-22
 
 ### Added

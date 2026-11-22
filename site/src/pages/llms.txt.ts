@@ -1,15 +1,10 @@
 import type { APIRoute } from 'astro';
-import { getCollection } from 'astro:content';
 import { markdownResponse } from '../lib/agent-markdown.ts';
 import { PRODUCT_SUMMARY, REPOSITORY_URL } from '../lib/product-facts.ts';
 import { sitePath } from '../lib/site-path.ts';
 
-export const GET: APIRoute = async ({ site }) => {
-  const posts = await getCollection('blog', ({ data }) => !data.draft);
+export const GET: APIRoute = ({ site }) => {
   const urlOf = (pathWithinSite: string) => new URL(sitePath(pathWithinSite), site).href;
-  const postLines = posts
-    .toSorted((earlier, later) => later.data.pubDate.valueOf() - earlier.data.pubDate.valueOf())
-    .map((post) => `- [${post.data.title}](${urlOf(`blog/${post.id}.md`)}): ${post.data.description}`);
   return markdownResponse([
     '# Glimmervoid',
     '',
@@ -25,10 +20,6 @@ export const GET: APIRoute = async ({ site }) => {
     '',
     `- [Terms of service](${urlOf('terms/')}): the terms for Glimmervoid Cloud`,
     `- [Refund policy](${urlOf('refunds/')}): how to ask for a refund and what it ends`,
-    '',
-    '## Blog',
-    '',
-    ...postLines,
     '',
   ].join('\n'), 'text/plain');
 };

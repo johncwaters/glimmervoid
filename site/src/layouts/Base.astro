@@ -14,8 +14,6 @@ type Props = {
   description?: string;
   socialImagePath?: string;
   socialImageAlt?: string;
-  pageType?: 'website' | 'article';
-  publishedTime?: Date;
   structuredData?: Record<string, unknown>;
   markdownPath?: string;
   unlisted?: boolean;
@@ -26,8 +24,6 @@ const {
   description = PRODUCT_SUMMARY,
   socialImagePath = 'capture/og.png',
   socialImageAlt = "GLIMMERVOID wordmark on one line beside the bracket mark, above the line See it before it's built. Below, the real dashboard, its attention banner showing one finished session.",
-  pageType = 'website',
-  publishedTime,
   structuredData,
   markdownPath,
   unlisted = false,
@@ -53,7 +49,7 @@ const demoStyles = extractDemoStyles(dashboardStylesheet);
     {unlisted && <meta name="robots" content="noindex">}
     <link rel="canonical" href={canonicalUrl}>
     {markdownPath && <link rel="alternate" type="text/markdown" href={sitePath(markdownPath)}>}
-    <meta property="og:type" content={pageType}>
+    <meta property="og:type" content="website">
     <meta property="og:site_name" content="Glimmervoid">
     <meta property="og:title" content={title}>
     <meta property="og:description" content={description}>
@@ -62,8 +58,6 @@ const demoStyles = extractDemoStyles(dashboardStylesheet);
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content={socialImageAlt}>
-    {publishedTime && <meta property="article:published_time" content={publishedTime.toISOString()}>}
-    {pageType === 'article' && <meta property="article:author" content="John C. Waters">}
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content={title}>
     <meta name="twitter:description" content={description}>

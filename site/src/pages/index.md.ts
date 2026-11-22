@@ -48,7 +48,6 @@ export const GET: APIRoute = ({ site }) => {
     [
       `- Source: ${REPOSITORY_URL}`,
       `- Changelog: ${REPOSITORY_URL}/blob/main/CHANGELOG.md`,
-      `- Blog: ${urlOf('blog/')}`,
     ].join('\n'),
   ].join('\n\n');
   return markdownResponse(agentMarkdownPage({ title: 'Glimmervoid', pageUrl: urlOf(''), indexUrl: urlOf('llms.txt'), body }));
