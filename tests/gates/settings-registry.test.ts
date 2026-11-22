@@ -6,7 +6,6 @@ import path from 'node:path';
 
 import { DEFAULT_CONFIG } from '../../server/config-store.ts';
 import { BranchGcFileSettings, Config, ConfigUpdate } from '../../shared/contracts/config.ts';
-import { FLYING_ANIMALS_DEFAULTS } from '../../shared/settings-ranges.ts';
 import { FILE_ONLY_GROUPS, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETTINGS_SECTION_ALIASES } from '../../shared/settings/registry.ts';
 import type { SettingsSetting } from '../../shared/settings/registry.ts';
 import {
@@ -252,10 +251,10 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
   });
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
     'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications', 'reviews-turn-limit': 'lanes-team-review' },
-    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs', 'lanes-fetch-domains': 'machine-privacy' },
+    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'lanes-fetch-domains': 'machine-privacy' },
     'machine-home': { 'agent-accounts': 'machine-accounts' },
     'machine-safety': { 'branch-gc-delete-unmerged': 'machine-worktrees' },
-    'machine-sessions': { 'remote-setup': 'machine-server', 'hint-cards': 'machine-usage', 'branch-gc-delete-unmerged': 'machine-worktrees' },
+    'machine-sessions': { 'remote-setup': 'machine-server', 'branch-gc-delete-unmerged': 'machine-worktrees' },
     'machine-vault': { 'lanes-fetch-domains': 'machine-privacy' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });
@@ -390,7 +389,7 @@ test('the pre-existing deep links from the banner, the notice and the panels sti
     ['lanes-team-review', 'lanes-fetch-domains', '#settings/machine-privacy/lanes-fetch-domains'],
     ['lanes-unattended', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
     ['machine-guardrails', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
-    ['browser-flying-animals', 'animals-on-phone', '#settings/browser-appearance/animals-on-phone'],
+    ['browser-flying-animals', 'flying-animals', '#settings/browser-appearance/flying-animals'],
     ['notifications', 'telegram-chat-id', '#settings/machine-telegram/telegram-chat-id'],
   ]) {
     const resolved = parseSettingsHash(`#settings/${sectionId}/${settingId}`, SETTINGS_REGISTRY.sections, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
@@ -485,7 +484,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
     assert.ok(fileOnlyPaths.includes(settingPath), `${settingPath} should be file-only`);
   }
   const editable = settingsOf(SECTIONS).filter((setting) => setting.access === 'editable' || setting.access === 'advanced');
-  assert.ok(editable.length >= 60 && editable.length <= 90, `${editable.length} editable entries`);
+  assert.ok(editable.length >= 40 && editable.length <= 90, `${editable.length} editable entries`);
   assert.equal(settingById('file-team-review-team').group, 'lanes-team-review');
   assert.match(settingById('file-team-review-team').fileOnlyReason ?? '', /legacy/);
 });
@@ -520,8 +519,8 @@ test('the Team review lane section owns its settings and deep link, with the leg
     ['team-review-sandbox-load-mcp-servers', 'teamReview.sandbox.loadMcpServers', 'toggle'],
     ['reviews-turn-limit', 'pref:reviewsTurnLimit', 'number'],
   ]);
-  assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path).slice(0, 4), [
-    'teamReview.autoRebaseMyPrs', 'teamReview.keepMergeableEnabled', 'teamReview.keepMergeableTimeoutMinutes', 'teamReview.mergeQueueEnabled',
+  assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path), [
+    'teamReview.autoRebaseMyPrs', 'workflows.enabled', 'status:workflow-rules',
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
   for (const setting of section.settings.filter((entry) => entry.control !== 'readonly' && !entry.path.startsWith('pref:'))) assert.equal(settableFromDashboard(setting.path), true, setting.path);
@@ -537,18 +536,15 @@ test('the Team review lane section owns its settings and deep link, with the leg
   ]);
 });
 
-test('Flying animals follows Appearance and owns its stable toggle and searchable advanced controls', () => {
+test('Flying animals follows Appearance with its single toggle', () => {
   const animals = sectionById('browser-appearance');
   assert.equal(animals.level, 'browser');
   assert.equal(SETTINGS_SECTION_ALIASES.animals, animals.id);
   assert.equal(SETTINGS_SECTION_ALIASES['flying-animals'], animals.id);
   const settings = animals.settings;
   assert.equal(settings.find((setting) => setting.id === 'flying-animals')?.path, 'pref:flyingAnimalsEnabled');
-  assert.equal(settings.filter((setting) => setting.access === 'advanced').length, 6);
+  assert.equal(settings.filter((setting) => setting.access === 'advanced').length, 0);
   assert.equal(settings.every((setting) => setting.path.startsWith('pref:') && setting.scope === 'browser'), true);
-  for (const [key, value] of Object.entries(FLYING_ANIMALS_DEFAULTS)) {
-    assert.equal(settings.find((setting) => setting.path === `pref:${key}`)?.defaultValue, value, key);
-  }
 });
 
 test('the machine Privacy section owns the telemetry toggle and the privacy deep link', () => {

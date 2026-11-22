@@ -8,9 +8,8 @@ import { settingSavePayload } from './settings-view-core.ts';
 import { applyNextAttentionKeyCode } from '../shortcuts.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applyTheme } from '../theme.ts';
-import { applyChatBriefOff } from '../chat/chat-view.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
-import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setChatBriefOff, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
+import { setPhoneArrowPad, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
 import { applySettingsBroadcast } from './settings-store.ts';
 import { applySoundEnabled } from '../mute-button.ts';
 import { fieldErrorById, panelRefresher, pendingSaveById, saveStatusById, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
@@ -21,24 +20,10 @@ const TEAM_REVIEW_ENABLED_ID = 'team-review-enabled';
 const savedStatusTimerById = new Map<string, number>();
 let saveQueue = Promise.resolve();
 
-const FLYING_ANIMALS_PREFERENCE_WRITERS: Record<string, (value: unknown) => void> = {
-  'pref:flyingAnimalsMinGapSeconds': (value) => setFlyingAnimalsMinGapSeconds(Number(value)),
-  'pref:flyingAnimalsMaxGapSeconds': (value) => setFlyingAnimalsMaxGapSeconds(Number(value)),
-  'pref:flyingAnimalsMinDurationSeconds': (value) => setFlyingAnimalsMinDurationSeconds(Number(value)),
-  'pref:flyingAnimalsMaxDurationSeconds': (value) => setFlyingAnimalsMaxDurationSeconds(Number(value)),
-  'pref:flyingAnimalsScale': (value) => setFlyingAnimalsScale(Number(value)),
-  'pref:flyingAnimalsOnPhone': (value) => setFlyingAnimalsOnPhone(value === true),
-};
-
 function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:phoneArrowPad') {
     setPhoneArrowPad(value === true);
     applyPhoneArrowPad(value === true);
-    return;
-  }
-  if (setting.path === 'pref:chatBrief') {
-    setChatBriefOff(value !== true);
-    applyChatBriefOff(value !== true);
     return;
   }
   if (setting.path === 'pref:nextAttentionKeyCode') {
@@ -56,12 +41,6 @@ function applyBrowserPreference(setting: SettingsSetting, value: unknown) {
   if (setting.path === 'pref:flyingAnimalsEnabled') {
     setFlyingAnimalsEnabled(value === true);
     applyFlyingAnimals(value === true);
-    return;
-  }
-  const writeFlyingAnimalsPreference = FLYING_ANIMALS_PREFERENCE_WRITERS[setting.path];
-  if (writeFlyingAnimalsPreference) {
-    writeFlyingAnimalsPreference(value);
-    applyFlyingAnimals(isFlyingAnimalsEnabled());
     return;
   }
   if (setting.path === 'pref:reviewsTurnLimit') {

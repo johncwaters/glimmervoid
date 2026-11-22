@@ -135,7 +135,6 @@ Token accounting and estimated-cost budgets.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `usage.enabled` | Track token usage | `true` | Read local agent transcripts for the Usage tab and session cards. |
-| `usage.yourDay` | Your day | `true` | Recap yesterday and suggest a pace for today when usage tracking is on. |
 | `usage.budget.dailyUsd` | Daily budget | `null` | Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero. |
 | `usage.budget.monthlyUsd` | Monthly budget | `null` | Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero. |
 | `usage.budget.pauseAtLimit` | Pause at budget | `false` | At 100% of a budget, snooze live sessions and hold agent spawns and wakes until the day or month rolls over. |
@@ -212,9 +211,6 @@ Keep your own pull requests rebased, mergeable and merged, and run workflow rule
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | Rebase your open pull requests when they fall behind their base branch. |
-| `teamReview.keepMergeableEnabled` | Keep mergeable | `true` | Offer Keep mergeable: an agent fixes conflicts and failing checks on your pull requests. |
-| `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair may run. |
-| `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready: queued pull requests merge once they pass. |
 | `workflows.enabled` | Run workflows | `true` | Watch the repositories your rules name and run their actions. |
 | `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow sessions running at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -382,14 +378,7 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 |---------|---------|-------|
 | Theme | `"glimmer"` | Color scheme for the dashboard. |
 | Swipe arrow pad on phone | `false` | Swap the phone arrow keys for one pad you swipe on. |
-| Brief Chat turns | `true` | Fold each Chat turn you have seen down to its lead line. Press B in Chat to switch it. |
 | Flying animals | `false` | Show animated animals flying across the dashboard. |
-| Time between flights: minimum | `20` | Shortest pause between flights. |
-| Time between flights: maximum | `40` | Longest pause between flights. |
-| Flight duration: minimum | `6.9` | Shortest flight, for faster animals. |
-| Flight duration: maximum | `11.5` | Longest flight, for slower animals. |
-| Size multiplier | `1` | Scale applied on top of the viewport size. |
-| Show on phone layout | `true` | Allow flights on the phone layout. |
 | Alert sounds | `true` | Play a sound when a session needs you, like the note button in the header. |
 | Alert sound | `"chime"` | Sound played when a session needs you, including files you add to ~/.glimmervoid/sounds/. |
 | Desktop notifications | `true` | Notify you when a session needs you and the dashboard is in the background. |

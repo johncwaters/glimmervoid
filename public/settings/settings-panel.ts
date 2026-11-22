@@ -25,8 +25,7 @@ import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts'
 import { keyChord } from '../ui/keycap.ts';
 import { shortcutGroupsFor } from '../shortcuts-core.ts';
 import { renderPrStatusLegend, renderStatusLegend } from '../status-legend.ts';
-import { applyFlyingAnimals } from '../flying-animals.ts';
-import { isFlyingAnimalsEnabled, resetFlyingAnimalsAdvanced, getSoundId } from '../ui-prefs.ts';
+import { getSoundId } from '../ui-prefs.ts';
 import { notifyPhoneSettingsScreenChanged, setPhoneSettingsScreenProbe, settingsFeatureTabViews, settingsPayloadSnapshot, subscribeSettings, takePendingSettingsActivation, returnToSettingsList } from './settings-store.ts';
 import type { SettingsChange } from './settings-store.ts';
 import { onSoundEnabledChange } from '../mute-button.ts';
@@ -134,20 +133,6 @@ function syncSoundEnabledValue(enabled: boolean) {
   if (setting) refreshRow(setting);
 }
 
-function renderFlyingAnimalsReset() {
-  return button({
-    variant: 'secondary',
-    label: 'Reset all to defaults',
-    action: 'reset-flying-animals',
-    onClick: () => {
-      resetFlyingAnimalsAdvanced();
-      hydrate(settingsPayload);
-      applyFlyingAnimals(isFlyingAnimalsEnabled());
-      renderContent();
-    },
-  });
-}
-
 function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
   const advanced = el('div', 'settings-view-advanced');
   const toggle = createPressable('dialog-advanced-toggle settings-view-advanced-toggle', 'Advanced');
@@ -162,7 +147,6 @@ function renderAdvancedSettings(advancedSettings: SettingsSetting[]) {
     toggle.setAttribute('aria-expanded', String(isAdvancedSettingsExpanded));
   });
   for (const setting of advancedSettings) panel.append(renderRow(setting));
-  if (selectedPage.id === APPEARANCE_PAGE_ID) panel.append(renderFlyingAnimalsReset());
   advanced.append(toggle, panel);
   return advanced;
 }

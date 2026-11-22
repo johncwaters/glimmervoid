@@ -63,7 +63,7 @@ export const CHAT_NEAR_TOP_EVENT = 'chat-near-top';
 
 export const NO_ARRIVING_PARTS: ReadonlySet<string> = new Set();
 
-export function applyChatBriefOff(isBriefOff: boolean): void {
+function applyChatBriefOff(isBriefOff: boolean): void {
   document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isBriefOff);
 }
 

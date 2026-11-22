@@ -302,12 +302,6 @@ export const MACHINE_USAGE: SettingsSection = {
       control: 'toggle', keywords: ['tokens', 'cost'], defaultValue: true, status: 'usage-last-report', ...MACHINE_NOW,
     },
     {
-      id: 'usage-your-day', path: 'usage.yourDay', title: 'Your day',
-      description: 'Recap yesterday and suggest a pace for today when usage tracking is on.',
-      control: 'toggle', keywords: ['burnout', 'breaks', 'pace', 'wellbeing'], defaultValue: true, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'machine-sessions', settingId: 'hint-cards' }],
-    },
-    {
       id: 'usage-daily-budget', path: 'usage.budget.dailyUsd', title: 'Daily budget',
       description: 'Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero.',
       control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,

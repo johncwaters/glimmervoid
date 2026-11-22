@@ -45,7 +45,6 @@ const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,
   fetchPricing: true,
   planLimits: true,
-  yourDay: true,
   scanIntervalMinutes: 5,
   retainDays: 90,
 
@@ -81,7 +80,6 @@ interface UsageLaneConfig {
   enabled: boolean;
   fetchPricing: boolean;
   planLimits: boolean;
-  yourDay: boolean;
   scanIntervalMinutes: number;
   retainDays: number;
   warehouseRetainDays: number;
@@ -190,7 +188,6 @@ function resolveUsageConfig(usage: unknown): UsageLaneConfig {
     enabled: typeof source.enabled === 'boolean' ? source.enabled : DEFAULT_USAGE_CONFIG.enabled,
     fetchPricing: typeof source.fetchPricing === 'boolean' ? source.fetchPricing : DEFAULT_USAGE_CONFIG.fetchPricing,
     planLimits: typeof source.planLimits === 'boolean' ? source.planLimits : DEFAULT_USAGE_CONFIG.planLimits,
-    yourDay: typeof source.yourDay === 'boolean' ? source.yourDay : DEFAULT_USAGE_CONFIG.yourDay,
     scanIntervalMinutes: integerWithin(source.scanIntervalMinutes, INTEGER_RANGES.scanIntervalMinutes, DEFAULT_USAGE_CONFIG.scanIntervalMinutes),
     retainDays: integerWithin(source.retainDays, INTEGER_RANGES.retainDays, DEFAULT_USAGE_CONFIG.retainDays),
     warehouseRetainDays: integerWithin(source.warehouseRetainDays, INTEGER_RANGES.warehouseRetainDays, DEFAULT_USAGE_CONFIG.warehouseRetainDays),
@@ -854,7 +851,7 @@ function createUsageWiring({
       ranges: report.ranges,
       coverage: report.coverage,
       budget: report.budget,
-      yourDay: cfg.yourDay ? report.yourDay : null,
+      yourDay: report.yourDay,
       pricing: { source: pricing.source, fetchedAt: pricing.fetchedAt, missing: report.pricing.missing },
       scan: {
         dirs: report.scan.dirs,

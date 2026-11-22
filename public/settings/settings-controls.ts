@@ -5,26 +5,20 @@ import { button } from '../ui/button.ts';
 import { switchInput } from '../ui/switch.ts';
 import { select } from '../ui/select.ts';
 import { segmented } from '../ui/segmented.ts';
-import { createLineIcon } from '../svg-dom.ts';
 import { notificationsSupported } from '../notifications.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { readTeamReviewEnvironment, teamReviewSuggestions } from './team-review-settings-core.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { choicePresentation, displayRange, draftCommitOf, listValue, needsDangerConfirmation, numberDraftOf, secretEnvironmentSource } from './settings-view-core.ts';
-import { moveViewId, orderViewIds } from '../view-registry-core.ts';
 import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { recordNextAttentionKey, shortcutChord } from '../shortcuts-core.ts';
-import { settingsFeatureTabViews, requestTeamReviewEnvironmentOnce } from './settings-store.ts';
+import { requestTeamReviewEnvironmentOnce } from './settings-store.ts';
 import { draftByControl, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
 import { renderReadout } from './settings-readouts.ts';
 import { commitSetting, setFieldError } from './settings-save.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { DEFAULT_AGENT_ID } from '../session-card/agent-core.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
-
-const MOVE_UP_ICON_PATH = 'M4 10L8 6L12 10';
-const MOVE_DOWN_ICON_PATH = 'M4 6L8 10L12 6';
-const GRIP_ICON_PATH = 'M6 4h0.01M10 4h0.01M6 8h0.01M10 8h0.01M6 12h0.01M10 12h0.01';
 
 function inputMinimum(setting: SettingsSetting, range: SettingsRange) {
   if (!range.exclusiveMin) return range.min;
@@ -291,77 +285,6 @@ function renderList(setting: SettingsSetting) {
   return wrapper;
 }
 
-let lastTabOrderMoveKey: string | null = null;
-let draggedTabOrderViewId: string | null = null;
-
-function renderTabOrder(setting: SettingsSetting) {
-  const featureTabViews = settingsFeatureTabViews();
-  const labelByViewId = new Map(featureTabViews.map((view) => [view.view, view.label]));
-  const orderedViewIds = orderViewIds(featureTabViews.map((view) => view.view), listValue(storedValue(setting)));
-  const list = el('ol', 'settings-view-tab-order');
-  list.setAttribute('aria-labelledby', setting.id);
-  for (const [index, viewId] of orderedViewIds.entries()) {
-    const label = labelByViewId.get(viewId) ?? viewId;
-    const item = el('li', 'settings-view-tab-order-item');
-    const grip = el('span', 'settings-view-tab-order-grip');
-    grip.setAttribute('aria-hidden', 'true');
-    grip.appendChild(createLineIcon(GRIP_ICON_PATH, '2.4'));
-    item.append(
-      grip,
-      el('span', 'settings-view-tab-order-label', label),
-      buildTabOrderMove(setting, orderedViewIds, viewId, index - 1, 'up', `Move ${label} up`),
-      buildTabOrderMove(setting, orderedViewIds, viewId, index + 1, 'down', `Move ${label} down`),
-    );
-    makeTabOrderItemDraggable(setting, item, orderedViewIds, viewId, index);
-    list.append(item);
-  }
-  return list;
-}
-
-function makeTabOrderItemDraggable(setting: SettingsSetting, item: HTMLElement, orderedViewIds: readonly string[], viewId: string, index: number) {
-  item.draggable = true;
-  item.addEventListener('dragstart', (event) => {
-    draggedTabOrderViewId = viewId;
-    event.dataTransfer?.setData('text/plain', viewId);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-  });
-  item.addEventListener('dragend', () => { draggedTabOrderViewId = null; });
-  item.addEventListener('dragover', (event) => {
-    if (!draggedTabOrderViewId || draggedTabOrderViewId === viewId) return;
-    event.preventDefault();
-    item.dataset.dropTarget = orderedViewIds.indexOf(draggedTabOrderViewId) < index ? 'after' : 'before';
-  });
-  item.addEventListener('dragleave', () => delete item.dataset.dropTarget);
-  item.addEventListener('drop', (event) => {
-    event.preventDefault();
-    delete item.dataset.dropTarget;
-    const movedViewId = draggedTabOrderViewId;
-    draggedTabOrderViewId = null;
-    if (!movedViewId || movedViewId === viewId) return;
-    commitSetting(setting, moveViewId(orderedViewIds, movedViewId, index));
-  });
-}
-
-function buildTabOrderMove(
-  setting: SettingsSetting, orderedViewIds: readonly string[], viewId: string, targetIndex: number, direction: 'up' | 'down', accessibleName: string,
-) {
-  const moveKey = `${viewId}:${direction}`;
-  const moveButton = button({
-    variant: 'icon',
-    size: 'small',
-    label: accessibleName,
-    icon: createLineIcon(direction === 'up' ? MOVE_UP_ICON_PATH : MOVE_DOWN_ICON_PATH),
-    action: `move-tab-${direction}`,
-    disabled: targetIndex < 0 || targetIndex >= orderedViewIds.length,
-    onClick: () => {
-      lastTabOrderMoveKey = moveKey;
-      commitSetting(setting, moveViewId(orderedViewIds, viewId, targetIndex));
-    },
-  });
-  if (moveKey === lastTabOrderMoveKey) moveButton.dataset.restoresFocus = 'true';
-  return moveButton;
-}
-
 interface ListedAgent {
   id: string;
   label: string;
@@ -424,7 +347,6 @@ function renderControl(setting: SettingsSetting) {
   if (setting.control === 'select') return choicePresentation(setting) === 'segmented' ? renderSegmented(setting) : renderSelect(setting);
   if (setting.control === 'list') return renderList(setting);
   if (setting.control === 'shortcut-key') return renderShortcutKey(setting);
-  if (setting.control === 'tab-order') return renderTabOrder(setting);
   if (setting.control === 'agent-visibility') return renderAgentVisibility(setting);
   return renderInput(setting);
 }

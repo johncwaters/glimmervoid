@@ -1,4 +1,4 @@
-import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, POSITIVE_NUMBER_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
+import { POSITIVE_NUMBER_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
 import { BROWSER_NOW, MACHINE_NOW, READOUT, MINUTES } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
@@ -130,24 +130,6 @@ export const LANES_MY_PRS: SettingsSection = {
       control: 'toggle', keywords: ['rebase', 'update branch', 'behind', 'my prs'], danger: true,
       warning: 'Enabling this control rewrites your pull request branches on GitHub. Pull before you push from a local checkout of one.', defaultValue: false, ...MACHINE_NOW,
       legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-auto-rebase-my-prs' }],
-    },
-    {
-      id: 'team-review-keep-mergeable-enabled', path: 'teamReview.keepMergeableEnabled', title: 'Keep mergeable',
-      description: 'Offer Keep mergeable: an agent fixes conflicts and failing checks on your pull requests.',
-      control: 'toggle', keywords: ['repair', 'conflicts', 'my prs'], defaultValue: true, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-keep-mergeable-enabled' }],
-    },
-    {
-      id: 'team-review-keep-mergeable-timeout', path: 'teamReview.keepMergeableTimeoutMinutes', title: 'Keep mergeable deadline',
-      description: 'Longest a Keep mergeable repair may run.',
-      control: 'number', range: KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, unit: MINUTES, keywords: ['timeout', 'repair'], defaultValue: 30, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-keep-mergeable-timeout' }],
-    },
-    {
-      id: 'team-review-merge-queue-enabled', path: 'teamReview.mergeQueueEnabled', title: 'Merge when ready',
-      description: 'Offer Merge when ready: queued pull requests merge once they pass.',
-      control: 'toggle', keywords: ['merge queue', 'auto merge', 'my prs'], defaultValue: true, ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'lanes-team-review', settingId: 'team-review-merge-queue-enabled' }],
     },
     {
       id: 'workflows-enabled', path: 'workflows.enabled', title: 'Run workflows',

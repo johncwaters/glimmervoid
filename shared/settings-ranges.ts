@@ -8,9 +8,6 @@ export interface SettingsRange {
 export const POSITIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, exclusiveMin: true, label: 'a positive number' });
 export const NON_NEGATIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, label: 'zero or more' });
 
-export const FLYING_ANIMALS_GAP_RANGE = Object.freeze({ min: 0, max: 300 });
-export const FLYING_ANIMALS_DURATION_RANGE = Object.freeze({ min: 1, max: 60 });
-export const FLYING_ANIMALS_SCALE_RANGE = Object.freeze({ min: 0.5, max: 2 });
 export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
   flyingAnimalsMinGapSeconds: 20,
   flyingAnimalsMaxGapSeconds: 40,
@@ -68,7 +65,6 @@ export const USAGE_INTEGER_RANGES = Object.freeze({
 });
 
 
-export const KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE = Object.freeze({ min: 5, max: 120 });
 export const WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE = Object.freeze({ min: 1, max: 5 });
 export const WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE = Object.freeze({ min: 1, max: 50 });
 export const COMMUNITY_INTERVAL_MINUTES_RANGE = Object.freeze({ min: 1, max: 60 });
@@ -77,10 +73,6 @@ export const POSTHOG_PROJECT_ID_RANGE = Object.freeze({ min: 1, max: Number.MAX_
 export const SETTINGS_RANGES = Object.freeze({
   NON_NEGATIVE_NUMBER_RANGE,
   COMMUNITY_INTERVAL_MINUTES_RANGE,
-  FLYING_ANIMALS_GAP_RANGE,
-  FLYING_ANIMALS_DURATION_RANGE,
-  FLYING_ANIMALS_SCALE_RANGE,
-  KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE,
   PORT_RANGE,
   POSTHOG_ESCALATION_RANGE,
   POSTHOG_FIX_TIMEOUT_RANGE,

@@ -87,9 +87,6 @@ const REVIEW_SKILL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
-  keepMergeableEnabled: optionalBoolean('teamReview.keepMergeableEnabled'),
-  mergeQueueEnabled: optionalBoolean('teamReview.mergeQueueEnabled'),
-  keepMergeableTimeoutMinutes: optionalInteger('teamReview.keepMergeableTimeoutMinutes', ranges.KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE),
   org: optionalString('teamReview.org', true),
   team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),
@@ -172,7 +169,6 @@ const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => 
   enabled: optionalBoolean('usage.enabled'),
   fetchPricing: optionalBoolean('usage.fetchPricing'),
   planLimits: optionalBoolean('usage.planLimits'),
-  yourDay: optionalBoolean('usage.yourDay'),
   scanIntervalMinutes: optionalInteger('usage.scanIntervalMinutes', ranges.USAGE_INTEGER_RANGES.scanIntervalMinutes),
   retainDays: optionalInteger('usage.retainDays', ranges.USAGE_INTEGER_RANGES.retainDays),
   warehouseRetainDays: optionalInteger('usage.warehouseRetainDays', ranges.USAGE_INTEGER_RANGES.warehouseRetainDays),

@@ -1,5 +1,4 @@
-import { FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_SCALE_RANGE } from '../settings-ranges.ts';
-import { BROWSER_NOW, BROWSER_ADVANCED, SECONDS, MULTIPLIER } from './registry-fields.ts';
+import { BROWSER_NOW } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const BROWSER_APPEARANCE: SettingsSection = {
@@ -20,44 +19,9 @@ export const BROWSER_APPEARANCE: SettingsSection = {
       control: 'toggle', keywords: ['experimental', 'mobile', 'keys', 'arrows', 'swipe', 'gesture'], defaultValue: false, ...BROWSER_NOW,
     },
     {
-      id: 'chat-brief', path: 'pref:chatBrief', title: 'Brief Chat turns',
-      description: 'Fold each Chat turn you have seen down to its lead line. Press B in Chat to switch it.',
-      control: 'toggle', keywords: ['chat', 'fold', 'collapse', 'turns', 'summary'], defaultValue: true, ...BROWSER_NOW,
-    },
-    {
       id: 'flying-animals', path: 'pref:flyingAnimalsEnabled', title: 'Flying animals',
       description: 'Show animated animals flying across the dashboard.',
       control: 'toggle', keywords: ['animation', 'motion', 'animals'], defaultValue: false, ...BROWSER_NOW,
-    },
-    {
-      id: 'animals-min-gap', path: 'pref:flyingAnimalsMinGapSeconds', title: 'Time between flights: minimum',
-      description: 'Shortest pause between flights.', control: 'number', integer: false, step: 0.1,
-      range: FLYING_ANIMALS_GAP_RANGE, unit: SECONDS, maximumSettingId: 'animals-max-gap', keywords: ['animals', 'frequency'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinGapSeconds, ...BROWSER_ADVANCED,
-    },
-    {
-      id: 'animals-max-gap', path: 'pref:flyingAnimalsMaxGapSeconds', title: 'Time between flights: maximum',
-      description: 'Longest pause between flights.', control: 'number', integer: false, step: 0.1,
-      range: FLYING_ANIMALS_GAP_RANGE, unit: SECONDS, keywords: ['animals', 'frequency'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxGapSeconds, ...BROWSER_ADVANCED,
-    },
-    {
-      id: 'animals-min-duration', path: 'pref:flyingAnimalsMinDurationSeconds', title: 'Flight duration: minimum',
-      description: 'Shortest flight, for faster animals.', control: 'number', integer: false, step: 0.1,
-      range: FLYING_ANIMALS_DURATION_RANGE, unit: SECONDS, maximumSettingId: 'animals-max-duration', keywords: ['animals', 'speed'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMinDurationSeconds, ...BROWSER_ADVANCED,
-    },
-    {
-      id: 'animals-max-duration', path: 'pref:flyingAnimalsMaxDurationSeconds', title: 'Flight duration: maximum',
-      description: 'Longest flight, for slower animals.', control: 'number', integer: false, step: 0.1,
-      range: FLYING_ANIMALS_DURATION_RANGE, unit: SECONDS, keywords: ['animals', 'speed'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsMaxDurationSeconds, ...BROWSER_ADVANCED,
-    },
-    {
-      id: 'animals-scale', path: 'pref:flyingAnimalsScale', title: 'Size multiplier',
-      description: 'Scale applied on top of the viewport size.', control: 'number', integer: false, step: 0.1,
-      range: FLYING_ANIMALS_SCALE_RANGE, unit: MULTIPLIER, keywords: ['animals', 'size'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsScale, ...BROWSER_ADVANCED,
-    },
-    {
-      id: 'animals-on-phone', path: 'pref:flyingAnimalsOnPhone', title: 'Show on phone layout',
-      description: 'Allow flights on the phone layout.', control: 'toggle',
-      keywords: ['animals', 'mobile'], defaultValue: FLYING_ANIMALS_DEFAULTS.flyingAnimalsOnPhone, ...BROWSER_ADVANCED,
     },
   ],
 };

@@ -83,7 +83,7 @@ function dropRetiredBenchmarks(config: GlimmervoidConfig): string | null {
 function dropRetiredHintCards(config: GlimmervoidConfig): string | null {
   if (!Object.hasOwn(config, 'hintCards')) return null;
   delete config.hintCards;
-  return '[config] Removed hintCards: hint cards folded into Usage, Your day, which usage.yourDay turns on and off.';
+  return '[config] Removed hintCards: hint cards folded into Usage, Your day.';
 }
 
 function dropRetiredPlanReview(config: GlimmervoidConfig): string | null {
@@ -237,6 +237,10 @@ const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
   'worktreeRerere',
   'telegramNotifications',
   'slack.enabled',
+  'teamReview.keepMergeableEnabled',
+  'teamReview.mergeQueueEnabled',
+  'teamReview.keepMergeableTimeoutMinutes',
+  'usage.yourDay',
 ]);
 
 function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {

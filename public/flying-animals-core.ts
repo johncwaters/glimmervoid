@@ -1,18 +1,11 @@
-import { FLYING_ANIMALS_DEFAULTS, FLYING_ANIMALS_GAP_RANGE, FLYING_ANIMALS_DURATION_RANGE, FLYING_ANIMALS_SCALE_RANGE } from '#shared/settings-ranges.ts';
+import { FLYING_ANIMALS_DEFAULTS } from '#shared/settings-ranges.ts';
 import { ANIMALS } from './nyan-animals-core.ts';
-
-export { FLYING_ANIMALS_DEFAULTS };
 
 const SWOOP_CHANCE = 1 / 25;
 const SWOOP_ARC_MULTIPLIER = 3;
 
 type FlyingAnimalsAdvanced = { [Key in keyof typeof FLYING_ANIMALS_DEFAULTS]: typeof FLYING_ANIMALS_DEFAULTS[Key] extends boolean ? boolean : number };
-export type FlyingAnimalsOptions = FlyingAnimalsAdvanced & { flyingAnimalsExcludedSprites: string[] };
-
-function normalizeFlyingAnimalsNumber(value: unknown, fallback: number, range: { min: number; max: number }): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.min(range.max, Math.max(range.min, value));
-}
+type FlyingAnimalsOptions = FlyingAnimalsAdvanced & { flyingAnimalsExcludedSprites: string[] };
 
 export function normalizeExcludedSprites(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -21,20 +14,8 @@ export function normalizeExcludedSprites(value: unknown): string[] {
 }
 
 export function normalizeFlyingAnimalsOptions(values: Partial<Record<keyof FlyingAnimalsOptions, unknown>> = {}): FlyingAnimalsOptions {
-  const defaults = FLYING_ANIMALS_DEFAULTS;
-  const gapRange = FLYING_ANIMALS_GAP_RANGE;
-  const durationRange = FLYING_ANIMALS_DURATION_RANGE;
-  const minGap = normalizeFlyingAnimalsNumber(values.flyingAnimalsMinGapSeconds, defaults.flyingAnimalsMinGapSeconds, gapRange);
-  const maxGap = normalizeFlyingAnimalsNumber(values.flyingAnimalsMaxGapSeconds, defaults.flyingAnimalsMaxGapSeconds, gapRange);
-  const minDuration = normalizeFlyingAnimalsNumber(values.flyingAnimalsMinDurationSeconds, defaults.flyingAnimalsMinDurationSeconds, durationRange);
-  const maxDuration = normalizeFlyingAnimalsNumber(values.flyingAnimalsMaxDurationSeconds, defaults.flyingAnimalsMaxDurationSeconds, durationRange);
   return {
-    flyingAnimalsMinGapSeconds: Math.min(minGap, maxGap),
-    flyingAnimalsMaxGapSeconds: Math.max(minGap, maxGap),
-    flyingAnimalsMinDurationSeconds: Math.min(minDuration, maxDuration),
-    flyingAnimalsMaxDurationSeconds: Math.max(minDuration, maxDuration),
-    flyingAnimalsScale: normalizeFlyingAnimalsNumber(values.flyingAnimalsScale, defaults.flyingAnimalsScale, FLYING_ANIMALS_SCALE_RANGE),
-    flyingAnimalsOnPhone: typeof values.flyingAnimalsOnPhone === 'boolean' ? values.flyingAnimalsOnPhone : defaults.flyingAnimalsOnPhone,
+    ...FLYING_ANIMALS_DEFAULTS,
     flyingAnimalsExcludedSprites: normalizeExcludedSprites(values.flyingAnimalsExcludedSprites),
   };
 }

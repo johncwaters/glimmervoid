@@ -4,7 +4,7 @@ type SettingsScope = 'browser' | 'machine';
 type SettingsAccess = 'editable' | 'advanced' | 'readout' | 'file-only';
 export type SettingsEffect = 'now' | 'new-sessions' | 'restart';
 type SettingsLevel = 'browser' | 'machine' | 'lanes';
-type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'json' | 'readonly' | 'shortcut-key' | 'tab-order' | 'agent-visibility';
+type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'json' | 'readonly' | 'shortcut-key' | 'agent-visibility';
 export type SettingsChoicePresentation = 'segmented' | 'select';
 
 export type SettingsVisibleCondition =
@@ -87,7 +87,6 @@ export interface SettingsRegistry {
 }
 
 export const BROWSER_NOW = { scope: 'browser', access: 'editable', takesEffect: 'now' } as const;
-export const BROWSER_ADVANCED = { scope: 'browser', access: 'advanced', takesEffect: 'now' } as const;
 export const MACHINE_NOW = { scope: 'machine', access: 'editable', takesEffect: 'now' } as const;
 export const MACHINE_NEW_SESSIONS = { scope: 'machine', access: 'editable', takesEffect: 'new-sessions' } as const;
 export const READOUT = { scope: 'machine', access: 'readout', takesEffect: 'now' } as const;
