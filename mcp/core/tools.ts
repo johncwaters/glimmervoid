@@ -343,7 +343,7 @@ const WARGAMES_TOOL: GroupedTool = {
   description: 'Set up, start, inspect, and abort 6-seat Wargames strategy matches across mixed AI models, or read cross-match history and model Elo ratings. start launches a 6-seat match from a WargamesMatchSpec (version 1 is filled in automatically) and returns the matchId; matches lists loaded and recent match summaries; match reads one match summary by id; abort ends an active match with an optional reason; history returns the model Elo leaderboard and past matches.',
   loadsUpfront: false,
   fields: {
-    spec: z.record(z.string(), z.unknown()).optional().describe('start: the match spec as {title, seed, tickDeadlineSeconds?, maxTicks?, seats: [{seatId: s1..s6, label, setup: {agent, model (null for default), options: [], instructions: \'\'}, modelDisplay}]} (6 seats)'),
+    spec: z.record(z.string(), z.unknown()).optional().describe('start: the match spec as {title, seed, tickDeadlineSeconds?, maxTicks?, seats: [{seatId: s1..s6, label, setup: {agent, model (null for default), options: [], instructions: \'\' (optional pre-game strategy brief appended after immutable rules)}, modelDisplay}]} (6 seats)'),
     match: WargamesMatchId.optional().describe('match, abort: the Wargames match id'),
     reason: z.string().trim().min(1).max(400).optional().describe('abort: optional reason for ending the match'),
   },

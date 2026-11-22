@@ -10,7 +10,11 @@ import { WARGAMES_SEAT_IDS, WargamesMatchSpec } from '../shared/contracts/wargam
 import type { ClearTimeoutFn, SetTimeoutFn } from '../shared/timer-deps.ts';
 import { hexIndexAt, replayMatch } from '../shared/wargames/engine.ts';
 import { createWargamesRunner } from '../server/wargames/wargames-runner.ts';
+import { createWargamesLauncher } from '../server/wargames/wargames-launch.ts';
 import { createWargamesStore } from '../server/wargames/wargames-store.ts';
+import { DEFAULT_CONFIG } from '../server/config-store.ts';
+import { Session } from '../session/sessions.ts';
+import { fakePty } from './helpers/fake-pty.ts';
 
 function buildSpec(): WargamesMatchSpec {
   const models = ['claude-opus-4-6', 'gpt-5.3-codex', 'kimi-k2.5', 'gemini-2.5-pro', 'claude-sonnet-4-6', 'o3'];
@@ -197,6 +201,62 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
     assert.equal(endedSessions.length, 6);
     runner.dispose();
   } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('wargames launcher appends optional seat.setup.instructions after immutable rules', async () => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-launch-prompt-'));
+  const fakeSessions = new Map<string, Session>();
+  try {
+    const deliveredPrompts = new Map<string, string>();
+    const launcher = createWargamesLauncher({
+      wargames: {
+        startMatch: async (spec, launchSeat) => {
+          if (launchSeat) {
+            for (const seat of spec.seats) {
+              await launchSeat('wg-prompt-1', seat, () => {});
+            }
+          }
+          return { ok: true, matchId: 'wg-prompt-1', error: null };
+        },
+      },
+      sessions: fakeSessions,
+      config: { ...DEFAULT_CONFIG, projects: [] },
+      createProjectSession: ({ name, path: projectPath }) => {
+        const id = `sess-${name}`;
+        const session = new Session({ id, name, path: projectPath, ptySpawn: () => fakePty() });
+        session.deliver = (prompt: string) => {
+          deliveredPrompts.set(name, prompt);
+          return { ok: true, kind: 'pasted' };
+        };
+        fakeSessions.set(id, session);
+        return { ok: true, project: { id, name, path: projectPath } };
+      },
+      seatRootDir: tempDir,
+    });
+    const baseSpec = buildSpec();
+    const specWithStrategy: WargamesMatchSpec = {
+      ...baseSpec,
+      seats: baseSpec.seats.map((seat) => ({
+        ...seat,
+        setup: {
+          ...seat.setup,
+          instructions: seat.seatId === 's1' ? 'Play defensively and rush walls before tick 5.' : '',
+        },
+      })),
+    };
+    const started = await launcher.start(specWithStrategy);
+    assert.equal(started.ok, true);
+    const s1Prompt = deliveredPrompts.get('Wargames ompt-1 - s1') ?? '';
+    const s2Prompt = deliveredPrompts.get('Wargames ompt-1 - s2') ?? '';
+    assert.match(s1Prompt, /^You are playing Wargames match/);
+    assert.match(s1Prompt, /--- Pre-Game Strategy Instructions/);
+    assert.match(s1Prompt, /Play defensively and rush walls before tick 5\./);
+    assert.match(s2Prompt, /^You are playing Wargames match/);
+    assert.equal(s2Prompt.includes('Pre-Game Strategy Instructions'), false);
+  } finally {
+    for (const session of fakeSessions.values()) session.destroy();
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
 });

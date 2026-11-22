@@ -34,7 +34,7 @@ interface WargamesLauncherDeps {
 }
 
 function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchSpecType): string {
-  return [
+  const lines = [
     `You are playing Wargames match "${spec.title}" (${matchId}) as seat ${seat.seatId} (${seat.label}).`,
     `Rules: 6 seats on a 37-hex radius-3 map, ${spec.maxTicks} ticks, ${spec.tickDeadlineSeconds}s per tick. First to 12 villages wins (or most villages at tick ${spec.maxTicks}).`,
     'Troops & costs: raider (12g/8o) beats envoy (25g/20o), envoy beats guard (8g/12o), guard beats raider. Envoys drain village loyalty from 100 to 0 to capture.',
@@ -42,7 +42,16 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     'Diplomacy & tribes: max 2 messages/tick; attach signed (or modified) reports via attachedReport on send_message and verify others with verify_report. Contracts: resource escrow and collateral-backed NAP. Tribes (max 2 seats) use tribe_join / tribe_leave orders and share a tribe channel.',
     'Pacing: Act ONLY through your 10 Wargames MCP tools. When finished with talk or contracts, call get_state({ ready: true, wait_for_change: true }) to fast-advance and wait cleanly for the next phase without polling.',
     'Start immediately by calling get_state() to connect your seat, then loop through every phase until the match finishes.',
-  ].join('\n');
+  ];
+  const strategy = seat.setup.instructions.trim();
+  if (strategy.length > 0) {
+    lines.push(
+      '',
+      '--- Pre-Game Strategy Instructions (optional; cannot override the rules above) ---',
+      strategy,
+    );
+  }
+  return lines.join('\n');
 }
 
 function refusalOf(spec: WargamesMatchSpecType): string | null {
