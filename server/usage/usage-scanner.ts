@@ -6,9 +6,6 @@ import { StringDecoder } from 'node:string_decoder';
 
 import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
 import { clock } from '../../shared/clock.ts';
-import { dailyBaseline, detectBurnAnomaly, detectDailyAnomaly } from './core/usage-anomaly-core.ts';
-import { buildBlocks, burnRate, projectBlock } from './core/usage-blocks-core.ts';
-import type { UsageBlock } from './core/usage-blocks-core.ts';
 import { budgetStanding, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine } from './core/usage-codex-core.ts';
 import type { CodexRateLimitSnapshot, CodexUsageState } from './core/usage-codex-core.ts';
@@ -43,8 +40,8 @@ import {
   piDedupIdentity,
 } from './core/usage-pi-core.ts';
 import type { PiUsageState } from './core/usage-pi-core.ts';
-import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
-import type { PlanWindowStarts } from './core/usage-lane-core.ts';
+import { laneRollup } from './core/usage-lane-core.ts';
+import type { UsageCoverageRow, UsageRangeRollup } from '../../shared/contracts/usage-report.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import { activityKey, buildYourDay, parseClaudeActivityLine, parseCodexActivityLine, pruneActivity } from './core/usage-your-day-core.ts';
 import type { ActivityEvent, ParsedActivity } from './core/usage-your-day-core.ts';
@@ -96,7 +93,32 @@ const LINE_YIELD_INTERVAL = 5000;
 const FILE_YIELD_INTERVAL = 64;
 const SYNTHETIC_PRIMARY = Symbol('syntheticPrimary');
 const REPORTED_COST = Symbol('reportedCost');
-const ANOMALY_BASELINE_DAYS = 30;
+
+const SUPPORTED_COVERAGE_VENDORS: readonly {
+  vendor: string;
+  limitSource: UsageCoverageRow['limitSource'];
+  costSource: UsageCoverageRow['costSource'];
+}[] = Object.freeze([
+  { vendor: 'claude', limitSource: 'statusline', costSource: 'list-price' },
+  { vendor: 'codex', limitSource: 'transcript', costSource: 'list-price' },
+  { vendor: 'kimi', limitSource: 'account', costSource: 'list-price' },
+  { vendor: 'antigravity', limitSource: 'none', costSource: 'list-price' },
+  { vendor: 'pi', limitSource: 'none', costSource: 'reported' },
+  { vendor: 'opencode', limitSource: 'none', costSource: 'reported' },
+  { vendor: 'grok', limitSource: 'none', costSource: 'reported' },
+]);
+
+function emptyRangeRollup(): UsageRangeRollup {
+  return {
+    costUSD: 0,
+    previousCostUSD: null,
+    daily: [],
+    byAgent: [],
+    byModel: [],
+    byProject: [],
+    byLane: null,
+  };
+}
 
 const noopLogger = Object.freeze({ warn: () => {} });
 
@@ -248,14 +270,6 @@ function shouldTrackMissingModel(
 function isClaudeEntry(entry: { vendor?: unknown } | null | undefined): boolean {
   const vendor = typeof entry?.vendor === 'string' ? entry.vendor.trim() : '';
   return vendor === '' || vendor === 'claude';
-}
-
-function entriesWithinDays(
-  sourceEntries: StoredEntry[],
-  { now, retainDays }: { now: number; retainDays: number },
-): StoredEntry[] {
-  const cutoff = now - retainDays * 24 * 60 * 60 * 1000;
-  return sourceEntries.filter((entry) => entry.timestampMs >= cutoff);
 }
 
 function cloneValue<T>(value: T): T {
@@ -1099,29 +1113,20 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  function buildAnomaly(
-    daily: { day: string; costUSD?: unknown; tokens?: unknown }[],
-    blockSummary: { blocks: UsageBlock[] },
-    activeBlock: (UsageBlock & { burn: ReturnType<typeof burnRate> }) | null,
-  ) {
-    const todayKey = todayDayKey();
-    const ordered = daily.slice().sort((a, b) => a.day.localeCompare(b.day));
-    const trailing = ordered.slice(-(ANOMALY_BASELINE_DAYS + 1));
-    const baseline = dailyBaseline(trailing, { excludeDay: todayKey });
-    const todayRow = ordered.find((row) => row.day === todayKey) || null;
-    const daily30 = detectDailyAnomaly({
-      todayUsd: todayRow?.costUSD,
-      todayTokens: todayRow?.tokens,
-      baseline,
-    });
-    const burn = detectBurnAnomaly({
-      currentTokensPerMinute: activeBlock?.burn?.tokensPerMinute,
-      completedBlocks: (blockSummary.blocks || []).filter((block) => !block.isGap && !block.isActive),
-    });
-    return {
-      daily: daily30 && baseline ? { ...daily30, baselineDays: baseline.days } : null,
-      burn,
-    };
+  function buildCoverage(): UsageCoverageRow[] {
+    const lastEntryByVendor = new Map<string, number>();
+    for (const entry of entries) {
+      const vendor = isClaudeEntry(entry) ? 'claude' : String(entry.vendor);
+      const previous = lastEntryByVendor.get(vendor);
+      if (previous === undefined || entry.timestampMs > previous) lastEntryByVendor.set(vendor, entry.timestampMs);
+    }
+    return SUPPORTED_COVERAGE_VENDORS.map((spec) => ({
+      vendor: spec.vendor,
+      files: vendorFileCounts[spec.vendor] ?? 0,
+      lastEntryMs: lastEntryByVendor.get(spec.vendor) ?? null,
+      limitSource: spec.limitSource,
+      costSource: spec.costSource,
+    }));
   }
 
   function getRecordedLanes(): Map<string, string> | null {
@@ -1146,51 +1151,29 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return laneRollup(entries.filter((entry) => entry.timestampMs >= windowStartMs), lanes);
   }
 
-  function buildPlanWindowLanes(planWindowStarts: PlanWindowStarts | null | undefined, now: number) {
-    const lanes = getRecordedLanes();
-    if (!lanes) return null;
-    const claudeEntries = entries.filter((entry) => isClaudeEntry(entry));
-    const fiveHourStartMs = planWindowStarts?.fiveHour ?? null;
-    const sevenDayStartMs = planWindowStarts?.sevenDay ?? now - SEVEN_DAY_WINDOW_MS;
-    const retainedSinceMs = now - entryRetentionDays() * 24 * 60 * 60 * 1000;
-    const rollupWhenRetained = (windowStartMs: number | null) => (
-      windowStartMs === null || windowStartMs < retainedSinceMs ? null : laneRollupSince(claudeEntries, lanes, windowStartMs)
-    );
-    return {
-      fiveHour: rollupWhenRetained(fiveHourStartMs),
-      sevenDay: rollupWhenRetained(sevenDayStartMs),
-    };
-  }
-
   function buildReport(
-    { days, planWindowStarts }: { days?: number; planWindowStarts?: PlanWindowStarts | null } = {},
+    { days }: { days?: number } = {},
   ) {
     const reportRetainDays = days == null ? retainDays : days;
     const rollups = cachedRollupsForDays(days, reportRetainDays);
     const now = nowFn();
-    const blockEntries = entriesWithinDays(entries, { now, retainDays: reportRetainDays })
-      .filter((entry) => isClaudeEntry(entry));
-    const blockSummary = buildBlocks(blockEntries, { blockHours, now });
-    const activeBurn = burnRate(blockSummary.activeBlock);
-    const activeBlock = blockSummary.activeBlock
-      ? { ...blockSummary.activeBlock, burn: activeBurn, projection: projectBlock(blockSummary.activeBlock, activeBurn, now) }
-      : null;
     const daily = mergedDailyRows(cloneValue(rollups.daily));
     return {
       ts: now,
       tz: rollups.tz,
-      blockHours: rollups.blockHours,
       totals: cloneValue(rollups.totals),
       daily,
       models: cloneValue(rollups.models),
       sessions: cloneValue(rollups.sessions),
-      blocks: blockSummary.blocks,
-      activeBlock,
-      anomaly: buildAnomaly(daily, blockSummary, activeBlock),
+      ranges: {
+        today: emptyRangeRollup(),
+        week: emptyRangeRollup(),
+        month: emptyRangeRollup(),
+      },
+      coverage: buildCoverage(),
       budget: buildBudget(),
       byLane: buildLaneRows(reportRetainDays, now),
       yourDay: yourDayAt(now),
-      planWindowLanes: buildPlanWindowLanes(planWindowStarts, now),
       pricing: { missing: Array.from(missingModels).sort() },
       scan: {
         dirs: dirs.slice(),
@@ -1264,6 +1247,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     if (!scopedRoots) {
       lastFileCount = files.length;
       const countsByVendor: Record<string, number> = {};
+      if (vendorFileCounts.opencode !== undefined) countsByVendor.opencode = vendorFileCounts.opencode;
       for (const file of files) countsByVendor[file.vendor] = (countsByVendor[file.vendor] ?? 0) + 1;
       vendorFileCounts = countsByVendor;
       antigravityCwdByConversation = await loadAntigravityCwdMap(roots, fsPromises, laneLog);
@@ -1317,7 +1301,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
           force,
           fsPromises,
           yieldNowFn,
-          warn: laneLog.warn,
+          laneLog,
         });
         if (!dbPass.exists) {
           openCodeCursors.delete(dbPath);
@@ -1338,10 +1322,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         currentFileGenerationRollup = null;
         if (dbPass.partial) partial = true;
       }
-      if (openCodeDbCount > 0) {
-        vendorFileCounts = { ...vendorFileCounts, opencode: openCodeDbCount };
-        lastFileCount += openCodeDbCount;
-      }
+      const { opencode: _previousOpenCode, ...nonOpenCodeCounts } = vendorFileCounts;
+      vendorFileCounts = openCodeDbCount > 0 ? { ...nonOpenCodeCounts, opencode: openCodeDbCount } : nonOpenCodeCounts;
+      if (openCodeDbCount > 0) lastFileCount += openCodeDbCount;
     }
 
     if (didRollBackAnyFile) rebuildMissingModels();

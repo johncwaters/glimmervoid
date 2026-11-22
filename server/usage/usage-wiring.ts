@@ -8,10 +8,8 @@ import type { UsageVendorKey } from '../../shared/usage-config.ts';
 import { budgetScopesAtLimit, evaluateBudget, markFired, pausedPeriodsAfter, pausedScopesInPeriod, readPausedPeriods, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import type { BudgetAlert, BudgetConfig, BudgetFiredState, BudgetPausedPeriods } from './core/usage-budget-core.ts';
 import type { BudgetHoldPhase } from '../session/session-budget-pause.ts';
-import { planWindowStartsMs } from './core/usage-lane-core.ts';
 import { continuationDelayMs, shouldEvaluateDespiteIoFailures } from './core/usage-scan-core.ts';
 import type { PassOutcome } from './core/usage-scan-core.ts';
-import { computeCacheSavings } from './core/usage-savings-core.ts';
 import {
   buildPlanLimitsMessage,
   buildAccountPlanLimitsMessage,
@@ -790,15 +788,6 @@ function createUsageWiring({
     return queued;
   }
 
-  async function buildSavings(report: { models: { model?: string | null; vendor?: string; cacheRead?: unknown }[] }) {
-    try {
-      return { cache: computeCacheSavings(report.models, pricing?.table) };
-    } catch (error) {
-      laneLog.warn('savings unavailable', { error: errorMessage(error) });
-      return { cache: null };
-    }
-  }
-
   function unavailableReport(requestId: string | null, error: string) {
     return { type: 'usage-report', requestId: requestId || null, ts: nowFn(), error };
   }
@@ -815,31 +804,20 @@ function createUsageWiring({
     void pollKimiPlanLimits(KIMI_VIEWED_POLL_MS);
     let report: ReturnType<ReturnType<typeof createUsageScanner>['buildReport']>;
     try {
-      const officialRateLimits = cfg.planLimits ? planLimitsByVendor.claude?.rateLimits : null;
-      report = scanner.buildReport({ days, planWindowStarts: planWindowStartsMs(officialRateLimits, nowFn()) });
+      report = scanner.buildReport({ days });
     } catch (error) {
       laneLog.warn('report build failed', { error: errorMessage(error) });
       return unavailableReport(requestId, `Usage report failed: ${errorMessage(error)}`);
     }
     const scanStats = scanner.stats();
-    const savings = await buildSavings(report);
     const cached = {
       type: 'usage-report',
       requestId: null,
       ts: report.ts,
       tz: report.tz,
-      blockHours: report.blockHours,
-      totals: report.totals,
-      daily: report.daily,
-      models: report.models,
-      sessions: report.sessions,
-      blocks: report.blocks,
-      activeBlock: report.activeBlock,
-      anomaly: report.anomaly,
-      byLane: report.byLane,
-      planWindowLanes: report.planWindowLanes,
+      ranges: report.ranges,
+      coverage: report.coverage,
       budget: report.budget,
-      savings,
       yourDay: cfg.yourDay ? report.yourDay : null,
       pricing: { source: pricing.source, fetchedAt: pricing.fetchedAt, missing: report.pricing.missing },
       scan: {
@@ -851,7 +829,6 @@ function createUsageWiring({
         outcome: report.scan.outcome,
         ioFailures: report.scan.ioFailures,
       },
-
       warning: scanStats.resolutionError || null,
       error: null,
     };

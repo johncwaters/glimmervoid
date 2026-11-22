@@ -39,13 +39,12 @@ type ControlFrame =
     requestId: string | null;
     error: string | null;
     warning?: string | null;
-    blockHours?: number;
-    totals?: { tokens: number; input: number; output: number };
-    daily?: unknown[];
-    models?: { model: string }[];
-    sessions?: unknown[];
-    blocks?: unknown[];
-    activeBlock?: unknown;
+    ranges?: {
+      today: { costUSD: number; daily: unknown[]; byAgent: unknown[]; byModel: unknown[]; byProject: unknown[]; byLane: unknown[] | null };
+      week: { costUSD: number; daily: unknown[]; byAgent: unknown[]; byModel: unknown[]; byProject: unknown[]; byLane: unknown[] | null };
+      month: { costUSD: number; daily: unknown[]; byAgent: unknown[]; byModel: unknown[]; byProject: unknown[]; byLane: unknown[] | null };
+    };
+    coverage?: { vendor: string; files: number; lastEntryMs: number | null; limitSource: string; costSource: string }[];
     pricing?: { source: string; missing: string[] };
     scan?: { files: number; entries: number; partial: boolean; dirs: string[] };
   }
@@ -239,15 +238,13 @@ test('request-usage-report replies to the requesting socket only, with the full 
   assert.equal(report.requestId, 'r1');
   assert.equal(report.error, null);
   assert.equal(report.warning, null);
-  assert.equal(report.blockHours, 5);
-  assert.equal(report.totals?.tokens, 375);
-  assert.equal(report.totals?.input, 300);
-  assert.equal(report.totals?.output, 75);
-  assert.equal(report.daily?.length, 1, 'both entries land in one local-tz day');
-  assert.deepEqual(report.models?.map((m) => m.model), [MODEL]);
-  assert.equal(report.sessions?.length, 1);
-  assert.ok((report.blocks?.length ?? 0) >= 1);
-  assert.ok(report.activeBlock, 'the fixture entries are minutes old, so the block is still active');
+  assert.ok(report.ranges?.today);
+  assert.ok(report.ranges?.week);
+  assert.ok(report.ranges?.month);
+  const claudeCoverage = report.coverage?.find((row) => row.vendor === 'claude');
+  assert.equal(claudeCoverage?.files, 1);
+  assert.equal(claudeCoverage?.limitSource, 'statusline');
+  assert.equal(claudeCoverage?.costSource, 'list-price');
   assert.equal(report.pricing?.source, 'snapshot');
   assert.deepEqual(report.pricing?.missing, []);
   assert.equal(report.scan?.files, 1);
@@ -261,7 +258,7 @@ test('request-usage-report replies to the requesting socket only, with the full 
   const latecomer = await openControl(dash);
   const replayed = await waitForMessage(latecomer.received, isUsageReport, 'the replayed report');
   assert.equal(replayed.requestId, null);
-  assert.equal(replayed.totals?.tokens, 375);
+  assert.equal(replayed.scan?.entries, 2);
 
   await closeSocket(asker.ws);
   await closeSocket(bystander.ws);
@@ -282,7 +279,7 @@ test('usage.enabled false: no scanner, no messages, and a refused report request
   assert.equal(report.requestId, 'r9');
   assert.ok(report.error, 'the refusal names a reason');
   assert.match(report.error, /disabled/);
-  assert.equal(report.totals, undefined, 'a refusal carries no report body');
+  assert.equal(report.ranges, undefined, 'a refusal carries no report body');
   assert.equal(counts.scanners, 0, 'the refused request still constructed nothing');
 
   await closeSocket(client.ws);
@@ -482,8 +479,8 @@ test('a byte-limited continuation re-arms while a real scan is in flight without
   assert.equal(completedPasses.at(-1)?.outcome, 'complete');
   assert.equal(continuations.length, 2, 'a complete scan schedules no further continuation');
   const report = await wiring.requestReport();
-  assert.ok(report.totals && typeof report.totals === 'object' && 'tokens' in report.totals);
-  assert.equal(report.totals.tokens, 375);
+  assert.ok(report.scan && typeof report.scan === 'object' && 'entries' in report.scan);
+  assert.equal(report.scan.entries, 2);
 });
 
 test('io-failed passes retry with capped backoff and warn once per standing failure', async (context) => {

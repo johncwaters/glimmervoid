@@ -3,11 +3,9 @@ import { createAttentionAck } from '../attention-ack-core.ts';
 import { nextRequestId } from '../control-ws.ts';
 import { NOT_CONNECTED_TEXT } from '../updates-view-core.ts';
 import { formatAgo } from '../poll-ago.ts';
-import { getJSON, setJSON } from '../local-store.ts';
 import { getUsageAttentionAck, setUsageAttentionAck } from '../ui-prefs.ts';
 import {
   DEFAULT_RANGE_VALUE,
-  RANGE_OPTIONS,
   planLimitsVendorOf,
   pricingFetchedAtMs,
   pricingSourceLine,
@@ -17,25 +15,23 @@ import {
   usageErrorLine,
 } from './usage-store-core.ts';
 import type { PlanLimits, PlanLimitsVendor, UsageReport } from './usage-store-core.ts';
-import { parseUsageMetric } from './usage-view-core.ts';
-import type { UsageMetric } from './usage-view-core.ts';
 
 const REFRESH_STATUS_TIMEOUT_MS = 20000;
-const USAGE_METRIC_STORAGE_KEY = 'glimmervoid-usage-metric';
 
 type UsageSessionsPush = ServerMessageOf<'usage-sessions'>;
 type SessionMeterPush = ServerMessageOf<'session-meter'>;
 export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'session-meter' | 'refresh-status';
+type UsageRangeKey = 'today' | 'week' | 'month';
 
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
 let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null };
+const accountPlanLimitsByKey = new Map<string, PlanLimits>();
 const sessionMeterBySessionId = new Map<string, SessionMeterPush>();
 let activityCallback: ((isActive: boolean) => void) | null = null;
 let sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;
 let latestRequestId: string | null = null;
-let rangeValue: string = DEFAULT_RANGE_VALUE;
-let metric: UsageMetric = parseUsageMetric(getJSON<unknown>(USAGE_METRIC_STORAGE_KEY, null));
+let rangeValue: UsageRangeKey = DEFAULT_RANGE_VALUE;
 let isRefreshPending = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshFailureText: string | null = null;
@@ -74,14 +70,14 @@ function setRefreshPending(pending: boolean): void {
   }, REFRESH_STATUS_TIMEOUT_MS);
 }
 
-function daysForRange(value: string): number | null {
-  const option = RANGE_OPTIONS.find((entry) => entry.value === value);
-  if (!option) return null;
-  return option.days;
-}
-
 export function usageSnapshot() {
-  return { report, sessions, planLimitsByVendor, rangeValue, metric };
+  return {
+    report,
+    sessions,
+    planLimitsByVendor,
+    accountPlanLimits: [...accountPlanLimitsByKey.values()],
+    rangeValue,
+  };
 }
 
 export function usageRefreshStatus(): { text: string; isPending: boolean; hasFailure: boolean } {
@@ -118,22 +114,11 @@ export function setUsageRequestSender(send: (message: Record<string, unknown>) =
   sendRequest = send;
 }
 
-export function setUsageRange(value: string): void {
-  rangeValue = value;
-}
-
-export function setUsageMetric(value: UsageMetric): void {
-  metric = value;
-  setJSON(USAGE_METRIC_STORAGE_KEY, value);
-}
-
 export function requestUsageReport({ force = false }: { force?: boolean } = {}): void {
   if (!sendRequest) return;
   latestRequestId = nextRequestId('usage');
   const msg: Record<string, unknown> = { type: 'request-usage-report', requestId: latestRequestId };
   if (force) msg.force = true;
-  const days = daysForRange(rangeValue);
-  if (days !== null) msg.days = days;
   refreshFailureText = null;
   setRefreshPending(true);
   if (sendRequest(msg)) return;
@@ -170,8 +155,6 @@ export function planLimitsOf(vendor: PlanLimitsVendor): PlanLimits | null {
   return planLimitsByVendor[vendor];
 }
 
-const accountPlanLimitsByKey = new Map<string, PlanLimits>();
-
 function accountPlanLimitsKey(vendor: unknown, accountId: unknown): string {
   return `${String(vendor)}:${typeof accountId === 'string' ? accountId : ''}`;
 }
@@ -182,6 +165,7 @@ export function accountPlanLimitsOf(vendor: PlanLimitsVendor, accountId: string 
 
 export function applyAccountPlanLimits(msg: ServerMessageOf<'account-plan-limits'>): void {
   accountPlanLimitsByKey.set(accountPlanLimitsKey(msg.vendor, msg.accountId), msg as PlanLimits);
+  notifySubscribers('plan-limits');
 }
 
 export function applyPlanLimits(msg: unknown): void {
@@ -202,7 +186,7 @@ export function applyUsageReport(msg: unknown): void {
 
 export function usageStatusLines(): string[] {
   const pricing = report?.pricing || (sessions ? { source: sessions.pricingSource } : null);
-  const fetchedAt = pricingFetchedAtMs(pricing?.fetchedAt);
+  const fetchedAt = pricingFetchedAtMs(report?.pricing?.fetchedAt);
   const agoText = fetchedAt !== null && fetchedAt > 0 ? formatAgo(fetchedAt) : '';
   const lines = [pricingSourceLine(pricing, agoText)];
   const error = usageErrorLine(report);

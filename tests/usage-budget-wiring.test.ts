@@ -19,7 +19,6 @@ type Scanner = ReturnType<ScannerFactory>;
 type BudgetSpend = ReturnType<Scanner['budgetSpend']>;
 
 const LANE_ROWS = [{ lane: 'pr-review', costUSD: 4.2, tokens: 1000, sessions: 2 }];
-const PLAN_WINDOW_LANES = { fiveHour: LANE_ROWS, sevenDay: LANE_ROWS };
 const BUDGET_BLOCK = {
   dailyUsd: 16,
   monthlyUsd: null,
@@ -52,20 +51,21 @@ function fakeScanner(
     buildReport: () => ({
       ts: 0,
       tz: 'UTC',
-      blockHours: 5,
       totals: { tokens: 0, costUSD: 0, input: 0, output: 0, cacheCreate: 0, cacheRead: 0, byVendor: {} },
       daily: [],
       models: [],
       sessions: [],
-      blocks: [],
-      activeBlock: null,
-      anomaly: { daily: null, burn: null },
+      ranges: {
+        today: { costUSD: 0, previousCostUSD: null, daily: [], byAgent: [], byModel: [], byProject: [], byLane: null },
+        week: { costUSD: 0, previousCostUSD: null, daily: [], byAgent: [], byModel: [], byProject: [], byLane: null },
+        month: { costUSD: 0, previousCostUSD: null, daily: [], byAgent: [], byModel: [], byProject: [], byLane: null },
+      },
+      coverage: [{ vendor: 'claude', files: 1, lastEntryMs: 0, limitSource: 'statusline' as const, costSource: 'list-price' as const }],
       byLane: LANE_ROWS,
       yourDay: null,
-      planWindowLanes: PLAN_WINDOW_LANES,
       budget: BUDGET_BLOCK,
       pricing: { missing: [] },
-      scan: { dirs: [], files: 0, entries: 0, lastScanMs: 0, partial: false, outcome: 'complete', ioFailures: 0, resolutionError: null },
+      scan: { dirs: [], files: 0, entries: 0, lastScanMs: 0, partial: false, outcome: 'complete' as const, ioFailures: 0, resolutionError: null },
     }),
   };
 }
@@ -514,18 +514,18 @@ test('a standing io failure still pauses at the budget once its spend reaches it
   await h.wiring.stop();
 });
 
-test('byLane, planWindowLanes and budget reach the wire on a pulled report', async () => {
+test('ranges, coverage and budget reach the wire on a pulled report', async () => {
   const root = await makeTempRoot();
   const h = harness({ root });
   const report = await h.wiring.requestReport({ requestId: 'r1' });
   assert.equal(report.type, 'usage-report');
-  assert.deepEqual(report.byLane, LANE_ROWS);
-  assert.deepEqual(report.planWindowLanes, PLAN_WINDOW_LANES);
+  assert.ok(report.ranges);
+  assert.ok(Array.isArray(report.coverage));
   assert.deepEqual(report.budget, BUDGET_BLOCK);
   const cached = h.wiring.getCachedReport();
   assert.ok(cached, 'a pulled report is cached for the next connect');
   assert.deepEqual(blockAt(cached, 'budget'), BUDGET_BLOCK);
-  assert.deepEqual(cached.byLane, report.byLane);
+  assert.deepEqual(cached.coverage, report.coverage);
 });
 
 test('reaching the budget pauses a spawned child session as well as its parent, and never a lane', () => {

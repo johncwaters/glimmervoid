@@ -134,8 +134,6 @@ test('a deleted transcript keeps its day in the report, marked as history', asyn
   assert.equal(remembered.models[0]?.model, 'claude-sonnet-4-20250514');
 
   assert.equal(after.totals.tokens, 1100, 'totals stay live-only');
-  const blockTokens = after.blocks.reduce((sum, block) => sum + block.tokens, 0);
-  assert.equal(blockTokens, 1100, 'blocks stay live-only');
 });
 
 test('an unreadable warehouse warns, keeps its bytes, and never rewrites them', async () => {

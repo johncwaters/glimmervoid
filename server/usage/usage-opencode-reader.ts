@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import type { LaneLog } from '../lanes/lane-log.ts';
 import { decideFileRead } from './core/usage-scan-core.ts';
 import { parseOpenCodeMessageRow } from './core/usage-opencode-core.ts';
 import type { OpenCodeMessageRow } from './core/usage-opencode-core.ts';
@@ -41,7 +42,7 @@ async function statOptionalFile(targetPath: string, fsPromises: StatFs): Promise
 }
 
 async function readOpenCodeDbPage(
-  { dbPath, cursor, force, fsPromises, pageSize = DEFAULT_PAGE_SIZE, maxPages = DEFAULT_MAX_PAGES_PER_PASS, yieldNowFn, warn }: {
+  { dbPath, cursor, force, fsPromises, pageSize = DEFAULT_PAGE_SIZE, maxPages = DEFAULT_MAX_PAGES_PER_PASS, yieldNowFn, laneLog }: {
     dbPath: string;
     cursor: OpenCodeDbCursor | null;
     force: boolean;
@@ -49,7 +50,7 @@ async function readOpenCodeDbPage(
     pageSize?: number;
     maxPages?: number;
     yieldNowFn: () => Promise<void>;
-    warn: (message: string, details?: Record<string, string | number | boolean | null | undefined>) => void;
+    laneLog: LaneLog;
   },
 ): Promise<{
   exists: boolean;
@@ -65,7 +66,7 @@ async function readOpenCodeDbPage(
     if (!dbStat) return { exists: false, entries: [], nextCursor: null, partial: false, failed: false };
     walStat = await statOptionalFile(`${dbPath}-wal`, fsPromises);
   } catch (error) {
-    warn('opencode db stat failed', { path: dbPath, error: errorMessage(error) });
+    laneLog.warn('opencode db stat failed', { path: dbPath, error: errorMessage(error) });
     return { exists: true, entries: [], nextCursor: cursor, partial: false, failed: true };
   }
 
@@ -126,7 +127,7 @@ async function readOpenCodeDbPage(
       if (pageIndex + 1 < maxPages) await yieldNowFn();
     }
   } catch (error) {
-    warn('opencode db read failed', { path: dbPath, error: errorMessage(error) });
+    laneLog.warn('opencode db read failed', { path: dbPath, error: errorMessage(error) });
     return { exists: true, entries: [], nextCursor: cursor, partial: false, failed: true };
   } finally {
     if (database) database.close();

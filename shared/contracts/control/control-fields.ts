@@ -47,7 +47,6 @@ export const timestamp = z.number().finite();
 export const optionalTimestamp = timestamp.optional();
 export const optionalError = nullableString.optional();
 export const opaqueObject = openObject();
-export const opaqueArray = z.array(z.unknown());
 export const sessionDocPath = z.string().min(1).max(SESSION_DOC_PATH_MAX_CHARS);
 export const trailSteps = z.array(z.union([
   openObject({ at: timestamp, tool: z.string(), detail: z.string() }),

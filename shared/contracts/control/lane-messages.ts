@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { YourDay } from '../your-day.ts';
+import { UsageBudget, UsageCoverageRow, UsagePricing, UsageReportRanges, UsageScanSummary } from '../usage-report.ts';
 import { AgentAccountId } from '../agent-accounts.ts';
-import { requestId, sessionId, loose, openObject, nullableString, timestamp, optionalTimestamp, optionalError, opaqueObject, opaqueArray, PlanLimitsVendor } from './control-fields.ts';
+import { requestId, sessionId, loose, openObject, nullableString, timestamp, optionalTimestamp, optionalError, PlanLimitsVendor } from './control-fields.ts';
 
 export const SessionMeterReading = z.object({
   model: z.string().nullable(),
@@ -32,21 +33,12 @@ export const laneServerVariants = [
     requestId,
     ts: optionalTimestamp,
     tz: z.string().optional(),
-    blockHours: z.number().optional(),
-    totals: opaqueObject.optional(),
-    daily: opaqueArray.optional(),
-    models: opaqueArray.optional(),
-    sessions: opaqueArray.optional(),
-    blocks: opaqueArray.optional(),
-    activeBlock: z.unknown().nullable().optional(),
-    anomaly: z.unknown().nullable().optional(),
-    byLane: z.unknown().optional(),
-    planWindowLanes: z.unknown().nullable().optional(),
-    budget: z.unknown().optional(),
-    savings: z.unknown().optional(),
+    ranges: UsageReportRanges.optional(),
+    coverage: z.array(UsageCoverageRow).optional(),
+    budget: UsageBudget.nullable().optional(),
     yourDay: YourDay.nullable().optional(),
-    pricing: opaqueObject.optional(),
-    scan: opaqueObject.optional(),
+    pricing: UsagePricing.optional(),
+    scan: UsageScanSummary.optional(),
     warning: optionalError,
     error: optionalError,
   }),

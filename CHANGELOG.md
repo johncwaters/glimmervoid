@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Usage: rebuilt around limits and all first-class agents**: the Usage tab now scans Antigravity, pi and OpenCode alongside Claude Code, Codex, Kimi Code and Grok, leads with per-account binding-window limit cards with run-out projections, and lists every supported agent's transcript, limit and cost coverage on one scroll.
 - **Studio: a repo, not a session**: Studio shows a repo's code map, picked by a repo chip that remembers your last repo and no longer follows the session selected in Focus. A badge beside it reads the map's commit and whether it is current, behind mainline (naming mainline's commit) or failed.
 - **Studio: every session is a face on the map**: each session in the shown repo sits as a face on the box it works in, or beside the repo chip until it touches one, with Chat's working status next to it and small faces for its running subagents and workflows. Click a face to message that session. The dock shows Chat's activity line, and its log keeps your prompts and the agent's replies only: no tool, skill, subagent or workflow rows.
 - **Studio: a main agent per repo**: opening a repo in Studio makes sure it has a main agent, starting or resuming the one it had or starting a new one named after the repo. Your messages go to it unless you click another session's face.

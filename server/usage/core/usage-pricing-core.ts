@@ -188,4 +188,4 @@ function resolvedPrice(key: string, price: ModelPrice, isExact: boolean): Resolv
   };
 }
 
-export { costForEntry, lookupModelPrice, normalizePricingTable, ratesForPrice };
+export { costForEntry, lookupModelPrice, normalizePricingTable };

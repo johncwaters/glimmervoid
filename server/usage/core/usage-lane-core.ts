@@ -1,4 +1,3 @@
-import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
 import { numberOr, rawTextOr } from '../../../shared/coerce.ts';
 
 export interface LaneLedgerEntry {
@@ -36,15 +35,8 @@ interface LaneRollupRow {
   sessions: number;
 }
 
-export interface PlanWindowStarts {
-  fiveHour: number | null;
-  sevenDay: number | null;
-}
-
 const INTERACTIVE_LANE = 'interactive';
 const OTHER_LANE = 'other';
-const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000;
-const SEVEN_DAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function vendorOf(value: unknown): string {
   const vendor = rawTextOr(value, null);
@@ -118,28 +110,6 @@ function laneRollup(
     .sort((a, b) => b.costUSD - a.costUSD || b.tokens - a.tokens || a.lane.localeCompare(b.lane));
 }
 
-function laneRollupSince(
-  entries: LaneUsageEntry[] | null | undefined,
-  laneById: Map<string, string> | null | undefined,
-  sinceMs: number,
-): LaneRollupRow[] {
-  const windowEntries = (entries || []).filter((entry) => numberOr(entry.timestampMs, 0) >= sinceMs);
-  return laneRollup(windowEntries, laneById);
-}
-
-function officialWindowStartMs(window: RateLimitWindow | null | undefined, windowLengthMs: number, nowMs: number): number | null {
-  const resetsAtMs = window?.resetsAtMs;
-  if (typeof resetsAtMs !== 'number' || !Number.isFinite(resetsAtMs) || resetsAtMs <= nowMs) return null;
-  return resetsAtMs - windowLengthMs;
-}
-
-function planWindowStartsMs(rateLimits: RateLimitWindows | null | undefined, nowMs: number): PlanWindowStarts {
-  return {
-    fiveHour: officialWindowStartMs(rateLimits?.fiveHour, FIVE_HOUR_WINDOW_MS, nowMs),
-    sevenDay: officialWindowStartMs(rateLimits?.sevenDay, SEVEN_DAY_WINDOW_MS, nowMs),
-  };
-}
-
 function totalTokensOf(entry: LaneUsageEntry | null | undefined): number {
   return numberOr(entry?.input, 0) + numberOr(entry?.output, 0) + numberOr(entry?.cacheCreate, 0) + numberOr(entry?.cacheRead, 0);
 }
@@ -149,4 +119,4 @@ function compareEntries(a: LaneLedgerEntry, b: LaneLedgerEntry): number {
   return laneKey(a.vendor, a.sessionId).localeCompare(laneKey(b.vendor, b.sessionId));
 }
 
-export { INTERACTIVE_LANE, SEVEN_DAY_WINDOW_MS, laneMapFromLedger, laneRollup, laneRollupSince, planWindowStartsMs, pruneLedger };
+export { INTERACTIVE_LANE, laneMapFromLedger, laneRollup, pruneLedger };
