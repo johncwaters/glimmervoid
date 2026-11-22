@@ -5,9 +5,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { HookRouter } from '../detection/hook-source.ts';
 import antigravity from '../session/adapters/antigravity.ts';
 import type { GeneratedHomeInjection } from '../session/adapters/index.ts';
 import { promptContextReplyOf, refocusReplyFor, relayedHookContextOutput } from '../session/core/refocus-core.ts';
+import { Session } from '../session/sessions.ts';
+import { fakePty } from './helpers/fake-pty.ts';
 
 function withTemporaryHome(t: test.TestContext): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-home-'));
@@ -65,4 +68,46 @@ test('a prompt note reaches agy as a PreInvocation injectSteps user message the 
   assert.equal(antigravity.promptContextReply, 'inject-steps');
   const reply = refocusReplyFor({ accepted: true, event: 'PreInvocation', payload: {}, readContext: () => ({ taskTitle: null }), takePromptSupervision: () => promptContextReplyOf('inject-steps', 'board note') });
   assert.deepEqual(JSON.parse(relayedHookContextOutput('PreInvocation', JSON.stringify(reply)) ?? 'null'), { injectSteps: [{ userMessage: 'board note' }] });
+});
+
+test('an agy session records each new operator prompt once for auto-naming and skips wakeups and injected steps', async (testContext) => {
+  withTemporaryHome(testContext);
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-prompts-'));
+  const hookRouter = new HookRouter();
+  const session = new Session({
+    id: 'agy-prompts', name: 'glimmervoid', path: projectPath, agent: 'antigravity',
+    hookRouter, getHookPort: () => 4321,
+    spawnCommand: { path: process.execPath, kind: 'exe' },
+    ptySpawn: () => fakePty(),
+  });
+  testContext.after(() => {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  });
+  const taskPrompts: string[] = [];
+  session.on('task-prompt', ({ prompt }: { prompt: string }) => { taskPrompts.push(prompt); });
+  await session.start();
+  const token = session._hooks.token();
+  assert.ok(token);
+  async function postHook(event: string, payload: Record<string, unknown>): Promise<void> {
+    const enriched = await hookRouter.enrich({ glimmervoidId: session.id, event, token, payload });
+    assert.equal(hookRouter.handle({ glimmervoidId: session.id, event, token, payload: enriched }).status, 200);
+  }
+  await postHook('SessionStart', { conversationId: 'conv-1', lastUserInput: 'Fix the failing login flow' });
+  await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Fix the failing login flow' });
+  await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 1, lastUserInput: 'Glimmervoid supervises this session.' });
+  await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Glimmervoid supervises this session.' });
+  await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Fix the failing login flow' });
+  await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Add regression coverage for logout' });
+  await postHook('PostInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Board "Lanternfish" changed since your last read.' });
+  await postHook('PreInvocation', { conversationId: 'conv-1', invocationNum: 0, lastUserInput: 'Board "Lanternfish" changed since your last read.' });
+  await postHook('SessionStart', { conversationId: 'conv-2', lastUserInput: 'Fix the failing login flow' });
+  await postHook('PreInvocation', { conversationId: 'conv-2', invocationNum: 0, lastUserInput: 'Fix the failing login flow' });
+
+  assert.equal(session.taskTitle, 'Fix the failing login flow');
+  assert.deepEqual(taskPrompts, [
+    'Fix the failing login flow',
+    'Add regression coverage for logout',
+    'Fix the failing login flow',
+  ]);
 });

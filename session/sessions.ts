@@ -1114,20 +1114,22 @@ class Session extends EventEmitter {
       return;
     }
 
-    if (hookEvent === "userpromptsubmit") {
+    if (hookEvent === "userpromptsubmit" || raw.signal === "resume") {
       this._dropResumeNote();
       if (this._usageLimit !== null) this._setUsageLimit(null);
       const prompt = raw.payload?.prompt;
-      this._queuePromptHint(prompt);
-      if (!this._taskTitleSources.promptTitle) {
-        this._taskTitleSources.promptTitle = extractPromptTaskTitle(typeof prompt === "string" ? maskSecrets(prompt, this._deliveredSecretValues) : prompt);
-        this._updateTaskTitle();
-      }
-      if (typeof prompt === "string" && isSubstantivePrompt(prompt)) {
-        const cleanedPrompt = cleanTaskPrompt(prompt);
-        this._recentTaskPrompts = [...this._recentTaskPrompts, cleanedPrompt].slice(-5);
-        this.taskTitlePromptRevision++;
-        this.emit("task-prompt", { prompt: cleanedPrompt });
+      if (prompt !== undefined) {
+        this._queuePromptHint(prompt);
+        if (!this._taskTitleSources.promptTitle) {
+          this._taskTitleSources.promptTitle = extractPromptTaskTitle(typeof prompt === "string" ? maskSecrets(prompt, this._deliveredSecretValues) : prompt);
+          this._updateTaskTitle();
+        }
+        if (typeof prompt === "string" && isSubstantivePrompt(prompt)) {
+          const cleanedPrompt = cleanTaskPrompt(prompt);
+          this._recentTaskPrompts = [...this._recentTaskPrompts, cleanedPrompt].slice(-5);
+          this.taskTitlePromptRevision++;
+          this.emit("task-prompt", { prompt: cleanedPrompt });
+        }
       }
     }
     if (hookEvent === "stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {

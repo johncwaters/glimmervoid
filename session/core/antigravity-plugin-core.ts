@@ -15,7 +15,7 @@ const TOOL_HOOK_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 const ANTIGRAVITY_QUESTION_TOOL_NAME = "ask_question";
 const ANTIGRAVITY_SUBAGENT_TOOL_NAME = "invoke_subagent";
 const ANTIGRAVITY_GATED_TOOL_NAMES: readonly string[] = ["run_command", "write_file", "edit_file", "create_file", "delete_file", "apply_patch"];
-const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "isTurnOpen", "pendingToolName", "source", "tool_name", "tool_input"];
+const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "isTurnOpen", "pendingToolName", "prompt", "source", "tool_name", "tool_input"];
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
 type AntigravityPluginFileName = "plugin.json" | "hooks.json" | "mcp_config.json";
@@ -138,6 +138,8 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   let isTurnOpen = false;
   let pendingToolName: string | null = null;
   let pendingSubagentStarts = 0;
+  let lastOperatorPrompt: string | null = null;
+  let lastInjectedStepInput: string | null = null;
 
   function tagAgentState(payload: HookPayloadRecord): HookPayloadRecord {
     const taggedPayload = { ...payload, isTurnOpen, pendingToolName };
@@ -159,6 +161,24 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
     if (normalizedEvent === "posttooluse") pendingToolName = null;
   }
 
+  function withOperatorPrompt(normalizedEvent: string, payload: HookPayloadRecord): HookPayloadRecord {
+    if (normalizedEvent === "sessionstart") {
+      lastOperatorPrompt = null;
+      lastInjectedStepInput = null;
+      return payload;
+    }
+    const inputText = typeof payload.lastUserInput === "string" ? payload.lastUserInput : "";
+    if (!inputText) return payload;
+    if (normalizedEvent !== "preinvocation" || payload.invocationNum !== 0) {
+      if (inputText !== lastOperatorPrompt) lastInjectedStepInput = inputText;
+      return payload;
+    }
+    if (inputText === lastOperatorPrompt || inputText === lastInjectedStepInput) return payload;
+    lastOperatorPrompt = inputText;
+    lastInjectedStepInput = null;
+    return { ...payload, prompt: inputText };
+  }
+
   return (event, payload) => {
     const normalizedEvent = event.toLowerCase();
     if (normalizedEvent === "agentstate") return tagAgentState(payload);
@@ -171,8 +191,9 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
     }
     if (subagentConversationIds.has(conversationId)) return tagSubagentEvent(normalizedEvent, conversationId, questionPayload);
     trackParentTurn(normalizedEvent, payload);
-    if (normalizedEvent === "sessionstart" && !payload.source) return { ...payload, source: "startup" };
-    return questionPayload;
+    const parentPayload = withOperatorPrompt(normalizedEvent, questionPayload);
+    if (normalizedEvent === "sessionstart" && !parentPayload.source) return { ...parentPayload, source: "startup" };
+    return parentPayload;
   };
 }
 
