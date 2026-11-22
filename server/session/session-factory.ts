@@ -152,14 +152,12 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       getHookPort: dependencies.getHookPort,
       gitWorkspace: isMachineShell ? null : dependencies.getGitWorkspace(),
       integrationBranch: project.baseBranch || configuredIntegrationBranch(config),
-      autoRebase: config.worktree?.autoRebase !== false && project.isStartPinned !== true,
-      syncOnStart: config.worktree?.syncOnStart !== false,
+      autoRebase: project.isStartPinned !== true,
+      syncOnStart: true,
       liveWorktreeReview: config.liveWorktreeReview !== false,
       worktreeRoot: configuredWorktreeRoot(config, project.path),
       worktreeShare: config.worktree?.share ?? DEFAULT_CONFIG.worktree.share,
-      seedDependencies: config.worktree?.cloneDependencies === false ? null : (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
-      detectBackgroundAgents: config.detectBackgroundAgents,
-      detectScheduledWakeups: config.detectScheduledWakeups,
+      seedDependencies: (seedArgs) => seedWorktreeDependencies({ ...seedArgs, hookConfigRelPaths: projectHookConfigRelPaths() }),
       hookTools: originalHookTools,
       resumeSessionId: (project.resumeSessionId as string | null | undefined) || null,
       planLimits: planLimitsEnabled(config),
@@ -187,7 +185,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       ...(config.capture || {}),
       baseDir: path.join(path.dirname(dependencies.configStore.configPath), 'recordings'),
     };
-    const recorder = createRecorder(project.name, captureConfig, config.recordSignals ?? DEFAULT_CONFIG.recordSignals);
+    const recorder = createRecorder(project.name, captureConfig, true);
     if (recorder) session.setRecorder(recorder);
     return session;
   };

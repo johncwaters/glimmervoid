@@ -21,7 +21,7 @@ import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { KILLABLE_STATES } from '../../shared/states.ts';
 import { createBranchGcWiring } from '../branch-gc-wiring.ts';
-import { ABORT_CONFIG_SAVE, DEFAULT_CONFIG, glimmervoidHomeDir } from '../config-store.ts';
+import { ABORT_CONFIG_SAVE, glimmervoidHomeDir } from '../config-store.ts';
 import { PrFlowsSettings, prActionReportPath } from '../../shared/contracts/pr-flows.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -161,7 +161,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   ].flatMap((sessionId) => [sessionId, sanitizeWorktreeName(sessionId)]));
   const provenanceNotesRef = async (projectPath: string): Promise<string | null> => (configStore.config.shareCommitProvenance === false ? null : repoNotesRefFor(projectPath, await provenanceWriterId()));
   const gitWorkspace = createGitWorkspace({
-    rerere: config.worktree?.rerere !== false, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs,
+    rerere: true, ownedPaths, removalGuard: { protectedSessionIds }, log: logger, provenanceNotesRef, rebaseSigningArgs,
     githubPushToken: async () => (await githubUserCredential())?.token ?? null,
     readDiskReserveBytes: () => diskReserveBytes(configStore.config),
   });
@@ -394,22 +394,17 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
-  const isTraceEnabled = config.trace?.enabled ?? DEFAULT_CONFIG.trace.enabled;
-  const traceWiring = isTraceEnabled
-    ? createTraceWiring({
-      configPath: configStore.configPath,
-      logger,
-      debug: () => configStore.getSettings().debugMode === true,
-    })
-    : null;
+  const traceWiring = createTraceWiring({
+    configPath: configStore.configPath,
+    logger,
+    debug: () => configStore.getSettings().debugMode === true,
+  });
   const uploadsWiring = createUploadsWiring({
     configPath: configStore.configPath,
     liveSessionIds: () => new Set(allLiveSessions().map((session) => session.id)),
   });
-  const traceChangeBroadcast = traceWiring
-    ? createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl })
-    : null;
-  traceWiring?.on('trace-appended', ({ id, opensOperatorTurn, usageLimit }) => {
+  const traceChangeBroadcast = createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl });
+  traceWiring.on('trace-appended', ({ id, opensOperatorTurn, usageLimit }) => {
     if (opensOperatorTurn) sessions.get(id)?.noteChatPromptRecorded();
     if (usageLimit !== null) sessions.get(id)?.noteUsageLimit(usageLimit);
   });

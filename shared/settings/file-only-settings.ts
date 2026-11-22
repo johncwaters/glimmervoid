@@ -99,46 +99,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['caret', 'terminal'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
-    id: 'file-detect-background-agents', path: 'detectBackgroundAgents', title: 'Detect background agents', group: 'machine-detection-sessions',
-    description: 'Hold completion while tracked background work is active.',
-    control: 'toggle', keywords: ['subagents', 'completion'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
-  },
-  {
-    id: 'file-record-signals', path: 'recordSignals', title: 'Record structural signals', group: 'machine-detection-sessions',
-    description: 'Keep forensic status and hook recordings for each session. Full capture (capture.enabled) records these signals even when this is off.',
-    control: 'toggle', keywords: ['recordings', 'diagnostics'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
-  },
-  {
-    id: 'file-trace-enabled', path: 'trace.enabled', title: 'Capture session traces', group: 'machine-detection-sessions',
-    description: 'Keep normalized Claude transcript traces for session debugging.',
-    control: 'toggle', keywords: ['transcripts', 'diagnostics'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
-  },
-  {
-    id: 'file-detect-scheduled-wakeups', path: 'detectScheduledWakeups', title: 'Detect scheduled wakeups', group: 'machine-detection-sessions',
-    description: 'Surface advisory wakeup timing for scheduled sessions.',
-    control: 'toggle', keywords: ['schedule', 'sleep'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: DIAGNOSTIC, ...FILE_ONLY,
-  },
-  {
-    id: 'file-worktree-auto-rebase', path: 'worktree.autoRebase', title: 'Worktree auto-rebase', group: 'machine-worktrees',
-    description: 'Rebase eligible session worktrees when the integration branch moves.',
-    control: 'toggle', keywords: ['git', 'branch'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
-  },
-  {
-    id: 'file-worktree-sync-on-start', path: 'worktree.syncOnStart', title: 'Worktree sync on start', group: 'machine-worktrees',
-    description: 'Fetch origin and fast-forward the local integration branch before a session starts its worktree.',
-    control: 'toggle', keywords: ['git', 'fetch', 'fast-forward'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
-  },
-  {
-    id: 'file-worktree-clone-dependencies', path: 'worktree.cloneDependencies', title: 'Worktree dependencies', group: 'machine-worktrees',
-    description: "Give a session worktree its node_modules before the agent starts: on macOS, clone the main checkout's when it matches the worktree's lockfile, then, except on Windows, install each folder still without one from its package-lock.json or pnpm-lock.yaml, with no package scripts.",
-    control: 'toggle', keywords: ['node_modules', 'npm', 'pnpm', 'install'], defaultValue: true, takesEffect: 'new-sessions', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
-  },
-  {
-    id: 'file-worktree-rerere', path: 'worktree.rerere', title: 'Worktree rerere', group: 'machine-worktrees',
-    description: 'Reuse recorded Git conflict resolutions.',
-    control: 'toggle', keywords: ['git', 'conflicts'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
-  },
-  {
     id: 'file-share-commit-provenance', path: 'shareCommitProvenance', title: 'Share commit provenance', group: 'machine-worktrees',
     description: 'After Merge pushes the base branch, also push the git notes that let glimmervoid why name the agent and session of a commit on any clone. The notes hold a hashed session id and the agent name, never a task or prompt. Off keeps them on this machine.',
     control: 'toggle', keywords: ['git', 'notes', 'why', 'privacy'], defaultValue: true, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,

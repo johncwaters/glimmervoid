@@ -20,9 +20,6 @@ const DEFAULT_CONFIG = {
   operatorTimezone: null as string | null,
   sessionOrder: [] as string[],
   hiddenAgents: [] as string[],
-  detectBackgroundAgents: true,
-
-  detectScheduledWakeups: true,
 
   replayBufferKB: 512,
 
@@ -33,12 +30,6 @@ const DEFAULT_CONFIG = {
   packScheduledSessionsMax: PACK_SCHEDULED_SESSIONS_DEFAULT,
 
   spawnedSessionsMax: SPAWNED_SESSIONS_DEFAULT,
-
-  recordSignals: true,
-
-  trace: {
-    enabled: true,
-  },
 
   taskTitle: {
     refiner: { enabled: true, model: DEFAULT_MODELS.taskTitleRefiner, minIntervalSeconds: 60, timeoutSeconds: 60 },
@@ -68,10 +59,6 @@ const DEFAULT_CONFIG = {
     root: '',
     share: ['.env*', '.claude'],
     integrationBranch: null as string | null,
-    autoRebase: true,
-    syncOnStart: true,
-    cloneDependencies: true,
-    rerere: true,
   },
   shareCommitProvenance: true,
   branchGc: {

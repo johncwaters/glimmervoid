@@ -479,7 +479,7 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
     'workflows.maxActionsPerPoll',
     'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok', 'usage.vendors.kimi',
     'replayBufferKB', 'cursorBlink',
-    'debugMode', 'recordSignals', 'trace.enabled', 'detectScheduledWakeups',
+    'debugMode',
     'notifyDebounceMs', 'phoneEscalationMs',
   ]) {
     assert.ok(fileOnlyPaths.includes(settingPath), `${settingPath} should be file-only`);

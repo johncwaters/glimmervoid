@@ -12,7 +12,6 @@ test('DEFAULT_CONFIG satisfies the persisted Config contract', () => {
   assert.equal(Config.safeParse(DEFAULT_CONFIG).success, true);
   assert.equal(DEFAULT_CONFIG.worktree.integrationBranch, null);
   assert.equal(Config.shape.worktree.safeParse({ integrationBranch: null }).success, true);
-  assert.equal(DEFAULT_CONFIG.trace.enabled, true);
 });
 
 test('a config.json still holding the retired changeMap.narrator block loads unchanged', () => {
@@ -52,13 +51,12 @@ test('a config still carrying the retired mill, memory, agentApi, antiSlopPrompt
 test('hidden persisted config keys never enter the browser settings projection', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-contract-config-'));
   const configPath = path.join(directory, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({ ...DEFAULT_CONFIG, trace: {} }), 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ ...DEFAULT_CONFIG }), 'utf8');
   const previousConfig = process.env.GLIMMERVOID_CONFIG;
   process.env.GLIMMERVOID_CONFIG = configPath;
   try {
     const settings = createConfigStore().getSettings();
     assert.deepEqual(HIDDEN_CONFIG_KEYS.filter((key) => Object.hasOwn(settings, key)), []);
-    assert.deepEqual(settings.trace, { enabled: true });
   } finally {
     if (previousConfig == null) delete process.env.GLIMMERVOID_CONFIG;
     if (previousConfig != null) process.env.GLIMMERVOID_CONFIG = previousConfig;

@@ -374,15 +374,33 @@ test('a stored watcher.url moves to remote.doormanUrl on load, and a doormanUrl 
 });
 
 test('flat worktree keys nest into the worktree block on load, and a worktree key already set wins', () => {
-  const flatKeys = { worktreeRoot: '/wt', worktreeShare: ['.env'], integrationBranch: 'develop', worktreeAutoRebase: false, worktreeSyncOnStart: false, worktreeCloneDependencies: false, worktreeRerere: false };
+  const flatKeys = { worktreeRoot: '/wt', worktreeShare: ['.env'], integrationBranch: 'develop' };
   withStore({ projects: [], ...flatKeys, worktree: { root: '/kept' } }, (_store, configPath) => {
     const stored = readJson(configPath);
     assert.deepEqual(Object.keys(flatKeys).filter((key) => Object.hasOwn(stored, key)), []);
-    assert.deepEqual(stored.worktree, { root: '/kept', share: ['.env'], integrationBranch: 'develop', autoRebase: false, syncOnStart: false, cloneDependencies: false, rerere: false });
+    assert.deepEqual(stored.worktree, { root: '/kept', share: ['.env'], integrationBranch: 'develop' });
   });
-  withStore({ projects: [], worktreeAutoRebase: 'false', worktreeRoot: null }, (store) => {
-    assert.equal(store.config.worktree?.autoRebase, true);
+  withStore({ projects: [], worktreeRoot: null }, (store) => {
     assert.equal(store.config.worktree?.root, '');
+  });
+});
+
+test('retired detection and worktree switches are dropped from config.json on load', () => {
+  const retired = {
+    detectBackgroundAgents: false,
+    recordSignals: false,
+    trace: { enabled: false },
+    detectScheduledWakeups: false,
+    worktree: { root: '/wt', autoRebase: false, syncOnStart: false, cloneDependencies: false, rerere: false },
+    worktreeAutoRebase: false,
+  };
+  withStore({ projects: [], ...retired }, (store, configPath) => {
+    const stored = readJson(configPath);
+    for (const key of ['detectBackgroundAgents', 'recordSignals', 'trace', 'detectScheduledWakeups', 'worktreeAutoRebase']) {
+      assert.equal(Object.hasOwn(stored, key), false, key);
+      assert.equal(Object.hasOwn(store.config, key), false, key);
+    }
+    assert.deepEqual(stored.worktree, { root: '/wt' });
   });
 });
 
@@ -390,7 +408,6 @@ test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
   withStore({ projects: [] }, (store) => {
     const s = store.getSettings();
     assert.equal(s.cursorBlink, DEFAULT_CONFIG.cursorBlink);
-    assert.equal(s.detectBackgroundAgents, DEFAULT_CONFIG.detectBackgroundAgents);
     assert.deepEqual(s.worktree, DEFAULT_CONFIG.worktree);
   });
 });

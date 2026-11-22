@@ -227,11 +227,6 @@ const TelegramSettings = optionalObject('telegram', {
   acceptReplies: optionalBoolean('telegram.acceptReplies'),
 });
 
-
-export const TraceSettings = z.object({
-  enabled: optionalBoolean('trace.enabled'),
-}, { error: 'trace must be an object' }).optional();
-
 const isHomeRelativePath = (entry: string) => entry === '~' || entry.startsWith('~/') || entry.startsWith('~\\');
 const absoluteOrHomePathList = (field: string, isAbsolutePath: (directory: string) => boolean) => z.array(
   z.string({ error: `${field} must be an array of paths` }).trim()
@@ -279,10 +274,6 @@ export const WorktreeFileSettings = z.object({
   root: optionalString('worktree.root'),
   share: z.array(z.string({ error: 'worktree.share must be an array of strings' }), { error: 'worktree.share must be an array of strings' }).optional(),
   integrationBranch: optionalString('worktree.integrationBranch').nullable(),
-  autoRebase: optionalBoolean('worktree.autoRebase'),
-  syncOnStart: optionalBoolean('worktree.syncOnStart'),
-  cloneDependencies: optionalBoolean('worktree.cloneDependencies'),
-  rerere: optionalBoolean('worktree.rerere'),
 }, { error: 'worktree must be an object' });
 export const WorktreeControlSettings = WorktreeFileSettings.omit({ share: true }).nullable().optional();
 
@@ -306,8 +297,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   operatorTimezone: z.string({ error: 'operatorTimezone must be a timezone name' }).refine(isKnownTimezone, { error: 'operatorTimezone must be a known timezone name, such as Europe/Berlin' }).nullable().optional(),
   sessionOrder: z.array(z.string({ error: 'sessionOrder must be an array of session ids' }), { error: 'sessionOrder must be an array of session ids' }).optional(),
   hiddenAgents: z.array(z.string({ error: 'hiddenAgents must be an array of agent ids' }), { error: 'hiddenAgents must be an array of agent ids' }).optional(),
-  detectBackgroundAgents: optionalBoolean('detectBackgroundAgents'),
-  recordSignals: optionalBoolean('recordSignals'),
   saneYolo: optionalBoolean('saneYolo'),
   saneYoloUnreadablePaths: absoluteOrHomePathList('saneYoloUnreadablePaths', isAbsolutePath),
   sandboxAllowedHosts: sandboxHostList('sandboxAllowedHosts'),

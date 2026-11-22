@@ -220,11 +220,50 @@ const WORKTREE_KEY_MOVES: readonly KeyMove[] = Object.freeze([
   { from: 'worktreeRoot', to: 'root' },
   { from: 'worktreeShare', to: 'share' },
   { from: 'integrationBranch', to: 'integrationBranch' },
-  { from: 'worktreeAutoRebase', to: 'autoRebase' },
-  { from: 'worktreeSyncOnStart', to: 'syncOnStart' },
-  { from: 'worktreeCloneDependencies', to: 'cloneDependencies' },
-  { from: 'worktreeRerere', to: 'rerere' },
 ]);
+
+const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
+  'detectBackgroundAgents',
+  'recordSignals',
+  'trace.enabled',
+  'detectScheduledWakeups',
+  'worktree.autoRebase',
+  'worktree.syncOnStart',
+  'worktree.cloneDependencies',
+  'worktree.rerere',
+  'worktreeAutoRebase',
+  'worktreeSyncOnStart',
+  'worktreeCloneDependencies',
+  'worktreeRerere',
+]);
+
+function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {
+  const segments = dottedPath.split('.');
+  const parents: { container: Record<string, unknown>; key: string }[] = [];
+  let cursor: Record<string, unknown> = root;
+  for (const segment of segments.slice(0, -1)) {
+    const next = cursor[segment];
+    if (!isRecord(next)) return false;
+    parents.push({ container: cursor, key: segment });
+    cursor = next;
+  }
+  const leaf = segments[segments.length - 1];
+  if (!Object.hasOwn(cursor, leaf)) return false;
+  delete cursor[leaf];
+  for (let index = parents.length - 1; index >= 0; index -= 1) {
+    const { container, key } = parents[index];
+    const child = container[key];
+    if (!isRecord(child) || Object.keys(child).length > 0) break;
+    delete container[key];
+  }
+  return true;
+}
+
+function dropRetiredSettings(config: Record<string, unknown>): string | null {
+  const dropped = RETIRED_SETTING_PATHS.filter((settingPath) => deleteRetiredPath(config, settingPath));
+  if (dropped.length === 0) return null;
+  return `[config] Removed ${dropped.join(', ')}: Glimmervoid now owns these behaviors.`;
+}
 
 function nestWorktreeKeys(config: Record<string, unknown>): string | null {
   if (!WORKTREE_KEY_MOVES.some((move) => Object.hasOwn(config, move.from))) return null;
@@ -281,4 +320,4 @@ function dropLegacyCodemapChecks(config: GlimmervoidConfig): string | null {
   return `[config] Dropped the codemap check from verification.repos for ${legacyRepoKeys.join(', ')}: the import gate is now built in and follows the code map setup.`;
 }
 
-export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredSettings, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
