@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **glimmervoid.dev hero**: moved the "See it before it's built." tagline and whiteboard description below the dashboard recording so "Open-source ADE for agents." sits cleanly under the wordmark without competing subheaders.
+
 ### Added
 
 - **Antigravity CLI parity**: Antigravity sessions now drive auto-naming, task titles, and prompt hints from operator prompts, stay working while background commands or subagents run (with AgentState capped at 512 KB and subagent arrays folded to a scalar), run Sane YOLO through `cc-safety-net --agy-cli`, list their hooks in Settings Hooks, capture subagent metadata and transcripts cleanly in Chat, trigger PR refreshes and command hints on Antigravity tool calls, and report live session meter and plan limits from AgentState.

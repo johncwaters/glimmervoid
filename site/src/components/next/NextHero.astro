@@ -16,13 +16,7 @@ import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-pl
   </div>
   <Nav />
 
-  <div class="hero-grid" id="top">
-    <h1 class="hero-wordmark"><Wordmark isStacked /><span class="hero-category">Open-source ADE for agents.</span></h1>
-    <div class="hero-side">
-      <p class="tagline">See it before it's built.</p>
-      <p>Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
-    </div>
-  </div>
+  <h1 class="hero-wordmark" id="top"><Wordmark isStacked /><span class="hero-category">Open-source ADE for agents.</span></h1>
 
   <div class="hero-install" id="hero-install">
     <div class="install-row">
@@ -39,6 +33,11 @@ import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-pl
   </div>
 
   <DashboardRecording />
+
+  <div class="hero-statement">
+    <p class="tagline">See it before it's built.</p>
+    <p>Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
+  </div>
 </header>
 
 <style>
@@ -51,13 +50,11 @@ import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-pl
   .ghost-light { fill: currentColor; }
   .ghost-halo { fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0; }
 
-  .hero-grid { position: relative; display: grid; grid-template-columns: 1.5fr 1fr; gap: 40px; padding-top: 56px; align-items: start; }
-  .hero-wordmark { margin: 0; font-size: clamp(56px, 9.4vw, 120px); line-height: .9; }
+  .hero-wordmark { position: relative; margin: 0; padding-top: 56px; font-size: clamp(56px, 9.4vw, 120px); line-height: .9; }
   .hero-category { display: block; margin-top: 24px; font-size: var(--type-title); font-weight: 400; line-height: 1.4; letter-spacing: normal; color: var(--text-dim); }
-  .hero-side { padding-top: 20px; }
+  .hero-statement { max-width: 54ch; margin: 56px auto 0; text-align: center; }
   .tagline { font-size: clamp(24px, 3vw, 32px); line-height: 1.2; color: var(--text-head); }
-  .tagline em { font-style: normal; color: var(--state-waiting); }
-  .hero-side p + p { color: var(--text-dim); margin-top: 16px; max-width: 38ch; }
+  .hero-statement p + p { color: var(--text-dim); margin: 14px auto 0; max-width: 44ch; }
 
   .hero-install { position: relative; margin-top: 56px; }
   .install-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -74,9 +71,6 @@ import { INSTALL_PLATFORM_LABELS, INSTALL_PLATFORMS } from '../../lib/install-pl
   .next-hero :global(.recording-frame) { aspect-ratio: 1440 / 780; }
   .next-hero :global(.recording figcaption) { display: none; }
 
-  @media (max-width: 820px) {
-    .hero-grid { grid-template-columns: 1fr; gap: 16px; }
-  }
   @media (max-width: 640px) {
     .next-hero :global(.recording-frame) { aspect-ratio: auto; }
     .next-hero :global(.recording-video) { width: 100%; }
