@@ -1,6 +1,10 @@
 import '../whiteboard/whiteboard.css';
 import './board-session.css';
-import { chatPhaseOf } from '../chat/chat-activity-core.ts';
+import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
+import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
+import { createChatFeed } from '../chat/chat-feed.ts';
+import type { ChatFeed } from '../chat/chat-feed.ts';
+import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { getJSON, setJSON } from '../local-store.ts';
@@ -20,18 +24,19 @@ import type { RepoChoice, RepoSession } from './board-session-core.ts';
 import type { CodemapStatus } from '#shared/contracts/codemap.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
-import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
+import { NO_PRESENCE, faceStatusTextOf, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
 import type { AskCards } from './ask-card.ts';
 import { createPresenceLayer } from './presence-layer.ts';
-import type { PresenceLayer } from './presence-layer.ts';
+import type { PresenceLayer, SessionFace } from './presence-layer.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOXES_TIMEOUT_MS = 10000;
+const TRACE_PAGE_TIMEOUT_MS = 10000;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const WHEEL_ZOOM_STEP = 1.1;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
@@ -39,6 +44,13 @@ const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10
 const NO_SESSION_TEXT = 'Start a session to see its repo on the code map.';
 const SHOWN_REPO_KEY = 'glimmervoid.studio.repoPath';
 const NO_MAP_TEXT = 'This session has no code map yet.';
+
+interface SessionWatch {
+  feed: ChatFeed;
+  presence: Presence;
+  lastBeat: ActivityBeat | null;
+  subagents: readonly RunningSubagent[];
+}
 
 interface ViewParts {
   canvas: HTMLElement;
@@ -66,13 +78,84 @@ let camera: Camera = { x: 0, y: 0, scale: 1 };
 let fittedBoardId: string | null = null;
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
-let presence: Presence = NO_PRESENCE;
+let watchBySessionId = new Map<string, SessionWatch>();
 let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
 
 function repoChoices(): RepoChoice[] {
   const repoSessions: RepoSession[] = [...sessionUIs].flatMap(([id, ui]) => ui.branchOf ? [] : [{ id, path: ui.path }]);
   return repoChoicesOf(repoSessions);
+}
+
+function phaseOfSession(sessionId: string): ChatPhase {
+  const ui = sessionUIs.get(sessionId);
+  return shownChatPhaseOf(chatPhaseOf(ui?.currentState), false, ui?.awaitingBackgroundTasks === true);
+}
+
+function presenceOf(sessionId: string | null): Presence {
+  if (sessionId === null) return NO_PRESENCE;
+  return watchBySessionId.get(sessionId)?.presence ?? NO_PRESENCE;
+}
+
+function watchedPaths(): string[] {
+  return [...new Set([...watchBySessionId.values()].flatMap((watch) => presencePathsOf(watch.presence)))];
+}
+
+function repoSessionIds(): string[] {
+  if (shownRepoPath === null) return [];
+  return [...sessionUIs].flatMap(([id, ui]) => ui.path === shownRepoPath ? [id] : []);
+}
+
+function closeWatches(): void {
+  for (const watch of watchBySessionId.values()) watch.feed.close();
+  watchBySessionId = new Map();
+}
+
+function openWatch(sessionId: string): SessionWatch {
+  const watch: SessionWatch = {
+    feed: createChatFeed({
+      sessionId,
+      workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null,
+      requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
+      onPartsChanged: () => {},
+      onBeats: (beats) => {
+        watch.lastBeat = beats.at(-1) ?? watch.lastBeat;
+        paintPresence();
+      },
+      onSubagents: (runningSubagents) => {
+        watch.subagents = runningSubagents;
+        paintPresence();
+      },
+      isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
+      onReset: () => {},
+      onRebuilt: () => {},
+      onFailure: () => {},
+      onRecords: (appendedRecords) => notePresenceRecords(sessionId, appendedRecords),
+    }),
+    presence: NO_PRESENCE,
+    lastBeat: null,
+    subagents: [],
+  };
+  return watch;
+}
+
+function syncWatches(): void {
+  const wantedIds = new Set(repoSessionIds());
+  for (const [sessionId, watch] of watchBySessionId) {
+    if (wantedIds.has(sessionId)) continue;
+    watch.feed.close();
+    watchBySessionId.delete(sessionId);
+  }
+  for (const sessionId of wantedIds) {
+    if (watchBySessionId.has(sessionId)) continue;
+    const watch = openWatch(sessionId);
+    watchBySessionId.set(sessionId, watch);
+    watch.feed.refresh();
+  }
+}
+
+function addressFace(face: SessionFace): void {
+  dock?.addressSession(face.sessionId, face.agentLabel);
 }
 
 function shownBranchIds(): string[] {
@@ -115,6 +198,7 @@ function paintAsks(): void {
 }
 
 function sessionBoxIds(): string[] {
+  const presence = presenceOf(shownSessionId);
   const presenceBoxIds = [presence.workedPath, ...presence.namedPaths].flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? []);
   return [...presenceBoxIds, ...changedBoxIds];
 }
@@ -171,26 +255,39 @@ function boxIdOfPresencePath(presencePath: string | null): string | null {
   return boxIdByPath[presencePath] ?? null;
 }
 
+function sessionFaceOf(sessionId: string, watch: SessionWatch): SessionFace | null {
+  const ui = sessionUIs.get(sessionId);
+  if (!ui) return null;
+  const phase = phaseOfSession(sessionId);
+  return {
+    sessionId,
+    boxId: ui.branchOf ? ui.branchOf.aboutBoxId : boxIdOfPresencePath(watch.presence.workedPath),
+    agentId: ui.agent ?? null,
+    agentLabel: sessionName(ui) || sessionId.slice(0, 8),
+    isMain: sessionId === shownSessionId,
+    isBranch: Boolean(ui.branchOf),
+    phase,
+    statusText: faceStatusTextOf(phase, watch.lastBeat),
+    subagents: phase === 'working' || phase === 'monitoring' ? watch.subagents : [],
+  };
+}
+
 function paintPresence(): void {
   if (!parts || boardId === null) return;
-  const ui = shownSessionId === null ? undefined : sessionUIs.get(shownSessionId);
-  const workedBoxId = boxIdOfPresencePath(presence.workedPath);
-  const glowingBoxIds = [...new Set(presence.namedPaths.flatMap((namedPath) => boxIdOfPresencePath(namedPath) ?? []))];
-  const branchFaces = shownBranchIds().flatMap((branchId) => {
-    const branchUi = sessionUIs.get(branchId);
-    if (!branchUi?.branchOf) return [];
-    return [{ boxId: branchUi.branchOf.aboutBoxId, agentId: branchUi.agent ?? null, agentLabel: sessionName(branchUi) }];
-  });
-  parts.presenceLayer.paint({ workedBoxId, glowingBoxIds, agentId: ui?.agent ?? null, agentLabel: ui ? sessionName(ui) : '', branchFaces }, tiledBoardOf(boardId)?.board ?? null);
+  const namedPaths = presenceOf(shownSessionId).namedPaths;
+  const glowingBoxIds = [...new Set(namedPaths.flatMap((namedPath) => boxIdOfPresencePath(namedPath) ?? []))];
+  const faces = [...watchBySessionId].flatMap(([sessionId, watch]) => sessionFaceOf(sessionId, watch) ?? []);
+  parts.presenceLayer.paint({ glowingBoxIds, faces }, tiledBoardOf(boardId)?.board ?? null);
   paintAsks();
 }
 
 function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceRecord[]): void {
-  if (sessionId !== shownSessionId) return;
+  const watch = watchBySessionId.get(sessionId);
+  if (!watch) return;
   const workingDirectory = sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null;
-  const nextPresence = foldPresence(presence, appendedRecords, workingDirectory);
+  const nextPresence = foldPresence(watch.presence, appendedRecords, workingDirectory);
   const hasNewPath = presencePathsOf(nextPresence).some((presencePath) => !(presencePath in boxIdByPath));
-  presence = nextPresence;
+  watch.presence = nextPresence;
   if (hasNewPath) {
     requestBoxes();
     return;
@@ -212,7 +309,7 @@ function requestBoxes(): void {
   const sessionId = shownSessionId;
   boxesRequestSerial += 1;
   const serial = boxesRequestSerial;
-  sendControlRequest('codemap-boxes-of', { id: sessionId, paths: presencePathsOf(presence) }, { timeoutMs: BOXES_TIMEOUT_MS })
+  sendControlRequest('codemap-boxes-of', { id: sessionId, paths: watchedPaths() }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial || reply.type !== 'codemap-boxes-of-response') return;
       if (!reply.ok) return showNotice(reply.error ?? NO_MAP_TEXT);
@@ -246,7 +343,7 @@ function mountDock(): void {
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
-    onRecords: (appendedRecords) => notePresenceRecords(sessionId, appendedRecords),
+    phase: () => phaseOfSession(sessionId),
     boxChoices: () => moduleChoices,
   });
   parts.dockSlot.append(dock.element);
@@ -267,7 +364,6 @@ function showSession(sessionId: string | null): void {
   }
   if (!isSameSession) {
     changedBoxIds = new Set();
-    presence = NO_PRESENCE;
     boxIdByPath = {};
     moduleChoices = [];
     mountDock();
@@ -282,7 +378,9 @@ function closeMenu(): void {
 }
 
 function showRepo(repoPath: string | null): void {
+  if (repoPath !== shownRepoPath) closeWatches();
   shownRepoPath = repoPath;
+  syncWatches();
   const repoSessionIds = repoChoices().find((choice) => choice.path === repoPath)?.sessionIds ?? [];
   const anchorSessionId = shownSessionId !== null && repoSessionIds.includes(shownSessionId) ? shownSessionId : repoSessionIds.at(-1) ?? null;
   showSession(anchorSessionId);
@@ -409,8 +507,9 @@ function mountBoardSessionView(panel: HTMLElement): void {
       if (isActive && boardId !== null) showTilesFor(boardId, view, scale);
     },
   });
-  const presenceLayer = createPresenceLayer(renderer);
+  const presenceLayer = createPresenceLayer(renderer, addressFace);
   world.append(presenceLayer.element);
+  canvas.append(presenceLayer.roster);
   const askCards = createAskCards();
   viewport.append(askCards.element);
   parts = { canvas, viewport, world, renderer, chip, chipName, freshness, menu, notice, dockSlot, presenceLayer, askCards };
@@ -425,6 +524,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   onTilesChanged(paintBoard);
   onBoardSessionTraceChanged((sessionId) => {
     if (!isActive) return;
+    watchBySessionId.get(sessionId)?.feed.refresh();
     if (shownBranchIds().includes(sessionId)) return dock?.refresh();
     if (sessionId !== shownSessionId) return;
     dock?.refresh();
@@ -442,6 +542,8 @@ function activateBoardSessionView(): void {
 
 function deactivateBoardSessionView(): void {
   isActive = false;
+  closeWatches();
+  shownRepoPath = null;
   closeMenu();
 }
 

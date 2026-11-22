@@ -1,4 +1,7 @@
+import { BADGE_LABELS, STATES } from '#shared/states.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
+import { BUSY_BEAT, MONITORING_VERB, verbChoicesFor } from '../chat/chat-activity-core.ts';
+import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { fileEditsOf } from '../chat/turn-digest-core.ts';
 
 export interface Presence {
@@ -7,6 +10,7 @@ export interface Presence {
 }
 
 const MAX_NAMED_PATHS = 20;
+const STARTING_VERB = BADGE_LABELS[STATES.STARTING];
 const NAMED_PATH = /(?:^|[\s`'"([])((?:[\w.@-]+\/)+[\w.@-]*)/g;
 const TRAILING_PUNCTUATION = /[.,:;)]+$/;
 
@@ -42,4 +46,11 @@ export function foldPresence(presence: Presence, appendedRecords: readonly Trace
 
 export function presencePathsOf(presence: Presence): string[] {
   return [...new Set([...(presence.workedPath === null ? [] : [presence.workedPath]), ...presence.namedPaths])];
+}
+
+export function faceStatusTextOf(phase: ChatPhase, lastBeat: ActivityBeat | null): string | null {
+  if (phase === 'starting') return STARTING_VERB;
+  if (phase === 'monitoring') return MONITORING_VERB;
+  if (phase !== 'working') return null;
+  return verbChoicesFor(lastBeat ?? BUSY_BEAT)[0] ?? null;
 }

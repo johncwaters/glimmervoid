@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Studio: a repo, not a session**: Studio shows a repo's code map, picked by a repo chip that remembers your last repo and no longer follows the session selected in Focus. A badge beside it reads the map's commit and whether it is current, behind mainline (naming mainline's commit) or failed.
+- **Studio: every session is a face on the map**: each session in the shown repo sits as a face on the box it works in, or beside the repo chip until it touches one, with Chat's working status next to it and small faces for its running subagents and workflows. Click a face to message that session. The dock shows Chat's activity line, and its log keeps your prompts and the agent's replies only: no tool, skill, subagent or workflow rows.
 - **Chat: Send now on a queued message**: A message queued behind a running turn has Send now beside Cancel. It moves that message to the front, stops the turn at its next step and sends it; the row reads "Next step" until it goes. Queued messages now read just "Queued".
 - **Chat: empty, loading and drop states**: A chat with no messages says "No messages yet" and shows its keys; one still loading shows a placeholder until its history arrives. Dragging files over the message box marks it as a drop target. `{` and `}` step between your prompts, like `[` and `]` step between turns.
 - **Chat: code blocks you can copy**: A code block in a reply names its language and has a Copy button; "Copied" shows beside it.

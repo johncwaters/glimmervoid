@@ -1,9 +1,9 @@
-import { backgroundTaskKindText } from '../chat/chat-parts-core.ts';
+import { createChatActivity } from '../chat/chat-activity.ts';
+import type { ChatPhase } from '../chat/chat-activity-core.ts';
 import { renderCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import type { ChatPart } from '../chat/chat-part.ts';
-import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { operatorPartOfPrompt } from '#shared/board-branch-core.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -33,7 +33,7 @@ interface DockSession {
   workingDirectory: string | null;
   agentId: string | null;
   isTurnOver: () => boolean;
-  onRecords: (appendedRecords: readonly TraceRecord[]) => void;
+  phase: () => ChatPhase;
   boxChoices: () => readonly BoxChoice[];
 }
 
@@ -49,6 +49,7 @@ export interface DockBranch {
 export interface Dock {
   element: HTMLElement;
   setBranches(branches: readonly DockBranch[]): void;
+  addressSession(sessionId: string | null, name: string): void;
   refresh(): void;
   close(): void;
 }
@@ -66,15 +67,11 @@ function agentFaceOf(speaker: FeedSpeaker): HTMLElement {
   return face;
 }
 
-function turnBodyOf(part: Extract<ChatPart, { kind: 'turn' }>): HTMLElement {
+function turnBodyOf(part: Extract<ChatPart, { kind: 'turn' }>): HTMLElement | null {
+  const replyTexts = part.segments.flatMap((segment) => segment.kind === 'text' && segment.text.trim().length > 0 ? [segment.text] : []);
+  if (replyTexts.length === 0) return null;
   const body = el('div', 'bs-bubble-body');
-  for (const segment of part.segments) {
-    if (segment.kind === 'text') {
-      body.append(renderPlanBlocks(parsePlanMarkdown(segment.text)));
-      continue;
-    }
-    body.append(el('p', 'bs-bubble-tools', segment.calls.at(-1)?.label ?? ''));
-  }
+  body.append(...replyTexts.map((replyText) => renderPlanBlocks(parsePlanMarkdown(replyText))));
   return body;
 }
 
@@ -87,12 +84,14 @@ function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedS
   return row;
 }
 
-function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (branch: DockBranch) => void): HTMLElement {
+function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (branch: DockBranch) => void): HTMLElement | null {
   if (part.kind === 'prompt') return promptRowOf(part, speaker);
   if (part.kind === 'turn') {
+    const body = turnBodyOf(part);
+    if (body === null) return null;
     const row = el('div', speaker.branch ? 'bs-row bs-row-agent bs-row-branch' : 'bs-row bs-row-agent');
     const bubble = el('div', 'bs-bubble bs-bubble-agent');
-    bubble.append(el('span', 'bs-bubble-who', speaker.name), turnBodyOf(part));
+    bubble.append(el('span', 'bs-bubble-who', speaker.name), body);
     row.append(agentFaceOf(speaker), bubble);
     const branch = speaker.branch;
     if (branch === null) return row;
@@ -107,9 +106,7 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (br
     });
     return row;
   }
-  if (part.kind === 'skill') return el('p', 'bs-row bs-row-note', `Skill ${part.skillName}`);
-  if (part.kind === 'subagent') return el('p', 'bs-row bs-row-note', part.task ? `Subagent ${part.subagentType}: ${part.task}` : `Subagent ${part.subagentType}`);
-  if (part.kind === 'background-task') return el('p', 'bs-row bs-row-note', `${backgroundTaskKindText(part.taskType)}: ${part.label}`);
+  if (part.kind !== 'card') return null;
   const row = el('div', 'bs-row bs-row-card');
   row.append(renderCard(part.card));
   return row;
@@ -144,7 +141,10 @@ export function createDock(session: DockSession): Dock {
   const sendButton = button({ variant: 'primary-icon', size: 'small', label: 'Send', icon: createLineIcon(SEND_ICON_PATH, '1.8'), action: 'board-session-send', disabled: true });
   sendButton.type = 'submit';
   pill.append(addressChip, input, sendButton);
-  element.append(log, failure, mentions, pill);
+  const activity = createChatActivity();
+  activity.element.classList.add('bs-activity');
+  activity.setPhase(session.phase());
+  element.append(log, failure, mentions, activity.element, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
   const feedBySessionId = new Map<string, ChatFeed>();
@@ -189,6 +189,11 @@ export function createDock(session: DockSession): Dock {
     for (const part of parts) {
       const key = rowKeyOf(sessionId, part.id);
       const row = renderedPartOf(part, speaker, addressBranch);
+      if (row === null) {
+        rowByKey.get(key)?.remove();
+        rowByKey.delete(key);
+        continue;
+      }
       row.dataset.partId = part.id;
       row.dataset.sessionId = sessionId;
       const shownRow = rowByKey.get(key);
@@ -217,7 +222,7 @@ export function createDock(session: DockSession): Dock {
     }
   };
 
-  const openFeed = (speaker: FeedSpeaker, workingDirectory: string | null, isTurnOver: () => boolean, onRecords: ((appendedRecords: readonly TraceRecord[]) => void) | undefined) => {
+  const openFeed = (speaker: FeedSpeaker, workingDirectory: string | null, isTurnOver: () => boolean) => {
     const sessionId = speaker.sessionId;
     speakerBySessionId.set(sessionId, speaker);
     const feed = createChatFeed({
@@ -241,12 +246,13 @@ export function createDock(session: DockSession): Dock {
         upsertParts(sessionId, rebuiltParts);
         log.scrollTop = log.scrollHeight - distanceFromBottom;
       },
-      onBeats: () => {},
+      onBeats: (beats) => {
+        if (speaker.branch === null) activity.beat(beats);
+      },
       onSubagents: () => {},
       isTurnOver,
       onReset: () => removeSessionRows(sessionId),
       onFailure: showFailure,
-      onRecords,
     });
     feedBySessionId.set(sessionId, feed);
     return feed;
@@ -266,7 +272,7 @@ export function createDock(session: DockSession): Dock {
   element.addEventListener('focusin', openLog);
   openLogWhenTurnLive();
 
-  const mainFeed = openFeed(mainSpeaker, session.workingDirectory, session.isTurnOver, session.onRecords);
+  const mainFeed = openFeed(mainSpeaker, session.workingDirectory, session.isTurnOver);
   mainFeed.whenCaughtUp(() => {
     log.scrollTop = log.scrollHeight;
   });
@@ -404,14 +410,19 @@ export function createDock(session: DockSession): Dock {
         speakerBySessionId.set(branch.sessionId, speaker);
         continue;
       }
-      openFeed(speaker, branch.workingDirectory, branch.isTurnOver, undefined);
+      openFeed(speaker, branch.workingDirectory, branch.isTurnOver);
     }
   };
 
   return {
     element,
     setBranches,
+    addressSession: (sessionId, name) => {
+      setAddress(sessionId === null || sessionId === session.sessionId ? MAIN_ADDRESS : { kind: 'branch', sessionId, aboutTitle: name });
+      input.focus();
+    },
     refresh: () => {
+      activity.setPhase(session.phase());
       openLogWhenTurnLive();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },

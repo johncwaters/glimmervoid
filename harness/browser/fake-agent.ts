@@ -375,7 +375,10 @@ function dispatch(command: string): void {
     return;
   }
   if (command === 'ask-shop') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
     postAgentVerb('whiteboard', { sub: 'ask', about: 'src/payments/card.js', question: 'Should refunds go through the card module too?', options: ['Yes, reuse it', 'No, keep them apart'] });
+    dispatch('stop');
     return;
   }
   if (command === 'exit') process.exit(0);

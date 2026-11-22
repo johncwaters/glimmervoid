@@ -107,8 +107,12 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-presence-face:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const faceOnBox = root.locator('.bs-presence-faces .bs-who .bs-presence-face').first();
+  await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.locator('#tab-focus').click();
+  await page.locator('#tab-board-session').click();
+  await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the agent edits');
 
   await pillInput.fill('ask-shop');
@@ -130,6 +134,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-row-you', { hasText: 'narrate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-agent', { hasText: 'Build passed' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-agent .bs-face').count() > 0, true, 'an agent bubble carries the agent face');
+  await root.locator('.bs-who[data-phase="working"] .bs-who-status').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');
   assertSameBox(chipBefore, await boxOf(page, '.board-session-view .bs-chip'), 'the repo chip');
