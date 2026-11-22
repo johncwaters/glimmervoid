@@ -377,6 +377,17 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby, Rust, Dart, PHP and S
     'native/swift/Sources/ShopCore/Models/Item.swift': '',
     'native/swift/Sources/shop/main.swift': 'import Foundation\nimport ShopCore\n',
     'native/swift/Tests/ShopCoreTests/CartTests.swift': 'import XCTest\n@testable import ShopCore\n',
+    'native/jvm/src/main/java/com/shop/model/Item.java': 'package com.shop.model;\npublic class Item {}\n',
+    'native/jvm/src/main/java/com/shop/Checkout.java': 'package com.shop;\nimport com.shop.model.Item;\nimport java.util.List;\n',
+    'native/jvm/src/main/kotlin/com/shop/Pricing.kt': 'package com.shop\n\nimport com.shop.model.Item\n',
+    'native/jvm/src/main/scala/com/shop/Report.scala': 'package com.shop\n\nimport com.shop.model.{Item => ShopItem}\nimport scala.util.Try\n',
+    'native/dotnet/Shop/Cart.cs': 'namespace Shop.Core;\npublic class Cart {}\n',
+    'native/dotnet/Shop/Tax.cs': 'namespace Shop.Core { class Tax {} }\n',
+    'native/dotnet/App/Program.cs': 'using Shop.Core;\nusing System;\n',
+    'native/dotnet/Shop.Tests/CartTests.cs': 'using Shop.Core;\n',
+    'native/ex/lib/shop/cart.ex': 'defmodule Shop.Cart do\nend\n',
+    'native/ex/lib/shop/pricing.ex': 'defmodule Shop.Pricing do\nend\n',
+    'native/ex/lib/shop/checkout.ex': 'defmodule Shop.Checkout do\n  alias Shop.Cart\n  def run, do: Shop.Pricing.total()\nend\n',
   });
   try {
     writeRepoFile(root, 'posthog/models/user.py', 'class User: value = 1\n');
@@ -385,6 +396,7 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby, Rust, Dart, PHP and S
     writeRepoFile(root, 'shop/cart/tax.go', 'package cart\n\nconst rate = 2\n');
     writeRepoFile(root, 'shop/other/other.go', 'package other\n\nconst unused = 2\n');
     writeRepoFile(root, 'native/swift/Sources/ShopCore/Cart.swift', 'struct Cart {}\n');
+    writeRepoFile(root, 'native/dotnet/Shop/Cart.cs', 'namespace Shop.Core;\npublic class Cart { }\n');
     const session = fixtureSession('posthog', 'Posthog', () => [scopeOf(root, base)]);
     const map = await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
     const [repo] = map.repos;
@@ -401,6 +413,9 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby, Rust, Dart, PHP and S
     const swiftBlast = repo.blastRadius.find((fact) => fact.path === 'native/swift/Sources/ShopCore/Cart.swift');
     assert.deepEqual(swiftBlast?.directDependents, ['native/swift/Sources/shop/main.swift', 'native/swift/Tests/ShopCoreTests/CartTests.swift']);
     assert.deepEqual(swiftBlast?.dependentTests, ['native/swift/Tests/ShopCoreTests/CartTests.swift']);
+    const dotnetBlast = repo.blastRadius.find((fact) => fact.path === 'native/dotnet/Shop/Cart.cs');
+    assert.deepEqual(dotnetBlast?.directDependents, ['native/dotnet/App/Program.cs', 'native/dotnet/Shop.Tests/CartTests.cs']);
+    assert.deepEqual(dotnetBlast?.dependentTests, ['native/dotnet/Shop.Tests/CartTests.cs']);
     const extract = await createCodemapClient().extract(root, base);
     const goEdges = [...extract.importerIndexes].map((importerIndex, edgeIndex) => `${extract.paths[importerIndex]} imports ${extract.paths[extract.importedIndexes[edgeIndex] ?? -1]}`).filter((edge) => edge.endsWith('.go'));
     assert.deepEqual(goEdges.sort(), ['shop/checkout/checkout_test.go imports shop/cart/cart.go', 'shop/checkout/checkout_test.go imports shop/cart/tax.go', 'shop/cmd/shop/main.go imports shop/cart/cart.go', 'shop/cmd/shop/main.go imports shop/cart/tax.go']);
@@ -412,6 +427,15 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby, Rust, Dart, PHP and S
       'native/build.zig imports native/util.zig',
       'native/dart/lib/shop_ui.dart imports native/dart/lib/src/cart.dart',
       'native/dart/test/cart_test.dart imports native/dart/lib/src/cart.dart',
+      'native/dotnet/App/Program.cs imports native/dotnet/Shop/Cart.cs',
+      'native/dotnet/App/Program.cs imports native/dotnet/Shop/Tax.cs',
+      'native/dotnet/Shop.Tests/CartTests.cs imports native/dotnet/Shop/Cart.cs',
+      'native/dotnet/Shop.Tests/CartTests.cs imports native/dotnet/Shop/Tax.cs',
+      'native/ex/lib/shop/checkout.ex imports native/ex/lib/shop/cart.ex',
+      'native/ex/lib/shop/checkout.ex imports native/ex/lib/shop/pricing.ex',
+      'native/jvm/src/main/java/com/shop/Checkout.java imports native/jvm/src/main/java/com/shop/model/Item.java',
+      'native/jvm/src/main/kotlin/com/shop/Pricing.kt imports native/jvm/src/main/java/com/shop/model/Item.java',
+      'native/jvm/src/main/scala/com/shop/Report.scala imports native/jvm/src/main/java/com/shop/model/Item.java',
       'native/php/src/Checkout.php imports native/php/src/Cart/Cart.php',
       'native/php/src/Checkout.php imports native/php/src/helpers.php',
       'native/run.sh imports native/lib.sh',

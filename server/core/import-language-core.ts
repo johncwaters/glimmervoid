@@ -8,7 +8,12 @@ export interface GrammarScanner {
   importNodeTypes: readonly string[];
   isTopLevelOnly: boolean;
   importQuery: string;
-  importLinePattern: RegExp | null;
+  importSection: ImportSection | null;
+}
+
+interface ImportSection {
+  kind: 'throughLastMatch' | 'matchesOnly';
+  pattern: RegExp;
 }
 
 type ImportScanner = { kind: 'typescript' } | { kind: 'python' } | { kind: 'embedded'; host: EmbeddedScriptHost } | GrammarScanner;
@@ -16,7 +21,8 @@ type ImportScanner = { kind: 'typescript' } | { kind: 'python' } | { kind: 'embe
 type ImportResolver =
   | { kind: 'file' }
   | { kind: 'candidates'; manifestName: string | null }
-  | { kind: 'packageDirectory'; manifestName: string; excludedTargetPattern: RegExp | null; isRecursive: boolean };
+  | { kind: 'packageDirectory'; manifestName: string; excludedTargetPattern: RegExp | null; isRecursive: boolean }
+  | { kind: 'declaredNamespace'; family: string };
 
 interface ImportLanguage {
   id: string;
@@ -29,6 +35,17 @@ const FILE_RESOLVER: ImportResolver = { kind: 'file' };
 const CANDIDATE_RESOLVER: ImportResolver = { kind: 'candidates', manifestName: null };
 const PHP_INCLUDE_TYPES = ['require_expression', 'require_once_expression', 'include_expression', 'include_once_expression'];
 const SWIFT_IMPORT_LINE = /^[ \t]*(?:[@\w]+(?:\([^)\n]*\))?[ \t]+)*import\b[^\n]*/gm;
+const JVM_HEADER_SECTION: ImportSection = { kind: 'throughLastMatch', pattern: /^[ \t]*(?:package|import)\b[^\n]*/gm };
+const SCALA_IMPORT_STATEMENTS: ImportSection = {
+  kind: 'matchesOnly',
+  pattern: /"""[\s\S]*?(?:"""|$(?![\s\S]))|"(?:[^"\\\n]|\\.)*\\?(?:"|$)|'(?:[^'\\\n]|\\.)'|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$(?![\s\S]))|^[ \t]*(package\b[^\n{]*|import\b[^\n{]*(?:\{[^{}]{0,1024}\}[^\n]*)?)/gm,
+};
+const JVM_RESOLVER: ImportResolver = { kind: 'declaredNamespace', family: 'jvm' };
+const ELIXIR_IMPORT_QUERY = [
+  '(call target: (identifier) @directive (arguments . (_) @elixir_alias) (#match? @directive "^(alias|import|use|require)$"))',
+  '(call target: (dot left: (alias) @specifier))',
+  '(call target: (identifier) @directive (arguments . (alias) @declares) (#match? @directive "^(defmodule|defprotocol)$"))',
+].join(' ');
 
 const PHP_IMPORT_QUERY = [
   '(namespace_use_declaration) @php_use',
@@ -39,7 +56,7 @@ const PHP_IMPORT_QUERY = [
 ].join(' ');
 
 function grammarScanner(grammar: string, importNodeTypes: readonly string[], importQuery: string): GrammarScanner {
-  return { kind: 'grammar', grammar, importNodeTypes, isTopLevelOnly: false, importQuery, importLinePattern: null };
+  return { kind: 'grammar', grammar, importNodeTypes, isTopLevelOnly: false, importQuery, importSection: null };
 }
 
 const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
@@ -59,7 +76,7 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
       importNodeTypes: ['import_declaration'],
       isTopLevelOnly: true,
       importQuery: '(import_declaration [(import_spec path: (_) @specifier) (import_spec_list (import_spec path: (_) @specifier))])',
-      importLinePattern: null,
+      importSection: null,
     },
     resolver: { kind: 'packageDirectory', manifestName: 'go.mod', excludedTargetPattern: /_test[.]go$/, isRecursive: false },
   },
@@ -129,16 +146,49 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
   {
     id: 'swift',
     extensions: ['.swift'],
-    scanner: { ...grammarScanner('swift', ['import_declaration'], '(import_declaration (identifier . (simple_identifier) @specifier))'), isTopLevelOnly: true, importLinePattern: SWIFT_IMPORT_LINE },
+    scanner: { ...grammarScanner('swift', ['import_declaration'], '(import_declaration (identifier . (simple_identifier) @specifier))'), isTopLevelOnly: true, importSection: { kind: 'throughLastMatch', pattern: SWIFT_IMPORT_LINE } },
     resolver: { kind: 'packageDirectory', manifestName: 'Package.swift', excludedTargetPattern: null, isRecursive: true },
   },
+  {
+    id: 'csharp',
+    extensions: ['.cs'],
+    scanner: grammarScanner(
+      'c-sharp',
+      ['using_directive', 'namespace_declaration', 'file_scoped_namespace_declaration'],
+      '(using_directive (_) @specifier .) (namespace_declaration name: (_) @declares) (file_scoped_namespace_declaration name: (_) @declares)',
+    ),
+    resolver: { kind: 'declaredNamespace', family: 'dotnet' },
+  },
+  {
+    id: 'java',
+    extensions: ['.java'],
+    scanner: {
+      ...grammarScanner('java', ['package_declaration', 'import_declaration'], '(package_declaration [(scoped_identifier) (identifier)] @declares) (import_declaration [(scoped_identifier) (identifier)] @specifier)'),
+      isTopLevelOnly: true,
+      importSection: JVM_HEADER_SECTION,
+    },
+    resolver: JVM_RESOLVER,
+  },
+  {
+    id: 'kotlin',
+    extensions: ['.kt', '.kts'],
+    scanner: { ...grammarScanner('kotlin', ['package_header', 'import_header'], '(package_header (identifier) @declares) (import_header (identifier) @specifier)'), importSection: JVM_HEADER_SECTION },
+    resolver: JVM_RESOLVER,
+  },
+  {
+    id: 'scala',
+    extensions: ['.scala', '.sc'],
+    scanner: { ...grammarScanner('scala', ['package_clause', 'import_declaration'], '(package_clause name: (package_identifier) @declares) (import_declaration) @scala_import'), importSection: SCALA_IMPORT_STATEMENTS },
+    resolver: JVM_RESOLVER,
+  },
+  { id: 'elixir', extensions: ['.ex', '.exs'], scanner: grammarScanner('elixir', ['call'], ELIXIR_IMPORT_QUERY), resolver: { kind: 'declaredNamespace', family: 'elixir' } },
 ];
 
 export const IMPORT_GRAMMAR_NAMES: readonly string[] = [...new Set(IMPORT_LANGUAGES.flatMap((language) => (language.scanner.kind === 'grammar' ? [language.scanner.grammar] : [])))];
 
 const LANGUAGE_BY_EXTENSION = new Map(IMPORT_LANGUAGES.flatMap((language) => language.extensions.map((extension) => [extension, language] as const)));
 
-const IMPORT_MANIFEST_NAMES: ReadonlySet<string> = new Set(IMPORT_LANGUAGES.flatMap((language) => (language.resolver.kind !== 'file' && language.resolver.manifestName ? [language.resolver.manifestName] : [])));
+const IMPORT_MANIFEST_NAMES: ReadonlySet<string> = new Set(IMPORT_LANGUAGES.flatMap((language) => ('manifestName' in language.resolver && language.resolver.manifestName ? [language.resolver.manifestName] : [])));
 
 export function importLanguageOf(repoPath: string): ImportLanguage | null {
   return LANGUAGE_BY_EXTENSION.get(path.posix.extname(repoPath).toLowerCase()) ?? null;

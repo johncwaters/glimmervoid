@@ -4,6 +4,7 @@ interface UseTreeSyntax {
   tokenPattern: RegExp;
   separator: string;
   itemKeywords: ReadonlySet<string>;
+  replacementByName: Readonly<Record<string, string>>;
 }
 
 const MAX_GROUP_DEPTH = 16;
@@ -13,15 +14,31 @@ const BLOCK_COMMENT_END = '*/';
 const PUNCTUATION_TOKEN_BY_TEXT: Record<string, UseToken> = { '{': { kind: 'open' }, '}': { kind: 'close' }, ',': { kind: 'comma' }, '*': { kind: 'wildcard' } };
 
 const RUST_SYNTAX: UseTreeSyntax = {
-  tokenPattern: /\s+|\/\/[^\n]*|(\/\*)|(?:r#)?([\p{L}_][\p{L}\p{N}_]*)|([{},*])|[\s\S]/uy,
+  tokenPattern: /\s+|\/\/[^\n]*|(\/\*)|`([^`\n]+)`|(?:r#)?([\p{L}_][\p{L}\p{N}_]*)|([{},*])|[\s\S]/uy,
   separator: '::',
   itemKeywords: new Set(),
+  replacementByName: {},
 };
 
 const PHP_SYNTAX: UseTreeSyntax = {
-  tokenPattern: /\s+|(?:\/\/|#)[^\n]*|(\/\*)|([\p{L}_][\p{L}\p{N}_]*)|([{},*])|[\s\S]/uy,
+  tokenPattern: /\s+|(?:\/\/|#)[^\n]*|(\/\*)|`([^`\n]+)`|([\p{L}_][\p{L}\p{N}_]*)|([{},*])|[\s\S]/uy,
   separator: '\\',
   itemKeywords: new Set(['function', 'const']),
+  replacementByName: {},
+};
+
+const SCALA_SYNTAX: UseTreeSyntax = {
+  tokenPattern: /\s+|\/\/[^\n]*|(\/\*)|`([^`\n]+)`|([\p{L}_$][\p{L}\p{N}_$]*|[!#%&*+\-/:<=>?@\\^|~]+)|([{},])|[\s\S]/uy,
+  separator: '.',
+  itemKeywords: new Set(),
+  replacementByName: { _: 'self', '*': 'self', given: 'self', '=>': 'as' },
+};
+
+const ELIXIR_SYNTAX: UseTreeSyntax = {
+  tokenPattern: /\s+|#[^\n]*|(\/\*)|`([^`\n]+)`|([\p{L}_][\p{L}\p{N}_]*)|([{},])|[\s\S]/uy,
+  separator: '.',
+  itemKeywords: new Set(),
+  replacementByName: {},
 };
 
 function tokensOf(text: string, syntax: UseTreeSyntax): UseToken[] {
@@ -32,7 +49,8 @@ function tokensOf(text: string, syntax: UseTreeSyntax): UseToken[] {
     const match = pattern.exec(text);
     if (!match) break;
     position = pattern.lastIndex;
-    const [, blockCommentStart, name, punctuation] = match;
+    const [, blockCommentStart, quotedName, bareName, punctuation] = match;
+    const name = quotedName ?? (bareName === undefined ? undefined : (syntax.replacementByName[bareName] ?? bareName));
     if (blockCommentStart) {
       const commentEnd = text.indexOf(BLOCK_COMMENT_END, position);
       position = commentEnd === -1 ? text.length : commentEnd + BLOCK_COMMENT_END.length;
@@ -96,6 +114,20 @@ function expandedPathsOf(tokens: readonly UseToken[], syntax: UseTreeSyntax): st
 
 export function expandRustUseTree(useTreeText: string): string[] {
   return expandedPathsOf(tokensOf(useTreeText, RUST_SYNTAX), RUST_SYNTAX).map((segments) => segments.join(RUST_SYNTAX.separator));
+}
+
+export function expandScalaImport(importText: string): string[] {
+  const tokens = tokensOf(importText, SCALA_SYNTAX);
+  const firstName = tokens[0]?.kind === 'name' && tokens[0].text === 'import' ? 1 : 0;
+  return expandedPathsOf(tokens.slice(firstName), SCALA_SYNTAX).map((segments) => segments.join(SCALA_SYNTAX.separator));
+}
+
+const ELIXIR_ALIAS_SEGMENT = /^\p{Lu}/u;
+
+export function expandElixirAlias(aliasText: string): string[] {
+  return expandedPathsOf(tokensOf(aliasText, ELIXIR_SYNTAX), ELIXIR_SYNTAX)
+    .filter((segments) => segments.every((segment) => ELIXIR_ALIAS_SEGMENT.test(segment)))
+    .map((segments) => segments.join(ELIXIR_SYNTAX.separator));
 }
 
 export function expandPhpUseDeclaration(declarationText: string): string[] {

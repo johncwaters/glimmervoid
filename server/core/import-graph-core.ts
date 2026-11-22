@@ -5,6 +5,8 @@ import type { EmbeddedScriptHost } from './import-language-core.ts';
 import { manifestPackageIndexOf, packagePrefixMatches, packagesOfManifest } from './import-resolvers/manifest-prefix.ts';
 import type { ManifestPackageIndex } from './import-resolvers/manifest-prefix.ts';
 import { fileCandidatesOf } from './import-resolvers/file-candidates.ts';
+import { declaredNamespaceIndexOf, resolveDeclaredName } from './import-resolvers/declared-namespace.ts';
+import type { DeclaredNamespaceIndex } from './import-resolvers/declared-namespace.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
@@ -478,6 +480,7 @@ interface RepoResolution {
   packageFilesByKey: Map<string, string[]>;
   packageKeyBySpecifier: Map<string, string | null>;
   targetFilesByLanguage: Map<string, Map<string, string[]>>;
+  declaredNamespaceByFamily: Map<string, DeclaredNamespaceIndex>;
   pathsByBasename: Map<string, string[]>;
   suffixMatchBySuffix: Map<string, string[]>;
 }
@@ -573,6 +576,34 @@ function resolvePackageKey(fromPath: string, specifier: string, repo: RepoResolu
   return packageKey;
 }
 
+function declaredNamespacesOf(declaredNamesByPath: ReadonlyMap<string, readonly string[]>, knownPaths: ReadonlySet<string>): Map<string, DeclaredNamespaceIndex> {
+  const declaredNamesByFamily = new Map<string, [string, readonly string[]][]>();
+  for (const [repoPath, declaredNames] of declaredNamesByPath) {
+    const resolver = importLanguageOf(repoPath)?.resolver;
+    if (resolver?.kind !== 'declaredNamespace' || declaredNames.length === 0 || !knownPaths.has(repoPath)) continue;
+    const familyDeclarations = declaredNamesByFamily.get(resolver.family) ?? [];
+    familyDeclarations.push([repoPath, declaredNames]);
+    declaredNamesByFamily.set(resolver.family, familyDeclarations);
+  }
+  return new Map([...declaredNamesByFamily].map(([family, declarations]) => [family, declaredNamespaceIndexOf(declarations)]));
+}
+
+type DeclaredImport = { packageKey: string } | { importedPaths: readonly string[] };
+
+function resolveDeclaredImport(fromPath: string, specifier: string, repo: RepoResolution): DeclaredImport | null {
+  const resolver = importLanguageOf(fromPath)?.resolver;
+  if (resolver?.kind !== 'declaredNamespace') return null;
+  const index = repo.declaredNamespaceByFamily.get(resolver.family);
+  const resolution = index && resolveDeclaredName(index, specifier);
+  if (!index || !resolution) return { importedPaths: [] };
+  if (resolution.memberFiles.length === 1) return { importedPaths: resolution.memberFiles };
+  const isMemberImport = resolution.memberFiles.length > 1;
+  const importedName = isMemberImport && resolution.memberName ? resolution.memberName : resolution.declaredName;
+  const packageKey = `${resolver.family}#${importedName}`;
+  if (!repo.packageFilesByKey.has(packageKey)) repo.packageFilesByKey.set(packageKey, isMemberImport ? [...resolution.memberFiles] : (index.filesByName.get(resolution.declaredName) ?? []));
+  return { packageKey };
+}
+
 function resolveSpecifier(fromPath: string, specifier: string, repo: RepoResolution): string[] {
   const language = importLanguageOf(fromPath);
   if (language?.resolver.kind === 'candidates') {
@@ -604,17 +635,19 @@ export function buildImportGraph({
   importsMap,
   tsconfigTargets = () => [],
   manifestTextByPath = new Map(),
+  declaredNamesByPath = new Map(),
   unscannedSourcePaths = [],
 }: {
   specifiersByPath: Map<string, string[]>;
   importsMap: Record<string, string>;
   tsconfigTargets?: (fromPath: string, specifier: string) => string[];
   manifestTextByPath?: ReadonlyMap<string, string>;
+  declaredNamesByPath?: ReadonlyMap<string, readonly string[]>;
   unscannedSourcePaths?: readonly string[];
 }): ImportGraph {
   const knownPaths = new Set(specifiersByPath.keys());
   const sourcePaths = new Set([...knownPaths, ...unscannedSourcePaths]);
-  const repo: RepoResolution = { knownPaths, sourcePaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packages: manifestPackageIndexOf(manifestTextByPath), packageFilesByKey: new Map(), packageKeyBySpecifier: new Map(), targetFilesByLanguage: new Map(), pathsByBasename: pathsByBasenameOf(sourcePaths), suffixMatchBySuffix: new Map() };
+  const repo: RepoResolution = { knownPaths, sourcePaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packages: manifestPackageIndexOf(manifestTextByPath), packageFilesByKey: new Map(), packageKeyBySpecifier: new Map(), targetFilesByLanguage: new Map(), declaredNamespaceByFamily: declaredNamespacesOf(declaredNamesByPath, knownPaths), pathsByBasename: pathsByBasenameOf(sourcePaths), suffixMatchBySuffix: new Map() };
   const dependentsByPath = new Map(
     [...knownPaths].map((knownPath): [string, Set<string>] => [knownPath, new Set()]),
   );
@@ -622,13 +655,15 @@ export function buildImportGraph({
 
   for (const [fromPath, specifiers] of specifiersByPath) {
     for (const specifier of specifiers) {
-      const packageKey = resolvePackageKey(fromPath, specifier, repo);
+      const declaredImport = resolveDeclaredImport(fromPath, specifier, repo);
+      const packageKey = declaredImport && 'packageKey' in declaredImport ? declaredImport.packageKey : resolvePackageKey(fromPath, specifier, repo);
       if (packageKey) {
         dependentsByPackage.set(packageKey, (dependentsByPackage.get(packageKey) ?? new Set()).add(fromPath));
         continue;
       }
-      for (const importedPath of resolveSpecifier(fromPath, specifier, repo)) {
-        dependentsByPath.get(importedPath)?.add(fromPath);
+      const importedPaths = declaredImport && 'importedPaths' in declaredImport ? declaredImport.importedPaths : resolveSpecifier(fromPath, specifier, repo);
+      for (const importedPath of importedPaths) {
+        if (importedPath !== fromPath) dependentsByPath.get(importedPath)?.add(fromPath);
       }
     }
   }
@@ -654,6 +689,47 @@ export function expandedEdgeCountOf(graph: ImportGraph): number {
   return edgeCount;
 }
 
+function filesByPackageKeyOf(graph: ImportGraph): Map<string, string[]> {
+  const filesByPackageKey = new Map<string, string[]>();
+  for (const [packagePath, packageKeys] of graph.packageKeysByPath) {
+    for (const packageKey of packageKeys) {
+      const packageFiles = filesByPackageKey.get(packageKey) ?? [];
+      packageFiles.push(packagePath);
+      filesByPackageKey.set(packageKey, packageFiles);
+    }
+  }
+  return filesByPackageKey;
+}
+
+function oneFilePerDirectoryOf(packageFiles: readonly string[]): string[] {
+  const fileByDirectory = new Map<string, string>();
+  for (const packageFile of [...packageFiles].sort()) {
+    const directory = path.posix.dirname(packageFile);
+    if (!fileByDirectory.has(directory)) fileByDirectory.set(directory, packageFile);
+  }
+  return [...fileByDirectory.values()];
+}
+
+export function packageKeysPastEdgeBudget(graph: ImportGraph, maxEdges: number): Set<string> {
+  let edgeCount = expandedEdgeCountOf(graph);
+  const trimmedPackageKeys = new Set<string>();
+  const fanOuts = [...filesByPackageKeyOf(graph)].map(([packageKey, packageFiles]) => ({ packageKey, packageFiles, dependentCount: graph.dependentsByPackage.get(packageKey)?.size ?? 0 }));
+  fanOuts.sort((left, right) => right.packageFiles.length * right.dependentCount - left.packageFiles.length * left.dependentCount);
+  for (const { packageKey, packageFiles, dependentCount } of fanOuts) {
+    if (edgeCount <= maxEdges) break;
+    edgeCount -= (packageFiles.length - oneFilePerDirectoryOf(packageFiles).length) * dependentCount;
+    trimmedPackageKeys.add(packageKey);
+  }
+  return trimmedPackageKeys;
+}
+
+export function withOneFilePerDirectory(graph: ImportGraph, packageKeys: ReadonlySet<string>): ImportGraph {
+  if (packageKeys.size === 0) return graph;
+  const keptFilesByPackageKey = new Map([...filesByPackageKeyOf(graph)].filter(([packageKey]) => packageKeys.has(packageKey)).map(([packageKey, packageFiles]) => [packageKey, new Set(oneFilePerDirectoryOf(packageFiles))]));
+  const packageKeysByPath = new Map([...graph.packageKeysByPath].map(([packagePath, keys]) => [packagePath, keys.filter((packageKey) => keptFilesByPackageKey.get(packageKey)?.has(packagePath) ?? true)]));
+  return { ...graph, packageKeysByPath };
+}
+
 export function directDependentsOf(graph: ImportGraph, importedPath: string): Set<string> {
   const directDependents = new Set(graph.dependentsByPath.get(importedPath));
   for (const packageKey of graph.packageKeysByPath.get(importedPath) ?? []) {
@@ -664,7 +740,7 @@ export function directDependentsOf(graph: ImportGraph, importedPath: string): Se
   return directDependents;
 }
 
-export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$|(^|/)Tests/.*[.]swift$';
+export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$|(^|/)Tests/.*[.]swift$|(^|/)src/[A-Za-z]+Test/|_test[.]exs$|(^|/)[^/]*[.]Tests?/.*[.]cs$';
 const TEST_PATH = new RegExp(TEST_PATH_PATTERN);
 
 export function isTestPath(repoPath: string): boolean {

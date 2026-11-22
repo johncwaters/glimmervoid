@@ -9,7 +9,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_EXPORT_FILE_BY_KIND, CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { readImportsMap } from '../change-map/core/change-map-core.ts';
-import { blankOutsideScriptRegions, buildImportGraph, directDependentsOf, expandedEdgeCountOf, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath, scriptSourceSpecifiers } from '../core/import-graph-core.ts';
+import { blankOutsideScriptRegions, buildImportGraph, directDependentsOf, expandedEdgeCountOf, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, packageKeysPastEdgeBudget, relativeImportBasePath, scriptSourceSpecifiers, withOneFilePerDirectory } from '../core/import-graph-core.ts';
 import { importLanguageOf, isImportManifestPath, isSourcePath } from '../core/import-language-core.ts';
 import { scanGrammarImports, threadCpuMs } from '../import-scan/grammar-scan.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
@@ -86,9 +86,10 @@ interface FileScan {
   specifiers: string[];
   typeOnlySpecifiers: string[];
   exportedNames: string[];
+  declaredNames: string[];
 }
 
-const NO_IMPORTS: FileScan = { specifiers: [], typeOnlySpecifiers: [], exportedNames: [] };
+const NO_IMPORTS: FileScan = { specifiers: [], typeOnlySpecifiers: [], exportedNames: [], declaredNames: [] };
 
 interface GrammarAllowance {
   remainingCpuMs: number;
@@ -105,30 +106,30 @@ async function scanOf(repoPath: string, sourceText: string, allowance: GrammarAl
     const budgetMs = Math.min(CODEMAP_TUNABLES.grammarParseBudgetMs, allowance.remainingCpuMs);
     if (budgetMs <= 0) return null;
     const startedAt = threadCpuMs();
-    const specifiers = await scanGrammarImports(scanner, sourceText, budgetMs);
+    const grammarImports = await scanGrammarImports(scanner, sourceText, budgetMs);
     allowance.remainingCpuMs -= threadCpuMs() - startedAt;
-    return specifiers && { specifiers, typeOnlySpecifiers: [], exportedNames: [] };
+    return grammarImports && { ...NO_IMPORTS, ...grammarImports };
   }
-  if (scanner.kind === 'python') return { specifiers: extractPythonImportSpecifiers(sourceText), typeOnlySpecifiers: [], exportedNames: [] };
-  if (scanner.kind === 'typescript') return { specifiers: extractImportSpecifiers(sourceText), typeOnlySpecifiers: extractTypeOnlySpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
+  if (scanner.kind === 'python') return { ...NO_IMPORTS, specifiers: extractPythonImportSpecifiers(sourceText) };
+  if (scanner.kind === 'typescript') return { ...NO_IMPORTS, specifiers: extractImportSpecifiers(sourceText), typeOnlySpecifiers: extractTypeOnlySpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
   const scriptText = blankOutsideScriptRegions(sourceText, scanner.host);
   const sourceSpecifiers = scanner.host === 'html' ? scriptSourceSpecifiers(sourceText) : [];
-  return { specifiers: [...new Set([...extractImportSpecifiers(scriptText), ...sourceSpecifiers])], typeOnlySpecifiers: extractTypeOnlySpecifiers(scriptText), exportedNames: [] };
+  return { ...NO_IMPORTS, specifiers: [...new Set([...extractImportSpecifiers(scriptText), ...sourceSpecifiers])], typeOnlySpecifiers: extractTypeOnlySpecifiers(scriptText) };
 }
 
-async function scanFiles(root: string, repoPaths: readonly string[]): Promise<{ repoPath: string; specifiers: string[] }[]> {
-  const scans: { repoPath: string; specifiers: string[] }[] = [];
+async function scanFiles(root: string, repoPaths: readonly string[]): Promise<{ repoPath: string; specifiers: string[]; declaredNames: string[] }[]> {
+  const scans: { repoPath: string; specifiers: string[]; declaredNames: string[] }[] = [];
   const allowance = grammarAllowance();
   for (const repoPath of repoPaths) {
     const sourceText = await fs.promises.readFile(path.join(root, repoPath), 'utf8').catch(() => null);
     if (sourceText === null) continue;
     const isWithinBudget = Buffer.byteLength(sourceText) <= CODEMAP_TUNABLES.maxFileBytes;
     if (!isWithinBudget) {
-      scans.push({ repoPath, specifiers: [] });
+      scans.push({ repoPath, specifiers: [], declaredNames: [] });
       continue;
     }
     const scan = await scanOf(repoPath, sourceText, allowance);
-    if (scan) scans.push({ repoPath, specifiers: scan.specifiers });
+    if (scan) scans.push({ repoPath, specifiers: scan.specifiers, declaredNames: scan.declaredNames });
   }
   return scans;
 }
@@ -138,7 +139,7 @@ async function reusableScansOf(repoDir: string, base: CodemapExtractBase | null,
   const changed = await execFileAsync('git', ['diff', '--name-only', '--relative', '-z', '--no-renames', base.sha, sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES })
     .then(({ stdout }) => new Set(stdout.split(String.fromCharCode(0)).filter(Boolean)), () => null);
   if (!changed) return new Map();
-  return new Map(base.paths.flatMap((repoPath, index) => (changed.has(repoPath) ? [] : [[repoPath, { specifiers: base.specifiersByIndex[index] ?? [], typeOnlySpecifiers: base.typeOnlySpecifiersByIndex[index] ?? [], exportedNames: base.exportedNamesByIndex[index] ?? [] }] as const])));
+  return new Map(base.paths.flatMap((repoPath, index) => (changed.has(repoPath) ? [] : [[repoPath, { specifiers: base.specifiersByIndex[index] ?? [], typeOnlySpecifiers: base.typeOnlySpecifiersByIndex[index] ?? [], exportedNames: base.exportedNamesByIndex[index] ?? [], declaredNames: base.declaredNamesByIndex[index] ?? [] }] as const])));
 }
 
 async function ignoredPathsOf(repoDir: string, candidatePaths: readonly string[]): Promise<Set<string>> {
@@ -219,6 +220,8 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const specifiersByIndex = scans.map((scan) => scan.specifiers);
   const exportedNamesByIndex = scans.map((scan) => scan.exportedNames);
   const typeOnlySpecifiersByIndex = scans.map((scan) => scan.typeOnlySpecifiers);
+  const declaredNamesByIndex = scans.map((scan) => scan.declaredNames);
+  const declaredNamesByPath = new Map(paths.map((repoPath, index) => [repoPath, declaredNamesByIndex[index] ?? []]));
   const specifiersByPath = new Map(paths.map((repoPath, index) => [repoPath, specifiersByIndex[index] ?? []]));
   const valueSpecifiersByPath = new Map(paths.map((repoPath, index) => [repoPath, (specifiersByIndex[index] ?? []).filter((specifier) => !typeOnlySpecifiersByIndex[index]?.includes(specifier))]));
   const trackedPaths = new Set(entries.map((entry) => entry.repoPath));
@@ -229,9 +232,11 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const outsideGraphImportsByIndex = paths.map((repoPath, index) => (candidateImportsByIndex[index] ?? []).filter((candidate) => candidate.targetPath !== null || !ignoredPaths.has(relativeImportBasePath(repoPath, candidate.specifier))));
   markPhase('scan imports');
   const manifestTextByPath = new Map([...textByPath].filter(([repoPath]) => isImportManifestPath(repoPath)));
-  const resolution = { unscannedSourcePaths: skippedPaths, importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath };
-  const graph = buildImportGraph({ specifiersByPath, ...resolution });
-  const valueGraph = buildImportGraph({ specifiersByPath: valueSpecifiersByPath, ...resolution });
+  const resolution = { unscannedSourcePaths: skippedPaths, importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath, declaredNamesByPath };
+  const fullGraph = buildImportGraph({ specifiersByPath, ...resolution });
+  const trimmedPackageKeys = packageKeysPastEdgeBudget(fullGraph, CODEMAP_TUNABLES.maxImportEdges);
+  const graph = withOneFilePerDirectory(fullGraph, trimmedPackageKeys);
+  const valueGraph = withOneFilePerDirectory(buildImportGraph({ specifiersByPath: valueSpecifiersByPath, ...resolution }), trimmedPackageKeys);
   if (expandedEdgeCountOf(graph) > CODEMAP_TUNABLES.maxImportEdges) throw new Error(`the repo has more than ${CODEMAP_TUNABLES.maxImportEdges} file imports, past what the code map can draw`);
   const indexByPath = new Map(paths.map((repoPath, index) => [repoPath, index]));
   const importers: number[] = [];
@@ -250,7 +255,7 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
     }
   }
   markPhase('resolve graph');
-  return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), typeOnlyEdges: Uint8Array.from(typeOnlyEdges), specifiersByIndex, typeOnlySpecifiersByIndex, outsideGraphImportsByIndex, exportedNamesByIndex, skippedPaths };
+  return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), typeOnlyEdges: Uint8Array.from(typeOnlyEdges), specifiersByIndex, typeOnlySpecifiersByIndex, outsideGraphImportsByIndex, exportedNamesByIndex, declaredNamesByIndex, skippedPaths };
 }
 
 function serve(): void {

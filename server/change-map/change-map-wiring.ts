@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ChangeMap } from '../../shared/contracts/change-map.ts';
 import type { ChangedFile, RepoChangeMap } from '../../shared/contracts/change-map.ts';
+import type { FileImports } from '../../shared/contracts/codemap.ts';
 import type { ChangeScope } from '../../session/worktree/worktree-lifecycle-context.ts';
 import { gitCommandFailure, runGit } from '../git/git-exec.ts';
 import {
@@ -62,7 +63,7 @@ export function joinSessionRegistries(...registries: ReadonlyMap<string, ChangeM
   };
 }
 
-type ScanFiles = (root: string, repoPaths: readonly string[]) => Promise<Map<string, string[]>>;
+type ScanFiles = (root: string, repoPaths: readonly string[]) => Promise<Map<string, FileImports>>;
 
 interface ChangeMapServiceOptions {
   sessions: ChangeMapSessionSource;
@@ -104,6 +105,7 @@ interface RepoInputs {
   repoPathsText: string;
   repoPaths: string[];
   specifiersByPath: Map<string, string[]>;
+  declaredNamesByPath: Map<string, string[]>;
   configsByPath: Map<string, TsconfigPaths>;
   manifestTextByPath: Map<string, string>;
 }
@@ -171,18 +173,20 @@ function createFileFactCache<Value>(derive: (text: string) => Value | null, over
   return { readMany, generation: () => missGeneration };
 }
 
+const NO_FILE_IMPORTS: FileImports = { specifiers: [], declaredNames: [] };
+
 function createSpecifierCache(scanFiles: ScanFiles) {
-  const factByAbsolutePath = new Map<string, CachedFileFact<string[]>>();
+  const factByAbsolutePath = new Map<string, CachedFileFact<FileImports>>();
   let missGeneration = 0;
 
-  function remember(absolutePath: string, mtimeMs: number, size: number, specifiers: string[]): void {
+  function remember(absolutePath: string, mtimeMs: number, size: number, fileImports: FileImports): void {
     missGeneration++;
     if (factByAbsolutePath.size >= MAX_CACHED_FILES) factByAbsolutePath.clear();
-    factByAbsolutePath.set(absolutePath, { mtimeMs, size, value: specifiers });
+    factByAbsolutePath.set(absolutePath, { mtimeMs, size, value: fileImports });
   }
 
-  async function readMany(root: string, repoPaths: string[]): Promise<Map<string, string[]>> {
-    const specifiersByPath = new Map<string, string[]>();
+  async function readMany(root: string, repoPaths: string[]): Promise<Map<string, FileImports>> {
+    const importsByPath = new Map<string, FileImports>();
     const misses: { repoPath: string; mtimeMs: number; size: number }[] = [];
     for (let batchStart = 0; batchStart < repoPaths.length; batchStart += FILE_READ_BATCH) {
       const batch = repoPaths.slice(batchStart, batchStart + FILE_READ_BATCH);
@@ -192,12 +196,12 @@ function createSpecifierCache(scanFiles: ScanFiles) {
         if (!stats || !stats.isFile()) return;
         const cached = factByAbsolutePath.get(path.join(root, repoPath));
         if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
-          specifiersByPath.set(repoPath, cached.value);
+          importsByPath.set(repoPath, cached.value);
           return;
         }
         if (stats.size > MAX_FACT_FILE_BYTES) {
-          remember(path.join(root, repoPath), stats.mtimeMs, stats.size, []);
-          specifiersByPath.set(repoPath, []);
+          remember(path.join(root, repoPath), stats.mtimeMs, stats.size, NO_FILE_IMPORTS);
+          importsByPath.set(repoPath, NO_FILE_IMPORTS);
           return;
         }
         misses.push({ repoPath, mtimeMs: stats.mtimeMs, size: stats.size });
@@ -206,12 +210,12 @@ function createSpecifierCache(scanFiles: ScanFiles) {
     }
     const scannedByPath = await scanFiles(root, misses.map((miss) => miss.repoPath));
     for (const miss of misses) {
-      const specifiers = scannedByPath.get(miss.repoPath);
-      if (!specifiers) continue;
-      remember(path.join(root, miss.repoPath), miss.mtimeMs, miss.size, specifiers);
-      specifiersByPath.set(miss.repoPath, specifiers);
+      const fileImports = scannedByPath.get(miss.repoPath);
+      if (!fileImports) continue;
+      remember(path.join(root, miss.repoPath), miss.mtimeMs, miss.size, fileImports);
+      importsByPath.set(miss.repoPath, fileImports);
     }
-    return specifiersByPath;
+    return importsByPath;
   }
 
   return { readMany, generation: () => missGeneration };
@@ -403,7 +407,7 @@ export function createChangeMapService({
   async function repoFactsFor(scope: ChangeScope, files: ChangedFile[], commonDir: string, inputs: RepoInputs): Promise<RepoChangeMap> {
     const repoName = scope.name;
     const changedPaths = files.map((file) => file.path);
-    const { repoPathsText, repoPaths, specifiersByPath, configsByPath, manifestTextByPath } = inputs;
+    const { repoPathsText, repoPaths, specifiersByPath, declaredNamesByPath, configsByPath, manifestTextByPath } = inputs;
     const agentsTitleByPath = await agentsTitleCache.readMany(scope.root, repoPaths.filter(isAgentsDocPath));
     const packageJsonText = await fs.promises.readFile(path.join(scope.root, 'package.json'), 'utf8').catch(() => null);
     const historyTip = scope.base || (await runGit(['rev-parse', 'HEAD'], scope.root)).trim();
@@ -414,7 +418,7 @@ export function createChangeMapService({
     const memoized = repoFactsByRoot.get(scope.root);
     if (memoized && memoized.memoKey === memoKey) return memoized.repoFacts;
     const unscannedSourcePaths = repoPaths.filter((repoPath) => isSourcePath(repoPath) && !specifiersByPath.has(repoPath));
-    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath, unscannedSourcePaths });
+    const graph = buildImportGraph({ specifiersByPath, importsMap: readImportsMap(packageJsonText), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath, declaredNamesByPath, unscannedSourcePaths });
     const blastRadius = computeBlastRadius({ repoName, graph, changedPaths: presentPaths(files) });
     const agentsDocs = [...agentsTitleByPath].map(([agentsPath, title]) => ({ path: agentsPath, title }));
     const commits = await commitsFor(scope.root, commonDir, historyTip);
@@ -460,7 +464,9 @@ export function createChangeMapService({
         const repoPathsText = await runGit(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], root);
         const repoPaths = parseNulSeparatedPaths(repoPathsText);
         const sourcePaths = repoPaths.filter(isSourcePath);
-        const specifiersByPath = await specifierCache.readMany(root, sourcePaths);
+        const importsByPath = await specifierCache.readMany(root, sourcePaths);
+        const specifiersByPath = new Map([...importsByPath].map(([repoPath, fileImports]) => [repoPath, fileImports.specifiers]));
+        const declaredNamesByPath = new Map([...importsByPath].map(([repoPath, fileImports]) => [repoPath, fileImports.declaredNames]));
         const listedPaths = new Set(repoPaths);
         const configsByPath = new Map<string, TsconfigPaths>();
         const visitedConfigs = new Set<string>();
@@ -480,7 +486,7 @@ export function createChangeMapService({
           }
         }
         const manifestTextByPath = await importManifestCache.readMany(root, repoPaths.filter(isImportManifestPath));
-        return { repoPathsText, repoPaths, specifiersByPath, configsByPath, manifestTextByPath };
+        return { repoPathsText, repoPaths, specifiersByPath, declaredNamesByPath, configsByPath, manifestTextByPath };
       })();
       inputsByRoot.set(root, inputs);
       return inputs;

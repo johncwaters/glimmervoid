@@ -151,7 +151,7 @@ interface OverlayDrawing {
 }
 
 function extractBaseOf(extract: CodemapExtract): CodemapExtractBase {
-  return { sha: extract.sha, paths: extract.paths, specifiersByIndex: extract.specifiersByIndex, typeOnlySpecifiersByIndex: extract.typeOnlySpecifiersByIndex, exportedNamesByIndex: extract.exportedNamesByIndex };
+  return { sha: extract.sha, paths: extract.paths, specifiersByIndex: extract.specifiersByIndex, typeOnlySpecifiersByIndex: extract.typeOnlySpecifiersByIndex, exportedNamesByIndex: extract.exportedNamesByIndex, declaredNamesByIndex: extract.declaredNamesByIndex };
 }
 
 const MapBoardIds = z.record(z.string(), z.string());

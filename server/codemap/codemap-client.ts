@@ -1,7 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import { z } from 'zod';
 
-import { CodemapExtract } from '../../shared/contracts/codemap.ts';
+import { CodemapExtract, FileImports } from '../../shared/contracts/codemap.ts';
 import type { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { codemapWorkerPath } from '../runtime-paths.ts';
@@ -11,11 +11,11 @@ type ExtractPhase = z.infer<typeof ExtractPhase>;
 
 const WorkerFailure = z.strictObject({ ok: z.literal(false), error: z.string() });
 const ExtractReply = z.union([z.strictObject({ ok: z.literal(true), extract: CodemapExtract }), WorkerFailure]);
-const ScanFilesReply = z.union([z.strictObject({ ok: z.literal(true), scans: z.array(z.strictObject({ repoPath: z.string(), specifiers: z.array(z.string()) })) }), WorkerFailure]);
+const ScanFilesReply = z.union([z.strictObject({ ok: z.literal(true), scans: z.array(FileImports.extend({ repoPath: z.string() })) }), WorkerFailure]);
 
 interface CodemapClient {
   extract(repoDir: string, sha: string, base?: CodemapExtractBase | null): Promise<CodemapExtract>;
-  scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, string[]>>;
+  scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, FileImports>>;
 }
 
 function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: ExtractPhase) => void } = {}): CodemapClient {
@@ -66,10 +66,10 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
     return started;
   }
 
-  async function scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, string[]>> {
+  async function scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, FileImports>> {
     if (repoPaths.length === 0) return new Map();
     const reply = await runWorker({ kind: 'scanFiles', root, repoPaths }, ScanFilesReply);
-    return new Map(reply.scans.map((scan) => [scan.repoPath, scan.specifiers]));
+    return new Map(reply.scans.map(({ repoPath, specifiers, declaredNames }) => [repoPath, { specifiers, declaredNames }]));
   }
 
   return { extract, scanFiles };
