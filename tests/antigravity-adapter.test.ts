@@ -297,3 +297,35 @@ test('a killed agy subagent that never fires Stop does not hold the finished tur
   context.mock.timers.tick(80_000);
   assert.equal(session.state, STATES.COMPLETE);
 });
+
+test('a trailing AgentState working poll after parent Stop does not cancel the COMPLETE transition', (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({ id: 'agy-trailing-working', name: 'agy-trailing-working', path: process.cwd(), agent: 'antigravity', statusConflictMs: 750, statusDedupMs: 10 });
+  context.after(() => session.destroy());
+  session.state = STATES.IDLE;
+  const enrichPayload = antigravity.hooks.createPayloadEnricher?.();
+  assert.ok(enrichPayload);
+  const router = new HookRouter();
+  router.register(session.id, {
+    token: 'test-token',
+    hooks: antigravity.hooks,
+    onSignal: (signal) => session.ingestHookSignal(signal),
+  });
+  const sendHook = (event: string, payload: Record<string, unknown>) => {
+    router.handle({ glimmervoidId: session.id, event, token: 'test-token', payload: enrichPayload(event, payload) });
+  };
+
+  sendHook('SessionStart', { conversationId: 'parent-conv' });
+  sendHook('PreInvocation', { conversationId: 'parent-conv', invocationNum: 0 });
+  context.mock.timers.tick(100);
+  assert.equal(session.state, STATES.RUNNING);
+
+  sendHook('Stop', { conversationId: 'parent-conv', fullyIdle: true });
+  context.mock.timers.tick(190);
+  sendHook('AgentState', { agent_state: 'working', subagents: [{ status: 'completed' }] });
+  context.mock.timers.tick(800);
+  assert.equal(session.state, STATES.COMPLETE);
+
+  const signalWithRunningSubagent = antigravity.hooks.mapSignal('AgentState', enrichPayload('AgentState', { agent_state: 'working', subagents: [{ status: 'running' }] }));
+  assert.equal(signalWithRunningSubagent, 'working');
+});

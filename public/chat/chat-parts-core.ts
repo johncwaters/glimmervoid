@@ -434,8 +434,15 @@ function noteSubagentStep(state: ChatPartsState, record: TraceRecord, subagentId
   return tracked;
 }
 
+function stopEverySubagent(state: ChatPartsState, endedAt: number): TrackedSubagent[] {
+  const running = [...state.runningSubagents];
+  for (const tracked of running) finishSubagent(state, tracked, Math.max(endedAt, tracked.part.startedAt));
+  return running;
+}
+
 function changedSubagentsOf(state: ChatPartsState, record: TraceRecord): TrackedSubagent[] {
   if (record.agentId !== undefined) return [noteSubagentStep(state, record, record.agentId)].filter((tracked) => tracked !== null);
+  if (record.kind === 'session') return stopEverySubagent(state, record.ts);
   if (record.kind === 'subagent') return [noteSubagentSignal(state, record)].filter((tracked) => tracked !== null);
   if (record.kind === 'tool_result') return settleSubagentCall(state, record);
   if (record.kind !== 'tool_call' || !SUBAGENT_TOOL_NAMES.has(record.name)) return [];

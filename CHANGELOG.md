@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Finished agy sessions reliably transition to Complete instead of staying stuck in Running.** A trailing async `AgentState` (`working`) title poll arriving inside the 750ms `ready` conflict window after a parent `Stop` with `fullyIdle: true` cancelled the pending `ready` signal and left the finished session in Running. Antigravity now ignores `AgentState` `working` polls once the turn is closed and no subagents are running.
+- **Sessions resumed after a Glimmervoid restart no longer show dead subagents from the prior process as still working.** When a session restarted with an open subagent in its trace, Chat closed open background tasks on the new `session` record but left running subagents open forever, showing an idle (paused) session with subagents still working. Running subagents now close on a new `session` record as well.
 - **Finished agy sessions no longer turn into "Needs Input" after killing a subagent.** Killing a subagent in agy never fires a subagent Stop hook, so Glimmervoid kept counting it as running, held the session's final Stop, and escalated to Check Terminal once the leaked subagent aged out. An agy `Stop` with `fullyIdle: true` or an idle `AgentState` with no running subagents now clears tracked subagents so the turn finishes as Complete.
 - **Whiteboard: middle-click panning no longer pastes primary selection on Linux**: panning a board with the middle mouse button now cancels middle-button `mousedown` and `auxclick` defaults (including when released outside the board viewport), preventing Linux primary-selection paste and browser autoscroll while keeping clipboard paste and inline text editing intact.
 

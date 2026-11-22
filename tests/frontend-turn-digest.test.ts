@@ -96,6 +96,25 @@ test('a background shell the Stop payload reports running gets a row named by it
   ]);
 });
 
+test('a running subagent left open before a restart closes when a new session record arrives', () => {
+  const state = createChatPartsState(WORKING_DIRECTORY);
+  const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  const started = appendChatRecords(state, [
+    { kind: 'prompt', text: 'Review the diff', ts: 1_000, ...recordBase },
+    { kind: 'subagent', phase: 'start', subagentId: 'sub-1', subagentType: 'redteam', task: 'Check invariants', ts: 2_000, ...recordBase },
+  ]);
+  assert.equal(started.runningSubagents.length, 1);
+
+  const restarted = appendChatRecords(state, [
+    { kind: 'session', vendor: 'antigravity', transcriptPath: '/transcripts/vendor.jsonl', ts: 10_000, ...recordBase },
+  ]);
+  assert.deepEqual(restarted.runningSubagents, []);
+  const closedSubagents = restarted.parts.flatMap((part) => part.kind === 'subagent' ? [part] : []);
+  assert.deepEqual(closedSubagents.map(({ subagentType, startedAt, endedAt }) => ({ subagentType, startedAt, endedAt })), [
+    { subagentType: 'redteam', startedAt: 2_000, endedAt: 10_000 },
+  ]);
+});
+
 test('each tool call settles from its result into the turn rows with its state, duration and output head, a call left unanswered reads stopped once the turn ends, and thinking time reaches the ended turn', () => {
   const state = createChatPartsState(WORKING_DIRECTORY);
   const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
