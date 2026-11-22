@@ -3,8 +3,7 @@ import './board-session.css';
 import { chatPhaseOf } from '../chat/chat-activity-core.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { getSelectedId } from '../review/selection.ts';
-import { paintAgentMark } from '../session-card/agent-mark.ts';
+import { getJSON, setJSON } from '../local-store.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { createLineIcon } from '../svg-dom.ts';
@@ -15,9 +14,10 @@ import type { BoardRenderer, Camera } from '../whiteboard/board-gl-renderer.ts';
 import { createBoardMediaLayer } from '../whiteboard/board-media-layer.ts';
 import { onTilesChanged, showTilesFor, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { onBoardSessionTraceChanged } from './board-session-signals.ts';
-import { fittedCamera, isBelowFloor, orderedSessionChoices, pickedSessionId, readableFloorScale, zoomedCamera } from './board-session-core.ts';
+import { fittedCamera, freshnessTextOf, isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf, zoomedCamera } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
-import type { SessionChoice } from './board-session-core.ts';
+import type { RepoChoice, RepoSession } from './board-session-core.ts';
+import type { CodemapStatus } from '#shared/contracts/codemap.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
 import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
@@ -36,7 +36,8 @@ const TITLE_SIZE_FALLBACK_PX = 16;
 const WHEEL_ZOOM_STEP = 1.1;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
-const NO_SESSION_TEXT = 'Start a session to see it on its code map.';
+const NO_SESSION_TEXT = 'Start a session to see its repo on the code map.';
+const SHOWN_REPO_KEY = 'glimmervoid.studio.repoPath';
 const NO_MAP_TEXT = 'This session has no code map yet.';
 
 interface ViewParts {
@@ -45,8 +46,8 @@ interface ViewParts {
   world: HTMLElement;
   renderer: BoardRenderer;
   chip: HTMLButtonElement;
-  chipFace: HTMLElement;
   chipName: HTMLElement;
+  freshness: HTMLElement;
   menu: HTMLElement;
   notice: HTMLElement;
   dockSlot: HTMLElement;
@@ -56,7 +57,9 @@ interface ViewParts {
 
 let parts: ViewParts | null = null;
 let isActive = false;
+let shownRepoPath: string | null = null;
 let shownSessionId: string | null = null;
+let mapState: CodemapStatus | null = null;
 let boardId: string | null = null;
 let changedBoxIds: ReadonlySet<string> = new Set();
 let camera: Camera = { x: 0, y: 0, scale: 1 };
@@ -67,8 +70,9 @@ let presence: Presence = NO_PRESENCE;
 let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
 
-function sessionChoices(): SessionChoice[] {
-  return [...sessionUIs].flatMap(([id, ui]) => ui.branchOf ? [] : [{ id, name: sessionName(ui) || id.slice(0, 8), path: ui.path }]);
+function repoChoices(): RepoChoice[] {
+  const repoSessions: RepoSession[] = [...sessionUIs].flatMap(([id, ui]) => ui.branchOf ? [] : [{ id, path: ui.path }]);
+  return repoChoicesOf(repoSessions);
 }
 
 function shownBranchIds(): string[] {
@@ -196,9 +200,11 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
 
 function paintChip(): void {
   if (!parts) return;
-  const ui = shownSessionId === null ? undefined : sessionUIs.get(shownSessionId);
-  parts.chipName.textContent = ui ? sessionName(ui) : 'No session';
-  paintAgentMark(parts.chipFace, ui?.agent ?? null, ui ? sessionName(ui) : null);
+  parts.chipName.textContent = repoChoices().find((choice) => choice.path === shownRepoPath)?.label ?? 'No repo';
+  parts.freshness.hidden = mapState === null;
+  if (mapState === null) return;
+  parts.freshness.dataset.state = mapState.state;
+  parts.freshness.textContent = freshnessTextOf(mapState);
 }
 
 function requestBoxes(): void {
@@ -213,6 +219,8 @@ function requestBoxes(): void {
       if (reply.boardId === null) return showNotice(NO_MAP_TEXT);
       showNotice(null);
       changedBoxIds = new Set(reply.changedBoxIds);
+      mapState = reply.mapState;
+      paintChip();
       boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
       moduleChoices = reply.boxChoices;
       const isNewBoard = boardId !== reply.boardId;
@@ -248,6 +256,7 @@ function mountDock(): void {
 function showSession(sessionId: string | null): void {
   const isSameSession = sessionId === shownSessionId;
   shownSessionId = sessionId;
+  if (!isSameSession) mapState = null;
   paintChip();
   if (sessionId === null) {
     boardId = null;
@@ -272,19 +281,29 @@ function closeMenu(): void {
   parts.chip.setAttribute('aria-expanded', 'false');
 }
 
+function showRepo(repoPath: string | null): void {
+  shownRepoPath = repoPath;
+  const repoSessionIds = repoChoices().find((choice) => choice.path === repoPath)?.sessionIds ?? [];
+  const anchorSessionId = shownSessionId !== null && repoSessionIds.includes(shownSessionId) ? shownSessionId : repoSessionIds.at(-1) ?? null;
+  showSession(anchorSessionId);
+}
+
+function showPickedRepo(): void {
+  const knownPaths = repoChoices().map((choice) => choice.path);
+  showRepo(pickedRepoPath(shownRepoPath, getJSON<string | null>(SHOWN_REPO_KEY, null), knownPaths));
+}
+
 function openMenu(): void {
   if (!parts) return;
-  const shownPath = shownSessionId === null ? null : sessionUIs.get(shownSessionId)?.path ?? null;
-  const items = orderedSessionChoices(sessionChoices(), shownPath).map((choice) => {
+  const items = repoChoices().map((choice) => {
     const item = createPressable('bs-menu-item');
     item.setAttribute('role', 'menuitemradio');
-    item.setAttribute('aria-checked', String(choice.id === shownSessionId));
-    const face = el('span', 'bs-face');
-    paintAgentMark(face, sessionUIs.get(choice.id)?.agent ?? null, choice.name);
-    item.append(face, el('span', 'bs-menu-name', choice.name));
+    item.setAttribute('aria-checked', String(choice.path === shownRepoPath));
+    item.append(el('span', 'bs-menu-name', choice.label));
     item.addEventListener('click', () => {
       closeMenu();
-      showSession(choice.id);
+      setJSON(SHOWN_REPO_KEY, choice.path);
+      showRepo(choice.path);
     });
     return item;
   });
@@ -352,10 +371,9 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const chip = createPressable('bs-chip');
   chip.setAttribute('aria-haspopup', 'menu');
   chip.setAttribute('aria-expanded', 'false');
-  chip.dataset.action = 'board-session-pick';
-  const chipFace = el('span', 'bs-face');
+  chip.dataset.action = 'board-session-repo';
   const chipName = el('span', 'bs-chip-name');
-  chip.append(chipFace, chipName, createLineIcon(CARET_ICON_PATH, '1.5'));
+  chip.append(chipName, createLineIcon(CARET_ICON_PATH, '1.5'));
   chip.addEventListener('click', () => {
     if (parts?.menu.hidden === false) return closeMenu();
     openMenu();
@@ -369,7 +387,10 @@ function mountBoardSessionView(panel: HTMLElement): void {
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   const topLeft = el('div', 'bs-top-left');
-  topLeft.append(chip, fitButton, menu);
+  const freshness = el('span', 'bs-fresh');
+  freshness.setAttribute('role', 'status');
+  freshness.hidden = true;
+  topLeft.append(chip, freshness, fitButton, menu);
   const notice = el('p', 'bs-notice');
   notice.setAttribute('role', 'status');
   notice.hidden = true;
@@ -392,7 +413,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   world.append(presenceLayer.element);
   const askCards = createAskCards();
   viewport.append(askCards.element);
-  parts = { canvas, viewport, world, renderer, chip, chipFace, chipName, menu, notice, dockSlot, presenceLayer, askCards };
+  parts = { canvas, viewport, world, renderer, chip, chipName, freshness, menu, notice, dockSlot, presenceLayer, askCards };
   wireCameraGestures(viewport);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
@@ -414,7 +435,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
 
 function activateBoardSessionView(): void {
   isActive = true;
-  showSession(pickedSessionId(shownSessionId, getSelectedId(), sessionChoices().map((choice) => choice.id)));
+  showPickedRepo();
   parts?.renderer.resendView();
   paintBoard();
 }
@@ -426,7 +447,7 @@ function deactivateBoardSessionView(): void {
 
 function refreshBoardSessionView(): void {
   if (!isActive) return;
-  showSession(pickedSessionId(shownSessionId, getSelectedId(), sessionChoices().map((choice) => choice.id)));
+  showPickedRepo();
   syncBranches();
   paintPresence();
   dock?.refresh();

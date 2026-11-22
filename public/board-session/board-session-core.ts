@@ -1,35 +1,50 @@
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
+import type { CodemapStatus } from '#shared/contracts/codemap.ts';
 
-export interface SessionChoice {
+export interface RepoSession {
   id: string;
-  name: string;
   path: string;
 }
 
-const WORKTREE_SUFFIX = /-[A-Za-z0-9]{6}$/;
+export interface RepoChoice {
+  path: string;
+  label: string;
+  sessionIds: string[];
+}
+
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
 const MAX_FIT_SCALE = 2;
 const FIT_MARGIN_PX = 48;
 const READABLE_TITLE_PX = 9;
+const SHORT_SHA_LENGTH = 7;
 
-function repoStemOf(path: string): string {
-  const trimmedPath = path.replace(/\/+$/, '');
-  const baseName = trimmedPath.slice(trimmedPath.lastIndexOf('/') + 1);
-  return baseName.replace(WORKTREE_SUFFIX, '');
+function repoLabelOf(repoPath: string): string {
+  const trimmedPath = repoPath.replace(/[\\/]+$/, '');
+  return trimmedPath.slice(Math.max(trimmedPath.lastIndexOf('/'), trimmedPath.lastIndexOf('\\')) + 1) || trimmedPath;
 }
 
-export function orderedSessionChoices(choices: readonly SessionChoice[], shownPath: string | null): SessionChoice[] {
-  const shownStem = shownPath === null ? null : repoStemOf(shownPath);
-  const isSameRepo = (choice: SessionChoice) => shownStem !== null && repoStemOf(choice.path) === shownStem;
-  return [...choices].sort((left, right) => Number(isSameRepo(right)) - Number(isSameRepo(left)) || left.name.localeCompare(right.name));
+export function repoChoicesOf(sessions: readonly RepoSession[]): RepoChoice[] {
+  const sessionIdsByPath = new Map<string, string[]>();
+  for (const session of sessions) sessionIdsByPath.set(session.path, [...(sessionIdsByPath.get(session.path) ?? []), session.id]);
+  return [...sessionIdsByPath].map(([path, sessionIds]) => ({ path, label: repoLabelOf(path), sessionIds })).sort((left, right) => left.label.localeCompare(right.label) || left.path.localeCompare(right.path));
 }
 
-export function pickedSessionId(shownSessionId: string | null, selectedSessionId: string | null, knownSessionIds: readonly string[]): string | null {
-  if (shownSessionId !== null && knownSessionIds.includes(shownSessionId)) return shownSessionId;
-  if (selectedSessionId !== null && knownSessionIds.includes(selectedSessionId)) return selectedSessionId;
-  return knownSessionIds[0] ?? null;
+export function pickedRepoPath(shownPath: string | null, rememberedPath: string | null, knownPaths: readonly string[]): string | null {
+  if (shownPath !== null && knownPaths.includes(shownPath)) return shownPath;
+  if (rememberedPath !== null && knownPaths.includes(rememberedPath)) return rememberedPath;
+  return knownPaths[0] ?? null;
+}
+
+const FRESHNESS_TEXT_BY_STATE: Record<CodemapStatus['state'], (mapSha: string, mainlineSha: string) => string> = {
+  current: (mapSha) => `Map ${mapSha} current`,
+  behind: (mapSha, mainlineSha) => `Map ${mapSha} behind ${mainlineSha}`,
+  failed: (mapSha) => `Map ${mapSha} failed`,
+};
+
+export function freshnessTextOf(mapState: CodemapStatus): string {
+  return FRESHNESS_TEXT_BY_STATE[mapState.state](mapState.sha?.slice(0, SHORT_SHA_LENGTH) ?? 'none', mapState.mainlineSha?.slice(0, SHORT_SHA_LENGTH) ?? 'mainline');
 }
 
 function clampScale(scale: number): number {

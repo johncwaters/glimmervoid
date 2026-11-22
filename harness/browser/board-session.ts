@@ -82,7 +82,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await chip.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.waitForFunction(() => {
     const name = document.querySelector('.board-session-view .bs-chip-name')?.textContent ?? '';
-    return name.length > 0 && name !== 'No session';
+    return name.length > 0 && name !== 'No repo';
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.waitForFunction(() => {
     const notice = document.querySelector<HTMLElement>('.board-session-view .bs-notice');
@@ -90,11 +90,13 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     return (notice !== null && !notice.hidden && (notice.textContent ?? '').length > 0) || (canvas !== null && canvas.width > 0 && notice?.hidden === true);
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
+  await root.locator('.bs-fresh:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.match(await root.locator('.bs-fresh').textContent() ?? '', /^Map [0-9a-f]{7} (current|behind|failed)/, 'the freshness badge names the map sha and its state');
 
   await chip.click();
   const menu = root.getByRole('menu');
   await menu.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.ok((await menu.getByRole('menuitemradio', { checked: true }).count()) === 1, 'the session menu marks the shown session');
+  assert.ok((await menu.getByRole('menuitemradio', { checked: true }).count()) === 1, 'the repo menu marks the shown repo');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
 
@@ -130,7 +132,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-row-agent .bs-face').count() > 0, true, 'an agent bubble carries the agent face');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');
-  assertSameBox(chipBefore, await boxOf(page, '.board-session-view .bs-chip'), 'the session chip');
+  assertSameBox(chipBefore, await boxOf(page, '.board-session-view .bs-chip'), 'the repo chip');
 
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });

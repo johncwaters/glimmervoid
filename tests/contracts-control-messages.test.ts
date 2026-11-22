@@ -307,7 +307,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'race-pick-winner-result', requestId: 'r9', ok: false, error: 'This race already has a different winner.' },
   { type: 'race-cases-result', requestId: 'r10', ok: true, error: null, cases: [{ key: 'acme-math/pr-7', title: 'Fix add', url: 'https://github.com/acme/math/pull/7', reviewCase: { caseId: 'pr-7', repo: 'acme/math', baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), changedFiles: ['add.ts'], references: [{ id: 'r1', text: 'add subtracts', tags: ['logic'], path: 'add.ts', line: 1 }] } }] },
   { type: 'race-mine-cases-result', requestId: 'r11', ok: true, error: null, mined: 3, refused: 27 },
-  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], error: null },
+  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], mapState: { sha: 'a'.repeat(40), mainlineSha: 'b'.repeat(40), state: 'behind', reason: null }, error: null },
   { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
   { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
 ];

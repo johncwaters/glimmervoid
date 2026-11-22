@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CodemapStatus } from '../codemap.ts';
 import { loose, optionalError, requestId, sessionId } from './control-fields.ts';
 
 const CODEMAP_BOXES_MAX_PATHS = 200;
@@ -23,6 +24,7 @@ export const boardSessionServerVariants = [
     boxIdByPath: z.record(z.string(), z.string()).default({}),
     changedBoxIds: z.array(z.string()).default([]),
     boxChoices: z.array(z.object({ boxId: z.string(), title: z.string() })).max(CODEMAP_BOX_CHOICES_MAX).default([]),
+    mapState: CodemapStatus.nullable().default(null),
     error: optionalError,
   }),
   loose('board-ask-answer-result', { requestId, ok: z.boolean(), error: optionalError }),

@@ -515,7 +515,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return null;
   }
 
-  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[] } | { ok: false; error: string }> {
+  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[]; mapState: CodemapStatus } | { ok: false; error: string }> {
     const map = await currentMap({ repoDir });
     if ('error' in map) return { ok: false, error: map.error };
     const model = map.model;
@@ -533,6 +533,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
         ...model.modules.flatMap((summary) => summary.id === '.' ? [] : [{ boxId: moduleBoxIdOf(summary.id), title: summary.id.slice(-WHITEBOARD_LIMITS.title) }]),
         ...model.paths.map((repoPath) => ({ boxId: boxIdOfPath(repoPath), title: repoPath.slice(-WHITEBOARD_LIMITS.title) })),
       ].slice(0, CODEMAP_BOX_CHOICES_MAX),
+      mapState: map.status,
     };
   }
 
