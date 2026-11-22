@@ -22,6 +22,17 @@ type UploadUrlOf = (fileName: string) => string;
 type ChatPartRenderer<Kind extends FlatPartKind> = (part: ChatPartByKind[Kind], uploadUrlOf: UploadUrlOf) => HTMLElement;
 type ChatPartRendererTable = { [Kind in FlatPartKind]: ChatPartRenderer<Kind> };
 
+interface SegmentItem<Entry> {
+  entry: Entry;
+  signature: string;
+}
+
+interface SegmentList<Entry> {
+  items: SegmentItem<Entry>[];
+  dropped: number;
+  earlier: HTMLElement | null;
+}
+
 interface TurnView {
   element: HTMLElement;
   brief: HTMLElement;
@@ -37,14 +48,9 @@ interface TurnView {
   diffToggle: HTMLButtonElement;
   mountedDiffs: MountedFileDiff[];
   isDiffOpen: boolean;
-  workEntries: WorkEntry[];
-  workSignatures: string[];
-  workEarlier: HTMLElement | null;
-  workDropped: number;
+  workSegments: SegmentList<WorkEntry>;
   workIsOver: boolean | null;
-  segmentKinds: TurnSegment['kind'][];
-  textElements: (HTMLElement | null)[];
-  droppedSegmentCount: number;
+  bodySegments: SegmentList<HTMLElement | null>;
   part: TurnPart | null;
   hasWork: boolean;
   isOpen: boolean;
@@ -193,29 +199,40 @@ function syncCallsBlock(block: CallsBlock, segment: ToolsSegment): void {
   block.earlier.textContent = unkeptCallCount > 0 ? `+ ${unkeptCallCount} earlier` : '';
 }
 
+function createSegmentList<Entry>(): SegmentList<Entry> {
+  return { items: [], dropped: 0, earlier: null };
+}
+
+function resetSegmentList<Entry>(list: SegmentList<Entry>, container: HTMLElement): void {
+  container.replaceChildren();
+  list.items = [];
+  list.dropped = 0;
+  list.earlier = null;
+}
+
+function dropLeadingSegments<Entry>(
+  list: SegmentList<Entry>,
+  droppedCount: number,
+  elementOf: (entry: Entry) => HTMLElement | null,
+  earlierContainer?: HTMLElement,
+): void {
+  const newlyDroppedCount = droppedCount - list.dropped;
+  if (newlyDroppedCount > 0) {
+    for (const item of list.items.splice(0, newlyDroppedCount)) elementOf(item.entry)?.remove();
+    list.dropped = droppedCount;
+  }
+  if (!earlierContainer || droppedCount === 0) return;
+  list.earlier ??= el('div', 'chat-turn-call-note');
+  list.earlier.textContent = `+ ${droppedCount} earlier steps`;
+  if (earlierContainer.firstChild !== list.earlier) earlierContainer.prepend(list.earlier);
+}
+
 function workSignatureOf(segment: TurnSegment): string {
   return segment.kind === 'tools' ? `${segment.callCount}:${segment.settledCount}` : 'text';
 }
 
-function resetWork(view: TurnView): void {
-  view.work.replaceChildren();
-  view.workEntries = [];
-  view.workSignatures = [];
-  view.workEarlier = null;
-  view.workDropped = 0;
-}
-
-function dropLeadingWork(view: TurnView, droppedSegmentCount: number): void {
-  const newlyDroppedCount = droppedSegmentCount - view.workDropped;
-  view.workDropped = droppedSegmentCount;
-  if (newlyDroppedCount > 0) {
-    for (const entry of view.workEntries.splice(0, newlyDroppedCount)) (entry.kind === 'calls' ? entry.block.element : entry.element)?.remove();
-    view.workSignatures.splice(0, newlyDroppedCount);
-  }
-  if (droppedSegmentCount === 0) return;
-  view.workEarlier ??= el('div', 'chat-turn-call-note');
-  view.workEarlier.textContent = `+ ${droppedSegmentCount} earlier steps`;
-  if (view.work.firstChild !== view.workEarlier) view.work.prepend(view.workEarlier);
+function workElementOf(entry: WorkEntry): HTMLElement | null {
+  return entry.kind === 'calls' ? entry.block.element : entry.element;
 }
 
 function workEntryOf(segment: TurnSegment, index: number, part: TurnPart, replyIndex: number): WorkEntry {
@@ -225,20 +242,21 @@ function workEntryOf(segment: TurnSegment, index: number, part: TurnPart, replyI
 }
 
 function syncWork(view: TurnView, part: TurnPart): void {
-  if (view.workIsOver !== part.isOver) resetWork(view);
+  if (view.workIsOver !== part.isOver) resetSegmentList(view.workSegments, view.work);
   view.workIsOver = part.isOver;
-  dropLeadingWork(view, part.droppedSegmentCount);
+  dropLeadingSegments(view.workSegments, part.droppedSegmentCount, workElementOf, view.work);
   const replyIndex = part.isOver ? part.segments.findLastIndex((segment) => segment.kind === 'text') : -1;
   for (const [index, segment] of part.segments.entries()) {
     const signature = workSignatureOf(segment);
-    if (view.workSignatures[index] === signature) continue;
-    view.workSignatures[index] = signature;
-    const entry = view.workEntries[index] ?? workEntryOf(segment, index, part, replyIndex);
-    if (view.workEntries[index] === undefined) {
-      view.workEntries[index] = entry;
-      const entryElement = entry.kind === 'calls' ? entry.block.element : entry.element;
+    const existing = view.workSegments.items[index];
+    if (existing?.signature === signature) continue;
+    const entry = existing?.entry ?? workEntryOf(segment, index, part, replyIndex);
+    if (existing === undefined) {
+      view.workSegments.items[index] = { entry, signature };
+      const entryElement = workElementOf(entry);
       if (entryElement !== null) view.work.append(entryElement);
     }
+    if (existing !== undefined) existing.signature = signature;
     if (entry.kind === 'calls' && segment.kind === 'tools') syncCallsBlock(entry.block, segment);
   }
 }
@@ -320,27 +338,18 @@ function createTurnView(): TurnView {
   const diff = el('div', 'chat-turn-diff');
   diff.hidden = true;
   element.append(body, brief, meta, work, diff);
-  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workEntries: [], workSignatures: [], workEarlier: null, workDropped: 0, workIsOver: null, segmentKinds: [], textElements: [], droppedSegmentCount: 0, part: null, hasWork: false, isOpen: false };
+  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
 }
 
-function dropLeadingSegments(view: TurnView, droppedSegmentCount: number): void {
-  const newlyDroppedCount = droppedSegmentCount - view.droppedSegmentCount;
-  if (newlyDroppedCount <= 0) return;
-  for (const droppedElement of view.textElements.splice(0, newlyDroppedCount)) droppedElement?.remove();
-  view.segmentKinds.splice(0, newlyDroppedCount);
-  view.droppedSegmentCount = droppedSegmentCount;
-}
-
-function syncSegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
-  for (const segment of segments.slice(view.segmentKinds.length)) {
-    view.segmentKinds.push(segment.kind);
+function syncBodySegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
+  for (const segment of segments.slice(view.bodySegments.items.length)) {
     if (segment.kind === 'tools') {
-      view.textElements.push(null);
+      view.bodySegments.items.push({ entry: null, signature: segment.kind });
       continue;
     }
     const textElement = renderTextSegment(segment.text);
     view.body.append(textElement);
-    view.textElements.push(textElement);
+    view.bodySegments.items.push({ entry: textElement, signature: segment.kind });
     if (!isArriving) continue;
     textElement.setAttribute('data-arriving', '');
     staggerBlockReveal(textElement);
@@ -386,7 +395,7 @@ function showWork(view: TurnView): void {
   view.element.toggleAttribute('data-open', isOpen);
   view.chevron.setAttribute('aria-expanded', String(isOpen));
   if (!isOpen || view.part === null) {
-    resetWork(view);
+    resetSegmentList(view.workSegments, view.work);
     view.workIsOver = null;
     return;
   }
@@ -394,10 +403,10 @@ function showWork(view: TurnView): void {
 }
 
 function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: boolean, turnEnd: TurnEnd | null): void {
-  dropLeadingSegments(view, part.droppedSegmentCount);
-  syncSegments(view, part.segments, areNewSegmentsArriving);
+  dropLeadingSegments(view.bodySegments, part.droppedSegmentCount, (element) => element);
+  syncBodySegments(view, part.segments, areNewSegmentsArriving);
   const finalTextIndex = part.segments.findLastIndex((segment) => segment.kind === 'text');
-  view.textElements.forEach((textElement, index) => {
+  view.bodySegments.items.forEach(({ entry: textElement }, index) => {
     const segment = part.segments[index];
     textElement?.toggleAttribute('data-interim', segment?.kind === 'text' && isInterimReply(segment.text));
     textElement?.toggleAttribute('data-before-final', index < finalTextIndex);
