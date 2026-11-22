@@ -1,5 +1,3 @@
-import { folderToggleTargetOf } from '../whiteboard/folder-toggle-core.ts';
-import '../whiteboard/whiteboard.css';
 import './board-session.css';
 import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
@@ -14,13 +12,14 @@ import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
-import { createBoardRenderer } from '../whiteboard/board-gl-renderer.ts';
-import type { BoardRenderer, Camera } from '../whiteboard/board-gl-renderer.ts';
-import { createBoardMediaLayer } from '../whiteboard/board-media-layer.ts';
-import { onTilesChanged, showTilesFor, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
+import type { Camera } from '../whiteboard/board-gl-renderer.ts';
+import { boundsOfHostBox, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
+import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
+import { tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { onBoardSessionTraceChanged } from './board-session-signals.ts';
-import { fittedCamera, freshnessTextOf, isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf, zoomedCamera } from './board-session-core.ts';
+import { freshnessTextOf, isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
+import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
 import type { CodemapStatus } from '#shared/contracts/codemap.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
@@ -35,15 +34,11 @@ import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 
-const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const MAIN_ENSURE_TIMEOUT_MS = 15000;
-const CLICK_SLOP_PX = 4;
 const TITLE_SIZE_FALLBACK_PX = 16;
-const WHEEL_ZOOM_STEP = 1.1;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
-const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
 const NO_SESSION_TEXT = 'Start a session to see its repo on the code map.';
 const SHOWN_REPO_KEY = 'glimmervoid.studio.repoPath';
 const NO_MAP_TEXT = 'This session has no code map yet.';
@@ -57,10 +52,7 @@ interface SessionWatch {
 }
 
 interface ViewParts {
-  canvas: HTMLElement;
-  viewport: HTMLElement;
-  world: HTMLElement;
-  renderer: BoardRenderer;
+  root: HTMLElement;
   chip: HTMLButtonElement;
   chipName: HTMLElement;
   freshness: HTMLElement;
@@ -69,6 +61,7 @@ interface ViewParts {
   dockSlot: HTMLElement;
   presenceLayer: PresenceLayer;
   askCards: AskCards;
+  guest: BoardHostGuest;
 }
 
 let parts: ViewParts | null = null;
@@ -79,9 +72,9 @@ let ensuredRepoPath: string | null = null;
 const mainSessionIdByRepoPath = new Map<string, string>();
 let mapState: CodemapStatus | null = null;
 let boardId: string | null = null;
+const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
-let camera: Camera = { x: 0, y: 0, scale: 1 };
-let fittedBoardId: string | null = null;
+let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
 let watchBySessionId = new Map<string, SessionWatch>();
@@ -188,19 +181,11 @@ function syncBranches(): void {
   dock?.setBranches(dockBranchesOf(shownBranchIds()));
 }
 
-function applyCamera(): void {
-  if (!parts) return;
-  parts.world.style.transform = `translate(${-camera.x * camera.scale}px, ${-camera.y * camera.scale}px) scale(${camera.scale})`;
-  parts.renderer.setCamera(camera);
-  paintAsks();
-}
-
 function paintAsks(): void {
   if (!parts) return;
-  const renderer = parts.renderer;
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   const askingSessionIds = new Set(shownSessionId === null ? [] : [shownSessionId, ...shownBranchIds()]);
-  parts.askCards.paint(boardId, asksOfSessions(board, askingSessionIds), (boxId) => renderer.boundsOf(boxId) ?? null, camera);
+  parts.askCards.paint(boardId, asksOfSessions(board, askingSessionIds), boundsOfHostBox, hostCamera);
 }
 
 function sessionBoxIds(): string[] {
@@ -209,33 +194,12 @@ function sessionBoxIds(): string[] {
   return [...presenceBoxIds, ...changedBoxIds];
 }
 
-function fitWholeBoard(): void {
-  if (!parts) return;
-  const layout = parts.renderer.layout();
-  if (!layout) return;
-  const fitted = fittedCamera(layout.bounds, parts.viewport.clientWidth, parts.viewport.clientHeight, parts.dockSlot.offsetHeight);
-  if (!fitted) return;
-  camera = fitted;
-  applyCamera();
-}
-
-function fitFirstView(): void {
-  if (!parts) return;
-  const renderer = parts.renderer;
-  const layout = renderer.layout();
-  if (!layout) return;
-  const viewWidthPx = parts.viewport.clientWidth;
-  const viewHeightPx = parts.viewport.clientHeight;
+function firstViewArea(mapBounds: Rect, viewWidthPx: number, viewHeightPx: number): Rect | null {
+  if (!parts) return null;
   const reservedBottomPx = parts.dockSlot.offsetHeight;
-  const titleSizePx = Number.parseFloat(getComputedStyle(parts.viewport).getPropertyValue('--type-title')) || TITLE_SIZE_FALLBACK_PX;
-  const floorScale = readableFloorScale(titleSizePx);
-  const sessionBounds = unionOf(sessionBoxIds().flatMap((boxId) => renderer.boundsOf(boxId) ?? []));
-  const isMapTooBig = isBelowFloor(layout.bounds, viewWidthPx, viewHeightPx, reservedBottomPx, floorScale);
-  const target = isMapTooBig && sessionBounds ? sessionBounds : layout.bounds;
-  const fitted = fittedCamera(target, viewWidthPx, viewHeightPx, reservedBottomPx, floorScale);
-  if (!fitted) return;
-  camera = fitted;
-  applyCamera();
+  const titleSizePx = Number.parseFloat(getComputedStyle(parts.root).getPropertyValue('--type-title')) || TITLE_SIZE_FALLBACK_PX;
+  if (!isBelowFloor(mapBounds, viewWidthPx, viewHeightPx, reservedBottomPx, readableFloorScale(titleSizePx))) return null;
+  return unionOf(sessionBoxIds().flatMap((boxId) => boundsOfHostBox(boxId) ?? []));
 }
 
 function showNotice(text: string | null): void {
@@ -244,16 +208,10 @@ function showNotice(text: string | null): void {
   parts.notice.textContent = text ?? '';
 }
 
-function paintBoard(): void {
-  if (!parts || !isActive || boardId === null) return;
-  const tiled = tiledBoardOf(boardId);
-  if (!tiled) return;
-  parts.renderer.renderLayout(tiled.layout, tiled.blocks);
-  parts.renderer.setReviewMarks({ worthALookIds: new Set(), flaggedStepIds: new Set(), agentChangedIds: changedBoxIds });
-  paintPresence();
-  if (fittedBoardId === boardId) return;
-  fittedBoardId = boardId;
-  fitFirstView();
+function seatOnHost(): void {
+  if (!parts || !isActive) return;
+  parts.root.dataset.map = boardId === null ? 'none' : 'shown';
+  showBoardBeside(boardId, shownSessionId, parts.guest);
 }
 
 function boxIdOfPresencePath(presencePath: string | null): string | null {
@@ -287,16 +245,16 @@ function paintPresence(): void {
   paintAsks();
 }
 
-function toggleFolderAt(point: { x: number; y: number }): void {
-  if (!parts || boardId === null || shownSessionId === null) return;
-  const folderBoxId = folderToggleTargetOf(parts.renderer.hitTest(point), tiledBoardOf(boardId)?.board ?? null);
-  if (folderBoxId === null) return;
-  sendControlRequest('codemap-folder-toggle', { id: shownSessionId, boxId: folderBoxId }, { timeoutMs: BOXES_TIMEOUT_MS })
-    .then((reply) => {
-      if (reply.type !== 'codemap-folder-toggle-result' || reply.ok) return;
-      showNotice(reply.error ?? NO_MAP_TEXT);
-    })
-    .catch(() => showNotice(NO_MAP_TEXT));
+async function toggleFolder(folderBoardId: string, frameId: string): Promise<boolean> {
+  const mapSessionId = sessionIdByBoardId.get(folderBoardId);
+  if (mapSessionId === undefined) return false;
+  const reply = await sendControlRequest('codemap-folder-toggle', { id: mapSessionId, boxId: frameId }, { timeoutMs: BOXES_TIMEOUT_MS }).catch(() => null);
+  if (reply?.type !== 'codemap-folder-toggle-result') {
+    showNotice(NO_MAP_TEXT);
+    return false;
+  }
+  if (!reply.ok) showNotice(reply.error ?? NO_MAP_TEXT);
+  return reply.ok;
 }
 
 function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceRecord[]): void {
@@ -338,9 +296,9 @@ function requestBoxes(): void {
       paintChip();
       boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
       moduleChoices = reply.boxChoices;
-      const isNewBoard = boardId !== reply.boardId;
       boardId = reply.boardId;
-      if (isNewBoard) parts?.renderer.resendView();
+      sessionIdByBoardId.set(reply.boardId, sessionId);
+      seatOnHost();
       paintBoard();
     })
     .catch(() => {
@@ -375,7 +333,7 @@ function showSession(sessionId: string | null): void {
   paintChip();
   if (sessionId === null) {
     boardId = null;
-    parts?.renderer.clear();
+    seatOnHost();
     mountDock();
     showNotice(NO_SESSION_TEXT);
     return;
@@ -446,72 +404,8 @@ function openMenu(): void {
   parts.chip.setAttribute('aria-expanded', 'true');
 }
 
-function wireCameraGestures(viewport: HTMLElement): void {
-  viewport.addEventListener('wheel', (event) => {
-    event.preventDefault();
-    if (event.ctrlKey || event.metaKey) {
-      const rect = viewport.getBoundingClientRect();
-      camera = zoomedCamera(camera, event.clientX - rect.left, event.clientY - rect.top, event.deltaY > 0 ? 1 / WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP);
-      return applyCamera();
-    }
-    camera = { ...camera, x: camera.x + event.deltaX / camera.scale, y: camera.y + event.deltaY / camera.scale };
-    applyCamera();
-  }, { passive: false });
-  let dragFrom: { x: number; y: number } | null = null;
-  let pressFrom: { x: number; y: number } | null = null;
-  viewport.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    dragFrom = { x: event.clientX, y: event.clientY };
-    pressFrom = dragFrom;
-    viewport.setPointerCapture(event.pointerId);
-  });
-  viewport.addEventListener('pointermove', (event) => {
-    if (!dragFrom) return;
-    if (pressFrom && Math.hypot(event.clientX - pressFrom.x, event.clientY - pressFrom.y) > CLICK_SLOP_PX) pressFrom = null;
-    camera = { ...camera, x: camera.x - (event.clientX - dragFrom.x) / camera.scale, y: camera.y - (event.clientY - dragFrom.y) / camera.scale };
-    dragFrom = { x: event.clientX, y: event.clientY };
-    applyCamera();
-  });
-  const endDrag = () => {
-    dragFrom = null;
-    pressFrom = null;
-  };
-  viewport.addEventListener('pointerup', (event) => {
-    const wasClick = pressFrom !== null;
-    endDrag();
-    if (!wasClick) return;
-    const rect = viewport.getBoundingClientRect();
-    toggleFolderAt({ x: camera.x + (event.clientX - rect.left) / camera.scale, y: camera.y + (event.clientY - rect.top) / camera.scale });
-  });
-  viewport.addEventListener('pointercancel', endDrag);
-}
-
 function mountBoardSessionView(panel: HTMLElement): void {
   const root = el('div', 'bs-root');
-  const canvas = el('div', 'wb-canvas bs-canvas');
-  const viewport = el('div', 'wb-viewport');
-  viewport.setAttribute('role', 'application');
-  viewport.setAttribute('aria-label', 'Session board');
-  const world = el('div', 'wb-world');
-  const svg = document.createElementNS(SVG_NAMESPACE, 'svg');
-  svg.setAttribute('class', 'wb-svg');
-  svg.setAttribute('aria-hidden', 'true');
-  const mediaLayer = createBoardMediaLayer({
-    onEscapeFromPage: () => viewport.focus(),
-    onZoomFromPage: () => {},
-    onPanFromPage: (deltaX, deltaY) => {
-      camera = { ...camera, x: camera.x + deltaX / camera.scale, y: camera.y + deltaY / camera.scale };
-      applyCamera();
-    },
-  });
-  world.append(svg, mediaLayer.element);
-  const glCanvas = el('canvas', 'wb-gl');
-  glCanvas.setAttribute('aria-hidden', 'true');
-  const glNotice = el('p', 'wb-gl-notice');
-  glNotice.setAttribute('role', 'status');
-  glNotice.hidden = true;
-  viewport.append(glCanvas, world);
-
   const chip = createPressable('bs-chip');
   chip.setAttribute('aria-haspopup', 'menu');
   chip.setAttribute('aria-expanded', 'false');
@@ -522,11 +416,6 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (parts?.menu.hidden === false) return closeMenu();
     openMenu();
   });
-  const fitButton = createPressable('bs-fit');
-  fitButton.setAttribute('aria-label', 'Fit');
-  fitButton.dataset.action = 'board-session-fit';
-  fitButton.append(createLineIcon(FIT_ICON_PATH, '1.5'));
-  fitButton.addEventListener('click', fitWholeBoard);
   const menu = el('div', 'bs-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
@@ -534,32 +423,28 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const freshness = el('span', 'bs-fresh');
   freshness.setAttribute('role', 'status');
   freshness.hidden = true;
-  topLeft.append(chip, freshness, fitButton, menu);
+  topLeft.append(chip, freshness, menu);
   const notice = el('p', 'bs-notice');
   notice.setAttribute('role', 'status');
   notice.hidden = true;
   const dockSlot = el('div', 'bs-dock-slot');
-  canvas.append(viewport, topLeft, notice, dockSlot, glNotice);
-  root.append(canvas);
-  panel.replaceChildren(root);
-
-  const renderer = createBoardRenderer({
-    canvas: glCanvas,
-    viewport,
-    fontSource: svg,
-    mediaLayer,
-    notice: glNotice,
-    onViewChange: (view, scale) => {
-      if (isActive && boardId !== null) showTilesFor(boardId, view, scale);
-    },
-  });
-  const presenceLayer = createPresenceLayer(renderer, addressFace);
-  world.append(presenceLayer.element);
-  canvas.append(presenceLayer.roster);
+  dockSlot.dataset.boardIsland = '';
+  const presenceLayer = createPresenceLayer(boundsOfHostBox, addressFace);
   const askCards = createAskCards();
-  viewport.append(askCards.element);
-  parts = { canvas, viewport, world, renderer, chip, chipName, freshness, menu, notice, dockSlot, presenceLayer, askCards };
-  wireCameraGestures(viewport);
+  panel.replaceChildren(root);
+  const guest: BoardHostGuest = {
+    chrome: topLeft,
+    overlays: [notice, presenceLayer.roster, dockSlot, askCards.element],
+    worldLayer: presenceLayer.element,
+    markedBoxIds: () => changedBoxIds,
+    firstViewArea,
+    toggleStack: toggleFolder,
+    onPainted: (camera) => {
+      hostCamera = camera;
+      paintPresence();
+    },
+  };
+  parts = { root, chip, chipName, freshness, menu, notice, dockSlot, presenceLayer, askCards, guest };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });
@@ -567,7 +452,6 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (menu.hidden || !(event.target instanceof Node) || topLeft.contains(event.target)) return;
     closeMenu();
   });
-  onTilesChanged(paintBoard);
   onBoardSessionTraceChanged((sessionId) => {
     if (!isActive) return;
     watchBySessionId.get(sessionId)?.feed.refresh();
@@ -576,14 +460,17 @@ function mountBoardSessionView(panel: HTMLElement): void {
     dock?.refresh();
     requestBoxes();
   });
-  applyCamera();
 }
 
 function activateBoardSessionView(): void {
   isActive = true;
+  if (!parts) return;
+  const host = mountBoardHost();
+  if (host.parentElement !== parts.root) parts.root.replaceChildren(host);
+  placeBoardTitle(null);
+  seatOnHost();
   showPickedRepo();
-  parts?.renderer.resendView();
-  paintBoard();
+  reopenSelectedBoard();
 }
 
 function deactivateBoardSessionView(): void {
@@ -592,6 +479,7 @@ function deactivateBoardSessionView(): void {
   shownRepoPath = null;
   ensuredRepoPath = null;
   closeMenu();
+  if (parts) leaveBoardHost(parts.guest);
 }
 
 function refreshBoardSessionView(): void {

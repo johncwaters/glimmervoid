@@ -373,7 +373,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function islandFreeBand(): { topPx: number; heightPx: number } {
     const viewportRect = viewport.getBoundingClientRect();
-    const islandRects = [...canvas.querySelectorAll<HTMLElement>('.wb-island')].filter((island) => island.checkVisibility()).map((island) => island.getBoundingClientRect());
+    const islandRects = [...canvas.querySelectorAll<HTMLElement>('.wb-island, [data-board-island]')].filter((island) => island.checkVisibility()).map((island) => island.getBoundingClientRect());
     const midlinePx = viewportRect.top + viewportRect.height / 2;
     const upperIslandBottoms = islandRects.filter((rect) => rect.top + rect.height / 2 < midlinePx).map((rect) => rect.bottom - viewportRect.top);
     const lowerIslandTops = islandRects.filter((rect) => rect.top + rect.height / 2 >= midlinePx).map((rect) => rect.top - viewportRect.top);
@@ -2101,6 +2101,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   return {
     fit,
+    fitArea: (bounds: Rect) => fitArea(bounds, MAX_FIT_ZOOM),
     frameArea: glideToArea,
     startPresenting,
     endPresenting,

@@ -51,18 +51,11 @@ function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-export function zoomedCamera(camera: Camera, pointX: number, pointY: number, zoomFactor: number): Camera {
-  const scale = clampScale(camera.scale * zoomFactor);
-  const worldX = camera.x + pointX / camera.scale;
-  const worldY = camera.y + pointY / camera.scale;
-  return { x: worldX - pointX / scale, y: worldY - pointY / scale, scale };
-}
-
 export function readableFloorScale(titleSizePx: number): number {
   return clampScale(READABLE_TITLE_PX / titleSizePx);
 }
 
-export function fittedCamera(bounds: Rect, viewWidthPx: number, viewHeightPx: number, reservedBottomPx: number, floorScale = MIN_SCALE): Camera | null {
+function fittedCamera(bounds: Rect, viewWidthPx: number, viewHeightPx: number, reservedBottomPx: number, floorScale = MIN_SCALE): Camera | null {
   const usableHeightPx = viewHeightPx - reservedBottomPx - FIT_MARGIN_PX * 2;
   const usableWidthPx = viewWidthPx - FIT_MARGIN_PX * 2;
   if (usableWidthPx <= 0 || usableHeightPx <= 0 || bounds.width <= 0 || bounds.height <= 0) return null;

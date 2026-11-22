@@ -3,7 +3,8 @@
   .board-session-view[hidden] { display: none; }
 
   .bs-root { --bs-branch: color-mix(in oklab, #14b8a6 80%, var(--text-head)); flex: 1; min-height: 0; display: flex; padding: 8px; }
-  .bs-canvas { flex: 1; min-height: 0; }
+  .bs-root > .boards-view { padding: 0; }
+  .bs-root[data-map='none'] .wb-viewport { visibility: hidden; }
 
   .bs-face {
     display: inline-grid;
@@ -23,16 +24,14 @@
   .bs-face svg { width: 100%; height: 100%; }
 
   .bs-top-left {
-    position: absolute;
-    top: 12px;
-    left: 12px;
+    position: relative;
+    z-index: 4;
     display: flex;
     align-items: center;
     gap: 6px;
   }
 
-  .bs-chip,
-  .bs-fit {
+  .bs-chip {
     display: inline-flex;
     align-items: center;
     gap: 8px;
@@ -45,10 +44,9 @@
     cursor: pointer;
   }
   .bs-chip { max-width: 280px; padding: 0 10px 0 14px; }
-  .bs-chip > svg, .bs-fit > svg { width: 14px; height: 14px; flex: none; color: var(--text-muted); }
-  .bs-fit { justify-content: center; width: 32px; padding: 0; }
-  .bs-chip:hover, .bs-fit:hover { border-color: var(--accent-dim); }
-  .bs-chip:focus-visible, .bs-fit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .bs-chip > svg { width: 14px; height: 14px; flex: none; color: var(--text-muted); }
+  .bs-chip:hover { border-color: var(--accent-dim); }
+  .bs-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .bs-fresh {
     --bs-fresh-tone: var(--state-running);
     display: inline-flex;

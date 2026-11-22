@@ -5,7 +5,6 @@ import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { el } from '../dom-helpers.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { createPressable } from '../ui/pressable.ts';
-import type { BoardRenderer } from '../whiteboard/board-gl-renderer.ts';
 
 const FACE_SIZE = 28;
 const FACE_GAP = 6;
@@ -70,7 +69,7 @@ function whoOf(face: SessionFace, onFacePicked: (face: SessionFace) => void): HT
   return who;
 }
 
-export function createPresenceLayer(renderer: BoardRenderer, onFacePicked: (face: SessionFace) => void): PresenceLayer {
+export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, onFacePicked: (face: SessionFace) => void): PresenceLayer {
   const element = el('div', 'bs-presence');
   const glows = el('div', 'bs-presence-glows');
   glows.setAttribute('aria-hidden', 'true');
@@ -85,7 +84,7 @@ export function createPresenceLayer(renderer: BoardRenderer, onFacePicked: (face
       const frameIdByBoxId = collapsedFrameIdByBoxIdOf(board);
       const shownBoundsOf = (boxId: string): Rect | null => {
         const frameId = frameIdByBoxId.get(boxId);
-        return (frameId === undefined ? null : renderer.boundsOf(frameId)) ?? renderer.boundsOf(boxId) ?? null;
+        return (frameId === undefined ? null : boundsOf(frameId)) ?? boundsOf(boxId);
       };
       glows.replaceChildren(...marks.glowingBoxIds.flatMap((boxId) => {
         const rect = shownBoundsOf(boxId);

@@ -40,7 +40,7 @@ import type { BoardContextMenu, ContextMenuGroup } from './board-context-menu.ts
 import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
-import type { BoardRenderer } from './board-gl-renderer.ts';
+import type { BoardRenderer, Camera } from './board-gl-renderer.ts';
 import { boardGraphicsLogText, boardGraphicsTelemetryProperties } from './board-graphics-report-core.ts';
 import type { BoardGraphicsEvent } from './board-graphics-report-core.ts';
 import { countDashboardTabs } from '../boot/dashboard-tab-lock.ts';
@@ -142,8 +142,22 @@ interface BoardsViewParts {
   toolHint: HTMLElement;
   emptyBoardHint: HTMLElement;
   mediaLayer: BoardMediaLayer;
+  viewport: HTMLElement;
+  world: HTMLElement;
 }
 
+export interface BoardHostGuest {
+  chrome: HTMLElement;
+  overlays: readonly HTMLElement[];
+  worldLayer: HTMLElement;
+  markedBoxIds: () => ReadonlySet<string>;
+  firstViewArea: (boardBounds: Rect, viewWidthPx: number, viewHeightPx: number) => Rect | null;
+  toggleStack: (boardId: string, frameId: string) => Promise<boolean>;
+  onPainted: (camera: Camera) => void;
+}
+
+let guest: BoardHostGuest | null = null;
+let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let selectedBoardId: string | null = null;
 interface ClickOpenedStack {
   boardId: string;
@@ -670,7 +684,7 @@ function paintReview(): void {
   renderer.setReviewMarks({
     worthALookIds: board && review ? worthALookIdsOf(board, review.worthALook) : new Set(),
     flaggedStepIds: new Set(review?.flaggedStepIds ?? []),
-    agentChangedIds: selectedBoardId ? ringedAgentBoxIdsOf(selectedBoardId) : new Set(),
+    agentChangedIds: new Set([...(selectedBoardId ? ringedAgentBoxIdsOf(selectedBoardId) : []), ...(guest?.markedBoxIds() ?? [])]),
   });
   parts.mediaLayer.setLinkStates(review?.linkStates ?? []);
 }
@@ -727,7 +741,7 @@ function goToAgentChange(): void {
   dismissAgentChange();
 }
 
-function paintBoard(): void {
+export function paintBoard(): void {
   if (!renderer) return;
   const tiled = selectedBoardId ? tiledBoardOf(selectedBoardId) : null;
   if (!tiled) {
@@ -744,11 +758,22 @@ function paintBoard(): void {
   paintAgentChange();
   editor?.afterBoardPaint(tiled.version);
   if (shouldFitOnNextRender) {
-    editor?.fit();
+    fitFirstView();
     shouldFitOnNextRender = false;
   }
   focusAgentChangeOf(board.id);
   paintToolbar();
+  guest?.onPainted(hostCamera);
+}
+
+function fitFirstView(): void {
+  const layout = renderer?.layout();
+  const area = layout && parts ? guest?.firstViewArea(layout.bounds, parts.viewport.clientWidth, parts.viewport.clientHeight) : null;
+  if (area) {
+    editor?.fitArea(area);
+    return;
+  }
+  editor?.fit();
 }
 
 const boardPickListeners: ((boardId: string) => void)[] = [];
@@ -1253,7 +1278,7 @@ function openStack(frameId: string): void {
   const frame = selectedBoard()?.elements.get(frameId);
   if (!selectedBoardId || frame?.kind !== 'frame') return;
   clickOpenedStacksByFrameId.set(frameId, { boardId: selectedBoardId, boxIds: frame.contains, phase: 'opening' });
-  void sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }]).then((isSent) => {
+  void (guest ? guest.toggleStack(selectedBoardId, frameId) : sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }])).then((isSent) => {
     if (!isSent) clickOpenedStacksByFrameId.delete(frameId);
   });
 }
@@ -1262,6 +1287,10 @@ function gatherClickOpenedStacksOfSelectedBoard(): void {
   for (const [frameId, clickOpenedStack] of clickOpenedStacksByFrameId) {
     if (clickOpenedStack.boardId !== selectedBoardId) continue;
     clickOpenedStacksByFrameId.delete(frameId);
+    if (guest) {
+      void guest.toggleStack(clickOpenedStack.boardId, frameId);
+      continue;
+    }
     void sendRecordedOps(clickOpenedStack.boardId, [{ op: 'set', id: frameId, fields: { collapsed: true } }]);
   }
 }
@@ -1287,7 +1316,7 @@ function settleClickOpenedStacks(hasSelectionChanged: boolean): void {
     const isSelectionOutside = !selectedIds.has(frameId) && !boxIds.some((boxId) => selectedIds.has(boxId));
     const hasSelectionLeft = clickOpenedStack.phase.startsWith('left') || (hasSelectionChanged && isSelectionOutside);
     const settled = clickOpenedStack.boardId === selectedBoardId ? settledClickOpenedStack(frameId, clickOpenedStack, held, hasSelectionLeft) : 'forget';
-    if (settled === 'gather') gatherOps.push({ op: 'set', id: frameId, fields: { collapsed: true } });
+    if (settled === 'gather') gatherStack(clickOpenedStack.boardId, frameId, gatherOps);
     if (settled === 'gather' || settled === 'forget') {
       clickOpenedStacksByFrameId.delete(frameId);
       continue;
@@ -1295,6 +1324,14 @@ function settleClickOpenedStacks(hasSelectionChanged: boolean): void {
     clickOpenedStacksByFrameId.set(frameId, settled);
   }
   void sendOps(gatherOps);
+}
+
+function gatherStack(boardId: string, frameId: string, gatherOps: Op[]): void {
+  if (guest) {
+    void guest.toggleStack(boardId, frameId);
+    return;
+  }
+  gatherOps.push({ op: 'set', id: frameId, fields: { collapsed: true } });
 }
 
 function addFrame(): void {
@@ -1703,7 +1740,7 @@ export function mountBoardHost(): HTMLElement {
   empty.classList.add('wb-empty');
 
   host.replaceChildren(canvas, empty);
-  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, agentChangeIsland, agentChangeText, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer };
+  parts = { boardIsland, boardMenu, boardTitle, boardMeta, boardLink, presence, host, chrome, canvas, empty, emptyText, agentIsland, agentChangeIsland, agentChangeText, queuedForSession, pairedDisconnect, buttons, toolButtons, toolLockButton: lockButton, moreTools, toolHint, emptyBoardHint, mediaLayer, viewport, world };
   onSessionTick(paintBoardEditedAge);
   const boardRenderer = createBoardRenderer({
     canvas: glCanvas,
@@ -1714,6 +1751,8 @@ export function mountBoardHost(): HTMLElement {
     onViewChange: (view, scale) => {
       if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);
       paintAgentChange();
+      hostCamera = { x: view.x, y: view.y, scale };
+      guest?.onPainted(hostCamera);
     },
     onGraphicsEvent: (event) => { void reportBoardGraphics(event); },
   });
@@ -1784,7 +1823,27 @@ export function placeBoardTitle(titleSlot: HTMLElement | null): void {
   if (parts.boardIsland.parentElement !== titleSlot) titleSlot.append(parts.boardIsland);
 }
 
-export function showBoardBeside(boardId: string | null, sessionId: string | null): void {
+function seatGuest(nextGuest: BoardHostGuest | null): void {
+  if (nextGuest === guest) return;
+  gatherClickOpenedStacksOfSelectedBoard();
+  for (const layer of guest ? [guest.chrome, guest.worldLayer, ...guest.overlays] : []) layer.remove();
+  guest = nextGuest;
+  if (!parts || !guest) return;
+  parts.chrome.prepend(guest.chrome);
+  parts.world.append(guest.worldLayer);
+  parts.canvas.append(...guest.overlays);
+}
+
+export function leaveBoardHost(leavingGuest: BoardHostGuest): void {
+  if (leavingGuest === guest) seatGuest(null);
+}
+
+export function boundsOfHostBox(boxId: string): Rect | null {
+  return renderer?.boundsOf(boxId) ?? null;
+}
+
+export function showBoardBeside(boardId: string | null, sessionId: string | null, nextGuest: BoardHostGuest | null = null): void {
+  seatGuest(nextGuest);
   pairedSessionId = sessionId;
   if (boardId) selectBoard(boardId);
   paintPairedSession();
