@@ -2418,7 +2418,7 @@ test('an agent reads operator ink as bounds and may remove it, but is refused dr
   assert.equal(removed.status, 200);
 });
 
-test('the code map board keeps a moved box and a note wired to it across regenerations without queueing them for a connected session, stamps the mapped sha, tints and refreshes a session overlay, draws a design spec as plan steps landed by their Ticket trailers, and refuses an agent any other change to a codemap element', async () => {
+test('the code map board puts a moved box back at its generated place and keeps a note wired to it across regenerations without queueing them for a connected session, stamps the mapped sha, tints and refreshes a session overlay, draws a design spec as plan steps landed by their Ticket trailers, and refuses an agent any other change to a codemap element', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'codemap-board-'));
   const repoDir = path.join(boardsRoot, 'mapped');
   const writeSource = (repoPath: string, text: string) => {
@@ -2473,7 +2473,7 @@ test('the code map board keeps a moved box and a note wired to it across regener
   assert.ok(secondRead.ok);
   const elements = secondRead.board.elements;
   const movedBox = elements.get(libBoxId);
-  assert.deepEqual(movedBox?.kind === 'box' ? movedBox.place : null, { at: { x: 900, y: 900 } });
+  assert.notDeepEqual(movedBox?.kind === 'box' ? movedBox.place : null, { at: { x: 900, y: 900 } });
   assert.equal(elements.get('lib-note-wire')?.kind, 'wire');
   assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === 'tools'));
   assert.ok([...elements.values()].some((element) => element.kind === 'box' && element.title === `Map at ${remappedSha.slice(0, 7)}: current`));

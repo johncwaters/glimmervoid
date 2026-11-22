@@ -376,8 +376,12 @@ function boardTitleOf(text: string): string {
   return text.slice(-WHITEBOARD_LIMITS.title);
 }
 
+function generatedFieldsOf(element: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(element).filter(([field]) => field !== 'kind' && field !== 'id'));
+}
+
 function fieldsToRefresh(element: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(element).filter(([field]) => field !== 'kind' && field !== 'id' && field !== 'place'));
+  return Object.fromEntries(Object.entries(generatedFieldsOf(element)).filter(([field]) => field !== 'place'));
 }
 
 interface MapDecorations {
@@ -541,15 +545,21 @@ function innerRowsOf(layers: ModuleLayers, folder: string): string[][] {
     .filter((row) => row.length > 0);
 }
 
-function placedFoldersOf(layers: ModuleLayers): Map<string, { x: number; y: number }> {
+function placedFoldersOf(layers: ModuleLayers, openFolders: ReadonlySet<string>): Map<string, { x: number; y: number }> {
   const placeById = new Map<string, { x: number; y: number }>();
   let rowTop = 0;
   for (const levelFolders of foldersByLevelOf(layers)) {
     let blockLeft = 0;
     let rowHeight: number = MAP_BOX_SPACING.y;
     for (const folder of levelFolders) {
+      const cardPlace = { x: blockLeft, y: rowTop };
+      placeById.set(folderCardIdOf(folder), cardPlace);
+      if (!openFolders.has(folder)) {
+        for (const summary of layers.modulesByFolder.get(folder) ?? []) placeById.set(moduleBoxIdOf(summary.id), cardPlace);
+        blockLeft += 2 * MAP_BOX_SPACING.x;
+        continue;
+      }
       const rows = innerRowsOf(layers, folder);
-      placeById.set(folderCardIdOf(folder), { x: blockLeft, y: rowTop });
       for (const [rowIndex, row] of rows.entries()) {
         for (const [column, moduleId] of row.entries()) placeById.set(moduleBoxIdOf(moduleId), { x: blockLeft + column * MAP_BOX_SPACING.x, y: rowTop + (rowIndex + 1) * MAP_BOX_SPACING.y });
       }
@@ -577,9 +587,9 @@ function folderMatrixCsvOf(model: CodemapModel): string {
 
 function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string, string>, { churnByModule, overlaidModules, matrixMedia }: MapDecorations): Record<string, unknown>[] {
   const layers = moduleLayersOf(model);
-  const placeById = placedFoldersOf(layers);
   const focusModules = new Set([...overlaidModules, ...layers.judgedEdges.flatMap((edge) => (overlaidModules.has(edge.from) ? [edge.to] : overlaidModules.has(edge.to) ? [edge.from] : []))]);
   const focusFolders = new Set([...focusModules].map(folderOf));
+  const placeById = placedFoldersOf(layers, focusFolders);
   const isFeedback = (edge: WeightedEdge) => {
     const folder = folderOf(edge.from);
     if (folder !== folderOf(edge.to)) return layers.folders.feedbackKeys.has(edgeKeyOf(folder, folderOf(edge.to)));
@@ -625,18 +635,12 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
   const staleRemovalsOfKind = (isKind: (kind: string | undefined) => boolean) => staleIds.filter((id) => isKind(existingKindById.get(id))).map((id) => ({ op: 'remove', id }));
   const refreshOf = (element: { kind: string; id: string } & Record<string, unknown>) => {
     if (!existingKindById.has(element.id)) return { op: 'add', element };
-    const fields = fieldsToRefresh(element);
-    if (element.kind !== 'frame' || focusFolders.has(folderOfFrame(element.id, layers))) return { op: 'set', id: element.id, fields };
-    return { op: 'set', id: element.id, fields: Object.fromEntries(Object.entries(fields).filter(([field]) => field !== 'collapsed')) };
+    return { op: 'set', id: element.id, fields: generatedFieldsOf(element) };
   };
   return [
     ...staleRemovalsOfKind((kind) => kind === 'wire'), ...staleRemovalsOfKind((kind) => kind === 'frame'), ...staleRemovalsOfKind((kind) => kind !== 'wire' && kind !== 'frame'),
     ...boxes.map(refreshOf), ...frames.map(refreshOf), ...wires.map(refreshOf),
   ];
-}
-
-function folderOfFrame(frameId: string, layers: ModuleLayers): string {
-  return [...layers.modulesByFolder.keys()].find((folder) => folderFrameIdOf(folder) === frameId) ?? '';
 }
 
 function withoutUnchangedSets(ops: readonly Op[], elementById: ReadonlyMap<string, Element>): Op[] {
