@@ -16,6 +16,10 @@ export const LANES_BACKGROUND_JOBS: SettingsSection = {
   ],
 };
 
+const POSTHOG_ENABLED = { path: 'posthog.enabled', equals: true } as const;
+const COMMUNITY_ENABLED = { path: 'community.enabled', equals: true } as const;
+const POSTHOG_CONNECTION_USED = { anyOf: [POSTHOG_ENABLED, COMMUNITY_ENABLED] } as const;
+
 export const LANES_POSTHOG: SettingsSection = {
   id: 'lanes-posthog',
   level: 'lanes',
@@ -31,49 +35,49 @@ export const LANES_POSTHOG: SettingsSection = {
     {
       id: 'posthog-host', path: 'posthog.host', title: 'Host',
       description: 'PostHog cloud or self-hosted URL.',
-      control: 'text', keywords: ['url', 'server'], defaultValue: 'https://us.posthog.com', ...MACHINE_NOW,
+      control: 'text', keywords: ['url', 'server'], defaultValue: 'https://us.posthog.com', visibleWhen: POSTHOG_CONNECTION_USED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-api-key', path: 'posthog.apiKey', title: 'Personal API key',
       description: 'Personal API key with read access to your projects.',
-      control: 'password', keywords: ['credential', 'token'], defaultValue: '', ...MACHINE_NOW,
+      control: 'password', keywords: ['credential', 'token'], defaultValue: '', visibleWhen: POSTHOG_CONNECTION_USED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-read-api-key', path: 'posthog.readApiKey', title: 'Read-only API key for the watcher',
       description: 'Personal API key with read scopes only. The watcher uses it to notice new errors and community questions, so Radar and Community stop polling on a timer.',
-      control: 'password', keywords: ['credential', 'token', 'watcher', 'read access'], defaultValue: '', ...MACHINE_NOW,
+      control: 'password', keywords: ['credential', 'token', 'watcher', 'read access'], defaultValue: '', visibleWhen: POSTHOG_CONNECTION_USED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-projects', path: 'posthog.projects', title: 'Projects',
       description: 'Project ids to watch, where empty watches all and none watches none.',
       control: 'list', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects',
-      listPlaceholder: 'Project id', listEmptyText: 'Every project the key can read.', ...MACHINE_NOW,
+      listPlaceholder: 'Project id', listEmptyText: 'Every project the key can read.', visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-interval', path: 'posthog.intervalMinutes', title: 'Poll interval',
       description: 'Time between PostHog checks.',
-      control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 15, ...MACHINE_NOW,
+      control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 15, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-max-investigations', path: 'posthog.maxConcurrentInvestigations', title: 'Max concurrent investigations',
       description: 'Most investigations running at once.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: INVESTIGATIONS, keywords: ['parallel', 'workers'], defaultValue: 2, ...MACHINE_NOW,
+      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: INVESTIGATIONS, keywords: ['parallel', 'workers'], defaultValue: 2, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-min-users', path: 'posthog.minUsersToInvestigate', title: 'Min users to investigate',
       description: 'Fewest affected users before a new issue is investigated.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'affected'], defaultValue: 1, ...MACHINE_NOW,
+      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'affected'], defaultValue: 1, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-traffic-enabled', path: 'posthog.trafficSpikeEnabled', title: 'Traffic spike alerts',
       description: 'Alert when unique users jump above normal.',
-      control: 'toggle', keywords: ['analytics', 'alert'], defaultValue: true, ...MACHINE_NOW,
+      control: 'toggle', keywords: ['analytics', 'alert'], defaultValue: true, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-auto-fix', path: 'posthog.autoFix', title: 'Attempt fixes for major issues',
       description: 'Let an agent fix an issue on a local branch, opening a pull request only after you approve.',
       control: 'toggle', keywords: ['automatic', 'pull request'], danger: true,
-      warning: 'Enabling this control lets an agent that read PostHog error data edit code onto a local branch; nothing is pushed until you approve it.', defaultValue: false, ...MACHINE_NOW,
+      warning: 'Enabling this control lets an agent that read PostHog error data edit code onto a local branch; nothing is pushed until you approve it.', defaultValue: false, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
   ],
 };
@@ -99,7 +103,8 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
     {
       id: 'team-review-org', path: 'teamReview.org', title: 'GitHub organization',
       description: 'Organization whose pull requests that request your review directly are drafted. Needed only when no GitHub team is set.',
-      control: 'text', keywords: ['github', 'organization', 'org', 'review requests'], defaultValue: '', ...MACHINE_NOW,
+      control: 'text', keywords: ['github', 'organization', 'org', 'review requests'], defaultValue: '',
+      visibleWhen: { path: 'github.teams', isSet: false }, ...MACHINE_NOW,
     },
     {
       id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after',
@@ -223,22 +228,22 @@ export const LANES_COMMUNITY: SettingsSection = {
     {
       id: 'community-skill', path: 'community.skill', title: 'Research skill',
       description: 'Skill the research agent follows, or none when empty.',
-      control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', ...MACHINE_NOW,
+      control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'community-project-id', path: 'community.projectId', title: 'PostHog project',
       description: 'PostHog project holding the community forum and Discord data.',
-      control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, ...MACHINE_NOW,
+      control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'community-interval', path: 'community.intervalMinutes', title: 'Poll interval',
       description: 'Time between community checks.',
-      control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 30, ...MACHINE_NOW,
+      control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 30, visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',
       description: 'Discord channels to watch for questions, without the #, or none to skip Discord.',
-      control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], ...MACHINE_NOW,
+      control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
   ],
 };

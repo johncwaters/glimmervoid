@@ -7,6 +7,13 @@ type SettingsLevel = 'browser' | 'machine' | 'lanes';
 type SettingsControl = 'toggle' | 'number' | 'text' | 'password' | 'select' | 'list' | 'json' | 'readonly' | 'shortcut-key' | 'tab-order' | 'agent-visibility';
 export type SettingsChoicePresentation = 'segmented' | 'select';
 
+export type SettingsVisibleCondition =
+  | { path: string; equals: string | boolean }
+  | { path: string; isSet: boolean }
+  | { anyOf: readonly SettingsVisibleCondition[] };
+
+type SettingsVisibleWhen = SettingsVisibleCondition | readonly SettingsVisibleCondition[];
+
 interface SettingsOption {
   value: string;
   label: string;
@@ -56,6 +63,7 @@ export interface SettingsSetting {
   status?: string;
   jsonSchema?: unknown;
   example?: unknown;
+  visibleWhen?: SettingsVisibleWhen;
 }
 
 export interface SettingsSection {

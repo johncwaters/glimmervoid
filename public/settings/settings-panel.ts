@@ -16,7 +16,7 @@ import { isExperimentalSection, SETTINGS_MOVED_SETTINGS, SETTINGS_REGISTRY, SETT
 import { MACHINE_HOME } from '#shared/settings/machine-sections.ts';
 import type { SettingsSearchMatch, SettingsSearchResult } from '#shared/settings/registry-core.ts';
 import { parseSettingsHash, scoreSettingsSearch } from '#shared/settings/registry-core.ts';
-import { SCOPE_LABELS, childSectionsOf, fileOnlySearchCard, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
+import { SCOPE_LABELS, childSectionsOf, fileOnlySearchCard, gatesOnPath, isSettingShown, pageScopeOf, pageSectionOf, phoneSettingsScreenOf, settingsNavigationGroupsOf, settingsSearchBreadcrumb, topLevelSectionsOf } from './settings-view-core.ts';
 import { createSettingsLink, parseSettingsSearchHash, settingsSearchHash } from './settings-link.ts';
 import { FEATURE_SURFACE_RULES, OPTIONAL_FEATURE_SURFACES } from '../feature-surfaces-core.ts';
 import type { FeatureSurfaceRule } from '../feature-surfaces-core.ts';
@@ -38,7 +38,7 @@ import { buildExperimentalTag, externalLink } from './settings-readouts.ts';
 import { renderPacksTabLink } from '../packs/packs-catalog.ts';
 import { renderGithubPage, renderSecretsPage } from '../secrets/secrets-settings.ts';
 import { refreshHooksPage, renderHooksPage } from '../hooks-panel.ts';
-import { refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow } from './settings-rows.ts';
+import { focusControl, refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow } from './settings-rows.ts';
 
 type SectionSearchResult = SettingsSearchResult & { section: SettingsSection };
 
@@ -187,12 +187,17 @@ function renderAnimalGalleryToggle() {
   return disclosure;
 }
 
+function visibleSettingsOf(part: SettingsSection): SettingsSetting[] {
+  return part.settings.filter((entry) => isSettingShown(entry, storedValues, settingsPayload));
+}
+
 function renderPart(stack: HTMLElement, part: SettingsSection) {
-  for (const setting of part.settings.filter((entry) => entry.access !== 'advanced')) {
+  const visible = visibleSettingsOf(part);
+  for (const setting of visible.filter((entry) => entry.access !== 'advanced')) {
     stack.appendChild(renderRow(setting));
     if (setting.id === FLYING_ANIMALS_SETTING_ID) stack.appendChild(renderAnimalGalleryToggle());
   }
-  const advancedSettings = part.settings.filter((entry) => entry.access === 'advanced');
+  const advancedSettings = visible.filter((entry) => entry.access === 'advanced');
   if (advancedSettings.length > 0) stack.append(renderAdvancedSettings(advancedSettings));
 }
 
@@ -334,7 +339,11 @@ function chooseSearchResult(searchResult: SectionSearchResult) {
 }
 
 function searchSettings(query: string) {
-  return scoreSettingsSearch(availableSettingsSections(), query, SETTINGS_REGISTRY.fileOnly);
+  const visibleSections = availableSettingsSections().map((section) => ({
+    ...section,
+    settings: visibleSettingsOf(section),
+  }));
+  return scoreSettingsSearch(visibleSections, query, SETTINGS_REGISTRY.fileOnly);
 }
 
 function highlightedSearchText(
@@ -595,11 +604,32 @@ function activatePendingSection() {
   activateSection(activation.sectionId, activation.settingId, activation.hashAtRequest);
 }
 
+function shownSettingIdsOf(part: SettingsSection): string[] {
+  return visibleSettingsOf(part).map((setting) => setting.id);
+}
+
+function sameStringList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function rerenderKeepingRowFocus() {
+  const activeSettingId = document.activeElement?.closest<HTMLElement>('[data-setting-id]')?.dataset.settingId ?? null;
+  renderContent();
+  if (!activeSettingId) return;
+  const row = contentEl?.querySelector<HTMLElement>(`[data-setting-id="${activeSettingId}"]`);
+  if (row) focusControl(row);
+}
+
 function showBroadcastSettings() {
+  const previousIds = shownSettingIdsOf(selectedPage);
   setSettingsPayload(settingsPayloadSnapshot());
   hydrate(settingsPayload);
   if (searchQuery) {
     renderSearchContent();
+    return;
+  }
+  if (!sameStringList(previousIds, shownSettingIdsOf(selectedPage))) {
+    rerenderKeepingRowFocus();
     return;
   }
   refreshVisibleRows();
@@ -651,7 +681,15 @@ function refreshShortcutGroups() {
   if (shortcutGroups) renderShortcutGroups(shortcutGroups);
 }
 
-setPanelRefresher({ refreshRow, refreshRowFoot, refreshSettingsStatus, refreshShortcutGroups });
+function refreshRowOrSection(setting: SettingsSetting, options?: { force?: boolean }) {
+  if (gatesOnPath(selectedPage.settings, setting.path)) {
+    rerenderKeepingRowFocus();
+    return;
+  }
+  refreshRow(setting, options);
+}
+
+setPanelRefresher({ refreshRow: refreshRowOrSection, refreshRowFoot, refreshSettingsStatus, refreshShortcutGroups });
 
 function refreshSettingsView(reason: ViewRefreshReason) {
   if (selectedPage.id === HOOKS_PAGE_ID) refreshHooksPage(reason);

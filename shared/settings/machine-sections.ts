@@ -129,7 +129,8 @@ export const MACHINE_SESSIONS: SettingsSection = {
     {
       id: 'loop-guard-on-stuck', path: 'loopGuard.onStuck', title: 'When a session is stuck',
       description: 'Flag asks for your attention; Stop also ends the session.',
-      control: 'select', options: capitalizedOptions(LOOP_GUARD_ON_STUCK), keywords: ['loop', 'stuck', 'guardrail'], defaultValue: 'flag', ...MACHINE_NOW,
+      control: 'select', options: capitalizedOptions(LOOP_GUARD_ON_STUCK), keywords: ['loop', 'stuck', 'guardrail'], defaultValue: 'flag',
+      visibleWhen: { path: 'loopGuard.maxTurnsWithoutProgress', isSet: true }, ...MACHINE_NOW,
     },
     {
       id: 'tab-order', path: 'viewTabOrder', title: 'Tab order',
@@ -221,14 +222,16 @@ export const MACHINE_SAFETY: SettingsSection = {
       id: 'sandbox-allowed-hosts', path: 'sandboxAllowedHosts', title: 'Sandbox allowed hosts',
       description: 'Extra hosts a sandboxed session may reach, on top of the model, GitHub and package registry hosts. Only used when sessionSandbox is on.',
       control: 'list', keywords: ['sandbox', 'network', 'egress', 'domains', 'allow list', 'hosted'], defaultValue: [],
-      listPlaceholder: 'example.com or *.example.com', listEmptyText: 'Only the built-in hosts are reachable.', ...MACHINE_NEW_SESSIONS,
+      listPlaceholder: 'example.com or *.example.com', listEmptyText: 'Only the built-in hosts are reachable.',
+      visibleWhen: { path: 'sessionSandbox', equals: true }, ...MACHINE_NEW_SESSIONS,
     },
     {
       id: 'sandbox-weaker-network-isolation', path: 'sandboxWeakerNetworkIsolation', title: 'macOS certificate checks',
       description: 'Lets a sandboxed macOS session ask trustd, the macOS certificate service, to verify TLS. While off, gh and other Go tools fail TLS certificate checks inside a macOS session. Only used when sessionSandbox is on.',
       control: 'toggle', keywords: ['sandbox', 'trustd', 'tls', 'certificate', 'gh', 'go', 'macos', 'enableWeakerNetworkIsolation'], danger: true,
       warning: 'Enabling this opens a data exfiltration path: trustd runs outside the sandbox and fetches the certificate status URLs a session hands it, on any host, past the sandbox allowed hosts.',
-      defaultValue: false, ...MACHINE_NEW_SESSIONS,
+      defaultValue: false,
+      visibleWhen: [{ path: 'sessionSandbox', equals: true }, { path: 'serverPlatform', equals: 'darwin' }], ...MACHINE_NEW_SESSIONS,
     },
   ],
 };
@@ -243,12 +246,13 @@ export const MACHINE_VAULT: SettingsSection = {
     {
       id: 'vault-source', path: 'vault.manager', title: 'Source',
       description: 'Where agents read the secrets you allow. Age file keeps them encrypted on this machine and needs no password manager; you type each value on the request card the first time an agent asks.',
-      control: 'select', options: [{ value: '1password', label: '1Password' }, { value: 'age', label: 'Age file on this machine' }], keywords: ['1password', 'age', 'password manager', 'secrets', 'headless', 'linux'], defaultValue: 'age', ...MACHINE_NOW,
+      control: 'select', options: [{ value: '1password', label: '1Password' }, { value: 'age', label: 'Age file on this machine' }], keywords: ['1password', 'age', 'password manager', 'secrets', 'headless', 'linux'], defaultValue: 'age', status: 'vault-connection', ...MACHINE_NOW,
     },
     {
       id: 'vault-look-in', path: 'vault.lookIn', title: 'Look in',
       description: 'The 1Password vault agents read secrets from, only for the names you allow. Unused with Age file. Opening Settings never asks 1Password; Test connection does.',
-      control: 'text', keywords: ['1password', 'password manager', 'secrets', 'source', 'op'], defaultValue: '', status: 'vault-connection', ...MACHINE_NOW,
+      control: 'text', keywords: ['1password', 'password manager', 'secrets', 'source', 'op'], defaultValue: '',
+      visibleWhen: { path: 'vault.manager', equals: '1password' }, ...MACHINE_NOW,
     },
     {
       id: 'github-read-token', path: 'github.readToken', title: 'GitHub read token',

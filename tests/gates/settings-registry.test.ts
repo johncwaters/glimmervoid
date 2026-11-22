@@ -15,6 +15,7 @@ import {
 import { UPDATES_ACTIONS_SETTING_ID, UPDATES_SECTION_ID } from '../../public/radar/radar-core.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, TEAM_REVIEW_SKILL_SETTING_ID } from '../../public/github/team-review-view-core.ts';
 import { OPTIONAL_FEATURE_SURFACES } from '../../public/feature-surfaces-core.ts';
+import { gatesOnPath, hydrateFromSettings, isSettingShown } from '../../public/settings/settings-view-core.ts';
 import { settableFromDashboard } from '../helpers/settings-allow-list.ts';
 
 const ROOT = path.join(import.meta.dirname, '../..');
@@ -553,4 +554,43 @@ test('the machine Privacy section owns the telemetry toggle and the privacy deep
   assert.equal(toggle?.control, 'toggle');
   assert.equal(toggle?.defaultValue, DEFAULT_CONFIG.telemetry.enabled);
   assert.equal(settableFromDashboard('telemetry.enabled'), true);
+});
+
+test('visibleWhen gates platform, sandbox, vault, team org, loop guard, PostHog and Community rows', () => {
+  const settingById = (id: string): SettingsSetting => {
+    const found = SETTINGS_INDEX.byId.get(id);
+    assert.ok(found, `missing setting ${id}`);
+    return found;
+  };
+  const defaults = hydrateFromSettings(SETTINGS_REGISTRY.sections, {});
+  const linuxNoSandbox = { serverPlatform: 'linux', sessionSandbox: false };
+  const linuxSandbox = { serverPlatform: 'linux', sessionSandbox: true };
+  const macSandbox = { serverPlatform: 'darwin', sessionSandbox: true };
+
+  assert.equal(isSettingShown(settingById('sandbox-allowed-hosts'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('sandbox-allowed-hosts'), defaults, linuxSandbox), true);
+  assert.equal(isSettingShown(settingById('sandbox-weaker-network-isolation'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('sandbox-weaker-network-isolation'), defaults, linuxSandbox), false);
+  assert.equal(isSettingShown(settingById('sandbox-weaker-network-isolation'), defaults, macSandbox), true);
+
+  assert.equal(isSettingShown(settingById('vault-look-in'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('vault-look-in'), { ...defaults, 'vault.manager': '1password' }, linuxNoSandbox), true);
+  assert.equal(settingById('vault-source').status, 'vault-connection');
+
+  assert.equal(isSettingShown(settingById('team-review-org'), defaults, linuxNoSandbox), true);
+  assert.equal(isSettingShown(settingById('team-review-org'), { ...defaults, 'github.teams': ['org/team'] }, linuxNoSandbox), false);
+
+  assert.equal(isSettingShown(settingById('loop-guard-on-stuck'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('loop-guard-on-stuck'), { ...defaults, 'loopGuard.maxTurnsWithoutProgress': 4 }, linuxNoSandbox), true);
+
+  assert.equal(isSettingShown(settingById('posthog-host'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('posthog-host'), { ...defaults, 'posthog.enabled': true }, linuxNoSandbox), true);
+  assert.equal(isSettingShown(settingById('posthog-host'), { ...defaults, 'community.enabled': true }, linuxNoSandbox), true);
+  assert.equal(isSettingShown(settingById('posthog-projects'), { ...defaults, 'community.enabled': true }, linuxNoSandbox), false);
+  assert.equal(gatesOnPath(sectionById('lanes-posthog').settings, 'posthog.enabled'), true);
+  assert.equal(gatesOnPath(sectionById('lanes-posthog').settings, 'community.enabled'), true);
+
+  assert.equal(isSettingShown(settingById('community-skill'), defaults, linuxNoSandbox), false);
+  assert.equal(isSettingShown(settingById('community-skill'), { ...defaults, 'community.enabled': true }, linuxNoSandbox), true);
+  assert.equal(gatesOnPath(sectionById('lanes-community').settings, 'community.enabled'), true);
 });

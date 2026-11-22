@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings hides options that do not apply.** The macOS certificate check row only shows on macOS, sandbox rows only show when `sessionSandbox` is on, PostHog and Community fields only show when their feature is on, Vault Look in hides when using Age, GitHub organization hides when GitHub teams are set, and When a session is stuck hides when Turns without progress is off.
 - **Chat: a calmer activity line**: The activity mark and its words use one accent color with no glow. Each tool call gives the mark a quarter turn instead of a full spin, the file or command it works on types in after the words, and when the turn ends the mark spins once, locks and reads "Ready".
 - **Chat: replies arrive faster**: A reply that comes in while you watch now rises in block by block over 150ms instead of fading in through a blur, and its last line shows within 600ms instead of 1.2s.
 - **glimmervoid.dev: link to any section**: Every homepage section heading links to its own section, so you can copy a link like glimmervoid.dev/#status. The Glimmervoid Cloud section moves to the bottom of the page, without the alpha badge and the waitlist note.

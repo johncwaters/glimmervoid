@@ -1,7 +1,7 @@
 import { WorkflowsSettings } from '#shared/contracts/workflows.ts';
 import type { WorkflowRule } from '#shared/contracts/workflows.ts';
 import type { SettingsRange } from '#shared/settings-ranges.ts';
-import type { SettingsChoicePresentation, SettingsEffect, SettingsSection, SettingsSetting } from '#shared/settings/registry.ts';
+import type { SettingsChoicePresentation, SettingsEffect, SettingsSection, SettingsSetting, SettingsVisibleCondition } from '#shared/settings/registry-fields.ts';
 import {
   cloneValue, deleteValueAtPath, displayText, displayValue, formatDisplayNumber, hasScaledUnit, isReadOnlySetting, setValueAtPath, settingsOf, valueAtPath,
   settingsGroupOf, wireValue,
@@ -421,7 +421,40 @@ export function choicePresentation(setting: SettingsSetting): SettingsChoicePres
 function isNonEmptyValue(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === 'string') return value.trim() !== '';
+  if (typeof value === 'number') return Number.isFinite(value) && value !== 0;
   return value === true;
+}
+
+function visibleConditionsOf(setting: SettingsSetting): readonly SettingsVisibleCondition[] {
+  const visibleWhen = setting.visibleWhen;
+  if (!visibleWhen) return [];
+  if (Array.isArray(visibleWhen)) return visibleWhen;
+  return [visibleWhen as SettingsVisibleCondition];
+}
+
+function conditionValueFor(path: string, values: SettingsValues, payload: SettingsPayload): unknown {
+  if (Object.hasOwn(values, path)) return values[path];
+  return valueAtPath(payload, path);
+}
+
+function matchesVisibleCondition(condition: SettingsVisibleCondition, values: SettingsValues, payload: SettingsPayload): boolean {
+  if ('anyOf' in condition) return condition.anyOf.some((nested) => matchesVisibleCondition(nested, values, payload));
+  const value = conditionValueFor(condition.path, values, payload);
+  if ('equals' in condition) return value === condition.equals;
+  return isNonEmptyValue(value) === condition.isSet;
+}
+
+function conditionReferencesPath(condition: SettingsVisibleCondition, path: string): boolean {
+  if ('anyOf' in condition) return condition.anyOf.some((nested) => conditionReferencesPath(nested, path));
+  return condition.path === path;
+}
+
+export function isSettingShown(setting: SettingsSetting, values: SettingsValues, payload: SettingsPayload): boolean {
+  return visibleConditionsOf(setting).every((condition) => matchesVisibleCondition(condition, values, payload));
+}
+
+export function gatesOnPath(settings: readonly SettingsSetting[], path: string): boolean {
+  return settings.some((setting) => visibleConditionsOf(setting).some((condition) => conditionReferencesPath(condition, path)));
 }
 
 export function shouldShowDangerWarning(setting: Pick<SettingsSetting, 'danger' | 'warning'>, value: unknown): boolean {

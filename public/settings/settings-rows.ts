@@ -204,4 +204,4 @@ function refreshSettingsStatus() {
   }
 }
 
-export { refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow };
+export { focusControl, refreshReadout, refreshRow, refreshRowFoot, refreshSettingsStatus, refreshVisibleRows, renderChips, renderRow };
