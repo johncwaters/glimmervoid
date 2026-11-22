@@ -4,7 +4,7 @@ import type { CommunityStateEntry } from '#shared/contracts/community.ts';
 import type { MyPr, MyPrStage } from '#shared/contracts/my-prs.ts';
 import type { InFlightReview, QueuedReview, ReviewDraft, TeamReviewAction } from '#shared/contracts/team-review.ts';
 import { attentionSignature } from '../attention-ack-core.ts';
-import type { AttentionKind, AttentionTile } from '../focus-view/attention-core.ts';
+import type { AttentionKind, AttentionTile } from '../attention-core.ts';
 import type { GithubPollingStatus } from './github-polling-retry-core.ts';
 import { comparablePrKey } from '#shared/contracts/github-prs.ts';
 import { myPrMergeBlocker } from '#shared/contracts/my-pr-merge.ts';

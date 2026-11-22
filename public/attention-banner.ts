@@ -6,8 +6,8 @@ import { el, query } from './dom-helpers.ts';
 import { createPressable } from './ui/pressable.ts';
 import { button } from './ui/button.ts';
 import { markManagerAnswersSeen, passedOnReasonFor, unseenManagerAnswersFor } from './session-card/card-problems.ts';
-import type { AttentionCounts, AttentionKind, AttentionTile } from './focus-view/attention-core.ts';
-import { ATTENTION_TILE_SIZES_PX, answeredForYouText, attentionSummaryText, fitAttentionTiles, managerDecisionText } from './focus-view/attention-core.ts';
+import type { AttentionCounts, AttentionKind, AttentionTile } from './attention-core.ts';
+import { ATTENTION_TILE_SIZES_PX, answeredForYouText, attentionSummaryText, fitAttentionTiles, managerDecisionText } from './attention-core.ts';
 import { paintStatusIcon } from './status-icon.ts';
 
 const NO_ATTENTION: AttentionCounts = { waitingCount: 0, finishedCount: 0, failedCount: 0 };

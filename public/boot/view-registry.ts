@@ -1,26 +1,26 @@
-import { describeFailure } from './client-error-core.ts';
-import { reportToServerLog } from './control-ws.ts';
-import { el, queryTag } from './dom-helpers.ts';
-import { createPressable } from './ui/pressable.ts';
-import { FEATURE_SURFACE_RULES } from './feature-surfaces-core.ts';
-import { activateFocusView, deactivateFocusView, mountFocusView, reopenFocusBoard } from './focus-view/focus-view.ts';
-import { setArenaNavigation } from './arena/race-store.ts';
-import { applyMyPrsConnectionState } from './github/my-prs-store.ts';
-import { acknowledgeReviewQueueAttention, setReviewQueueActivityCallback, setReviewQueueNavigation } from './github/review-queue-store.ts';
-import { acknowledgeRadarAttention, setRadarActivityCallback, setRadarTraceOpener } from './radar/radar-store.ts';
-import { acknowledgeCommunityAttention, applyCommunityConnectionState, setCommunityActivityCallback } from './community/community-store.ts';
-import { onDebugModeChanged } from './session-card/card-debug.ts';
-import { setSettingsRestartHandler } from './settings/settings-store.ts';
-import { applyTeamReviewConnectionState } from './github/team-review-store.ts';
-import { applyTraceConnectionState, openTraceForSession } from './trace-store.ts';
-import { setOpenInReview } from './whiteboard/board-store.ts';
-import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, PACKS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from './svg-dom.ts';
-import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback, setUsageNavigation } from './usage/usage-store.ts';
-import { packPanelModule, packTabIcon } from './packs/pack-views.ts';
-import type { PackPanelView } from './packs/pack-views.ts';
-import { packsSnapshot, subscribePacks } from './packs/packs-store.ts';
-import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from './view-registry-core.ts';
-import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from './view-registry-core.ts';
+import { describeFailure } from '../client-error-core.ts';
+import { reportToServerLog } from '../control-ws.ts';
+import { el, queryTag } from '../dom-helpers.ts';
+import { createPressable } from '../ui/pressable.ts';
+import { FEATURE_SURFACE_RULES } from '../feature-surfaces-core.ts';
+import { activateFocusView, deactivateFocusView, mountFocusView, reopenFocusBoard } from '../focus-view/focus-view.ts';
+import { setArenaNavigation } from '../arena/race-store.ts';
+import { applyMyPrsConnectionState } from '../github/my-prs-store.ts';
+import { acknowledgeReviewQueueAttention, setReviewQueueActivityCallback, setReviewQueueNavigation } from '../github/review-queue-store.ts';
+import { acknowledgeRadarAttention, setRadarActivityCallback, setRadarTraceOpener } from '../radar/radar-store.ts';
+import { acknowledgeCommunityAttention, applyCommunityConnectionState, setCommunityActivityCallback } from '../community/community-store.ts';
+import { onDebugModeChanged } from '../session-card/card-debug.ts';
+import { setSettingsRestartHandler } from '../settings/settings-store.ts';
+import { applyTeamReviewConnectionState } from '../github/team-review-store.ts';
+import { applyTraceConnectionState, openTraceForSession } from '../trace-store.ts';
+import { setOpenInReview } from '../whiteboard/board-store.ts';
+import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, PACKS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH } from '../svg-dom.ts';
+import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback, setUsageNavigation } from '../usage/usage-store.ts';
+import { packPanelModule, packTabIcon } from '../packs/pack-views.ts';
+import type { PackPanelView } from '../packs/pack-views.ts';
+import { packsSnapshot, subscribePacks } from '../packs/packs-store.ts';
+import { createViewLoader, shouldReloadAfterPreloadError, viewAttentionState } from '../view-registry-core.ts';
+import type { PrimaryView, PrimaryViewDefinition, ViewAttention, ViewModule } from '../view-registry-core.ts';
 import { clock } from '#shared/clock.ts';
 
 interface ViewRegistryActions {
@@ -153,19 +153,19 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', iconPath: FOCUS_ICON_PATH, panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, refreshOn: ['connected'], module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView, refresh: reopenFocusBoard } },
-    { view: 'board-session', label: 'Studio', iconPath: BOARDS_ICON_PATH, panelClass: 'board-session-view', isDesktopOnly: true, hasPanelChrome: false, load: () => import('./board-session/board-session-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'session-added', 'session-removed'] },
-    { view: 'prs', label: 'Reviews', iconPath: REVIEWS_ICON_PATH, panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('./github/review-queue-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
+    { view: 'board-session', label: 'Studio', iconPath: BOARDS_ICON_PATH, panelClass: 'board-session-view', isDesktopOnly: true, hasPanelChrome: false, load: () => import('../board-session/board-session-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'session-added', 'session-removed'] },
+    { view: 'prs', label: 'Reviews', iconPath: REVIEWS_ICON_PATH, panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('../github/review-queue-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);
     } },
-    { view: 'usage', label: 'Usage', iconPath: USAGE_ICON_PATH, panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, load: () => import('./usage/usage-panel.ts').then((panel) => panel.view), attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
-    { view: 'radar', label: 'Radar', iconPath: RADAR_ICON_PATH, panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('./radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
-    { view: 'community', label: 'Community', iconPath: COMMUNITY_ICON_PATH, panelClass: 'community-view', gate: { fromSettings: FEATURE_SURFACE_RULES.community }, load: () => import('./community/community-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setCommunityActivityCallback, acknowledge: acknowledgeCommunityAttention }, onConnectionChange: applyCommunityConnectionState },
-    { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, isPhoneOnly: true, panelClass: 'boards-screen', hasPanelChrome: false, load: () => import('./whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
-    { view: 'trace', label: 'Trace', iconPath: TRACE_ICON_PATH, panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('./trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
-    { view: 'benchmarks', label: 'Arena', iconPath: ARENA_ICON_PATH, panelClass: 'arena-view', load: () => import('./arena/arena-panel.ts').then((panel) => panel.view) },
-    { view: 'packs', label: 'Packs', iconPath: PACKS_ICON_PATH, panelClass: 'packs-view', load: () => import('./packs/packs-catalog.ts').then((panel) => panel.view), attention: { subscribe: subscribePackApprovals, acknowledge: () => {} } },
-    { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('./settings/settings-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
+    { view: 'usage', label: 'Usage', iconPath: USAGE_ICON_PATH, panelClass: 'usage-view', gate: { fromSettings: FEATURE_SURFACE_RULES.usage }, load: () => import('../usage/usage-panel.ts').then((panel) => panel.view), attention: { subscribe: setUsageActivityCallback, acknowledge: acknowledgeUsageAttention }, onConnectionChange: applyUsageConnectionState, refreshOn: ['shown', 'connected', 'usage-sessions'] },
+    { view: 'radar', label: 'Radar', iconPath: RADAR_ICON_PATH, panelClass: 'radar-view', gate: { fromSettings: FEATURE_SURFACE_RULES.posthog }, load: () => import('../radar/radar-panel.ts').then((panel) => panel.view), attention: { subscribe: setRadarActivityCallback, acknowledge: acknowledgeRadarAttention } },
+    { view: 'community', label: 'Community', iconPath: COMMUNITY_ICON_PATH, panelClass: 'community-view', gate: { fromSettings: FEATURE_SURFACE_RULES.community }, load: () => import('../community/community-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setCommunityActivityCallback, acknowledge: acknowledgeCommunityAttention }, onConnectionChange: applyCommunityConnectionState },
+    { view: 'boards', label: 'Boards', iconPath: BOARDS_ICON_PATH, isPhoneNavScreen: true, isPhoneOnly: true, panelClass: 'boards-screen', hasPanelChrome: false, load: () => import('../whiteboard/boards-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected'] },
+    { view: 'trace', label: 'Trace', iconPath: TRACE_ICON_PATH, panelClass: 'trace-view', gate: { subscribe: onDebugModeChanged }, load: () => import('../trace-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], onAvailabilityChange: (isAvailable) => setRadarTraceOpener(isAvailable ? openTraceForSession : null), onConnectionChange: applyTraceConnectionState },
+    { view: 'benchmarks', label: 'Arena', iconPath: ARENA_ICON_PATH, panelClass: 'arena-view', load: () => import('../arena/arena-panel.ts').then((panel) => panel.view) },
+    { view: 'packs', label: 'Packs', iconPath: PACKS_ICON_PATH, panelClass: 'packs-view', load: () => import('../packs/packs-catalog.ts').then((panel) => panel.view), attention: { subscribe: subscribePackApprovals, acknowledge: () => {} } },
+    { view: 'settings', label: 'Settings', iconPath: SETTINGS_ICON_PATH, panelClass: 'settings-view', hasPanelChrome: false, load: () => import('../settings/settings-panel.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'hooks-updated'] },
   ];
 
   const views = definitions.map((definition) => buildDashboardView(definition, createLineIcon(definition.iconPath), actions.setPhoneAttention));

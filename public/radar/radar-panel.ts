@@ -12,10 +12,10 @@ import { DEFAULT_REPLY_TIMEOUT_MS, paintActionStatus, requestFailureText } from 
 import { sendControlRequest } from '../control-ws.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { createPollAgoTicker, formatAgo, formatDuration } from '../poll-ago.ts';
-import { pickAdjacent } from '../focus-view/attention-core.ts';
+import { pickAdjacent } from '../attention-core.ts';
 import { isPhoneLayout, onLayoutChange } from '../form-factor.ts';
 import { createRenderHold } from './radar-hold-core.ts';
-import { createSettingsLink } from '../settings/settings-link.ts';
+import { createSettingsLink } from '../settings-link.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { archiveInvestigationLocally, radarSnapshot, setRadarLookingProbe, subscribeRadar } from './radar-store.ts';
 import type { RadarChange } from './radar-store.ts';

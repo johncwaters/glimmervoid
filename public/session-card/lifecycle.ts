@@ -15,7 +15,7 @@ import { closeDebugOverlay, setDebugMode } from './card-debug.ts';
 import type { SessionUi } from './card-registry.ts';
 import { syncLiveSession } from './session-tick.ts';
 import { attentionTally, container, findSessionUi, sessionIdOf, sessionUIs } from './card-registry.ts';
-import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../focus-view/attention-core.ts';
+import { needsAttention, sessionAttentionTier, tallyAdd, tallyRemove, titleAlertCount } from '../attention-core.ts';
 import { closeSessionNotifications } from '../notifications.ts';
 import { ensureTerminalReady, ensureTerminalSetup } from './terminal.ts';
 import { closeDataWs } from './terminal-data-socket.ts';

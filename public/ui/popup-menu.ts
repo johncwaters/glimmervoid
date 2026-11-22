@@ -1,5 +1,5 @@
 import { nextRovingIndex } from '../roving-keys-core.ts';
-import { isModalOpen } from '../session-card/modal.ts';
+import { isModalOpen } from './modal-state.ts';
 import { createPressable } from './pressable.ts';
 
 type MenuItemTone = 'neutral' | 'warning' | 'danger';

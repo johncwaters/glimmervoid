@@ -2,8 +2,8 @@ import type { ManagerDecision } from '#shared/contracts/question-manager.ts';
 import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
 import { UnseenOutcome, type AttentionOwner } from '#shared/contracts/session.ts';
-import type { SessionStateSource } from '../session-actions-core.ts';
-import { moveViewId } from '../view-registry-core.ts';
+import type { SessionStateSource } from './session-actions-core.ts';
+import { moveViewId } from './view-registry-core.ts';
 
 type SessionAttentionTier = 'now' | 'later' | 'resting';
 interface SessionAttentionRow {

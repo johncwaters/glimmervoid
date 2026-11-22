@@ -2,7 +2,7 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import type { SecretRequestCard } from '#shared/contracts/secrets.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { settingsHash } from '../settings/settings-link.ts';
+import { settingsHash } from '../settings-link.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { createLineIcon, KEY_ICON_PATH } from '../svg-dom.ts';
 import { button, linkButton } from '../ui/button.ts';

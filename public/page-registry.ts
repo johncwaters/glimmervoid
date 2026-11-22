@@ -1,7 +1,7 @@
-import { el, isRealInputOwningKey } from '../dom-helpers.ts';
-import { isModalOpen } from '../session-card/modal.ts';
-import { createLineIcon } from '../svg-dom.ts';
-import { button } from '../ui/button.ts';
+import { el, isRealInputOwningKey } from './dom-helpers.ts';
+import { isModalOpen } from './ui/modal-state.ts';
+import { createLineIcon } from './svg-dom.ts';
+import { button } from './ui/button.ts';
 
 export type SessionPagePlacement = 'overlay' | 'screen';
 

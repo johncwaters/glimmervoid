@@ -80,6 +80,10 @@ function resolveProjectsDirs(
   return surviving;
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
 function passOutcome(
   { byteLimited, ioFailures }: { byteLimited: boolean; ioFailures: number },
 ): PassOutcome {
@@ -97,7 +101,7 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = 'e68d2bb9e8934e13';
+const SCAN_SNAPSHOT_INGEST_DIGEST = 'f3ce4738c9aa0b78';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(

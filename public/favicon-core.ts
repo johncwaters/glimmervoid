@@ -1,5 +1,5 @@
 import { BRAND_ACCENT, BRAND_INK, brandMarkMarkup } from '#shared/brand-mark.ts';
-import type { AttentionCounts } from './focus-view/attention-core.ts';
+import type { AttentionCounts } from './attention-core.ts';
 
 type FaviconVariant = 'idle' | 'failed' | 'waiting';
 

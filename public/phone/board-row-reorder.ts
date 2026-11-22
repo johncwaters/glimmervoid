@@ -1,6 +1,6 @@
-import type { SessionRow } from '../focus-view/attention-core.ts';
+import type { SessionRow } from '../attention-core.ts';
 import type { SessionUi } from '../session-card/card-registry.ts';
-import { canDropRow, dropAnchorId, sessionOrderAfterDrop, sessionOrderOf } from '../focus-view/attention-core.ts';
+import { canDropRow, dropAnchorId, sessionOrderAfterDrop, sessionOrderOf } from '../attention-core.ts';
 import { saveSessionOrder } from '../focus-view/focus-view.ts';
 import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
 

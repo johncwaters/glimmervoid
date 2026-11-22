@@ -6,7 +6,7 @@ import { openConfirmDialog } from '../session-card/modal.ts';
 import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { isExperimentalSection, isExperimentalSetting } from '#shared/settings/registry.ts';
 import { hasUnsavedEdit, isAtDefault, pageScopeOf, resetConfirmationOf, resetValueOf, rowChipsOf, secretEnvironmentSource, shouldShowDangerWarning } from './settings-view-core.ts';
-import { settingsHash } from './settings-link.ts';
+import { settingsHash } from '../settings-link.ts';
 import { contentEl, draftByControl, fieldErrorById, replaceSettingsHash, saveStatusById, sectionOfSetting, selectedPage, settingsPayload, storedValue } from './settings-panel-state.ts';
 import { buildExperimentalTag, buildStatusSlot, renderReadout } from './settings-readouts.ts';
 import { commitSetting } from './settings-save.ts';

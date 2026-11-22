@@ -4,8 +4,8 @@ import { segmented } from '../ui/segmented.ts';
 import type { Segmented } from '../ui/segmented.ts';
 import { shortSha } from '#shared/git-text.ts';
 import { el, isRealInputOwningKey } from '../dom-helpers.ts';
-import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../session-pages/session-pages.ts';
-import { announceSessionPageChange } from '../session-pages/session-pages.ts';
+import type { ButtonStyle, SessionPage, SessionPagePlacement } from '../page-registry.ts';
+import { announceSessionPageChange } from '../page-registry.ts';
 import { getJSON, setJSON } from '../local-store.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { openDocEditor } from '../doc-editor/doc-editor.ts';
@@ -19,7 +19,7 @@ import {
   effectiveDiffLayout, fileReadStateOf, findReaderFile, groupReaderFiles, isCommentOutdated, lineTextAt, readerStateOf, shouldHoldUpdate, stepReaderFile,
 } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
-import { CHECK_STATUS_WORDS } from '../chat/done-panel-core.ts';
+import { CHECK_STATUS_WORDS } from '#shared/contracts/verification.ts';
 import { onReviewChange, refreshReview, reviewOf, runSessionReview, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
 import type { SessionReviewResult } from '#shared/contracts/session-review.ts';

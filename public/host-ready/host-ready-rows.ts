@@ -6,7 +6,7 @@ import { createActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { settingsHash } from '../settings/settings-link.ts';
+import { settingsHash } from '../settings-link.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { button } from '../ui/button.ts';
 import { refreshWhileShown } from './host-ready-changes.ts';

@@ -7,7 +7,7 @@ import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-h
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
-import { closeSessionPage } from '../session-pages/session-pages.ts';
+import { closeSessionPage } from '../page-registry.ts';
 import { setSessionView } from '../ui-prefs.ts';
 import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
 import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
