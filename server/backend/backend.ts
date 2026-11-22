@@ -245,6 +245,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return deliverable.length === 0 ? null : promptContextReplyOf(replyShape, deliverable.join('\n\n'));
     },
     getAgentApi: () => agentApi,
+    getWargames: () => laneAssembly.wargames,
     getWhiteboardAssets: () => whiteboards.assets,
     getWhiteboardLayouts: () => whiteboards.layouts,
     getPrActionReports: () => laneAssembly.prFlows,
@@ -845,6 +846,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     community,
     workflows: laneAssembly.workflows,
     races: laneAssembly.races,
+    wargames: laneAssembly.wargames,
     starHint: laneAssembly.starHint,
     usage,
     verification,

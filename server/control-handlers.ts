@@ -51,6 +51,8 @@ import { createInspectHandlers } from './control/handlers/inspect-handlers.ts';
 import { createLaneHandlers } from './control/handlers/lane-handlers.ts';
 import { createRaceHandlers } from './control/handlers/race-handlers.ts';
 import type { RaceWiring } from './race/race-wiring.ts';
+import { createWargamesHandlers } from './control/handlers/wargames-handlers.ts';
+import type { WargamesRunner } from './wargames/wargames-runner.ts';
 import { createRadarHandlers } from './control/handlers/radar-handlers.ts';
 import { createServerHandlers } from './control/handlers/server-handlers.ts';
 import { createSessionHandlers } from './control/handlers/session-handlers.ts';
@@ -154,6 +156,7 @@ interface ControlHandlerDeps {
   packData?: PackData | null;
   packSources?: Pick<PackSources, 'add' | 'update' | 'remove' | 'setPackEnabled' | 'removeHandPlacedFolder'> | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
+  wargames?: Pick<WargamesRunner, 'startMatch' | 'abortMatch' | 'watchMatch' | 'unwatchMatch' | 'removeWatcher' | 'statusFrame' | 'historyFrame'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];
   readGithubIssue?: ReadGithubIssue | null;
   startPicks?: StartPicksStore | null;
@@ -217,6 +220,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     { handlers: {}, connectFrames: github.lateConnectFrames },
     createLaneHandlers(context, deps),
     race,
+    createWargamesHandlers(context, deps),
     session,
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),

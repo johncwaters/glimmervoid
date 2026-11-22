@@ -18,6 +18,7 @@ import {
   hexIndexAt,
   projectSeatState,
   replayMatch,
+  replayMatchAtTick,
 } from '../shared/wargames/engine.ts';
 import type { ReportSigner } from '../shared/wargames/engine.ts';
 import {
@@ -198,6 +199,8 @@ test('full recorded match replays byte-identically and enforces ruleset, NAP bre
 
   const replayed = replayMatch(log);
   assert.deepEqual(replayed, state);
+  const replayedTick1 = replayMatchAtTick(log, 1);
+  assert.equal(replayedTick1.tick, 1);
 
   const s4View = projectSeatState(state, 's4');
   assert.equal(s4View.yourSeatId, 's4');

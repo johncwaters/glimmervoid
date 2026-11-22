@@ -2,11 +2,11 @@ import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
-export const WARGAMES_SEAT_COUNT = 6;
+const WARGAMES_SEAT_COUNT = 6;
 export const WARGAMES_HEX_RADIUS = 3;
 export const WARGAMES_HEX_COUNT = 37;
-export const WARGAMES_MAX_TICKS = 40;
-export const WARGAMES_TICK_DEADLINE_SECONDS = 60;
+const WARGAMES_MAX_TICKS = 40;
+const WARGAMES_TICK_DEADLINE_SECONDS = 60;
 export const WARGAMES_SQUEEZE_TICK = 25;
 export const WARGAMES_WIN_VILLAGES = 12;
 export const WARGAMES_NOTE_MAX_BYTES = 4096;
@@ -29,9 +29,6 @@ export type SeatStatus = z.infer<typeof SeatStatus>;
 export const ContractStatus = z.enum(['proposed', 'active', 'fulfilled', 'breached', 'rejected', 'expired']);
 export type ContractStatus = z.infer<typeof ContractStatus>;
 
-export const ContractKind = z.enum(['escrow', 'nap']);
-export type ContractKind = z.infer<typeof ContractKind>;
-
 export const VillageProductionState = z.enum(['producing', 'barren']);
 export type VillageProductionState = z.infer<typeof VillageProductionState>;
 
@@ -44,8 +41,7 @@ export type BuildingKind = z.infer<typeof BuildingKind>;
 export const TroopKind = z.enum(['raider', 'guard', 'envoy']);
 export type TroopKind = z.infer<typeof TroopKind>;
 
-export const SeatControllerKind = z.enum(['local-agent']);
-export type SeatControllerKind = z.infer<typeof SeatControllerKind>;
+const SeatControllerKind = z.enum(['local-agent']);
 
 export const WargamesMatchId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
 export type WargamesMatchId = z.infer<typeof WargamesMatchId>;
@@ -101,21 +97,19 @@ export const WargamesMatchSpec = z.strictObject({
 });
 export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;
 
-export const EscrowTerms = z.strictObject({
+const EscrowTerms = z.strictObject({
   kind: z.literal('escrow'),
   counterparty: SeatId,
   proposerGives: ResourceBundle,
   counterpartyGives: ResourceBundle,
 });
-export type EscrowTerms = z.infer<typeof EscrowTerms>;
 
-export const NapTerms = z.strictObject({
+const NapTerms = z.strictObject({
   kind: z.literal('nap'),
   counterparty: SeatId,
   durationTicks: z.number().int().min(1).max(40),
   collateral: ResourceBundle,
 });
-export type NapTerms = z.infer<typeof NapTerms>;
 
 export const ContractTerms = z.discriminatedUnion('kind', [EscrowTerms, NapTerms]);
 export type ContractTerms = z.infer<typeof ContractTerms>;
@@ -134,38 +128,38 @@ export const ContractRecord = z.strictObject({
 });
 export type ContractRecord = z.infer<typeof ContractRecord>;
 
-export const BuildOrder = z.strictObject({
+const BuildOrder = z.strictObject({
   kind: z.literal('build'),
   hexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
   building: BuildingKind,
 });
 
-export const TrainOrder = z.strictObject({
+const TrainOrder = z.strictObject({
   kind: z.literal('train'),
   hexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
   troop: TroopKind,
   count: z.number().int().min(1).max(200),
 });
 
-export const MarchOrder = z.strictObject({
+const MarchOrder = z.strictObject({
   kind: z.literal('march'),
   fromHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
   toHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
   troops: TroopCounts,
 });
 
-export const ScoutOrder = z.strictObject({
+const ScoutOrder = z.strictObject({
   kind: z.literal('scout'),
   fromHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
   toHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
 });
 
-export const TribeJoinOrder = z.strictObject({
+const TribeJoinOrder = z.strictObject({
   kind: z.literal('tribe_join'),
   partner: SeatId,
 });
 
-export const TribeLeaveOrder = z.strictObject({
+const TribeLeaveOrder = z.strictObject({
   kind: z.literal('tribe_leave'),
 });
 
@@ -227,6 +221,7 @@ export const MessageRecord = z.strictObject({
   from: SeatId,
   to: SeatId.nullable(),
   channel: MessageChannel,
+  tribeId: z.string().max(64).nullable().default(null),
   text: z.string().min(1).max(2000),
   attachedReport: SignedReport.nullable().default(null),
 });
@@ -346,8 +341,7 @@ export const WargamesEvent = z.discriminatedUnion('type', [
 ]);
 export type WargamesEvent = z.infer<typeof WargamesEvent>;
 
-export const DramaKind = z.enum(['contract_breach', 'ally_attack', 'forged_report']);
-export type DramaKind = z.infer<typeof DramaKind>;
+const DramaKind = z.enum(['contract_breach', 'ally_attack', 'forged_report']);
 
 export const DramaHighlight = z.strictObject({
   id: z.string().min(1).max(80),

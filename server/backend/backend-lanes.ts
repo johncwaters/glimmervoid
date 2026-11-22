@@ -14,6 +14,8 @@ import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
 import { selectionArgs } from '../../shared/agent-models-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { createRaceStore } from '../race/race-store.ts';
+import { createWargamesStore } from '../wargames/wargames-store.ts';
+import { createWargamesRunner } from '../wargames/wargames-runner.ts';
 import { createReviewCaseLibrary } from '../race/review-cases.ts';
 import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
 import { runCommandSafely } from '../child-process-safe.ts';
@@ -380,6 +382,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const wargames = createWargamesRunner({
+    store: createWargamesStore({ directory: path.join(glimmervoidHome, 'wargames'), log: logger }),
+    broadcast: broadcastControl,
+    log: logger,
+  });
+
   const sessionReview = createSessionReviewWiring({
     getSessionReviewConfig: () => configStore.config.sessionReview,
     broadcastControl,
@@ -496,6 +504,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       () => void deleteRetiredIssuesCache(glimmervoidHome, logger),
       () => void deleteRetiredRemoteSessionData(glimmervoidHome, configSiblingPath(configStore.configPath, 'agent-logins'), logger),
       () => void races.loadRaces(raceIdsOf(configStore.config.projects)).then(() => races.startWatching()),
+      () => void wargames.load().catch((error: unknown) => logger.warn(`[wargames] load failed: ${errorMessage(error)}`)),
       () => traceWiring?.start().catch((error: unknown) => logger.warn(`[trace] start failed: ${errorMessage(error)}`)),
       () => uploadsWiring.start().catch((error: unknown) => logger.warn(`[uploads] start failed: ${errorMessage(error)}`)),
     ];
@@ -520,6 +529,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     findLiveSession,
     raceSessions,
     races,
+    wargames,
     branchGc,
     taskTitleRefiner,
     taskTitleSessions,

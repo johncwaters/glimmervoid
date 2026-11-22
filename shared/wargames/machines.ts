@@ -9,20 +9,20 @@ import type {
   WargamesRejection,
 } from '../contracts/wargames.ts';
 
-export type MatchEventKind = 'begin_seating' | 'all_seats_connected' | 'match_won' | 'tick_limit_reached' | 'abort_match';
-export type TickEventKind = 'phase_complete' | 'resolution_complete' | 'next_tick';
-export type SeatEventKind = 'seat_connect' | 'phase_start' | 'seat_submit' | 'phase_deadline' | 'seat_disconnect' | 'seat_eliminated';
-export type ContractEventKind = 'contract_accept' | 'contract_reject' | 'contract_expire' | 'contract_fulfill' | 'contract_breach';
-export type VillageEventKind = 'outer_ring_squeeze';
-export type ArmyEventKind = 'army_depart' | 'army_arrive' | 'army_return' | 'army_reach_home' | 'army_destroy';
+type MatchEventKind = 'begin_seating' | 'all_seats_connected' | 'match_won' | 'tick_limit_reached' | 'abort_match';
+type TickEventKind = 'phase_complete' | 'resolution_complete' | 'next_tick';
+type SeatEventKind = 'seat_connect' | 'phase_start' | 'seat_submit' | 'phase_deadline' | 'seat_disconnect' | 'seat_eliminated';
+type ContractEventKind = 'contract_accept' | 'contract_reject' | 'contract_expire' | 'contract_fulfill' | 'contract_breach';
+type VillageEventKind = 'outer_ring_squeeze';
+type ArmyEventKind = 'army_depart' | 'army_arrive' | 'army_return' | 'army_reach_home' | 'army_destroy';
 
-export type MachineResult<State extends string> =
+type MachineResult<State extends string> =
   | { ok: true; state: State }
   | { ok: false; rejection: WargamesRejection };
 
 type TransitionTable<State extends string, Event extends string> = Readonly<Record<State, Readonly<Partial<Record<Event, State>>>>>;
 
-export const MATCH_TRANSITIONS: TransitionTable<MatchStatus, MatchEventKind> = Object.freeze({
+const MATCH_TRANSITIONS: TransitionTable<MatchStatus, MatchEventKind> = Object.freeze({
   lobby: { begin_seating: 'seating', abort_match: 'aborted' },
   seating: { all_seats_connected: 'running', abort_match: 'aborted' },
   running: { match_won: 'finished', tick_limit_reached: 'finished', abort_match: 'aborted' },
@@ -30,7 +30,7 @@ export const MATCH_TRANSITIONS: TransitionTable<MatchStatus, MatchEventKind> = O
   aborted: {},
 });
 
-export const TICK_TRANSITIONS: TransitionTable<TickPhase, TickEventKind> = Object.freeze({
+const TICK_TRANSITIONS: TransitionTable<TickPhase, TickEventKind> = Object.freeze({
   talk: { phase_complete: 'contracts' },
   contracts: { phase_complete: 'orders' },
   orders: { phase_complete: 'resolving' },
@@ -38,7 +38,7 @@ export const TICK_TRANSITIONS: TransitionTable<TickPhase, TickEventKind> = Objec
   reported: { next_tick: 'talk' },
 });
 
-export const SEAT_TRANSITIONS: TransitionTable<SeatStatus, SeatEventKind> = Object.freeze({
+const SEAT_TRANSITIONS: TransitionTable<SeatStatus, SeatEventKind> = Object.freeze({
   disconnected: { seat_connect: 'connected', seat_eliminated: 'eliminated' },
   connected: { phase_start: 'acting', seat_disconnect: 'disconnected', seat_eliminated: 'eliminated' },
   acting: { seat_submit: 'submitted', phase_deadline: 'timedOut', seat_disconnect: 'disconnected', seat_eliminated: 'eliminated' },
@@ -47,7 +47,7 @@ export const SEAT_TRANSITIONS: TransitionTable<SeatStatus, SeatEventKind> = Obje
   eliminated: {},
 });
 
-export const CONTRACT_TRANSITIONS: TransitionTable<ContractStatus, ContractEventKind> = Object.freeze({
+const CONTRACT_TRANSITIONS: TransitionTable<ContractStatus, ContractEventKind> = Object.freeze({
   proposed: { contract_accept: 'active', contract_reject: 'rejected', contract_expire: 'expired' },
   active: { contract_fulfill: 'fulfilled', contract_breach: 'breached' },
   fulfilled: {},
@@ -56,12 +56,12 @@ export const CONTRACT_TRANSITIONS: TransitionTable<ContractStatus, ContractEvent
   expired: {},
 });
 
-export const VILLAGE_TRANSITIONS: TransitionTable<VillageProductionState, VillageEventKind> = Object.freeze({
+const VILLAGE_TRANSITIONS: TransitionTable<VillageProductionState, VillageEventKind> = Object.freeze({
   producing: { outer_ring_squeeze: 'barren' },
   barren: {},
 });
 
-export const ARMY_TRANSITIONS: TransitionTable<ArmyStatus, ArmyEventKind> = Object.freeze({
+const ARMY_TRANSITIONS: TransitionTable<ArmyStatus, ArmyEventKind> = Object.freeze({
   mustering: { army_depart: 'marching', army_destroy: 'destroyed' },
   marching: { army_arrive: 'arrived', army_destroy: 'destroyed' },
   arrived: { army_return: 'returning', army_destroy: 'destroyed' },

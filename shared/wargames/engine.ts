@@ -47,14 +47,14 @@ export interface ReportSigner {
   verify(canonicalPayload: string, signature: string): boolean;
 }
 
-export interface HexTile {
+interface HexTile {
   index: number;
   q: number;
   r: number;
   ring: number;
 }
 
-export interface VillageState {
+interface VillageState {
   hexIndex: number;
   owner: SeatId | null;
   productionState: VillageProductionState;
@@ -64,7 +64,7 @@ export interface VillageState {
   troops: TroopCounts;
 }
 
-export interface ArmyState {
+interface ArmyState {
   id: string;
   owner: SeatId;
   status: ArmyStatus;
@@ -76,9 +76,9 @@ export interface ArmyState {
   scoutedBy: SeatId[];
 }
 
-export type ProjectedArmyView = Omit<ArmyState, 'scoutedBy'>;
+interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy'> {}
 
-export interface SeatRuntimeState {
+interface SeatRuntimeState {
   config: SeatConfig;
   status: SeatStatus;
   note: string;
@@ -87,7 +87,7 @@ export interface SeatRuntimeState {
   tribeId: string | null;
 }
 
-export interface VerificationLogEntry {
+interface VerificationLogEntry {
   tick: number;
   seatId: SeatId;
   reportId: string;
@@ -122,16 +122,16 @@ export interface MatchState {
   lastSeq: number;
 }
 
-export interface EngineEffect {
+interface EngineEffect {
   kind: 'report_signed' | 'contract_breached' | 'village_captured' | 'match_finished';
   detail: Record<string, unknown>;
 }
 
-export type TransitionOutcome =
+type TransitionOutcome =
   | { ok: true; state: MatchState; effects: EngineEffect[] }
   | { ok: false; rejection: WargamesRejection };
 
-export interface SeatStateView {
+interface SeatStateView {
   matchId: string;
   status: MatchStatus;
   tick: number;
@@ -194,12 +194,12 @@ export function seatIndexOf(seatId: SeatId): number {
   return SEAT_INDEX_BY_ID[seatId];
 }
 
-export function hexRing(axialQ: number, axialR: number): number {
+function hexRing(axialQ: number, axialR: number): number {
   const cubeS = -axialQ - axialR;
   return Math.max(Math.abs(axialQ), Math.abs(axialR), Math.abs(cubeS));
 }
 
-export function hexDistance(first: HexCoord, second: HexCoord): number {
+function hexDistance(first: HexCoord, second: HexCoord): number {
   const deltaQ = first.q - second.q;
   const deltaR = first.r - second.r;
   const deltaS = (-first.q - first.r) - (-second.q - second.r);
@@ -228,7 +228,7 @@ export function hexIndexAt(axialQ: number, axialR: number): number {
   return HEX_INDEX_BY_KEY.get(`${axialQ},${axialR}`) ?? -1;
 }
 
-export function stepTowardHex(fromIndex: number, toIndex: number, maxSteps: number): number {
+function stepTowardHex(fromIndex: number, toIndex: number, maxSteps: number): number {
   let current = fromIndex;
   for (let step = 0; step < maxSteps; step += 1) {
     if (current === toIndex) return current;
@@ -249,7 +249,7 @@ export function stepTowardHex(fromIndex: number, toIndex: number, maxSteps: numb
   return current;
 }
 
-export function nextMulberry32(rngState: number): { value: number; nextState: number } {
+function nextMulberry32(rngState: number): { value: number; nextState: number } {
   const nextState = (rngState + 0x6d2b79f5) | 0;
   let mixed = Math.imul(nextState ^ (nextState >>> 15), 1 | nextState);
   mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
@@ -270,7 +270,7 @@ export function canonicalReportString(payload: SignedReportPayload): string {
   return JSON.stringify(canonicalizeValue(payload));
 }
 
-export function utf8ByteLength(text: string): number {
+function utf8ByteLength(text: string): number {
   return TEXT_ENCODER.encode(text).length;
 }
 
@@ -1017,6 +1017,7 @@ export function applyEvent(
       from: event.seatId,
       to: event.channel === 'dm' ? event.to : null,
       channel: event.channel,
+      tribeId: event.channel === 'tribe' ? seat.tribeId : null,
       text: event.text,
       attachedReport: event.attachedReport,
     });

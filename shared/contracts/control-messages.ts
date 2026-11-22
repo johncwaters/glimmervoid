@@ -10,6 +10,7 @@ import { communityClientVariants, communityServerVariants } from './control/comm
 import { laneClientVariants, laneServerVariants } from './control/lane-messages.ts';
 import { whiteboardClientVariants, whiteboardServerVariants } from './control/whiteboard-messages.ts';
 import { raceClientVariants, raceServerVariants } from './control/race-messages.ts';
+import { wargamesClientVariants, wargamesServerVariants } from './control/wargames-messages.ts';
 import { systemClientVariants, systemServerVariants } from './control/system-messages.ts';
 import { packClientVariants, packServerVariants } from './control/pack-messages.ts';
 import { reviewClientVariants, reviewServerVariants } from './control/review-messages.ts';
@@ -81,6 +82,7 @@ const clientVariants = [
   ...laneClientVariants,
   ...whiteboardClientVariants,
   ...raceClientVariants,
+  ...wargamesClientVariants,
   ...systemClientVariants,
   ...packClientVariants,
   ...reviewClientVariants,
@@ -101,6 +103,7 @@ const serverVariants = [
   ...laneServerVariants,
   ...whiteboardServerVariants,
   ...raceServerVariants,
+  ...wargamesServerVariants,
   ...systemServerVariants,
   ...packServerVariants,
   ...reviewServerVariants,
