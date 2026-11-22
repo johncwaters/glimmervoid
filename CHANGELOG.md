@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **glimmervoid.dev hero**: moved the "See it before it's built." tagline and whiteboard description below the dashboard recording so "Open-source ADE for agents." sits cleanly under the wordmark without competing subheaders, and shortened the Cloud alternative line under the install command to a waitlist link.
+- **glimmervoid.dev hero**: moved the "See it before it's built." tagline and whiteboard description below the dashboard recording so "Open-source ADE for agents." sits cleanly under the wordmark without competing subheaders, and shortened the Glimmervoid Cloud alternative line under the install command to a waitlist link.
 
 ### Added
 
