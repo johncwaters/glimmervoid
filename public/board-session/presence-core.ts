@@ -7,6 +7,8 @@ import { fileEditsOf } from '../chat/turn-digest-core.ts';
 export interface Presence {
   workedPath: string | null;
   namedPaths: readonly string[];
+  readPaths: readonly string[];
+  editedPaths: readonly string[];
 }
 
 const MAX_NAMED_PATHS = 20;
@@ -14,7 +16,7 @@ const STARTING_VERB = BADGE_LABELS[STATES.STARTING];
 const NAMED_PATH = /(?:^|[\s`'"([])((?:[\w.@-]+\/)+[\w.@-]*)/g;
 const TRAILING_PUNCTUATION = /[.,:;)]+$/;
 
-export const NO_PRESENCE: Presence = { workedPath: null, namedPaths: [] };
+export const NO_PRESENCE: Presence = { workedPath: null, namedPaths: [], readPaths: [], editedPaths: [] };
 
 function namedPathsOf(replyText: string): string[] {
   const namedPaths = new Set<string>();
@@ -33,19 +35,44 @@ function workedPathOf(record: Extract<TraceRecord, { kind: 'tool_call' }>, worki
   return editedPath;
 }
 
+function isPatchInput(input: unknown): boolean {
+  return typeof input === 'object' && input !== null && typeof Reflect.get(input, 'changes') === 'object';
+}
+
+function addTrailPaths(record: Extract<TraceRecord, { kind: 'tool_call' }>, workingDirectory: string | null, readPaths: Set<string>, editedPaths: Set<string>): void {
+  for (const edit of fileEditsOf(record.input, workingDirectory)) {
+    if (edit.path.length === 0 || edit.path.startsWith('/')) continue;
+    if (edit.hasLineCounts || isPatchInput(record.input)) {
+      editedPaths.add(edit.path);
+      readPaths.delete(edit.path);
+      continue;
+    }
+    if (!editedPaths.has(edit.path)) readPaths.add(edit.path);
+  }
+}
+
 export function foldPresence(presence: Presence, appendedRecords: readonly TraceRecord[], workingDirectory: string | null): Presence {
   let { workedPath, namedPaths } = presence;
+  let readPaths = new Set(presence.readPaths);
+  let editedPaths = new Set(presence.editedPaths);
   for (const record of appendedRecords) {
     if (record.agentId !== undefined) continue;
-    if (record.kind === 'tool_call') workedPath = workedPathOf(record, workingDirectory) ?? workedPath;
+    if (record.kind === 'tool_call') {
+      workedPath = workedPathOf(record, workingDirectory) ?? workedPath;
+      addTrailPaths(record, workingDirectory, readPaths, editedPaths);
+    }
     if (record.kind === 'assistant') namedPaths = namedPathsOf(record.text);
-    if (record.kind === 'prompt') namedPaths = [];
+    if (record.kind === 'prompt') {
+      namedPaths = [];
+      readPaths = new Set();
+      editedPaths = new Set();
+    }
   }
-  return { workedPath, namedPaths };
+  return { workedPath, namedPaths, readPaths: [...readPaths], editedPaths: [...editedPaths] };
 }
 
 export function presencePathsOf(presence: Presence): string[] {
-  return [...new Set([...(presence.workedPath === null ? [] : [presence.workedPath]), ...presence.namedPaths])];
+  return [...new Set([...(presence.workedPath === null ? [] : [presence.workedPath]), ...presence.namedPaths, ...presence.readPaths, ...presence.editedPaths])];
 }
 
 export function faceStatusTextOf(phase: ChatPhase, lastBeat: ActivityBeat | null): string | null {

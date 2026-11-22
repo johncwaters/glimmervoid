@@ -29,12 +29,14 @@ import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
 import type { AskCards } from './ask-card.ts';
 import { createPresenceLayer } from './presence-layer.ts';
-import type { PresenceLayer, SessionFace } from './presence-layer.ts';
+import { GLOW_TIER_RANK } from './presence-layer.ts';
+import type { GlowTier, PresenceLayer, SessionFace } from './presence-layer.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
+import { CODEMAP_BOXES_MAX_PATHS } from '#shared/contracts/control/board-session-messages.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -73,6 +75,7 @@ let shownSessionId: string | null = null;
 let ensuredRepoPath: string | null = null;
 const mainSessionIdByRepoPath = new Map<string, string>();
 let fallbackBoxId: string | null = null;
+let answeredPaths = new Set<string>();
 let pendingMainId: string | null = null;
 let boardId: string | null = null;
 const sessionIdByBoardId = new Map<string, string>();
@@ -241,10 +244,21 @@ function sessionFaceOf(sessionId: string, watch: SessionWatch): SessionFace | nu
 
 function paintPresence(): void {
   if (!parts || boardId === null) return;
-  const namedPaths = presenceOf(shownSessionId).namedPaths;
-  const glowingBoxIds = [...new Set(namedPaths.flatMap((namedPath) => boxIdOfPresencePath(namedPath) ?? []))];
+  const tierByBoxId = new Map<string, GlowTier>();
+  const markPaths = (paths: readonly string[], tier: GlowTier) => {
+    for (const boxId of paths.flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? [])) {
+      const shownTier = tierByBoxId.get(boxId);
+      if (shownTier === undefined || GLOW_TIER_RANK[tier] > GLOW_TIER_RANK[shownTier]) tierByBoxId.set(boxId, tier);
+    }
+  };
+  for (const watch of watchBySessionId.values()) {
+    markPaths(watch.presence.readPaths, 'read');
+    markPaths(watch.presence.editedPaths, 'edited');
+  }
+  markPaths(presenceOf(shownSessionId).namedPaths, 'named');
+  const glows = [...tierByBoxId].map(([boxId, tier]) => ({ boxId, tier }));
   const faces = [...watchBySessionId].flatMap(([sessionId, watch]) => sessionFaceOf(sessionId, watch) ?? []);
-  parts.presenceLayer.paint({ glowingBoxIds, faces, fallbackBoxId }, tiledBoardOf(boardId)?.board ?? null);
+  parts.presenceLayer.paint({ glows, faces, fallbackBoxId }, tiledBoardOf(boardId)?.board ?? null);
   paintAsks();
 }
 
@@ -265,7 +279,7 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
   if (!watch) return;
   const workingDirectory = sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null;
   const nextPresence = foldPresence(watch.presence, appendedRecords, workingDirectory);
-  const hasNewPath = presencePathsOf(nextPresence).some((presencePath) => !(presencePath in boxIdByPath));
+  const hasNewPath = presencePathsOf(nextPresence).some(isUnaskedPath);
   watch.presence = nextPresence;
   if (hasNewPath) {
     requestBoxes();
@@ -279,12 +293,17 @@ function paintChip(): void {
   parts.chipName.textContent = repoChoices().find((choice) => choice.path === shownRepoPath)?.label ?? 'No repo';
 }
 
+function isUnaskedPath(presencePath: string): boolean {
+  return !(presencePath in boxIdByPath) && !answeredPaths.has(presencePath);
+}
+
 function requestBoxes(): void {
   if (shownSessionId === null) return;
   const sessionId = shownSessionId;
   boxesRequestSerial += 1;
   const serial = boxesRequestSerial;
-  sendControlRequest('codemap-boxes-of', { id: sessionId, paths: watchedPaths() }, { timeoutMs: BOXES_TIMEOUT_MS })
+  const askedPaths = watchedPaths().filter(isUnaskedPath).slice(0, CODEMAP_BOXES_MAX_PATHS);
+  sendControlRequest('codemap-boxes-of', { id: sessionId, paths: askedPaths }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial || reply.type !== 'codemap-boxes-of-response') return;
       if (!reply.ok) return showNotice(reply.error ?? NO_MAP_TEXT);
@@ -293,11 +312,13 @@ function requestBoxes(): void {
       changedBoxIds = new Set(reply.changedBoxIds);
       fallbackBoxId = reply.fallbackBoxId;
       boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
+      for (const askedPath of askedPaths) answeredPaths.add(askedPath);
       moduleChoices = reply.boxChoices;
       boardId = reply.boardId;
       sessionIdByBoardId.set(reply.boardId, sessionId);
       seatOnHost();
       paintBoard();
+      if (watchedPaths().some(isUnaskedPath)) requestBoxes();
     })
     .catch(() => {
       if (serial === boxesRequestSerial) showNotice(NO_MAP_TEXT);
@@ -338,6 +359,7 @@ function showSession(sessionId: string | null): void {
   if (!isSameSession) {
     changedBoxIds = new Set();
     boxIdByPath = {};
+    answeredPaths = new Set();
     moduleChoices = [];
     mountDock();
   }

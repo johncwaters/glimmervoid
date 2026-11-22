@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { loose, optionalError, requestId, sessionId } from './control-fields.ts';
 
-const CODEMAP_BOXES_MAX_PATHS = 200;
+export const CODEMAP_BOXES_MAX_PATHS = 200;
 const ASK_ANSWER_MAX_CHARS = 2000;
 export const CODEMAP_BOX_CHOICES_MAX = 5000;
 const BRANCH_PROMPT_MAX_CHARS = 20000;

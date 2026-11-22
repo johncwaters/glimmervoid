@@ -164,6 +164,8 @@
   .bs-presence { position: absolute; top: 0; left: 0; width: 0; height: 0; pointer-events: none; }
   .bs-presence-glow { position: absolute; top: 0; left: 0; box-sizing: border-box; }
   .bs-presence-glow { border: 2px solid color-mix(in srgb, var(--agent-brand, #ff7a59) 70%, transparent); border-radius: 10px; animation: bs-glow 1.6s ease-in-out infinite alternate; }
+  .bs-presence-glow[data-tier='read'] { border: 1px dashed color-mix(in srgb, var(--agent-brand, #ff7a59) 45%, transparent); animation: none; }
+  .bs-presence-glow[data-tier='edited'] { border-width: 3px; border-color: var(--agent-brand, #ff7a59); }
   .bs-presence-faces .bs-who { position: absolute; top: 0; left: 0; transition: transform 240ms ease; }
   .bs-who { display: flex; align-items: center; gap: 4px; pointer-events: auto; white-space: nowrap; }
   .bs-who .bs-presence-face { width: 28px; height: 28px; border: 0; box-shadow: 0 0 0 2px var(--bg); cursor: pointer; }

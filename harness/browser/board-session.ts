@@ -116,6 +116,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   const faceOnBox = root.locator('.bs-presence-faces .bs-who .bs-face-main').first();
   await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });

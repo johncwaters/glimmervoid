@@ -8,6 +8,9 @@ import { paintStatusIcon } from '../status-icon.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
 import { createPressable } from '../ui/pressable.ts';
 
+export type GlowTier = 'read' | 'named' | 'edited';
+export const GLOW_TIER_RANK: Readonly<Record<GlowTier, number>> = { read: 0, named: 1, edited: 2 };
+
 const FACE_SIZE = 28;
 const FACE_GAP = 6;
 const GLOW_PADDING = 6;
@@ -26,7 +29,7 @@ export interface SessionFace {
 }
 
 interface PresenceMarks {
-  glowingBoxIds: readonly string[];
+  glows: readonly { boxId: string; tier: GlowTier }[];
   faces: readonly SessionFace[];
   fallbackBoxId: string | null;
 }
@@ -91,10 +94,11 @@ export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, on
         const frameId = frameIdByBoxId.get(boxId);
         return (frameId === undefined ? null : boundsOf(frameId)) ?? boundsOf(boxId);
       };
-      glows.replaceChildren(...marks.glowingBoxIds.flatMap((boxId) => {
+      glows.replaceChildren(...marks.glows.flatMap(({ boxId, tier }) => {
         const rect = shownBoundsOf(boxId);
         if (rect === null) return [];
         const glow = el('span', 'bs-presence-glow');
+        glow.dataset.tier = tier;
         place(glow, { x: rect.x - GLOW_PADDING, y: rect.y - GLOW_PADDING, width: rect.width + GLOW_PADDING * 2, height: rect.height + GLOW_PADDING * 2 });
         return [glow];
       }));
