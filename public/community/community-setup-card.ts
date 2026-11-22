@@ -6,7 +6,7 @@ import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
 import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
-import { createSettingsLink } from '../settings/settings-link.ts';
+import { createSettingsLink } from '../settings-link.ts';
 import { applySettingsBroadcast, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { communitySetupStepStates, discordChannelsFromText } from './community-setup-core.ts';
 import { hasConfiguredSecret, hasLaneReadToken, laneReadTokenStepBody } from '../github/lane-read-token-step.ts';

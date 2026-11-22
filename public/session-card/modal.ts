@@ -1,14 +1,11 @@
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { isModalOpen, openModals } from '../ui/modal-state.ts';
 
 const FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, [tabindex]';
 const INERT_BY_MODAL = 'modalInert';
 
-const openModals: { overlay: HTMLElement; dialog: HTMLElement }[] = [];
-
-export function isModalOpen() {
-  return openModals.length > 0;
-}
+export { isModalOpen };
 
 function isTopmostOverlay(overlay: HTMLElement) {
   return openModals.at(-1)?.overlay === overlay;

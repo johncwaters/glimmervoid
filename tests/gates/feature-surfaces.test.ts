@@ -6,7 +6,7 @@ import { SETTINGS_REGISTRY } from '../../shared/settings/registry.ts';
 import { readTracked } from '../helpers/tracked-files.ts';
 
 test('every optional tab is listed in Settings Features and links to an existing enable toggle', () => {
-  const viewRegistrySource = readTracked('public/view-registry.ts');
+  const viewRegistrySource = readTracked('public/boot/view-registry.ts');
   assert.deepEqual(OPTIONAL_FEATURE_SURFACES.map((surface) => surface.rule).sort(), Object.keys(FEATURE_SURFACE_RULES).sort());
   for (const surface of OPTIONAL_FEATURE_SURFACES) {
     const section = SETTINGS_REGISTRY.sections.find((entry) => entry.id === surface.sectionId);

@@ -1,7 +1,7 @@
 import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { el } from '../dom-helpers.ts';
-import { announceSessionPageChange } from '../session-pages/session-pages.ts';
-import type { SessionPage } from '../session-pages/session-pages.ts';
+import { announceSessionPageChange } from '../page-registry.ts';
+import type { SessionPage } from '../page-registry.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { createSandboxedFrame } from '../sandboxed-frame.ts';
 import { PREVIEW_ICON_PATH } from '../svg-dom.ts';

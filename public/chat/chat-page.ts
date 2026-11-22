@@ -6,8 +6,8 @@ import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-h
 import { sessionUIs } from '../session-card/card-registry.ts';
 import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../session-pages/session-pages.ts';
-import type { SessionPage } from '../session-pages/session-pages.ts';
+import { announceSessionPageChange, closeSessionPage, isSessionPageOpen, openSessionPageOnShownSession } from '../page-registry.ts';
+import type { SessionPage } from '../page-registry.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { CHAT_ICON_PATH } from '../svg-dom.ts';
 import { getSessionView, setSessionView } from '../ui-prefs.ts';

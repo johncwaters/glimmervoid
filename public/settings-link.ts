@@ -1,4 +1,4 @@
-import { el } from '../dom-helpers.ts';
+import { el } from './dom-helpers.ts';
 
 const MAX_SEARCH_QUERY_LENGTH = 200;
 

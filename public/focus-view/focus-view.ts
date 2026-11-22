@@ -18,8 +18,8 @@ import { setTerminalActiveViewer } from '../session-card/terminal.ts';
 import { SHELL_AGENT_ID } from '../session-card/agent-core.ts';
 import { getRailFoldedProjectKeys, getRailWidth, getSessionView, getSplitBoardBySession, getSplitShellBySession, isRailStatusKeyOpen, setRailFoldedProjectKeys, setRailStatusKeyOpen, setRailWidth, setSplitBoardBySession, setSplitShellBySession } from '../ui-prefs.ts';
 import { uiState } from '../ui-state-core.ts';
-import type { AttentionTile, SessionRow } from './attention-core.ts';
-import { canDropRow, countAttentionByKind, dropAnchorId, orderAttentionLine, orderRoster, pickAdjacent, sessionOrderAfterDrop, sessionOrderOf } from './attention-core.ts';
+import type { AttentionTile, SessionRow } from '../attention-core.ts';
+import { canDropRow, countAttentionByKind, dropAnchorId, orderAttentionLine, orderRoster, pickAdjacent, sessionOrderAfterDrop, sessionOrderOf } from '../attention-core.ts';
 import type { ProjectBoards, RosterGroup, SplitBoardBySession } from './roster-groups-core.ts';
 import { boardsByProject, closeSplit, connectionKeysOf, groupRoster, liveShellSplits, liveSplits, newestFreeBoardOf, openSplit, splitNewConnections, splitsOfBoards, visibleOrder, withBoardProjects } from './roster-groups-core.ts';
 import { raceGroupOf, subscribeRaces } from '../arena/race-store.ts';
@@ -37,8 +37,8 @@ import type { Pane } from '#shared/contracts/focus-layout.ts';
 import type { PaneLayout } from './pane-layout.ts';
 import { createPaneLayout } from './pane-layout.ts';
 import { registerSessionPages } from '../session-pages/pages.ts';
-import type { SessionPageHost } from '../session-pages/session-pages.ts';
-import { closeSessionPage, createSessionPageButtons, focusOpenSessionPageInput, openSessionPage, releaseSessionPageHost, setSessionPageHost } from '../session-pages/session-pages.ts';
+import type { SessionPageHost } from '../page-registry.ts';
+import { closeSessionPage, createSessionPageButtons, focusOpenSessionPageInput, openSessionPage, releaseSessionPageHost, setSessionPageHost } from '../page-registry.ts';
 
 type RosterRow = SessionRow<SessionUi, string | null>;
 

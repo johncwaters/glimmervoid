@@ -58,3 +58,10 @@ export const VerificationRun = z.strictObject({
 export type VerificationSettings = z.infer<typeof VerificationSettings>;
 export type CheckOutcome = z.infer<typeof CheckOutcome>;
 export type VerificationRun = z.infer<typeof VerificationRun>;
+
+export const CHECK_STATUS_WORDS: Record<CheckOutcome['status'], string> = {
+  pass: 'Passed',
+  fail: 'Failed',
+  timeout: 'Timed out',
+  skipped: 'Skipped',
+};

@@ -6,7 +6,7 @@ import { writeAttributeIfChanged, writeDataIfChanged, writeHiddenIfChanged, writ
 import { el, query, stateChip } from './dom-helpers.ts';
 import { button } from './ui/button.ts';
 import { createPressable } from './ui/pressable.ts';
-import { describeOwnership } from './focus-view/attention-core.ts';
+import { describeOwnership } from './attention-core.ts';
 import { paintCardOwnership } from './session-card/card-dom.ts';
 import { trapTabWithin } from './session-card/modal.ts';
 import { attentionTally, sessionName, sessionUIs } from './session-card/card-registry.ts';

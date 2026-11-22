@@ -4,7 +4,7 @@ import type { AttentionNote } from '#shared/contracts/session.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { answersAckSeq, decisionsAfter, managerDecisionText, passedOnReason, unseenAnswers } from '../focus-view/attention-core.ts';
+import { answersAckSeq, decisionsAfter, managerDecisionText, passedOnReason, unseenAnswers } from '../attention-core.ts';
 import { markStatusDirty } from '../status-paint.ts';
 import { uiState } from '../ui-state-core.ts';
 import { sessionActionStatus } from './card-actions.ts';

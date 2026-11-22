@@ -23,3 +23,6 @@ export const OPTIONAL_FEATURE_SURFACES: readonly OptionalFeatureSurface[] = [
   { rule: 'posthog', sectionId: 'lanes-posthog', settingId: 'posthog-enabled' },
   { rule: 'community', sectionId: 'lanes-community', settingId: 'community-enabled' },
 ];
+
+export const UPDATES_SECTION_ID = 'machine-updates';
+export const UPDATES_ACTIONS_SETTING_ID = 'update-actions';

@@ -43,7 +43,7 @@ import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer } from './board-gl-renderer.ts';
 import { boardGraphicsLogText, boardGraphicsTelemetryProperties } from './board-graphics-report-core.ts';
 import type { BoardGraphicsEvent } from './board-graphics-report-core.ts';
-import { countDashboardTabs } from '../boot/dashboard-tab-lock.ts';
+import { countDashboardTabs } from '../dashboard-tab-lock.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
 import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';

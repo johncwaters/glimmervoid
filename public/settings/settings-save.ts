@@ -8,7 +8,7 @@ import { settingSavePayload } from './settings-view-core.ts';
 import { applyNextAttentionKeyCode } from '../shortcuts.ts';
 import { applyFlyingAnimals } from '../flying-animals.ts';
 import { applyPhoneArrowPad, applyTheme } from '../theme.ts';
-import { applyChatBriefOff } from '../chat/chat-view.ts';
+import { applyChatBriefOff } from '../theme.ts';
 import { reportTerminalColors } from '../terminal-color-report.ts';
 import { isFlyingAnimalsEnabled, setFlyingAnimalsOnPhone, setFlyingAnimalsMinGapSeconds, setFlyingAnimalsMaxGapSeconds, setFlyingAnimalsMinDurationSeconds, setFlyingAnimalsMaxDurationSeconds, setFlyingAnimalsScale, setPhoneArrowPad, setChatBriefOff, setFlyingAnimalsEnabled, setNotificationsEnabled, setNextAttentionKeyCode, setSoundId, setThemeId, getNextAttentionKeyCode, setReviewsTurnLimit } from '../ui-prefs.ts';
 import { applySettingsBroadcast } from './settings-store.ts';

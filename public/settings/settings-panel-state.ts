@@ -3,7 +3,7 @@ import type { SettingsSection, SettingsSetting } from '#shared/settings/registry
 import { SETTINGS_REGISTRY } from '#shared/settings/registry.ts';
 import { hydrateFromSettings, pageSectionOf } from './settings-view-core.ts';
 import type { ControlDraft, SettingsPayload, SettingsValues } from './settings-view-core.ts';
-import { settingsHash } from './settings-link.ts';
+import { settingsHash } from '../settings-link.ts';
 import { getThemeList } from '../theme.ts';
 import { isFlyingAnimalsEnabled, getFlyingAnimalsEnteredValues, getSoundId, getThemeId, isNotificationsEnabled, isPhoneArrowPad, isSoundEnabled, isChatBriefOff, getNextAttentionKeyCode, getReviewsTurnLimit } from '../ui-prefs.ts';
 import { settingsPayloadSnapshot } from './settings-store.ts';

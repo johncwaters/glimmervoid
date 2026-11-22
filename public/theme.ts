@@ -144,6 +144,12 @@ export function onUnicornThemeEntered(listener: () => void) {
 }
 
 
+export const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
+
+export function applyChatBriefOff(isBriefOff: boolean): void {
+  document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isBriefOff);
+}
+
 export function applyPhoneArrowPad(isEnabled: boolean) {
   document.documentElement.toggleAttribute('data-arrow-pad', isEnabled);
 }

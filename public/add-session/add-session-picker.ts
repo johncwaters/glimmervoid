@@ -13,7 +13,7 @@ import { DEFAULT_AGENT_ID, SHELL_AGENT_ID, decideAgentAvailability, decideAgentP
 import { paintAgentChoiceMark } from '../session-card/agent-mark.ts';
 import { suggestSessionName } from '../session-card/naming.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
-import { needsAttention } from '../focus-view/attention-core.ts';
+import { needsAttention } from '../attention-core.ts';
 import { STATES } from '#shared/states.ts';
 import { elapsedText } from '#shared/display-text.ts';
 import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, orderWorkspaceRows, sessionNameBase } from '../add-session-core.ts';

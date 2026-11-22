@@ -5,15 +5,15 @@ import { centerSessionQuietly, openChangesInFocus, openRequestedBoardInFocus } f
 import { isPhoneShellActive, orderPhonePanels, setPhoneScreenAttention, setPhoneScreenAvailable, showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
 import { nextRovingIndex, wrapIndex } from '../roving-keys-core.ts';
 import { activateSettingsSection, setFeatureTabViews } from '../settings/settings-store.ts';
-import { isSettingsHash } from '../settings/settings-link.ts';
+import { isSettingsHash } from '../settings-link.ts';
 import { setTraceNavigate } from '../trace-store.ts';
 import { hasSession } from '../session-card/lifecycle.ts';
 import { getActiveView as getSavedActiveView, setActiveView } from '../ui-prefs.ts';
 import { getActiveView, uiState } from '../ui-state-core.ts';
-import { createDashboardViews, createPackView, mountEagerViews, mountedViewModule, relabelPackView, showView } from '../view-registry.ts';
+import { createDashboardViews, createPackView, mountEagerViews, mountedViewModule, relabelPackView, showView } from './view-registry.ts';
 import { onPackPanelsChange, retirePackPanel, setPackViewOpener, showPackPanel } from '../packs/pack-views.ts';
 import type { PackPanelView } from '../packs/pack-views.ts';
-import type { DashboardView } from '../view-registry.ts';
+import type { DashboardView } from './view-registry.ts';
 import { moveViewId, orderViewIds, refreshViewOnReason, refreshVisibleViews, viewAvailabilityFromSettings } from '../view-registry-core.ts';
 import type { ViewRefreshReason } from '../view-registry-core.ts';
 import { confirmServerRestart } from '../server-power.ts';

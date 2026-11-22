@@ -9,7 +9,7 @@ import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shar
 import { agentSummaryText, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, hasGitCheckoutIn, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps, NotificationChoice } from './first-run-checklist-core.ts';
 import { mountAddSessionPicker } from '../add-session/add-session-picker.ts';
-import { playMarkLock } from '../boot/loading-unlock.ts';
+import { playMarkLock } from '../loading-unlock.ts';
 import { hasUnsettledCloneJobs, onCloneJobsSettled } from './clone-jobs.ts';
 import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';

@@ -1,6 +1,6 @@
 import { createClientErrorReporter, describeFailure } from '../client-error-core.ts';
 import { reportToServerLog, sendControlMsg } from '../control-ws.ts';
-import { reloadOnceOnPreloadError } from '../view-registry.ts';
+import { reloadOnceOnPreloadError } from './view-registry.ts';
 
 function wireClientErrorReporting() {
   const reportClientError = createClientErrorReporter(sendControlMsg);

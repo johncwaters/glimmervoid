@@ -5,7 +5,7 @@ import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { isSkillChoicePending, readTeamReviewEnvironment, teamReviewSuggestions } from '../settings/team-review-settings-core.ts';
 import { applySettingsBroadcast, requestTeamReviewEnvironmentOnce, settingsPayloadSnapshot } from '../settings/settings-store.ts';
-import { createSettingsLink } from '../settings/settings-link.ts';
+import { createSettingsLink } from '../settings-link.ts';
 import { TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SKILL_SETTING_ID } from './team-review-view-core.ts';
 import { teamReviewStatusView } from './team-review-store.ts';
 

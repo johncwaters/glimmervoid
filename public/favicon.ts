@@ -1,4 +1,4 @@
-import type { AttentionCounts } from './focus-view/attention-core.ts';
+import type { AttentionCounts } from './attention-core.ts';
 import { decideFaviconVariant, renderFaviconSvg } from './favicon-core.ts';
 
 function getFaviconElement() {

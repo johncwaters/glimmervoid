@@ -5,7 +5,7 @@ import type { ChartReadoutCell } from '../chart-readout.ts';
 import { meter } from '../ui/meter.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { segmented } from '../ui/segmented.ts';
-import { createSettingsLink } from '../settings/settings-link.ts';
+import { createSettingsLink } from '../settings-link.ts';
 import { reportUsageAction } from './usage-store.ts';
 import { DEFAULT_DAY_SORT, DEFAULT_PERIOD_VIEW, HEATMAP_DAY_LABELS, LANE_SCOPE_HINT, OVERHEAD_SCOPE_HINT, PERIOD_VIEWS, blockHistoryRows, blockLabel, budgetRowMeterLabel, budgetRowPct, budgetRows, budgetRowText, budgetScopeLabel, claudeOnlyHint, formatPercent, formatTokens, formatUsd, glimmervoidOverhead, hasLaneAttribution, heatmapCells, heatmapCellText, historyNote, laneLabel, laneRows, laneSessionsText, modelLabel, nextSortState, overheadLanesText, overheadPlanText, percentOfTotal, periodLabel, periodRows, reportDayKey, sortDailyRows, sortModelRows } from './usage-view-core.ts';
 import type { SortState, UsageWireRow } from './usage-view-core.ts';

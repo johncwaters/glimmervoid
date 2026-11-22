@@ -12,6 +12,7 @@ import { createComposer } from './composer.ts';
 import { stickToBottom } from './stick-to-bottom.ts';
 import { currentCallOf, interimReplyText } from './turn-digest-core.ts';
 import { isChatBriefOff, setChatBriefOff } from '../ui-prefs.ts';
+import { applyChatBriefOff, BRIEF_OFF_ATTRIBUTE } from '../theme.ts';
 import type { RailField } from './status-rail-core.ts';
 
 interface ChatView {
@@ -43,7 +44,6 @@ const QUEUED_STATUS_TEXT: Record<Exclude<ChatOutboxEntry['state'], 'failed'>, st
 };
 
 const DOCK_CLEARANCE_PX = 20;
-const BRIEF_OFF_ATTRIBUTE = 'data-chat-brief-off';
 const TURN_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['[', -1], [']', 1]]);
 const PROMPT_STEP_BY_KEY: ReadonlyMap<string, number> = new Map([['{', -1], ['}', 1]]);
 const PROMPT_SELECTOR = ':scope > :is(.chat-prompt, .chat-prompt-with-attachments)';
@@ -62,10 +62,6 @@ let isChatKeyListenerInstalled = false;
 export const CHAT_NEAR_TOP_EVENT = 'chat-near-top';
 
 export const NO_ARRIVING_PARTS: ReadonlySet<string> = new Set();
-
-export function applyChatBriefOff(isBriefOff: boolean): void {
-  document.documentElement.toggleAttribute(BRIEF_OFF_ATTRIBUTE, isBriefOff);
-}
 
 function toggleBrief(): void {
   const isBriefOff = !document.documentElement.hasAttribute(BRIEF_OFF_ATTRIBUTE);

@@ -1,8 +1,8 @@
 import { el, observeHeaderHeight } from '../dom-helpers.ts';
 import type { SessionRowRefs } from '../session-row.ts';
 import { buildSessionRow, paintSessionRow, wrapSessionRow } from '../session-row.ts';
-import type { SessionRow } from '../focus-view/attention-core.ts';
-import { countAttentionByKind, orderAttentionLine, orderRoster, sessionOrderOf } from '../focus-view/attention-core.ts';
+import type { SessionRow } from '../attention-core.ts';
+import { countAttentionByKind, orderAttentionLine, orderRoster, sessionOrderOf } from '../attention-core.ts';
 import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { wireBoardRowReorder } from './board-row-reorder.ts';
 import { buildAttentionBanner, buildAttentionLedger, paintAttentionBanner, paintAttentionLedger, pressAttentionBanner, sendAttentionTileToRow } from '../attention-banner.ts';

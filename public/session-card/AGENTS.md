@@ -11,7 +11,7 @@ Session card modules, decomposed from the old monolithic session-card.js. Each s
 | File | Description |
 |------|-------------|
 | `card-registry.ts` | Shared state owner: `sessionUIs` Map + `container` DOM singleton |
-| `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the tab title count over `focus-view/attention-core.ts` counts |
+| `lifecycle.ts` | `createSessionCard`, `removeSessionCard`, `applyState`, the tab title count over `../attention-core.ts` counts |
 | `agent-core.ts` | Pure `decideAgentPicker` and `decideAgentAvailability`: which agents the spawn picker offers and whether any can spawn |
 | `card-dom.ts` | Card builder, badges, injected painters, link pull request dialog |
 | `card-actions.ts`, `card-titles.ts`, `card-debug.ts` | Session action send with its status line; inline title and rename editing; debug mode and the debug overlay |
