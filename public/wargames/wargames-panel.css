@@ -118,7 +118,70 @@
   border-color: var(--wg-seat-color);
 }
 
-.wg-faction-banner[data-state="dimmed"] {
+.wg-faction-banner[data-state="dimmed"],
+.wg-faction-banner[data-eliminated="true"] {
+  opacity: 0.55;
+}
+
+.wg-endgame-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wg-endgame-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wg-endgame-winner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wg-endgame-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wg-endgame-title {
+  color: var(--text-head);
+  font-size: var(--type-title);
+  font-weight: 700;
+}
+
+.wg-endgame-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wg-endgame-standings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.wg-endgame-row {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.wg-endgame-row[data-eliminated="true"] {
   opacity: 0.55;
 }
 
