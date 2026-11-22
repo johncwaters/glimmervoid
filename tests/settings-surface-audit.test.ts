@@ -14,9 +14,6 @@ const WHOLE_NUMBER_FIELDS = [
   ['file-replay-buffer', 'replayBufferKB'],
   ['posthog-max-investigations', 'posthog.maxConcurrentInvestigations'],
   ['posthog-min-users', 'posthog.minUsersToInvestigate'],
-  ['file-posthog-escalation', 'posthog.userEscalationThreshold'],
-  ['file-posthog-traffic-min-users', 'posthog.trafficSpikeMinUsers'],
-  ['file-posthog-traffic-baseline', 'posthog.trafficSpikeBaselineDays'],
 ] as const;
 
 function payloadAtPath(path: string, value: unknown): Record<string, unknown> {
@@ -57,13 +54,13 @@ for (const [id, path] of WHOLE_NUMBER_FIELDS) {
 test('legacy numeric migration preserves count comparisons, floors truncated quantities and leaves the input intact', () => {
   const legacy = {
     projects: [], replayBufferKB: 0.5,
-    posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 2.5, userEscalationThreshold: 2.5, trafficSpikeMinUsers: 2.5, trafficSpikeBaselineDays: 2.5, intervalMinutes: 2.5, future: true },
+    posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 2.5, future: true },
   };
   const snapshot = structuredClone(legacy);
   const migrated = normalizeLegacyConfigNumbers(legacy);
   assert.deepEqual(migrated, {
     projects: [], replayBufferKB: 64,
-    posthog: { maxConcurrentInvestigations: 3, minUsersToInvestigate: 3, userEscalationThreshold: 3, trafficSpikeMinUsers: 3, trafficSpikeBaselineDays: 2, intervalMinutes: 2.5, future: true },
+    posthog: { maxConcurrentInvestigations: 3, minUsersToInvestigate: 3, future: true },
   });
   assert.deepEqual(legacy, snapshot);
   assert.deepEqual(normalizeLegacyConfigNumbers(migrated), migrated);

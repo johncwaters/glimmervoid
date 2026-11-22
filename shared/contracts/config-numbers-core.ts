@@ -4,9 +4,6 @@ import { REPLAY_BUFFER_KB_RANGE } from '../settings-ranges.ts';
 export const POSTHOG_WHOLE_NUMBER_ROUNDING: Record<string, (value: number) => number> = {
   maxConcurrentInvestigations: Math.ceil,
   minUsersToInvestigate: Math.ceil,
-  userEscalationThreshold: Math.ceil,
-  trafficSpikeMinUsers: Math.ceil,
-  trafficSpikeBaselineDays: Math.floor,
 };
 
 const LEGACY_INTEGER_FIELDS = [

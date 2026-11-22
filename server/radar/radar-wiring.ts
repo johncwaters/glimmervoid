@@ -67,23 +67,12 @@ interface RadarLaneConfig {
   apiKey?: string;
   host?: string;
   autoFix?: boolean;
-  fixTimeoutSeconds?: number;
-  intervalMinutes?: number;
-  investigationTimeoutSeconds?: number;
   maxConcurrentInvestigations?: number;
   minUsersToInvestigate?: number;
   projectMap?: Record<string, string>;
   projects?: (string | number)[] | 'all';
-  recurrenceDedupe?: boolean;
-  recurrenceWindowDays?: number;
   repoPath?: string;
-  trafficSpikeBaselineDays?: number;
-  trafficSpikeCooldownMinutes?: number;
   trafficSpikeEnabled?: boolean;
-  trafficSpikeMinUsers?: number;
-  trafficSpikeMultiplier?: number;
-  transientRecurrenceLimit?: number;
-  userEscalationThreshold?: number;
 }
 
 interface RadarWiringConfig {
@@ -593,7 +582,7 @@ function createRadarWiring({
     cfgKey: () => posthogCfgKey(config),
     emptyStatus: () => ({
       ...emptyLaneStatus('radar-status', radarShouldStart(config)),
-      intervalMinutes: config.posthog?.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
+      intervalMinutes: core.DEFAULT_INTERVAL_MINUTES,
       investigations: [],
     }),
     broadcast,
@@ -618,21 +607,11 @@ function createRadarWiring({
         telegram: (text: string) => { void sendTelegramMessage({ botToken, chatId, text, tag: 'posthog' }); },
         readState: readPosthogState,
         writeState: writePosthogState,
-        intervalMinutes: posthogConfig.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
+        intervalMinutes: core.DEFAULT_INTERVAL_MINUTES,
         maxConcurrentInvestigations: posthogConfig.maxConcurrentInvestigations || 2,
-        investigationTimeoutSeconds: posthogConfig.investigationTimeoutSeconds || 900,
         autoFix: posthogConfig.autoFix === true,
-        fixTimeoutSeconds: posthogConfig.fixTimeoutSeconds || 1800,
         minUsersToInvestigate: posthogConfig.minUsersToInvestigate,
-        userEscalationThreshold: posthogConfig.userEscalationThreshold,
-        recurrenceDedupe: posthogConfig.recurrenceDedupe,
-        recurrenceWindowDays: posthogConfig.recurrenceWindowDays,
-        transientRecurrenceLimit: posthogConfig.transientRecurrenceLimit,
         trafficSpikeEnabled: posthogConfig.trafficSpikeEnabled,
-        trafficSpikeMultiplier: posthogConfig.trafficSpikeMultiplier,
-        trafficSpikeMinUsers: posthogConfig.trafficSpikeMinUsers,
-        trafficSpikeCooldownMinutes: posthogConfig.trafficSpikeCooldownMinutes,
-        trafficSpikeBaselineDays: posthogConfig.trafficSpikeBaselineDays,
         onTickComplete: (status) => {
           onTickComplete(status);
           announceIfProbesChanged();
@@ -651,7 +630,7 @@ function createRadarWiring({
     return radarProbes({
       host: readConnection.host,
       projectIds: poller.watchedProjectIds(),
-      intervalMinutes: config.posthog?.intervalMinutes || core.DEFAULT_INTERVAL_MINUTES,
+      intervalMinutes: core.DEFAULT_INTERVAL_MINUTES,
     });
   }
   function announceIfProbesChanged(): void {

@@ -85,7 +85,7 @@ function readCommunitySettings(config: { community?: unknown }): CommunitySettin
     enabled: block.enabled === true,
     skill: typeof block.skill === 'string' ? block.skill.trim() : '',
     projectId: positiveIntegerOr(block.projectId, DEFAULT_PROJECT_ID),
-    intervalMinutes: positiveIntegerOr(block.intervalMinutes, DEFAULT_INTERVAL_MINUTES),
+    intervalMinutes: DEFAULT_INTERVAL_MINUTES,
     discordChannels: Array.isArray(block.discordChannels)
       ? [...new Set(block.discordChannels.filter((channel): channel is string => typeof channel === 'string' && DISCORD_CHANNEL_NAME_RE.test(channel)))].slice(0, MAX_DISCORD_CHANNELS)
       : [],

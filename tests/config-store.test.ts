@@ -630,10 +630,10 @@ test('getSettings exposes environment ownership for both credentials without sen
 test('loading legacy fractional settings migrates counts without rejecting the file or discarding unknown keys', () => {
   withStore({
     projects: [], replayBufferKB: 512.5,
-    posthog: { maxConcurrentInvestigations: 2.5, trafficSpikeBaselineDays: 7.5, intervalMinutes: 2.5, futureKey: 'kept' },
+    posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 1.5, futureKey: 'kept' },
   }, (store) => {
     assert.equal(store.config.replayBufferKB, 512);
-    assert.deepEqual(store.config.posthog, { maxConcurrentInvestigations: 3, trafficSpikeBaselineDays: 7, intervalMinutes: 2.5, futureKey: 'kept' });
+    assert.deepEqual(store.config.posthog, { maxConcurrentInvestigations: 3, minUsersToInvestigate: 2, futureKey: 'kept' });
   });
 });
 

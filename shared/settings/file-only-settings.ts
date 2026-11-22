@@ -7,10 +7,6 @@ import {
   REACTION_COOLDOWN_MINUTES_RANGE,
   PORT_RANGE,
   POSITIVE_NUMBER_RANGE,
-  POSTHOG_FIX_TIMEOUT_RANGE,
-  POSTHOG_TRAFFIC_BASELINE_RANGE,
-  POSTHOG_TRAFFIC_MIN_USERS_RANGE,
-  POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
   MEMORY_RESERVE_MB_RANGE,
   WORKTREE_DISK_RESERVE_GB_RANGE,
   PACK_SCHEDULED_SESSIONS_DEFAULT,
@@ -26,7 +22,7 @@ import {
   WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
 } from '../settings-ranges.ts';
 import { USAGE_COST_MODES } from '../usage-config.ts';
-import { FILE_ONLY, INVESTIGATIONS, RECURRENCES, ACTIONS, SESSIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, MINUTES_STORED_AS_SECONDS, HOURS_STORED_AS_MS, HOURS_STORED_AS_MINUTES, USERS, MULTIPLIER, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE, capitalizedOptions } from './registry-fields.ts';
+import { FILE_ONLY, INVESTIGATIONS, ACTIONS, SESSIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, HOURS_STORED_AS_MS, USERS, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE, capitalizedOptions } from './registry-fields.ts';
 import type { SettingsSetting } from './registry-fields.ts';
 import { DEFAULT_MODELS } from '../contracts/agent-models.ts';
 
@@ -282,56 +278,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'posthog-min-users', path: 'posthog.minUsersToInvestigate', title: 'Min users to investigate', group: 'lanes-posthog',
     description: 'Fewest affected users before a new issue is investigated.',
     control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'affected'], defaultValue: 1, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-investigation-timeout', path: 'posthog.investigationTimeoutSeconds', title: 'Investigation timeout', group: 'lanes-posthog',
-    description: 'Maximum time allowed for one investigation.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES_STORED_AS_SECONDS, keywords: ['deadline', 'session'], defaultValue: 900, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-escalation', path: 'posthog.userEscalationThreshold', title: 'Escalation threshold', group: 'lanes-posthog',
-    description: 'Affected-user count that escalates an issue.',
-    control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'severity'], defaultValue: 25, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-fix-timeout', path: 'posthog.fixTimeoutSeconds', title: 'Fix timeout', group: 'lanes-posthog',
-    description: 'Maximum time allowed for one fix session.',
-    control: 'number', integer: false, step: 'any', range: POSTHOG_FIX_TIMEOUT_RANGE, unit: MINUTES_STORED_AS_SECONDS, keywords: ['deadline', 'repair'], defaultValue: 1800, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-traffic-multiplier', path: 'posthog.trafficSpikeMultiplier', title: 'Spike multiplier', group: 'lanes-posthog',
-    description: 'Baseline multiplier required to classify a traffic spike.',
-    control: 'number', integer: false, step: 'any', range: POSTHOG_TRAFFIC_MULTIPLIER_RANGE, unit: MULTIPLIER, keywords: ['baseline', 'ratio'], defaultValue: 3, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-traffic-min-users', path: 'posthog.trafficSpikeMinUsers', title: 'Min users to alert', group: 'lanes-posthog',
-    description: 'Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum.',
-    control: 'number', range: POSTHOG_TRAFFIC_MIN_USERS_RANGE, unit: USERS, keywords: ['threshold', 'analytics'], defaultValue: 10, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-traffic-cooldown', path: 'posthog.trafficSpikeCooldownMinutes', title: 'Spike cooldown', group: 'lanes-posthog',
-    description: 'Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed.',
-    control: 'number', integer: false, step: 'any', range: NON_NEGATIVE_NUMBER_RANGE, unit: HOURS_STORED_AS_MINUTES, keywords: ['silence', 'delay'], defaultValue: 360, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-traffic-baseline', path: 'posthog.trafficSpikeBaselineDays', title: 'Baseline window', group: 'lanes-posthog',
-    description: 'Historical window used to calculate normal hourly traffic.',
-    control: 'number', range: POSTHOG_TRAFFIC_BASELINE_RANGE, unit: DAYS, keywords: ['history', 'analytics'], defaultValue: 7, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-recurrence-dedupe', path: 'posthog.recurrenceDedupe', title: 'Deduplicate recurring issues', group: 'lanes-posthog',
-    description: 'Treat an issue seen again inside the recurrence window as the same investigation instead of opening a new one.',
-    control: 'toggle', keywords: ['recurrence', 'dedupe', 'issues'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-recurrence-window-days', path: 'posthog.recurrenceWindowDays', title: 'Recurrence window', group: 'lanes-posthog',
-    description: 'How far back an issue counts as a recurrence of an investigated one.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['recurrence', 'window'], defaultValue: 7, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-posthog-transient-recurrence-limit', path: 'posthog.transientRecurrenceLimit', title: 'Transient recurrence limit', group: 'lanes-posthog',
-    description: 'How many times a transient issue may recur before it is investigated again.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: RECURRENCES, keywords: ['recurrence', 'transient', 'limit'], defaultValue: 3, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-posthog-repo-path', path: 'posthog.repoPath', title: 'Repository path', group: 'lanes-posthog',

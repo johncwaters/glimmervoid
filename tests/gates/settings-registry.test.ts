@@ -157,7 +157,7 @@ test('each control agrees with its schema type', () => {
 
 test('each number has a unit and a range the schema agrees with at its edges', () => {
   const numbers = CONFIG_ENTRIES.filter((setting) => setting.control === 'number');
-  assert.ok(numbers.length > 30);
+  assert.ok(numbers.length > 10);
   for (const setting of numbers) {
     const { range, unit } = setting;
     assert.ok(range, `${setting.path} has no range`);
@@ -473,8 +473,6 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
   const fileOnlyPaths = SETTINGS_REGISTRY.fileOnly.map((setting) => setting.path);
   for (const settingPath of [
     'teamReview.team',
-    'posthog.investigationTimeoutSeconds', 'posthog.fixTimeoutSeconds', 'posthog.userEscalationThreshold',
-    'posthog.trafficSpikeMultiplier', 'posthog.trafficSpikeMinUsers', 'posthog.trafficSpikeCooldownMinutes', 'posthog.trafficSpikeBaselineDays',
     'workflows.maxActionsPerPoll',
     'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok', 'usage.vendors.kimi',
     'replayBufferKB', 'cursorBlink',

@@ -166,21 +166,10 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.apiKey` | Personal API key | `""` | Personal API key with read access to your projects. |
 | `posthog.readApiKey` | Read-only API key for the watcher | `""` | Personal API key with read scopes only. The watcher uses it to notice new errors and community questions, so Radar and Community stop polling on a timer. |
 | `posthog.projects` | Projects | `"all"` | Project ids to watch, where empty watches all and none watches none. |
-| `posthog.intervalMinutes` | Poll interval | `15` | Time between PostHog checks. |
 | `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Alert when unique users jump above normal. |
 | `posthog.autoFix` | Attempt fixes for major issues | `false` | Let an agent fix an issue on a local branch, opening a pull request only after you approve. |
 | `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Most investigations running at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Fewest affected users before a new issue is investigated. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.investigationTimeoutSeconds` | Investigation timeout | `900` | Maximum time allowed for one investigation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.userEscalationThreshold` | Escalation threshold | `25` | Affected-user count that escalates an issue. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.fixTimeoutSeconds` | Fix timeout | `1800` | Maximum time allowed for one fix session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeMultiplier` | Spike multiplier | `3` | Baseline multiplier required to classify a traffic spike. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeMinUsers` | Min users to alert | `10` | Minimum recent unique users for an initial traffic-spike alert. Escalation and recovery alerts bypass this minimum. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeCooldownMinutes` | Spike cooldown | `360` | Cooldown for new traffic spikes. Escalation and recovery alerts bypass it. Zero removes the time delay; repeated active-spike alerts are still suppressed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.trafficSpikeBaselineDays` | Baseline window | `7` | Historical window used to calculate normal hourly traffic. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.recurrenceDedupe` | Deduplicate recurring issues | `true` | Treat an issue seen again inside the recurrence window as the same investigation instead of opening a new one. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.recurrenceWindowDays` | Recurrence window | `7` | How far back an issue counts as a recurrence of an investigated one. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `posthog.transientRecurrenceLimit` | Transient recurrence limit | `3` | How many times a transient issue may recur before it is investigated again. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.repoPath` | Repository path | `""` | Absolute path of the local checkout investigations read and fixes branch from, for every project the project map does not name. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.projectMap` | Project map | `{}` | PostHog project id to a label: the name shown for that project, and, when it is an absolute path to a checkout, the repository its issues are investigated in. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 
@@ -230,7 +219,6 @@ Research new posthog.com community questions and draft replies.
 | `community.enabled` | Show the Community tab | `false` | Research new community questions and draft a reply for each. |
 | `community.skill` | Research skill | `""` | Skill the research agent follows, or none when empty. |
 | `community.projectId` | PostHog project | `2` | PostHog project holding the community forum and Discord data. |
-| `community.intervalMinutes` | Poll interval | `30` | Time between community checks. |
 | `community.discordChannels` | Discord channels | `[]` | Discord channels to watch for questions, without the #, or none to skip Discord. |
 
 ### Privacy

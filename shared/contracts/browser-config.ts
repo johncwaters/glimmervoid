@@ -108,7 +108,6 @@ const CommunitySettings = optionalObject('community', {
   enabled: optionalBoolean('community.enabled'),
   skill: optionalString('community.skill', true).refine((value) => value == null || !value || SKILL_NAME_RE.test(value), { message: 'community.skill must be a skill name like answering-questions, made of letters, digits, colons, dots, underscores or dashes, with no leading /' }),
   projectId: optionalInteger('community.projectId', ranges.POSTHOG_PROJECT_ID_RANGE),
-  intervalMinutes: optionalInteger('community.intervalMinutes', ranges.COMMUNITY_INTERVAL_MINUTES_RANGE),
   discordChannels: z.array(
     z.string({ error: 'community.discordChannels must be an array of channel names' }).trim().regex(DISCORD_CHANNEL_NAME_RE, { error: 'community.discordChannels entries must be Discord channel names like community-questions, lowercase with no #' }),
     { error: 'community.discordChannels must be an array of channel names' },
@@ -116,23 +115,12 @@ const CommunitySettings = optionalObject('community', {
 });
 
 const posthogNumberRanges = {
-  intervalMinutes: ranges.POSTHOG_INTERVAL_RANGE,
   maxConcurrentInvestigations: ranges.POSTHOG_MAX_CONCURRENT_RANGE,
-  investigationTimeoutSeconds: ranges.POSTHOG_INVESTIGATION_TIMEOUT_RANGE,
-  fixTimeoutSeconds: ranges.POSTHOG_FIX_TIMEOUT_RANGE,
   minUsersToInvestigate: ranges.POSTHOG_MIN_USERS_RANGE,
-  userEscalationThreshold: ranges.POSTHOG_ESCALATION_RANGE,
-  recurrenceWindowDays: ranges.POSTHOG_RECURRENCE_WINDOW_RANGE,
-  transientRecurrenceLimit: ranges.POSTHOG_TRANSIENT_RECURRENCE_RANGE,
-  trafficSpikeMultiplier: ranges.POSTHOG_TRAFFIC_MULTIPLIER_RANGE,
-  trafficSpikeMinUsers: ranges.POSTHOG_TRAFFIC_MIN_USERS_RANGE,
-  trafficSpikeCooldownMinutes: ranges.POSTHOG_TRAFFIC_COOLDOWN_RANGE,
-  trafficSpikeBaselineDays: ranges.POSTHOG_TRAFFIC_BASELINE_RANGE,
 };
 
 const PosthogSettings = optionalObject('posthog', {
   enabled: optionalBoolean('posthog.enabled'),
-  recurrenceDedupe: optionalBoolean('posthog.recurrenceDedupe'),
   trafficSpikeEnabled: optionalBoolean('posthog.trafficSpikeEnabled'),
   autoFix: optionalBoolean('posthog.autoFix'),
   host: optionalString('posthog.host', true).refine((value) => value == null || !value || /^https?:\/\//i.test(value), { message: 'posthog.host must be an http(s) URL' }),

@@ -1,5 +1,5 @@
-import { POSITIVE_NUMBER_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
-import { BROWSER_NOW, MACHINE_NOW, READOUT, MINUTES } from './registry-fields.ts';
+import { POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
+import { BROWSER_NOW, MACHINE_NOW, READOUT } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const LANES_BACKGROUND_JOBS: SettingsSection = {
@@ -52,11 +52,6 @@ export const LANES_POSTHOG: SettingsSection = {
       description: 'Project ids to watch, where empty watches all and none watches none.',
       control: 'list', keywords: ['project ids', 'filter'], defaultValue: 'all', valueKind: 'posthog-projects',
       listPlaceholder: 'Project id', listEmptyText: 'Every project the key can read.', visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
-    },
-    {
-      id: 'posthog-interval', path: 'posthog.intervalMinutes', title: 'Poll interval',
-      description: 'Time between PostHog checks.',
-      control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 15, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'posthog-traffic-enabled', path: 'posthog.trafficSpikeEnabled', title: 'Traffic spike alerts',
@@ -164,11 +159,6 @@ export const LANES_COMMUNITY: SettingsSection = {
       id: 'community-project-id', path: 'community.projectId', title: 'PostHog project',
       description: 'PostHog project holding the community forum and Discord data.',
       control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
-    },
-    {
-      id: 'community-interval', path: 'community.intervalMinutes', title: 'Poll interval',
-      description: 'Time between community checks.',
-      control: 'number', integer: true, range: COMMUNITY_INTERVAL_MINUTES_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 30, visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
     {
       id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',

@@ -241,6 +241,18 @@ const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
   'teamReview.mergeQueueEnabled',
   'teamReview.keepMergeableTimeoutMinutes',
   'usage.yourDay',
+  'posthog.intervalMinutes',
+  'posthog.investigationTimeoutSeconds',
+  'posthog.fixTimeoutSeconds',
+  'posthog.userEscalationThreshold',
+  'posthog.trafficSpikeMultiplier',
+  'posthog.trafficSpikeMinUsers',
+  'posthog.trafficSpikeCooldownMinutes',
+  'posthog.trafficSpikeBaselineDays',
+  'posthog.recurrenceDedupe',
+  'posthog.recurrenceWindowDays',
+  'posthog.transientRecurrenceLimit',
+  'community.intervalMinutes',
 ]);
 
 function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {
