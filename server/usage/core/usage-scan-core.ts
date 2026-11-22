@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { configDirOverride, expandTilde, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir } from '../../core/claude-config-paths-core.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
+import { splitLines } from '../../../shared/text.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
 import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
@@ -62,13 +63,6 @@ function decideFileRead(
   return { action: 'append', readFrom: prior.offset || 0 };
 }
 
-function splitLines(carry: string | null | undefined, chunkText: string | null | undefined): { lines: string[]; carry: string } {
-  const text = `${carry || ''}${chunkText || ''}`;
-  const lines = text.split(/\r?\n/);
-  const nextCarry = text.endsWith('\n') || text.endsWith('\r\n') ? '' : lines.pop();
-  return { lines: lines.filter((line) => line.length > 0), carry: nextCarry || '' };
-}
-
 function resolveProjectsDirs(
   env: NodeJS.ProcessEnv = process.env,
   extraDirs: string[] = [],
@@ -100,7 +94,7 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = 'f1431ebbb56c5c8e';
+const SCAN_SNAPSHOT_INGEST_DIGEST = 'cc5489bca00a5c2a';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(

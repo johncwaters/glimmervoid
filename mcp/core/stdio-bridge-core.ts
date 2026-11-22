@@ -1,5 +1,5 @@
-const PACK_URL_FLAG = 'pack-url';
-const PACK_SECRET_ENV_FLAG = 'pack-secret-env';
+import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG } from '../../server/core/mcp-env-core.ts';
+
 const JSON_RPC_METHOD_NOT_FOUND = -32601;
 const JSON_RPC_INTERNAL_ERROR = -32603;
 const BRIDGE_SERVER_INFO = { name: 'glimmervoid', version: '1.0.0' };

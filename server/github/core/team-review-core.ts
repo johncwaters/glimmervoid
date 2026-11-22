@@ -16,9 +16,8 @@ import { isRecord } from '../../../shared/coerce.ts';
 import { readGithubTeams } from './github-teams-core.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
-import { READ_ONLY_GIT_SUBCOMMANDS } from '../../lanes/core/lane-permissions-core.ts';
-import { sanitizeSessionName } from '../../radar/core/radar-lane-core.ts';
-import { bulletsIn, fencedUntrusted, isHeadingAmong, parsePostingFile, sectionAfter as sectionAmongHeadings, withoutControlCharacters } from '../../lanes/core/lane-report-core.ts';
+import { READ_ONLY_GIT_SUBCOMMANDS, bulletsIn, fencedUntrusted, isHeadingAmong, parsePostingFile, sectionAfter as sectionAmongHeadings, withoutControlCharacters } from '../../../shared/lane-report-core.ts';
+import { sanitizeSessionName } from '../../../shared/session-naming.ts';
 
 const DEFAULT_REVIEWER: ReviewerChoice = Object.freeze({ model: null, effort: null });
 const REVIEW_AGENT_ADAPTER_ID = 'claude-code';

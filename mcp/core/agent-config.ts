@@ -2,19 +2,22 @@ import { createHash } from 'node:crypto';
 import type { BUILTIN_AGENT_IDS } from '../../shared/contracts/config.ts';
 import { GLIMMERVOID_MCP_SERVER_NAME } from '../../shared/contracts/pack.ts';
 import type { PackMcpServer } from '../../shared/contracts/pack.ts';
+import {
+  KIMI_MCP_BASE_NAME,
+  KIMI_MCP_CONFIG_NAME,
+  KIMI_PACK_SERVERS_NAME,
+  MCP_CREDENTIAL_ENV,
+  PACK_SECRET_ENV_PREFIX,
+  packSecretEnvName,
+} from '../../server/core/mcp-env-core.ts';
 import { mcpCredentialFor } from './credentials.ts';
 
-const MCP_CREDENTIAL_ENV = 'GLIMMERVOID_MCP_TOKEN';
 const MCP_URL_ENV = 'GLIMMERVOID_MCP_URL';
 const MCP_SERVER_NAME = GLIMMERVOID_MCP_SERVER_NAME;
 const MCP_TOOL_TIMEOUT_SECONDS = 600;
 const CODEX_TOOL_INPUT_SCHEMA_MAX_BYTES = 16384;
-const KIMI_MCP_CONFIG_NAME = 'mcp.json';
-const KIMI_MCP_BASE_NAME = '.glimmervoid-mcp-base.json';
-const KIMI_PACK_SERVERS_NAME = '.glimmervoid-pack-servers.json';
 const KIMI_PACK_SERVER_NAMES_KEY = 'names';
 const KIMI_SHADOWED_SERVERS_KEY = 'shadowedServers';
-const PACK_SECRET_ENV_PREFIX = 'GLIMMERVOID_PACK_';
 
 interface McpLaunchInput {
   agentId: string;
@@ -33,10 +36,6 @@ const NO_MCP_LAUNCH: McpLaunch = Object.freeze({ args: [], env: {} });
 
 function mcpUrl(listenerPort: number): string {
   return `http://127.0.0.1:${listenerPort}/mcp`;
-}
-
-function packSecretEnvName(secret: string): string {
-  return `${PACK_SECRET_ENV_PREFIX}${secret}`;
 }
 
 function claudeMcpArgs(glimmervoidUrl: string | null, packServers: readonly PackMcpServer[]): string[] {

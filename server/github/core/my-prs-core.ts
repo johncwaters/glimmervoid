@@ -1,11 +1,11 @@
 import type { GithubPr } from '../../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrCheckContext, MyPrKeepMergeableAttemptRecord, MyPrSearchNode, MyPrsSnapshot, MyPrsStatus, MyPrThread, MyPrThreadNode } from '../../../shared/contracts/my-prs.ts';
-import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../lanes/core/lane-permissions-core.ts';
+import { ACCEPT_EDITS_MODE, LANE_ENVIRONMENT_ARGS } from '../../../shared/lane-report-core.ts';
 import { prKey } from './team-review-core.ts';
 import { mergeItems, threadCandidates } from './pr-flows-core.ts';
 import type { TeamReviewSettings, TeamReviewSettingsSource } from './team-review-core.ts';
 import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE } from '../../../shared/settings-ranges.ts';
-import { isCredentialLikePath, isGithubDirectoryPath } from '../../git/core/git-changed-paths-core.ts';
+import { isCredentialLikePath, isGithubDirectoryPath } from '../../../shared/git-text.ts';
 import { deriveStage, myPrMergeBlocker } from '../../../shared/contracts/my-pr-merge.ts';
 import { REPO_SLUG_RE } from '../../../shared/contracts/github-ids.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';

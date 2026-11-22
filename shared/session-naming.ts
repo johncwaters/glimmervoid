@@ -16,3 +16,15 @@ export function nextSuggestedName(baseName: string, names: readonly string[]) {
   }
   return `${baseName} (${clock.nowMs()})`;
 }
+
+export function sanitizeSessionName(value: unknown): string | null {
+  const name = String(value ?? '')
+    .replace(/[^a-zA-Z0-9_\-. ()]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .trim()
+    .replace(/^[-.\s]+|[-.\s]+$/g, '')
+    .slice(0, 64)
+    .trim();
+  if (!name) return null;
+  return name;
+}

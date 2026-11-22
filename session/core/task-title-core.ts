@@ -1,12 +1,18 @@
-import crypto from 'node:crypto';
-import { RefinedTaskTitle, TASK_TITLE_CONTROL_CHARACTERS, TASK_TITLE_MAX_LENGTH } from '../../shared/contracts/session.ts';
+import { RefinedTaskTitle } from '../../shared/contracts/session.ts';
 import { isAutoNameOf, nextSuggestedName } from '../../shared/session-naming.ts';
-import { firstCodePoints } from '../../shared/text.ts';
-import { unwrapPastedContent } from '../../shared/pasted-content.ts';
 import { PersistedTaskTitle, TASK_TITLE_SOURCE_PRIORITY } from '../../shared/contracts/config.ts';
 import type { TaskTitleSources } from '../../shared/contracts/config.ts';
+import {
+  TASK_NOTIFICATION_ENVELOPE_PATTERN,
+  cleanTaskPrompt,
+  extractPromptTaskTitle,
+  fencedUntrustedSections,
+  normalizeTaskTitle,
+  startsWithSessionName,
+} from '../../server/core/task-title-text-core.ts';
 import { AUTO_CONTINUE_PROMPT } from './auto-resume.ts';
 
+export { cleanTaskPrompt, extractPromptTaskTitle, fencedUntrustedSections, startsWithSessionName };
 export type { TaskTitleSources } from '../../shared/contracts/config.ts';
 
 export interface TaskTitleVocabulary {
@@ -15,11 +21,6 @@ export interface TaskTitleVocabulary {
   agentSuffix: string | null;
   agentPrefix?: string;
   hookTitleField?: string;
-}
-
-function normalizeTaskTitle(title: string): string | null {
-  const collapsedTitle = title.replace(new RegExp(TASK_TITLE_CONTROL_CHARACTERS.source, 'g'), ' ').replace(/\s+/g, ' ').trim();
-  return firstCodePoints(collapsedTitle, TASK_TITLE_MAX_LENGTH).trimEnd() || null;
 }
 
 export function extractAiTitle(tail: string, hasPartialFirstLine = false): string | null {
@@ -69,17 +70,6 @@ export function extractHookTaskTitle(payload: Record<string, unknown>, cwdBasena
   return specificTaskTitle(title, cwdBasename, vocabulary);
 }
 
-export function extractPromptTaskTitle(prompt: unknown): string | null {
-  if (typeof prompt !== 'string') return null;
-  const collapsed = cleanTaskPrompt(prompt);
-  if (!collapsed || collapsed.startsWith('/')) return null;
-  const promptCodePoints = Array.from(collapsed);
-  if (promptCodePoints.length <= 60) return normalizeTaskTitle(collapsed);
-  const prefix = promptCodePoints.slice(0, 57).join('');
-  const wordBoundary = promptCodePoints[57] === ' ' ? prefix.length : prefix.lastIndexOf(' ');
-  return `${prefix.slice(0, wordBoundary > 0 ? wordBoundary : prefix.length).trimEnd()}...`;
-}
-
 export function resolveTaskTitle(sources: TaskTitleSources): { taskTitle: string | null; isCustom: boolean } {
   for (const source of TASK_TITLE_SOURCE_PRIORITY) {
     const title = sources[source];
@@ -119,9 +109,6 @@ export function seedTaskTitleSources({ persistedTitle, resumeSessionId, customTi
   return { ...parsed.data.sources, pendingPromptTitle: null, customTitle };
 }
 
-const envelopePattern = (tag: string) => new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}\\b[^>]*>`, 'gi');
-const TASK_NOTIFICATION_ENVELOPE_PATTERN = envelopePattern('task-notification');
-const PROMPT_ENVELOPE_PATTERNS = [envelopePattern('system-reminder'), TASK_NOTIFICATION_ENVELOPE_PATTERN];
 const MIN_SUBSTANTIVE_WORDS = 3;
 const CONTINUATION_PROMPTS = new Set([
   'yes please continue', 'please go ahead', 'go ahead please', 'keep going please',
@@ -130,12 +117,6 @@ const CONTINUATION_PROMPTS = new Set([
 
 function continuationKey(prompt: string): string {
   return prompt.toLowerCase().replace(/[.!?]+$/, '').trim();
-}
-
-export function cleanTaskPrompt(prompt: string): string {
-  let cleanedPrompt = unwrapPastedContent(prompt);
-  for (const pattern of PROMPT_ENVELOPE_PATTERNS) cleanedPrompt = cleanedPrompt.replace(pattern, ' ');
-  return cleanedPrompt.replace(/\s+/g, ' ').trim();
 }
 
 export function isSelfWakePrompt(prompt: unknown): boolean {
@@ -178,14 +159,6 @@ export function decideTaskTitleRefinement(input: TaskTitleRefinementGate): TaskT
   if (input.substantivePromptsSinceRefinement < 1) return { action: 'skip', reason: 'no-prompts' };
   if (input.lastRefinementAt !== null && input.now - input.lastRefinementAt < input.minIntervalMs) return { action: 'skip', reason: 'cooldown' };
   return { action: 'refine' };
-}
-
-export function fencedUntrustedSections(sections: readonly (readonly [label: string, body: string])[]): string[] {
-  return sections.flatMap(([label, body]) => {
-    const digest = crypto.createHash('sha256').update(body, 'utf8').digest('hex').toUpperCase();
-    const marker = `GLIMMERVOID-${label}-${digest}`;
-    return [`BEGIN_${marker}`, body, `END_${marker}`];
-  });
 }
 
 export function buildTaskTitleRefinementPrompt({ currentTitle, recentPrompts, titleSources, resultPath, wantsSessionName = false, sessionName = null }: {
@@ -235,17 +208,6 @@ function parseOfferedRefinement(raw: unknown): RefinedTaskTitle | null {
   }
   const parsed = RefinedTaskTitle.safeParse(offered);
   return parsed.success ? parsed.data : null;
-}
-
-function wordsOf(text: string): string[] {
-  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-}
-
-export function startsWithSessionName(title: string, sessionName: string): boolean {
-  const titleWords = wordsOf(title);
-  const nameWords = wordsOf(sessionName);
-  if (nameWords.length === 0) return false;
-  return nameWords.every((nameWord, index) => titleWords[index] === nameWord);
 }
 
 export function parseRefinedTaskTitle(raw: unknown, sessionNamesToAvoid: readonly string[] = []): TaskTitleRefinementResult {

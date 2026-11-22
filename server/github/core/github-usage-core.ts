@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { GITHUB_USAGE_RESOURCES } from '../../../shared/contracts/github-usage.ts';
 import type { GithubCallTrigger, GithubOperationUsage, GithubRefusalUsage, GithubResourceUsage, GithubUsageResource, GithubUsageSnapshot } from '../../../shared/contracts/github-usage.ts';
-import { parseJsonOrNull } from '../../core/json-core.ts';
+import { parseJsonOrNull } from '../../../shared/coerce.ts';
 import { GITHUB_RATE_LIMIT_WINDOW_MS, utcClockText } from './github-rate-limit-core.ts';
 import type { GithubRateLimitResources, GithubRefusal } from './github-rate-limit-core.ts';
 

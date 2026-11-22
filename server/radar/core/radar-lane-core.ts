@@ -1,4 +1,6 @@
 import { isWorkflowPath } from '../../git/core/git-changed-paths-core.ts';
+import { toCount } from '../../../shared/coerce.ts';
+import { sanitizeSessionName } from '../../../shared/session-naming.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 
 const DEFAULT_INTERVAL_MINUTES = 15;
@@ -143,12 +145,6 @@ const MAX_PR_BODY_CHARS = 4000;
 
 function stripProtocol(host: unknown): string {
   return String(host || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-}
-
-function toCount(value: unknown, fallback = 0): number {
-  const n = Number(value);
-  if (Number.isFinite(n)) return n;
-  return fallback;
 }
 
 function issueKey(host: unknown, projectId: unknown, issueId: unknown): string {
@@ -642,18 +638,6 @@ function pickDirectoryForProjectName(projectName: unknown, candidates: unknown):
   }
   if (matches.length !== 1) return null;
   return matches[0];
-}
-
-function sanitizeSessionName(value: unknown): string | null {
-  const name = String(value ?? '')
-    .replace(/[^a-zA-Z0-9_\-. ()]+/g, '-')
-    .replace(/-{2,}/g, '-')
-    .trim()
-    .replace(/^[-.\s]+|[-.\s]+$/g, '')
-    .slice(0, 64)
-    .trim();
-  if (!name) return null;
-  return name;
 }
 
 function scrubForPaste(text: unknown, maxChars: number = MAX_PING_TITLE_CHARS): string {

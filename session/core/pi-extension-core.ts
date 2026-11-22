@@ -1,4 +1,4 @@
-import { MCP_CREDENTIAL_ENV, packSecretEnvName } from "../../mcp/core/agent-config.ts";
+import { MCP_CREDENTIAL_ENV, packSecretEnvName } from "../../server/core/mcp-env-core.ts";
 import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";

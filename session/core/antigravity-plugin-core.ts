@@ -3,8 +3,7 @@ import path from "node:path";
 import { QUESTION_TOOL_HOLD_HOOK_EVENT, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../shared/contracts/question-manager.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT } from "../../shared/contracts/session.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
-import { packSecretEnvName } from "../../mcp/core/agent-config.ts";
-import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG } from "../../mcp/core/stdio-bridge-core.ts";
+import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG, packSecretEnvName } from "../../server/core/mcp-env-core.ts";
 import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { ANTIGRAVITY_PACK_HOOK_FLAVOR, PACK_HOOK_RELAY_TIMEOUT_SECONDS, PACK_HOOK_RELAY_TOOL_ID, packHookToolNamesOf } from "./pack-hook-core.ts";
 
