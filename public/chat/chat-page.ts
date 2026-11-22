@@ -322,9 +322,13 @@ function buildChat(sessionId: string): MountedChat {
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
-  let chatView = createChatView(uploadUrlFor(sessionId));
-  chatView.restoreDraft(draftBySessionId.get(sessionId) ?? '');
-  for (const fileName of draftAttachmentsBySessionId.get(sessionId) ?? []) chatView.showAttachment(fileName);
+  const createSeededView = (draft: string, attachments: readonly string[]) => {
+    const view = createChatView(uploadUrlFor(sessionId));
+    view.restoreDraft(draft);
+    for (const fileName of attachments) view.showAttachment(fileName);
+    return view;
+  };
+  let chatView = createSeededView(draftBySessionId.get(sessionId) ?? '', draftAttachmentsBySessionId.get(sessionId) ?? []);
   draftAttachmentsBySessionId.delete(sessionId);
   const standInByEntryId = new Map<string, ChatPart>();
   const entryIdsTakenByPrompt = new Set<string>();
@@ -424,6 +428,11 @@ function buildChat(sessionId: string): MountedChat {
   const showFailure = (failureText: string | null) => {
     failureLine.hidden = failureText === null;
     failureLine.textContent = failureText ?? '';
+  };
+  const sendOrFail = (message: Parameters<typeof sendControlMsg>[0]): boolean => {
+    if (sendControlMsg(message)) return true;
+    showFailure(NOT_SENT_TEXT);
+    return false;
   };
   const donePanel = createDonePanel(chatView.showTurnEnd);
   const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) }));
@@ -671,10 +680,7 @@ function buildChat(sessionId: string): MountedChat {
   const dismissShownQuestion = () => {
     const shown = shownApproval;
     if (shown?.approval.kind !== 'question') return;
-    if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' })) {
-      showFailure(NOT_SENT_TEXT);
-      return;
-    }
+    if (!sendOrFail({ type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' })) return;
     shown.answers.clear();
     for (const card of shown.cards) {
       if (card.cardType === 'question') resolveCard({ ...card, resolution: { isDismissed: true } });
@@ -737,18 +743,12 @@ function buildChat(sessionId: string): MountedChat {
     if (!shown || !card || card.resolution !== null) return;
     const { requestId } = shown.approval;
     if (card.cardType === 'permission' && action === 'decide' && (value === 'allow' || value === 'deny')) {
-      if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId, decision: value })) {
-        showFailure(NOT_SENT_TEXT);
-        return;
-      }
+      if (!sendOrFail({ type: 'decide-approval', id: sessionId, requestId, decision: value })) return;
       resolveCard({ ...card, resolution: { decision: value } });
       return;
     }
     if (card.cardType === 'permission' && action === 'deny-with-message') {
-      if (!sendControlMsg({ type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value })) {
-        showFailure(NOT_SENT_TEXT);
-        return;
-      }
+      if (!sendOrFail({ type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value })) return;
       resolveCard({ ...card, resolution: { decision: 'deny', message: value } });
       return;
     }
@@ -762,9 +762,8 @@ function buildChat(sessionId: string): MountedChat {
       resolveCard({ ...card, resolution: { answer: value } });
       return;
     }
-    if (!sendControlMsg({ type: 'answer-approval', id: sessionId, requestId, answers: Object.fromEntries(shown.answers) })) {
+    if (!sendOrFail({ type: 'answer-approval', id: sessionId, requestId, answers: Object.fromEntries(shown.answers) })) {
       shown.answers.delete(card.data.question);
-      showFailure(NOT_SENT_TEXT);
       return;
     }
     resolveCard({ ...card, resolution: { answer: value } });
@@ -889,13 +888,10 @@ function buildChat(sessionId: string): MountedChat {
     onReset: () => {
       releaseTerminal();
       shownApproval = null;
-      const freshView = createChatView(uploadUrlFor(sessionId));
-      freshView.restoreDraft(chatView.readDraft());
-      for (const fileName of chatView.readAttachments()) freshView.showAttachment(fileName);
+      const freshView = createSeededView(chatView.readDraft(), chatView.readAttachments());
       freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !isShownAsSent(entry)));
       shownPromptPartIds.clear();
       freshView.upsert([...standInByEntryId.values()], NO_ARRIVING_PARTS);
-      freshView.setPhase(phaseToShow(), isSessionWorking(sessionId));
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       boardChangeByCardId = new Map();
