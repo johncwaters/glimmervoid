@@ -58,7 +58,6 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 ### Testing Requirements
 
 - Before claiming completion, run `npm run typecheck` and the tests covering the changed files (`npm run test:files -- <files>`). A pull request needs the full `npm test`; the maintainer's host runs it and `npm run build` only on the operator's ask (out of memory).
-- Detection changes must pass the replay fixtures.
 - Every operator-visible change (feature, fix, removal, dependency bump) lands with an entry under `## [Unreleased]` in `CHANGELOG.md`, written for the operator, because `scripts/release.ts` publishes that section verbatim as the GitHub release notes. Tests-only, refactor and internal docs changes need none.
 
 ### Common Patterns
@@ -82,6 +81,7 @@ Glimmervoid is a local agent orchestrator, not a harness: a Node.js background p
 | Radar / PostHog Auto-Fix | `server/radar/AGENTS.md` |
 | Community Questions | `server/community/AGENTS.md` |
 | Dashboard Layouts | `public/AGENTS.md` |
+| Studio | `public/board-session/AGENTS.md` |
 | Watcher Link | `cloud/AGENTS.md` |
 
 ## Coding Style

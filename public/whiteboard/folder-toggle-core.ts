@@ -1,6 +1,6 @@
 import type { Board } from '#shared/contracts/whiteboard.ts';
 
-export interface FolderHit {
+interface FolderHit {
   id: string;
   kind: string;
 }

@@ -1528,7 +1528,7 @@
     },
     {
       "name": "studio",
-      "definition": "The desktop header view that shows one session on its repo's code map with plan steps, a chat dock and board asks"
+      "definition": "The desktop header view that shows a repo's code map, picked by its repo chip and never by Focus, with every session in the repo as a face on the boxes it works in, the repo's main agent addressed by default, a dock of prompts and replies, and board asks"
     }
   ],
   "retired": [

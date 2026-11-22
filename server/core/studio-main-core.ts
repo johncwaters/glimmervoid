@@ -1,13 +1,13 @@
 import { RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 
-export interface RepoSessionFact {
+interface RepoSessionFact {
   id: string;
   state: SessionState;
   isStudioMain: boolean;
 }
 
-export type MainAgentStep =
+type MainAgentStep =
   | { kind: 'use'; sessionId: string }
   | { kind: 'start'; sessionId: string }
   | { kind: 'restart'; sessionId: string }
