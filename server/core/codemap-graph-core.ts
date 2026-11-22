@@ -7,6 +7,7 @@ import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/wh
 import type { BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
+import { IMPORT_LANGUAGE_IDS, importLanguageOf } from './import-language-core.ts';
 
 export const CODEMAP_TUNABLES = Object.freeze({
   maxFilesPerModule: 40,
@@ -796,10 +797,17 @@ function judgedModuleImportsOf(model: CodemapModel, importerPaths: Iterable<stri
   return importsByEdgeKey;
 }
 
-function unallowedEdgesOf(model: CodemapModel, changedPaths: ReadonlySet<string>, allowed: readonly CodemapModuleEdge[]): UnallowedEdge[] {
+function unallowedEdgesOf(model: CodemapModel, mainlineModel: CodemapModel, changedPaths: ReadonlySet<string>, allowed: readonly CodemapModuleEdge[]): UnallowedEdge[] {
   const allowedKeys = new Set(allowed.map((edge) => edgeKeyOf(edge.from, edge.to)));
+  const mainlineImports = judgedModuleImportsOf(mainlineModel, changedPaths);
   return [...judgedModuleImportsOf(model, changedPaths).values()]
-    .filter((edge) => !allowedKeys.has(edgeKeyOf(edge.from, edge.to)))
+    .flatMap((edge) => {
+      const key = edgeKeyOf(edge.from, edge.to);
+      if (allowedKeys.has(key)) return [];
+      const onMainline = new Set(mainlineImports.get(key)?.fileImports ?? []);
+      const addedFileImports = edge.fileImports.filter((fileImport) => !onMainline.has(fileImport));
+      return addedFileImports.length > 0 ? [{ ...edge, fileImports: addedFileImports }] : [];
+    })
     .sort((left, right) => compareText(left.from, right.from) || compareText(left.to, right.to));
 }
 
@@ -875,10 +883,35 @@ function fileImportCeilingsOf(model: CodemapModel): Map<string, number> {
   return new Map(crossedWiresOf(model).map((wire) => [edgeKeyOf(wire.from, wire.to), wire.fileImports.length]));
 }
 
+const LEGACY_SEEDED_LANGUAGE_IDS: readonly string[] = ['python', 'typescript'];
+
 function seededSetupOf(repoKey: string, model: CodemapModel): CodemapSetup {
   const ceilings = fileImportCeilingsOf(model);
   const allow = moduleEdgesOf(model).map((edge) => ({ ...edge, origin: 'seeded' as const, fileImportCeiling: ceilings.get(edgeKeyOf(edge.from, edge.to)) ?? null }));
-  return { version: CODEMAP_SETUP_VERSION, repo: repoKey, gate: true, modules: model.modules.map((summary) => summary.id), allow, exports: [] };
+  return { version: CODEMAP_SETUP_VERSION, repo: repoKey, gate: true, modules: model.modules.map((summary) => summary.id), allow, exports: [], languages: [...IMPORT_LANGUAGE_IDS] };
+}
+
+function seededEntriesForNewLanguages(model: CodemapModel, current: CodemapSetup): CodemapAllowEntry[] {
+  const trackedLanguages = new Set(current.languages ?? LEGACY_SEEDED_LANGUAGE_IDS);
+  const addedLanguages = new Set(IMPORT_LANGUAGE_IDS.filter((languageId) => !trackedLanguages.has(languageId)));
+  if (addedLanguages.size === 0) return [];
+  const newLanguagePaths = model.paths.filter((repoPath) => {
+    const language = importLanguageOf(repoPath);
+    return language !== null && addedLanguages.has(language.id);
+  });
+  if (newLanguagePaths.length === 0) return [];
+  const existingKeys = new Set(current.allow.map((edge) => edgeKeyOf(edge.from, edge.to)));
+  return [...judgedModuleImportsOf(model, newLanguagePaths).values()]
+    .filter((edge) => !existingKeys.has(edgeKeyOf(edge.from, edge.to)))
+    .sort((left, right) => compareText(left.from, right.from) || compareText(left.to, right.to))
+    .map(({ from, to }) => ({ from, to, origin: 'seeded' as const, fileImportCeiling: null }));
+}
+
+function settledSetupOf(model: CodemapModel, current: CodemapSetup): CodemapSetup {
+  const nextLanguages = uniqueSorted([...(current.languages ?? LEGACY_SEEDED_LANGUAGE_IDS), ...IMPORT_LANGUAGE_IDS]);
+  const mergedAllow = [...current.allow, ...seededEntriesForNewLanguages(model, current)];
+  const { allow } = shrunkAllowListOf(model, mergedAllow);
+  return { ...current, allow, languages: nextLanguages };
 }
 
 function ratchetedCeilingOf(entry: CodemapAllowEntry, mainlineCeiling: number | undefined): number | null {
@@ -978,5 +1011,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

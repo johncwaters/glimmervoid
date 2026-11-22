@@ -664,3 +664,47 @@ test('codemap answers map, where, impact and check from the project mainline com
   const cleared = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'overlay', layer: 'none' } }, credential))).structuredContent);
   assert.match(cleared.text, /shows no overlay/);
 });
+
+test('codemap check ignores pre-existing unallowed mainline imports on touched files and settles newly supported scanner languages once without re-seeding tracked languages', async () => {
+  const { credential, projectDir } = bootedBackend();
+  fs.mkdirSync(path.join(projectDir, 'lib'), { recursive: true });
+  fs.mkdirSync(path.join(projectDir, 'tools'), { recursive: true });
+  fs.mkdirSync(path.join(projectDir, 'site'), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, 'lib', 'store.ts'), 'export const storeValue = 1;\n');
+  fs.writeFileSync(path.join(projectDir, 'tools', 'helper.ts'), "import { storeValue } from '../lib/store.ts';\nexport const helperValue = storeValue + 1;\n");
+  fs.writeFileSync(path.join(projectDir, 'site', 'page.astro'), "---\nimport { storeValue } from '../lib/store.ts';\n---\n<div>{storeValue}</div>\n");
+  git(['init', '--quiet', '--initial-branch', 'main'], projectDir);
+  git(['add', '-A'], projectDir);
+  git(['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '--quiet', '-m', 'seed'], projectDir);
+  const mainlineSha = git(['rev-parse', 'HEAD'], projectDir).trim();
+  const repoKey = await repoKeyOf(projectDir);
+  assert.ok(repoKey);
+  const setupPath = setupPathOf(glimmervoidHomeDir(), repoKey);
+  fs.mkdirSync(path.dirname(setupPath), { recursive: true });
+  fs.writeFileSync(setupPath, JSON.stringify({ version: 2, repo: repoKey, gate: true, modules: ['lib', 'site', 'tools'], allow: [], exports: [] }));
+
+  const branchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codemap-preexisting-'));
+  git(['worktree', 'add', '--quiet', '-b', 'touch-astro', branchDir], projectDir);
+  fs.writeFileSync(path.join(branchDir, 'site', 'page.astro'), "---\nimport { storeValue } from '../lib/store.ts';\n---\n<section>{storeValue}</section>\n");
+  const untouchedImportCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha });
+  assert.ok(untouchedImportCheck.ok && !untouchedImportCheck.isRefusing, JSON.stringify(untouchedImportCheck));
+
+  fs.writeFileSync(path.join(branchDir, 'site', 'page.astro'), "---\nimport { storeValue } from '../lib/store.ts';\nimport { helperValue } from '../tools/helper.ts';\n---\n<section>{storeValue}{helperValue}</section>\n");
+  const addedImportCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha });
+  assert.ok(addedImportCheck.ok && addedImportCheck.isRefusing, JSON.stringify(addedImportCheck));
+  assert.match(addedImportCheck.text, /site -> tools is not allowed/);
+  assert.match(addedImportCheck.text, /site\/page\.astro imports tools\/helper\.ts/);
+  assert.doesNotMatch(addedImportCheck.text, /site -> lib/);
+
+  const mapped = AgentCodemapReply.parse((await resultOf(await callMcp('tools/call', { name: 'codemap', arguments: { action: 'map' } }, credential))).structuredContent);
+  assert.equal(mapped.status.mainlineSha, mainlineSha);
+  const settled = CodemapSetup.parse(JSON.parse(fs.readFileSync(setupPath, 'utf8')));
+  assert.ok(settled.languages?.includes('astro'));
+  assert.ok(settled.languages?.includes('typescript'));
+  assert.deepEqual(settled.allow, [{ from: 'site', to: 'lib', origin: 'seeded', fileImportCeiling: null }]);
+
+  fs.writeFileSync(path.join(branchDir, 'site', 'page.astro'), "---\nimport { storeValue } from '../lib/store.ts';\n---\n<section>{storeValue}</section>\n");
+  fs.writeFileSync(path.join(branchDir, 'site', 'second.astro'), "---\nimport { storeValue } from '../lib/store.ts';\n---\n<p>{storeValue}</p>\n");
+  const newAstroFileCheck = await checkWorktree({ client: createCodemapClient(), homeDir: glimmervoidHomeDir(), worktreeDir: branchDir, mainlineSha });
+  assert.ok(newAstroFileCheck.ok && !newAstroFileCheck.isRefusing, JSON.stringify(newAstroFileCheck));
+});
