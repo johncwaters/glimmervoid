@@ -73,6 +73,7 @@
     "test:container": "docker build -f harness/container/Dockerfile -t glimmervoid-remote-test . && docker run --rm glimmervoid-remote-test",
     "predev": "node scripts/fetch-fnox.ts",
     "dev": "vite",
+    "mockup": "vite build --config scripts/mockup.vite.config.ts --base ./",
     "build": "node scripts/build.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "prepare": "node scripts/prepare-build.js",

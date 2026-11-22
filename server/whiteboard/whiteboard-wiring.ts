@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, NOTE_TONES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
-import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { DiffBefore, SlideChain, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
@@ -109,6 +109,7 @@ interface WhiteboardReply {
 
 type StagedWrite = StagedElements & { commit: () => void };
 type CommittedReply = { reply: WhiteboardReply };
+type LinkedCardFollow = WatchedFolder & { watcher: WatchDebounce; boxIdsByBoardId: Map<string, Set<string>> };
 type RecordChange = {
   ok: true; record: BoardRecord; reply: WhiteboardReply; patch?: WhiteboardPatch; staged?: StagedWrite; replyAfterCommit?: (record: BoardRecord, layout: LayoutSummary | null) => CommittedReply;
 } | { ok: false; reply: WhiteboardReply };
@@ -330,6 +331,8 @@ function createWhiteboardWiring({
   const linkAutosaveByBoardId = new Map<string, ReturnType<typeof createCoalescedTimer>>();
   const linkWatchByBoardId = new Map<string, WatchedFolder & { watcher: WatchDebounce }>();
   const linkFollowingStop = new AbortController();
+  const linkedCardFollowByFolder = new Map<string, LinkedCardFollow>();
+  const linkedCardFollowQueueByBoardId = new Map<string, Promise<void>>();
   const tiles = createBoardTileService({
     boardOf: (boardId) => (unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId)?.board ?? null),
     unloadedBoardOf: (boardId) => (unloadedBoardIds.has(boardId) ? recordsByBoardId.get(boardId)?.board ?? null : null),
@@ -517,8 +520,110 @@ function createWhiteboardWiring({
     watcher.fire();
   }
 
+  function linkedCardFoldersOf(root: string, media: BoxMedia & { link: MediaLink }): string[] {
+    const pageFolder = path.dirname(path.resolve(root, media.link.path));
+    if (media.kind !== 'page') return [pageFolder];
+    const memberFolders = assets.memberPathsOf(media.asset).map((memberPath) => path.dirname(path.resolve(pageFolder, memberPath)));
+    return [...new Set([pageFolder, ...memberFolders])];
+  }
+
+  function linkedCardBoxIdsByFolderOf(board: Board): Map<string, Set<string>> {
+    const boxIdsByFolder = new Map<string, Set<string>>();
+    const root = linkRootOf(board);
+    if (root === null) return boxIdsByFolder;
+    for (const boxId of boardIndexOf(board.elements).linkedBoxIds) {
+      const element = board.elements.get(boxId);
+      const media = element?.kind === 'box' ? element.media : null;
+      if (!media?.link) continue;
+      for (const folder of linkedCardFoldersOf(root, { ...media, link: media.link })) {
+        const boxIds = boxIdsByFolder.get(folder) ?? new Set<string>();
+        boxIds.add(boxId);
+        boxIdsByFolder.set(folder, boxIds);
+      }
+    }
+    return boxIdsByFolder;
+  }
+
+  async function nearestWatchableFolderOf(folder: string, root: string): Promise<WatchedFolder | null> {
+    for (let candidate = folder; candidate === root || candidate.startsWith(`${root}${path.sep}`); candidate = path.dirname(candidate)) {
+      const stat = await fsp.stat(candidate).catch(() => null);
+      if (stat?.isDirectory()) return { folder: candidate, inode: stat.ino };
+    }
+    return null;
+  }
+
+  function linkedCardFollowOf(target: WatchedFolder): LinkedCardFollow | null {
+    const current = linkedCardFollowByFolder.get(target.folder);
+    if (current?.watcher.active && current.inode === target.inode) return current;
+    current?.watcher.stop();
+    linkedCardFollowByFolder.delete(target.folder);
+    const boxIdsByBoardId = current?.boxIdsByBoardId ?? new Map<string, Set<string>>();
+    const watcher = createWatchDebounce({
+      onChange: () => {
+        for (const [boardId, boxIds] of boxIdsByBoardId) void syncLinkedCards(boardId, boxIds).then(() => refollowLinkedCards(boardId));
+      },
+      debounceMs: LINK_WATCH_DEBOUNCE_MS,
+    });
+    if (!watcher.watch(target.folder)) return null;
+    const follow = { ...target, watcher, boxIdsByBoardId };
+    linkedCardFollowByFolder.set(target.folder, follow);
+    return follow;
+  }
+
+  function refollowLinkedCards(boardId: string): Promise<void> {
+    const record = unloadedBoardIds.has(boardId) ? null : recordsByBoardId.get(boardId);
+    return record ? followLinkedCards(record.board) : Promise.resolve();
+  }
+
+  function followLinkedCards(board: Board): Promise<void> {
+    const previous = linkedCardFollowQueueByBoardId.get(board.id) ?? Promise.resolve();
+    const next = previous.then(() => followLinkedCardsNow(board));
+    linkedCardFollowQueueByBoardId.set(board.id, next);
+    void next.then(() => {
+      if (linkedCardFollowQueueByBoardId.get(board.id) === next) linkedCardFollowQueueByBoardId.delete(board.id);
+    });
+    return next;
+  }
+
+  async function followLinkedCardsNow(board: Board): Promise<void> {
+    const root = linkRootOf(board);
+    const boxIdsByWatchedFolder = new Map<string, { target: WatchedFolder; boxIds: Set<string> }>();
+    for (const [folder, boxIds] of linkedCardBoxIdsByFolderOf(board)) {
+      const target = root === null ? null : await nearestWatchableFolderOf(folder, root);
+      if (target === null) continue;
+      const watched = boxIdsByWatchedFolder.get(target.folder) ?? { target, boxIds: new Set<string>() };
+      for (const boxId of boxIds) watched.boxIds.add(boxId);
+      boxIdsByWatchedFolder.set(target.folder, watched);
+    }
+    if (linkFollowingStop.signal.aborted || deletedBoardIds.has(board.id)) return;
+    for (const [folder, follow] of linkedCardFollowByFolder) {
+      if (!boxIdsByWatchedFolder.has(folder)) follow.boxIdsByBoardId.delete(board.id);
+    }
+    for (const { target, boxIds } of boxIdsByWatchedFolder.values()) linkedCardFollowOf(target)?.boxIdsByBoardId.set(board.id, boxIds);
+    stopIdleLinkedCardFollows();
+  }
+
+  function stopFollowingLinkedCardsOf(boardId: string): void {
+    for (const follow of linkedCardFollowByFolder.values()) follow.boxIdsByBoardId.delete(boardId);
+    stopIdleLinkedCardFollows();
+  }
+
+  function stopIdleLinkedCardFollows(): void {
+    for (const [folder, follow] of linkedCardFollowByFolder) {
+      if (follow.boxIdsByBoardId.size > 0) continue;
+      follow.watcher.stop();
+      linkedCardFollowByFolder.delete(folder);
+    }
+  }
+
+  async function followLoadedLinkedCards(boardId: string): Promise<void> {
+    const loading = await loadedRecordOf(boardId);
+    if (loading.ok) await followLinkedCards(loading.record.board);
+  }
+
   async function followLinkedFolders(): Promise<void> {
     await loaded;
+    await Promise.all([...recordsByBoardId.values()].filter((record) => linkRootOf(record.board) !== null).map((record) => followLoadedLinkedCards(record.board.id)));
     const linkedBoardIds = [...recordsByBoardId.values()].filter((record) => record.board.link !== null).map((record) => record.board.id);
     await Promise.all(linkedBoardIds.map((boardId) => syncLinkedFolder(boardId)));
   }
@@ -529,6 +634,8 @@ function createWhiteboardWiring({
     linkAutosaveByBoardId.clear();
     for (const { watcher } of linkWatchByBoardId.values()) watcher.stop();
     linkWatchByBoardId.clear();
+    for (const { watcher } of linkedCardFollowByFolder.values()) watcher.stop();
+    linkedCardFollowByFolder.clear();
   }
 
   async function syncLinkedFolder(boardId: string): Promise<void> {
@@ -584,6 +691,7 @@ function createWhiteboardWiring({
   }
 
   function linkChangeAfterCommit(before: Board, after: Board): void {
+    void followLinkedCards(after);
     if (before.link !== after.link) forgetLink(after.id);
     if (after.link === null) return;
     scheduleLinkSync(after.id);
@@ -757,8 +865,17 @@ function createWhiteboardWiring({
     await syncLinkedFolder(boardId);
     const loading = await loadedRecordOf(boardId);
     if (!loading.ok) return [];
+    await followLinkedCards(loading.record.board);
+    return syncLinkedCards(boardId, boardIndexOf(loading.record.board.elements).linkedBoxIds);
+  }
+
+  async function syncLinkedCards(boardId: string, boxIds: Iterable<string>): Promise<LinkStateOfBox[]> {
+    if (linkFollowingStop.signal.aborted) return [];
+    const loading = await loadedRecordOf(boardId);
+    if (!loading.ok) return [];
     const syncedBoard = loading.record.board;
-    const linkedBoxIds = [...boardIndexOf(syncedBoard.elements).linkedBoxIds];
+    const linkedBoxIdsOnBoard = boardIndexOf(syncedBoard.elements).linkedBoxIds;
+    const linkedBoxIds = [...boxIds].filter((boxId) => linkedBoxIdsOnBoard.has(boxId));
     if (linkedBoxIds.length === 0) return [];
     const mediaJsonReadByBoxId = new Map(linkedBoxIds.map((boxId) => [boxId, mediaJsonOf(syncedBoard, boxId)]));
     const synced = await syncLinkedBoxes(syncedBoard, linkedBoxIds, linkRootOf(syncedBoard), assets);
@@ -1114,6 +1231,7 @@ function createWhiteboardWiring({
     deletedBoardIds.add(boardId);
     forgetBoardWriters(boardId);
     forgetLink(boardId);
+    stopFollowingLinkedCardsOf(boardId);
     tiles.forgetBoard(boardId);
     void forgetBoardRenders(path.join(boardsRoot, RENDERS_FOLDER_NAME), boardId);
     void forgetBoardFileExport(path.join(boardsRoot, EXPORTS_FOLDER_NAME), boardId);
@@ -1458,7 +1576,7 @@ function createWhiteboardWiring({
       const unreadRefusal = unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
       if (unreadRefusal) return { ok: false, reply: refusal(409, `${unreadRefusal}, so nothing changed`) };
       const { board } = applied.record;
-      const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows that file when the board is read, and an operator save writes it` : '';
+      const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows every change to that file live, and an operator save writes it` : '';
       const note = withUnloadedNote(`${isUpdate ? 'updated' : 'showed'} ${card.title} ${isUpdate ? 'in place in' : 'as'} box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; show the same file again to update this card, or change it with whiteboard put`, unloaded);
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summaryOf(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });

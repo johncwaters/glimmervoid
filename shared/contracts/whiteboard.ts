@@ -173,7 +173,7 @@ export const BoxMedia = z.object({
   hasPreview: z.boolean().default(false).describe('whether attach stored a smaller preview beside the original'),
   dials: DialManifest.default([]).describe('the dials a page declares, as attach returned them'),
   sheets: z.array(z.string().max(WHITEBOARD_LIMITS.line)).max(BOARD_WORKBOOK_SHEETS_MAX).default([]).describe('the sheet names of an XLSX workbook, as attach returned them'),
-  link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows the file when the board is read, and an operator save of a doc writes it'),
+  link: MediaLink.nullable().default(null).describe('a doc or page linked to a file in the board code session worktree: the card follows every change to the file live, and an operator save of a doc writes it'),
   source: MediaSource.nullable().default(null).describe('the file this media came from, as attach returned it'),
 }).strict().meta({ id: 'BoxMedia' });
 
@@ -495,7 +495,7 @@ export const WhiteboardAgentRequest = z.discriminatedUnion('sub', [
     sub: z.literal('show'),
     path: z.string().min(1, { error: 'show needs the file path' }).max(4096),
     caption: z.string().max(WHITEBOARD_LIMITS.line, { error: `a show caption is at most ${WHITEBOARD_LIMITS.line} characters` }).optional(),
-    link: z.boolean().optional().describe('link a Markdown, CSV, TSV, XLSX or HTML card to the file, so the card follows it when the board is read and an operator save of a Markdown, CSV or TSV card writes it'),
+    link: z.boolean().optional().describe('link a Markdown, CSV, TSV, XLSX or HTML card to the file, so the card follows every change to it live and an operator save of a Markdown, CSV or TSV card writes it'),
     near: Near.optional().describe('place the card beside this box instead of where show would put it'),
   }).strict(),
   z.object({ sub: z.literal('export'), board: BoardRef }).strict(),

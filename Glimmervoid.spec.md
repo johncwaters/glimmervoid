@@ -16,6 +16,9 @@ A local agent orchestrator: a Node.js process that spawns and supervises coding 
 - build: the operator or npm builds the dashboard and node bundles into dist
   handler: scripts/build.mjs
   trust: operator
+- mockup: an agent session builds its harness pages, which import the project's real components and stylesheet from the worktree, into a UI mockup it shows as linked board cards
+  handler: scripts/mockup.vite.config.ts
+  trust: repository
 - generate animal sprites: the operator regenerates the dashboard animal sprites
   handler: scripts/generate-animal-sprites.ts
   trust: operator

@@ -1529,6 +1529,14 @@
     {
       "name": "studio",
       "definition": "The desktop header view that shows a repo's code map, picked by its repo chip and never by Focus, with every session in the repo as a face on the boxes it works in, the repo's main agent addressed by default, a dock of prompts and replies, and board asks"
+    },
+    {
+      "name": "mockup",
+      "definition": "A picture or page of how a UI looks: a device mockup box frames media in a phone, tablet, laptop or browser; a UI mockup is a linked board card rendering a project's own component from its real module and stylesheet, built by the project's mockup script, one card per component with every state labelled"
+    },
+    {
+      "name": "harness",
+      "definition": "A page that drives real code by hand: the small HTML page and script an agent writes to render one real component and its states for a UI mockup, and the hand-run drivers under harness/"
     }
   ],
   "retired": [

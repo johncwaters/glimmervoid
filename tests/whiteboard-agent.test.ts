@@ -2149,7 +2149,7 @@ test('a shown page brings the files it refers to by relative path, served beside
   assert.equal((await fetch(pageUrl('report.html'))).status, 404);
 });
 
-test('a linked page keeps its bundle on each read, follows edits to a file it refers to, and still shows when one of them cannot be read', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+test('a linked page keeps its bundle on each read, follows edits to a file it refers to with no read, and still shows when one of them cannot be read', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'linked-page-'));
   const worktree = path.join(boardsRoot, 'worktree');
   fs.mkdirSync(path.join(worktree, 'report'), { recursive: true });
@@ -2182,11 +2182,75 @@ test('a linked page keeps its bundle on each read, follows edits to a file it re
   assert.notEqual(followed?.asset, pageFileHash);
   assert.equal(followed?.link?.syncedHash, followed?.asset);
 
+  fs.writeFileSync(path.join(worktree, 'report', 'shot.png'), 'third shot');
+  const unreadMediaOf = async () => {
+    const card = (await wiring.boardOf(boardId))?.elements.get('shown-1');
+    return card?.kind === 'box' ? card.media : null;
+  };
+  const followDeadline = Date.now() + 5000;
+  while ((await unreadMediaOf())?.asset === followed?.asset && Date.now() < followDeadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.notEqual((await unreadMediaOf())?.asset, followed?.asset, 'an edit reaches the card while nobody reads the board');
+
   fs.writeFileSync(path.join(worktree, 'report', 'page.html'), `${pageText}<img src="gone.png">`);
   const resynced = await wiring.handleAgent(linker, { sub: 'get', board: boardId, review: true });
   const resyncedLinkStates = (resynced.body as { review: { linkStates: { text: string }[] } }).review.linkStates;
   assert.match(resyncedLinkStates[0]?.text ?? '', /gone\.png in page\.html \(missing\)/, 'a page edit that breaks a reference is reported on the read that follows it');
   fs.chmodSync(path.join(worktree, 'report', 'locked.png'), 0o600);
+  wiring.stopFollowingLinkedFolders();
+});
+
+test('a linked page follows live an edit in a subfolder it loads from, a rebuilt out folder, and a server restart', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'linked-live-'));
+  const worktree = path.join(boardsRoot, 'worktree');
+  const outFolder = path.join(worktree, 'out');
+  const writeBuild = (scriptText: string) => {
+    fs.mkdirSync(path.join(outFolder, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(outFolder, 'assets', 'app.js'), scriptText);
+    fs.writeFileSync(path.join(outFolder, 'page.html'), '<!doctype html><html><body><script type="module" src="./assets/app.js"></script></body></html>');
+  };
+  writeBuild('document.body.append("first");');
+  const codeContextOf = () => ({ root: worktree, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) });
+  const linker = { id: 'link-live-agent', name: 'linker', project: worktree, cwd: worktree };
+  const firstWiring = createWhiteboardWiring({ boardsRoot, codeContextOf });
+  const shown = await firstWiring.handleAgent(linker, { sub: 'show', path: 'out/page.html', link: true });
+  assert.equal(shown.status, 200, JSON.stringify(shown.body));
+  const boardId = (shown.body as { board: { id: string } }).board.id;
+  const followedLive = async (wiring: typeof firstWiring, previousAsset: string | undefined) => {
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      const card = (await wiring.boardOf(boardId))?.elements.get('shown-1');
+      const asset = card?.kind === 'box' ? card.media?.asset : undefined;
+      if (asset !== previousAsset || Date.now() > deadline) return asset;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  const assetOf = async (wiring: typeof firstWiring) => {
+    const card = (await wiring.boardOf(boardId))?.elements.get('shown-1');
+    return card?.kind === 'box' ? card.media?.asset : undefined;
+  };
+
+  await firstWiring.handleOperator.get(boardId);
+  const shownAsset = await assetOf(firstWiring);
+  writeBuild('document.body.append("second");');
+  const afterSubfolderEdit = await followedLive(firstWiring, shownAsset);
+  assert.notEqual(afterSubfolderEdit, shownAsset, 'an edit to a script under assets/ reaches the card with no read');
+
+  fs.rmSync(outFolder, { recursive: true });
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  writeBuild('document.body.append("third");');
+  const afterRebuild = await followedLive(firstWiring, afterSubfolderEdit);
+  assert.notEqual(afterRebuild, afterSubfolderEdit, 'a deleted and rebuilt out folder is followed');
+  writeBuild('document.body.append("fourth");');
+  const afterSecondRebuildEdit = await followedLive(firstWiring, afterRebuild);
+  assert.notEqual(afterSecondRebuildEdit, afterRebuild, 'the rebuilt folder keeps being followed');
+  firstWiring.stopFollowingLinkedFolders();
+
+  const restartedWiring = createWhiteboardWiring({ boardsRoot, codeContextOf });
+  await restartedWiring.followLinkedFolders();
+  writeBuild('document.body.append("fifth");');
+  const afterRestart = await followedLive(restartedWiring, afterSecondRebuildEdit);
+  assert.notEqual(afterRestart, afterSecondRebuildEdit, 'a restarted server follows linked cards with no read');
+  restartedWiring.stopFollowingLinkedFolders();
 });
 
 test('a linked card follows its file in the code session worktree on each read, writes it on an operator save unless either side moved, refuses a path outside it, and keeps its last text with the reason once the file or session is gone', async () => {
