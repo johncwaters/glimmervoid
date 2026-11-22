@@ -22,12 +22,10 @@ import { createSessionTaskTitle } from "./session-task-title.ts";
 import type { SessionTaskTitleController } from "./session-task-title.ts";
 import { createSessionPromptNotes } from "./session-prompt-notes.ts";
 import type { SessionPromptNotes } from "./session-prompt-notes.ts";
-import os from "node:os";
 import path from "node:path";
 import pty from "node-pty";
 import { EventEmitter } from "node:events";
 import { assertLaunchable, execFile } from "../server/child-process-safe.ts";
-import { projectDirCandidates } from "../server/usage/core/usage-scan-core.ts";
 import { requireExecutableSpawnHelper } from "../server/node-pty-preflight.ts";
 import { requireRelayExecutable } from "../server/runtime-paths.ts";
 import { probeGraphicalSession, resolveSessionScopeHost, stopSessionScope } from "./systemd-user.ts";
@@ -35,7 +33,6 @@ import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts
 import { randomBytes } from "node:crypto";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
-import { prepareAccountHome, prepareSandboxedAccountHome } from "./agent-home.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND, SIGNED_IN_SIGNAL } from "../shared/states.ts";
@@ -56,7 +53,7 @@ import { createStatusSource } from "../detection/status-source.ts";
 import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status-source.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
-import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor, hookProfileOf } from "./adapters/index.ts";
+import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
 import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome, UsageLimit } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
@@ -78,7 +75,7 @@ import type { ExitSignal } from "./core/exit-transition.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import type { ExpiredOpenWork } from "./core/agent-tracker.ts";
 import { DEFAULT_GATE_RELEASE_SETTLE_MS } from "./core/gate-release.ts";
-import { isConversationReplacedAtStartup, resolveResumeTarget, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
+import { isConversationReplacedAtStartup, shouldAdoptReportedResumeId, RESUME_ID_RE } from "./core/auto-resume.ts";
 import { projectSessionSnapshots } from "./core/snapshot-projection.ts";
 import { promptWithDoneMeans } from "./core/done-means-prompt.ts";
 import type { UserHook } from "./core/user-hooks-core.ts";
@@ -99,16 +96,14 @@ import { createSessionApprovalHolds } from "./session-approval-holds.ts";
 import type { QuestionManagerPort, SessionApprovalHolds } from "./session-approval-holds.ts";
 import { createSessionBackgroundTracking } from "./session-background-tracking.ts";
 import { createSessionLaunch } from "./session-launch.ts";
-import type { SessionLaunch } from "./session-launch.ts";
+import type { LaunchSecretsOutcome, PrepareSandbox, ResolveLaunchSecrets, SandboxLaunchFacts, SessionLaunch } from "./session-launch.ts";
 import { createSessionProcessReaper } from "./session-process-reaper.ts";
 import type { KillProc, SessionProcessReaper, SignalProc } from "./session-process-reaper.ts";
 import type { HookPayload } from "../shared/contracts/index.ts";
 import { SUBAGENT_SIGNAL_EVENT, type SubagentSignal } from "../shared/contracts/trace.ts";
-import { cleanHomeArgs, launchPlanFor, launchSecretNames } from "../shared/agent-models-core.ts";
-import type { LaunchPlan } from "../shared/agent-models-core.ts";
+import { cleanHomeArgs, launchPlanFor } from "../shared/agent-models-core.ts";
 import { claudePluginArgs } from "./core/pack-session-core.ts";
 import type { PackAgentLaunch } from "./core/pack-session-core.ts";
-import { packHookFilesEnv } from "./core/pack-hook-core.ts";
 import type { AgentSetup } from "../shared/contracts/agent-models.ts";
 import { clock } from '../shared/clock.ts';
 import { cleanPastedText } from './core/input-delivery-core.ts';
@@ -269,28 +264,6 @@ interface SessionOptions {
   prepareSandbox?: PrepareSandbox | null;
 }
 
-type LaunchSecretsOutcome = { valuesByName: Record<string, string> } | { refusal: string };
-type ResolveLaunchSecrets = (request: { names: string[]; cwd: string }) => Promise<LaunchSecretsOutcome | { held: Promise<LaunchSecretsOutcome> }>;
-
-interface SandboxLaunchFacts {
-  agent: string;
-  accountFolder: string | null;
-  file: string;
-  args: string[];
-  env: SpawnEnv;
-  launchSetEnvNames: readonly string[];
-  cwd: string;
-}
-
-interface SandboxLaunch {
-  file: string;
-  args: string[];
-  env: SpawnEnv;
-  dispose(): Promise<void>;
-}
-
-type PrepareSandbox = (facts: SandboxLaunchFacts) => Promise<{ ok: true; launch: SandboxLaunch } | { ok: false; reason: string }>;
-
 interface ClaudeSessionIdEvent {
   id: string;
   source: string | null;
@@ -298,10 +271,6 @@ interface ClaudeSessionIdEvent {
   sessionId: string;
   transcriptPath: string | null;
   isResumeTarget: boolean;
-}
-
-function launchSecretEnvOf(plan: LaunchPlan, valuesByName: Readonly<Record<string, string>>): Record<string, string> {
-  return Object.fromEntries(Object.entries(plan.secretEnv).map(([envName, secretName]) => [envName, valuesByName[secretName] ?? ""]));
 }
 
 function nonEmptyText(value: unknown): string | null {
@@ -363,8 +332,6 @@ class Session extends EventEmitter {
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _firstTurnSince: number | null;
-  _getPackAgentLaunch: () => PackAgentLaunch | null;
-  _spawnPackLaunch: PackAgentLaunch | null;
   _extraClaudeArgs: string[];
   _agentSetup: AgentSetup | null;
   _isCleanHome: boolean;
@@ -374,11 +341,6 @@ class Session extends EventEmitter {
   _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
   _suppressResumeCapture: boolean;
   _spawnEnv: Record<string, string> | null;
-  _resolveAccountHome: (() => SessionAccountHome) | null;
-  _accountEnv: Record<string, string> = {};
-  _accountFolder: string | null = null;
-  accountIdInUse: string | null = null;
-  accountInUseSinceMs: number | null = null;
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
   _isSaneYoloActive: boolean;
@@ -387,11 +349,7 @@ class Session extends EventEmitter {
   _readChatApprovals: () => ChatApprovalMode;
   _chatUploadsDirectory: string | null;
   _packMcpServers: ((agentId: string, cwd: string) => Promise<PackMcpLaunchHold>) | null;
-  _approvedPackMcpLaunch: PackMcpLaunch | null = null;
   _sharedPackMcpServers: ((agentId: string) => PackMcpServer[]) | null;
-  _spawnPackMcpServers: readonly PackMcpServer[] = [];
-  _spawnSharedPackMcpServers: readonly PackMcpServer[] = [];
-  _spawnPackMcpEnv: Readonly<Record<string, string>> = {};
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
   readonly ownerId: string | null;
@@ -402,14 +360,6 @@ class Session extends EventEmitter {
   _agentToken: string | null;
   _commitSigningProgram: string | null;
   _commitSigningToken: string | null;
-  _resolveGitCredentialHelper: ((cwd: string) => Promise<string | null>) | null;
-  _resolveHostSigningEnv: ((cwd: string) => Promise<Record<string, string>>) | null;
-  _resolveLaunchSecrets: ResolveLaunchSecrets | null;
-  _approvedLaunchSecrets: Record<string, string> | null = null;
-  _hostSigningEnv: Record<string, string>;
-  _prepareSandbox: PrepareSandbox | null;
-  _sandboxLaunch: SandboxLaunch | null;
-  _gitCredentialProgram: string | null;
   _gitCredentialToken: string | null;
   _canRunHelpCommand: boolean;
   _agentLiveChildren: number;
@@ -420,6 +370,7 @@ class Session extends EventEmitter {
   _requiresWorktree: boolean;
   _platform: NodeJS.Platform;
   _startPending: Promise<void> | null;
+  _startGeneration = 0;
   _resizeSeq: number;
   _titleSource: ReturnType<typeof createOscTitleSource>;
   _getTerminalColors: () => TerminalColors;
@@ -677,8 +628,6 @@ class Session extends EventEmitter {
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = promptWithDoneMeans(initialPrompt, doneMeans);
     this._firstTurnSince = null;
-    this._getPackAgentLaunch = getPackAgentLaunch ?? (() => null);
-    this._spawnPackLaunch = null;
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._agentSetup = agentSetup;
     this._isCleanHome = isCleanHome === true;
@@ -689,7 +638,6 @@ class Session extends EventEmitter {
     this._suppressResumeCapture = false;
     this.ephemeral = !!ephemeral;
     this._spawnEnv = spawnEnv;
-    this._resolveAccountHome = resolveAccountHome;
     this._prependPathDirs = prependPathDirs;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
     this._isSaneYoloActive = false;
@@ -716,17 +664,17 @@ class Session extends EventEmitter {
       scratchAgentHome,
       isCleanHome,
       isOsSandboxed: prepareSandbox !== null,
-      packSkillDirs: () => this._spawnPackLaunch?.namedSkillDirs ?? [],
-      packHookFiles: () => this._spawnPackLaunch?.hookFiles ?? [],
+      packSkillDirs: () => this._launch.packLaunch?.namedSkillDirs ?? [],
+      packHookFiles: () => this._launch.packLaunch?.hookFiles ?? [],
       modelSelection: () => this._agentSetup,
       requiresHooks: requiresHooks && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
-      packMcpServers: () => this._spawnPackMcpServers,
-      sharedPackMcpServers: () => this._spawnSharedPackMcpServers,
+      packMcpServers: () => this._launch.packMcpServers,
+      sharedPackMcpServers: () => this._launch.sharedPackMcpServers,
       agentEnv: () => this._launch.buildEnv(),
-      accountFolder: () => this._accountFolder,
+      accountFolder: () => this._launch.accountFolder,
       ingestSignal: (raw) => this.ingestHookSignal(raw),
       observeHook: (event, payload) => {
         this._approvals.releaseAfterHookEvent(event, payload);
@@ -738,13 +686,6 @@ class Session extends EventEmitter {
     this._agentToken = generateToken();
     this._commitSigningProgram = commitSigningProgram;
     this._commitSigningToken = commitSigningProgram === null ? null : generateToken();
-    this._resolveGitCredentialHelper = resolveGitCredentialHelper;
-    this._resolveHostSigningEnv = commitSigningProgram === null ? null : resolveHostSigningEnv;
-    this._resolveLaunchSecrets = resolveLaunchSecrets;
-    this._hostSigningEnv = {};
-    this._prepareSandbox = prepareSandbox;
-    this._sandboxLaunch = null;
-    this._gitCredentialProgram = null;
     this._gitCredentialToken = resolveGitCredentialHelper === null ? null : generateToken();
     this._canRunHelpCommand = permitsHelpCommand(settingsPermissions);
     this._agentLiveChildren = 0;
@@ -757,22 +698,33 @@ class Session extends EventEmitter {
       return pty.spawn(file, args, opts);
     };
     this._ptySpawn = ptySpawn || this._nodePtySpawn;
+    this._platform = platform;
+    this._probeGraphicalSession = probeGraphicalSession;
     this._launch = createSessionLaunch({
       id: this.id,
+      usageVendor: this.usageVendor,
       adapter: this._adapter,
-      platform,
       hooks: this._hooks,
       port: {
+        platform: () => this._platform,
         effectiveCwd: () => this.effectiveCwd(),
-        spawnEnv: () => this._launchSpawnEnv(),
+        spawnEnv: () => this._spawnEnv,
         spawnCommand: () => this._spawnCommand,
         agentToken: () => this._agentToken,
         commitSigningToken: () => this._commitSigningToken,
         commitSigningProgram: () => this._commitSigningProgram,
-        hostSigningEnv: () => this._hostSigningEnv,
         gitCredentialToken: () => this._gitCredentialToken,
-        gitCredentialProgram: () => this._gitCredentialProgram,
-        gitConfigForm: () => this._prepareSandbox === null ? "parameters" : "numbered",
+        resolveGitCredentialHelper,
+        resolveHostSigningEnv: commitSigningProgram === null ? null : resolveHostSigningEnv,
+        resolveLaunchSecrets,
+        resolveAccountHome,
+        getPackAgentLaunch: getPackAgentLaunch ?? (() => null),
+        getPackMcpServers: () => this._packMcpServers,
+        getSharedPackMcpServers: () => this._sharedPackMcpServers,
+        prepareSandbox,
+        probeGraphicalSession: () => this._probeGraphicalSession(),
+        onSandboxRefused: (cause) => this._abandonSpawn(cause),
+        onSupersededSandbox: () => this._hooks.cleanup(),
       },
     });
 
@@ -786,8 +738,6 @@ class Session extends EventEmitter {
         emitError: (err) => this._emitError(err),
       },
     });
-    this._platform = platform;
-    this._probeGraphicalSession = probeGraphicalSession;
 
     this._startPending = null;
     this._resizeSeq = 0;
@@ -1407,7 +1357,15 @@ class Session extends EventEmitter {
   }
 
   get isSandboxed(): boolean {
-    return this._prepareSandbox !== null;
+    return this._launch.isSandboxed;
+  }
+
+  get accountIdInUse(): string | null {
+    return this._launch.accountIdInUse;
+  }
+
+  get accountInUseSinceMs(): number | null {
+    return this._launch.accountInUseSinceMs;
   }
 
   get gitCredentialToken(): string | null {
@@ -1791,12 +1749,16 @@ class Session extends EventEmitter {
   start(options: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._startPending) return this._startPending;
     const resumePrompt = this._promptNotes.takeHeldResumePrompt(options.resumePrompt);
-    this._startPending = this._startBody({ ...options, resumePrompt }).finally(() => { this._startPending = null; });
-    return this._startPending;
+    const pending = this._startBody({ ...options, resumePrompt }).finally(() => {
+      if (this._startPending === pending) this._startPending = null;
+    });
+    this._startPending = pending;
+    return pending;
   }
 
   async _startBody({ fresh = false, resumePrompt = null }: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._destroyed) return;
+    const startGeneration = ++this._startGeneration;
 
     if (this.ptyProcess) {
       console.warn(`[session:${this.name}] start() called while PTY exists - killing previous PTY first`);
@@ -1809,52 +1771,62 @@ class Session extends EventEmitter {
 
     const pendingReaps = this._reaper.awaitPendingReaps();
     if (pendingReaps) await pendingReaps;
-    if (this._destroyed) return;
+    if (this._destroyed || this._startGeneration !== startGeneration) {
+      this._launch.clearApprovedLaunches();
+      return;
+    }
 
     if (this.state === STATES.DORMANT) {
       this.transition("user_start");
     }
     const preparingState = this.state;
-    const isStartSuperseded = () => this._destroyed || this.state !== preparingState;
+    const isStartSuperseded = () => this._destroyed || this.state !== preparingState || this._startGeneration !== startGeneration;
 
     if (!(await this._provisionWorktree({ fresh }))) {
+      this._launch.clearApprovedLaunches();
       if (!isStartSuperseded()) this.transition("provision_blocked");
       return;
     }
-    if (isStartSuperseded()) return;
+    if (isStartSuperseded()) {
+      this._launch.clearApprovedLaunches();
+      return;
+    }
     if (this._requiresWorktree && !this.worktreeDir) {
+      this._launch.clearApprovedLaunches();
       this.transition("provision_blocked");
       this.emit('error', new Error('This session requires its own git worktree'));
       return;
     }
 
-    if (this._resolveGitCredentialHelper) {
-      this._gitCredentialProgram = await this._resolveGitCredentialHelper(this.effectiveCwd());
-      if (isStartSuperseded()) return;
-    }
-
-    if (this._resolveHostSigningEnv) {
-      this._hostSigningEnv = await this._resolveHostSigningEnv(this.effectiveCwd());
-      if (isStartSuperseded()) return;
+    if (!(await this._launch.resolveGitAndSigning(this.effectiveCwd(), isStartSuperseded))) {
+      this._launch.clearApprovedLaunches();
+      return;
     }
 
     const launchPlan = launchPlanFor(this._adapter.id, this._agentSetup, this._platform);
-    const launchSecretEnv = await this._resolveLaunchSecretEnv(launchPlan);
-    if (isStartSuperseded()) return;
+    const launchSecretEnv = await this._launch.resolveLaunchSecretEnv(launchPlan, this.effectiveCwd());
+    if (isStartSuperseded()) {
+      this._launch.clearApprovedLaunches();
+      return;
+    }
     if ("refusal" in launchSecretEnv) {
       this._abandonSpawn(new Error(launchSecretEnv.refusal));
       return;
     }
     if ("held" in launchSecretEnv) {
-      void launchSecretEnv.held.then((outcome) => this._resumeHeldLaunch(outcome, preparingState));
+      void launchSecretEnv.held.then((outcome) => this._resumeHeldLaunch(outcome, preparingState, startGeneration));
       return;
     }
-    const packMcpLaunch = await this._resolvePackMcpLaunch();
-    if (isStartSuperseded()) return;
+    const packMcpLaunch = await this._launch.resolvePackMcpLaunch(this.effectiveCwd());
+    if (isStartSuperseded()) {
+      this._launch.clearApprovedLaunches();
+      return;
+    }
     if ("held" in packMcpLaunch) {
-      void packMcpLaunch.held.then((launch) => this._resumeHeldPackMcpLaunch(launch, preparingState));
+      void packMcpLaunch.held.then((launch) => this._resumeHeldPackMcpLaunch(launch, preparingState, startGeneration));
       return;
     }
+    this._launch.clearApprovedLaunches();
 
     if (this.worktreeDir) {
       this.worktreeLifecycle.startWatching();
@@ -1872,19 +1844,15 @@ class Session extends EventEmitter {
     this.emit("rebaseline");
     this._resetDetectionSources({ quiet: false });
 
-    this._spawnPackLaunch = !this._isCleanHome ? this._getPackAgentLaunch() : null;
-    const accountRefusal = await this._prepareAccountEnv();
+    const accountRefusal = await this._launch.prepareAccountAndPacks(this._isCleanHome, packMcpLaunch, isStartSuperseded);
+    if (isStartSuperseded()) return;
     if (accountRefusal !== null) {
       this._abandonSpawn(new Error(accountRefusal));
       return;
     }
-    this._spawnPackMcpServers = packMcpLaunch.servers;
-    this._spawnPackMcpEnv = packMcpLaunch.env;
-    this._spawnSharedPackMcpServers = this._sharedPackMcpServers ? this._sharedPackMcpServers(this.agentId) : [];
-    if (isStartSuperseded()) return;
     await this._hooks.prepare();
     if (this._adapter.trustFolder) {
-      await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs, extraEnv: this._launchSpawnEnv() }))
+      await this._adapter.trustFolder(this.effectiveCwd(), this._launch.buildEnv({ prependPathDirs: this._prependPathDirs }))
         .catch((error: unknown) => console.warn(`[session:${this.name}] ${errorMessage(error)}`));
     }
     if (isStartSuperseded()) return;
@@ -1894,7 +1862,7 @@ class Session extends EventEmitter {
       return;
     }
     this._isSaneYoloActive = hookInjection.isSaneYoloActive;
-    const mcpLaunch = mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken, packServers: this._spawnPackMcpServers });
+    const mcpLaunch = mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken, packServers: this._launch.packMcpServers });
     const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 
     this._hooksReportPrompts = this._hooks.hasInjection();
@@ -1902,31 +1870,24 @@ class Session extends EventEmitter {
     this._armTitleQuietFallback();
 
     this._applyTitleContext();
-    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...this._spawnPackMcpEnv, ...mcpLaunch.env, ...this._launch.gitEnv(), ...launchPlan.env, ...launchSecretEnv.env };
+    const injectedEnv = { ...hookInjection.env, ...this._launch.agentApiEnv(), ...this._launch.packMcpEnv, ...mcpLaunch.env, ...this._launch.gitEnv(), ...launchPlan.env, ...launchSecretEnv.env };
+    const baseLaunchEnv = this._launch.launchSpawnEnv();
     const spawnExtraEnv = Object.keys(injectedEnv).length > 0
-      ? { ...(this._launchSpawnEnv() || {}), ...injectedEnv }
-      : this._launchSpawnEnv();
+      ? { ...(baseLaunchEnv || {}), ...injectedEnv }
+      : baseLaunchEnv;
 
     const env = this._launch.buildEnv({
       prependPathDirs: this._prependPathDirs,
       extraEnv: spawnExtraEnv,
     });
     this._loginFailurePromptKind = (this._adapter.credentialEnvNames ?? []).some((name) => (env[name] ?? "") !== "") ? API_KEY_PROMPT_KIND : SIGN_IN_PROMPT_KIND;
-    if (await this._shouldDetachDesktopBus()) env.DBUS_SESSION_BUS_ADDRESS = DETACHED_DESKTOP_BUS_ADDRESS;
+    if (await this._launch.shouldDetachDesktopBus()) env.DBUS_SESSION_BUS_ADDRESS = DETACHED_DESKTOP_BUS_ADDRESS;
 
     const configuredResumeSessionId = this._can("resume") ? this._resumeSessionId : null;
-    let spawnResumeSessionId = configuredResumeSessionId;
-    if (this.usageVendor === "claude") {
-      const resumeTarget = resolveResumeTarget({
-        resumeSessionId: configuredResumeSessionId,
-        transcriptPath: this._transcriptPath,
-        projectsDirs: projectDirCandidates(env, [], os.homedir()),
-        cwds: this._launch.spawnCwdSpellings(),
-      }, { existsSync: fs.existsSync, readdirSync: fs.readdirSync });
-      spawnResumeSessionId = resumeTarget.resumeSessionId;
-      if (configuredResumeSessionId && !spawnResumeSessionId) {
-        console.warn(`[session:${this.name}] spawning without the stale resume id ${configuredResumeSessionId} because no transcript exists at any of: ${resumeTarget.checkedTranscriptPaths.join(", ")}`);
-      }
+    const resumeTarget = this._launch.resolveResumeSessionId(configuredResumeSessionId, this._transcriptPath, env);
+    const spawnResumeSessionId = resumeTarget.resumeSessionId;
+    if (configuredResumeSessionId && !spawnResumeSessionId) {
+      console.warn(`[session:${this.name}] spawning without the stale resume id ${configuredResumeSessionId} because no transcript exists at any of: ${resumeTarget.checkedTranscriptPaths.join(", ")}`);
     }
 
     this._suppressResumeCapture = false;
@@ -1939,7 +1900,7 @@ class Session extends EventEmitter {
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       resumeSessionId: spawnResumeSessionId,
-      extraArgs: [...this._extraClaudeArgs, ...launchPlan.args, ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._spawnPackLaunch), ...this._osSandboxArgs()],
+      extraArgs: [...this._extraClaudeArgs, ...launchPlan.args, ...cleanHomeArgs(this._adapter.id, this._isCleanHome), ...claudePluginArgs(this._adapter.id, this._launch.packLaunch), ...this._launch.osSandboxArgs(this.dangerouslySkipPermissions)],
       initialPrompt: launchPrompt,
     });
 
@@ -1954,7 +1915,7 @@ class Session extends EventEmitter {
       return;
     }
     const agentCommand = this._launch.spawnCommandFor({ settingsArgs, agentArgs });
-    const sandboxedCommand = await this._sandboxedCommand(agentCommand, env, Object.keys(spawnExtraEnv ?? {}), isStartSuperseded);
+    const sandboxedCommand = await this._launch.sandboxedCommand(agentCommand, env, Object.keys(spawnExtraEnv ?? {}), isStartSuperseded);
     if (sandboxedCommand === null) return;
     const { file, args } = sandboxedCommand;
     const scopeUnit = scopeHost === null ? null : sessionScopeUnitName(this.id, randomBytes(4).toString("hex"));
@@ -2073,7 +2034,7 @@ class Session extends EventEmitter {
   }
 
   _armPromptSupervisionLine(): void {
-    this._promptNotes.armSupervision(this._canRunHelpCommand, this.ephemeral, this._spawnPackLaunch?.contextLines ?? []);
+    this._promptNotes.armSupervision(this._canRunHelpCommand, this.ephemeral, this._launch.packLaunch?.contextLines ?? []);
   }
 
   promptContextReply(): PromptContextReply | null {
@@ -2105,98 +2066,39 @@ class Session extends EventEmitter {
     this.deliver(prompt, { when: "ready", submit: true });
   }
 
-  async _shouldDetachDesktopBus(): Promise<boolean> {
-    if (this._platform !== "linux") return false;
-    if (process.env.DISPLAY || process.env.WAYLAND_DISPLAY) return false;
-    return await this._probeGraphicalSession() === "inactive";
+  _resumeAfterStartSettles(heldState: string, generation: number, accept: () => boolean): void {
+    const settle = this._startPending ?? Promise.resolve();
+    void settle.finally(() => {
+      if (this._destroyed || this.state !== heldState || this._startGeneration !== generation) return;
+      if (!accept()) return;
+      void this.start();
+    });
   }
 
-  async _resolveLaunchSecretEnv(plan: LaunchPlan): Promise<{ env: Record<string, string> } | { refusal: string } | { held: Promise<LaunchSecretsOutcome> }> {
-    const names = launchSecretNames(plan);
-    if (names.length === 0) return { env: {} };
-    const approvedValues = this._approvedLaunchSecrets;
-    this._approvedLaunchSecrets = null;
-    if (approvedValues !== null) return { env: launchSecretEnvOf(plan, approvedValues) };
-    if (!this._resolveLaunchSecrets) return { refusal: `${names.join(", ")} cannot be read: no vault is wired to this session` };
-    const resolved = await this._resolveLaunchSecrets({ names, cwd: this.effectiveCwd() });
-    if ("valuesByName" in resolved) return { env: launchSecretEnvOf(plan, resolved.valuesByName) };
-    return resolved;
+  _resumeHeldPackMcpLaunch(launch: PackMcpLaunch, heldState: string, generation: number): void {
+    this._resumeAfterStartSettles(heldState, generation, () => {
+      this._launch.acceptApprovedPackMcpLaunch(launch);
+      return true;
+    });
   }
 
-  async _resolvePackMcpLaunch(): Promise<PackMcpLaunchHold> {
-    const approvedLaunch = this._approvedPackMcpLaunch;
-    this._approvedPackMcpLaunch = null;
-    if (approvedLaunch !== null) return approvedLaunch;
-    if (!this._packMcpServers) return { servers: [], env: {} };
-    return this._packMcpServers(this.agentId, this.effectiveCwd());
-  }
-
-  _resumeHeldPackMcpLaunch(launch: PackMcpLaunch, heldState: string): void {
-    if (this._destroyed || this.state !== heldState) return;
-    this._approvedPackMcpLaunch = launch;
-    void this.start();
-  }
-
-  _resumeHeldLaunch(outcome: LaunchSecretsOutcome, heldState: string): void {
-    if (this._destroyed || this.state !== heldState) return;
-    if ("refusal" in outcome) {
-      this._abandonSpawn(new Error(outcome.refusal));
-      return;
-    }
-    this._approvedLaunchSecrets = outcome.valuesByName;
-    void this.start();
-  }
-
-  _launchSpawnEnv(): Record<string, string> | null {
-    const packHookEnv = packHookFilesEnv(this._spawnPackLaunch?.hookFiles ?? []);
-    if (Object.keys(this._accountEnv).length === 0 && Object.keys(packHookEnv).length === 0) return this._spawnEnv;
-    return { ...(this._spawnEnv || {}), ...packHookEnv, ...this._accountEnv };
-  }
-
-  async _prepareAccountEnv(): Promise<string | null> {
-    this._accountEnv = {};
-    this._accountFolder = null;
-    this.accountIdInUse = null;
-    this.accountInUseSinceMs = clock.nowMs();
-    const accountHome = this._resolveAccountHome?.() ?? { kind: "machine-login" as const };
-    if (accountHome.kind === "machine-login") return this._prepareSandboxedConfigHome();
-    if (accountHome.kind === "refused") return accountHome.reason;
-    const homeEnvName = this._adapter.accountHomeProfile?.homeEnvName ?? this._adapter.accountHomeEnvName;
-    if (!homeEnvName) return `${this._adapter.label} sessions cannot run under an added account`;
-    this.accountIdInUse = accountHome.account.id;
-    const refusal = await this._prepareAccountFolder(accountHome.account.folder);
-    if (refusal !== null) {
-      this.accountIdInUse = null;
-      return `the account ${accountHome.account.label} cannot be used: ${refusal}`;
-    }
-    this._accountFolder = accountHome.account.folder;
-    this._accountEnv = { [homeEnvName]: accountHome.account.folder };
-    return this._prepareSandboxedConfigHome();
-  }
-
-  async _prepareSandboxedConfigHome(): Promise<string | null> {
-    const profile = this._adapter.accountHomeProfile;
-    if (this._prepareSandbox === null || hookProfileOf(this._adapter)?.injection.kind !== "settings-file" || !profile) return null;
-    const prepared = await prepareSandboxedAccountHome(profile, { env: process.env, accountFolder: this._accountFolder });
-    if ("refusal" in prepared) return `the sandboxed ${this._adapter.label} home cannot be prepared: ${prepared.refusal}`;
-    this._accountEnv = { [profile.homeEnvName]: prepared.home };
-    return null;
-  }
-
-  async _prepareAccountFolder(accountFolder: string): Promise<string | null> {
-    const profile = this._adapter.accountHomeProfile;
-    if (profile) {
-      const prepared = await prepareAccountHome(profile, { env: process.env, accountFolder });
-      return "refusal" in prepared ? prepared.refusal : null;
-    }
-    const folderStat = await fs.promises.stat(accountFolder).catch(() => null);
-    return folderStat?.isDirectory() ? null : `the account folder ${accountFolder} is missing`;
+  _resumeHeldLaunch(outcome: LaunchSecretsOutcome, heldState: string, generation: number): void {
+    this._resumeAfterStartSettles(heldState, generation, () => {
+      if ("refusal" in outcome) {
+        this._abandonSpawn(new Error(outcome.refusal));
+        return false;
+      }
+      this._launch.acceptApprovedLaunchSecrets(outcome.valuesByName);
+      return true;
+    });
   }
 
   _abandonSpawn(cause: unknown): void {
+    this._startGeneration += 1;
+    this._launch.clearApprovedLaunches();
     this._isSaneYoloActive = false;
     this._hooks.cleanup();
-    this._disposeSandboxLaunch();
+    this._launch.disposeSandbox();
     this._approvals.releaseAll();
     this.transition("spawn_fail", { error: errorMessage(cause) });
     this.emit("error", cause);
@@ -2285,38 +2187,8 @@ class Session extends EventEmitter {
     return stateTransitions?.[event] === STATES.FAILED;
   }
 
-  async _sandboxedCommand(command: { file: string; args: string[] }, env: SpawnEnv, launchSetEnvNames: readonly string[], isStartSuperseded: () => boolean): Promise<{ file: string; args: string[]; env: SpawnEnv } | null> {
-    if (this._prepareSandbox === null) return { ...command, env };
-    this._disposeSandboxLaunch();
-    const prepared = await this._prepareSandbox({ ...command, agent: this.agentId, accountFolder: this._accountFolder, env, launchSetEnvNames, cwd: this.effectiveCwd() })
-      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
-    if (isStartSuperseded()) {
-      if (prepared.ok) void prepared.launch.dispose();
-      this._hooks.cleanup();
-      return null;
-    }
-    if (!prepared.ok) {
-      this._abandonSpawn(new Error(`the session sandbox refused to start: ${prepared.reason}`));
-      return null;
-    }
-    this._sandboxLaunch = prepared.launch;
-    return { file: prepared.launch.file, args: prepared.launch.args, env: prepared.launch.env };
-  }
-
-  _osSandboxArgs(): string[] {
-    if (this._prepareSandbox === null) return [];
-    return this._adapter.osSandboxArgs?.({ dangerouslySkipPermissions: this.dangerouslySkipPermissions }) ?? [];
-  }
-
-  _disposeSandboxLaunch(): void {
-    const launch = this._sandboxLaunch;
-    if (launch === null) return;
-    this._sandboxLaunch = null;
-    launch.dispose().catch((error: unknown) => console.warn(`[session ${this.id}] sandbox cleanup failed: ${errorMessage(error)}`));
-  }
-
   _handleSpawnedPtyExit(exitCode: number, signal: ExitSignal): Promise<void> {
-    this._disposeSandboxLaunch();
+    this._launch.disposeSandbox();
     this._approvals.releaseAll();
     return this._handlePtyExit(exitCode, signal);
   }
@@ -2489,7 +2361,7 @@ class Session extends EventEmitter {
       try {
         this.ptyProcess.resize(cols, rows);
       } catch {}
-      if (this._sandboxLaunch !== null) void signalWindowChangeBelow(this.ptyProcess.pid);
+      if (this._launch.hasActiveSandbox) void signalWindowChangeBelow(this.ptyProcess.pid);
     }
     this._resizeSeq += 1;
     this.emit("resize", { cols, rows, seq: this._resizeSeq });
@@ -2534,8 +2406,7 @@ class Session extends EventEmitter {
   }
 
   get accountId(): string | null {
-    const accountHome = this._resolveAccountHome?.() ?? null;
-    return accountHome?.kind === "account" ? accountHome.account.id : null;
+    return this._launch.accountId;
   }
 
   announceAccountChange(): void {
@@ -2578,6 +2449,8 @@ class Session extends EventEmitter {
 
   killSession(): boolean {
     if (!KILLABLE_STATES.includes(this.state)) return false;
+    this._startGeneration += 1;
+    this._launch.clearApprovedLaunches();
     this.kill();
     return this.transition("user_kill");
   }
@@ -2587,6 +2460,7 @@ class Session extends EventEmitter {
 
     if (this._teardownPending()) return false;
     if (!RESTARTABLE_STATES.includes(this.state)) return false;
+    this._launch.clearApprovedLaunches();
     this._prepareRestart(options);
     this.transition("user_restart");
     this.start({ fresh: options.fresh === true });
@@ -2596,7 +2470,11 @@ class Session extends EventEmitter {
   resetToDormant(): boolean {
     if (this._destroyed) return false;
     const did = this.transition("user_reset");
-    if (did) this.worktreeLifecycle.setMergeStatus("none", {}, { emit: false });
+    if (did) {
+      this._startGeneration += 1;
+      this._launch.clearApprovedLaunches();
+      this.worktreeLifecycle.setMergeStatus("none", {}, { emit: false });
+    }
     return did;
   }
 
@@ -2604,6 +2482,8 @@ class Session extends EventEmitter {
     if (this._destroyed || this._teardownPending()) return { ok: false, reason: "in-progress" };
     if (!this._resumeSessionId) return { ok: false, reason: "no-conversation" };
     if (!this.transition("user_snooze")) return { ok: false, reason: "not-snoozable" };
+    this._startGeneration += 1;
+    this._launch.clearApprovedLaunches();
     this.kill();
     return { ok: true };
   }
@@ -2634,6 +2514,8 @@ class Session extends EventEmitter {
     if (this._destroyed) return false;
     if (this._teardownPending()) return false;
     if (KILLABLE_STATES.includes(this.state)) {
+      this._startGeneration += 1;
+      this._launch.clearApprovedLaunches();
       this._prepareRestart(options);
       this._dispatchTeardown({ kind: "restart_requested", fresh: options.fresh === true, resumePrompt: options.resumePrompt ?? null });
       this.kill();
@@ -2652,6 +2534,8 @@ class Session extends EventEmitter {
   destroy(cause: SessionEndCause = "removed"): void {
     this.backgroundTracking.stopAnnouncedBackgroundTasks();
     if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;
+    this._startGeneration += 1;
+    this._launch.clearApprovedLaunches();
     this._chatOutbox.dispose();
     this._agentToken = null;
     this._commitSigningToken = null;
@@ -2664,7 +2548,7 @@ class Session extends EventEmitter {
     this._approvals.releaseAll();
 
     this.kill();
-    this._disposeSandboxLaunch();
+    this._launch.disposeSandbox();
 
     this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");

@@ -1,6 +1,6 @@
 import path from 'node:path';
+import { configDirOverride, expandTilde, normalizeHomeCandidates, projectDirCandidates, resolveHomeDir } from '../../core/claude-config-paths-core.ts';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { rawTextOr } from '../../../shared/coerce.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
 import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
@@ -83,64 +83,6 @@ function resolveProjectsDirs(
   return surviving;
 }
 
-function projectDirCandidates(
-  env: NodeJS.ProcessEnv = process.env,
-  extraDirs: string[] = [],
-  homeDir: string | null = null,
-): string[] {
-  const override = configDirOverride(env);
-  const extraHomes = normalizeHomeCandidates(extraDirs, env, homeDir);
-  if (override) {
-    const overrideHomes = normalizeHomeCandidates(override.split(','), env, homeDir);
-    return uniqueStrings([...projectsDirsFromHomes(overrideHomes), ...projectsDirsFromHomes(extraHomes)]);
-  }
-
-  const resolvedHomeDir = resolveHomeDir(env, homeDir);
-  if (!resolvedHomeDir) return uniqueStrings(projectsDirsFromHomes(extraHomes));
-  const xdgConfigHome = rawTextOr(env.XDG_CONFIG_HOME, null) || path.join(resolvedHomeDir, '.config');
-  const defaultHomes = [path.join(xdgConfigHome, 'claude'), path.join(resolvedHomeDir, '.claude')];
-  return uniqueStrings([...projectsDirsFromHomes(defaultHomes), ...projectsDirsFromHomes(extraHomes)]);
-}
-
-function configDirOverride(env: NodeJS.ProcessEnv): string {
-  const override = typeof env.CLAUDE_CONFIG_DIR === 'string' ? env.CLAUDE_CONFIG_DIR : '';
-  return override.trim();
-}
-
-function projectsDirsFromHomes(homes: string[]): string[] {
-  const projectsDirs: string[] = [];
-  for (const candidate of homes) {
-    const home = path.basename(candidate) === 'projects' ? path.dirname(candidate) : candidate;
-    const projectsDir = path.join(home, 'projects');
-    projectsDirs.push(projectsDir);
-  }
-  return projectsDirs;
-}
-
-function normalizeHomeCandidates(candidates: unknown, env: NodeJS.ProcessEnv, homeDir: string | null): string[] {
-  if (!Array.isArray(candidates)) return [];
-  return candidates
-    .map((candidate) => expandTilde(String(candidate || '').trim(), env, homeDir))
-    .filter(Boolean);
-}
-
-function expandTilde(candidate: string, env: NodeJS.ProcessEnv, homeDir: string | null): string {
-  if (!candidate.startsWith('~')) return candidate;
-  const home = resolveHomeDir(env, homeDir);
-  if (!home) return '';
-  if (candidate === '~') return home;
-  if (!candidate.startsWith(`~${path.sep}`) && !candidate.startsWith('~/')) return candidate;
-  return path.join(home, candidate.slice(2));
-}
-
-function resolveHomeDir(env: NodeJS.ProcessEnv, homeDir: string | null): string | null {
-  return rawTextOr(env.HOME, null) || rawTextOr(env.USERPROFILE, null) || homeDir;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values));
-}
-
 function passOutcome(
   { byteLimited, ioFailures }: { byteLimited: boolean; ioFailures: number },
 ): PassOutcome {
@@ -158,7 +100,7 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = '62e804de7e6cd8f4';
+const SCAN_SNAPSHOT_INGEST_DIGEST = 'f1431ebbb56c5c8e';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
