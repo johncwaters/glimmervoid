@@ -5,7 +5,7 @@ import { SESSION_REVIEW_AGENTS } from './session-review.ts';
 import { POSTHOG_WHOLE_NUMBER_ROUNDING } from './config-numbers-core.ts';
 import * as ranges from '../settings-ranges.ts';
 import type { SettingsRange } from '../settings-ranges.ts';
-import { USAGE_COST_MODES, USAGE_VENDOR_KEYS, USAGE_BUDGET_KEYS } from '../usage-config.ts';
+import { USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
 import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
@@ -139,10 +139,6 @@ const PosthogSettings = optionalObject('posthog', {
   ])),
 });
 
-const usageCostModeMessage = `usage.costMode must be one of ${USAGE_COST_MODES.join(', ')}`;
-const usageVendorShape = Object.fromEntries(
-  USAGE_VENDOR_KEYS.map((key) => [key, optionalBoolean(`usage.vendors.${key}`)]),
-);
 const usageBudgetShape = Object.fromEntries(
   USAGE_BUDGET_KEYS.map((key) => [
     key,
@@ -155,14 +151,7 @@ const usageBudgetShape = Object.fromEntries(
 
 const createUsageSettings = (isAbsolutePath: (directory: string) => boolean) => optionalObject('usage', {
   enabled: optionalBoolean('usage.enabled'),
-  fetchPricing: optionalBoolean('usage.fetchPricing'),
-  planLimits: optionalBoolean('usage.planLimits'),
-  scanIntervalMinutes: optionalInteger('usage.scanIntervalMinutes', ranges.USAGE_INTEGER_RANGES.scanIntervalMinutes),
-  retainDays: optionalInteger('usage.retainDays', ranges.USAGE_INTEGER_RANGES.retainDays),
-  warehouseRetainDays: optionalInteger('usage.warehouseRetainDays', ranges.USAGE_INTEGER_RANGES.warehouseRetainDays),
-  sessionBlockHours: optionalInteger('usage.sessionBlockHours', ranges.USAGE_INTEGER_RANGES.sessionBlockHours),
-  costMode: z.enum(USAGE_COST_MODES, { error: usageCostModeMessage }).optional(),
-  vendors: optionalObject('usage.vendors', usageVendorShape),
+  retainDays: optionalInteger('usage.retainDays', ranges.USAGE_RETAIN_DAYS_RANGE),
   budget: optionalObject('usage.budget', { ...usageBudgetShape, pauseAtLimit: optionalBoolean('usage.budget.pauseAtLimit') }),
   extraProjectsDirs: z.array(z.string({ error: 'usage.extraProjectsDirs must be an array of absolute paths' }), { error: 'usage.extraProjectsDirs must be an array of absolute paths' })
     .transform((directories) => directories.map((directory) => directory.trim()))

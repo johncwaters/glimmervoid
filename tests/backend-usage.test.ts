@@ -306,12 +306,12 @@ test('a settings save restarts the lane only when the usage block actually chang
   client.ws.send(JSON.stringify({
     type: 'update-settings',
     requestId: 's2',
-    settings: { usage: { enabled: true, fetchPricing: false, scanIntervalMinutes: 7, costMode: 'calculate' } },
+    settings: { usage: { enabled: true, retainDays: 30 } },
   }));
   const updated = await waitForMessage(client.received, settingsUpdatedFor('s2'), 'the usage save');
   await waitUntil(() => counts.scanners === 2, 'the lane to restart with a fresh scanner');
 
-  assert.deepEqual(updated.settings.usage, { enabled: true, fetchPricing: false, scanIntervalMinutes: 7, costMode: 'calculate' });
+  assert.deepEqual(updated.settings.usage, { enabled: true, retainDays: 30 });
 
   await closeSocket(client.ws);
 }));
@@ -432,7 +432,7 @@ test('a byte-limited continuation re-arms while a real scan is in flight without
   const passBarrier = new Promise<void>((resolve) => { releasePass = resolve; });
   const wiring = createUsageWiring({
     ...options,
-    config: { usage: { vendors: { codex: false, grok: false } } },
+    config: { usage: {} },
     scannerDeps: {
       ...options.scannerDeps,
       byteBudget: Buffer.byteLength(transcript.split('\n')[0]) + 1,

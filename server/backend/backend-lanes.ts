@@ -68,7 +68,7 @@ import { createGithubStatus, createProviderStatus } from '../github/github-statu
 import { createGithubStoreWiring } from '../github/github-store-wiring.ts';
 import type { GithubSourceReader } from '../github/github-source.ts';
 import { GITHUB_CLOCK_INTERVAL_MINUTES } from '../github/core/github-clock-core.ts';
-import { createUsageWiring, resolveUsageConfig } from '../usage/usage-wiring.ts';
+import { createUsageWiring, USAGE_WAREHOUSE_RETAIN_DAYS } from '../usage/usage-wiring.ts';
 import { createLaneLedger } from '../usage/usage-lane-ledger.ts';
 import { createTraceWiring } from '../trace-wiring.ts';
 import { createTraceChangeBroadcast } from '../trace-control.ts';
@@ -168,7 +168,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const gitWorkspaceSync = createGitWorkspaceSync({ ownedPaths, removalGuard: { protectedSessionIds }, log: logger });
   const laneLedger = createLaneLedger({
     ledgerPath: configSiblingPath(configStore.configPath, 'usage-lanes.json'),
-    retainDays: resolveUsageConfig(config.usage).warehouseRetainDays,
+    retainDays: USAGE_WAREHOUSE_RETAIN_DAYS,
     logger,
   });
   void laneLedger.load();

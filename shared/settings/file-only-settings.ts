@@ -15,14 +15,11 @@ import {
   SPAWNED_SESSIONS_DEFAULT,
   SPAWNED_SESSIONS_RANGE,
   TASK_TITLE_TIMEOUT_RANGE,
-  USAGE_INTEGER_RANGES,
   USAGE_RETAIN_DAYS_RANGE,
-  USAGE_SCAN_INTERVAL_RANGE,
   WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE,
   WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
 } from '../settings-ranges.ts';
-import { USAGE_COST_MODES } from '../usage-config.ts';
-import { FILE_ONLY, INVESTIGATIONS, ACTIONS, SESSIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, HOURS_STORED_AS_MS, USERS, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE, capitalizedOptions } from './registry-fields.ts';
+import { FILE_ONLY, INVESTIGATIONS, ACTIONS, SESSIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, HOURS_STORED_AS_MS, USERS, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE } from './registry-fields.ts';
 import type { SettingsSetting } from './registry-fields.ts';
 import { DEFAULT_MODELS } from '../contracts/agent-models.ts';
 
@@ -203,66 +200,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail', group: 'machine-usage',
     description: 'How long detailed usage is kept.',
     control: 'number', range: USAGE_RETAIN_DAYS_RANGE, unit: DAYS, keywords: ['history', 'retention'], defaultValue: 90, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-codex', path: 'usage.vendors.codex', title: 'Track Codex usage', group: 'machine-usage',
-    description: 'Include local Codex CLI transcripts in usage reports.',
-    control: 'toggle', keywords: ['openai', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-grok', path: 'usage.vendors.grok', title: 'Track Grok usage', group: 'machine-usage',
-    description: 'Include local Grok CLI transcripts in usage reports.',
-    control: 'toggle', keywords: ['xai', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-kimi', path: 'usage.vendors.kimi', title: 'Track Kimi Code usage', group: 'machine-usage',
-    description: 'Include local Kimi Code transcripts in usage reports.',
-    control: 'toggle', keywords: ['moonshot', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-antigravity', path: 'usage.vendors.antigravity', title: 'Track Antigravity usage', group: 'machine-usage',
-    description: 'Include local Antigravity CLI transcripts in usage reports.',
-    control: 'toggle', keywords: ['google', 'agy', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-pi', path: 'usage.vendors.pi', title: 'Track pi usage', group: 'machine-usage',
-    description: 'Include local pi session transcripts in usage reports.',
-    control: 'toggle', keywords: ['pi', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-opencode', path: 'usage.vendors.opencode', title: 'Track OpenCode usage', group: 'machine-usage',
-    description: 'Include local OpenCode SQLite usage records in usage reports.',
-    control: 'toggle', keywords: ['opencode', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-fetch-pricing', path: 'usage.fetchPricing', title: 'Fetch current model prices', group: 'machine-usage',
-    description: 'Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues.',
-    control: 'toggle', keywords: ['rates', 'models'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-plan-limits', path: 'usage.planLimits', title: 'Show plan limits', group: 'machine-usage',
-    description: 'Read the Claude plan limit the CLI reports and show it beside usage.',
-    control: 'toggle', keywords: ['plan', 'limits', 'quota'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-scan-interval', path: 'usage.scanIntervalMinutes', title: 'Scan interval', group: 'machine-usage',
-    description: 'Periodic transcript polling interval. Session activity can also trigger scans between timer ticks.',
-    control: 'number', range: USAGE_SCAN_INTERVAL_RANGE, unit: MINUTES, keywords: ['poll', 'refresh'], defaultValue: 5, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-warehouse-retain-days', path: 'usage.warehouseRetainDays', title: 'Retain usage history', group: 'machine-usage',
-    description: 'How long the daily usage warehouse keeps rolled-up totals after transcript detail expires.',
-    control: 'number', range: USAGE_INTEGER_RANGES.warehouseRetainDays, unit: DAYS, keywords: ['history', 'warehouse', 'retention'], defaultValue: 365, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-session-block-hours', path: 'usage.sessionBlockHours', title: 'Session block length', group: 'machine-usage',
-    description: 'Length of the rolling block the Usage view groups activity into.',
-    control: 'number', range: USAGE_INTEGER_RANGES.sessionBlockHours, unit: HOURS, keywords: ['block', 'window', 'hours'], defaultValue: 5, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-usage-cost-mode', path: 'usage.costMode', title: 'Cost mode', group: 'machine-usage',
-    description: 'Choose whether recorded costs, calculated costs or both can appear.',
-    control: 'select', options: capitalizedOptions(USAGE_COST_MODES), keywords: ['pricing', 'estimate'], defaultValue: 'auto', takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-usage-extra-projects-dirs', path: 'usage.extraProjectsDirs', title: 'Extra transcript folders', group: 'machine-usage',

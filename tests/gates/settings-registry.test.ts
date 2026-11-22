@@ -474,7 +474,6 @@ test('the tuning knobs, diagnostics and legacy team keys are the file-only listi
   for (const settingPath of [
     'teamReview.team',
     'workflows.maxActionsPerPoll',
-    'usage.scanIntervalMinutes', 'usage.fetchPricing', 'usage.costMode', 'usage.vendors.codex', 'usage.vendors.grok', 'usage.vendors.kimi',
     'replayBufferKB', 'cursorBlink',
     'debugMode',
     'notifyDebounceMs', 'phoneEscalationMs',

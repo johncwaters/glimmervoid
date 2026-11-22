@@ -2,9 +2,7 @@ import nodeFsPromises from 'node:fs/promises';
 import path from 'node:path';
 
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
-import { USAGE_INTEGER_RANGES } from '../../shared/settings-ranges.ts';
-import { USAGE_COST_MODES, USAGE_VENDOR_KEYS } from '../../shared/usage-config.ts';
-import type { UsageVendorKey } from '../../shared/usage-config.ts';
+import { USAGE_RETAIN_DAYS_RANGE } from '../../shared/settings-ranges.ts';
 import { budgetScopesAtLimit, evaluateBudget, markFired, pausedPeriodsAfter, pausedScopesInPeriod, readPausedPeriods, mergeFiredState, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import type { BudgetAlert, BudgetConfig, BudgetFiredState, BudgetPausedPeriods } from './core/usage-budget-core.ts';
 import type { BudgetHoldPhase } from '../session/session-budget-pause.ts';
@@ -41,21 +39,17 @@ import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
 import { clock } from '../../shared/clock.ts';
 
+const USAGE_SCAN_INTERVAL_MINUTES = 5;
+const USAGE_WAREHOUSE_RETAIN_DAYS = 365;
+const USAGE_SESSION_BLOCK_HOURS = 5;
+const USAGE_COST_MODE = 'auto';
+const USAGE_VENDORS = Object.freeze({ codex: true, grok: true, kimi: true, antigravity: true, pi: true, opencode: true });
+
 const DEFAULT_USAGE_CONFIG = Object.freeze({
   enabled: true,
-  fetchPricing: true,
-  planLimits: true,
-  scanIntervalMinutes: 5,
   retainDays: 90,
-
-  warehouseRetainDays: 365,
-  sessionBlockHours: 5,
-  costMode: 'auto',
   extraProjectsDirs: [],
-
   budget: { dailyUsd: null, monthlyUsd: null, pauseAtLimit: false },
-
-  vendors: { codex: true, grok: true, kimi: true, antigravity: true, pi: true, opencode: true },
 });
 
 const OFFICIAL_COST_CAP = 200;
@@ -73,20 +67,10 @@ const KIMI_VIEWED_POLL_MS = 60 * 1000;
 const KIMI_AGENT_ID = 'kimi';
 const CODEX_AGENT_ID = 'codex';
 
-const COST_MODES = new Set<string>(USAGE_COST_MODES);
-const INTEGER_RANGES = USAGE_INTEGER_RANGES;
-
 interface UsageLaneConfig {
   enabled: boolean;
-  fetchPricing: boolean;
-  planLimits: boolean;
-  scanIntervalMinutes: number;
   retainDays: number;
-  warehouseRetainDays: number;
-  sessionBlockHours: number;
-  costMode: string;
   extraProjectsDirs: string[];
-  vendors: Record<UsageVendorKey, boolean>;
   budget: BudgetConfig;
 }
 
@@ -173,28 +157,12 @@ function absoluteDirList(value: unknown): string[] {
     .map((entry) => entry.trim());
 }
 
-function resolveVendors(vendors: unknown): Record<UsageVendorKey, boolean> {
-  const source: Record<string, unknown> = isRecord(vendors) ? vendors : {};
-  const resolved = {} as Record<UsageVendorKey, boolean>;
-  for (const key of USAGE_VENDOR_KEYS) {
-    resolved[key] = source[key] !== false;
-  }
-  return resolved;
-}
-
 function resolveUsageConfig(usage: unknown): UsageLaneConfig {
   const source: Record<string, unknown> = isRecord(usage) ? usage : {};
   return {
     enabled: typeof source.enabled === 'boolean' ? source.enabled : DEFAULT_USAGE_CONFIG.enabled,
-    fetchPricing: typeof source.fetchPricing === 'boolean' ? source.fetchPricing : DEFAULT_USAGE_CONFIG.fetchPricing,
-    planLimits: typeof source.planLimits === 'boolean' ? source.planLimits : DEFAULT_USAGE_CONFIG.planLimits,
-    scanIntervalMinutes: integerWithin(source.scanIntervalMinutes, INTEGER_RANGES.scanIntervalMinutes, DEFAULT_USAGE_CONFIG.scanIntervalMinutes),
-    retainDays: integerWithin(source.retainDays, INTEGER_RANGES.retainDays, DEFAULT_USAGE_CONFIG.retainDays),
-    warehouseRetainDays: integerWithin(source.warehouseRetainDays, INTEGER_RANGES.warehouseRetainDays, DEFAULT_USAGE_CONFIG.warehouseRetainDays),
-    sessionBlockHours: integerWithin(source.sessionBlockHours, INTEGER_RANGES.sessionBlockHours, DEFAULT_USAGE_CONFIG.sessionBlockHours),
-    costMode: typeof source.costMode === 'string' && COST_MODES.has(source.costMode) ? source.costMode : DEFAULT_USAGE_CONFIG.costMode,
+    retainDays: integerWithin(source.retainDays, USAGE_RETAIN_DAYS_RANGE, DEFAULT_USAGE_CONFIG.retainDays),
     extraProjectsDirs: absoluteDirList(source.extraProjectsDirs),
-    vendors: resolveVendors(source.vendors),
     budget: normalizeBudgetConfig(source.budget as { dailyUsd?: unknown; monthlyUsd?: unknown; pauseAtLimit?: unknown } | null),
   };
 }
@@ -315,7 +283,7 @@ function createUsageWiring({
 
   async function loadPricingSafely(): Promise<PricingResult> {
     try {
-      return await loadPricingFn({ fetchEnabled: cfg.fetchPricing, logger });
+      return await loadPricingFn({ fetchEnabled: true, logger });
     } catch (error) {
       laneLog.warn('pricing load failed', { error: errorMessage(error) });
       return { table: new Map(), source: 'unavailable', fetchedAt: null };
@@ -324,7 +292,7 @@ function createUsageWiring({
 
   function armInterval(): void {
     if (stopped || intervalTimer) return;
-    intervalTimer = setIntervalFn(onIntervalTick, cfg.scanIntervalMinutes * 60 * 1000);
+    intervalTimer = setIntervalFn(onIntervalTick, USAGE_SCAN_INTERVAL_MINUTES * 60 * 1000);
     unrefTimer(intervalTimer);
   }
 
@@ -353,15 +321,15 @@ function createUsageWiring({
       if (stopped) return;
       scanner = createScanner({
         pricingTable: loadedPricing.table,
-        costMode: cfg.costMode,
-        blockHours: cfg.sessionBlockHours,
+        costMode: USAGE_COST_MODE,
+        blockHours: USAGE_SESSION_BLOCK_HOURS,
         retainDays: cfg.retainDays,
         extraProjectsDirs: cfg.extraProjectsDirs,
-        vendors: cfg.vendors,
+        vendors: USAGE_VENDORS,
         warehousePath,
         snapshotPath,
         appVersion,
-        warehouseRetainDays: cfg.warehouseRetainDays,
+        warehouseRetainDays: USAGE_WAREHOUSE_RETAIN_DAYS,
         budget: cfg.budget,
         laneMap,
         logger,
@@ -515,7 +483,7 @@ function createUsageWiring({
       const lastTs = stats?.lastTs ?? fallback?.lastTs ?? null;
       const totalInput = (stats?.input ?? 0) + (stats?.cacheRead ?? 0);
       const cacheHitPct = stats && totalInput > 0 ? Math.round(((stats.cacheRead ?? 0) / totalInput) * 100) : null;
-      const officialCostUSD = selectOfficialSessionCost(cfg.costMode, officialCostByClaudeId.get(resumeId));
+      const officialCostUSD = selectOfficialSessionCost(USAGE_COST_MODE, officialCostByClaudeId.get(resumeId));
       rows.push({
         id,
         name: sess.name,
@@ -605,7 +573,7 @@ function createUsageWiring({
   function ingestStatusline(payload: unknown, glimmervoidId: string): void {
     if (stopped) return;
     rememberSessionMeter(payload, glimmervoidId);
-    if (!cfg.enabled || !cfg.planLimits) return;
+    if (!cfg.enabled) return;
     const snapshot = normalizeStatuslinePayload(payload, nowFn());
     if (!snapshot) return;
     rememberOfficialCost(snapshot);
@@ -632,7 +600,7 @@ function createUsageWiring({
   }
 
   function ingestCodexAccountRateLimits(drained: readonly { agentSessionId: string; snapshot: CodexRateLimitSnapshot }[]): void {
-    if (stopped || !cfg.enabled || !cfg.planLimits) return;
+    if (stopped || !cfg.enabled) return;
     for (const { agentSessionId, snapshot } of drained) {
       const liveSession = liveCodexSessionOf(agentSessionId);
       if (!liveSession) continue;
@@ -642,7 +610,7 @@ function createUsageWiring({
   }
 
   function getAccountPlanLimitsMessages() {
-    if (!cfg.enabled || !cfg.planLimits) return [];
+    if (!cfg.enabled) return [];
     return [...accountPlanLimitsByKey.values()]
       .map(({ vendor, accountId, snapshot }) => buildAccountPlanLimitsMessage(snapshot, vendor, accountId))
       .filter((message) => message !== null);
@@ -659,7 +627,7 @@ function createUsageWiring({
   }
 
   function ingestCodexRateLimits(snapshot: CodexRateLimitSnapshot | null): void {
-    if (stopped || !cfg.enabled || !cfg.planLimits || !snapshot) return;
+    if (stopped || !cfg.enabled || !snapshot) return;
     adoptPlanLimits('codex', snapshot);
   }
 
@@ -679,7 +647,7 @@ function createUsageWiring({
 
   function pollKimiPlanLimits(minIntervalMs: number): Promise<void> {
     if (kimiPollInFlight) return kimiPollInFlight;
-    if (stopped || !cfg.enabled || !cfg.planLimits || !cfg.vendors.kimi) return Promise.resolve();
+    if (stopped || !cfg.enabled) return Promise.resolve();
     if (!hasLiveKimiSession()) return Promise.resolve();
     if (lastKimiPollMs !== null && nowFn() - lastKimiPollMs < minIntervalMs) return Promise.resolve();
     kimiPollInFlight = runKimiPoll()
@@ -689,7 +657,7 @@ function createUsageWiring({
   }
 
   function getPlanLimitsMessage(vendor: PlanLimitsVendor = 'claude') {
-    if (!cfg.enabled || !cfg.planLimits) return null;
+    if (!cfg.enabled) return null;
     return buildPlanLimitsMessage(planLimitsByVendor[vendor], vendor);
   }
 
@@ -931,5 +899,5 @@ function createUsageWiring({
   };
 }
 
-export { createUsageWiring, resolveUsageConfig };
+export { createUsageWiring, resolveUsageConfig, USAGE_WAREHOUSE_RETAIN_DAYS };
 export type { UsageWiringOptions };

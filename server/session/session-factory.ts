@@ -103,8 +103,7 @@ function gitCredentialHelperResolverFor(helperProgram: string | null | undefined
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   const resolveGitCredentialHelper = gitCredentialHelperResolverFor(dependencies.gitCredentialProgram, Boolean(dependencies.sessionSandboxFor));
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
-    const usageConfig = resolveUsageConfig(config.usage);
-    return usageConfig.enabled && usageConfig.planLimits;
+    return resolveUsageConfig(config.usage).enabled;
   }
 
   function ghShimDirsForSpawn(): string[] {

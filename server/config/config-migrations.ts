@@ -253,6 +253,13 @@ const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
   'posthog.recurrenceWindowDays',
   'posthog.transientRecurrenceLimit',
   'community.intervalMinutes',
+  'usage.vendors',
+  'usage.scanIntervalMinutes',
+  'usage.warehouseRetainDays',
+  'usage.sessionBlockHours',
+  'usage.fetchPricing',
+  'usage.planLimits',
+  'usage.costMode',
 ]);
 
 function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {
