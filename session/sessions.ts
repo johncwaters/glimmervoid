@@ -10,8 +10,7 @@ import { NO_INPUT_READY_SCAN, scanInputReady } from "./core/input-ready-core.ts"
 import type { InputReadyCondition, InputReadyScan } from "./core/input-ready-core.ts";
 import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
-import { buildPersistedTaskTitle, cleanTaskPrompt, extractHookTaskTitle, extractOscTaskTitle, extractPromptTaskTitle, isSelfWakePrompt, isSubstantivePrompt, resolveRefocusTaskTitle, resolveTaskTitle, seedTaskTitleSources } from "./core/task-title-core.ts";
-import { maskSecrets } from "../shared/secret-patterns.ts";
+import { isSelfWakePrompt } from "./core/task-title-core.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
 import type { BranchLink } from "../shared/contracts/session.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
@@ -19,7 +18,10 @@ import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
 import type { PromptContextReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
 import { mergeSessionPrLink, seedSessionPrLinks, withManualPrLink, withoutPrLink, withoutReleasedPrLink } from "./core/session-pr-links-core.ts";
 import type { TaskTitleRefinementResult, TaskTitleSources } from "./core/task-title-core.ts";
-import { readTranscriptTaskTitle } from "./session-task-title.ts";
+import { createSessionTaskTitle } from "./session-task-title.ts";
+import type { SessionTaskTitleController } from "./session-task-title.ts";
+import { createSessionPromptNotes } from "./session-prompt-notes.ts";
+import type { SessionPromptNotes } from "./session-prompt-notes.ts";
 import os from "node:os";
 import path from "node:path";
 import pty from "node-pty";
@@ -39,8 +41,8 @@ import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND, SIGNED_IN_SIGNAL } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
-import { hintFor, permitsHelpCommand, promptHintsFor, supervisionLine, toolHookFactsOf } from "./core/session-routes.ts";
-import type { CommandHint, HintedCommand, PromptHint } from "./core/session-routes.ts";
+import { permitsHelpCommand } from "./core/session-routes.ts";
+import type { CommandHint, HintedCommand } from "./core/session-routes.ts";
 import { ASK_USER_QUESTION_TOOL_NAME, type AgentAttentionReply, type AttentionNote, type AttentionOrigin } from "../shared/contracts/session.ts";
 import { PROPOSED_PLAN_TEXT_FIELD } from "../shared/contracts/plan-gate.ts";
 import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
@@ -152,7 +154,7 @@ function startsTurn(from: SessionState, to: SessionState): boolean {
 }
 
 type StartupSignal = "output" | "ready";
-type TimerField = "_titleQuietFallbackTimer" | "_resumeNoteFallbackTimer" | "_inputReadyFallbackTimer";
+type TimerField = "_titleQuietFallbackTimer" | "_inputReadyFallbackTimer";
 type SnoozeRefusal = "in-progress" | "no-conversation" | "not-snoozable";
 type SnoozeOutcome = { ok: true } | { ok: false; reason: SnoozeRefusal };
 
@@ -307,15 +309,9 @@ function nonEmptyText(value: unknown): string | null {
 }
 
 class Session extends EventEmitter {
-  customTitle: string | null;
-  taskTitle: string | null;
-  taskTitleIsCustom: boolean;
-  _taskTitleSources: TaskTitleSources;
+  _taskTitle: SessionTaskTitleController;
+  _promptNotes: SessionPromptNotes;
   _lastOperatorInputAt: number;
-  _taskTitleStateSignature: string | undefined;
-  _taskTitleReadSequence: number;
-  _recentTaskPrompts: string[];
-  taskTitlePromptRevision: number;
   _prLinks: SessionPrLinks;
   id: string;
   name: string;
@@ -343,7 +339,6 @@ class Session extends EventEmitter {
   _startupSignals: Set<StartupSignal>;
   _hasPromptSinceSpawn: boolean;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
-  _resumeNoteFallbackTimer: NodeJS.Timeout | null;
   _inputReadyFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
   _teardown: Teardown;
@@ -368,17 +363,8 @@ class Session extends EventEmitter {
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _firstTurnSince: number | null;
-  _pendingPromptSupervisionLine: string | null;
-  _pendingPackContextLines: readonly string[];
   _getPackAgentLaunch: () => PackAgentLaunch | null;
   _spawnPackLaunch: PackAgentLaunch | null;
-  _pendingResumeNote: string | null;
-  _resumeNoteAwaitingTurn: string | null;
-  _heldResumePrompt: string | null;
-  _hintedCommands: Set<HintedCommand>;
-  _shownHintCommands: Set<HintedCommand>;
-  _ranCommands: Set<string>;
-  _queuedCommandHints: PromptHint[];
   _extraClaudeArgs: string[];
   _agentSetup: AgentSetup | null;
   _isCleanHome: boolean;
@@ -559,16 +545,27 @@ class Session extends EventEmitter {
     this.agentDoneLines = agentDoneLines.map((line) => ({ ...line }));
     this.attentionOwner = attentionOwnerOf(ownerId, raceId);
     this.name = name;
-    this.customTitle = customTitle || null;
-    const seededTaskTitleSources = seedTaskTitleSources({ persistedTitle: taskTitleState, resumeSessionId, customTitle: this.customTitle, initialPrompt: initialPrompt ? maskSecrets(initialPrompt) : initialPrompt });
-    this._taskTitleStateSignature = JSON.stringify(buildPersistedTaskTitle(seededTaskTitleSources));
-    this._taskTitleSources = this._maskedTaskTitleSources(seededTaskTitleSources);
-    const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
-    this.taskTitle = effectiveTitle.taskTitle;
-    this.taskTitleIsCustom = effectiveTitle.isCustom;
-    this._taskTitleReadSequence = 0;
-    this._recentTaskPrompts = [];
-    this.taskTitlePromptRevision = 0;
+    const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
+    if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
+    this._adapter = resolvedAdapter;
+    this.agentId = this._adapter.id;
+    this._taskTitle = createSessionTaskTitle({
+      customTitle: customTitle || null,
+      persistedTitle: taskTitleState,
+      resumeSessionId,
+      initialPrompt,
+      titleProfile: this._adapter.titleProfile,
+      port: {
+        isDestroyed: () => this._destroyed,
+        transcriptPath: () => this._transcriptPath,
+        deliveredSecretValues: () => this._deliveredSecretValues,
+        emit: (event, ...args) => this.emit(event, ...args),
+      },
+    });
+    this._promptNotes = createSessionPromptNotes({
+      canUseToolHookContext: () => this._can("toolHookContext"),
+      onCommandHint: (command, outcome) => this.emit("command-hint", { command, outcome }),
+    });
     this._prLinks = seedSessionPrLinks(prLinks);
     this.path = projectPath;
     this.dangerouslySkipPermissions = dangerouslySkipPermissions;
@@ -618,10 +615,6 @@ class Session extends EventEmitter {
       this._chatOutbox.drain();
     });
 
-    const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
-    if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
-    this._adapter = resolvedAdapter;
-    this.agentId = this._adapter.id;
     this._observability = createSessionObservability({
       agentId: this.agentId,
       getRecorder: () => this._recorder,
@@ -649,7 +642,6 @@ class Session extends EventEmitter {
     });
     this._titleQuietFallbackMs = titleQuietFallbackMs;
     this._titleQuietFallbackTimer = null;
-    this._resumeNoteFallbackTimer = null;
     this._inputReadyFallbackTimer = null;
 
     this._hookSeen = false;
@@ -685,17 +677,8 @@ class Session extends EventEmitter {
     this._requiresWorktree = requireWorktree;
     this._initialPrompt = promptWithDoneMeans(initialPrompt, doneMeans);
     this._firstTurnSince = null;
-    this._pendingPromptSupervisionLine = null;
-    this._pendingPackContextLines = [];
     this._getPackAgentLaunch = getPackAgentLaunch ?? (() => null);
     this._spawnPackLaunch = null;
-    this._pendingResumeNote = null;
-    this._resumeNoteAwaitingTurn = null;
-    this._heldResumePrompt = null;
-    this._hintedCommands = new Set();
-    this._shownHintCommands = new Set();
-    this._ranCommands = new Set();
-    this._queuedCommandHints = [];
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
     this._agentSetup = agentSetup;
     this._isCleanHome = isCleanHome === true;
@@ -849,12 +832,7 @@ class Session extends EventEmitter {
       ...(statusDedupMs != null ? { dedupWindowMs: statusDedupMs } : {}),
     });
     this._titleSource.on("title", (title: string) => {
-      const taskTitleVocabulary = this._adapter.titleProfile.taskTitle;
-      if (taskTitleVocabulary.readsTranscriptTitle) return;
-      const oscTitle = extractOscTaskTitle(title, this._titleProjectName(), taskTitleVocabulary);
-      if (!oscTitle) return;
-      this._taskTitleSources.oscTitle = oscTitle;
-      this._updateTaskTitle();
+      this._taskTitle.noteOscTitle(title, this._titleProjectName());
     });
     this._titleSource.on("signal", (s) => {
       if (this._titleQuiet) return;
@@ -864,10 +842,28 @@ class Session extends EventEmitter {
     this._statusSource.on("meta", (m: MetaStatusSignal) => this._onMeta(m));
   }
 
+  get _taskTitleSources(): TaskTitleSources {
+    return this._taskTitle.sources;
+  }
+
+  get customTitle(): string | null {
+    return this._taskTitle.customTitle;
+  }
+
+  get taskTitle(): string | null {
+    return this._taskTitle.taskTitle;
+  }
+
+  get taskTitleIsCustom(): boolean {
+    return this._taskTitle.taskTitleIsCustom;
+  }
+
+  get taskTitlePromptRevision(): number {
+    return this._taskTitle.promptRevision;
+  }
+
   setCustomTitle(title: string | null): void {
-    this.customTitle = title?.trim() || null;
-    this._taskTitleSources.customTitle = this.customTitle;
-    this._updateTaskTitle();
+    this._taskTitle.setCustomTitle(title);
   }
 
   launchEnv(): SpawnEnv {
@@ -879,7 +875,7 @@ class Session extends EventEmitter {
   }
 
   get refinedTaskTitle(): string | null {
-    return this._taskTitleSources.refinedTitle ?? null;
+    return this._taskTitle.refinedTaskTitle;
   }
 
   get transcriptPath(): string | null {
@@ -887,11 +883,11 @@ class Session extends EventEmitter {
   }
 
   get persistedTaskTitle(): PersistedTaskTitle | undefined {
-    return buildPersistedTaskTitle(this._taskTitleSources);
+    return this._taskTitle.persistedTaskTitle;
   }
 
   get refocusTaskTitle(): string | null {
-    return resolveRefocusTaskTitle(this._taskTitleSources);
+    return this._taskTitle.refocusTaskTitle;
   }
 
   setAgentDoneLines(lines: readonly AgentDoneLine[]): void {
@@ -926,54 +922,23 @@ class Session extends EventEmitter {
   }
 
   get recentTaskPrompts(): readonly string[] {
-    return [...this._recentTaskPrompts];
+    return this._taskTitle.recentTaskPrompts;
   }
 
   applyTaskTitleRefinement(refinement: TaskTitleRefinementResult): void {
-    if (refinement.action === "replace") this._taskTitleSources.refinedTitle = refinement.title;
-    this._updateTaskTitle();
-  }
-
-  _maskedTaskTitleSources(sources: TaskTitleSources): TaskTitleSources {
-    const maskedSources: TaskTitleSources = {};
-    for (const [source, title] of Object.entries(sources)) {
-      maskedSources[source as keyof TaskTitleSources] = title ? maskSecrets(title, this._deliveredSecretValues) : title;
-    }
-    return maskedSources;
+    this._taskTitle.applyRefinement(refinement);
   }
 
   _updateTaskTitle(): void {
-    this._taskTitleSources = this._maskedTaskTitleSources(this._taskTitleSources);
-    const effectiveTitle = resolveTaskTitle(this._taskTitleSources);
-    if (this.taskTitle !== effectiveTitle.taskTitle || this.taskTitleIsCustom !== effectiveTitle.isCustom) {
-      this.taskTitle = effectiveTitle.taskTitle;
-      this.taskTitleIsCustom = effectiveTitle.isCustom;
-      this.emit("task-title-change", effectiveTitle);
-    }
-    const titleState = buildPersistedTaskTitle(this._taskTitleSources);
-    const signature = JSON.stringify(titleState);
-    if (signature === this._taskTitleStateSignature) return;
-    this._taskTitleStateSignature = signature;
-    this.emit("task-title-state-change", titleState);
+    this._taskTitle.refreshSecretMask();
   }
 
-  _resetAutomaticTaskTitle(): void {
-    this._taskTitleReadSequence++;
-    this._taskTitleSources = { customTitle: this.customTitle };
-    this._recentTaskPrompts = [];
-    this.taskTitlePromptRevision++;
-    this.emit("task-title-reset");
-    this._updateTaskTitle();
+  _refreshTranscriptTaskTitle(): Promise<void> {
+    return this._taskTitle.refreshFromTranscript();
   }
 
-  async _refreshTranscriptTaskTitle(): Promise<void> {
-    if (!this._adapter.titleProfile.taskTitle.readsTranscriptTitle || !this._transcriptPath) return;
-    const transcriptPath = this._transcriptPath;
-    const readSequence = ++this._taskTitleReadSequence;
-    const aiTitle = await readTranscriptTaskTitle(transcriptPath);
-    if (this._destroyed || readSequence !== this._taskTitleReadSequence || transcriptPath !== this._transcriptPath || !aiTitle) return;
-    this._taskTitleSources.aiTitle = aiTitle;
-    this._updateTaskTitle();
+  get _ranCommands(): ReadonlySet<string> {
+    return this._promptNotes.ranCommands;
   }
 
   setRecorder(recorder: SessionRecorderPort | null): void {
@@ -988,7 +953,7 @@ class Session extends EventEmitter {
   maskDeliveredSecretValues(values: readonly string[]): void {
     this._deliveredSecretValues = values;
     this._recorder?.maskDeliveredValues?.(values);
-    this._updateTaskTitle();
+    this._taskTitle.refreshSecretMask();
   }
 
   get auditLog(): Record<string, unknown>[] {
@@ -1094,11 +1059,7 @@ class Session extends EventEmitter {
     if (raw?.payload) {
       this._captureClaudeSessionId(
         this._reportedSessionIdOf(raw.payload), raw.payload.source, raw.payload.transcript_path, raw.signal, raw.confidence);
-      const hookTitle = extractHookTaskTitle(raw.payload, path.basename(this.effectiveCwd()), this._adapter.titleProfile.taskTitle);
-      if (hookTitle && hookTitle !== this._taskTitleSources.aiTitle) {
-        this._taskTitleSources.aiTitle = hookTitle;
-        this._updateTaskTitle();
-      }
+      this._taskTitle.noteHookPayload(raw.payload, path.basename(this.effectiveCwd()));
     }
 
     const hookEvent = String(raw.event || "").toLowerCase();
@@ -1115,23 +1076,14 @@ class Session extends EventEmitter {
     }
 
     if (hookEvent === "userpromptsubmit") {
-      this._dropResumeNote();
+      this._promptNotes.dropResumeNote();
       if (this._usageLimit !== null) this._setUsageLimit(null);
       const prompt = raw.payload?.prompt;
-      this._queuePromptHint(prompt);
-      if (!this._taskTitleSources.promptTitle) {
-        this._taskTitleSources.promptTitle = extractPromptTaskTitle(typeof prompt === "string" ? maskSecrets(prompt, this._deliveredSecretValues) : prompt);
-        this._updateTaskTitle();
-      }
-      if (typeof prompt === "string" && isSubstantivePrompt(prompt)) {
-        const cleanedPrompt = cleanTaskPrompt(prompt);
-        this._recentTaskPrompts = [...this._recentTaskPrompts, cleanedPrompt].slice(-5);
-        this.taskTitlePromptRevision++;
-        this.emit("task-prompt", { prompt: cleanedPrompt });
-      }
+      this._promptNotes.queuePromptHint(prompt);
+      this._taskTitle.notePrompt(prompt);
     }
     if (hookEvent === "stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {
-      void this._refreshTranscriptTaskTitle();
+      void this._taskTitle.refreshFromTranscript();
     }
 
     if (raw && raw.signal === "awaiting-input") {
@@ -1186,20 +1138,13 @@ class Session extends EventEmitter {
     }
     this._compaction = createCompactionTracking();
     this._emitSessionDetail();
-    this._resetAutomaticTaskTitle();
+    this._taskTitle.resetAutomatic();
     this._resetDetectionSources({ quiet: true });
     this.backgroundTracking.clearGateHeldReady();
     this.backgroundTracking.resetTurnEvidence();
     this._setPendingPromptKind(null);
-    this._forgetCommandHints();
+    this._promptNotes.forgetHints();
     this._armPromptSupervisionLine();
-  }
-
-  _forgetCommandHints(): void {
-    this._hintedCommands.clear();
-    this._shownHintCommands.clear();
-    this._ranCommands.clear();
-    this._queuedCommandHints = [];
   }
 
   _captureClaudeSessionId(
@@ -1570,8 +1515,8 @@ class Session extends EventEmitter {
     this._suppressResumeCapture = true;
     this.setResumeConversation(null);
     this._transcriptPath = null;
-    this._resetAutomaticTaskTitle();
-    this._forgetCommandHints();
+    this._taskTitle.resetAutomatic();
+    this._promptNotes.forgetHints();
     this.emit("resume-cleared", { id: this.id });
   }
 
@@ -1813,7 +1758,7 @@ class Session extends EventEmitter {
 
     if (to === STATES.IDLE || to === STATES.COMPLETE) {
       this._titleSource.resyncWorkingLatch();
-      void this._refreshTranscriptTaskTitle();
+      void this._taskTitle.refreshFromTranscript();
     }
 
     const enteredAt = clock.nowMs();
@@ -1840,13 +1785,12 @@ class Session extends EventEmitter {
   }
 
   holdResumePromptForNextStart(resumePrompt: string | null): void {
-    this._heldResumePrompt = resumePrompt;
+    this._promptNotes.holdResumePrompt(resumePrompt);
   }
 
   start(options: { fresh?: boolean; resumePrompt?: string | null } = {}): Promise<void> {
     if (this._startPending) return this._startPending;
-    const resumePrompt = options.resumePrompt !== undefined ? options.resumePrompt : this._heldResumePrompt;
-    this._heldResumePrompt = null;
+    const resumePrompt = this._promptNotes.takeHeldResumePrompt(options.resumePrompt);
     this._startPending = this._startBody({ ...options, resumePrompt }).finally(() => { this._startPending = null; });
     return this._startPending;
   }
@@ -1988,10 +1932,9 @@ class Session extends EventEmitter {
     this._suppressResumeCapture = false;
     const isResumeNoteLaunch = Boolean(spawnResumeSessionId && resumePrompt);
     const isResumeNoteByHook = isResumeNoteLaunch && this._can("resumeNoteByHook") && this._hooks.hasInjection();
-    this._pendingResumeNote = isResumeNoteByHook ? resumePrompt : null;
-    this._resumeNoteAwaitingTurn = this._pendingResumeNote;
+    this._promptNotes.armResumeNote(isResumeNoteByHook ? resumePrompt : null);
     const launchPrompt = isResumeNoteLaunch ? (isResumeNoteByHook ? null : resumePrompt) : this._initialPrompt;
-    if (!launchPrompt && !this._pendingResumeNote) this._firstTurnSince = null;
+    if (!launchPrompt && !this._promptNotes.pendingResumeNote()) this._firstTurnSince = null;
     if (isResumeNoteLaunch) this.emit("delivered-input");
     const agentArgs = this._adapter.buildArgs({
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
@@ -2121,20 +2064,16 @@ class Session extends EventEmitter {
   }
 
   _armResumeNoteFallback(): void {
-    this._clearTimer("_resumeNoteFallbackTimer");
-    if (this._resumeNoteAwaitingTurn === null) return;
-    this._armTimer("_resumeNoteFallbackTimer", this._titleQuietFallbackMs, () => {
-      const resumeNote = this._resumeNoteAwaitingTurn;
-      if (this._destroyed || !this._ptyAlive || resumeNote === null) return;
-      this._dropResumeNote();
+    this._promptNotes.armResumeNoteFallback(this._titleQuietFallbackMs, (resumeNote) => {
+      if (this._destroyed || !this._ptyAlive) return;
+      this._promptNotes.dropResumeNote();
       console.warn(`[session:${this.name}] no turn started from the resume note within ${Math.round(this._titleQuietFallbackMs / 1000)}s - pasting it into the terminal`);
       this.deliver(resumeNote, { when: "ready", submit: true });
-    }, { unref: true });
+    });
   }
 
   _armPromptSupervisionLine(): void {
-    this._pendingPromptSupervisionLine = this._canRunHelpCommand ? supervisionLine({ canSpawn: !this.ephemeral }) : null;
-    this._pendingPackContextLines = this._spawnPackLaunch?.contextLines ?? [];
+    this._promptNotes.armSupervision(this._canRunHelpCommand, this.ephemeral, this._spawnPackLaunch?.contextLines ?? []);
   }
 
   promptContextReply(): PromptContextReply | null {
@@ -2142,61 +2081,23 @@ class Session extends EventEmitter {
   }
 
   noteCommandRan(command: string): void {
-    const followedHint = this._ranCommands.has(command) ? undefined : [...this._shownHintCommands].find((shown) => shown === command);
-    this._ranCommands.add(command);
-    if (followedHint !== undefined) this._noteCommandHint(followedHint, "followed");
-  }
-
-  _noteCommandHint(command: HintedCommand, outcome: "shown" | "followed"): void {
-    if (outcome === "shown") this._shownHintCommands.add(command);
-    this.emit("command-hint", { command, outcome });
+    this._promptNotes.noteCommandRan(command);
   }
 
   takeCommandHint(event: string, payload: Record<string, unknown>, answers: (command: HintedCommand) => boolean): CommandHint | null {
-    const facts = toolHookFactsOf(event, payload);
-    if (facts === null) return null;
-    const hint = hintFor(facts, { answers, hintedCommands: this._hintedCommands, ranCommands: this._ranCommands });
-    if (hint === null) return null;
-    this._hintedCommands.add(hint.command);
-    if (!this._can("toolHookContext")) {
-      this._queuedCommandHints.push(hint);
-      return null;
-    }
-    this._noteCommandHint(hint.command, "shown");
-    return hint;
-  }
-
-  _queuePromptHint(prompt: unknown): void {
-    for (const hint of promptHintsFor(prompt, { hintedCommands: this._hintedCommands, ranCommands: this._ranCommands })) {
-      this._hintedCommands.add(hint.command);
-      this._queuedCommandHints.push(hint);
-    }
-  }
-
-  _dropResumeNote(): void {
-    this._pendingResumeNote = null;
-    this._resumeNoteAwaitingTurn = null;
-    this._clearTimer("_resumeNoteFallbackTimer");
+    return this._promptNotes.takeCommandHint(event, payload, answers);
   }
 
   pendingResumeNote(): string | null {
-    return this._resumeNoteAwaitingTurn;
+    return this._promptNotes.pendingResumeNote();
   }
 
   takeResumeNote(): string | null {
-    const resumeNote = this._pendingResumeNote;
-    this._pendingResumeNote = null;
-    return resumeNote;
+    return this._promptNotes.takeResumeNote();
   }
 
   takePromptNotes(keepsHint: (command: HintedCommand) => boolean): string[] {
-    const queuedHints = this._queuedCommandHints.filter((hint) => keepsHint(hint.command));
-    const notes = [this._pendingPromptSupervisionLine, ...this._pendingPackContextLines, ...queuedHints.map((hint) => hint.text)].filter((note) => note !== null);
-    this._pendingPromptSupervisionLine = null;
-    this._pendingPackContextLines = [];
-    this._queuedCommandHints = [];
-    for (const hint of queuedHints) this._noteCommandHint(hint.command, "shown");
-    return notes;
+    return this._promptNotes.takePromptNotes(keepsHint);
   }
 
   _deliverPtyInitialPrompt(prompt: string | null): void {
@@ -2430,7 +2331,7 @@ class Session extends EventEmitter {
     this._ptyAlive = false;
     this.ptyProcess = null;
     this._ptyScopeUnit = null;
-    this._dropResumeNote();
+    this._promptNotes.dropResumeNote();
 
     if (pid) {
       this._reaper.exitReap = this._reaper.reapTreeOnce(pid, scopeUnit);
@@ -2602,7 +2503,7 @@ class Session extends EventEmitter {
     if (!this.ptyProcess) return;
 
     this._ptyAlive = false;
-    this._dropResumeNote();
+    this._promptNotes.dropResumeNote();
     this._reaper.kill(this.ptyProcess.pid);
   }
 
@@ -2767,7 +2668,7 @@ class Session extends EventEmitter {
 
     this._reaper.clearKillPoll();
     this._clearTimer("_titleQuietFallbackTimer");
-    this._clearTimer("_resumeNoteFallbackTimer");
+    this._promptNotes.dispose();
     this._clearTimer("_inputReadyFallbackTimer");
 
     this.backgroundTracking.clearGateHeldReady();
