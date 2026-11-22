@@ -312,6 +312,9 @@ const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze
   permissionRequest: 'Status detection: a permission prompt is open',
   postToolUse: 'Status detection: a tool finished, so the turn is working again',
   notification: 'Status detection: the agent is waiting on a permission or a question, or went idle',
+  PreInvocation: 'Status detection: a turn started; carries the start line, prompt hints and board changes',
+  PostInvocation: 'Status detection: an invocation step finished',
+  AgentState: 'Status detection and session meter: model, context window, quota and background state',
 });
 
 function builtinHookPurpose({ event, route }: InstalledHook): string | null {

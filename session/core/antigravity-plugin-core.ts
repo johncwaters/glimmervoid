@@ -7,6 +7,7 @@ import { packSecretEnvName } from "../../mcp/core/agent-config.ts";
 import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG } from "../../mcp/core/stdio-bridge-core.ts";
 import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { ANTIGRAVITY_PACK_HOOK_FLAVOR, PACK_HOOK_RELAY_TIMEOUT_SECONDS, PACK_HOOK_RELAY_TOOL_ID, packHookToolNamesOf } from "./pack-hook-core.ts";
+import { ANTIGRAVITY_SANE_YOLO_FLAVOR } from "./sane-yolo.ts";
 
 const ANTIGRAVITY_PLUGIN_NAME = "glimmervoid";
 const AGENT_STATE_HOOK_EVENT = "AgentState";
@@ -41,7 +42,18 @@ function packHooksEntry(packHookLaunch: readonly string[] | null): unknown[] | n
   return [{ matcher: `^(?:${packHookToolNamesOf(ANTIGRAVITY_PACK_HOOK_FLAVOR).join("|")})$`, hooks: [{ type: "command", command, timeout: PACK_HOOK_RELAY_TIMEOUT_SECONDS }] }];
 }
 
-function hooksByEvent(relayLaunch: readonly string[], packHookLaunch: readonly string[] | null): Record<string, unknown[]> | null {
+function saneYoloHooksEntry(saneYoloLaunch: readonly string[] | null): unknown[] | null {
+  if (saneYoloLaunch === null) return [];
+  const command = buildHookCommand(saneYoloLaunch, "saneYolo", [ANTIGRAVITY_SANE_YOLO_FLAVOR]);
+  if (command === null) return null;
+  return [{ matcher: "*", hooks: [{ type: "command", command }] }];
+}
+
+function hooksByEvent(
+  relayLaunch: readonly string[],
+  packHookLaunch: readonly string[] | null,
+  saneYoloLaunch: readonly string[] | null,
+): Record<string, unknown[]> | null {
   const hooks: Record<string, unknown[]> = {};
   for (const event of PLAIN_HOOK_EVENTS) {
     const hook = commandHook(relayLaunch, event);
@@ -59,6 +71,9 @@ function hooksByEvent(relayLaunch: readonly string[], packHookLaunch: readonly s
   const permissionHoldHook = commandHook(relayLaunch, CONVERSATION_PERMISSION_HOOK_EVENT);
   if (permissionHoldHook === null) return null;
   hooks.PreToolUse?.push({ matcher: `^(?:${ANTIGRAVITY_GATED_TOOL_NAMES.join("|")})$`, hooks: [{ ...permissionHoldHook, timeout: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS }] });
+  const saneYoloEntries = saneYoloHooksEntry(saneYoloLaunch);
+  if (saneYoloEntries === null) return null;
+  hooks.PreToolUse?.push(...saneYoloEntries);
   const packHookEntries = packHooksEntry(packHookLaunch);
   if (packHookEntries === null) return null;
   hooks.PreToolUse?.push(...packHookEntries);
@@ -70,8 +85,14 @@ function packServerEntry(server: PackMcpServer, bridgeCommand: string, bridgeArg
   return { command: bridgeCommand, args: [...bridgeArgs, `--${PACK_URL_FLAG}`, server.url, `--${PACK_SECRET_ENV_FLAG}`, packSecretEnvName(server.secret)] };
 }
 
-function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[], packServers: readonly PackMcpServer[] = [], packHookLaunch: readonly string[] | null = null): Record<AntigravityPluginFileName, string> | null {
-  const hooks = hooksByEvent(relayLaunch, packHookLaunch);
+function renderAntigravityPlugin(
+  relayLaunch: readonly string[],
+  bridgeLaunch: readonly string[],
+  packServers: readonly PackMcpServer[] = [],
+  packHookLaunch: readonly string[] | null = null,
+  saneYoloLaunch: readonly string[] | null = null,
+): Record<AntigravityPluginFileName, string> | null {
+  const hooks = hooksByEvent(relayLaunch, packHookLaunch, saneYoloLaunch);
   const [bridgeCommand, ...bridgeArgs] = bridgeLaunch;
   if (hooks === null || bridgeCommand === undefined) return null;
   const packEntries = Object.fromEntries(packServers.map((server) => [server.name, packServerEntry(server, bridgeCommand, bridgeArgs)]));
@@ -80,6 +101,16 @@ function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: r
     "hooks.json": jsonFileText({ [ANTIGRAVITY_PLUGIN_NAME]: hooks }),
     "mcp_config.json": jsonFileText({ mcpServers: { ...packEntries, [ANTIGRAVITY_PLUGIN_NAME]: { command: bridgeCommand, args: bridgeArgs } } }),
   };
+}
+
+function antigravityInstalledHooks(): { event: string; matcher: string | null; route: string | null }[] {
+  const plainHooks = PLAIN_HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null }));
+  const toolHooks = TOOL_HOOK_EVENTS.map((event) => ({ event, matcher: "*", route: null }));
+  const agentStateHook = { event: AGENT_STATE_HOOK_EVENT, matcher: null, route: null };
+  const questionHoldHook = { event: "PreToolUse", matcher: `^${ANTIGRAVITY_QUESTION_TOOL_NAME}$`, route: QUESTION_TOOL_HOLD_HOOK_EVENT };
+  const permissionHoldHook = { event: "PreToolUse", matcher: `^(?:${ANTIGRAVITY_GATED_TOOL_NAMES.join("|")})$`, route: CONVERSATION_PERMISSION_HOOK_EVENT };
+  const saneYoloHook = { event: "PreToolUse", matcher: "*", route: "saneYolo" };
+  return [...plainHooks, ...toolHooks, agentStateHook, questionHoldHook, permissionHoldHook, saneYoloHook];
 }
 
 function antigravitySessionSettings(trustedFolders: readonly string[], relayLaunch: readonly string[]): string | null {
@@ -203,4 +234,4 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   };
 }
 
-export { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, ENRICHED_PAYLOAD_KEYS, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin };
+export { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, ENRICHED_PAYLOAD_KEYS, antigravityInstalledHooks, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin };

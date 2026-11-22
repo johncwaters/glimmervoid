@@ -7,7 +7,8 @@ import { hookLaunch, installedHookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { canonicalizePath } from "../../shared/canonical-paths.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
+import { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, antigravityInstalledHooks, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
+import type { InstalledHooks } from "../core/user-hooks-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import type {
@@ -121,7 +122,8 @@ function prepareHome(
 ): { home: string; homeEnvValue: string; args: string[] } | { refusal: string } {
   if (isCleanHome) return { refusal: CLEAN_HOME_REFUSAL };
   if (isSandboxed) return { refusal: SANDBOX_REFUSAL };
-  const pluginFiles = renderAntigravityPlugin(installedHookLaunch("hook-relay"), installedHookLaunch("mcp-bridge"), sharedPackServers, hasPackHooks ? installedHookLaunch("hook-tool-relay") : null);
+  const hookToolLaunch = installedHookLaunch("hook-tool-relay");
+  const pluginFiles = renderAntigravityPlugin(installedHookLaunch("hook-relay"), installedHookLaunch("mcp-bridge"), sharedPackServers, hasPackHooks ? hookToolLaunch : null, hookToolLaunch);
   const packSkillWorkspaces = packSkillWorkspacesOf(packSkillDirs);
   const sessionSettings = antigravitySessionSettings([...new Set([sessionFolder, canonicalizePath(sessionFolder)]), ...packSkillWorkspaces], RELAY_LAUNCH);
   if (pluginFiles === null || sessionSettings === null) return { refusal: PLUGIN_REFUSAL };
@@ -153,11 +155,20 @@ function buildArgs({
   return args;
 }
 
+function describeInstalledHooks(): InstalledHooks {
+  const hookToolLaunch = installedHookLaunch("hook-tool-relay");
+  const pluginFiles = renderAntigravityPlugin(installedHookLaunch("hook-relay"), installedHookLaunch("mcp-bridge"), [], null, hookToolLaunch);
+  const sessionSettings = antigravitySessionSettings([], RELAY_LAUNCH);
+  if (pluginFiles === null || sessionSettings === null) return { unavailableReason: PLUGIN_REFUSAL, isBestEffort: false };
+  return { version: null, isBestEffort: false, hooks: antigravityInstalledHooks() };
+}
+
 const hooks: AgentHookProfile = {
   mapSignal: mapHookToSignal,
   mapConfidence: mapHookConfidence,
   mapPromptKind: mapHookPromptKind,
   createPayloadEnricher,
+  describeInstalledHooks,
   injection: {
     kind: "generated-home",
     homeEnvName: MCP_URL_ENV,
@@ -193,7 +204,7 @@ const antigravity = {
     backgroundAgents: true,
     resume: true,
     planLimits: false,
-    saneYolo: false,
+    saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,
     headless: false,

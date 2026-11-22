@@ -8,6 +8,7 @@ import path from 'node:path';
 import { HookRouter } from '../detection/hook-source.ts';
 import antigravity from '../session/adapters/antigravity.ts';
 import type { GeneratedHomeInjection } from '../session/adapters/index.ts';
+import { renderAntigravityPlugin } from '../session/core/antigravity-plugin-core.ts';
 import { promptContextReplyOf, refocusReplyFor, relayedHookContextOutput } from '../session/core/refocus-core.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
@@ -146,4 +147,19 @@ test('AgentState idle stays working while background tasks or subagents run and 
 
   const idleAfterClose = enrich('AgentState', { agent_state: 'idle' });
   assert.equal(antigravity.mapHookToSignal('AgentState', idleAfterClose), null);
+});
+
+test('Antigravity plugin wires Sane YOLO PreToolUse hook and describes its installed hooks', () => {
+  const pluginFiles = renderAntigravityPlugin(['node', '/relay.js'], ['node', '/bridge.js'], [], null, ['node', '/tool-relay.js']);
+  assert.ok(pluginFiles);
+  const parsedHooks = JSON.parse(pluginFiles['hooks.json']) as { glimmervoid: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] } };
+  const saneYoloEntry = parsedHooks.glimmervoid.PreToolUse.find((entry) => entry.hooks.some((hook) => hook.command.includes('saneYolo antigravity')));
+  assert.ok(saneYoloEntry);
+  assert.equal(saneYoloEntry.matcher, '*');
+  assert.equal(antigravity.capabilities.saneYolo, true);
+
+  const installed = antigravity.hooks.describeInstalledHooks?.({ detectScheduledWakeups: true, observeToolCalls: true, hookTools: [] });
+  assert.ok(installed && 'hooks' in installed);
+  assert.ok(installed.hooks.some((hook) => hook.route === 'saneYolo' && hook.event === 'PreToolUse'));
+  assert.ok(installed.hooks.some((hook) => hook.event === 'AgentState'));
 });
