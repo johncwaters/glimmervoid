@@ -120,6 +120,8 @@
     overscroll-behavior: contain;
   }
 
+  .bs-dock:not([data-log-open='true']) .bs-log { display: none; }
+
   .bs-row { display: flex; align-items: flex-end; gap: 8px; margin: 0; }
   .bs-row-you { justify-content: flex-end; }
   .bs-row-note { justify-content: center; color: var(--text-muted); font-size: var(--type-meta); }

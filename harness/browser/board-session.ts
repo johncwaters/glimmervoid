@@ -89,6 +89,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     const canvas = document.querySelector<HTMLCanvasElement>('.board-session-view canvas.wb-gl');
     return (notice !== null && !notice.hidden && (notice.textContent ?? '').length > 0) || (canvas !== null && canvas.width > 0 && notice?.hidden === true);
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
 
   await chip.click();
   const menu = root.getByRole('menu');

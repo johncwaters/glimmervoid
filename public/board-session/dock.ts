@@ -252,6 +252,20 @@ export function createDock(session: DockSession): Dock {
     return feed;
   };
 
+  const scrollLogToBottom = () => {
+    log.scrollTop = log.scrollHeight;
+  };
+  const openLog = () => {
+    if (element.dataset.logOpen === 'true') return;
+    element.dataset.logOpen = 'true';
+    scrollLogToBottom();
+  };
+  const openLogWhenTurnLive = () => {
+    if (!session.isTurnOver()) openLog();
+  };
+  element.addEventListener('focusin', openLog);
+  openLogWhenTurnLive();
+
   const mainFeed = openFeed(mainSpeaker, session.workingDirectory, session.isTurnOver, session.onRecords);
   mainFeed.whenCaughtUp(() => {
     log.scrollTop = log.scrollHeight;
@@ -398,6 +412,7 @@ export function createDock(session: DockSession): Dock {
     element,
     setBranches,
     refresh: () => {
+      openLogWhenTurnLive();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },
     close: () => {

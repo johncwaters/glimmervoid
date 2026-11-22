@@ -15,7 +15,8 @@ import type { BoardRenderer, Camera } from '../whiteboard/board-gl-renderer.ts';
 import { createBoardMediaLayer } from '../whiteboard/board-media-layer.ts';
 import { onTilesChanged, showTilesFor, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { onBoardSessionTraceChanged } from './board-session-signals.ts';
-import { fittedCamera, orderedSessionChoices, pickedSessionId, zoomedCamera } from './board-session-core.ts';
+import { fittedCamera, isBelowFloor, orderedSessionChoices, pickedSessionId, readableFloorScale, zoomedCamera } from './board-session-core.ts';
+import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { SessionChoice } from './board-session-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
@@ -31,6 +32,7 @@ import type { BoxChoice } from './branch-core.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const BOXES_TIMEOUT_MS = 10000;
+const TITLE_SIZE_FALLBACK_PX = 16;
 const WHEEL_ZOOM_STEP = 1.1;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const FIT_ICON_PATH = 'M2.5 6V2.5H6 M10 2.5h3.5V6 M13.5 10v3.5H10 M6 13.5H2.5V10';
@@ -108,11 +110,35 @@ function paintAsks(): void {
   parts.askCards.paint(boardId, asksOfSessions(board, askingSessionIds), (boxId) => renderer.boundsOf(boxId) ?? null, camera);
 }
 
-function fitBoard(): void {
+function sessionBoxIds(): string[] {
+  const presenceBoxIds = [presence.workedPath, ...presence.namedPaths].flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? []);
+  return [...presenceBoxIds, ...changedBoxIds];
+}
+
+function fitWholeBoard(): void {
   if (!parts) return;
   const layout = parts.renderer.layout();
   if (!layout) return;
   const fitted = fittedCamera(layout.bounds, parts.viewport.clientWidth, parts.viewport.clientHeight, parts.dockSlot.offsetHeight);
+  if (!fitted) return;
+  camera = fitted;
+  applyCamera();
+}
+
+function fitFirstView(): void {
+  if (!parts) return;
+  const renderer = parts.renderer;
+  const layout = renderer.layout();
+  if (!layout) return;
+  const viewWidthPx = parts.viewport.clientWidth;
+  const viewHeightPx = parts.viewport.clientHeight;
+  const reservedBottomPx = parts.dockSlot.offsetHeight;
+  const titleSizePx = Number.parseFloat(getComputedStyle(parts.viewport).getPropertyValue('--type-title')) || TITLE_SIZE_FALLBACK_PX;
+  const floorScale = readableFloorScale(titleSizePx);
+  const sessionBounds = unionOf(sessionBoxIds().flatMap((boxId) => renderer.boundsOf(boxId) ?? []));
+  const isMapTooBig = isBelowFloor(layout.bounds, viewWidthPx, viewHeightPx, reservedBottomPx, floorScale);
+  const target = isMapTooBig && sessionBounds ? sessionBounds : layout.bounds;
+  const fitted = fittedCamera(target, viewWidthPx, viewHeightPx, reservedBottomPx, floorScale);
   if (!fitted) return;
   camera = fitted;
   applyCamera();
@@ -133,7 +159,7 @@ function paintBoard(): void {
   paintPresence();
   if (fittedBoardId === boardId) return;
   fittedBoardId = boardId;
-  fitBoard();
+  fitFirstView();
 }
 
 function boxIdOfPresencePath(presencePath: string | null): string | null {
@@ -338,7 +364,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   fitButton.setAttribute('aria-label', 'Fit');
   fitButton.dataset.action = 'board-session-fit';
   fitButton.append(createLineIcon(FIT_ICON_PATH, '1.5'));
-  fitButton.addEventListener('click', fitBoard);
+  fitButton.addEventListener('click', fitWholeBoard);
   const menu = el('div', 'bs-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;

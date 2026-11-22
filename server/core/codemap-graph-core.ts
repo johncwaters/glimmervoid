@@ -596,6 +596,7 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     return layers.innerByFolder.get(folder)?.feedbackKeys.has(edgeKeyOf(edge.from, edge.to)) ?? false;
   };
   const placeOf = (id: string) => ({ at: placeById.get(id) ?? { x: 0, y: 0 } });
+  const matrixLeft = Math.max(0, ...[...placeById.values()].map((place) => place.x)) + 2 * MAP_BOX_SPACING.x;
   const moduleBoxes = model.modules.map((summary) => ({
     kind: 'box',
     id: moduleBoxIdOf(summary.id),
@@ -616,7 +617,7 @@ function mapBoardOpsOf(model: CodemapModel, existingKindById: ReadonlyMap<string
     tone: summaries.some((summary) => overlaidModules.has(summary.id)) ? OVERLAY_TONE : null,
     place: placeOf(folderCardIdOf(folder)),
   }));
-  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: MATRIX_BOX_ID, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: -(MATRIX_BOX_WIDTH + MAP_BOX_SPACING.x), y: 0 } } }] : [];
+  const matrixBoxes = matrixMedia ? [{ kind: 'box', id: MATRIX_BOX_ID, title: 'Folder imports: rows import columns', media: matrixMedia, width: MATRIX_BOX_WIDTH, place: { at: { x: matrixLeft, y: 0 } } }] : [];
   const frames = [...layers.modulesByFolder].map(([folder, summaries]) => ({
     kind: 'frame', id: folderFrameIdOf(folder), title: boardTitleOf(folderTitleOf(folder)), contains: [folderCardIdOf(folder), ...summaries.map((summary) => moduleBoxIdOf(summary.id))], collapsed: !focusFolders.has(folder),
   }));

@@ -1,6 +1,6 @@
 @layer components {
 
-.boards-view {
+.boards-view, .board-session-view {
   --wb-font: 'ComicMono', var(--font-mono);
   --wb-board: var(--bg-surface);
   --wb-canvas: var(--bg);
@@ -8,6 +8,9 @@
   --wb-ink-dim: var(--text-dim);
   --wb-line: var(--border-hover);
   --wb-note: #f5c26b;
+}
+
+.boards-view {
   flex: 1;
   min-height: 0;
   display: grid;
