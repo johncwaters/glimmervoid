@@ -17,13 +17,8 @@ export const MACHINE_TELEGRAM: SettingsSection = {
     },
     {
       id: 'telegram-chat-id', path: 'telegram.chatId', title: 'Chat id',
-      description: 'Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it.',
-      control: 'text', keywords: ['destination', 'channel'], defaultValue: '', ...MACHINE_NOW,
-    },
-    {
-      id: 'telegram-session-notifications', path: 'telegramNotifications', title: 'Send session notifications',
-      description: 'Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged.',
-      control: 'toggle', keywords: ['phone', 'off dashboard', 'test'], defaultValue: false, status: 'telegram-delivery', ...MACHINE_NOW,
+      description: 'Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. Session notifications send automatically once both bot token and chat id are saved.',
+      control: 'text', keywords: ['destination', 'channel', 'phone', 'off dashboard', 'test'], defaultValue: '', status: 'telegram-delivery', ...MACHINE_NOW,
     },
     {
       id: 'telegram-accept-replies', path: 'telegram.acceptReplies', title: 'Take replies',
@@ -42,13 +37,8 @@ export const MACHINE_SLACK: SettingsSection = {
   settings: [
     {
       id: 'slack-webhook-url', path: 'slack.webhookUrl', title: 'Webhook URL',
-      description: 'Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook).',
-      control: 'password', keywords: ['credential', 'channel', 'hooks.slack.com'], defaultValue: '', ...MACHINE_NOW,
-    },
-    {
-      id: 'slack-session-notifications', path: 'slack.enabled', title: 'Send session notifications',
-      description: 'Alert in Slack when no dashboard is open, or when an alert sits unacknowledged.',
-      control: 'toggle', keywords: ['phone', 'off dashboard'], defaultValue: false, ...MACHINE_NOW,
+      description: 'Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook). Session notifications send automatically once saved.',
+      control: 'password', keywords: ['credential', 'channel', 'hooks.slack.com', 'phone', 'off dashboard'], defaultValue: '', ...MACHINE_NOW,
     },
   ],
 };

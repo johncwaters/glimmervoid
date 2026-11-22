@@ -4,7 +4,7 @@ import type { TelegramDecision } from './telegram.ts';
 import type { NotificationContext } from '../notification-manager.ts';
 
 interface SlackChannelDeps {
-  getConfig: () => { slack?: { enabled?: boolean; webhookUrl?: string } | null } | null;
+  getConfig: () => { slack?: { webhookUrl?: string } | null } | null;
   getConnectionCount: () => number;
   getActiveAgentCount: (sessionId: string) => number;
   getSessionName: (sessionId: string) => string | undefined;
@@ -15,8 +15,7 @@ function createSlackChannel({ getConfig, getConnectionCount, getActiveAgentCount
   function slackDecision(sessionId: string, category: string | null, phoneEscalation: boolean): TelegramDecision {
     const slack = getConfig()?.slack ?? {};
     return decideOffDashboardChannel({
-      isEnabled: slack.enabled === true,
-      isConfigured: Boolean(slack.webhookUrl),
+      isConfigured: Boolean(slack.webhookUrl?.trim()),
       connectionCount: phoneEscalation ? 0 : getConnectionCount(),
       phoneEscalation,
       category,

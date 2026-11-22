@@ -198,7 +198,6 @@ const LanesSettings = optionalObject('lanes', {
 export const SLACK_WEBHOOK_URL_PREFIX = 'https://hooks.slack.com/';
 
 const SlackSettings = optionalObject('slack', {
-  enabled: optionalBoolean('slack.enabled'),
   webhookUrl: z.string({ error: 'slack.webhookUrl must be a string' })
     .transform((value) => value.trim())
     .refine((value) => value === '' || value.startsWith(SLACK_WEBHOOK_URL_PREFIX), { error: `slack.webhookUrl must be a Slack incoming webhook URL starting with ${SLACK_WEBHOOK_URL_PREFIX}` })
@@ -304,7 +303,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
   skipPermissionsByDefault: optionalBoolean('skipPermissionsByDefault'),
   checkForUpdates: optionalBoolean('checkForUpdates'),
   autoResume: optionalBoolean('autoResume'),
-  telegramNotifications: optionalBoolean('telegramNotifications'),
   worktree: WorktreeFileSettings.optional(),
   repoRoots: z.array(z.string()).optional(),
   taskTitle: TaskTitleSettings,

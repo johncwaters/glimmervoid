@@ -225,7 +225,7 @@ const WORKTREE_KEY_MOVES: readonly KeyMove[] = Object.freeze([
 const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
   'detectBackgroundAgents',
   'recordSignals',
-  'trace.enabled',
+  'trace',
   'detectScheduledWakeups',
   'worktree.autoRebase',
   'worktree.syncOnStart',
@@ -235,6 +235,8 @@ const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
   'worktreeSyncOnStart',
   'worktreeCloneDependencies',
   'worktreeRerere',
+  'telegramNotifications',
+  'slack.enabled',
 ]);
 
 function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {

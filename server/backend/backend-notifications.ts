@@ -26,9 +26,8 @@ const TELEGRAM_TEST_TEXT = 'Glimmervoid test message. Session notifications reac
 interface NotificationConfig {
   phoneEscalationMs?: number;
   notifyDebounceMs?: number;
-  telegramNotifications?: boolean;
   telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null;
-  slack?: { enabled?: boolean; webhookUrl?: string } | null;
+  slack?: { webhookUrl?: string } | null;
 }
 
 interface NotificationWsServer {
@@ -81,7 +80,6 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
   function telegramDeliveryStatus(): TelegramDeliveryStatus {
     return {
       setupWarning: telegramSetupWarning({
-        isEnabled: config.telegramNotifications === true,
         botToken: config.telegram?.botToken,
         chatId: config.telegram?.chatId,
       }),
@@ -105,7 +103,6 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     taggedOutbox: telegramOutbox,
   });
   const canTelegramEscalate = () => decideTelegramNotification({
-    enabled: config.telegramNotifications === true,
     botToken: config.telegram?.botToken,
     chatId: config.telegram?.chatId,
     connectionCount: 0,

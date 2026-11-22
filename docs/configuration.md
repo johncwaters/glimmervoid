@@ -23,8 +23,7 @@ One bot for session, review and PostHog alerts.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `telegram.botToken` | Bot token | `""` | Token from @BotFather in Telegram (send /newbot). |
-| `telegram.chatId` | Chat id | `""` | Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. |
-| `telegramNotifications` | Send session notifications | `false` | Alert in Telegram when no dashboard is open, or when an alert sits unacknowledged. |
+| `telegram.chatId` | Chat id | `""` | Chat the bot posts to, read as message.chat.id from its getUpdates page after you message it. Session notifications send automatically once both bot token and chat id are saved. |
 | `telegram.acceptReplies` | Take replies | `false` | Reply to an alert in Telegram to answer the question a session holds or send it text. Only messages you send in your private chat with the bot are read, so the chat id must be your own user id; group chats are never read. |
 
 ### Slack
@@ -33,8 +32,7 @@ Session alerts posted to one Slack channel through an incoming webhook.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `slack.webhookUrl` | Webhook URL | `""` | Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook). |
-| `slack.enabled` | Send session notifications | `false` | Alert in Slack when no dashboard is open, or when an alert sits unacknowledged. |
+| `slack.webhookUrl` | Webhook URL | `""` | Incoming webhook URL from your Slack app (Incoming Webhooks, Add New Webhook). Session notifications send automatically once saved. |
 
 ### Sessions
 

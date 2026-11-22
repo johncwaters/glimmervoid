@@ -391,7 +391,7 @@ test('the pre-existing deep links from the banner, the notice and the panels sti
     ['lanes-unattended', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
     ['machine-guardrails', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
     ['browser-flying-animals', 'animals-on-phone', '#settings/browser-appearance/animals-on-phone'],
-    ['notifications', 'telegram-session-notifications', '#settings/machine-telegram/telegram-session-notifications'],
+    ['notifications', 'telegram-chat-id', '#settings/machine-telegram/telegram-chat-id'],
   ]) {
     const resolved = parseSettingsHash(`#settings/${sectionId}/${settingId}`, SETTINGS_REGISTRY.sections, SETTINGS_SECTION_ALIASES, SETTINGS_MOVED_SETTINGS);
     assert.equal(resolved?.hash, canonical, `#settings/${sectionId}/${settingId}`);

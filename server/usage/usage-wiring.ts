@@ -94,7 +94,6 @@ interface UsageLaneConfig {
 
 interface WiringConfig {
   usage?: unknown;
-  telegramNotifications?: boolean;
   telegram?: { botToken?: string; chatId?: string } | null;
 }
 
@@ -708,7 +707,6 @@ function createUsageWiring({
 
   async function deliverBudgetTelegram(alert: BudgetAlert): Promise<boolean> {
     const decision = decideTelegramNotification({
-      enabled: config.telegramNotifications === true,
       botToken: config.telegram?.botToken || '',
       chatId: config.telegram?.chatId || '',
       connectionCount: controlClientCount(),

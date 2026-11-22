@@ -16,11 +16,10 @@ function describeBlankFields(blankFields: readonly string[]): string {
   return blankFields.length > 1 ? `${blankFields.join(' and ')} are` : `${blankFields[0]} is`;
 }
 
-export function telegramSetupWarning({ isEnabled, ...credentials }: TelegramCredentials & { isEnabled: boolean }): string | null {
-  if (!isEnabled) return null;
+export function telegramSetupWarning(credentials: TelegramCredentials): string | null {
   const blankFields = blankTelegramFields(credentials);
-  if (blankFields.length === 0) return null;
-  return `Session notifications are on, but the ${describeBlankFields(blankFields)} blank, so nothing is sent.`;
+  if (blankFields.length !== 1) return null;
+  return `The ${blankFields[0]} is blank, so nothing is sent.`;
 }
 
 export function telegramTestRefusal(credentials: TelegramCredentials): string | null {

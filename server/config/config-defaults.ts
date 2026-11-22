@@ -53,8 +53,6 @@ const DEFAULT_CONFIG = {
   sandboxAllowedHosts: [] as string[],
   sandboxWeakerNetworkIsolation: false,
 
-  telegramNotifications: false,
-
   worktree: {
     root: '',
     share: ['.env*', '.claude'],

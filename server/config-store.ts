@@ -286,7 +286,6 @@ function createConfigStore({
       autoResume: config.autoResume ?? effectiveDefaults.autoResume,
       spawnedSessionsMax: config.spawnedSessionsMax ?? DEFAULT_CONFIG.spawnedSessionsMax,
       skipPermissionsByDefault: config.skipPermissionsByDefault ?? effectiveDefaults.skipPermissionsByDefault,
-      telegramNotifications: config.telegramNotifications ?? effectiveDefaults.telegramNotifications,
       worktree: pickBlock('worktree', { ...DEFAULT_CONFIG.worktree, ...config.worktree }),
       repoRoots: config.repoRoots,
       repositoryRootCaseInsensitive: equalsIgnoringCaseOnWindows('root', 'ROOT'),
@@ -355,6 +354,7 @@ function createConfigStore({
     if (newConfig.questionManager != null) config.questionManager = newConfig.questionManager;
     if (newConfig.posthog != null) config.posthog = newConfig.posthog;
     if (newConfig.usage != null) config.usage = newConfig.usage;
+    if (newConfig.telegram == null) delete config.telegram;
     if (newConfig.telegram != null) config.telegram = newConfig.telegram;
     if (newConfig.telemetry != null) config.telemetry = newConfig.telemetry;
     if (newConfig.vault != null) config.vault = { ...config.vault, ...newConfig.vault };
