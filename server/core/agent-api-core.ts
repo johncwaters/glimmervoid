@@ -10,6 +10,7 @@ import type { AgentApiVerb, SessionCommand, AgentPrsReply, AgentRefusal, AgentRe
 import type { MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { AgentNeedRequest, MAX_NAMES_PER_NEED } from '../../shared/contracts/secrets.ts';
 import { AgentArenaRequest } from '../../shared/contracts/race.ts';
+import { AgentWargamesRequest } from '../../shared/contracts/wargames.ts';
 import { AgentWakeRequest } from '../../shared/contracts/wakes.ts';
 import { AgentMemoryRequest } from '../../shared/contracts/memory.ts';
 import { AgentCodemapRequest } from '../../shared/contracts/codemap.ts';
@@ -81,6 +82,7 @@ interface AgentRequestByVerb {
   need: AgentNeedRequest;
   secrets: EmptyRequest;
   arena: AgentArenaRequest;
+  wargames: AgentWargamesRequest;
   comments: AgentCommentsRequest;
   wake: AgentWakeRequest;
   memory: AgentMemoryRequest;
@@ -234,6 +236,7 @@ const REQUEST_PARSERS: { readonly [V in AgentApiVerb]: RequestParser<AgentReques
   need: bodyParser(AgentNeedRequest),
   secrets: parseEmptyBody,
   arena: bodyParser(AgentArenaRequest),
+  wargames: bodyParser(AgentWargamesRequest),
   comments: bodyParser(AgentCommentsRequest),
   wake: bodyParser(AgentWakeRequest),
   memory: bodyParser(AgentMemoryRequest),
@@ -591,6 +594,13 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
     whenToUse: 'Use it to race one prompt across agent setups in this session\'s project, follow a race, judge it, or read a contestant\'s diff',
     summary: 'Start an Arena race, list races, read one race, start judging it, or read one contestant\'s diff (arena start <spec json>, arena race <race>, arena judge <race>, arena diff <race> <contestant>)',
     missingArgumentHint: 'this command needs an action, for example "glimmervoid arena races", and arena start needs the race spec as one JSON object argument',
+    isPassthrough: true,
+  },
+  wargames: {
+    usage: 'wargames start|matches|match|abort|history',
+    whenToUse: 'Use it to set up, start, inspect, or abort a 6-seat Wargames strategy match, or read the model Elo leaderboard and match history',
+    summary: 'Start a Wargames match, list matches, read one match, abort an active match, or read match history and model Elo (wargames start <spec json>, wargames matches, wargames match <match>, wargames abort <match> [reason], wargames history)',
+    missingArgumentHint: 'this command needs an action, for example "glimmervoid wargames matches", and wargames start needs the match spec as one JSON object argument',
     isPassthrough: true,
   },
   comments: {

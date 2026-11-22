@@ -105,6 +105,15 @@ function arenaBody({ positionals: [sub, ...actionArguments] }: ParsedArguments):
   return { sub, ...(race === undefined ? {} : { race }), ...(contestant === undefined ? {} : { contestant }) };
 }
 
+function wargamesBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): Record<string, unknown> | null {
+  if (!sub) return null;
+  if (sub === 'start') return arenaStartBody(actionArguments[0]);
+  if (sub === 'matches' || sub === 'history') return { sub };
+  const [match, ...reasonWords] = actionArguments;
+  const reason = joinedText(reasonWords);
+  return { sub, ...(match === undefined ? {} : { match }), ...(reason ? { reason } : {}) };
+}
+
 function wakeBody({ positionals: [sub, ...actionArguments] }: ParsedArguments): Record<string, unknown> | null {
   if (!sub) return null;
   if (sub === 'list') return { sub };
@@ -204,6 +213,7 @@ const BODY_BUILDERS: Record<AgentApiVerb, BodyBuilder> = {
   need: ({ positionals }) => (positionals.length > 0 ? { names: positionals } : null),
   secrets: () => ({}),
   arena: arenaBody,
+  wargames: wargamesBody,
   comments: ({ positionals: [command, commentId, ...words] }) => ({ command, ...(commentId === undefined ? {} : { commentId }), ...(words.length === 0 ? {} : { text: words.join(' ') }) }),
   wake: wakeBody,
   memory: memoryBody,

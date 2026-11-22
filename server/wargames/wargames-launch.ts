@@ -15,9 +15,10 @@ import type { WargamesRunner } from './wargames-runner.ts';
 const SEAT_PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
 
 type WargamesStartResult = { ok: true; matchId: string; error: string | null } | { ok: false; error: string };
+type WargamesStartPermissions = { dangerouslySkipPermissions: boolean; saneYolo: boolean };
 
 export interface WargamesLauncher {
-  start(candidate: unknown): Promise<WargamesStartResult>;
+  start(candidate: unknown, permissions?: WargamesStartPermissions): Promise<WargamesStartResult>;
 }
 
 interface WargamesLauncherDeps {
@@ -52,14 +53,15 @@ export function createWargamesLauncher({
   createProjectSession,
   seatRootDir = path.join(os.tmpdir(), 'glimmervoid-wargames-seats'),
 }: WargamesLauncherDeps): WargamesLauncher {
-  async function start(candidate: unknown): Promise<WargamesStartResult> {
+  async function start(candidate: unknown, permissions?: WargamesStartPermissions): Promise<WargamesStartResult> {
     if (!wargames) return { ok: false, error: 'Wargames is not running' };
     const parsed = WargamesMatchSpec.safeParse(candidate);
     if (!parsed.success) return { ok: false, error: configIssueMessage(parsed.error) };
     const spec = parsed.data;
     const refusal = refusalOf(spec);
     if (refusal) return { ok: false, error: refusal };
-    const skipPermissions = machineSkipsPermissionsByDefault(config);
+    const skipPermissions = permissions ? permissions.dangerouslySkipPermissions : machineSkipsPermissionsByDefault(config);
+    const saneYolo = permissions ? permissions.saneYolo : !skipPermissions;
     return wargames.startMatch(spec, async (matchId, seat, bindSession) => {
       const seatDir = path.join(seatRootDir, matchId, seat.seatId);
       await fsp.mkdir(seatDir, { recursive: true });
@@ -69,7 +71,7 @@ export function createWargamesLauncher({
         path: seatDir,
         agent: agent === DEFAULT_AGENT_ID ? undefined : agent,
         dangerouslySkipPermissions: skipPermissions,
-        saneYolo: !skipPermissions,
+        saneYolo,
         requireExistingPath: true,
         runSettings: { agentSetup: seat.setup, agentHome: 'operator' },
       });

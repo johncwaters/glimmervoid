@@ -14,6 +14,8 @@ import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
 import type { RaceWiring } from '../race/race-wiring.ts';
+import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
+import type { WargamesRunner } from '../wargames/wargames-runner.ts';
 import type { WhyLookup } from '../why-lookup.ts';
 import type { ReviewPort } from '../review/review-wiring.ts';
 import type { GitWorkspaceInstance } from '../git/git-workspace.ts';
@@ -62,6 +64,8 @@ interface AgentApiWiringOptions {
   secrets?: Pick<SecretsBroker, 'need' | 'envFor'> | null;
   races?: Pick<RaceWiring, 'status' | 'judge' | 'contestantDiffText'> | null;
   startRace?: RaceLauncher['start'] | null;
+  wargames?: Pick<WargamesRunner, 'statusFrame' | 'historyFrame' | 'abortMatch' | 'isWargamesSession'> | null;
+  startWargames?: WargamesLauncher['start'] | null;
   reviewComments?: Pick<ReviewPort, 'read' | 'reply' | 'resolve'> | null;
   repoClones?: Pick<GitWorkspaceInstance, 'originUrl' | 'cloneRepository'> | null;
   wakesFilePath?: string | null;

@@ -67,6 +67,7 @@ import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
+import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
 import { normalizeManagedBy, normalizeUpdateChannel } from '../core/update-core.ts';
 import { detectInstallFlavor } from '../update-check.ts';
@@ -203,6 +204,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let broadcastControl: ControlBroadcast | null = null;
   let removeExitedSession: ((id: string) => void) | null = null;
   let raceLauncher: RaceLauncher | null = null;
+  let wargamesLauncher: WargamesLauncher | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   warnWhenGitIsTooOld({ log: console });
@@ -547,6 +549,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     secrets: secretsBroker,
     races: laneAssembly.races,
     startRace: (spec, permissions) => (raceLauncher ? raceLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Races are not running' })),
+    wargames: laneAssembly.wargames,
+    startWargames: (spec, permissions) => (wargamesLauncher ? wargamesLauncher.start(spec, permissions) : Promise.resolve({ ok: false as const, error: 'Wargames is not running' })),
     wakesFilePath: configSiblingPath(configStore.configPath, 'wakes.json'),
     memoryFilePath: configSiblingPath(configStore.configPath, 'memory.json'),
     fileClaims,
@@ -909,7 +913,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     beforeHandOff: updateApply.handOffStagedUpdate,
   });
 
-  ({ removeExitedSession, raceLauncher } = createBackendControl({
+  ({ removeExitedSession, raceLauncher, wargamesLauncher } = createBackendControl({
     onControlConnection,
     sessions,
     agentSessions,

@@ -130,7 +130,7 @@ test('a session without its own worktree lists every grouped tool but push and r
   const tools = listed.tools;
   assert.ok(Array.isArray(tools));
   const toolNames = tools.map((tool: { name: string }) => tool.name).sort();
-  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'codemap', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'whiteboard', 'why']);
+  assert.deepEqual(toolNames, ['arena', 'attention', 'claim', 'codemap', 'memory', 'packs', 'preview', 'review', 'secrets', 'session', 'settings', 'show', 'wake', 'wargames', 'whiteboard', 'why']);
   const sessionTool = tools.find((tool: { name: string }) => tool.name === 'session');
   assert.ok(sessionTool.inputSchema.properties.action.enum.includes('spawn'));
   assert.match(sessionTool.inputSchema.properties.agent.description, /claude-code, codex/);
@@ -141,6 +141,10 @@ test('a session without its own worktree lists every grouped tool but push and r
   assert.notEqual(listedWakes.isError, true, JSON.stringify(listedWakes));
   const wakeList = AgentWakeReply.parse(listedWakes.structuredContent);
   assert.deepEqual('wakes' in wakeList ? wakeList.wakes : null, []);
+
+  const listedWargames = await resultOf(await callMcp('tools/call', { name: 'wargames', arguments: { action: 'matches' } }, credential));
+  assert.notEqual(listedWargames.isError, true, JSON.stringify(listedWargames));
+  assert.deepEqual(listedWargames.structuredContent, { ok: true, matches: [] });
 
   const called = await resultOf(await callMcp('tools/call', { name: 'session', arguments: { action: 'sessions' } }, credential));
   assert.notEqual(called.isError, true, JSON.stringify(called));

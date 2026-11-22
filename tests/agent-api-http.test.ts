@@ -19,9 +19,12 @@ import { createFileClaims } from '../server/file-claims.ts';
 import { AgentClaimReply } from '../shared/contracts/file-claims.ts';
 import type { AgentApiWiringOptions } from '../server/agent-api/agent-api-context.ts';
 import { createRaceLauncher } from '../server/race/race-launch.ts';
+import { createWargamesLauncher } from '../server/wargames/wargames-launch.ts';
 import { createReviewWiring } from '../server/review/review-wiring.ts';
 import { RaceRecord } from '../shared/contracts/race.ts';
 import type { RaceSpec } from '../shared/contracts/race.ts';
+import { WARGAMES_SEAT_IDS, WargamesMatchSummary } from '../shared/contracts/wargames.ts';
+import type { WargamesMatchSpec } from '../shared/contracts/wargames.ts';
 import { ensureSessionTempFolder } from '../server/session-temp/session-temp.ts';
 import { createSessionDocsWiring } from '../server/session/session-docs-wiring.ts';
 import { createMemoryAdmission, createSpawnGate } from '../server/spawn-gate.ts';
@@ -255,6 +258,7 @@ interface WiringFixtureOptions {
   childGitWorkspace?: SessionOptions['gitWorkspace'];
   teamReviewStatus?: TeamReviewStatus;
   arena?: Pick<AgentApiWiringOptions, 'races' | 'startRace'>;
+  wargames?: Pick<AgentApiWiringOptions, 'wargames' | 'startWargames'>;
   reviewComments?: AgentApiWiringOptions['reviewComments'];
 }
 
@@ -311,7 +315,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, childGitWorkspace, teamReviewStatus, arena, reviewComments,
+  clock, childGitWorkspace, teamReviewStatus, arena, wargames, reviewComments,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -388,6 +392,7 @@ function wiringFixture({
       },
     } : {}),
     ...arena,
+    ...wargames,
     reviewComments,
     logger: { warn: () => {} },
     ...clock,
@@ -695,12 +700,12 @@ test('limits tells a session which commands answer', async () => {
     const operatorLimits = await limitsOf(fixture.parent);
     assert.deepEqual(operatorLimits.commands, [
       { name: 'push', answers: false, reason: 'this session has no worktree of its own, so there is nothing of its own to land' },
-      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'comments', 'wake', 'memory', 'claim', 'preview', 'done', 'check', 'codemap', 'show'].map((name) => ({ name, answers: true })),
+      ...['spawn', 'send', 'read', 'close', 'attention', 'sessions', 'edit', 'review', 'reviews', 'prs', 'link-pr', 'settings', 'why', 'whiteboard', 'checkout', 'packs', 'need', 'secrets', 'arena', 'wargames', 'comments', 'wake', 'memory', 'claim', 'preview', 'done', 'check', 'codemap', 'show'].map((name) => ({ name, answers: true })),
     ]);
     const laneLimits = await limitsOf(ephemeralLane);
     assert.deepEqual(laneLimits.commands.map(({ name, answers }) => [name, answers]), [
       ['push', false], ['spawn', false], ['send', false], ['read', false], ['close', false], ['attention', false], ['sessions', true], ['edit', false],
-      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['secrets', false], ['arena', false], ['comments', false], ['wake', false], ['memory', false], ['claim', false], ['preview', false], ['done', false], ['check', false], ['codemap', true], ['show', false],
+      ['review', false], ['reviews', false], ['prs', false], ['link-pr', false], ['settings', false], ['why', true], ['whiteboard', false], ['checkout', false], ['packs', false], ['need', false], ['secrets', false], ['arena', false], ['wargames', false], ['comments', false], ['wake', false], ['memory', false], ['claim', false], ['preview', false], ['done', false], ['check', false], ['codemap', true], ['show', false],
     ]);
     const refusedCalls: [Session, AgentLimitsReply, string, Record<string, unknown>][] = [
       [fixture.parent, operatorLimits, 'push', {}],
@@ -717,8 +722,10 @@ test('limits tells a session which commands answer', async () => {
       [ephemeralLane, laneLimits, 'settings', { command: 'list' }],
       [ephemeralLane, laneLimits, 'checkout', { repo: 'dotfiles' }],
       [ephemeralLane, laneLimits, 'arena', { sub: 'races' }],
+      [ephemeralLane, laneLimits, 'wargames', { sub: 'matches' }],
       [ephemeralLane, laneLimits, 'comments', { command: 'list' }],
       [contestant, await limitsOf(contestant), 'arena', { sub: 'diff', race: 'race-1', contestant: 'c2' }],
+      [contestant, await limitsOf(contestant), 'wargames', { sub: 'matches' }],
     ];
     await fixture.spawn(contestant, { prompt: 'read the other diffs' });
     const contestantChild = fixture.created.at(-1);
@@ -822,6 +829,140 @@ test('arena start races in the caller\'s project with the caller\'s permissions,
     loadedRaces[0] = { ...loadedRaces[0], phase: 'running', winnerContestantId: 'c1' };
     assert.equal((await start(fixture.parent, spec))[0], 200, 'a race with a picked winner is finished even while its phase stays running');
   } finally {
+    fixture.destroyAll();
+  }
+});
+
+test('wargames agent verb starts, lists, inspects, aborts, and reads history with caller permissions and safety guards', async () => {
+  const startedSpecs: WargamesMatchSpec[] = [];
+  const seatPermissions: [boolean | undefined, boolean | undefined][] = [];
+  const loadedMatches: WargamesMatchSummary[] = [];
+  const abortedReasons: [string, string][] = [];
+  const launcher = createWargamesLauncher({
+    wargames: {
+      startMatch: async (spec, launchSeat) => {
+        startedSpecs.push(spec);
+        if (launchSeat) {
+          for (const seat of spec.seats) {
+            await launchSeat('wg-match-1', seat, () => {});
+          }
+        }
+        loadedMatches.push(WargamesMatchSummary.parse({
+          matchId: 'wg-match-1',
+          title: spec.title,
+          seed: spec.seed,
+          createdAtMs: 1_000,
+          finishedAtMs: null,
+          status: 'seating',
+          tick: 0,
+          maxTicks: spec.maxTicks,
+          phase: 'talk',
+          winnerSeatId: null,
+          winnerModelDisplay: null,
+          breachCount: 0,
+          eventCount: 2,
+          seats: spec.seats.map((seat) => ({
+            seatId: seat.seatId,
+            label: seat.label,
+            modelDisplay: seat.modelDisplay,
+            status: 'disconnected',
+            villagesHeld: 3,
+            breaches: 0,
+          })),
+        }));
+        return { ok: true, matchId: 'wg-match-1', error: null };
+      },
+    },
+    sessions: new Map(),
+    config: { ...DEFAULT_CONFIG, skipPermissionsByDefault: true, projects: [] },
+    createProjectSession: ({ dangerouslySkipPermissions, saneYolo }) => {
+      seatPermissions.push([dangerouslySkipPermissions, saneYolo]);
+      return { ok: false, error: 'not in this fixture' };
+    },
+  });
+  const openSeatIds = new Set<string>();
+  const seatSession = new Session({ id: 'wg-seat-s1', name: 'Wargames - s1', path: process.cwd(), ptySpawn: () => fakePty() });
+  const wargames = {
+    statusFrame: () => ({ type: 'wargames-status' as const, matches: loadedMatches }),
+    historyFrame: () => ({ type: 'wargames-history' as const, history: { eloByModel: [], matches: loadedMatches } }),
+    isWargamesSession: (sessionId: string) => openSeatIds.has(sessionId),
+    abortMatch: async (matchId: string, reason: string) => {
+      const target = loadedMatches.find((candidate) => candidate.matchId === matchId);
+      if (!target || target.status === 'aborted' || target.status === 'finished') {
+        return { ok: false as const, error: `Match ${matchId} is not active` };
+      }
+      abortedReasons.push([matchId, reason]);
+      target.status = 'aborted';
+      return { ok: true as const };
+    },
+  };
+  const fixture = wiringFixture({ parentSkipsPermissions: false, laneSessions: [seatSession], wargames: { wargames, startWargames: launcher.start } });
+  const makeSeats = (overrides: Record<number, Partial<{ agent: string; options: { id: string; value: string }[] }>> = {}) =>
+    WARGAMES_SEAT_IDS.map((seatId, index) => ({
+      seatId,
+      label: `Seat ${index + 1}`,
+      setup: { agent: overrides[index]?.agent ?? 'claude-code', model: null, options: overrides[index]?.options ?? [], instructions: '' },
+      modelDisplay: 'claude-default',
+    }));
+  const spec = { title: 'Agent Match', seed: 42, seats: makeSeats() };
+  try {
+    const shellRefusal = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'start', spec: { ...spec, seats: makeSeats({ 0: { agent: 'shell' } }) } });
+    assert.equal(shellRefusal.status, 409);
+    assert.equal(shellRefusal.body.error, '"shell" cannot play Wargames: a seat must be a coding agent');
+
+    const unsafeRefusal = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'start', spec: { ...spec, seats: makeSeats({ 1: { options: [{ id: 'effort', value: 'high&calc.exe' }] } }) } });
+    assert.equal(unsafeRefusal.status, 400);
+    assert.match(String(unsafeRefusal.body.error), /high&calc\.exe/);
+
+    const started = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'start', spec });
+    assert.equal(started.status, 200);
+    assert.deepEqual(started.body, { ok: true, matchId: 'wg-match-1', warning: null });
+    assert.equal(startedSpecs.length, 1);
+    assert.equal(startedSpecs[0]?.version, 1);
+    assert.equal(seatPermissions.length, 6);
+    assert.ok(seatPermissions.every(([skip, sane]) => skip === false && sane === false));
+
+    const concurrentRefusal = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'start', spec });
+    assert.equal(concurrentRefusal.status, 409);
+    assert.match(String(concurrentRefusal.body.error), /still seating/);
+
+    const listed = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'matches' });
+    assert.equal(listed.status, 200);
+    assert.equal(Array.isArray(listed.body.matches) ? listed.body.matches.length : 0, 1);
+
+    const inspected = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'match', match: 'wg-match-1' });
+    assert.equal(inspected.status, 200);
+    assert.equal((inspected.body.match as { matchId?: string }).matchId, 'wg-match-1');
+
+    const missing = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'match', match: 'wg-missing' });
+    assert.equal(missing.status, 404);
+
+    await fixture.spawn(fixture.parent, { prompt: 'start a wargames match' });
+    const child = fixture.created.at(-1);
+    assert.ok(child);
+    const childStart = await fixture.wiring.handle(child, 'wargames', { sub: 'start', spec });
+    assert.equal(childStart.status, 403);
+    const childAbort = await fixture.wiring.handle(child, 'wargames', { sub: 'abort', match: 'wg-match-1' });
+    assert.equal(childAbort.status, 403);
+
+    openSeatIds.add(seatSession.id);
+    const aborted = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'abort', match: 'wg-match-1', reason: 'test complete' });
+    assert.equal(aborted.status, 200);
+    assert.deepEqual(abortedReasons, [['wg-match-1', 'test complete']]);
+
+    const openSeatRefusal = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'start', spec });
+    assert.equal(openSeatRefusal.status, 409);
+    assert.match(String(openSeatRefusal.body.error), /still open/);
+
+    const history = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'history' });
+    assert.equal(history.status, 200);
+    assert.equal(Array.isArray((history.body.history as { matches?: unknown[] }).matches) ? (history.body.history as { matches: unknown[] }).matches.length : 0, 1);
+
+    seatSession.destroy();
+    const restarted = await fixture.wiring.handle(fixture.parent, 'wargames', { sub: 'start', spec });
+    assert.equal(restarted.status, 200);
+  } finally {
+    seatSession.destroy();
     fixture.destroyAll();
   }
 });

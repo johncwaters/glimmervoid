@@ -19,6 +19,8 @@ import type { MemoryStore } from '../memory-store.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { RaceSpec } from '../../shared/contracts/race.ts';
 import type { AgentArenaRequest } from '../../shared/contracts/race.ts';
+import { WargamesMatchSpec } from '../../shared/contracts/wargames.ts';
+import type { AgentWargamesRequest } from '../../shared/contracts/wargames.ts';
 import { clock } from '../../shared/clock.ts';
 import { githubRepoSlugFromRemote, remoteMatchesGithubRepo } from '../github/core/team-review-core.ts';
 import { repoParts } from '../../shared/contracts/github-ids.ts';
@@ -85,7 +87,7 @@ function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapReques
 }
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
@@ -472,6 +474,60 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return diff.ok ? { status: 200, body: { ok: true, diff: diff.diff } } : refusal(404, diff.error);
   }
 
+  let wargamesStartState: 'idle' | 'starting' = 'idle';
+
+  function unsafeWargamesLaunchArgumentOf(candidateSpec: Record<string, unknown>): string | null {
+    const parsed = WargamesMatchSpec.safeParse(candidateSpec);
+    if (!parsed.success) return null;
+    return unsafeLaunchValueOf(parsed.data.seats.map((seat) => seat.setup));
+  }
+
+  function refuseActiveWargamesMatch(): AgentRefusalReply | null {
+    if (wargamesStartState === 'starting') return refusal(409, 'another agent is starting a Wargames match, and an agent may start a match only when none is active');
+    const activeMatch = wargamesRunner?.statusFrame().matches.find((match) => match.status === 'lobby' || match.status === 'seating' || match.status === 'running');
+    if (activeMatch) return refusal(409, `match ${activeMatch.matchId} is still ${activeMatch.status}, and an agent may start a Wargames match only when none is active`);
+    const openSeatSession = listAllSessions().find((liveSession) => !liveSession._destroyed && wargamesRunner?.isWargamesSession(liveSession.id) === true);
+    if (openSeatSession) return refusal(409, `Wargames seat session ${openSeatSession.name} is still open, and an agent may start a Wargames match only when no seat sessions remain open`);
+    return null;
+  }
+
+  async function startWargamesMatch(session: Session, spec: Record<string, unknown>): Promise<AgentReplyOf<'wargames'>> {
+    if (roleFactsOf(session).isSpawnedChild) return refusal(403, 'a spawned session cannot start a Wargames match, because every seat is a new operator session');
+    const matchSpec = { ...spec, version: 1 };
+    const unsafeLaunchArgument = unsafeWargamesLaunchArgumentOf(matchSpec);
+    if (unsafeLaunchArgument !== null) return refusal(400, `an agent cannot launch a Wargames seat with the model or option value "${unsafeLaunchArgument}", because it reaches the agent's command line; use letters, digits and . _ : / [ ] -`);
+    if (!startWargames) return refusal(503, 'Wargames is not running in this Glimmervoid');
+    const holdReason = budgetHoldReason();
+    if (holdReason !== null) return refusal(429, `no new sessions: ${holdReason}`);
+    const activeRefusal = refuseActiveWargamesMatch();
+    if (activeRefusal) return activeRefusal;
+    wargamesStartState = 'starting';
+    try {
+      const memoryShortfall = await describeMemoryShortfall();
+      if (memoryShortfall) return refusal(503, memoryShortfall);
+      const started = await startWargames(matchSpec, { dangerouslySkipPermissions: session.dangerouslySkipPermissions, saneYolo: session.saneYolo });
+      return started.ok ? { status: 200, body: { ok: true, matchId: started.matchId, warning: started.error } } : refusal(409, started.error);
+    } finally {
+      wargamesStartState = 'idle';
+    }
+  }
+
+  async function wargames(session: Session, request: AgentWargamesRequest): Promise<AgentReplyOf<'wargames'>> {
+    if (!wargamesRunner) return refusal(503, 'Wargames is not running in this Glimmervoid');
+    if (request.sub === 'start') return startWargamesMatch(session, request.spec);
+    if (request.sub === 'matches') return { status: 200, body: { ok: true, matches: wargamesRunner.statusFrame().matches } };
+    if (request.sub === 'match') {
+      const match = wargamesRunner.statusFrame().matches.find((candidate) => candidate.matchId === request.match);
+      return match ? { status: 200, body: { ok: true, match } } : refusal(404, `no Wargames match is named ${request.match}`);
+    }
+    if (request.sub === 'abort') {
+      if (roleFactsOf(session).isSpawnedChild) return refusal(403, 'a spawned session cannot abort a Wargames match');
+      const aborted = await wargamesRunner.abortMatch(request.match, request.reason ?? 'Aborted by agent');
+      return aborted.ok ? { status: 200, body: { ok: true } } : refusal(409, aborted.error);
+    }
+    return { status: 200, body: { ok: true, history: wargamesRunner.historyFrame().history } };
+  }
+
   function githubLanesUnavailable(): AgentRefusalReply {
     return refusal(503, 'GitHub lanes are not available in this Glimmervoid');
   }
@@ -501,6 +557,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     need: async (session, { names, reason }) => (secrets ? { status: 200, body: await secrets.need(needingSessionOf(session), names, reason ?? null) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     secrets: async (session) => (secrets ? { status: 200, body: await secrets.envFor(needingSessionOf(session)) } : refusal(503, 'secrets are not available in this Glimmervoid')),
     arena,
+    wargames,
     wake: (session, request) => wakes.handleAgent(session, request),
     claim: (session, request) => {
       if (!fileClaims) return refusal(503, 'file claims are not available in this Glimmervoid');

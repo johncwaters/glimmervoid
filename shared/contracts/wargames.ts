@@ -418,3 +418,21 @@ export const WargamesHistory = z.strictObject({
   matches: z.array(WargamesMatchSummary),
 });
 export type WargamesHistory = z.infer<typeof WargamesHistory>;
+
+export const AgentWargamesRequest = z.discriminatedUnion('sub', [
+  z.strictObject({ sub: z.literal('start'), spec: z.record(z.string(), z.unknown()) }),
+  z.strictObject({ sub: z.literal('matches') }),
+  z.strictObject({ sub: z.literal('match'), match: WargamesMatchId }),
+  z.strictObject({ sub: z.literal('abort'), match: WargamesMatchId, reason: z.string().trim().min(1).max(400).optional() }),
+  z.strictObject({ sub: z.literal('history') }),
+]);
+export type AgentWargamesRequest = z.infer<typeof AgentWargamesRequest>;
+
+export const AgentWargamesReply = z.union([
+  z.strictObject({ ok: z.literal(true), matchId: WargamesMatchId, warning: z.string().nullable() }),
+  z.strictObject({ ok: z.literal(true), matches: z.array(WargamesMatchSummary) }),
+  z.strictObject({ ok: z.literal(true), match: WargamesMatchSummary }),
+  z.strictObject({ ok: z.literal(true), history: WargamesHistory }),
+  z.strictObject({ ok: z.literal(true) }),
+]);
+export type AgentWargamesReply = z.infer<typeof AgentWargamesReply>;

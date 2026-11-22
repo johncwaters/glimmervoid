@@ -131,6 +131,12 @@ function arenaRoute(caller: SessionKindFacts): RouteVerdict {
   return ANSWERS;
 }
 
+function wargamesRoute(caller: SessionKindFacts): RouteVerdict {
+  if (!hasOperatorCard(caller)) return { answers: false, reason: 'a lane session cannot use Wargames, because a lane runs on input the operator has not vetted' };
+  if (caller.isRaceContestant) return { answers: false, reason: 'a race contestant cannot control Wargames matches' };
+  return ANSWERS;
+}
+
 function wakeRoute(caller: SessionKindFacts): RouteVerdict {
   if (hasOperatorCard(caller)) return ANSWERS;
   return { answers: false, reason: 'a lane session cannot schedule a wake, because a lane runs to a fixed end and has no card to show the wake on' };
@@ -183,6 +189,7 @@ const COMMAND_ROUTES: Readonly<Record<AgentApiVerb | SessionCommand, (facts: Ses
   secrets: needRoute,
   limits: () => ANSWERS,
   arena: arenaRoute,
+  wargames: wargamesRoute,
   comments: commentsRoute,
   wake: wakeRoute,
   memory: memoryRoute,

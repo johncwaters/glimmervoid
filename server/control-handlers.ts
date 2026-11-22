@@ -212,6 +212,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
   const session = createSessionHandlers(context, deps);
   const github = createGithubHandlers(context, deps);
   const race = createRaceHandlers(context, deps, { discardSession: session.discardSession });
+  const wargames = createWargamesHandlers(context, deps);
   const merged = mergeHandlerGroups([
     createServerHandlers(context, deps),
     createRadarHandlers(context, deps),
@@ -220,7 +221,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     { handlers: {}, connectFrames: github.lateConnectFrames },
     createLaneHandlers(context, deps),
     race,
-    createWargamesHandlers(context, deps),
+    wargames,
     session,
     createWorktreeHandlers(context, deps),
     createSettingsHandlers(context, deps),
@@ -298,7 +299,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
     });
   });
 
-  return { buildSnapshot, removeExitedSession: session.removeExitedSession, raceLauncher: race.launcher };
+  return { buildSnapshot, removeExitedSession: session.removeExitedSession, raceLauncher: race.launcher, wargamesLauncher: wargames.launcher };
 }
 
 export {

@@ -11,6 +11,7 @@ import path from 'node:path';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { createStartPicksStore } from '../start-picks-store.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
+import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
 import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, SessionWakesControl, TeamReviewActionControl } from '../control-handlers.ts';
 import type { ReplayLog } from '../core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from '../core/telegram-delivery-core.ts';
@@ -136,7 +137,7 @@ interface BackendControlDependencies {
   logger: Pick<Console, 'warn'>;
 }
 
-function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; raceLauncher: RaceLauncher } {
+function createBackendControl(dependencies: BackendControlDependencies): { removeExitedSession: (id: string) => void; raceLauncher: RaceLauncher; wargamesLauncher: WargamesLauncher } {
   const {
     onControlConnection,
     sessions,
@@ -252,7 +253,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
   sendLaneSnapshotOnConnect('secret-approvals', () => ({ snapshotMessage: () => dependencies.secrets.approvalsMessage() }));
   sendLaneSnapshotOnConnect('whiteboards', () => dependencies.whiteboards);
 
-  return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher };
+  return { removeExitedSession: controlHandlers.removeExitedSession, raceLauncher: controlHandlers.raceLauncher, wargamesLauncher: controlHandlers.wargamesLauncher };
 }
 
 export { createBackendControl };
