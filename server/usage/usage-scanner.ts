@@ -25,8 +25,21 @@ import {
   totalTokensOf,
 } from './core/usage-entry-core.ts';
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
+import {
+  ANTIGRAVITY_TRANSCRIPT_SEGMENTS,
+  antigravityDedupIdentity,
+  parseAntigravityConversationMetadata,
+  parseAntigravityUsageLine,
+} from './core/usage-antigravity-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
 import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts';
+import {
+  applyPiHeaderLine,
+  createPiUsageState,
+  parsePiUsageLine,
+  piDedupIdentity,
+} from './core/usage-pi-core.ts';
+import type { PiUsageState } from './core/usage-pi-core.ts';
 import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
 import type { PlanWindowStarts } from './core/usage-lane-core.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
@@ -36,6 +49,8 @@ import type { YourDay } from '../../shared/contracts/your-day.ts';
 import type { UsageScanSnapshot, UsageScanSnapshotEntry } from '../../shared/contracts/usage-scan-snapshot.ts';
 import type { ModelPrice } from './core/usage-pricing-core.ts';
 import {
+  antigravityBrainRootCandidates,
+  antigravityMetadataPathForBrainRoot,
   codexFallbackRoots,
   codexHomes,
   codexRootCandidates,
@@ -45,6 +60,7 @@ import {
   dedupeCodexFiles,
   grokHomes,
   kimiHomes,
+  piSessionRootCandidates,
   sessionsRootCandidates,
   isUsageFile,
   passOutcome,
@@ -118,6 +134,7 @@ interface FileState {
   carry: string;
   lineOrdinal: number;
   vendorState: CodexUsageState | null;
+  piState?: PiUsageState | null;
 }
 
 type FileJournalAction =
@@ -153,7 +170,7 @@ interface UsageScannerOptions {
   blockHours?: number;
   retainDays?: number;
   extraProjectsDirs?: string[];
-  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean };
+  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean };
   warehousePath?: string | null;
   warehouseRetainDays?: number;
   snapshotPath?: string | null;
@@ -284,6 +301,8 @@ function keysForEntry(entry: StoredEntry, syntheticPrimary: string | null = null
   if (entry?.vendor === 'codex') return { primary: codexDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'grok') return { primary: grokDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'kimi') return { primary: kimiDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'antigravity') return { primary: antigravityDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'pi') return { primary: piDedupIdentity(entry), collision: null };
   const keys = dedupKeys(entry);
   return { primary: keys.primary || syntheticPrimary || entry?.[SYNTHETIC_PRIMARY] || null, collision: keys.collision };
 }
@@ -348,7 +367,7 @@ async function resolveVendorRootsAsync(
     fsPromises: ScannerFileSystem;
     env: NodeJS.ProcessEnv;
     homeDir: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean } | null | undefined;
     laneLog: LaneLog;
   },
 ): Promise<{ roots: ScanRoot[]; ioFailures: number }> {
@@ -371,7 +390,74 @@ async function resolveVendorRootsAsync(
     ioFailures += surviving.ioFailures;
     for (const root of surviving.roots) roots.push({ vendor: 'kimi', dir: root.dir, kind: root.kind });
   }
+  if (vendors?.antigravity !== false) {
+    const surviving = await existingRoots(antigravityBrainRootCandidates(env, homeDir), fsPromises, laneLog);
+    ioFailures += surviving.ioFailures;
+    for (const root of surviving.roots) roots.push({ vendor: 'antigravity', dir: root.dir, kind: root.kind });
+  }
+  if (vendors?.pi !== false) {
+    const surviving = await existingRoots(piSessionRootCandidates(env, homeDir), fsPromises, laneLog);
+    ioFailures += surviving.ioFailures;
+    for (const root of surviving.roots) roots.push({ vendor: 'pi', dir: root.dir, kind: root.kind });
+  }
   return { roots, ioFailures };
+}
+
+async function probeAntigravityBrainRoot(
+  brainRoot: string,
+  fsPromises: ScannerFileSystem,
+  files: string[],
+  laneLog: LaneLog,
+): Promise<number> {
+  let conversationDirs: Dirent[];
+  try {
+    conversationDirs = await fsPromises.readdir(brainRoot, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingFileError(error)) return 0;
+    laneLog.warn('antigravity readdir failed', { path: brainRoot, error: errorMessage(error) });
+    return 1;
+  }
+  let ioFailures = 0;
+  await Promise.all(conversationDirs.map(async (entry) => {
+    if (!entry.isDirectory()) return;
+    const transcriptPath = path.join(brainRoot, entry.name, ...ANTIGRAVITY_TRANSCRIPT_SEGMENTS);
+    try {
+      const stat = await fsPromises.stat(transcriptPath);
+      if (!stat.isDirectory()) files.push(transcriptPath);
+    } catch (error) {
+      if (isMissingFileError(error)) return;
+      ioFailures += 1;
+      laneLog.warn('antigravity transcript probe failed', { path: transcriptPath, error: errorMessage(error) });
+    }
+  }));
+  return ioFailures;
+}
+
+async function loadAntigravityCwdMap(
+  roots: ScanRoot[],
+  fsPromises: ScannerFileSystem,
+  laneLog: LaneLog,
+): Promise<Map<string, string>> {
+  const brainRoots = roots.filter((root) => root.vendor === 'antigravity').map((root) => root.dir);
+  const perRootMaps = await Promise.all(brainRoots.map(async (brainRoot) => {
+    const metadataPath = antigravityMetadataPathForBrainRoot(brainRoot);
+    try {
+      const rawJson = await fsPromises.readFile(metadataPath, 'utf8');
+      return parseAntigravityConversationMetadata(rawJson);
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        laneLog.warn('antigravity metadata read failed', { path: metadataPath, error: errorMessage(error) });
+      }
+      return new Map<string, string>();
+    }
+  }));
+  const cwdByConversation = new Map<string, string>();
+  for (const rootMap of perRootMaps) {
+    for (const [conversationId, workspacePath] of rootMap) {
+      if (!cwdByConversation.has(conversationId)) cwdByConversation.set(conversationId, workspacePath);
+    }
+  }
+  return cwdByConversation;
 }
 
 async function walkDir(
@@ -412,7 +498,12 @@ async function walkSourceFiles(
   let ioFailures = 0;
   for (const root of roots) {
     const found: string[] = [];
-    ioFailures += await walkDir(root.dir, root.vendor, fsPromises, found, laneLog);
+    if (root.vendor === 'antigravity') {
+      ioFailures += await probeAntigravityBrainRoot(root.dir, fsPromises, found, laneLog);
+    }
+    if (root.vendor !== 'antigravity') {
+      ioFailures += await walkDir(root.dir, root.vendor, fsPromises, found, laneLog);
+    }
     for (const file of found) files.push({ file, vendor: root.vendor, kind: root.kind });
   }
   const codexFiles = dedupeCodexFiles(files.filter((entry) => entry.vendor === 'codex'));
@@ -435,7 +526,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     blockHours = 5,
     retainDays = 90,
     extraProjectsDirs = [],
-    vendors = { codex: true, grok: true, kimi: true },
+    vendors = { codex: true, grok: true, kimi: true, antigravity: true, pi: true },
     warehousePath = null,
     warehouseRetainDays = 365,
     snapshotPath = null,
@@ -453,6 +544,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   const budget = normalizeBudgetConfig(budgetDep);
   const fileStates = new Map<string, FileState | null>();
+  let antigravityCwdByConversation = new Map<string, string>();
+  let vendorFileCounts: Record<string, number> = {};
   const primaryIndex = new Map<string, number>();
   const collisionIndex = new Map<string, number>();
   const entries: StoredEntry[] = [];
@@ -654,16 +747,18 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   function ingestVendorLine(parsed: UsageEntry | null, file: string): number {
     if (!parsed) return 0;
-    const entry = stripIngestFields(priceEntry({ ...parsed, project: path.dirname(file) }));
+    const project = parsed.project ?? parsed.cwd ?? path.dirname(file);
+    const entry = stripIngestFields(priceEntry({ ...parsed, project }));
     return storeEntry(entry) ? 1 : 0;
   }
 
   function ingestLine(
-    { line, file, vendor, vendorState, dirs: claudeRoots, lineOrdinal }: {
+    { line, file, vendor, vendorState, piState, dirs: claudeRoots, lineOrdinal }: {
       line: string;
       file: string;
       vendor: string;
       vendorState: CodexUsageState | null;
+      piState: PiUsageState | null;
       dirs: string[];
       lineOrdinal: number;
     },
@@ -680,6 +775,12 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     }
     if (vendor === 'grok') return ingestVendorLine(parseGrokUsageLine(line), file);
     if (vendor === 'kimi') return ingestVendorLine(parseKimiUsageLine(line, file), file);
+    if (vendor === 'antigravity') return ingestVendorLine(parseAntigravityUsageLine(line, file, antigravityCwdByConversation), file);
+    if (vendor === 'pi') {
+      const activePiState = piState ?? createPiUsageState();
+      if (applyPiHeaderLine(line, activePiState)) return 0;
+      return ingestVendorLine(parsePiUsageLine(line, file, activePiState), file);
+    }
     const activity = parseClaudeActivityLine(line);
     if (activity) noteActivity('claude', activity, identityFromRelPath(relativeToProjects(file, claudeRoots)).sessionId);
     const parsed = parseUsageLine(line);
@@ -710,7 +811,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       vendor: string;
       force: boolean;
       maxBytes: number;
-      onLine: (line: string, lineOrdinal: number, vendorState: CodexUsageState | null) => void;
+      onLine: (line: string, lineOrdinal: number, vendorState: CodexUsageState | null, piState: PiUsageState | null) => void;
       shouldYieldAfterLine: () => boolean;
     },
   ): Promise<{ bytesRead: number; partial: boolean; failed: boolean; skipped: boolean }> {
@@ -728,10 +829,11 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     const decision = decideFileRead(prior, { size: stat.size, mtimeMs: stat.mtimeMs });
     if (decision.action === 'skip') return { bytesRead: 0, partial: false, failed: false, skipped: true };
 
+    const defaultPiState = vendor === 'pi' ? createPiUsageState() : null;
     const state: FileState = decision.action === 'restart'
-      ? { size: stat.size, mtimeMs: stat.mtimeMs, offset: 0, carry: '', lineOrdinal: 0, vendorState: createVendorState(vendor) }
-      : { ...(prior || {}), size: stat.size, mtimeMs: stat.mtimeMs, offset: decision.readFrom, carry: prior?.carry || '', lineOrdinal: prior?.lineOrdinal || 0, vendorState: prior?.vendorState || createVendorState(vendor) };
-    const priorSnapshot = prior ? { ...prior, vendorState: cloneVendorState(prior.vendorState) } : null;
+      ? { size: stat.size, mtimeMs: stat.mtimeMs, offset: 0, carry: '', lineOrdinal: 0, vendorState: createVendorState(vendor), piState: defaultPiState }
+      : { ...(prior || {}), size: stat.size, mtimeMs: stat.mtimeMs, offset: decision.readFrom, carry: prior?.carry || '', lineOrdinal: prior?.lineOrdinal || 0, vendorState: prior?.vendorState || createVendorState(vendor), piState: prior?.piState ? { ...prior.piState } : defaultPiState };
+    const priorSnapshot = prior ? { ...prior, vendorState: cloneVendorState(prior.vendorState), piState: prior.piState ? { ...prior.piState } : null } : null;
     fileStates.set(file, state);
 
     let handle: ScannerFileHandle | undefined;
@@ -767,7 +869,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         state.carry = split.carry;
         for (const line of split.lines) {
           state.lineOrdinal = (state.lineOrdinal || 0) + 1;
-          onLine(line, state.lineOrdinal, state.vendorState);
+          onLine(line, state.lineOrdinal, state.vendorState, state.piState ?? null);
           if (shouldYieldAfterLine()) await yieldNowFn();
         }
       }
@@ -780,7 +882,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         state.carry = split.carry;
         for (const line of split.lines) {
           state.lineOrdinal = (state.lineOrdinal || 0) + 1;
-          onLine(line, state.lineOrdinal, state.vendorState);
+          onLine(line, state.lineOrdinal, state.vendorState, state.piState ?? null);
         }
       }
       state.size = stat.size;
@@ -799,7 +901,11 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   function restoreSnapshot(snapshot: UsageScanSnapshot): void {
     for (const [file, cursor] of Object.entries(snapshot.files)) {
-      fileStates.set(file, { ...cursor, vendorState: cursor.vendorState ? { ...cursor.vendorState } : null });
+      fileStates.set(file, {
+        ...cursor,
+        vendorState: cursor.vendorState ? { ...cursor.vendorState } : null,
+        piState: cursor.piState ? { ...cursor.piState } : null,
+      });
     }
     for (const { syntheticPrimary, ...snapshotEntry } of snapshot.entries) {
       const storedEntry: StoredEntry = priceEntry(snapshotEntry);
@@ -1105,6 +1211,10 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return { dirs: dirs.slice(), files: lastFileCount, entries: entries.length, lastScanMs, lastOutcome, isHistoryCaughtUp, resolutionError };
   }
 
+  function vendorCounts(): Record<string, number> {
+    return { ...vendorFileCounts };
+  }
+
   async function runPassInternal({ force, scopeDirs = null }: { force: boolean; scopeDirs?: readonly string[] | null }): Promise<PassResult> {
     const startedAt = nowFn();
     let parsedLineCount = 0;
@@ -1137,7 +1247,13 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     const walked = await walkSourceFiles(roots, fsPromises, laneLog);
     const files = walked.files;
     ioFailures += walked.ioFailures;
-    if (!scopedRoots) lastFileCount = files.length;
+    if (!scopedRoots) {
+      lastFileCount = files.length;
+      const countsByVendor: Record<string, number> = {};
+      for (const file of files) countsByVendor[file.vendor] = (countsByVendor[file.vendor] ?? 0) + 1;
+      vendorFileCounts = countsByVendor;
+      antigravityCwdByConversation = await loadAntigravityCwdMap(roots, fsPromises, laneLog);
+    }
 
     for (const file of files) {
       const remainingBudget = byteBudget - bytesReadThisPass;
@@ -1152,9 +1268,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         vendor: file.vendor,
         force,
         maxBytes: remainingBudget,
-        onLine: (line, lineOrdinal, vendorState) => {
+        onLine: (line, lineOrdinal, vendorState, piState) => {
           parsedLineCount += 1;
-          fileNewEntryCount += ingestLine({ line, file: file.file, vendor: file.vendor, vendorState, dirs: claudeDirs, lineOrdinal });
+          fileNewEntryCount += ingestLine({ line, file: file.file, vendor: file.vendor, vendorState, piState, dirs: claudeDirs, lineOrdinal });
         },
         shouldYieldAfterLine: () => parsedLineCount % LINE_YIELD_INTERVAL === 0,
       });
@@ -1243,6 +1359,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     buildReport,
     sessionTotals,
     stats,
+    vendorCounts,
     budgetSpend,
     latestCodexRateLimits,
     drainCodexRateLimits,

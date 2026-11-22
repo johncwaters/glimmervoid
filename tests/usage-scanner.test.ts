@@ -665,6 +665,136 @@ test('scanner IO failure after catch-up makes lane spend read-failing until reco
   assert.equal(laneSpendStatus({ isTrackingEnabled: true, scan: scanner.stats() }), 'known');
 });
 
+test('scanner ingests Antigravity transcripts via 1-level brain probe with metadata cwd and dedup', async () => {
+  const root = await makeTempRoot();
+  const brainRoot = path.join(root, '.gemini', 'antigravity-cli', 'brain');
+  const conversationId = 'e49c4f93-2b16-498c-ac66-a509a837905c';
+  const transcriptPath = path.join(brainRoot, conversationId, '.system_generated', 'logs', 'transcript.jsonl');
+  const strayJsonl = path.join(brainRoot, conversationId, 'scratch', 'ignored.jsonl');
+  const metadataPath = path.join(root, '.gemini', 'antigravity-cli', 'cache', 'conversation_metadata.json');
+  const nowIso = new Date().toISOString();
+  const row1 = JSON.stringify({
+    step_index: 1,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    created_at: nowIso,
+    model: 'claude-sonnet-4-20250514-medium',
+    input_tokens: 1000,
+    cache_read_tokens: 4000,
+    output_tokens: 250,
+  });
+  const row2 = JSON.stringify({
+    step_index: 3,
+    source: 'MODEL',
+    type: 'PLANNER_RESPONSE',
+    created_at: nowIso,
+    model: 'claude-sonnet-4-20250514-medium',
+    input_tokens: 500,
+    cache_read_tokens: 5000,
+    output_tokens: 150,
+  });
+  await writeLines(transcriptPath, [row1, row1, row2]);
+  await writeLines(strayJsonl, [row1]);
+  await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+  await fs.writeFile(metadataPath, JSON.stringify({
+    conversations: {
+      [conversationId]: { summary: { WorkspaceURIs: ['file:///tmp/demo-repo'] } },
+    },
+  }));
+
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+  });
+  const scanPass = await scanner.runPass();
+  assert.equal(scanPass.outcome, 'complete');
+  assert.equal(scanPass.newEntries, 2);
+  assert.equal(scanner.vendorCounts().antigravity, 1);
+  const report = scanner.buildReport();
+  assert.equal(report.totals.input, 1500);
+  assert.equal(report.totals.cacheRead, 9000);
+  assert.equal(report.totals.output, 400);
+  assert.ok(report.totals.costUSD > 0);
+  assert.equal(report.sessions[0]?.project, '/tmp/demo-repo');
+});
+
+test('scanner ingests pi sessions with reported cost and deduplicates forked entries', async () => {
+  const root = await makeTempRoot();
+  const piSessions = path.join(root, '.pi', 'agent', 'sessions', '--tmp-repo--');
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.parse(nowIso);
+  const header = JSON.stringify({ type: 'session', version: 3, id: 'pi-session-1', timestamp: nowIso, cwd: '/tmp/pi-repo' });
+  const forkHeader = JSON.stringify({ type: 'session', version: 3, id: 'pi-session-2', timestamp: nowIso, cwd: '/tmp/pi-repo', parentSession: 'pi-session-1' });
+  const sharedMessage = JSON.stringify({
+    type: 'message',
+    id: 'msg-1',
+    timestamp: nowIso,
+    message: {
+      role: 'assistant',
+      model: 'claude-sonnet-4-5',
+      timestamp: nowMs,
+      usage: { input: 200, output: 100, cacheRead: 1000, cacheWrite: 50, cacheWrite1h: 20, cost: { total: 0.123 } },
+    },
+  });
+  const forkOnlyMessage = JSON.stringify({
+    type: 'message',
+    id: 'msg-2',
+    timestamp: nowIso,
+    message: {
+      role: 'assistant',
+      model: 'claude-sonnet-4-5',
+      timestamp: nowMs + 1000,
+      usage: { input: 100, output: 50, cacheRead: 500, cacheWrite: 0, cost: { total: 0.05 } },
+    },
+  });
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  const firstSessionPath = path.join(piSessions, `2026-11-22_10-00-00_pi-session-1.jsonl`);
+  await writeLines(firstSessionPath, [header, sharedMessage]);
+  await writeLines(path.join(piSessions, `2026-11-22_10-00-01_pi-session-2.jsonl`), [forkHeader, sharedMessage, forkOnlyMessage]);
+
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+    snapshotPath,
+    snapshotMinIntervalMs: 0,
+  });
+  const scanPass = await scanner.runPass();
+  assert.equal(scanPass.outcome, 'complete');
+  assert.equal(scanPass.newEntries, 2);
+  assert.equal(scanner.vendorCounts().pi, 2);
+  const report = scanner.buildReport();
+  assert.equal(report.totals.input, 300);
+  assert.equal(report.totals.output, 150);
+  assert.ok(Math.abs(report.totals.costUSD - 0.173) < 1e-6);
+
+  const appendedMessage = JSON.stringify({
+    type: 'message',
+    id: 'msg-3',
+    timestamp: nowIso,
+    message: {
+      role: 'assistant',
+      model: 'claude-sonnet-4-5',
+      timestamp: nowMs + 2000,
+      usage: { input: 50, output: 25, cacheRead: 100, cacheWrite: 0, cost: { total: 0.02 } },
+    },
+  });
+  await fs.appendFile(firstSessionPath, `${appendedMessage}\n`);
+  const restartedScanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+    snapshotPath,
+    snapshotMinIntervalMs: 0,
+  });
+  const restartPass = await restartedScanner.runPass();
+  assert.equal(restartPass.outcome, 'complete');
+  assert.equal(restartPass.newEntries, 1);
+  const restartedSession = restartedScanner.buildReport().sessions.find((session) => session.id === 'pi-session-1');
+  assert.equal(restartedSession?.project, '/tmp/pi-repo');
+});
+
 function promptLine(sessionId: string, timestampMs: number, origin: Record<string, unknown> = {}): string {
   return JSON.stringify({ type: 'user', sessionId, timestamp: new Date(timestampMs).toISOString(), isSidechain: false, ...origin, message: { role: 'user', content: 'keep going' } });
 }

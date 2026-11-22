@@ -39,6 +39,11 @@ const CodexTokenUsageSnapshot = z.object({
   total_tokens: z.unknown().optional(),
 });
 
+const PiUsageStateSnapshot = z.object({
+  sessionId: z.string().nullable(),
+  cwd: z.string().nullable(),
+});
+
 const UsageScanSnapshotCursor = z.object({
   size: z.number(),
   mtimeMs: z.number(),
@@ -49,6 +54,7 @@ const UsageScanSnapshotCursor = z.object({
     model: z.string().nullable(),
     totalTokenUsage: CodexTokenUsageSnapshot.nullable(),
   }).nullable(),
+  piState: PiUsageStateSnapshot.nullable().optional(),
 });
 
 const UsageScanSnapshotActivity = z.object({

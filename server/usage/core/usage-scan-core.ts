@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
-import { rawTextOr } from '../../../shared/coerce.ts';
+import { rawTextOr, textOr } from '../../../shared/coerce.ts';
+import { ANTIGRAVITY_TRANSCRIPT_FILENAME } from './usage-antigravity-core.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
 import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
@@ -158,13 +159,13 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = '62e804de7e6cd8f4';
+const SCAN_SNAPSHOT_INGEST_DIGEST = '253d0314288c2ae6';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
   { appVersion, vendors, extraProjectsDirs, costMode, retainDays, hasMonthlyBudget, env, homeDir }: {
     appVersion: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean } | null | undefined;
     extraProjectsDirs: string[];
     costMode: string;
     retainDays: number;
@@ -179,10 +180,14 @@ function scanConfigKey(
     codex: vendors?.codex !== false,
     grok: vendors?.grok !== false,
     kimi: vendors?.kimi !== false,
+    antigravity: vendors?.antigravity !== false,
+    pi: vendors?.pi !== false,
     claudeRoots: projectDirCandidates(env, extraProjectsDirs, homeDir),
     codexHomes: codexHomes(env, homeDir),
     grokHomes: grokHomes(env, homeDir),
     kimiHomes: kimiHomes(env, homeDir),
+    antigravityBrainRoots: antigravityBrainRoots(env, homeDir),
+    piSessionRoots: piSessionRootCandidates(env, homeDir).map((root) => root.dir),
     costMode,
     retainDays,
     hasMonthlyBudget,
@@ -259,6 +264,40 @@ function kimiHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null 
   return vendorHomes(env, 'KIMI_CODE_HOME', '.kimi-code', homeDir);
 }
 
+const ANTIGRAVITY_BRAIN_FOLDERS = Object.freeze(['antigravity-cli', 'antigravity'] as const);
+
+function antigravityBrainRoots(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
+  const override = textOr(env?.ANTIGRAVITY_BRAIN_DIR, null);
+  if (override) return normalizeHomeCandidates(override.split(','), env, homeDir);
+  const home = resolveHomeDir(env, homeDir);
+  if (!home) return [];
+  return ANTIGRAVITY_BRAIN_FOLDERS.map((folder) => path.join(home, '.gemini', folder, 'brain'));
+}
+
+function antigravityBrainRootCandidates(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): VendorRoot[] {
+  return antigravityBrainRoots(env, homeDir).map((dir) => ({ dir, kind: 'active', home: path.dirname(dir) }));
+}
+
+function antigravityMetadataPathForBrainRoot(brainRoot: string): string {
+  return path.join(path.dirname(brainRoot), 'cache', 'conversation_metadata.json');
+}
+
+function piSessionRootCandidates(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): VendorRoot[] {
+  const home = resolveHomeDir(env, homeDir);
+  const agentDirOverride = textOr(env?.PI_CODING_AGENT_DIR, null);
+  const agentDir = agentDirOverride
+    ? expandTilde(agentDirOverride, env, homeDir)
+    : (home ? path.join(home, '.pi', 'agent') : '');
+  const sessionDirOverride = textOr(env?.PI_CODING_AGENT_SESSION_DIR, null);
+  const candidates: string[] = [];
+  if (sessionDirOverride) {
+    const expanded = expandTilde(sessionDirOverride, env, homeDir);
+    if (expanded) candidates.push(expanded);
+  }
+  if (agentDir) candidates.push(path.join(agentDir, 'sessions'));
+  return uniqueStrings(candidates).map((dir) => ({ dir, kind: 'active', home: agentDir || path.dirname(dir) }));
+}
+
 function codexRootCandidates(homes: string[]): VendorRoot[] {
   const candidates: VendorRoot[] = [];
   for (const home of homes) {
@@ -283,6 +322,7 @@ function isUsageFile(vendor: string, fileName: unknown): boolean {
   if (typeof fileName !== 'string') return false;
   if (vendor === 'grok') return fileName === GROK_USAGE_FILENAME;
   if (vendor === 'kimi') return fileName === KIMI_USAGE_FILENAME;
+  if (vendor === 'antigravity') return fileName === ANTIGRAVITY_TRANSCRIPT_FILENAME;
   return fileName.endsWith('.jsonl');
 }
 
@@ -307,4 +347,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, antigravityBrainRoots, antigravityBrainRootCandidates, antigravityMetadataPathForBrainRoot, piSessionRootCandidates, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
