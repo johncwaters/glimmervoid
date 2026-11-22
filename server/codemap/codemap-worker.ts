@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { parentPort } from 'node:worker_threads';
@@ -7,12 +8,14 @@ import { execFileAsync, spawn } from '../child-process-safe.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_EXPORT_FILE_BY_KIND, CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
-import { isSourcePath, readImportsMap } from '../change-map/core/change-map-core.ts';
-import { buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath } from '../core/import-graph-core.ts';
+import { readImportsMap } from '../change-map/core/change-map-core.ts';
+import { blankOutsideScriptRegions, buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath, scriptSourceSpecifiers } from '../core/import-graph-core.ts';
+import { importLanguageOf, isSourcePath } from '../core/import-language-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
 import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 
 const ExtractRequest = z.strictObject({ repoDir: z.string().min(1), sha: z.string().regex(/^[0-9a-f]{40}$/), base: CodemapExtractBase.nullable() });
+const ScanFilesRequest = z.strictObject({ kind: z.literal('scanFiles'), root: z.string().min(1), repoPaths: z.array(z.string().min(1)) });
 
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
@@ -84,9 +87,27 @@ interface FileScan {
   exportedNames: string[];
 }
 
+const NO_IMPORTS: FileScan = { specifiers: [], typeOnlySpecifiers: [], exportedNames: [] };
+
 function scanOf(repoPath: string, sourceText: string): FileScan {
-  if (repoPath.endsWith('.py')) return { specifiers: extractPythonImportSpecifiers(sourceText), typeOnlySpecifiers: [], exportedNames: [] };
-  return { specifiers: extractImportSpecifiers(sourceText), typeOnlySpecifiers: extractTypeOnlySpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
+  const scanner = importLanguageOf(repoPath)?.scanner;
+  if (!scanner) return NO_IMPORTS;
+  if (scanner.kind === 'python') return { specifiers: extractPythonImportSpecifiers(sourceText), typeOnlySpecifiers: [], exportedNames: [] };
+  if (scanner.kind === 'typescript') return { specifiers: extractImportSpecifiers(sourceText), typeOnlySpecifiers: extractTypeOnlySpecifiers(sourceText), exportedNames: extractExportedNames(sourceText) };
+  const scriptText = blankOutsideScriptRegions(sourceText, scanner.host);
+  const sourceSpecifiers = scanner.host === 'html' ? scriptSourceSpecifiers(sourceText) : [];
+  return { specifiers: [...new Set([...extractImportSpecifiers(scriptText), ...sourceSpecifiers])], typeOnlySpecifiers: extractTypeOnlySpecifiers(scriptText), exportedNames: [] };
+}
+
+async function scanFiles(root: string, repoPaths: readonly string[]): Promise<{ repoPath: string; specifiers: string[] }[]> {
+  const scans: { repoPath: string; specifiers: string[] }[] = [];
+  for (const repoPath of repoPaths) {
+    const sourceText = await fs.promises.readFile(path.join(root, repoPath), 'utf8').catch(() => null);
+    if (sourceText === null) continue;
+    const isWithinBudget = Buffer.byteLength(sourceText) <= CODEMAP_TUNABLES.maxFileBytes;
+    scans.push({ repoPath, specifiers: isWithinBudget ? scanOf(repoPath, sourceText).specifiers : [] });
+  }
+  return scans;
 }
 
 async function reusableScansOf(repoDir: string, base: CodemapExtractBase | null, sha: string): Promise<Map<string, FileScan>> {
@@ -202,6 +223,14 @@ function serve(): void {
   const port = parentPort;
   if (!port) throw new Error('the code map extraction runs only as a worker thread');
   port.once('message', (message: unknown) => {
+    const scanRequest = ScanFilesRequest.safeParse(message);
+    if (scanRequest.success) {
+      scanFiles(scanRequest.data.root, scanRequest.data.repoPaths).then(
+        (scans) => port.postMessage({ ok: true, scans }),
+        (error: unknown) => port.postMessage({ ok: false, error: errorMessage(error) }),
+      );
+      return;
+    }
     const parsed = ExtractRequest.safeParse(message);
     if (!parsed.success) {
       port.postMessage({ ok: false, error: 'the code map worker refused a malformed request' });

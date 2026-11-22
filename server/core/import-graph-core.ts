@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { matchPathPatterns } from './tsconfig-paths-core.ts';
+import type { EmbeddedScriptHost } from './import-language-core.ts';
 import {
   CHANGE_MAP_LIST_CAP,
   changeMapFactId,
@@ -193,6 +194,123 @@ export function extractTypeOnlySpecifiers(sourceText: string): string[] {
   const maskedWithoutTypeOnly = maskedText.replace(TYPE_ONLY_IMPORT, (typeOnlyStatement) => ' '.repeat(typeOnlyStatement.length));
   const valueSpecifiers = new Set(specifiersMatchedIn(sourceText, maskedWithoutTypeOnly));
   return [...new Set(typeOnlySpecifiers)].filter((specifier) => !valueSpecifiers.has(specifier));
+}
+
+const SCRIPT_TAG_START = /<script\b/gi;
+const SCRIPT_CLOSING_TAG = /<\/script\s*>/gi;
+const SCRIPT_TYPE_ATTRIBUTE = /\btype\s*=\s*["']?([^"'\s>]+)/i;
+const SCRIPT_SOURCE_ATTRIBUTE = /\bsrc\s*=\s*["']([^"']+)["']/i;
+const SCRIPT_TYPES = new Set(['module', 'text/javascript', 'application/javascript', 'text/typescript', 'application/typescript', 'ts', 'text/babel', 'text/jsx']);
+const ASTRO_FRONTMATTER = /^\s*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+const MDX_FENCE = /^ {0,3}(`{3,}|~{3,})/;
+const MDX_MODULE_LINE = /^(?:import|export)(?=[\s{*])/;
+const MDX_SINGLE_LINE_BLOCK = /^(?:\s*(?:-{3,}|\+{3,}|\*{3,}|_{3,})\s*$| {0,3}#{1,6}(?:\s|$))/;
+
+interface TextRange {
+  start: number;
+  end: number;
+}
+
+function isScriptType(openingAttributes: string): boolean {
+  const scriptType = SCRIPT_TYPE_ATTRIBUTE.exec(openingAttributes)?.[1]?.toLowerCase();
+  return scriptType === undefined || SCRIPT_TYPES.has(scriptType);
+}
+
+interface ScriptTag {
+  attributes: string;
+  content: TextRange;
+}
+
+function scriptTagsOf(sourceText: string): ScriptTag[] {
+  const tags: ScriptTag[] = [];
+  SCRIPT_TAG_START.lastIndex = 0;
+  for (let opening = SCRIPT_TAG_START.exec(sourceText); opening; opening = SCRIPT_TAG_START.exec(sourceText)) {
+    const openingEnd = sourceText.indexOf('>', opening.index);
+    if (openingEnd < 0) break;
+    const attributes = sourceText.slice(opening.index + opening[0].length, openingEnd);
+    const contentStart = openingEnd + 1;
+    if (attributes.trimEnd().endsWith('/')) {
+      tags.push({ attributes, content: { start: contentStart, end: contentStart } });
+      SCRIPT_TAG_START.lastIndex = contentStart;
+      continue;
+    }
+    SCRIPT_CLOSING_TAG.lastIndex = contentStart;
+    const closing = SCRIPT_CLOSING_TAG.exec(sourceText);
+    tags.push({ attributes, content: { start: contentStart, end: closing ? closing.index : sourceText.length } });
+    SCRIPT_TAG_START.lastIndex = closing ? closing.index + closing[0].length : sourceText.length;
+  }
+  return tags;
+}
+
+function scriptTagRanges(sourceText: string): TextRange[] {
+  return scriptTagsOf(sourceText).filter((tag) => isScriptType(tag.attributes) && tag.content.end > tag.content.start).map((tag) => tag.content);
+}
+
+function closesFence(line: string, openFence: string): boolean {
+  const closing = MDX_FENCE.exec(line)?.[1] ?? '';
+  return closing[0] === openFence[0] && closing.length >= openFence.length && line.trim() === closing;
+}
+
+function mdxModuleRanges(sourceText: string): TextRange[] {
+  const ranges: TextRange[] = [];
+  let openFence = '';
+  let moduleBlockStart = -1;
+  let lastBlockEndLineIndex = -1;
+  let lineStart = 0;
+  for (const [lineIndex, line] of sourceText.split('\n').entries()) {
+    const currentLineStart = lineStart;
+    const isBlank = line.trim() === '';
+    const startsBlock = lastBlockEndLineIndex === lineIndex - 1;
+    lineStart += line.length + 1;
+    if (isBlank || MDX_SINGLE_LINE_BLOCK.test(line)) lastBlockEndLineIndex = lineIndex;
+    if (openFence) {
+      lastBlockEndLineIndex = lineIndex;
+      if (closesFence(line, openFence)) openFence = '';
+      continue;
+    }
+    if (moduleBlockStart >= 0) {
+      if (!isBlank) continue;
+      ranges.push({ start: moduleBlockStart, end: currentLineStart });
+      moduleBlockStart = -1;
+      continue;
+    }
+    openFence = MDX_FENCE.exec(line)?.[1] ?? '';
+    if (!openFence && startsBlock && MDX_MODULE_LINE.test(line)) moduleBlockStart = currentLineStart;
+  }
+  if (moduleBlockStart >= 0) ranges.push({ start: moduleBlockStart, end: sourceText.length });
+  return ranges;
+}
+
+function scriptRangesOf(sourceText: string, host: EmbeddedScriptHost): TextRange[] {
+  if (host === 'mdx') return mdxModuleRanges(sourceText);
+  const frontmatter = host === 'astro' ? ASTRO_FRONTMATTER.exec(sourceText) : null;
+  const frontmatterBody = frontmatter?.[1] ?? '';
+  const frontmatterStart = frontmatter ? frontmatter[0].indexOf(frontmatterBody) : 0;
+  const frontmatterRanges = frontmatter ? [{ start: frontmatterStart, end: frontmatterStart + frontmatterBody.length }] : [];
+  return [...frontmatterRanges, ...scriptTagRanges(sourceText)];
+}
+
+export function blankOutsideScriptRegions(sourceText: string, host: EmbeddedScriptHost): string {
+  const keptParts: string[] = [];
+  let blankFrom = 0;
+  for (const range of scriptRangesOf(sourceText, host).sort((left, right) => left.start - right.start)) {
+    if (range.start < blankFrom) continue;
+    keptParts.push(blankedRange(sourceText, blankFrom, range.start), sourceText.slice(range.start, range.end));
+    blankFrom = range.end;
+  }
+  keptParts.push(blankedRange(sourceText, blankFrom, sourceText.length));
+  return keptParts.join('');
+}
+
+export function scriptSourceSpecifiers(sourceText: string): string[] {
+  const specifiers: string[] = [];
+  for (const { attributes } of scriptTagsOf(sourceText)) {
+    const source = SCRIPT_SOURCE_ATTRIBUTE.exec(attributes)?.[1];
+    if (!source || !isScriptType(attributes) || source.startsWith('//') || source.includes(':')) continue;
+    const isRelative = source.startsWith('./') || source.startsWith('../');
+    specifiers.push(isRelative ? source : source.startsWith('/') ? `.${source}` : `./${source}`);
+  }
+  return [...new Set(specifiers)];
 }
 
 interface OutsideGraphImport {

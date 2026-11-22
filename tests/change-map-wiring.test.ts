@@ -9,6 +9,9 @@ import type { ChangeScope } from '../session/worktree/worktree-lifecycle-context
 import { createChangeMapService, joinSessionRegistries } from '../server/change-map/change-map-wiring.ts';
 import type { ChangeMapSession } from '../server/change-map/change-map-wiring.ts';
 import { git, hasGit } from './helpers/git-fixture.ts';
+import { createCodemapClient } from '../server/codemap/codemap-client.ts';
+
+const { scanFiles } = createCodemapClient();
 
 function writeRepoFile(root: string, repoPath: string, contents: string): void {
   fs.mkdirSync(path.dirname(path.join(root, repoPath)), { recursive: true });
@@ -72,7 +75,7 @@ test('a failed git read under the default runner shows as a repo error, never as
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-not-a-repo-'));
   try {
     const session = fixtureSession('plain', 'Plain', () => [modifiedScope(root, 'server/a.ts')]);
-    const map = await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    const map = await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
     assert.match(map.repos[0]?.error ?? '', /not a git repository/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -85,7 +88,7 @@ test('change map joins git facts for a real repo into one contract-valid map, fi
     const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
     const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...scopeOf(root, base), uncommittedNameStatus: `M${nul}server/a.ts${nul}` }]);
     const sessions = joinSessionRegistries(new Map([[self.id, self]]), new Map([[sibling.id, sibling]]));
-    const map = await createChangeMapService({ sessions }).build(self);
+    const map = await createChangeMapService({ scanFiles, sessions }).build(self);
     assert.equal(ChangeMap.safeParse(map).success, true);
     const [repo] = map.repos;
     assert.deepEqual(repo.files.map((file) => [file.path, file.status]), [['server/a.ts', 'modified'], ['server/lonely.ts', 'untracked']]);
@@ -111,6 +114,7 @@ test('collision rating diffs only shared paths, once per cache window, and never
     const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
     const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...modifiedScope(siblingRoot, siblingChangedPath), base }]);
     const service = createChangeMapService({
+      scanFiles,
       sessions: new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]),
       nowFn: () => nowMs,
       runGit: async (args, cwd) => {
@@ -145,6 +149,7 @@ test('every collision shown past the cap is one that was compared line by line',
     const self = fixtureSession('self', 'Self', () => [{ ...modifiedScope(root, ''), base, uncommittedNameStatus: sharedNameStatus }]);
     const sibling = fixtureSession('sibling', 'Sibling', () => [{ ...modifiedScope(siblingRoot, ''), base, uncommittedNameStatus: sharedNameStatus }]);
     const service = createChangeMapService({
+      scanFiles,
       sessions: new Map<string, ChangeMapSession>([[self.id, self], [sibling.id, sibling]]),
       runGit: async (args, cwd) => {
         if (cwd !== siblingRoot) return git(args, cwd);
@@ -163,7 +168,7 @@ test('an edit that leaves the name-status unchanged still refreshes the memoized
   const { root, base } = createFixtureRepo();
   try {
     const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
-    const service = createChangeMapService({ sessions: new Map([[self.id, self]]) });
+    const service = createChangeMapService({ scanFiles, sessions: new Map([[self.id, self]]) });
     const before = await service.build(self);
     assert.equal(before.repos[0].blastRadius.find((fact) => fact.path === 'server/a.ts')?.directDependents.includes('server/lonely.ts'), false);
     writeRepoFile(root, 'server/lonely.ts', "import { a } from './a.ts';\nexport const lonely = a;\n");
@@ -183,7 +188,7 @@ test('non-ASCII paths arrive unquoted from committed and untracked changes', { s
     commitAll(root, 'feat: accented');
     writeRepoFile(root, untrackedPath, 'export const uber = 1;\n');
     const self = fixtureSession('self', 'Self', () => [scopeOf(root, base)]);
-    const map = await createChangeMapService({ sessions: new Map([[self.id, self]]) }).build(self);
+    const map = await createChangeMapService({ scanFiles, sessions: new Map([[self.id, self]]) }).build(self);
     const [repo] = map.repos;
     assert.deepEqual(repo.files.filter((file) => file.path !== 'server/a.ts' && file.path !== 'server/lonely.ts').map((file) => [file.path, file.status]), [
       [committedPath, 'added'], [untrackedPath, 'untracked'],
@@ -217,7 +222,7 @@ async function buildWorkspacePackageMap(versionSpec: string) {
     const libScope = { ...scopeOf(lib.root, lib.base), name: 'lib' };
     const appScope = { ...scopeOf(app.root, app.base), name: 'app' };
     const session = fixtureSession('workspace', 'Workspace', () => [libScope, appScope]);
-    return await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    return await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
   } finally {
     fs.rmSync(lib.root, { recursive: true, force: true });
     fs.rmSync(app.root, { recursive: true, force: true });
@@ -255,6 +260,7 @@ test('a repo build error stays visible and logged while its package still provid
       { ...scopeOf(app.root, app.base), name: 'app' },
     ]);
     const service = createChangeMapService({
+      scanFiles,
       sessions: new Map([[session.id, session]]),
       runGit: async (args, cwd) => {
         if (cwd === lib.root && args[0] === 'log') throw new Error('history unavailable');
@@ -277,6 +283,7 @@ test('single changed scope lists tracked paths once and leaves links empty', { s
     const session = fixtureSession('single', 'Single', () => [scopeOf(root, base)]);
     const gitCalls: string[][] = [];
     const service = createChangeMapService({
+      scanFiles,
       sessions: new Map([[session.id, session]]),
       runGit: async (args, cwd) => { gitCalls.push(args); return git(args, cwd); },
     });
@@ -300,7 +307,7 @@ test('tsconfig paths and NodeNext imports carry blast radius through a wizard-sh
   try {
     writeRepoFile(root, 'src/shared/util.ts', 'export const util = 2;\n');
     const session = fixtureSession('wizard', 'Wizard', () => [scopeOf(root, base)]);
-    const map = await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    const map = await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
     const [repo] = map.repos;
     const blast = repo.blastRadius.find((fact) => fact.path === 'src/shared/util.ts');
     assert.deepEqual(blast?.directDependents, ['src/programs/index.ts']);
@@ -311,7 +318,8 @@ test('tsconfig paths and NodeNext imports carry blast radius through a wizard-sh
   }
 });
 
-test('Python package imports carry blast radius through a posthog-shaped repo', { skip: !hasGit() }, async () => {
+test('Python package imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
+  const fence = '`'.repeat(3);
   const { root, base } = createPackageRepo('posthog', {}, {
     'posthog/__init__.py': '',
     'posthog/models/__init__.py': 'from .user import User\n',
@@ -319,15 +327,27 @@ test('Python package imports carry blast radius through a posthog-shaped repo', 
     'posthog/api/__init__.py': '',
     'posthog/api/user.py': 'from posthog.models.user import User\nthing = User\n',
     'posthog/api/test/test_user.py': 'from posthog.api.user import thing\n',
+    'site/lib/format.ts': 'export const format = 1;\n',
+    'site/lib/other.ts': 'export const other = 1;\n',
+    'site/pages/index.astro': "---\nimport { format } from '../lib/format.ts';\n---\n<p>import { other } from '../lib/other.ts'</p>\n",
+    'site/components/Card.vue': "<template><p>{{ format }}</p></template>\n<script setup lang=\"ts\">\nimport { format } from '../lib/format.ts';\n</script>\n",
+    'site/components/Badge.svelte': "<script>\n  import { format } from '../lib/format.ts';\n</script>\n<p>{format}</p>\n",
+    'site/docs/guide.mdx': `import { format } from '../lib/format.ts';\n\n${fence}js\nimport { other } from '../lib/other.ts';\n${fence}\n\nSee {format}.\n`,
+    'site/index.html': '<script type="module" src="/lib/format.ts"></script>\n<script type="application/json">{"import": "x"}</script>\n',
   });
   try {
     writeRepoFile(root, 'posthog/models/user.py', 'class User: value = 1\n');
+    writeRepoFile(root, 'site/lib/format.ts', 'export const format = 2;\n');
+    writeRepoFile(root, 'site/lib/other.ts', 'export const other = 2;\n');
     const session = fixtureSession('posthog', 'Posthog', () => [scopeOf(root, base)]);
-    const map = await createChangeMapService({ sessions: new Map([[session.id, session]]) }).build(session);
+    const map = await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
     const [repo] = map.repos;
     const blast = repo.blastRadius.find((fact) => fact.path === 'posthog/models/user.py');
     assert.deepEqual(blast?.directDependents, ['posthog/api/user.py', 'posthog/models/__init__.py']);
     assert.deepEqual(blast?.dependentTests, ['posthog/api/test/test_user.py']);
+    const scriptBlast = repo.blastRadius.find((fact) => fact.path === 'site/lib/format.ts');
+    assert.deepEqual(scriptBlast?.directDependents, ['site/components/Badge.svelte', 'site/components/Card.vue', 'site/docs/guide.mdx', 'site/index.html', 'site/pages/index.astro']);
+    assert.deepEqual(repo.blastRadius.find((fact) => fact.path === 'site/lib/other.ts')?.directDependents ?? [], []);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -343,7 +363,7 @@ test('an extends config edit refreshes memoized imports when name status stays u
   try {
     writeRepoFile(root, 'src/shared/util.ts', 'export const util = 2;\n');
     const session = fixtureSession('config-refresh', 'Config', () => [modifiedScope(root, 'src/shared/util.ts')]);
-    const service = createChangeMapService({ sessions: new Map([[session.id, session]]) });
+    const service = createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) });
     const before = await service.build(session);
     assert.equal(before.repos[0].blastRadius.some((fact) => fact.path === 'src/shared/util.ts'), false);
     writeRepoFile(root, 'tsconfig.build.json', '{"compilerOptions":{"paths":{"@shared/*":["./src/shared/*"]}}}');

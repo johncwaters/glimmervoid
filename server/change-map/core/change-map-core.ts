@@ -11,12 +11,6 @@ const STATUS_BY_LETTER: Record<string, ChangedFileStatus> = {
   '?': 'untracked',
 };
 
-const SOURCE_EXTENSIONS = Object.freeze(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx', '.mts', '.cts', '.py']);
-
-export function isSourcePath(repoPath: string): boolean {
-  return SOURCE_EXTENSIONS.some((extension) => repoPath.endsWith(extension));
-}
-
 export function isAgentsDocPath(repoPath: string): boolean {
   return repoPath === 'AGENTS.md' || repoPath.endsWith('/AGENTS.md');
 }

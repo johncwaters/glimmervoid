@@ -88,6 +88,7 @@ import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLau
 import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
 import { createSessionPreviews } from '../session/session-previews.ts';
 import { createCodemapService } from '../codemap/codemap-wiring.ts';
+import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createBranchMerge } from '../board-session/branch-merge.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
@@ -365,7 +366,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const sessions = new Map<string, Session>();
   const agentSessions = new Map<string, Session>();
   const fileClaims = createFileClaims({ findLiveSession: (sessionId) => allLiveSessions().find((session) => session.id === sessionId && session.state !== STATES.DONE && session.state !== STATES.FAILED) ?? null });
-  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), claimsByOthersOf: fileClaims.claimsByOthersOf });
+  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions), scanFiles: createCodemapClient().scanFiles, claimsByOthersOf: fileClaims.claimsByOthersOf });
   const verification = createVerificationWiring({
     getVerificationConfig: () => configStore.config.verification,
     builtInChecks: { outcomesOf: async (session, commitSha) => [...await codemap.builtInChecksOf(session, commitSha), ...await whiteboards.layoutChecksOf(session.id)], requiredIdsOf: (session) => codemap.requiredCheckIdsOf(session), freshnessOf: (session) => whiteboards.layoutFreshnessOf(session.id) },

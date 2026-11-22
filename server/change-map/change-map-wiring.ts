@@ -6,7 +6,6 @@ import type { ChangeScope } from '../../session/worktree/worktree-lifecycle-cont
 import { gitCommandFailure, runGit } from '../git/git-exec.ts';
 import {
   isAgentsDocPath,
-  isSourcePath,
   mergeChangedFiles,
   parseNameStatus,
   parseNulSeparatedPaths,
@@ -20,7 +19,8 @@ import { claimCollisions } from '../core/file-claims-core.ts';
 import { IS_CASE_INSENSITIVE_FILESYSTEM } from '../file-claims.ts';
 import type { FileClaim } from '../core/file-claims-core.ts';
 import type { FileEditsByPath } from './core/change-ownership-core.ts';
-import { buildImportGraph, computeBlastRadius, extractImportSpecifiers, extractPythonImportSpecifiers } from '../core/import-graph-core.ts';
+import { buildImportGraph, computeBlastRadius } from '../core/import-graph-core.ts';
+import { isSourcePath } from '../core/import-language-core.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
 import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 import { computeCrossRepoLinks, indexImportersByPackage, readPackageManifest } from '../core/workspace-links-core.ts';
@@ -62,8 +62,11 @@ export function joinSessionRegistries(...registries: ReadonlyMap<string, ChangeM
   };
 }
 
+type ScanFiles = (root: string, repoPaths: readonly string[]) => Promise<Map<string, string[]>>;
+
 interface ChangeMapServiceOptions {
   sessions: ChangeMapSessionSource;
+  scanFiles: ScanFiles;
   runGit?: (args: string[], cwd: string) => Promise<string>;
   nowFn?: () => number;
   claimsByOthersOf?: (sessionId: string) => readonly FileClaim[];
@@ -167,6 +170,52 @@ function createFileFactCache<Value>(derive: (text: string) => Value | null, over
   return { readMany, generation: () => missGeneration };
 }
 
+function createSpecifierCache(scanFiles: ScanFiles) {
+  const factByAbsolutePath = new Map<string, CachedFileFact<string[]>>();
+  let missGeneration = 0;
+
+  function remember(absolutePath: string, mtimeMs: number, size: number, specifiers: string[]): void {
+    missGeneration++;
+    if (factByAbsolutePath.size >= MAX_CACHED_FILES) factByAbsolutePath.clear();
+    factByAbsolutePath.set(absolutePath, { mtimeMs, size, value: specifiers });
+  }
+
+  async function readMany(root: string, repoPaths: string[]): Promise<Map<string, string[]>> {
+    const specifiersByPath = new Map<string, string[]>();
+    const misses: { repoPath: string; mtimeMs: number; size: number }[] = [];
+    for (let batchStart = 0; batchStart < repoPaths.length; batchStart += FILE_READ_BATCH) {
+      const batch = repoPaths.slice(batchStart, batchStart + FILE_READ_BATCH);
+      const statsInBatch = await Promise.all(batch.map((repoPath) => fs.promises.stat(path.join(root, repoPath)).catch(() => null)));
+      batch.forEach((repoPath, index) => {
+        const stats = statsInBatch[index];
+        if (!stats || !stats.isFile()) return;
+        const cached = factByAbsolutePath.get(path.join(root, repoPath));
+        if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+          specifiersByPath.set(repoPath, cached.value);
+          return;
+        }
+        if (stats.size > MAX_FACT_FILE_BYTES) {
+          remember(path.join(root, repoPath), stats.mtimeMs, stats.size, []);
+          specifiersByPath.set(repoPath, []);
+          return;
+        }
+        misses.push({ repoPath, mtimeMs: stats.mtimeMs, size: stats.size });
+      });
+      await yieldToEventLoop();
+    }
+    const scannedByPath = await scanFiles(root, misses.map((miss) => miss.repoPath));
+    for (const miss of misses) {
+      const specifiers = scannedByPath.get(miss.repoPath);
+      if (!specifiers) continue;
+      remember(path.join(root, miss.repoPath), miss.mtimeMs, miss.size, specifiers);
+      specifiersByPath.set(miss.repoPath, specifiers);
+    }
+    return specifiersByPath;
+  }
+
+  return { readMany, generation: () => missGeneration };
+}
+
 function emptyRepoMap(scope: ChangeScope): RepoChangeMap {
   return {
     name: scope.name,
@@ -205,12 +254,12 @@ export type ChangeMapService = ReturnType<typeof createChangeMapService>;
 
 export function createChangeMapService({
   sessions,
+  scanFiles,
   runGit = runGitAsync,
   nowFn = clock.nowMs,
   claimsByOthersOf = () => [],
 }: ChangeMapServiceOptions) {
-  const specifierCache = createFileFactCache(extractImportSpecifiers, []);
-  const pythonSpecifierCache = createFileFactCache(extractPythonImportSpecifiers, []);
+  const specifierCache = createSpecifierCache(scanFiles);
   const tsconfigCache = createFileFactCache((text) => ({ config: parseTsconfigJsonc(text) }), { config: null });
   const agentsTitleCache = createFileFactCache(readAgentsTitle, null);
   const packageManifestCache = createFileFactCache<PackageManifest>(readPackageManifest, null);
@@ -358,7 +407,7 @@ export function createChangeMapService({
     const historyTip = scope.base || (await runGit(['rev-parse', 'HEAD'], scope.root)).trim();
     const memoKey = hashText(JSON.stringify([
       scope.name, scope.base, scope.committedNameStatus, scope.uncommittedNameStatus, hashText(repoPathsText),
-      specifierCache.generation(), pythonSpecifierCache.generation(), tsconfigCache.generation(), agentsTitleCache.generation(), packageJsonText, historyTip,
+      specifierCache.generation(), tsconfigCache.generation(), agentsTitleCache.generation(), packageJsonText, historyTip,
     ]));
     const memoized = repoFactsByRoot.get(scope.root);
     if (memoized && memoized.memoKey === memoKey) return memoized.repoFacts;
@@ -408,11 +457,7 @@ export function createChangeMapService({
         const repoPathsText = await runGit(['ls-files', '-z', '--cached', '--others', '--exclude-standard'], root);
         const repoPaths = parseNulSeparatedPaths(repoPathsText);
         const sourcePaths = repoPaths.filter(isSourcePath);
-        const [javascriptSpecifiers, pythonSpecifiers] = await Promise.all([
-          specifierCache.readMany(root, sourcePaths.filter((repoPath) => !repoPath.endsWith('.py'))),
-          pythonSpecifierCache.readMany(root, sourcePaths.filter((repoPath) => repoPath.endsWith('.py'))),
-        ]);
-        const specifiersByPath = new Map([...javascriptSpecifiers, ...pythonSpecifiers]);
+        const specifiersByPath = await specifierCache.readMany(root, sourcePaths);
         const listedPaths = new Set(repoPaths);
         const configsByPath = new Map<string, TsconfigPaths>();
         const visitedConfigs = new Set<string>();
@@ -442,7 +487,7 @@ export function createChangeMapService({
       const packageFacts = await Promise.allSettled(scopes.map(async (scope): Promise<RepoPackageFacts> => {
         const inputs = await repoInputsFor(scope.root);
         const manifestsByPath = await packageManifestCache.readMany(scope.root, inputs.repoPaths.filter((repoPath) => path.posix.basename(repoPath) === 'package.json'));
-        const memoKey = hashText(JSON.stringify([specifierCache.generation(), pythonSpecifierCache.generation(), hashText(inputs.repoPathsText)]));
+        const memoKey = hashText(JSON.stringify([specifierCache.generation(), hashText(inputs.repoPathsText)]));
         const memoized = importerIndexByRoot.get(scope.root);
         const importersByPackage = memoized && memoized.memoKey === memoKey
           ? memoized.importersByPackage

@@ -7,6 +7,8 @@ import { createConfigStore } from '../../server/config-store.ts';
 import type { ConfigStore, GlimmervoidConfig } from '../../server/config-store.ts';
 import { registerControlHandlers } from '../../server/control-handlers.ts';
 import type { ControlHandlerDeps } from '../../server/control-handlers.ts';
+import { createChangeMapService, joinSessionRegistries } from '../../server/change-map/change-map-wiring.ts';
+import { createCodemapClient } from '../../server/codemap/codemap-client.ts';
 import type { RequestTrust } from '../../server/core/request-trust.ts';
 
 const HARNESS_CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-harness-'));
@@ -51,8 +53,11 @@ function testConfigStore(config: GlimmervoidConfig, options: TestConfigStoreOpti
 }
 
 function controlDeps(config: GlimmervoidConfig, overrides: Partial<ControlHandlerDeps> = {}): ControlHandlerDeps {
+  const sessions = overrides.sessions ?? new Map();
+  const changeMaps = createChangeMapService({ sessions: joinSessionRegistries(sessions, overrides.agentSessions ?? new Map()), scanFiles: createCodemapClient().scanFiles });
   return {
-    sessions: new Map(),
+    sessions,
+    changeMaps,
     config,
     configStore: testConfigStore(config),
     generateProjectId: () => 'p-test',

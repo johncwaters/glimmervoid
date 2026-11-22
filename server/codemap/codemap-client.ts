@@ -9,19 +9,19 @@ import { codemapWorkerPath } from '../runtime-paths.ts';
 const ExtractPhase = z.strictObject({ phase: z.string(), elapsedMs: z.number(), heapBytes: z.number(), rssBytes: z.number() });
 type ExtractPhase = z.infer<typeof ExtractPhase>;
 
-const ExtractReply = z.union([
-  z.strictObject({ ok: z.literal(true), extract: CodemapExtract }),
-  z.strictObject({ ok: z.literal(false), error: z.string() }),
-]);
+const WorkerFailure = z.strictObject({ ok: z.literal(false), error: z.string() });
+const ExtractReply = z.union([z.strictObject({ ok: z.literal(true), extract: CodemapExtract }), WorkerFailure]);
+const ScanFilesReply = z.union([z.strictObject({ ok: z.literal(true), scans: z.array(z.strictObject({ repoPath: z.string(), specifiers: z.array(z.string()) })) }), WorkerFailure]);
 
 interface CodemapClient {
   extract(repoDir: string, sha: string, base?: CodemapExtractBase | null): Promise<CodemapExtract>;
+  scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, string[]>>;
 }
 
 function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: ExtractPhase) => void } = {}): CodemapClient {
   const runningByKey = new Map<string, Promise<CodemapExtract>>();
 
-  function runWorker(repoDir: string, sha: string, base: CodemapExtractBase | null): Promise<CodemapExtract> {
+  function runWorker<Reply extends { ok: true }>(request: object, replySchema: z.ZodType<Reply | z.infer<typeof WorkerFailure>>): Promise<Reply> {
     return new Promise((resolve, reject) => {
       const worker = new Worker(codemapWorkerPath, { resourceLimits: { maxOldGenerationSizeMb: CODEMAP_TUNABLES.workerHeapMb } });
       let isSettled = false;
@@ -39,21 +39,21 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
           onPhase(phase.data);
           return;
         }
-        const reply = ExtractReply.safeParse(message);
+        const reply = replySchema.safeParse(message);
         if (!reply.success) {
           settle(() => reject(new Error('the code map worker sent a reply that breaks its contract')));
           return;
         }
         const answer = reply.data;
         if (answer.ok) {
-          settle(() => resolve(answer.extract));
+          settle(() => resolve(answer));
           return;
         }
         settle(() => reject(new Error(answer.error)));
       });
       worker.on('error', (error: unknown) => settle(() => reject(error instanceof Error ? error : new Error(String(error)))));
       worker.on('exit', (exitCode) => settle(() => reject(new Error(`the code map worker stopped with exit code ${exitCode}`))));
-      worker.postMessage({ repoDir, sha, base });
+      worker.postMessage(request);
     });
   }
 
@@ -61,12 +61,18 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
     const key = `${repoDir}\n${sha}`;
     const running = runningByKey.get(key);
     if (running) return running;
-    const started = runWorker(repoDir, sha, base).finally(() => runningByKey.delete(key));
+    const started = runWorker({ repoDir, sha, base }, ExtractReply).then((reply) => reply.extract).finally(() => runningByKey.delete(key));
     runningByKey.set(key, started);
     return started;
   }
 
-  return { extract };
+  async function scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, string[]>> {
+    if (repoPaths.length === 0) return new Map();
+    const reply = await runWorker({ kind: 'scanFiles', root, repoPaths }, ScanFilesReply);
+    return new Map(reply.scans.map((scan) => [scan.repoPath, scan.specifiers]));
+  }
+
+  return { extract, scanFiles };
 }
 
 export { createCodemapClient };

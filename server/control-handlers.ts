@@ -108,7 +108,7 @@ interface SessionWakesControl {
 interface ControlHandlerDeps {
   sessions: Map<string, Session>;
   agentSessions?: Map<string, Session>;
-  changeMaps?: ChangeMapService;
+  changeMaps: ChangeMapService;
   verification?: Pick<VerificationWiring, 'latestRun'> | null;
   sessionReview?: Pick<SessionReviewWiring, 'latest' | 'run'> | null;
   markChildWorktreeDiscard?: ((childId: string) => void) | null;

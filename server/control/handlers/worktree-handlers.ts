@@ -2,7 +2,6 @@ import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import type { ChangeMap } from '../../../shared/contracts/change-map.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
-import { createChangeMapService, joinSessionRegistries } from '../../change-map/change-map-wiring.ts';
 import { createChangesWatch } from '../../changes-watch.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { firstGitErrorLine } from '../../core/branch-sync-core.ts';
@@ -13,7 +12,7 @@ import { clock } from '../../../shared/clock.ts';
 function createWorktreeHandlers(context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const { sessions, agentSessions, findSession } = context;
 
-  const changeMaps = deps.changeMaps ?? createChangeMapService({ sessions: joinSessionRegistries(sessions, agentSessions) });
+  const { changeMaps } = deps;
   const changesWatch = createChangesWatch<ControlSocket>({
     findSession: (id) => sessions.get(id) ?? agentSessions.get(id) ?? null,
     isHolderOpen: (ws) => ws.readyState === 1,
