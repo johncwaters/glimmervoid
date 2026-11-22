@@ -1,5 +1,5 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
-import { WARGAMES_RULES_VERSION, WARGAMES_SEAT_IDS, WARGAMES_SQUEEZE_TICK, WARGAMES_WIN_VILLAGES } from '#shared/contracts/wargames.ts';
+import { WARGAMES_RULES_VERSION, WARGAMES_SEAT_IDS, WARGAMES_WIN_VILLAGES } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
@@ -22,7 +22,7 @@ import { select } from '../ui/select.ts';
 import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
-import { createWargamesMap, SEAT_COLORS, UNIT_GLYPH_PATHS } from './wargames-map.ts';
+import { BUILDING_GLYPH_PATHS, createWargamesMap, SEAT_COLORS, UNIT_GLYPH_PATHS } from './wargames-map.ts';
 import './wargames-panel.css';
 import {
   displayedMatchAnalytics,
@@ -203,20 +203,30 @@ function buildResourceReadout(grain: number, ore: number): HTMLElement {
   return wrap;
 }
 
-function buildUnitChips(troops: { raider: number; guard: number; envoy: number }, color: string): HTMLElement {
-  const unitGroup = el('span', 'wg-faction-units');
-  for (const unit of UNIT_GLYPH_PATHS) {
-    const icon = createSvgIcon(10, 10);
+function createGlyphIcon(pathData: string, size: number, color: string, ariaLabel?: string): SVGSVGElement {
+  const icon = createSvgIcon(size, size);
+  icon.setAttribute('viewBox', '-4 -4 8 8');
+  if (ariaLabel) {
     icon.removeAttribute('aria-hidden');
     icon.setAttribute('role', 'img');
-    icon.setAttribute('aria-label', unit.label);
-    icon.setAttribute('viewBox', '-4 -4 8 8');
-    icon.append(createSvgShape('path', { d: unit.path, fill: color }));
-    const chip = el('span', 'wg-legend-item');
-    chip.append(icon, el('span', '', String(troops[unit.key])));
-    unitGroup.append(chip);
+    icon.setAttribute('aria-label', ariaLabel);
   }
-  return unitGroup;
+  icon.append(createSvgShape('path', { d: pathData, fill: color }));
+  return icon;
+}
+
+function buildGlyphChips<Key extends string>(
+  glyphs: readonly { key: Key; label: string; path: string }[],
+  counts: Readonly<Record<Key, number>>,
+  color: string,
+): HTMLElement {
+  const group = el('span', 'wg-faction-units');
+  for (const glyph of glyphs) {
+    const chip = el('span', 'wg-legend-item');
+    chip.append(createGlyphIcon(glyph.path, 10, color, glyph.label), el('span', '', String(counts[glyph.key])));
+    group.append(chip);
+  }
+  return group;
 }
 
 function formatSeatStatusLabel(status: SeatStatus, phase: TickPhase, matchStatus: MatchState['status']): string {
@@ -490,7 +500,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
 
     const troopCounts = { raider: totalRaiders, guard: totalGuards, envoy: totalEnvoys };
     const stats = el('div', 'wg-faction-stats');
-    stats.append(buildUnitChips(troopCounts, SEAT_COLORS[seatId]), buildResourceReadout(totalGrain, totalOre));
+    stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, troopCounts, SEAT_COLORS[seatId]), buildResourceReadout(totalGrain, totalOre));
 
     banner.append(head, modelLine, track, stats);
     strip.append(banner);
@@ -498,37 +508,44 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
   return strip;
 }
 
-function capitalizeWord(word: string): string {
-  if (word.length === 0) return word;
-  return `${word[0].toUpperCase()}${word.slice(1)}`;
-}
-
-function formatTroopBreakdown(troops: { raider: number; guard: number; envoy: number }): string {
-  const parts: string[] = [];
-  if (troops.raider > 0) parts.push(`${troops.raider}R`);
-  if (troops.guard > 0) parts.push(`${troops.guard}G`);
-  if (troops.envoy > 0) parts.push(`${troops.envoy}E`);
-  return parts.join(' ');
-}
-
-function formatOrder(order: OrderItem): string {
+function buildOrderElement(order: OrderItem, color: string): HTMLElement {
+  const item = el('span', 'wg-legend-item');
   switch (order.kind) {
-    case 'build':
-      return `Build ${capitalizeWord(order.building)} @#${order.hexIndex}`;
-    case 'train':
-      return `Train ${order.count} ${capitalizeWord(order.troop)} @#${order.hexIndex}`;
+    case 'build': {
+      const building = BUILDING_GLYPH_PATHS.find((entry) => entry.key === order.building) ?? BUILDING_GLYPH_PATHS[0];
+      item.append(
+        el('span', '', '+'),
+        createGlyphIcon(building.path, 10, color, building.label),
+        el('span', '', `@#${order.hexIndex}`),
+      );
+      return item;
+    }
+    case 'train': {
+      const unit = UNIT_GLYPH_PATHS.find((entry) => entry.key === order.troop) ?? UNIT_GLYPH_PATHS[0];
+      item.append(
+        el('span', '', '+'),
+        createGlyphIcon(unit.path, 10, color, unit.label),
+        el('span', '', `${order.count} @#${order.hexIndex}`),
+      );
+      return item;
+    }
     case 'march': {
-      const troopSummary = formatTroopBreakdown(order.troops);
-      return troopSummary
-        ? `March #${order.fromHexIndex}->#${order.toHexIndex} (${troopSummary})`
-        : `March #${order.fromHexIndex}->#${order.toHexIndex}`;
+      item.append(el('span', '', `#${order.fromHexIndex}->#${order.toHexIndex}`));
+      for (const unit of UNIT_GLYPH_PATHS) {
+        if (order.troops[unit.key] <= 0) continue;
+        item.append(createGlyphIcon(unit.path, 10, color, unit.label), el('span', '', String(order.troops[unit.key])));
+      }
+      return item;
     }
     case 'scout':
-      return `Scout #${order.fromHexIndex}->#${order.toHexIndex}`;
+      item.append(el('span', '', `Scout #${order.fromHexIndex}->#${order.toHexIndex}`));
+      return item;
     case 'tribe_join':
-      return `Join tribe ${order.partner.toUpperCase()}`;
+      item.append(el('span', '', `Tribe ${order.partner.toUpperCase()}`));
+      return item;
     case 'tribe_leave':
-      return 'Leave tribe';
+      item.append(el('span', '', 'Leave tribe'));
+      return item;
   }
 }
 
@@ -588,14 +605,18 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
       const other = contract.proposer === seatId ? contract.counterparty : contract.proposer;
       return `${contract.terms.kind.toUpperCase()} w/ ${other.toUpperCase()}`;
     });
-  const ordersParts: string[] = [];
-  if (orders.length > 0) ordersParts.push(orders.map(formatOrder).join(', '));
-  if (activeContracts.length > 0) ordersParts.push(`Pacts: ${activeContracts.join(', ')}`);
+  const ordersList = el('div', 'wg-dm-text wg-hex-intel-group');
+  for (const order of orders) {
+    ordersList.append(buildOrderElement(order, SEAT_COLORS[seatId]));
+  }
+  if (activeContracts.length > 0) {
+    ordersList.append(el('span', 'wg-card-meta', `Pacts: ${activeContracts.join(', ')}`));
+  }
+  if (orders.length === 0 && activeContracts.length === 0) {
+    ordersList.append(el('span', '', 'Hold'));
+  }
   const ordersCol = el('div', 'wg-dm-box');
-  ordersCol.append(
-    el('div', 'wg-dm-label', 'Orders & contracts'),
-    el('div', 'wg-dm-text', ordersParts.length > 0 ? ordersParts.join(' · ') : 'Hold'),
-  );
+  ordersCol.append(el('div', 'wg-dm-label', 'Orders & contracts'), ordersList);
 
   const grid = el('div', 'wg-spotlight-grid');
   grid.append(noteCol, saidCol, ordersCol);
@@ -765,8 +786,8 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
   const right = el('div', 'wg-hex-intel-group');
   const unitColor = village.owner !== null ? SEAT_COLORS[village.owner] : 'var(--text-dim)';
   right.append(
-    buildUnitChips(village.troops, unitColor),
-    el('span', 'wg-hex-intel-stat', `F${village.buildings.farm} M${village.buildings.mine} B${village.buildings.barracks} W${village.buildings.wall}`),
+    buildGlyphChips(UNIT_GLYPH_PATHS, village.troops, unitColor),
+    buildGlyphChips(BUILDING_GLYPH_PATHS, village.buildings, 'var(--text-dim)'),
     buildResourceReadout(village.resources.grain, village.resources.ore),
   );
 
@@ -783,10 +804,10 @@ function legendItem(icon: SVGSVGElement, label: string): HTMLElement {
 function buildMapLegend(): HTMLElement {
   const legend = el('div', 'wg-map-legend');
   for (const unit of UNIT_GLYPH_PATHS) {
-    const icon = createSvgIcon(12, 12);
-    icon.setAttribute('viewBox', '-4 -4 8 8');
-    icon.append(createSvgShape('path', { d: unit.path, fill: 'var(--text-head)' }));
-    legend.append(legendItem(icon, unit.label));
+    legend.append(legendItem(createGlyphIcon(unit.path, 12, 'var(--text-head)'), unit.label));
+  }
+  for (const building of BUILDING_GLYPH_PATHS) {
+    legend.append(legendItem(createGlyphIcon(building.path, 12, 'var(--text-dim)'), building.label));
   }
 
   const territoryIcon = createSvgIcon(12, 12);
@@ -819,16 +840,6 @@ function buildMapLegend(): HTMLElement {
     createSvgShape('polygon', { points: '10,3 15,6 10,9', fill: 'var(--text-head)' }),
   );
   legend.append(legendItem(marchIcon, 'Marching'));
-
-  const barrenIcon = createSvgIcon(12, 12);
-  barrenIcon.append(createSvgShape('polygon', {
-    points: '6,1 11,3.5 11,8.5 6,11 1,8.5 1,3.5',
-    fill: 'var(--bg)',
-    stroke: 'var(--text-muted)',
-    'stroke-width': '1.1',
-    'stroke-dasharray': '2 2',
-  }));
-  legend.append(legendItem(barrenIcon, `Barren @ T${WARGAMES_SQUEEZE_TICK}`));
   return legend;
 }
 

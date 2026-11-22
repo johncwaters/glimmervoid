@@ -1,4 +1,4 @@
-import { WARGAMES_SEAT_IDS, WARGAMES_SQUEEZE_TICK } from '#shared/contracts/wargames.ts';
+import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, TroopCounts } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
@@ -66,6 +66,13 @@ export const UNIT_GLYPH_PATHS: readonly { key: 'raider' | 'guard' | 'envoy'; lab
   { key: 'raider', label: 'Raider', path: 'M -2.4 -2.4 L 2.6 0 L -2.4 2.4 L -1 0 Z' },
   { key: 'guard', label: 'Guard', path: 'M -2.2 -2.4 L 2.2 -2.4 L 2.2 0.2 L 0 2.6 L -2.2 0.2 Z' },
   { key: 'envoy', label: 'Envoy', path: 'M 0 -2.6 L 2.4 0 L 0 2.6 L -2.4 0 Z' },
+];
+
+export const BUILDING_GLYPH_PATHS: readonly { key: 'farm' | 'mine' | 'barracks' | 'wall'; label: string; path: string }[] = [
+  { key: 'farm', label: 'Farm', path: 'M 0 -2.6 C 2 -1.2 2.4 0.8 0 2.6 C -2.4 0.8 -2 -1.2 0 -2.6 Z' },
+  { key: 'mine', label: 'Mine', path: 'M 0 -2.6 L 2.4 -1.2 L 2.4 1.2 L 0 2.6 L -2.4 1.2 L -2.4 -1.2 Z' },
+  { key: 'barracks', label: 'Barracks', path: 'M 0 -2.6 L 2.6 -0.2 H 1.8 V 2.4 H -1.8 V -0.2 H -2.6 Z' },
+  { key: 'wall', label: 'Wall', path: 'M -2.6 -2 H -1.2 V -0.6 H -0.4 V -2 H 0.4 V -0.6 H 1.2 V -2 H 2.6 V 2 H -2.6 Z' },
 ];
 
 function renderArmyPill(
@@ -248,26 +255,24 @@ function troopCountOf(troops: { raider: number; guard: number; envoy: number }):
   return troops.raider + troops.guard + troops.envoy;
 }
 
+interface BuildingUpgradeCallout {
+  path: string;
+  level: number;
+}
+
 interface HexDeltaSummary {
   troopDelta: number;
   loyaltyDelta: number;
   ownerChanged: boolean;
-  buildingUpgrades: string[];
+  buildingUpgrades: BuildingUpgradeCallout[];
   targetVillage: VillageState;
 }
 
-const BUILDING_SHORT_LABELS: readonly { key: keyof VillageState['buildings']; label: string }[] = [
-  { key: 'farm', label: 'FARM' },
-  { key: 'mine', label: 'MINE' },
-  { key: 'barracks', label: 'BRK' },
-  { key: 'wall', label: 'WALL' },
-];
-
-function collectBuildingUpgrades(prev: VillageState['buildings'], next: VillageState['buildings']): string[] {
-  const upgrades: string[] = [];
-  for (const entry of BUILDING_SHORT_LABELS) {
+function collectBuildingUpgrades(prev: VillageState['buildings'], next: VillageState['buildings']): BuildingUpgradeCallout[] {
+  const upgrades: BuildingUpgradeCallout[] = [];
+  for (const entry of BUILDING_GLYPH_PATHS) {
     if (next[entry.key] > prev[entry.key]) {
-      upgrades.push(`+${entry.label} ${next[entry.key]}`);
+      upgrades.push({ path: entry.path, level: next[entry.key] });
     }
   }
   return upgrades;
@@ -381,6 +386,60 @@ function appendDeltaCallout(
   });
   callout.textContent = label;
   group.append(callout);
+  fxLayer.append(group);
+  return group;
+}
+
+function appendGlyphCallout(
+  fxLayer: SVGElement,
+  centerX: number,
+  centerY: number,
+  glyphPath: string,
+  level: number,
+  fill: string,
+  durationMs: number,
+): SVGElement {
+  const digits = String(level);
+  const contentWidth = 14 + digits.length * 5.8;
+  const pillWidth = Math.max(26, contentWidth + 8);
+  const group = createSvgShape('g', { class: 'wg-delta-callout' });
+  group.style.animationDuration = `${durationMs}ms`;
+  group.append(
+    createSvgShape('rect', {
+      x: (centerX - pillWidth / 2).toFixed(1),
+      y: (centerY - 10).toFixed(1),
+      width: pillWidth.toFixed(1),
+      height: '14',
+      rx: '2',
+      fill: 'var(--bg)',
+      stroke: fill,
+      'stroke-width': '1',
+    }),
+  );
+  const startX = centerX - contentWidth / 2;
+  const plusText = createSvgShape('text', {
+    x: startX.toFixed(1),
+    y: (centerY + 0.5).toFixed(1),
+    'text-anchor': 'start',
+    'font-size': '9',
+    fill,
+    class: 'wg-delta-text',
+  });
+  plusText.textContent = '+';
+  const iconGroup = createSvgShape('g', {
+    transform: `translate(${(startX + 8.5).toFixed(1)}, ${(centerY - 3).toFixed(1)})`,
+  });
+  iconGroup.append(createSvgShape('path', { d: glyphPath, fill }));
+  const levelText = createSvgShape('text', {
+    x: (startX + 13).toFixed(1),
+    y: (centerY + 0.5).toFixed(1),
+    'text-anchor': 'start',
+    'font-size': '9',
+    fill,
+    class: 'wg-delta-text',
+  });
+  levelText.textContent = digits;
+  group.append(plusText, iconGroup, levelText);
   fxLayer.append(group);
   return group;
 }
@@ -517,18 +576,18 @@ function renderMarchVector(
   layer.append(vectorGroup);
 }
 
-const PREVIEW_BUILD_CODES: Readonly<Record<'farm' | 'mine' | 'barracks' | 'wall', string>> = Object.freeze({
-  farm: '+F',
-  mine: '+M',
-  barracks: '+B',
-  wall: '+W',
-});
+interface PreviewGlyphToken {
+  path: string;
+  count: number | null;
+}
 
-const PREVIEW_TROOP_CODES: Readonly<Record<'raider' | 'guard' | 'envoy', string>> = Object.freeze({
-  raider: 'R',
-  guard: 'G',
-  envoy: 'E',
-});
+function glyphPathForUnit(troop: 'raider' | 'guard' | 'envoy'): string {
+  return UNIT_GLYPH_PATHS.find((entry) => entry.key === troop)?.path ?? UNIT_GLYPH_PATHS[0].path;
+}
+
+function glyphPathForBuilding(building: 'farm' | 'mine' | 'barracks' | 'wall'): string {
+  return BUILDING_GLYPH_PATHS.find((entry) => entry.key === building)?.path ?? BUILDING_GLYPH_PATHS[0].path;
+}
 
 function truncateCalloutText(text: string, maxChars: number): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -582,12 +641,18 @@ function renderPreviewBadge(
   layer: SVGElement,
   centerX: number,
   centerY: number,
-  label: string,
+  tokens: readonly PreviewGlyphToken[],
   color: string,
   opacity: string,
 ): void {
-  const badgeWidth = Math.max(22, label.length * 4.8 + 8);
-  const badgeHeight = 12;
+  const measured = tokens.map((token) => {
+    const digits = token.count === null ? '' : String(token.count);
+    return { path: token.path, digits, width: 11.2 + digits.length * 4.7 };
+  });
+  const gap = 3.5;
+  const contentWidth = measured.reduce((sum, item) => sum + item.width, 0) + Math.max(0, measured.length - 1) * gap;
+  const badgeWidth = Math.max(20, contentWidth + 8);
+  const badgeHeight = 13;
   const badgeX = centerX + 14;
   const badgeY = centerY - 15;
   const group = createSvgShape('g', { opacity });
@@ -602,16 +667,36 @@ function renderPreviewBadge(
     'stroke-width': '1',
     'stroke-dasharray': '2 2',
   }));
-  const textNode = createSvgShape('text', {
-    x: badgeX.toFixed(1),
-    y: (badgeY + 2.6).toFixed(1),
-    'text-anchor': 'middle',
-    'font-size': '7.5',
-    fill: color,
-    class: 'wg-army-pill-text',
-  });
-  textNode.textContent = label;
-  group.append(textNode);
+  let cursorX = badgeX - contentWidth / 2;
+  for (const item of measured) {
+    const plusText = createSvgShape('text', {
+      x: cursorX.toFixed(1),
+      y: (badgeY + 2.6).toFixed(1),
+      'text-anchor': 'start',
+      'font-size': '7.5',
+      fill: color,
+      class: 'wg-army-pill-text',
+    });
+    plusText.textContent = '+';
+    const iconGroup = createSvgShape('g', {
+      transform: `translate(${(cursorX + 7.2).toFixed(1)}, ${badgeY.toFixed(1)}) scale(0.88)`,
+    });
+    iconGroup.append(createSvgShape('path', { d: item.path, fill: color }));
+    group.append(plusText, iconGroup);
+    if (item.digits.length > 0) {
+      const countText = createSvgShape('text', {
+        x: (cursorX + 10.6).toFixed(1),
+        y: (badgeY + 2.6).toFixed(1),
+        'text-anchor': 'start',
+        'font-size': '7.5',
+        fill: color,
+        class: 'wg-army-pill-text',
+      });
+      countText.textContent = item.digits;
+      group.append(countText);
+    }
+    cursorX += item.width + gap;
+  }
   layer.append(group);
 }
 
@@ -655,7 +740,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   const previewLayer = createSvgShape('g', { class: 'wg-preview-layer' });
   const armyLayer = createSvgShape('g', { class: 'wg-army-layer' });
   const fxLayer = createSvgShape('g', { class: 'wg-fx-layer' });
-  svg.append(defs, hexLayer, previewLayer, armyLayer, fxLayer);
+  const commsLayer = createSvgShape('g', { class: 'wg-fx-layer' });
+  svg.append(defs, hexLayer, previewLayer, armyLayer, fxLayer, commsLayer);
 
   let lastRenderedMatchId: string | null = null;
   let lastRenderedPov: WargamesPov | null = null;
@@ -683,6 +769,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       entry.node.remove();
     }
     activeCalloutBySeat.clear();
+    commsLayer.replaceChildren();
   }
 
   function seatAnchorSlot(state: MatchState, pov: WargamesPov, seatId: SeatId): HexNodeSlot | null {
@@ -703,7 +790,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       previous.node.remove();
       activeCalloutBySeat.delete(seatId);
     }
-    const node = appendBoardCallout(fxLayer, anchorSlot.centerX, anchorSlot.centerY, options);
+    const node = appendBoardCallout(commsLayer, anchorSlot.centerX, anchorSlot.centerY, options);
     const timer = setTimeout(() => {
       activeCalloutBySeat.delete(seatId);
       node.remove();
@@ -717,7 +804,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     options: { stroke: string; dasharray: string; label: string; durationMs: number },
   ): void {
     if (!fromSlot || !toSlot) return;
-    const node = appendDiplomacyArc(fxLayer, fromSlot, toSlot, options);
+    const node = appendDiplomacyArc(commsLayer, fromSlot, toSlot, options);
     if (!node) return;
     const handle = setTimeout(() => {
       transientFxTimers.delete(handle);
@@ -763,8 +850,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         mountTransientDiplomacyArc(seatAnchorSlot(state, pov, message.from), seatAnchorSlot(state, pov, message.to), {
           stroke: SEAT_COLORS[message.from],
           dasharray: '4 4',
-          label: 'DM',
-          durationMs: 1200,
+          label: `${message.from.toUpperCase()}->${message.to.toUpperCase()} DM`,
+          durationMs: 3800,
         });
       }
       const prefix = message.to ? `${message.from.toUpperCase()}->${message.to.toUpperCase()}` : message.from.toUpperCase();
@@ -772,7 +859,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         label: `${prefix}: ${message.text}`,
         color: SEAT_COLORS[message.from],
         isThought: false,
-        durationMs: 3400,
+        durationMs: 4500,
       });
     }
     for (const entry of updatedNotes) {
@@ -781,7 +868,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         label: `${entry.seatId.toUpperCase()}: ${entry.note}`,
         color: SEAT_COLORS[entry.seatId],
         isThought: true,
-        durationMs: 3400,
+        durationMs: 4500,
       });
     }
     for (const contract of newlyAccepted) {
@@ -790,7 +877,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         stroke: 'var(--state-running)',
         dasharray: 'none',
         label: 'PACT',
-        durationMs: 1500,
+        durationMs: 4200,
       });
     }
     for (const breach of newBreaches) {
@@ -798,7 +885,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         stroke: 'var(--state-failed)',
         dasharray: '6 3',
         label: 'BREACH',
-        durationMs: 1700,
+        durationMs: 4800,
       });
     }
   }
@@ -823,11 +910,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     spotlightSeatId: SeatId | null,
   ): void {
     const slot = slots[index];
-    const tile = ALL_HEXES[index];
     const isSelected = selectedHexIndex === index;
     const isFogged = pov !== 'god' && state.villages[index] !== null && village === null;
-    const isOuterRing = tile.ring === 3;
-    const isOuterSqueezeActive = state.tick >= WARGAMES_SQUEEZE_TICK;
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
 
     if (village) {
@@ -837,10 +921,10 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       slot.polygon.setAttribute('fill', villageFillColor(village.owner, isBarren));
       slot.polygon.setAttribute('stroke', stroke);
       slot.polygon.setAttribute('stroke-width', isSelected ? '3' : seatColor ? '2' : '1.5');
-      if (isOuterRing && (isBarren || !isOuterSqueezeActive)) {
-        slot.polygon.setAttribute('stroke-dasharray', isBarren ? '3 3' : '6 2');
+      if (isBarren) {
+        slot.polygon.setAttribute('stroke-dasharray', '3 3');
       }
-      if (!isOuterRing || (!isBarren && isOuterSqueezeActive)) {
+      if (!isBarren) {
         slot.polygon.removeAttribute('stroke-dasharray');
       }
 
@@ -885,11 +969,10 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       return;
     }
 
-    slot.polygon.setAttribute('fill', isFogged || isOuterRing ? 'var(--bg)' : 'var(--bg-surface)');
-    slot.polygon.setAttribute('stroke', isSelected ? 'var(--accent)' : isOuterRing ? 'var(--border-dim)' : 'var(--border)');
+    slot.polygon.setAttribute('fill', isFogged ? 'var(--bg)' : 'var(--bg-surface)');
+    slot.polygon.setAttribute('stroke', isSelected ? 'var(--accent)' : 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
-    if (isOuterRing) slot.polygon.setAttribute('stroke-dasharray', '4 3');
-    if (!isOuterRing) slot.polygon.removeAttribute('stroke-dasharray');
+    slot.polygon.removeAttribute('stroke-dasharray');
 
     slot.ownerBadge.setAttribute('visibility', 'hidden');
     slot.ownerLabel.textContent = isFogged ? '?' : '';
@@ -936,7 +1019,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const targetIndex = army.status === 'returning' ? army.originHexIndex : army.targetHexIndex;
       const toSlot = slots[targetIndex];
       if (!fromSlot || !toSlot) continue;
-      const baseOpacity = army.status === 'returning' ? '0.5' : '1';
+      const baseOpacity = army.status === 'returning' ? '0.88' : '1';
       const armyOpacity = !isSpotlightActive || army.owner === spotlightSeatId ? baseOpacity : '0.2';
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
         strokeDasharray: army.status === 'returning' ? '3 3' : '6 3',
@@ -1050,15 +1133,15 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       troops: TroopCounts;
       kind: 'march' | 'scout';
     }[] = [];
-    const hexBadges = new Map<number, { seatId: SeatId; labels: string[] }>();
+    const hexBadges = new Map<number, { seatId: SeatId; tokens: PreviewGlyphToken[] }>();
 
-    const pushHexBadge = (hexIndex: number, seatId: SeatId, label: string) => {
+    const pushHexBadge = (hexIndex: number, seatId: SeatId, token: PreviewGlyphToken) => {
       const existing = hexBadges.get(hexIndex);
       if (existing) {
-        if (existing.labels.length < 2) existing.labels.push(label);
+        if (existing.tokens.length < 2) existing.tokens.push(token);
         return;
       }
-      hexBadges.set(hexIndex, { seatId, labels: [label] });
+      hexBadges.set(hexIndex, { seatId, tokens: [token] });
     };
 
     for (const seat of latestState.seats) {
@@ -1086,11 +1169,11 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           continue;
         }
         if (order.kind === 'build') {
-          pushHexBadge(order.hexIndex, seatId, PREVIEW_BUILD_CODES[order.building]);
+          pushHexBadge(order.hexIndex, seatId, { path: glyphPathForBuilding(order.building), count: null });
           continue;
         }
         if (order.kind === 'train') {
-          pushHexBadge(order.hexIndex, seatId, `+${order.count}${PREVIEW_TROOP_CODES[order.troop]}`);
+          pushHexBadge(order.hexIndex, seatId, { path: glyphPathForUnit(order.troop), count: order.count });
         }
       }
     }
@@ -1130,7 +1213,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const slot = slots[hexIndex];
       if (!slot) continue;
       const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.9' : '0.2';
-      renderPreviewBadge(previewLayer, slot.centerX, slot.centerY, entry.labels.join(' '), SEAT_COLORS[entry.seatId], opacity);
+      renderPreviewBadge(previewLayer, slot.centerX, slot.centerY, entry.tokens, SEAT_COLORS[entry.seatId], opacity);
       renderedCount += 1;
     }
 
@@ -1228,7 +1311,6 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (overlayMode === 'recap') {
       animQueue.clear();
-      clearTransientFx();
       fxLayer.replaceChildren();
       advanceOverlay('reset');
     }
@@ -1407,8 +1489,9 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
                 mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, item.slot.centerY - 4, deltaLabel, deltaFill, durationMs));
               }
               if (item.delta.buildingUpgrades.length > 0) {
+                const upgrade = item.delta.buildingUpgrades[0];
                 const upgradeY = item.delta.troopDelta !== 0 ? item.slot.centerY + 11 : item.slot.centerY - 4;
-                mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, upgradeY, item.delta.buildingUpgrades[0], 'var(--accent)', durationMs));
+                mounted.push(appendGlyphCallout(fxLayer, item.slot.centerX, upgradeY, upgrade.path, upgrade.level, 'var(--accent)', durationMs));
               }
             }
           }

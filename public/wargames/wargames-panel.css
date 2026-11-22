@@ -388,12 +388,6 @@
   font-weight: 700;
 }
 
-.wg-hex-intel-stat {
-  color: var(--text);
-  font-size: var(--type-meta);
-  font-variant-numeric: tabular-nums;
-}
-
 .wg-map-legend {
   width: 100%;
   display: flex;
@@ -587,11 +581,11 @@
   }
 
   .wg-diplomacy-arc {
-    animation: wg-diplomacy-arc 1.2s ease-out forwards;
+    animation: wg-diplomacy-arc 3.8s ease-out forwards;
   }
 
   .wg-board-callout {
-    animation: wg-board-callout 3.4s ease-out forwards;
+    animation: wg-board-callout 4.5s ease-out forwards;
   }
 }
 
