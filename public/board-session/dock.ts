@@ -1,5 +1,3 @@
-import { createChatActivity } from '../chat/chat-activity.ts';
-import type { ChatPhase } from '../chat/chat-activity-core.ts';
 import { renderCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
@@ -33,7 +31,6 @@ interface DockSession {
   workingDirectory: string | null;
   agentId: string | null;
   isTurnOver: () => boolean;
-  phase: () => ChatPhase;
   boxChoices: () => readonly BoxChoice[];
 }
 
@@ -141,10 +138,7 @@ export function createDock(session: DockSession): Dock {
   const sendButton = button({ variant: 'primary-icon', size: 'small', label: 'Send', icon: createLineIcon(SEND_ICON_PATH, '1.8'), action: 'board-session-send', disabled: true });
   sendButton.type = 'submit';
   pill.append(addressChip, input, sendButton);
-  const activity = createChatActivity();
-  activity.element.classList.add('bs-activity');
-  activity.setPhase(session.phase());
-  element.append(log, failure, mentions, activity.element, pill);
+  element.append(log, failure, mentions, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
   const feedBySessionId = new Map<string, ChatFeed>();
@@ -246,9 +240,7 @@ export function createDock(session: DockSession): Dock {
         upsertParts(sessionId, rebuiltParts);
         log.scrollTop = log.scrollHeight - distanceFromBottom;
       },
-      onBeats: (beats) => {
-        if (speaker.branch === null) activity.beat(beats);
-      },
+      onBeats: () => {},
       onSubagents: () => {},
       isTurnOver,
       onReset: () => removeSessionRows(sessionId),
@@ -422,7 +414,6 @@ export function createDock(session: DockSession): Dock {
       input.focus();
     },
     refresh: () => {
-      activity.setPhase(session.phase());
       openLogWhenTurnLive();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },

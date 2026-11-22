@@ -105,7 +105,7 @@ export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, on
         }
         const stackIndex = facesOnBoxCount.get(face.boxId) ?? 0;
         facesOnBoxCount.set(face.boxId, stackIndex + 1);
-        who.style.transform = `translate(${rect.x + rect.width - FACE_SIZE / 2}px, ${rect.y - FACE_SIZE / 2 + stackIndex * (FACE_SIZE + FACE_GAP)}px)`;
+        who.style.transform = `translate(${rect.x + rect.width - FACE_SIZE / 2}px, ${rect.y - FACE_SIZE / 2 - stackIndex * (FACE_SIZE + FACE_GAP)}px)`;
         boardWhos.push(who);
       }
       faces.replaceChildren(...boardWhos);

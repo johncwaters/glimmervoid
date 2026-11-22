@@ -4,6 +4,8 @@
 
   .bs-root { --bs-branch: color-mix(in oklab, #14b8a6 80%, var(--text-head)); flex: 1; min-height: 0; display: flex; padding: 8px; }
   .bs-root > .boards-view { padding: 0; }
+  .bs-root .wb-island-board:not(:has(> .wb-status:not([hidden]))) { display: none; }
+  .bs-root .wb-island-board > :not(.wb-status) { display: none; }
   .bs-root[data-map='none'] .wb-viewport { visibility: hidden; }
 
   .bs-face {
@@ -130,8 +132,12 @@
     gap: 8px;
     height: min(32vh, 280px);
     overflow-y: auto;
-    padding: 8px 4px;
-    mask-image: linear-gradient(to bottom, transparent, black 32px);
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-card) 96%, transparent);
+    box-shadow: var(--shadow-xl);
+    box-sizing: border-box;
     overscroll-behavior: contain;
   }
 
@@ -182,13 +188,13 @@
   .bs-who .bs-face-main { outline: 1.5px solid var(--accent); outline-offset: 2px; }
   .bs-face-sub { width: 18px; height: 18px; padding: 0; font-size: var(--type-meta); box-shadow: 0 0 0 2px var(--bg); }
   .bs-who-subagents { color: var(--text-muted); font-size: var(--type-meta); }
+  .bs-who-status, .bs-who-subagents { padding: 1px 6px; border-radius: 8px; background: var(--bg-card); }
   .bs-who-status { color: var(--accent); font-family: var(--font-mono); font-size: var(--type-meta); }
   .bs-who[data-phase='starting'] .bs-who-status { color: var(--state-starting); }
   .bs-who[data-phase='monitoring'] .bs-who-status { color: var(--state-waiting); }
   .bs-who[data-phase='quiet'] .bs-presence-face, .bs-who[data-phase='stopped'] .bs-presence-face { opacity: 0.6; }
-  .bs-roster { position: absolute; top: 56px; left: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .bs-roster { display: flex; align-items: center; gap: 6px; }
   .bs-roster[hidden] { display: none; }
-  .bs-dock .bs-activity { height: 24px; margin: 0; padding: 0 8px; max-width: none; }
   @keyframes bs-glow { from { opacity: 0.55; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .bs-presence-glow { animation: none; } .bs-presence-faces .bs-who { transition: none; } }
 
@@ -262,4 +268,6 @@
   .bs-mentions[hidden] { display: none; }
   .bs-mention { height: 28px; padding: 0 8px; overflow: hidden; border: 0; border-radius: 6px; background: none; color: var(--text); font-family: var(--font-mono); font-size: var(--type-meta); text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
   .bs-mention[aria-selected='true'], .bs-mention:hover { background: color-mix(in srgb, var(--bs-branch) 18%, var(--bg-surface)); color: var(--text-head); }
+
+  :root:has(.board-session-view:not([hidden])) .feature-hint { top: 64px; bottom: auto; }
 }

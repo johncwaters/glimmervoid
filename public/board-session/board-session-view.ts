@@ -211,7 +211,7 @@ function showNotice(text: string | null): void {
 function seatOnHost(): void {
   if (!parts || !isActive) return;
   parts.root.dataset.map = boardId === null ? 'none' : 'shown';
-  showBoardBeside(boardId, shownSessionId, parts.guest);
+  showBoardBeside(boardId, null, parts.guest);
 }
 
 function boxIdOfPresencePath(presencePath: string | null): string | null {
@@ -319,7 +319,6 @@ function mountDock(): void {
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
-    phase: () => phaseOfSession(sessionId),
     boxChoices: () => moduleChoices,
   });
   parts.dockSlot.append(dock.element);
@@ -419,22 +418,22 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const menu = el('div', 'bs-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
+  const presenceLayer = createPresenceLayer(boundsOfHostBox, addressFace);
   const topLeft = el('div', 'bs-top-left');
   const freshness = el('span', 'bs-fresh');
   freshness.setAttribute('role', 'status');
   freshness.hidden = true;
-  topLeft.append(chip, freshness, menu);
+  topLeft.append(chip, freshness, presenceLayer.roster, menu);
   const notice = el('p', 'bs-notice');
   notice.setAttribute('role', 'status');
   notice.hidden = true;
   const dockSlot = el('div', 'bs-dock-slot');
   dockSlot.dataset.boardIsland = '';
-  const presenceLayer = createPresenceLayer(boundsOfHostBox, addressFace);
   const askCards = createAskCards();
   panel.replaceChildren(root);
   const guest: BoardHostGuest = {
     chrome: topLeft,
-    overlays: [notice, presenceLayer.roster, dockSlot, askCards.element],
+    overlays: [notice, dockSlot, askCards.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,

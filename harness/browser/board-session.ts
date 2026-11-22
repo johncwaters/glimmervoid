@@ -140,6 +140,13 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');
   assertSameBox(chipBefore, await boxOf(page, '.board-session-view .bs-chip'), 'the repo chip');
+  assert.equal(await root.locator('.wb-island-board').isVisible(), false, 'Studio hides the board title island; the repo chip names the map');
+  await root.locator('.wb-island-board .wb-status').evaluate((status: HTMLElement) => { status.hidden = false; status.textContent = 'Could not undo that change.'; });
+  assert.equal(await root.locator('.wb-island-board .wb-status').isVisible(), true, 'a board error still shows in Studio');
+  assert.equal(await root.locator('.wb-island-board .wb-board-title').isVisible(), false, 'the board title stays hidden while an error shows');
+  await root.locator('.wb-island-board .wb-status').evaluate((status: HTMLElement) => { status.hidden = true; status.textContent = ''; });
+  assert.equal(await root.locator('.wb-island-agent').isVisible(), false, 'Studio shows no pairing notice for its main agent');
+  assert.equal(await root.locator('.bs-activity').count(), 0, 'the working status shows on the face only');
 
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });

@@ -22,3 +22,4 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 - The log keeps prompts and replies only; tool, skill, subagent and workflow activity shows as faces on the board, never as log rows.
 - Codemap elements are generated, so folder stacking changes only through `codemap-folder-toggle`, never by setting a frame's `collapsed`.
 - Studio draws its map through the shared Boards host (`mountBoardHost`, `showBoardBeside` with a `BoardHostGuest`), never a canvas of its own, so every board behavior reaches Studio and Boards alike; new board behavior goes in `public/whiteboard/`.
+- The open log's background stays slightly translucent: Chrome treats an opaque scroller's scrolled-off rows as covering the board canvas, which then stops drawing above the log.
