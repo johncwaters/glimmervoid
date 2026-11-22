@@ -34,12 +34,12 @@ import type { MatchState, ReportSigner } from '../../shared/wargames/engine.ts';
 import { createAwakeTimeoutFn } from '../awake-timer.ts';
 import type { WargamesStore } from './wargames-store.ts';
 
-export type WargamesBroadcastFrame =
+type WargamesBroadcastFrame =
   | { type: 'wargames-status'; matches: WargamesMatchSummary[] }
   | { type: 'wargames-history'; history: WargamesHistory }
   | { type: 'wargames-events'; matchId: string; events: WargamesEvent[]; reset: boolean };
 
-export type SeatLaunchFn = (
+type SeatLaunchFn = (
   matchId: string,
   seat: SeatConfig,
   bindSession: (sessionId: string) => void,

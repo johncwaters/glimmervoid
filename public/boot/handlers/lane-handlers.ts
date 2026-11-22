@@ -1,4 +1,5 @@
 import { applyRaceHistory, applyRaceStatus } from '../../arena/race-store.ts';
+import { applyWargamesEvents, applyWargamesHistory, applyWargamesStatus } from '../../wargames/wargames-store.ts';
 import { applyCommunityStatus } from '../../community/community-store.ts';
 import { showDesktopNotification } from '../../notifications.ts';
 import { applyInvestigationActivity, applyInvestigationFinished, applyRadarStatus } from '../../radar/radar-store.ts';
@@ -13,6 +14,9 @@ const messageHandlers = {
   'community-status': (msg) => applyCommunityStatus(msg),
   'race-status': (msg) => applyRaceStatus(msg),
   'race-history': (msg) => applyRaceHistory(msg),
+  'wargames-status': (msg) => applyWargamesStatus(msg),
+  'wargames-history': (msg) => applyWargamesHistory(msg),
+  'wargames-events': (msg) => applyWargamesEvents(msg),
   'usage-sessions':     (msg) => applyUsageSessions(msg),
   'usage-report':       (msg) => { applyUsageReport(msg); refreshSettingsStatus(); },
 

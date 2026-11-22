@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Wargames: reproducible 6-seat AI strategy arena**: launch and spectate 40-tick Diplomacy-meets-Tribal-Wars matches across mixed models on a 37-hex map. Seated agents act strictly through 10 per-seat Wargames MCP tools backed by pure state machines and an append-only JSONL event log, while the Wargames tab streams live god-view or per-seat fog-of-war maps, tick scrubbing, drama highlights with side-by-side DMs and orders, agent scratchpad minds, research metrics, and cross-match model Elo ratings.
+
 ## [0.63.0] - 2026-11-22
 
 ### Added

@@ -39,6 +39,7 @@ export const CHAT_ICON_PATH = 'M2 3h9v6H6l-2.5 2V9H2z M11 6h3v5.5h-1.5V13L10 11.
 export const COMMUNITY_ICON_PATH = 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z';
 export const TRACE_ICON_PATH = 'M2 8.5h3l2 -5l2 9l2 -4h3';
 export const ARENA_ICON_PATH = 'M3.5 9a4.5 4.5 0 1 0 9 0a4.5 4.5 0 1 0 -9 0z M8 9V6.5 M6.5 2h3';
+export const WARGAMES_ICON_PATH = 'M8 2L13 5v6l-5 3l-5-3V5z M8 6v4 M6 8h4';
 export const PACKS_ICON_PATH = 'M2.5 5L8 2.5l5.5 2.5v6L8 13.5L2.5 11z M2.5 5L8 7.5l5.5-2.5 M8 7.5v6';
 export const KEYBOARD_ICON_PATH = 'M1.5 4h13v8h-13z M4.5 6.5h0.01M8 6.5h0.01M11.5 6.5h0.01 M5 9.5h6';
 export const KEY_ICON_PATH = 'M2 8a3 3 0 1 0 6 0a3 3 0 1 0 -6 0z M8 8h6 M11.5 8v2.5 M14 8v2';
