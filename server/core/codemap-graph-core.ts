@@ -373,6 +373,15 @@ function moduleBoxIdOf(moduleId: string): string {
   return generatedIdOf(CODEMAP_ID_PREFIXES.map, moduleId === ROOT_MODULE ? 'root' : moduleId, moduleId);
 }
 
+function fallbackBoxIdOf(model: CodemapModel): string {
+  return model.modules.some((summary) => summary.id === ROOT_MODULE) ? moduleBoxIdOf(ROOT_MODULE) : STAMP_BOX_ID;
+}
+
+function drawnBoxIdOfPath(model: CodemapModel, repoPath: string): string {
+  const moduleId = moduleOfPath(model, repoPath);
+  return moduleId === ROOT_MODULE ? fallbackBoxIdOf(model) : moduleBoxIdOf(moduleId);
+}
+
 function boardTitleOf(text: string): string {
   return text.slice(-WHITEBOARD_LIMITS.title);
 }
@@ -1011,5 +1020,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };

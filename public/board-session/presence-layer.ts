@@ -4,11 +4,14 @@ import type { ChatPhase } from '../chat/chat-activity-core.ts';
 import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { el } from '../dom-helpers.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
+import { paintStatusIcon } from '../status-icon.ts';
+import type { StatusIcon } from '#shared/state-icons.ts';
 import { createPressable } from '../ui/pressable.ts';
 
 const FACE_SIZE = 28;
 const FACE_GAP = 6;
 const GLOW_PADDING = 6;
+const STATUS_ICON_BY_PHASE: Readonly<Partial<Record<ChatPhase, StatusIcon>>> = { starting: 'starting', working: 'working', monitoring: 'monitoring' };
 
 export interface SessionFace {
   sessionId: string;
@@ -25,11 +28,11 @@ export interface SessionFace {
 interface PresenceMarks {
   glowingBoxIds: readonly string[];
   faces: readonly SessionFace[];
+  fallbackBoxId: string | null;
 }
 
 export interface PresenceLayer {
   element: HTMLElement;
-  roster: HTMLElement;
   paint(marks: PresenceMarks, board: Board | null): void;
 }
 
@@ -59,13 +62,17 @@ function whoOf(face: SessionFace, onFacePicked: (face: SessionFace) => void): HT
   who.dataset.sessionId = face.sessionId;
   const faceButton = createPressable(['bs-face', 'bs-presence-face', face.isMain ? 'bs-face-main' : '', face.isBranch ? 'bs-face-branch bs-presence-branch' : ''].filter(Boolean).join(' '));
   faceButton.dataset.action = 'board-session-address-face';
-  faceButton.setAttribute('aria-label', `Message ${face.agentLabel}`);
+  faceButton.setAttribute('aria-label', [`Message ${face.agentLabel}`, face.statusText].filter(Boolean).join(', '));
   paintAgentMark(faceButton, face.agentId, face.agentLabel);
   faceButton.addEventListener('pointerdown', (event) => event.stopPropagation());
   faceButton.addEventListener('click', () => onFacePicked(face));
   who.append(faceButton, ...face.subagents.map(subagentFaceOf));
-  if (face.subagents.length > 0) who.append(el('span', 'bs-who-subagents', face.subagents.map((subagent) => subagent.type).join(', ')));
-  if (face.statusText !== null) who.append(el('span', 'bs-who-status', face.statusText));
+  const statusIcon = STATUS_ICON_BY_PHASE[face.phase];
+  if (statusIcon === undefined) return who;
+  const badge = el('span', 'bs-face-status');
+  badge.setAttribute('aria-hidden', 'true');
+  paintStatusIcon(badge, statusIcon);
+  faceButton.append(badge);
   return who;
 }
 
@@ -75,11 +82,9 @@ export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, on
   glows.setAttribute('aria-hidden', 'true');
   const faces = el('div', 'bs-presence-faces');
   element.append(glows, faces);
-  const roster = el('div', 'bs-roster');
 
   return {
     element,
-    roster,
     paint: (marks, board) => {
       const frameIdByBoxId = collapsedFrameIdByBoxIdOf(board);
       const shownBoundsOf = (boxId: string): Rect | null => {
@@ -95,22 +100,17 @@ export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, on
       }));
       const facesOnBoxCount = new Map<string, number>();
       const boardWhos: HTMLElement[] = [];
-      const rosterWhos: HTMLElement[] = [];
       for (const face of marks.faces) {
-        const rect = face.boxId === null ? null : shownBoundsOf(face.boxId);
+        const boxId = [face.boxId, marks.fallbackBoxId].find((candidate) => candidate !== null && shownBoundsOf(candidate) !== null) ?? null;
+        const rect = boxId === null ? null : shownBoundsOf(boxId);
         const who = whoOf(face, onFacePicked);
-        if (rect === null || face.boxId === null) {
-          rosterWhos.push(who);
-          continue;
-        }
-        const stackIndex = facesOnBoxCount.get(face.boxId) ?? 0;
-        facesOnBoxCount.set(face.boxId, stackIndex + 1);
+        if (rect === null || boxId === null) continue;
+        const stackIndex = facesOnBoxCount.get(boxId) ?? 0;
+        facesOnBoxCount.set(boxId, stackIndex + 1);
         who.style.transform = `translate(${rect.x + rect.width - FACE_SIZE / 2}px, ${rect.y - FACE_SIZE / 2 - stackIndex * (FACE_SIZE + FACE_GAP)}px)`;
         boardWhos.push(who);
       }
       faces.replaceChildren(...boardWhos);
-      roster.replaceChildren(...rosterWhos);
-      roster.hidden = rosterWhos.length === 0;
     },
   };
 }

@@ -90,8 +90,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     return (notice !== null && !notice.hidden && (notice.textContent ?? '').length > 0) || (canvas !== null && canvas.width > 0 && notice?.hidden === true);
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-log').isVisible(), false, 'the chat log stays folded on open');
-  await root.locator('.bs-fresh:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.match(await root.locator('.bs-fresh').textContent() ?? '', /^Map [0-9a-f]{7} (current|behind|failed)/, 'the freshness badge names the map sha and its state');
+  assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
   await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 
   await chip.click();
@@ -135,7 +134,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-row-you', { hasText: 'narrate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-agent', { hasText: 'Build passed' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-agent .bs-face').count() > 0, true, 'an agent bubble carries the agent face');
-  await root.locator('.bs-who[data-phase="working"] .bs-who-status').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-presence-faces .bs-who[data-phase="working"] .bs-face-status .status-icon[data-icon="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-who-status, .bs-who-subagents').count(), 0, 'faces carry a status icon, never a text tag');
   assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');

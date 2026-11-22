@@ -17,11 +17,10 @@ import { boundsOfHostBox, leaveBoardHost, mountBoardHost, paintBoard, placeBoard
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
 import { tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { onBoardSessionTraceChanged } from './board-session-signals.ts';
-import { freshnessTextOf, isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
+import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
-import type { CodemapStatus } from '#shared/contracts/codemap.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
 import { NO_PRESENCE, faceStatusTextOf, foldPresence, presencePathsOf } from './presence-core.ts';
@@ -55,7 +54,6 @@ interface ViewParts {
   root: HTMLElement;
   chip: HTMLButtonElement;
   chipName: HTMLElement;
-  freshness: HTMLElement;
   menu: HTMLElement;
   notice: HTMLElement;
   dockSlot: HTMLElement;
@@ -70,7 +68,7 @@ let shownRepoPath: string | null = null;
 let shownSessionId: string | null = null;
 let ensuredRepoPath: string | null = null;
 const mainSessionIdByRepoPath = new Map<string, string>();
-let mapState: CodemapStatus | null = null;
+let fallbackBoxId: string | null = null;
 let boardId: string | null = null;
 const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
@@ -241,7 +239,7 @@ function paintPresence(): void {
   const namedPaths = presenceOf(shownSessionId).namedPaths;
   const glowingBoxIds = [...new Set(namedPaths.flatMap((namedPath) => boxIdOfPresencePath(namedPath) ?? []))];
   const faces = [...watchBySessionId].flatMap(([sessionId, watch]) => sessionFaceOf(sessionId, watch) ?? []);
-  parts.presenceLayer.paint({ glowingBoxIds, faces }, tiledBoardOf(boardId)?.board ?? null);
+  parts.presenceLayer.paint({ glowingBoxIds, faces, fallbackBoxId }, tiledBoardOf(boardId)?.board ?? null);
   paintAsks();
 }
 
@@ -274,10 +272,6 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
 function paintChip(): void {
   if (!parts) return;
   parts.chipName.textContent = repoChoices().find((choice) => choice.path === shownRepoPath)?.label ?? 'No repo';
-  parts.freshness.hidden = mapState === null;
-  if (mapState === null) return;
-  parts.freshness.dataset.state = mapState.state;
-  parts.freshness.textContent = freshnessTextOf(mapState);
 }
 
 function requestBoxes(): void {
@@ -292,8 +286,7 @@ function requestBoxes(): void {
       if (reply.boardId === null) return showNotice(NO_MAP_TEXT);
       showNotice(null);
       changedBoxIds = new Set(reply.changedBoxIds);
-      mapState = reply.mapState;
-      paintChip();
+      fallbackBoxId = reply.fallbackBoxId;
       boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
       moduleChoices = reply.boxChoices;
       boardId = reply.boardId;
@@ -328,7 +321,7 @@ function mountDock(): void {
 function showSession(sessionId: string | null): void {
   const isSameSession = sessionId === shownSessionId;
   shownSessionId = sessionId;
-  if (!isSameSession) mapState = null;
+  if (!isSameSession) fallbackBoxId = null;
   paintChip();
   if (sessionId === null) {
     boardId = null;
@@ -420,10 +413,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   menu.hidden = true;
   const presenceLayer = createPresenceLayer(boundsOfHostBox, addressFace);
   const topLeft = el('div', 'bs-top-left');
-  const freshness = el('span', 'bs-fresh');
-  freshness.setAttribute('role', 'status');
-  freshness.hidden = true;
-  topLeft.append(chip, freshness, presenceLayer.roster, menu);
+  topLeft.append(chip, menu);
   const notice = el('p', 'bs-notice');
   notice.setAttribute('role', 'status');
   notice.hidden = true;
@@ -443,7 +433,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
       paintPresence();
     },
   };
-  parts = { root, chip, chipName, freshness, menu, notice, dockSlot, presenceLayer, askCards, guest };
+  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, guest };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });

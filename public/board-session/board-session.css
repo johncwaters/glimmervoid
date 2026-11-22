@@ -49,23 +49,6 @@
   .bs-chip > svg { width: 14px; height: 14px; flex: none; color: var(--text-muted); }
   .bs-chip:hover { border-color: var(--accent-dim); }
   .bs-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .bs-fresh {
-    --bs-fresh-tone: var(--state-running);
-    display: inline-flex;
-    align-items: center;
-    height: 24px;
-    padding: 0 10px;
-    border: 1px solid color-mix(in srgb, var(--bs-fresh-tone) 55%, transparent);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--bs-fresh-tone) 14%, var(--bg-card));
-    color: var(--bs-fresh-tone);
-    font-family: var(--font-mono);
-    font-size: var(--type-meta);
-    white-space: nowrap;
-  }
-  .bs-fresh[hidden] { display: none; }
-  .bs-fresh[data-state='behind'] { --bs-fresh-tone: var(--state-waiting); }
-  .bs-fresh[data-state='failed'] { --bs-fresh-tone: var(--state-failed); }
   .bs-chip-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 700; color: var(--text-head); }
 
   .bs-menu {
@@ -187,14 +170,12 @@
   .bs-who .bs-presence-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .bs-who .bs-face-main { outline: 1.5px solid var(--accent); outline-offset: 2px; }
   .bs-face-sub { width: 18px; height: 18px; padding: 0; font-size: var(--type-meta); box-shadow: 0 0 0 2px var(--bg); }
-  .bs-who-subagents { color: var(--text-muted); font-size: var(--type-meta); }
-  .bs-who-status, .bs-who-subagents { padding: 1px 6px; border-radius: 8px; background: var(--bg-card); }
-  .bs-who-status { color: var(--accent); font-family: var(--font-mono); font-size: var(--type-meta); }
-  .bs-who[data-phase='starting'] .bs-who-status { color: var(--state-starting); }
-  .bs-who[data-phase='monitoring'] .bs-who-status { color: var(--state-waiting); }
+  .bs-who .bs-presence-face { position: relative; overflow: visible; }
+  .bs-face-status { position: absolute; right: -4px; bottom: -4px; display: grid; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--bg-card); pointer-events: none; }
+  .bs-who[data-phase='starting'] .bs-face-status { color: var(--state-starting); }
+  .bs-who[data-phase='working'] .bs-face-status { color: var(--state-running); }
+  .bs-who[data-phase='monitoring'] .bs-face-status { color: var(--state-monitoring); }
   .bs-who[data-phase='quiet'] .bs-presence-face, .bs-who[data-phase='stopped'] .bs-presence-face { opacity: 0.6; }
-  .bs-roster { display: flex; align-items: center; gap: 6px; }
-  .bs-roster[hidden] { display: none; }
   @keyframes bs-glow { from { opacity: 0.55; } to { opacity: 1; } }
   @media (prefers-reduced-motion: reduce) { .bs-presence-glow { animation: none; } .bs-presence-faces .bs-who { transition: none; } }
 

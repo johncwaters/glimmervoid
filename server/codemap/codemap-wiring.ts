@@ -16,7 +16,7 @@ import { CODEMAP_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -535,12 +535,12 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: false, error: 'error' in redrawn ? redrawn.error : `the code map of ${path.basename(repoDir)} was not redrawn` };
   }
 
-  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[]; mapState: CodemapStatus } | { ok: false; error: string }> {
+  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; fallbackBoxId: string; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[]} | { ok: false; error: string }> {
     const map = await currentMap({ repoDir });
     if ('error' in map) return { ok: false, error: map.error };
     const model = map.model;
     if (!model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
-    const boxIdOfPath = (repoPath: string) => moduleBoxIdOf(moduleOfPath(model, repoPath));
+    const boxIdOfPath = (repoPath: string) => drawnBoxIdOfPath(model, repoPath);
     const repoRelativePaths = paths.filter((repoPath) => !path.isAbsolute(repoPath) && !repoPath.startsWith('..'));
     const overlay = await sessionOverlayOf(repoDir, sessionId);
     const boardId = whiteboards ? await mapBoardIdOf(whiteboards, repoDir) : null;
@@ -548,12 +548,12 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
       ok: true,
       boardId,
       boxIdByPath: Object.fromEntries(repoRelativePaths.map((repoPath) => [repoPath, boxIdOfPath(repoPath)])),
+      fallbackBoxId: fallbackBoxIdOf(model),
       changedBoxIds: [...new Set((overlay?.paths ?? []).map(boxIdOfPath))].sort(),
       boxChoices: [
         ...model.modules.flatMap((summary) => summary.id === '.' ? [] : [{ boxId: moduleBoxIdOf(summary.id), title: summary.id.slice(-WHITEBOARD_LIMITS.title) }]),
         ...model.paths.map((repoPath) => ({ boxId: boxIdOfPath(repoPath), title: repoPath.slice(-WHITEBOARD_LIMITS.title) })),
       ].slice(0, CODEMAP_BOX_CHOICES_MAX),
-      mapState: map.status,
     };
   }
 

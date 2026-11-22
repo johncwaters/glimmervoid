@@ -9,8 +9,8 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 
 | File | Description |
 |------|-------------|
-| `board-session-view.ts` | The Studio tab: repo chip, freshness badge, trace watches per repo session, seated as a guest on the shared Boards host |
-| `presence-layer.ts` / `presence-core.ts` | Faces on the boxes sessions work in, their working status and subagent faces |
+| `board-session-view.ts` | The Studio tab: repo chip, trace watches per repo session, seated as a guest on the shared Boards host |
+| `presence-layer.ts` / `presence-core.ts` | Faces on the boxes sessions work in (the repo root box when none), their status icon and subagent faces |
 | `dock.ts` | The message pill and the folded log of prompts and replies |
 
 ## Invariants

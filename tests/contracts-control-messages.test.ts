@@ -329,7 +329,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'wargames-start-result', requestId: 'w1', ok: true, error: null, matchId: 'wg-1' },
   { type: 'wargames-abort-result', requestId: 'w2', ok: true, error: null },
   { type: 'wargames-watch-result', requestId: 'w3', ok: true, error: null, matchId: 'wg-1' },
-  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], mapState: { sha: 'a'.repeat(40), mainlineSha: 'b'.repeat(40), state: 'behind', reason: null }, error: null },
+  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], fallbackBoxId: 'm-root', error: null },
   { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
   { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
   { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null },

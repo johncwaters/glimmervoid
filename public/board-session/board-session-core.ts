@@ -1,6 +1,5 @@
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
-import type { CodemapStatus } from '#shared/contracts/codemap.ts';
 
 export interface RepoSession {
   id: string;
@@ -18,7 +17,6 @@ const MAX_SCALE = 8;
 const MAX_FIT_SCALE = 2;
 const FIT_MARGIN_PX = 48;
 const READABLE_TITLE_PX = 9;
-const SHORT_SHA_LENGTH = 7;
 
 function repoLabelOf(repoPath: string): string {
   const trimmedPath = repoPath.replace(/[\\/]+$/, '');
@@ -35,16 +33,6 @@ export function pickedRepoPath(shownPath: string | null, rememberedPath: string 
   if (shownPath !== null && knownPaths.includes(shownPath)) return shownPath;
   if (rememberedPath !== null && knownPaths.includes(rememberedPath)) return rememberedPath;
   return knownPaths[0] ?? null;
-}
-
-const FRESHNESS_TEXT_BY_STATE: Record<CodemapStatus['state'], (mapSha: string, mainlineSha: string) => string> = {
-  current: (mapSha) => `Map ${mapSha} current`,
-  behind: (mapSha, mainlineSha) => `Map ${mapSha} behind ${mainlineSha}`,
-  failed: (mapSha) => `Map ${mapSha} failed`,
-};
-
-export function freshnessTextOf(mapState: CodemapStatus): string {
-  return FRESHNESS_TEXT_BY_STATE[mapState.state](mapState.sha?.slice(0, SHORT_SHA_LENGTH) ?? 'none', mapState.mainlineSha?.slice(0, SHORT_SHA_LENGTH) ?? 'mainline');
 }
 
 function clampScale(scale: number): number {
