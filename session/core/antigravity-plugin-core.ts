@@ -6,6 +6,7 @@ import { buildHookCommand } from "./hook-command-core.ts";
 import { PACK_SECRET_ENV_FLAG, PACK_URL_FLAG, packSecretEnvName } from "../../server/core/mcp-env-core.ts";
 import type { PackMcpServer } from "../../shared/contracts/pack.ts";
 import { ANTIGRAVITY_PACK_HOOK_FLAVOR, PACK_HOOK_RELAY_TIMEOUT_SECONDS, PACK_HOOK_RELAY_TOOL_ID, packHookToolNamesOf } from "./pack-hook-core.ts";
+import { ANTIGRAVITY_SANE_YOLO_FLAVOR } from "./sane-yolo.ts";
 
 const ANTIGRAVITY_PLUGIN_NAME = "glimmervoid";
 const AGENT_STATE_HOOK_EVENT = "AgentState";
@@ -14,7 +15,7 @@ const TOOL_HOOK_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 const ANTIGRAVITY_QUESTION_TOOL_NAME = "ask_question";
 const ANTIGRAVITY_SUBAGENT_TOOL_NAME = "invoke_subagent";
 const ANTIGRAVITY_GATED_TOOL_NAMES: readonly string[] = ["run_command", "write_file", "edit_file", "create_file", "delete_file", "apply_patch"];
-const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "background_tasks", "isTurnOpen", "pendingToolName", "source", "tool_name", "tool_input"];
+const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "agent_transcript_path", "agent_type", "background_tasks", "isTurnOpen", "pendingToolName", "prompt", "source", "tool_name", "tool_input"];
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
 type AntigravityPluginFileName = "plugin.json" | "hooks.json" | "mcp_config.json";
@@ -40,7 +41,18 @@ function packHooksEntry(packHookLaunch: readonly string[] | null): unknown[] | n
   return [{ matcher: `^(?:${packHookToolNamesOf(ANTIGRAVITY_PACK_HOOK_FLAVOR).join("|")})$`, hooks: [{ type: "command", command, timeout: PACK_HOOK_RELAY_TIMEOUT_SECONDS }] }];
 }
 
-function hooksByEvent(relayLaunch: readonly string[], packHookLaunch: readonly string[] | null): Record<string, unknown[]> | null {
+function saneYoloHooksEntry(saneYoloLaunch: readonly string[] | null): unknown[] | null {
+  if (saneYoloLaunch === null) return [];
+  const command = buildHookCommand(saneYoloLaunch, "saneYolo", [ANTIGRAVITY_SANE_YOLO_FLAVOR]);
+  if (command === null) return null;
+  return [{ matcher: "*", hooks: [{ type: "command", command }] }];
+}
+
+function hooksByEvent(
+  relayLaunch: readonly string[],
+  packHookLaunch: readonly string[] | null,
+  saneYoloLaunch: readonly string[] | null,
+): Record<string, unknown[]> | null {
   const hooks: Record<string, unknown[]> = {};
   for (const event of PLAIN_HOOK_EVENTS) {
     const hook = commandHook(relayLaunch, event);
@@ -58,6 +70,9 @@ function hooksByEvent(relayLaunch: readonly string[], packHookLaunch: readonly s
   const permissionHoldHook = commandHook(relayLaunch, CONVERSATION_PERMISSION_HOOK_EVENT);
   if (permissionHoldHook === null) return null;
   hooks.PreToolUse?.push({ matcher: `^(?:${ANTIGRAVITY_GATED_TOOL_NAMES.join("|")})$`, hooks: [{ ...permissionHoldHook, timeout: QUESTION_HOLD_HOOK_TIMEOUT_SECONDS }] });
+  const saneYoloEntries = saneYoloHooksEntry(saneYoloLaunch);
+  if (saneYoloEntries === null) return null;
+  hooks.PreToolUse?.push(...saneYoloEntries);
   const packHookEntries = packHooksEntry(packHookLaunch);
   if (packHookEntries === null) return null;
   hooks.PreToolUse?.push(...packHookEntries);
@@ -69,8 +84,14 @@ function packServerEntry(server: PackMcpServer, bridgeCommand: string, bridgeArg
   return { command: bridgeCommand, args: [...bridgeArgs, `--${PACK_URL_FLAG}`, server.url, `--${PACK_SECRET_ENV_FLAG}`, packSecretEnvName(server.secret)] };
 }
 
-function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: readonly string[], packServers: readonly PackMcpServer[] = [], packHookLaunch: readonly string[] | null = null): Record<AntigravityPluginFileName, string> | null {
-  const hooks = hooksByEvent(relayLaunch, packHookLaunch);
+function renderAntigravityPlugin(
+  relayLaunch: readonly string[],
+  bridgeLaunch: readonly string[],
+  packServers: readonly PackMcpServer[] = [],
+  packHookLaunch: readonly string[] | null = null,
+  saneYoloLaunch: readonly string[] | null = null,
+): Record<AntigravityPluginFileName, string> | null {
+  const hooks = hooksByEvent(relayLaunch, packHookLaunch, saneYoloLaunch);
   const [bridgeCommand, ...bridgeArgs] = bridgeLaunch;
   if (hooks === null || bridgeCommand === undefined) return null;
   const packEntries = Object.fromEntries(packServers.map((server) => [server.name, packServerEntry(server, bridgeCommand, bridgeArgs)]));
@@ -79,6 +100,16 @@ function renderAntigravityPlugin(relayLaunch: readonly string[], bridgeLaunch: r
     "hooks.json": jsonFileText({ [ANTIGRAVITY_PLUGIN_NAME]: hooks }),
     "mcp_config.json": jsonFileText({ mcpServers: { ...packEntries, [ANTIGRAVITY_PLUGIN_NAME]: { command: bridgeCommand, args: bridgeArgs } } }),
   };
+}
+
+function antigravityInstalledHooks(): { event: string; matcher: string | null; route: string | null }[] {
+  const plainHooks = PLAIN_HOOK_EVENTS.map((event) => ({ event, matcher: null, route: null }));
+  const toolHooks = TOOL_HOOK_EVENTS.map((event) => ({ event, matcher: "*", route: null }));
+  const agentStateHook = { event: AGENT_STATE_HOOK_EVENT, matcher: null, route: null };
+  const questionHoldHook = { event: "PreToolUse", matcher: `^${ANTIGRAVITY_QUESTION_TOOL_NAME}$`, route: QUESTION_TOOL_HOLD_HOOK_EVENT };
+  const permissionHoldHook = { event: "PreToolUse", matcher: `^(?:${ANTIGRAVITY_GATED_TOOL_NAMES.join("|")})$`, route: CONVERSATION_PERMISSION_HOOK_EVENT };
+  const saneYoloHook = { event: "PreToolUse", matcher: "*", route: "saneYolo" };
+  return [...plainHooks, ...toolHooks, agentStateHook, questionHoldHook, permissionHoldHook, saneYoloHook];
 }
 
 function antigravitySessionSettings(trustedFolders: readonly string[], relayLaunch: readonly string[]): string | null {
@@ -97,11 +128,16 @@ function hasRunningSubagent(subagents: unknown): boolean {
   return Array.isArray(subagents) && subagents.some((subagent: unknown) => typeof subagent === "object" && subagent !== null && "status" in subagent && subagent.status === "running");
 }
 
-function toolCallOf(payload: HookPayloadRecord): { name: string | null; args: unknown } {
+function hasRunningTask(taskCount: unknown): boolean {
+  return typeof taskCount === "number" && taskCount > 0;
+}
+
+function toolCallOf(payload: HookPayloadRecord): { id: string | null; name: string | null; args: unknown } {
   const toolCall = payload.toolCall;
-  if (typeof toolCall !== "object" || toolCall === null) return { name: null, args: null };
+  if (typeof toolCall !== "object" || toolCall === null) return { id: null, name: null, args: null };
+  const id = "id" in toolCall && typeof toolCall.id === "string" && toolCall.id ? toolCall.id : null;
   const name = "name" in toolCall && typeof toolCall.name === "string" ? toolCall.name : null;
-  return { name, args: "args" in toolCall ? toolCall.args : null };
+  return { id, name, args: "args" in toolCall ? toolCall.args : null };
 }
 
 function askUserQuestionInputOf(questionArgs: unknown): Record<string, unknown> | null {
@@ -132,35 +168,103 @@ function withAskUserQuestionFields(payload: HookPayloadRecord): HookPayloadRecor
   return toolInput === null ? payload : { ...payload, tool_name: ASK_USER_QUESTION_TOOL_NAME, tool_input: toolInput };
 }
 
+interface PendingSubagentMetadata {
+  callId: string | null;
+  typeName: string | null;
+  role: string | null;
+}
+
+function subagentMetadataOf(callId: string | null, args: unknown): PendingSubagentMetadata {
+  if (typeof args !== "object" || args === null) return { callId, typeName: null, role: null };
+  const rawTypeName = "TypeName" in args && typeof args.TypeName === "string" ? args.TypeName.trim() : "";
+  const rawRole = "Role" in args && typeof args.Role === "string" ? args.Role.trim() : "";
+  return { callId, typeName: rawTypeName || null, role: rawRole || null };
+}
+
 function createConversationTagger(): (event: string, payload: HookPayloadRecord) => HookPayloadRecord {
   const subagentConversationIds = new Set<string>();
+  const subagentMetadataById = new Map<string, PendingSubagentMetadata>();
+  const pendingSubagentQueue: PendingSubagentMetadata[] = [];
   let isTurnOpen = false;
   let pendingToolName: string | null = null;
-  let pendingSubagentStarts = 0;
+  let lastOperatorPrompt: string | null = null;
+  let lastInjectedStepInput: string | null = null;
 
   function tagAgentState(payload: HookPayloadRecord): HookPayloadRecord {
-    const isAllIdle = payload.agent_state === "idle" && !hasRunningSubagent(payload.subagents);
-    const taggedPayload = { ...payload, isTurnOpen, pendingToolName, ...(isAllIdle ? { background_tasks: [] } : {}) };
+    const { subagents, ...withoutSubagents } = payload;
+    const isSubagentRunning = payload.hasRunningSubagent === true || hasRunningSubagent(subagents);
+    const isAllIdle = payload.agent_state === "idle" && !isSubagentRunning && !hasRunningTask(payload.task_count);
+    const taggedPayload = {
+      ...withoutSubagents,
+      hasRunningSubagent: isSubagentRunning,
+      isTurnOpen,
+      pendingToolName,
+      ...(isAllIdle ? { background_tasks: [] } : {}),
+    };
     if (isAllIdle) {
       isTurnOpen = false;
-      pendingSubagentStarts = 0;
+      pendingSubagentQueue.length = 0;
       pendingToolName = null;
     }
     return taggedPayload;
   }
 
   function tagSubagentEvent(normalizedEvent: string, conversationId: string, payload: HookPayloadRecord): HookPayloadRecord {
-    if (normalizedEvent === "stop") subagentConversationIds.delete(conversationId);
-    return { ...payload, agent_id: conversationId };
+    const metadata = subagentMetadataById.get(conversationId) ?? null;
+    const enriched: HookPayloadRecord = { ...payload, agent_id: conversationId };
+    if (metadata?.typeName) enriched.agent_type = metadata.typeName;
+    if (normalizedEvent === "sessionstart" && (metadata?.typeName || metadata?.role)) {
+      enriched.tool_input = {
+        ...(metadata.typeName ? { subagent_type: metadata.typeName } : {}),
+        ...(metadata.role ? { description: metadata.role } : {}),
+      };
+    }
+    if (normalizedEvent === "stop") {
+      if (typeof payload.transcriptPath === "string" && payload.transcriptPath) {
+        enriched.agent_transcript_path = payload.transcriptPath;
+      }
+      subagentConversationIds.delete(conversationId);
+      subagentMetadataById.delete(conversationId);
+    }
+    return enriched;
   }
 
   function trackParentTurn(normalizedEvent: string, payload: HookPayloadRecord): void {
     if (normalizedEvent === "preinvocation") isTurnOpen = true;
     if (normalizedEvent === "stop" && payload.fullyIdle === true) isTurnOpen = false;
-    if (normalizedEvent === "stop") pendingSubagentStarts = 0;
-    if (normalizedEvent === "pretooluse") pendingToolName = toolCallOf(payload).name;
-    if (normalizedEvent === "pretooluse" && pendingToolName === ANTIGRAVITY_SUBAGENT_TOOL_NAME) pendingSubagentStarts += 1;
-    if (normalizedEvent === "posttooluse") pendingToolName = null;
+    if (normalizedEvent === "stop") pendingSubagentQueue.length = 0;
+    if (normalizedEvent === "pretooluse") {
+      const { id, name, args } = toolCallOf(payload);
+      pendingToolName = name;
+      if (name === ANTIGRAVITY_SUBAGENT_TOOL_NAME) pendingSubagentQueue.push(subagentMetadataOf(id, args));
+    }
+    if (normalizedEvent === "posttooluse") {
+      pendingToolName = null;
+      const { id, name } = toolCallOf(payload);
+      const hasToolError = typeof payload.error === "string" && payload.error.length > 0;
+      if (name === ANTIGRAVITY_SUBAGENT_TOOL_NAME && hasToolError && pendingSubagentQueue.length > 0) {
+        const failedIndex = id === null ? 0 : pendingSubagentQueue.findIndex((entry) => entry.callId === id);
+        pendingSubagentQueue.splice(failedIndex >= 0 ? failedIndex : 0, 1);
+      }
+    }
+  }
+
+  function withOperatorPrompt(normalizedEvent: string, payload: HookPayloadRecord): HookPayloadRecord {
+    if (normalizedEvent === "sessionstart") {
+      lastOperatorPrompt = null;
+      lastInjectedStepInput = null;
+      return payload;
+    }
+    const inputText = typeof payload.lastUserInput === "string" ? payload.lastUserInput : "";
+    if (!inputText) return payload;
+    if (normalizedEvent !== "preinvocation" || payload.invocationNum !== 0) {
+      if (inputText !== lastOperatorPrompt) lastInjectedStepInput = inputText;
+      return payload;
+    }
+    if (inputText === lastOperatorPrompt || inputText === lastInjectedStepInput) return payload;
+    lastOperatorPrompt = inputText;
+    lastInjectedStepInput = null;
+    return { ...payload, prompt: inputText };
   }
 
   return (event, payload) => {
@@ -169,16 +273,18 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
     const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : null;
     const questionPayload = heldPayloadFor(normalizedEvent, payload);
     if (conversationId === null) return questionPayload;
-    if (normalizedEvent === "sessionstart" && pendingSubagentStarts > 0) {
-      pendingSubagentStarts -= 1;
+    if (normalizedEvent === "sessionstart" && pendingSubagentQueue.length > 0) {
+      const metadata = pendingSubagentQueue.shift() ?? { callId: null, typeName: null, role: null };
       subagentConversationIds.add(conversationId);
+      subagentMetadataById.set(conversationId, metadata);
     }
     if (subagentConversationIds.has(conversationId)) return tagSubagentEvent(normalizedEvent, conversationId, questionPayload);
     trackParentTurn(normalizedEvent, payload);
-    if (normalizedEvent === "stop" && payload.fullyIdle === true) return { ...questionPayload, background_tasks: [] };
-    if (normalizedEvent === "sessionstart" && !payload.source) return { ...payload, source: "startup" };
-    return questionPayload;
+    const parentPayload = withOperatorPrompt(normalizedEvent, questionPayload);
+    if (normalizedEvent === "stop" && payload.fullyIdle === true) return { ...parentPayload, background_tasks: [] };
+    if (normalizedEvent === "sessionstart" && !parentPayload.source) return { ...parentPayload, source: "startup" };
+    return parentPayload;
   };
 }
 
-export { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, ENRICHED_PAYLOAD_KEYS, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, packSkillWorkspacesOf, renderAntigravityPlugin };
+export { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, ENRICHED_PAYLOAD_KEYS, antigravityInstalledHooks, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin };

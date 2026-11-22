@@ -15,7 +15,7 @@ import {
 import { errorMessage } from '../../shared/text.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { realProjectsRoot } from './trace-wiring-context.ts';
-import type { LineContext, TraceWiringContext } from './trace-wiring-context.ts';
+import type { LineContext, TraceBinding, TraceWiringContext } from './trace-wiring-context.ts';
 import type { TraceTranscriptDrain } from './trace-transcript-drain.ts';
 
 const NO_BYTES = Buffer.alloc(0);
@@ -26,6 +26,18 @@ async function isResumePointMidLine(handle: FileHandle, offset: number): Promise
   const { bytesRead } = await handle.read(byteBeforeOffset, 0, 1, offset - 1);
   if (bytesRead <= 0) return false;
   return byteBeforeOffset[0] !== LINE_BREAK;
+}
+
+async function resolveSubagentRoot(
+  binding: TraceBinding,
+): Promise<{ ok: true; root: string } | { ok: false; root: string; reason: string }> {
+  if (binding.vendor !== 'claude') return { ok: true, root: binding.containmentRoot };
+  const subagentRoot = path.dirname(binding.transcriptPath);
+  const resolvedProjectsRoot = await realProjectsRoot();
+  if (!resolvedProjectsRoot || !isPathInside(resolvedProjectsRoot, subagentRoot, { allowEqual: false })) {
+    return { ok: false, root: subagentRoot, reason: resolvedProjectsRoot ? 'outside-root' : 'root-unresolvable' };
+  }
+  return { ok: true, root: subagentRoot };
 }
 
 function createTraceSubagentCapture(context: TraceWiringContext, drain: TraceTranscriptDrain) {
@@ -43,18 +55,17 @@ function createTraceSubagentCapture(context: TraceWiringContext, drain: TraceTra
       : '';
     if (!rawPath) return;
     const subagentPath = path.resolve(rawPath);
-    const subagentRoot = path.dirname(binding.transcriptPath);
-    const resolvedProjectsRoot = await realProjectsRoot();
-    if (!resolvedProjectsRoot || !isPathInside(resolvedProjectsRoot, subagentRoot, { allowEqual: false })) {
-      const reason = resolvedProjectsRoot ? 'outside-root' : 'root-unresolvable';
-      laneLog.warnOnce(`subagent:${binding.glimmervoidSessionId}:${reason}`, 'subagent transcript refused', {
+    const resolvedRoot = await resolveSubagentRoot(binding);
+    if (!resolvedRoot.ok) {
+      laneLog.warnOnce(`subagent:${binding.glimmervoidSessionId}:${resolvedRoot.reason}`, 'subagent transcript refused', {
         session: binding.glimmervoidSessionId,
         path: subagentPath,
-        root: subagentRoot,
-        reason,
+        root: resolvedRoot.root,
+        reason: resolvedRoot.reason,
       });
       return;
     }
+    const subagentRoot = resolvedRoot.root;
     const opened = await openContainedFile(subagentPath, subagentRoot);
     if (!opened.ok) {
       laneLog.warnOnce(`subagent:${binding.glimmervoidSessionId}:${opened.reason}`, 'subagent transcript refused', {

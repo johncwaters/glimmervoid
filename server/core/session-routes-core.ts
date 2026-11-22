@@ -223,8 +223,8 @@ interface CommandHint {
 }
 
 const SHOWABLE_PATH = /\.(png|jpe?g|gif|webp|svg|mp4|webm|html?|pptx)(?=$|[\s'"`)|;&,])/i;
-const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit']);
-const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash']);
+const FILE_WRITING_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'write_file', 'edit_file', 'write_to_file', 'replace_file_content', 'multi_replace_file_content']);
+const SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'run_command']);
 const GIT_PUSH = /\bgit\s+push\b/;
 const PR_REVIEW = /\bgh\s+pr\s+review\b/;
 const NEW_CHECKOUT = /\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--?[\w-]+(?:=\S+)?))*\s+(?:worktree\s+add|clone)\b/;
@@ -232,12 +232,15 @@ const GLIMMERVOID_CONFIG = /\.glimmervoid[\\/]config\.json\b/;
 
 function shellCommandOf({ toolName, toolInput }: ToolHookFacts): string | null {
   if (!SHELL_TOOLS.has(toolName)) return null;
-  return typeof toolInput.command === 'string' ? toolInput.command : null;
+  if (typeof toolInput.command === 'string') return toolInput.command;
+  return typeof toolInput.CommandLine === 'string' ? toolInput.CommandLine : null;
 }
 
 function filePathOf({ toolName, toolInput }: ToolHookFacts): string | null {
   if (!FILE_WRITING_TOOLS.has(toolName)) return null;
-  return typeof toolInput.file_path === 'string' ? toolInput.file_path : null;
+  if (typeof toolInput.file_path === 'string') return toolInput.file_path;
+  if (typeof toolInput.Path === 'string') return toolInput.Path;
+  return typeof toolInput.TargetFile === 'string' ? toolInput.TargetFile : null;
 }
 
 function namesShowableFile(facts: ToolHookFacts): boolean {

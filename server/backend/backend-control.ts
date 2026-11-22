@@ -211,7 +211,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     getUsageSessions: () => usage.getSessionsMessage(),
     getUsageReport: () => usage.getCachedReport(),
     requestUsageReport: (args) => usage.requestReport(args),
-    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex'), usage.getPlanLimitsMessage('kimi'), ...usage.getAccountPlanLimitsMessages()],
+    getPlanLimits: () => [usage.getPlanLimitsMessage('claude'), usage.getPlanLimitsMessage('codex'), usage.getPlanLimitsMessage('kimi'), usage.getPlanLimitsMessage('antigravity'), ...usage.getAccountPlanLimitsMessages()],
     getSessionMeters: () => usage.getSessionMeterMessages(),
     readTracePage: dependencies.readTracePage,
     sessionDocs: dependencies.sessionDocs,

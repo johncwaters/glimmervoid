@@ -1,12 +1,14 @@
 import { isRecord } from '../../shared/coerce.ts';
 
 const SANE_YOLO_PATH_ENV = 'GLIMMERVOID_SANE_YOLO_PATH';
+const ANTIGRAVITY_SANE_YOLO_FLAVOR = 'antigravity';
 const KIMI_SANE_YOLO_FLAVOR = 'kimi';
 const CODEX_SANE_YOLO_FLAVOR = 'codex';
 const GEMINI_SANE_YOLO_FLAVOR = 'gemini';
 const QWEN_SANE_YOLO_FLAVOR = 'qwen';
 const COPILOT_SANE_YOLO_FLAVOR = 'copilot';
 const SANE_YOLO_HOST_FLAGS: Record<string, string> = {
+  [ANTIGRAVITY_SANE_YOLO_FLAVOR]: '--agy-cli',
   [KIMI_SANE_YOLO_FLAVOR]: '--kimi-code',
   [CODEX_SANE_YOLO_FLAVOR]: '--codex',
   [GEMINI_SANE_YOLO_FLAVOR]: '--gemini-cli',
@@ -134,4 +136,4 @@ function saneYoloEnv(homeDir: string): Record<string, string> {
   };
 }
 
-export { CODEX_SANE_YOLO_FLAVOR, COPILOT_SANE_YOLO_FLAVOR, GEMINI_SANE_YOLO_FLAVOR, KIMI_SANE_YOLO_FLAVOR, QWEN_SANE_YOLO_FLAVOR, SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles, saneYoloHostFlag, saneYoloHostPayload };
+export { ANTIGRAVITY_SANE_YOLO_FLAVOR, CODEX_SANE_YOLO_FLAVOR, COPILOT_SANE_YOLO_FLAVOR, GEMINI_SANE_YOLO_FLAVOR, KIMI_SANE_YOLO_FLAVOR, QWEN_SANE_YOLO_FLAVOR, SANE_YOLO_PATH_ENV, saneYoloEnv, saneYoloFiles, saneYoloHostFlag, saneYoloHostPayload };

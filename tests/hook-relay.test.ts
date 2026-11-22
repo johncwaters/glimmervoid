@@ -135,10 +135,17 @@ test('an oversize payload is dropped locally rather than cut off mid-JSON by the
   const { server, received, port } = await startIngress();
   try {
     const huge = `{"pad":"${'x'.repeat(MAX_PAYLOAD_BYTES)}"}`;
-    const result = await main(['Stop'], fakeStdin(huge), { [HOOK_URL_ENV]: `http://127.0.0.1:${port}/hook/s?t=t` });
-    assert.equal(result.code, 0);
-    assert.equal(result.reason, 'payload-too-large');
+    const env = { [HOOK_URL_ENV]: `http://127.0.0.1:${port}/hook/s?t=t` };
+    const stopOutcome = await main(['Stop'], fakeStdin(huge), env);
+    assert.equal(stopOutcome.code, 0);
+    assert.equal(stopOutcome.reason, 'payload-too-large');
     assert.equal(received.length, 0);
+
+    const agentStateOutcome = await main(['AgentState'], fakeStdin(huge), env);
+    assert.equal(agentStateOutcome.code, 0);
+    assert.equal(agentStateOutcome.reason, 'status-200');
+    assert.equal(received.length, 1);
+    assert.equal(received[0].url, '/hook/s/agentstate?t=t');
   } finally {
     server.close();
   }

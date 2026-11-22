@@ -1050,12 +1050,14 @@ class Session extends EventEmitter {
       return;
     }
 
-    if (hookEvent === "userpromptsubmit") {
+    if (hookEvent === "userpromptsubmit" || raw.signal === "resume") {
       this._promptNotes.dropResumeNote();
       if (this._usageLimit !== null) this._setUsageLimit(null);
       const prompt = raw.payload?.prompt;
-      this._promptNotes.queuePromptHint(prompt);
-      this._taskTitle.notePrompt(prompt);
+      if (prompt !== undefined) {
+        this._promptNotes.queuePromptHint(prompt);
+        this._taskTitle.notePrompt(prompt);
+      }
     }
     if (hookEvent === "stop" && (this.state === STATES.IDLE || this.state === STATES.COMPLETE)) {
       void this._taskTitle.refreshFromTranscript();

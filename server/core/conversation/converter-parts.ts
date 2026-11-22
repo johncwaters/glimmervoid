@@ -2,7 +2,7 @@ import type { TraceRecord } from '../../../shared/contracts/trace.ts';
 import { boundedText, unwrapSpilledToolOutput } from '../trace-core.ts';
 import type { SpillWrappingAgent } from '../trace-core.ts';
 
-type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId'>;
+type RecordBase = Pick<TraceRecord, 'ts' | 'uuid' | 'parentUuid' | 'vendorSessionId' | 'agentId' | 'agentType'>;
 
 function parsedJson(rawLine: string): unknown {
   try {

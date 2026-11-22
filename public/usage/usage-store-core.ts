@@ -101,7 +101,7 @@ export function planWindowOf(planLimits: PlanLimits | null | undefined, key: 'fi
 }
 
 export function planLimitsVendorOf(planLimits: PlanLimits | null | undefined): PlanLimitsVendor {
-  if (planLimits?.vendor === 'codex' || planLimits?.vendor === 'kimi') return planLimits.vendor;
+  if (planLimits?.vendor === 'codex' || planLimits?.vendor === 'kimi' || planLimits?.vendor === 'antigravity') return planLimits.vendor;
   return 'claude';
 }
 

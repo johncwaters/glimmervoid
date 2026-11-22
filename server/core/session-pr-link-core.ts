@@ -4,6 +4,7 @@ import type { GithubPr } from '../../shared/contracts/github-prs.ts';
 
 const PR_LINK_HOOK_EVENT = 'posttooluse';
 const PR_LINK_TOOL_NAME = 'Bash';
+const PR_REFRESH_SHELL_TOOLS: ReadonlySet<string> = new Set(['Bash', 'run_command']);
 const LINKING_PR_ACTIONS: ReadonlySet<string> = new Set(['created', 'edited']);
 const KEYED_PR_ACTIONS = ['created', 'edited', 'commented'] as const;
 const GITHUB_HOST = 'github.com';
@@ -69,10 +70,13 @@ function hookPrLink(event: string, payload: Record<string, unknown>, nowMs: numb
 }
 
 function shouldRefreshHookPrs(event: string, payload: Record<string, unknown>): boolean {
-  if (event.toLowerCase() !== PR_LINK_HOOK_EVENT || payload.tool_name !== PR_LINK_TOOL_NAME) return false;
+  if (event.toLowerCase() !== PR_LINK_HOOK_EVENT) return false;
+  if (typeof payload.tool_name !== 'string' || !PR_REFRESH_SHELL_TOOLS.has(payload.tool_name)) return false;
   const toolInput = payload.tool_input;
-  if (!isRecord(toolInput) || typeof toolInput.command !== 'string') return false;
-  return /(?:^|[\s;&|()])(?:git\s+push|gh\s+pr)(?=\s|[;&|)]|$)/.test(toolInput.command);
+  if (!isRecord(toolInput)) return false;
+  const command = typeof toolInput.command === 'string' ? toolInput.command : typeof toolInput.CommandLine === 'string' ? toolInput.CommandLine : null;
+  if (command === null) return false;
+  return /(?:^|[\s;&|()])(?:git\s+push|gh\s+pr)(?=\s|[;&|)]|$)/.test(command);
 }
 
 const SETTLED_PR_STATES: ReadonlySet<GithubPr['state']> = new Set(['MERGED', 'CLOSED']);

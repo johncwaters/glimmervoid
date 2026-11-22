@@ -43,6 +43,7 @@ const LIMIT_SOURCE_LABELS: Readonly<Record<UsageCoverageRow['limitSource'], stri
   statusline: 'Reported by status line',
   transcript: 'Reported in transcripts',
   account: 'Read from Kimi account',
+  agentstate: 'Reported by AgentState',
   none: 'Not kept locally',
 });
 
@@ -237,7 +238,7 @@ export function limitCards(
     accountsByVendor.set(vendor, list);
   }
   const cards: LimitCardView[] = [];
-  for (const vendor of ['claude', 'codex', 'kimi'] as const) {
+  for (const vendor of ['claude', 'codex', 'kimi', 'antigravity'] as const) {
     const accountCards = (accountsByVendor.get(vendor) ?? [])
       .map((reading) => buildLimitCardFromReading(reading, now))
       .filter((card): card is LimitCardView => card !== null);

@@ -33,7 +33,7 @@ export const UsageCoverageRow = z.object({
   vendor: z.string(),
   files: z.number(),
   lastEntryMs: z.number().nullable(),
-  limitSource: z.enum(['statusline', 'transcript', 'account', 'none']),
+  limitSource: z.enum(['statusline', 'transcript', 'account', 'agentstate', 'none']),
   costSource: z.enum(['reported', 'list-price']),
 });
 export type UsageCoverageRow = z.infer<typeof UsageCoverageRow>;

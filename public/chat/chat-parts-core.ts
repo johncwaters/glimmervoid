@@ -361,15 +361,16 @@ function startSubagent(state: ChatPartsState, record: Extract<TraceRecord, { kin
 }
 
 function openSubagentCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): TrackedSubagent {
-  const calledType = textFieldOf(record.input, 'subagent_type');
+  const calledType = textFieldOf(record.input, 'subagent_type') ?? textFieldOf(record.input, 'TypeName');
   const startedSubagent = state.subagentById.get(record.toolUseId)
     ?? oldestRunningSubagent(state, (tracked) => tracked.subagentId !== null && tracked.toolUseId === null && (calledType === null || tracked.part.subagentType === calledType));
   const tracked = startedSubagent ?? openSubagentRow(state, { subagentType: calledType ?? record.name, task: null, startedAt: record.ts });
   tracked.part.subagentType = calledType ?? tracked.part.subagentType;
-  tracked.part.task = textFieldOf(record.input, 'description') ?? tracked.part.task;
+  tracked.part.task = textFieldOf(record.input, 'description') ?? textFieldOf(record.input, 'Role') ?? tracked.part.task;
   tracked.part.startedAt = Math.min(tracked.part.startedAt, record.ts);
   tracked.model = textFieldOf(record.input, 'model');
-  tracked.isBackground = typeof record.input === 'object' && record.input !== null && Reflect.get(record.input, 'run_in_background') === true;
+  tracked.isBackground = record.name === 'invoke_subagent'
+    || (typeof record.input === 'object' && record.input !== null && Reflect.get(record.input, 'run_in_background') === true);
   attachCall(state, tracked, record.toolUseId);
   return tracked;
 }

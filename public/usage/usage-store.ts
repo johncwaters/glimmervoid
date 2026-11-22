@@ -26,7 +26,7 @@ export type UsageRangeKey = 'today' | 'week' | 'month';
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
 const sessionsById = new Map<string, UsageSessionsPush['sessions'][number]>();
-let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null };
+let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null, antigravity: null };
 const accountPlanLimitsByKey = new Map<string, PlanLimits>();
 const sessionMeterBySessionId = new Map<string, SessionMeterPush>();
 let activityCallback: ((isActive: boolean) => void) | null = null;

@@ -9,14 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Antigravity CLI parity**: Antigravity sessions now drive auto-naming, task titles, and prompt hints from operator prompts, stay working while background commands or subagents run (with AgentState capped at 512 KB and subagent arrays folded to a scalar), run Sane YOLO through `cc-safety-net --agy-cli`, list their hooks in Settings Hooks, capture subagent metadata and transcripts cleanly in Chat, trigger PR refreshes and command hints on Antigravity tool calls, and report live session meter and plan limits from AgentState.
 - **Wargames: reproducible 6-seat AI strategy arena**: launch and spectate 40-tick Diplomacy-meets-Tribal-Wars matches across mixed models on a 37-hex map. Seated agents act strictly through 10 per-seat Wargames MCP tools backed by pure state machines and an append-only JSONL event log, while the Wargames tab streams live god-view or per-seat fog-of-war maps, tick scrubbing, drama highlights with side-by-side DMs and orders, agent scratchpad minds, research metrics, and cross-match model Elo ratings. Operator sessions can also set up, start, inspect, abort, and read history/Elo for Wargames matches via `glimmervoid wargames` and the `wargames` MCP tool.
 
 ### Fixed
 
 - **Finished agy sessions no longer turn into "Needs Input" after killing a subagent.** Killing a subagent in agy never fires a subagent Stop hook, so Glimmervoid kept counting it as running, held the session's final Stop, and escalated to Check Terminal once the leaked subagent aged out. An agy `Stop` with `fullyIdle: true` or an idle `AgentState` with no running subagents now clears tracked subagents so the turn finishes as Complete.
-
-### Fixed
-
 - **Whiteboard: middle-click panning no longer pastes primary selection on Linux**: panning a board with the middle mouse button now cancels middle-button `mousedown` and `auxclick` defaults (including when released outside the board viewport), preventing Linux primary-selection paste and browser autoscroll while keeping clipboard paste and inline text editing intact.
 
 ## [0.63.0] - 2026-11-22
