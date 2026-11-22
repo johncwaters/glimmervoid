@@ -4,10 +4,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import codex from '../session/adapters/codex.ts';
 import copilot from '../session/adapters/copilot.ts';
 import gemini from '../session/adapters/gemini.ts';
 import kimi from '../session/adapters/kimi.ts';
 import qwen from '../session/adapters/qwen.ts';
+import { readCodexHookHashes } from '../session/codex-hook-trust.ts';
 import { BLOCK_END, BLOCK_START, GEMINI_HOME_PROFILE, KIMI_HOME_PROFILE, QWEN_HOME_PROFILE, renderCodexHooksBlock } from '../session/core/agent-home-core.ts';
 import { loadFileLocks } from '../server/session-temp/session-temp-locks.ts';
 import { createPackSessionFiles } from '../server/packs/pack-session-files.ts';
@@ -476,6 +478,102 @@ test('an operator projects inline table gets no codex folder trust tables', () =
     trustedFolders: [path.join(path.sep, 'repos', 'new')],
   });
   assert.ok(!block.includes('[projects.'), block);
+});
+
+test('readCodexHookHashes copies operator hooks.json into the probe home and trusts both raw and canonical symlinked folders', async () => {
+  const scratchRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-probe-')));
+  const realHome = path.join(scratchRoot, '.codex');
+  const realFolder = path.join(scratchRoot, 'real-repo');
+  const linkedFolder = path.join(scratchRoot, 'linked-repo');
+  fs.mkdirSync(realHome, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(realFolder, { recursive: true, mode: 0o700 });
+  fs.symlinkSync(realFolder, linkedFolder, process.platform === 'win32' ? 'junction' : 'dir');
+  const realHooksJsonPath = path.join(realHome, 'hooks.json');
+  fs.writeFileSync(realHooksJsonPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: 'echo ok' }] }] } }));
+  const probeCapturePath = path.join(scratchRoot, 'probe-capture.json');
+  const fakeAppServerPath = path.join(scratchRoot, 'fake-app-server.mjs');
+  fs.writeFileSync(fakeAppServerPath, `
+import fs from 'node:fs';
+import path from 'node:path';
+import readline from 'node:readline';
+
+const codexHome = process.env.CODEX_HOME;
+const configText = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+const hasHooksJson = fs.existsSync(path.join(codexHome, 'hooks.json'));
+const rl = readline.createInterface({ input: process.stdin });
+for await (const line of rl) {
+  if (!line.trim()) continue;
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') {
+    process.stdout.write(JSON.stringify({ id: msg.id, result: {} }) + '\\n');
+    continue;
+  }
+  if (msg.method === 'hooks/list') {
+    fs.writeFileSync(${JSON.stringify(probeCapturePath)}, JSON.stringify({ configText, hasHooksJson, cwds: msg.params.cwds }));
+    const configPath = path.join(codexHome, 'config.toml');
+    const hooksJsonPath = path.join(codexHome, 'hooks.json');
+    process.stdout.write(JSON.stringify({
+      id: msg.id,
+      result: {
+        data: [{
+          hooks: [
+            { eventName: 'stop', matcher: null, command: 'relay-stop', sourcePath: configPath, currentHash: 'sha256:gv-stop', source: 'user', key: configPath + ':stop:0:0' },
+            { eventName: 'preToolUse', matcher: '^Bash$', command: 'echo ok', sourcePath: hooksJsonPath, currentHash: 'sha256:user-fresh', source: 'user', key: hooksJsonPath + ':pre_tool_use:0:0' },
+            { eventName: 'sessionStart', matcher: null, command: 'proj', sourcePath: path.join(${JSON.stringify(realFolder)}, '.codex', 'hooks.json'), currentHash: 'sha256:proj', source: 'project', key: path.join(${JSON.stringify(realFolder)}, '.codex', 'hooks.json') + ':session_start:0:0' },
+          ],
+        }],
+      },
+    }) + '\\n');
+  }
+}
+`);
+  try {
+    const reading = await readCodexHookHashes(
+      { file: process.execPath, argsBeforeAppServer: [fakeAppServerPath] },
+      [{ event: 'Stop', matcher: null, command: 'relay-stop' }],
+      linkedFolder,
+      process.env,
+      realHooksJsonPath,
+    );
+    assert.ok(!('failure' in reading), 'failure' in reading ? reading.failure : '');
+    assert.deepEqual(reading.hashes, ['sha256:gv-stop']);
+    assert.deepEqual(reading.userHookTrust, [{ relativeKey: 'hooks.json:pre_tool_use:0:0', currentHash: 'sha256:user-fresh' }]);
+    assert.equal(reading.projectHookTrust.length, 1);
+    const captured = JSON.parse(fs.readFileSync(probeCapturePath, 'utf8'));
+    assert.equal(captured.hasHooksJson, true);
+    assert.ok(captured.configText.includes(`[projects.${JSON.stringify(linkedFolder)}]\ntrust_level = "trusted"`), captured.configText);
+    assert.ok(captured.configText.includes(`[projects.${JSON.stringify(realFolder)}]\ntrust_level = "trusted"`), captured.configText);
+    assert.ok(captured.cwds.includes(linkedFolder) && captured.cwds.includes(realFolder), JSON.stringify(captured.cwds));
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
+});
+
+test('a codex spawn in a symlinked folder trusts both the raw and canonical folder paths', () => {
+  const scratchRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codex-symlink-')));
+  const realHome = path.join(scratchRoot, '.codex');
+  const realFolder = path.join(scratchRoot, 'real-repo');
+  const linkedFolder = path.join(scratchRoot, 'linked-repo');
+  fs.mkdirSync(realHome, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(realFolder, { recursive: true, mode: 0o700 });
+  fs.symlinkSync(realFolder, linkedFolder, process.platform === 'win32' ? 'junction' : 'dir');
+  const env = { CODEX_HOME: realHome, GLIMMERVOID_HOME: path.join(scratchRoot, 'glimmervoid') };
+  const injection = codex.hooks.injection;
+  assert.equal(injection.kind, 'argv-config');
+  assert.ok(injection.home);
+  try {
+    const prepared = injection.home.prepareHome(env, linkedFolder, { isClean: false });
+    assert.ok('home' in prepared, 'refusal' in prepared ? prepared.refusal : '');
+    try {
+      const generatedConfig = fs.readFileSync(path.join(prepared.home, 'config.toml'), 'utf8');
+      assert.ok(generatedConfig.includes(`[projects.${JSON.stringify(linkedFolder)}]\ntrust_level = "trusted"`), generatedConfig);
+      assert.ok(generatedConfig.includes(`[projects.${JSON.stringify(realFolder)}]\ntrust_level = "trusted"`), generatedConfig);
+    } finally {
+      injection.home.releaseHome(prepared.home, linkedFolder);
+    }
+  } finally {
+    fs.rmSync(scratchRoot, { recursive: true, force: true });
+  }
 });
 
 test('a gemini spawn merges the hooks into a JSON copy of the real settings, keeps a session edit, and never writes the real settings', () => {

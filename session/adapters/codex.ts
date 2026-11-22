@@ -23,7 +23,9 @@ import { CODEX_SANE_YOLO_FLAVOR } from "../core/sane-yolo.ts";
 import { generatedAgentHomePath, holdPreparedAgentHome, realAgentHome, releaseAgentHome, sessionAgentHomePath } from "../agent-home.ts";
 import type { SessionAgentHomeChoice } from "../agent-home.ts";
 import { readCodexHookHashes } from "../codex-hook-trust.ts";
+import type { UserHookTrust } from "../codex-hook-trust.ts";
 import type { CodexAppServerCommand } from "../../server/codex-app-server-request.ts";
+import { canonicalizePath } from "../../shared/canonical-paths.ts";
 import { errorMessage } from "../../shared/text.ts";
 import type { CodexHookPlan, MatchedRelayHook } from "../core/codex-version-core.ts";
 import type {
@@ -392,16 +394,57 @@ type TrustedFolder = { liveSessionCount: number; projectHookTrust: readonly Proj
 
 const trustedFolderByPath = new Map<string, TrustedFolder>();
 const projectHookTrustReadByFolder = new Map<string, readonly ProjectHookTrust[]>();
+const userHookTrustByRealHome = new Map<string, readonly UserHookTrust[]>();
+
+function canonicalPathForFutureFolder(folderPath: string): string {
+  const pendingSegments: string[] = [];
+  let cursor = path.resolve(folderPath);
+  for (;;) {
+    const canonical = canonicalizePath(cursor);
+    if (canonical !== cursor) return path.join(canonical, ...pendingSegments);
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return path.join(cursor, ...pendingSegments);
+    pendingSegments.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+}
+
+function disabledRealHomeHookRelativeKeys(operatorText: string, realHome: string): Set<string> {
+  const realPrefixes = [...new Set([`${realHome}${path.sep}`, `${canonicalizePath(realHome)}${path.sep}`])];
+  const disabled = new Set<string>();
+  let currentRelativeKey: string | null = null;
+  for (const rawLine of operatorText.split("\n")) {
+    const line = rawLine.replace(/\r$/, "");
+    const headerMatch = /^\s*\[\s*hooks\s*\.\s*state\s*\.\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')\s*\]\s*$/.exec(line);
+    if (headerMatch) {
+      const key = headerMatch[2] !== undefined ? headerMatch[2] : (headerMatch[1] ?? "").replaceAll(/\\(["\\])/g, "$1");
+      const matchedPrefix = realPrefixes.find((prefix) => key.startsWith(prefix));
+      currentRelativeKey = matchedPrefix ? key.slice(matchedPrefix.length) : null;
+      continue;
+    }
+    if (/^\s*\[/.test(line)) {
+      currentRelativeKey = null;
+      continue;
+    }
+    if (currentRelativeKey !== null && /^\s*enabled\s*=\s*false(?:\s*(?:#.*)?)$/.test(line)) {
+      disabled.add(currentRelativeKey);
+    }
+  }
+  return disabled;
+}
 
 async function readHomeHookTrust(hooks: readonly CodexHomeHook[], hookTables: string, sessionFolder: string): Promise<void> {
+  const realHome = realAgentHome(CODEX_HOME_PROFILE, process.env);
+  const realHooksJsonPath = path.join(realHome, "hooks.json");
   const reading = await Promise.resolve()
-    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks, sessionFolder))
+    .then(() => readCodexHookHashes(installedAppServerCommand(), hooks, sessionFolder, process.env, realHooksJsonPath))
     .catch((error: unknown) => ({ failure: errorMessage(error) }));
   if ("failure" in reading) {
     console.warn(`[codex] Glimmervoid's hooks and the project hooks of ${sessionFolder} stay untrusted in the generated Codex home, so Sane YOLO and project hooks are off for this launch: ${reading.failure}`);
     return;
   }
   trustedHashesByHookTables.set(hookTables, reading.hashes);
+  userHookTrustByRealHome.set(canonicalizePath(realHome), reading.userHookTrust);
   projectHookTrustReadByFolder.set(sessionFolder, reading.projectHookTrust);
 }
 
@@ -439,9 +482,18 @@ function prepareHome(env: Record<string, string | undefined>, sessionFolder: str
   const realHome = realAgentHome(CODEX_HOME_PROFILE, env);
   const generatedHome = sessionAgentHomePath(CODEX_HOME_PROFILE, env, homeChoice);
   holdTrustedFolder(sessionFolder);
-  const trustedFolders = [...trustedFolderByPath.keys()];
-  const projectHookTrust = [sessionFolder, ...trustedFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
-  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust, operatorText, realHome, generatedHome, trustedFolders }), { isClean: homeChoice.isClean, accountFolder: homeChoice.accountFolder ?? null, packSkillDirs, isSandboxed: homeChoice.isSandboxed });
+  const heldFolders = [...trustedFolderByPath.keys()];
+  const trustedFolders = [...new Set(heldFolders.flatMap((folder) => [folder, canonicalizePath(folder)]))];
+  const canonicalGeneratedHome = canonicalPathForFutureFolder(generatedHome);
+  const cachedUserHooks = homeChoice.isClean ? [] : (userHookTrustByRealHome.get(canonicalizePath(realHome)) ?? []);
+  const folderProjectHookTrust = [sessionFolder, ...heldFolders.filter((folder) => folder !== sessionFolder)].flatMap((folder) => trustedFolderByPath.get(folder)?.projectHookTrust ?? []);
+  const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, (operatorText) => {
+    const disabledKeys = disabledRealHomeHookRelativeKeys(operatorText, realHome);
+    const userHookTrust: ProjectHookTrust[] = cachedUserHooks
+      .filter(({ relativeKey }) => !disabledKeys.has(relativeKey))
+      .map(({ relativeKey, currentHash }) => ({ key: `${canonicalGeneratedHome}${path.sep}${relativeKey}`, currentHash }));
+    return renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust: [...userHookTrust, ...folderProjectHookTrust], operatorText, realHome, generatedHome: canonicalGeneratedHome, trustedFolders });
+  }, { isClean: homeChoice.isClean, accountFolder: homeChoice.accountFolder ?? null, packSkillDirs, isSandboxed: homeChoice.isSandboxed });
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;
