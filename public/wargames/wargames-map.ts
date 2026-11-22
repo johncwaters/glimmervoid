@@ -249,7 +249,88 @@ interface HexDeltaSummary {
   troopDelta: number;
   loyaltyDelta: number;
   ownerChanged: boolean;
+  buildingUpgrades: string[];
   targetVillage: VillageState;
+}
+
+const BUILDING_SHORT_LABELS: readonly { key: keyof VillageState['buildings']; label: string }[] = [
+  { key: 'farm', label: 'FARM' },
+  { key: 'mine', label: 'MINE' },
+  { key: 'barracks', label: 'BRK' },
+  { key: 'wall', label: 'WALL' },
+];
+
+function collectBuildingUpgrades(prev: VillageState['buildings'], next: VillageState['buildings']): string[] {
+  const upgrades: string[] = [];
+  for (const entry of BUILDING_SHORT_LABELS) {
+    if (next[entry.key] > prev[entry.key]) {
+      upgrades.push(`+${entry.label} ${next[entry.key]}`);
+    }
+  }
+  return upgrades;
+}
+
+function appendDiplomacyArc(
+  fxLayer: SVGElement,
+  fromSlot: HexNodeSlot,
+  toSlot: HexNodeSlot,
+  options: {
+    stroke: string;
+    dasharray: string;
+    label: string;
+    durationMs: number;
+  },
+): SVGElement | null {
+  const vectorX = toSlot.centerX - fromSlot.centerX;
+  const vectorY = toSlot.centerY - fromSlot.centerY;
+  const distance = Math.hypot(vectorX, vectorY);
+  if (distance < 1) return null;
+
+  const midX = (fromSlot.centerX + toSlot.centerX) / 2;
+  const midY = (fromSlot.centerY + toSlot.centerY) / 2;
+  const curveLift = Math.min(44, distance * 0.24);
+  const controlX = midX - (vectorY / distance) * curveLift;
+  const controlY = midY + (vectorX / distance) * curveLift;
+  const peakX = (fromSlot.centerX + 2 * controlX + toSlot.centerX) / 4;
+  const peakY = (fromSlot.centerY + 2 * controlY + toSlot.centerY) / 4;
+
+  const group = createSvgShape('g', { class: 'wg-diplomacy-arc' });
+  group.style.animationDuration = `${options.durationMs}ms`;
+  group.append(
+    createSvgShape('path', {
+      d: `M ${fromSlot.centerX.toFixed(1)} ${fromSlot.centerY.toFixed(1)} Q ${controlX.toFixed(1)} ${controlY.toFixed(1)} ${toSlot.centerX.toFixed(1)} ${toSlot.centerY.toFixed(1)}`,
+      fill: 'none',
+      stroke: options.stroke,
+      'stroke-width': '2',
+      'stroke-dasharray': options.dasharray,
+    }),
+  );
+
+  const pillWidth = Math.max(26, options.label.length * 6.2 + 10);
+  group.append(
+    createSvgShape('rect', {
+      x: (peakX - pillWidth / 2).toFixed(1),
+      y: (peakY - 7).toFixed(1),
+      width: pillWidth.toFixed(1),
+      height: '14',
+      rx: '2',
+      fill: 'var(--bg)',
+      stroke: options.stroke,
+      'stroke-width': '1',
+    }),
+  );
+  const tag = createSvgShape('text', {
+    x: peakX.toFixed(1),
+    y: (peakY + 3).toFixed(1),
+    'text-anchor': 'middle',
+    'font-size': '8.5',
+    fill: options.stroke,
+    class: 'wg-delta-text',
+  });
+  tag.textContent = options.label;
+  group.append(tag);
+  fxLayer.append(group);
+  return group;
 }
 
 function appendFocusRing(fxLayer: SVGElement, centerX: number, centerY: number): SVGElement {
@@ -332,6 +413,7 @@ function appendGlidingArmy(
   durationMs: number,
   slotOffsetIndex = 0,
   totalConverging = 1,
+  mode: 'glide' | 'lunge' = 'glide',
 ): SVGElement | null {
   const vectorX = toSlot.centerX - fromSlot.centerX;
   const vectorY = toSlot.centerY - fromSlot.centerY;
@@ -340,15 +422,15 @@ function appendGlidingArmy(
 
   const unitX = vectorX / distance;
   const unitY = vectorY / distance;
-  const pullback = totalConverging > 1 ? Math.min(22, distance * 0.34) : 0;
+  const pullback = totalConverging > 1 || mode === 'lunge' ? Math.min(22, distance * 0.34) : 0;
   const lateralStep = totalConverging > 1 ? (slotOffsetIndex - (totalConverging - 1) / 2) * 10 : 0;
   const landX = toSlot.centerX - unitX * pullback - unitY * lateralStep;
   const landY = toSlot.centerY - unitY * pullback + unitX * lateralStep;
-  const deltaX = fromSlot.centerX - landX;
-  const deltaY = fromSlot.centerY - landY;
+  const deltaX = mode === 'lunge' ? unitX * 14 : fromSlot.centerX - landX;
+  const deltaY = mode === 'lunge' ? unitY * 14 : fromSlot.centerY - landY;
 
   const wrapper = createSvgShape('g', {});
-  if (totalConverging > 1) {
+  if (mode === 'glide' && totalConverging > 1) {
     const trim = Math.min(16, distance * 0.25);
     wrapper.append(
       createSvgShape('line', {
@@ -365,7 +447,8 @@ function appendGlidingArmy(
     );
   }
 
-  const glideGroup = createSvgShape('g', { class: 'wg-army-glide' });
+  const animClass = mode === 'lunge' ? 'wg-battle-lunge' : 'wg-army-glide';
+  const glideGroup = createSvgShape('g', { class: animClass });
   glideGroup.style.setProperty('--wg-dx', `${deltaX.toFixed(1)}px`);
   glideGroup.style.setProperty('--wg-dy', `${deltaY.toFixed(1)}px`);
   glideGroup.style.animationDuration = `${durationMs}ms`;
@@ -387,6 +470,8 @@ function renderMarchVector(
     opacity: string;
     groupClass: string;
     lineClass: string;
+    showPill?: boolean;
+    lateralOffset?: number;
   },
 ): void {
   const deltaX = toSlot.centerX - fromSlot.centerX;
@@ -396,11 +481,14 @@ function renderMarchVector(
 
   const unitX = deltaX / distance;
   const unitY = deltaY / distance;
+  const lateral = options.lateralOffset ?? 0;
+  const offsetX = -unitY * lateral;
+  const offsetY = unitX * lateral;
   const trim = Math.min(16, distance * 0.25);
-  const startX = fromSlot.centerX + unitX * trim;
-  const startY = fromSlot.centerY + unitY * trim;
-  const endX = toSlot.centerX - unitX * trim;
-  const endY = toSlot.centerY - unitY * trim;
+  const startX = fromSlot.centerX + unitX * trim + offsetX;
+  const startY = fromSlot.centerY + unitY * trim + offsetY;
+  const endX = toSlot.centerX - unitX * trim + offsetX;
+  const endY = toSlot.centerY - unitY * trim + offsetY;
   const midX = (startX + endX) / 2;
   const midY = (startY + endY) / 2;
 
@@ -419,7 +507,9 @@ function renderMarchVector(
       class: options.lineClass,
     }),
   );
-  renderArmyPill(vectorGroup, midX, midY, owner, troops, color);
+  if (options.showPill !== false) {
+    renderArmyPill(vectorGroup, midX, midY, owner, troops, color);
+  }
   layer.append(vectorGroup);
 }
 
@@ -476,6 +566,82 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   let lastVillageSnapshots: (VillageState | null)[] = ALL_HEXES.map(() => null);
   let displayedVillages: (VillageState | null)[] = ALL_HEXES.map(() => null);
   let lastArmySnapshots = new Map<string, ArmySnapshot>();
+  let lastMessageCount = 0;
+  let lastActiveContractIds = new Set<string>();
+  let lastLedgerCount = 0;
+  const transientFxTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  function clearTransientFx(): void {
+    for (const handle of transientFxTimers) clearTimeout(handle);
+    transientFxTimers.clear();
+  }
+
+  function seatAnchorSlot(state: MatchState, pov: WargamesPov, seatId: SeatId): HexNodeSlot | null {
+    const owned = visibleVillagesArray(state, pov).find((village) => village?.owner === seatId);
+    if (!owned) return null;
+    return slots[owned.hexIndex] ?? null;
+  }
+
+  function mountTransientDiplomacyArc(
+    fromSlot: HexNodeSlot | null,
+    toSlot: HexNodeSlot | null,
+    options: { stroke: string; dasharray: string; label: string; durationMs: number },
+  ): void {
+    if (!fromSlot || !toSlot) return;
+    const node = appendDiplomacyArc(fxLayer, fromSlot, toSlot, options);
+    if (!node) return;
+    const handle = setTimeout(() => {
+      transientFxTimers.delete(handle);
+      node.remove();
+    }, options.durationMs);
+    transientFxTimers.add(handle);
+  }
+
+  function syncDiplomacyTracking(state: MatchState): void {
+    lastMessageCount = state.messages.length;
+    lastActiveContractIds = new Set(
+      [...state.contracts.values()].filter((contract) => contract.status === 'active').map((contract) => contract.id),
+    );
+    lastLedgerCount = state.ledger.length;
+  }
+
+  function emitLiveDiplomacyFx(state: MatchState, pov: WargamesPov): void {
+    const allowsMotion = prefersMotion();
+    const newMessages = state.messages.slice(lastMessageCount);
+    const activeContracts = [...state.contracts.values()].filter((contract) => contract.status === 'active');
+    const newlyAccepted = activeContracts.filter((contract) => !lastActiveContractIds.has(contract.id));
+    const newBreaches = state.ledger.slice(lastLedgerCount);
+    syncDiplomacyTracking(state);
+
+    if (!allowsMotion) return;
+    for (const message of newMessages) {
+      if (message.channel !== 'dm' || message.to === null) continue;
+      if (pov !== 'god' && message.from !== pov && message.to !== pov) continue;
+      mountTransientDiplomacyArc(seatAnchorSlot(state, pov, message.from), seatAnchorSlot(state, pov, message.to), {
+        stroke: SEAT_COLORS[message.from],
+        dasharray: '4 4',
+        label: 'DM',
+        durationMs: 1200,
+      });
+    }
+    for (const contract of newlyAccepted) {
+      if (pov !== 'god' && contract.proposer !== pov && contract.counterparty !== pov) continue;
+      mountTransientDiplomacyArc(seatAnchorSlot(state, pov, contract.proposer), seatAnchorSlot(state, pov, contract.counterparty), {
+        stroke: 'var(--state-running)',
+        dasharray: 'none',
+        label: 'PACT',
+        durationMs: 1500,
+      });
+    }
+    for (const breach of newBreaches) {
+      mountTransientDiplomacyArc(seatAnchorSlot(state, pov, breach.breacher), seatAnchorSlot(state, pov, breach.victim), {
+        stroke: 'var(--state-failed)',
+        dasharray: '6 3',
+        label: 'BREACH',
+        durationMs: 1700,
+      });
+    }
+  }
 
   function prefersMotion(): boolean {
     return typeof window !== 'undefined'
@@ -610,7 +776,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const targetIndex = army.status === 'returning' ? army.originHexIndex : army.targetHexIndex;
       const toSlot = slots[targetIndex];
       if (!fromSlot || !toSlot) continue;
-      const armyOpacity = !isSpotlightActive || army.owner === spotlightSeatId ? '1' : '0.2';
+      const baseOpacity = army.status === 'returning' ? '0.5' : '1';
+      const armyOpacity = !isSpotlightActive || army.owner === spotlightSeatId ? baseOpacity : '0.2';
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
         strokeDasharray: army.status === 'returning' ? '3 3' : '6 3',
         strokeWidth: '2.4',
@@ -715,25 +882,50 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     previewLayer.replaceChildren();
     if (!latestState || overlayMode === 'recap' || animQueue.getState() !== 'idle') return;
     const isSpotlightActive = latestPov === 'god' && latestSpotlightSeatId !== null;
-    let renderedCount = 0;
+    const previewOrders: { seatId: SeatId; fromHexIndex: number; toHexIndex: number; troops: TroopCounts }[] = [];
     for (const seat of latestState.seats) {
       const seatId = seat.config.seatId;
       if (latestPov !== 'god' && seatId !== latestPov) continue;
       for (const order of seat.sealedOrders) {
         if (order.kind !== 'march') continue;
-        const fromSlot = slots[order.fromHexIndex];
-        const toSlot = slots[order.toHexIndex];
-        if (!fromSlot || !toSlot) continue;
-        const opacity = !isSpotlightActive || seatId === latestSpotlightSeatId ? '0.78' : '0.18';
-        renderMarchVector(previewLayer, fromSlot, toSlot, seatId, order.troops, {
-          strokeDasharray: '2 4',
-          strokeWidth: '1.8',
-          opacity,
-          groupClass: 'wg-preview-arrow',
-          lineClass: 'wg-preview-line',
+        previewOrders.push({
+          seatId,
+          fromHexIndex: order.fromHexIndex,
+          toHexIndex: order.toHexIndex,
+          troops: order.troops,
         });
-        renderedCount += 1;
       }
+    }
+
+    const countsByPair = new Map<string, number>();
+    const seenByPair = new Map<string, number>();
+    for (const entry of previewOrders) {
+      const pairKey = `${Math.min(entry.fromHexIndex, entry.toHexIndex)}-${Math.max(entry.fromHexIndex, entry.toHexIndex)}`;
+      countsByPair.set(pairKey, (countsByPair.get(pairKey) ?? 0) + 1);
+    }
+
+    let renderedCount = 0;
+    for (const entry of previewOrders) {
+      const fromSlot = slots[entry.fromHexIndex];
+      const toSlot = slots[entry.toHexIndex];
+      if (!fromSlot || !toSlot) continue;
+      const pairKey = `${Math.min(entry.fromHexIndex, entry.toHexIndex)}-${Math.max(entry.fromHexIndex, entry.toHexIndex)}`;
+      const totalForPair = countsByPair.get(pairKey) ?? 1;
+      const indexForPair = seenByPair.get(pairKey) ?? 0;
+      seenByPair.set(pairKey, indexForPair + 1);
+      const directionSign = entry.fromHexIndex < entry.toHexIndex ? 1 : -1;
+      const lateralOffset = totalForPair > 1 ? (indexForPair - (totalForPair - 1) / 2) * 6 * directionSign : 0;
+      const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.8' : '0.18';
+      renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
+        strokeDasharray: '2 4',
+        strokeWidth: '1.8',
+        opacity,
+        groupClass: 'wg-preview-arrow',
+        lineClass: 'wg-preview-line',
+        showPill: false,
+        lateralOffset,
+      });
+      renderedCount += 1;
     }
     advanceOverlay(renderedCount > 0 ? 'show_previews' : 'hide_previews');
   }
@@ -751,6 +943,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (!state) {
       animQueue.clear();
+      clearTransientFx();
       armyLayer.replaceChildren();
       fxLayer.replaceChildren();
       previewLayer.replaceChildren();
@@ -758,6 +951,9 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       lastRenderedMatchId = null;
       lastRenderedPov = null;
       lastResolvedTick = null;
+      lastMessageCount = 0;
+      lastActiveContractIds = new Set();
+      lastLedgerCount = 0;
       lastVillageSnapshots = ALL_HEXES.map(() => null);
       displayedVillages = ALL_HEXES.map(() => null);
       lastArmySnapshots = new Map();
@@ -802,8 +998,13 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     if (!isSameView || !allowsMotion || isResolutionJump || !isConsecutiveResolution) {
       if (!isSameView || !allowsMotion || isResolutionJump) {
         animQueue.clear();
+        clearTransientFx();
         fxLayer.replaceChildren();
         advanceOverlay('reset');
+        syncDiplomacyTracking(state);
+      }
+      if (isSameView && allowsMotion && !isResolutionJump) {
+        emitLiveDiplomacyFx(state, pov);
       }
       lastRenderedMatchId = state.matchId;
       lastRenderedPov = pov;
@@ -819,6 +1020,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (overlayMode === 'recap') {
       animQueue.clear();
+      clearTransientFx();
       fxLayer.replaceChildren();
       advanceOverlay('reset');
     }
@@ -906,11 +1108,13 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const troopDelta = troopCountOf(nextVillage.troops) - troopCountOf(prevVillage.troops);
       const loyaltyDelta = nextVillage.loyalty - prevVillage.loyalty;
       const ownerChanged = nextVillage.owner !== null && prevVillage.owner !== nextVillage.owner;
-      if (troopDelta !== 0 || loyaltyDelta < 0 || ownerChanged) {
+      const buildingUpgrades = collectBuildingUpgrades(prevVillage.buildings, nextVillage.buildings);
+      if (troopDelta !== 0 || loyaltyDelta < 0 || ownerChanged || buildingUpgrades.length > 0) {
         deltasByHex.set(index, {
           troopDelta,
           loyaltyDelta,
           ownerChanged,
+          buildingUpgrades,
           targetVillage: cloneVillage(nextVillage) as VillageState,
         });
       }
@@ -919,6 +1123,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     lastResolvedTick = resolvedTick;
     lastVillageSnapshots = targetVillages.map(cloneVillage);
     lastArmySnapshots = nextArmySnapshots;
+    emitLiveDiplomacyFx(state, pov);
 
     const beats: BoardAnimationBeat[] = [];
     const activeHexIndices = [...new Set([...glidesByDestHex.keys(), ...deltasByHex.keys()])]
@@ -993,6 +1198,10 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
                 const deltaFill = item.delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--text-dim)';
                 mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, item.slot.centerY - 4, deltaLabel, deltaFill, durationMs));
               }
+              if (item.delta.buildingUpgrades.length > 0) {
+                const upgradeY = item.delta.troopDelta !== 0 ? item.slot.centerY + 11 : item.slot.centerY - 4;
+                mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, upgradeY, item.delta.buildingUpgrades[0], 'var(--accent)', durationMs));
+              }
             }
           }
           return () => {
@@ -1052,6 +1261,20 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
               }
             }
             const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
+            for (let glideIndex = 0; glideIndex < glides.length; glideIndex += 1) {
+              const glide = glides[glideIndex];
+              const lungeNode = appendGlidingArmy(
+                fxLayer,
+                glide.fromSlot,
+                glide.toSlot,
+                glide.army,
+                durationMs,
+                glideIndex,
+                glides.length,
+                'lunge',
+              );
+              if (lungeNode) mounted.push(lungeNode);
+            }
             const clashOwner = delta?.targetVillage.owner ?? null;
             const clashColor = clashOwner !== null ? SEAT_COLORS[clashOwner] : 'var(--state-failed)';
             mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.round(durationMs * 0.8)));
@@ -1115,6 +1338,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
   function dispose(): void {
     animQueue.dispose();
+    clearTransientFx();
     fxLayer.replaceChildren();
     previewLayer.replaceChildren();
     advanceOverlay('reset');

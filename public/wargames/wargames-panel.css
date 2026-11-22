@@ -466,6 +466,44 @@
   }
 }
 
+@keyframes wg-battle-lunge {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(var(--wg-dx), var(--wg-dy));
+  }
+  50% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(var(--wg-dx), var(--wg-dy));
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes wg-diplomacy-arc {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 .wg-delta-text {
   font-weight: 700;
 }
@@ -505,6 +543,14 @@
 
   .wg-capture-ring {
     animation: wg-capture-pulse 0.64s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .wg-battle-lunge {
+    animation: wg-battle-lunge 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .wg-diplomacy-arc {
+    animation: wg-diplomacy-arc 1.2s ease-out forwards;
   }
 }
 
