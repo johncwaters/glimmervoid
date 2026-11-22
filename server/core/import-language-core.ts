@@ -184,6 +184,8 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
   { id: 'elixir', extensions: ['.ex', '.exs'], scanner: grammarScanner('elixir', ['call'], ELIXIR_IMPORT_QUERY), resolver: { kind: 'declaredNamespace', family: 'elixir' } },
 ];
 
+export const IMPORT_LANGUAGE_IDS: readonly string[] = [...new Set(IMPORT_LANGUAGES.map((language) => language.id))].sort();
+
 export const IMPORT_GRAMMAR_NAMES: readonly string[] = [...new Set(IMPORT_LANGUAGES.flatMap((language) => (language.scanner.kind === 'grammar' ? [language.scanner.grammar] : [])))];
 
 const LANGUAGE_BY_EXTENSION = new Map(IMPORT_LANGUAGES.flatMap((language) => language.extensions.map((extension) => [extension, language] as const)));
