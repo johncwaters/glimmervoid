@@ -167,6 +167,21 @@ interface TurnHexImpactInput {
   readonly ownerChanged: boolean;
   readonly hasIncomingGlide: boolean;
   readonly hasHostileGlide: boolean;
+  readonly actorKey?: string;
+}
+
+function groupByActor<EventItem extends TurnHexImpactInput>(items: readonly EventItem[]): EventItem[][] {
+  const byActor = new Map<string, EventItem[]>();
+  for (const item of items) {
+    const key = item.actorKey ?? 'default';
+    const existing = byActor.get(key);
+    if (existing) {
+      existing.push(item);
+      continue;
+    }
+    byActor.set(key, [item]);
+  }
+  return [...byActor.values()];
 }
 
 export function directTurnEvents<EventItem extends TurnHexImpactInput>(
@@ -189,6 +204,6 @@ export function directTurnEvents<EventItem extends TurnHexImpactInput>(
     ? []
     : highImpact.length === 0
       ? lowImpact.map((item) => [item])
-      : [lowImpact];
+      : groupByActor(lowImpact);
   return { lowImpactBatches, highImpact };
 }

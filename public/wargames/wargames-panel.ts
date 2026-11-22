@@ -22,7 +22,7 @@ import { select } from '../ui/select.ts';
 import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
-import { BUILDING_GLYPH_PATHS, createWargamesMap, SEAT_COLORS, UNIT_GLYPH_PATHS } from './wargames-map.ts';
+import { BUILDING_GLYPH_PATHS, createWargamesMap, SCOUT_EYE_PATH, SEAT_COLORS, UNIT_GLYPH_PATHS } from './wargames-map.ts';
 import './wargames-panel.css';
 import {
   displayedMatchAnalytics,
@@ -822,9 +822,9 @@ function buildMapLegend(): HTMLElement {
   const loyaltyIcon = createSvgIcon(14, 12);
   loyaltyIcon.append(
     createSvgShape('rect', { x: '1', y: '5', width: '12', height: '3', fill: 'var(--bg)' }),
-    createSvgShape('rect', { x: '1', y: '5', width: '8', height: '3', fill: 'var(--state-running)' }),
+    createSvgShape('rect', { x: '1', y: '5', width: '8', height: '3', fill: 'var(--state-waiting)' }),
   );
-  legend.append(legendItem(loyaltyIcon, 'Loyalty'));
+  legend.append(legendItem(loyaltyIcon, 'Contested Loyalty'));
 
   const marchIcon = createSvgIcon(16, 12);
   marchIcon.append(
@@ -834,12 +834,14 @@ function buildMapLegend(): HTMLElement {
       x2: '11',
       y2: '6',
       stroke: 'var(--text-head)',
-      'stroke-width': '1.6',
-      'stroke-dasharray': '3 2',
+      'stroke-width': '2',
+      'stroke-dasharray': '4 2',
     }),
     createSvgShape('polygon', { points: '10,3 15,6 10,9', fill: 'var(--text-head)' }),
   );
-  legend.append(legendItem(marchIcon, 'Marching'));
+  legend.append(legendItem(marchIcon, 'March'));
+
+  legend.append(legendItem(createGlyphIcon(SCOUT_EYE_PATH, 12, 'var(--text-head)'), 'Scout'));
   return legend;
 }
 

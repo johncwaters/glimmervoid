@@ -127,23 +127,26 @@ test('animation queue runs beats sequentially, cleans up on clear/dispose, scale
   assert.equal(clock.scheduled.size, 0);
 });
 
-test('directTurnEvents merges low-impact training and departures while isolating high-impact battles and captures', () => {
+test('directTurnEvents batches low-impact moves by actor while isolating high-impact battles and captures', () => {
   const directed = directTurnEvents([
-    { id: 'train', troopDelta: 4, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
-    { id: 'departure', troopDelta: -6, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
-    { id: 'reinforce', troopDelta: 5, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
-    { id: 'bounce', troopDelta: 0, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: true },
-    { id: 'casualties', troopDelta: -3, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
-    { id: 'loyalty', troopDelta: 0, loyaltyDelta: -25, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: true },
-    { id: 'capture', troopDelta: 0, loyaltyDelta: 0, ownerChanged: true, hasIncomingGlide: true, hasHostileGlide: true },
+    { id: 'train-s1', actorKey: 's1', troopDelta: 4, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
+    { id: 'departure-s2', actorKey: 's2', troopDelta: -6, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
+    { id: 'reinforce-s1', actorKey: 's1', troopDelta: 5, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
+    { id: 'bounce', actorKey: 's3', troopDelta: 0, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: true },
+    { id: 'casualties', actorKey: 's3', troopDelta: -3, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
+    { id: 'loyalty', actorKey: 's4', troopDelta: 0, loyaltyDelta: -25, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: true },
+    { id: 'capture', actorKey: 's4', troopDelta: 0, loyaltyDelta: 0, ownerChanged: true, hasIncomingGlide: true, hasHostileGlide: true },
   ]);
 
-  assert.deepEqual(directed.lowImpactBatches.map((batch) => batch.map((item) => item.id)), [['train', 'departure', 'reinforce']]);
+  assert.deepEqual(
+    directed.lowImpactBatches.map((batch) => batch.map((item) => item.id)),
+    [['train-s1', 'reinforce-s1'], ['departure-s2']],
+  );
   assert.deepEqual(directed.highImpact.map((item) => item.id), ['bounce', 'casualties', 'loyalty', 'capture']);
 
   const quietTurn = directTurnEvents([
-    { id: 'train', troopDelta: 4, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
-    { id: 'reinforce', troopDelta: 5, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
+    { id: 'train', actorKey: 's1', troopDelta: 4, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
+    { id: 'reinforce', actorKey: 's1', troopDelta: 5, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
   ]);
   assert.deepEqual(quietTurn.lowImpactBatches.map((batch) => batch.map((item) => item.id)), [['train'], ['reinforce']]);
   assert.deepEqual(quietTurn.highImpact, []);

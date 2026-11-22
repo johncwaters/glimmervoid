@@ -1,5 +1,5 @@
 import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
-import type { OrderItem, SeatId, TroopCounts } from '#shared/contracts/wargames.ts';
+import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { createSvgShape } from '../svg-dom.ts';
@@ -75,6 +75,9 @@ export const BUILDING_GLYPH_PATHS: readonly { key: 'farm' | 'mine' | 'barracks' 
   { key: 'wall', label: 'Wall', path: 'M -2.6 -2 H -1.2 V -0.6 H -0.4 V -2 H 0.4 V -0.6 H 1.2 V -2 H 2.6 V 2 H -2.6 Z' },
 ];
 
+export const SCOUT_EYE_PATH = 'M -3 0 Q 0 -2.5 3 0 Q 0 2.5 -3 0 Z M -0.9 0 A 0.9 0.9 0 1 0 0.9 0 A 0.9 0.9 0 1 0 -0.9 0';
+const BUILD_HAMMER_PATH = 'M -2.2 -1.9 H 1.4 V -0.4 H 0.2 V 2.4 H -1 V -0.4 H -2.2 Z';
+
 function renderArmyPill(
   armyGroup: SVGElement,
   midX: number,
@@ -144,27 +147,17 @@ function renderArmyPill(
   }
 }
 
-function renderHexUnitTokens(
+function renderHexUnitRow(
   container: SVGElement,
   centerX: number,
-  centerY: number,
-  troops: { raider: number; guard: number; envoy: number },
+  baselineY: number,
+  items: readonly { unit: (typeof UNIT_GLYPH_PATHS)[number]; digits: string; width: number }[],
   fillColor: string,
-): boolean {
-  container.replaceChildren();
-  container.removeAttribute('transform');
-  const active = UNIT_GLYPH_PATHS
-    .filter((unit) => troops[unit.key] > 0)
-    .map((unit) => {
-      const digits = String(troops[unit.key]);
-      return { unit, digits, width: 6.4 + digits.length * 5.1 };
-    });
-  if (active.length === 0) return false;
-  const gap = 3.5;
-  const totalWidth = active.reduce((sum, item) => sum + item.width, 0) + gap * (active.length - 1);
-  const baselineY = centerY + 13;
+): void {
+  const gap = 4;
+  const totalWidth = items.reduce((sum, item) => sum + item.width, 0) + gap * (items.length - 1);
   let cursorX = centerX - totalWidth / 2;
-  for (const item of active) {
+  for (const item of items) {
     const iconCenterX = cursorX + 2.6;
     const iconGroup = createSvgShape('g', {
       transform: `translate(${iconCenterX.toFixed(1)}, ${(baselineY - 2.6).toFixed(1)})`,
@@ -182,14 +175,35 @@ function renderHexUnitTokens(
     container.append(iconGroup, countText);
     cursorX += item.width + gap;
   }
-  const maxUsableWidth = 56;
-  if (totalWidth > maxUsableWidth) {
-    const scale = maxUsableWidth / totalWidth;
-    container.setAttribute(
-      'transform',
-      `translate(${centerX.toFixed(1)}, ${baselineY.toFixed(1)}) scale(${scale.toFixed(3)}) translate(${(-centerX).toFixed(1)}, ${(-baselineY).toFixed(1)})`,
-    );
+}
+
+function renderHexUnitTokens(
+  container: SVGElement,
+  centerX: number,
+  centerY: number,
+  troops: { raider: number; guard: number; envoy: number },
+  fillColor: string,
+  hasOwnerBadge = false,
+): boolean {
+  container.replaceChildren();
+  container.removeAttribute('transform');
+  const active = UNIT_GLYPH_PATHS
+    .filter((unit) => troops[unit.key] > 0)
+    .map((unit) => {
+      const digits = String(troops[unit.key]);
+      return { unit, digits, width: 6.4 + digits.length * 5.2 };
+    });
+  if (active.length === 0) return false;
+  if (hasOwnerBadge) {
+    renderHexUnitRow(container, centerX, centerY + 14, active, fillColor);
+    return true;
   }
+  if (active.length <= 2) {
+    renderHexUnitRow(container, centerX, centerY + 6, active, fillColor);
+    return true;
+  }
+  renderHexUnitRow(container, centerX, centerY + 1, active.slice(0, 2), fillColor);
+  renderHexUnitRow(container, centerX, centerY + 13, active.slice(2), fillColor);
   return true;
 }
 
@@ -467,6 +481,35 @@ function appendCombatClash(
   return clash;
 }
 
+function leadUnitGlyphPath(troops: TroopCounts): string {
+  let best = UNIT_GLYPH_PATHS[0];
+  let bestCount = -1;
+  for (const unit of UNIT_GLYPH_PATHS) {
+    if (troops[unit.key] > bestCount) {
+      best = unit;
+      bestCount = troops[unit.key];
+    }
+  }
+  return best.path;
+}
+
+function renderDivisionToken(group: SVGElement, centerX: number, centerY: number, owner: SeatId, troops: TroopCounts): void {
+  const color = SEAT_COLORS[owner];
+  group.append(
+    createSvgShape('polygon', {
+      points: `${centerX.toFixed(1)},${(centerY - 9).toFixed(1)} ${(centerX + 9).toFixed(1)},${centerY.toFixed(1)} ${centerX.toFixed(1)},${(centerY + 9).toFixed(1)} ${(centerX - 9).toFixed(1)},${centerY.toFixed(1)}`,
+      fill: 'var(--bg)',
+      stroke: color,
+      'stroke-width': '1.6',
+    }),
+  );
+  const iconGroup = createSvgShape('g', {
+    transform: `translate(${centerX.toFixed(1)}, ${centerY.toFixed(1)}) scale(1.2)`,
+  });
+  iconGroup.append(createSvgShape('path', { d: leadUnitGlyphPath(troops), fill: color }));
+  group.append(iconGroup);
+}
+
 function appendGlidingArmy(
   fxLayer: SVGElement,
   fromSlot: HexNodeSlot,
@@ -475,7 +518,6 @@ function appendGlidingArmy(
   durationMs: number,
   slotOffsetIndex = 0,
   totalConverging = 1,
-  mode: 'glide' | 'lunge' = 'glide',
 ): SVGElement | null {
   const vectorX = toSlot.centerX - fromSlot.centerX;
   const vectorY = toSlot.centerY - fromSlot.centerY;
@@ -484,40 +526,151 @@ function appendGlidingArmy(
 
   const unitX = vectorX / distance;
   const unitY = vectorY / distance;
-  const pullback = totalConverging > 1 || mode === 'lunge' ? Math.min(22, distance * 0.34) : 0;
+  const pullback = totalConverging > 1 ? Math.min(20, distance * 0.3) : 0;
   const lateralStep = totalConverging > 1 ? (slotOffsetIndex - (totalConverging - 1) / 2) * 10 : 0;
   const landX = toSlot.centerX - unitX * pullback - unitY * lateralStep;
   const landY = toSlot.centerY - unitY * pullback + unitX * lateralStep;
-  const deltaX = mode === 'lunge' ? unitX * 14 : fromSlot.centerX - landX;
-  const deltaY = mode === 'lunge' ? unitY * 14 : fromSlot.centerY - landY;
+  const deltaX = fromSlot.centerX - landX;
+  const deltaY = fromSlot.centerY - landY;
 
   const wrapper = createSvgShape('g', {});
-  if (mode === 'glide' && totalConverging > 1) {
-    const trim = Math.min(16, distance * 0.25);
-    wrapper.append(
-      createSvgShape('line', {
-        x1: (fromSlot.centerX + unitX * trim).toFixed(1),
-        y1: (fromSlot.centerY + unitY * trim).toFixed(1),
-        x2: (toSlot.centerX - unitX * trim).toFixed(1),
-        y2: (toSlot.centerY - unitY * trim).toFixed(1),
-        stroke: SEAT_COLORS[army.owner],
-        'stroke-width': '2',
-        'stroke-dasharray': '5 3',
-        opacity: '0.85',
-        'marker-end': `url(#wg-arrow-${army.owner})`,
-      }),
-    );
-  }
+  const trim = Math.min(16, distance * 0.25);
+  wrapper.append(
+    createSvgShape('line', {
+      x1: (fromSlot.centerX + unitX * trim).toFixed(1),
+      y1: (fromSlot.centerY + unitY * trim).toFixed(1),
+      x2: (toSlot.centerX - unitX * trim).toFixed(1),
+      y2: (toSlot.centerY - unitY * trim).toFixed(1),
+      stroke: SEAT_COLORS[army.owner],
+      'stroke-width': '2.2',
+      'stroke-dasharray': '6 3',
+      opacity: '0.85',
+      'marker-end': `url(#wg-arrow-${army.owner})`,
+    }),
+  );
 
-  const animClass = mode === 'lunge' ? 'wg-battle-lunge' : 'wg-army-glide';
-  const glideGroup = createSvgShape('g', { class: animClass });
+  const glideGroup = createSvgShape('g', { class: 'wg-army-glide' });
   glideGroup.style.setProperty('--wg-dx', `${deltaX.toFixed(1)}px`);
   glideGroup.style.setProperty('--wg-dy', `${deltaY.toFixed(1)}px`);
   glideGroup.style.animationDuration = `${durationMs}ms`;
-  renderArmyPill(glideGroup, landX, landY, army.owner, army.troops, SEAT_COLORS[army.owner]);
+  renderDivisionToken(glideGroup, landX, landY, army.owner, army.troops);
   wrapper.append(glideGroup);
   fxLayer.append(wrapper);
   return wrapper;
+}
+
+type BattleReportPayload = Extract<SignedReportPayload, { kind: 'battle' }>;
+
+function battleReportsForHex(state: MatchState, pov: WargamesPov, tick: number, hexIndex: number): BattleReportPayload[] {
+  const source = pov === 'god' ? [...state.reportsById.values()] : state.reportsBySeat[pov];
+  const matched: BattleReportPayload[] = [];
+  const seenIds = new Set<string>();
+  for (const report of source) {
+    if (report.payload.kind !== 'battle') continue;
+    if (report.payload.tick !== tick || report.payload.hexIndex !== hexIndex) continue;
+    if (seenIds.has(report.payload.reportId)) continue;
+    seenIds.add(report.payload.reportId);
+    matched.push(report.payload);
+  }
+  return matched;
+}
+
+function appendBattleBubble(
+  fxLayer: SVGElement,
+  anchorX: number,
+  anchorY: number,
+  reports: readonly BattleReportPayload[],
+  durationMs: number,
+): SVGElement | null {
+  if (reports.length === 0) return null;
+  const first = reports[0];
+  const capturedReport = reports.find((report) => report.captured) ?? null;
+  const defenderBeforeTotal = troopCountOf(first.defenderBefore);
+  const defenderLostTotal = troopCountOf(first.defenderLost);
+  const defenderFell = defenderBeforeTotal === 0 || defenderLostTotal >= defenderBeforeTotal;
+  const survivingAttackers = reports.filter(
+    (report) => troopCountOf(report.attackerLost) < troopCountOf(report.attackerSent),
+  );
+  const winningAttacker = survivingAttackers.length > 0
+    ? survivingAttackers.reduce((best, candidate) => (
+      troopCountOf(candidate.attackerSent) - troopCountOf(candidate.attackerLost)
+        > troopCountOf(best.attackerSent) - troopCountOf(best.attackerLost)
+        ? candidate
+        : best
+    ), survivingAttackers[0])
+    : null;
+
+  let headline = '';
+  let accentColor = 'var(--state-failed)';
+  if (capturedReport) {
+    headline = `${capturedReport.attacker.toUpperCase()} CAPTURED`;
+    accentColor = SEAT_COLORS[capturedReport.attacker];
+  }
+  if (!capturedReport && defenderFell && winningAttacker) {
+    headline = `${winningAttacker.attacker.toUpperCase()} WON`;
+    accentColor = SEAT_COLORS[winningAttacker.attacker];
+  }
+  if (!capturedReport && defenderFell && !winningAttacker) {
+    headline = 'MUTUAL WIPE';
+    accentColor = 'var(--state-waiting)';
+  }
+  if (!capturedReport && !defenderFell) {
+    const defenderLabel = first.defender ? first.defender.toUpperCase() : 'BARB';
+    headline = `${defenderLabel} HELD`;
+    accentColor = first.defender ? SEAT_COLORS[first.defender] : 'var(--text-head)';
+  }
+
+  const attackerLossParts = reports.map((report) => `${report.attacker.toUpperCase()} -${troopCountOf(report.attackerLost)}`);
+  const defenderName = first.defender ? first.defender.toUpperCase() : 'BARB';
+  const lossParts = [...attackerLossParts, `${defenderName} -${defenderLostTotal}`];
+  const finalLoyalty = capturedReport ? capturedReport.loyaltyAfter : first.loyaltyAfter;
+  if (finalLoyalty < first.loyaltyBefore) {
+    lossParts.push(`LOY ${finalLoyalty}%`);
+  }
+  const detailLine = lossParts.join(' | ');
+
+  const cardWidth = Math.min(210, Math.max(96, Math.max(headline.length * 5.6, detailLine.length * 4.9) + 16));
+  const cardHeight = 30;
+  const pos = clampToViewBox(anchorX, anchorY, cardWidth, cardHeight, 30);
+
+  const group = createSvgShape('g', { class: 'wg-battle-bubble' });
+  group.style.animationDuration = `${durationMs}ms`;
+  group.append(
+    createSvgShape('rect', {
+      x: (pos.x - cardWidth / 2).toFixed(1),
+      y: (pos.y - cardHeight / 2).toFixed(1),
+      width: cardWidth.toFixed(1),
+      height: String(cardHeight),
+      rx: '2',
+      fill: 'var(--bg)',
+      stroke: accentColor,
+      'stroke-width': '1.5',
+    }),
+  );
+
+  const titleNode = createSvgShape('text', {
+    x: pos.x.toFixed(1),
+    y: (pos.y - 3).toFixed(1),
+    'text-anchor': 'middle',
+    'font-size': '8.5',
+    fill: accentColor,
+    class: 'wg-army-pill-text',
+  });
+  titleNode.textContent = headline;
+
+  const detailNode = createSvgShape('text', {
+    x: pos.x.toFixed(1),
+    y: (pos.y + 9).toFixed(1),
+    'text-anchor': 'middle',
+    'font-size': '8',
+    fill: 'var(--text-head)',
+    class: 'wg-hex-detail',
+  });
+  detailNode.textContent = detailLine;
+
+  group.append(titleNode, detailNode);
+  fxLayer.append(group);
+  return group;
 }
 
 function renderMarchVector(
@@ -535,6 +688,7 @@ function renderMarchVector(
     showPill?: boolean;
     lateralOffset?: number;
     isReturning?: boolean;
+    midIconPath?: string;
   },
 ): void {
   const deltaX = toSlot.centerX - fromSlot.centerX;
@@ -573,12 +727,44 @@ function renderMarchVector(
   if (options.showPill !== false) {
     renderArmyPill(vectorGroup, midX, midY, owner, troops, color, options.isReturning);
   }
+  if (options.midIconPath) {
+    vectorGroup.append(
+      createSvgShape('circle', {
+        cx: midX.toFixed(1),
+        cy: midY.toFixed(1),
+        r: '6.5',
+        fill: 'var(--bg)',
+        stroke: color,
+        'stroke-width': '1.1',
+      }),
+    );
+    const iconGroup = createSvgShape('g', {
+      transform: `translate(${midX.toFixed(1)}, ${midY.toFixed(1)}) scale(1.15)`,
+    });
+    iconGroup.append(createSvgShape('path', { d: options.midIconPath, fill: color, 'fill-rule': 'evenodd' }));
+    vectorGroup.append(iconGroup);
+  }
   layer.append(vectorGroup);
 }
 
 interface PreviewGlyphToken {
+  kind: 'build' | 'train';
   path: string;
   count: number | null;
+}
+
+function clampToViewBox(
+  anchorX: number,
+  anchorY: number,
+  width: number,
+  height: number,
+  offsetY: number,
+): { x: number; y: number } {
+  const aboveY = anchorY - offsetY;
+  const preferredY = aboveY - height / 2 < -232 ? anchorY + offsetY : aboveY;
+  const clampedX = Math.max(-266 + width / 2, Math.min(266 - width / 2, anchorX));
+  const clampedY = Math.max(-232 + height / 2, Math.min(232 - height / 2, preferredY));
+  return { x: clampedX, y: clampedY };
 }
 
 function glyphPathForUnit(troop: 'raider' | 'guard' | 'envoy'): string {
@@ -604,15 +790,13 @@ function appendBoardCallout(
   const clipped = truncateCalloutText(options.label, 42);
   const pillWidth = Math.min(204, Math.max(54, clipped.length * 4.8 + 14));
   const pillHeight = 16;
-  const preferredY = anchorY < -195 ? anchorY + 26 : anchorY - 26;
-  const clampedX = Math.max(-266 + pillWidth / 2, Math.min(266 - pillWidth / 2, anchorX));
-  const clampedY = Math.max(-232 + pillHeight / 2, Math.min(232 - pillHeight / 2, preferredY));
+  const pos = clampToViewBox(anchorX, anchorY, pillWidth, pillHeight, 26);
 
   const group = createSvgShape('g', { class: 'wg-board-callout' });
   group.style.animationDuration = `${options.durationMs}ms`;
   const rectAttrs: Record<string, string> = {
-    x: (clampedX - pillWidth / 2).toFixed(1),
-    y: (clampedY - pillHeight / 2).toFixed(1),
+    x: (pos.x - pillWidth / 2).toFixed(1),
+    y: (pos.y - pillHeight / 2).toFixed(1),
     width: pillWidth.toFixed(1),
     height: String(pillHeight),
     rx: '2',
@@ -624,8 +808,8 @@ function appendBoardCallout(
   group.append(createSvgShape('rect', rectAttrs));
 
   const textNode = createSvgShape('text', {
-    x: clampedX.toFixed(1),
-    y: (clampedY + 2.8).toFixed(1),
+    x: pos.x.toFixed(1),
+    y: (pos.y + 2.8).toFixed(1),
     'text-anchor': 'middle',
     'font-size': '8',
     fill: 'var(--text-head)',
@@ -647,7 +831,8 @@ function renderPreviewBadge(
 ): void {
   const measured = tokens.map((token) => {
     const digits = token.count === null ? '' : String(token.count);
-    return { path: token.path, digits, width: 11.2 + digits.length * 4.7 };
+    const prefixWidth = token.kind === 'build' ? 12.6 : 11.2;
+    return { kind: token.kind, path: token.path, digits, width: prefixWidth + digits.length * 4.7 };
   });
   const gap = 3.5;
   const contentWidth = measured.reduce((sum, item) => sum + item.width, 0) + Math.max(0, measured.length - 1) * gap;
@@ -669,6 +854,19 @@ function renderPreviewBadge(
   }));
   let cursorX = badgeX - contentWidth / 2;
   for (const item of measured) {
+    if (item.kind === 'build') {
+      const hammerGroup = createSvgShape('g', {
+        transform: `translate(${(cursorX + 2.4).toFixed(1)}, ${badgeY.toFixed(1)}) scale(0.85)`,
+      });
+      hammerGroup.append(createSvgShape('path', { d: BUILD_HAMMER_PATH, fill: color }));
+      const iconGroup = createSvgShape('g', {
+        transform: `translate(${(cursorX + 9.2).toFixed(1)}, ${badgeY.toFixed(1)}) scale(0.88)`,
+      });
+      iconGroup.append(createSvgShape('path', { d: item.path, fill: color }));
+      group.append(hammerGroup, iconGroup);
+      cursorX += item.width + gap;
+      continue;
+    }
     const plusText = createSvgShape('text', {
       x: cursorX.toFixed(1),
       y: (badgeY + 2.6).toFixed(1),
@@ -953,16 +1151,20 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           slot.centerY,
           village.troops,
           seatColor ?? 'var(--text-dim)',
+          village.owner === null,
         );
         slot.detailLabel.textContent = hasUnits ? '' : '0';
         slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
       }
 
       const clampedLoyalty = Math.max(0, Math.min(100, village.loyalty));
-      slot.loyaltyTrack.setAttribute('visibility', 'visible');
-      slot.loyaltyFill.setAttribute('visibility', 'visible');
-      slot.loyaltyFill.setAttribute('width', String(Math.round((clampedLoyalty / 100) * LOYALTY_BAR_WIDTH)));
-      slot.loyaltyFill.setAttribute('fill', loyaltyFillColor(clampedLoyalty, village.owner));
+      const isContestedLoyalty = clampedLoyalty < 100;
+      slot.loyaltyTrack.setAttribute('visibility', isContestedLoyalty ? 'visible' : 'hidden');
+      slot.loyaltyFill.setAttribute('visibility', isContestedLoyalty ? 'visible' : 'hidden');
+      if (isContestedLoyalty) {
+        slot.loyaltyFill.setAttribute('width', String(Math.round((clampedLoyalty / 100) * LOYALTY_BAR_WIDTH)));
+        slot.loyaltyFill.setAttribute('fill', loyaltyFillColor(clampedLoyalty, village.owner));
+      }
 
       const matchesSpotlight = !isSpotlightActive || isSelected || village.owner === spotlightSeatId;
       slot.group.setAttribute('opacity', matchesSpotlight ? '1' : '0.28');
@@ -1169,11 +1371,11 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           continue;
         }
         if (order.kind === 'build') {
-          pushHexBadge(order.hexIndex, seatId, { path: glyphPathForBuilding(order.building), count: null });
+          pushHexBadge(order.hexIndex, seatId, { kind: 'build', path: glyphPathForBuilding(order.building), count: null });
           continue;
         }
         if (order.kind === 'train') {
-          pushHexBadge(order.hexIndex, seatId, { path: glyphPathForUnit(order.troop), count: order.count });
+          pushHexBadge(order.hexIndex, seatId, { kind: 'train', path: glyphPathForUnit(order.troop), count: order.count });
         }
       }
     }
@@ -1196,15 +1398,19 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       seenByPair.set(pairKey, indexForPair + 1);
       const directionSign = entry.fromHexIndex < entry.toHexIndex ? 1 : -1;
       const lateralOffset = totalForPair > 1 ? (indexForPair - (totalForPair - 1) / 2) * 6 * directionSign : 0;
-      const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.8' : '0.18';
+      const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.85' : '0.18';
+      const isFriendlyReinforce = entry.kind === 'march' && latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
+      const strokeDasharray = entry.kind === 'scout' ? '1 3' : isFriendlyReinforce ? '2 4' : '6 3';
+      const strokeWidth = entry.kind === 'scout' ? '1.4' : isFriendlyReinforce ? '1.8' : '2.5';
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
-        strokeDasharray: entry.kind === 'scout' ? '1 3' : '2 4',
-        strokeWidth: entry.kind === 'scout' ? '1.4' : '1.8',
+        strokeDasharray,
+        strokeWidth,
         opacity,
         groupClass: 'wg-preview-arrow',
         lineClass: 'wg-preview-line',
         showPill: false,
         lateralOffset,
+        midIconPath: entry.kind === 'scout' ? SCOUT_EYE_PATH : undefined,
       });
       renderedCount += 1;
     }
@@ -1429,11 +1635,13 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const hasHostileGlide = prevVillage !== null && glides.some(
         (glide) => glide.army.targetHexIndex === hexIndex && glide.army.owner !== prevVillage.owner,
       );
+      const actorKey = glides[0]?.army.owner ?? delta?.targetVillage.owner ?? prevVillage?.owner ?? 'neutral';
       return [{
         hexIndex,
         slot,
         glides,
         delta,
+        actorKey,
         troopDelta: delta?.troopDelta ?? 0,
         loyaltyDelta: delta?.loyaltyDelta ?? 0,
         ownerChanged: delta?.ownerChanged ?? false,
@@ -1449,7 +1657,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const isQuietIndividualBeat = highImpact.length === 0 && batch.length === 1;
       beats.push({
         id: `low-impact-${resolvedTick}-${batchIndex}`,
-        durationMs: isQuietIndividualBeat ? 1100 : 1400,
+        durationMs: isQuietIndividualBeat ? 1100 : 1050,
         start: (durationMs) => {
           const mounted: SVGElement[] = [];
           const deferredUpdates: (() => void)[] = [];
@@ -1532,9 +1740,10 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       }
 
       if (delta || item.hasHostileGlide) {
+        const hexBattleReports = battleReportsForHex(state, pov, resolvedTick, hexIndex);
         beats.push({
           id: `impact-${resolvedTick}-${hexIndex}`,
-          durationMs: 1500,
+          durationMs: hexBattleReports.length > 0 ? 2200 : 1500,
           start: (durationMs) => {
             if (delta) {
               const currentDisplayed = displayedVillages[hexIndex];
@@ -1552,31 +1761,23 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
               }
             }
             const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
-            for (let glideIndex = 0; glideIndex < glides.length; glideIndex += 1) {
-              const glide = glides[glideIndex];
-              const lungeNode = appendGlidingArmy(
-                fxLayer,
-                glide.fromSlot,
-                glide.toSlot,
-                glide.army,
-                durationMs,
-                glideIndex,
-                glides.length,
-                'lunge',
-              );
-              if (lungeNode) mounted.push(lungeNode);
-            }
             const clashOwner = delta?.targetVillage.owner ?? null;
             const clashColor = clashOwner !== null ? SEAT_COLORS[clashOwner] : 'var(--state-failed)';
-            mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.round(durationMs * 0.8)));
-            if (delta && delta.troopDelta !== 0) {
-              const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
-              const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
-              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
+            mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.min(1200, Math.round(durationMs * 0.6))));
+            const bubbleNode = appendBattleBubble(fxLayer, slot.centerX, slot.centerY, hexBattleReports, durationMs);
+            if (bubbleNode) {
+              mounted.push(bubbleNode);
             }
-            if (delta && delta.loyaltyDelta < 0) {
-              const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
-              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, loyaltyY, `${delta.loyaltyDelta}%`, 'var(--state-waiting)', durationMs));
+            if (!bubbleNode) {
+              if (delta && delta.troopDelta !== 0) {
+                const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
+                const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
+                mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
+              }
+              if (delta && delta.loyaltyDelta < 0) {
+                const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
+                mounted.push(appendDeltaCallout(fxLayer, slot.centerX, loyaltyY, `${delta.loyaltyDelta}%`, 'var(--state-waiting)', durationMs));
+              }
             }
             return () => {
               for (const node of mounted) node.remove();
@@ -1584,7 +1785,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           },
         });
 
-        if (delta && delta.ownerChanged && delta.targetVillage.owner !== null) {
+        if (delta?.ownerChanged && delta.targetVillage.owner !== null) {
           const ownerColor = SEAT_COLORS[delta.targetVillage.owner];
           beats.push({
             id: `capture-${resolvedTick}-${hexIndex}`,
