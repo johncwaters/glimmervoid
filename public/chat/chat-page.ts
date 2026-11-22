@@ -34,6 +34,7 @@ import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { donePanelModelOf } from './done-panel-core.ts';
+import { chatSessionStateOf, clearChatSnapshotState } from './chat-session-state.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -44,7 +45,6 @@ const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.
 const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
-const uploadingCountBySessionId = new Map<string, number>();
 const STAND_IN_UNRECORDED_MAX_MS = 5000;
 const SENT_OUTBOX_STATES: ReadonlySet<ChatOutboxEntry['state']> = new Set(['sending', 'submitted']);
 
@@ -84,11 +84,6 @@ interface MountedChat {
   close(): void;
 }
 
-const approvalBySessionId = new Map<string, ConversationApproval | null>();
-const draftBySessionId = new Map<string, string>();
-const draftAttachmentsBySessionId = new Map<string, string[]>();
-const outboxBySessionId = new Map<string, ChatOutboxEntry[]>();
-const agentDoneLinesBySessionId = new Map<string, readonly AgentDoneLine[]>();
 let mountedChat: MountedChat | null = null;
 const keptChatBySessionId = new Map<string, MountedChat>();
 let wasChatEnabled = false;
@@ -218,7 +213,8 @@ function restoreAttachmentsToSession(sessionId: string, fileNames: readonly stri
     builtChat.restoreAttachments(fileNames);
     return;
   }
-  draftAttachmentsBySessionId.set(sessionId, [...(draftAttachmentsBySessionId.get(sessionId) ?? []), ...fileNames]);
+  const sessionState = chatSessionStateOf(sessionId);
+  sessionState.draftAttachments = [...sessionState.draftAttachments, ...fileNames];
 }
 
 function restoreTextToSession(sessionId: string, text: string): void {
@@ -228,7 +224,8 @@ function restoreTextToSession(sessionId: string, text: string): void {
     builtChat.restoreText(text);
     return;
   }
-  draftBySessionId.set(sessionId, draftWithRestoredText(text, draftBySessionId.get(sessionId) ?? ''));
+  const sessionState = chatSessionStateOf(sessionId);
+  sessionState.draft = draftWithRestoredText(text, sessionState.draft);
 }
 
 function showSessionFailure(sessionId: string, failureText: string): void {
@@ -319,6 +316,7 @@ function boardChangeCardOf(cardId: string, boardChange: AgentChip): ChatCard {
 }
 
 function buildChat(sessionId: string): MountedChat {
+  const sessionState = chatSessionStateOf(sessionId);
   const root = el('div', 'session-chat');
   const failureLine = el('div', 'session-chat-failure');
   failureLine.hidden = true;
@@ -328,8 +326,8 @@ function buildChat(sessionId: string): MountedChat {
     for (const fileName of attachments) view.showAttachment(fileName);
     return view;
   };
-  let chatView = createSeededView(draftBySessionId.get(sessionId) ?? '', draftAttachmentsBySessionId.get(sessionId) ?? []);
-  draftAttachmentsBySessionId.delete(sessionId);
+  let chatView = createSeededView(sessionState.draft, sessionState.draftAttachments);
+  sessionState.draftAttachments = [];
   const standInByEntryId = new Map<string, ChatPart>();
   const entryIdsTakenByPrompt = new Set<string>();
   const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
@@ -390,7 +388,7 @@ function buildChat(sessionId: string): MountedChat {
       if (!isTurnRunning) entryIdsAwaitingTurn.add(entry.entryId);
     }
   };
-  const isOutboxStalled = () => (outboxBySessionId.get(sessionId) ?? []).some((entry) => entry.state === 'failed');
+  const isOutboxStalled = () => sessionState.outbox.some((entry) => entry.state === 'failed');
   const isShownAsSent = (entry: ChatOutboxEntry) => {
     if (SENT_OUTBOX_STATES.has(entry.state)) return true;
     return (entry.state === 'held' || entry.state === 'next') && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
@@ -400,11 +398,11 @@ function buildChat(sessionId: string): MountedChat {
     if (terminalCardState === 'borrowed') return 'quiet';
     const phase = sessionPhaseOf(sessionId);
     if (phase === 'working') entryIdsAwaitingTurn.clear();
-    const isSentMessageAwaitingTurn = !isOutboxStalled() && (outboxBySessionId.get(sessionId) ?? []).some((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
+    const isSentMessageAwaitingTurn = !isOutboxStalled() && sessionState.outbox.some((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
     return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
   };
   const showOutbox = () => {
-    const entries = outboxBySessionId.get(sessionId) ?? [];
+    const entries = sessionState.outbox;
     noteOutboxEntries(entries);
     const sentEntries = entries.filter(isShownAsSent);
     for (const entryId of entryIdsTakenByPrompt) {
@@ -435,7 +433,7 @@ function buildChat(sessionId: string): MountedChat {
     return false;
   };
   const donePanel = createDonePanel(chatView.showTurnEnd);
-  const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: agentDoneLinesBySessionId.get(sessionId) ?? [], phase: sessionPhaseOf(sessionId) }));
+  const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: sessionState.agentDoneLines, phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
   root.append(failureLine, chatView.element);
   let runningSubagents: readonly RunningSubagent[] = [];
@@ -648,7 +646,7 @@ function buildChat(sessionId: string): MountedChat {
   };
 
   const syncWaitingCards = () => {
-    const approval = approvalBySessionId.get(sessionId) ?? null;
+    const approval = sessionState.approval;
     if (shownApproval && shownApproval.approval.requestId !== approval?.requestId) settleShownApproval();
     if (approval && !shownApproval) {
       shownApproval = { approval, cards: approvalCardsOf(approval), answers: new Map() };
@@ -795,13 +793,14 @@ function buildChat(sessionId: string): MountedChat {
   });
   root.addEventListener('chat-attach', (event) => {
     const files = attachedFilesOf(event);
-    const uploadingCount = uploadingCountBySessionId.get(sessionId) ?? 0;
-    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length - uploadingCount);
+    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length - sessionState.uploadingCount);
     if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
     const filesToStore = files.slice(0, openSlots);
     if (filesToStore.length === 0) return;
-    uploadingCountBySessionId.set(sessionId, uploadingCount + filesToStore.length);
-    const releaseSlots = () => uploadingCountBySessionId.set(sessionId, Math.max(0, (uploadingCountBySessionId.get(sessionId) ?? 0) - filesToStore.length));
+    sessionState.uploadingCount += filesToStore.length;
+    const releaseSlots = () => {
+      sessionState.uploadingCount = Math.max(0, sessionState.uploadingCount - filesToStore.length);
+    };
     void storeFilesForChat(sessionId, filesToStore).then(
       (storedFileNames) => {
         releaseSlots();
@@ -822,7 +821,7 @@ function buildChat(sessionId: string): MountedChat {
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
   });
   root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = (outboxBySessionId.get(sessionId) ?? []).findLast((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'failed') && !isShownAsSent(entry));
+    const newestCancellable = sessionState.outbox.findLast((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'failed') && !isShownAsSent(entry));
     if (!newestCancellable) return;
     event.preventDefault();
     cancelOutboxEntry(sessionId, newestCancellable.entryId);
@@ -889,7 +888,7 @@ function buildChat(sessionId: string): MountedChat {
       releaseTerminal();
       shownApproval = null;
       const freshView = createSeededView(chatView.readDraft(), chatView.readAttachments());
-      freshView.showQueued((outboxBySessionId.get(sessionId) ?? []).filter((entry) => !isShownAsSent(entry)));
+      freshView.showQueued(sessionState.outbox.filter((entry) => !isShownAsSent(entry)));
       shownPromptPartIds.clear();
       freshView.upsert([...standInByEntryId.values()], NO_ARRIVING_PARTS);
       chatView.element.replaceWith(freshView.element);
@@ -941,13 +940,13 @@ function buildChat(sessionId: string): MountedChat {
     },
     park: () => {
       stopRail();
-      draftBySessionId.set(sessionId, chatView.readDraft());
+      sessionState.draft = chatView.readDraft();
       releaseTerminal();
     },
     close: () => {
       stopRail();
-      draftBySessionId.set(sessionId, chatView.readDraft());
-      draftAttachmentsBySessionId.set(sessionId, chatView.readAttachments());
+      sessionState.draft = chatView.readDraft();
+      sessionState.draftAttachments = chatView.readAttachments();
       releaseTerminal();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       feed.close();
@@ -987,16 +986,16 @@ function dropAllKeptChats(): void {
 }
 
 export function noteChatApproval(sessionId: string, approval: ConversationApproval | null): void {
-  approvalBySessionId.set(sessionId, approval);
+  chatSessionStateOf(sessionId).approval = approval;
 }
 
 export function noteChatAgentDoneLines(sessionId: string, agentDoneLines: readonly AgentDoneLine[]): void {
-  agentDoneLinesBySessionId.set(sessionId, agentDoneLines);
+  chatSessionStateOf(sessionId).agentDoneLines = agentDoneLines;
   if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
 }
 
 export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
-  outboxBySessionId.set(sessionId, entries);
+  chatSessionStateOf(sessionId).outbox = entries;
   if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
 }
 
@@ -1006,9 +1005,7 @@ export function applyChatTraceChanged(sessionId: string): void {
 }
 
 export function applyChatSnapshot(rows: readonly { id: string; conversationApproval?: ConversationApproval | null; chatOutbox?: ChatOutboxEntry[]; agentDoneLines?: readonly AgentDoneLine[] }[]): void {
-  approvalBySessionId.clear();
-  outboxBySessionId.clear();
-  agentDoneLinesBySessionId.clear();
+  clearChatSnapshotState();
   for (const row of rows) {
     noteChatApproval(row.id, row.conversationApproval ?? null);
     noteChatOutbox(row.id, row.chatOutbox ?? []);
