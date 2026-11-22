@@ -35,6 +35,7 @@ import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { donePanelModelOf } from './done-panel-core.ts';
 import { chatSessionStateOf, clearChatSnapshotState } from './chat-session-state.ts';
+import { createOutboxEchoState, isOutboxAwaitingTurn, newestCancellableOutboxEntryOf, queuedOutboxEntriesOf, reconcileOutboxEcho, takeStandInsForPrompts } from './outbox-echo-core.ts';
 
 const CHAT_PAGE_ID = 'chat';
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -46,7 +47,6 @@ const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
 const STAND_IN_UNRECORDED_MAX_MS = 5000;
-const SENT_OUTBOX_STATES: ReadonlySet<ChatOutboxEntry['state']> = new Set(['sending', 'submitted']);
 
 const LOGIN_COMMAND_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': '/login' };
 const LOGIN_SUBMIT_DELAY_MS = 300;
@@ -328,15 +328,14 @@ function buildChat(sessionId: string): MountedChat {
   };
   let chatView = createSeededView(sessionState.draft, sessionState.draftAttachments);
   sessionState.draftAttachments = [];
-  const standInByEntryId = new Map<string, ChatPart>();
-  const entryIdsTakenByPrompt = new Set<string>();
+  const outboxEcho = createOutboxEchoState();
   const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
   const shownPromptPartIds = new Set<string>();
   const removeStandIns = (entryIds: readonly string[]) => {
     for (const entryId of entryIds) {
-      const standIn = standInByEntryId.get(entryId);
+      const standIn = outboxEcho.standInByEntryId.get(entryId);
       if (standIn) chatView.remove([standIn.id]);
-      standInByEntryId.delete(entryId);
+      outboxEcho.standInByEntryId.delete(entryId);
       clearTimeout(unrecordedTimerByEntryId.get(entryId));
       unrecordedTimerByEntryId.delete(entryId);
     }
@@ -365,62 +364,27 @@ function buildChat(sessionId: string): MountedChat {
   };
   const arrivingPartIdsOf = (changedParts: readonly ChatPart[], newPromptParts: readonly ChatPart[]): ReadonlySet<string> => {
     if (!isOperatorWatching()) return NO_ARRIVING_PARTS;
-    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, standInByEntryId.size).map((part) => part.id));
+    const promptIdsTakingStandIns = new Set(newPromptParts.slice(0, outboxEcho.standInByEntryId.size).map((part) => part.id));
     return new Set(changedParts.map((part) => part.id).filter((partId) => !promptIdsTakingStandIns.has(partId)));
   };
   const swapStandInsForPrompts = (newPromptCount: number) => {
-    const takenEntryIds = [...standInByEntryId.keys()].slice(0, newPromptCount);
-    for (const entryId of takenEntryIds) entryIdsTakenByPrompt.add(entryId);
-    removeStandIns(takenEntryIds);
-  };
-  const isSentOutsideTurnByEntryId = new Map<string, boolean>();
-  const entryIdsAwaitingTurn = new Set<string>();
-  const noteOutboxEntries = (entries: readonly ChatOutboxEntry[]) => {
-    for (const entryId of isSentOutsideTurnByEntryId.keys()) {
-      if (entries.some((entry) => entry.entryId === entryId)) continue;
-      isSentOutsideTurnByEntryId.delete(entryId);
-      entryIdsAwaitingTurn.delete(entryId);
-    }
-    const isTurnRunning = isSessionWorking(sessionId);
-    for (const entry of entries) {
-      if (isSentOutsideTurnByEntryId.has(entry.entryId)) continue;
-      isSentOutsideTurnByEntryId.set(entry.entryId, !isTurnRunning);
-      if (!isTurnRunning) entryIdsAwaitingTurn.add(entry.entryId);
-    }
-  };
-  const isOutboxStalled = () => sessionState.outbox.some((entry) => entry.state === 'failed');
-  const isShownAsSent = (entry: ChatOutboxEntry) => {
-    if (SENT_OUTBOX_STATES.has(entry.state)) return true;
-    return (entry.state === 'held' || entry.state === 'next') && isSentOutsideTurnByEntryId.get(entry.entryId) === true && !isOutboxStalled();
+    removeStandIns(takeStandInsForPrompts(outboxEcho, newPromptCount));
   };
   let terminalCardState: TerminalCardState = 'hidden';
   const phaseToShow = () => {
     if (terminalCardState === 'borrowed') return 'quiet';
     const phase = sessionPhaseOf(sessionId);
-    if (phase === 'working') entryIdsAwaitingTurn.clear();
-    const isSentMessageAwaitingTurn = !isOutboxStalled() && sessionState.outbox.some((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'sending') && entryIdsAwaitingTurn.has(entry.entryId));
+    const isSentMessageAwaitingTurn = isOutboxAwaitingTurn(outboxEcho, sessionState.outbox, phase === 'working');
     return shownChatPhaseOf(phase, isSentMessageAwaitingTurn, sessionUIs.get(sessionId)?.awaitingBackgroundTasks === true);
   };
   const showOutbox = () => {
-    const entries = sessionState.outbox;
-    noteOutboxEntries(entries);
-    const sentEntries = entries.filter(isShownAsSent);
-    for (const entryId of entryIdsTakenByPrompt) {
-      if (!sentEntries.some((entry) => entry.entryId === entryId)) entryIdsTakenByPrompt.delete(entryId);
-    }
-    for (const entry of sentEntries) {
-      if (standInByEntryId.has(entry.entryId) || entryIdsTakenByPrompt.has(entry.entryId)) continue;
-      const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: clock.nowMs(), attachments: [...entry.attachments] };
-      standInByEntryId.set(entry.entryId, standIn);
-      chatView.upsert([standIn], new Set([standIn.id]));
-    }
-    const unsentEntries = entries.filter((entry) => !isShownAsSent(entry));
-    removeStandIns(unsentEntries.map((entry) => entry.entryId).filter((entryId) => standInByEntryId.has(entryId)));
-    chatView.showQueued(unsentEntries);
+    const update = reconcileOutboxEcho(outboxEcho, sessionState.outbox, isSessionWorking(sessionId), clock.nowMs());
+    if (update.addedStandIns.length > 0) chatView.upsert(update.addedStandIns, new Set(update.addedStandIns.map((standIn) => standIn.id)));
+    removeStandIns(update.removedStandInEntryIds);
+    chatView.showQueued(update.queuedEntries);
     if (mountedChat?.sessionId === sessionId) applyShownPhase(mountedChat);
-    const clearedEntryIds = [...standInByEntryId.keys()].filter((entryId) => !entries.some((entry) => entry.entryId === entryId));
-    if (clearedEntryIds.length === 0) return;
-    for (const entryId of clearedEntryIds) awaitPromptFor(entryId);
+    if (update.clearedStandInEntryIds.length === 0) return;
+    for (const entryId of update.clearedStandInEntryIds) awaitPromptFor(entryId);
     feed.refresh();
   };
   const showFailure = (failureText: string | null) => {
@@ -529,7 +493,7 @@ function buildChat(sessionId: string): MountedChat {
   const keepPendingPartsLast = () => {
     const openCardIds = shownApproval?.cards.filter((card) => card.resolution === null).map((card) => card.cardId) ?? [];
     const terminalCardIds = [terminalCardId, signInCard?.cardId ?? null].filter((cardId): cardId is string => cardId !== null);
-    const standInIds = [...standInByEntryId.values()].map((standIn) => standIn.id);
+    const standInIds = [...outboxEcho.standInByEntryId.values()].map((standIn) => standIn.id);
     chatView.keepLast([...standInIds, ...openCardIds, ...terminalCardIds]);
   };
 
@@ -821,7 +785,7 @@ function buildChat(sessionId: string): MountedChat {
     if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
   });
   root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = sessionState.outbox.findLast((entry) => (entry.state === 'held' || entry.state === 'next' || entry.state === 'failed') && !isShownAsSent(entry));
+    const newestCancellable = newestCancellableOutboxEntryOf(outboxEcho, sessionState.outbox);
     if (!newestCancellable) return;
     event.preventDefault();
     cancelOutboxEntry(sessionId, newestCancellable.entryId);
@@ -888,9 +852,9 @@ function buildChat(sessionId: string): MountedChat {
       releaseTerminal();
       shownApproval = null;
       const freshView = createSeededView(chatView.readDraft(), chatView.readAttachments());
-      freshView.showQueued(sessionState.outbox.filter((entry) => !isShownAsSent(entry)));
+      freshView.showQueued(queuedOutboxEntriesOf(outboxEcho, sessionState.outbox));
       shownPromptPartIds.clear();
-      freshView.upsert([...standInByEntryId.values()], NO_ARRIVING_PARTS);
+      freshView.upsert([...outboxEcho.standInByEntryId.values()], NO_ARRIVING_PARTS);
       chatView.element.replaceWith(freshView.element);
       chatView = freshView;
       boardChangeByCardId = new Map();
