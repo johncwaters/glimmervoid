@@ -43,6 +43,7 @@ const LIMIT_SOURCE_LABELS: Readonly<Record<UsageCoverageRow['limitSource'], stri
   statusline: 'Reported by status line',
   transcript: 'Reported in transcripts',
   account: 'Read from Kimi account',
+  agentstate: 'Reported by AgentState',
   none: 'Not kept locally',
 });
 

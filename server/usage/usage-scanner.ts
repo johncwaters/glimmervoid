@@ -102,7 +102,7 @@ const SUPPORTED_COVERAGE_VENDORS: readonly {
   { vendor: 'claude', limitSource: 'statusline', costSource: 'list-price' },
   { vendor: 'codex', limitSource: 'transcript', costSource: 'list-price' },
   { vendor: 'kimi', limitSource: 'account', costSource: 'list-price' },
-  { vendor: 'antigravity', limitSource: 'none', costSource: 'list-price' },
+  { vendor: 'antigravity', limitSource: 'agentstate', costSource: 'list-price' },
   { vendor: 'pi', limitSource: 'none', costSource: 'reported' },
   { vendor: 'opencode', limitSource: 'none', costSource: 'reported' },
   { vendor: 'grok', limitSource: 'none', costSource: 'reported' },
