@@ -88,28 +88,80 @@ function isSessionWorking(sessionId: string): boolean {
   return sessionPhaseOf(sessionId) === 'working';
 }
 
-function cardDetailOf(event: Event): { cardId: string; action: string; value: string } | null {
-  if (!(event instanceof CustomEvent)) return null;
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null) return null;
-  if (!('cardId' in detail) || !('action' in detail) || !('value' in detail)) return null;
-  const { cardId, action, value } = detail;
-  if (typeof cardId !== 'string' || typeof action !== 'string' || typeof value !== 'string') return null;
-  return { cardId, action, value };
+function detailFieldOf(event: Event, key: string): unknown {
+  if (!(event instanceof CustomEvent) || typeof event.detail !== 'object' || event.detail === null) return undefined;
+  return Reflect.get(event.detail, key);
 }
 
-function attachedFilesOf(event: Event): File[] {
-  if (!(event instanceof CustomEvent)) return [];
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null || !('files' in detail) || !Array.isArray(detail.files)) return [];
-  return detail.files.filter((file): file is File => file instanceof File);
+function stringDetailOf(event: Event, key: string): string | null {
+  const value = detailFieldOf(event, key);
+  return typeof value === 'string' ? value : null;
 }
 
-function entryIdOf(event: Event): string | null {
-  if (!(event instanceof CustomEvent)) return null;
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null || !('entryId' in detail) || typeof detail.entryId !== 'string') return null;
-  return detail.entryId;
+interface ChatListenerTargets {
+  sessionId: string;
+  root: HTMLElement;
+  readAttachmentCount: () => number;
+  showFailure: (failureText: string | null) => void;
+  newestCancellableEntryId: () => string | null;
+  answerCard: (cardId: string, action: string, value: string) => void;
+  handleKeydown: (event: KeyboardEvent) => void;
+}
+
+function attachChatListeners(targets: ChatListenerTargets): void {
+  const { sessionId, root, readAttachmentCount, showFailure, newestCancellableEntryId, answerCard, handleKeydown } = targets;
+  const sessionState = chatSessionStateOf(sessionId);
+  root.addEventListener('chat-attach', (event) => {
+    const rawFiles = detailFieldOf(event, 'files');
+    const files = Array.isArray(rawFiles) ? rawFiles.filter((file): file is File => file instanceof File) : [];
+    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - readAttachmentCount() - sessionState.uploadingCount);
+    if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
+    const filesToStore = files.slice(0, openSlots);
+    if (filesToStore.length === 0) return;
+    sessionState.uploadingCount += filesToStore.length;
+    const releaseSlots = () => {
+      sessionState.uploadingCount = Math.max(0, sessionState.uploadingCount - filesToStore.length);
+    };
+    void storeFilesForChat(sessionId, filesToStore).then(
+      (storedFileNames) => {
+        releaseSlots();
+        restoreAttachmentsToSession(sessionId, storedFileNames);
+      },
+      releaseSlots,
+    );
+  });
+  root.addEventListener('chat-send', (event) => {
+    const text = stringDetailOf(event, 'text');
+    if (text === null) return;
+    const rawAttachments = detailFieldOf(event, 'attachments');
+    const attachments = Array.isArray(rawAttachments) ? rawAttachments.filter((fileName): fileName is string => typeof fileName === 'string') : [];
+    showFailure(null);
+    sendChatText(sessionId, text, attachments);
+  });
+  root.addEventListener('chat-cancel', (event) => {
+    const entryId = stringDetailOf(event, 'entryId');
+    if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
+  });
+  root.addEventListener('chat-escape', (event) => {
+    const entryId = newestCancellableEntryId();
+    if (entryId === null) return;
+    event.preventDefault();
+    cancelOutboxEntry(sessionId, entryId);
+  });
+  root.addEventListener('chat-stop', () => {
+    sendControlMsg({ type: 'chat-stop', id: sessionId });
+  });
+  root.addEventListener('chat-send-now', (event) => {
+    const entryId = stringDetailOf(event, 'entryId');
+    if (entryId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId, entryId });
+  });
+  root.addEventListener('chat-card', (event) => {
+    const cardId = stringDetailOf(event, 'cardId');
+    const action = stringDetailOf(event, 'action');
+    const value = stringDetailOf(event, 'value');
+    if (cardId !== null && action !== null && value !== null) answerCard(cardId, action, value);
+  });
+  root.addEventListener('keydown', handleKeydown, { capture: true });
 }
 
 const TYPING_CONTROL_SELECTOR = 'input, textarea, select, [contenteditable="true"]';
@@ -186,14 +238,6 @@ function sendChatText(sessionId: string, text: string, attachments: readonly str
       failSend(reply.error ?? NOT_SENT_TEXT);
     })
     .catch((reason: unknown) => failSend(`Could not confirm the message was queued: ${errorMessage(reason)}`));
-}
-
-function chatSendOf(event: Event): { text: string; attachments: string[] } | null {
-  if (!(event instanceof CustomEvent)) return null;
-  const detail: unknown = event.detail;
-  if (typeof detail !== 'object' || detail === null || !('text' in detail) || typeof detail.text !== 'string') return null;
-  const attachments = 'attachments' in detail && Array.isArray(detail.attachments) ? detail.attachments.filter((fileName): fileName is string => typeof fileName === 'string') : [];
-  return { text: detail.text, attachments };
 }
 
 interface RememberedBoardChange {
@@ -453,53 +497,15 @@ function buildChat(sessionId: string): MountedChat {
       },
     });
   });
-  root.addEventListener('chat-attach', (event) => {
-    const files = attachedFilesOf(event);
-    const openSlots = Math.max(0, CHAT_SEND_MAX_ATTACHMENTS - chatView.readAttachments().length - sessionState.uploadingCount);
-    if (files.length > openSlots) showFailure(TOO_MANY_ATTACHMENTS_TEXT);
-    const filesToStore = files.slice(0, openSlots);
-    if (filesToStore.length === 0) return;
-    sessionState.uploadingCount += filesToStore.length;
-    const releaseSlots = () => {
-      sessionState.uploadingCount = Math.max(0, sessionState.uploadingCount - filesToStore.length);
-    };
-    void storeFilesForChat(sessionId, filesToStore).then(
-      (storedFileNames) => {
-        releaseSlots();
-        restoreAttachmentsToSession(sessionId, storedFileNames);
-      },
-      releaseSlots,
-    );
+  attachChatListeners({
+    sessionId,
+    root,
+    readAttachmentCount: () => chatView.readAttachments().length,
+    showFailure,
+    newestCancellableEntryId: () => newestCancellableOutboxEntryOf(outboxEcho, sessionState.outbox)?.entryId ?? null,
+    answerCard,
+    handleKeydown: waits.handleKeydown,
   });
-
-  root.addEventListener('chat-send', (event) => {
-    const chatSend = chatSendOf(event);
-    if (chatSend === null) return;
-    showFailure(null);
-    sendChatText(sessionId, chatSend.text, chatSend.attachments);
-  });
-  root.addEventListener('chat-cancel', (event) => {
-    const entryId = entryIdOf(event);
-    if (entryId !== null) cancelOutboxEntry(sessionId, entryId);
-  });
-  root.addEventListener('chat-escape', (event) => {
-    const newestCancellable = newestCancellableOutboxEntryOf(outboxEcho, sessionState.outbox);
-    if (!newestCancellable) return;
-    event.preventDefault();
-    cancelOutboxEntry(sessionId, newestCancellable.entryId);
-  });
-  root.addEventListener('chat-stop', () => {
-    sendControlMsg({ type: 'chat-stop', id: sessionId });
-  });
-  root.addEventListener('chat-send-now', (event) => {
-    const entryId = entryIdOf(event);
-    if (entryId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId, entryId });
-  });
-  root.addEventListener('chat-card', (event) => {
-    const detail = cardDetailOf(event);
-    if (detail) answerCard(detail.cardId, detail.action, detail.value);
-  });
-  root.addEventListener('keydown', waits.handleKeydown, { capture: true });
 
   const feed = createChatFeed({
     sessionId,
