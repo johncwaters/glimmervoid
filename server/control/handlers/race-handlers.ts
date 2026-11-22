@@ -5,14 +5,14 @@ import { winnerNotesPrompt } from '../../race/core/race-core.ts';
 import { CONTESTANT_PROMPT_TIMEOUT_MS, createRaceLauncher } from '../../race/race-launch.ts';
 import type { RaceLauncher } from '../../race/race-launch.ts';
 import type { ControlContext } from '../control-context.ts';
-import { replyTo } from '../control-context.ts';
+import { isExistingDirectory, missingFolderError, replyTo } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import type { DiscardSession } from './session-handlers.ts';
 
 function createRaceHandlers(context: ControlContext, deps: ControlHandlerDeps, { discardSession }: { discardSession: DiscardSession }): ControlHandlerGroup & { launcher: RaceLauncher } {
   const { sessions, createProjectSession } = context;
   const { config, races = null } = deps;
-  const launcher = createRaceLauncher({ races, sessions, config, createProjectSession });
+  const launcher = createRaceLauncher({ races, sessions, config, createProjectSession, isExistingDirectory, missingFolderError });
 
   async function handleRaceStart(msg: ClientMessageOf<'race-start'>, ws: ControlSocket): Promise<void> {
     const started = await launcher.start(msg.spec, launcher.machineDefaultPermissions());

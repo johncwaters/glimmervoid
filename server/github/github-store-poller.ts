@@ -8,7 +8,7 @@ import { NO_GITHUB_SOURCE_TEXT } from './github-source.ts';
 import type { GithubSourceKind } from './github-source.ts';
 import type { SharedClock, TickOutcome } from '../lanes/lane-runner.ts';
 import { nextRetrySchedule, secondaryRateLimitWaitMs, shouldSkipTick } from '../lanes/core/lane-backoff.ts';
-import { GITHUB_RATE_LIMIT_WINDOW_MS } from './core/github-rate-limit-core.ts';
+import { GITHUB_RATE_LIMIT_WINDOW_MS, githubStoreRateLimitedError } from './core/github-rate-limit-core.ts';
 import { hasUnresolvedThreads } from './core/my-prs-core.ts';
 import { applyGithubPrDetails, GITHUB_STORE_BEHIND_INTERVAL_MS, githubPrChangeSet, githubPrsWithChangedBehindCounts, githubStoreCacheEvictionKey, githubStoreFixedLightIntervalMsByKey, githubStoreLightIntervalMs, githubStorePrReference, githubStoreWatchNodes, githubStoreWatchUnion, isGithubStoreFixedLightDue, isGithubStoreMembershipDue, isGithubStorePollDue, normalizeGithubPr } from './core/github-store-core.ts';
 import type { SetTimeoutFn, TimerHandle } from '../../shared/timer-deps.ts';
@@ -45,9 +45,7 @@ const REFRESH_DEBOUNCE_MS = 5_000;
 const DEFAULT_NOTIFICATIONS_INTERVAL_MS = 60_000;
 const RATE_LIMIT_RESOURCES = ['graphql', 'core'] as const;
 
-export function githubStoreRateLimitedError(waitMs: number, readSubject = 'the pull request'): string {
-  return `GitHub rate limit asks to wait about ${Math.max(1, Math.ceil(waitMs / 60_000))} min before reading ${readSubject}. Try again then`;
-}
+export { githubStoreRateLimitedError };
 
 export function createGithubStorePoller({ github, now, isDashboardConnected, exclusive, setTimeoutFn, log }: GithubStoreDependencies) {
   const events = new EventEmitter<{

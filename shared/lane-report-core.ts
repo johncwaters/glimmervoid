@@ -84,10 +84,19 @@ function parsePostingFile<Plan>(json: string, schema: z.ZodType<Plan>, label: st
   return { ok: true, plan: parsed.data };
 }
 
+function absolutePathReadRule(absolutePath: string): string {
+  const posixPath = absolutePath
+    .replace(/\\/g, '/')
+    .replace(/^([A-Za-z]):/, (_drive, driveLetter: string) => `/${driveLetter.toLowerCase()}`)
+    .replace(/\/+$/, '');
+  return `Read(/${posixPath}/**)`;
+}
+
 export {
   ACCEPT_EDITS_MODE,
   LANE_ENVIRONMENT_ARGS,
   READ_ONLY_GIT_SUBCOMMANDS,
+  absolutePathReadRule,
   bulletsIn,
   fencedUntrusted,
   isHeadingAmong,

@@ -1,5 +1,5 @@
 
-import { readPosthogReadConnection } from '../community/core/community-core.ts';
+import { readPosthogReadConnection } from './core/radar-lane-core.ts';
 import { RADAR_LANE_ID, radarProbes } from './radar-probes.ts';
 import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import crypto from 'node:crypto';
@@ -42,7 +42,7 @@ import { buildLanePermissions, CLOSED_LANE_ACCESS_CONFIG, laneAccess, withAllowR
 import type { LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
 import { makeLaneGhConfigDirectory } from '../lanes/lane-spawn.ts';
 import { runGit } from '../git/git-exec.ts';
-import { githubRepoSlugFromRemote } from '../github/core/team-review-core.ts';
+import { githubRepoSlugFromRemote } from '../../shared/git-text.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME } from '../../shared/contracts/untrusted-payload.ts';
 import { configuredIntegrationBranch, configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import type { RadarErrorReason } from '../../shared/contracts/telemetry.ts';

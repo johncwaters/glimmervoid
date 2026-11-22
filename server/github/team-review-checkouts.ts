@@ -10,7 +10,7 @@ import type { ResumableReview } from '../../shared/contracts/team-review.ts';
 import { errorMessage, isMissingFileError } from '../../shared/text.ts';
 import type { OwnedPathOwner } from '../../shared/contracts/owned-paths.ts';
 import { isPathInside } from '../../shared/paths.ts';
-import { readGitDirsOfOwnCheckout, repositoryRootOfCommonGitDir } from '../lanes/work-lane.ts';
+import { mainCheckoutOf } from '../git-checkout-root.ts';
 
 interface TeamReviewWiringConfig extends TeamReviewSettingsSource {
   replayBufferKB?: number;
@@ -100,16 +100,6 @@ async function deleteCheckout(
 async function isDirectory(candidatePath: string): Promise<boolean> {
   const stats = await fs.stat(candidatePath).catch(() => null);
   return stats?.isDirectory() === true;
-}
-
-async function mainCheckoutOf(checkoutPath: string): Promise<string | null> {
-  const gitDirs = await readGitDirsOfOwnCheckout(checkoutPath).catch(() => null);
-  if (gitDirs === null) return null;
-  const isBareRepository = gitDirs.commonGitDir === checkoutPath;
-  if (isBareRepository) return null;
-  const isLinkedWorktree = gitDirs.worktreeAdminDir !== gitDirs.commonGitDir;
-  if (!isLinkedWorktree) return checkoutPath;
-  return repositoryRootOfCommonGitDir(gitDirs.commonGitDir);
 }
 
 async function configuredProjectPathsByRealPath(projects: readonly { path: string }[]): Promise<Map<string, string>> {
