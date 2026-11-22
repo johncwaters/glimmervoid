@@ -36,6 +36,7 @@ import {
 type WargamesSubTab = 'live' | 'new' | 'history';
 type WatchStreamState = 'idle' | 'loading' | 'failed';
 type PanelBodyMode = 'unmounted' | 'empty' | 'loading' | 'failed' | 'live' | 'new' | 'history';
+type PostgameReportMode = 'collapsed' | 'expanded';
 
 interface PersistentLiveShell {
   readonly wrap: HTMLElement;
@@ -80,6 +81,7 @@ let watchStreamState: WatchStreamState = 'idle';
 let bannerMessage = '';
 let watchSelectionMode: 'auto' | 'manual' = 'auto';
 let selectedHistoryVersion: string | null = null;
+let postgameReportMode: PostgameReportMode = 'collapsed';
 let unsubscribe: (() => void) | null = null;
 const failedAutoWatchIds = new Set<string>();
 
@@ -292,6 +294,7 @@ function watchMatchById(matchId: string, switchToLive = true, selectionMode: 'au
   bannerMessage = '';
   selectedHexIndex = null;
   spotlightSeatId = null;
+  postgameReportMode = 'collapsed';
   setWargamesPov('god');
   selectWatchedMatch(matchId);
   if (switchToLive) activeSubTab = 'live';
@@ -433,34 +436,58 @@ function ensureNewMatchSection(): HTMLElement {
   return section;
 }
 
+interface SeatTally {
+  readonly villages: number;
+  readonly troops: { raider: number; guard: number; envoy: number };
+  readonly totalUnits: number;
+  readonly grain: number;
+  readonly ore: number;
+}
+
+function tallySeats(state: MatchState): Map<SeatId, SeatTally> {
+  const counts = new Map<SeatId, { villages: number; raider: number; guard: number; envoy: number; grain: number; ore: number }>();
+  for (const seatId of WARGAMES_SEAT_IDS) {
+    counts.set(seatId, { villages: 0, raider: 0, guard: 0, envoy: 0, grain: 0, ore: 0 });
+  }
+  for (const village of state.villages) {
+    if (!village || village.owner === null) continue;
+    const entry = counts.get(village.owner);
+    if (!entry) continue;
+    entry.villages += 1;
+    entry.raider += village.troops.raider;
+    entry.guard += village.troops.guard;
+    entry.envoy += village.troops.envoy;
+    entry.grain += village.resources.grain;
+    entry.ore += village.resources.ore;
+  }
+  for (const army of state.armies.values()) {
+    if (army.status !== 'marching' && army.status !== 'returning') continue;
+    const entry = counts.get(army.owner);
+    if (!entry) continue;
+    entry.raider += army.troops.raider;
+    entry.guard += army.troops.guard;
+    entry.envoy += army.troops.envoy;
+  }
+  const talliesBySeat = new Map<SeatId, SeatTally>();
+  for (const [seatId, entry] of counts) {
+    talliesBySeat.set(seatId, {
+      villages: entry.villages,
+      troops: { raider: entry.raider, guard: entry.guard, envoy: entry.envoy },
+      totalUnits: entry.raider + entry.guard + entry.envoy,
+      grain: entry.grain,
+      ore: entry.ore,
+    });
+  }
+  return talliesBySeat;
+}
+
 function buildFactionBannerStrip(state: MatchState): HTMLElement {
   const strip = el('div', 'wg-faction-strip');
+  const tallies = tallySeats(state);
   for (const seat of state.seats) {
     const seatId = seat.config.seatId;
-    let ownedVillages = 0;
-    let totalRaiders = 0;
-    let totalGuards = 0;
-    let totalEnvoys = 0;
-    let totalGrain = 0;
-    let totalOre = 0;
-
-    for (const village of state.villages) {
-      if (!village || village.owner !== seatId) continue;
-      ownedVillages += 1;
-      totalRaiders += village.troops.raider;
-      totalGuards += village.troops.guard;
-      totalEnvoys += village.troops.envoy;
-      totalGrain += village.resources.grain;
-      totalOre += village.resources.ore;
-    }
-
-    for (const army of state.armies.values()) {
-      if (army.owner !== seatId) continue;
-      if (army.status !== 'marching' && army.status !== 'returning') continue;
-      totalRaiders += army.troops.raider;
-      totalGuards += army.troops.guard;
-      totalEnvoys += army.troops.envoy;
-    }
+    const tally = tallies.get(seatId) ?? { villages: 0, troops: { raider: 0, guard: 0, envoy: 0 }, totalUnits: 0, grain: 0, ore: 0 };
+    const ownedVillages = tally.villages;
 
     const isEliminated = seat.status === 'eliminated';
     const banner = createPressable('wg-faction-banner');
@@ -498,9 +525,8 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     fill.style.width = `${winRatio}%`;
     track.append(fill);
 
-    const troopCounts = { raider: totalRaiders, guard: totalGuards, envoy: totalEnvoys };
     const stats = el('div', 'wg-faction-stats');
-    stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, troopCounts, SEAT_COLORS[seatId]), buildResourceReadout(totalGrain, totalOre));
+    stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops, SEAT_COLORS[seatId]), buildResourceReadout(tally.grain, tally.ore));
 
     banner.append(head, modelLine, track, stats);
     strip.append(banner);
@@ -626,25 +652,36 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
 
 function buildEndgameCard(state: MatchState): HTMLElement {
   const card = el('section', 'wg-endgame-card');
+  const tallies = tallySeats(state);
   const winnerSeat = state.winnerSeatId
     ? state.seats.find((seat) => seat.config.seatId === state.winnerSeatId) ?? null
     : null;
   const winnerColor = state.winnerSeatId ? SEAT_COLORS[state.winnerSeatId] : 'var(--border-hover)';
   card.style.borderColor = winnerColor;
 
-  const villagesBySeat = new Map<SeatId, number>();
   const breachesBySeat = new Map<SeatId, number>();
+  const messagesBySeat = new Map<SeatId, number>();
   for (const seatId of WARGAMES_SEAT_IDS) {
-    villagesBySeat.set(seatId, 0);
     breachesBySeat.set(seatId, 0);
-  }
-  for (const village of state.villages) {
-    if (!village || village.owner === null) continue;
-    villagesBySeat.set(village.owner, (villagesBySeat.get(village.owner) ?? 0) + 1);
+    messagesBySeat.set(seatId, 0);
   }
   for (const entry of state.ledger) {
     breachesBySeat.set(entry.breacher, (breachesBySeat.get(entry.breacher) ?? 0) + 1);
   }
+  for (const message of state.messages) {
+    messagesBySeat.set(message.from, (messagesBySeat.get(message.from) ?? 0) + 1);
+  }
+
+  const ranked = [...state.seats].sort((left, right) => {
+    const leftCount = tallies.get(left.config.seatId)?.villages ?? 0;
+    const rightCount = tallies.get(right.config.seatId)?.villages ?? 0;
+    if (rightCount !== leftCount) return rightCount - leftCount;
+    if (left.config.seatId === state.winnerSeatId) return -1;
+    if (right.config.seatId === state.winnerSeatId) return 1;
+    const leftUnits = tallies.get(left.config.seatId)?.totalUnits ?? 0;
+    const rightUnits = tallies.get(right.config.seatId)?.totalUnits ?? 0;
+    return rightUnits - leftUnits;
+  });
 
   const head = el('div', 'wg-endgame-head');
   const winnerWrap = el('div', 'wg-endgame-winner');
@@ -652,84 +689,192 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     state.status === 'aborted' ? WARGAMES_GLYPH_PATHS.breach : TROPHY_ICON_PATH,
     20,
     winnerColor,
-    state.status === 'aborted' ? 'Aborted' : 'Winner',
+    state.status === 'aborted' ? 'Aborted' : 'Champion',
   );
   const titleGroup = el('div', 'wg-endgame-titles');
   const headingText = winnerSeat
-    ? `${winnerSeat.config.label} · ${villagesBySeat.get(winnerSeat.config.seatId) ?? 0}/${WARGAMES_WIN_VILLAGES}`
+    ? `VICTORY · ${winnerSeat.config.label.toUpperCase()}`
     : state.status === 'aborted'
-      ? 'Match aborted'
-      : 'Match finished';
+      ? 'MATCH ABORTED'
+      : 'MATCH FINISHED';
   const heading = el('div', 'wg-endgame-title', headingText);
-  const subtitleParts = [
-    ...(winnerSeat
-      ? [formatSeatAgentModel(winnerSeat.config.setup.agent, winnerSeat.config.setup.model, winnerSeat.config.modelDisplay)]
-      : []),
-    state.spec.rulesVersion,
-    `Tick ${state.tick}/${state.spec.maxTicks}`,
-  ];
-  const sub = el('div', 'wg-card-meta', subtitleParts.join(' · '));
+  const sub = el('div', 'wg-card-meta', `${state.spec.rulesVersion} · Tick ${state.tick}/${state.spec.maxTicks}`);
   titleGroup.append(heading, sub);
   winnerWrap.append(emblem, titleGroup);
 
   const actions = el('div', 'wg-endgame-actions');
-  actions.append(button({
-    variant: 'primary',
+  const reportBtn = button({
+    variant: 'secondary',
     size: 'small',
-    label: 'New match',
+    label: 'Match report',
     onClick: () => {
-      activeSubTab = 'new';
+      postgameReportMode = postgameReportMode === 'expanded' ? 'collapsed' : 'expanded';
       render();
     },
-  }));
+  });
+  reportBtn.setAttribute('aria-expanded', String(postgameReportMode === 'expanded'));
+  actions.append(
+    reportBtn,
+    button({
+      variant: 'primary',
+      size: 'small',
+      label: 'New match',
+      onClick: () => {
+        activeSubTab = 'new';
+        render();
+      },
+    }),
+  );
   head.append(winnerWrap, actions);
 
-  const ranked = [...state.seats].sort((left, right) => {
-    const leftCount = villagesBySeat.get(left.config.seatId) ?? 0;
-    const rightCount = villagesBySeat.get(right.config.seatId) ?? 0;
-    if (rightCount !== leftCount) return rightCount - leftCount;
-    if (left.config.seatId === state.winnerSeatId) return -1;
-    if (right.config.seatId === state.winnerSeatId) return 1;
-    return 0;
-  });
+  const podium = el('div', 'wg-podium-grid');
+  for (let rankIndex = 0; rankIndex < 3; rankIndex += 1) {
+    const seat = ranked[rankIndex];
+    if (!seat) continue;
+    const seatId = seat.config.seatId;
+    const tally = tallies.get(seatId) ?? { villages: 0, troops: { raider: 0, guard: 0, envoy: 0 }, totalUnits: 0, grain: 0, ore: 0 };
+    const slot = el('div', 'wg-podium-slot');
+    slot.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
+    slot.dataset.rank = String(rankIndex + 1);
 
-  const standings = el('div', 'wg-endgame-standings');
+    const topRow = el('div', 'wg-faction-head');
+    const rankLabel = el('span', 'wg-faction-name');
+    if (rankIndex === 0) {
+      rankLabel.append(createWargamesGlyph(TROPHY_ICON_PATH, 14, SEAT_COLORS[seatId], 'First place'));
+    }
+    rankLabel.append(el('span', 'wg-podium-rank', `#${rankIndex + 1}`));
+    topRow.append(rankLabel, el('span', 'wg-podium-score', `${tally.villages}/${WARGAMES_WIN_VILLAGES}`));
+
+    const nameRow = el('div', 'wg-faction-name');
+    const swatch = el('span', 'wg-faction-swatch');
+    swatch.style.background = SEAT_COLORS[seatId];
+    nameRow.append(swatch, el('span', 'wg-faction-id', seat.config.label));
+
+    const modelText = el(
+      'div',
+      'wg-faction-sub',
+      formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay),
+    );
+    const track = el('div', 'wg-win-track');
+    const fill = el('div', 'wg-win-fill');
+    fill.style.width = `${Math.min(100, Math.round((tally.villages / WARGAMES_WIN_VILLAGES) * 100))}%`;
+    track.append(fill);
+
+    slot.append(topRow, nameRow, modelText, track);
+    podium.append(slot);
+  }
+
+  const awards = el('div', 'wg-awards-strip');
+  const addAward = (glyphPath: string, glyphColor: string, title: string, seatLabel: string, stat: string, seatColor: string) => {
+    const chip = el('span', 'wg-award-chip');
+    chip.style.setProperty('--wg-seat-color', seatColor);
+    chip.append(
+      createWargamesGlyph(glyphPath, 12, glyphColor, title),
+      el('span', 'wg-award-title', title),
+      el('span', 'wg-faction-id', seatLabel),
+      el('span', 'wg-card-meta', stat),
+    );
+    awards.append(chip);
+  };
+
+  const warlord = [...state.seats].sort((left, right) => (
+    (tallies.get(right.config.seatId)?.totalUnits ?? 0) - (tallies.get(left.config.seatId)?.totalUnits ?? 0)
+  ))[0];
+  if (warlord) {
+    const warlordUnits = tallies.get(warlord.config.seatId)?.totalUnits ?? 0;
+    if (warlordUnits > 0) {
+      addAward(WARGAMES_GLYPH_PATHS.swords, SEAT_COLORS[warlord.config.seatId], 'Warlord', warlord.config.label, `${warlordUnits} units`, SEAT_COLORS[warlord.config.seatId]);
+    }
+  }
+
+  const backstabber = [...state.seats].sort((left, right) => (
+    (breachesBySeat.get(right.config.seatId) ?? 0) - (breachesBySeat.get(left.config.seatId) ?? 0)
+  ))[0];
+  if (backstabber && (breachesBySeat.get(backstabber.config.seatId) ?? 0) > 0) {
+    const count = breachesBySeat.get(backstabber.config.seatId) ?? 0;
+    addAward(WARGAMES_GLYPH_PATHS.breach, 'var(--state-waiting)', 'Backstabber', backstabber.config.label, `${count}x`, SEAT_COLORS[backstabber.config.seatId]);
+  }
+
+  const diplomat = [...state.seats].sort((left, right) => (
+    (messagesBySeat.get(right.config.seatId) ?? 0) - (messagesBySeat.get(left.config.seatId) ?? 0)
+  ))[0];
+  if (diplomat && (messagesBySeat.get(diplomat.config.seatId) ?? 0) > 0) {
+    const msgCount = messagesBySeat.get(diplomat.config.seatId) ?? 0;
+    addAward(CHAT_ICON_PATH, SEAT_COLORS[diplomat.config.seatId], 'Diplomat', diplomat.config.label, `${msgCount} msgs`, SEAT_COLORS[diplomat.config.seatId]);
+  }
+
+  const table = el('table', 'wg-table');
+  const thead = el('thead');
+  const headRow = el('tr');
+  headRow.append(
+    el('th', '', '#'),
+    el('th', '', 'Faction'),
+    el('th', '', 'Model'),
+    el('th', '', 'Territory'),
+    el('th', '', 'Army'),
+    el('th', 'wg-num', 'Breaches'),
+    el('th', 'wg-num', 'State'),
+  );
+  thead.append(headRow);
+  const tbody = el('tbody');
+
   for (let index = 0; index < ranked.length; index += 1) {
     const seat = ranked[index];
     const seatId = seat.config.seatId;
-    const held = villagesBySeat.get(seatId) ?? 0;
+    const tally = tallies.get(seatId) ?? { villages: 0, troops: { raider: 0, guard: 0, envoy: 0 }, totalUnits: 0, grain: 0, ore: 0 };
     const breaches = breachesBySeat.get(seatId) ?? 0;
-    const row = el('div', 'wg-endgame-row');
-    if (seat.status === 'eliminated') row.dataset.eliminated = 'true';
+    const tr = el('tr', 'wg-leaderboard-row');
+    if (seat.status === 'eliminated') tr.dataset.eliminated = 'true';
 
-    const leftSide = el('span', 'wg-faction-name');
+    const factionCell = el('td');
+    const factionWrap = el('span', 'wg-faction-name');
     const swatch = el('span', 'wg-faction-swatch');
     swatch.style.background = SEAT_COLORS[seatId];
-    leftSide.append(
-      el('span', 'wg-card-meta', `#${index + 1}`),
-      swatch,
-      el('span', 'wg-faction-id', seat.config.label),
-      el('span', 'wg-card-meta', formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay)),
-    );
+    factionWrap.append(swatch, el('span', 'wg-faction-id', seat.config.label));
+    factionCell.append(factionWrap);
 
-    const rightSide = el('span', 'wg-faction-units');
-    if (seat.status === 'eliminated') {
-      rightSide.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.skull, 13, 'var(--state-failed)', 'Eliminated'));
-    }
+    const modelCell = el('td', 'wg-card-meta', formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay));
+
+    const territoryCell = el('td');
+    const territoryWrap = el('div', 'wg-leaderboard-bar');
+    const track = el('div', 'wg-win-track');
+    track.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
+    const fill = el('div', 'wg-win-fill');
+    fill.style.width = `${Math.min(100, Math.round((tally.villages / WARGAMES_WIN_VILLAGES) * 100))}%`;
+    track.append(fill);
+    territoryWrap.append(track, el('span', 'wg-faction-villages', `${tally.villages}/${WARGAMES_WIN_VILLAGES}`));
+    territoryCell.append(territoryWrap);
+
+    const armyCell = el('td');
+    armyCell.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops, SEAT_COLORS[seatId]));
+
+    const breachCell = el('td', 'wg-num');
     if (breaches > 0) {
       const breachChip = el('span', 'wg-legend-item');
-      breachChip.append(
-        createWargamesGlyph(WARGAMES_GLYPH_PATHS.breach, 12, 'var(--state-waiting)', 'Breaches'),
-        el('span', '', String(breaches)),
-      );
-      rightSide.append(breachChip);
+      breachChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.breach, 12, 'var(--state-waiting)', 'Breaches'), el('span', '', String(breaches)));
+      breachCell.append(breachChip);
     }
-    rightSide.append(el('span', 'wg-faction-villages', `${held}/${WARGAMES_WIN_VILLAGES}`));
-    row.append(leftSide, rightSide);
-    standings.append(row);
-  }
+    if (breaches === 0) {
+      breachCell.textContent = '-';
+    }
 
-  card.append(head, standings);
+    const stateCell = el('td', 'wg-num');
+    const isChampion = seatId === state.winnerSeatId;
+    const stateIcon = isChampion
+      ? createWargamesGlyph(TROPHY_ICON_PATH, 13, SEAT_COLORS[seatId], 'Winner')
+      : seat.status === 'eliminated'
+        ? createWargamesGlyph(WARGAMES_GLYPH_PATHS.skull, 13, 'var(--state-failed)', 'Eliminated')
+        : createWargamesGlyph(CHECK_ICON_PATH, 13, 'var(--state-running)', 'Survived');
+    stateCell.append(stateIcon);
+
+    tr.append(el('td', 'wg-card-meta', `#${index + 1}`), factionCell, modelCell, territoryCell, armyCell, breachCell, stateCell);
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+
+  card.append(head, podium);
+  if (awards.childElementCount > 0) card.append(awards);
+  card.append(table);
   return card;
 }
 
@@ -988,10 +1133,12 @@ function updateLiveShell(state: MatchState): HTMLElement {
   const isEnded = state.status === 'finished' || state.status === 'aborted';
   shell.endgameSlot.hidden = !isEnded;
   if (isEnded) {
-    const analytics = displayedMatchAnalytics(state);
-    inspectorView?.update(state, analytics, spotlightSeatId);
     const endgameChildren: HTMLElement[] = [buildEndgameCard(state)];
-    if (inspectorView) endgameChildren.push(inspectorView.element);
+    if (postgameReportMode === 'expanded' && inspectorView) {
+      const analytics = displayedMatchAnalytics(state);
+      inspectorView.update(state, analytics, spotlightSeatId);
+      endgameChildren.push(inspectorView.element);
+    }
     shell.endgameSlot.replaceChildren(...endgameChildren);
   }
   if (!isEnded) {

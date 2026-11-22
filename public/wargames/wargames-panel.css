@@ -165,24 +165,89 @@
   gap: 8px;
 }
 
-.wg-endgame-standings {
+.wg-podium-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.wg-podium-slot {
+  background: var(--bg-surface);
+  border: 1px solid color-mix(in srgb, var(--wg-seat-color) 45%, var(--border));
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
-.wg-endgame-row {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  padding: 6px 8px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
+.wg-podium-slot[data-rank="1"] {
+  background: color-mix(in srgb, var(--wg-seat-color) 12%, var(--bg-surface));
+  border-color: var(--wg-seat-color);
+  padding: 14px 12px;
+  order: 2;
 }
 
-.wg-endgame-row[data-eliminated="true"] {
+.wg-podium-slot[data-rank="2"] {
+  order: 1;
+}
+
+.wg-podium-slot[data-rank="3"] {
+  order: 3;
+}
+
+.wg-podium-slot .wg-win-track {
+  background: var(--bg-card);
+}
+
+.wg-podium-rank {
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.wg-podium-score {
+  color: var(--text-head);
+  font-size: var(--type-title);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.wg-awards-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wg-award-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-surface);
+  border: 1px solid color-mix(in srgb, var(--wg-seat-color) 45%, var(--border));
+  font-size: var(--type-meta);
+}
+
+.wg-award-title {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.wg-leaderboard-row[data-eliminated="true"] {
   opacity: 0.55;
+}
+
+.wg-leaderboard-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 110px;
 }
 
 .wg-faction-head {
@@ -805,8 +870,15 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .wg-podium-grid,
   .wg-spotlight-grid {
     grid-template-columns: 1fr;
+  }
+
+  .wg-podium-slot[data-rank="1"],
+  .wg-podium-slot[data-rank="2"],
+  .wg-podium-slot[data-rank="3"] {
+    order: 0;
   }
 }
 
