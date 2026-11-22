@@ -258,6 +258,7 @@ interface SessionOptions {
   raceId?: string | null;
   attentionOwner?: AttentionOwner | null;
   branchOf?: BranchLink | null;
+  isStudioMain?: boolean;
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
@@ -361,6 +362,7 @@ class Session extends EventEmitter {
   _agentDepth: number;
   readonly ownerId: string | null;
   readonly branchOf: BranchLink | null;
+  readonly isStudioMain: boolean;
   readonly doneMeans: readonly string[];
   agentDoneLines: readonly AgentDoneLine[];
   readonly attentionOwner: AttentionOwner;
@@ -490,6 +492,7 @@ class Session extends EventEmitter {
     raceId = null,
     attentionOwner = null,
     branchOf = null,
+    isStudioMain = false,
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
     resolveHostSigningEnv = null,
@@ -504,6 +507,7 @@ class Session extends EventEmitter {
     this.id = id;
     this.ownerId = ownerId;
     this.branchOf = branchOf;
+    this.isStudioMain = isStudioMain;
     this.doneMeans = doneMeans;
     this.agentDoneLines = agentDoneLines.map((line) => ({ ...line }));
     this.attentionOwner = attentionOwner ?? attentionOwnerOf(ownerId, raceId);
@@ -1676,6 +1680,7 @@ class Session extends EventEmitter {
       isQuestionManagerOn: this.isQuestionManagerOn,
       accountId: this.accountId,
       branchOf: this.branchOf,
+      isStudioMain: this.isStudioMain,
       agentSetup: this._agentSetup,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,
       linkedPrs: this.linkedPrs,

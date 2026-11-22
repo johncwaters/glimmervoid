@@ -18,6 +18,7 @@ interface SessionCardSource {
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
   branchOf?: BranchLink | null;
+  isStudioMain?: boolean;
   isWorktree?: boolean;
   isWorkspace?: boolean;
   resumeSessionId?: string | null;
@@ -66,6 +67,7 @@ function projectSessionCard(
     ...(source.agentDoneLines?.length ? { agentDoneLines: source.agentDoneLines.map((line) => ({ ...line })) } : {}),
     ...(source.ownerId ? { ownerId: source.ownerId } : {}),
     ...(source.branchOf ? { branchOf: { ...source.branchOf } } : {}),
+    ...(source.isStudioMain ? { isStudioMain: true } : {}),
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
     ...(source.accountId ? { accountId: source.accountId } : {}),
@@ -112,6 +114,7 @@ interface SnapshotSource {
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
   branchOf?: BranchLink | null;
+  isStudioMain?: boolean;
   agentSetup?: AgentSetup | null;
   effectiveBase: string | null;
   linkedPrs: LinkedPr[];
@@ -160,6 +163,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     isQuestionManagerOn: source.isQuestionManagerOn ?? null,
     accountId: source.accountId ?? null,
     branchOf: source.branchOf ?? null,
+    isStudioMain: source.isStudioMain === true,
     modelSelection: modelSelectionOf(source.agentSetup),
     effectiveBase: source.effectiveBase ?? null,
     linkedPrs: source.linkedPrs,

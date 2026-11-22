@@ -30,6 +30,7 @@ export const sessionClientVariants = [
     resumeSessionId: z.string().optional(),
     prompt: z.string().max(4000).optional(),
     setup: ModelSelection.optional(),
+    studio: z.boolean().optional(),
     requestId,
   }),
   loose('quick-session', { id: sessionId, requestId }),

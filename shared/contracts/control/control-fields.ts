@@ -103,6 +103,7 @@ export const SessionCardFields = z.object({
   ephemeral: z.boolean().optional(),
   ownerId: sessionId.optional(),
   branchOf: BranchLink.optional(),
+  isStudioMain: z.boolean().optional(),
   attentionOwner: AttentionOwner.optional(),
   linkedPrs: z.array(LinkedPr).optional(),
   doneMeans: z.array(z.string()).optional(),

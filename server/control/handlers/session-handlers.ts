@@ -28,12 +28,16 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { sanitizeOneLine } from '../../core/text-core.ts';
 import { runGit } from '../../git/git-exec.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
+import { wakeStudioMain } from '../../board-session/studio-main.ts';
+import { mainAgentNameOf } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { SESSION_GONE_TEXT, isExistingDirectory, missingFolderError, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
 import { buildIssuePrompt, deriveIssueSessionName } from '../../github/core/github-issue-prompt-core.ts';
+
+const STUDIO_WORKSPACE_TEXT = 'Studio opens one repo at a time; pick a single repo folder.';
 
 type AddSessionRefusal = { error: string };
 type AddSessionOutcome = { ok: true; sessionId: string } | { ok: false; error: string };
@@ -148,7 +152,22 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       refuseAddSession(msg, reply, refusal);
       return;
     }
-    createAddedSession(msg, reply, runSettings);
+    if (!msg.studio) {
+      createAddedSession(msg, reply, runSettings);
+      return;
+    }
+    if (msg.repos) {
+      refuseAddSession(msg, reply, { error: STUDIO_WORKSPACE_TEXT });
+      return;
+    }
+    const repoPath = path.resolve(msg.path.trim());
+    const mainId = wakeStudioMain(sessions.values(), repoPath);
+    if (mainId !== null) {
+      sendFirstPrompt(mainId, msg.prompt);
+      reply({ ok: true, sessionId: mainId });
+      return;
+    }
+    createAddedSession({ ...msg, name: mainAgentNameOf(repoPath) }, reply, { ...runSettings, isStudioMain: true });
   }
 
   async function handlePackLaunch(msg: ClientMessageOf<'pack-launch'>, ws: ControlSocket): Promise<void> {

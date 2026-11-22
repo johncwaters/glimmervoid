@@ -164,6 +164,7 @@ export const SessionSnapshot = z.object({
   isQuestionManagerOn: z.boolean().nullable().default(null),
   accountId: AgentAccountId.nullable().default(null),
   branchOf: BranchLink.nullable().default(null),
+  isStudioMain: z.boolean().default(false),
   modelSelection: ModelSelection.nullable().default(null),
   effectiveBase: z.string().nullable(),
   linkedPrs: z.array(LinkedPr).default([]),

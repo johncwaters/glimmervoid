@@ -7,7 +7,8 @@ import { SESSION_GONE_TEXT } from '../control-context.ts';
 import { createBranchWiring } from '../../board-session/branch-wiring.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import type { Session } from '../../../session/sessions.ts';
-import { mainAgentNameOf, mainAgentStepOf } from '../../core/studio-main-core.ts';
+import { mainAgentNameOf } from '../../core/studio-main-core.ts';
+import { wakeStudioMain } from '../../board-session/studio-main.ts';
 
 const CODE_MAP_OFF_TEXT = 'The code map is not running';
 const BOARD_ASKS_OFF_TEXT = 'Board questions are not running';
@@ -24,17 +25,8 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
     const repoPath = anchor.path;
     if (findConfiguredProject(anchor.id)?.repos) return { ok: false, error: WORKSPACE_MAIN_TEXT };
-    const repoSessions = [...sessions.values()].filter((session) => session.path === repoPath && session.branchOf === null);
-    const step = mainAgentStepOf(repoSessions.map((session) => ({ id: session.id, state: session.state, isStudioMain: findConfiguredProject(session.id)?.isStudioMain === true })));
-    if (step.kind === 'use') return { ok: true, mainId: step.sessionId };
-    if (step.kind === 'start') {
-      void findSession({ id: step.sessionId })?.start();
-      return { ok: true, mainId: step.sessionId };
-    }
-    if (step.kind === 'restart') {
-      findSession({ id: step.sessionId })?.restart();
-      return { ok: true, mainId: step.sessionId };
-    }
+    const mainId = wakeStudioMain(sessions.values(), repoPath);
+    if (mainId !== null) return { ok: true, mainId };
     const created = createProjectSession({
       name: mainAgentNameOf(repoPath),
       path: repoPath,

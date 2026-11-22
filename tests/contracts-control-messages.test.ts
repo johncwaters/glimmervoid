@@ -78,6 +78,7 @@ const SESSION = {
   isQuestionManagerOn: true,
   accountId: null,
   branchOf: null,
+  isStudioMain: false,
   modelSelection: { agent: 'claude-code', model: 'opus', options: [] },
   effectiveBase: 'develop',
   linkedPrs: [{ repo: 'acme/app', number: 42, url: 'https://github.com/acme/app/pull/42', source: 'hook', linkedAt: NOW }],

@@ -146,6 +146,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       raceId: project.raceId ?? null,
       attentionOwner: project.attentionOwner ?? null,
       branchOf: project.branchOf ?? null,
+      isStudioMain: project.isStudioMain === true,
       bypassHookTrust: project.codexBypassHookTrust === true,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
