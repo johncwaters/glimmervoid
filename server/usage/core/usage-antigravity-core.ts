@@ -114,7 +114,6 @@ export {
   ANTIGRAVITY_TRANSCRIPT_FILENAME,
   ANTIGRAVITY_TRANSCRIPT_SEGMENTS,
   antigravityDedupIdentity,
-  antigravitySessionIdFromPath,
   parseAntigravityConversationMetadata,
   parseAntigravityUsageLine,
 };

@@ -3,6 +3,7 @@ import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { rawTextOr, textOr } from '../../../shared/coerce.ts';
 import { ANTIGRAVITY_TRANSCRIPT_FILENAME } from './usage-antigravity-core.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
+import { openCodeDbPaths } from './usage-opencode-core.ts';
 import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
 export type PassOutcome = 'complete' | 'byte-limited' | 'io-failed';
@@ -159,13 +160,13 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = '253d0314288c2ae6';
+const SCAN_SNAPSHOT_INGEST_DIGEST = '491d42adec48eb7c';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
   { appVersion, vendors, extraProjectsDirs, costMode, retainDays, hasMonthlyBudget, env, homeDir }: {
     appVersion: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean; opencode?: boolean } | null | undefined;
     extraProjectsDirs: string[];
     costMode: string;
     retainDays: number;
@@ -182,12 +183,14 @@ function scanConfigKey(
     kimi: vendors?.kimi !== false,
     antigravity: vendors?.antigravity !== false,
     pi: vendors?.pi !== false,
+    opencode: vendors?.opencode !== false,
     claudeRoots: projectDirCandidates(env, extraProjectsDirs, homeDir),
     codexHomes: codexHomes(env, homeDir),
     grokHomes: grokHomes(env, homeDir),
     kimiHomes: kimiHomes(env, homeDir),
     antigravityBrainRoots: antigravityBrainRoots(env, homeDir),
     piSessionRoots: piSessionRootCandidates(env, homeDir).map((root) => root.dir),
+    openCodeDbPaths: openCodeDbPaths(env, homeDir),
     costMode,
     retainDays,
     hasMonthlyBudget,

@@ -244,6 +244,11 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['pi', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
+    id: 'file-usage-opencode', path: 'usage.vendors.opencode', title: 'Track OpenCode usage', group: 'machine-usage',
+    description: 'Include local OpenCode SQLite usage records in usage reports.',
+    control: 'toggle', keywords: ['opencode', 'vendor'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
+  },
+  {
     id: 'file-usage-fetch-pricing', path: 'usage.fetchPricing', title: 'Fetch current model prices', group: 'machine-usage',
     description: 'Load public model prices when usage tracking starts, using a cached table for up to one day. Falls back to cached or bundled prices if the fetch fails; no daily refresh runs while tracking continues.',
     control: 'toggle', keywords: ['rates', 'models'], defaultValue: true, takesEffect: 'restart', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,

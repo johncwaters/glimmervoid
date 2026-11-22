@@ -149,5 +149,4 @@ export {
   createPiUsageState,
   parsePiUsageLine,
   piDedupIdentity,
-  piSessionIdFromPath,
 };

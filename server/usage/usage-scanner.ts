@@ -33,6 +33,9 @@ import {
 } from './core/usage-antigravity-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
 import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts';
+import { openCodeDbPaths, openCodeDedupIdentity } from './core/usage-opencode-core.ts';
+import { readOpenCodeDbPage } from './usage-opencode-reader.ts';
+import type { OpenCodeDbCursor } from './usage-opencode-reader.ts';
 import {
   applyPiHeaderLine,
   createPiUsageState,
@@ -170,7 +173,7 @@ interface UsageScannerOptions {
   blockHours?: number;
   retainDays?: number;
   extraProjectsDirs?: string[];
-  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean };
+  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean; pi?: boolean; opencode?: boolean };
   warehousePath?: string | null;
   warehouseRetainDays?: number;
   snapshotPath?: string | null;
@@ -303,6 +306,7 @@ function keysForEntry(entry: StoredEntry, syntheticPrimary: string | null = null
   if (entry?.vendor === 'kimi') return { primary: kimiDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'antigravity') return { primary: antigravityDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'pi') return { primary: piDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'opencode') return { primary: openCodeDedupIdentity(entry), collision: null };
   const keys = dedupKeys(entry);
   return { primary: keys.primary || syntheticPrimary || entry?.[SYNTHETIC_PRIMARY] || null, collision: keys.collision };
 }
@@ -526,7 +530,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     blockHours = 5,
     retainDays = 90,
     extraProjectsDirs = [],
-    vendors = { codex: true, grok: true, kimi: true, antigravity: true, pi: true },
+    vendors = { codex: true, grok: true, kimi: true, antigravity: true, pi: true, opencode: true },
     warehousePath = null,
     warehouseRetainDays = 365,
     snapshotPath = null,
@@ -544,6 +548,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   const budget = normalizeBudgetConfig(budgetDep);
   const fileStates = new Map<string, FileState | null>();
+  const openCodeCursors = new Map<string, OpenCodeDbCursor>();
   let antigravityCwdByConversation = new Map<string, string>();
   let vendorFileCounts: Record<string, number> = {};
   const primaryIndex = new Map<string, number>();
@@ -647,6 +652,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
 
   function resetStore(): void {
     fileStates.clear();
+    openCodeCursors.clear();
     primaryIndex.clear();
     collisionIndex.clear();
     entries.length = 0;
@@ -907,6 +913,9 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         piState: cursor.piState ? { ...cursor.piState } : null,
       });
     }
+    for (const [dbPath, cursor] of Object.entries(snapshot.openCodeCursors ?? {})) {
+      openCodeCursors.set(dbPath, { ...cursor });
+    }
     for (const { syntheticPrimary, ...snapshotEntry } of snapshot.entries) {
       const storedEntry: StoredEntry = priceEntry(snapshotEntry);
       if (syntheticPrimary) storedEntry[SYNTHETIC_PRIMARY] = syntheticPrimary;
@@ -945,11 +954,16 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     for (const [file, cursor] of fileStates) {
       if (cursor) files[file] = cursor;
     }
+    const serializedOpenCodeCursors: NonNullable<UsageScanSnapshot['openCodeCursors']> = {};
+    for (const [dbPath, cursor] of openCodeCursors) {
+      serializedOpenCodeCursors[dbPath] = { ...cursor };
+    }
     return {
       version: SCAN_SNAPSHOT_VERSION,
       configKey: snapshotConfigKey,
       savedAt: new Date(nowFn()).toISOString(),
       files,
+      openCodeCursors: serializedOpenCodeCursors,
       entries: entries.map(snapshotEntryOf),
       activity: [...activityByKey.values()],
       codexRateLimits: latestCodexRateLimitSnapshot,
@@ -1292,6 +1306,42 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
         if (skippedFileCount % FILE_YIELD_INTERVAL === 0) await yieldNowFn();
       }
       if (partial) break;
+    }
+
+    if (!scopedRoots && !partial && vendors?.opencode !== false) {
+      let openCodeDbCount = 0;
+      for (const dbPath of openCodeDbPaths(env, homeDir)) {
+        const dbPass = await readOpenCodeDbPage({
+          dbPath,
+          cursor: force ? null : openCodeCursors.get(dbPath) ?? null,
+          force,
+          fsPromises,
+          yieldNowFn,
+          warn: laneLog.warn,
+        });
+        if (!dbPass.exists) {
+          openCodeCursors.delete(dbPath);
+          continue;
+        }
+        openCodeDbCount += 1;
+        if (dbPass.failed) {
+          ioFailures += 1;
+          continue;
+        }
+        if (dbPass.nextCursor) openCodeCursors.set(dbPath, dbPass.nextCursor);
+        currentFileGenerationRollup = shouldCollectGenerations ? new Map() : null;
+        for (const parsedEntry of dbPass.entries) {
+          newEntryCount += ingestVendorLine(parsedEntry, dbPath);
+        }
+        if (dbPass.entries.length > 0) bytesReadThisPass += dbPass.entries.length;
+        if (currentFileGenerationRollup) mergeGenerationRollups(passGenerationRollup, currentFileGenerationRollup);
+        currentFileGenerationRollup = null;
+        if (dbPass.partial) partial = true;
+      }
+      if (openCodeDbCount > 0) {
+        vendorFileCounts = { ...vendorFileCounts, opencode: openCodeDbCount };
+        lastFileCount += openCodeDbCount;
+      }
     }
 
     if (didRollBackAnyFile) rebuildMissingModels();

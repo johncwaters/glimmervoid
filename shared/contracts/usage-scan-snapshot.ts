@@ -69,11 +69,22 @@ const RateLimitWindowSnapshot = z.object({
   resetsAtMs: z.number().nullable(),
 }).nullable();
 
+const OpenCodeDbCursorSnapshot = z.object({
+  dbSize: z.number(),
+  dbMtimeMs: z.number(),
+  walSize: z.number(),
+  walMtimeMs: z.number(),
+  watermarkUpdatedMs: z.number(),
+  watermarkId: z.string(),
+  hasMore: z.boolean(),
+});
+
 export const UsageScanSnapshot = z.object({
   version: z.number().int(),
   configKey: z.string(),
   savedAt: z.string(),
   files: z.record(z.string(), UsageScanSnapshotCursor),
+  openCodeCursors: z.record(z.string(), OpenCodeDbCursorSnapshot).optional(),
   entries: z.array(UsageScanSnapshotEntry),
   activity: z.array(UsageScanSnapshotActivity),
   codexRateLimits: z.object({

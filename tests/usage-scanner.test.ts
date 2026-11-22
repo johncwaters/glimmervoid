@@ -2,6 +2,7 @@ import './helpers/isolate-home.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -793,6 +794,90 @@ test('scanner ingests pi sessions with reported cost and deduplicates forked ent
   assert.equal(restartPass.newEntries, 1);
   const restartedSession = restartedScanner.buildReport().sessions.find((session) => session.id === 'pi-session-1');
   assert.equal(restartedSession?.project, '/tmp/pi-repo');
+});
+
+test('scanner ingests OpenCode SQLite messages with reasoning folded into output, watermark updates, and stat-gated idle passes', async () => {
+  const root = await makeTempRoot();
+  const dbPath = path.join(root, '.local', 'share', 'opencode', 'opencode.db');
+  await fs.mkdir(path.dirname(dbPath), { recursive: true });
+  const nowMs = Date.now();
+  const database = new DatabaseSync(dbPath);
+  try {
+    database.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)');
+    const insertMessage = database.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)');
+    insertMessage.run(
+      'msg_1',
+      'ses_1',
+      nowMs - 2000,
+      nowMs - 2000,
+      JSON.stringify({
+        role: 'assistant',
+        modelID: 'claude-sonnet-4-20250514',
+        cost: 0.08,
+        time: { created: nowMs - 2000, completed: nowMs - 1500 },
+        path: { cwd: '/tmp/opencode-repo' },
+        tokens: { input: 400, output: 100, reasoning: 60, cache: { read: 1200, write: 50 } },
+      }),
+    );
+  } finally {
+    database.close();
+  }
+
+  const snapshotPath = path.join(root, '.glimmervoid', 'usage-scan-snapshot.json');
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    pricingTable,
+    snapshotPath,
+    snapshotMinIntervalMs: 0,
+  });
+  const firstPass = await scanner.runPass();
+  assert.equal(firstPass.outcome, 'complete');
+  assert.equal(firstPass.newEntries, 1);
+  assert.equal(scanner.vendorCounts().opencode, 1);
+  const firstReport = scanner.buildReport();
+  assert.equal(firstReport.totals.input, 400);
+  assert.equal(firstReport.totals.output, 160);
+  assert.equal(firstReport.totals.cacheRead, 1200);
+  assert.equal(firstReport.totals.cacheCreate, 50);
+  assert.ok(Math.abs(firstReport.totals.costUSD - 0.08) < 1e-6);
+  assert.equal(firstReport.sessions[0]?.project, '/tmp/opencode-repo');
+
+  await fs.chmod(dbPath, 0o000);
+  try {
+    const idlePass = await scanner.runPass();
+    assert.equal(idlePass.outcome, 'complete');
+    assert.equal(idlePass.newEntries, 0);
+  } finally {
+    await fs.chmod(dbPath, 0o644);
+  }
+
+  const updateDb = new DatabaseSync(dbPath);
+  try {
+    const upsertMessage = updateDb.prepare('INSERT OR REPLACE INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)');
+    upsertMessage.run(
+      'msg_1',
+      'ses_1',
+      nowMs - 2000,
+      nowMs,
+      JSON.stringify({
+        role: 'assistant',
+        modelID: 'claude-sonnet-4-20250514',
+        cost: 0.14,
+        time: { created: nowMs - 2000, completed: nowMs },
+        path: { cwd: '/tmp/opencode-repo' },
+        tokens: { input: 400, output: 200, reasoning: 100, cache: { read: 1200, write: 50 } },
+      }),
+    );
+  } finally {
+    updateDb.close();
+  }
+
+  const updatedPass = await scanner.runPass();
+  assert.equal(updatedPass.outcome, 'complete');
+  const updatedReport = scanner.buildReport();
+  assert.equal(updatedReport.totals.output, 300);
+  assert.ok(Math.abs(updatedReport.totals.costUSD - 0.14) < 1e-6);
 });
 
 function promptLine(sessionId: string, timestampMs: number, origin: Record<string, unknown> = {}): string {
