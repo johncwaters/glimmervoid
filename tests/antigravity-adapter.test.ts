@@ -7,7 +7,10 @@ import path from 'node:path';
 
 import antigravity from '../session/adapters/antigravity.ts';
 import type { GeneratedHomeInjection } from '../session/adapters/index.ts';
+import { HookRouter } from '../detection/hook-source.ts';
+import { Session } from '../session/sessions.ts';
 import { promptContextReplyOf, refocusReplyFor, relayedHookContextOutput } from '../session/core/refocus-core.ts';
+import { STATES } from '../shared/states.ts';
 
 function withTemporaryHome(t: test.TestContext): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'antigravity-home-'));
@@ -65,4 +68,45 @@ test('a prompt note reaches agy as a PreInvocation injectSteps user message the 
   assert.equal(antigravity.promptContextReply, 'inject-steps');
   const reply = refocusReplyFor({ accepted: true, event: 'PreInvocation', payload: {}, readContext: () => ({ taskTitle: null }), takePromptSupervision: () => promptContextReplyOf('inject-steps', 'board note') });
   assert.deepEqual(JSON.parse(relayedHookContextOutput('PreInvocation', JSON.stringify(reply)) ?? 'null'), { injectSteps: [{ userMessage: 'board note' }] });
+});
+
+test('a killed agy subagent that never fires Stop does not hold the finished turn or escalate it to WAITING', (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new Session({ id: 'agy-killed-subagent', name: 'agy-killed-subagent', path: process.cwd(), agent: 'antigravity', statusConflictMs: 20, statusDedupMs: 10, agentTtlMs: 60_000, gateReleaseSettleMs: 10_000 });
+  context.after(() => session.destroy());
+  session.state = STATES.IDLE;
+  const enrichPayload = antigravity.hooks.createPayloadEnricher?.();
+  assert.ok(enrichPayload);
+  const router = new HookRouter();
+  router.register(session.id, {
+    token: 'test-token',
+    hooks: antigravity.hooks,
+    onSignal: (signal) => session.ingestHookSignal(signal),
+  });
+  const sendHook = (event: string, payload: Record<string, unknown>) => {
+    router.handle({ glimmervoidId: session.id, event, token: 'test-token', payload: enrichPayload(event, payload) });
+    context.mock.timers.tick(50);
+  };
+
+  sendHook('SessionStart', { conversationId: 'parent-conv' });
+  sendHook('PreInvocation', { conversationId: 'parent-conv', invocationNum: 0 });
+  sendHook('PreToolUse', { conversationId: 'parent-conv', toolCall: { name: 'invoke_subagent', args: {} } });
+  sendHook('PostToolUse', { conversationId: 'parent-conv', toolCall: { name: 'invoke_subagent', args: {} } });
+  sendHook('SessionStart', { conversationId: 'subagent-conv' });
+  sendHook('Stop', { conversationId: 'parent-conv', fullyIdle: true });
+  context.mock.timers.tick(80_000);
+
+  assert.equal(session.state, STATES.COMPLETE);
+  sendHook('PostToolUse', { conversationId: 'subagent-conv', toolCall: { name: 'run_command', args: {} } });
+  sendHook('Stop', { conversationId: 'subagent-conv', fullyIdle: true });
+  assert.equal(session.state, STATES.COMPLETE);
+  assert.equal(session.resumeSessionId, 'parent-conv');
+
+  sendHook('PreInvocation', { conversationId: 'parent-conv', invocationNum: 1 });
+  sendHook('PreToolUse', { conversationId: 'parent-conv', toolCall: { name: 'invoke_subagent', args: {} } });
+  sendHook('PostToolUse', { conversationId: 'parent-conv', toolCall: { name: 'invoke_subagent', args: {} } });
+  sendHook('SessionStart', { conversationId: 'subagent-conv-2' });
+  sendHook('AgentState', { agent_state: 'idle', subagents: [{ status: 'completed' }] });
+  context.mock.timers.tick(80_000);
+  assert.equal(session.state, STATES.COMPLETE);
 });

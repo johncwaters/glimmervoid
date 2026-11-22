@@ -14,7 +14,7 @@ const TOOL_HOOK_EVENTS = ["PreToolUse", "PostToolUse"] as const;
 const ANTIGRAVITY_QUESTION_TOOL_NAME = "ask_question";
 const ANTIGRAVITY_SUBAGENT_TOOL_NAME = "invoke_subagent";
 const ANTIGRAVITY_GATED_TOOL_NAMES: readonly string[] = ["run_command", "write_file", "edit_file", "create_file", "delete_file", "apply_patch"];
-const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "isTurnOpen", "pendingToolName", "source", "tool_name", "tool_input"];
+const ENRICHED_PAYLOAD_KEYS: readonly string[] = ["agent_id", "background_tasks", "isTurnOpen", "pendingToolName", "source", "tool_name", "tool_input"];
 const QUESTION_HOLD_HOOK_TIMEOUT_SECONDS = Math.ceil(QUESTION_TOOL_HOLD_TIMEOUT_MS / 1000) + 10;
 
 type AntigravityPluginFileName = "plugin.json" | "hooks.json" | "mcp_config.json";
@@ -139,8 +139,13 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   let pendingSubagentStarts = 0;
 
   function tagAgentState(payload: HookPayloadRecord): HookPayloadRecord {
-    const taggedPayload = { ...payload, isTurnOpen, pendingToolName };
-    if (payload.agent_state === "idle" && !hasRunningSubagent(payload.subagents)) isTurnOpen = false;
+    const isAllIdle = payload.agent_state === "idle" && !hasRunningSubagent(payload.subagents);
+    const taggedPayload = { ...payload, isTurnOpen, pendingToolName, ...(isAllIdle ? { background_tasks: [] } : {}) };
+    if (isAllIdle) {
+      isTurnOpen = false;
+      pendingSubagentStarts = 0;
+      pendingToolName = null;
+    }
     return taggedPayload;
   }
 
@@ -170,6 +175,7 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
     }
     if (subagentConversationIds.has(conversationId)) return tagSubagentEvent(normalizedEvent, conversationId, questionPayload);
     trackParentTurn(normalizedEvent, payload);
+    if (normalizedEvent === "stop" && payload.fullyIdle === true) return { ...questionPayload, background_tasks: [] };
     if (normalizedEvent === "sessionstart" && !payload.source) return { ...payload, source: "startup" };
     return questionPayload;
   };

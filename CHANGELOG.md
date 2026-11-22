@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Wargames: reproducible 6-seat AI strategy arena**: launch and spectate 40-tick Diplomacy-meets-Tribal-Wars matches across mixed models on a 37-hex map. Seated agents act strictly through 10 per-seat Wargames MCP tools backed by pure state machines and an append-only JSONL event log, while the Wargames tab streams live god-view or per-seat fog-of-war maps, tick scrubbing, drama highlights with side-by-side DMs and orders, agent scratchpad minds, research metrics, and cross-match model Elo ratings.
 
+### Fixed
+
+- **Finished agy sessions no longer turn into "Needs Input" after killing a subagent.** Killing a subagent in agy never fires a subagent Stop hook, so Glimmervoid kept counting it as running, held the session's final Stop, and escalated to Check Terminal once the leaked subagent aged out. An agy `Stop` with `fullyIdle: true` or an idle `AgentState` with no running subagents now clears tracked subagents so the turn finishes as Complete.
+
 ## [0.63.0] - 2026-11-22
 
 ### Added
