@@ -517,6 +517,104 @@ function renderMarchVector(
   layer.append(vectorGroup);
 }
 
+const PREVIEW_BUILD_CODES: Readonly<Record<'farm' | 'mine' | 'barracks' | 'wall', string>> = Object.freeze({
+  farm: '+F',
+  mine: '+M',
+  barracks: '+B',
+  wall: '+W',
+});
+
+const PREVIEW_TROOP_CODES: Readonly<Record<'raider' | 'guard' | 'envoy', string>> = Object.freeze({
+  raider: 'R',
+  guard: 'G',
+  envoy: 'E',
+});
+
+function truncateCalloutText(text: string, maxChars: number): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, maxChars - 3)}...`;
+}
+
+function appendBoardCallout(
+  fxLayer: SVGElement,
+  anchorX: number,
+  anchorY: number,
+  options: { label: string; color: string; isThought: boolean; durationMs: number },
+): SVGElement {
+  const clipped = truncateCalloutText(options.label, 42);
+  const pillWidth = Math.min(204, Math.max(54, clipped.length * 4.8 + 14));
+  const pillHeight = 16;
+  const preferredY = anchorY < -195 ? anchorY + 26 : anchorY - 26;
+  const clampedX = Math.max(-266 + pillWidth / 2, Math.min(266 - pillWidth / 2, anchorX));
+  const clampedY = Math.max(-232 + pillHeight / 2, Math.min(232 - pillHeight / 2, preferredY));
+
+  const group = createSvgShape('g', { class: 'wg-board-callout' });
+  group.style.animationDuration = `${options.durationMs}ms`;
+  const rectAttrs: Record<string, string> = {
+    x: (clampedX - pillWidth / 2).toFixed(1),
+    y: (clampedY - pillHeight / 2).toFixed(1),
+    width: pillWidth.toFixed(1),
+    height: String(pillHeight),
+    rx: '2',
+    fill: 'var(--bg)',
+    stroke: options.color,
+    'stroke-width': '1.2',
+  };
+  if (options.isThought) rectAttrs['stroke-dasharray'] = '3 2';
+  group.append(createSvgShape('rect', rectAttrs));
+
+  const textNode = createSvgShape('text', {
+    x: clampedX.toFixed(1),
+    y: (clampedY + 2.8).toFixed(1),
+    'text-anchor': 'middle',
+    'font-size': '8',
+    fill: 'var(--text-head)',
+    class: 'wg-army-pill-text',
+  });
+  textNode.textContent = clipped;
+  group.append(textNode);
+  fxLayer.append(group);
+  return group;
+}
+
+function renderPreviewBadge(
+  layer: SVGElement,
+  centerX: number,
+  centerY: number,
+  label: string,
+  color: string,
+  opacity: string,
+): void {
+  const badgeWidth = Math.max(22, label.length * 4.8 + 8);
+  const badgeHeight = 12;
+  const badgeX = centerX + 14;
+  const badgeY = centerY - 15;
+  const group = createSvgShape('g', { opacity });
+  group.append(createSvgShape('rect', {
+    x: (badgeX - badgeWidth / 2).toFixed(1),
+    y: (badgeY - badgeHeight / 2).toFixed(1),
+    width: badgeWidth.toFixed(1),
+    height: String(badgeHeight),
+    rx: '2',
+    fill: 'var(--bg)',
+    stroke: color,
+    'stroke-width': '1',
+    'stroke-dasharray': '2 2',
+  }));
+  const textNode = createSvgShape('text', {
+    x: badgeX.toFixed(1),
+    y: (badgeY + 2.6).toFixed(1),
+    'text-anchor': 'middle',
+    'font-size': '7.5',
+    fill: color,
+    class: 'wg-army-pill-text',
+  });
+  textNode.textContent = label;
+  group.append(textNode);
+  layer.append(group);
+}
+
 interface WargamesMapView {
   readonly element: SVGSVGElement;
   update(
@@ -573,17 +671,44 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   let lastMessageCount = 0;
   let lastActiveContractIds = new Set<string>();
   let lastLedgerCount = 0;
+  let lastNoteBySeat = new Map<SeatId, string>();
   const transientFxTimers = new Set<ReturnType<typeof setTimeout>>();
+  const activeCalloutBySeat = new Map<SeatId, { node: SVGElement; timer: ReturnType<typeof setTimeout> }>();
 
   function clearTransientFx(): void {
     for (const handle of transientFxTimers) clearTimeout(handle);
     transientFxTimers.clear();
+    for (const entry of activeCalloutBySeat.values()) {
+      clearTimeout(entry.timer);
+      entry.node.remove();
+    }
+    activeCalloutBySeat.clear();
   }
 
   function seatAnchorSlot(state: MatchState, pov: WargamesPov, seatId: SeatId): HexNodeSlot | null {
     const owned = visibleVillagesArray(state, pov).find((village) => village?.owner === seatId);
     if (!owned) return null;
     return slots[owned.hexIndex] ?? null;
+  }
+
+  function mountSeatBoardCallout(
+    seatId: SeatId,
+    anchorSlot: HexNodeSlot | null,
+    options: { label: string; color: string; isThought: boolean; durationMs: number },
+  ): void {
+    if (!anchorSlot) return;
+    const previous = activeCalloutBySeat.get(seatId);
+    if (previous) {
+      clearTimeout(previous.timer);
+      previous.node.remove();
+      activeCalloutBySeat.delete(seatId);
+    }
+    const node = appendBoardCallout(fxLayer, anchorSlot.centerX, anchorSlot.centerY, options);
+    const timer = setTimeout(() => {
+      activeCalloutBySeat.delete(seatId);
+      node.remove();
+    }, options.durationMs);
+    activeCalloutBySeat.set(seatId, { node, timer });
   }
 
   function mountTransientDiplomacyArc(
@@ -607,6 +732,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       [...state.contracts.values()].filter((contract) => contract.status === 'active').map((contract) => contract.id),
     );
     lastLedgerCount = state.ledger.length;
+    lastNoteBySeat = new Map(state.seats.map((seat) => [seat.config.seatId, seat.note]));
   }
 
   function emitLiveDiplomacyFx(state: MatchState, pov: WargamesPov): void {
@@ -615,17 +741,47 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     const activeContracts = [...state.contracts.values()].filter((contract) => contract.status === 'active');
     const newlyAccepted = activeContracts.filter((contract) => !lastActiveContractIds.has(contract.id));
     const newBreaches = state.ledger.slice(lastLedgerCount);
+    const updatedNotes: { seatId: SeatId; note: string }[] = [];
+    for (const seat of state.seats) {
+      const seatId = seat.config.seatId;
+      const previousNote = lastNoteBySeat.get(seatId) ?? '';
+      if (seat.note.trim().length > 0 && seat.note !== previousNote) {
+        updatedNotes.push({ seatId, note: seat.note });
+      }
+    }
     syncDiplomacyTracking(state);
 
     if (!allowsMotion) return;
+    const povSeat = pov === 'god' ? null : state.seats.find((candidate) => candidate.config.seatId === pov) ?? null;
     for (const message of newMessages) {
-      if (message.channel !== 'dm' || message.to === null) continue;
-      if (pov !== 'god' && message.from !== pov && message.to !== pov) continue;
-      mountTransientDiplomacyArc(seatAnchorSlot(state, pov, message.from), seatAnchorSlot(state, pov, message.to), {
-        stroke: SEAT_COLORS[message.from],
-        dasharray: '4 4',
-        label: 'DM',
-        durationMs: 1200,
+      const isVisible = pov === 'god'
+        || message.from === pov
+        || message.to === pov
+        || (message.channel === 'tribe' && povSeat !== null && povSeat.tribeId !== null && povSeat.tribeId === message.tribeId);
+      if (!isVisible) continue;
+      if (message.channel === 'dm' && message.to !== null) {
+        mountTransientDiplomacyArc(seatAnchorSlot(state, pov, message.from), seatAnchorSlot(state, pov, message.to), {
+          stroke: SEAT_COLORS[message.from],
+          dasharray: '4 4',
+          label: 'DM',
+          durationMs: 1200,
+        });
+      }
+      const prefix = message.to ? `${message.from.toUpperCase()}->${message.to.toUpperCase()}` : message.from.toUpperCase();
+      mountSeatBoardCallout(message.from, seatAnchorSlot(state, pov, message.from), {
+        label: `${prefix}: ${message.text}`,
+        color: SEAT_COLORS[message.from],
+        isThought: false,
+        durationMs: 3400,
+      });
+    }
+    for (const entry of updatedNotes) {
+      if (pov !== 'god' && entry.seatId !== pov) continue;
+      mountSeatBoardCallout(entry.seatId, seatAnchorSlot(state, pov, entry.seatId), {
+        label: `${entry.seatId.toUpperCase()}: ${entry.note}`,
+        color: SEAT_COLORS[entry.seatId],
+        isThought: true,
+        durationMs: 3400,
       });
     }
     for (const contract of newlyAccepted) {
@@ -887,30 +1043,67 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     previewLayer.replaceChildren();
     if (!latestState || overlayMode === 'recap' || animQueue.getState() !== 'idle') return;
     const isSpotlightActive = latestPov === 'god' && latestSpotlightSeatId !== null;
-    const previewOrders: { seatId: SeatId; fromHexIndex: number; toHexIndex: number; troops: TroopCounts }[] = [];
+    const previewVectors: {
+      seatId: SeatId;
+      fromHexIndex: number;
+      toHexIndex: number;
+      troops: TroopCounts;
+      kind: 'march' | 'scout';
+    }[] = [];
+    const hexBadges = new Map<number, { seatId: SeatId; labels: string[] }>();
+
+    const pushHexBadge = (hexIndex: number, seatId: SeatId, label: string) => {
+      const existing = hexBadges.get(hexIndex);
+      if (existing) {
+        if (existing.labels.length < 2) existing.labels.push(label);
+        return;
+      }
+      hexBadges.set(hexIndex, { seatId, labels: [label] });
+    };
+
     for (const seat of latestState.seats) {
       const seatId = seat.config.seatId;
       if (latestPov !== 'god' && seatId !== latestPov) continue;
       for (const order of seat.sealedOrders) {
-        if (order.kind !== 'march') continue;
-        previewOrders.push({
-          seatId,
-          fromHexIndex: order.fromHexIndex,
-          toHexIndex: order.toHexIndex,
-          troops: order.troops,
-        });
+        if (order.kind === 'march') {
+          previewVectors.push({
+            seatId,
+            fromHexIndex: order.fromHexIndex,
+            toHexIndex: order.toHexIndex,
+            troops: order.troops,
+            kind: 'march',
+          });
+          continue;
+        }
+        if (order.kind === 'scout') {
+          previewVectors.push({
+            seatId,
+            fromHexIndex: order.fromHexIndex,
+            toHexIndex: order.toHexIndex,
+            troops: { raider: 0, guard: 0, envoy: 0 },
+            kind: 'scout',
+          });
+          continue;
+        }
+        if (order.kind === 'build') {
+          pushHexBadge(order.hexIndex, seatId, PREVIEW_BUILD_CODES[order.building]);
+          continue;
+        }
+        if (order.kind === 'train') {
+          pushHexBadge(order.hexIndex, seatId, `+${order.count}${PREVIEW_TROOP_CODES[order.troop]}`);
+        }
       }
     }
 
     const countsByPair = new Map<string, number>();
     const seenByPair = new Map<string, number>();
-    for (const entry of previewOrders) {
+    for (const entry of previewVectors) {
       const pairKey = `${Math.min(entry.fromHexIndex, entry.toHexIndex)}-${Math.max(entry.fromHexIndex, entry.toHexIndex)}`;
       countsByPair.set(pairKey, (countsByPair.get(pairKey) ?? 0) + 1);
     }
 
     let renderedCount = 0;
-    for (const entry of previewOrders) {
+    for (const entry of previewVectors) {
       const fromSlot = slots[entry.fromHexIndex];
       const toSlot = slots[entry.toHexIndex];
       if (!fromSlot || !toSlot) continue;
@@ -922,8 +1115,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const lateralOffset = totalForPair > 1 ? (indexForPair - (totalForPair - 1) / 2) * 6 * directionSign : 0;
       const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.8' : '0.18';
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
-        strokeDasharray: '2 4',
-        strokeWidth: '1.8',
+        strokeDasharray: entry.kind === 'scout' ? '1 3' : '2 4',
+        strokeWidth: entry.kind === 'scout' ? '1.4' : '1.8',
         opacity,
         groupClass: 'wg-preview-arrow',
         lineClass: 'wg-preview-line',
@@ -932,6 +1125,15 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       });
       renderedCount += 1;
     }
+
+    for (const [hexIndex, entry] of hexBadges) {
+      const slot = slots[hexIndex];
+      if (!slot) continue;
+      const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.9' : '0.2';
+      renderPreviewBadge(previewLayer, slot.centerX, slot.centerY, entry.labels.join(' '), SEAT_COLORS[entry.seatId], opacity);
+      renderedCount += 1;
+    }
+
     advanceOverlay(renderedCount > 0 ? 'show_previews' : 'hide_previews');
   }
 
@@ -959,6 +1161,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       lastMessageCount = 0;
       lastActiveContractIds = new Set();
       lastLedgerCount = 0;
+      lastNoteBySeat = new Map();
       lastVillageSnapshots = ALL_HEXES.map(() => null);
       displayedVillages = ALL_HEXES.map(() => null);
       lastArmySnapshots = new Map();

@@ -1,6 +1,6 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import { WARGAMES_RULES_VERSION, WARGAMES_SEAT_IDS, WARGAMES_SQUEEZE_TICK, WARGAMES_WIN_VILLAGES } from '#shared/contracts/wargames.ts';
-import type { SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
+import type { OrderItem, SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
@@ -40,6 +40,7 @@ type PanelBodyMode = 'unmounted' | 'empty' | 'loading' | 'failed' | 'live' | 'ne
 interface PersistentLiveShell {
   readonly wrap: HTMLElement;
   readonly factionStripSlot: HTMLElement;
+  readonly spotlightSlot: HTMLElement;
   readonly endgameSlot: HTMLElement;
   readonly boardBarSlot: HTMLElement;
   readonly hexIntelSlot: HTMLElement;
@@ -497,6 +498,111 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
   return strip;
 }
 
+function capitalizeWord(word: string): string {
+  if (word.length === 0) return word;
+  return `${word[0].toUpperCase()}${word.slice(1)}`;
+}
+
+function formatTroopBreakdown(troops: { raider: number; guard: number; envoy: number }): string {
+  const parts: string[] = [];
+  if (troops.raider > 0) parts.push(`${troops.raider}R`);
+  if (troops.guard > 0) parts.push(`${troops.guard}G`);
+  if (troops.envoy > 0) parts.push(`${troops.envoy}E`);
+  return parts.join(' ');
+}
+
+function formatOrder(order: OrderItem): string {
+  switch (order.kind) {
+    case 'build':
+      return `Build ${capitalizeWord(order.building)} @#${order.hexIndex}`;
+    case 'train':
+      return `Train ${order.count} ${capitalizeWord(order.troop)} @#${order.hexIndex}`;
+    case 'march': {
+      const troopSummary = formatTroopBreakdown(order.troops);
+      return troopSummary
+        ? `March #${order.fromHexIndex}->#${order.toHexIndex} (${troopSummary})`
+        : `March #${order.fromHexIndex}->#${order.toHexIndex}`;
+    }
+    case 'scout':
+      return `Scout #${order.fromHexIndex}->#${order.toHexIndex}`;
+    case 'tribe_join':
+      return `Join tribe ${order.partner.toUpperCase()}`;
+    case 'tribe_leave':
+      return 'Leave tribe';
+  }
+}
+
+function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
+  const seat = state.seats.find((candidate) => candidate.config.seatId === seatId);
+  const bar = el('section', 'wg-spotlight-bar');
+  if (!seat) return bar;
+  bar.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
+
+  const head = el('div', 'wg-spotlight-head');
+  const titleWrap = el('div', 'wg-card-title-row');
+  const swatch = el('span', 'wg-faction-swatch');
+  swatch.style.background = SEAT_COLORS[seatId];
+  const agentAndModel = formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay);
+  const tribePartner = seat.tribeId
+    ? state.seats.find((candidate) => candidate.tribeId === seat.tribeId && candidate.config.seatId !== seatId)?.config.seatId ?? null
+    : null;
+  const tribeTag = tribePartner ? ` · Tribe ${tribePartner.toUpperCase()}` : '';
+  titleWrap.append(
+    swatch,
+    el('span', 'wg-card-title', `${seatId.toUpperCase()} ${seat.config.label}`),
+    el('span', 'wg-card-meta', `${agentAndModel} · ${formatSeatStatusLabel(seat.status, state.phase, state.status)}${tribeTag}`),
+  );
+  head.append(
+    titleWrap,
+    button({
+      variant: 'quiet',
+      size: 'small',
+      label: 'Close',
+      onClick: () => handleFactionBannerClick(seatId),
+    }),
+  );
+
+  const noteCol = el('div', 'wg-dm-box');
+  noteCol.append(
+    el('div', 'wg-dm-label', 'Private scratchpad'),
+    el('pre', 'wg-note-box', seat.note || 'No private note yet.'),
+  );
+
+  const currentTickMessages = state.messages.filter((message) => message.from === seatId && message.tick === state.tick);
+  const recentMessages = currentTickMessages.length > 0
+    ? currentTickMessages
+    : state.messages.filter((message) => message.from === seatId).slice(-3);
+  const saidText = recentMessages.length > 0
+    ? recentMessages
+      .map((message) => (message.to ? `[T${message.tick} -> ${message.to.toUpperCase()}] ${message.text}` : `[T${message.tick}] ${message.text}`))
+      .join(' | ')
+    : 'No messages yet.';
+  const saidCol = el('div', 'wg-dm-box');
+  saidCol.append(el('div', 'wg-dm-label', 'Messages'), el('div', 'wg-dm-text', saidText));
+
+  const tickOrders = state.ordersByTick[state.tick] ?? state.ordersByTick[Math.max(1, state.tick - 1)];
+  const orders = seat.sealedOrders.length > 0 ? seat.sealedOrders : (tickOrders?.[seatId] ?? []);
+  const activeContracts = [...state.contracts.values()]
+    .filter((contract) => contract.status === 'active' && (contract.proposer === seatId || contract.counterparty === seatId))
+    .map((contract) => {
+      const other = contract.proposer === seatId ? contract.counterparty : contract.proposer;
+      return `${contract.terms.kind.toUpperCase()} w/ ${other.toUpperCase()}`;
+    });
+  const ordersParts: string[] = [];
+  if (orders.length > 0) ordersParts.push(orders.map(formatOrder).join(', '));
+  if (activeContracts.length > 0) ordersParts.push(`Pacts: ${activeContracts.join(', ')}`);
+  const ordersCol = el('div', 'wg-dm-box');
+  ordersCol.append(
+    el('div', 'wg-dm-label', 'Orders & contracts'),
+    el('div', 'wg-dm-text', ordersParts.length > 0 ? ordersParts.join(' · ') : 'Hold'),
+  );
+
+  const grid = el('div', 'wg-spotlight-grid');
+  grid.append(noteCol, saidCol, ordersCol);
+  bar.append(head, grid);
+  return bar;
+}
+
 function buildEndgameCard(state: MatchState): HTMLElement {
   const card = el('section', 'wg-endgame-card');
   const winnerSeat = state.winnerSeatId
@@ -837,9 +943,10 @@ function ensureLiveShell(): PersistentLiveShell {
 
   const wrap = el('div', 'wg-live-wrap');
   const factionStripSlot = el('div');
-  const endgameSlot = el('div');
+  const spotlightSlot = el('div');
+  spotlightSlot.hidden = true;
+  const endgameSlot = el('div', 'wg-live-wrap');
   endgameSlot.hidden = true;
-  const grid = el('div', 'wg-live-grid');
   const mapPane = el('section', 'wg-map-pane');
   const stage = el('div', 'wg-map-stage');
   const boardBarSlot = el('div', 'wg-board-bar');
@@ -847,22 +954,32 @@ function ensureLiveShell(): PersistentLiveShell {
 
   stage.append(boardBarSlot, mapView.element, hexIntelSlot, buildMapLegend());
   mapPane.append(stage);
-  grid.append(mapPane, inspectorView.element);
-  wrap.append(factionStripSlot, endgameSlot, grid);
-  liveShell = { wrap, factionStripSlot, endgameSlot, boardBarSlot, hexIntelSlot };
+  wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane);
+  liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot };
   return liveShell;
 }
 
 function updateLiveShell(state: MatchState): HTMLElement {
   const snap = wargamesSnapshot();
-  const analytics = displayedMatchAnalytics(state);
   const shell = ensureLiveShell();
 
   shell.factionStripSlot.replaceChildren(buildFactionBannerStrip(state));
+  shell.spotlightSlot.hidden = spotlightSeatId === null;
+  if (spotlightSeatId !== null) {
+    shell.spotlightSlot.replaceChildren(buildSpotlightBar(state, spotlightSeatId));
+  }
+  if (spotlightSeatId === null) {
+    shell.spotlightSlot.replaceChildren();
+  }
+
   const isEnded = state.status === 'finished' || state.status === 'aborted';
   shell.endgameSlot.hidden = !isEnded;
   if (isEnded) {
-    shell.endgameSlot.replaceChildren(buildEndgameCard(state));
+    const analytics = displayedMatchAnalytics(state);
+    inspectorView?.update(state, analytics, spotlightSeatId);
+    const endgameChildren: HTMLElement[] = [buildEndgameCard(state)];
+    if (inspectorView) endgameChildren.push(inspectorView.element);
+    shell.endgameSlot.replaceChildren(...endgameChildren);
   }
   if (!isEnded) {
     shell.endgameSlot.replaceChildren();
@@ -877,7 +994,6 @@ function updateLiveShell(state: MatchState): HTMLElement {
 
   mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
   shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
-  inspectorView?.update(state, analytics, spotlightSeatId);
   return shell.wrap;
 }
 
