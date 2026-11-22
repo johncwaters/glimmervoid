@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The code map builds again in the standalone binary.** The binary left out the tree-sitter package manifests, so every code map run failed with `Cannot find package '@vscode/tree-sitter-wasm'` and Studio kept showing a stale map.
 - **The code map board no longer leaves empty bands between folder rows.** Each row kept room for every module of a folder even while the folder showed as one closed card, so the map was mostly empty space. A closed folder now takes one card slot, and an open one still gets room for its modules. The map now owns where its boxes sit: a box you drag goes back to its place at the next redraw, and notes wired to it stay.
 - **Studio boxes show their titles again.** Plain boxes on the Studio map, such as the map stamp and the import matrix, drew as blank grey chips because Studio lacked the board colors.
 - **Studio opens with readable folder titles.** It used to fit the whole code map however small that made it, which left blank grey chips. Now it never opens smaller than the size where folder titles can be read. When the map is bigger than that, it opens on the boxes the session worked on or changed, or on the top-left of the map. The import matrix now sits to the right of the map. Fit still shows the whole map.
