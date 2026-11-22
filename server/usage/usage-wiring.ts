@@ -15,9 +15,10 @@ import { computeCacheSavings } from './core/usage-savings-core.ts';
 import {
   buildPlanLimitsMessage,
   buildAccountPlanLimitsMessage,
+  normalizeAntigravityQuota,
   normalizeStatuslinePayload,
   selectOfficialSessionCost,
-  sessionMeterOf,
+  sessionMeterInputsOf,
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
 import type { PlanLimitsVendor, RateLimitWindows, StatuslineSnapshot } from './core/usage-statusline-core.ts';
@@ -283,7 +284,7 @@ function createUsageWiring({
   let ioFailureStreak = 0;
   let ioFailureStreakId = 0;
 
-  const planLimitsByVendor: Record<PlanLimitsVendor, PlanLimitsSnapshot | null> = { claude: null, codex: null, kimi: null };
+  const planLimitsByVendor: Record<PlanLimitsVendor, PlanLimitsSnapshot | null> = { claude: null, codex: null, kimi: null, antigravity: null };
   const accountPlanLimitsByKey = new Map<string, { vendor: PlanLimitsVendor; accountId: string | null; snapshot: PlanLimitsSnapshot }>();
   let lastKimiPollMs: number | null = null;
   let kimiPollInFlight: Promise<void> | null = null;
@@ -554,8 +555,29 @@ function createUsageWiring({
   }
 
   function rememberSessionMeter(payload: unknown, glimmervoidId: string): void {
-    const metered = sessionMeterOf(payload, callCostOf);
-    if (metered) publishSessionMeter(glimmervoidId, metered.reading, metered.pricingModelId);
+    const inputs = sessionMeterInputsOf(payload);
+    if (!inputs) return;
+    const stored = sessionMeterById.get(glimmervoidId);
+    if (
+      stored
+      && stored.pricingModelId === inputs.pricingModelId
+      && stored.message.model === inputs.model
+      && stored.message.effort === inputs.effort
+      && stored.message.contextTokens === inputs.contextTokens
+      && stored.message.contextWindow === inputs.contextWindow
+      && stored.message.outputStyle === inputs.outputStyle
+    ) {
+      return;
+    }
+    const callCostUSD = inputs.pricingModelId !== null && inputs.contextTokens !== null ? callCostOf(inputs.pricingModelId, inputs.contextTokens) : null;
+    publishSessionMeter(glimmervoidId, {
+      model: inputs.model,
+      effort: inputs.effort,
+      contextTokens: inputs.contextTokens,
+      contextWindow: inputs.contextWindow,
+      callCostUSD,
+      outputStyle: inputs.outputStyle,
+    }, inputs.pricingModelId);
   }
 
   function repriceSessionMeters(): void {
@@ -574,12 +596,20 @@ function createUsageWiring({
     if (stopped) return;
     rememberSessionMeter(payload, glimmervoidId);
     if (!cfg.enabled || !cfg.planLimits) return;
-    const snapshot = normalizeStatuslinePayload(payload, nowFn());
-    if (!snapshot) return;
-    rememberOfficialCost(snapshot);
-    if (!snapshot.rateLimits) return;
-    adoptPlanLimits('claude', snapshot);
-    adoptAccountPlanLimits('claude', sessions.get(glimmervoidId)?.accountIdInUse ?? null, snapshot);
+    const nowMs = nowFn();
+    const snapshot = normalizeStatuslinePayload(payload, nowMs);
+    if (snapshot) {
+      rememberOfficialCost(snapshot);
+      if (snapshot.rateLimits) {
+        adoptPlanLimits('claude', snapshot);
+        adoptAccountPlanLimits('claude', sessions.get(glimmervoidId)?.accountIdInUse ?? null, snapshot);
+      }
+    }
+    const antigravityLimits = normalizeAntigravityQuota(payload, nowMs);
+    if (!antigravityLimits) return;
+    const antigravitySnapshot: PlanLimitsSnapshot = { rateLimits: antigravityLimits, ts: nowMs };
+    adoptPlanLimits('antigravity', antigravitySnapshot);
+    adoptAccountPlanLimits('antigravity', sessions.get(glimmervoidId)?.accountIdInUse ?? null, antigravitySnapshot);
   }
 
   function adoptAccountPlanLimits(vendor: PlanLimitsVendor, accountId: string | null, snapshot: PlanLimitsSnapshot): void {

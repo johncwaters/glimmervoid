@@ -609,6 +609,7 @@ export const PLAN_LIMIT_VENDORS: readonly { vendor: PlanLimitsVendor; label: str
   { vendor: 'claude', label: 'Claude Code' },
   { vendor: 'codex', label: 'Codex' },
   { vendor: 'kimi', label: 'Kimi Code' },
+  { vendor: 'antigravity', label: 'Antigravity' },
 ]);
 
 export function planLimitAgeText(ts: unknown, now = clock.nowMs()) {

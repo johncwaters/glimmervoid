@@ -766,3 +766,57 @@ test('a Codex plan limits reading counts only for a live card and only when take
   assert.deepEqual(accountReadings, [['codex-work', 55]]);
   await wiring.stop();
 });
+
+test('Antigravity AgentState populates session meter with model.effort, deduplicates unchanged heartbeats, and publishes antigravity plan limits', async () => {
+  const meters: Record<string, unknown>[] = [];
+  const planLimits: Record<string, unknown>[] = [];
+  const nowMs = Date.parse('2026-11-22T12:00:00Z');
+  const wiring = createUsageWiring({
+    config: {},
+    sessions: new Map(),
+    broadcast: (message) => {
+      if (message.type === 'session-meter') meters.push(message);
+      if (message.type === 'plan-limits') planLimits.push(message);
+    },
+    createScanner: () => scriptedScanner([], [COMPLETE_PASS]),
+    loadPricingFn: async () => ({ table: new Map([['gemini-2.5-pro', { cache_read_input_token_cost: 2.5e-7 }]]), source: 'snapshot', fetchedAt: null }),
+    nowFn: () => nowMs,
+    logger: { warn: () => {}, log: () => {} },
+  });
+  await wiring.start();
+
+  const agentStatePayload = {
+    agent_state: 'working',
+    model: { id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro', effort: 'high' },
+    context_window: { context_window_size: 1_000_000, current_usage: { input_tokens: 10_000, cache_read_input_tokens: 30_000 } },
+    quota: {
+      'gemini-5h': { remaining_fraction: 0.75, reset_time: '2026-11-22T16:00:00Z' },
+      'gemini-weekly': { remaining_fraction: 0.4, reset_in_seconds: 86_400 },
+      '3p-5h': { remaining_fraction: 0.9, reset_in_seconds: 1e14 },
+    },
+  };
+  wiring.ingestStatusline(agentStatePayload, 'agy-card');
+  wiring.ingestStatusline(agentStatePayload, 'agy-card');
+  wiring.ingestStatusline({ ...agentStatePayload, model: { id: 'claude-sonnet-4-6', display_name: 'Claude Sonnet 4.6', effort: 'x'.repeat(256) } }, 'agy-3p-card');
+
+  assert.equal(meters.length, 2);
+  assert.equal(meters[0].model, 'Gemini 2.5 Pro');
+  assert.equal(meters[0].effort, 'high');
+  assert.equal(meters[0].contextTokens, 40_000);
+  assert.equal(meters[0].contextWindow, 1_000_000);
+  assert.equal(meters[0].callCostUSD, 0.01);
+  assert.equal((meters[1].effort as string).length, 128);
+
+  const antigravityLimits = wiring.getPlanLimitsMessage('antigravity');
+  assert.deepEqual(antigravityLimits, {
+    type: 'plan-limits',
+    ts: nowMs,
+    fiveHour: { pct: 25, resetsAtMs: Date.parse('2026-11-22T16:00:00Z') },
+    sevenDay: { pct: 60, resetsAtMs: nowMs + 86_400 * 1000 },
+    source: 'agentstate',
+    vendor: 'antigravity',
+  });
+  assert.equal(ServerMessage.safeParse(antigravityLimits).success, true);
+  assert.equal(planLimits.length, 1);
+  await wiring.stop();
+});

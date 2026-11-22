@@ -29,7 +29,7 @@ export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'session-meter
 
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
-let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null };
+let planLimitsByVendor: Record<PlanLimitsVendor, PlanLimits | null> = { claude: null, codex: null, kimi: null, antigravity: null };
 const sessionMeterBySessionId = new Map<string, SessionMeterPush>();
 let activityCallback: ((isActive: boolean) => void) | null = null;
 let sendRequest: ((message: Record<string, unknown>) => boolean) | null = null;

@@ -63,7 +63,7 @@ export const CustomAgentSummaryRow = z.object({
 }).strict();
 export type CustomAgentSummaryRow = z.infer<typeof CustomAgentSummaryRow>;
 
-export const PlanLimitsVendor = z.enum(['claude', 'codex', 'kimi']);
+export const PlanLimitsVendor = z.enum(['claude', 'codex', 'kimi', 'antigravity']);
 export type PlanLimitsVendor = z.infer<typeof PlanLimitsVendor>;
 export const ConnectableAgent = z.enum(['claude-code', 'codex']);
 export type ConnectableAgent = z.infer<typeof ConnectableAgent>;

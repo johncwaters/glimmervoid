@@ -203,7 +203,7 @@ const antigravity = {
     awaitingInput: true,
     backgroundAgents: true,
     resume: true,
-    planLimits: false,
+    planLimits: true,
     saneYolo: true,
     compactQuiet: true,
     skipPermissionsFlag: true,

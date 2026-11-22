@@ -144,7 +144,8 @@ interface BackendHttpDependencies {
 }
 
 function isStatuslineEvent(event: unknown): boolean {
-  return String(event || '').toLowerCase() === 'statusline';
+  const normalized = String(event || '').toLowerCase();
+  return normalized === 'statusline' || normalized === 'agentstate';
 }
 
 function refuseAgentRequest(res: Response): void {

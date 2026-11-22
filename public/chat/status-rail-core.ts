@@ -33,7 +33,7 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-const PLAN_VENDOR_BY_AGENT: Readonly<Record<string, PlanLimitsVendor>> = { 'claude-code': 'claude', codex: 'codex', kimi: 'kimi' };
+const PLAN_VENDOR_BY_AGENT: Readonly<Record<string, PlanLimitsVendor>> = { 'claude-code': 'claude', codex: 'codex', kimi: 'kimi', antigravity: 'antigravity' };
 
 export function planVendorOfAgent(agent: string | null | undefined): PlanLimitsVendor | null {
   if (!agent) return null;

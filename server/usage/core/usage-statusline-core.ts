@@ -5,6 +5,10 @@ import type { SessionMeterReading } from '../../../shared/contracts/control/lane
 const PCT_DECIMALS = 1;
 
 const SECONDS_CEILING = 1e12;
+const MAX_RESET_AT_MS = 8.64e15;
+const MAX_RESET_IN_SECONDS = 366 * 86_400;
+const RESET_FALLBACK_QUANTUM_MS = 60_000;
+const MAX_METER_TEXT_CHARS = 128;
 
 export interface RateLimitWindow {
   pct: number | null;
@@ -34,8 +38,8 @@ function roundPct(value: unknown): number | null {
 function resetsAtMs(value: unknown): number | null {
   const numeric = numberOr(value, null);
   if (numeric === null || numeric <= 0) return null;
-  if (numeric > SECONDS_CEILING) return Math.round(numeric);
-  return Math.round(numeric * 1000);
+  const epochMs = numeric > SECONDS_CEILING ? Math.round(numeric) : Math.round(numeric * 1000);
+  return epochMs <= MAX_RESET_AT_MS ? epochMs : null;
 }
 
 function rateLimitWindow(usedPct: unknown, resetsAt: unknown): RateLimitWindow | null {
@@ -99,6 +103,7 @@ const PLAN_LIMITS_SOURCE_BY_VENDOR: Readonly<Record<PlanLimitsVendor, string>> =
   claude: 'statusline',
   codex: 'rollout',
   kimi: 'usages',
+  antigravity: 'agentstate',
 });
 
 function buildPlanLimitsMessage(
@@ -135,9 +140,24 @@ function contextTokensOf(context: Record<string, unknown> | null): number | null
   return Math.max(0, promptParts.reduce((total, tokens) => total + tokens, 0));
 }
 
+function cappedMeterText(value: unknown, fallback: string | null = null): string | null {
+  const text = textOr(value, fallback);
+  if (text === null) return null;
+  return text.length > MAX_METER_TEXT_CHARS ? text.slice(0, MAX_METER_TEXT_CHARS) : text;
+}
+
 function effortOf(effort: unknown): string | null {
-  if (isRecord(effort)) return textOr(effort.level, null);
-  return textOr(effort, null);
+  if (isRecord(effort)) return cappedMeterText(effort.level, null);
+  return cappedMeterText(effort, null);
+}
+
+interface SessionMeterInputs {
+  model: string | null;
+  pricingModelId: string | null;
+  effort: string | null;
+  contextTokens: number | null;
+  contextWindow: number | null;
+  outputStyle: string | null;
 }
 
 interface MeteredStatusline {
@@ -145,23 +165,80 @@ interface MeteredStatusline {
   pricingModelId: string | null;
 }
 
-function sessionMeterOf(payload: unknown, callCostOf: CallCostOf): MeteredStatusline | null {
+function sessionMeterInputsOf(payload: unknown): SessionMeterInputs | null {
   if (!isRecord(payload)) return null;
   const model = isRecord(payload.model) ? payload.model : null;
-  const modelId = textOr(model?.id, null);
+  const pricingModelId = cappedMeterText(model?.id, null);
   const context = isRecord(payload.context_window) ? payload.context_window : null;
-  const contextTokens = contextTokensOf(context);
-  const callCostUSD = modelId !== null && contextTokens !== null ? callCostOf(modelId, contextTokens) : null;
-  const reading: SessionMeterReading = {
-    model: textOr(model?.display_name, modelId),
-    effort: effortOf(payload.effort),
-    contextTokens,
+  const inputs: SessionMeterInputs = {
+    model: cappedMeterText(model?.display_name, pricingModelId),
+    pricingModelId,
+    effort: effortOf(payload.effort) ?? effortOf(model?.effort),
+    contextTokens: contextTokensOf(context),
     contextWindow: positiveNumberOr(context?.context_window_size, null),
-    callCostUSD,
-    outputStyle: isRecord(payload.output_style) ? textOr(payload.output_style.name, null) : null,
+    outputStyle: isRecord(payload.output_style) ? cappedMeterText(payload.output_style.name, null) : null,
   };
-  if (Object.values(reading).every((field) => field === null)) return null;
-  return { reading, pricingModelId: modelId };
+  if (inputs.model === null && inputs.effort === null && inputs.contextTokens === null && inputs.contextWindow === null && inputs.outputStyle === null) return null;
+  return inputs;
+}
+
+function sessionMeterOf(payload: unknown, callCostOf: CallCostOf): MeteredStatusline | null {
+  const inputs = sessionMeterInputsOf(payload);
+  if (!inputs) return null;
+  const callCostUSD = inputs.pricingModelId !== null && inputs.contextTokens !== null ? callCostOf(inputs.pricingModelId, inputs.contextTokens) : null;
+  const reading: SessionMeterReading = {
+    model: inputs.model,
+    effort: inputs.effort,
+    contextTokens: inputs.contextTokens,
+    contextWindow: inputs.contextWindow,
+    callCostUSD,
+    outputStyle: inputs.outputStyle,
+  };
+  return { reading, pricingModelId: inputs.pricingModelId };
+}
+
+function antigravityResetAtMs(bucket: Record<string, unknown>, nowMs: number): number | null {
+  if (typeof bucket.reset_time === 'string') {
+    const parsedMs = Date.parse(bucket.reset_time);
+    if (Number.isFinite(parsedMs) && parsedMs > 0 && parsedMs <= MAX_RESET_AT_MS) return Math.round(parsedMs);
+  }
+  const resetInSeconds = numberOr(bucket.reset_in_seconds, null);
+  if (resetInSeconds === null || resetInSeconds < 0 || resetInSeconds > MAX_RESET_IN_SECONDS || !Number.isFinite(nowMs) || nowMs <= 0) return null;
+  const quantizedMs = Math.round((nowMs + resetInSeconds * 1000) / RESET_FALLBACK_QUANTUM_MS) * RESET_FALLBACK_QUANTUM_MS;
+  return quantizedMs <= MAX_RESET_AT_MS ? quantizedMs : null;
+}
+
+function antigravityQuotaWindow(bucket: unknown, nowMs: number): RateLimitWindow | null {
+  if (!isRecord(bucket)) return null;
+  const remainingFraction = numberOr(bucket.remaining_fraction, null);
+  const usedPct = remainingFraction === null ? null : (1 - Math.min(1, Math.max(0, remainingFraction))) * 100;
+  return rateLimitWindow(usedPct, antigravityResetAtMs(bucket, nowMs));
+}
+
+function tightestQuotaWindow(first: RateLimitWindow | null, second: RateLimitWindow | null): RateLimitWindow | null {
+  if (!first) return second;
+  if (!second) return first;
+  if (first.pct === null) return second;
+  if (second.pct === null) return first;
+  if (second.pct !== first.pct) return second.pct > first.pct ? second : first;
+  if (first.resetsAtMs === null) return second;
+  if (second.resetsAtMs === null) return first;
+  return second.resetsAtMs < first.resetsAtMs ? second : first;
+}
+
+function normalizeAntigravityQuota(payload: unknown, nowMs: unknown): RateLimitWindows | null {
+  if (!isRecord(payload) || !isRecord(payload.quota)) return null;
+  const nowMsValue = numberOr(nowMs, null) ?? 0;
+  const fiveHour = tightestQuotaWindow(
+    antigravityQuotaWindow(payload.quota['gemini-5h'], nowMsValue),
+    antigravityQuotaWindow(payload.quota['3p-5h'], nowMsValue),
+  );
+  const sevenDay = tightestQuotaWindow(
+    antigravityQuotaWindow(payload.quota['gemini-weekly'], nowMsValue),
+    antigravityQuotaWindow(payload.quota['3p-weekly'], nowMsValue),
+  );
+  if (!fiveHour && !sevenDay) return null;
+  return { fiveHour, sevenDay };
 }
 
 function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | null | undefined): number | null {
@@ -169,5 +246,5 @@ function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | n
   return recordedCostUSD ?? null;
 }
 
-export { normalizeStatuslinePayload, rateLimitWindow, sessionMeterOf, shouldBroadcastPlanLimits, buildPlanLimitsMessage, buildAccountPlanLimitsMessage, selectOfficialSessionCost };
+export { normalizeAntigravityQuota, normalizeStatuslinePayload, rateLimitWindow, sessionMeterInputsOf, sessionMeterOf, shouldBroadcastPlanLimits, buildPlanLimitsMessage, buildAccountPlanLimitsMessage, selectOfficialSessionCost };
 export type { PlanLimitsVendor };
