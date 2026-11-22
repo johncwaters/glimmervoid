@@ -22,6 +22,12 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
   <div class="next-page">
     <NextHero />
     <UsedBy />
+    <section id="see-it">
+      <div class="section-head reveal">
+        <h2><a href="#see-it">See it before it's built.</a></h2>
+      </div>
+      <p class="reveal">Your coding agent sketches the screen, draws the architecture and shows you on a whiteboard.</p>
+    </section>
     <NextPacks />
     <Boards />
     <Status />
@@ -44,6 +50,7 @@ import { HOME_DESCRIPTION } from '../lib/product-facts.ts';
   .next-page .section-head { margin-bottom: 64px; }
   .next-page :is(.section-head, .yolo-copy) h2 a { color: inherit; text-decoration: none; }
   .next-page :is(.section-head, .yolo-copy) h2 a:hover { text-decoration: underline; }
+  .next-page #see-it > p { color: var(--text-dim); max-width: 54ch; }
   .next-page .attention-board { max-width: none; }
   .next-page .celebration-demo { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
   .next-page .celebration-demo .queue-row { padding-top: 0; border-top: 0; }
