@@ -1,32 +1,47 @@
 import './usage-panel.css';
 import { clock } from '#shared/clock.ts';
+import type { UsageBreakdownRow, UsageDailyVendorRow, UsageRangeRollup } from '#shared/contracts/usage-report.ts';
 import { el, isPanelHidden } from '../dom-helpers.ts';
 import { createPollAgoTicker, formatAgo } from '../poll-ago.ts';
 import { button } from '../ui/button.ts';
 import { emptyState } from '../ui/empty-state.ts';
+import { segmented } from '../ui/segmented.ts';
 import type { ViewModule, ViewRefreshReason } from '../view-registry-core.ts';
 import {
   reportUsageAction,
   requestUsageReport,
   setUsageLookingProbe,
+  setUsageRange,
   subscribeUsage,
   usageRefreshStatus,
   usageSnapshot,
 } from './usage-store.ts';
-import type { UsageChange } from './usage-store.ts';
-import { clampPct } from './usage-panel-parts.ts';
+import type { UsageChange, UsageRangeKey } from './usage-store.ts';
+import { buildMeter, clampPct } from './usage-panel-parts.ts';
 import {
   NO_VALUE,
   coverageRows,
   formatPercent,
   isUsageUnavailable,
+  laneLabelOf,
   limitCards,
   noLocalLimitsNote,
   projectionLineText,
   resetClockText,
+  shortProjectLabel,
+  spendDeltaText,
+  vendorLabelOf,
 } from './usage-view-core.ts';
 import type { LimitCardView } from './usage-view-core.ts';
-import { usageErrorLine } from './usage-store-core.ts';
+import {
+  RANGE_OPTIONS,
+  budgetRows,
+  formatCount,
+  formatTokens,
+  formatUsd,
+  usageErrorLine,
+} from './usage-store-core.ts';
+import type { UsageReport } from './usage-store-core.ts';
 
 let rootEl: HTMLElement | null = null;
 let refreshButtonEl: HTMLButtonElement | null = null;
@@ -166,6 +181,225 @@ function buildLimitsSection(now: number): HTMLElement {
   return section;
 }
 
+type BreakdownTab = 'agent' | 'model' | 'project' | 'lane';
+
+const BREAKDOWN_OPTIONS: readonly { value: BreakdownTab; label: string }[] = Object.freeze([
+  { value: 'agent', label: 'Agent' },
+  { value: 'model', label: 'Model' },
+  { value: 'project', label: 'Project' },
+  { value: 'lane', label: 'Lane' },
+]);
+
+const BAR_MAX_HEIGHT_PX = 84;
+const BAR_MIN_SEGMENT_PX = 2;
+
+let activeBreakdown: BreakdownTab = 'agent';
+
+function dayTotalCost(day: UsageDailyVendorRow): number {
+  let sum = 0;
+  for (const amount of Object.values(day.costByVendor)) sum += amount;
+  return sum;
+}
+
+function activeVendorsInDaily(daily: readonly UsageDailyVendorRow[]): string[] {
+  const totalsByVendor = new Map<string, number>();
+  for (const day of daily) {
+    for (const [vendor, amount] of Object.entries(day.costByVendor)) {
+      if (amount > 0) totalsByVendor.set(vendor, (totalsByVendor.get(vendor) ?? 0) + amount);
+    }
+  }
+  return Array.from(totalsByVendor.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([vendor]) => vendor);
+}
+
+function daySummaryLabel(day: UsageDailyVendorRow, vendors: readonly string[]): string {
+  const total = dayTotalCost(day);
+  if (total <= 0) return `${day.day}: $0.00`;
+  const parts = vendors
+    .filter((vendor) => (day.costByVendor[vendor] ?? 0) > 0)
+    .map((vendor) => `${vendorLabelOf(vendor)} ${formatUsd(day.costByVendor[vendor])}`);
+  const historyTag = day.source === 'history' ? ' (history)' : '';
+  return `${day.day}${historyTag}: ${formatUsd(total)} (${parts.join(', ')})`;
+}
+
+function buildDailyChart(daily: readonly UsageDailyVendorRow[]): HTMLElement {
+  const wrap = el('div', 'usage-chart-wrap');
+  const vendors = activeVendorsInDaily(daily);
+  const maxDayCost = Math.max(0, ...daily.map(dayTotalCost));
+  const chart = el('div', 'usage-daily-chart');
+
+  for (const day of daily) {
+    const col = el('div', 'usage-daily-col');
+    col.setAttribute('aria-label', daySummaryLabel(day, vendors));
+    if (day.source === 'history') col.dataset.source = 'history';
+    if (maxDayCost > 0) {
+      for (const vendor of vendors) {
+        const amount = day.costByVendor[vendor] ?? 0;
+        if (amount <= 0) continue;
+        const segment = el('span', 'usage-daily-seg');
+        segment.dataset.vendor = vendor;
+        const heightPx = Math.max(BAR_MIN_SEGMENT_PX, Math.round((amount / maxDayCost) * BAR_MAX_HEIGHT_PX));
+        segment.style.height = `${heightPx}px`;
+        col.append(segment);
+      }
+    }
+    chart.append(col);
+  }
+  wrap.append(chart);
+
+  if (vendors.length > 0) {
+    const legend = el('div', 'usage-chart-legend');
+    for (const vendor of vendors) {
+      const item = el('span', 'usage-legend-item');
+      const swatch = el('span', 'usage-legend-swatch');
+      swatch.dataset.vendor = vendor;
+      item.append(swatch, el('span', null, vendorLabelOf(vendor)));
+      legend.append(item);
+    }
+    wrap.append(legend);
+  }
+  return wrap;
+}
+
+function buildBudgetsRow(report: UsageReport): HTMLElement | null {
+  const rows = budgetRows(report);
+  if (rows.length === 0) return null;
+  const wrap = el('div', 'usage-budgets');
+  for (const row of rows) {
+    const item = el('div', 'usage-budget-item');
+    const scopeLabel = row.scope === 'daily' ? 'Today' : (row.scope === 'monthly' ? 'This month' : row.scope);
+    item.append(
+      el('span', 'usage-budget-label', `${scopeLabel} ${formatUsd(row.spentUsd)} of ${formatUsd(row.budgetUsd)}`),
+      buildMeter(row.pct, row.tone, `${scopeLabel} budget`),
+    );
+    wrap.append(item);
+  }
+  return wrap;
+}
+
+function breakdownLabel(tab: BreakdownTab, row: UsageBreakdownRow): string {
+  if (tab === 'agent') return vendorLabelOf(row.label);
+  if (tab === 'lane') return laneLabelOf(row.label);
+  if (tab === 'project') return shortProjectLabel(row.label);
+  return row.label;
+}
+
+function breakdownRowsFor(range: UsageRangeRollup, tab: BreakdownTab): UsageBreakdownRow[] {
+  if (tab === 'agent') return range.byAgent;
+  if (tab === 'model') return range.byModel;
+  if (tab === 'project') return range.byProject;
+  return range.byLane ?? [];
+}
+
+function buildBreakdownTable(range: UsageRangeRollup, tab: BreakdownTab): HTMLElement {
+  const rows = breakdownRowsFor(range, tab);
+  if (rows.length === 0) {
+    return el('p', 'usage-note', 'No spend recorded in this range.');
+  }
+  const firstHeading = tab === 'agent' ? 'Agent' : (tab === 'model' ? 'Model' : (tab === 'project' ? 'Project' : 'Lane'));
+  const wrap = el('div', 'usage-table-scroll');
+  const table = el('table', 'usage-table');
+  const head = el('thead');
+  const headRow = el('tr');
+  const columns: readonly { label: string; numeric?: boolean }[] = [
+    { label: firstHeading },
+    { label: 'Cost', numeric: true },
+    { label: 'Share', numeric: true },
+    { label: 'Input', numeric: true },
+    { label: 'Output', numeric: true },
+    { label: 'Cache hit', numeric: true },
+    { label: 'Sessions', numeric: true },
+  ];
+  for (const column of columns) {
+    const th = el('th', column.numeric ? 'usage-num' : null, column.label);
+    th.scope = 'col';
+    headRow.append(th);
+  }
+  head.append(headRow);
+  const body = el('tbody');
+  for (const row of rows) {
+    const tr = el('tr');
+    const sharePct = range.costUSD > 0 ? (row.costUSD / range.costUSD) * 100 : null;
+    const nameCell = el('td', tab === 'model' ? 'usage-mono' : null, breakdownLabel(tab, row));
+    tr.append(
+      nameCell,
+      el('td', 'usage-num', formatUsd(row.costUSD)),
+      el('td', 'usage-num', sharePct === null ? NO_VALUE : formatPercent(sharePct)),
+      el('td', 'usage-num', formatTokens(row.input)),
+      el('td', 'usage-num', formatTokens(row.output)),
+      el('td', 'usage-num', row.cacheHitPct === null ? NO_VALUE : formatPercent(row.cacheHitPct)),
+      el('td', 'usage-num', formatCount(row.sessions)),
+    );
+    body.append(tr);
+  }
+  table.append(head, body);
+  wrap.append(table);
+  return wrap;
+}
+
+function buildSpendSection(
+  report: UsageReport,
+  rangeKey: UsageRangeKey,
+  onRerender: () => void,
+): HTMLElement {
+  const section = el('section', 'usage-section');
+  section.append(buildSectionHeading('Spend', 'list price estimate, not a bill'));
+
+  const range = report.ranges?.[rangeKey];
+  if (!range) {
+    section.append(el('p', 'usage-note', 'Spend rollups are not available yet.'));
+    return section;
+  }
+
+  const head = el('div', 'usage-spend-head');
+  const summary = el('div', 'usage-spend-summary');
+  const rangeSwitch = segmented({
+    label: 'Spend range',
+    options: RANGE_OPTIONS,
+    value: rangeKey,
+    size: 'small',
+    onChange: (nextRange) => {
+      reportUsageAction('range');
+      setUsageRange(nextRange);
+    },
+  });
+  summary.append(
+    rangeSwitch.element,
+    el('div', 'usage-spend-hero usage-num', formatUsd(range.costUSD)),
+    el('div', 'usage-spend-delta', spendDeltaText(rangeKey, range.costUSD, range.previousCostUSD)),
+  );
+  head.append(summary, buildDailyChart(range.daily));
+  section.append(head);
+
+  const budgetsRow = buildBudgetsRow(report);
+  if (budgetsRow) section.append(budgetsRow);
+
+  const availableTabs = range.byLane !== null
+    ? BREAKDOWN_OPTIONS
+    : BREAKDOWN_OPTIONS.filter((option) => option.value !== 'lane');
+  if (!availableTabs.some((option) => option.value === activeBreakdown)) activeBreakdown = 'agent';
+
+  const breakdownSwitch = segmented({
+    label: 'Spend breakdown',
+    options: availableTabs,
+    value: activeBreakdown,
+    size: 'small',
+    onChange: (nextTab) => {
+      activeBreakdown = nextTab;
+      onRerender();
+    },
+  });
+  section.append(breakdownSwitch.element, buildBreakdownTable(range, activeBreakdown));
+
+  const missingModels = report.pricing?.missing ?? [];
+  if (missingModels.length > 0) {
+    const noun = missingModels.length === 1 ? 'model has' : 'models have';
+    section.append(el('p', 'usage-note', `${missingModels.length} ${noun} no list price and count as $0: ${missingModels.join(', ')}.`));
+  }
+  return section;
+}
+
 function buildCoverageSection(): HTMLElement {
   const snapshot = usageSnapshot();
   const section = el('section', 'usage-section');
@@ -233,6 +467,9 @@ function renderUsagePanel({ force = false }: { force?: boolean } = {}): void {
   }
 
   rootEl.append(buildLimitsSection(now));
+  if (snapshot.report?.ranges) {
+    rootEl.append(buildSpendSection(snapshot.report, snapshot.rangeValue, () => renderUsagePanel({ force: true })));
+  }
   if (snapshot.report?.coverage) {
     rootEl.append(buildCoverageSection());
   }

@@ -87,8 +87,46 @@ interface CoverageRowView {
   costSourceText: string;
 }
 
-function vendorLabelOf(vendor: string): string {
+const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  interactive: 'Interactive',
+  'pr-review': 'PR review',
+  'team-review': 'PR reviews',
+  posthog: 'PostHog',
+  'my-prs': 'Keep mergeable',
+  workflows: 'Workflows',
+  'change-map': 'Change map',
+  benchmark: 'Benchmarks',
+  'agent-spawn': 'Agent API',
+  'task-title': 'Task titles',
+  other: 'Other',
+});
+
+export function vendorLabelOf(vendor: string): string {
   return VENDOR_LABELS[vendor] ?? vendor;
+}
+
+export function laneLabelOf(lane: string): string {
+  return LANE_LABELS[lane] ?? lane;
+}
+
+export function spendDeltaText(
+  rangeKey: 'today' | 'week' | 'month',
+  currentCostUSD: number,
+  previousCostUSD: number | null,
+): string {
+  if (previousCostUSD === null || previousCostUSD <= 0) return 'No prior period to compare';
+  const pct = Math.round(((currentCostUSD - previousCostUSD) / previousCostUSD) * 100);
+  const priorLabel = rangeKey === 'today' ? 'yesterday' : (rangeKey === 'week' ? 'the 7 days before' : 'the 30 days before');
+  if (pct === 0) return `Flat on ${priorLabel}`;
+  const direction = pct > 0 ? 'up' : 'down';
+  return `${direction} ${Math.abs(pct)}% on ${priorLabel}`;
+}
+
+export function shortProjectLabel(project: string): string {
+  const normalized = project.replace(/\\/g, '/').replace(/\/+$/, '');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 2) return normalized || '<unknown>';
+  return parts.slice(-2).join('/');
 }
 
 export function isUsageUnavailable(report: UsageReport | null | undefined): boolean {

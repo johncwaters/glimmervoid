@@ -235,6 +235,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+.usage-mono {
+  font-family: var(--font-mono);
+}
+
 .usage-muted {
   color: var(--text-muted);
 }
@@ -280,6 +284,140 @@
 
 .usage-coverage-ok {
   color: var(--text-head);
+}
+
+.usage-spend-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.usage-spend-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.usage-spend-hero {
+  font-size: var(--type-display);
+  font-weight: 700;
+  color: var(--text-head);
+}
+
+.usage-spend-delta {
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+}
+
+.usage-chart-wrap {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.usage-daily-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 88px;
+}
+
+.usage-daily-col {
+  flex: 1;
+  min-width: 4px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 1px;
+}
+
+.usage-daily-col[data-source="history"] {
+  opacity: 0.65;
+}
+
+.usage-daily-seg {
+  display: block;
+  width: 100%;
+  border-radius: 1px;
+  background: var(--text-dim);
+}
+
+.usage-daily-seg[data-vendor="claude"],
+.usage-legend-swatch[data-vendor="claude"] {
+  background: var(--accent);
+}
+
+.usage-daily-seg[data-vendor="codex"],
+.usage-legend-swatch[data-vendor="codex"] {
+  background: var(--state-working, #5fb3a1);
+}
+
+.usage-daily-seg[data-vendor="kimi"],
+.usage-legend-swatch[data-vendor="kimi"] {
+  background: var(--agent-brand-kimi, #007cff);
+}
+
+.usage-daily-seg[data-vendor="antigravity"],
+.usage-legend-swatch[data-vendor="antigravity"] {
+  background: var(--state-waiting);
+}
+
+.usage-daily-seg[data-vendor="pi"],
+.usage-legend-swatch[data-vendor="pi"] {
+  background: var(--agent-brand-qwen, #6950ef);
+}
+
+.usage-daily-seg[data-vendor="opencode"],
+.usage-legend-swatch[data-vendor="opencode"] {
+  background: var(--agent-brand-claude-code, #d97757);
+}
+
+.usage-daily-seg[data-vendor="grok"],
+.usage-legend-swatch[data-vendor="grok"] {
+  background: var(--text-muted);
+}
+
+.usage-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: var(--type-meta);
+  color: var(--text-muted);
+}
+
+.usage-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-legend-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--text-dim);
+}
+
+.usage-budgets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.usage-budget-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.usage-budget-item > .ui-meter {
+  width: 140px;
 }
 
 }

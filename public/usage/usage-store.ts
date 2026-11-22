@@ -21,7 +21,7 @@ const REFRESH_STATUS_TIMEOUT_MS = 20000;
 type UsageSessionsPush = ServerMessageOf<'usage-sessions'>;
 type SessionMeterPush = ServerMessageOf<'session-meter'>;
 export type UsageChange = 'report' | 'sessions' | 'plan-limits' | 'session-meter' | 'refresh-status';
-type UsageRangeKey = 'today' | 'week' | 'month';
+export type UsageRangeKey = 'today' | 'week' | 'month';
 
 let report: UsageReport | null = null;
 let sessions: UsageSessionsPush | null = null;
@@ -112,6 +112,11 @@ export function reportUsageAction(action: OperatorActionOf<'usage'>): void {
 
 export function setUsageRequestSender(send: (message: Record<string, unknown>) => boolean): void {
   sendRequest = send;
+}
+
+export function setUsageRange(value: UsageRangeKey): void {
+  rangeValue = value;
+  notifySubscribers('report');
 }
 
 export function requestUsageReport({ force = false }: { force?: boolean } = {}): void {

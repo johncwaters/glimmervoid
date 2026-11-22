@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { YourDay } from './your-day.ts';
 
 export const UsageBreakdownRow = z.object({
   key: z.string(),
@@ -79,17 +78,3 @@ export const UsageReportRanges = z.object({
   month: UsageRangeRollup,
 });
 export type UsageReportRanges = z.infer<typeof UsageReportRanges>;
-
-export const UsageReportPayload = z.object({
-  ts: z.number(),
-  tz: z.string(),
-  ranges: UsageReportRanges,
-  coverage: z.array(UsageCoverageRow),
-  budget: UsageBudget.nullable(),
-  pricing: UsagePricing,
-  scan: UsageScanSummary,
-  yourDay: YourDay.nullable().optional(),
-  warning: z.string().nullable(),
-  error: z.string().nullable().optional(),
-});
-export type UsageReportPayload = z.infer<typeof UsageReportPayload>;

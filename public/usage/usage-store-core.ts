@@ -10,6 +10,11 @@ export const NO_VALUE = '-';
 
 const TOKEN_LIMIT_WARN_PCT = 80;
 export const DEFAULT_RANGE_VALUE: 'today' | 'week' | 'month' = 'week';
+export const RANGE_OPTIONS: readonly { value: 'today' | 'week' | 'month'; label: string }[] = Object.freeze([
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: '7 days' },
+  { value: 'month', label: '30 days' },
+]);
 
 function groupThousands(digits: string) {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -60,7 +65,7 @@ export function planWindowTone(pct: unknown) {
 
 const BUDGET_ATTENTION_PCT = 90;
 
-function budgetRows(report: UsageReport | null | undefined): UsageBudgetRow[] {
+export function budgetRows(report: UsageReport | null | undefined): UsageBudgetRow[] {
   const rows = report?.budget?.rows;
   if (!Array.isArray(rows)) return [];
   return rows.filter((row) => numberOr(row.budgetUsd, null) !== null);

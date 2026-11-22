@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import { buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
+import { buildRangeRollups, buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { budgetStanding, normalizeBudgetConfig } from './core/usage-budget-core.ts';
 import { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine } from './core/usage-codex-core.ts';
@@ -41,7 +41,7 @@ import {
 } from './core/usage-pi-core.ts';
 import type { PiUsageState } from './core/usage-pi-core.ts';
 import { laneRollup } from './core/usage-lane-core.ts';
-import type { UsageCoverageRow, UsageRangeRollup } from '../../shared/contracts/usage-report.ts';
+import type { UsageCoverageRow } from '../../shared/contracts/usage-report.ts';
 import { costForEntry, lookupModelPrice } from './core/usage-pricing-core.ts';
 import { activityKey, buildYourDay, parseClaudeActivityLine, parseCodexActivityLine, pruneActivity } from './core/usage-your-day-core.ts';
 import type { ActivityEvent, ParsedActivity } from './core/usage-your-day-core.ts';
@@ -107,18 +107,6 @@ const SUPPORTED_COVERAGE_VENDORS: readonly {
   { vendor: 'opencode', limitSource: 'none', costSource: 'reported' },
   { vendor: 'grok', limitSource: 'none', costSource: 'reported' },
 ]);
-
-function emptyRangeRollup(): UsageRangeRollup {
-  return {
-    costUSD: 0,
-    previousCostUSD: null,
-    daily: [],
-    byAgent: [],
-    byModel: [],
-    byProject: [],
-    byLane: null,
-  };
-}
 
 const noopLogger = Object.freeze({ warn: () => {} });
 
@@ -584,7 +572,6 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
   let resolutionError: string | null = null;
-  const cachedRollupsByRange = new Map<string, ReturnType<typeof buildRollups>>();
   let cachedSessionTotals: Map<string, SessionTotal> | null = null;
   let currentFileJournal: FileJournalAction[] | null = null;
   let currentFileGenerationRollup: Map<string, UsageGenerationRollupRow> | null = null;
@@ -627,7 +614,6 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   });
 
   function markDirty(): void {
-    cachedRollupsByRange.clear();
     cachedSessionTotals = null;
     cachedYourDay = null;
   }
@@ -1020,7 +1006,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   async function persistWarehouse(): Promise<void> {
     if (!warehousePath) return;
     await warehouseStore.load();
-    const rollups = cachedRollupsForDays(undefined, retainDays);
+    const rollups = buildRollups(retainDays);
     const liveDays = rollups.daily.map((row) => row.day);
     const merged = mergeWarehouse(warehouseRecords, rollupFromReport(rollups.daily), { liveDays });
     warehouseRecords = pruneWarehouse(merged, { retainDays: warehouseRetainDays, todayKey: todayDayKey() });
@@ -1059,32 +1045,21 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     };
   }
 
-  function cachedRollupsForDays(days: number | undefined, reportRetainDays: number) {
-    const rangeKey = `${days ?? 'all'}:${clock.timezone()}:${todayDayKey()}`;
-    const cached = cachedRollupsByRange.get(rangeKey);
-    if (cached) return cached;
-    const rollups = buildRollups(reportRetainDays);
-    cachedRollupsByRange.set(rangeKey, rollups);
-    return rollups;
-  }
-
-  function budgetRollups() {
-    const lookback = entryRetentionDays();
-    if (lookback === retainDays) return cachedRollupsForDays(undefined, retainDays);
-    return cachedRollupsForDays(lookback, lookback);
-  }
-
   function sortedModels<T extends { tokens: number }>(models: T[] | null | undefined): T[] {
     return (models || []).slice().sort((a, b) => b.tokens - a.tokens);
   }
 
-  function mergedDailyRows<T extends { day: string; costUSD: number }>(liveDaily: T[]) {
-    if (warehouseRecords.length === 0) return liveDaily;
+  function historyOnlyDailyRows(liveDaily: readonly { day: string }[]) {
+    if (warehouseRecords.length === 0) return [];
     const liveDays = liveDaily.map((row) => row.day).filter(Boolean);
     const earliestLive = liveDays.length > 0 ? liveDays.slice().sort()[0] : null;
-    const historyRows = warehouseDailyRows(warehouseRecords)
+    return warehouseDailyRows(warehouseRecords)
       .filter((row) => (earliestLive === undefined || earliestLive === null ? true : row.day < earliestLive))
       .map((row) => ({ ...row, models: sortedModels(row.models), vendors: [], source: 'history' }));
+  }
+
+  function mergedDailyRows<T extends { day: string; costUSD: number }>(liveDaily: T[]) {
+    const historyRows = historyOnlyDailyRows(liveDaily);
     if (historyRows.length === 0) return liveDaily;
     return [...historyRows, ...liveDaily].sort((a, b) => a.day.localeCompare(b.day));
   }
@@ -1092,7 +1067,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   function budgetSpend() {
     const todayKey = todayDayKey();
     const monthKey = todayKey.slice(0, 7);
-    const daily = mergedDailyRows(budgetRollups().daily);
+    const daily = mergedDailyRows(buildRollups(entryRetentionDays()).daily);
     let todayUsd = 0;
     let monthUsd = 0;
     for (const row of daily) {
@@ -1155,9 +1130,10 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     { days }: { days?: number } = {},
   ) {
     const reportRetainDays = days == null ? retainDays : days;
-    const rollups = cachedRollupsForDays(days, reportRetainDays);
+    const rollups = buildRollups(reportRetainDays);
     const now = nowFn();
     const daily = mergedDailyRows(cloneValue(rollups.daily));
+    const historyDaily = warehouseRecords.length > 0 ? warehouseDailyRows(warehouseRecords) : [];
     return {
       ts: now,
       tz: rollups.tz,
@@ -1165,11 +1141,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       daily,
       models: cloneValue(rollups.models),
       sessions: cloneValue(rollups.sessions),
-      ranges: {
-        today: emptyRangeRollup(),
-        week: emptyRangeRollup(),
-        month: emptyRangeRollup(),
-      },
+      ranges: buildRangeRollups(entries, { now, laneByKey: getRecordedLanes(), historyDaily }),
       coverage: buildCoverage(),
       budget: buildBudget(),
       byLane: buildLaneRows(reportRetainDays, now),

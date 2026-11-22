@@ -880,6 +880,48 @@ test('scanner ingests OpenCode SQLite messages with reasoning folded into output
   assert.ok(Math.abs(updatedReport.totals.costUSD - 0.14) < 1e-6);
 });
 
+test('buildReport populates today, week, and month ranges with prior-period deltas, breakdowns, and cache hit', async () => {
+  const root = await makeTempRoot();
+  const projectsDir = await makeProjectsDir(root);
+  const nowMs = new Date(2026, 7, 20, 15, 0, 0).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const transcript = path.join(projectsDir, 'demo-project', 'session-a.jsonl');
+  await writeLines(transcript, [
+    JSON.stringify({
+      type: 'assistant',
+      timestamp: new Date(nowMs - 60_000).toISOString(),
+      sessionId: 'sess-1',
+      requestId: 'today-1',
+      message: {
+        id: 'today-1',
+        model: 'claude-sonnet-4-20250514',
+        usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 900 },
+      },
+    }),
+    usageLine({ messageId: 'yest-1', requestId: 'yest-1', timestamp: new Date(nowMs - dayMs).toISOString(), input: 200, output: 100, sessionId: 'sess-2' }),
+    usageLine({ messageId: 'old-week-1', requestId: 'old-week-1', timestamp: new Date(nowMs - 10 * dayMs).toISOString(), input: 50, output: 25, sessionId: 'sess-3' }),
+  ]);
+  const laneByKey = new Map([['claude:sess-1', 'pr-review']]);
+  const scanner = createUsageScanner({
+    env: { HOME: root },
+    homeDir: root,
+    nowFn: () => nowMs,
+    pricingTable,
+    laneMap: () => laneByKey,
+  });
+  await scanner.runPass();
+  const report = scanner.buildReport();
+  assert.equal(report.ranges.today.daily.length, 1);
+  assert.equal(report.ranges.week.daily.length, 7);
+  assert.equal(report.ranges.month.daily.length, 30);
+  assert.ok(report.ranges.today.costUSD > 0);
+  assert.ok((report.ranges.today.previousCostUSD ?? 0) > 0);
+  assert.ok((report.ranges.week.previousCostUSD ?? 0) > 0);
+  assert.equal(report.ranges.today.byAgent[0]?.key, 'claude');
+  assert.equal(report.ranges.today.byAgent[0]?.cacheHitPct, 90);
+  assert.equal(report.ranges.today.byLane?.[0]?.key, 'pr-review');
+});
+
 function promptLine(sessionId: string, timestampMs: number, origin: Record<string, unknown> = {}): string {
   return JSON.stringify({ type: 'user', sessionId, timestamp: new Date(timestampMs).toISOString(), isSidechain: false, ...origin, message: { role: 'user', content: 'keep going' } });
 }
