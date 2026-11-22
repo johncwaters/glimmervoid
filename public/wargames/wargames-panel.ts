@@ -1,12 +1,12 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import { WARGAMES_RULES_VERSION, WARGAMES_SEAT_IDS, WARGAMES_SQUEEZE_TICK, WARGAMES_WIN_VILLAGES } from '#shared/contracts/wargames.ts';
-import type { SeatId, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
+import type { SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
-import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
+import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { createSvgIcon, createSvgShape } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { emptyState } from '../ui/empty-state.ts';
@@ -113,6 +113,29 @@ function formatSeatAgentModel(agentId: string, model: string | null, modelDispla
   const isGenericDisplay = modelDisplay === agentId || modelDisplay === `${agentId} (default)`;
   if (isGenericDisplay) return agentName;
   return `${agentName} · ${modelDisplay}`;
+}
+
+const ACTING_PHASE_LABELS: Readonly<Record<TickPhase, string>> = Object.freeze({
+  talk: 'Talking',
+  contracts: 'Negotiating',
+  orders: 'Planning',
+  resolving: 'Resolving',
+  reported: 'Resolving',
+});
+
+const SEAT_STATUS_LABELS: Readonly<Record<SeatStatus, string>> = Object.freeze({
+  disconnected: 'Connecting',
+  connected: 'Ready',
+  acting: 'Thinking',
+  submitted: 'Locked in',
+  timedOut: 'Timed out',
+  eliminated: 'Eliminated',
+});
+
+function formatSeatStatusLabel(status: SeatStatus, phase: TickPhase, matchStatus: MatchState['status']): string {
+  if (status === 'acting') return ACTING_PHASE_LABELS[phase];
+  if (status === 'disconnected' && matchStatus !== 'seating' && matchStatus !== 'lobby') return 'Offline';
+  return SEAT_STATUS_LABELS[status];
 }
 
 function formatError(reason: unknown): string {
@@ -353,7 +376,8 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     head.append(nameWrap, el('span', 'wg-faction-villages', `${ownedVillages}/${WARGAMES_WIN_VILLAGES}`));
 
     const agentAndModel = formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay);
-    const sub = el('div', 'wg-faction-sub', `${agentAndModel} · ${seat.status}`);
+    const modelLine = el('div', 'wg-faction-sub', agentAndModel);
+    const statusLine = el('div', 'wg-faction-sub', formatSeatStatusLabel(seat.status, state.phase, state.status));
 
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');
@@ -375,7 +399,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     const stats = el('div', 'wg-faction-stats');
     stats.append(unitGroup, el('span', '', `${totalGrain}G ${totalOre}O`));
 
-    banner.append(head, sub, track, stats);
+    banner.append(head, modelLine, statusLine, track, stats);
     strip.append(banner);
   }
   return strip;
@@ -796,6 +820,10 @@ function handleStoreUpdate(): void {
   if (ensureAutoWatch()) return;
   render();
 }
+
+subscribeSettings((change) => {
+  if (change.kind === 'broadcast') render();
+});
 
 export const view: ViewModule<HTMLElement> = {
   mount(panel) {

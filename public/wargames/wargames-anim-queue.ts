@@ -160,3 +160,30 @@ export function createBoardAnimationQueue<TimerHandle = ReturnType<typeof setTim
 
   return { enqueueBatch, clear, dispose, getState };
 }
+
+interface TurnHexImpactInput {
+  readonly troopDelta: number;
+  readonly loyaltyDelta: number;
+  readonly ownerChanged: boolean;
+  readonly hasIncomingGlide: boolean;
+  readonly hasHostileGlide: boolean;
+}
+
+export function directTurnEvents<EventItem extends TurnHexImpactInput>(
+  events: readonly EventItem[],
+): { lowImpact: EventItem[]; highImpact: EventItem[] } {
+  const lowImpact: EventItem[] = [];
+  const highImpact: EventItem[] = [];
+  for (const item of events) {
+    const isHighImpact = item.ownerChanged
+      || item.loyaltyDelta < 0
+      || item.hasHostileGlide
+      || (item.hasIncomingGlide && item.troopDelta < 0);
+    if (isHighImpact) {
+      highImpact.push(item);
+      continue;
+    }
+    lowImpact.push(item);
+  }
+  return { lowImpact, highImpact };
+}

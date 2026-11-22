@@ -5,6 +5,7 @@ import type { MatchState } from '#shared/wargames/engine.ts';
 import { createSvgShape } from '../svg-dom.ts';
 import {
   createBoardAnimationQueue,
+  directTurnEvents,
   transitionBoardOverlay,
 } from './wargames-anim-queue.ts';
 import type { BoardAnimationBeat, BoardOverlayMode } from './wargames-anim-queue.ts';
@@ -891,10 +892,73 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     const activeHexIndices = [...new Set([...glidesByDestHex.keys(), ...deltasByHex.keys()])]
       .sort((left, right) => left - right);
 
-    for (const hexIndex of activeHexIndices) {
+    const hexEvents = activeHexIndices.flatMap((hexIndex) => {
       const slot = slots[hexIndex];
-      if (!slot) continue;
+      if (!slot) return [];
       const glides = glidesByDestHex.get(hexIndex) ?? [];
+      const delta = deltasByHex.get(hexIndex) ?? null;
+      const prevVillage = previousVillages[hexIndex];
+      const hasIncomingGlide = glides.length > 0;
+      const hasHostileGlide = prevVillage !== null && glides.some(
+        (glide) => glide.army.targetHexIndex === hexIndex && glide.army.owner !== prevVillage.owner,
+      );
+      return [{
+        hexIndex,
+        slot,
+        glides,
+        delta,
+        troopDelta: delta?.troopDelta ?? 0,
+        loyaltyDelta: delta?.loyaltyDelta ?? 0,
+        ownerChanged: delta?.ownerChanged ?? false,
+        hasIncomingGlide,
+        hasHostileGlide,
+      }];
+    });
+
+    const { lowImpact, highImpact } = directTurnEvents(hexEvents);
+
+    if (lowImpact.length > 0) {
+      beats.push({
+        id: `low-impact-${resolvedTick}`,
+        durationMs: 850,
+        start: (durationMs) => {
+          const mounted: SVGElement[] = [];
+          const deferredUpdates: (() => void)[] = [];
+          for (const item of lowImpact) {
+            for (const glide of item.glides) {
+              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs);
+              if (node) mounted.push(node);
+            }
+            if (item.delta) {
+              const applyVillageUpdate = () => {
+                displayedVillages[item.hexIndex] = cloneVillage(item.delta?.targetVillage ?? null);
+                if (latestState) {
+                  paintHexSlot(item.hexIndex, displayedVillages[item.hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
+                }
+              };
+              if (item.hasIncomingGlide) {
+                deferredUpdates.push(applyVillageUpdate);
+              }
+              if (!item.hasIncomingGlide) {
+                applyVillageUpdate();
+              }
+              if (item.delta.troopDelta !== 0) {
+                const deltaLabel = item.delta.troopDelta > 0 ? `+${item.delta.troopDelta}` : String(item.delta.troopDelta);
+                const deltaFill = item.delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--text-dim)';
+                mounted.push(appendDeltaCallout(fxLayer, item.slot.centerX, item.slot.centerY - 4, deltaLabel, deltaFill, durationMs));
+              }
+            }
+          }
+          return () => {
+            for (const node of mounted) node.remove();
+            for (const applyUpdate of deferredUpdates) applyUpdate();
+          };
+        },
+      });
+    }
+
+    for (const item of highImpact) {
+      const { hexIndex, slot, glides, delta } = item;
       if (glides.length > 0) {
         beats.push({
           id: `march-${resolvedTick}-${hexIndex}`,
@@ -912,36 +976,36 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         });
       }
 
-      const delta = deltasByHex.get(hexIndex);
-      if (delta) {
+      if (delta || item.hasHostileGlide) {
         beats.push({
           id: `impact-${resolvedTick}-${hexIndex}`,
           durationMs: 900,
           start: (durationMs) => {
-            const currentDisplayed = displayedVillages[hexIndex];
-            if (currentDisplayed) {
-              displayedVillages[hexIndex] = {
-                ...currentDisplayed,
-                troops: { ...delta.targetVillage.troops },
-                loyalty: delta.targetVillage.loyalty,
-                resources: { ...delta.targetVillage.resources },
-                buildings: { ...delta.targetVillage.buildings },
-              };
-              if (latestState) {
-                paintHexSlot(hexIndex, displayedVillages[hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
+            if (delta) {
+              const currentDisplayed = displayedVillages[hexIndex];
+              if (currentDisplayed) {
+                displayedVillages[hexIndex] = {
+                  ...currentDisplayed,
+                  troops: { ...delta.targetVillage.troops },
+                  loyalty: delta.targetVillage.loyalty,
+                  resources: { ...delta.targetVillage.resources },
+                  buildings: { ...delta.targetVillage.buildings },
+                };
+                if (latestState) {
+                  paintHexSlot(hexIndex, displayedVillages[hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
+                }
               }
             }
             const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
-            if (delta.troopDelta < 0 || delta.ownerChanged) {
-              const clashColor = delta.targetVillage.owner !== null ? SEAT_COLORS[delta.targetVillage.owner] : 'var(--state-failed)';
-              mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.round(durationMs * 0.8)));
-            }
-            if (delta.troopDelta !== 0) {
+            const clashOwner = delta?.targetVillage.owner ?? null;
+            const clashColor = clashOwner !== null ? SEAT_COLORS[clashOwner] : 'var(--state-failed)';
+            mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.round(durationMs * 0.8)));
+            if (delta && delta.troopDelta !== 0) {
               const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
               const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
               mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
             }
-            if (delta.loyaltyDelta < 0) {
+            if (delta && delta.loyaltyDelta < 0) {
               const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
               mounted.push(appendDeltaCallout(fxLayer, slot.centerX, loyaltyY, `${delta.loyaltyDelta}%`, 'var(--state-waiting)', durationMs));
             }
@@ -951,7 +1015,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           },
         });
 
-        if (delta.ownerChanged && delta.targetVillage.owner !== null) {
+        if (delta && delta.ownerChanged && delta.targetVillage.owner !== null) {
           const ownerColor = SEAT_COLORS[delta.targetVillage.owner];
           beats.push({
             id: `capture-${resolvedTick}-${hexIndex}`,

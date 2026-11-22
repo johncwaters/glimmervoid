@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createBoardAnimationQueue,
+  directTurnEvents,
   transitionBoardOverlay,
   transitionBoardQueue,
 } from '../public/wargames/wargames-anim-queue.ts';
@@ -124,4 +125,19 @@ test('animation queue runs beats sequentially, cleans up on clear/dispose, scale
   queue.enqueueBatch([{ id: 'after-dispose', durationMs: 300, start: () => { events.push('should-not-run'); return undefined; } }]);
   assert.equal(queue.getState(), 'disposed');
   assert.equal(clock.scheduled.size, 0);
+});
+
+test('directTurnEvents merges low-impact training and departures while isolating high-impact battles and captures', () => {
+  const directed = directTurnEvents([
+    { id: 'train', troopDelta: 4, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
+    { id: 'departure', troopDelta: -6, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: false, hasHostileGlide: false },
+    { id: 'reinforce', troopDelta: 5, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
+    { id: 'bounce', troopDelta: 0, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: true },
+    { id: 'casualties', troopDelta: -3, loyaltyDelta: 0, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: false },
+    { id: 'loyalty', troopDelta: 0, loyaltyDelta: -25, ownerChanged: false, hasIncomingGlide: true, hasHostileGlide: true },
+    { id: 'capture', troopDelta: 0, loyaltyDelta: 0, ownerChanged: true, hasIncomingGlide: true, hasHostileGlide: true },
+  ]);
+
+  assert.deepEqual(directed.lowImpact.map((item) => item.id), ['train', 'departure', 'reinforce']);
+  assert.deepEqual(directed.highImpact.map((item) => item.id), ['bounce', 'casualties', 'loyalty', 'capture']);
 });
