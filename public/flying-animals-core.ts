@@ -24,7 +24,7 @@ export function hasIncludedAnimals(excludedSprites: readonly string[]): boolean 
   return ANIMALS.some((animal) => !excludedSprites.includes(animal.sprite));
 }
 
-export function pickIncludedAnimalIndex(excludedSprites: readonly string[], previousIndex = -1, random: () => number = Math.random): number | null {
+function pickIncludedAnimalIndex(excludedSprites: readonly string[], previousIndex = -1, random: () => number = Math.random): number | null {
   const includedIndices = ANIMALS.flatMap((animal, index) => excludedSprites.includes(animal.sprite) ? [] : [index]);
   if (includedIndices.length === 0) return null;
   const candidates = includedIndices.length > 1 ? includedIndices.filter((index) => index !== previousIndex) : includedIndices;

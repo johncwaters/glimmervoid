@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Your day: a morning brief instead of a one-liner**: The daily card shows the Glimmervoid mark, the recap day, yesterday's sessions, active time and longest run, then one finding with the real numbers behind it, why it matters and what to do, such as: agents got your answers in 1m 10s from 10:00 to 11:00 and 3m 40s the rest of the day, and an agent sits idle until you answer, so put the tasks with the most back and forth there. The break tip and the GitHub star card use the same layout, and no hint card flies in with an animal any more: the card rises in and the mark spins once and locks.
+
 ## [0.63.0] - 2026-11-22
 
 ### Added

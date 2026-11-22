@@ -1,8 +1,9 @@
-import { clock, shiftDayKey } from '#shared/clock.ts';
+import { clock } from '#shared/clock.ts';
 import { numberOr, textOr } from '#shared/coerce.ts';
 import type { UsageCoverageRow } from '#shared/contracts/usage-report.ts';
 import type { YourDay } from '#shared/contracts/your-day.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
+import { yourDayRecapLabel, yourDaySessionWord } from '#shared/your-day-text.ts';
 import {
   NO_VALUE,
   formatCount,
@@ -145,11 +146,8 @@ function formatMinutes(minutes: unknown): string {
 }
 
 export function yourDayHint(yourDay: YourDay, now: number): string {
-  const yesterdayKey = shiftDayKey(clock.dayKeyOf(now), -1) ?? '';
-  const [, month, day] = yourDay.yesterday.day.split('-').map(Number);
-  const dayLabel = yourDay.yesterday.day === yesterdayKey ? 'yesterday' : `${MONTH_NAMES[month - 1]} ${day}`;
-  const sessionWord = yourDay.yesterday.sessionCount === 1 ? 'session' : 'sessions';
-  return `${dayLabel}: ${yourDay.yesterday.sessionCount} ${sessionWord}, ${formatMinutes(yourDay.yesterday.activeMs / 60_000)}`;
+  const sessionCount = yourDay.yesterday.sessionCount;
+  return `${yourDayRecapLabel(yourDay, now)}: ${sessionCount} ${yourDaySessionWord(sessionCount)}, ${formatMinutes(yourDay.yesterday.activeMs / 60_000)}`;
 }
 
 function paceToneOf(usedPct: number, projectedPct: number | null): PaceTone {

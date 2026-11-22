@@ -101,7 +101,7 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = 'f3ce4738c9aa0b78';
+const SCAN_SNAPSHOT_INGEST_DIGEST = 'c857bbae5caef6a2';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(

@@ -3,10 +3,9 @@ import { REPO_SLUG } from '#shared/repo.ts';
 import { sendControlMsg } from './control-ws.ts';
 import { el } from './dom-helpers.ts';
 import { openExternalUrl } from './external-link.ts';
-import { buildFlyingAnimalPreview, pickRandomIncludedAnimal } from './flying-animal-preview.ts';
+import { buildLockMark, playLockMark } from './loading-unlock.ts';
 import { button } from './ui/button.ts';
 import { claimKey, claimNotification } from './notify-dedupe-core.ts';
-import { ANIMALS } from './nyan-animals-core.ts';
 import { clock } from '#shared/clock.ts';
 
 let shownHintCard: HTMLElement | null = null;
@@ -20,8 +19,16 @@ function claimCard(category: string, cardKey: string) {
   }
 }
 
-interface HintCardActions {
-  text: string;
+interface HintCardFact {
+  value: string;
+  label: string;
+}
+
+interface HintCardContent {
+  eyebrow: string;
+  title: string;
+  detail?: string;
+  facts?: readonly HintCardFact[];
   ariaLabel: string;
   openLabel?: string;
   onOpen: () => void;
@@ -32,18 +39,31 @@ export function isHintCardShown() {
   return shownHintCard?.isConnected === true;
 }
 
-export function showHintCard({ text, ariaLabel, openLabel = 'Show me', onOpen, onDismiss }: HintCardActions) {
+function buildFacts(facts: readonly HintCardFact[]) {
+  const factList = el('dl', 'feature-hint-facts');
+  for (const fact of facts) {
+    const factRow = el('div', 'feature-hint-fact');
+    factRow.append(el('dt', 'feature-hint-fact-label', fact.label), el('dd', 'feature-hint-fact-value', fact.value));
+    factList.append(factRow);
+  }
+  return factList;
+}
+
+export function showHintCard({ eyebrow, title, detail, facts = [], ariaLabel, openLabel = 'Show me', onOpen, onDismiss }: HintCardContent) {
   const hintCard = el('aside', 'feature-hint');
   hintCard.setAttribute('aria-live', 'polite');
   hintCard.setAttribute('aria-label', ariaLabel);
-  const bubble = el('div', 'feature-hint-bubble');
+  const head = el('div', 'feature-hint-head');
+  head.append(buildLockMark('feature-hint-mark'), el('span', 'feature-hint-eyebrow', eyebrow));
+  hintCard.append(head);
+  if (facts.length > 0) hintCard.append(buildFacts(facts));
+  hintCard.append(el('p', 'feature-hint-title', title));
+  if (detail) hintCard.append(el('p', 'feature-hint-detail', detail));
   const showButton = button({ variant: 'primary', label: openLabel });
   const dismissButton = button({ variant: 'secondary', label: 'Dismiss' });
   const actions = el('div', 'feature-hint-actions');
   actions.append(dismissButton, showButton);
-  bubble.append(el('p', 'feature-hint-text', text), actions);
-  const animal = pickRandomIncludedAnimal() ?? ANIMALS[0];
-  hintCard.append(bubble, buildFlyingAnimalPreview(animal, 'feature-hint-animal'));
+  hintCard.append(actions);
 
   function closeHint() {
     hintCard.remove();
@@ -63,6 +83,7 @@ export function showHintCard({ text, ariaLabel, openLabel = 'Show me', onOpen, o
 
   document.body.append(hintCard);
   shownHintCard = hintCard;
+  void playLockMark(hintCard);
 }
 
 function reportStarHintAction(action: 'shown' | 'open' | 'dismiss') {
@@ -76,7 +97,9 @@ export function showStarHint() {
   }
   if (!claimCard('star-hint', 'card')) return;
   showHintCard({
-    text: 'Enjoying Glimmervoid? A star on GitHub helps other people find it.',
+    eyebrow: 'Glimmervoid',
+    title: 'Enjoying Glimmervoid?',
+    detail: 'A star on GitHub helps other people find it.',
     ariaLabel: 'Star Glimmervoid on GitHub',
     openLabel: 'Star on GitHub',
     onOpen: () => {
