@@ -7,7 +7,7 @@ import { hookLaunch, installedHookLaunch } from "../../server/runtime-paths.ts";
 import { writeTextAtomicSync } from "../../server/json-file.ts";
 import { canonicalizePath } from "../../shared/canonical-paths.ts";
 import { errorMessage } from "../../shared/text.ts";
-import { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
+import { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin } from "../core/antigravity-plugin-core.ts";
 import type { AgentEnvProfile } from "../core/spawn-env.ts";
 import type { HookPayload } from "../../shared/contracts/index.ts";
 import type {
@@ -65,7 +65,7 @@ function isSubagentEvent(payload?: HookPayload): boolean {
 function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   const normalizedEvent = normalizedEventOf(event);
   if (isSubagentEvent(payload)) return SIGNAL_BY_SUBAGENT_EVENT[normalizedEvent] ?? null;
-  if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && hasRunningSubagent(payload?.subagents)) return "working";
+  if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && (payload?.hasRunningSubagent === true || hasRunningSubagent(payload?.subagents) || hasRunningTask(payload?.task_count))) return "working";
   if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && payload?.isTurnOpen !== true) return null;
   if (normalizedEvent === "preinvocation") return payload?.invocationNum === 0 ? "resume" : "working";
   if (normalizedEvent === "stop") return payload?.fullyIdle === true ? "ready" : null;

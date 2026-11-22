@@ -3,6 +3,7 @@ import { HELD_RELAY_HOOK_EVENTS, QUESTION_TOOL_HOLD_TIMEOUT_MS } from "../../sha
 const HOOK_URL_ENV = "GLIMMERVOID_HOOK_URL";
 
 const MAX_PAYLOAD_BYTES = 65536;
+const MAX_PAYLOAD_BYTES_BY_EVENT: Record<string, number> = { agentstate: 512 * 1024 };
 const MAX_RESPONSE_BYTES = 65536;
 const POST_TIMEOUT_MS = 1500;
 
@@ -67,7 +68,7 @@ function decideRelayPost(
   const name = normalizeEvent(event);
   if (!name) return refusedPost("bad-event");
   if (!Number.isFinite(payloadBytes) || payloadBytes < 0) return refusedPost("bad-payload");
-  if (payloadBytes > MAX_PAYLOAD_BYTES) return refusedPost("payload-too-large");
+  if (payloadBytes > (MAX_PAYLOAD_BYTES_BY_EVENT[name] ?? MAX_PAYLOAD_BYTES)) return refusedPost("payload-too-large");
   const target = resolveHookTarget(baseUrl, name);
   if (!target.url) return refusedPost(target.reason);
   const postTimeoutMs = HELD_RELAY_HOOK_EVENTS.has(name) ? QUESTION_TOOL_HOLD_TIMEOUT_MS : POST_TIMEOUT_MS;

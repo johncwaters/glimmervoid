@@ -98,6 +98,10 @@ function hasRunningSubagent(subagents: unknown): boolean {
   return Array.isArray(subagents) && subagents.some((subagent: unknown) => typeof subagent === "object" && subagent !== null && "status" in subagent && subagent.status === "running");
 }
 
+function hasRunningTask(taskCount: unknown): boolean {
+  return typeof taskCount === "number" && taskCount > 0;
+}
+
 function toolCallOf(payload: HookPayloadRecord): { name: string | null; args: unknown } {
   const toolCall = payload.toolCall;
   if (typeof toolCall !== "object" || toolCall === null) return { name: null, args: null };
@@ -142,8 +146,10 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   let lastInjectedStepInput: string | null = null;
 
   function tagAgentState(payload: HookPayloadRecord): HookPayloadRecord {
-    const taggedPayload = { ...payload, isTurnOpen, pendingToolName };
-    if (payload.agent_state === "idle" && !hasRunningSubagent(payload.subagents)) isTurnOpen = false;
+    const { subagents, ...withoutSubagents } = payload;
+    const isSubagentRunning = payload.hasRunningSubagent === true || hasRunningSubagent(subagents);
+    const taggedPayload = { ...withoutSubagents, hasRunningSubagent: isSubagentRunning, isTurnOpen, pendingToolName };
+    if (payload.agent_state === "idle" && !isSubagentRunning && !hasRunningTask(payload.task_count)) isTurnOpen = false;
     return taggedPayload;
   }
 
@@ -197,4 +203,4 @@ function createConversationTagger(): (event: string, payload: HookPayloadRecord)
   };
 }
 
-export { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, ENRICHED_PAYLOAD_KEYS, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, packSkillWorkspacesOf, renderAntigravityPlugin };
+export { ANTIGRAVITY_PLUGIN_NAME, ANTIGRAVITY_QUESTION_TOOL_NAME, ENRICHED_PAYLOAD_KEYS, antigravitySessionSettings, createConversationTagger, hasRunningSubagent, hasRunningTask, packSkillWorkspacesOf, renderAntigravityPlugin };

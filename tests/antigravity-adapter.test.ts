@@ -111,3 +111,39 @@ test('an agy session records each new operator prompt once for auto-naming and s
     'Fix the failing login flow',
   ]);
 });
+
+test('AgentState idle stays working while background tasks or subagents run and drops subagents from enriched payloads', () => {
+  const enrich = antigravity.hooks.createPayloadEnricher?.();
+  assert.ok(enrich);
+  enrich('PreInvocation', { conversationId: 'conv-bg', invocationNum: 0, lastUserInput: 'Run tests in background' });
+
+  const withBackgroundTask = enrich('AgentState', { agent_state: 'idle', task_count: 1 });
+  assert.equal(antigravity.mapHookToSignal('AgentState', withBackgroundTask), 'working');
+  assert.equal(withBackgroundTask.isTurnOpen, true);
+
+  const withRunningSubagent = enrich('AgentState', {
+    agent_state: 'idle',
+    task_count: 0,
+    subagents: [{ name: 'reviewer', role: 'x'.repeat(2048), status: 'running' }],
+  });
+  assert.equal('subagents' in withRunningSubagent, false);
+  assert.equal(withRunningSubagent.hasRunningSubagent, true);
+  assert.equal(antigravity.mapHookToSignal('AgentState', withRunningSubagent), 'working');
+
+  const replayedSubagentRunning = enrich('AgentState', { agent_state: 'idle', task_count: 0, hasRunningSubagent: true });
+  assert.equal(replayedSubagentRunning.hasRunningSubagent, true);
+  assert.equal(replayedSubagentRunning.isTurnOpen, true);
+  assert.equal(antigravity.mapHookToSignal('AgentState', replayedSubagentRunning), 'working');
+
+  const settledIdle = enrich('AgentState', {
+    agent_state: 'idle',
+    task_count: 0,
+    subagents: [{ name: 'reviewer', role: 'done', status: 'completed' }],
+  });
+  assert.equal('subagents' in settledIdle, false);
+  assert.equal(settledIdle.hasRunningSubagent, false);
+  assert.equal(antigravity.mapHookToSignal('AgentState', settledIdle), 'ready');
+
+  const idleAfterClose = enrich('AgentState', { agent_state: 'idle' });
+  assert.equal(antigravity.mapHookToSignal('AgentState', idleAfterClose), null);
+});
