@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **Your day: a morning brief instead of a one-liner**: The daily card shows the Glimmervoid mark, the recap day, yesterday's sessions, active time and longest run, then one finding with the real numbers behind it, why it matters and what to do, such as: agents got your answers in 1m 10s from 10:00 to 11:00 and 3m 40s the rest of the day, and an agent sits idle until you answer, so put the tasks with the most back and forth there. The break tip and the GitHub star card use the same layout, and no hint card flies in with an animal any more: the card rises in and the mark spins once and locks.
-
 ## [0.63.0] - 2026-11-22
 
 ### Added
@@ -62,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Your day: a morning brief instead of a one-liner**: The daily card shows the Glimmervoid mark, the recap day, yesterday's sessions, active time and longest run, then one finding with the real numbers behind it, why it matters and what to do, such as: agents got your answers in 1m 10s from 10:00 to 11:00 and 3m 40s the rest of the day, and an agent sits idle until you answer, so put the tasks with the most back and forth there. The break tip and the GitHub star card use the same layout, and no hint card flies in with an animal any more: the card rises in and the mark spins once and locks.
 - **Settings hides options that do not apply.** The macOS certificate check row only shows on macOS, sandbox rows only show when `sessionSandbox` is on, PostHog and Community fields only show when their feature is on, Vault Look in hides when using Age, GitHub organization hides when GitHub teams are set, and When a session is stuck hides when Turns without progress is off.
 - **Settings moves misfiled rows and folds tuning knobs into config.json.** Reviewing now limit moved to Reviews, Delete unmerged branches moved to a new Worktrees page under Sessions alongside worktree and branch cleanup keys, and `lanes.fetchDomains` moved to Privacy (existing deep links still open them). Rarely changed tuning controls (`autoResume`, `spawnedSessionsMax`, `sessionReview.model`, `posthog.maxConcurrentInvestigations`, `posthog.minUsersToInvestigate`, `teamReview` timing/model/effort/extraSkills, `workflows.maxConcurrentSessions`, `usage.retainDays`, and `viewTabOrder`) now live under Settings in config.json only and remain searchable.
 - **Status detection and worktree behaviors are now always on.** Removed `detectBackgroundAgents`, `recordSignals`, `trace.enabled`, `detectScheduledWakeups`, `worktree.autoRebase`, `worktree.syncOnStart`, `worktree.cloneDependencies`, and `worktree.rerere`; existing `config.json` files drop them automatically on startup.
