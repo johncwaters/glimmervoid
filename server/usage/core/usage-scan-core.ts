@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { nextBackoffMs } from '../../../shared/backoff.ts';
 import { rawTextOr } from '../../../shared/coerce.ts';
+import { ANTIGRAVITY_USAGE_FILENAME } from './usage-antigravity-core.ts';
 import { KIMI_USAGE_FILENAME } from './usage-kimi-core.ts';
 import { UsageScanSnapshot } from '../../../shared/contracts/usage-scan-snapshot.ts';
 
@@ -158,13 +159,13 @@ function shouldPersistWarehouse(
 }
 
 const SCAN_SNAPSHOT_VERSION = 1;
-const SCAN_SNAPSHOT_INGEST_DIGEST = 'a15ab962a07186de';
+const SCAN_SNAPSHOT_INGEST_DIGEST = '3f25d0c07fa0e06b';
 const SCAN_SNAPSHOT_MIN_INTERVAL_MS = 30 * 60 * 1000;
 
 function scanConfigKey(
   { appVersion, vendors, extraProjectsDirs, costMode, retainDays, hasMonthlyBudget, env, homeDir }: {
     appVersion: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean } | null | undefined;
     extraProjectsDirs: string[];
     costMode: string;
     retainDays: number;
@@ -179,10 +180,12 @@ function scanConfigKey(
     codex: vendors?.codex !== false,
     grok: vendors?.grok !== false,
     kimi: vendors?.kimi !== false,
+    antigravity: vendors?.antigravity !== false,
     claudeRoots: projectDirCandidates(env, extraProjectsDirs, homeDir),
     codexHomes: codexHomes(env, homeDir),
     grokHomes: grokHomes(env, homeDir),
     kimiHomes: kimiHomes(env, homeDir),
+    antigravityHomes: antigravityHomes(env, homeDir),
     costMode,
     retainDays,
     hasMonthlyBudget,
@@ -259,6 +262,16 @@ function kimiHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null 
   return vendorHomes(env, 'KIMI_CODE_HOME', '.kimi-code', homeDir);
 }
 
+function antigravityHomes(env: NodeJS.ProcessEnv = process.env, homeDir: string | null = null): string[] {
+  const home = resolveHomeDir(env, homeDir);
+  if (!home) return [];
+  return [path.join(home, '.gemini', 'antigravity-cli', 'brain'), path.join(home, '.gemini', 'antigravity', 'brain')];
+}
+
+function antigravityRootCandidates(homes: string[]): VendorRoot[] {
+  return homes.map((home) => ({ dir: home, kind: 'active', home }));
+}
+
 function codexRootCandidates(homes: string[]): VendorRoot[] {
   const candidates: VendorRoot[] = [];
   for (const home of homes) {
@@ -283,6 +296,7 @@ function isUsageFile(vendor: string, fileName: unknown): boolean {
   if (typeof fileName !== 'string') return false;
   if (vendor === 'grok') return fileName === GROK_USAGE_FILENAME;
   if (vendor === 'kimi') return fileName === KIMI_USAGE_FILENAME;
+  if (vendor === 'antigravity') return fileName === ANTIGRAVITY_USAGE_FILENAME;
   return fileName.endsWith('.jsonl');
 }
 
@@ -307,4 +321,4 @@ function codexSessionIdFromPath(filePath: unknown): string | null {
   return base || null;
 }
 
-export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };
+export { expandTilde, decideFileRead, projectDirCandidates, resolveProjectsDirs, scopedClaudeRoots, splitLines, passOutcome, shouldPersistWarehouse, SCAN_SNAPSHOT_VERSION, SCAN_SNAPSHOT_INGEST_DIGEST, SCAN_SNAPSHOT_MIN_INTERVAL_MS, scanConfigKey, decodeScanSnapshot, shouldPersistSnapshot, continuationDelayMs, shouldEvaluateDespiteIoFailures, antigravityHomes, antigravityRootCandidates, codexHomes, grokHomes, kimiHomes, codexRootCandidates, codexFallbackRoots, sessionsRootCandidates, codexSessionIdFromPath, dedupeCodexFiles, isUsageFile };

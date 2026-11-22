@@ -820,3 +820,46 @@ test('Antigravity AgentState populates session meter with model.effort, deduplic
   assert.equal(planLimits.length, 1);
   await wiring.stop();
 });
+
+test('antigravity usage scans transcript_full.jsonl via one-level brain discovery and deduplicates across passes', async () => {
+  const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-antigravity-'));
+  try {
+    const conversationId = '11111111-2222-4333-8444-555555555555';
+    const logsDir = path.join(directory, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs');
+    const stepsDir = path.join(directory, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'steps', '1');
+    await realFsp.mkdir(logsDir, { recursive: true });
+    await realFsp.mkdir(stepsDir, { recursive: true });
+    const createdAt = new Date().toISOString();
+    const plannerLine = JSON.stringify({
+      step_index: 3,
+      source: 'MODEL',
+      type: 'PLANNER_RESPONSE',
+      status: 'DONE',
+      created_at: createdAt,
+      model: 'gemini-2.5-pro',
+      input_tokens: 1200,
+      cache_read_tokens: 4500,
+      output_tokens: 300,
+    });
+    const ignoredLine = JSON.stringify({ step_index: 4, source: 'TOOL', type: 'GENERIC', created_at: createdAt });
+    const negativeLine = JSON.stringify({ step_index: 5, source: 'MODEL', type: 'PLANNER_RESPONSE', created_at: createdAt, model: 'gemini-2.5-pro', input_tokens: 1, output_tokens: -500 });
+    const duplicateLogsDir = path.join(directory, '.gemini', 'antigravity', 'brain', conversationId, '.system_generated', 'logs');
+    await realFsp.mkdir(duplicateLogsDir, { recursive: true });
+    await realFsp.writeFile(path.join(logsDir, 'transcript_full.jsonl'), `${plannerLine}\n${ignoredLine}\n${negativeLine}\n`);
+    await realFsp.writeFile(path.join(duplicateLogsDir, 'transcript_full.jsonl'), `${plannerLine}\n`);
+    await realFsp.writeFile(path.join(stepsDir, 'transcript_full.jsonl'), `${plannerLine}\n`);
+    const scanner = createUsageScanner({
+      env: { HOME: directory, CLAUDE_CONFIG_DIR: path.join(directory, 'no-claude'), CODEX_HOME: path.join(directory, 'no-codex'), GROK_HOME: path.join(directory, 'no-grok'), KIMI_CODE_HOME: path.join(directory, 'no-kimi') },
+      homeDir: directory,
+      pricingTable: new Map(),
+    });
+    await scanner.runPass({ force: true });
+    await scanner.runPass();
+    const antigravityEntries = scanner._entriesForTest().filter((entry) => entry.vendor === 'antigravity');
+    assert.deepEqual(antigravityEntries.map((entry) => [entry.sessionId, entry.model, entry.input, entry.output, entry.cacheRead]), [
+      [conversationId, 'gemini-2.5-pro', 1200, 300, 4500],
+    ]);
+  } finally {
+    await realFsp.rm(directory, { recursive: true, force: true });
+  }
+});

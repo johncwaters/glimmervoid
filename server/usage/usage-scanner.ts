@@ -26,6 +26,7 @@ import {
 } from './core/usage-entry-core.ts';
 import type { UsageEntry, UsageGenerationRollupRow } from './core/usage-entry-core.ts';
 import { grokDedupIdentity, parseGrokUsageLine } from './core/usage-grok-core.ts';
+import { ANTIGRAVITY_TRANSCRIPT_SEGMENTS, antigravityDedupIdentity, isAntigravitySessionDir, parseAntigravityUsageLine } from './core/usage-antigravity-core.ts';
 import { kimiDedupIdentity, parseKimiUsageLine } from './core/usage-kimi-core.ts';
 import { SEVEN_DAY_WINDOW_MS, laneRollup, laneRollupSince } from './core/usage-lane-core.ts';
 import type { PlanWindowStarts } from './core/usage-lane-core.ts';
@@ -44,6 +45,8 @@ import {
   decodeScanSnapshot,
   dedupeCodexFiles,
   grokHomes,
+  antigravityHomes,
+  antigravityRootCandidates,
   kimiHomes,
   sessionsRootCandidates,
   isUsageFile,
@@ -153,7 +156,7 @@ interface UsageScannerOptions {
   blockHours?: number;
   retainDays?: number;
   extraProjectsDirs?: string[];
-  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean };
+  vendors?: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean };
   warehousePath?: string | null;
   warehouseRetainDays?: number;
   snapshotPath?: string | null;
@@ -284,6 +287,7 @@ function keysForEntry(entry: StoredEntry, syntheticPrimary: string | null = null
   if (entry?.vendor === 'codex') return { primary: codexDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'grok') return { primary: grokDedupIdentity(entry), collision: null };
   if (entry?.vendor === 'kimi') return { primary: kimiDedupIdentity(entry), collision: null };
+  if (entry?.vendor === 'antigravity') return { primary: antigravityDedupIdentity(entry), collision: null };
   const keys = dedupKeys(entry);
   return { primary: keys.primary || syntheticPrimary || entry?.[SYNTHETIC_PRIMARY] || null, collision: keys.collision };
 }
@@ -348,7 +352,7 @@ async function resolveVendorRootsAsync(
     fsPromises: ScannerFileSystem;
     env: NodeJS.ProcessEnv;
     homeDir: string;
-    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean } | null | undefined;
+    vendors: { codex?: boolean; grok?: boolean; kimi?: boolean; antigravity?: boolean } | null | undefined;
     laneLog: LaneLog;
   },
 ): Promise<{ roots: ScanRoot[]; ioFailures: number }> {
@@ -371,7 +375,63 @@ async function resolveVendorRootsAsync(
     ioFailures += surviving.ioFailures;
     for (const root of surviving.roots) roots.push({ vendor: 'kimi', dir: root.dir, kind: root.kind });
   }
+  if (vendors?.antigravity !== false) {
+    const surviving = await existingRoots(antigravityRootCandidates(antigravityHomes(env, homeDir)), fsPromises, laneLog);
+    ioFailures += surviving.ioFailures;
+    for (const root of surviving.roots) roots.push({ vendor: 'antigravity', dir: root.dir, kind: root.kind });
+  }
   return { roots, ioFailures };
+}
+
+async function findLiteralChildEntry(
+  parentDir: string,
+  childName: string,
+  fsPromises: ScannerFileSystem,
+  laneLog: LaneLog,
+): Promise<{ entry: Dirent | null; ioFailures: number }> {
+  try {
+    const entries = await fsPromises.readdir(parentDir, { withFileTypes: true });
+    return { entry: entries.find((entry) => entry.name === childName) ?? null, ioFailures: 0 };
+  } catch (error) {
+    if (isMissingFileError(error)) return { entry: null, ioFailures: 0 };
+    laneLog.warn('readdir failed', { path: parentDir, error: errorMessage(error) });
+    return { entry: null, ioFailures: 1 };
+  }
+}
+
+async function walkAntigravityBrainRoot(
+  dir: string,
+  fsPromises: ScannerFileSystem,
+  files: string[],
+  laneLog: LaneLog,
+): Promise<number> {
+  let entries: Dirent[];
+  try {
+    entries = await fsPromises.readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingFileError(error)) return 0;
+    laneLog.warn('readdir failed', { path: dir, error: errorMessage(error) });
+    return 1;
+  }
+  const [systemGeneratedSegment, logsSegment, transcriptFileName] = ANTIGRAVITY_TRANSCRIPT_SEGMENTS;
+  let ioFailures = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !isAntigravitySessionDir(entry.name)) continue;
+    const sessionDir = path.join(dir, entry.name);
+    const systemGenerated = await findLiteralChildEntry(sessionDir, systemGeneratedSegment, fsPromises, laneLog);
+    ioFailures += systemGenerated.ioFailures;
+    if (!systemGenerated.entry?.isDirectory()) continue;
+    const systemGeneratedDir = path.join(sessionDir, systemGeneratedSegment);
+    const logs = await findLiteralChildEntry(systemGeneratedDir, logsSegment, fsPromises, laneLog);
+    ioFailures += logs.ioFailures;
+    if (!logs.entry?.isDirectory()) continue;
+    const logsDir = path.join(systemGeneratedDir, logsSegment);
+    const transcript = await findLiteralChildEntry(logsDir, transcriptFileName, fsPromises, laneLog);
+    ioFailures += transcript.ioFailures;
+    if (!transcript.entry?.isFile()) continue;
+    files.push(path.join(logsDir, transcriptFileName));
+  }
+  return ioFailures;
 }
 
 async function walkDir(
@@ -412,7 +472,9 @@ async function walkSourceFiles(
   let ioFailures = 0;
   for (const root of roots) {
     const found: string[] = [];
-    ioFailures += await walkDir(root.dir, root.vendor, fsPromises, found, laneLog);
+    ioFailures += root.vendor === 'antigravity'
+      ? await walkAntigravityBrainRoot(root.dir, fsPromises, found, laneLog)
+      : await walkDir(root.dir, root.vendor, fsPromises, found, laneLog);
     for (const file of found) files.push({ file, vendor: root.vendor, kind: root.kind });
   }
   const codexFiles = dedupeCodexFiles(files.filter((entry) => entry.vendor === 'codex'));
@@ -435,7 +497,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     blockHours = 5,
     retainDays = 90,
     extraProjectsDirs = [],
-    vendors = { codex: true, grok: true, kimi: true },
+    vendors = { codex: true, grok: true, kimi: true, antigravity: true },
     warehousePath = null,
     warehouseRetainDays = 365,
     snapshotPath = null,
@@ -680,6 +742,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     }
     if (vendor === 'grok') return ingestVendorLine(parseGrokUsageLine(line), file);
     if (vendor === 'kimi') return ingestVendorLine(parseKimiUsageLine(line, file), file);
+    if (vendor === 'antigravity') return ingestVendorLine(parseAntigravityUsageLine(line, file), file);
     const activity = parseClaudeActivityLine(line);
     if (activity) noteActivity('claude', activity, identityFromRelPath(relativeToProjects(file, claudeRoots)).sessionId);
     const parsed = parseUsageLine(line);
