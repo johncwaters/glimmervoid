@@ -100,6 +100,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     'Troops & costs: raider (12g/8o) beats envoy (25g/20o), envoy beats guard (8g/12o), guard beats raider. Envoys drain village loyalty from 100 to 0 to capture.',
     'Important mechanics: attacking armies always return home after battle (newly captured villages start at loyalty 25 with 0 garrison, so reinforce or train immediately). March to your own village to reinforce it. Outer ring hexes turn barren at tick 25.',
     'Diplomacy & tribes: max 2 messages/tick; attach signed (or modified) reports via attachedReport on send_message and verify others with verify_report. Contracts: resource escrow and collateral-backed NAP. Tribes (max 2 seats) use tribe_join / tribe_leave orders and share a tribe channel.',
+    'Scratchpad: Every tick, record your private thoughts, threat read, and alliance or betrayal plans with write_note (private to you and spectators; never visible to other seats).',
     'Pacing: Act ONLY through your 10 Wargames MCP tools. When finished with talk or contracts, call get_state({ ready: true, wait_for_change: true }) to fast-advance and wait cleanly for the next phase without polling.',
     'Start immediately by calling get_state() to connect your seat, then loop through every phase until the match finishes.',
   ];

@@ -75,6 +75,7 @@ function renderArmyPill(
   owner: SeatId,
   troops: { raider: number; guard: number; envoy: number },
   color: string,
+  isReturning = false,
 ): void {
   const active = UNIT_GLYPH_PATHS
     .filter((unit) => troops[unit.key] > 0)
@@ -82,7 +83,7 @@ function renderArmyPill(
       const digits = String(troops[unit.key]);
       return { unit, digits, width: 6.4 + digits.length * 5.1 };
     });
-  const ownerTag = owner.toUpperCase();
+  const ownerTag = isReturning ? `RET ${owner.toUpperCase()}` : owner.toUpperCase();
   const ownerWidth = ownerTag.length * 5.2;
   const gap = 4;
   const tokensWidth = active.reduce((sum, item) => sum + item.width, 0) + Math.max(0, active.length - 1) * gap;
@@ -90,7 +91,7 @@ function renderArmyPill(
   const pillWidth = Math.max(30, contentWidth + 10);
   const pillHeight = 16;
 
-  armyGroup.append(createSvgShape('rect', {
+  const pillAttrs: Record<string, string> = {
     x: (midX - pillWidth / 2).toFixed(1),
     y: (midY - pillHeight / 2).toFixed(1),
     width: pillWidth.toFixed(1),
@@ -99,7 +100,9 @@ function renderArmyPill(
     fill: 'var(--bg)',
     stroke: color,
     'stroke-width': '1.2',
-  }));
+  };
+  if (isReturning) pillAttrs['stroke-dasharray'] = '3 2';
+  armyGroup.append(createSvgShape('rect', pillAttrs));
 
   let cursorX = midX - contentWidth / 2;
   const baselineY = midY + 3;
@@ -472,6 +475,7 @@ function renderMarchVector(
     lineClass: string;
     showPill?: boolean;
     lateralOffset?: number;
+    isReturning?: boolean;
   },
 ): void {
   const deltaX = toSlot.centerX - fromSlot.centerX;
@@ -508,7 +512,7 @@ function renderMarchVector(
     }),
   );
   if (options.showPill !== false) {
-    renderArmyPill(vectorGroup, midX, midY, owner, troops, color);
+    renderArmyPill(vectorGroup, midX, midY, owner, troops, color, options.isReturning);
   }
   layer.append(vectorGroup);
 }
@@ -784,6 +788,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         opacity: armyOpacity,
         groupClass: 'wg-army-arrow',
         lineClass: 'wg-army-line',
+        isReturning: army.status === 'returning',
       });
     }
   }
