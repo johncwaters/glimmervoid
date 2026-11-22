@@ -14,7 +14,6 @@ import { GitObjectSha, RaceId } from './race.ts';
 import type { BranchGcFileSettings as BranchGcFileSettingsSchema, WorktreeFileSettings } from './browser-config.ts';
 
 export {
-  BRANCH_GC_CONTROL_BOOLEAN_KEYS, BRANCH_GC_CONTROL_NUMERIC_KEYS,
   BranchGcFileSettings,
 } from './browser-config.ts';
 
@@ -22,8 +21,6 @@ export const BrowserConfig = createBrowserConfig(path.isAbsolute);
 const BROWSER_CONFIG_SHAPE = BrowserConfig.shape;
 export const ConfigUpdate = z.object({
   ...BROWSER_CONFIG_SHAPE,
-  notifyDebounceMs: z.number({ error: 'notifyDebounceMs must be a positive number' }).finite().positive({ error: 'notifyDebounceMs must be a positive number' }).optional(),
-  phoneEscalationMs: z.number({ error: 'phoneEscalationMs must be a positive number' }).finite().positive({ error: 'phoneEscalationMs must be a positive number' }).optional(),
   branchGc: BranchGcControlSettings,
   worktree: WorktreeControlSettings,
   shareCommitProvenance: optionalBoolean('shareCommitProvenance'),

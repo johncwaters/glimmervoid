@@ -114,9 +114,8 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, retitleBo
     if (!parsed.success) return { ...DEFAULT_REFINER_SETTINGS, enabled: false };
     const refiner = parsed.data?.refiner;
     return {
-      enabled: refiner?.enabled ?? DEFAULT_REFINER_SETTINGS.enabled, model: refiner?.model?.trim() || DEFAULT_REFINER_SETTINGS.model,
-      minIntervalSeconds: refiner?.minIntervalSeconds ?? DEFAULT_REFINER_SETTINGS.minIntervalSeconds,
-      timeoutSeconds: refiner?.timeoutSeconds ?? DEFAULT_REFINER_SETTINGS.timeoutSeconds,
+      ...DEFAULT_REFINER_SETTINGS,
+      enabled: refiner?.enabled ?? DEFAULT_REFINER_SETTINGS.enabled,
     };
   }
 

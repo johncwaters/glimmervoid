@@ -1,5 +1,4 @@
 import { isRecord } from '../coerce.ts';
-import { REPLAY_BUFFER_KB_RANGE } from '../settings-ranges.ts';
 
 export const POSTHOG_WHOLE_NUMBER_ROUNDING: Record<string, (value: number) => number> = {
   maxConcurrentInvestigations: Math.ceil,
@@ -27,11 +26,6 @@ function normalizeIntegerField(config: Record<string, unknown>, path: string[], 
 
 export function normalizeLegacyConfigNumbers(candidate: Record<string, unknown>): Record<string, unknown> {
   const normalized = { ...candidate };
-  const replayBufferKB = candidate.replayBufferKB;
-  if (typeof replayBufferKB === 'number' && Number.isFinite(replayBufferKB)
-    && replayBufferKB >= 0 && replayBufferKB <= REPLAY_BUFFER_KB_RANGE.max) {
-    normalized.replayBufferKB = Math.max(REPLAY_BUFFER_KB_RANGE.min, Math.floor(replayBufferKB));
-  }
   for (const { path, min, round } of LEGACY_INTEGER_FIELDS) {
     normalizeIntegerField(normalized, path, min, round);
   }

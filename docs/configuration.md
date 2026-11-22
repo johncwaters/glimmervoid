@@ -66,12 +66,8 @@ Session worktrees and branch cleanup.
 | `worktree.integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktree.root` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `worktree.share` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
-| `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Branch prefixes that filter both remote branch cleanup and local worktree cleanup. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Session review
 
@@ -179,7 +175,6 @@ Team review drafts reviews of teammates' pull requests for you to post; My pull 
 | `teamReview.reviewer.effort` | Review effort | `""` | Effort for reviews, or the agent's default when empty. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that only touch docs and tests. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
 
 ### My pull requests
 
@@ -190,7 +185,6 @@ Keep your own pull requests rebased, mergeable and merged, and run workflow rule
 | `teamReview.autoRebaseMyPrs` | Keep my pull requests rebased | `false` | Rebase your open pull requests when they fall behind their base branch. |
 | `workflows.enabled` | Run workflows | `true` | Watch the repositories your rules name and run their actions. |
 | `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow sessions running at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `workflows.rules` | Workflow rule definitions | `[]` | The rules My pull requests switches on and off: each names its repositories, one pull request event, its filters and its actions. **File-only.** Rule definitions are written in config.json; My pull requests only switches each rule on or off. |
 | `prFlows.sources` | PR flows sources | `[]` | Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set), timeoutSeconds and optional repos (owner/name; every repository when absent), and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
 | `prFlows.actions` | PR flows actions | `[]` | Commands that act on a review item of your own pull request, shown as a button with their label and named by rules as run:<id>. Each entry has id, label, command and timeoutSeconds like a source, also expands {itemPath} and {itemLine}, gets the item as GLIMMERVOID_ITEM_JSON, waits for your approval in My PRs, and has an id unique within the list. Exit 0 is done and non-zero failed, unless stdout prints {"outcome": "done" \| "started" \| "refused" \| "failed", "message"} JSON. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
@@ -218,15 +212,6 @@ What Glimmervoid sends about itself and where lanes may fetch.
 | `telemetry.enabled` | Send usage data | `true` | Helps us improve Glimmervoid. Sent under a random install id, never with prompts or terminal output; the error text the dashboard shows in its header line is sent and can name a session, folder or branch. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
 | `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
 
-### Terminal
-
-Terminal behavior shared by dashboard clients.
-
-| Key | Setting | Default | Notes |
-|-----|---------|---------|-------|
-| `replayBufferKB` | Replay buffer | `512` | PTY output retained for clients that reconnect or join late. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `cursorBlink` | Cursor blink | `false` | Blink the cursor in every terminal. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-
 ### Detection and sessions
 
 Config-file-only detection, timing and process settings.
@@ -237,13 +222,8 @@ Config-file-only detection, timing and process settings.
 | `reactions.reactions` | Reactions | `[]` | Up to 20 reactions, each {id, on, project?, action, text?}: on session-failed, session-done, needs-attention or commits-landed, action notify raises a note on the session card and wake types text into the session once idle. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 | `reactions.cooldownMinutes` | Reaction cooldown | `10` | How long one reaction waits before reacting to the same session again. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
-| `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. The Sessions section lists the declared agents and whether each command resolves. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `taskTitle.refiner.enabled` | Refine task titles | `true` | Keep session card titles useful when prompts change topic by asking a model for a short title. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `taskTitle.refiner.model` | Task title model | `"haiku"` | Claude model alias the title refiner asks. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `taskTitle.refiner.minIntervalSeconds` | Task title refresh interval | `60` | Shortest pause between two title refinements of one session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `taskTitle.refiner.timeoutSeconds` | Task title timeout | `60` | Maximum time allowed for one title refinement. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Packs
 
@@ -260,7 +240,6 @@ Rules that answer a session question in the sessions you switch the question man
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `questionManager.rules` | Question manager rules | `[{"name":"Take recommended","pick":"recommended"}]` | Rules the question manager answers from. The default rule, pick "recommended", picks the one option labeled (Recommended) on each question. An object with name, question (text the question contains) and pick (the exact option labels to choose) answers at once. A plain sentence is a rule a model applies when no object matches; it must cite one rule and pick exact option labels within 60 seconds, or the question comes to you. Your rules replace the default, so [] leaves nothing to answer. A question with a risk word such as push, delete or deploy always comes to you. **File-only.** A structured value with no dashboard control; edit it in config.json. |
-| `questionManager.model` | Question manager model | `"haiku"` | Claude model alias that applies the plain-language question manager rules. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ## Keys outside the Settings view
 

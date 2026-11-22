@@ -36,7 +36,7 @@ test('an investigation reads the issue only from untrusted.json, with no shell a
   const recording = recordingSessionFactory();
   let payloadText = '';
   const wiring = createRadarWiring({
-    config: { posthog: { enabled: true, apiKey: 'phx_secret' }, replayBufferKB: 256 },
+    config: { posthog: { enabled: true, apiKey: 'phx_secret' } },
     ...inertWiringDeps(),
     makeSession: (options) => {
       payloadText = fs.readFileSync(path.join(options.path, UNTRUSTED_PAYLOAD_FILENAME), 'utf8');
@@ -249,7 +249,7 @@ test('a fix aborted while Glimmervoid commits it deletes its branch instead of k
   const discarded: (string | null | undefined)[] = [];
   const recording = recordingSessionFactory();
   const wiring = createRadarWiring({
-    config: { posthog: { enabled: true, apiKey: 'phx_secret', repoPath: repoDir }, replayBufferKB: 256 },
+    config: { posthog: { enabled: true, apiKey: 'phx_secret', repoPath: repoDir } },
     ...inertWiringDeps(),
     gitWorkspace: {
       create: () => ({ isGit: true, cwd: worktreeDir, branch: 'glimmervoid/radar-fix/1-iss-abort', base: 'main', baseSha: 'deadbeef' }),

@@ -24,8 +24,6 @@ const DEFAULT_PHONE_ESCALATION_MS = 300000;
 const TELEGRAM_TEST_TEXT = 'Glimmervoid test message. Session notifications reach this chat.';
 
 interface NotificationConfig {
-  phoneEscalationMs?: number;
-  notifyDebounceMs?: number;
   telegram?: { botToken?: string; chatId?: string; acceptReplies?: boolean } | null;
   slack?: { webhookUrl?: string } | null;
 }
@@ -56,11 +54,11 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
     config, configStore, sessions, controlWss, onControlConnection, viewerControlClientCount,
     dataWss, broadcastControl, recordOutcome = () => {}, logger,
   } = dependencies;
-  const alertGroupWindowMs = () => config.notifyDebounceMs ?? DEFAULT_ALERT_GROUP_WINDOW_MS;
+  const alertGroupWindowMs = () => DEFAULT_ALERT_GROUP_WINDOW_MS;
   const notificationTimings = () => ({
     escalationIntervalMs: ESCALATION_INTERVAL_MS,
     alertGroupWindowMs: alertGroupWindowMs(),
-    phoneEscalationMs: config.phoneEscalationMs ?? DEFAULT_PHONE_ESCALATION_MS,
+    phoneEscalationMs: DEFAULT_PHONE_ESCALATION_MS,
   });
   const notificationManager = new NotificationManager({ ...notificationTimings(), recordOutcome });
   notificationManager.registerChannel('web', createWebNotificationChannel(broadcastControl));

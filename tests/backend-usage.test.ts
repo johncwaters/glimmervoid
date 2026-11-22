@@ -298,7 +298,7 @@ test('a settings save restarts the lane only when the usage block actually chang
   await waitForMessage(client.received, isUsageSessions, 'the boot push');
   assert.equal(counts.scanners, 1);
 
-  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 's1', settings: { cursorBlink: true } }));
+  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 's1', settings: { debugMode: true } }));
   await waitForMessage(client.received, settingsUpdatedFor('s1'), 'the unrelated save');
   await settle();
   assert.equal(counts.scanners, 1, 'a save that touches no usage key leaves the warm scanner alone');
@@ -560,7 +560,7 @@ test('a config with no usage block never materializes one on an unrelated save',
   const client = await openControl(dash);
   await waitForMessage(client.received, isSnapshot, 'the snapshot');
 
-  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 'u1', settings: { cursorBlink: false } }));
+  client.ws.send(JSON.stringify({ type: 'update-settings', requestId: 'u1', settings: { debugMode: false } }));
   const updated = await waitForMessage(client.received, settingsUpdatedFor('u1'), 'the save');
   assert.equal(updated.settings.usage, null, 'getSettings echoes null while the block is unconfigured');
   assert.equal(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).usage, undefined, 'config.json still has no usage key');

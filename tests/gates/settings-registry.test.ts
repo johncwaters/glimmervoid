@@ -35,9 +35,9 @@ test('search match spans expose original text without changing partial-word rank
       }
     }
   }
-  const hit = scoreSettingsSearch(SETTINGS_REGISTRY.sections, 'replay', SETTINGS_REGISTRY.fileOnly)[0];
+  const hit = scoreSettingsSearch(SETTINGS_REGISTRY.sections, 'spike', SETTINGS_REGISTRY.fileOnly)[0];
   const title = hit.matches.find((match) => match.field === 'title');
-  assert.equal(title?.text.slice(title.spans[0].start, title.spans[0].end), 'Replay');
+  assert.equal(title?.text.slice(title.spans[0].start, title.spans[0].end), 'spike');
 });
 const SCOPES = new Set(['browser', 'machine']);
 const ACCESS_VALUES = new Set(['editable', 'advanced', 'readout', 'file-only']);
@@ -113,7 +113,7 @@ function expectedControls(def: SchemaDef): readonly string[] {
   if (def.type === 'number') return ['number'];
   if (def.type === 'string') return ['text', 'password'];
   if (def.type === 'enum') return ['select'];
-  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'tab-order', 'agent-visibility'] : ['json'];
+  if (def.type === 'array') return leafDef(def.element).type === 'string' ? ['list', 'agent-visibility'] : ['json'];
   if (def.type === 'record' || def.type === 'object') return ['json'];
   if (def.type === 'union') return ['list'];
   assert.fail(`no control is defined for a ${def.type} leaf`);
@@ -214,7 +214,7 @@ test('every default equals DEFAULT_CONFIG wherever that names the path', () => {
     compared += 1;
     assert.deepEqual(setting.defaultValue, serverDefault, `${setting.path} default drifted from DEFAULT_CONFIG`);
   }
-  assert.ok(compared > 40, `expected DEFAULT_CONFIG to name most registry paths, compared ${compared}`);
+  assert.ok(compared > 25, `expected DEFAULT_CONFIG to name most registry paths, compared ${compared}`);
 });
 
 test('the alias and moved-setting tables come from the legacy ids and resolve to live sections and settings', () => {
@@ -284,18 +284,19 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
 test('the byId and byPath maps cover every entry from one pass', () => {
   assert.equal(SETTINGS_INDEX.byId.size, ALL_ENTRIES.length);
   assert.equal(SETTINGS_INDEX.byPath.size, ALL_ENTRIES.length);
-  assert.equal(SETTINGS_INDEX.byPath.get('cursorBlink')?.id, 'file-cursor-blink');
+  assert.equal(SETTINGS_INDEX.byPath.get('debugMode')?.id, 'file-debug-mode');
   const small = indexSettings({ sections: [SETTINGS_REGISTRY.sections[0]], fileOnly: [] });
   assert.deepEqual([...small.byId.keys()], SETTINGS_REGISTRY.sections[0].settings.map((setting) => setting.id));
 });
 
 test('unit conversion scales both ways and rounds whole-number settings', () => {
-  const debounce = SETTINGS_INDEX.byPath.get('notifyDebounceMs');
-  assert.ok(debounce);
-  assert.equal(displayValue(debounce, 30000), 30);
-  assert.equal(wireValue(debounce, 30), 30000);
-  assert.equal(wireValue({ ...debounce, integer: true }, 0.0004), 0);
-  assert.equal(wireValue(debounce, 0.0004), 0.4);
+  const sampleNumber = CONFIG_ENTRIES.find((entry) => entry.control === 'number');
+  assert.ok(sampleNumber);
+  const scaled = { ...sampleNumber, integer: false, unit: { label: 'seconds', storedPerDisplay: 1000, storedLabel: 'ms' } };
+  assert.equal(displayValue(scaled, 30000), 30);
+  assert.equal(wireValue(scaled, 30), 30000);
+  assert.equal(wireValue({ ...scaled, integer: true }, 0.0004), 0);
+  assert.equal(wireValue(scaled, 0.0004), 0.4);
   for (const setting of CONFIG_ENTRIES.filter((entry) => entry.control === 'number' && typeof entry.defaultValue === 'number')) {
     assert.equal(wireValue(setting, displayValue(setting, setting.defaultValue)), setting.defaultValue, setting.path);
   }
@@ -469,21 +470,19 @@ test('the update deep link the banner and the Radar ops row share resolves to a 
   assert.ok(section.settings.some((setting) => setting.id === UPDATES_ACTIONS_SETTING_ID), 'the deep link names a missing setting');
 });
 
-test('the tuning knobs, diagnostics and legacy team keys are the file-only listing', () => {
+test('the tuning knobs and diagnostics are the file-only listing', () => {
   const fileOnlyPaths = SETTINGS_REGISTRY.fileOnly.map((setting) => setting.path);
   for (const settingPath of [
-    'teamReview.team',
-    'workflows.maxActionsPerPoll',
-    'replayBufferKB', 'cursorBlink',
+    'autoResume',
+    'spawnedSessionsMax',
+    'usage.retainDays',
+    'workflows.maxConcurrentSessions',
     'debugMode',
-    'notifyDebounceMs', 'phoneEscalationMs',
   ]) {
     assert.ok(fileOnlyPaths.includes(settingPath), `${settingPath} should be file-only`);
   }
   const editable = settingsOf(SECTIONS).filter((setting) => setting.access === 'editable' || setting.access === 'advanced');
-  assert.ok(editable.length >= 40 && editable.length <= 90, `${editable.length} editable entries`);
-  assert.equal(settingById('file-team-review-team').group, 'lanes-team-review');
-  assert.match(settingById('file-team-review-team').fileOnlyReason ?? '', /legacy/);
+  assert.ok(editable.length >= 30 && editable.length <= 90, `${editable.length} editable entries`);
 });
 
 test('the agent API row is gone, the custom agents readout sits beside its file-only key, and no section edits a by-rule path', () => {
@@ -529,7 +528,6 @@ test('the Team review lane section owns its settings and deep link, with the leg
     'teamReview.reviewer.effort',
     'teamReview.stampReviewer.model',
     'teamReview.stampReviewer.effort',
-    'teamReview.team',
   ]);
 });
 

@@ -11,7 +11,6 @@ import {
 } from '../public/settings/settings-view-core.ts';
 
 const WHOLE_NUMBER_FIELDS = [
-  ['file-replay-buffer', 'replayBufferKB'],
   ['posthog-max-investigations', 'posthog.maxConcurrentInvestigations'],
   ['posthog-min-users', 'posthog.minUsersToInvestigate'],
 ] as const;
@@ -53,13 +52,13 @@ for (const [id, path] of WHOLE_NUMBER_FIELDS) {
 
 test('legacy numeric migration preserves count comparisons, floors truncated quantities and leaves the input intact', () => {
   const legacy = {
-    projects: [], replayBufferKB: 0.5,
+    projects: [],
     posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 2.5, future: true },
   };
   const snapshot = structuredClone(legacy);
   const migrated = normalizeLegacyConfigNumbers(legacy);
   assert.deepEqual(migrated, {
-    projects: [], replayBufferKB: 64,
+    projects: [],
     posthog: { maxConcurrentInvestigations: 3, minUsersToInvestigate: 3, future: true },
   });
   assert.deepEqual(legacy, snapshot);

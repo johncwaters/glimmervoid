@@ -76,7 +76,6 @@ interface RadarLaneConfig {
 }
 
 interface RadarWiringConfig {
-  replayBufferKB?: number;
   worktree?: { integrationBranch?: string | null; root?: string } | null;
   saneYolo?: boolean;
   saneYoloUnreadablePaths?: readonly string[];
@@ -317,7 +316,6 @@ function createRadarWiring({
       observeToolCalls: true,
       settingsPermissions: laneMcp ? withAllowRules(accessPermissions, laneMcp.posture.allowRules) : accessPermissions,
       spawnEnv: { ...access.env },
-      replayBufferKB: config.replayBufferKB,
       hookRouter,
       getHookPort,
       ...(accountHomeFor ? { resolveAccountHome: () => accountHomeFor('claude-code') } : {}),

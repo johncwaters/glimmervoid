@@ -127,7 +127,7 @@ function createTeamReviewWiring({
   repoCache = createRepoCache({ rootDir: repoCacheRoot }),
   spawnSession = createTeamReviewSpawn({
     reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-    replayBufferKB: config.replayBufferKB, hookToolConfig: config, getLaneAccessConfig: (repositoryFullName) => laneAccessConfigFor(config, githubAppGrants, repositoryFullName),
+    hookToolConfig: config, getLaneAccessConfig: (repositoryFullName) => laneAccessConfigFor(config, githubAppGrants, repositoryFullName),
     accountHomeFor,
   }),
   createPoller = createTeamReviewPoller,
@@ -177,7 +177,7 @@ function createTeamReviewWiring({
         skipIdleAfterMs: settings.skipIdleAfterDays * 24 * 60 * 60 * 1000,
         github, store,
         spawnReview: trackReview,
-        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, allowTools: THREAD_JUDGE_TOOLS, getLaneAccessConfig: (repositoryFullName) => laneAccessConfigFor(config, githubAppGrants, repositoryFullName), accountHomeFor }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
+        judgeThread: createThreadJudge(createLaneSpawn({ laneName: 'team-review', getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [], sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, allowTools: THREAD_JUDGE_TOOLS, getLaneAccessConfig: (repositoryFullName) => laneAccessConfigFor(config, githubAppGrants, repositoryFullName), accountHomeFor }), () => core.readTeamReviewSettings(config).reviewer, shutdownController.signal),
         beforeStart: (keepPaths) => sweepLeftoverCheckouts({ worktreeRoot, workRoot, keepPaths, repoCache, gitWorkspace, reapProcesses, log }),
         discardResumable: async (record) => {
           if (!isOwnedResumable(record, { workRoot, worktreeRoot })) return;

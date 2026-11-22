@@ -264,10 +264,6 @@ function createConfigStore({
   function getSettings() {
     return {
       port: config.port,
-      notifyDebounceMs: config.notifyDebounceMs,
-      phoneEscalationMs: config.phoneEscalationMs ?? DEFAULT_CONFIG.phoneEscalationMs,
-      replayBufferKB: config.replayBufferKB,
-      cursorBlink: config.cursorBlink ?? effectiveDefaults.cursorBlink,
       debugMode: config.debugMode ?? effectiveDefaults.debugMode,
       linkPreviews: config.linkPreviews ?? effectiveDefaults.linkPreviews,
       viewTabOrder: config.viewTabOrder ?? DEFAULT_CONFIG.viewTabOrder,

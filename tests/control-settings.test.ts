@@ -64,13 +64,13 @@ test('repository root files and missing paths reject the whole save without chan
     const previousConfig = readDisk();
     for (const root of [store.configPath, path.join(path.dirname(store.configPath), 'missing')]) {
       settings.sent.length = 0;
-      settings.send({ type: 'update-settings', requestId: 'invalid-root', settings: { repoRoots: [root], cursorBlink: true } });
+      settings.send({ type: 'update-settings', requestId: 'invalid-root', settings: { repoRoots: [root], debugMode: true } });
       assert.match(String(errorFrom(settings)?.message), /Repository roots must be existing directories/);
       assert.ok(String(errorFrom(settings)?.message).includes(root));
       assert.equal(updatedFrom(settings), undefined);
       assert.equal(settings.reloadCalls.length, 0);
       assert.deepEqual(store.config.repoRoots, []);
-      assert.equal(store.config.cursorBlink, undefined);
+      assert.equal(store.config.debugMode, undefined);
       assert.deepEqual(readDisk(), previousConfig);
     }
   });
@@ -164,7 +164,7 @@ test('a Telegram payload persists and echoes with its secret redacted', () => {
 });
 
 test('dashboard saves branch deletion while a stale postTurnChecks block from an older config stays on disk untouched', () => {
-  const branchGc = { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, deleteUnmerged: false, intervalMs: 3600000 };
+  const branchGc = { prefixes: ['custom/'], dryRun: true, deleteUnmerged: false };
   const postTurnChecks = { enabled: true, mode: 'report', rules: { trailingWs: false, finalNewline: true } };
   withRealStore({ projects: [], branchGc, postTurnChecks }, undefined, (h, store, readDisk) => {
     h.send({ type: 'update-settings', settings: { branchGc: { deleteUnmerged: true } } });
@@ -177,10 +177,10 @@ test('dashboard saves branch deletion while a stale postTurnChecks block from an
 });
 
 test('a branchGc control update keeps the stored file-only keys', () => {
-  const h = harness({ branchGc: { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 14, intervalMs: 3600000 }, projects: [] });
-  h.send({ type: 'update-settings', settings: { branchGc: { staleDays: 21, prefixes: ['evil/'] } } });
+  const h = harness({ branchGc: { prefixes: ['custom/'], dryRun: true, deleteUnmerged: false }, projects: [] });
+  h.send({ type: 'update-settings', settings: { branchGc: { deleteUnmerged: true, prefixes: ['evil/'] } } });
 
-  assert.deepEqual(h.cfg.branchGc, { enabled: true, prefixes: ['custom/'], dryRun: true, staleDays: 21, intervalMs: 3600000 });
+  assert.deepEqual(h.cfg.branchGc, { prefixes: ['custom/'], dryRun: true, deleteUnmerged: true });
 });
 
 test('a usage save carrying one nested leaf leaves every stored sibling and nested leaf as it was', () => {
@@ -244,8 +244,8 @@ function storedWorkflowRule(id: string, enabled: boolean) {
 test('workflow limits and rule toggles persist by rule id and leave every other rule field as the file has it', () => {
   const stored = { rules: [storedWorkflowRule('one', false), storedWorkflowRule('two', true)] };
   const h = harness({ projects: [], workflows: stored });
-  h.send({ type: 'update-settings', settings: { workflows: { enabled: false, maxConcurrentSessions: 3, maxActionsPerPoll: 50, rules: [{ id: 'one', enabled: true }] } } });
-  const expected = { enabled: false, maxConcurrentSessions: 3, maxActionsPerPoll: 50, rules: [storedWorkflowRule('one', true), storedWorkflowRule('two', true)] };
+  h.send({ type: 'update-settings', settings: { workflows: { enabled: false, maxConcurrentSessions: 3, rules: [{ id: 'one', enabled: true }] } } });
+  const expected = { enabled: false, maxConcurrentSessions: 3, rules: [storedWorkflowRule('one', true), storedWorkflowRule('two', true)] };
   assert.equal(errorFrom(h), undefined);
   assert.deepEqual(h.cfg.workflows, expected);
   assert.deepEqual(updatedFrom(h)?.settings?.workflows, expected);
@@ -258,7 +258,7 @@ test('a workflows rule toggle for a rule renamed on disk since the last load fai
     assert.ok(configPath);
     const renamedOnDisk = { projects: [], workflows: { rules: [storedWorkflowRule('renamed', false)] } };
     fs.writeFileSync(configPath, JSON.stringify(renamedOnDisk, null, 2), 'utf8');
-    h.send({ type: 'update-settings', settings: { cursorBlink: true, workflows: { rules: [{ id: 'one', enabled: true }] } } });
+    h.send({ type: 'update-settings', settings: { debugMode: true, workflows: { rules: [{ id: 'one', enabled: true }] } } });
     assert.match(String(errorFrom(h)?.message ?? ''), /workflows.rules has no rule with id "one"/);
     assert.equal(updatedFrom(h), undefined);
     assert.deepEqual(readDisk(), renamedOnDisk);
@@ -270,7 +270,7 @@ test('a save over an unreadable config file on disk replies settings-error', () 
     const configPath = process.env.GLIMMERVOID_CONFIG;
     assert.ok(configPath);
     fs.writeFileSync(configPath, '{ not json', 'utf8');
-    h.send({ type: 'update-settings', settings: { cursorBlink: true } });
+    h.send({ type: 'update-settings', settings: { debugMode: true } });
     assert.match(String(errorFrom(h)?.message ?? ''), /Settings were not saved/);
     assert.equal(updatedFrom(h), undefined);
   });
@@ -307,9 +307,9 @@ test('a valid posthog payload persists, echoes in settings-updated, and hot-appl
 
 test('a rejected posthog block blocks the whole save, including unrelated keys', () => {
   const h = harness({ projects: [] });
-  h.send({ type: 'update-settings', settings: { cursorBlink: true, posthog: { enabled: 'yes' } } });
+  h.send({ type: 'update-settings', settings: { debugMode: true, posthog: { enabled: 'yes' } } });
   assert.ok(errorFrom(h));
-  assert.equal(h.cfg.cursorBlink, undefined, 'the save is atomic: nothing lands when validation fails');
+  assert.equal(h.cfg.debugMode, undefined, 'the save is atomic: nothing lands when validation fails');
 });
 
 function withRealStore(
@@ -334,10 +334,10 @@ function withRealStore(
 
 test('an unrelated save never materializes an untouched launch default', () => {
   withRealStore({ projects: [] }, { settingsDefaults: { debugMode: true } }, (h, store, readDisk) => {
-    h.send({ type: 'update-settings', settings: { debugMode: true, cursorBlink: true } });
+    h.send({ type: 'update-settings', settings: { debugMode: true, linkPreviews: false } });
 
     const onDisk = readDisk();
-    assert.equal(onDisk.cursorBlink, true, 'the real change persists');
+    assert.equal(onDisk.linkPreviews, false, 'the real change persists');
     assert.equal('debugMode' in onDisk, false, 'the untouched launch default is not written to disk');
     assert.equal('debugMode' in store.config, false, 'nor into the in-memory config');
     assert.equal(store.getSettings().debugMode, true, 'the dev overlay still echoes true');

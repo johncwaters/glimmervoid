@@ -163,7 +163,7 @@ export function createReviewSetupCard() {
       return;
     }
     reportReviewSetupAction('save-github-org');
-    await saveSettings({ teamReview: { org, team: '' } }, saveButton, saveStatus);
+    await saveSettings({ teamReview: { org } }, saveButton, saveStatus);
   }
 
   async function saveTeams(typedText: string, saveButton: HTMLButtonElement, saveStatus: ReturnType<typeof createActionStatus>): Promise<void> {

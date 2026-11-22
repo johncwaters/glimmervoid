@@ -3,7 +3,6 @@ import { PrFlowCommand, PrFlowPrAction, PrFlowRule, PrFlowSourceCommand, prFlowR
 import { DEFAULT_QUESTION_RULES, QuestionRule } from '../contracts/question-manager.ts';
 
 import {
-  NON_NEGATIVE_NUMBER_RANGE,
   REACTION_COOLDOWN_MINUTES_RANGE,
   PORT_RANGE,
   POSITIVE_NUMBER_RANGE,
@@ -11,17 +10,13 @@ import {
   WORKTREE_DISK_RESERVE_GB_RANGE,
   PACK_SCHEDULED_SESSIONS_DEFAULT,
   PACK_SCHEDULED_SESSIONS_RANGE,
-  REPLAY_BUFFER_KB_RANGE,
   SPAWNED_SESSIONS_DEFAULT,
   SPAWNED_SESSIONS_RANGE,
-  TASK_TITLE_TIMEOUT_RANGE,
   USAGE_RETAIN_DAYS_RANGE,
-  WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE,
   WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
 } from '../settings-ranges.ts';
-import { FILE_ONLY, INVESTIGATIONS, ACTIONS, SESSIONS, SECONDS, MINUTES, HOURS, DAYS, SECONDS_STORED_AS_MS, MINUTES_STORED_AS_MS, HOURS_STORED_AS_MS, USERS, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE } from './registry-fields.ts';
+import { FILE_ONLY, INVESTIGATIONS, SESSIONS, MINUTES, HOURS, DAYS, USERS, TUNING_KNOB, DIAGNOSTIC, PROCESS_SETTING, STRUCTURED_VALUE, BY_RULE } from './registry-fields.ts';
 import type { SettingsSetting } from './registry-fields.ts';
-import { DEFAULT_MODELS } from '../contracts/agent-models.ts';
 
 export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
   {
@@ -63,12 +58,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     fileOnlyReason: 'Set by the dashboard from the browser timezone each time it connects with a different one.', ...FILE_ONLY,
   },
   {
-    id: 'file-replay-buffer', path: 'replayBufferKB', title: 'Replay buffer', group: 'machine-terminal',
-    description: 'PTY output retained for clients that reconnect or join late.',
-    control: 'number', range: REPLAY_BUFFER_KB_RANGE, unit: { label: 'KB', storedPerDisplay: 1 }, keywords: ['history', 'backfill'], defaultValue: 512,
-    takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
     id: 'file-session-memory-reserve', path: 'sessionMemoryReserveMB', title: 'Session memory reserve', group: 'machine-sessions',
     description: 'Free memory an automatic session start waits for; 0 starts sessions without checking.',
     control: 'number', range: MEMORY_RESERVE_MB_RANGE, unit: { label: 'MB', storedPerDisplay: 1 }, keywords: ['memory', 'headroom'], defaultValue: 600,
@@ -85,11 +74,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     description: 'Most sessions that pack launcher schedules keep live at once; a scheduled run past it is skipped.',
     control: 'number', range: PACK_SCHEDULED_SESSIONS_RANGE, unit: SESSIONS, keywords: ['packs', 'launchers', 'cron', 'schedule'], defaultValue: PACK_SCHEDULED_SESSIONS_DEFAULT,
     takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-cursor-blink', path: 'cursorBlink', title: 'Cursor blink', group: 'machine-terminal',
-    description: 'Blink the cursor in every terminal.',
-    control: 'toggle', keywords: ['caret', 'terminal'], defaultValue: false, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-share-commit-provenance', path: 'shareCommitProvenance', title: 'Share commit provenance', group: 'machine-worktrees',
@@ -132,26 +116,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'number', range: PORT_RANGE, unit: { label: 'port', storedPerDisplay: 1 }, keywords: ['server', 'listener'], defaultValue: 3000, takesEffect: 'restart', fileOnlyReason: BY_RULE, ...FILE_ONLY,
   },
   {
-    id: 'file-notify-debounce-ms', path: 'notifyDebounceMs', title: 'Notification grouping window', group: 'machine-detection-sessions',
-    description: 'Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: SECONDS_STORED_AS_MS, keywords: ['timer', 'alerts'], defaultValue: 3000, takesEffect: 'new-sessions', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-phone-escalation-ms', path: 'phoneEscalationMs', title: 'Phone escalation delay', group: 'machine-detection-sessions',
-    description: 'Delay before off-dashboard escalation.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES_STORED_AS_MS, keywords: ['timer', 'telegram'], defaultValue: 300000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-branch-gc-enabled', path: 'branchGc.enabled', title: 'Branch cleanup', group: 'machine-worktrees',
-    description: 'Enable cleanup of eligible session branches.',
-    control: 'toggle', keywords: ['git', 'cleanup'], defaultValue: true, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
-  },
-  {
-    id: 'file-branch-gc-worktrees', path: 'branchGc.worktrees', title: 'Local worktree cleanup', group: 'machine-worktrees',
-    description: 'Enable cleanup of eligible local worktrees.',
-    control: 'toggle', keywords: ['git', 'worktree', 'cleanup'], defaultValue: true, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
-  },
-  {
     id: 'file-branch-gc-prefixes', path: 'branchGc.prefixes', title: 'Branch cleanup prefixes', group: 'machine-worktrees',
     description: 'Branch prefixes that filter both remote branch cleanup and local worktree cleanup.',
     control: 'list', keywords: ['git', 'branch'], defaultValue: ['glimmervoid/session/', 'worktree-agent-'], takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
@@ -162,16 +126,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'toggle', keywords: ['git', 'safety'], defaultValue: false, takesEffect: 'now', fileOnlyReason: PROCESS_SETTING, ...FILE_ONLY,
   },
   {
-    id: 'file-branch-gc-stale-days', path: 'branchGc.staleDays', title: 'Branch stale days', group: 'machine-worktrees',
-    description: 'Age threshold for orphan branch cleanup when unmerged deletion is on.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['git', 'retention'], defaultValue: 14, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-branch-gc-interval-ms', path: 'branchGc.intervalMs', title: 'Branch cleanup interval', group: 'machine-worktrees',
-    description: 'Delay between branch cleanup passes.',
-    control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: HOURS_STORED_AS_MS, keywords: ['git', 'schedule'], defaultValue: 21600000, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
     id: 'file-custom-agents', path: 'customAgents', title: 'Custom agents', group: 'machine-detection-sessions',
     description: 'Extra agent CLIs a session can be spawned with. The Sessions section lists the declared agents and whether each command resolves.',
     control: 'json', keywords: ['adapters', 'cli'], defaultValue: [], takesEffect: 'new-sessions', fileOnlyReason: BY_RULE, ...FILE_ONLY,
@@ -180,21 +134,6 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     id: 'file-task-title-refiner-enabled', path: 'taskTitle.refiner.enabled', title: 'Refine task titles', group: 'machine-detection-sessions',
     description: 'Keep session card titles useful when prompts change topic by asking a model for a short title.',
     control: 'toggle', keywords: ['title', 'refiner', 'card'], defaultValue: true, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-task-title-refiner-model', path: 'taskTitle.refiner.model', title: 'Task title model', group: 'machine-detection-sessions',
-    description: 'Claude model alias the title refiner asks.',
-    control: 'text', keywords: ['title', 'refiner', 'model'], defaultValue: DEFAULT_MODELS.taskTitleRefiner, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-task-title-refiner-min-interval', path: 'taskTitle.refiner.minIntervalSeconds', title: 'Task title refresh interval', group: 'machine-detection-sessions',
-    description: 'Shortest pause between two title refinements of one session.',
-    control: 'number', integer: false, step: 'any', range: NON_NEGATIVE_NUMBER_RANGE, unit: SECONDS, keywords: ['title', 'refiner', 'interval'], defaultValue: 60, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-task-title-refiner-timeout', path: 'taskTitle.refiner.timeoutSeconds', title: 'Task title timeout', group: 'machine-detection-sessions',
-    description: 'Maximum time allowed for one title refinement.',
-    control: 'number', integer: false, step: 'any', range: TASK_TITLE_TIMEOUT_RANGE, unit: SECONDS, keywords: ['title', 'refiner', 'deadline'], defaultValue: 60, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail', group: 'machine-usage',
@@ -262,20 +201,9 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     control: 'text', keywords: ['stamp', 'effort', 'small pull requests', 'docs', 'tests'], defaultValue: '', takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
-    id: 'file-team-review-team', path: 'teamReview.team', title: 'GitHub team (legacy)', group: 'lanes-team-review',
-    description: 'Team slug whose members and review requests are polled. Read only when github.teams is empty.',
-    control: 'text', keywords: ['github', 'slug', 'legacy'], defaultValue: '', takesEffect: 'now',
-    fileOnlyReason: 'A legacy key: github.teams names teams as org/slug entries and wins whenever it is set.', ...FILE_ONLY,
-  },
-  {
     id: 'workflows-max-concurrent-sessions', path: 'workflows.maxConcurrentSessions', title: 'Concurrent agent sessions', group: 'lanes-my-prs',
     description: 'Most workflow sessions running at once.',
     control: 'number', range: WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, unit: SESSIONS, keywords: ['parallel', 'spawn'], defaultValue: 2, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
-  },
-  {
-    id: 'file-workflows-max-actions-per-poll', path: 'workflows.maxActionsPerPoll', title: 'Actions per poll', group: 'lanes-my-prs',
-    description: 'Most actions run in one poll. The rest are dropped and logged.',
-    control: 'number', range: WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE, unit: ACTIONS, keywords: ['cap', 'rate limit'], defaultValue: 20, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
   {
     id: 'file-workflows-rules', path: 'workflows.rules', title: 'Workflow rule definitions', group: 'lanes-my-prs',
@@ -334,10 +262,5 @@ export const FILE_ONLY_SETTINGS: readonly SettingsSetting[] = Object.freeze([
     jsonSchema: z.toJSONSchema(z.array(QuestionRule), { io: 'input' }),
     example: [{ name: 'Take recommended', pick: 'recommended' }, { name: 'README length', question: 'README', pick: ['Short'] }, 'Prefer the existing library over adding a dependency.'],
     control: 'json', keywords: ['questions', 'rules', 'automation', 'recommended'], defaultValue: DEFAULT_QUESTION_RULES, takesEffect: 'now', fileOnlyReason: STRUCTURED_VALUE, ...FILE_ONLY,
-  },
-  {
-    id: 'file-question-manager-model', path: 'questionManager.model', title: 'Question manager model', group: 'lanes-question-manager',
-    description: 'Claude model alias that applies the plain-language question manager rules.',
-    control: 'text', keywords: ['questions', 'rules', 'model'], defaultValue: DEFAULT_MODELS.questionManager, takesEffect: 'now', fileOnlyReason: TUNING_KNOB, ...FILE_ONLY,
   },
 ]);

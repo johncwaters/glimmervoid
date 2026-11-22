@@ -214,7 +214,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const community = createCommunityWiring({
     config, githubAppGrants, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
     controlClientCount: viewerControlClientCount,
-    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, replayBufferKB: config.replayBufferKB, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
+    spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
   });
   const providerStatus = createProviderStatus({ log: logger, onChange: () => broadcastPacksIfChanged() });
   const githubStatus = createGithubStatus({ providerStatus });
@@ -269,7 +269,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       log: logger,
       spawnSession: createTeamReviewSpawn({
         reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-        replayBufferKB: config.replayBufferKB, laneName: 'my-prs', hookToolConfig: config,
+        laneName: 'my-prs', hookToolConfig: config,
       }),
     }),
   });
@@ -338,7 +338,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
         repoCache: sharedRepoCache,
         spawnSession: createTeamReviewSpawn({
           reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-          replayBufferKB: config.replayBufferKB, laneName: 'workflows', hookToolConfig: config,
+          laneName: 'workflows', hookToolConfig: config,
         }),
       }),
     }),
@@ -369,7 +369,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     },
     spawnJudge: ({ setup, readPaths, ...request }) => createLaneSpawn({
       sessions: raceSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      laneName: 'race', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       allowTools: RACE_JUDGE_TOOLS,
     })({
       ...request, agent: setup.agent, model: setup.model,
@@ -386,7 +386,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     logger,
     spawnReviewer: ({ reviewer, readPaths, ...request }) => createLaneSpawn({
       sessions: reviewSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'session-review', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      laneName: 'session-review', getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       allowTools: SESSION_REVIEW_TOOLS,
     })({
       ...request, agent: reviewer.agent, model: reviewer.model,
@@ -416,7 +416,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     retitleBoard: dependencies.retitleProvisionalBoard,
     spawnLane: createLaneSpawn({
       sessions: taskTitleSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-      replayBufferKB: config.replayBufferKB, laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+      laneName: 'task-title', allowTools: TASK_TITLE_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
       accountHomeFor: laneAccountHomeFor(() => configStore.config, 'task-title'),
     }),
   });
@@ -424,7 +424,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   const questionManagerSessions = new Map<string, Session>();
   const questionManagerLane = createQuestionManagerLane(createLaneSpawn({
     sessions: questionManagerSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
-    replayBufferKB: config.replayBufferKB, laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+    laneName: 'question-manager', allowTools: QUESTION_MANAGER_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
     accountHomeFor: laneAccountHomeFor(() => configStore.config, 'question-manager'),
   }));
 

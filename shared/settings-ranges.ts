@@ -6,7 +6,6 @@ export interface SettingsRange {
 }
 
 export const POSITIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, exclusiveMin: true, label: 'a positive number' });
-export const NON_NEGATIVE_NUMBER_RANGE: SettingsRange = Object.freeze({ min: 0, label: 'zero or more' });
 
 export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
   flyingAnimalsMinGapSeconds: 20,
@@ -20,7 +19,6 @@ export const FLYING_ANIMALS_DEFAULTS = Object.freeze({
 export const REVIEWS_TURN_LIMIT_RANGE = Object.freeze({ min: 0, max: 50 });
 export const REVIEWS_TURN_LIMIT_DEFAULT = 5;
 
-export const REPLAY_BUFFER_KB_RANGE = Object.freeze({ min: 64, max: 16384 });
 export const MEMORY_RESERVE_MB_RANGE = Object.freeze({ min: 0, max: 65536 });
 export const WORKTREE_DISK_RESERVE_GB_RANGE = Object.freeze({ min: 0, max: 1024 });
 export const PACK_SCHEDULED_SESSIONS_RANGE = Object.freeze({ min: 1, max: 20 });
@@ -32,11 +30,6 @@ export const LOOP_GUARD_ON_STUCK = Object.freeze(['flag', 'stop'] as const);
 export const SPAWNED_SESSIONS_DEFAULT = 3;
 export const SKIP_PERMISSIONS_BY_DEFAULT = true;
 export const PORT_RANGE = Object.freeze({ min: 0, max: 65535 });
-export const TASK_TITLE_TIMEOUT_RANGE = Object.freeze({ min: 0, exclusiveMin: true, max: 2_147_483_647 / 1000 });
-
-
-export const BRANCH_GC_STALE_DAYS_RANGE = POSITIVE_NUMBER_RANGE;
-export const BRANCH_GC_INTERVAL_MS_RANGE = POSITIVE_NUMBER_RANGE;
 
 
 export const POSTHOG_MAX_CONCURRENT_RANGE = POSITIVE_NUMBER_RANGE;
@@ -47,25 +40,20 @@ export const USAGE_BUDGET_RANGE = POSITIVE_NUMBER_RANGE;
 
 
 export const WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE = Object.freeze({ min: 1, max: 5 });
-export const WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE = Object.freeze({ min: 1, max: 50 });
 export const POSTHOG_PROJECT_ID_RANGE = Object.freeze({ min: 1, max: Number.MAX_SAFE_INTEGER });
 
 export const SETTINGS_RANGES = Object.freeze({
-  NON_NEGATIVE_NUMBER_RANGE,
   PORT_RANGE,
   POSTHOG_MAX_CONCURRENT_RANGE,
   POSTHOG_MIN_USERS_RANGE,
   POSTHOG_PROJECT_ID_RANGE,
-  REPLAY_BUFFER_KB_RANGE,
   REVIEWS_TURN_LIMIT_RANGE,
   MEMORY_RESERVE_MB_RANGE,
   WORKTREE_DISK_RESERVE_GB_RANGE,
   PACK_SCHEDULED_SESSIONS_RANGE,
   SPAWNED_SESSIONS_RANGE,
   LOOP_GUARD_TURNS_RANGE,
-  TASK_TITLE_TIMEOUT_RANGE,
   USAGE_BUDGET_RANGE,
   USAGE_RETAIN_DAYS_RANGE,
-  WORKFLOWS_MAX_ACTIONS_PER_POLL_RANGE,
   WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE,
 });

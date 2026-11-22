@@ -692,9 +692,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     telemetry.applyConfig();
     applyCustomAgents(newConfig);
     updateCheck.applySettings();
-    for (const [, sess] of sessions) {
-      sess.updateSettings(config);
-    }
     notifications.applySettings();
     laneAssembly.restartServiceLanes();
     watcherLink.credentialsMayHaveChanged();

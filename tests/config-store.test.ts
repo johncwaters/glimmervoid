@@ -15,7 +15,6 @@ import { settingsBlockSpecFor } from '../server/core/settings-block-core.ts';
 import { getAdapter, setCustomAgents } from '../session/adapters/index.ts';
 import { SETTINGS_REGISTRY } from '../shared/settings/registry.ts';
 import { settingsOf } from '../shared/settings/registry-core.ts';
-import { ConfigUpdate } from '../shared/contracts/index.ts';
 import { SECRET_PRESENCE_SUFFIX as CLIENT_SECRET_PRESENCE_SUFFIX } from '../public/settings/settings-view-core.ts';
 import { manualTimers } from './helpers/manual-timers.ts';
 import { waitForFsWatchToArm } from './helpers/wait-for.ts';
@@ -47,8 +46,8 @@ function writeTmpConfig(cfg: ConfigFileContent): { dir: string; p: string } {
 function richConfig(overrides: ConfigFileContent = {}): ConfigFileContent {
   return {
     port: 4123,
-    notifyDebounceMs: 3,
-    cursorBlink: false,
+    debugMode: false,
+    linkPreviews: true,
     repoRoots: ['/repo'],
     worktreeShare: ['node_modules'],
     remote: { port: 4124 },
@@ -107,8 +106,8 @@ test('validateConfig accepts lenient partial configs and unknown keys', () => {
   const lenient = {
     projects: [{ path: '/repo' }],
     port: 65535,
-    notifyDebounceMs: 0,
-    cursorBlink: true,
+    debugMode: true,
+    linkPreviews: false,
     worktree: { integrationBranch: 'develop', share: ['node_modules'] },
     repoRoots: ['/repo'],
     remote: {},
@@ -117,10 +116,9 @@ test('validateConfig accepts lenient partial configs and unknown keys', () => {
   assert.deepEqual(validateConfig(lenient), { ok: true, config: lenient });
 });
 
-test('config file compatibility keeps port zero and migrates replayBufferKB zero to its minimum', () => {
-  withStore({ projects: [], port: 0, replayBufferKB: 0 }, (store) => {
+test('config file compatibility keeps port zero', () => {
+  withStore({ projects: [], port: 0 }, (store) => {
     assert.equal(store.config.port, 0);
-    assert.equal(store.config.replayBufferKB, 64);
   });
 });
 
@@ -164,8 +162,8 @@ test('validateConfig rejects malformed known fields', () => {
   const validation = validateConfig({
     projects: [{ id: 7 }],
     port: 70000,
-    notifyDebounceMs: Number.POSITIVE_INFINITY,
-    cursorBlink: 'yes',
+    sessionMemoryReserveMB: Number.POSITIVE_INFINITY,
+    debugMode: 'yes',
     worktree: { integrationBranch: 3, share: 'node_modules' },
     repoRoots: ['/repo', 5],
     remote: [],
@@ -174,8 +172,8 @@ test('validateConfig rejects malformed known fields', () => {
   const errors = validation.ok ? [] : validation.errors;
   assert.match(errors.join('\n'), /projects\[0\]\.path must be a string/);
   assert.match(errors.join('\n'), /port must be an integer/);
-  assert.match(errors.join('\n'), /notifyDebounceMs must be a finite number/);
-  assert.match(errors.join('\n'), /cursorBlink must be a boolean/);
+  assert.match(errors.join('\n'), /sessionMemoryReserveMB must be a finite number/);
+  assert.match(errors.join('\n'), /debugMode must be a boolean/);
   assert.match(errors.join('\n'), /worktree\.integrationBranch must be a string/);
   assert.match(errors.join('\n'), /repoRoots must be an array of strings/);
   assert.match(errors.join('\n'), /worktree\.share must be an array of strings/);
@@ -407,7 +405,7 @@ test('retired detection and worktree switches are dropped from config.json on lo
 test('getSettings falls back to DEFAULT_CONFIG for absent keys', () => {
   withStore({ projects: [] }, (store) => {
     const s = store.getSettings();
-    assert.equal(s.cursorBlink, DEFAULT_CONFIG.cursorBlink);
+    assert.equal(s.linkPreviews, DEFAULT_CONFIG.linkPreviews);
     assert.deepEqual(s.worktree, DEFAULT_CONFIG.worktree);
   });
 });
@@ -460,7 +458,7 @@ test('settingsDefaults is never persisted and leaves other keys on DEFAULT_CONFI
   withStore({ projects: [] }, (store, p) => {
     store.getSettings();
     assert.equal('debugMode' in readJson(p), false, 'a launch default writes nothing to config.json');
-    assert.equal(store.getSettings().cursorBlink, DEFAULT_CONFIG.cursorBlink, 'unrelated keys are untouched');
+    assert.equal(store.getSettings().linkPreviews, DEFAULT_CONFIG.linkPreviews, 'unrelated keys are untouched');
   }, { settingsDefaults: { debugMode: true } });
 });
 
@@ -580,7 +578,7 @@ test('a token in config.json.bak or hand-written into config.json never survives
       assert.equal(block(readJson(`${configPath}.bak`).telegram).chatId, '123', 'and keeps the rest of the backup');
 
       fs.writeFileSync(configPath, JSON.stringify({ projects: [], telegram: { botToken: 'bot-hand-written', chatId: '123' } }));
-      store.save((config) => { config.cursorBlink = false; });
+      store.save((config) => { config.linkPreviews = false; });
 
       assert.equal(fs.readFileSync(`${configPath}.bak`, 'utf8').includes('bot-hand-written'), false, 'a save backs up the file without it');
       assert.deepEqual(storedSecretsAt(configPath), { 'telegram.botToken': 'bot-hand-written' });
@@ -629,10 +627,9 @@ test('getSettings exposes environment ownership for both credentials without sen
 
 test('loading legacy fractional settings migrates counts without rejecting the file or discarding unknown keys', () => {
   withStore({
-    projects: [], replayBufferKB: 512.5,
+    projects: [],
     posthog: { maxConcurrentInvestigations: 2.5, minUsersToInvestigate: 1.5, futureKey: 'kept' },
   }, (store) => {
-    assert.equal(store.config.replayBufferKB, 512);
     assert.deepEqual(store.config.posthog, { maxConcurrentInvestigations: 3, minUsersToInvestigate: 2, futureKey: 'kept' });
   });
 });
@@ -674,7 +671,7 @@ test('the environment secret bindings shown in Settings and the password leaves 
 
 test('branchGc defaults survive a config save round trip', () => {
   withStore({ projects: [] }, (store, configPath) => {
-    const saved = store.save((config) => { config.cursorBlink = true; });
+    const saved = store.save((config) => { config.debugMode = true; });
 
     assert.equal(saved?.branchGc, undefined);
     assert.deepEqual(store.config.branchGc, DEFAULT_CONFIG.branchGc);
@@ -852,17 +849,6 @@ test('a duplicate event for content already applied is not re-applied', async ()
   });
 });
 
-test('phoneEscalationMs is a settable timeout key with the five-minute default', async () => {
-  assert.equal('phoneEscalationMs' in ConfigUpdate.shape, true);
-  assert.equal(DEFAULT_CONFIG.phoneEscalationMs, 300000);
-
-  await withStoreAsync({ projects: [] }, async (store) => {
-    assert.equal(store.getSettings().phoneEscalationMs, 300000, 'an absent key reports the default');
-    store.applySettings({ projects: [], phoneEscalationMs: 0 });
-    assert.equal(store.config.phoneEscalationMs, 0, 'and zero, which switches the rung off, survives');
-  });
-});
-
 test('reverting to bytes that were applied before a save still reloads', async () => {
   await withWatchedStore({ projects: [] }, async ({ store, configPath, reloads, readAfter, reloadAfter }) => {
     const handEdited = JSON.stringify({
@@ -941,7 +927,7 @@ test('a session removed by a synchronous save while an async save is in flight s
       }
       if (writtenPath.startsWith(stagedBackupPrefix) && hasRemovedSession && !hasSavedSettingsAfterRemoval) {
         hasSavedSettingsAfterRemoval = true;
-        assert.ok(store.save((config) => { config.cursorBlink = true; }));
+        assert.ok(store.save((config) => { config.debugMode = true; }));
       }
       await originalWriteFile(...writeArguments);
     };
@@ -949,7 +935,7 @@ test('a session removed by a synchronous save while an async save is in flight s
     const persistedConfig = JSON.parse(await fs.promises.readFile(configPath, 'utf8'));
     assert.equal(hasSavedSettingsAfterRemoval, true);
     assert.deepEqual(persistedConfig.projects.map((project: { id: string }) => project.id), ['p1']);
-    assert.equal(persistedConfig.cursorBlink, true);
+    assert.equal(persistedConfig.debugMode, true);
     assert.equal(persistedConfig.projects[0].name, 'Renamed project');
     assert.equal(persistedConfig.projects[0].resumeSessionId, 'conversation');
   } finally {

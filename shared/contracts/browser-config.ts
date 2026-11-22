@@ -44,30 +44,21 @@ export const optionalLooseObject = (field: string) => z.object({}, { error: `${f
 const TaskTitleSettings = z.object({
   refiner: z.object({
     enabled: optionalBoolean('taskTitle.refiner.enabled'),
-    model: optionalString('taskTitle.refiner.model', true),
-    minIntervalSeconds: optionalNumber('taskTitle.refiner.minIntervalSeconds', { min: 0 }),
-    timeoutSeconds: optionalNumber('taskTitle.refiner.timeoutSeconds', ranges.TASK_TITLE_TIMEOUT_RANGE),
   }, { error: 'taskTitle.refiner must be an object' }).nullable().optional(),
 }, { error: 'taskTitle must be an object' }).nullable().optional();
 
 const BRANCH_GC_SETTINGS_SHAPE = {
-  enabled: optionalBoolean('branchGc.enabled'),
-  worktrees: optionalBoolean('branchGc.worktrees'),
   prefixes: z.array(
     z.string({ error: 'branchGc.prefixes must be an array of strings' })
       .min(1, { error: 'branchGc.prefixes entries must be non-empty strings' }),
     { error: 'branchGc.prefixes must be an array of strings' },
   ).optional(),
   dryRun: optionalBoolean('branchGc.dryRun'),
-  staleDays: optionalNumber('branchGc.staleDays', ranges.BRANCH_GC_STALE_DAYS_RANGE),
   deleteUnmerged: optionalBoolean('branchGc.deleteUnmerged'),
-  intervalMs: optionalNumber('branchGc.intervalMs', ranges.BRANCH_GC_INTERVAL_MS_RANGE),
 };
 export const BranchGcFileSettings = z.object(BRANCH_GC_SETTINGS_SHAPE, { error: 'branchGc must be an object' });
 const BranchGcSettings = optionalObject('branchGc', BRANCH_GC_SETTINGS_SHAPE);
-export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true, worktrees: true }).nullable().optional();
-export const BRANCH_GC_CONTROL_BOOLEAN_KEYS = Object.freeze(['enabled', 'deleteUnmerged']);
-export const BRANCH_GC_CONTROL_NUMERIC_KEYS = Object.freeze(['staleDays', 'intervalMs']);
+export const BranchGcControlSettings = BranchGcFileSettings.omit({ prefixes: true, dryRun: true }).nullable().optional();
 
 export const GithubSettings = z.object({
   readToken: optionalString('github.readToken', true),
@@ -88,7 +79,6 @@ const TeamReviewSettings = optionalObject('teamReview', {
   enabled: optionalBoolean('teamReview.enabled'),
   autoRebaseMyPrs: optionalBoolean('teamReview.autoRebaseMyPrs'),
   org: optionalString('teamReview.org', true),
-  team: optionalString('teamReview.team', true),
   skill: optionalString('teamReview.skill', true),
   extraSkills: z.array(
     z.string({ error: 'teamReview.extraSkills must be an array of skill names' }).trim()
@@ -251,9 +241,6 @@ export const WorktreeControlSettings = WorktreeFileSettings.omit({ share: true }
 
 const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean) => ({
   port: z.number().int().min(ranges.PORT_RANGE.min).max(ranges.PORT_RANGE.max).optional(),
-  notifyDebounceMs: z.number().finite().nonnegative().optional(),
-  phoneEscalationMs: z.number().finite().nonnegative().optional(),
-  replayBufferKB: optionalWholeNumber('replayBufferKB', ranges.REPLAY_BUFFER_KB_RANGE),
   sessionMemoryReserveMB: optionalWholeNumber('sessionMemoryReserveMB', ranges.MEMORY_RESERVE_MB_RANGE),
   worktreeDiskReserveGB: optionalWholeNumber('worktreeDiskReserveGB', ranges.WORKTREE_DISK_RESERVE_GB_RANGE),
   packScheduledSessionsMax: optionalWholeNumber('packScheduledSessionsMax', ranges.PACK_SCHEDULED_SESSIONS_RANGE),
@@ -262,7 +249,6 @@ const createBrowserConfigShape = (isAbsolutePath: (directory: string) => boolean
     maxTurnsWithoutProgress: optionalWholeNumber('loopGuard.maxTurnsWithoutProgress', ranges.LOOP_GUARD_TURNS_RANGE).nullable(),
     onStuck: z.enum(ranges.LOOP_GUARD_ON_STUCK, { error: 'loopGuard.onStuck must be flag or stop' }).optional(),
   }),
-  cursorBlink: optionalBoolean('cursorBlink'),
   debugMode: optionalBoolean('debugMode'),
   linkPreviews: optionalBoolean('linkPreviews'),
   viewTabOrder: z.array(z.string({ error: 'viewTabOrder must be an array of view ids' }), { error: 'viewTabOrder must be an array of view ids' }).optional(),

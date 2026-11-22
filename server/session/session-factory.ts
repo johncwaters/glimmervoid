@@ -146,7 +146,6 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       raceId: project.raceId ?? null,
       branchOf: project.branchOf ?? null,
       bypassHookTrust: project.codexBypassHookTrust === true,
-      replayBufferKB: config.replayBufferKB,
       hookRouter: dependencies.hookRouter,
       getHookPort: dependencies.getHookPort,
       gitWorkspace: isMachineShell ? null : dependencies.getGitWorkspace(),

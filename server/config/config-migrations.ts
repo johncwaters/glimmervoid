@@ -260,6 +260,20 @@ const RETIRED_SETTING_PATHS: readonly string[] = Object.freeze([
   'usage.fetchPricing',
   'usage.planLimits',
   'usage.costMode',
+  'notifyDebounceMs',
+  'phoneEscalationMs',
+  'branchGc.enabled',
+  'branchGc.worktrees',
+  'branchGc.staleDays',
+  'branchGc.intervalMs',
+  'taskTitle.refiner.model',
+  'taskTitle.refiner.minIntervalSeconds',
+  'taskTitle.refiner.timeoutSeconds',
+  'questionManager.model',
+  'replayBufferKB',
+  'cursorBlink',
+  'teamReview.team',
+  'workflows.maxActionsPerPoll',
 ]);
 
 function deleteRetiredPath(root: Record<string, unknown>, dottedPath: string): boolean {

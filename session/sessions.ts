@@ -2743,11 +2743,6 @@ class Session extends EventEmitter {
     return this.restart(options);
   }
 
-  updateSettings(cfg: { replayBufferKB?: number | null }): void {
-    if (cfg.replayBufferKB != null)
-      this._output.setMax(cfg.replayBufferKB * 1024);
-  }
-
   destroy(cause: SessionEndCause = "removed"): void {
     this.backgroundTracking.stopAnnouncedBackgroundTasks();
     if (!this._dispatchTeardown({ kind: "destroy_requested" })) return;

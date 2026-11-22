@@ -69,7 +69,6 @@ function validateConfig(candidate: unknown): ConfigValidation {
       if (issue.code === 'custom') return issue.message;
       const [root, index, field] = issue.path;
       if (root === 'port') return 'port must be an integer from 0 to 65535';
-      if (root === 'replayBufferKB') return issue.message;
       if (root === 'repoRoots') return `${root} must be an array of strings`;
       if (root === 'remote') return 'remote must be a plain object';
       if (root !== 'projects' && typeof DEFAULT_CONFIG_BY_KEY[String(root)] === 'number') {
