@@ -489,6 +489,10 @@
   align-items: center;
 }
 
+.wg-seat-strategy {
+  grid-column: 2 / -1;
+}
+
 .wg-seat-label {
   color: var(--text-dim);
   font-size: var(--type-meta);

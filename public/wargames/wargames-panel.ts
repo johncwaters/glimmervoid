@@ -10,6 +10,7 @@ import { emptyState } from '../ui/empty-state.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { segmented } from '../ui/segmented.ts';
 import { select } from '../ui/select.ts';
+import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
 import { createWargamesMap, SEAT_COLORS } from './wargames-map.ts';
@@ -176,7 +177,10 @@ function handleFactionBannerClick(seatId: SeatId): void {
 function ensureNewMatchSection(): HTMLElement {
   if (persistentNewMatchSection) return persistentNewMatchSection;
   const section = el('section', 'wg-form-section');
-  section.append(el('h2', 'wg-section-title', 'New 6-Seat Wargames Match'));
+  section.append(
+    el('h2', 'wg-section-title', 'New 6-Seat Wargames Match'),
+    el('p', 'wg-form-status', 'Fixed system rules are always injected first and cannot be edited. Optional strategy below is pre-game only.'),
+  );
   const titleInput = el('input', 'wg-input') as HTMLInputElement;
   titleInput.value = 'Mixed-Model Research Match';
   const seedInput = el('input', 'wg-input') as HTMLInputElement;
@@ -187,7 +191,12 @@ function ensureNewMatchSection(): HTMLElement {
   metaRow.append(titleInput, seedInput);
   section.append(metaRow);
 
-  const seatInputs: { seatId: SeatId; agentSelect: ReturnType<typeof select<string>>; modelInput: HTMLInputElement }[] = [];
+  const seatInputs: {
+    seatId: SeatId;
+    agentSelect: ReturnType<typeof select<string>>;
+    modelInput: HTMLInputElement;
+    instructionsInput: HTMLTextAreaElement;
+  }[] = [];
   for (let index = 0; index < WARGAMES_SEAT_IDS.length; index += 1) {
     const seatId = WARGAMES_SEAT_IDS[index];
     const presetAgent = DEFAULT_SEAT_AGENTS[index];
@@ -199,9 +208,16 @@ function ensureNewMatchSection(): HTMLElement {
     });
     const modelInput = el('input', 'wg-input') as HTMLInputElement;
     modelInput.placeholder = 'default model';
-    row.append(el('span', 'wg-seat-label', seatId.toUpperCase()), agentSelect.element, modelInput);
+    const instructionsInput = textArea({
+      label: `Seat ${index + 1} pre-game strategy instructions`,
+      placeholder: 'Optional pre-game strategy (appended after fixed rules)',
+      rows: 2,
+    });
+    instructionsInput.maxLength = 4000;
+    instructionsInput.classList.add('wg-seat-strategy');
+    row.append(el('span', 'wg-seat-label', seatId.toUpperCase()), agentSelect.element, modelInput, instructionsInput);
     section.append(row);
-    seatInputs.push({ seatId, agentSelect, modelInput });
+    seatInputs.push({ seatId, agentSelect, modelInput, instructionsInput });
   }
 
   const formStatus = el('div', 'wg-form-status', '');
@@ -221,7 +237,12 @@ function ensureNewMatchSection(): HTMLElement {
           seatId: entry.seatId,
           label: `Seat ${index + 1}`,
           controllerKind: 'local-agent',
-          setup: { agent: entry.agentSelect.element.value, model: entry.modelInput.value.trim() || null, options: [], instructions: '' },
+          setup: {
+            agent: entry.agentSelect.element.value,
+            model: entry.modelInput.value.trim() || null,
+            options: [],
+            instructions: entry.instructionsInput.value.trim(),
+          },
           modelDisplay: entry.modelInput.value.trim() || entry.agentSelect.element.value,
         })),
       };
@@ -299,7 +320,10 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     nameWrap.append(swatch, el('span', 'wg-faction-id', `${seatId.toUpperCase()} ${seat.config.label}`));
     head.append(nameWrap, el('span', 'wg-faction-villages', `${ownedVillages}/${WARGAMES_WIN_VILLAGES}`));
 
-    const sub = el('div', 'wg-faction-sub', `${seat.config.modelDisplay} · ${seat.status}`);
+    const agentAndModel = seat.config.modelDisplay !== seat.config.setup.agent
+      ? `${seat.config.setup.agent} / ${seat.config.modelDisplay}`
+      : seat.config.modelDisplay;
+    const sub = el('div', 'wg-faction-sub', `${agentAndModel} · ${seat.status}`);
 
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');
@@ -385,6 +409,7 @@ function buildMapLegend(): HTMLElement {
   const legend = el('div', 'wg-map-legend');
   legend.append(
     el('span', '', 'Tinted Hex = Territory'),
+    el('span', '', 'Chevron = Raider · Shield = Guard · Diamond = Envoy'),
     el('span', '', 'Bottom Bar = Loyalty'),
     el('span', '', 'Dashed Arrow = Marching Army'),
     el('span', '', `Outer Ring = Barren @ Tick ${WARGAMES_SQUEEZE_TICK}`),
