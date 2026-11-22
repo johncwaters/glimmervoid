@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { BranchGcFileSettings, configIssueMessage } from '../../shared/contracts/index.ts';
+import { repoParts } from '../../shared/contracts/github-ids.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { vaultManagerOf } from '../../shared/contracts/secrets.ts';
 import type { GlimmervoidConfig } from './config-types.ts';
@@ -310,8 +311,25 @@ function nestWorktreeKeys(config: Record<string, unknown>): string | null {
   return keyMoveMessage(outcome, (move) => ({ from: move.from, to: `worktree.${move.to}` }));
 }
 
+function moveLegacyTeamReviewTeam(config: Record<string, unknown>): string | null {
+  const teamReview = config.teamReview;
+  if (!isRecord(teamReview) || !Object.hasOwn(teamReview, 'team')) return null;
+  const legacyTeam = typeof teamReview.team === 'string' ? teamReview.team.trim() : '';
+  const legacyOrg = typeof teamReview.org === 'string' ? teamReview.org.trim() : '';
+  delete teamReview.team;
+  if (Object.keys(teamReview).length === 0) delete config.teamReview;
+  const github = config.github;
+  const existingTeams = isRecord(github) && Array.isArray(github.teams) ? github.teams : [];
+  if (existingTeams.length > 0) return '[config] Dropped teamReview.team (github.teams is already set and takes its place).';
+  if (!legacyOrg || !legacyTeam) return '[config] Removed teamReview.team: github.teams takes its place.';
+  const teamEntry = `${legacyOrg}/${legacyTeam}`;
+  if (repoParts(teamEntry) === null) return '[config] Removed invalid teamReview.team: set github.teams as org/team-slug instead.';
+  blockOf(config, 'github').teams = [teamEntry];
+  return `[config] Moved teamReview.team to github.teams (${teamEntry}).`;
+}
+
 function moveRenamedKeys(config: Record<string, unknown>): string[] {
-  return [moveWatcherUrlToRemote(config), nestWorktreeKeys(config)].filter((message) => message !== null);
+  return [moveWatcherUrlToRemote(config), nestWorktreeKeys(config), moveLegacyTeamReviewTeam(config)].filter((message) => message !== null);
 }
 
 function migrateRemoteEnabled(config: GlimmervoidConfig): string | null {

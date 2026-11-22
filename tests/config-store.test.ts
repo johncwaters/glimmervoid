@@ -417,6 +417,20 @@ test('a config file naming the retired experimental update channel loses the key
   });
 });
 
+test('a config file naming legacy teamReview.team migrates org/team into github.teams and drops teamReview.team', () => {
+  withStore({ projects: [], teamReview: { org: 'acme', team: 'platform' } }, (store, configPath) => {
+    assert.deepEqual(store.config.github, { teams: ['acme/platform'] });
+    assert.deepEqual(store.config.teamReview, { org: 'acme' });
+    const onDisk = readJson(configPath);
+    assert.deepEqual(onDisk.github, { teams: ['acme/platform'] });
+    assert.deepEqual(onDisk.teamReview, { org: 'acme' });
+  });
+  withStore({ projects: [], github: { teams: ['acme/existing'] }, teamReview: { org: 'acme', team: 'platform' } }, (store) => {
+    assert.deepEqual(store.config.github, { teams: ['acme/existing'] });
+    assert.deepEqual(store.config.teamReview, { org: 'acme' });
+  });
+});
+
 test('a config file naming retired remote Coder sessions loses the coder block, the toggle and the workspace sessions on load', () => {
   const coderProject = { id: 'remote', name: 'remote', path: '/repo', environment: { name: 'devbox', workspace: 'gv-0123456789ab', remotePort: 4100, branch: 'glimmervoid/session/remote' } };
   const localProject = { id: 'local', name: 'local', path: '/repo' };
