@@ -1,5 +1,5 @@
 import { WARGAMES_SEAT_IDS, WARGAMES_SQUEEZE_TICK } from '#shared/contracts/wargames.ts';
-import type { SeatId } from '#shared/contracts/wargames.ts';
+import type { OrderItem, SeatId, TroopCounts } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { createSvgShape } from '../svg-dom.ts';
@@ -9,6 +9,42 @@ import {
 } from './wargames-anim-queue.ts';
 import type { BoardAnimationBeat, BoardOverlayMode } from './wargames-anim-queue.ts';
 import type { WargamesPov } from './wargames-store.ts';
+
+type VillageState = NonNullable<MatchState['villages'][number]>;
+
+export function latestResolvedTickOf(ordersByTick: Readonly<Record<number, unknown>>): number {
+  let latest = -1;
+  for (const key of Object.keys(ordersByTick)) {
+    const numeric = Number(key);
+    if (Number.isInteger(numeric) && numeric > latest) latest = numeric;
+  }
+  return latest;
+}
+
+function cloneVillage(village: VillageState | null): VillageState | null {
+  if (!village) return null;
+  return {
+    ...village,
+    resources: { ...village.resources },
+    troops: { ...village.troops },
+    buildings: { ...village.buildings },
+  };
+}
+
+function findOrderTroopsForArmy(
+  ordersBySeat: Readonly<Record<SeatId, OrderItem[]>> | undefined,
+  owner: SeatId,
+  originHexIndex: number,
+  targetHexIndex: number,
+): TroopCounts {
+  const seatOrders = ordersBySeat?.[owner];
+  if (!seatOrders) return { raider: 0, guard: 0, envoy: 0 };
+  const matched = seatOrders.find(
+    (order) => order.kind === 'march' && order.fromHexIndex === originHexIndex && order.toHexIndex === targetHexIndex,
+  );
+  if (matched?.kind !== 'march') return { raider: 0, guard: 0, envoy: 0 };
+  return { ...matched.troops };
+}
 
 export const SEAT_COLORS: Readonly<Record<SeatId, string>> = Object.freeze({
   s1: '#38bdf8',
@@ -195,12 +231,6 @@ interface HexNodeSlot {
   centerY: number;
 }
 
-interface HexSnapshot {
-  owner: SeatId | null;
-  totalTroops: number;
-  loyalty: number;
-}
-
 interface ArmySnapshot {
   hexIndex: number;
   targetHexIndex: number;
@@ -218,7 +248,19 @@ interface HexDeltaSummary {
   troopDelta: number;
   loyaltyDelta: number;
   ownerChanged: boolean;
-  currentOwner: SeatId | null;
+  targetVillage: VillageState;
+}
+
+function appendFocusRing(fxLayer: SVGElement, centerX: number, centerY: number): SVGElement {
+  const ring = createSvgShape('polygon', {
+    points: hexPolygonPoints(centerX, centerY),
+    fill: 'none',
+    stroke: 'var(--accent)',
+    'stroke-width': '2',
+    opacity: '0.75',
+  });
+  fxLayer.append(ring);
+  return ring;
 }
 
 function appendDeltaCallout(
@@ -392,12 +434,14 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
   let lastRenderedMatchId: string | null = null;
   let lastRenderedPov: WargamesPov | null = null;
-  let lastRenderedTick: number | null = null;
+  let lastResolvedTick: number | null = null;
   let overlayMode: BoardOverlayMode = 'idle';
   let latestState: MatchState | null = null;
   let latestPov: WargamesPov = 'god';
+  let latestSelectedHexIndex: number | null = null;
   let latestSpotlightSeatId: SeatId | null = null;
-  let lastHexSnapshots: (HexSnapshot | null)[] = ALL_HEXES.map(() => null);
+  let lastVillageSnapshots: (VillageState | null)[] = ALL_HEXES.map(() => null);
+  let displayedVillages: (VillageState | null)[] = ALL_HEXES.map(() => null);
   let lastArmySnapshots = new Map<string, ArmySnapshot>();
 
   function prefersMotion(): boolean {
@@ -411,10 +455,148 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     if (nextMode !== null) overlayMode = nextMode;
   }
 
+  function paintHexSlot(
+    index: number,
+    village: VillageState | null,
+    state: MatchState,
+    pov: WargamesPov,
+    selectedHexIndex: number | null,
+    spotlightSeatId: SeatId | null,
+  ): void {
+    const slot = slots[index];
+    const tile = ALL_HEXES[index];
+    const isSelected = selectedHexIndex === index;
+    const isFogged = pov !== 'god' && state.villages[index] !== null && village === null;
+    const isOuterRing = tile.ring === 3;
+    const isOuterSqueezeActive = state.tick >= WARGAMES_SQUEEZE_TICK;
+    const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
+
+    if (village) {
+      const isBarren = village.productionState === 'barren';
+      const seatColor = village.owner !== null ? SEAT_COLORS[village.owner] : null;
+      const stroke = isSelected ? 'var(--accent)' : seatColor ?? 'var(--border-hover)';
+      slot.polygon.setAttribute('fill', villageFillColor(village.owner, isBarren));
+      slot.polygon.setAttribute('stroke', stroke);
+      slot.polygon.setAttribute('stroke-width', isSelected ? '3' : seatColor ? '2' : '1.5');
+      if (isOuterRing && (isBarren || !isOuterSqueezeActive)) {
+        slot.polygon.setAttribute('stroke-dasharray', isBarren ? '3 3' : '6 2');
+      }
+      if (!isOuterRing || (!isBarren && isOuterSqueezeActive)) {
+        slot.polygon.removeAttribute('stroke-dasharray');
+      }
+
+      if (village.owner !== null) {
+        slot.ownerBadge.setAttribute('visibility', 'hidden');
+        slot.ownerLabel.textContent = '';
+      }
+      if (village.owner === null) {
+        slot.ownerBadge.setAttribute('visibility', 'visible');
+        slot.ownerBadge.setAttribute('fill', 'var(--bg-surface)');
+        slot.ownerBadge.setAttribute('stroke', 'var(--border-hover)');
+        slot.ownerBadge.setAttribute('stroke-width', '1');
+        slot.ownerLabel.textContent = 'BARB';
+        slot.ownerLabel.setAttribute('fill', 'var(--text-dim)');
+      }
+
+      if (isBarren) {
+        slot.unitGroup.replaceChildren();
+        slot.detailLabel.textContent = 'BARREN';
+        slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
+      }
+      if (!isBarren) {
+        const hasUnits = renderHexUnitTokens(
+          slot.unitGroup,
+          slot.centerX,
+          slot.centerY,
+          village.troops,
+          seatColor ?? 'var(--text-dim)',
+        );
+        slot.detailLabel.textContent = hasUnits ? '' : '0';
+        slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
+      }
+
+      const clampedLoyalty = Math.max(0, Math.min(100, village.loyalty));
+      slot.loyaltyTrack.setAttribute('visibility', 'visible');
+      slot.loyaltyFill.setAttribute('visibility', 'visible');
+      slot.loyaltyFill.setAttribute('width', String(Math.round((clampedLoyalty / 100) * LOYALTY_BAR_WIDTH)));
+      slot.loyaltyFill.setAttribute('fill', loyaltyFillColor(clampedLoyalty, village.owner));
+
+      const matchesSpotlight = !isSpotlightActive || isSelected || village.owner === spotlightSeatId;
+      slot.group.setAttribute('opacity', matchesSpotlight ? '1' : '0.28');
+      return;
+    }
+
+    slot.polygon.setAttribute('fill', isFogged || isOuterRing ? 'var(--bg)' : 'var(--bg-surface)');
+    slot.polygon.setAttribute('stroke', isSelected ? 'var(--accent)' : isOuterRing ? 'var(--border-dim)' : 'var(--border)');
+    slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
+    if (isOuterRing) slot.polygon.setAttribute('stroke-dasharray', '4 3');
+    if (!isOuterRing) slot.polygon.removeAttribute('stroke-dasharray');
+
+    slot.ownerBadge.setAttribute('visibility', 'hidden');
+    slot.ownerLabel.textContent = isFogged ? '?' : '';
+    slot.ownerLabel.setAttribute('fill', 'var(--text-muted)');
+    slot.detailLabel.textContent = '';
+    slot.unitGroup.replaceChildren();
+    slot.loyaltyTrack.setAttribute('visibility', 'hidden');
+    slot.loyaltyFill.setAttribute('visibility', 'hidden');
+
+    const matchesEmptySpotlight = !isSpotlightActive || isSelected;
+    slot.group.setAttribute('opacity', matchesEmptySpotlight ? '1' : '0.28');
+  }
+
+  function paintAllDisplayedSlots(
+    state: MatchState,
+    pov: WargamesPov,
+    selectedHexIndex: number | null,
+    spotlightSeatId: SeatId | null,
+  ): void {
+    for (let index = 0; index < slots.length; index += 1) {
+      paintHexSlot(index, displayedVillages[index], state, pov, selectedHexIndex, spotlightSeatId);
+    }
+  }
+
+  function visibleVillagesArray(state: MatchState, pov: WargamesPov): (VillageState | null)[] {
+    if (pov === 'god') return state.villages.map(cloneVillage);
+    const seatView = projectSeatState(state, pov);
+    const byHex = new Map(seatView.visibleVillages.map((village) => [village.hexIndex, village]));
+    return ALL_HEXES.map((_, index) => cloneVillage(byHex.get(index) ?? null));
+  }
+
+  function visibleActiveArmies(state: MatchState, pov: WargamesPov) {
+    if (pov === 'god') {
+      return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning');
+    }
+    return projectSeatState(state, pov).visibleArmies;
+  }
+
+  function renderActiveArmies(state: MatchState, pov: WargamesPov, spotlightSeatId: SeatId | null): void {
+    armyLayer.replaceChildren();
+    const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
+    for (const army of visibleActiveArmies(state, pov)) {
+      const fromSlot = slots[army.currentHexIndex];
+      const targetIndex = army.status === 'returning' ? army.originHexIndex : army.targetHexIndex;
+      const toSlot = slots[targetIndex];
+      if (!fromSlot || !toSlot) continue;
+      const armyOpacity = !isSpotlightActive || army.owner === spotlightSeatId ? '1' : '0.2';
+      renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
+        strokeDasharray: army.status === 'returning' ? '3 3' : '6 3',
+        strokeWidth: '2.4',
+        opacity: armyOpacity,
+        groupClass: 'wg-army-arrow',
+        lineClass: 'wg-army-line',
+      });
+    }
+  }
+
   const animQueue = createBoardAnimationQueue({
     shouldSkip: () => !prefersMotion(),
     onDrain: () => {
       advanceOverlay('recap_drained');
+      if (latestState) {
+        displayedVillages = visibleVillagesArray(latestState, latestPov);
+        paintAllDisplayedSlots(latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
+        renderActiveArmies(latestState, latestPov, latestSpotlightSeatId);
+      }
       renderOrderPreviews();
     },
   });
@@ -531,17 +713,20 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   ): void {
     latestState = state;
     latestPov = pov;
+    latestSelectedHexIndex = selectedHexIndex;
     latestSpotlightSeatId = spotlightSeatId;
-    armyLayer.replaceChildren();
+
     if (!state) {
       animQueue.clear();
+      armyLayer.replaceChildren();
       fxLayer.replaceChildren();
       previewLayer.replaceChildren();
       advanceOverlay('reset');
       lastRenderedMatchId = null;
       lastRenderedPov = null;
-      lastRenderedTick = null;
-      lastHexSnapshots = ALL_HEXES.map(() => null);
+      lastResolvedTick = null;
+      lastVillageSnapshots = ALL_HEXES.map(() => null);
+      displayedVillages = ALL_HEXES.map(() => null);
       lastArmySnapshots = new Map();
       for (const slot of slots) {
         slot.group.setAttribute('opacity', '1');
@@ -559,195 +744,20 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       return;
     }
 
-    const seatView = pov === 'god' ? null : projectSeatState(state, pov);
-    const visibleVillageByHex = new Map(
-      (seatView ? seatView.visibleVillages : state.villages.filter((village) => village !== null))
-        .map((village) => [village.hexIndex, village]),
-    );
-    const armies = seatView
-      ? seatView.visibleArmies
-      : [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning');
-    const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
-    const isOuterSqueezeActive = state.tick >= WARGAMES_SQUEEZE_TICK;
+    const resolvedTick = latestResolvedTickOf(state.ordersByTick);
     const isSameView = lastRenderedMatchId === state.matchId && lastRenderedPov === pov;
-    const isConsecutiveTick = isSameView && lastRenderedTick !== null && state.tick === lastRenderedTick + 1;
-    const isTickJump = isSameView && lastRenderedTick !== null && state.tick !== lastRenderedTick && !isConsecutiveTick;
+    const isConsecutiveResolution = isSameView && lastResolvedTick !== null && resolvedTick === lastResolvedTick + 1;
+    const isResolutionJump = isSameView && lastResolvedTick !== null && resolvedTick !== lastResolvedTick && !isConsecutiveResolution;
     const allowsMotion = prefersMotion();
 
-    if (!isSameView || !allowsMotion || isTickJump) {
-      animQueue.clear();
-      fxLayer.replaceChildren();
-      advanceOverlay('reset');
+    if (isSameView && resolvedTick === lastResolvedTick && overlayMode === 'recap') {
+      paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
+      return;
     }
 
-    if (!isSameView) {
-      lastRenderedMatchId = state.matchId;
-      lastRenderedPov = pov;
-      lastRenderedTick = state.tick;
-      lastHexSnapshots = ALL_HEXES.map((_, idx) => {
-        const currentVillage = visibleVillageByHex.get(idx);
-        if (!currentVillage) return null;
-        return {
-          owner: currentVillage.owner,
-          totalTroops: troopCountOf(currentVillage.troops),
-          loyalty: currentVillage.loyalty,
-        };
-      });
-      lastArmySnapshots = new Map(armies.map((army) => [army.id, {
-        hexIndex: army.currentHexIndex,
-        targetHexIndex: army.targetHexIndex,
-        originHexIndex: army.originHexIndex,
-        owner: army.owner,
-        troops: { ...army.troops },
-        status: army.status,
-      }]));
-    }
-
-    const glidesByDestHex = new Map<number, { fromSlot: HexNodeSlot; toSlot: HexNodeSlot; army: ArmySnapshot }[]>();
-    if (isConsecutiveTick && allowsMotion) {
-      const currentArmyById = new Map(armies.map((army) => [army.id, army]));
-      const pushGlide = (destIndex: number, fromSlot: HexNodeSlot, toSlot: HexNodeSlot, army: ArmySnapshot) => {
-        const existing = glidesByDestHex.get(destIndex);
-        if (existing) {
-          existing.push({ fromSlot, toSlot, army });
-          return;
-        }
-        glidesByDestHex.set(destIndex, [{ fromSlot, toSlot, army }]);
-      };
-      for (const [armyId, prevArmy] of lastArmySnapshots) {
-        const currentArmy = currentArmyById.get(armyId);
-        const destIndex = currentArmy
-          ? currentArmy.currentHexIndex
-          : prevArmy.status === 'returning'
-            ? prevArmy.originHexIndex
-            : prevArmy.targetHexIndex;
-        if (destIndex === prevArmy.hexIndex) continue;
-        const fromSlot = slots[prevArmy.hexIndex];
-        const toSlot = slots[destIndex];
-        if (!fromSlot || !toSlot) continue;
-        if (isSpotlightActive && prevArmy.owner !== spotlightSeatId) continue;
-        pushGlide(destIndex, fromSlot, toSlot, prevArmy);
-      }
-      for (const army of armies) {
-        if (lastArmySnapshots.has(army.id)) continue;
-        if (army.currentHexIndex === army.originHexIndex) continue;
-        const fromSlot = slots[army.originHexIndex];
-        const toSlot = slots[army.currentHexIndex];
-        if (!fromSlot || !toSlot) continue;
-        if (isSpotlightActive && army.owner !== spotlightSeatId) continue;
-        pushGlide(army.currentHexIndex, fromSlot, toSlot, {
-          hexIndex: army.originHexIndex,
-          targetHexIndex: army.targetHexIndex,
-          originHexIndex: army.originHexIndex,
-          owner: army.owner,
-          troops: { ...army.troops },
-          status: army.status,
-        });
-      }
-    }
-
-    const deltasByHex = new Map<number, HexDeltaSummary>();
-    for (let index = 0; index < slots.length; index += 1) {
-      const slot = slots[index];
-      const tile = ALL_HEXES[index];
-      const village = visibleVillageByHex.get(index) ?? null;
-      const isSelected = selectedHexIndex === index;
-      const isFogged = seatView !== null && state.villages[index] !== null && village === null;
-      const isOuterRing = tile.ring === 3;
-      const prevSnapshot = lastHexSnapshots[index];
-      const currentSnapshot: HexSnapshot | null = village
-        ? { owner: village.owner, totalTroops: troopCountOf(village.troops), loyalty: village.loyalty }
-        : null;
-      if (isConsecutiveTick && allowsMotion && currentSnapshot && prevSnapshot) {
-        const troopDelta = currentSnapshot.totalTroops - prevSnapshot.totalTroops;
-        const loyaltyDelta = currentSnapshot.loyalty - prevSnapshot.loyalty;
-        const ownerChanged = currentSnapshot.owner !== null && prevSnapshot.owner !== currentSnapshot.owner;
-        if (troopDelta !== 0 || loyaltyDelta < 0 || ownerChanged) {
-          deltasByHex.set(index, {
-            troopDelta,
-            loyaltyDelta,
-            ownerChanged,
-            currentOwner: currentSnapshot.owner,
-          });
-        }
-      }
-      lastHexSnapshots[index] = currentSnapshot;
-
-      if (village) {
-        const isBarren = village.productionState === 'barren';
-        const seatColor = village.owner !== null ? SEAT_COLORS[village.owner] : null;
-        const stroke = isSelected ? 'var(--accent)' : seatColor ?? 'var(--border-hover)';
-        slot.polygon.setAttribute('fill', villageFillColor(village.owner, isBarren));
-        slot.polygon.setAttribute('stroke', stroke);
-        slot.polygon.setAttribute('stroke-width', isSelected ? '3' : seatColor ? '2' : '1.5');
-        if (isOuterRing && (isBarren || !isOuterSqueezeActive)) {
-          slot.polygon.setAttribute('stroke-dasharray', isBarren ? '3 3' : '6 2');
-        }
-        if (!isOuterRing || (!isBarren && isOuterSqueezeActive)) {
-          slot.polygon.removeAttribute('stroke-dasharray');
-        }
-
-        if (village.owner !== null) {
-          slot.ownerBadge.setAttribute('visibility', 'hidden');
-          slot.ownerLabel.textContent = '';
-        }
-        if (village.owner === null) {
-          slot.ownerBadge.setAttribute('visibility', 'visible');
-          slot.ownerBadge.setAttribute('fill', 'var(--bg-surface)');
-          slot.ownerBadge.setAttribute('stroke', 'var(--border-hover)');
-          slot.ownerBadge.setAttribute('stroke-width', '1');
-          slot.ownerLabel.textContent = 'BARB';
-          slot.ownerLabel.setAttribute('fill', 'var(--text-dim)');
-        }
-
-        if (isBarren) {
-          slot.unitGroup.replaceChildren();
-          slot.detailLabel.textContent = 'BARREN';
-          slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
-        }
-        if (!isBarren) {
-          const hasUnits = renderHexUnitTokens(
-            slot.unitGroup,
-            slot.centerX,
-            slot.centerY,
-            village.troops,
-            seatColor ?? 'var(--text-dim)',
-          );
-          slot.detailLabel.textContent = hasUnits ? '' : '0';
-          slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
-        }
-
-        const clampedLoyalty = Math.max(0, Math.min(100, village.loyalty));
-        slot.loyaltyTrack.setAttribute('visibility', 'visible');
-        slot.loyaltyFill.setAttribute('visibility', 'visible');
-        slot.loyaltyFill.setAttribute('width', String(Math.round((clampedLoyalty / 100) * LOYALTY_BAR_WIDTH)));
-        slot.loyaltyFill.setAttribute('fill', loyaltyFillColor(clampedLoyalty, village.owner));
-
-        const matchesSpotlight = !isSpotlightActive || isSelected || village.owner === spotlightSeatId;
-        slot.group.setAttribute('opacity', matchesSpotlight ? '1' : '0.28');
-        continue;
-      }
-
-      slot.polygon.setAttribute('fill', isFogged || isOuterRing ? 'var(--bg)' : 'var(--bg-surface)');
-      slot.polygon.setAttribute('stroke', isSelected ? 'var(--accent)' : isOuterRing ? 'var(--border-dim)' : 'var(--border)');
-      slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
-      if (isOuterRing) slot.polygon.setAttribute('stroke-dasharray', '4 3');
-      if (!isOuterRing) slot.polygon.removeAttribute('stroke-dasharray');
-
-      slot.ownerBadge.setAttribute('visibility', 'hidden');
-      slot.ownerLabel.textContent = isFogged ? '?' : '';
-      slot.ownerLabel.setAttribute('fill', 'var(--text-muted)');
-      slot.detailLabel.textContent = '';
-      slot.unitGroup.replaceChildren();
-      slot.loyaltyTrack.setAttribute('visibility', 'hidden');
-      slot.loyaltyFill.setAttribute('visibility', 'hidden');
-
-      const matchesEmptySpotlight = !isSpotlightActive || isSelected;
-      slot.group.setAttribute('opacity', matchesEmptySpotlight ? '1' : '0.28');
-    }
-
-    lastRenderedTick = state.tick;
-    lastArmySnapshots = new Map(armies.map((army) => [army.id, {
+    const targetVillages = visibleVillagesArray(state, pov);
+    const armies = visibleActiveArmies(state, pov);
+    const nextArmySnapshots = new Map(armies.map((army) => [army.id, {
       hexIndex: army.currentHexIndex,
       targetHexIndex: army.targetHexIndex,
       originHexIndex: army.originHexIndex,
@@ -756,110 +766,232 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       status: army.status,
     }]));
 
-    for (const army of armies) {
-      const fromSlot = slots[army.currentHexIndex];
-      const targetIndex = army.status === 'returning' ? army.originHexIndex : army.targetHexIndex;
-      const toSlot = slots[targetIndex];
+    if (!isSameView || !allowsMotion || isResolutionJump || !isConsecutiveResolution) {
+      if (!isSameView || !allowsMotion || isResolutionJump) {
+        animQueue.clear();
+        fxLayer.replaceChildren();
+        advanceOverlay('reset');
+      }
+      lastRenderedMatchId = state.matchId;
+      lastRenderedPov = pov;
+      lastResolvedTick = resolvedTick;
+      lastVillageSnapshots = targetVillages.map(cloneVillage);
+      displayedVillages = targetVillages.map(cloneVillage);
+      lastArmySnapshots = nextArmySnapshots;
+      paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
+      renderActiveArmies(state, pov, spotlightSeatId);
+      renderOrderPreviews();
+      return;
+    }
+
+    if (overlayMode === 'recap') {
+      animQueue.clear();
+      fxLayer.replaceChildren();
+      advanceOverlay('reset');
+    }
+
+    const previousVillages = lastVillageSnapshots.map(cloneVillage);
+    displayedVillages = previousVillages.map(cloneVillage);
+    paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
+    armyLayer.replaceChildren();
+    previewLayer.replaceChildren();
+
+    const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
+    const glidesByDestHex = new Map<number, { fromSlot: HexNodeSlot; toSlot: HexNodeSlot; army: ArmySnapshot }[]>();
+    const seenArmyIds = new Set<string>();
+    const pushGlide = (destIndex: number, fromSlot: HexNodeSlot, toSlot: HexNodeSlot, army: ArmySnapshot) => {
+      const existing = glidesByDestHex.get(destIndex);
+      if (existing) {
+        existing.push({ fromSlot, toSlot, army });
+        return;
+      }
+      glidesByDestHex.set(destIndex, [{ fromSlot, toSlot, army }]);
+    };
+
+    const currentArmyById = new Map(armies.map((army) => [army.id, army]));
+    for (const [armyId, prevArmy] of lastArmySnapshots) {
+      seenArmyIds.add(armyId);
+      const currentArmy = currentArmyById.get(armyId);
+      const destIndex = currentArmy
+        ? currentArmy.currentHexIndex
+        : prevArmy.status === 'returning'
+          ? prevArmy.originHexIndex
+          : prevArmy.targetHexIndex;
+      if (destIndex === prevArmy.hexIndex) continue;
+      const fromSlot = slots[prevArmy.hexIndex];
+      const toSlot = slots[destIndex];
       if (!fromSlot || !toSlot) continue;
-      const armyOpacity = !isSpotlightActive || army.owner === spotlightSeatId ? '1' : '0.2';
-      renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
-        strokeDasharray: army.status === 'returning' ? '3 3' : '6 3',
-        strokeWidth: '2.4',
-        opacity: armyOpacity,
-        groupClass: 'wg-army-arrow',
-        lineClass: 'wg-army-line',
+      if (isSpotlightActive && prevArmy.owner !== spotlightSeatId) continue;
+      pushGlide(destIndex, fromSlot, toSlot, prevArmy);
+    }
+
+    for (const army of armies) {
+      if (seenArmyIds.has(army.id)) continue;
+      seenArmyIds.add(army.id);
+      if (army.currentHexIndex === army.originHexIndex) continue;
+      const fromSlot = slots[army.originHexIndex];
+      const toSlot = slots[army.currentHexIndex];
+      if (!fromSlot || !toSlot) continue;
+      if (isSpotlightActive && army.owner !== spotlightSeatId) continue;
+      pushGlide(army.currentHexIndex, fromSlot, toSlot, {
+        hexIndex: army.originHexIndex,
+        targetHexIndex: army.targetHexIndex,
+        originHexIndex: army.originHexIndex,
+        owner: army.owner,
+        troops: { ...army.troops },
+        status: army.status,
       });
     }
 
-    if (isConsecutiveTick && allowsMotion) {
-      const beats: BoardAnimationBeat[] = [];
-      const activeHexIndices = [...new Set([...glidesByDestHex.keys(), ...deltasByHex.keys()])]
-        .sort((left, right) => left - right);
+    const tickOrders = state.ordersByTick[resolvedTick];
+    for (const army of state.armies.values()) {
+      if (seenArmyIds.has(army.id) || army.departedTick !== resolvedTick) continue;
+      if (pov !== 'god' && army.owner !== pov && !army.scoutedBy.includes(pov)) continue;
+      if (army.targetHexIndex === army.originHexIndex) continue;
+      const fromSlot = slots[army.originHexIndex];
+      const toSlot = slots[army.targetHexIndex];
+      if (!fromSlot || !toSlot) continue;
+      if (isSpotlightActive && army.owner !== spotlightSeatId) continue;
+      const displayTroops = troopCountOf(army.troops) > 0
+        ? { ...army.troops }
+        : findOrderTroopsForArmy(tickOrders, army.owner, army.originHexIndex, army.targetHexIndex);
+      pushGlide(army.targetHexIndex, fromSlot, toSlot, {
+        hexIndex: army.originHexIndex,
+        targetHexIndex: army.targetHexIndex,
+        originHexIndex: army.originHexIndex,
+        owner: army.owner,
+        troops: displayTroops,
+        status: army.status,
+      });
+    }
 
-      for (const hexIndex of activeHexIndices) {
-        const slot = slots[hexIndex];
-        if (!slot) continue;
-        const glides = glidesByDestHex.get(hexIndex) ?? [];
-        if (glides.length > 0) {
-          beats.push({
-            id: `march-${state.tick}-${hexIndex}`,
-            durationMs: 520,
-            start: (durationMs) => {
-              const mounted: SVGElement[] = [];
-              for (const glide of glides) {
-                const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs);
-                if (node) mounted.push(node);
+    const deltasByHex = new Map<number, HexDeltaSummary>();
+    for (let index = 0; index < slots.length; index += 1) {
+      const prevVillage = previousVillages[index];
+      const nextVillage = targetVillages[index];
+      if (!prevVillage || !nextVillage) continue;
+      const troopDelta = troopCountOf(nextVillage.troops) - troopCountOf(prevVillage.troops);
+      const loyaltyDelta = nextVillage.loyalty - prevVillage.loyalty;
+      const ownerChanged = nextVillage.owner !== null && prevVillage.owner !== nextVillage.owner;
+      if (troopDelta !== 0 || loyaltyDelta < 0 || ownerChanged) {
+        deltasByHex.set(index, {
+          troopDelta,
+          loyaltyDelta,
+          ownerChanged,
+          targetVillage: cloneVillage(nextVillage) as VillageState,
+        });
+      }
+    }
+
+    lastResolvedTick = resolvedTick;
+    lastVillageSnapshots = targetVillages.map(cloneVillage);
+    lastArmySnapshots = nextArmySnapshots;
+
+    const beats: BoardAnimationBeat[] = [];
+    const activeHexIndices = [...new Set([...glidesByDestHex.keys(), ...deltasByHex.keys()])]
+      .sort((left, right) => left - right);
+
+    for (const hexIndex of activeHexIndices) {
+      const slot = slots[hexIndex];
+      if (!slot) continue;
+      const glides = glidesByDestHex.get(hexIndex) ?? [];
+      if (glides.length > 0) {
+        beats.push({
+          id: `march-${resolvedTick}-${hexIndex}`,
+          durationMs: 650,
+          start: (durationMs) => {
+            const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
+            for (const glide of glides) {
+              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs);
+              if (node) mounted.push(node);
+            }
+            return () => {
+              for (const node of mounted) node.remove();
+            };
+          },
+        });
+      }
+
+      const delta = deltasByHex.get(hexIndex);
+      if (delta) {
+        beats.push({
+          id: `impact-${resolvedTick}-${hexIndex}`,
+          durationMs: 900,
+          start: (durationMs) => {
+            const currentDisplayed = displayedVillages[hexIndex];
+            if (currentDisplayed) {
+              displayedVillages[hexIndex] = {
+                ...currentDisplayed,
+                troops: { ...delta.targetVillage.troops },
+                loyalty: delta.targetVillage.loyalty,
+                resources: { ...delta.targetVillage.resources },
+                buildings: { ...delta.targetVillage.buildings },
+              };
+              if (latestState) {
+                paintHexSlot(hexIndex, displayedVillages[hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
               }
+            }
+            const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
+            if (delta.troopDelta < 0 || delta.ownerChanged) {
+              const clashColor = delta.targetVillage.owner !== null ? SEAT_COLORS[delta.targetVillage.owner] : 'var(--state-failed)';
+              mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.round(durationMs * 0.8)));
+            }
+            if (delta.troopDelta !== 0) {
+              const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
+              const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
+              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
+            }
+            if (delta.loyaltyDelta < 0) {
+              const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
+              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, loyaltyY, `${delta.loyaltyDelta}%`, 'var(--state-waiting)', durationMs));
+            }
+            return () => {
+              for (const node of mounted) node.remove();
+            };
+          },
+        });
+
+        if (delta.ownerChanged && delta.targetVillage.owner !== null) {
+          const ownerColor = SEAT_COLORS[delta.targetVillage.owner];
+          beats.push({
+            id: `capture-${resolvedTick}-${hexIndex}`,
+            durationMs: 750,
+            start: (durationMs) => {
+              displayedVillages[hexIndex] = cloneVillage(delta.targetVillage);
+              if (latestState) {
+                paintHexSlot(hexIndex, displayedVillages[hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
+              }
+              const focusRing = appendFocusRing(fxLayer, slot.centerX, slot.centerY);
+              const ring = createSvgShape('polygon', {
+                points: hexPolygonPoints(slot.centerX, slot.centerY),
+                fill: 'none',
+                stroke: ownerColor,
+                'stroke-width': '2.5',
+                class: 'wg-capture-ring',
+              });
+              ring.style.transformOrigin = `${slot.centerX.toFixed(1)}px ${slot.centerY.toFixed(1)}px`;
+              ring.style.animationDuration = `${durationMs}ms`;
+              fxLayer.append(ring);
               return () => {
-                for (const node of mounted) node.remove();
+                focusRing.remove();
+                ring.remove();
               };
             },
           });
         }
-
-        const delta = deltasByHex.get(hexIndex);
-        if (delta) {
-          beats.push({
-            id: `impact-${state.tick}-${hexIndex}`,
-            durationMs: 820,
-            start: (durationMs) => {
-              const mounted: SVGElement[] = [];
-              if (delta.troopDelta < 0 || delta.ownerChanged) {
-                const clashColor = delta.currentOwner !== null ? SEAT_COLORS[delta.currentOwner] : 'var(--state-failed)';
-                mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.round(durationMs * 0.8)));
-              }
-              if (delta.troopDelta !== 0) {
-                const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
-                const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
-                mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
-              }
-              if (delta.loyaltyDelta < 0) {
-                const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
-                mounted.push(appendDeltaCallout(fxLayer, slot.centerX, loyaltyY, `${delta.loyaltyDelta}%`, 'var(--state-waiting)', durationMs));
-              }
-              return () => {
-                for (const node of mounted) node.remove();
-              };
-            },
-          });
-
-          if (delta.ownerChanged && delta.currentOwner !== null) {
-            const ownerColor = SEAT_COLORS[delta.currentOwner];
-            beats.push({
-              id: `capture-${state.tick}-${hexIndex}`,
-              durationMs: 640,
-              start: (durationMs) => {
-                const ring = createSvgShape('polygon', {
-                  points: hexPolygonPoints(slot.centerX, slot.centerY),
-                  fill: 'none',
-                  stroke: ownerColor,
-                  'stroke-width': '2.5',
-                  class: 'wg-capture-ring',
-                });
-                ring.style.transformOrigin = `${slot.centerX.toFixed(1)}px ${slot.centerY.toFixed(1)}px`;
-                ring.style.animationDuration = `${durationMs}ms`;
-                fxLayer.append(ring);
-                return () => ring.remove();
-              },
-            });
-          }
-        }
-      }
-
-      if (beats.length > 0) {
-        advanceOverlay('start_recap');
-        previewLayer.replaceChildren();
-        animQueue.enqueueBatch(beats);
-      }
-      if (beats.length === 0) {
-        animQueue.clear();
-        advanceOverlay('reset');
       }
     }
 
-    if (overlayMode !== 'recap' && animQueue.getState() === 'idle') {
-      renderOrderPreviews();
+    if (beats.length > 0) {
+      advanceOverlay('start_recap');
+      animQueue.enqueueBatch(beats);
+      return;
     }
+
+    displayedVillages = targetVillages.map(cloneVillage);
+    paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
+    renderActiveArmies(state, pov, spotlightSeatId);
+    renderOrderPreviews();
   }
 
   function dispose(): void {

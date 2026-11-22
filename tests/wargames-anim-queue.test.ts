@@ -6,6 +6,7 @@ import {
   transitionBoardOverlay,
   transitionBoardQueue,
 } from '../public/wargames/wargames-anim-queue.ts';
+import { latestResolvedTickOf } from '../public/wargames/wargames-map.ts';
 
 function createManualClock() {
   let nextId = 1;
@@ -43,6 +44,10 @@ test('board queue and overlay state machines enforce allowed transitions', () =>
   assert.equal(transitionBoardOverlay('recap', 'recap_drained'), 'idle');
   assert.equal(transitionBoardOverlay('idle', 'show_previews'), 'preview');
   assert.equal(transitionBoardOverlay('preview', 'start_recap'), 'recap');
+
+  assert.equal(latestResolvedTickOf({}), -1);
+  assert.equal(latestResolvedTickOf({ 0: {} }), 0);
+  assert.equal(latestResolvedTickOf({ 0: {}, 1: {}, 2: {} }), 2);
 });
 
 test('animation queue runs beats sequentially, cleans up on clear/dispose, scales long batches, and skips under reduced motion', () => {
