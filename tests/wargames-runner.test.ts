@@ -144,3 +144,59 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('wargames runner fast-advances talk and contracts when all seats pass ready, wakes wait_for_change, and invokes lifecycle hooks', async () => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-runner-ready-'));
+  try {
+    const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
+    await store.load();
+    const phaseEvents: string[] = [];
+    const endedSessions: string[] = [];
+    const runner = createWargamesRunner({
+      store,
+      broadcast: () => {},
+      log: { log: () => {}, warn: () => {} },
+      now: () => 1_700_000_000_000,
+    });
+    const started = await runner.startMatch(
+      buildSpec(),
+      async (_matchId, seat) => ({ ok: true, sessionId: `sess-${seat.seatId}` }),
+      {
+        onPhaseChanged: (_matchId, tick, phase) => phaseEvents.push(`${tick}:${phase}`),
+        onMatchEnded: (_matchId, sessionIds) => endedSessions.push(...sessionIds),
+      },
+    );
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const { matchId } = started;
+
+    for (const seatId of WARGAMES_SEAT_IDS) {
+      await runner.callTool(matchId, seatId, 'get_state', {});
+    }
+    assert.deepEqual(phaseEvents, ['1:talk']);
+
+    const waitingSeat = runner.callTool(matchId, 's1', 'get_state', { ready: true, wait_for_change: true });
+    for (const seatId of ['s2', 's3', 's4', 's5', 's6'] as const) {
+      await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+    }
+    const woke = await waitingSeat;
+    assert.equal(woke.ok, true);
+    if (woke.ok) {
+      const state = woke.payload.state as { tick: number; phase: string };
+      assert.equal(state.tick, 1);
+      assert.equal(state.phase, 'contracts');
+    }
+    assert.deepEqual(phaseEvents, ['1:talk', '1:contracts']);
+
+    for (const seatId of WARGAMES_SEAT_IDS) {
+      await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+    }
+    assert.deepEqual(phaseEvents, ['1:talk', '1:contracts', '1:orders']);
+
+    await runner.abortMatch(matchId, 'finished check');
+    assert.equal(endedSessions.length, 6);
+    runner.dispose();
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+});

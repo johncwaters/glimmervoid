@@ -224,3 +224,91 @@ test('full recorded match replays byte-identically and enforces ruleset, NAP bre
   const eloSum = elo.reduce((sum, row) => sum + row.elo, 0);
   assert.ok(Math.abs(eloSum - 6 * 1500) < 0.5);
 });
+
+test('wargames engine bounces neutral-hex NAP collisions without breaching and aggregates duplicate ally_attack highlights', () => {
+  const spec = buildTestSpec();
+  const matchId = 'wg-nap-bounce';
+  const createdAtMs = 1_700_000_000_000;
+  let state = createInitialMatchState(matchId, createdAtMs, spec);
+  const log: WargamesEvent[] = [{ seq: 0, type: 'match_created', matchId, createdAtMs, spec }];
+  type EventWithoutSeq<T> = T extends WargamesEvent ? Omit<T, 'seq'> : never;
+  const signer = {
+    sign: (payload: string) => `sig:${payload.length}`,
+    verify: (payload: string, signature: string) => signature === `sig:${payload.length}`,
+  };
+  const push = (event: EventWithoutSeq<WargamesEvent>) => {
+    const full = { ...event, seq: state.lastSeq + 1 } as WargamesEvent;
+    const applied = applyEvent(state, full, signer);
+    assert.equal(applied.ok, true);
+    if (!applied.ok) return;
+    state = applied.state;
+    log.push(full);
+  };
+  push({ type: 'seating_started' });
+  for (const seatId of WARGAMES_SEAT_IDS) push({ type: 'seat_connected', seatId });
+  push({ type: 'message_sent', seatId: 's1', channel: 'dm', to: 's2', text: 'peace alliance', attachedReport: null });
+  push({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  push({
+    type: 'contract_proposed',
+    seatId: 's1',
+    contractId: 'ctr-nap-race',
+    terms: { kind: 'nap', counterparty: 's2', durationTicks: 5, collateral: { grain: 20, ore: 20 } },
+  });
+  push({ type: 'contract_accepted', seatId: 's2', contractId: 'ctr-nap-race' });
+  push({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+
+  const s1Home = hexIndexAt(2, 0);
+  const s1Second = hexIndexAt(2, -1);
+  const s2Home = hexIndexAt(1, -2);
+  const neutralTarget = hexIndexAt(1, -1);
+  const s2Village = hexIndexAt(0, -2);
+  const targetVillage = state.villages[neutralTarget];
+  assert.ok(targetVillage);
+  targetVillage.owner = null;
+  targetVillage.loyalty = 15;
+  targetVillage.troops = { raider: 0, guard: 0, envoy: 0 };
+
+  push({
+    type: 'orders_submitted',
+    seatId: 's1',
+    orders: [
+      { kind: 'march', fromHexIndex: s1Home, toHexIndex: neutralTarget, troops: { raider: 2, guard: 2, envoy: 1 } },
+    ],
+  });
+  push({
+    type: 'orders_submitted',
+    seatId: 's2',
+    orders: [
+      { kind: 'march', fromHexIndex: s2Home, toHexIndex: neutralTarget, troops: { raider: 2, guard: 2, envoy: 1 } },
+    ],
+  });
+  for (const seatId of ['s3', 's4', 's5', 's6'] as const) {
+    push({ type: 'orders_submitted', seatId, orders: [] });
+  }
+  push({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  push({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+
+  assert.equal(state.ledger.length, 0);
+  assert.equal(state.contracts.get('ctr-nap-race')?.status, 'active');
+
+  push({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  push({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  push({
+    type: 'orders_submitted',
+    seatId: 's1',
+    orders: [
+      { kind: 'march', fromHexIndex: s1Home, toHexIndex: s2Village, troops: { raider: 1, guard: 0, envoy: 0 } },
+      { kind: 'march', fromHexIndex: s1Second, toHexIndex: s2Village, troops: { raider: 1, guard: 0, envoy: 0 } },
+    ],
+  });
+  for (const seatId of ['s2', 's3', 's4', 's5', 's6'] as const) {
+    push({ type: 'orders_submitted', seatId, orders: [] });
+  }
+  push({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  push({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+
+  const analytics = analyzeMatch(log, state);
+  const allyHighlights = analytics.highlights.filter((item) => item.kind === 'ally_attack' && item.actor === 's1' && item.target === 's2');
+  assert.equal(allyHighlights.length, 1);
+  assert.match(allyHighlights[0].relatedOrderText ?? '', /,/);
+});

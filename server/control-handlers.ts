@@ -212,7 +212,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
   const session = createSessionHandlers(context, deps);
   const github = createGithubHandlers(context, deps);
   const race = createRaceHandlers(context, deps, { discardSession: session.discardSession });
-  const wargames = createWargamesHandlers(context, deps);
+  const wargames = createWargamesHandlers(context, deps, { discardSession: session.discardSession });
   const merged = mergeHandlerGroups([
     createServerHandlers(context, deps),
     createRadarHandlers(context, deps),

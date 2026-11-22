@@ -195,6 +195,7 @@ export function analyzeMatch(
     });
   }
 
+  const allyAttackById = new Map<string, DramaHighlight>();
   const orderedTicks = Object.keys(state.ordersByTick).map(Number).sort((left, right) => left - right);
   for (const tick of orderedTicks) {
     const seatOrders = state.ordersByTick[tick];
@@ -214,17 +215,26 @@ export function analyzeMatch(
         }
         const currentFirst = firstBetrayalBySeat.get(seatId);
         if (currentFirst === undefined || tick < currentFirst) firstBetrayalBySeat.set(seatId, tick);
-        highlights.push({
-          id: `ally-attack-${tick}-${seatId}-${targetOwner}-${order.toHexIndex}`,
+        const highlightId = `ally-attack-${tick}-${seatId}-${targetOwner}-${order.toHexIndex}`;
+        const orderText = summarizeOrder(order);
+        const existing = allyAttackById.get(highlightId);
+        if (existing) {
+          existing.relatedOrderText = existing.relatedOrderText ? `${existing.relatedOrderText}, ${orderText}` : orderText;
+          continue;
+        }
+        const created: DramaHighlight = {
+          id: highlightId,
           kind: 'ally_attack',
           tick,
           actor: seatId,
           target: targetOwner,
           summary: `${seatId} attacked stated ally ${targetOwner} on hex ${order.toHexIndex}`,
           relatedDmText: promise.text,
-          relatedOrderText: summarizeOrder(order),
+          relatedOrderText: orderText,
           detected: null,
-        });
+        };
+        allyAttackById.set(highlightId, created);
+        highlights.push(created);
       }
     }
   }

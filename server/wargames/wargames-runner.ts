@@ -11,6 +11,7 @@ import {
   WARGAMES_SEAT_IDS,
 } from '../../shared/contracts/wargames.ts';
 import type {
+  MatchStatus,
   ModelEloRow,
   SeatConfig,
   TickPhase,
@@ -45,9 +46,15 @@ type SeatLaunchFn = (
   bindSession: (sessionId: string) => void,
 ) => Promise<{ ok: true; sessionId: string } | { ok: false; error: string }>;
 
+interface WargamesMatchHooks {
+  onPhaseChanged?: (matchId: string, tick: number, phase: TickPhase, status: MatchStatus, sessionIds: readonly string[]) => void;
+  onMatchEnded?: (matchId: string, sessionIds: readonly string[]) => void;
+}
+
 const MAX_NOTE_WRITES_PER_TICK = 8;
 const MAX_CONTRACT_PROPOSALS_PER_TICK = 6;
 const MAX_VERIFICATIONS_PER_TICK = 16;
+const MAX_WAIT_FOR_CHANGE_MS = 30_000;
 
 interface LiveMatch {
   state: MatchState;
@@ -58,11 +65,14 @@ interface LiveMatch {
   sessionIds: string[];
   serialQueue: Promise<void>;
   tickToolCounts: Map<string, number>;
+  readySeats: Set<SeatId>;
+  phaseWaiters: Set<() => void>;
+  hooks?: WargamesMatchHooks;
 }
 
 export interface WargamesRunner extends WargamesSeatPort {
   load(): Promise<void>;
-  startMatch(spec: WargamesMatchSpec, launchSeat?: SeatLaunchFn): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }>;
+  startMatch(spec: WargamesMatchSpec, launchSeat?: SeatLaunchFn, hooks?: WargamesMatchHooks): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }>;
   abortMatch(matchId: string, reason: string): Promise<{ ok: true } | { ok: false; error: string }>;
   watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[] } | { ok: false; error: string }>;
   unwatchMatch(matchId: string, watcherId: string): void;
@@ -198,14 +208,36 @@ export function createWargamesRunner({
       clearDeadline(live);
       eloByModel = updateModelElo(eloByModel, summary);
       liveByMatchId.delete(live.state.matchId);
+      wakePhaseWaiters(live);
+      live.hooks?.onMatchEnded?.(live.state.matchId, [...live.sessionIds]);
       broadcast(historyFrame());
     }
     if (live.state.status === 'aborted') {
       clearDeadline(live);
       liveByMatchId.delete(live.state.matchId);
+      wakePhaseWaiters(live);
+      live.hooks?.onMatchEnded?.(live.state.matchId, [...live.sessionIds]);
     }
     broadcast(statusFrame());
     return { ok: true, state: live.state, event: persistedEvent };
+  }
+
+  function isMatchTerminal(live: LiveMatch): boolean {
+    return live.state.status === 'aborted' || live.state.status === 'finished';
+  }
+
+  function activeSessionIds(live: LiveMatch): string[] {
+    return live.sessionIds.filter((sessionId) => {
+      const binding = seatBySessionId.get(sessionId);
+      if (!binding) return false;
+      return live.state.seats[seatIndexOf(binding.seatId)].status !== 'eliminated';
+    });
+  }
+
+  function wakePhaseWaiters(live: LiveMatch): void {
+    const waiters = [...live.phaseWaiters];
+    live.phaseWaiters.clear();
+    for (const notify of waiters) notify();
   }
 
   async function advancePhaseSerialized(live: LiveMatch, reason: 'all_submitted' | 'deadline'): Promise<void> {
@@ -228,12 +260,18 @@ export function createWargamesRunner({
       });
       live.tickToolCounts.clear();
     }
-    if (live.state.status === 'running') schedulePhaseDeadline(live);
+    live.readySeats.clear();
+    wakePhaseWaiters(live);
+    if (live.state.status === 'running') {
+      schedulePhaseDeadline(live);
+      live.hooks?.onPhaseChanged?.(live.state.matchId, live.state.tick, live.state.phase, live.state.status, activeSessionIds(live));
+    }
   }
 
   async function startMatch(
     spec: WargamesMatchSpec,
     launchSeat?: SeatLaunchFn,
+    hooks?: WargamesMatchHooks,
   ): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }> {
     const createdAtMs = now();
     const matchId = `wg-${createdAtMs.toString(36)}-${randomBytes(3).toString('hex')}`;
@@ -248,6 +286,9 @@ export function createWargamesRunner({
       sessionIds: [],
       serialQueue: Promise.resolve(),
       tickToolCounts: new Map(),
+      readySeats: new Set(),
+      phaseWaiters: new Set(),
+      hooks,
     };
     liveByMatchId.set(matchId, live);
     const createdEvent: WargamesEvent = { seq: 0, type: 'match_created', matchId, createdAtMs, spec };
@@ -257,12 +298,22 @@ export function createWargamesRunner({
     if (launchSeat) {
       const launchErrors: string[] = [];
       for (const seat of spec.seats) {
+        if (isMatchTerminal(live)) {
+          return { ok: false, error: live.state.abortReason ?? 'Match aborted during launch' };
+        }
+        let boundSessionId: string | null = null;
         const bindSession = (sessionId: string) => {
+          boundSessionId = sessionId;
           live.sessionIds.push(sessionId);
           wargamesSessionIds.add(sessionId);
           seatBySessionId.set(sessionId, { matchId, seatId: seat.seatId });
         };
         const launched = await launchSeat(matchId, seat, bindSession);
+        if (isMatchTerminal(live)) {
+          const lateSessionId = launched.ok ? launched.sessionId : boundSessionId;
+          if (lateSessionId) live.hooks?.onMatchEnded?.(matchId, [lateSessionId]);
+          return { ok: false, error: live.state.abortReason ?? 'Match aborted during launch' };
+        }
         if (!launched.ok) {
           launchErrors.push(`${seat.seatId}: ${launched.error}`);
           continue;
@@ -330,8 +381,26 @@ export function createWargamesRunner({
     const wasSeating = live.state.status === 'seating';
     await commitEventSerialized(live, { seq: live.state.lastSeq + 1, type: 'seat_connected', seatId });
     if (wasSeating && live.state.status === 'running') {
+      live.readySeats.clear();
+      wakePhaseWaiters(live);
       schedulePhaseDeadline(live);
+      live.hooks?.onPhaseChanged?.(live.state.matchId, live.state.tick, live.state.phase, live.state.status, activeSessionIds(live));
     }
+  }
+
+  function waitForPhaseChange(live: LiveMatch): Promise<void> {
+    const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / 3));
+    const waitMs = Math.min(phaseMs, MAX_WAIT_FOR_CHANGE_MS);
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeoutFn(timer);
+        live.phaseWaiters.delete(done);
+        resolve();
+      };
+      const timer = setTimeoutFn(done, waitMs);
+      unrefTimer(timer);
+      live.phaseWaiters.add(done);
+    });
   }
 
   function takeTickQuota(live: LiveMatch, seatId: SeatId, tool: string, limit: number): boolean {
@@ -350,15 +419,39 @@ export function createWargamesRunner({
   ): Promise<WargamesToolReply> {
     const live = liveByMatchId.get(matchId);
     if (!live) return rejectionReply('invalid_match_state', `match ${matchId} is not live`);
+    if (toolName === 'get_state') {
+      const readyFlag = args.ready === true;
+      const waitFlag = args.wait_for_change === true;
+      const before = await enqueueMatch(live, async () => {
+        if (live.state.status === 'finished' || live.state.status === 'aborted') {
+          return { ended: true as const, status: live.state.status, tick: live.state.tick, phase: live.state.phase, changed: true };
+        }
+        const startTick = live.state.tick;
+        const startPhase = live.state.phase;
+        const startStatus = live.state.status;
+        await ensureSeatConnectedSerialized(live, seatId);
+        if (readyFlag && live.state.status === 'running' && (live.state.phase === 'talk' || live.state.phase === 'contracts')) {
+          live.readySeats.add(seatId);
+          const allReady = WARGAMES_SEAT_IDS.every((id) => {
+            const seatStatus = live.state.seats[seatIndexOf(id)].status;
+            return seatStatus === 'eliminated' || seatStatus === 'timedOut' || live.readySeats.has(id);
+          });
+          if (allReady) await advancePhaseSerialized(live, 'all_submitted');
+        }
+        const changed = live.state.tick !== startTick || live.state.phase !== startPhase || live.state.status !== startStatus;
+        return { ended: false as const, status: live.state.status, tick: live.state.tick, phase: live.state.phase, changed };
+      });
+      if (before.ended) return rejectionReply('invalid_match_state', `match ${matchId} is ${before.status}`);
+      if (waitFlag && !before.changed && liveByMatchId.has(matchId)) {
+        await waitForPhaseChange(live);
+      }
+      return { ok: true, payload: { state: projectSeatState(live.state, seatId) } };
+    }
     return enqueueMatch(live, async () => {
       if (live.state.status === 'finished' || live.state.status === 'aborted') {
         return rejectionReply('invalid_match_state', `match ${matchId} is ${live.state.status}`);
       }
       await ensureSeatConnectedSerialized(live, seatId);
-
-      if (toolName === 'get_state') {
-        return { ok: true, payload: { state: projectSeatState(live.state, seatId) } };
-      }
       if (toolName === 'get_reports') {
         const sinceTick = typeof args.since_tick === 'number' ? args.since_tick : 0;
         const reports = live.state.reportsBySeat[seatId].filter((report) => report.payload.tick >= sinceTick);
@@ -475,7 +568,10 @@ export function createWargamesRunner({
   }
 
   function dispose(): void {
-    for (const live of liveByMatchId.values()) clearDeadline(live);
+    for (const live of liveByMatchId.values()) {
+      clearDeadline(live);
+      wakePhaseWaiters(live);
+    }
     liveByMatchId.clear();
     watchersByMatchId.clear();
   }

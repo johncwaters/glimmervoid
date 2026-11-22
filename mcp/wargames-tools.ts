@@ -76,9 +76,12 @@ export function buildWargamesSeatServer(
 
   server.registerTool('get_state', {
     title: 'Get Match State',
-    description: 'Read your fog-of-war view of the current tick, phase, visible villages, armies, contracts, and breach ledger.',
-    inputSchema: z.strictObject({}),
-  }, async () => formatToolReply(await port.callTool(matchId, seatId, 'get_state', {})));
+    description: 'Read your fog-of-war view of the current tick, phase, visible villages, armies, contracts, and breach ledger. Pass ready: true during talk or contracts when finished so the phase can advance early, and wait_for_change: true to block until the tick, phase, or match status changes.',
+    inputSchema: z.strictObject({
+      ready: z.boolean().optional(),
+      wait_for_change: z.boolean().optional(),
+    }),
+  }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'get_state', args)));
 
   server.registerTool('get_reports', {
     title: 'Get Signed Reports',

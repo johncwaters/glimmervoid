@@ -9,9 +9,12 @@ import type { ControlContext } from '../control-context.ts';
 import { replyTo } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 
+type DiscardSession = (sessionId: string) => Promise<unknown>;
+
 export function createWargamesHandlers(
   context: ControlContext,
   deps: ControlHandlerDeps,
+  options: { discardSession?: DiscardSession } = {},
 ): ControlHandlerGroup & { launcher: WargamesLauncher } {
   const { sessions, createProjectSession } = context;
   const { config, wargames = null } = deps;
@@ -21,6 +24,7 @@ export function createWargamesHandlers(
     sessions,
     config,
     createProjectSession,
+    discardSession: options.discardSession,
   });
 
   function watcherIdFor(ws: ControlSocket): string {

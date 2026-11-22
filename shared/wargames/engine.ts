@@ -73,10 +73,11 @@ interface ArmyState {
   targetHexIndex: number;
   troops: TroopCounts;
   departedTick: number;
+  intendedTargetOwner: SeatId | null;
   scoutedBy: SeatId[];
 }
 
-interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy'> {}
+interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy' | 'intendedTargetOwner'> {}
 
 interface SeatRuntimeState {
   config: SeatConfig;
@@ -678,6 +679,7 @@ function resolveTick(
         targetHexIndex: order.toHexIndex,
         troops: { ...order.troops },
         departedTick: state.tick,
+        intendedTargetOwner: state.villages[order.toHexIndex]?.owner ?? null,
         scoutedBy: [],
       });
     }
@@ -755,11 +757,18 @@ function resolveTick(
         continue;
       }
       if (targetVillage.owner !== null) {
-        for (const contract of state.contracts.values()) {
-          if (contract.status !== 'active' || contract.terms.kind !== 'nap') continue;
-          const involvesPair = (contract.proposer === army.owner && contract.counterparty === targetVillage.owner)
+        const activeNaps = [...state.contracts.values()].filter((contract) => {
+          if (contract.status !== 'active' || contract.terms.kind !== 'nap') return false;
+          return (contract.proposer === army.owner && contract.counterparty === targetVillage.owner)
             || (contract.counterparty === army.owner && contract.proposer === targetVillage.owner);
-          if (!involvesPair) continue;
+        });
+        if (army.intendedTargetOwner !== targetVillage.owner && activeNaps.length > 0) {
+          const returning = transitionArmy(army.status, 'army_return');
+          if (returning.ok) army.status = returning.state;
+          continue;
+        }
+        for (const contract of activeNaps) {
+          if (contract.terms.kind !== 'nap') continue;
           const breached = transitionContract(contract.status, 'contract_breach');
           if (!breached.ok) continue;
           contract.status = breached.state;
