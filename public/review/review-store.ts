@@ -115,14 +115,27 @@ function requestDiff(sessionId: string) {
   requestChangeMap(sessionId);
 }
 
-function applyStatus(sessionId: string, nextStatus: string) {
+function dropDiffCache(sessionId: string): boolean {
+  const hadCachedDiff = diffById.delete(sessionId);
+  const hadDiffError = diffErrorById.delete(sessionId);
+  const hadChangeMap = mapById.delete(sessionId);
+  return hadCachedDiff || hadDiffError || hadChangeMap;
+}
+
+function applyStatus(sessionId: string, nextStatus: string, { isSnapshot = false } = {}) {
   const previousStatus = statusById.get(sessionId);
   statusById.set(sessionId, nextStatus);
+  const isSelected = sessionId === getSelectedId();
   if (shouldDropDiffCache(previousStatus, nextStatus)) {
-    diffById.delete(sessionId);
-    diffErrorById.delete(sessionId);
-    mapById.delete(sessionId);
-    if (sessionId === getSelectedId()) requestDiff(sessionId);
+    dropDiffCache(sessionId);
+    if (isSelected) requestDiff(sessionId);
+    announce(sessionId);
+    return;
+  }
+  const hasCachedDiff = diffById.has(sessionId) || diffErrorById.has(sessionId) || mapById.has(sessionId);
+  if (isSnapshot && hasCachedDiff) {
+    if (isSelected) requestDiff(sessionId);
+    if (!isSelected) dropDiffCache(sessionId);
   }
   announce(sessionId);
 }
@@ -135,7 +148,7 @@ export function setMergeStatus(sessionId: string, status: string, reason: string
 
 export function seedMergeStatus(sessionId: string, status: string, reason: string | null = null) {
   reasonById.set(sessionId, reason);
-  applyStatus(sessionId, status || 'none');
+  applyStatus(sessionId, status || 'none', { isSnapshot: true });
 }
 
 export function setSessionDiff(id: unknown, payload: SessionDiffPayload | null) {
@@ -205,7 +218,19 @@ export function runSessionReview(sessionId: string) {
 
 export function noteWorktreeChanged(id: unknown) {
   const sessionId = sessionIdOf(id);
-  if (sessionId && sessionId === getSelectedId()) requestDiff(sessionId);
+  if (!sessionId) return;
+  if (sessionId === getSelectedId()) {
+    requestDiff(sessionId);
+    return;
+  }
+  if (dropDiffCache(sessionId)) announce(sessionId);
+}
+
+export function reloadReview(id: unknown) {
+  if (id == null) return;
+  const sessionId = sessionIdOf(id);
+  if (!sessionId) return;
+  requestDiff(sessionId);
 }
 
 function hasChangeMapError(map: ChangeMap | null | undefined) {

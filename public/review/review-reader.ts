@@ -20,7 +20,7 @@ import {
 } from './review-reader-core.ts';
 import type { SessionReview } from './review-store.ts';
 import { CHECK_STATUS_WORDS } from '#shared/contracts/verification.ts';
-import { onReviewChange, refreshReview, reviewOf, runSessionReview, syncWatch, watchReviewSurface } from './review-store.ts';
+import { onReviewChange, reloadReview, reviewOf, runSessionReview, syncWatch, watchReviewSurface } from './review-store.ts';
 import { getSelectedId, onSelectionChange } from './selection.ts';
 import type { SessionReviewResult } from '#shared/contracts/session-review.ts';
 import { clock } from '#shared/clock.ts';
@@ -198,7 +198,7 @@ function renderFileColumn(fileColumn: HTMLElement, review: SessionReview) {
   fileColumn.replaceChildren();
   if (review.diffError) {
     const reloadButton = createPressable('review-reload', 'Reload changes');
-    reloadButton.addEventListener('click', () => refreshReview(shownSessionId));
+    reloadButton.addEventListener('click', () => reloadReview(shownSessionId));
     fileColumn.append(el('p', 'review-diff-error', review.diffError), reloadButton);
     return;
   }
@@ -701,9 +701,10 @@ export const changesPage: SessionPage = {
   iconPath: CHANGES_ICON_PATH,
   isAvailableFor: (sessionId) => reviewOf(sessionId) !== null,
   hasUnreadFor: () => false,
-  mount(host, _sessionId, { placement: nextPlacement, target }) {
+  mount(host, sessionId, { placement: nextPlacement, target }) {
     place(host, nextPlacement);
     requestedPath = target;
+    reloadReview(sessionId);
     render();
     if (nextPlacement === 'overlay') readerParts().root.focus({ preventScroll: true });
   },

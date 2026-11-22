@@ -71,3 +71,31 @@ test('the watcher survives a commonGitDir under an 8.3 short parent', { skip: !S
     fs.rmSync(outer, { recursive: true, force: true });
   }
 });
+
+test('fires when the origin tracking reflog advances and coalesces local and origin moves', async () => {
+  const fixture = fakeCommonGitDir(['main']);
+  const logsOrigin = path.join(fixture.dir, 'logs', 'refs', 'remotes', 'origin');
+  fs.mkdirSync(logsOrigin, { recursive: true });
+  fs.writeFileSync(path.join(logsOrigin, 'main'), '0000 init\n', 'utf8');
+  let callbackCount = 0;
+  const watcher = createIntegrationRefWatcher({ commonGitDir: fixture.dir, branch: 'main', onChange: () => { callbackCount++; }, debounceMs: 50 });
+  try {
+    assert.equal(watcher.start(), true);
+    await waitForFsWatchToArm();
+    callbackCount = 0;
+
+    fs.appendFileSync(path.join(logsOrigin, 'main'), 'origin move\n', 'utf8');
+    await waitFor(() => callbackCount >= 1, 'origin reflog move fired watcher', EVENT_DEADLINE_MS);
+    await wait(QUIET_WINDOW_MS);
+    assert.equal(callbackCount, 1);
+
+    fixture.append('main', 'local move');
+    fs.appendFileSync(path.join(logsOrigin, 'main'), 'origin move 2\n', 'utf8');
+    await waitFor(() => callbackCount >= 2, 'simultaneous local and origin moves fired watcher', EVENT_DEADLINE_MS);
+    await wait(QUIET_WINDOW_MS);
+    assert.equal(callbackCount, 2, 'simultaneous local and origin updates coalesce into one callback');
+  } finally {
+    watcher.stop();
+    fixture.cleanup();
+  }
+});
