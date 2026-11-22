@@ -144,6 +144,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       isCleanHome: project.agentHome === 'clean',
       startSha: project.startSha ?? null,
       raceId: project.raceId ?? null,
+      attentionOwner: project.attentionOwner ?? null,
       branchOf: project.branchOf ?? null,
       bypassHookTrust: project.codexBypassHookTrust === true,
       hookRouter: dependencies.hookRouter,

@@ -73,7 +73,7 @@ export function createWargamesLauncher({
         dangerouslySkipPermissions: skipPermissions,
         saneYolo,
         requireExistingPath: true,
-        runSettings: { agentSetup: seat.setup, agentHome: 'operator' },
+        runSettings: { agentSetup: seat.setup, agentHome: 'operator', attentionOwner: 'wargames' },
       });
       if (!created.ok) return { ok: false as const, error: created.error };
       bindSession(created.project.id);

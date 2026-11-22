@@ -256,6 +256,7 @@ interface SessionOptions {
   agentDepth?: number;
   ownerId?: string | null;
   raceId?: string | null;
+  attentionOwner?: AttentionOwner | null;
   branchOf?: BranchLink | null;
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
@@ -487,6 +488,7 @@ class Session extends EventEmitter {
     agentDepth = 0,
     ownerId = null,
     raceId = null,
+    attentionOwner = null,
     branchOf = null,
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
@@ -504,7 +506,7 @@ class Session extends EventEmitter {
     this.branchOf = branchOf;
     this.doneMeans = doneMeans;
     this.agentDoneLines = agentDoneLines.map((line) => ({ ...line }));
-    this.attentionOwner = attentionOwnerOf(ownerId, raceId);
+    this.attentionOwner = attentionOwner ?? attentionOwnerOf(ownerId, raceId);
     this.name = name;
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");

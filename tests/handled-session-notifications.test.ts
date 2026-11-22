@@ -10,6 +10,8 @@ import { createSessionEventWiring } from '../server/session/session-event-wiring
 import { projectSessionCard } from '../session/core/snapshot-projection.ts';
 import { SessionCardFields } from '../shared/contracts/control/control-fields.ts';
 import { SessionSnapshot } from '../shared/contracts/session.ts';
+import { STATES } from '../shared/states.ts';
+import { countAttentionByKind, jumpTargetCount, orderAttentionLine } from '../public/attention-core.ts';
 import type { Session } from '../session/sessions.ts';
 
 test('a child session its parent owns and an arena contestant never notify the operator and tell the dashboard who attends them, while a plain session notifies', async () => {
@@ -27,6 +29,7 @@ test('a child session its parent owns and an arena contestant never notify the o
         { id: 'plain-session', name: 'plain', path: directory },
         { id: 'owned-child', name: 'child', path: directory },
         { id: 'arena-contestant', name: 'contestant', path: directory, raceId },
+        { id: 'wargames-seat', name: 'Wargames - s1', path: directory, attentionOwner: 'wargames' },
       ],
     }));
     configStore = createConfigStore();
@@ -45,8 +48,8 @@ test('a child session its parent owns and an arena contestant never notify the o
       attachSessionPrLink: () => {}, closeSessionDataClients: () => {},
       logger: { error: () => {}, log: () => {}, warn: () => {} },
     });
-    const [plainProject, childProject, contestantProject] = configStore.config.projects;
-    assert.ok(plainProject && childProject && contestantProject);
+    const [plainProject, childProject, contestantProject, wargamesProject] = configStore.config.projects;
+    assert.ok(plainProject && childProject && contestantProject && wargamesProject);
     const startWired = (session: Session) => {
       sessions.push(session);
       wire(session);
@@ -61,6 +64,7 @@ test('a child session its parent owns and an arena contestant never notify the o
     startWired(makeSession(plainProject, configStore.config));
     startWired(makeSession(childProject, configStore.config, { ownerId: 'plain-session' }));
     startWired(makeSession(contestantProject, configStore.config));
+    startWired(makeSession(wargamesProject, configStore.config));
 
     assert.deepEqual([...new Set(triggered.map(({ id }) => id))], ['plain-session']);
     assert.deepEqual(triggered.map(({ category }) => category), ['waiting', 'complete', 'note']);
@@ -72,7 +76,17 @@ test('a child session its parent owns and an arena contestant never notify the o
       { snapshot: 'operator', card: 'operator' },
       { snapshot: 'parent', card: 'parent' },
       { snapshot: 'race', card: 'race' },
+      { snapshot: 'wargames', card: 'wargames' },
     ]);
+    const focusRows = sessions.map((session) => ({
+      id: session.id,
+      name: session.name,
+      state: STATES.WAITING,
+      unseenOutcome: null,
+      attentionOwner: session.attentionOwner,
+    }));
+    assert.deepEqual(orderAttentionLine(focusRows, null).map(({ id }) => id), ['plain-session']);
+    assert.equal(jumpTargetCount(countAttentionByKind(focusRows)), 1);
   } finally {
     for (const session of sessions) session.destroy();
     await configStore?.idle();
