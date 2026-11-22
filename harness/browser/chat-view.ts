@@ -8,7 +8,7 @@ import { browserTypeOf } from '../support/browser-engines.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const PAGE_ROOT = path.join(import.meta.dirname, 'chat-view');
-const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--screenshot <out.png>] [--executable <chrome path>]';
+const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--fingerprint <out.json>] [--fingerprint-compare <baseline.json>] [--perf <runs>] [--screenshot <out.png>] [--executable <chrome path>]';
 
 interface ChatViewOptions {
   tracePath: string;
@@ -19,8 +19,17 @@ interface ChatViewOptions {
   playsLive: boolean;
   staysWorking: boolean;
   checksEarlier: boolean;
+  fingerprintPath: string | null;
+  fingerprintComparePath: string | null;
+  perfRuns: number | null;
   screenshotPath: string | null;
   executablePath: string | null;
+}
+
+interface ChatFingerprint {
+  rest: string[];
+  opened: string[];
+  live: string[];
 }
 
 function optionValue(argumentList: readonly string[], flag: string): string | null {
@@ -33,6 +42,11 @@ function parseOptions(argumentList: readonly string[]): ChatViewOptions | null {
   if (!tracePath || tracePath.startsWith('--')) return null;
   const screenshotPath = optionValue(argumentList, '--screenshot');
   const executablePath = optionValue(argumentList, '--executable');
+  const fingerprintPath = optionValue(argumentList, '--fingerprint');
+  const fingerprintComparePath = optionValue(argumentList, '--fingerprint-compare');
+  const perfValue = optionValue(argumentList, '--perf');
+  const perfRuns = perfValue === null ? null : Number(perfValue);
+  if (perfRuns !== null && (!Number.isInteger(perfRuns) || perfRuns < 1)) return null;
   return {
     tracePath: path.resolve(tracePath),
     firstRecordIndex: Number(optionValue(argumentList, '--from') ?? '0'),
@@ -42,6 +56,9 @@ function parseOptions(argumentList: readonly string[]): ChatViewOptions | null {
     playsLive: argumentList.includes('--live'),
     staysWorking: argumentList.includes('--working'),
     checksEarlier: argumentList.includes('--earlier'),
+    fingerprintPath: fingerprintPath === null ? null : path.resolve(fingerprintPath),
+    fingerprintComparePath: fingerprintComparePath === null ? null : path.resolve(fingerprintComparePath),
+    perfRuns,
     screenshotPath: screenshotPath === null ? null : path.resolve(screenshotPath),
     executablePath: executablePath === null ? null : path.resolve(executablePath),
   };
@@ -145,6 +162,71 @@ async function captureScreenshot(url: string, screenshotPath: string, executable
   console.log(`turn end shift: ${turnEndShiftPx === null ? 'not measured' : `${turnEndShiftPx}px`}; turn meta rows: ${JSON.stringify(turnMetaRows)}; ${turnKeysReport}`);
 }
 
+async function readFingerprint(page: Page): Promise<string[]> {
+  return page.evaluate(() => (Reflect.get(window, 'chatFingerprint') as () => string[])());
+}
+
+async function captureFingerprint(baseUrl: string, executablePath: string | null): Promise<ChatFingerprint> {
+  const chromium = await browserTypeOf('chromium');
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width: 900, height: 1100 } });
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`${baseUrl}?cards`);
+    await page.waitForSelector('body[data-rendered="true"]');
+    const rest = await readFingerprint(page);
+    await page.evaluate(() => {
+      for (const meta of document.querySelectorAll<HTMLElement>('.chat-turn[data-foldable] .chat-turn-meta')) meta.click();
+      for (const row of document.querySelectorAll<HTMLElement>('.chat-subagent-row')) row.click();
+    });
+    const opened = await readFingerprint(page);
+    await page.goto(`${baseUrl}?live`);
+    await page.waitForSelector('body[data-live-done="true"]');
+    const live = await readFingerprint(page);
+    if (pageErrors.length > 0) throw new Error(`the chat view threw: ${pageErrors.join('; ')}`);
+    return { rest, opened, live };
+  } finally {
+    await browser.close();
+  }
+}
+
+function firstDifferenceOf(section: keyof ChatFingerprint, expected: readonly string[], actual: readonly string[]): string | null {
+  const maxLength = Math.max(expected.length, actual.length);
+  for (let index = 0; index < maxLength; index += 1) {
+    if (expected[index] === actual[index]) continue;
+    return `${section}[${index}] expected ${JSON.stringify(expected[index] ?? '<eof>')} got ${JSON.stringify(actual[index] ?? '<eof>')}`;
+  }
+  return null;
+}
+
+function compareFingerprints(expected: ChatFingerprint, actual: ChatFingerprint): string[] {
+  const sections: (keyof ChatFingerprint)[] = ['rest', 'opened', 'live'];
+  return sections.flatMap((section) => {
+    const difference = firstDifferenceOf(section, expected[section], actual[section]);
+    return difference === null ? [] : [difference];
+  });
+}
+
+async function measurePerf(baseUrl: string, runs: number, executablePath: string | null): Promise<string> {
+  const chromium = await browserTypeOf('chromium');
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width: 900, height: 1100 } });
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`${baseUrl}?perf=${runs}`);
+    await page.waitForSelector('body[data-perf]');
+    const perfJson = await page.evaluate(() => document.body.dataset.perf ?? '{}');
+    if (pageErrors.length > 0) throw new Error(`the chat view threw: ${pageErrors.join('; ')}`);
+    return perfJson;
+  } finally {
+    await browser.close();
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   if (!options) {
@@ -163,8 +245,31 @@ async function main(): Promise<void> {
     clearScreen: false,
   });
   await server.listen();
+  const baseUrl = `http://localhost:${options.port}/`;
   const query = [options.showsExampleCards ? 'cards' : '', options.playsLive ? 'live' : '', options.staysWorking ? 'working' : ''].filter((flag) => flag.length > 0).join('&');
-  const url = `http://localhost:${options.port}/${query ? `?${query}` : ''}`;
+  const url = `${baseUrl}${query ? `?${query}` : ''}`;
+  if (options.fingerprintPath !== null || options.fingerprintComparePath !== null) {
+    const captured = await captureFingerprint(baseUrl, options.executablePath).finally(() => server.close());
+    if (options.fingerprintPath !== null) {
+      fs.writeFileSync(options.fingerprintPath, `${JSON.stringify(captured, null, 2)}\n`);
+      console.log(`wrote ${options.fingerprintPath} (rest ${captured.rest.length}, opened ${captured.opened.length}, live ${captured.live.length} lines)`);
+    }
+    if (options.fingerprintComparePath !== null) {
+      const baseline: ChatFingerprint = JSON.parse(fs.readFileSync(options.fingerprintComparePath, 'utf8'));
+      const differences = compareFingerprints(baseline, captured);
+      if (differences.length > 0) {
+        console.error(differences.join('\n'));
+        process.exit(1);
+      }
+      console.log(`fingerprint matched ${options.fingerprintComparePath} (rest ${captured.rest.length}, opened ${captured.opened.length}, live ${captured.live.length} lines)`);
+    }
+    return;
+  }
+  if (options.perfRuns !== null) {
+    const perfJson = await measurePerf(baseUrl, options.perfRuns, options.executablePath).finally(() => server.close());
+    console.log(perfJson);
+    return;
+  }
   if (options.checksEarlier) {
     const earlierReport = await checkEarlierFills(url, options.executablePath).finally(() => server.close());
     console.log(earlierReport);
