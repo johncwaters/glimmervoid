@@ -1,6 +1,6 @@
 import type { AgentDoneLine, ChatOutboxEntry, ConversationApproval } from '#shared/contracts/session.ts';
 
-export interface ChatSessionState {
+interface ChatSessionState {
   approval: ConversationApproval | null;
   draft: string;
   draftAttachments: string[];
