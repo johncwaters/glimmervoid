@@ -129,8 +129,9 @@ interface NudgeRun {
 
 type BoxFields = { place: { at: ViewPoint } } | { width: number };
 
+const AUXILIARY_PAN_BUTTON = 1;
 const CONTEXT_MENU_BUTTON = 2;
-const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([1, CONTEXT_MENU_BUTTON]);
+const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([AUXILIARY_PAN_BUTTON, CONTEXT_MENU_BUTTON]);
 
 type PanButton = 'primary' | 'auxiliary' | 'context';
 type StackOrder = Extract<Op, { op: 'order' }>['to'];
@@ -2072,12 +2073,63 @@ export function createBoardEditor(options: BoardEditorOptions) {
     if (event.key === ' ') holdSpace(false);
   }
 
+  let cancelAuxClickSuppression: (() => void) | null = null;
+
+  function armAuxiliaryClickSuppression(): void {
+    cancelAuxClickSuppression?.();
+    let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearSuppression = () => {
+      window.removeEventListener('auxclick', stopAuxiliaryClick, true);
+      window.removeEventListener('pointerup', scheduleCleanup, true);
+      window.removeEventListener('mouseup', scheduleCleanup, true);
+      window.removeEventListener('pointercancel', scheduleCleanup, true);
+      window.removeEventListener('blur', clearSuppression);
+      if (cleanupTimer !== null) clearTimeout(cleanupTimer);
+      cleanupTimer = null;
+      if (cancelAuxClickSuppression === clearSuppression) cancelAuxClickSuppression = null;
+    };
+    const stopAuxiliaryClick = (event: MouseEvent) => {
+      if (event.button !== AUXILIARY_PAN_BUTTON) return;
+      event.preventDefault();
+      clearSuppression();
+    };
+    const scheduleCleanup = (event: MouseEvent) => {
+      if (event.button !== AUXILIARY_PAN_BUTTON || cleanupTimer !== null) return;
+      cleanupTimer = setTimeout(clearSuppression, 0);
+    };
+    window.addEventListener('auxclick', stopAuxiliaryClick, true);
+    window.addEventListener('pointerup', scheduleCleanup, true);
+    window.addEventListener('mouseup', scheduleCleanup, true);
+    window.addEventListener('pointercancel', scheduleCleanup, true);
+    window.addEventListener('blur', clearSuppression);
+    cancelAuxClickSuppression = clearSuppression;
+  }
+
+  function armOnAuxiliaryPointerDown(event: PointerEvent): void {
+    if (event.button !== AUXILIARY_PAN_BUTTON) return;
+    armAuxiliaryClickSuppression();
+  }
+
+  function preventAuxiliaryMouseDown(event: MouseEvent): void {
+    if (event.button !== AUXILIARY_PAN_BUTTON) return;
+    event.preventDefault();
+    armAuxiliaryClickSuppression();
+  }
+
+  function preventAuxiliaryClick(event: MouseEvent): void {
+    if (event.button !== AUXILIARY_PAN_BUTTON) return;
+    event.preventDefault();
+  }
+
   world.style.transition = 'none';
   viewport.tabIndex = 0;
+  viewport.addEventListener('pointerdown', armOnAuxiliaryPointerDown);
   viewport.addEventListener('pointerdown', onPointerDown);
   viewport.addEventListener('pointermove', onPointerMove);
   viewport.addEventListener('pointerup', onPointerUp);
   viewport.addEventListener('pointercancel', onPointerCancel);
+  viewport.addEventListener('mousedown', preventAuxiliaryMouseDown);
+  viewport.addEventListener('auxclick', preventAuxiliaryClick);
   viewport.addEventListener('wheel', onWheel, { passive: false });
   viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', (event) => {
