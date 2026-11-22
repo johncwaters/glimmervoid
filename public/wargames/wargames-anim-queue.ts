@@ -1,8 +1,8 @@
-export type BoardQueueState = 'idle' | 'playing' | 'disposed';
-export type BoardQueueEvent = 'enqueue' | 'step_complete' | 'queue_drained' | 'clear' | 'dispose';
+type BoardQueueState = 'idle' | 'playing' | 'disposed';
+type BoardQueueEvent = 'enqueue' | 'step_complete' | 'queue_drained' | 'clear' | 'dispose';
 
 export type BoardOverlayMode = 'idle' | 'recap' | 'preview';
-export type BoardOverlayEvent = 'start_recap' | 'recap_drained' | 'show_previews' | 'hide_previews' | 'reset';
+type BoardOverlayEvent = 'start_recap' | 'recap_drained' | 'show_previews' | 'hide_previews' | 'reset';
 
 type TransitionTable<State extends string, Event extends string> = Readonly<Record<State, Readonly<Partial<Record<Event, State>>>>>;
 
@@ -32,7 +32,7 @@ export interface BoardAnimationBeat {
   readonly start: (scaledDurationMs: number) => (() => void) | undefined;
 }
 
-export interface BoardAnimationQueueOptions<TimerHandle = ReturnType<typeof setTimeout>> {
+interface BoardAnimationQueueOptions<TimerHandle = ReturnType<typeof setTimeout>> {
   readonly maxBatchDurationMs?: number;
   readonly minBeatDurationMs?: number;
   readonly shouldSkip?: () => boolean;
@@ -41,7 +41,7 @@ export interface BoardAnimationQueueOptions<TimerHandle = ReturnType<typeof setT
   readonly onDrain?: () => void;
 }
 
-export interface BoardAnimationQueue {
+interface BoardAnimationQueue {
   enqueueBatch(beats: readonly BoardAnimationBeat[]): void;
   clear(): void;
   dispose(): void;
