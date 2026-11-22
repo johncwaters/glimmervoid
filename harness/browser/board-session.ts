@@ -159,6 +159,15 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   const studioMainId = await root.locator('.bs-who:has(.bs-face-main)').first().getAttribute('data-session-id');
   assert.ok(studioMainId, 'the Studio main shows as a face');
+  await chip.click();
+  await root.locator('[data-action="board-session-restart-main"]').click();
+  const restartDialog = page.locator('.resume-dialog');
+  await restartDialog.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await restartDialog.getByText('Fresh conversation', { exact: true }).click();
+  await restartDialog.getByRole('button', { name: 'Restart', exact: true }).click();
+  await restartDialog.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.getByRole('button', { name: 'Restart fresh', exact: true }).click();
+  await page.getByRole('button', { name: 'Restart fresh', exact: true }).waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');

@@ -9,6 +9,7 @@ import { el } from '../dom-helpers.ts';
 import { getJSON, setJSON } from '../local-store.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
+import { loadResumeDialog } from '../session-card/deferred-loads.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
@@ -42,6 +43,7 @@ const TITLE_SIZE_FALLBACK_PX = 16;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
 const OPEN_REPO_TEXT = 'Open a repo';
+const RESTART_MAIN_TEXT = 'Restart main';
 const NO_MAP_TEXT = 'This session has no code map yet.';
 const NO_MAIN_TEXT = 'The main agent for this repo did not start.';
 
@@ -394,6 +396,24 @@ function openStudioRepo(): void {
   });
 }
 
+function menuActionItem(label: string, action: string, onPick: () => void): HTMLElement {
+  const item = createPressable('bs-menu-item');
+  item.setAttribute('role', 'menuitem');
+  item.dataset.action = action;
+  item.append(el('span', 'bs-menu-name', label));
+  item.addEventListener('click', () => {
+    closeMenu();
+    onPick();
+  });
+  return item;
+}
+
+function restartMain(mainId: string): void {
+  const ui = sessionUIs.get(mainId);
+  if (!ui) return;
+  void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(mainId, { readState: () => ui.currentState, canListEarlier: true }));
+}
+
 function openMenu(): void {
   if (!parts) return;
   const items = repoChoices().map((choice) => {
@@ -408,15 +428,12 @@ function openMenu(): void {
     });
     return item;
   });
-  const openRepoItem = createPressable('bs-menu-item');
-  openRepoItem.setAttribute('role', 'menuitem');
-  openRepoItem.dataset.action = 'board-session-open-repo';
-  openRepoItem.append(el('span', 'bs-menu-name', OPEN_REPO_TEXT));
-  openRepoItem.addEventListener('click', () => {
-    closeMenu();
-    openStudioRepo();
-  });
-  parts.menu.replaceChildren(...items, openRepoItem);
+  const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', openStudioRepo);
+  const mainId = shownSessionId;
+  const restartItems = mainId === null || !sessionUIs.get(mainId)?.isStudioMain ? [] : [
+    menuActionItem(RESTART_MAIN_TEXT, 'board-session-restart-main', () => restartMain(mainId)),
+  ];
+  parts.menu.replaceChildren(...items, openRepoItem, ...restartItems);
   parts.menu.hidden = false;
   parts.chip.setAttribute('aria-expanded', 'true');
 }

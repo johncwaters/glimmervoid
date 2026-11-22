@@ -866,6 +866,8 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
   function resumeConversationRefusal(sess: Session, conversationId: string | null): string | null {
     if (sess.ephemeral) return 'This session cannot resume a conversation';
     if (conversationId && !RESUME_ID_RE.test(conversationId)) return 'Invalid conversation id';
+    const holder = conversationId ? [...sessions.values()].find((other) => other !== sess && other.resumeSessionId === conversationId) : undefined;
+    if (holder) return `That conversation belongs to the session "${holder.name}"; restart that session instead, or pick another conversation.`;
     return null;
   }
 

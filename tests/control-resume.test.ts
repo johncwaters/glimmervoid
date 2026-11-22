@@ -47,6 +47,21 @@ test('resume-conversation persists the id, sets it on the session and acks witho
   assert.ok(ack && ack.ok === true, 'acked ok');
 });
 
+test('resume-conversation refuses a conversation another live session holds', () => {
+  const heldConversation = '33333333-3333-4333-8333-333333333333';
+  const focusSession = plainSession('focus');
+  focusSession.setResumeConversation(heldConversation);
+  const studioMain = plainSession('main');
+  const cfg: GlimmervoidConfig = { projects: [{ id: 'focus', name: 'focus', path: 'C:/repo', resumeSessionId: heldConversation }, { id: 'main', name: 'main', path: 'C:/repo' }] };
+  const h = harness(new Map([['focus', focusSession], ['main', studioMain]]), cfg);
+
+  h.send({ type: 'resume-conversation', id: 'main', conversationId: heldConversation, requestId: 'r1' });
+
+  assert.equal(studioMain.resumeSessionId, null);
+  assert.equal('resumeSessionId' in cfg.projects[1], false);
+  assert.equal(h.sent.some((m) => m.type === 'resume-conversation-ack'), false);
+});
+
 test('force-restart into an earlier conversation keeps the pick when the old agent reports its own conversation before exiting', () => {
   const runningConversation = '11111111-1111-4111-8111-111111111111';
   const earlierConversation = '22222222-2222-4222-8222-222222222222';
