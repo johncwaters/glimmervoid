@@ -13,6 +13,7 @@ export const CODEMAP_TUNABLES = Object.freeze({
   maxSourceFiles: 50_000,
   maxFileBytes: 512 * 1024,
   maxSourceBytes: 128 * 1024 * 1024,
+  maxImportEdges: 2_000_000,
   workerHeapMb: 512,
   extractDeadlineMs: 120_000,
   grammarParseBudgetMs: 1_000,

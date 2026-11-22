@@ -3,6 +3,7 @@ import treeSitter from '@vscode/tree-sitter-wasm';
 import type { Node, Parser, Query, QueryCapture, Tree } from '@vscode/tree-sitter-wasm';
 
 import type { GrammarScanner } from '../core/import-language-core.ts';
+import { expandPhpUseDeclaration, expandRustUseTree } from '../core/import-resolvers/use-trees.ts';
 import { grammarWasmPath, treeSitterRuntimeWasmPath } from '../runtime-paths.ts';
 
 interface LoadedGrammar {
@@ -42,9 +43,17 @@ function unquoted(literal: string): string {
   return literal.replace(/^["'`]|["'`]$/g, '');
 }
 
+const CLOSING_DIRECTIVE_LINES = /(?:\r?\n[ \t]*#(?:endif|else|elseif)\b[^\n]*)*/y;
 const MAX_SPECIFIER_LENGTH = 1024;
+const MAX_SPECIFIERS_PER_FILE = 512;
+const SPECIFIER_EXPANDER_BY_CAPTURE = new Map<string, (capturedText: string) => string[]>([
+  ['rust_use_tree', expandRustUseTree],
+  ['php_use', expandPhpUseDeclaration],
+]);
 
 function specifierOf(capture: QueryCapture): string[] {
+  const expandSpecifiers = SPECIFIER_EXPANDER_BY_CAPTURE.get(capture.name);
+  if (expandSpecifiers) return expandSpecifiers(capture.node.text).filter((specifier) => specifier.length <= MAX_SPECIFIER_LENGTH);
   if (capture.node.endIndex - capture.node.startIndex > MAX_SPECIFIER_LENGTH) return [];
   const specifier = unquoted(capture.node.text);
   if (capture.name === 'specifier') return [specifier];
@@ -70,15 +79,25 @@ function specifiersOf(importNodes: Node[], importQuery: Query, isPastBudget: () 
   for (const importNode of importNodes) {
     if (isPastBudget()) return null;
     specifiers.push(...importQuery.captures(importNode, { maxStartDepth: 0 }).flatMap(specifierOf));
+    if (specifiers.length >= MAX_SPECIFIERS_PER_FILE) return specifiers.slice(0, MAX_SPECIFIERS_PER_FILE);
   }
   return specifiers;
+}
+
+function importSectionOf(sourceText: string, importLinePattern: RegExp | null): string {
+  if (!importLinePattern) return sourceText;
+  let importSectionEnd = 0;
+  for (const importLine of sourceText.matchAll(new RegExp(importLinePattern))) importSectionEnd = importLine.index + importLine[0].length;
+  const closingDirectives = new RegExp(CLOSING_DIRECTIVE_LINES);
+  closingDirectives.lastIndex = importSectionEnd;
+  return sourceText.slice(0, importSectionEnd + (closingDirectives.exec(sourceText)?.[0].length ?? 0));
 }
 
 export async function scanGrammarImports(scanner: GrammarScanner, sourceText: string, budgetMs: number): Promise<string[] | null> {
   const { parser, importQuery } = await grammarFor(scanner);
   const startedAt = threadCpuMs();
   const isPastBudget = () => threadCpuMs() - startedAt > budgetMs;
-  const tree = parser.parse(sourceText, null, { progressCallback: isPastBudget });
+  const tree = parser.parse(importSectionOf(sourceText, scanner.importLinePattern), null, { progressCallback: isPastBudget });
   if (!tree) {
     parser.reset();
     return null;

@@ -9,7 +9,7 @@ import { errorMessage } from '../../shared/text.ts';
 import { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_EXPORT_FILE_BY_KIND, CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { readImportsMap } from '../change-map/core/change-map-core.ts';
-import { blankOutsideScriptRegions, buildImportGraph, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath, scriptSourceSpecifiers } from '../core/import-graph-core.ts';
+import { blankOutsideScriptRegions, buildImportGraph, directDependentsOf, expandedEdgeCountOf, extractExportedNames, extractImportSpecifiers, extractPythonImportSpecifiers, extractTypeOnlySpecifiers, outsideGraphImportsOf, relativeImportBasePath, scriptSourceSpecifiers } from '../core/import-graph-core.ts';
 import { importLanguageOf, isImportManifestPath, isSourcePath } from '../core/import-language-core.ts';
 import { scanGrammarImports, threadCpuMs } from '../import-scan/grammar-scan.ts';
 import { createTsconfigPathsResolver, parseTsconfigJsonc, resolveExtendsPath } from '../core/tsconfig-paths-core.ts';
@@ -232,19 +232,21 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const resolution = { unscannedSourcePaths: skippedPaths, importsMap: readImportsMap(textByPath.get('package.json') ?? null), tsconfigTargets: createTsconfigPathsResolver(configsByPath), manifestTextByPath };
   const graph = buildImportGraph({ specifiersByPath, ...resolution });
   const valueGraph = buildImportGraph({ specifiersByPath: valueSpecifiersByPath, ...resolution });
+  if (expandedEdgeCountOf(graph) > CODEMAP_TUNABLES.maxImportEdges) throw new Error(`the repo has more than ${CODEMAP_TUNABLES.maxImportEdges} file imports, past what the code map can draw`);
   const indexByPath = new Map(paths.map((repoPath, index) => [repoPath, index]));
   const importers: number[] = [];
   const imported: number[] = [];
   const typeOnlyEdges: number[] = [];
-  for (const [importedPath, dependentPaths] of graph.dependentsByPath) {
+  for (const importedPath of graph.dependentsByPath.keys()) {
     const importedIndex = indexByPath.get(importedPath);
     if (importedIndex === undefined) continue;
-    for (const dependentPath of [...dependentPaths].sort()) {
+    const valueDependents = directDependentsOf(valueGraph, importedPath);
+    for (const dependentPath of [...directDependentsOf(graph, importedPath)].sort()) {
       const importerIndex = indexByPath.get(dependentPath);
       if (importerIndex === undefined) continue;
       importers.push(importerIndex);
       imported.push(importedIndex);
-      typeOnlyEdges.push(valueGraph.dependentsByPath.get(importedPath)?.has(dependentPath) ? 0 : 1);
+      typeOnlyEdges.push(valueDependents.has(dependentPath) ? 0 : 1);
     }
   }
   markPhase('resolve graph');

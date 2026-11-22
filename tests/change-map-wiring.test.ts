@@ -318,7 +318,7 @@ test('tsconfig paths and NodeNext imports carry blast radius through a wizard-sh
   }
 });
 
-test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby and Rust imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
+test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby, Rust, Dart, PHP and Swift imports and the script regions of Astro, Vue, Svelte, HTML and MDX files carry blast radius, while markup and fenced code do not', { skip: !hasGit() }, async () => {
   const fence = '`'.repeat(3);
   const { root, base } = createPackageRepo('posthog', {}, {
     'posthog/__init__.py': '',
@@ -356,9 +356,27 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby and Rust imports and t
     'native/lib/shop/cart.rb': '',
     'native/app.rb': 'require "shop/cart"\nrequire "json"\n',
     'native/spec/cart_spec.rb': 'require_relative "../lib/shop/cart"\n',
-    'native/src/main.rs': 'mod parser;\n',
+    'native/Cargo.toml': '[package]\nname = "native-app"\n',
+    'native/src/main.rs': 'mod parser;\nuse crate::config::Config;\nuse native_tokens::kind::{self, Kind};\nuse serde::Serialize;\n',
+    'native/src/config.rs': '',
     'native/src/parser.rs': 'mod lexer;\n',
-    'native/src/parser/lexer.rs': '',
+    'native/src/parser/lexer.rs': 'use super::super::config;\n',
+    'native/tokens/Cargo.toml': '[package]\nname = "native-tokens"\n',
+    'native/tokens/src/lib.rs': 'pub mod kind;\n',
+    'native/tokens/src/kind.rs': '',
+    'native/dart/pubspec.yaml': 'name: shop_ui\n',
+    'native/dart/lib/shop_ui.dart': "export 'src/cart.dart';\n",
+    'native/dart/lib/src/cart.dart': '',
+    'native/dart/test/cart_test.dart': "import 'package:shop_ui/src/cart.dart';\nimport 'package:flutter/material.dart';\n",
+    'native/php/composer.json': '{"autoload": {"psr-4": {"Shop\\\\": "src/"}}}\n',
+    'native/php/src/Cart/Cart.php': '<?php\n',
+    'native/php/src/helpers.php': '<?php\n',
+    'native/php/src/Checkout.php': "<?php\nnamespace Shop;\nuse Shop\\Cart\\Cart;\nuse Psr\\Log\\LoggerInterface;\nrequire_once __DIR__ . '/helpers.php';\n",
+    'native/swift/Package.swift': 'let package = Package(name: "Shop", targets: [.target(name: "ShopCore"), .executableTarget(name: "shop", dependencies: ["ShopCore"]), .testTarget(name: "ShopCoreTests", dependencies: ["ShopCore"])])\n',
+    'native/swift/Sources/ShopCore/Cart.swift': '',
+    'native/swift/Sources/ShopCore/Models/Item.swift': '',
+    'native/swift/Sources/shop/main.swift': 'import Foundation\nimport ShopCore\n',
+    'native/swift/Tests/ShopCoreTests/CartTests.swift': 'import XCTest\n@testable import ShopCore\n',
   });
   try {
     writeRepoFile(root, 'posthog/models/user.py', 'class User: value = 1\n');
@@ -366,6 +384,7 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby and Rust imports and t
     writeRepoFile(root, 'site/lib/other.ts', 'export const other = 2;\n');
     writeRepoFile(root, 'shop/cart/tax.go', 'package cart\n\nconst rate = 2\n');
     writeRepoFile(root, 'shop/other/other.go', 'package other\n\nconst unused = 2\n');
+    writeRepoFile(root, 'native/swift/Sources/ShopCore/Cart.swift', 'struct Cart {}\n');
     const session = fixtureSession('posthog', 'Posthog', () => [scopeOf(root, base)]);
     const map = await createChangeMapService({ scanFiles, sessions: new Map([[session.id, session]]) }).build(session);
     const [repo] = map.repos;
@@ -379,6 +398,9 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby and Rust imports and t
     assert.deepEqual(goBlast?.directDependents, ['shop/checkout/checkout_test.go', 'shop/cmd/shop/main.go']);
     assert.deepEqual(goBlast?.dependentTests, ['shop/checkout/checkout_test.go']);
     assert.deepEqual(repo.blastRadius.find((fact) => fact.path === 'shop/other/other.go')?.directDependents ?? [], []);
+    const swiftBlast = repo.blastRadius.find((fact) => fact.path === 'native/swift/Sources/ShopCore/Cart.swift');
+    assert.deepEqual(swiftBlast?.directDependents, ['native/swift/Sources/shop/main.swift', 'native/swift/Tests/ShopCoreTests/CartTests.swift']);
+    assert.deepEqual(swiftBlast?.dependentTests, ['native/swift/Tests/ShopCoreTests/CartTests.swift']);
     const extract = await createCodemapClient().extract(root, base);
     const goEdges = [...extract.importerIndexes].map((importerIndex, edgeIndex) => `${extract.paths[importerIndex]} imports ${extract.paths[extract.importedIndexes[edgeIndex] ?? -1]}`).filter((edge) => edge.endsWith('.go'));
     assert.deepEqual(goEdges.sort(), ['shop/checkout/checkout_test.go imports shop/cart/cart.go', 'shop/checkout/checkout_test.go imports shop/cart/tax.go', 'shop/cmd/shop/main.go imports shop/cart/cart.go', 'shop/cmd/shop/main.go imports shop/cart/tax.go']);
@@ -388,11 +410,23 @@ test('Python, Go, C, C++, shell, Zig, Solidity, CSS, Ruby and Rust imports and t
       'native/app.cpp imports native/include/core/api.h',
       'native/app.rb imports native/lib/shop/cart.rb',
       'native/build.zig imports native/util.zig',
+      'native/dart/lib/shop_ui.dart imports native/dart/lib/src/cart.dart',
+      'native/dart/test/cart_test.dart imports native/dart/lib/src/cart.dart',
+      'native/php/src/Checkout.php imports native/php/src/Cart/Cart.php',
+      'native/php/src/Checkout.php imports native/php/src/helpers.php',
       'native/run.sh imports native/lib.sh',
       'native/site.css imports native/base.css',
       'native/spec/cart_spec.rb imports native/lib/shop/cart.rb',
+      'native/src/main.rs imports native/src/config.rs',
       'native/src/main.rs imports native/src/parser.rs',
+      'native/src/main.rs imports native/tokens/src/kind.rs',
       'native/src/parser.rs imports native/src/parser/lexer.rs',
+      'native/src/parser/lexer.rs imports native/src/config.rs',
+      'native/swift/Sources/shop/main.swift imports native/swift/Sources/ShopCore/Cart.swift',
+      'native/swift/Sources/shop/main.swift imports native/swift/Sources/ShopCore/Models/Item.swift',
+      'native/swift/Tests/ShopCoreTests/CartTests.swift imports native/swift/Sources/ShopCore/Cart.swift',
+      'native/swift/Tests/ShopCoreTests/CartTests.swift imports native/swift/Sources/ShopCore/Models/Item.swift',
+      'native/tokens/src/lib.rs imports native/tokens/src/kind.rs',
       'native/util.c imports native/util.h',
     ]);
   } finally {

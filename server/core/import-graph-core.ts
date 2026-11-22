@@ -2,7 +2,8 @@ import path from 'node:path';
 import { matchPathPatterns } from './tsconfig-paths-core.ts';
 import { importLanguageOf } from './import-language-core.ts';
 import type { EmbeddedScriptHost } from './import-language-core.ts';
-import { manifestPrefixPatterns } from './import-resolvers/manifest-prefix.ts';
+import { manifestPackageIndexOf, packagePrefixMatches, packagesOfManifest } from './import-resolvers/manifest-prefix.ts';
+import type { ManifestPackageIndex } from './import-resolvers/manifest-prefix.ts';
 import { fileCandidatesOf } from './import-resolvers/file-candidates.ts';
 import {
   CHANGE_MAP_LIST_CAP,
@@ -21,6 +22,8 @@ const KEYWORDS_BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'do', 'else',
 
 interface ImportGraph {
   dependentsByPath: Map<string, Set<string>>;
+  dependentsByPackage: Map<string, Set<string>>;
+  packageKeysByPath: Map<string, string[]>;
 }
 
 function blankedRange(sourceText: string, start: number, end: number): string {
@@ -471,8 +474,10 @@ interface RepoResolution {
   filesByDirectory: Map<string, string[]>;
   importsMap: Record<string, string>;
   tsconfigTargets: (fromPath: string, specifier: string) => string[];
-  packagePatterns: Record<string, string[]>;
+  packages: ManifestPackageIndex;
   packageFilesByKey: Map<string, string[]>;
+  packageKeyBySpecifier: Map<string, string | null>;
+  targetFilesByLanguage: Map<string, Map<string, string[]>>;
   pathsByBasename: Map<string, string[]>;
   suffixMatchBySuffix: Map<string, string[]>;
 }
@@ -499,6 +504,45 @@ function filesByDirectoryOf(knownPaths: Iterable<string>): Map<string, string[]>
   return filesByDirectory;
 }
 
+function nearestTargetFinder(targetDirectories: ReadonlySet<string>): (directory: string) => string | null {
+  const nearestTargetByDirectory = new Map<string, string | null>();
+  return (directory) => {
+    const unresolvedDirectories: string[] = [];
+    let nearestTarget: string | null = null;
+    for (let current = directory; ; current = path.posix.dirname(current)) {
+      if (nearestTargetByDirectory.has(current)) {
+        nearestTarget = nearestTargetByDirectory.get(current) ?? null;
+        break;
+      }
+      unresolvedDirectories.push(current);
+      if (targetDirectories.has(current)) {
+        nearestTarget = current;
+        break;
+      }
+      if (path.posix.dirname(current) === current) break;
+    }
+    for (const unresolvedDirectory of unresolvedDirectories) nearestTargetByDirectory.set(unresolvedDirectory, nearestTarget);
+    return nearestTarget;
+  };
+}
+
+function targetFilesOf(language: NonNullable<ReturnType<typeof importLanguageOf>>, manifestName: string, repo: RepoResolution): Map<string, string[]> {
+  const cached = repo.targetFilesByLanguage.get(language.id);
+  if (cached) return cached;
+  const nearestTargetOf = nearestTargetFinder(new Set(packagesOfManifest(repo.packages, manifestName).map((manifestPackage) => manifestPackage.sourceDirectory)));
+  const filesByTarget = new Map<string, string[]>();
+  for (const knownPath of repo.knownPaths) {
+    if (importLanguageOf(knownPath) !== language) continue;
+    const nearestTarget = nearestTargetOf(path.posix.dirname(knownPath));
+    if (nearestTarget === null) continue;
+    const targetFiles = filesByTarget.get(nearestTarget) ?? [];
+    targetFiles.push(knownPath);
+    filesByTarget.set(nearestTarget, targetFiles);
+  }
+  repo.targetFilesByLanguage.set(language.id, filesByTarget);
+  return filesByTarget;
+}
+
 function uniqueSuffixMatch(suffix: string, repo: RepoResolution): string[] {
   const cached = repo.suffixMatchBySuffix.get(suffix);
   if (cached) return cached;
@@ -508,27 +552,35 @@ function uniqueSuffixMatch(suffix: string, repo: RepoResolution): string[] {
   return uniqueMatch;
 }
 
+function resolvePackageKey(fromPath: string, specifier: string, repo: RepoResolution): string | null {
+  const language = importLanguageOf(fromPath);
+  if (language?.resolver.kind !== 'packageDirectory' || path.posix.normalize(specifier) !== specifier) return null;
+  const specifierKey = `${language.id}\0${specifier}`;
+  const cached = repo.packageKeyBySpecifier.get(specifierKey);
+  if (cached !== undefined) return cached;
+  const { excludedTargetPattern, isRecursive, manifestName } = language.resolver;
+  const packageKeyOf = (directory: string) => {
+    const packageKey = `${language.id}:${directory}`;
+    if (repo.packageFilesByKey.has(packageKey)) return packageKey;
+    const directoryFiles = isRecursive ? (targetFilesOf(language, manifestName, repo).get(directory) ?? []) : (repo.filesByDirectory.get(directory) ?? []);
+    repo.packageFilesByKey.set(packageKey, directoryFiles.filter((candidate) => importLanguageOf(candidate) === language && !excludedTargetPattern?.test(candidate)));
+    return packageKey;
+  };
+  const packageKey = packagePrefixMatches(repo.packages, manifestName, specifier)
+    .map(({ manifestPackage, remainder }) => packageKeyOf(path.posix.join(manifestPackage.sourceDirectory, ...remainder)))
+    .find((candidateKey) => (repo.packageFilesByKey.get(candidateKey)?.length ?? 0) > 0) ?? null;
+  repo.packageKeyBySpecifier.set(specifierKey, packageKey);
+  return packageKey;
+}
+
 function resolveSpecifier(fromPath: string, specifier: string, repo: RepoResolution): string[] {
   const language = importLanguageOf(fromPath);
   if (language?.resolver.kind === 'candidates') {
-    const { paths, suffixes } = fileCandidatesOf(language.id, fromPath, specifier);
+    const { paths, suffixes } = fileCandidatesOf(language.id, fromPath, specifier, repo.packages);
     const found = paths.find((candidate) => repo.sourcePaths.has(candidate)) ?? suffixes.map((suffix) => uniqueSuffixMatch(suffix, repo)).find((matches) => matches.length > 0)?.[0];
     return found && repo.knownPaths.has(found) ? [found] : [];
   }
-  if (language?.resolver.kind === 'packageDirectory') {
-    if (path.posix.normalize(specifier) !== specifier) return [];
-    const { excludedTargetPattern } = language.resolver;
-    const packageFilesOf = (directory: string) => {
-      const packageKey = `${language.id}:${path.posix.normalize(directory)}`;
-      const cached = repo.packageFilesByKey.get(packageKey);
-      if (cached) return cached;
-      const packageFiles = (repo.filesByDirectory.get(path.posix.normalize(directory)) ?? [])
-        .filter((candidate) => importLanguageOf(candidate) === language && !excludedTargetPattern.test(candidate));
-      repo.packageFilesByKey.set(packageKey, packageFiles);
-      return packageFiles;
-    };
-    return matchPathPatterns(specifier, repo.packagePatterns).map(packageFilesOf).find((packageFiles) => packageFiles.length > 0) ?? [];
-  }
+  if (language?.resolver.kind === 'packageDirectory') return [];
   if (language?.id === 'python') {
     const pythonTarget = resolvePythonSpecifier(fromPath, specifier, repo.knownPaths);
     return pythonTarget ? [pythonTarget] : [];
@@ -562,23 +614,57 @@ export function buildImportGraph({
 }): ImportGraph {
   const knownPaths = new Set(specifiersByPath.keys());
   const sourcePaths = new Set([...knownPaths, ...unscannedSourcePaths]);
-  const repo: RepoResolution = { knownPaths, sourcePaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packagePatterns: manifestPrefixPatterns(manifestTextByPath), packageFilesByKey: new Map(), pathsByBasename: pathsByBasenameOf(sourcePaths), suffixMatchBySuffix: new Map() };
+  const repo: RepoResolution = { knownPaths, sourcePaths, filesByDirectory: filesByDirectoryOf(knownPaths), importsMap, tsconfigTargets, packages: manifestPackageIndexOf(manifestTextByPath), packageFilesByKey: new Map(), packageKeyBySpecifier: new Map(), targetFilesByLanguage: new Map(), pathsByBasename: pathsByBasenameOf(sourcePaths), suffixMatchBySuffix: new Map() };
   const dependentsByPath = new Map(
     [...knownPaths].map((knownPath): [string, Set<string>] => [knownPath, new Set()]),
   );
+  const dependentsByPackage = new Map<string, Set<string>>();
 
   for (const [fromPath, specifiers] of specifiersByPath) {
     for (const specifier of specifiers) {
+      const packageKey = resolvePackageKey(fromPath, specifier, repo);
+      if (packageKey) {
+        dependentsByPackage.set(packageKey, (dependentsByPackage.get(packageKey) ?? new Set()).add(fromPath));
+        continue;
+      }
       for (const importedPath of resolveSpecifier(fromPath, specifier, repo)) {
         dependentsByPath.get(importedPath)?.add(fromPath);
       }
     }
   }
 
-  return { dependentsByPath };
+  const packageKeysByPath = new Map<string, string[]>();
+  for (const packageKey of dependentsByPackage.keys()) {
+    for (const packagePath of repo.packageFilesByKey.get(packageKey) ?? []) {
+      const packageKeys = packageKeysByPath.get(packagePath) ?? [];
+      packageKeys.push(packageKey);
+      packageKeysByPath.set(packagePath, packageKeys);
+    }
+  }
+
+  return { dependentsByPath, dependentsByPackage, packageKeysByPath };
 }
 
-export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$';
+export function expandedEdgeCountOf(graph: ImportGraph): number {
+  let edgeCount = 0;
+  for (const dependentPaths of graph.dependentsByPath.values()) edgeCount += dependentPaths.size;
+  for (const packageKeys of graph.packageKeysByPath.values()) {
+    for (const packageKey of packageKeys) edgeCount += graph.dependentsByPackage.get(packageKey)?.size ?? 0;
+  }
+  return edgeCount;
+}
+
+export function directDependentsOf(graph: ImportGraph, importedPath: string): Set<string> {
+  const directDependents = new Set(graph.dependentsByPath.get(importedPath));
+  for (const packageKey of graph.packageKeysByPath.get(importedPath) ?? []) {
+    for (const dependentPath of graph.dependentsByPackage.get(packageKey) ?? []) {
+      if (dependentPath !== importedPath) directDependents.add(dependentPath);
+    }
+  }
+  return directDependents;
+}
+
+export const TEST_PATH_PATTERN = '(^|/)(tests|test|__tests__)/|(^|/)spec/.*[.]rb$|[.](test|spec)[.][^/]*$|(^|/)(test_[^/]*|[^/]*_test|conftest)[.]py$|_test[.]go$|_spec[.]rb$|(^|/)Tests/.*[.]swift$';
 const TEST_PATH = new RegExp(TEST_PATH_PATTERN);
 
 export function isTestPath(repoPath: string): boolean {
@@ -589,10 +675,15 @@ function collectTransitiveDependents(graph: ImportGraph, changedPath: string, ma
   const visitedPaths = new Set([changedPath]);
   const queuedPaths = [{ repoPath: changedPath, depth: 0 }];
 
+  const expandedPackageKeys = new Set<string>();
+
   for (let index = 0; index < queuedPaths.length; index++) {
     const { repoPath, depth } = queuedPaths[index];
     if (depth >= maxDepth) continue;
-    for (const dependentPath of graph.dependentsByPath.get(repoPath) ?? []) {
+    const unexpandedPackageKeys = (graph.packageKeysByPath.get(repoPath) ?? []).filter((packageKey) => !expandedPackageKeys.has(packageKey));
+    for (const packageKey of unexpandedPackageKeys) expandedPackageKeys.add(packageKey);
+    const packageDependents = unexpandedPackageKeys.flatMap((packageKey) => [...(graph.dependentsByPackage.get(packageKey) ?? [])]);
+    for (const dependentPath of [...(graph.dependentsByPath.get(repoPath) ?? []), ...packageDependents]) {
       if (visitedPaths.has(dependentPath)) continue;
       visitedPaths.add(dependentPath);
       queuedPaths.push({ repoPath: dependentPath, depth: depth + 1 });
@@ -642,8 +733,8 @@ export function computeBlastRadius({
     const transitiveDependents = collectTransitiveDependents(graph, changedPath, maxDepth);
     const dependentTests = [...transitiveDependents].filter(isTestPath).sort();
 
-    const directDependents = graph.dependentsByPath.get(changedPath);
-    if (!directDependents) continue;
+    if (!graph.dependentsByPath.has(changedPath)) continue;
+    const directDependents = directDependentsOf(graph, changedPath);
     if (directDependents.size === 0 && dependentTests.length === 0) continue;
 
     blastRadius.push({

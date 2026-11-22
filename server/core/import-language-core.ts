@@ -8,11 +8,15 @@ export interface GrammarScanner {
   importNodeTypes: readonly string[];
   isTopLevelOnly: boolean;
   importQuery: string;
+  importLinePattern: RegExp | null;
 }
 
 type ImportScanner = { kind: 'typescript' } | { kind: 'python' } | { kind: 'embedded'; host: EmbeddedScriptHost } | GrammarScanner;
 
-type ImportResolver = { kind: 'file' } | { kind: 'candidates' } | { kind: 'packageDirectory'; manifestName: string; excludedTargetPattern: RegExp };
+type ImportResolver =
+  | { kind: 'file' }
+  | { kind: 'candidates'; manifestName: string | null }
+  | { kind: 'packageDirectory'; manifestName: string; excludedTargetPattern: RegExp | null; isRecursive: boolean };
 
 interface ImportLanguage {
   id: string;
@@ -22,10 +26,20 @@ interface ImportLanguage {
 }
 
 const FILE_RESOLVER: ImportResolver = { kind: 'file' };
-const CANDIDATE_RESOLVER: ImportResolver = { kind: 'candidates' };
+const CANDIDATE_RESOLVER: ImportResolver = { kind: 'candidates', manifestName: null };
+const PHP_INCLUDE_TYPES = ['require_expression', 'require_once_expression', 'include_expression', 'include_once_expression'];
+const SWIFT_IMPORT_LINE = /^[ \t]*(?:[@\w]+(?:\([^)\n]*\))?[ \t]+)*import\b[^\n]*/gm;
+
+const PHP_IMPORT_QUERY = [
+  '(namespace_use_declaration) @php_use',
+  ...PHP_INCLUDE_TYPES.flatMap((includeType) => [
+    `(${includeType} [(string) (encapsed_string)] @specifier)`,
+    `(${includeType} (binary_expression left: (name) @directory right: [(string) (encapsed_string)] @relative) (#eq? @directory "__DIR__"))`,
+  ]),
+].join(' ');
 
 function grammarScanner(grammar: string, importNodeTypes: readonly string[], importQuery: string): GrammarScanner {
-  return { kind: 'grammar', grammar, importNodeTypes, isTopLevelOnly: false, importQuery };
+  return { kind: 'grammar', grammar, importNodeTypes, isTopLevelOnly: false, importQuery, importLinePattern: null };
 }
 
 const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
@@ -45,8 +59,9 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
       importNodeTypes: ['import_declaration'],
       isTopLevelOnly: true,
       importQuery: '(import_declaration [(import_spec path: (_) @specifier) (import_spec_list (import_spec path: (_) @specifier))])',
+      importLinePattern: null,
     },
-    resolver: { kind: 'packageDirectory', manifestName: 'go.mod', excludedTargetPattern: /_test[.]go$/ },
+    resolver: { kind: 'packageDirectory', manifestName: 'go.mod', excludedTargetPattern: /_test[.]go$/, isRecursive: false },
   },
   { id: 'c', extensions: ['.c', '.h'], scanner: grammarScanner('c', ['preproc_include'], '(preproc_include path: (string_literal) @specifier)'), resolver: CANDIDATE_RESOLVER },
   {
@@ -84,14 +99,46 @@ const IMPORT_LANGUAGES: readonly ImportLanguage[] = [
     ),
     resolver: CANDIDATE_RESOLVER,
   },
-  { id: 'rust', extensions: ['.rs'], scanner: { ...grammarScanner('rust', ['mod_item'], '(mod_item !body name: (identifier) @specifier)'), isTopLevelOnly: true }, resolver: CANDIDATE_RESOLVER },
+  {
+    id: 'rust',
+    extensions: ['.rs'],
+    scanner: {
+      ...grammarScanner(
+        'rust',
+        ['mod_item', 'use_declaration', 'extern_crate_declaration'],
+        '(mod_item !body name: (identifier) @relative) (use_declaration argument: (_) @rust_use_tree) (extern_crate_declaration name: (identifier) @specifier)',
+      ),
+      isTopLevelOnly: true,
+    },
+    resolver: { kind: 'candidates', manifestName: 'Cargo.toml' },
+  },
+  {
+    id: 'dart',
+    extensions: ['.dart'],
+    scanner: {
+      ...grammarScanner(
+        'dart',
+        ['import_or_export', 'part_directive'],
+        '(import_or_export (library_import (import_specification (configurable_uri . (uri (string_literal) @specifier))))) (import_or_export (library_export (configurable_uri . (uri (string_literal) @specifier)))) (part_directive (uri (string_literal) @specifier))',
+      ),
+      isTopLevelOnly: true,
+    },
+    resolver: { kind: 'candidates', manifestName: 'pubspec.yaml' },
+  },
+  { id: 'php', extensions: ['.php'], scanner: grammarScanner('php', ['namespace_use_declaration', ...PHP_INCLUDE_TYPES], PHP_IMPORT_QUERY), resolver: { kind: 'candidates', manifestName: 'composer.json' } },
+  {
+    id: 'swift',
+    extensions: ['.swift'],
+    scanner: { ...grammarScanner('swift', ['import_declaration'], '(import_declaration (identifier . (simple_identifier) @specifier))'), isTopLevelOnly: true, importLinePattern: SWIFT_IMPORT_LINE },
+    resolver: { kind: 'packageDirectory', manifestName: 'Package.swift', excludedTargetPattern: null, isRecursive: true },
+  },
 ];
 
 export const IMPORT_GRAMMAR_NAMES: readonly string[] = [...new Set(IMPORT_LANGUAGES.flatMap((language) => (language.scanner.kind === 'grammar' ? [language.scanner.grammar] : [])))];
 
 const LANGUAGE_BY_EXTENSION = new Map(IMPORT_LANGUAGES.flatMap((language) => language.extensions.map((extension) => [extension, language] as const)));
 
-const IMPORT_MANIFEST_NAMES: ReadonlySet<string> = new Set(IMPORT_LANGUAGES.flatMap((language) => (language.resolver.kind === 'packageDirectory' ? [language.resolver.manifestName] : [])));
+const IMPORT_MANIFEST_NAMES: ReadonlySet<string> = new Set(IMPORT_LANGUAGES.flatMap((language) => (language.resolver.kind !== 'file' && language.resolver.manifestName ? [language.resolver.manifestName] : [])));
 
 export function importLanguageOf(repoPath: string): ImportLanguage | null {
   return LANGUAGE_BY_EXTENSION.get(path.posix.extname(repoPath).toLowerCase()) ?? null;
