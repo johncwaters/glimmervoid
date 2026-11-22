@@ -1,5 +1,7 @@
+import './lock-mark.css';
 import type { BrandMarkSide } from '#shared/brand-mark.ts';
-import { BRAND_INK } from '#shared/brand-mark.ts';
+import { BRAND_INK, BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
+import { elWithMarkup } from '../dom-helpers.ts';
 
 const INWARD: Readonly<Record<BrandMarkSide, readonly [number, number]>> = Object.freeze({
   top: [0, 1],
@@ -92,6 +94,20 @@ export function playMarkLock({ mark, dial, light, halo }: { mark: Element; dial:
   light.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35)', offset: 0.4 }, { transform: 'scale(1)' }], { duration: 480, delay: LIGHT_AT_MS, easing: SNAP });
   halo.animate([{ transform: 'scale(1)', opacity: 0.8 }, { transform: 'scale(3.4)', opacity: 0 }], { duration: 700, delay: LIGHT_AT_MS + 20, easing: 'ease-out' });
   return wait(LIGHT_AT_MS);
+}
+
+export function buildLockMark(className: string): HTMLElement {
+  const brackets = BRAND_MARK_BRACKETS.map(({ side, d }) => `<path class="lock-mark-bracket" data-side="${side}" d="${d}"/>`).join('');
+  return elWithMarkup('span', className, `<svg viewBox="${BRAND_MARK_VIEWBOX}" aria-hidden="true"><path class="lock-mark-halo" d="${BRAND_MARK_LIGHT}"/><g class="lock-mark-dial">${brackets}</g><path class="lock-mark-light" d="${BRAND_MARK_LIGHT}"/></svg>`);
+}
+
+export function playLockMark(host: Element): Promise<void> {
+  const mark = host.querySelector('svg');
+  const dial = mark?.querySelector('.lock-mark-dial');
+  const light = mark?.querySelector('.lock-mark-light');
+  const halo = mark?.querySelector('.lock-mark-halo');
+  if (!mark || !dial || !light || !halo) return Promise.resolve();
+  return playMarkLock({ mark, dial, light, halo });
 }
 
 export async function playLoadingUnlock(screen: HTMLElement): Promise<void> {

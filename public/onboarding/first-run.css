@@ -70,32 +70,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   height: 16px;
 }
 
-.first-run-mark-bracket {
-  fill: none;
-  stroke: var(--text-head);
-  stroke-width: 11;
-  stroke-linejoin: miter;
-  stroke-linecap: butt;
-}
-
-.first-run-mark-dial {
-  transform-box: view-box;
-  transform-origin: 50% 50%;
-}
-
-.first-run-mark-halo {
-  fill: var(--accent);
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.first-run-mark-light {
-  fill: var(--accent);
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
 .first-run-wordmark {
   font-size: var(--type-display);
   font-weight: 700;

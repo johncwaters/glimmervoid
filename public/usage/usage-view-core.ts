@@ -129,12 +129,20 @@ function formatMinutes(minutes: unknown) {
   return twoUnitDurationText(Math.round(minutes) * 60, { smallestUnit: 'm', dropsZeroRemainder: true });
 }
 
-export function yourDayHint(yourDay: YourDay, now: number) {
+export function yourDayRecapLabel(yourDay: YourDay, now: number) {
   const yesterdayKey = shiftDayKey(clock.dayKeyOf(now), -1) ?? '';
+  if (yourDay.yesterday.day === yesterdayKey) return 'Yesterday';
   const [, month, day] = yourDay.yesterday.day.split('-').map(Number);
-  const dayLabel = yourDay.yesterday.day === yesterdayKey ? 'yesterday' : `${MONTH_NAMES[month - 1]} ${day}`;
-  const sessionWord = yourDay.yesterday.sessionCount === 1 ? 'session' : 'sessions';
-  return `${dayLabel}: ${yourDay.yesterday.sessionCount} ${sessionWord}, ${formatMinutes(yourDay.yesterday.activeMs / 60_000)}`;
+  return `${MONTH_NAMES[month - 1]} ${day}`;
+}
+
+export function yourDaySessionWord(sessionCount: number) {
+  return sessionCount === 1 ? 'session' : 'sessions';
+}
+
+export function yourDayHint(yourDay: YourDay, now: number) {
+  const sessionCount = yourDay.yesterday.sessionCount;
+  return `${yourDayRecapLabel(yourDay, now)}: ${sessionCount} ${yourDaySessionWord(sessionCount)}, ${formatMinutes(yourDay.yesterday.activeMs / 60_000)}`;
 }
 
 export function blockLabel(startTs: unknown) {
@@ -1100,7 +1108,7 @@ export function tokenTotals(report: UsageReport | null | undefined) {
 
 export function reportInsights(report: UsageReport | null | undefined): ReportInsight[] {
   const yourDayInsights = report?.yourDay?.insights ?? [];
-  const insights: ReportInsight[] = yourDayInsights.map((insight) => ({ text: insight.text, tone: 'ok' }));
+  const insights: ReportInsight[] = yourDayInsights.map((insight) => ({ text: `${insight.title}. ${insight.detail}`, tone: 'ok' }));
   const anomaly = report?.anomaly;
   if (hasAnomaly(anomaly)) insights.push({ text: anomalyLine(anomaly), tone: 'warn' });
   for (const text of [cacheSavingsSentence(report?.savings), prReviewsSentence(report)]) {

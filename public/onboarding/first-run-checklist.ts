@@ -1,15 +1,14 @@
 import { createActionStatus, requestFailureText, DEFAULT_REPLY_TIMEOUT_MS } from '../action-status.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
-import { el, elWithMarkup } from '../dom-helpers.ts';
+import { el } from '../dom-helpers.ts';
 import { isPhoneLayout } from '../form-factor.ts';
 import { currentNotificationChoice, ensureNotificationPermission } from '../notifications.ts';
 import { setNotificationsEnabled } from '../ui-prefs.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
 import { agentSummaryText, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, isSetupDone, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, hasGitCheckoutIn, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps, NotificationChoice } from './first-run-checklist-core.ts';
 import { mountAddSessionPicker } from '../add-session/add-session-picker.ts';
-import { playMarkLock } from '../boot/loading-unlock.ts';
+import { buildLockMark, playLockMark } from '../boot/loading-unlock.ts';
 import { hasUnsettledCloneJobs, onCloneJobsSettled } from './clone-jobs.ts';
 import { buildHostReadyRows } from '../host-ready/host-ready-rows.ts';
 import { createRepoRootsAdder, saveRepoRoots } from './repo-roots-adder.ts';
@@ -105,7 +104,7 @@ function answerNotifications(choice: 'allow' | 'skip') {
 function notificationsStepBody(): HTMLElement[] {
   const sample = el('div', 'first-run-sample-notification');
   sample.setAttribute('aria-hidden', 'true');
-  sample.append(brandMark('first-run-sample-mark'), el('span', null, SAMPLE_NOTIFICATION_TEXT));
+  sample.append(buildLockMark('first-run-sample-mark'), el('span', null, SAMPLE_NOTIFICATION_TEXT));
   const allowButton = button({ variant: 'primary', label: 'Allow notifications' });
   const skipButton = button({ variant: 'quiet', label: 'Skip' });
   allowButton.addEventListener('click', () => {
@@ -172,12 +171,8 @@ function drawCheck(row: HTMLElement) {
 }
 
 function playLockupMark(): Promise<void> {
-  const mark = lockupEl?.querySelector('svg');
-  const dial = mark?.querySelector('.first-run-mark-dial');
-  const light = mark?.querySelector('.first-run-mark-light');
-  const halo = mark?.querySelector('.first-run-mark-halo');
-  if (!mark || !dial || !light || !halo) return Promise.resolve();
-  return playMarkLock({ mark, dial, light, halo });
+  if (!lockupEl) return Promise.resolve();
+  return playLockMark(lockupEl);
 }
 
 function afterMs(durationMs: number): Promise<void> {
@@ -258,11 +253,6 @@ async function loadFirstRunState({ rescanAgents }: { rescanAgents: boolean }) {
   }
 }
 
-function brandMark(className: string): HTMLElement {
-  const brackets = BRAND_MARK_BRACKETS.map(({ side, d }) => `<path class="first-run-mark-bracket" data-side="${side}" d="${d}"/>`).join('');
-  return elWithMarkup('span', className, `<svg viewBox="${BRAND_MARK_VIEWBOX}" aria-hidden="true"><path class="first-run-mark-halo" d="${BRAND_MARK_LIGHT}"/><g class="first-run-mark-dial">${brackets}</g><path class="first-run-mark-light" d="${BRAND_MARK_LIGHT}"/></svg>`);
-}
-
 const AUTO_RESCAN_GAP_MS = 5000;
 let lastAutoRescanAtMs = Number.NEGATIVE_INFINITY;
 
@@ -280,7 +270,7 @@ function ensureChecklist(): HTMLElement {
   checklist.setAttribute('aria-label', 'Glimmervoid setup');
   const lockup = el('div', 'first-run-lockup');
   lockupEl = lockup;
-  lockup.append(brandMark('first-run-mark'), el('span', 'first-run-wordmark', 'GLIMMERVOID'));
+  lockup.append(buildLockMark('first-run-mark'), el('span', 'first-run-wordmark', 'GLIMMERVOID'));
   stepsEl = el('ol', 'first-run-steps');
   startHostEl = el('div', 'first-run-start-host');
   checklist.append(lockup, stepsEl, loadStatus.element, startHostEl);

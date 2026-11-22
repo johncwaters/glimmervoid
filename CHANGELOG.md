@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Your day: a morning brief instead of a one-liner**: The daily card shows the Glimmervoid mark, the recap day, yesterday's sessions, active time and longest run, then one finding with the real numbers behind it, why it matters and what to do, such as: agents got your answers in 1m 10s from 10:00 to 11:00 and 3m 40s the rest of the day, and an agent sits idle until you answer, so put the tasks with the most back and forth there. The break tip and the GitHub star card use the same layout, and no hint card flies in with an animal any more: the card rises in and the mark spins once and locks.
 - **Chat: a calmer activity line**: The activity mark and its words use one accent color with no glow. Each tool call gives the mark a quarter turn instead of a full spin, the file or command it works on types in after the words, and when the turn ends the mark spins once, locks and reads "Ready".
 - **Chat: replies arrive faster**: A reply that comes in while you watch now rises in block by block over 150ms instead of fading in through a blur, and its last line shows within 600ms instead of 1.2s.
 - **glimmervoid.dev: link to any section**: Every homepage section heading links to its own section, so you can copy a link like glimmervoid.dev/#status. The Glimmervoid Cloud section moves to the bottom of the page, without the alpha badge and the waitlist note.

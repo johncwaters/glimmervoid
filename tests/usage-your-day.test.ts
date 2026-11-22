@@ -39,7 +39,9 @@ test('yourDay names the recap day instead of calling an older day yesterday', ()
   const yourDay = buildYourDay(events, { now });
 
   assert.equal(yourDay?.yesterday.day, '2026-11-01');
-  assert.deepEqual(yourDay?.insights.map((insight) => insight.text), ['On Nov 1 you went 4h without a break, 8.0x your usual.']);
+  assert.deepEqual(yourDay?.insights.map(({ title, detail }) => ({ title, detail })), [
+    { title: 'On Nov 1 you went 4h without a break', detail: "Your usual longest run is 30m. Attention fades deep into a run, which is when an agent's mistake gets approved. Agents keep their place, so a 15m break costs them nothing." },
+  ]);
 });
 
 test('yourDay hint calls the day before a 23 hour day yesterday just after midnight', (t) => {
@@ -50,12 +52,12 @@ test('yourDay hint calls the day before a 23 hour day yesterday just after midni
   }
   const shortDay = new Date(dayAfterShortDay.getFullYear(), dayAfterShortDay.getMonth(), dayAfterShortDay.getDate() - 1);
   const yourDay = {
-    yesterday: { day: clock.dayKeyOf(shortDay), sessionCount: 2, activeMs: 90 * MINUTE_MS },
+    yesterday: { day: clock.dayKeyOf(shortDay), sessionCount: 2, activeMs: 90 * MINUTE_MS, longestStretchMs: 60 * MINUTE_MS },
     insights: [],
     usual: { peakWaiting: 0, stretchMs: 0 },
     currentStretchStartedAt: null,
     activeDayCount: 3,
   };
 
-  assert.equal(yourDayHint(yourDay, dayAfterShortDay.getTime() + 30 * MINUTE_MS), 'yesterday: 2 sessions, 1h 30m');
+  assert.equal(yourDayHint(yourDay, dayAfterShortDay.getTime() + 30 * MINUTE_MS), 'Yesterday: 2 sessions, 1h 30m');
 });
