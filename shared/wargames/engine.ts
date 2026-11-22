@@ -566,6 +566,299 @@ function markUnsubmittedSeatsTimedOut(state: MatchState): void {
   }
 }
 
+function sumTroopCounts(troopLists: readonly TroopCounts[]): TroopCounts {
+  let raider = 0;
+  let guard = 0;
+  let envoy = 0;
+  for (const troops of troopLists) {
+    raider += troops.raider;
+    guard += troops.guard;
+    envoy += troops.envoy;
+  }
+  return { raider, guard, envoy };
+}
+
+function finalizeArmyAfterCombat(army: ArmyState, surviving: TroopCounts): void {
+  if (totalTroops(surviving) <= 0) {
+    army.troops = emptyTroops();
+    const destroyed = transitionArmy(army.status, 'army_destroy');
+    if (destroyed.ok) army.status = destroyed.state;
+    return;
+  }
+  army.troops = surviving;
+  const returning = transitionArmy(army.status, 'army_return');
+  if (returning.ok) army.status = returning.state;
+}
+
+function resolveV1MarchArrival(
+  state: MatchState,
+  army: ArmyState,
+  effects: EngineEffect[],
+  signatures: Readonly<Record<string, string>>,
+  signer?: ReportSigner,
+): void {
+  const targetVillage = state.villages[army.targetHexIndex];
+  if (!targetVillage) {
+    const returning = transitionArmy(army.status, 'army_return');
+    if (returning.ok) army.status = returning.state;
+    return;
+  }
+  if (targetVillage.owner === army.owner) {
+    targetVillage.troops.raider += army.troops.raider;
+    targetVillage.troops.guard += army.troops.guard;
+    targetVillage.troops.envoy += army.troops.envoy;
+    army.troops = emptyTroops();
+    const reached = transitionArmy(army.status, 'army_return');
+    if (reached.ok) {
+      const home = transitionArmy(reached.state, 'army_reach_home');
+      if (home.ok) army.status = home.state;
+    }
+    return;
+  }
+  if (targetVillage.owner !== null) {
+    const activeNaps = [...state.contracts.values()].filter((contract) => {
+      if (contract.status !== 'active' || contract.terms.kind !== 'nap') return false;
+      return (contract.proposer === army.owner && contract.counterparty === targetVillage.owner)
+        || (contract.counterparty === army.owner && contract.proposer === targetVillage.owner);
+    });
+    if (army.intendedTargetOwner !== targetVillage.owner && activeNaps.length > 0) {
+      const returning = transitionArmy(army.status, 'army_return');
+      if (returning.ok) army.status = returning.state;
+      return;
+    }
+    for (const contract of activeNaps) {
+      if (contract.terms.kind !== 'nap') continue;
+      const breached = transitionContract(contract.status, 'contract_breach');
+      if (!breached.ok) continue;
+      contract.status = breached.state;
+      contract.breachedBy = army.owner;
+      contract.breachedTick = state.tick;
+      const collateral = contract.terms.collateral;
+      creditSeatResources(state, targetVillage.owner, {
+        grain: collateral.grain * 2,
+        ore: collateral.ore * 2,
+      });
+      state.ledger.push({
+        tick: state.tick,
+        contractId: contract.id,
+        breacher: army.owner,
+        victim: targetVillage.owner,
+        collateralTransferred: { ...collateral },
+      });
+      effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher: army.owner, victim: targetVillage.owner } });
+    }
+  }
+  const defenderBefore = { ...targetVillage.troops };
+  const attackerSent = { ...army.troops };
+  const loyaltyBefore = targetVillage.loyalty;
+  const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
+  state.rngState = nextRng;
+  const { attackPower, defensePower } = resolveCombatPower(army.troops, targetVillage.troops, targetVillage.buildings.wall);
+  const jitteredAttack = attackPower * (0.9 + rngRoll * 0.2);
+  const attackerWins = jitteredAttack >= defensePower;
+  const attackerLossFraction = attackerWins ? (defensePower / Math.max(1, jitteredAttack)) * 0.65 : 1;
+  const defenderLossFraction = attackerWins ? 1 : (jitteredAttack / Math.max(1, defensePower)) * 0.65;
+  const attackerOutcome = applyCasualties(army.troops, attackerLossFraction);
+  const defenderOutcome = applyCasualties(targetVillage.troops, defenderLossFraction);
+  targetVillage.troops = defenderOutcome.surviving;
+  let captured = false;
+  const previousOwner = targetVillage.owner;
+  if (attackerWins && attackerOutcome.surviving.envoy > 0) {
+    const drained = Math.max(0, targetVillage.loyalty - attackerOutcome.surviving.envoy * ENVOY_LOYALTY_DRAIN);
+    targetVillage.loyalty = drained;
+    if (drained === 0) {
+      targetVillage.owner = army.owner;
+      targetVillage.loyalty = CAPTURED_LOYALTY;
+      captured = true;
+      effects.push({ kind: 'village_captured', detail: { hexIndex: targetVillage.hexIndex, newOwner: army.owner, previousOwner } });
+    }
+  }
+  const reportId = `rep-${state.nextReportNumber}`;
+  state.nextReportNumber += 1;
+  const report = makeSignedReport(state, {
+    kind: 'battle',
+    reportId,
+    tick: state.tick,
+    hexIndex: targetVillage.hexIndex,
+    attacker: army.owner,
+    defender: previousOwner,
+    attackerSent,
+    attackerLost: attackerOutcome.lost,
+    defenderBefore,
+    defenderLost: defenderOutcome.lost,
+    loyaltyBefore,
+    loyaltyAfter: targetVillage.loyalty,
+    captured,
+  }, signatures, signer);
+  state.reportsBySeat[army.owner].push(report);
+  if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
+  effects.push({ kind: 'report_signed', detail: { reportId, seatId: army.owner, signature: report.signature } });
+  finalizeArmyAfterCombat(army, attackerOutcome.surviving);
+}
+
+function resolveV2SimultaneousBattles(
+  state: MatchState,
+  hostileByHex: Map<number, ArmyState[]>,
+  effects: EngineEffect[],
+  signatures: Readonly<Record<string, string>>,
+  signer?: ReportSigner,
+): void {
+  const orderedHexes = [...hostileByHex.keys()].sort((left, right) => left - right);
+  for (const hexIndex of orderedHexes) {
+    const targetVillage = state.villages[hexIndex];
+    const incomingArmies = hostileByHex.get(hexIndex) ?? [];
+    if (!targetVillage || incomingArmies.length === 0) continue;
+
+    const previousOwner = targetVillage.owner;
+    const armiesBySeat = new Map<SeatId, ArmyState[]>();
+    for (const army of incomingArmies) {
+      const seatArmies = armiesBySeat.get(army.owner);
+      if (seatArmies) {
+        seatArmies.push(army);
+        continue;
+      }
+      armiesBySeat.set(army.owner, [army]);
+    }
+
+    const orderedAttackerSeats = [...armiesBySeat.keys()].sort((left, right) => seatIndexOf(left) - seatIndexOf(right));
+    const activeAttackerSeats: { seatId: SeatId; armies: ArmyState[]; combinedTroops: TroopCounts; attackPower: number }[] = [];
+    for (const attackerSeat of orderedAttackerSeats) {
+      const seatArmies = armiesBySeat.get(attackerSeat) ?? [];
+      if (previousOwner !== null) {
+        const activeNaps = [...state.contracts.values()].filter((contract) => {
+          if (contract.status !== 'active' || contract.terms.kind !== 'nap') return false;
+          return (contract.proposer === attackerSeat && contract.counterparty === previousOwner)
+            || (contract.counterparty === attackerSeat && contract.proposer === previousOwner);
+        });
+        const allUnintended = seatArmies.every((army) => army.intendedTargetOwner !== previousOwner);
+        if (allUnintended && activeNaps.length > 0) {
+          for (const army of seatArmies) {
+            const returning = transitionArmy(army.status, 'army_return');
+            if (returning.ok) army.status = returning.state;
+          }
+          continue;
+        }
+        for (const contract of activeNaps) {
+          if (contract.terms.kind !== 'nap') continue;
+          const breached = transitionContract(contract.status, 'contract_breach');
+          if (!breached.ok) continue;
+          contract.status = breached.state;
+          contract.breachedBy = attackerSeat;
+          contract.breachedTick = state.tick;
+          const collateral = contract.terms.collateral;
+          creditSeatResources(state, previousOwner, {
+            grain: collateral.grain * 2,
+            ore: collateral.ore * 2,
+          });
+          state.ledger.push({
+            tick: state.tick,
+            contractId: contract.id,
+            breacher: attackerSeat,
+            victim: previousOwner,
+            collateralTransferred: { ...collateral },
+          });
+          effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher: attackerSeat, victim: previousOwner } });
+        }
+      }
+      const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
+      const { attackPower } = resolveCombatPower(combinedTroops, targetVillage.troops, targetVillage.buildings.wall);
+      activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower });
+    }
+    if (activeAttackerSeats.length === 0) continue;
+
+    const defenderBefore = { ...targetVillage.troops };
+    const loyaltyBefore = targetVillage.loyalty;
+    const allCombinedTroops = sumTroopCounts(activeAttackerSeats.map((entry) => entry.combinedTroops));
+    const { defensePower } = resolveCombatPower(allCombinedTroops, targetVillage.troops, targetVillage.buildings.wall);
+    const totalAttackPower = activeAttackerSeats.reduce((sum, entry) => sum + entry.attackPower, 0);
+    const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
+    state.rngState = nextRng;
+    const jitteredTotalAttack = totalAttackPower * (0.9 + rngRoll * 0.2);
+    const defenderFalls = jitteredTotalAttack >= defensePower;
+
+    const defenderLossFraction = defenderFalls ? 1 : (jitteredTotalAttack / Math.max(1, defensePower)) * 0.65;
+    const defenderOutcome = applyCasualties(targetVillage.troops, defenderLossFraction);
+    targetVillage.troops = defenderOutcome.surviving;
+
+    type HexContestOutcome =
+      | { kind: 'held' }
+      | { kind: 'tie_bounce' }
+      | { kind: 'won'; winnerSeatId: SeatId; runnerUpPower: number };
+    let contestOutcome: HexContestOutcome = { kind: 'held' };
+    if (defenderFalls) {
+      const sortedByPower = [...activeAttackerSeats].sort((left, right) => right.attackPower - left.attackPower);
+      const topPower = sortedByPower[0].attackPower;
+      const topSeats = sortedByPower.filter((entry) => entry.attackPower === topPower);
+      contestOutcome = topSeats.length === 1
+        ? {
+          kind: 'won',
+          winnerSeatId: topSeats[0].seatId,
+          runnerUpPower: sortedByPower.slice(1).reduce((sum, entry) => sum + entry.attackPower, 0),
+        }
+        : { kind: 'tie_bounce' };
+    }
+
+    const baseDefenderToll = defenderFalls ? (defensePower / Math.max(1, jitteredTotalAttack)) * 0.65 : 1;
+    const resolvedAttackers = activeAttackerSeats.map((entry) => {
+      let lossFraction = baseDefenderToll;
+      if (contestOutcome.kind === 'tie_bounce') {
+        lossFraction = Math.min(0.9, baseDefenderToll + 0.35);
+      }
+      if (contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && contestOutcome.runnerUpPower > 0) {
+        lossFraction = Math.min(0.9, baseDefenderToll + (contestOutcome.runnerUpPower / Math.max(1, entry.attackPower)) * 0.45);
+      }
+      if (contestOutcome.kind === 'won' && entry.seatId !== contestOutcome.winnerSeatId) {
+        lossFraction = 1;
+      }
+
+      const survivingByArmy = entry.armies.map((army) => applyCasualties(army.troops, lossFraction));
+      const totalSurviving = sumTroopCounts(survivingByArmy.map((outcome) => outcome.surviving));
+      const totalLost = sumTroopCounts(survivingByArmy.map((outcome) => outcome.lost));
+      const canDrainLoyalty = contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && totalSurviving.envoy > 0;
+      const drainedLoyalty = canDrainLoyalty
+        ? Math.max(0, targetVillage.loyalty - totalSurviving.envoy * ENVOY_LOYALTY_DRAIN)
+        : targetVillage.loyalty;
+      const captured = canDrainLoyalty && drainedLoyalty === 0;
+      if (canDrainLoyalty) {
+        targetVillage.loyalty = captured ? CAPTURED_LOYALTY : drainedLoyalty;
+      }
+      if (captured) {
+        targetVillage.owner = entry.seatId;
+        effects.push({ kind: 'village_captured', detail: { hexIndex: targetVillage.hexIndex, newOwner: entry.seatId, previousOwner } });
+      }
+      return { entry, survivingByArmy, totalLost, captured };
+    });
+
+    const finalLoyaltyAfter = targetVillage.loyalty;
+    for (const resolved of resolvedAttackers) {
+      const reportId = `rep-${state.nextReportNumber}`;
+      state.nextReportNumber += 1;
+      const report = makeSignedReport(state, {
+        kind: 'battle',
+        reportId,
+        tick: state.tick,
+        hexIndex: targetVillage.hexIndex,
+        attacker: resolved.entry.seatId,
+        defender: previousOwner,
+        attackerSent: resolved.entry.combinedTroops,
+        attackerLost: resolved.totalLost,
+        defenderBefore,
+        defenderLost: defenderOutcome.lost,
+        loyaltyBefore,
+        loyaltyAfter: finalLoyaltyAfter,
+        captured: resolved.captured,
+      }, signatures, signer);
+      state.reportsBySeat[resolved.entry.seatId].push(report);
+      if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
+      effects.push({ kind: 'report_signed', detail: { reportId, seatId: resolved.entry.seatId, signature: report.signature } });
+
+      for (let index = 0; index < resolved.entry.armies.length; index += 1) {
+        finalizeArmyAfterCombat(resolved.entry.armies[index], resolved.survivingByArmy[index].surviving);
+      }
+    }
+  }
+}
+
 function resolveTick(
   state: MatchState,
   signatures: Readonly<Record<string, string>>,
@@ -731,8 +1024,40 @@ function resolveTick(
   }
   state.ordersByTick[state.tick] = tickOrdersRecord;
 
-  for (const army of state.armies.values()) {
-    if (army.status === 'marching') {
+  if (state.spec.rulesVersion === 'v1') {
+    for (const army of state.armies.values()) {
+      if (army.status === 'marching') {
+        army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+        if (army.currentHexIndex !== army.targetHexIndex) continue;
+        const arrived = transitionArmy(army.status, 'army_arrive');
+        if (!arrived.ok) continue;
+        army.status = arrived.state;
+        resolveV1MarchArrival(state, army, effects, signatures, signer);
+        continue;
+      }
+      if (army.status === 'returning') {
+        army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+        if (army.currentHexIndex !== army.originHexIndex) continue;
+        const homeVillage = state.villages[army.originHexIndex];
+        if (homeVillage && homeVillage.owner === army.owner) {
+          homeVillage.troops.raider += army.troops.raider;
+          homeVillage.troops.guard += army.troops.guard;
+          homeVillage.troops.envoy += army.troops.envoy;
+        }
+        army.troops = emptyTroops();
+        const home = transitionArmy(army.status, 'army_reach_home');
+        if (home.ok) army.status = home.state;
+      }
+    }
+  }
+  if (state.spec.rulesVersion !== 'v1') {
+    const returningBeforeCombat = new Set<string>();
+    for (const army of state.armies.values()) {
+      if (army.status === 'returning') returningBeforeCombat.add(army.id);
+    }
+    const hostileByHex = new Map<number, ArmyState[]>();
+    for (const army of state.armies.values()) {
+      if (army.status !== 'marching') continue;
       army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
       if (army.currentHexIndex !== army.targetHexIndex) continue;
       const arrived = transitionArmy(army.status, 'army_arrive');
@@ -756,96 +1081,16 @@ function resolveTick(
         }
         continue;
       }
-      if (targetVillage.owner !== null) {
-        const activeNaps = [...state.contracts.values()].filter((contract) => {
-          if (contract.status !== 'active' || contract.terms.kind !== 'nap') return false;
-          return (contract.proposer === army.owner && contract.counterparty === targetVillage.owner)
-            || (contract.counterparty === army.owner && contract.proposer === targetVillage.owner);
-        });
-        if (army.intendedTargetOwner !== targetVillage.owner && activeNaps.length > 0) {
-          const returning = transitionArmy(army.status, 'army_return');
-          if (returning.ok) army.status = returning.state;
-          continue;
-        }
-        for (const contract of activeNaps) {
-          if (contract.terms.kind !== 'nap') continue;
-          const breached = transitionContract(contract.status, 'contract_breach');
-          if (!breached.ok) continue;
-          contract.status = breached.state;
-          contract.breachedBy = army.owner;
-          contract.breachedTick = state.tick;
-          const collateral = contract.terms.collateral;
-          creditSeatResources(state, targetVillage.owner, {
-            grain: collateral.grain * 2,
-            ore: collateral.ore * 2,
-          });
-          state.ledger.push({
-            tick: state.tick,
-            contractId: contract.id,
-            breacher: army.owner,
-            victim: targetVillage.owner,
-            collateralTransferred: { ...collateral },
-          });
-          effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher: army.owner, victim: targetVillage.owner } });
-        }
-      }
-      const defenderBefore = { ...targetVillage.troops };
-      const attackerSent = { ...army.troops };
-      const loyaltyBefore = targetVillage.loyalty;
-      const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
-      state.rngState = nextRng;
-      const { attackPower, defensePower } = resolveCombatPower(army.troops, targetVillage.troops, targetVillage.buildings.wall);
-      const jitteredAttack = attackPower * (0.9 + rngRoll * 0.2);
-      const attackerWins = jitteredAttack >= defensePower;
-      const attackerLossFraction = attackerWins ? (defensePower / Math.max(1, jitteredAttack)) * 0.65 : 1;
-      const defenderLossFraction = attackerWins ? 1 : (jitteredAttack / Math.max(1, defensePower)) * 0.65;
-      const attackerOutcome = applyCasualties(army.troops, attackerLossFraction);
-      const defenderOutcome = applyCasualties(targetVillage.troops, defenderLossFraction);
-      targetVillage.troops = defenderOutcome.surviving;
-      let captured = false;
-      const previousOwner = targetVillage.owner;
-      if (attackerWins && attackerOutcome.surviving.envoy > 0) {
-        const drained = Math.max(0, targetVillage.loyalty - attackerOutcome.surviving.envoy * ENVOY_LOYALTY_DRAIN);
-        targetVillage.loyalty = drained;
-        if (drained === 0) {
-          targetVillage.owner = army.owner;
-          targetVillage.loyalty = CAPTURED_LOYALTY;
-          captured = true;
-          effects.push({ kind: 'village_captured', detail: { hexIndex: targetVillage.hexIndex, newOwner: army.owner, previousOwner } });
-        }
-      }
-      const reportId = `rep-${state.nextReportNumber}`;
-      state.nextReportNumber += 1;
-      const report = makeSignedReport(state, {
-        kind: 'battle',
-        reportId,
-        tick: state.tick,
-        hexIndex: targetVillage.hexIndex,
-        attacker: army.owner,
-        defender: previousOwner,
-        attackerSent,
-        attackerLost: attackerOutcome.lost,
-        defenderBefore,
-        defenderLost: defenderOutcome.lost,
-        loyaltyBefore,
-        loyaltyAfter: targetVillage.loyalty,
-        captured,
-      }, signatures, signer);
-      state.reportsBySeat[army.owner].push(report);
-      if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
-      effects.push({ kind: 'report_signed', detail: { reportId, seatId: army.owner, signature: report.signature } });
-      if (totalTroops(attackerOutcome.surviving) <= 0) {
-        army.troops = emptyTroops();
-        const destroyed = transitionArmy(army.status, 'army_destroy');
-        if (destroyed.ok) army.status = destroyed.state;
+      const list = hostileByHex.get(army.targetHexIndex);
+      if (list) {
+        list.push(army);
         continue;
       }
-      army.troops = attackerOutcome.surviving;
-      const returning = transitionArmy(army.status, 'army_return');
-      if (returning.ok) army.status = returning.state;
-      continue;
+      hostileByHex.set(army.targetHexIndex, [army]);
     }
-    if (army.status === 'returning') {
+    for (const armyId of returningBeforeCombat) {
+      const army = state.armies.get(armyId);
+      if (!army || army.status !== 'returning') continue;
       army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
       if (army.currentHexIndex !== army.originHexIndex) continue;
       const homeVillage = state.villages[army.originHexIndex];
@@ -858,6 +1103,7 @@ function resolveTick(
       const home = transitionArmy(army.status, 'army_reach_home');
       if (home.ok) army.status = home.state;
     }
+    resolveV2SimultaneousBattles(state, hostileByHex, effects, signatures, signer);
   }
 
   for (const contract of state.contracts.values()) {

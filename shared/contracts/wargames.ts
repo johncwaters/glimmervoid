@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v1' as const;
+export const WARGAMES_RULES_VERSION = 'v2' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
 const WargamesRulesVersion = z.string().regex(/^v[1-9]\d*$/);
 

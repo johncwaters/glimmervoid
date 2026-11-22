@@ -339,7 +339,7 @@ test('rulesVersion defaults on legacy summaries, tags custom strategy, and isola
       breaches: 0,
     })),
   });
-  assert.equal(legacyParsed.rulesVersion, WARGAMES_RULES_VERSION);
+  assert.equal(legacyParsed.rulesVersion, 'v1');
   assert.equal(legacyParsed.hasCustomStrategy, false);
 
   const v2Summary: WargamesMatchSummary = {
@@ -377,4 +377,109 @@ test('rulesVersion defaults on legacy summaries, tags custom strategy, and isola
   const coachedSummary = summarizeMatch(createInitialMatchState('wg-coached-1', 5000, coachedSpec), null, 1);
   assert.equal(coachedSummary.rulesVersion, 'v2');
   assert.equal(coachedSummary.hasCustomStrategy, true);
+});
+
+test('v2 resolves simultaneous multi-attacker battles order-independently and lands reinforcements first', () => {
+  type EventWithoutSeq<Event> = Event extends WargamesEvent ? Omit<Event, 'seq'> : never;
+  const signer = {
+    sign: (payload: string) => `sig:${payload.length}`,
+    verify: (payload: string, signature: string) => signature === `sig:${payload.length}`,
+  };
+  const advanceToResolution = (state: ReturnType<typeof createInitialMatchState>) => {
+    let current = state;
+    const applyNext = (event: EventWithoutSeq<WargamesEvent>) => {
+      const applied = applyEvent(current, { ...event, seq: current.lastSeq + 1 } as WargamesEvent, signer);
+      assert.equal(applied.ok, true);
+      if (applied.ok) current = applied.state;
+    };
+    applyNext({ type: 'seating_started' });
+    for (const seatId of WARGAMES_SEAT_IDS) applyNext({ type: 'seat_connected', seatId });
+    applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+    applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+    applyNext({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+    return current;
+  };
+
+  const runContestedAttack = (s1Raiders: number, s6Raiders: number, insertOrder: readonly ('s1' | 's6')[] = ['s1', 's6']) => {
+    const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v2' };
+    const state = createInitialMatchState('wg-v2-sim', 1000, spec);
+    const s1Capital = state.villages.find((village) => village?.owner === 's1');
+    const s6Capital = state.villages.find((village) => village?.owner === 's6');
+    const neutralVillage = state.villages.find((village) => village && village.owner === null);
+    assert.ok(s1Capital && s6Capital && neutralVillage);
+
+    neutralVillage.troops = { raider: 0, guard: 1, envoy: 0 };
+    neutralVillage.loyalty = 40;
+
+    for (const seatId of insertOrder) {
+      const originHexIndex = seatId === 's1' ? s1Capital.hexIndex : s6Capital.hexIndex;
+      const raiders = seatId === 's1' ? s1Raiders : s6Raiders;
+      state.armies.set(`army-test-${seatId}`, {
+        id: `army-test-${seatId}`,
+        owner: seatId,
+        status: 'marching',
+        originHexIndex,
+        currentHexIndex: neutralVillage.hexIndex,
+        targetHexIndex: neutralVillage.hexIndex,
+        troops: { raider: raiders, guard: 0, envoy: 3 },
+        departedTick: 0,
+        intendedTargetOwner: null,
+        scoutedBy: [],
+      });
+    }
+
+    const resolved = advanceToResolution(state);
+    return {
+      owner: resolved.villages[neutralVillage.hexIndex]?.owner ?? null,
+      loyalty: resolved.villages[neutralVillage.hexIndex]?.loyalty ?? -1,
+      rngState: resolved.rngState,
+      s1Reports: resolved.reportsBySeat.s1,
+      s6Reports: resolved.reportsBySeat.s6,
+    };
+  };
+
+  assert.equal(WARGAMES_RULES_VERSION, 'v2');
+  const s1StrongFirst = runContestedAttack(20, 4, ['s1', 's6']);
+  const s1StrongSecond = runContestedAttack(20, 4, ['s6', 's1']);
+  assert.equal(s1StrongFirst.owner, 's1');
+  assert.deepEqual(s1StrongFirst, s1StrongSecond);
+  assert.equal(runContestedAttack(4, 20, ['s1', 's6']).owner, 's6');
+  assert.equal(runContestedAttack(4, 20, ['s6', 's1']).owner, 's6');
+  assert.equal(runContestedAttack(12, 12, ['s1', 's6']).owner, null);
+  assert.equal(runContestedAttack(12, 12, ['s6', 's1']).owner, null);
+
+  const reinforceSpec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v2' };
+  const reinforceState = createInitialMatchState('wg-v2-reinf', 2000, reinforceSpec);
+  const s1Home = reinforceState.villages.find((village) => village?.owner === 's1');
+  const s2Home = reinforceState.villages.find((village) => village?.owner === 's2');
+  assert.ok(s1Home && s2Home);
+  s1Home.troops = { raider: 0, guard: 1, envoy: 0 };
+  s1Home.loyalty = 40;
+  reinforceState.armies.set('army-hostile', {
+    id: 'army-hostile',
+    owner: 's2',
+    status: 'marching',
+    originHexIndex: s2Home.hexIndex,
+    currentHexIndex: s1Home.hexIndex,
+    targetHexIndex: s1Home.hexIndex,
+    troops: { raider: 10, guard: 0, envoy: 3 },
+    departedTick: 0,
+    intendedTargetOwner: 's1',
+    scoutedBy: [],
+  });
+  reinforceState.armies.set('army-friendly', {
+    id: 'army-friendly',
+    owner: 's1',
+    status: 'marching',
+    originHexIndex: s1Home.hexIndex,
+    currentHexIndex: s1Home.hexIndex,
+    targetHexIndex: s1Home.hexIndex,
+    troops: { raider: 0, guard: 40, envoy: 0 },
+    departedTick: 0,
+    intendedTargetOwner: 's1',
+    scoutedBy: [],
+  });
+  const resolvedReinforce = advanceToResolution(reinforceState);
+  assert.equal(resolvedReinforce.villages[s1Home.hexIndex]?.owner, 's1');
+  assert.ok((resolvedReinforce.villages[s1Home.hexIndex]?.troops.guard ?? 0) > 20);
 });
