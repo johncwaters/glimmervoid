@@ -6,9 +6,11 @@ import assert from 'node:assert/strict';
 import {
   WARGAMES_HEX_COUNT,
   WARGAMES_NOTE_MAX_BYTES,
+  WARGAMES_RULES_VERSION,
   WARGAMES_SEAT_IDS,
   WARGAMES_SQUEEZE_TICK,
   WargamesMatchSpec,
+  WargamesMatchSummary,
 } from '../shared/contracts/wargames.ts';
 import type { WargamesEvent } from '../shared/contracts/wargames.ts';
 import {
@@ -29,7 +31,7 @@ import {
   transitionTick,
   transitionVillage,
 } from '../shared/wargames/machines.ts';
-import { analyzeMatch, computeEloFromSummaries, summarizeMatch } from '../shared/wargames/analytics.ts';
+import { analyzeMatch, computeEloByVersion, computeEloFromSummaries, summarizeMatch } from '../shared/wargames/analytics.ts';
 
 function createTestSigner(seed: number): ReportSigner {
   const key = `wargames-test-key-${seed}`;
@@ -311,4 +313,68 @@ test('wargames engine bounces neutral-hex NAP collisions without breaching and a
   const allyHighlights = analytics.highlights.filter((item) => item.kind === 'ally_attack' && item.actor === 's1' && item.target === 's2');
   assert.equal(allyHighlights.length, 1);
   assert.match(allyHighlights[0].relatedOrderText ?? '', /,/);
+});
+
+test('rulesVersion defaults on legacy summaries, tags custom strategy, and isolates Elo by version', () => {
+  const legacyParsed = WargamesMatchSummary.parse({
+    matchId: 'wg-legacy-1',
+    title: 'Legacy Match',
+    seed: 1,
+    createdAtMs: 1000,
+    finishedAtMs: 2000,
+    status: 'finished',
+    tick: 10,
+    maxTicks: 10,
+    phase: 'reported',
+    winnerSeatId: 's1',
+    winnerModelDisplay: 'model-a',
+    breachCount: 0,
+    eventCount: 50,
+    seats: WARGAMES_SEAT_IDS.map((seatId, index) => ({
+      seatId,
+      label: `Seat ${index + 1}`,
+      modelDisplay: index === 0 ? 'model-a' : 'model-b',
+      status: 'submitted',
+      villagesHeld: index === 0 ? 12 : 2,
+      breaches: 0,
+    })),
+  });
+  assert.equal(legacyParsed.rulesVersion, WARGAMES_RULES_VERSION);
+  assert.equal(legacyParsed.hasCustomStrategy, false);
+
+  const v2Summary: WargamesMatchSummary = {
+    ...legacyParsed,
+    matchId: 'wg-v2-1',
+    rulesVersion: 'v2',
+    createdAtMs: 3000,
+    winnerSeatId: 's2',
+    winnerModelDisplay: 'model-b',
+    seats: legacyParsed.seats.map((seat) => ({
+      ...seat,
+      villagesHeld: seat.seatId === 's2' ? 12 : 1,
+    })),
+  };
+
+  const eloByVersion = computeEloByVersion([legacyParsed, v2Summary]);
+  assert.deepEqual(Object.keys(eloByVersion).sort(), ['v1', 'v2']);
+  const v1ModelA = eloByVersion.v1.find((row) => row.modelDisplay === 'model-a');
+  const v2ModelA = eloByVersion.v2.find((row) => row.modelDisplay === 'model-a');
+  assert.ok(v1ModelA && v2ModelA);
+  assert.ok(v1ModelA.elo > 1500);
+  assert.ok(v2ModelA.elo < 1500);
+  assert.equal(v1ModelA.matchesPlayed, 1);
+  assert.equal(v2ModelA.matchesPlayed, 1);
+
+  const baseSpec = buildTestSpec();
+  const coachedSpec: WargamesMatchSpec = {
+    ...baseSpec,
+    rulesVersion: 'v2',
+    seats: baseSpec.seats.map((seat) => ({
+      ...seat,
+      setup: { ...seat.setup, instructions: seat.seatId === 's1' ? 'Rush center hexes' : '' },
+    })),
+  };
+  const coachedSummary = summarizeMatch(createInitialMatchState('wg-coached-1', 5000, coachedSpec), null, 1);
+  assert.equal(coachedSummary.rulesVersion, 'v2');
+  assert.equal(coachedSummary.hasCustomStrategy, true);
 });

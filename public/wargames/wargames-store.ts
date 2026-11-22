@@ -1,3 +1,4 @@
+import { WARGAMES_RULES_VERSION } from '#shared/contracts/wargames.ts';
 import type {
   MatchAnalytics,
   SeatId,
@@ -6,7 +7,7 @@ import type {
   WargamesMatchSummary,
 } from '#shared/contracts/wargames.ts';
 import { analyzeMatch } from '#shared/wargames/analytics.ts';
-import { applyEvent, createInitialMatchState, replayMatch, replayMatchAtTick } from '#shared/wargames/engine.ts';
+import { applyEvent, createInitialMatchState, replayMatch } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 
 export type WargamesPov = 'god' | SeatId;
@@ -17,7 +18,6 @@ interface WargamesStoreSnapshot {
   watchedMatchId: string | null;
   events: readonly WargamesEvent[];
   headState: MatchState | null;
-  scrubTick: number | null;
   pov: WargamesPov;
 }
 
@@ -26,11 +26,10 @@ type Listener = () => void;
 const listeners = new Set<Listener>();
 
 let matches: WargamesMatchSummary[] = [];
-let history: WargamesHistory = { eloByModel: [], matches: [] };
+let history: WargamesHistory = { currentRulesVersion: WARGAMES_RULES_VERSION, eloByModel: [], eloByVersion: {}, matches: [] };
 let watchedMatchId: string | null = null;
 let events: WargamesEvent[] = [];
 let headState: MatchState | null = null;
-let scrubTick: number | null = null;
 let pov: WargamesPov = 'god';
 
 function notify(): void {
@@ -43,13 +42,11 @@ export function subscribeWargames(listener: Listener): () => void {
 }
 
 export function wargamesSnapshot(): WargamesStoreSnapshot {
-  return { matches, history, watchedMatchId, events, headState, scrubTick, pov };
+  return { matches, history, watchedMatchId, events, headState, pov };
 }
 
 export function displayedMatchState(): MatchState | null {
-  if (!headState) return null;
-  if (scrubTick === null || scrubTick >= headState.tick) return headState;
-  return replayMatchAtTick(events, scrubTick);
+  return headState;
 }
 
 export function displayedMatchAnalytics(state: MatchState | null = displayedMatchState()): MatchAnalytics | null {
@@ -63,18 +60,11 @@ export function setWargamesPov(nextPov: WargamesPov): void {
   notify();
 }
 
-export function setWargamesScrubTick(nextTick: number | null): void {
-  if (scrubTick === nextTick) return;
-  scrubTick = nextTick;
-  notify();
-}
-
 export function selectWatchedMatch(matchId: string | null): void {
   if (watchedMatchId === matchId) return;
   watchedMatchId = matchId;
   events = [];
   headState = null;
-  scrubTick = null;
   notify();
 }
 

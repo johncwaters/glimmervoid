@@ -43,8 +43,11 @@ export function summarizeMatch(state: MatchState, finishedAtMs: number | null, e
     breachCounts.set(breach.breacher, (breachCounts.get(breach.breacher) ?? 0) + 1);
   }
   const winnerSeat = state.winnerSeatId ? state.seats[seatIndexOf(state.winnerSeatId)] : null;
+  const hasCustomStrategy = state.spec.seats.some((seat) => seat.setup.instructions.trim().length > 0);
   return {
     matchId: state.matchId,
+    rulesVersion: state.spec.rulesVersion,
+    hasCustomStrategy,
     title: state.spec.title,
     seed: state.spec.seed,
     createdAtMs: state.createdAtMs,
@@ -311,7 +314,7 @@ function pairwiseScore(
   return 0.5;
 }
 
-export function updateModelElo(
+function updateModelElo(
   currentRows: ReadonlyMap<string, ModelEloRow>,
   summary: WargamesMatchSummary,
 ): Map<string, ModelEloRow> {
@@ -373,4 +376,21 @@ export function computeEloFromSummaries(summaries: readonly WargamesMatchSummary
     table = updateModelElo(table, summary);
   }
   return [...table.values()].sort((left, right) => right.elo - left.elo);
+}
+
+export function computeEloByVersion(summaries: readonly WargamesMatchSummary[]): Record<string, ModelEloRow[]> {
+  const grouped = new Map<string, WargamesMatchSummary[]>();
+  for (const summary of summaries) {
+    const existing = grouped.get(summary.rulesVersion);
+    if (existing) {
+      existing.push(summary);
+      continue;
+    }
+    grouped.set(summary.rulesVersion, [summary]);
+  }
+  const eloByVersion: Record<string, ModelEloRow[]> = {};
+  for (const [rulesVersion, versionSummaries] of grouped) {
+    eloByVersion[rulesVersion] = computeEloFromSummaries(versionSummaries);
+  }
+  return eloByVersion;
 }

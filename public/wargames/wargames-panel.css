@@ -183,10 +183,17 @@
 .wg-faction-stats {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 6px;
   color: var(--text);
   font-size: var(--type-meta);
   font-variant-numeric: tabular-nums;
+}
+
+.wg-faction-units {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .wg-live-grid {
@@ -238,6 +245,10 @@
 
 .wg-hex-cell {
   cursor: pointer;
+}
+
+.wg-fx-layer {
+  pointer-events: none;
 }
 
 .wg-hex-index {
@@ -302,24 +313,71 @@
   width: 100%;
   display: flex;
   justify-content: center;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px 16px;
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: var(--type-meta);
 }
 
-.wg-scrubber {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: 8px 10px;
-  display: flex;
+.wg-legend-item {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
-.wg-range {
-  flex: 1;
-  accent-color: var(--accent);
+.wg-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@keyframes wg-march-flow {
+  from {
+    stroke-dashoffset: 18;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes wg-capture-pulse {
+  from {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wg-hex-cell {
+    transition: opacity var(--transition-fast);
+  }
+
+  .wg-hex-cell polygon {
+    transition: fill var(--transition-fast), stroke var(--transition-fast);
+  }
+
+  .wg-loyalty-fill {
+    transition: width var(--transition-fast), fill var(--transition-fast);
+  }
+
+  .wg-win-fill {
+    transition: width var(--transition-fast);
+  }
+
+  .wg-army-line {
+    animation: wg-march-flow 0.9s linear infinite;
+  }
+
+  .wg-capture-ring {
+    animation: wg-capture-pulse 0.6s ease-out forwards;
+  }
 }
 
 .wg-inspector {

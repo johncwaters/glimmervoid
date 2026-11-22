@@ -884,7 +884,10 @@ test('wargames agent verb starts, lists, inspects, aborts, and reads history wit
   const seatSession = new Session({ id: 'wg-seat-s1', name: 'Wargames - s1', path: process.cwd(), ptySpawn: () => fakePty() });
   const wargames = {
     statusFrame: () => ({ type: 'wargames-status' as const, matches: loadedMatches }),
-    historyFrame: () => ({ type: 'wargames-history' as const, history: { eloByModel: [], matches: loadedMatches } }),
+    historyFrame: () => ({
+      type: 'wargames-history' as const,
+      history: { currentRulesVersion: 'v1', eloByModel: [], eloByVersion: {}, matches: loadedMatches },
+    }),
     isWargamesSession: (sessionId: string) => openSeatIds.has(sessionId),
     abortMatch: async (matchId: string, reason: string) => {
       const target = loadedMatches.find((candidate) => candidate.matchId === matchId);

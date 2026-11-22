@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
+export const WARGAMES_RULES_VERSION = 'v1' as const;
+const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
+const WargamesRulesVersion = z.string().regex(/^v[1-9]\d*$/);
+
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 const WARGAMES_SEAT_COUNT = 6;
 export const WARGAMES_HEX_RADIUS = 3;
@@ -86,6 +90,7 @@ export type SeatConfig = z.infer<typeof SeatConfig>;
 
 export const WargamesMatchSpec = z.strictObject({
   version: z.literal(1),
+  rulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
   title: z.string().trim().min(1).max(120).default('Wargames Match'),
   seed: z.number().int().min(1).max(2147483647),
   tickDeadlineSeconds: z.number().int().min(5).max(300).default(WARGAMES_TICK_DEADLINE_SECONDS),
@@ -390,6 +395,8 @@ export type ModelEloRow = z.infer<typeof ModelEloRow>;
 
 export const WargamesMatchSummary = z.strictObject({
   matchId: WargamesMatchId,
+  rulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
+  hasCustomStrategy: z.boolean().default(false),
   title: z.string().min(1).max(120),
   seed: z.number().int().min(1),
   createdAtMs: z.number().int().min(0),
@@ -414,7 +421,9 @@ export const WargamesMatchSummary = z.strictObject({
 export type WargamesMatchSummary = z.infer<typeof WargamesMatchSummary>;
 
 export const WargamesHistory = z.strictObject({
+  currentRulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
   eloByModel: z.array(ModelEloRow),
+  eloByVersion: z.record(WargamesRulesVersion, z.array(ModelEloRow)).default({}),
   matches: z.array(WargamesMatchSummary),
 });
 export type WargamesHistory = z.infer<typeof WargamesHistory>;
