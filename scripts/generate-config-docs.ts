@@ -141,7 +141,7 @@ function fileOnlyGroupsMarkdown(registry: SettingsRegistry): string[] {
 }
 
 function browserPreferencesMarkdown(sections: readonly SettingsSection[]): string[] {
-  const rows = sections.filter((section) => section.level === BROWSER_LEVEL).flatMap((section) => section.settings);
+  const rows = sections.flatMap((section) => section.settings).filter((setting) => setting.scope === BROWSER_LEVEL);
   return [
     '## Browser preferences',
     '',

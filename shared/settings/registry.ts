@@ -1,6 +1,6 @@
 import type { SettingsSetting, SettingsSection, SettingsGroup, SettingsRegistry } from './registry-fields.ts';
 import { BROWSER_APPEARANCE, BROWSER_NOTIFICATIONS, BROWSER_SHORTCUTS } from './browser-sections.ts';
-import { MACHINE_TELEGRAM, MACHINE_SLACK, MACHINE_SESSIONS, MACHINE_SESSION_REVIEW, MACHINE_PLAN_GATE, MACHINE_SESSION_CHAT, MACHINE_HOME, MACHINE_ACCOUNTS, MACHINE_SAFETY, MACHINE_VAULT, MACHINE_UPDATES, MACHINE_SERVER, MACHINE_USAGE, MACHINE_PRIVACY } from './machine-sections.ts';
+import { MACHINE_TELEGRAM, MACHINE_SLACK, MACHINE_SESSIONS, MACHINE_WORKTREES, MACHINE_SESSION_REVIEW, MACHINE_PLAN_GATE, MACHINE_SESSION_CHAT, MACHINE_HOME, MACHINE_ACCOUNTS, MACHINE_SAFETY, MACHINE_VAULT, MACHINE_UPDATES, MACHINE_SERVER, MACHINE_USAGE, MACHINE_PRIVACY } from './machine-sections.ts';
 import { LANES_BACKGROUND_JOBS, LANES_POSTHOG, LANES_TEAM_REVIEW, LANES_MY_PRS, LANES_COMMUNITY } from './lanes-sections.ts';
 import { FILE_ONLY_SETTINGS } from './file-only-settings.ts';
 
@@ -8,7 +8,7 @@ export type { SettingsEffect, SettingsChoicePresentation, SettingsSetting, Setti
 
 export const FILE_ONLY_GROUPS: Readonly<Record<string, SettingsGroup>> = Object.freeze({
   'machine-terminal': { title: 'Terminal', description: 'Terminal behavior shared by dashboard clients.' },
-  'machine-detection-sessions': { title: 'Detection and sessions', description: 'Config-file-only detection, timing, worktree and process settings.' },
+  'machine-detection-sessions': { title: 'Detection and sessions', description: 'Config-file-only detection, timing and process settings.' },
   'machine-packs': { title: 'Packs', description: 'Packs other people share, each waiting for your approval before anything in it runs.' },
   'lanes-question-manager': { title: 'Question manager', description: 'Rules that answer a session question in the sessions you switch the question manager on for.' },
 });
@@ -20,6 +20,7 @@ const SECTIONS: readonly SettingsSection[] = Object.freeze([
   MACHINE_TELEGRAM,
   MACHINE_SLACK,
   MACHINE_SESSIONS,
+  MACHINE_WORKTREES,
   MACHINE_ACCOUNTS,
   MACHINE_SESSION_REVIEW,
   MACHINE_PLAN_GATE,

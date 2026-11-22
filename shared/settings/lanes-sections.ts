@@ -1,5 +1,5 @@
-import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, POSITIVE_NUMBER_RANGE, WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE } from '../settings-ranges.ts';
-import { MACHINE_NOW, READOUT, INVESTIGATIONS, SESSIONS, MINUTES, HOURS, DAYS, USERS } from './registry-fields.ts';
+import { KEEP_MERGEABLE_TIMEOUT_MINUTES_RANGE, POSITIVE_NUMBER_RANGE, COMMUNITY_INTERVAL_MINUTES_RANGE, POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
+import { BROWSER_NOW, MACHINE_NOW, READOUT, MINUTES } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const LANES_BACKGROUND_JOBS: SettingsSection = {
@@ -59,16 +59,6 @@ export const LANES_POSTHOG: SettingsSection = {
       control: 'number', integer: false, step: 'any', range: POSITIVE_NUMBER_RANGE, unit: MINUTES, keywords: ['refresh', 'schedule'], defaultValue: 15, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
     },
     {
-      id: 'posthog-max-investigations', path: 'posthog.maxConcurrentInvestigations', title: 'Max concurrent investigations',
-      description: 'Most investigations running at once.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: INVESTIGATIONS, keywords: ['parallel', 'workers'], defaultValue: 2, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
-    },
-    {
-      id: 'posthog-min-users', path: 'posthog.minUsersToInvestigate', title: 'Min users to investigate',
-      description: 'Fewest affected users before a new issue is investigated.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: USERS, keywords: ['threshold', 'affected'], defaultValue: 1, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
-    },
-    {
       id: 'posthog-traffic-enabled', path: 'posthog.trafficSpikeEnabled', title: 'Traffic spike alerts',
       description: 'Alert when unique users jump above normal.',
       control: 'toggle', keywords: ['analytics', 'alert'], defaultValue: true, visibleWhen: POSTHOG_ENABLED, ...MACHINE_NOW,
@@ -107,45 +97,9 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
       visibleWhen: { path: 'github.teams', isSet: false }, ...MACHINE_NOW,
     },
     {
-      id: 'team-review-re-review-after-hours', path: 'teamReview.reReviewAfterHours', title: 'Re-review after',
-      description: 'Review a pull request again after a new push, once this much time has passed.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: HOURS, keywords: ['review', 'delay'], defaultValue: 24, integer: false, step: 0.5, ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-skip-idle-after-days', path: 'teamReview.skipIdleAfterDays', title: 'Skip PRs idle for',
-      description: 'Skip pull requests with no activity for this long.',
-      control: 'number', range: POSITIVE_NUMBER_RANGE, unit: DAYS, keywords: ['idle', 'activity'], defaultValue: 14, integer: false, step: 0.5, ...MACHINE_NOW,
-    },
-    {
       id: 'team-review-skill', path: 'teamReview.skill', title: 'Review skill',
       description: 'Skill Claude Code follows for each review, or none when empty.',
       control: 'text', keywords: ['skill', 'claude code', 'pr review'], defaultValue: '', suggestionsFrom: 'review-skills', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-extra-skills', path: 'teamReview.extraSkills', title: 'Skills the review skill calls',
-      description: "Other skills the review skill may run, whose allowed-tools grants then apply to the review.",
-      control: 'list', keywords: ['skill', 'sub-skill', 'claude code', 'pr review'], defaultValue: [],
-      listPlaceholder: 'Skill name', listEmptyText: 'Only the review skill.', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-reviewer-model', path: 'teamReview.reviewer.model', title: 'Review model',
-      description: "Model for reviews, or the agent's default when empty.",
-      control: 'text', keywords: ['model', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-models', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-reviewer-effort', path: 'teamReview.reviewer.effort', title: 'Review effort',
-      description: "Effort for reviews, or the agent's default when empty.",
-      control: 'text', keywords: ['effort', 'thinking', 'reasoning', 'reviewer'], defaultValue: '', suggestionsFrom: 'review-efforts', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-stamp-reviewer-model', path: 'teamReview.stampReviewer.model', title: 'Docs and tests PR model',
-      description: 'Model for pull requests that only touch docs and tests.',
-      control: 'text', keywords: ['stamp', 'model', 'small pull requests', 'docs', 'tests'], defaultValue: '', suggestionsFrom: 'review-stamp-models', ...MACHINE_NOW,
-    },
-    {
-      id: 'team-review-stamp-reviewer-effort', path: 'teamReview.stampReviewer.effort', title: 'Docs and tests PR effort',
-      description: 'Effort for pull requests that only touch docs and tests.',
-      control: 'text', keywords: ['stamp', 'effort', 'small pull requests', 'docs', 'tests'], defaultValue: '', suggestionsFrom: 'review-stamp-efforts', ...MACHINE_NOW,
     },
     {
       id: 'team-review-sandbox-load-mcp-servers', path: 'teamReview.sandbox.loadMcpServers', title: 'Load my MCP servers',
@@ -154,11 +108,10 @@ export const LANES_TEAM_REVIEW: SettingsSection = {
       warning: 'Enabling this control gives the review agent, which reads untrusted pull request text, every tool your MCP servers expose.', defaultValue: false, ...MACHINE_NOW,
     },
     {
-      id: 'lanes-fetch-domains', path: 'lanes.fetchDomains', title: 'Extra fetch domains',
-      description: 'Domains lanes may fetch pages from, beyond GitHub and posthog.com.',
-      control: 'list', keywords: ['web', 'fetch', 'domains', 'allowlist'], defaultValue: [],
-      listPlaceholder: 'docs.example.com', listEmptyText: 'Only the built-in domains.', ...MACHINE_NOW,
-      legacyIds: [{ sectionId: 'machine-vault', settingId: 'lanes-fetch-domains' }],
+      id: 'reviews-turn-limit', path: 'pref:reviewsTurnLimit', title: 'Reviewing now limit',
+      description: 'How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap.', control: 'number', integer: true, step: 1,
+      range: REVIEWS_TURN_LIMIT_RANGE, keywords: ['reviews', 'board', 'wip', 'limit'], defaultValue: REVIEWS_TURN_LIMIT_DEFAULT,
+      legacyIds: [{ sectionId: 'browser-appearance', settingId: 'reviews-turn-limit' }], ...BROWSER_NOW,
     },
   ],
 };
@@ -200,11 +153,6 @@ export const LANES_MY_PRS: SettingsSection = {
       id: 'workflows-enabled', path: 'workflows.enabled', title: 'Run workflows',
       description: 'Watch the repositories your rules name and run their actions.',
       control: 'toggle', keywords: ['pull requests', 'automation', 'master switch'], defaultValue: true, ...MACHINE_NOW,
-    },
-    {
-      id: 'workflows-max-concurrent-sessions', path: 'workflows.maxConcurrentSessions', title: 'Concurrent agent sessions',
-      description: 'Most workflow sessions running at once.',
-      control: 'number', range: WORKFLOWS_MAX_CONCURRENT_SESSIONS_RANGE, unit: SESSIONS, keywords: ['parallel', 'spawn'], defaultValue: 2, ...MACHINE_NOW,
     },
     {
       id: 'workflows-rules', path: 'status:workflow-rules', title: 'Workflow rules',

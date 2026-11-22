@@ -1,5 +1,5 @@
-import { LOOP_GUARD_ON_STUCK, LOOP_GUARD_TURNS_RANGE, SKIP_PERMISSIONS_BY_DEFAULT, SPAWNED_SESSIONS_DEFAULT, SPAWNED_SESSIONS_RANGE, USAGE_BUDGET_RANGE, USAGE_RETAIN_DAYS_RANGE } from '../settings-ranges.ts';
-import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, DAYS, SESSIONS, TURNS, USD, capitalizedOptions } from './registry-fields.ts';
+import { LOOP_GUARD_ON_STUCK, LOOP_GUARD_TURNS_RANGE, SKIP_PERMISSIONS_BY_DEFAULT, USAGE_BUDGET_RANGE } from '../settings-ranges.ts';
+import { MACHINE_NOW, MACHINE_NEW_SESSIONS, READOUT, TURNS, USD, capitalizedOptions } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
 export const MACHINE_TELEGRAM: SettingsSection = {
@@ -65,11 +65,6 @@ export const MACHINE_SESSION_REVIEW: SettingsSection = {
       description: 'Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout.',
       control: 'select', options: [{ value: 'claude-code', label: 'Claude Code' }, { value: 'codex', label: 'Codex' }], keywords: ['review', 'second opinion', 'lane'], defaultValue: 'claude-code', ...MACHINE_NOW,
     },
-    {
-      id: 'session-review-model', path: 'sessionReview.model', title: 'Reviewer model',
-      description: 'Model name passed to the reviewer agent. Empty uses that agent default.',
-      control: 'text', keywords: ['review', 'model'], defaultValue: '', ...MACHINE_NOW,
-    },
   ],
 };
 
@@ -103,23 +98,34 @@ export const MACHINE_SESSION_CHAT: SettingsSection = {
   ],
 };
 
+export const MACHINE_WORKTREES: SettingsSection = {
+  id: 'machine-worktrees',
+  level: 'machine',
+  parent: 'machine-sessions',
+  title: 'Worktrees',
+  description: 'Session worktrees and branch cleanup.',
+  settings: [
+    {
+      id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
+      description: 'Also delete stale remote branches with no proof they were merged.',
+      control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
+      warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
+      legacyIds: [
+        { sectionId: 'machine-safety', settingId: 'branch-gc-delete-unmerged' },
+        { sectionId: 'machine-sessions', settingId: 'branch-gc-delete-unmerged' },
+      ],
+      defaultValue: false, ...MACHINE_NOW,
+    },
+  ],
+};
+
 export const MACHINE_SESSIONS: SettingsSection = {
   id: 'machine-sessions',
   level: 'machine',
   title: 'Sessions',
-  description: 'How sessions start, where projects are found, and branch cleanup.',
+  description: 'How sessions start and where projects are found.',
   legacyIds: ['machine-general', 'general', 'machine-repositories', 'repos', 'repositories'],
   settings: [
-    {
-      id: 'auto-resume', path: 'autoResume', title: 'Auto-resume sessions on startup',
-      description: 'Resume sessions that were live when Glimmervoid last stopped or crashed.',
-      control: 'toggle', keywords: ['startup', 'conversation'], defaultValue: true, ...MACHINE_NOW,
-    },
-    {
-      id: 'spawned-sessions-max', path: 'spawnedSessionsMax', title: 'Spawned sessions per session',
-      description: 'Most sessions one session may have spawned and live at once; a spawn past it is refused.',
-      control: 'number', range: SPAWNED_SESSIONS_RANGE, unit: SESSIONS, keywords: ['spawn', 'children', 'child sessions', 'parallel', 'agent api'], defaultValue: SPAWNED_SESSIONS_DEFAULT, ...MACHINE_NOW,
-    },
     {
       id: 'loop-guard-turns', path: 'loopGuard.maxTurnsWithoutProgress', title: 'Turns without progress',
       description: 'Act on a session after this many turns in a row end with its worktree unchanged and no input from you, another session or a wake, or never at zero.',
@@ -131,11 +137,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       description: 'Flag asks for your attention; Stop also ends the session.',
       control: 'select', options: capitalizedOptions(LOOP_GUARD_ON_STUCK), keywords: ['loop', 'stuck', 'guardrail'], defaultValue: 'flag',
       visibleWhen: { path: 'loopGuard.maxTurnsWithoutProgress', isSet: true }, ...MACHINE_NOW,
-    },
-    {
-      id: 'tab-order', path: 'viewTabOrder', title: 'Tab order',
-      description: 'Order of the dashboard tabs, also set by dragging tabs in the header.',
-      control: 'tab-order', keywords: ['tabs', 'order', 'rearrange', 'reorder', 'header', 'more', 'menu'], defaultValue: [], ...MACHINE_NOW,
     },
     {
       id: 'link-previews', path: 'linkPreviews', title: 'Link page previews',
@@ -157,14 +158,6 @@ export const MACHINE_SESSIONS: SettingsSection = {
       id: 'custom-agents', path: 'status:custom-agents', title: 'Custom agents',
       description: 'Extra agent CLIs a session can run.',
       control: 'readonly', keywords: ['adapters', 'cli'], status: 'custom-agents', ...READOUT,
-    },
-    {
-      id: 'branch-gc-delete-unmerged', path: 'branchGc.deleteUnmerged', title: 'Delete unmerged branches',
-      description: 'Also delete stale remote branches with no proof they were merged.',
-      control: 'toggle', keywords: ['git', 'cleanup', 'orphan'], danger: true,
-      warning: 'Enabling this control lets branch cleanup delete stale remote branches without merge proof.',
-      legacyIds: [{ sectionId: 'machine-safety', settingId: 'branch-gc-delete-unmerged' }],
-      defaultValue: false, ...MACHINE_NOW,
     },
   ],
 };
@@ -325,11 +318,6 @@ export const MACHINE_USAGE: SettingsSection = {
       legacyIds: [{ sectionId: 'machine-sessions', settingId: 'hint-cards' }],
     },
     {
-      id: 'usage-retain-days', path: 'usage.retainDays', title: 'Retain transcript detail',
-      description: 'How long detailed usage is kept.',
-      control: 'number', range: USAGE_RETAIN_DAYS_RANGE, unit: DAYS, keywords: ['history', 'retention'], defaultValue: 90, ...MACHINE_NOW,
-    },
-    {
       id: 'usage-daily-budget', path: 'usage.budget.dailyUsd', title: 'Daily budget',
       description: 'Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero.',
       control: 'number', range: USAGE_BUDGET_RANGE, unit: USD, keywords: ['spend', 'alert'], defaultValue: null,
@@ -353,13 +341,23 @@ export const MACHINE_PRIVACY: SettingsSection = {
   id: 'machine-privacy',
   level: 'machine',
   title: 'Privacy',
-  description: 'What Glimmervoid sends about itself.',
+  description: 'What Glimmervoid sends about itself and where lanes may fetch.',
   legacyIds: ['privacy', 'telemetry'],
   settings: [
     {
       id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send usage data',
       description: 'Helps us improve Glimmervoid. Sent under a random install id, never with prompts or terminal output; the error text the dashboard shows in its header line is sent and can name a session, folder or branch. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
       control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true, ...MACHINE_NOW,
+    },
+    {
+      id: 'lanes-fetch-domains', path: 'lanes.fetchDomains', title: 'Extra fetch domains',
+      description: 'Domains lanes may fetch pages from, beyond GitHub and posthog.com.',
+      control: 'list', keywords: ['web', 'fetch', 'domains', 'allowlist'], defaultValue: [],
+      listPlaceholder: 'docs.example.com', listEmptyText: 'Only the built-in domains.', ...MACHINE_NOW,
+      legacyIds: [
+        { sectionId: 'machine-vault', settingId: 'lanes-fetch-domains' },
+        { sectionId: 'lanes-team-review', settingId: 'lanes-fetch-domains' },
+      ],
     },
   ],
 };

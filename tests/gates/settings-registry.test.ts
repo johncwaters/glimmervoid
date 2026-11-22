@@ -251,12 +251,12 @@ test('the alias and moved-setting tables come from the legacy ids and resolve to
     shortcuts: 'browser-shortcuts',
   });
   assert.deepEqual(SETTINGS_MOVED_SETTINGS, {
-    'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications' },
-    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs' },
+    'browser-appearance': { 'alert-sounds-enabled': 'browser-notifications', 'alert-sound': 'browser-notifications', 'desktop-notifications': 'browser-notifications', 'reviews-turn-limit': 'lanes-team-review' },
+    'lanes-team-review': { 'team-review-auto-rebase-my-prs': 'lanes-my-prs', 'team-review-keep-mergeable-enabled': 'lanes-my-prs', 'team-review-keep-mergeable-timeout': 'lanes-my-prs', 'team-review-merge-queue-enabled': 'lanes-my-prs', 'lanes-fetch-domains': 'machine-privacy' },
     'machine-home': { 'agent-accounts': 'machine-accounts' },
-    'machine-safety': { 'branch-gc-delete-unmerged': 'machine-sessions' },
-    'machine-sessions': { 'remote-setup': 'machine-server', 'hint-cards': 'machine-usage' },
-    'machine-vault': { 'lanes-fetch-domains': 'lanes-team-review' },
+    'machine-safety': { 'branch-gc-delete-unmerged': 'machine-worktrees' },
+    'machine-sessions': { 'remote-setup': 'machine-server', 'hint-cards': 'machine-usage', 'branch-gc-delete-unmerged': 'machine-worktrees' },
+    'machine-vault': { 'lanes-fetch-domains': 'machine-privacy' },
     'machine-updates': { 'update-summary': 'machine-updates', 'update-installed': 'machine-updates', 'update-latest': 'machine-updates', 'update-last-checked': 'machine-updates' },
   });
   const sectionIds = new Set(SETTINGS_REGISTRY.sections.map((section) => section.id));
@@ -384,7 +384,10 @@ test('the pre-existing deep links from the banner, the notice and the panels sti
     ['machine-usage', 'usage-daily-budget', '#settings/machine-usage/usage-daily-budget'],
     ['lanes-posthog', 'posthog-enabled', '#settings/lanes-posthog/posthog-enabled'],
     [TEAM_REVIEW_SETTINGS_SECTION_ID, TEAM_REVIEW_SETTINGS_SETTING_ID, '#settings/lanes-team-review/team-review-enabled'],
-    ['machine-general', 'auto-resume', '#settings/machine-sessions/auto-resume'],
+    ['machine-general', 'repository-roots', '#settings/machine-sessions/repository-roots'],
+    ['browser-appearance', 'reviews-turn-limit', '#settings/lanes-team-review/reviews-turn-limit'],
+    ['machine-sessions', 'branch-gc-delete-unmerged', '#settings/machine-worktrees/branch-gc-delete-unmerged'],
+    ['lanes-team-review', 'lanes-fetch-domains', '#settings/machine-privacy/lanes-fetch-domains'],
     ['lanes-unattended', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
     ['machine-guardrails', 'sane-yolo', '#settings/machine-safety/sane-yolo'],
     ['browser-flying-animals', 'animals-on-phone', '#settings/browser-appearance/animals-on-phone'],
@@ -505,7 +508,7 @@ test('the agent API row is gone, the custom agents readout sits beside its file-
   }
 });
 
-test('the Team review lane section owns its settings and deep link, with the legacy team left to config.json', () => {
+test('the Team review lane section owns its settings and deep link, with the legacy team and tuning keys left to config.json', () => {
   const section = sectionById(TEAM_REVIEW_SETTINGS_SECTION_ID);
   assert.equal(section.level, 'lanes');
   assert.equal(SETTINGS_SECTION_ALIASES['team-review'], TEAM_REVIEW_SETTINGS_SECTION_ID);
@@ -513,23 +516,25 @@ test('the Team review lane section owns its settings and deep link, with the leg
     ['team-review-enabled', 'teamReview.enabled', 'toggle'],
     ['github-teams', 'github.teams', 'list'],
     ['team-review-org', 'teamReview.org', 'text'],
-    ['team-review-re-review-after-hours', 'teamReview.reReviewAfterHours', 'number'],
-    ['team-review-skip-idle-after-days', 'teamReview.skipIdleAfterDays', 'number'],
     ['team-review-skill', 'teamReview.skill', 'text'],
-    ['team-review-extra-skills', 'teamReview.extraSkills', 'list'],
-    ['team-review-reviewer-model', 'teamReview.reviewer.model', 'text'],
-    ['team-review-reviewer-effort', 'teamReview.reviewer.effort', 'text'],
-    ['team-review-stamp-reviewer-model', 'teamReview.stampReviewer.model', 'text'],
-    ['team-review-stamp-reviewer-effort', 'teamReview.stampReviewer.effort', 'text'],
     ['team-review-sandbox-load-mcp-servers', 'teamReview.sandbox.loadMcpServers', 'toggle'],
-    ['lanes-fetch-domains', 'lanes.fetchDomains', 'list'],
+    ['reviews-turn-limit', 'pref:reviewsTurnLimit', 'number'],
   ]);
   assert.deepEqual(sectionById('lanes-my-prs').settings.map((setting) => setting.path).slice(0, 4), [
     'teamReview.autoRebaseMyPrs', 'teamReview.keepMergeableEnabled', 'teamReview.keepMergeableTimeoutMinutes', 'teamReview.mergeQueueEnabled',
   ]);
   assert.equal(section.settings.some((setting) => setting.id === TEAM_REVIEW_SETTINGS_SETTING_ID), true);
-  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly')) assert.equal(settableFromDashboard(setting.path), true, setting.path);
-  assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), ['teamReview.team']);
+  for (const setting of section.settings.filter((entry) => entry.control !== 'readonly' && !entry.path.startsWith('pref:'))) assert.equal(settableFromDashboard(setting.path), true, setting.path);
+  assert.deepEqual(SETTINGS_REGISTRY.fileOnly.filter((setting) => setting.path.startsWith('teamReview.')).map((setting) => setting.path), [
+    'teamReview.reReviewAfterHours',
+    'teamReview.skipIdleAfterDays',
+    'teamReview.extraSkills',
+    'teamReview.reviewer.model',
+    'teamReview.reviewer.effort',
+    'teamReview.stampReviewer.model',
+    'teamReview.stampReviewer.effort',
+    'teamReview.team',
+  ]);
 });
 
 test('Flying animals follows Appearance and owns its stable toggle and searchable advanced controls', () => {

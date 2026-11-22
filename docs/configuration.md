@@ -38,25 +38,46 @@ Session alerts posted to one Slack channel through an incoming webhook.
 
 ### Sessions
 
-How sessions start, where projects are found, and branch cleanup.
+How sessions start and where projects are found.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
-| `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. |
-| `spawnedSessionsMax` | Spawned sessions per session | `3` | Most sessions one session may have spawned and live at once; a spawn past it is refused. |
 | `loopGuard.maxTurnsWithoutProgress` | Turns without progress | `null` | Act on a session after this many turns in a row end with its worktree unchanged and no input from you, another session or a wake, or never at zero. |
 | `loopGuard.onStuck` | When a session is stuck | `"flag"` | Flag asks for your attention; Stop also ends the session. |
-| `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, also set by dragging tabs in the header. |
 | `linkPreviews` | Link page previews | `true` | Resting the pointer on a terminal link for about 600 ms fetches that page from this machine to show its title and icon. Off, the link card shows the address only. |
 | `repoRoots` | Repository roots | `[]` | Folders scanned for projects when adding a session. |
 | `hiddenAgents` | Agents in Add Session | `[]` | Agents left out of the Add Session picker. Switch an agent off here to hide it; the default agent always stays. |
-| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
+| `autoResume` | Auto-resume sessions on startup | `true` | Resume sessions that were live when Glimmervoid last stopped or crashed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `spawnedSessionsMax` | Spawned sessions per session | `3` | Most sessions one session may have spawned and live at once; a spawn past it is refused. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `viewTabOrder` | Tab order | `[]` | Order of the dashboard tabs, set by dragging tabs in the header. **File-only.** Set by dragging tabs in the header. |
 | `debugMode` | Debug mode | `false` | Show session-card diagnostics for state, transitions and detection signals. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `sessionOrder` | Session order | `[]` | Order of sessions within each project in the sidebar and the phone Board, as session ids; a session not listed goes after the listed ones. **File-only.** Set by dragging sessions in the sidebar, or pressing and holding them on the phone Board. |
 | `operatorTimezone` | Operator timezone | `null` | Timezone that wake times, day boundaries and shown times use; until a dashboard reports one, the machine timezone. **File-only.** Set by the dashboard from the browser timezone each time it connects with a different one. |
 | `sessionMemoryReserveMB` | Session memory reserve | `600` | Free memory an automatic session start waits for; 0 starts sessions without checking. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `worktreeDiskReserveGB` | Worktree disk reserve | `15` | Free disk space a new session worktree needs; below it the session is blocked and you are notified. 0 turns the check off. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `packScheduledSessionsMax` | Scheduled pack sessions | `3` | Most sessions that pack launcher schedules keep live at once; a scheduled run past it is skipped. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+
+### Worktrees
+
+Session worktrees and branch cleanup.
+
+| Key | Setting | Default | Notes |
+|-----|---------|---------|-------|
+| `branchGc.deleteUnmerged` | Delete unmerged branches | `false` | Also delete stale remote branches with no proof they were merged. |
+| `worktreeDiskReserveGB` | Worktree disk reserve | `15` | Free disk space a new session worktree needs; below it the session is blocked and you are notified. 0 turns the check off. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `worktree.autoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktree.syncOnStart` | Worktree sync on start | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktree.cloneDependencies` | Worktree dependencies | `true` | Give a session worktree its node_modules before the agent starts: on macOS, clone the main checkout's when it matches the worktree's lockfile, then, except on Windows, install each folder still without one from its package-lock.json or pnpm-lock.yaml, with no package scripts. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktree.rerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `shareCommitProvenance` | Share commit provenance | `true` | After Merge pushes the base branch, also push the git notes that let glimmervoid why name the agent and session of a commit on any clone. The notes hold a hashed session id and the agent name, never a task or prompt. Off keeps them on this machine. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktree.integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktree.root` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `worktree.share` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
+| `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Branch prefixes that filter both remote branch cleanup and local worktree cleanup. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
+| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Session review
 
@@ -65,7 +86,7 @@ The read-only reviewer the Review button in Changes starts on a session diff.
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `sessionReview.agent` | Reviewer agent | `"claude-code"` | Agent that reviews the diff. Pick one other than the session agent for a second opinion. Codex sees only the diff, not the checkout. |
-| `sessionReview.model` | Reviewer model | `""` | Model name passed to the reviewer agent. Empty uses that agent default. |
+| `sessionReview.model` | Reviewer model | `""` | Model name passed to the reviewer agent. Empty uses that agent default. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 
 ### Plan approval
 
@@ -121,10 +142,10 @@ Token accounting and estimated-cost budgets.
 |-----|---------|---------|-------|
 | `usage.enabled` | Track token usage | `true` | Read local agent transcripts for the Usage tab and session cards. |
 | `usage.yourDay` | Your day | `true` | Recap yesterday and suggest a pace for today when usage tracking is on. |
-| `usage.retainDays` | Retain transcript detail | `90` | How long detailed usage is kept. |
 | `usage.budget.dailyUsd` | Daily budget | `null` | Alert at 50%, 75% and 100% of this estimated daily spend, or never at zero. |
 | `usage.budget.monthlyUsd` | Monthly budget | `null` | Alert at 50%, 75% and 100% of this estimated monthly spend, or never at zero. |
 | `usage.budget.pauseAtLimit` | Pause at budget | `false` | At 100% of a budget, snooze live sessions and hold agent spawns and wakes until the day or month rolls over. |
+| `usage.retainDays` | Retain transcript detail | `90` | How long detailed usage is kept. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.codex` | Track Codex usage | `true` | Include local Codex CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.grok` | Track Grok usage | `true` | Include local Grok CLI transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `usage.vendors.kimi` | Track Kimi Code usage | `true` | Include local Kimi Code transcripts in usage reports. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -153,10 +174,10 @@ The PostHog lane only starts when `posthog.host`, `posthog.apiKey`, `telegram.bo
 | `posthog.readApiKey` | Read-only API key for the watcher | `""` | Personal API key with read scopes only. The watcher uses it to notice new errors and community questions, so Radar and Community stop polling on a timer. |
 | `posthog.projects` | Projects | `"all"` | Project ids to watch, where empty watches all and none watches none. |
 | `posthog.intervalMinutes` | Poll interval | `15` | Time between PostHog checks. |
-| `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Most investigations running at once. |
-| `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Fewest affected users before a new issue is investigated. |
 | `posthog.trafficSpikeEnabled` | Traffic spike alerts | `true` | Alert when unique users jump above normal. |
 | `posthog.autoFix` | Attempt fixes for major issues | `false` | Let an agent fix an issue on a local branch, opening a pull request only after you approve. |
+| `posthog.maxConcurrentInvestigations` | Max concurrent investigations | `2` | Most investigations running at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `posthog.minUsersToInvestigate` | Min users to investigate | `1` | Fewest affected users before a new issue is investigated. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.investigationTimeoutSeconds` | Investigation timeout | `900` | Maximum time allowed for one investigation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.userEscalationThreshold` | Escalation threshold | `25` | Affected-user count that escalates an issue. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `posthog.fixTimeoutSeconds` | Fix timeout | `1800` | Maximum time allowed for one fix session. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -179,16 +200,15 @@ Team review drafts reviews of teammates' pull requests for you to post; My pull 
 | `teamReview.enabled` | Enable team review | `true` | Draft a review of each open team pull request, posting nothing until you approve or comment. |
 | `github.teams` | GitHub teams | `[]` | GitHub teams whose review requests are drafted, as org/team-slug. |
 | `teamReview.org` | GitHub organization | `""` | Organization whose pull requests that request your review directly are drafted. Needed only when no GitHub team is set. |
-| `teamReview.reReviewAfterHours` | Re-review after | `24` | Review a pull request again after a new push, once this much time has passed. |
-| `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Skip pull requests with no activity for this long. |
 | `teamReview.skill` | Review skill | `""` | Skill Claude Code follows for each review, or none when empty. |
-| `teamReview.extraSkills` | Skills the review skill calls | `[]` | Other skills the review skill may run, whose allowed-tools grants then apply to the review. |
-| `teamReview.reviewer.model` | Review model | `""` | Model for reviews, or the agent's default when empty. |
-| `teamReview.reviewer.effort` | Review effort | `""` | Effort for reviews, or the agent's default when empty. |
-| `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. |
-| `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that only touch docs and tests. |
 | `teamReview.sandbox.loadMcpServers` | Load my MCP servers | `false` | Give the review agent your own MCP servers. |
-| `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
+| `teamReview.reReviewAfterHours` | Re-review after | `24` | Review a pull request again after a new push, once this much time has passed. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `teamReview.skipIdleAfterDays` | Skip PRs idle for | `14` | Skip pull requests with no activity for this long. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `teamReview.extraSkills` | Skills the review skill calls | `[]` | Other skills the review skill may run, whose allowed-tools grants then apply to the review. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `teamReview.reviewer.model` | Review model | `""` | Model for reviews, or the agent's default when empty. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `teamReview.reviewer.effort` | Review effort | `""` | Effort for reviews, or the agent's default when empty. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `teamReview.stampReviewer.model` | Docs and tests PR model | `""` | Model for pull requests that only touch docs and tests. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
+| `teamReview.stampReviewer.effort` | Docs and tests PR effort | `""` | Effort for pull requests that only touch docs and tests. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `teamReview.team` | GitHub team (legacy) | `""` | Team slug whose members and review requests are polled. Read only when github.teams is empty. **File-only.** A legacy key: github.teams names teams as org/slug entries and wins whenever it is set. |
 
 ### My pull requests
@@ -202,7 +222,7 @@ Keep your own pull requests rebased, mergeable and merged, and run workflow rule
 | `teamReview.keepMergeableTimeoutMinutes` | Keep mergeable deadline | `30` | Longest a Keep mergeable repair may run. |
 | `teamReview.mergeQueueEnabled` | Merge when ready | `true` | Offer Merge when ready: queued pull requests merge once they pass. |
 | `workflows.enabled` | Run workflows | `true` | Watch the repositories your rules name and run their actions. |
-| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow sessions running at once. |
+| `workflows.maxConcurrentSessions` | Concurrent agent sessions | `2` | Most workflow sessions running at once. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `workflows.maxActionsPerPoll` | Actions per poll | `20` | Most actions run in one poll. The rest are dropped and logged. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `workflows.rules` | Workflow rule definitions | `[]` | The rules My pull requests switches on and off: each names its repositories, one pull request event, its filters and its actions. **File-only.** Rule definitions are written in config.json; My pull requests only switches each rule on or off. |
 | `prFlows.sources` | PR flows sources | `[]` | Commands that report review findings for your own pull requests, run without a shell on each new head once you approve the exact command in My PRs. Each entry has id, label, command (an argv array; {prUrl}, {repo}, {number} and {head} expand inside one argument, and GLIMMERVOID_PR_URL, GLIMMERVOID_PR_REPO, GLIMMERVOID_PR_NUMBER and GLIMMERVOID_PR_HEAD are set), timeoutSeconds and optional repos (owner/name; every repository when absent), and prints {"findings": [{"path", "lineStart", "lineEnd", "priority", "body", "url"}], "status": [{"label", "state"}]} JSON. Each id is unique within the list. Check entries with glimmervoid pr-flows check. **File-only.** Commands run on this machine, so they are written in config.json and each one waits for your approval in My PRs. |
@@ -225,11 +245,12 @@ Research new posthog.com community questions and draft replies.
 
 ### Privacy
 
-What Glimmervoid sends about itself.
+What Glimmervoid sends about itself and where lanes may fetch.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `telemetry.enabled` | Send usage data | `true` | Helps us improve Glimmervoid. Sent under a random install id, never with prompts or terminal output; the error text the dashboard shows in its header line is sent and can name a session, folder or branch. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless. |
+| `lanes.fetchDomains` | Extra fetch domains | `[]` | Domains lanes may fetch pages from, beyond GitHub and posthog.com. |
 
 ### Terminal
 
@@ -242,7 +263,7 @@ Terminal behavior shared by dashboard clients.
 
 ### Detection and sessions
 
-Config-file-only detection, timing, worktree and process settings.
+Config-file-only detection, timing and process settings.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
@@ -250,26 +271,12 @@ Config-file-only detection, timing, worktree and process settings.
 | `recordSignals` | Record structural signals | `true` | Keep forensic status and hook recordings for each session. Full capture (capture.enabled) records these signals even when this is off. Applies to new sessions. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `trace.enabled` | Capture session traces | `true` | Keep normalized Claude transcript traces for session debugging. Needs a server restart. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
 | `detectScheduledWakeups` | Detect scheduled wakeups | `true` | Surface advisory wakeup timing for scheduled sessions. Needs a server restart. **File-only.** A diagnostic switch kept out of the Settings view; change it in config.json while investigating. |
-| `worktree.autoRebase` | Worktree auto-rebase | `true` | Rebase eligible session worktrees when the integration branch moves. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktree.syncOnStart` | Worktree sync on start | `true` | Fetch origin and fast-forward the local integration branch before a session starts its worktree. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktree.cloneDependencies` | Worktree dependencies | `true` | Give a session worktree its node_modules before the agent starts: on macOS, clone the main checkout's when it matches the worktree's lockfile, then, except on Windows, install each folder still without one from its package-lock.json or pnpm-lock.yaml, with no package scripts. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktree.rerere` | Worktree rerere | `true` | Reuse recorded Git conflict resolutions. Needs a server restart. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `shareCommitProvenance` | Share commit provenance | `true` | After Merge pushes the base branch, also push the git notes that let glimmervoid why name the agent and session of a commit on any clone. The notes hold a hashed session id and the agent name, never a task or prompt. Off keeps them on this machine. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktree.integrationBranch` | Integration branch | `null` | Base branch for session worktrees. Empty = each repo's default branch. Existing sessions are never retargeted. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `worktree.root` | Worktree root | `""` | Directory that contains session worktrees. Existing worktrees are never relocated. Applies to new sessions. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
 | `agentRules.rules` | Rules for every session | `[]` | Rules every agent session receives with its Glimmervoid tools, whichever agent runs it, one string per rule, up to 40. Sessions started after a change read it. Applies to new sessions. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 | `reactions.reactions` | Reactions | `[]` | Up to 20 reactions, each {id, on, project?, action, text?}: on session-failed, session-done, needs-attention or commits-landed, action notify raises a note on the session card and wake types text into the session once idle. **File-only.** A structured value with no dashboard control; edit it in config.json. |
 | `reactions.cooldownMinutes` | Reaction cooldown | `10` | How long one reaction waits before reacting to the same session again. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `worktree.share` | Shared worktree paths | `[".env*",".claude"]` | Local paths copied or linked during worktree preparation. A * matches names at the project root, never one containing production; name such a file in full to share it. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `port` | Local port | `3000` | Port used by the local dashboard listener. Needs a server restart. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `notifyDebounceMs` | Notification grouping window | `3000` | Alerts from any session within this long of the first one fold into one sound, one desktop notification and one Telegram message. Applies to new sessions. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `phoneEscalationMs` | Phone escalation delay | `300000` | Delay before off-dashboard escalation. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `branchGc.enabled` | Branch cleanup | `true` | Enable cleanup of eligible session branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.worktrees` | Local worktree cleanup | `true` | Enable cleanup of eligible local worktrees. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.prefixes` | Branch cleanup prefixes | `["glimmervoid/session/","worktree-agent-"]` | Branch prefixes that filter both remote branch cleanup and local worktree cleanup. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.dryRun` | Branch cleanup dry run | `false` | Report planned cleanup without deleting remote branches. **File-only.** Changes how the server process or its worktrees behave, so it is set in config.json with a restart or new sessions in mind. |
-| `branchGc.staleDays` | Branch stale days | `14` | Age threshold for orphan branch cleanup when unmerged deletion is on. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
-| `branchGc.intervalMs` | Branch cleanup interval | `21600000` | Delay between branch cleanup passes. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `customAgents` | Custom agents | `[]` | Extra agent CLIs a session can be spawned with. The Sessions section lists the declared agents and whether each command resolves. Applies to new sessions. **File-only.** Never editable from the dashboard by rule; edit it in config.json. |
 | `taskTitle.refiner.enabled` | Refine task titles | `true` | Keep session card titles useful when prompts change topic by asking a model for a short title. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
 | `taskTitle.refiner.model` | Task title model | `"haiku"` | Claude model alias the title refiner asks. **File-only.** A tuning knob kept out of the Settings view; the default suits almost every install. |
@@ -393,8 +400,8 @@ Stored in each browser, not in `config.json`, so every device keeps its own. Cha
 | Flight duration: maximum | `11.5` | Longest flight, for slower animals. |
 | Size multiplier | `1` | Scale applied on top of the viewport size. |
 | Show on phone layout | `true` | Allow flights on the phone layout. |
-| Reviewing now limit | `5` | How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap. |
 | Alert sounds | `true` | Play a sound when a session needs you, like the note button in the header. |
 | Alert sound | `"chime"` | Sound played when a session needs you, including files you add to ~/.glimmervoid/sounds/. |
 | Desktop notifications | `true` | Notify you when a session needs you and the dashboard is in the background. |
+| Reviewing now limit | `5` | How many pull requests the Reviews Reviewing now column holds at once. 0 means no cap. |
 | Jump to the next session needing you | `"KeyJ"` | Key held with Cmd on a Mac, or Alt elsewhere, to jump to the next session that needs you. |
