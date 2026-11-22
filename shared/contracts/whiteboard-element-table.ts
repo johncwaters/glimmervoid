@@ -1,6 +1,6 @@
-import { Box, filledElement, sparseElement } from './contracts/whiteboard.ts';
-import type { Element } from './contracts/whiteboard.ts';
-import { currentStoredBox, isCurrentStoredBox } from './whiteboard-stored-box.ts';
+import { Box, filledElement, sparseElement } from './whiteboard.ts';
+import type { Element } from './whiteboard.ts';
+import { currentStoredBox, isCurrentStoredBox } from '../whiteboard-stored-box.ts';
 
 type ElementKind = Element['kind'];
 

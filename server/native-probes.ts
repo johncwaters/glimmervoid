@@ -9,7 +9,7 @@ import { firstLine } from './core/text-core.ts';
 import { resolveFfmpegPath } from './runtime-paths.ts';
 import { createBoardStore } from './whiteboard/board-store-client.ts';
 import { createLayoutClient } from './whiteboard/layout-client.ts';
-import { createBoard } from '../shared/whiteboard-ops-core.ts';
+import { createBoard } from '../shared/contracts/whiteboard-ops-core.ts';
 import { errorText } from '../shared/text.ts';
 import { clock } from '../shared/clock.ts';
 

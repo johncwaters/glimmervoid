@@ -1,4 +1,4 @@
-import { WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
 import type { Board, BoardReview, Element, WorthALookPath } from './contracts/whiteboard.ts';
 import { cappedWarnings } from './whiteboard-route-core.ts';
 import { boardIndexOf } from './whiteboard-board-index.ts';

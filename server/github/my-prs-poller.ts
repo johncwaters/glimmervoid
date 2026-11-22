@@ -10,7 +10,7 @@ import { storeReadingLaneClock } from './github-store-wiring.ts';
 import type { PrGh } from './pr-gh.ts';
 import { MY_PRS_POLL_INTERVAL_MINUTES } from '../../shared/contracts/my-prs.ts';
 import type { MyPr, MyPrAutoRebase, MyPrsSnapshot, MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrKeepMergeableAttemptRecord, MyPrMergeabilityFixResult, MyPrMergeQueueFailure, MyPrMergeResult, MyPrMergeWhenReadyRequest, MyPrMergeWhenReadyResult } from '../../shared/contracts/my-prs.ts';
-import { myPrFromGithubPr } from '../../shared/my-pr-merge.ts';
+import { myPrFromGithubPr } from '../../shared/contracts/my-pr-merge.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { ClearIntervalFn, ClearTimeoutFn, SetIntervalFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
 import { clock as timeClock } from '../../shared/clock.ts';

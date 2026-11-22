@@ -1,7 +1,7 @@
 import { githubPollingErrorNotice } from './github-polling-retry-core.ts';
 import { hasFailedKeepMergeableRepair } from './github-store-core.ts';
 import { MyPrMergeResult } from '#shared/contracts/my-prs.ts';
-import { mergeMethodLabel, myPrMergeBlocker } from '#shared/my-pr-merge.ts';
+import { mergeMethodLabel, myPrMergeBlocker } from '#shared/contracts/my-pr-merge.ts';
 import type { MyPr, MyPrMergeKind, MyPrsStatus as MyPrsStatusType, MyPrThread } from '#shared/contracts/my-prs.ts';
 import type { PrFlowActionRunStatus, PrFlowHandled, PrFlowItem, PrFlowPriority } from '#shared/contracts/pr-flows.ts';
 import type { PrStatusIcon } from './pr-status-icon-core.ts';

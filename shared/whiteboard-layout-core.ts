@@ -1,4 +1,4 @@
-import { BOX_CHANGES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox, STEP_STATUSES, WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
 import type { Board, Box, BoxLine, BoxMedia, DialValue, Element, Frame, Near, Stroke, TextSize, Wire, WireEnd } from './contracts/whiteboard.ts';
 import { BYLINE_PREFIX, isBorderlessBox, SHAPE_TRAITS } from './whiteboard-shapes.ts';
 import { DEVICE_CATALOG, deviceArtSizeOf } from './whiteboard-devices.ts';
@@ -12,7 +12,6 @@ import { touchingPairsWithin } from './whiteboard-sweep-core.ts';
 import type { Point, RouteMemory, RouteResult, SoftObstacle, WarningList } from './whiteboard-route-core.ts';
 import { forEachSlotTouching, gridOfRects } from './spatial-grid-core.ts';
 import type { LayoutWarning, LaidOutBox, LaidOutDevice, LaidOutElement, LaidOutFrame, LaidOutLine, LaidOutMedia, LaidOutStep, LaidOutStroke, LaidOutWire, LegendRow, PlacedBox, PlacedElement, PlanBand, PlanColumn } from './contracts/whiteboard-tiles.ts';
-import { elementTableOf } from './whiteboard-element-table.ts';
 
 const MARGIN = 40;
 const DEFAULT_BOX_WIDTH = 220;
@@ -712,11 +711,17 @@ function wireShiftedBy(wire: Wire, offsetY: number): Wire {
 
 function withPinnedBoxesShifted(board: Board, offsetY: number): Board {
   if (offsetY === 0) return board;
-  const elements = [...board.elements.values()].map((element) => {
-    if (element.kind === 'wire') return wireShiftedBy(element, offsetY);
-    return element.kind !== 'box' || typeof element.place !== 'object' ? element : { ...element, place: { at: { x: element.place.at.x, y: element.place.at.y + offsetY } } };
-  });
-  return { ...board, elements: elementTableOf(elements) };
+  const elements = board.elements.copy();
+  for (const element of board.elements.values()) {
+    if (element.kind === 'wire') {
+      elements.put(wireShiftedBy(element, offsetY));
+      continue;
+    }
+    if (element.kind === 'box' && typeof element.place === 'object') {
+      elements.put({ ...element, place: { at: { x: element.place.at.x, y: element.place.at.y + offsetY } } });
+    }
+  }
+  return { ...board, elements };
 }
 
 const WIRE_STYLE_WORDS: Readonly<Record<Wire['tone'], string | null>> = { plain: null, fail: 'failure path', join: 'joins' };

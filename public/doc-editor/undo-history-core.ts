@@ -1,5 +1,5 @@
-import { recordEdit, recordStep, takeStep } from '#shared/whiteboard-undo-core.ts';
-import type { UndoDirection, UndoHistory } from '#shared/whiteboard-undo-core.ts';
+import { recordEdit, recordStep, takeStep } from '#shared/contracts/whiteboard-undo-core.ts';
+import type { UndoDirection, UndoHistory } from '#shared/contracts/whiteboard-undo-core.ts';
 
 export type EditKind = 'type' | 'delete' | 'paragraph' | 'note' | 'decide';
 type GroupedEditKind = 'type' | 'delete';

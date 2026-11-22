@@ -4,7 +4,7 @@ import type { PackOnDisk } from '../../../shared/contracts/pack.ts';
 import type { ReviewsSnapshot } from '../../../shared/contracts/reviews.ts';
 import type { QueuedReview, ReviewDraft } from '../../../shared/contracts/team-review.ts';
 import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
-import { myPrMergeBlocker } from '../../../shared/my-pr-merge.ts';
+import { myPrMergeBlocker } from '../../../shared/contracts/my-pr-merge.ts';
 import { STATES } from '../../../shared/states.ts';
 import { themeCssColors } from '../../../shared/theme-colors-core.ts';
 

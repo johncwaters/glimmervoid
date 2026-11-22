@@ -12,7 +12,7 @@ import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, Codemap
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { BoxMedia, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
-import { CODEMAP_AUTHOR } from '../../shared/whiteboard-ops-core.ts';
+import { CODEMAP_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';

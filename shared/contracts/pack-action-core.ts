@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { ClientMessage } from './contracts/control-messages.ts';
-import { PANEL_ACTION_TYPES_BY_ACT, PackPanelAct, PanelActionRequest } from './contracts/pack-bridge.ts';
+import { ClientMessage } from './control-messages.ts';
+import { PANEL_ACTION_TYPES_BY_ACT, PackPanelAct, PanelActionRequest } from './pack-bridge.ts';
 
 type PanelActionDecision = { ok: true; type: string; payload: Record<string, unknown> } | { ok: false; error: string };
 

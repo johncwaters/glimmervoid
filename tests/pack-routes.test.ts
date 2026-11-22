@@ -13,7 +13,7 @@ import { createPackStore } from '../server/packs/pack-store.ts';
 import { PACK_BRIDGE_HELPER_SOURCE } from '../server/packs/core/pack-page-core.ts';
 import { ClientMessage } from '../shared/contracts/control-messages.ts';
 import { PACK_DATA_MAX_BYTES, PanelToHost } from '../shared/contracts/pack-bridge.ts';
-import { PANEL_ACTION_MAX_BYTES, panelActionDecision } from '../shared/pack-action-core.ts';
+import { PANEL_ACTION_MAX_BYTES, panelActionDecision } from '../shared/contracts/pack-action-core.ts';
 import { closeServer, listenOnLoopback } from './helpers/http-server.ts';
 
 test('a pack panel file is served only from an approved pack at its current content through its keyed frame URL, even where remote pairing guards every other route, inside a sandbox that allows no connections, and the dashboard frames nothing from another origin', async () => {

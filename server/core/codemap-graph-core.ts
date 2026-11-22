@@ -5,7 +5,7 @@ import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModul
 import { CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
-import { CODEMAP_ID_PREFIXES } from '../../shared/whiteboard-ops-core.ts';
+import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 
 export const CODEMAP_TUNABLES = Object.freeze({

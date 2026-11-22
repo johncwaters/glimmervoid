@@ -1,5 +1,10 @@
-import { FindingSeverity } from './contracts/team-review.ts';
-import type { ReviewFinding } from './contracts/team-review.ts';
+import type { FindingSeverity, ReviewFinding } from './contracts/team-review.ts';
+
+export const FINDING_SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const;
+
+function parseFindingSeverity(value: string | undefined): FindingSeverity | null {
+  return FINDING_SEVERITIES.find((severity) => severity === value) ?? null;
+}
 
 const AUTOMATED_NOTE_TEXT = 'Automated review. Not written by a human.';
 const CREDITED_NOTE_TEXT = 'Automated review by [Glimmervoid](https://glimmervoid.dev). Not written by a human.';
@@ -37,7 +42,7 @@ export function withAutomatedNote(body: string, note: string = AUTOMATED_REVIEW_
   return [withOpenBlocksClosed(withoutAutomatedNote(body)), note].filter(Boolean).join('\n\n');
 }
 
-const SEVERITY_ALTERNATION = FindingSeverity.options.join('|');
+const SEVERITY_ALTERNATION = FINDING_SEVERITIES.join('|');
 const FINDING_HEADER_SOURCE = String.raw`\*\*(?:\[([^\]\n]+)\]\s+)?(${SEVERITY_ALTERNATION})\*\*`;
 
 export function findingHeader(reviewer: string, severity: FindingSeverity): string {
@@ -46,17 +51,17 @@ export function findingHeader(reviewer: string, severity: FindingSeverity): stri
 
 export function findingSeveritiesIn(body: string): FindingSeverity[] {
   return [...body.matchAll(new RegExp(FINDING_HEADER_SOURCE, 'g'))].flatMap((match) => {
-    const severity = FindingSeverity.safeParse(match[2]);
-    return severity.success ? [severity.data] : [];
+    const severity = parseFindingSeverity(match[2]);
+    return severity !== null ? [severity] : [];
   });
 }
 
 export function parseLeadingFindingHeader(body: string): { reviewer: string | null; severity: FindingSeverity; length: number } | null {
   const match = new RegExp(String.raw`^${FINDING_HEADER_SOURCE}\s*(?:\r?\n|$)`).exec(body);
   if (!match) return null;
-  const severity = FindingSeverity.safeParse(match[2]);
-  if (!severity.success) return null;
-  return { reviewer: match[1] ?? null, severity: severity.data, length: match[0].length };
+  const severity = parseFindingSeverity(match[2]);
+  if (severity === null) return null;
+  return { reviewer: match[1] ?? null, severity, length: match[0].length };
 }
 
 export interface GeneralFinding {
@@ -74,7 +79,7 @@ const FINDING_BULLET = new RegExp(String.raw`^${FINDING_BULLET_SOURCE}\s*(?:\x60
 const FOLDED_FINDING = new RegExp(String.raw`^${FOLDED_FINDING_SOURCE}\s*`);
 
 export function strongestFindingSeverity(severities: readonly FindingSeverity[]): FindingSeverity | null {
-  return FindingSeverity.options.find((severity) => severities.includes(severity)) ?? null;
+  return FINDING_SEVERITIES.find((severity) => severities.includes(severity)) ?? null;
 }
 
 export function foldedFindingSection(path: string, line: number, body: string): string {
@@ -88,7 +93,11 @@ export function generalFindingBullet(finding: Pick<ReviewFinding, 'reviewer' | '
 
 function generalFindingFrom(markdown: string): GeneralFinding {
   const bullet = FINDING_BULLET.exec(markdown);
-  if (bullet) return { severity: FindingSeverity.parse(bullet[2]), location: bullet[3] ?? null, body: markdown.slice(bullet[0].length).trim(), markdown };
+  if (bullet) {
+    const severity = parseFindingSeverity(bullet[2]);
+    if (severity === null) throw new Error(`unexpected finding severity: ${bullet[2]}`);
+    return { severity, location: bullet[3] ?? null, body: markdown.slice(bullet[0].length).trim(), markdown };
+  }
   const folded = FOLDED_FINDING.exec(markdown);
   const body = folded ? markdown.slice(folded[0].length).trim() : markdown;
   return { severity: strongestFindingSeverity(findingSeveritiesIn(body)), location: folded?.[1] ?? null, body, markdown };

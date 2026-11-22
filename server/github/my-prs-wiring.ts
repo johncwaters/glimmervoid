@@ -5,7 +5,7 @@ import path from 'node:path';
 import { MyPrKeepMergeableRequest, MyPrMergeWhenReadyRequest, MyPrsSnapshot } from '../../shared/contracts/my-prs.ts';
 import { comparablePrKey } from '../../shared/contracts/github-prs.ts';
 import type { MyPr, MyPrKeepMergeableResult, MyPrMergeabilityFixResult, MyPrMergeRequest, MyPrMergeResult, MyPrMergeWhenReadyResult, MyPrsStatus as MyPrsStatusType } from '../../shared/contracts/my-prs.ts';
-import { myPrMergeRefusal } from '../../shared/my-pr-merge.ts';
+import { myPrMergeRefusal } from '../../shared/contracts/my-pr-merge.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import * as core from './core/my-prs-core.ts';
 import { nulSeparatedPaths } from '../git/core/git-changed-paths-core.ts';

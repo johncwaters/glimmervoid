@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { REVIEW_ACTION_TYPES } from '../../shared/contracts/reviews.ts';
-import { PANEL_ACTION_MAX_BYTES, panelActionsJsonSchemaText } from '../../shared/pack-action-core.ts';
+import { PANEL_ACTION_MAX_BYTES, panelActionsJsonSchemaText } from '../../shared/contracts/pack-action-core.ts';
 import { PACK_DATA_MAX_BYTES, PACK_STORE_MAX_DEPTH, packBridgeJsonSchemaText } from '../../shared/contracts/pack-bridge.ts';
 import { PACK_FILE_NAME, PACK_HOOK_INPUT_TEXT, PackHeader, packJsonSchemaText } from '../../shared/contracts/pack.ts';
 import type { PackRow } from '../../shared/contracts/control/pack-messages.ts';

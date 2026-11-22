@@ -7,8 +7,8 @@ import { z } from 'zod';
 import { BoardChrome, LayoutWarning, RememberedRoute } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { PlacedPaint } from '../../shared/contracts/whiteboard-tiles.ts';
 import type { SavedWorldParts, WarningChange } from '../../shared/whiteboard-layout-engine.ts';
-import { elementTableOfStoredRows, isElementKind } from '../../shared/whiteboard-element-table.ts';
-import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOfStoredRows, isElementKind } from '../../shared/contracts/whiteboard-element-table.ts';
+import type { ElementTable, StoredElementRow } from '../../shared/contracts/whiteboard-element-table.ts';
 import { committed, inTransaction, isUnreadableDatabase, openDatabase, setAside, truncateWriteAheadLogLikeAutocheckpoint } from './sqlite-files.ts';
 
 const LAYOUT_CACHE_FILENAME = 'layout-cache.sqlite';

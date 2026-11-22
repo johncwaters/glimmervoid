@@ -1,4 +1,4 @@
-import { BOX_CHANGES, boxIdsOfWire, WIRE_TONES } from './contracts/whiteboard.ts';
+import { BOX_CHANGES, boxIdsOfWire, WIRE_TONES } from './whiteboard-constants.ts';
 import type { Board, Box, Element, Wire } from './contracts/whiteboard.ts';
 
 type ElementKind = Element['kind'];

@@ -16,7 +16,7 @@ import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { SlideChain } from '#shared/contracts/control/whiteboard-messages.ts';
 import type { BoardHit, BoardRenderer, Camera, WireEndName } from './board-gl-renderer.ts';
 import type { BoardWheel } from './board-media-layer.ts';
-import { elementTableOf } from '#shared/whiteboard-element-table.ts';
+import { elementTableOf } from '#shared/contracts/whiteboard-element-table.ts';
 import { clock } from '#shared/clock.ts';
 import { boardIndexOf, linkedIdsOf } from '#shared/whiteboard-board-index.ts';
 import { carriedWiresOf, centeringOffsetOf, copiedClipboardOf, parsedClipboardOf, pastedOpsOf, pastedTextOf, shiftedWireOpOf } from './board-clipboard-core.ts';

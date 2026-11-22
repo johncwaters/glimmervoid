@@ -9,8 +9,8 @@ import type { ElementWriter, StagedElements } from './board-store-core.ts';
 import type { Rect, StoreRequestBody } from './board-store-core.ts';
 import { WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoardRecord } from '../../shared/contracts/whiteboard.ts';
-import { elementTableOf, elementTableOfStoredRows } from '../../shared/whiteboard-element-table.ts';
-import type { ElementTable, StoredElementRow } from '../../shared/whiteboard-element-table.ts';
+import { elementTableOf, elementTableOfStoredRows } from '../../shared/contracts/whiteboard-element-table.ts';
+import type { ElementTable, StoredElementRow } from '../../shared/contracts/whiteboard-element-table.ts';
 import { indexBoardInSlices } from '../../shared/whiteboard-board-index.ts';
 
 type StoreAnswer = Extract<StoreReply, { ok: true }>;

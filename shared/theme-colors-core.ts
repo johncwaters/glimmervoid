@@ -1,4 +1,4 @@
-import { THEME_STATE_NAMES } from './contracts/theme-palette.ts';
+import { THEME_STATE_NAMES } from './theme-palettes.ts';
 import type { ThemePalette, ThemeStateName } from './contracts/theme-palette.ts';
 
 const STRONG_TINT_STATES: ReadonlySet<ThemeStateName> = new Set(['waiting', 'monitoring']);

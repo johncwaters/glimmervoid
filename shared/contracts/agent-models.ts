@@ -1,11 +1,11 @@
 import { z } from 'zod';
+import { EFFORT_OPTION_ID, OPENROUTER_AGENT_IDS, OPENROUTER_KEY_NAME, SAFE_LAUNCH_ARGUMENT_PATTERN } from '../agent-models-core.ts';
 
 export const CATALOG_AGENT_IDS = ['claude-code', 'codex', 'kimi', 'opencode', 'pi', 'antigravity'] as const;
 export const CatalogAgentId = z.enum(CATALOG_AGENT_IDS);
 export type CatalogAgentId = z.infer<typeof CatalogAgentId>;
 
-export const EFFORT_OPTION_ID = 'effort';
-export const SAFE_LAUNCH_ARGUMENT_PATTERN = /^[A-Za-z0-9._:/[\]-]+$/;
+export { EFFORT_OPTION_ID, OPENROUTER_AGENT_IDS, OPENROUTER_KEY_NAME, SAFE_LAUNCH_ARGUMENT_PATTERN };
 
 export const AgentHomeKind = z.enum(['operator', 'clean']);
 export type AgentHomeKind = z.infer<typeof AgentHomeKind>;
@@ -58,8 +58,6 @@ const ModelOptionValue = z.strictObject({ id: z.string().min(1), value: z.string
 
 const ModelProvider = z.enum(['native', 'openrouter']);
 export type ModelProvider = z.infer<typeof ModelProvider>;
-export const OPENROUTER_KEY_NAME = 'OPENROUTER_API_KEY';
-export const OPENROUTER_AGENT_IDS: readonly string[] = ['claude-code', 'codex', 'opencode', 'pi'];
 
 export const ModelSelection = z.strictObject({
   agent: z.string().min(1),

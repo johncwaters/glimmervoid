@@ -6,8 +6,8 @@ import type { Board, BoardChange, BoardRecord, BoardSummary, BoxMedia, Element, 
 import { MARGIN as BOARD_MARGIN, isAsideBox, nearPosition, storedRectsOfBoxes } from '../../shared/whiteboard-layout-core.ts';
 import { currentStoredBox } from '../../shared/whiteboard-stored-box.ts';
 import type { Rect as BoardBounds, PlacedBox } from '../../shared/whiteboard-layout-core.ts';
-import type { ApplyResult } from '../../shared/whiteboard-ops-core.ts';
-import { CODEMAP_AUTHOR, CODEMAP_ID_PREFIXES, noteBoxTextOf } from '../../shared/whiteboard-ops-core.ts';
+import type { ApplyResult } from '../../shared/contracts/whiteboard-ops-core.ts';
+import { CODEMAP_AUTHOR, CODEMAP_ID_PREFIXES, noteBoxTextOf } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { AgentNote } from '../../shared/contracts/hooks.ts';
 import { isRecord } from '../../shared/coerce.ts';
 import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';

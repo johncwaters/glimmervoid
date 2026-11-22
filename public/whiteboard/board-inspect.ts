@@ -12,7 +12,7 @@ import { CLOSE_ICON_PATH, createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { select } from '../ui/select.ts';
 import { refsOfElement } from '#shared/whiteboard-anchor-core.ts';
-import { isLinkableMediaKind } from '#shared/whiteboard-link-core.ts';
+import { isLinkableMediaKind } from '#shared/contracts/whiteboard-link-core.ts';
 import { iconGlyph, iconPicker } from './board-icon-picker.ts';
 import { LINE_STYLE_LABELS, lineWithStyle } from './board-line-edit.ts';
 

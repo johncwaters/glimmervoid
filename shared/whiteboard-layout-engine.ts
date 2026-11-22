@@ -1,4 +1,4 @@
-import { boxIdOfEnd, boxIdsOfWire, pointOfBox, WHITEBOARD_LIMITS } from './contracts/whiteboard.ts';
+import { boxIdOfEnd, boxIdsOfWire, pointOfBox, WHITEBOARD_LIMITS } from './whiteboard-constants.ts';
 import type { Board, Element } from './contracts/whiteboard.ts';
 import type { LayoutWarning, PlacedBox, PlacedElement, LaidOutFrame, LaidOutStroke, LaidOutWire, PlanColumn } from './contracts/whiteboard-tiles.ts';
 import { boardIndexOf, usedBoxChangesOf, usedWireStylesOf } from './whiteboard-board-index.ts';

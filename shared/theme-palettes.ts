@@ -1,5 +1,8 @@
 import type { ThemePalette } from './contracts/theme-palette.ts';
 
+export const THEME_STATE_NAMES = ['running', 'waiting', 'failed', 'monitoring', 'done', 'initializing', 'idle', 'starting', 'complete'] as const;
+export type ThemeStateName = (typeof THEME_STATE_NAMES)[number];
+
 export const BUILT_IN_THEME_PALETTES: Record<string, ThemePalette> = {
   glimmer: {
     label: 'Glimmer',

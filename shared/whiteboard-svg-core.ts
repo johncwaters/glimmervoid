@@ -1,5 +1,5 @@
 import { BRAND_ACCENT } from './brand-mark.ts';
-import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES } from './contracts/whiteboard.ts';
+import { NOTE_TONE_HEX, NOTE_TONES, TEXT_SIZES } from './whiteboard-constants.ts';
 import type { IconName } from './contracts/whiteboard.ts';
 import { escapeMarkup } from './escape-markup.ts';
 import { DEVICE_CATALOG } from './whiteboard-devices.ts';

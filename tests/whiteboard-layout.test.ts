@@ -9,14 +9,14 @@ import { upgradedBoardRecord } from '../server/core/whiteboard-store-core.ts';
 import { createDragPreview, FRAME_TITLE_HEIGHT, layoutBoard, pinnedOffsetYAfterLeaving, pinnedOffsetYOf, placeBoardWithMemory } from '../shared/whiteboard-layout-core.ts';
 import { boardSvgDocument, textCardSvgDocument } from '../shared/whiteboard-svg-core.ts';
 import { elbowCornersAfterShift, labelWidthOf, rotatedAbout, wireExtentOf, wireHandlesOf } from '../shared/whiteboard-route-core.ts';
-import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/whiteboard-ops-core.ts';
+import { applyBoardDiff, applyOps, createBoard, stageOps } from '../shared/contracts/whiteboard-ops-core.ts';
 import { applyLayoutDelta, createLayoutWorld, layoutOf, resumeLayoutWorld, savedWorldOf, warningsNamingOfWorld, warningsOfWorld } from '../shared/whiteboard-layout-engine.ts';
 import type { LayoutWorld } from '../shared/whiteboard-layout-engine.ts';
 import { LayoutWarning, PlacedElement as PlacedElementShape, RememberedRoute } from '../shared/contracts/whiteboard-tiles.ts';
-import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/whiteboard-tile-core.ts';
+import { patchTileIndex, tileIndexOf, tileKeysFor, tileOf } from '../shared/contracts/whiteboard-tile-core.ts';
 import { generateBoardRecord } from '../harness/load-cost/whiteboard-board-generator.ts';
-import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/whiteboard-undo-core.ts';
-import type { UndoHistory } from '../shared/whiteboard-undo-core.ts';
+import { EMPTY_HISTORY, UNDO_LIMIT, recordEdit, takeStep, undoOpsOf } from '../shared/contracts/whiteboard-undo-core.ts';
+import type { UndoHistory } from '../shared/contracts/whiteboard-undo-core.ts';
 import type { LaidOutElement, PlacedElement, Rect } from '../shared/whiteboard-layout-core.ts';
 
 function box(id: string) {

@@ -8,7 +8,7 @@ import { BOARD_FILE_CAP_BYTES, BOARD_PAGE_MEMBERS_MAX, boardMediaOriginalFilenam
 import type { Board, BoxMedia, Element, LinkState } from '../../shared/contracts/whiteboard.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { linkPathProblem } from '../../shared/whiteboard-link-core.ts';
+import { linkPathProblem } from '../../shared/contracts/whiteboard-link-core.ts';
 import { openContainedFile } from '../contained-file.ts';
 import { writeTextAtomic } from '../json-file.ts';
 import { boardDocumentOf, decodeBoardDocument, encodeBoardDocument, mediaOfDocument, mergeBoardDocuments, withDanglingReferencesDropped } from '../core/board-document-core.ts';
