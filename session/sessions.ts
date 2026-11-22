@@ -277,6 +277,13 @@ function nonEmptyText(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+type PtyLifecycle = "idle" | "live" | "exited";
+type HookActivity = "unseen" | "seen";
+type PromptPhase = "awaiting-first-prompt" | "prompted";
+type TitleGate = "open" | "quiet";
+type HookPromptReporting = "none" | "hooks";
+type ResumeCaptureMode = "active" | "suppressed";
+
 class Session extends EventEmitter {
   _taskTitle: SessionTaskTitleController;
   _promptNotes: SessionPromptNotes;
@@ -306,12 +313,12 @@ class Session extends EventEmitter {
   _worktreeReaderHolds = new Set<() => Promise<() => void>>();
 
   _startupSignals: Set<StartupSignal>;
-  _hasPromptSinceSpawn: boolean;
+  _promptPhase: PromptPhase;
   _titleQuietFallbackTimer: NodeJS.Timeout | null;
   _inputReadyFallbackTimer: NodeJS.Timeout | null;
   _reaper: SessionProcessReaper;
   _teardown: Teardown;
-  _ptyAlive: boolean;
+  _ptyLifecycle: PtyLifecycle;
   _recorder: SessionRecorderPort | null;
   _deliveredSecretValues: readonly string[] = [];
   _output: ReturnType<typeof createSessionOutput>;
@@ -319,7 +326,7 @@ class Session extends EventEmitter {
   _adapter: AgentAdapter;
   _observability: ReturnType<typeof createSessionObservability>;
   _titleQuietFallbackMs: number;
-  _hookSeen: boolean;
+  _hookActivity: HookActivity;
   _lastSignal: Record<string, unknown> | null;
   _compaction: CompactionTracking;
   _pendingPromptKind: string | null;
@@ -327,8 +334,8 @@ class Session extends EventEmitter {
   _loginFailurePromptKind: string;
   _pendingPromptToolName: string | null;
   _attention: AttentionLanes;
-  _titleQuiet: boolean;
-  _hooksReportPrompts: boolean;
+  _titleGate: TitleGate;
+  _hookPromptReporting: HookPromptReporting;
   _spawnCommand: ResolvedCommand | null;
   _initialPrompt: string | null;
   _firstTurnSince: number | null;
@@ -339,11 +346,10 @@ class Session extends EventEmitter {
   readonly workspaceRepos: string[] | null;
   _transcriptPath: string | null;
   _lastClaudeSessionReport: { id: string; transcriptPath: string | null; isResumeTarget: boolean } | null;
-  _suppressResumeCapture: boolean;
+  _resumeCapture: ResumeCaptureMode;
   _spawnEnv: Record<string, string> | null;
   _prependPathDirs: string[];
   _hookTools: ResolvedHookTool[];
-  _isSaneYoloActive: boolean;
   _questionManager: QuestionManagerPort | null;
   _planLimits: boolean;
   _readChatApprovals: () => ChatApprovalMode;
@@ -383,7 +389,7 @@ class Session extends EventEmitter {
     id,
     name,
     path: projectPath,
-    dangerouslySkipPermissions = false,
+    dangerouslySkipPermissions,
     replayBufferKB = 512,
 
     hookRouter = null,
@@ -393,7 +399,7 @@ class Session extends EventEmitter {
     statusConflictMs = undefined,
     statusDedupMs = undefined,
 
-    detectBackgroundAgents = true,
+    detectBackgroundAgents,
     agentTtlMs = agentTracker.DEFAULT_AGENT_TTL_MS,
 
     shellTaskTtlMs = agentTracker.DEFAULT_SHELL_TASK_TTL_MS,
@@ -402,16 +408,16 @@ class Session extends EventEmitter {
 
     gateReleaseSettleMs = DEFAULT_GATE_RELEASE_SETTLE_MS,
 
-    detectScheduledWakeups = true,
+    detectScheduledWakeups,
 
-    observeToolCalls = false,
+    observeToolCalls,
 
     agent = DEFAULT_AGENT_ID,
 
     adapter = null,
 
-    bypassHookTrust = false,
-    holdsQuestionsForParent = false,
+    bypassHookTrust,
+    holdsQuestionsForParent,
     readChatApprovals = () => "off",
     chatUploadsDirectory = null,
     questionManager = null,
@@ -425,7 +431,7 @@ class Session extends EventEmitter {
     agentDoneLines = [],
     extraClaudeArgs = [],
     agentSetup = null,
-    ephemeral = false,
+    ephemeral,
 
     resumeSessionId = null,
     taskTitleState = undefined,
@@ -438,23 +444,23 @@ class Session extends EventEmitter {
     resolveAccountHome = null,
     prependPathDirs = [],
 
-    enableProjectMcp = false,
+    enableProjectMcp,
     hookTools = [],
 
 
-    planLimits = false,
+    planLimits,
 
     getUserHooks = null,
     getTerminalColors = null,
     extraUserHooks = [],
     scratchAgentHome = null,
     isCleanHome,
-    requiresHooks = false,
+    requiresHooks,
     packMcpServers = null,
     sharedPackMcpServers = null,
 
     ptySpawn = null,
-    requireWorktree = false,
+    requireWorktree,
 
     screenKeeperFactory = null,
 
@@ -468,10 +474,10 @@ class Session extends EventEmitter {
     integrationBranch = null,
     startSha = null,
 
-    autoRebase = true,
-    syncOnStart = true,
+    autoRebase,
+    syncOnStart,
 
-    liveWorktreeReview = true,
+    liveWorktreeReview,
 
     worktreeRoot = null,
     worktreeShare = null,
@@ -489,6 +495,10 @@ class Session extends EventEmitter {
     prepareSandbox = null,
   }: SessionOptions) {
     super();
+    const isEphemeral = ephemeral === true;
+    const holdsQuestions = holdsQuestionsForParent === true;
+    const hasScheduledWakeups = detectScheduledWakeups ?? true;
+    const hasBackgroundAgentDetection = detectBackgroundAgents ?? true;
     this.id = id;
     this.ownerId = ownerId;
     this.branchOf = branchOf;
@@ -519,7 +529,7 @@ class Session extends EventEmitter {
     });
     this._prLinks = seedSessionPrLinks(prLinks);
     this.path = projectPath;
-    this.dangerouslySkipPermissions = dangerouslySkipPermissions;
+    this.dangerouslySkipPermissions = dangerouslySkipPermissions === true;
     this.ptyProcess = null;
     this._ptyScopeUnit = null;
     this.state = STATES.DORMANT;
@@ -529,10 +539,10 @@ class Session extends EventEmitter {
     this.managerSeenSeq = 0;
     this.passedQuestionSeq = 0;
     this._startupSignals = new Set();
-    this._hasPromptSinceSpawn = false;
+    this._promptPhase = "awaiting-first-prompt";
     this._teardown = NO_TEARDOWN;
 
-    this._ptyAlive = false;
+    this._ptyLifecycle = "idle";
     this._recorder = null;
     this._lastOperatorInputAt = Number.NEGATIVE_INFINITY;
     this._output = createSessionOutput({
@@ -573,13 +583,13 @@ class Session extends EventEmitter {
 
     this.usageVendor = this._adapter.usageVendor || "claude";
     this.bypassHookTrust = bypassHookTrust === true;
-    this._questionManager = isFirstClassAgent(this.agentId) && !ephemeral && !holdsQuestionsForParent ? questionManager : null;
+    this._questionManager = isFirstClassAgent(this.agentId) && !isEphemeral && !holdsQuestions ? questionManager : null;
     this._chatUploadsDirectory = chatUploadsDirectory;
     this._readChatApprovals = isFirstClassAgent(this.agentId) ? readChatApprovals : () => "off";
     this._approvals = createSessionApprovalHolds({
       agentId: this.agentId,
       questionDenyReply: this._adapter.questionDenyReply ?? "hook-specific-output",
-      holdsQuestionsForParent,
+      holdsQuestionsForParent: holdsQuestions,
       readChatApprovals: this._readChatApprovals,
       questionManager: this._questionManager,
       port: {
@@ -595,7 +605,7 @@ class Session extends EventEmitter {
     this._titleQuietFallbackTimer = null;
     this._inputReadyFallbackTimer = null;
 
-    this._hookSeen = false;
+    this._hookActivity = "unseen";
     this._lastSignal = null;
 
     this._compaction = createCompactionTracking();
@@ -605,15 +615,15 @@ class Session extends EventEmitter {
     this._pendingPromptToolName = null;
     this._attention = createAttentionLanes();
 
-    this._titleQuiet = false;
-    this._hooksReportPrompts = false;
+    this._titleGate = "open";
+    this._hookPromptReporting = "none";
     this.backgroundTracking = createSessionBackgroundTracking({
-      detectBackgroundAgents: detectBackgroundAgents && this._can("backgroundAgents"),
+      detectBackgroundAgents: hasBackgroundAgentDetection && this._can("backgroundAgents"),
       agentTtlMs,
       shellTaskTtlMs,
       teammateTaskTtlMs,
       gateReleaseSettleMs,
-      detectScheduledWakeups,
+      detectScheduledWakeups: hasScheduledWakeups,
       port: {
         state: () => this.state,
         isDestroyed: () => this._destroyed,
@@ -625,7 +635,7 @@ class Session extends EventEmitter {
       },
     });
     this._spawnCommand = spawnCommand;
-    this._requiresWorktree = requireWorktree;
+    this._requiresWorktree = requireWorktree === true;
     this._initialPrompt = promptWithDoneMeans(initialPrompt, doneMeans);
     this._firstTurnSince = null;
     this._extraClaudeArgs = Array.isArray(extraClaudeArgs) ? extraClaudeArgs : [];
@@ -635,12 +645,11 @@ class Session extends EventEmitter {
     this.workspaceRepos = workspaceRepos ? [...workspaceRepos] : null;
     this._transcriptPath = null;
     this._lastClaudeSessionReport = null;
-    this._suppressResumeCapture = false;
-    this.ephemeral = !!ephemeral;
+    this._resumeCapture = "active";
+    this.ephemeral = isEphemeral;
     this._spawnEnv = spawnEnv;
     this._prependPathDirs = prependPathDirs;
     this._hookTools = hookTools.filter((tool) => this._can(HOOK_TOOLS[tool.id].capability));
-    this._isSaneYoloActive = false;
     this._planLimits = planLimits === true && this._can("planLimits");
     this._packMcpServers = packMcpServers;
     this._sharedPackMcpServers = sharedPackMcpServers;
@@ -653,10 +662,10 @@ class Session extends EventEmitter {
       getHookPort,
       hooksBaseDir,
       settingsPermissions,
-      detectScheduledWakeups,
+      detectScheduledWakeups: hasScheduledWakeups,
       observeToolCalls: observeToolCalls === true,
       readChatApprovals: this._readChatApprovals,
-      enableProjectMcp: !!enableProjectMcp,
+      enableProjectMcp: enableProjectMcp === true,
       hookTools: this._hookTools,
       planLimits: this._planLimits,
       getUserHooks,
@@ -667,7 +676,7 @@ class Session extends EventEmitter {
       packSkillDirs: () => this._launch.packLaunch?.namedSkillDirs ?? [],
       packHookFiles: () => this._launch.packLaunch?.hookFiles ?? [],
       modelSelection: () => this._agentSetup,
-      requiresHooks: requiresHooks && hookRouter !== null,
+      requiresHooks: requiresHooks === true && hookRouter !== null,
       bypassHookTrust: this.bypassHookTrust,
       effectiveCwd: () => this.effectiveCwd(),
       folderTrustRoot: () => folderTrustRoot(this.effectiveCwd(), worktreeRoot),
@@ -747,9 +756,9 @@ class Session extends EventEmitter {
       integrationBranch,
       startSha,
       gitWorkspace,
-      autoRebase,
-      syncOnStart,
-      liveWorktreeReview,
+      autoRebase: autoRebase ?? true,
+      syncOnStart: syncOnStart ?? true,
+      liveWorktreeReview: liveWorktreeReview ?? true,
       worktreeRoot,
       worktreeShare,
       workspaceRepos,
@@ -785,11 +794,27 @@ class Session extends EventEmitter {
       this._taskTitle.noteOscTitle(title, this._titleProjectName());
     });
     this._titleSource.on("signal", (s) => {
-      if (this._titleQuiet) return;
+      if (this._titleGate === "quiet") return;
       this._statusSource.ingest(s);
     });
     this._statusSource.on("status", (s: ResolvedStatusSignal) => this._onStatus(s));
     this._statusSource.on("meta", (m: MetaStatusSignal) => this._onMeta(m));
+  }
+
+  get _ptyAlive(): boolean {
+    return this._ptyLifecycle === "live";
+  }
+
+  set _ptyAlive(isAlive: boolean) {
+    this._ptyLifecycle = isAlive ? "live" : "exited";
+  }
+
+  get _hooksReportPrompts(): boolean {
+    return this._hookPromptReporting === "hooks";
+  }
+
+  set _hooksReportPrompts(reports: boolean) {
+    this._hookPromptReporting = reports ? "hooks" : "none";
   }
 
   get _taskTitleSources(): TaskTitleSources {
@@ -979,7 +1004,7 @@ class Session extends EventEmitter {
       this.ingestHookSignal({ ...raw, payload: { ...raw.payload, source: "clear" } });
       return;
     }
-    this._hookSeen = true;
+    this._hookActivity = "seen";
     if (!this._startupSignals.has("ready") && this._inputReadyCondition() === "startup-hook") this._noteInputReady();
     if (this._recorder && raw?.event) {
       this._recorder.writeHook(raw.event, raw.payload);
@@ -1044,9 +1069,9 @@ class Session extends EventEmitter {
     }
     if (raw && raw.signal === "session-start") this._onSessionStartHook(raw);
     if (raw && raw.signal === "resume") {
-      this._hasPromptSinceSpawn = true;
+      this._promptPhase = "prompted";
       this._observeCompaction("resume");
-      this._titleQuiet = false;
+      this._titleGate = "open";
       this._setPendingPromptKind(null);
       this._setPassedQuestionSeq(0);
 
@@ -1075,7 +1100,7 @@ class Session extends EventEmitter {
     if (raw?.signal !== "session-start" || !raw.payload) return false;
     const reportedId = this._reportedSessionIdOf(raw.payload);
     if (typeof reportedId !== "string") return false;
-    return isConversationReplacedAtStartup({ hasPromptSinceSpawn: this._hasPromptSinceSpawn, currentResumeSessionId: this._resumeSessionId, reportedId, sessionStartSource: raw.payload.source });
+    return isConversationReplacedAtStartup({ hasPromptSinceSpawn: this._promptPhase === "prompted", currentResumeSessionId: this._resumeSessionId, reportedId, sessionStartSource: raw.payload.source });
   }
 
   _onSessionStartHook(raw: HookSignal): void {
@@ -1104,7 +1129,7 @@ class Session extends EventEmitter {
     signal: string | null,
     confidence?: string | null,
   ): void {
-    if (this._suppressResumeCapture) return;
+    if (this._resumeCapture === "suppressed") return;
     if (typeof id !== "string" || !RESUME_ID_RE.test(id)) return;
     const reportedTranscriptPath = typeof transcriptPath === "string" && transcriptPath ? transcriptPath : null;
     const reportedSource = typeof source === "string" ? source : null;
@@ -1139,9 +1164,9 @@ class Session extends EventEmitter {
     this.emit("claude-session-id", event);
   }
 
-  _setPendingPromptKind(kind: string | null, toolName: string | null = null, mayInheritCurrentToolName = false): void {
+  _setPendingPromptKind(kind: string | null, toolName: string | null = null, mayInheritCurrentToolName?: boolean): void {
     const next = kind || null;
-    this._pendingPromptToolName = nextPendingPromptToolName(this._pendingPromptKind, this._pendingPromptToolName, next, toolName, mayInheritCurrentToolName);
+    this._pendingPromptToolName = nextPendingPromptToolName(this._pendingPromptKind, this._pendingPromptToolName, next, toolName, mayInheritCurrentToolName ?? false);
     if (next === this._pendingPromptKind) return;
     const isLeavingRateLimit = this._pendingPromptKind === RATE_LIMIT_PROMPT_KIND;
     this._pendingPromptKind = next;
@@ -1195,12 +1220,12 @@ class Session extends EventEmitter {
     this._recordDecision(entry);
   }
 
-  _resetDetectionSources({ quiet, clearTracking = false }: { quiet?: boolean; clearTracking?: boolean } = {}): void {
+  _resetDetectionSources({ quiet, clearTracking }: { quiet?: boolean; clearTracking?: boolean } = {}): void {
     this._titleSource.reset();
     this._statusSource.reset();
-    if (quiet !== undefined) this._titleQuiet = quiet;
+    if (quiet !== undefined) this._titleGate = quiet ? "quiet" : "open";
 
-    if (clearTracking) this._clearDetectionTracking();
+    if (clearTracking === true) this._clearDetectionTracking();
   }
 
   _clearDetectionTracking(): void {
@@ -1337,7 +1362,7 @@ class Session extends EventEmitter {
   }
 
   get hookSeen(): boolean {
-    return this._hookSeen;
+    return this._hookActivity === "seen";
   }
 
   get hasBackgroundWork(): boolean {
@@ -1457,7 +1482,7 @@ class Session extends EventEmitter {
   }
 
   get saneYolo(): boolean {
-    return this._isSaneYoloActive;
+    return this._hooks.isSaneYoloActive();
   }
 
   get isQuestionManagerOn(): boolean | null {
@@ -1470,7 +1495,7 @@ class Session extends EventEmitter {
       return;
     }
 
-    this._suppressResumeCapture = true;
+    this._resumeCapture = "suppressed";
     this.setResumeConversation(null);
     this._transcriptPath = null;
     this._taskTitle.resetAutomatic();
@@ -1480,7 +1505,7 @@ class Session extends EventEmitter {
 
   _bindRestartConversation(conversationId: string | null | undefined): void {
     if (!conversationId) return;
-    this._suppressResumeCapture = true;
+    this._resumeCapture = "suppressed";
     this.setResumeConversation(conversationId);
   }
 
@@ -1576,7 +1601,7 @@ class Session extends EventEmitter {
   getDetectionStats() {
     return {
       lastSignal: this._lastSignal,
-      hookSeen: this._hookSeen,
+      hookSeen: this.hookSeen,
       hooksInjected: this._hooks.hasInjection(),
       titleState: this._titleSource.getState(),
     };
@@ -1596,7 +1621,7 @@ class Session extends EventEmitter {
       outputBufferTotal: this._output.stats().total,
       auditLogLength: this.auditLog.length,
       dataListenerCount: this.listenerCount("data"),
-      hookSeen: this._hookSeen,
+      hookSeen: this.hookSeen,
       timers: {
         killPoll: this._killPollTimer !== null,
       },
@@ -1835,7 +1860,7 @@ class Session extends EventEmitter {
     }
     this._startupSignals.clear();
     this._inputReadyScan = NO_INPUT_READY_SCAN;
-    this._hasPromptSinceSpawn = false;
+    this._promptPhase = "awaiting-first-prompt";
     this._clearTimer("_inputReadyFallbackTimer");
 
     this._clearDetectionTracking();
@@ -1861,12 +1886,11 @@ class Session extends EventEmitter {
       this._abandonSpawn(new Error(hookInjection.refusal));
       return;
     }
-    this._isSaneYoloActive = hookInjection.isSaneYoloActive;
     const mcpLaunch = mcpLaunchFor({ agentId: this.agentId, listenerPort: this._hooks.listenerPort(), sessionId: this.id, agentToken: this._agentToken, packServers: this._launch.packMcpServers });
     const settingsArgs = [...hookInjection.args, ...mcpLaunch.args];
 
-    this._hooksReportPrompts = this._hooks.hasInjection();
-    this._titleQuiet = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooksReportPrompts;
+    this._hookPromptReporting = this._hooks.hasInjection() ? "hooks" : "none";
+    this._titleGate = this._adapter.titleProfile.quietUntilFirstPrompt === true && this._hooksReportPrompts ? "quiet" : "open";
     this._armTitleQuietFallback();
 
     this._applyTitleContext();
@@ -1890,7 +1914,7 @@ class Session extends EventEmitter {
       console.warn(`[session:${this.name}] spawning without the stale resume id ${configuredResumeSessionId} because no transcript exists at any of: ${resumeTarget.checkedTranscriptPaths.join(", ")}`);
     }
 
-    this._suppressResumeCapture = false;
+    this._resumeCapture = "active";
     const isResumeNoteLaunch = Boolean(spawnResumeSessionId && resumePrompt);
     const isResumeNoteByHook = isResumeNoteLaunch && this._can("resumeNoteByHook") && this._hooks.hasInjection();
     this._promptNotes.armResumeNote(isResumeNoteByHook ? resumePrompt : null);
@@ -1936,16 +1960,17 @@ class Session extends EventEmitter {
       this._abandonSpawn(err);
       return;
     }
-    this._ptyAlive = true;
+    this._ptyLifecycle = "live";
     this._guardPtyInputSocket();
     this._guardUnixPtySocket();
 
     const spawnCwdExists = fs.existsSync(this.effectiveCwd());
+    if (spawnCwdExists) this._hooks.confirmSaneYoloActive();
     if (!this.transition("spawn_success", { spawnCwdExists })) {
       this.ptyProcess.onExit(({ exitCode, signal }) =>
         this._handleSpawnedPtyExit(exitCode, signal),
       );
-      this._isSaneYoloActive = false;
+      this._hooks.deactivateSaneYolo();
       this._hooks.cleanup();
       this.transition("spawn_fail", { reason: "spawn_cwd_missing" });
       this.kill();
@@ -2096,7 +2121,7 @@ class Session extends EventEmitter {
   _abandonSpawn(cause: unknown): void {
     this._startGeneration += 1;
     this._launch.clearApprovedLaunches();
-    this._isSaneYoloActive = false;
+    this._hooks.deactivateSaneYolo();
     this._hooks.cleanup();
     this._launch.disposeSandbox();
     this._approvals.releaseAll();
@@ -2145,12 +2170,12 @@ class Session extends EventEmitter {
 
   _armTitleQuietFallback(): void {
     this._clearTimer("_titleQuietFallbackTimer");
-    if (!this._titleQuiet) return;
+    if (this._titleGate !== "quiet") return;
     this._armTimer("_titleQuietFallbackTimer", this._titleQuietFallbackMs, () => {
-      if (this._destroyed || !this._titleQuiet) return;
-      if (this._hookSeen) return;
+      if (this._destroyed || this._titleGate !== "quiet") return;
+      if (this.hookSeen) return;
       console.warn(`[session:${this.name}] no hook callback within ${Math.round(this._titleQuietFallbackMs / 1000)}s - opening the title tier (detection is degraded)`);
-      this._titleQuiet = false;
+      this._titleGate = "open";
       this._recordDecision({ kind: "title-latch", ts: clock.nowMs(), decision: "fallback-open", reason: "no hook callback before the deadline" });
     }, { unref: true });
   }
@@ -2200,7 +2225,7 @@ class Session extends EventEmitter {
     this._dispatchAttention({ type: "teardown" });
 
     this._hooks.cleanup();
-    this._ptyAlive = false;
+    this._ptyLifecycle = "exited";
     this.ptyProcess = null;
     this._ptyScopeUnit = null;
     this._promptNotes.dropResumeNote();
@@ -2264,7 +2289,7 @@ class Session extends EventEmitter {
     if (!isPromptSubmit(text)) return;
     if (isComposerSubmit(text, this.state)) this._output.forgetUnsubmittedComposerPaste();
     this._observeCompaction("resume");
-    this._titleQuiet = false;
+    this._titleGate = "open";
   }
 
   queueChatMessage(text: string, attachments: readonly string[] = []) { return this._chatOutbox.queue(text, attachments); }
@@ -2374,7 +2399,7 @@ class Session extends EventEmitter {
   kill(): void {
     if (!this.ptyProcess) return;
 
-    this._ptyAlive = false;
+    this._ptyLifecycle = "exited";
     this._promptNotes.dropResumeNote();
     this._reaper.kill(this.ptyProcess.pid);
   }
