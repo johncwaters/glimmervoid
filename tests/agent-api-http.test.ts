@@ -928,7 +928,7 @@ test('wargames agent verb starts, lists, inspects, aborts, and reads history wit
     statusFrame: () => ({ type: 'wargames-status' as const, matches: loadedMatches }),
     historyFrame: () => ({
       type: 'wargames-history' as const,
-      history: { currentRulesVersion: 'v1', eloByModel: [], eloByVersion: {}, matches: loadedMatches },
+      history: { currentRulesVersion: 'v1' as const, eloByModel: [], eloByVersion: {}, matches: loadedMatches },
     }),
     isWargamesSession: (sessionId: string) => openSeatIds.has(sessionId),
     abortMatch: async (matchId: string, reason: string) => {

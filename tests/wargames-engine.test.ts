@@ -379,27 +379,29 @@ test('rulesVersion defaults on legacy summaries, tags custom strategy, and isola
   assert.equal(coachedSummary.hasCustomStrategy, true);
 });
 
-test('v2 resolves simultaneous multi-attacker battles order-independently and lands reinforcements first', () => {
-  type EventWithoutSeq<Event> = Event extends WargamesEvent ? Omit<Event, 'seq'> : never;
-  const signer = {
-    sign: (payload: string) => `sig:${payload.length}`,
-    verify: (payload: string, signature: string) => signature === `sig:${payload.length}`,
-  };
-  const advanceToResolution = (state: ReturnType<typeof createInitialMatchState>) => {
-    let current = state;
-    const applyNext = (event: EventWithoutSeq<WargamesEvent>) => {
-      const applied = applyEvent(current, { ...event, seq: current.lastSeq + 1 } as WargamesEvent, signer);
-      assert.equal(applied.ok, true);
-      if (applied.ok) current = applied.state;
-    };
-    applyNext({ type: 'seating_started' });
-    for (const seatId of WARGAMES_SEAT_IDS) applyNext({ type: 'seat_connected', seatId });
-    applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
-    applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
-    applyNext({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
-    return current;
-  };
+type EventWithoutSeq<Event> = Event extends WargamesEvent ? Omit<Event, 'seq'> : never;
 
+const lengthSigner: ReportSigner = {
+  sign: (payload) => `sig:${payload.length}`,
+  verify: (payload, signature) => signature === `sig:${payload.length}`,
+};
+
+function advanceToResolution(state: ReturnType<typeof createInitialMatchState>) {
+  let current = state;
+  const applyNext = (event: EventWithoutSeq<WargamesEvent>) => {
+    const applied = applyEvent(current, { ...event, seq: current.lastSeq + 1 } as WargamesEvent, lengthSigner);
+    assert.equal(applied.ok, true);
+    if (applied.ok) current = applied.state;
+  };
+  applyNext({ type: 'seating_started' });
+  for (const seatId of WARGAMES_SEAT_IDS) applyNext({ type: 'seat_connected', seatId });
+  applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  applyNext({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  return current;
+}
+
+test('v2 resolves simultaneous multi-attacker battles order-independently and lands reinforcements first', () => {
   const runContestedAttack = (s1Raiders: number, s6Raiders: number, insertOrder: readonly ('s1' | 's6')[] = ['s1', 's6']) => {
     const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v2' };
     const state = createInitialMatchState('wg-v2-sim', 1000, spec);
@@ -438,7 +440,6 @@ test('v2 resolves simultaneous multi-attacker battles order-independently and la
     };
   };
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v2');
   const s1StrongFirst = runContestedAttack(20, 4, ['s1', 's6']);
   const s1StrongSecond = runContestedAttack(20, 4, ['s6', 's1']);
   assert.equal(s1StrongFirst.owner, 's1');
@@ -482,4 +483,44 @@ test('v2 resolves simultaneous multi-attacker battles order-independently and la
   const resolvedReinforce = advanceToResolution(reinforceState);
   assert.equal(resolvedReinforce.villages[s1Home.hexIndex]?.owner, 's1');
   assert.ok((resolvedReinforce.villages[s1Home.hexIndex]?.troops.guard ?? 0) > 20);
+});
+
+test('v3 charges an attack split into one-troop armies the same losses as one army, and v2 replays its per-army rounding', () => {
+  const raidersSent = 20;
+  const attackerLossesOf = (rulesVersion: WargamesMatchSpec['rulesVersion'], armySizes: readonly number[]) => {
+    const state = createInitialMatchState('wg-split', 1000, { ...buildTestSpec(), rulesVersion });
+    const s1Capital = state.villages.find((village) => village?.owner === 's1');
+    const neutralVillage = state.villages.find((village) => village && village.owner === null);
+    assert.ok(s1Capital && neutralVillage);
+    neutralVillage.troops = { raider: 0, guard: 6, envoy: 0 };
+    armySizes.forEach((raiders, armyIndex) => {
+      state.armies.set(`army-split-${armyIndex}`, {
+        id: `army-split-${armyIndex}`,
+        owner: 's1',
+        status: 'marching',
+        originHexIndex: s1Capital.hexIndex,
+        currentHexIndex: neutralVillage.hexIndex,
+        targetHexIndex: neutralVillage.hexIndex,
+        troops: { raider: raiders, guard: 0, envoy: 0 },
+        departedTick: 0,
+        intendedTargetOwner: null,
+        scoutedBy: [],
+      });
+    });
+    const resolved = advanceToResolution(state);
+    const [battleReport] = resolved.reportsBySeat.s1;
+    assert.ok(battleReport && battleReport.payload.kind === 'battle');
+    const raidersStillMarching = [...resolved.armies.values()].reduce((sum, army) => sum + army.troops.raider, 0);
+    assert.equal(raidersSent - raidersStillMarching, battleReport.payload.attackerLost.raider);
+    return battleReport.payload.attackerLost.raider;
+  };
+  const oneArmy = [raidersSent];
+  const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
+
+  assert.equal(WARGAMES_RULES_VERSION, 'v3');
+  const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
+  assert.ok(lostAsOneArmy > 0);
+  assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
+  assert.equal(attackerLossesOf('v2', oneArmy), lostAsOneArmy);
+  assert.equal(attackerLossesOf('v2', oneTroopArmies), 0);
 });

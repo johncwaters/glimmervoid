@@ -534,6 +534,31 @@ function applyCasualties(troops: TroopCounts, lossFraction: number): { surviving
   };
 }
 
+function spreadSeatLossesAcrossArmies(
+  armies: readonly ArmyState[],
+  seatLost: TroopCounts,
+): { surviving: TroopCounts; lost: TroopCounts }[] {
+  const lossStillOwed = { ...seatLost };
+  return armies.map((army) => {
+    const lost = {
+      raider: Math.min(army.troops.raider, lossStillOwed.raider),
+      guard: Math.min(army.troops.guard, lossStillOwed.guard),
+      envoy: Math.min(army.troops.envoy, lossStillOwed.envoy),
+    };
+    lossStillOwed.raider -= lost.raider;
+    lossStillOwed.guard -= lost.guard;
+    lossStillOwed.envoy -= lost.envoy;
+    return {
+      surviving: {
+        raider: army.troops.raider - lost.raider,
+        guard: army.troops.guard - lost.guard,
+        envoy: army.troops.envoy - lost.envoy,
+      },
+      lost,
+    };
+  });
+}
+
 function makeSignedReport(
   state: MatchState,
   payload: SignedReportPayload,
@@ -811,7 +836,9 @@ function resolveV2SimultaneousBattles(
         lossFraction = 1;
       }
 
-      const survivingByArmy = entry.armies.map((army) => applyCasualties(army.troops, lossFraction));
+      const survivingByArmy = state.spec.rulesVersion === 'v2'
+        ? entry.armies.map((army) => applyCasualties(army.troops, lossFraction))
+        : spreadSeatLossesAcrossArmies(entry.armies, applyCasualties(entry.combinedTroops, lossFraction).lost);
       const totalSurviving = sumTroopCounts(survivingByArmy.map((outcome) => outcome.surviving));
       const totalLost = sumTroopCounts(survivingByArmy.map((outcome) => outcome.lost));
       const canDrainLoyalty = contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && totalSurviving.envoy > 0;
