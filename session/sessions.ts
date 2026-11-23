@@ -2423,6 +2423,7 @@ class Session extends EventEmitter {
       this.emit("waiting-input-acknowledged");
       return true;
     }
+    if (this.state === STATES.WAITING && this._pendingPromptKind === CHECK_TERMINAL_PROMPT_KIND) return this.transition("check_terminal_dismiss");
     return this.transition("user_dismiss");
   }
 

@@ -55,6 +55,7 @@ const TRANSITIONS: TransitionTable = Object.freeze({
     new_output: STATES.RUNNING,
     user_input: STATES.RUNNING,
     user_dismiss: STATES.RUNNING,
+    check_terminal_dismiss: STATES.IDLE,
     task_complete: STATES.COMPLETE,
     user_kill: STATES.DONE,
     user_snooze: STATES.DORMANT,

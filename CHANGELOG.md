@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dismissing "did not start a turn" no longer shows the agent as working.** When the agent did not take a Chat message and you dismissed the alert, the session was marked as working, so Chat showed Working on it while the agent sat idle, and Next step sent an interrupt to the idle agent. It now goes back to idle.
 - **A repo's code map draws even when its build reported a long failure.** The map board refused its own redraw whenever its status box carried a long reason, so Studio showed an empty canvas for good; Studio now also shows a map within 15 seconds of it becoming ready.
 
 ### Changed

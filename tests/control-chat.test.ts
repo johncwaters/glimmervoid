@@ -257,9 +257,11 @@ test('a Chat message waits for the Claude startup hook instead of typing into a 
   session.stopFromChat(heldBehindFailed.entryId);
   assert.equal(writes.length, writesBeforeSendNow);
   assert.deepEqual(outboxOf(), ['Eaten by a mid-session dialog:failed', 'Sent behind the eaten one:held']);
+  session.dismiss();
+  assert.equal(session.state, 'IDLE');
+  session.stopFromChat(heldBehindFailed.entryId);
+  assert.equal(writes.length, writesBeforeSendNow);
   assert.deepEqual(session.cancelChatMessage(notTaken.entryId).map((entry) => entry.text), ['Eaten by a mid-session dialog', 'Sent behind the eaten one']);
-  session.transition('task_complete');
-  session.transition('user_dismiss');
 
   session.queueChatMessage('Sent before a child report');
   await advance(1_000);
