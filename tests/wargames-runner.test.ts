@@ -215,6 +215,7 @@ test('wargames launcher appends optional seat.setup.instructions after immutable
     const deliveredPrompts = new Map<string, string>();
     const launcher = createWargamesLauncher({
       wargames: {
+        seatSessionEnded: () => {},
         startMatch: async (spec, launchSeat) => {
           if (launchSeat) {
             for (const seat of spec.seats) {
@@ -322,6 +323,7 @@ test('wargames launcher discards seat when prompt delivery fails and removes sea
   try {
     const launcher = createWargamesLauncher({
       wargames: {
+        seatSessionEnded: () => {},
         startMatch: async (spec, launchSeat, hooks) => {
           onEndedHolder.fn = hooks?.onMatchEnded ?? null;
           if (launchSeat) {
@@ -411,5 +413,40 @@ test('wargames runner resolves each seat modelDisplay to the specific catalog mo
   } finally {
     runner.dispose();
     await fsp.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a seat session that ends before its seat connects aborts the match with the reason', async () => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-seat-ended-'));
+  try {
+    const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
+    const runner = createWargamesRunner({
+      store,
+      broadcast: () => {},
+      log: { log: () => {}, warn: () => {} },
+      readAgentModels: () => ({ agents: [], openrouter: { models: [], error: null, checkedAt: null } }),
+    });
+    await runner.load();
+    const started = await runner.startMatch(buildSpec(), async (_matchId, seat, bindSession) => {
+      bindSession(`sess-${seat.seatId}`);
+      return { ok: true, sessionId: `sess-${seat.seatId}` };
+    });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    await runner.callTool(started.matchId, 's1', 'get_state', {});
+
+    runner.seatSessionEnded('sess-s1', 'its agent exited with code 0');
+    assert.equal(runner.statusFrame().matches[0]?.status, 'seating');
+
+    runner.seatSessionEnded('sess-s4', 'its agent exited with code 1');
+    const reply = await runner.callTool(started.matchId, 's2', 'get_state', {});
+    assert.equal(reply.ok, false);
+    const [summary] = runner.statusFrame().matches;
+    assert.equal(summary?.status, 'aborted');
+    const events = await store.readEvents(started.matchId);
+    assert.deepEqual(events.at(-1), { seq: events.length - 1, type: 'match_aborted', reason: 'Seat s4 could not start: its agent exited with code 1' });
+    runner.dispose();
+  } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
   }
 });

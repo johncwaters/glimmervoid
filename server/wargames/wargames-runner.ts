@@ -77,6 +77,7 @@ export interface WargamesRunner extends WargamesSeatPort {
   load(): Promise<void>;
   startMatch(spec: WargamesMatchSpec, launchSeat?: SeatLaunchFn, hooks?: WargamesMatchHooks): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }>;
   abortMatch(matchId: string, reason: string): Promise<{ ok: true } | { ok: false; error: string }>;
+  seatSessionEnded(sessionId: string, reason: string): void;
   watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[] } | { ok: false; error: string }>;
   unwatchMatch(matchId: string, watcherId: string): void;
   removeWatcher(watcherId: string): void;
@@ -384,6 +385,21 @@ export function createWargamesRunner({
     });
   }
 
+  function seatSessionEnded(sessionId: string, reason: string): void {
+    const binding = seatBySessionId.get(sessionId);
+    const live = binding ? liveByMatchId.get(binding.matchId) : undefined;
+    if (!binding || !live) return;
+    void enqueueMatch(live, async () => {
+      if (live.state.status !== 'seating') return;
+      if (live.state.seats[seatIndexOf(binding.seatId)].status !== 'disconnected') return;
+      await commitEventSerialized(live, {
+        seq: live.state.lastSeq + 1,
+        type: 'match_aborted',
+        reason: `Seat ${binding.seatId} could not start: ${reason}`.slice(0, 400),
+      });
+    });
+  }
+
   async function watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[] } | { ok: false; error: string }> {
     const events = await store.readEvents(matchId);
     if (events.length === 0) return { ok: false, error: `No log found for match ${matchId}` };
@@ -620,6 +636,7 @@ export function createWargamesRunner({
     load,
     startMatch,
     abortMatch,
+    seatSessionEnded,
     watchMatch,
     unwatchMatch,
     removeWatcher,

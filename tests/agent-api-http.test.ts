@@ -882,6 +882,7 @@ test('wargames agent verb starts, lists, inspects, aborts, and reads history wit
   const abortedReasons: [string, string][] = [];
   const launcher = createWargamesLauncher({
     wargames: {
+      seatSessionEnded: () => {},
       startMatch: async (spec, launchSeat) => {
         startedSpecs.push(spec);
         if (launchSeat) {

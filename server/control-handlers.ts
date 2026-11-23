@@ -157,7 +157,7 @@ interface ControlHandlerDeps {
   packData?: PackData | null;
   packSources?: Pick<PackSources, 'add' | 'update' | 'remove' | 'setPackEnabled' | 'removeHandPlacedFolder'> | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
-  wargames?: Pick<WargamesRunner, 'startMatch' | 'abortMatch' | 'watchMatch' | 'unwatchMatch' | 'removeWatcher' | 'statusFrame' | 'historyFrame'> | null;
+  wargames?: Pick<WargamesRunner, 'startMatch' | 'seatSessionEnded' | 'abortMatch' | 'watchMatch' | 'unwatchMatch' | 'removeWatcher' | 'statusFrame' | 'historyFrame'> | null;
   requestViewer?: GithubLaneStore['requestViewer'];
   readGithubIssue?: ReadGithubIssue | null;
   startPicks?: StartPicksStore | null;

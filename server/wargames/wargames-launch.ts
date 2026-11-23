@@ -9,6 +9,7 @@ import { WargamesMatchSpec } from '../../shared/contracts/wargames.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
+import { errorMessage } from '../../shared/text.ts';
 import type { GlimmervoidConfig } from '../config-store.ts';
 import type { ControlContext } from '../control/control-context.ts';
 import { machineSkipsPermissionsByDefault } from '../session/core/session-registry-core.ts';
@@ -87,7 +88,7 @@ export interface WargamesLauncher {
 }
 
 interface WargamesLauncherDeps {
-  wargames: Pick<WargamesRunner, 'startMatch'> | null;
+  wargames: Pick<WargamesRunner, 'startMatch' | 'seatSessionEnded'> | null;
   sessions: ControlContext['sessions'];
   config: GlimmervoidConfig;
   createProjectSession: ControlContext['createProjectSession'];
@@ -203,12 +204,18 @@ export function createWargamesLauncher({
       bindSession(created.project.id);
       const session = sessions.get(created.project.id);
       if (!session) return { ok: false as const, error: `Seat session "${created.project.name}" did not load` };
+      const reportLaunchError = (cause: unknown) => wargames.seatSessionEnded(session.id, errorMessage(cause));
+      const reportExit = ({ exitCode, signal }: { exitCode: number | null; signal: unknown }) => wargames.seatSessionEnded(session.id, `its agent exited with code ${exitCode}, signal ${String(signal ?? 'none')}`);
+      session.once('error', reportLaunchError);
+      session.once('exit', reportExit);
       const delivered = session.deliver(buildSeatPrompt(matchId, seat, spec), {
         when: 'ready',
         submit: true,
         timeoutMs: SEAT_PROMPT_TIMEOUT_MS,
       });
       if (!delivered.ok) {
+        session.off('error', reportLaunchError);
+        session.off('exit', reportExit);
         await cleanupMatchSessions([created.project.id]);
         return { ok: false as const, error: `Could not prompt seat ${seat.seatId} (${delivered.reason})` };
       }

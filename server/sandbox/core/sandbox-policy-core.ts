@@ -36,6 +36,7 @@ const AGENT_HOME_PATHS_BY_AGENT: Readonly<Record<string, readonly string[]>> = O
   codex: ['.codex'],
   kimi: ['.kimi', '.kimi-code'],
   opencode: [path.join('.local', 'share', 'opencode')],
+  pi: ['.pi'],
   gemini: ['.gemini'],
   qwen: ['.qwen'],
   copilot: ['.copilot'],
