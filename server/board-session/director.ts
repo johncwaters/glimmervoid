@@ -10,9 +10,11 @@ import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import {
   DIRECTOR_PROMPT_FILE, DIRECTOR_REPLY_MAX_CHARS, DIRECTOR_RESULT_FILE, buildDirectorPrompt, directorPayloadOf, directorTurnOf,
-  directorVerdictsOf, fallbackVerdictOf, hasReply, leftoverDirectorCardOps, parseDirectorVerdict, withDirectorDigest,
+  buildProgressPrompt, directorVerdictsOf, fallbackVerdictOf, hasReply, isProgressShaped, latestNotesOf, leftoverDirectorCardOps, parseDirectorVerdict,
+  parseProgressAnswer, planStepsOf, progressAnswersOf, progressPayloadOf, withDirectorDigest, withProgressAnswer,
 } from '../core/director-core.ts';
 import type { DirectorTurn } from '../core/director-core.ts';
+import type { UntrustedPayload } from '../../shared/contracts/untrusted-payload.ts';
 import { createJsonStateStore } from '../json-file.ts';
 import { readLaneResultFile } from '../lanes/lane-spawn.ts';
 import type { LaneSpawn } from '../lanes/lane-spawn.ts';
@@ -24,6 +26,7 @@ const DIRECTOR_LANE_TOOLS = Object.freeze(['Read', 'Write']);
 const DIRECTOR_AUTHOR = Object.freeze({ id: 'director', name: 'Director' });
 const BOOTSTRAP_PROMPT = `Read ${DIRECTOR_PROMPT_FILE} and follow its instructions`;
 const DIRECTOR_TIMEOUT_MS = 120_000;
+const PROGRESS_DEADLINE_MS = 90_000;
 const DIRECTOR_SETTLE_MS = 5_000;
 const SETTLE_REARMS_MAX = 6;
 const MAX_TRACE_PAGES = 8;
@@ -57,12 +60,12 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
   const shutdownController = new AbortController();
   let digestState: DirectorDigestState = DirectorDigestState.parse({});
   let running: Promise<void> | null = null;
-  const unsavedVerdicts: { sessionId: string; digest: DirectorDigest }[] = [];
+  const unsavedChanges: ((state: DirectorDigestState) => DirectorDigestState)[] = [];
   const store = createJsonStateStore({
     name: 'director digests', filePath: digestsPath,
     parse: (raw) => DirectorDigestState.safeParse(raw).data ?? null,
     adopt: (loadedState) => {
-      digestState = unsavedVerdicts.reduce((state, unsaved) => withDirectorDigest(state, unsaved.sessionId, unsaved.digest), loadedState ?? DirectorDigestState.parse({}));
+      digestState = unsavedChanges.reduce((state, applyChange) => applyChange(state), loadedState ?? DirectorDigestState.parse({}));
     },
     warn: (message, fields) => logger.warn(`[director] ${message} ${JSON.stringify(fields)}`),
   });
@@ -81,12 +84,12 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     return null;
   }
 
-  async function runLane(turn: DirectorTurn, signal: AbortSignal): Promise<Record<string, unknown> | null> {
+  async function runLane(payload: UntrustedPayload, promptOf: (resultPath: string) => string, signal: AbortSignal): Promise<Record<string, unknown> | null> {
     const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-director-'));
     const resultPath = path.join(workDir, DIRECTOR_RESULT_FILE);
     try {
-      await writeUntrustedPayload(workDir, directorPayloadOf(turn, clock.now().toISOString()), DIRECTOR_REPLY_MAX_CHARS);
-      await fs.writeFile(path.join(workDir, DIRECTOR_PROMPT_FILE), buildDirectorPrompt(resultPath), 'utf8');
+      await writeUntrustedPayload(workDir, payload, DIRECTOR_REPLY_MAX_CHARS);
+      await fs.writeFile(path.join(workDir, DIRECTOR_PROMPT_FILE), promptOf(resultPath), 'utf8');
       if (signal.aborted) return null;
       await spawnLane({ id: `director:${crypto.randomUUID()}`, name: 'Studio director', cwd: workDir, prompt: BOOTSTRAP_PROMPT, agent: 'claude-code', model: DEFAULT_MODELS.taskTitleRefiner, signal });
       if (signal.aborted) return null;
@@ -99,21 +102,53 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
   async function saveDigestState(): Promise<void> {
     const keptState = digestState;
     const isSaved = await store.write(keptState, () => `${JSON.stringify(keptState, null, 2)}\n`);
-    if (isSaved) unsavedVerdicts.length = 0;
+    if (isSaved) unsavedChanges.length = 0;
   }
 
   async function loadWithUnsavedVerdicts(): Promise<void> {
     await store.load();
-    if (unsavedVerdicts.length > 0) await saveDigestState();
+    if (unsavedChanges.length > 0) await saveDigestState();
   }
 
-  async function keepVerdict(sessionId: string, openedAt: number, verdict: { chatLine: string | null; digest: string | null; points: string[] }): Promise<void> {
+  async function keepChange(sessionId: string, applyChange: (state: DirectorDigestState) => DirectorDigestState): Promise<void> {
     await store.load();
-    const digest: DirectorDigest = { openedAt, ...verdict };
-    digestState = withDirectorDigest(digestState, sessionId, digest);
-    unsavedVerdicts.push({ sessionId, digest });
+    digestState = applyChange(digestState);
+    unsavedChanges.push(applyChange);
     await saveDigestState();
     announceDigest(sessionId);
+  }
+
+  function keepVerdict(sessionId: string, openedAt: number, verdict: { chatLine: string | null; digest: string | null; points: string[] }): Promise<void> {
+    const digest: DirectorDigest = { openedAt, ...verdict };
+    return keepChange(sessionId, (state) => withDirectorDigest(state, sessionId, digest));
+  }
+
+  async function answerProgress(request: { mainSessionId: string; agents: readonly { sessionId: string; name: string }[]; question: string; boardIdOf: () => Promise<string | null> }): Promise<boolean> {
+    if (shutdownController.signal.aborted || !isProgressShaped(request.question)) return false;
+    const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(PROGRESS_DEADLINE_MS)]);
+    await loadWithUnsavedVerdicts();
+    const boardId = await request.boardIdOf();
+    const board = boardId === null || signal.aborted ? null : await boards.boardOf(boardId);
+    const context = {
+      question: request.question,
+      steps: board === null ? [] : planStepsOf(board),
+      agents: request.agents.map((agent) => ({ name: agent.name, notes: latestNotesOf(digestState, agent.sessionId) })),
+    };
+    const askedAt = clock.now().getTime();
+    if (signal.aborted) return false;
+    const laneOutput = await runLane(progressPayloadOf(context, clock.now().toISOString()), buildProgressPrompt, signal).catch((error: unknown) => {
+      logger.warn(`[director] progress question: ${errorMessage(error)}`);
+      return null;
+    });
+    const answer = signal.aborted ? null : parseProgressAnswer(laneOutput);
+    if (answer === null || signal.aborted) return false;
+    await keepChange(request.mainSessionId, (state) => withProgressAnswer(state, request.mainSessionId, { askedAt, question: request.question, answer }));
+    return true;
+  }
+
+  async function progressAnswersFor(sessionIds: readonly string[]) {
+    await loadWithUnsavedVerdicts();
+    return progressAnswersOf(digestState, sessionIds);
   }
 
   async function direct({ session, endedAtMs }: QueuedTurn): Promise<void> {
@@ -121,7 +156,7 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     if (turn === null || !hasReply(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
     const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(DIRECTOR_TIMEOUT_MS)]);
-    const laneOutput = await runLane(turn, signal).catch((error: unknown) => {
+    const laneOutput = await runLane(directorPayloadOf(turn, clock.now().toISOString()), buildDirectorPrompt, signal).catch((error: unknown) => {
       logger.warn(`[director] ${session.name}: ${errorMessage(error)}`);
       return null;
     });
@@ -216,7 +251,7 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     await store.idle();
   }
 
-  return { onTurnEnd, onTraceAppended, verdictsOf, stop };
+  return { onTurnEnd, onTraceAppended, verdictsOf, answerProgress, progressAnswersFor, stop };
 }
 
 type Director = ReturnType<typeof createDirector>;

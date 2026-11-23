@@ -24,6 +24,7 @@ import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
+import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
 import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
@@ -94,6 +95,7 @@ let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
 let digestsRequestSerial = 0;
+let progressAnswers: readonly SessionProgressAnswer[] = [];
 let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null }>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
 let boxIdByPath: Readonly<Record<string, string>> = {};
@@ -339,6 +341,7 @@ function requestDigests(): void {
     .then((reply) => {
       if (serial !== digestsRequestSerial || reply.type !== 'director-digests-result' || !reply.ok) return;
       verdictByKey = { ...verdictByKey, ...reply.verdictByKey };
+      progressAnswers = reply.progressAnswers;
       dock?.refreshDigests();
       paintPresence();
     })
@@ -425,6 +428,7 @@ function mountDock(): void {
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
     boxChoices: () => moduleChoices,
     digestOf: directorChatLineOf,
+    progressAnswers: () => progressAnswers.filter((answer) => answer.sessionId === sessionId),
     railFields: () => sessionRailFieldsOf(sessionId, watchBySessionId.get(sessionId)?.subagents ?? [], false),
   });
   parts.dockSlot.append(dock.element);
@@ -445,6 +449,7 @@ function showSession(sessionId: string | null): void {
   }
   if (!isSameSession) {
     verdictByKey = {};
+    progressAnswers = [];
     changedBoxIds = new Set();
     boxIdByPath = {};
     answeredPaths = new Set();
@@ -596,7 +601,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
     closeMenu();
   });
   onDirectorDigestKept((sessionId) => {
-    if (isActive && watchBySessionId.has(sessionId)) requestDigests();
+    if (isActive && (sessionId === shownSessionId || watchBySessionId.has(sessionId))) requestDigests();
   });
   onBoardSessionTraceChanged((sessionId) => {
     if (!isActive) return;

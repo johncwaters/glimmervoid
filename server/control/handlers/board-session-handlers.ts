@@ -97,9 +97,28 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
       if (!director) return ws.send(JSON.stringify({ ...reply, ok: true, verdictByKey: {} }));
       try {
-        ws.send(JSON.stringify({ ...reply, ok: true, verdictByKey: await director.verdictsOf(message.sessionIds) }));
+        const [verdictByKey, progressAnswers] = await Promise.all([director.verdictsOf(message.sessionIds), director.progressAnswersFor(message.sessionIds)]);
+        ws.send(JSON.stringify({ ...reply, ok: true, verdictByKey, progressAnswers }));
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Director digests read failed: ${errorMessage(error)}` }));
+      }
+    },
+    'studio-progress-ask': async (message: ClientMessageOf<'studio-progress-ask'>, ws: ControlSocket) => {
+      const reply = { type: 'studio-progress-ask-result', id: message.id, requestId: message.requestId ?? null };
+      const main = findSession(message);
+      if (!main) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
+      if (!director || !main.isStudioMain) return ws.send(JSON.stringify({ ...reply, ok: true, isAnswered: false }));
+      try {
+        const branches = [...sessions.values()].filter((candidate) => candidate.branchOf?.parentId === main.id && !candidate._destroyed);
+        const agents = [main, ...branches].map((agent) => ({ sessionId: agent.id, name: agent.name }));
+        const boardIdOf = async () => {
+          const boxes = codemap ? await codemap.boxesOfSession(main.path, main.id, []) : null;
+          return boxes?.ok ? boxes.boardId : null;
+        };
+        const isAnswered = await director.answerProgress({ mainSessionId: main.id, agents, question: message.text, boardIdOf });
+        ws.send(JSON.stringify({ ...reply, ok: true, isAnswered }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: true, isAnswered: false, error: errorMessage(error) }));
       }
     },
   } satisfies ControlHandlerTable;
@@ -111,6 +130,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     'studio-main-ensure': (msg, requestId, message) => ({ type: 'studio-main-ensure-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'codemap-folder-toggle': (msg, requestId, message) => ({ type: 'codemap-folder-toggle-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'director-digests': (msg, requestId, message) => ({ type: 'director-digests-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'studio-progress-ask': (msg, requestId, message) => ({ type: 'studio-progress-ask-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: [] };
