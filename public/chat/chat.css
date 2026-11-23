@@ -268,7 +268,7 @@
 
 .chat-turn-body { display: flex; flex-direction: column; gap: 6px; }
 
-.chat-turn-tool, .chat-turn-call { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
+.chat-turn-call { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-turn-tool-count { display: flex; flex: none; gap: 1ch; min-width: 14ch; white-space: nowrap; }
 

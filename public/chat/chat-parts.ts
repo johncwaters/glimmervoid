@@ -8,7 +8,7 @@ import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { copyButton } from '../ui/copy-button.ts';
-import { currentCallOf, digestTurn, isInterimReply } from './turn-digest-core.ts';
+import { digestTurn, isInterimReply } from './turn-digest-core.ts';
 import type { FilePatch, ToolCallEntry, ToolCallState, TurnSegment } from './turn-digest-core.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import type { StatusIcon } from '#shared/state-icons.ts';
@@ -43,7 +43,6 @@ interface TurnView {
   toolCount: HTMLElement;
   toolNumber: HTMLElement;
   toolWord: HTMLElement;
-  currentCall: HTMLElement;
   diff: HTMLElement;
   diffToggle: HTMLButtonElement;
   mountedDiffs: MountedFileDiff[];
@@ -331,14 +330,13 @@ function createTurnView(): TurnView {
   const toolWord = el('span', 'chat-turn-tool-word');
   const toolCount = el('span', 'chat-turn-tool-count');
   toolCount.append(toolNumber, toolWord);
-  const currentCall = el('span', 'chat-turn-tool');
   const diffToggle = button({ variant: 'icon', size: 'small', label: 'Diff', icon: createLineIcon(DIFF_ICON_PATH, '1.6') });
   diffToggle.classList.add('chat-turn-diff-toggle');
   diffToggle.setAttribute('aria-expanded', 'false');
   const diff = el('div', 'chat-turn-diff');
   diff.hidden = true;
   element.append(body, brief, meta, work, diff);
-  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, currentCall, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
+  return { element, brief, body, meta, work, chevron, toolCount, toolNumber, toolWord, diff, diffToggle, mountedDiffs: [], isDiffOpen: false, workSegments: createSegmentList(), workIsOver: null, bodySegments: createSegmentList(), part: null, hasWork: false, isOpen: false };
 }
 
 function syncBodySegments(view: TurnView, segments: readonly TurnSegment[], isArriving: boolean): void {
@@ -367,10 +365,9 @@ function tickToolNumber(view: TurnView, toolCount: number): void {
 
 function showRunningRow(view: TurnView, part: TurnPart): void {
   view.hasWork = part.toolCount > 0;
-  if (view.toolCount.parentElement !== view.meta) view.meta.replaceChildren(view.chevron, view.toolCount, view.currentCall);
+  if (view.toolCount.parentElement !== view.meta) view.meta.replaceChildren(view.chevron, view.toolCount);
   tickToolNumber(view, part.toolCount);
   view.toolWord.textContent = part.toolCount === 1 ? 'tool call' : 'tool calls';
-  view.currentCall.textContent = currentCallOf(part.segments);
 }
 
 function showEndedRow(view: TurnView, part: TurnPart, turnEnd: TurnEnd | null): void {
