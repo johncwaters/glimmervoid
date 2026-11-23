@@ -24,13 +24,16 @@ import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { createDock } from './dock.ts';
-import { NO_PRESENCE, faceStatusTextOf, foldPresence, presencePathsOf } from './presence-core.ts';
+import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
 import type { AskCards } from './ask-card.ts';
-import { createPresenceLayer } from './presence-layer.ts';
-import { GLOW_TIER_RANK } from './presence-layer.ts';
-import type { GlowTier, PresenceLayer, SessionFace } from './presence-layer.ts';
+import { GLOW_TIER_RANK, createPresenceLayer, shownBoundsOfBoard } from './presence-layer.ts';
+import type { GlowTier, PresenceLayer } from './presence-layer.ts';
+import { createAgentCards, isBusyPhase } from './agent-card.ts';
+import type { AgentCardModel, AgentCards } from './agent-card.ts';
+import { openSwitchAccountDialog } from '../session-card/card-account.ts';
+import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
@@ -46,15 +49,16 @@ const TITLE_SIZE_FALLBACK_PX = 16;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
 const OPEN_REPO_TEXT = 'Open a repo';
-const RESTART_MAIN_TEXT = 'Restart main';
 const NO_MAP_TEXT = 'This session has no code map yet.';
 const NO_MAIN_TEXT = 'The main agent for this repo did not start.';
+const TURN_OPENINGS_KEPT = 20;
 
 interface SessionWatch {
   feed: ChatFeed;
   presence: Presence;
   lastBeat: ActivityBeat | null;
   subagents: readonly RunningSubagent[];
+  turnOpenedAts: number[];
 }
 
 interface ViewParts {
@@ -66,6 +70,7 @@ interface ViewParts {
   dockSlot: HTMLElement;
   presenceLayer: PresenceLayer;
   askCards: AskCards;
+  agentCards: AgentCards;
   guest: BoardHostGuest;
 }
 
@@ -89,6 +94,7 @@ let digestByKey: Readonly<Record<string, string>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
 let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
+const openedBranchIds = new Set<string>();
 
 function repoChoices(): RepoChoice[] {
   const repoSessions: RepoSession[] = [...sessionUIs].flatMap(([id, ui]) => ui.isStudioMain ? [{ id, path: ui.path }] : []);
@@ -143,6 +149,7 @@ function openWatch(sessionId: string): SessionWatch {
     presence: NO_PRESENCE,
     lastBeat: null,
     subagents: [],
+    turnOpenedAts: [],
   };
   return watch;
 }
@@ -162,8 +169,13 @@ function syncWatches(): void {
   }
 }
 
-function addressFace(face: SessionFace): void {
-  dock?.addressSession(face.sessionId, face.agentLabel);
+function addressAgent(model: AgentCardModel): void {
+  dock?.addressSession(model.sessionId, model.name);
+}
+
+function toggleOpenedBranch(sessionId: string): void {
+  if (!openedBranchIds.delete(sessionId)) openedBranchIds.add(sessionId);
+  paintPresence();
 }
 
 function shownBranchIds(): string[] {
@@ -215,6 +227,7 @@ function showNotice(text: string | null): void {
   if (!parts) return;
   parts.notice.hidden = text === null;
   parts.notice.textContent = text ?? '';
+  paintPresence();
 }
 
 function seatOnHost(): void {
@@ -228,25 +241,36 @@ function boxIdOfPresencePath(presencePath: string | null): string | null {
   return boxIdByPath[presencePath] ?? null;
 }
 
-function sessionFaceOf(sessionId: string, watch: SessionWatch): SessionFace | null {
+function latestDigestOf(sessionId: string, watch: SessionWatch): string | null {
+  for (const openedAt of [...watch.turnOpenedAts].reverse()) {
+    const digest = directorDigestOf(sessionId, openedAt);
+    if (digest !== null) return digest;
+  }
+  return null;
+}
+
+function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardModel | null {
   const ui = sessionUIs.get(sessionId);
   if (!ui) return null;
   const phase = phaseOfSession(sessionId);
+  if (isBusyPhase(phase)) openedBranchIds.delete(sessionId);
   return {
     sessionId,
-    boxId: ui.branchOf ? ui.branchOf.aboutBoxId : boxIdOfPresencePath(watch.presence.workedPath),
+    name: sessionName(ui) || sessionId.slice(0, 8),
     agentId: ui.agent ?? null,
-    agentLabel: sessionName(ui) || sessionId.slice(0, 8),
     isMain: sessionId === shownSessionId,
     isBranch: Boolean(ui.branchOf),
+    boxIds: [ui.branchOf?.aboutBoxId ?? null, fallbackBoxId].flatMap((candidate) => candidate ?? []),
     phase,
-    statusText: faceStatusTextOf(phase, watch.lastBeat),
-    subagents: phase === 'working' || phase === 'monitoring' ? watch.subagents : [],
+    beat: phase === 'working' ? watch.lastBeat : null,
+    digest: latestDigestOf(sessionId, watch),
+    subagents: isBusyPhase(phase) ? watch.subagents : [],
+    isOpened: openedBranchIds.has(sessionId),
   };
 }
 
 function paintPresence(): void {
-  if (!parts || boardId === null) return;
+  if (!parts) return;
   const tierByBoxId = new Map<string, GlowTier>();
   const markPaths = (paths: readonly string[], tier: GlowTier) => {
     for (const boxId of paths.flatMap((presencePath) => boxIdOfPresencePath(presencePath) ?? [])) {
@@ -260,8 +284,10 @@ function paintPresence(): void {
   }
   markPaths(presenceOf(shownSessionId).namedPaths, 'named');
   const glows = [...tierByBoxId].map(([boxId, tier]) => ({ boxId, tier }));
-  const faces = [...watchBySessionId].flatMap(([sessionId, watch]) => sessionFaceOf(sessionId, watch) ?? []);
-  parts.presenceLayer.paint({ glows, faces, fallbackBoxId }, tiledBoardOf(boardId)?.board ?? null);
+  const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
+  parts.presenceLayer.paint({ glows }, board);
+  const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
+  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), hostCamera);
   paintAsks();
 }
 
@@ -279,6 +305,7 @@ function requestDigests(): void {
       if (serial !== digestsRequestSerial || reply.type !== 'director-digests-result' || !reply.ok) return;
       digestByKey = { ...digestByKey, ...reply.digestByKey };
       dock?.refreshDigests();
+      paintPresence();
     })
     .catch(() => {});
 }
@@ -300,6 +327,8 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
   if (!watch) return;
   const workingDirectory = sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null;
   const nextPresence = foldPresence(watch.presence, appendedRecords, workingDirectory);
+  const openedAts = appendedRecords.filter(opensOperatorTurn).map((record) => record.ts);
+  watch.turnOpenedAts = [...watch.turnOpenedAts, ...openedAts].slice(-TURN_OPENINGS_KEPT);
   const hasNewPath = presencePathsOf(nextPresence).some(isUnaskedPath);
   watch.presence = nextPresence;
   if (hasNewPath) {
@@ -454,10 +483,10 @@ function menuActionItem(label: string, action: string, onPick: () => void): HTML
   return item;
 }
 
-function restartMain(mainId: string): void {
-  const ui = sessionUIs.get(mainId);
+function restartAgent(sessionId: string): void {
+  const ui = sessionUIs.get(sessionId);
   if (!ui) return;
-  void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(mainId, { readState: () => ui.currentState, canListEarlier: true }));
+  void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: true }));
 }
 
 function openMenu(): void {
@@ -475,11 +504,7 @@ function openMenu(): void {
     return item;
   });
   const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', openStudioRepo);
-  const mainId = shownSessionId;
-  const restartItems = mainId === null || !sessionUIs.get(mainId)?.isStudioMain ? [] : [
-    menuActionItem(RESTART_MAIN_TEXT, 'board-session-restart-main', () => restartMain(mainId)),
-  ];
-  parts.menu.replaceChildren(...items, openRepoItem, ...restartItems);
+  parts.menu.replaceChildren(...items, openRepoItem);
   parts.menu.hidden = false;
   parts.chip.setAttribute('aria-expanded', 'true');
 }
@@ -502,7 +527,8 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const menu = el('div', 'bs-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
-  const presenceLayer = createPresenceLayer(boundsOfHostBox, addressFace);
+  const presenceLayer = createPresenceLayer(boundsOfHostBox);
+  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, toggleOpened: toggleOpenedBranch });
   const topLeft = el('div', 'bs-top-left');
   topLeft.append(chip, menu);
   const notice = el('p', 'bs-notice');
@@ -514,7 +540,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   panel.replaceChildren(root);
   const guest: BoardHostGuest = {
     chrome: topLeft,
-    overlays: [notice, dockSlot, askCards.element],
+    overlays: [notice, agentCards.element, dockSlot, askCards.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,
@@ -524,7 +550,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
       paintPresence();
     },
   };
-  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, guest };
+  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, agentCards, guest };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });

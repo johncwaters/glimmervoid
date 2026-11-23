@@ -1,37 +1,14 @@
 import type { Board } from '#shared/contracts/whiteboard.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
-import type { ChatPhase } from '../chat/chat-activity-core.ts';
-import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { el } from '../dom-helpers.ts';
-import { paintAgentMark } from '../session-card/agent-mark.ts';
-import { paintStatusIcon } from '../status-icon.ts';
-import type { StatusIcon } from '#shared/state-icons.ts';
-import { createPressable } from '../ui/pressable.ts';
 
 export type GlowTier = 'read' | 'named' | 'edited';
 export const GLOW_TIER_RANK: Readonly<Record<GlowTier, number>> = { read: 0, named: 1, edited: 2 };
 
-const FACE_SIZE = 28;
-const FACE_GAP = 6;
 const GLOW_PADDING = 6;
-const STATUS_ICON_BY_PHASE: Readonly<Partial<Record<ChatPhase, StatusIcon>>> = { starting: 'starting', working: 'working', monitoring: 'monitoring' };
-
-export interface SessionFace {
-  sessionId: string;
-  boxId: string | null;
-  agentId: string | null;
-  agentLabel: string;
-  isMain: boolean;
-  isBranch: boolean;
-  phase: ChatPhase;
-  statusText: string | null;
-  subagents: readonly RunningSubagent[];
-}
 
 interface PresenceMarks {
   glows: readonly { boxId: string; tier: GlowTier }[];
-  faces: readonly SessionFace[];
-  fallbackBoxId: string | null;
 }
 
 export interface PresenceLayer {
@@ -55,45 +32,24 @@ function place(node: HTMLElement, rect: Rect): void {
   node.style.height = `${rect.height}px`;
 }
 
-function subagentFaceOf(subagent: RunningSubagent): HTMLElement {
-  return el('span', 'bs-face bs-face-sub', subagent.type.slice(0, 1).toUpperCase());
+export function shownBoundsOfBoard(board: Board | null, boundsOf: (boxId: string) => Rect | null): (boxId: string) => Rect | null {
+  const frameIdByBoxId = collapsedFrameIdByBoxIdOf(board);
+  return (boxId) => {
+    const frameId = frameIdByBoxId.get(boxId);
+    return (frameId === undefined ? null : boundsOf(frameId)) ?? boundsOf(boxId);
+  };
 }
 
-function whoOf(face: SessionFace, onFacePicked: (face: SessionFace) => void): HTMLElement {
-  const who = el('div', 'bs-who');
-  who.dataset.phase = face.phase;
-  who.dataset.sessionId = face.sessionId;
-  const faceButton = createPressable(['bs-face', 'bs-presence-face', face.isMain ? 'bs-face-main' : '', face.isBranch ? 'bs-face-branch bs-presence-branch' : ''].filter(Boolean).join(' '));
-  faceButton.dataset.action = 'board-session-address-face';
-  faceButton.setAttribute('aria-label', [`Message ${face.agentLabel}`, face.statusText].filter(Boolean).join(', '));
-  paintAgentMark(faceButton, face.agentId, face.agentLabel);
-  faceButton.addEventListener('pointerdown', (event) => event.stopPropagation());
-  faceButton.addEventListener('click', () => onFacePicked(face));
-  who.append(faceButton, ...face.subagents.map(subagentFaceOf));
-  const statusIcon = STATUS_ICON_BY_PHASE[face.phase];
-  if (statusIcon === undefined) return who;
-  const badge = el('span', 'bs-face-status');
-  badge.setAttribute('aria-hidden', 'true');
-  paintStatusIcon(badge, statusIcon);
-  faceButton.append(badge);
-  return who;
-}
-
-export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, onFacePicked: (face: SessionFace) => void): PresenceLayer {
+export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null): PresenceLayer {
   const element = el('div', 'bs-presence');
   const glows = el('div', 'bs-presence-glows');
   glows.setAttribute('aria-hidden', 'true');
-  const faces = el('div', 'bs-presence-faces');
-  element.append(glows, faces);
+  element.append(glows);
 
   return {
     element,
     paint: (marks, board) => {
-      const frameIdByBoxId = collapsedFrameIdByBoxIdOf(board);
-      const shownBoundsOf = (boxId: string): Rect | null => {
-        const frameId = frameIdByBoxId.get(boxId);
-        return (frameId === undefined ? null : boundsOf(frameId)) ?? boundsOf(boxId);
-      };
+      const shownBoundsOf = shownBoundsOfBoard(board, boundsOf);
       glows.replaceChildren(...marks.glows.flatMap(({ boxId, tier }) => {
         const rect = shownBoundsOf(boxId);
         if (rect === null) return [];
@@ -102,19 +58,6 @@ export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null, on
         place(glow, { x: rect.x - GLOW_PADDING, y: rect.y - GLOW_PADDING, width: rect.width + GLOW_PADDING * 2, height: rect.height + GLOW_PADDING * 2 });
         return [glow];
       }));
-      const facesOnBoxCount = new Map<string, number>();
-      const boardWhos: HTMLElement[] = [];
-      for (const face of marks.faces) {
-        const boxId = [face.boxId, marks.fallbackBoxId].find((candidate) => candidate !== null && shownBoundsOf(candidate) !== null) ?? null;
-        const rect = boxId === null ? null : shownBoundsOf(boxId);
-        const who = whoOf(face, onFacePicked);
-        if (rect === null || boxId === null) continue;
-        const stackIndex = facesOnBoxCount.get(boxId) ?? 0;
-        facesOnBoxCount.set(boxId, stackIndex + 1);
-        who.style.transform = `translate(${rect.x + rect.width - FACE_SIZE / 2}px, ${rect.y - FACE_SIZE / 2 - stackIndex * (FACE_SIZE + FACE_GAP)}px)`;
-        boardWhos.push(who);
-      }
-      faces.replaceChildren(...boardWhos);
     },
   };
 }

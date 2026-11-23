@@ -1537,6 +1537,10 @@
     {
       "name": "harness",
       "definition": "A page that drives real code by hand: the small HTML page and script an agent writes to render one real component and its states for a UI mockup, and the hand-run drivers under harness/"
+    },
+    {
+      "name": "digest",
+      "definition": "The one-line summary the Studio director writes of an agent's long reply, shown on the agent's card and in place of the reply in the Studio log"
     }
   ],
   "retired": [

@@ -62,8 +62,12 @@ async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Bo
   await branchReply.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-you.bs-row-branch', { hasText: 'Add refunds' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-you.bs-row-branch', { hasText: 'You are a branch' }).count(), 0, 'the branch bubble shows only what the operator typed');
-  await root.locator('.bs-presence-branch').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await waitForRefundsInParent(projectDirectory);
+  const branchFace = root.locator('.bs-card-shrunk:not([hidden]) .bs-card-shrunk-face').first();
+  await branchFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-card[data-branch]:not([hidden])').count(), 0, 'an idle branch shows only its face');
+  await branchFace.click();
+  await root.locator('.bs-card[data-branch]:not([hidden])').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
 
   await root.locator('.bs-pill-address-clear').click();
   await addressText.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -119,7 +123,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  const faceOnBox = root.locator('.bs-presence-faces .bs-who .bs-face-main').first();
+  const faceOnBox = root.locator('.bs-card[data-main] .bs-face-main').first();
   await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.locator('#tab-focus').click();
@@ -152,8 +156,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-row-you', { hasText: 'narrate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-agent', { hasText: 'Build passed' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-agent .bs-face').count() > 0, true, 'an agent bubble carries the agent face');
-  await root.locator('.bs-presence-faces .bs-who[data-phase="working"] .bs-face-status .status-icon[data-icon="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await root.locator('.bs-who-status, .bs-who-subagents').count(), 0, 'faces carry a status icon, never a text tag');
+  await root.locator('.bs-card[data-main][data-phase="working"] .chat-activity[data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-card[data-main]').count(), 1, 'the main agent has exactly one card');
   assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');
@@ -166,10 +170,14 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.wb-island-agent').isVisible(), false, 'Studio shows no pairing notice for its main agent');
   assert.equal(await root.locator('.bs-activity').count(), 0, 'the working status shows on the face only');
 
-  const studioMainId = await root.locator('.bs-who:has(.bs-face-main)').first().getAttribute('data-session-id');
-  assert.ok(studioMainId, 'the Studio main shows as a face');
+  const mainCard = root.locator('.bs-card[data-main]').first();
+  const studioMainId = await mainCard.getAttribute('data-session-id');
+  assert.ok(studioMainId, 'the Studio main shows as a card');
   await chip.click();
-  await root.locator('[data-action="board-session-restart-main"]').click();
+  assert.equal(await root.locator('.bs-menu [data-action="board-session-restart-main"]').count(), 0, 'the repo menu holds repos and Open a repo only');
+  await chip.click();
+  await mainCard.locator('[data-action="board-session-agent-menu"]').click();
+  await mainCard.locator('[data-action="board-session-agent-restart"]').click();
   const restartDialog = page.locator('.resume-dialog');
   await restartDialog.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await restartDialog.getByText('Fresh conversation', { exact: true }).click();

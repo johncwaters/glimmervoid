@@ -167,20 +167,50 @@
   .bs-presence-glow { border: 2px solid color-mix(in srgb, var(--agent-brand, #ff7a59) 70%, transparent); border-radius: 10px; animation: bs-glow 1.6s ease-in-out infinite alternate; }
   .bs-presence-glow[data-tier='read'] { border: 1px dashed color-mix(in srgb, var(--agent-brand, #ff7a59) 45%, transparent); animation: none; }
   .bs-presence-glow[data-tier='edited'] { border-width: 3px; border-color: var(--agent-brand, #ff7a59); }
-  .bs-presence-faces .bs-who { position: absolute; top: 0; left: 0; transition: transform 240ms ease; }
-  .bs-who { display: flex; align-items: center; gap: 4px; pointer-events: auto; white-space: nowrap; }
-  .bs-who .bs-presence-face { width: 28px; height: 28px; border: 0; box-shadow: 0 0 0 2px var(--bg); cursor: pointer; }
-  .bs-who .bs-presence-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .bs-who .bs-face-main { outline: 1.5px solid var(--accent); outline-offset: 2px; }
   .bs-face-sub { width: 18px; height: 18px; padding: 0; font-size: var(--type-meta); box-shadow: 0 0 0 2px var(--bg); }
-  .bs-who .bs-presence-face { position: relative; overflow: visible; }
-  .bs-face-status { position: absolute; right: -4px; bottom: -4px; display: grid; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--bg-card); pointer-events: none; }
-  .bs-who[data-phase='starting'] .bs-face-status { color: var(--state-starting); }
-  .bs-who[data-phase='working'] .bs-face-status { color: var(--state-running); }
-  .bs-who[data-phase='monitoring'] .bs-face-status { color: var(--state-monitoring); }
-  .bs-who[data-phase='quiet'] .bs-presence-face, .bs-who[data-phase='stopped'] .bs-presence-face { opacity: 0.6; }
   @keyframes bs-glow { from { opacity: 0.55; } to { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .bs-presence-glow { animation: none; } .bs-presence-faces .bs-who { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .bs-presence-glow { animation: none; } }
+
+  .bs-cards { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .bs-card-wires { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .bs-card-wire { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .bs-card-wire[data-branch] { stroke: var(--bs-branch); }
+  .bs-card-wire[data-hidden] { display: none; }
+  .bs-card {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 250px;
+    padding: 10px 12px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-card);
+    color: var(--text);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+    pointer-events: auto;
+    box-sizing: border-box;
+  }
+  .bs-card[hidden] { display: none; }
+  .bs-card[data-branch] { border-color: color-mix(in srgb, var(--bs-branch) 55%, var(--border)); }
+  .bs-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .bs-card-head .bs-face { cursor: pointer; }
+  .bs-card-head .bs-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .bs-card-head .bs-face-main { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+  .bs-card-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-head); font-weight: 700; }
+  .bs-card-subagents { display: flex; gap: 2px; }
+  .bs-card-subagents:empty { display: none; }
+  .bs-card .chat-activity { margin: 0; padding: 0; }
+  .bs-card .chat-activity[data-idle] { display: none; }
+  .bs-card-digest { margin: 0; color: var(--text-head); font-size: var(--type-meta); line-height: 1.4; }
+  .bs-card-digest[hidden] { display: none; }
+  .bs-card-menu { top: 40px; right: 8px; left: auto; min-width: 180px; }
+  .bs-card-shrunk { position: absolute; top: 0; left: 0; pointer-events: auto; }
+  .bs-card-shrunk[hidden] { display: none; }
+  .bs-card-shrunk-face { width: 28px; height: 28px; border: 0; opacity: 0.7; cursor: pointer; }
+  .bs-card-shrunk-face:hover, .bs-card-shrunk-face:focus-visible { opacity: 1; outline: 2px solid var(--bs-branch); outline-offset: 2px; }
 
   .bs-asks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
   .bs-ask {
@@ -211,7 +241,6 @@
   .bs-row-branch .bs-bubble-you { background: color-mix(in srgb, var(--bs-branch) 24%, var(--bg-card)); }
   .bs-row-agent.bs-row-branch { cursor: pointer; }
   .bs-row-agent.bs-row-branch:focus-visible { outline: 2px solid var(--bs-branch); outline-offset: 2px; border-radius: 14px; }
-  .bs-who .bs-presence-branch { box-shadow: 0 0 0 2px var(--bs-branch); }
 
   .bs-pill-address {
     display: inline-flex;
