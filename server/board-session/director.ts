@@ -5,11 +5,12 @@ import path from 'node:path';
 import type { Session } from '../../session/sessions.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { DirectorDigestState } from '../../shared/contracts/director-digests.ts';
+import type { DirectorDigest } from '../../shared/contracts/director-digests.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import {
-  DIRECTOR_PROMPT_FILE, DIRECTOR_REPLY_MAX_CHARS, DIRECTOR_RESULT_FILE, buildDirectorPrompt, directorDigestsOf, directorPayloadOf,
-  directorTurnOf, isWorthDirecting, leftoverDirectorCardOps, parseDirectorDigest, withDirectorDigest,
+  DIRECTOR_PROMPT_FILE, DIRECTOR_REPLY_MAX_CHARS, DIRECTOR_RESULT_FILE, buildDirectorPrompt, directorPayloadOf, directorTurnOf,
+  directorVerdictsOf, hasReply, leftoverDirectorCardOps, parseDirectorVerdict, withDirectorDigest,
 } from '../core/director-core.ts';
 import type { DirectorTurn } from '../core/director-core.ts';
 import { createJsonStateStore } from '../json-file.ts';
@@ -56,13 +57,16 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
   const shutdownController = new AbortController();
   let digestState: DirectorDigestState = DirectorDigestState.parse({});
   let running: Promise<void> | null = null;
+  const unsavedVerdicts: { sessionId: string; digest: DirectorDigest }[] = [];
   const store = createJsonStateStore({
     name: 'director digests', filePath: digestsPath,
     parse: (raw) => DirectorDigestState.safeParse(raw).data ?? null,
-    adopt: (loadedState) => { digestState = loadedState ?? DirectorDigestState.parse({}); },
+    adopt: (loadedState) => {
+      digestState = unsavedVerdicts.reduce((state, unsaved) => withDirectorDigest(state, unsaved.sessionId, unsaved.digest), loadedState ?? DirectorDigestState.parse({}));
+    },
     warn: (message, fields) => logger.warn(`[director] ${message} ${JSON.stringify(fields)}`),
   });
-  const loaded = store.load();
+  void store.load();
 
   async function readTurn(session: DirectedSession, endedAtMs: number): Promise<DirectorTurn | null> {
     await drainTrace(session.id);
@@ -92,27 +96,40 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     }
   }
 
-  async function keepDigest(sessionId: string, openedAt: number, digest: string, points: string[]): Promise<void> {
-    await loaded;
-    digestState = withDirectorDigest(digestState, sessionId, { openedAt, digest, points });
+  async function saveDigestState(): Promise<void> {
     const keptState = digestState;
-    await store.write(keptState, () => `${JSON.stringify(keptState, null, 2)}\n`);
+    const isSaved = await store.write(keptState, () => `${JSON.stringify(keptState, null, 2)}\n`);
+    if (isSaved) unsavedVerdicts.length = 0;
+  }
+
+  async function loadWithUnsavedVerdicts(): Promise<void> {
+    await store.load();
+    if (unsavedVerdicts.length > 0) await saveDigestState();
+  }
+
+  async function keepVerdict(sessionId: string, openedAt: number, verdict: { chatLine: string | null; digest: string | null; points: string[] }): Promise<void> {
+    await store.load();
+    const digest: DirectorDigest = { openedAt, ...verdict };
+    digestState = withDirectorDigest(digestState, sessionId, digest);
+    unsavedVerdicts.push({ sessionId, digest });
+    await saveDigestState();
     announceDigest(sessionId);
   }
 
   async function direct({ session, endedAtMs }: QueuedTurn): Promise<void> {
     const turn = await readTurn(session, endedAtMs);
-    if (turn === null || !isWorthDirecting(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
+    if (turn === null || !hasReply(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
     const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(DIRECTOR_TIMEOUT_MS)]);
     const laneOutput = await runLane(turn, signal);
     if (signal.aborted) return;
-    const directed = parseDirectorDigest(laneOutput);
-    if (directed === null) {
-      logger.warn(`[director] ${session.name}: the lane returned no usable digest`);
+    const verdict = parseDirectorVerdict(laneOutput);
+    if (verdict === null) {
+      logger.warn(`[director] ${session.name}: the lane returned no usable verdict`);
       return;
     }
-    await keepDigest(session.id, turn.openedAt, directed.digest, directed.points);
+    if (verdict.chatLine === null && verdict.digest === null) return;
+    await keepVerdict(session.id, turn.openedAt, verdict);
   }
 
   function startNext(): void {
@@ -162,13 +179,13 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     armSettle(settling.session, settling.endedAtMs, settling.settleDeadlineMs);
   }
 
-  async function digestsOf(sessionIds: readonly string[]): Promise<Record<string, string>> {
-    await loaded;
-    return directorDigestsOf(digestState, sessionIds);
+  async function verdictsOf(sessionIds: readonly string[]) {
+    await loadWithUnsavedVerdicts();
+    return directorVerdictsOf(digestState, sessionIds);
   }
 
   async function removeLeftoverCards(): Promise<void> {
-    await loaded;
+    await store.load();
     if (digestState.hasSweptLeftoverCards) return;
     await boards.loaded;
     for (const summary of boards.snapshotMessage().boards) {
@@ -198,7 +215,7 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     await store.idle();
   }
 
-  return { onTurnEnd, onTraceAppended, digestsOf, stop };
+  return { onTurnEnd, onTraceAppended, verdictsOf, stop };
 }
 
 type Director = ReturnType<typeof createDirector>;
