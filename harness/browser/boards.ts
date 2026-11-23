@@ -2855,6 +2855,46 @@ async function verifyBoardSplitFollowsPicks(page: Page, panel: Locator, sessionI
   await page.locator('.focus-rail .session-row[data-board-id]', { hasText: laterTitle }).waitFor();
   assert.equal(await openBoardTitle(panel, unrelatedTitle).count(), 1, 'a board the operator picked stays open when the board list changes');
   await verifyShowBoardChangeKey(page, sessionId, unrelatedBoardId, unrelatedTitle);
+  await verifyGoToCardKeepsZoom(page, sessionId, unrelatedBoardId);
+}
+
+async function verifyGoToCardKeepsZoom(page: Page, sessionId: string, boardId: string): Promise<void> {
+  await goToFarCardAtZoom(page, sessionId, boardId, { wheelDeltaY: 200, wheelSteps: 8, cardHeightShare: 0.9, isZoomReady: (scale) => scale < 1.5 });
+  await goToFarCardAtZoom(page, sessionId, boardId, { wheelDeltaY: -200, wheelSteps: 30, cardHeightShare: 1 / 8, isZoomReady: (scale) => scale > 2 });
+}
+
+async function boardPaneCameraOf(page: Page): Promise<{ x: number; y: number; scale: number; width: number; height: number } | null> {
+  return page.evaluate(() => {
+    const world = document.querySelector<HTMLElement>('#focus-pane-board .wb-world');
+    const viewport = document.querySelector<HTMLElement>('#focus-pane-board .wb-viewport');
+    if (!world || !viewport) return null;
+    const transform = new DOMMatrixReadOnly(getComputedStyle(world).transform);
+    return { x: -transform.e / transform.a, y: -transform.f / transform.a, scale: transform.a, width: viewport.clientWidth / transform.a, height: viewport.clientHeight / transform.a };
+  });
+}
+
+async function goToFarCardAtZoom(page: Page, sessionId: string, boardId: string, zoom: { wheelDeltaY: number; wheelSteps: number; cardHeightShare: number; isZoomReady: (scale: number) => boolean }): Promise<void> {
+  const viewportBounds = await page.locator('#focus-pane-board .wb-viewport').boundingBox();
+  assert.ok(viewportBounds, 'the Board pane shows a board');
+  await page.mouse.move(viewportBounds.x + viewportBounds.width / 2, viewportBounds.y + viewportBounds.height / 2);
+  await page.keyboard.down('Control');
+  for (let step = 0; step < zoom.wheelSteps; step += 1) await page.mouse.wheel(0, zoom.wheelDeltaY);
+  await page.keyboard.up('Control');
+  const cameraBefore = await boardPaneCameraOf(page);
+  assert.ok(cameraBefore && zoom.isZoomReady(cameraBefore.scale), `the board is at the zoom the case needs: ${JSON.stringify(cameraBefore)}`);
+  const farCard = { x: cameraBefore.x + cameraBefore.width * 3, y: cameraBefore.y + cameraBefore.height * 3, width: cameraBefore.width / 4, height: cameraBefore.height * zoom.cardHeightShare };
+  await page.evaluate(async ({ authorId, changedBoardId, rect }) => {
+    const tileStoreUrl = '/whiteboard/board-tile-store.ts';
+    const { applyAgentChange } = await import(tileStoreUrl);
+    applyAgentChange({ type: 'whiteboard-agent-change', boardId: changedBoardId, version: 1, at: Date.now(), change: { author: { id: authorId, name: 'Claude' }, boxes: [{ id: 'far-card', title: 'Far card', rect }] } });
+  }, { authorId: sessionId, changedBoardId: boardId, rect: farCard });
+  await page.locator('#focus-pane-board').getByRole('button', { name: 'Go to card', exact: true }).click({ timeout: BOARD_TIMEOUT_MS });
+  await pollFor(`Go to card brings a card that fits into view at zoom ${cameraBefore.scale}`, BOARD_TIMEOUT_MS, async () => {
+    const camera = await boardPaneCameraOf(page);
+    if (!camera) return null;
+    const isCardInView = farCard.x >= camera.x && farCard.y >= camera.y && farCard.x + farCard.width <= camera.x + camera.width && farCard.y + farCard.height <= camera.y + camera.height;
+    return isCardInView && Math.abs(camera.scale - cameraBefore.scale) < 0.001 ? true : null;
+  });
 }
 
 async function verifyShowBoardChangeKey(page: Page, sessionId: string, boardId: string, boardTitle: string): Promise<void> {

@@ -14,6 +14,7 @@ import { dependencyWireId } from '../../shared/whiteboard-plan-core.ts';
 import { boxIdsShowingFile, boxIdsTitled } from '../../shared/whiteboard-board-index.ts';
 import { caseFoldedPathKey } from '../../shared/paths.ts';
 import { gridOfRects, hasSlotTouching } from '../../shared/spatial-grid-core.ts';
+import { SHOWN_BOX_ID_RE } from '../../shared/whiteboard-constants.ts';
 
 function elementWithMediaForImage(element: unknown): unknown {
   if (!isRecord(element) || !('image' in element)) return element;
@@ -492,7 +493,6 @@ function resolveBoardRef(boards: readonly Board[], ref: string): Board | { error
   return { error: `no board is called ${ref}: whiteboard list names the boards, and whiteboard new creates one` };
 }
 
-const SHOWN_BOX_ID_RE = /^shown-(\d{1,9})$/;
 const SHOWN_BOX_WIDTH = 480;
 const SHOWN_BOX_GAP = 60;
 const EMPTY_BOARD_ORIGIN = { x: 40, y: 40 };

@@ -428,6 +428,22 @@ export function createBoardEditor(options: BoardEditorOptions) {
       fitArea(bounds, MAX_FIT_ZOOM);
       return;
     }
+    glideToCamera(target);
+  }
+
+  function glideToView(view: Rect): void {
+    if (viewport.clientWidth === 0 || view.width <= 0) return;
+    const target = { x: view.x, y: view.y, scale: viewport.clientWidth / view.width };
+    if (!prefersReducedMotion()) {
+      glideToCamera(target);
+      return;
+    }
+    stopGlide();
+    camera = target;
+    applyCamera();
+  }
+
+  function glideToCamera(target: Camera): void {
     stopGlide();
     const halfWidthPx = viewport.clientWidth / 2;
     const halfHeightPx = viewport.clientHeight / 2;
@@ -2173,6 +2189,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     fit,
     fitArea: (bounds: Rect) => fitArea(bounds, MAX_FIT_ZOOM),
     frameArea: glideToArea,
+    glideToView,
     startPresenting,
     endPresenting,
     selectedIds: (): ReadonlySet<string> => selectedIds,

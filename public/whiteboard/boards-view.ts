@@ -737,11 +737,27 @@ function focusAgentChangeOf(boardId: string): void {
   ringAgentChange(boardId, change);
 }
 
+function currentViewArea(): Rect | null {
+  if (!parts || parts.viewport.clientWidth === 0) return null;
+  return { x: hostCamera.x, y: hostCamera.y, width: parts.viewport.clientWidth / hostCamera.scale, height: parts.viewport.clientHeight / hostCamera.scale };
+}
+
+function viewCenteredOn(cardArea: Rect, viewArea: Rect): Rect {
+  return { x: cardArea.x + cardArea.width / 2 - viewArea.width / 2, y: cardArea.y + cardArea.height / 2 - viewArea.height / 2, width: viewArea.width, height: viewArea.height };
+}
+
 function goToAgentChange(): void {
   const change = selectedBoardId ? offViewAgentChangeOf(selectedBoardId) : null;
   if (!change) return;
-  editor?.frameArea(rectAround(change.boxes.map((box) => box.rect)));
   dismissAgentChange();
+  const cardArea = rectAround(change.boxes.map((box) => box.rect));
+  const viewArea = currentViewArea();
+  const fitsView = viewArea !== null && cardArea.width <= viewArea.width && cardArea.height <= viewArea.height;
+  if (!fitsView) {
+    editor?.frameArea(cardArea);
+    return;
+  }
+  editor?.glideToView(viewCenteredOn(cardArea, viewArea));
 }
 
 export function paintBoard(): void {
@@ -1848,8 +1864,8 @@ export function leaveBoardHost(leavingGuest: BoardHostGuest): void {
   if (leavingGuest === guest) seatGuest(null);
 }
 
-export function glideHostTo(area: Rect): void {
-  editor?.frameArea(area);
+export function glideHostTo(view: Rect): void {
+  editor?.glideToView(view);
 }
 
 export function boundsOfHostBox(boxId: string): Rect | null {

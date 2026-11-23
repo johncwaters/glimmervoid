@@ -83,13 +83,35 @@ async function shownPageBoundsOf(page: Page): Promise<Box> {
   assert.fail('the shown page renders on the Studio map');
 }
 
+async function mapScaleOf(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const world = document.querySelector<HTMLElement>('.board-session-view .wb-world');
+    return world ? new DOMMatrixReadOnly(getComputedStyle(world).transform).a : Number.NaN;
+  });
+}
+
+async function shownPageInViewBoundsOf(page: Page): Promise<Box> {
+  const notice = page.locator('.board-session-view .wb-island-agent-change');
+  const deadline = Date.now() + BOARD_SESSION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    assert.equal(await notice.isVisible(), false, 'a card a Studio agent shows needs no Go to card notice');
+    const shownPageBounds = await shownPageBoundsOf(page);
+    const viewBounds = await boxOf(page, '.board-session-view .wb-viewport');
+    const isInView = shownPageBounds.x >= viewBounds.x && shownPageBounds.y >= viewBounds.y && shownPageBounds.x + shownPageBounds.width <= viewBounds.x + viewBounds.width && shownPageBounds.y + shownPageBounds.height <= viewBounds.y + viewBounds.height;
+    if (isInView) return shownPageBounds;
+    await delay(MERGE_POLL_MS);
+  }
+  assert.fail('a card a Studio agent shows comes into the Studio view');
+}
+
 async function verifyShownPageOnMap(page: Page): Promise<void> {
   const root = page.locator('.board-session-view');
   const pillInput = root.locator('.bs-pill textarea.chat-composer-input');
+  const scaleBefore = await mapScaleOf(page);
   await pillInput.fill('show-page');
   await pillInput.press('Enter');
-  await root.getByRole('button', { name: 'Go to card', exact: true }).click({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  const shownPageBounds = await shownPageBoundsOf(page);
+  const shownPageBounds = await shownPageInViewBoundsOf(page);
+  assert.equal(await mapScaleOf(page), scaleBefore, 'the map keeps its zoom while a shown card comes into view');
   const openPoint = await page.evaluate((bounds) => {
     for (let row = 1; row < 10; row += 1) {
       for (let column = 1; column < 10; column += 1) {

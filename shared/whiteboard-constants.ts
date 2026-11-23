@@ -17,6 +17,7 @@ export const NOTE_TONE_HEX: Readonly<Record<NoteTone, string>> = { yellow: '#f5d
 export const TITLE_GRADIENT_HEX: readonly string[] = [BRAND_ACCENT, NOTE_TONE_HEX.blue, '#ef4444'];
 export const STEP_STATUSES = ['planned', 'building', 'landed'] as const;
 export const BLOCK_RASTER_PX = 64;
+export const SHOWN_BOX_ID_RE = /^shown-(\d{1,9})$/;
 
 export function pointOfBox(box: Pick<Box, 'place'>): { x: number; y: number } | null {
   return typeof box.place === 'object' ? box.place.at : null;

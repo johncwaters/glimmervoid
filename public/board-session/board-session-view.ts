@@ -16,7 +16,8 @@ import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { boundsOfHostBox, glideHostTo, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
-import { tiledBoardOf } from '../whiteboard/board-tile-store.ts';
+import { dismissAgentChange, onAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
+import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
 import { onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
 import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
@@ -113,6 +114,7 @@ let peekedBoxId: string | null = null;
 let fetchedAsks: { boardId: string; asks: readonly OpenBoardAsk[] } | null = null;
 let requestedAsksKey: string | null = null;
 const OPEN_ASKS_TIMEOUT_MS = 10000;
+let unseenShownCards: { boardId: string; area: Rect } | null = null;
 let askGlide: { askBoxIds: ReadonlySet<string>; returnArea: Rect; shownArea: Rect } | null = null;
 const ASK_VIEW_TOP_MARGIN_PX = 64;
 const ASK_VIEW_SIDE_MARGIN_PX = 24;
@@ -308,13 +310,34 @@ function paintAsks(): void {
   returnFromAnsweredAsk(shownAsks, overlay);
   const askArea = unionOf(newAsks.map((shown) => shown.rect));
   if (askArea === null) return;
-  const rightReservedPx = reservedRightOf(overlay, parts.guide.element);
-  const clearArea = clearViewArea(overlay.clientWidth, overlay.clientHeight, parts.dockSlot.offsetHeight, rightReservedPx);
-  if (isRectInside(askArea, clearArea)) return;
-  const shownArea = viewShowingAsk(askArea, overlay.clientWidth, overlay.clientHeight, rightReservedPx);
+  const shownArea = viewAreaShowing(askArea);
+  if (shownArea === null) return;
   askGlide = { askBoxIds: new Set(newAsks.map((shown) => shown.askBoxId)), returnArea: currentViewArea(overlay), shownArea };
   glideHostTo(shownArea);
 }
+
+function viewAreaShowing(area: Rect): Rect | null {
+  if (!parts) return null;
+  const overlay = parts.askCards.element;
+  const rightReservedPx = reservedRightOf(overlay, parts.guide.element);
+  const clearArea = clearViewArea(overlay.clientWidth, overlay.clientHeight, parts.dockSlot.offsetHeight, rightReservedPx);
+  if (isRectInside(area, clearArea)) return null;
+  return viewShowingAsk(area, overlay.clientWidth, overlay.clientHeight, rightReservedPx);
+}
+
+function revealShownCards(): void {
+  const shownCards = unseenShownCards;
+  if (shownCards === null || shownCards.boardId !== boardId || !parts) return;
+  unseenShownCards = null;
+  dismissAgentChange();
+  const shownArea = viewAreaShowing(shownCards.area);
+  if (shownArea !== null) glideHostTo(shownArea);
+}
+
+onAgentChange((_sessionId, boardChange) => {
+  const shownCardArea = unionOf(boardChange.change.boxes.filter((box) => SHOWN_BOX_ID_RE.test(box.id)).map((box) => box.rect));
+  if (shownCardArea !== null) unseenShownCards = { boardId: boardChange.boardId, area: shownCardArea };
+});
 
 function requestOpenAsksIfStale(): void {
   const askedBoardId = boardId;
@@ -793,6 +816,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
     onBoxClicked: addressBox,
     onPainted: (camera) => {
       hostCamera = camera;
+      revealShownCards();
       paintPresence();
       paintChangesPeek();
     },
