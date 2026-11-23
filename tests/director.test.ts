@@ -32,7 +32,7 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
   const director = createDirector({
     spawnLane: async ({ cwd }) => {
       repliesSeenByLane.push(await fs.readFile(path.join(cwd, UNTRUSTED_PAYLOAD_FILENAME), 'utf8'));
-      await fs.writeFile(path.join(cwd, DIRECTOR_RESULT_FILE), JSON.stringify({ digest: DIGEST, points: [] }));
+      await fs.writeFile(path.join(cwd, DIRECTOR_RESULT_FILE), JSON.stringify({ chatLine: null, digest: DIGEST, points: [] }));
     },
     drainTrace: async () => {},
     readTracePage: async () => ({ records: [...records], start: 0, next: records.length, reset: false, path: 'trace.jsonl' }),
@@ -47,7 +47,7 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
   await waitMs(LATER_RECORD_DELAY_MS);
   director.onTraceAppended({ id: session.id, ...afterTurnEnd(records) });
   await waitMs(settleMs + 200);
-  const digests = await director.digestsOf([session.id]);
+  const digests = await director.verdictsOf([session.id]);
   await director.stop();
   await fs.rm(home, { recursive: true, force: true });
   return { digests, repliesSeenByLane, key: directorDigestKeyOf(session.id, openedAt) };
@@ -60,7 +60,7 @@ test('a reply that reaches the trace after the turn-end hook is still digested',
   });
   assert.equal(repliesSeenByLane.length, 1);
   assert.match(repliesSeenByLane[0] ?? '', /Checkout totals now add tax/);
-  assert.deepEqual(digests, { [key]: DIGEST });
+  assert.deepEqual(digests, { [key]: { chatLine: null, digest: DIGEST } });
 });
 
 test('the next prompt arriving inside the settle window still digests the turn that ended', async () => {
@@ -70,7 +70,7 @@ test('the next prompt arriving inside the settle window still digests the turn t
     return { opensOperatorTurn: true };
   });
   assert.match(repliesSeenByLane[0] ?? '', /Checkout totals now add tax/);
-  assert.deepEqual(digests, { [key]: DIGEST });
+  assert.deepEqual(digests, { [key]: { chatLine: null, digest: DIGEST } });
 });
 
 test('the leftover sweep removes only director cards with their own wire', () => {

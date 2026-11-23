@@ -336,7 +336,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null },
   { type: 'codemap-folder-toggle-result', id: 's1', requestId: 'b5', ok: true, isOpen: true, error: null },
   { type: 'director-digest-kept', id: 's1' },
-  { type: 'director-digests-result', id: 's1', requestId: 'b6', ok: true, digestByKey: { 'dir-0pc501t-334': 'Checkout totals now add tax' }, error: null },
+  { type: 'director-digests-result', id: 's1', requestId: 'b6', ok: true, verdictByKey: { 'dir-0pc501t-334': { chatLine: null, digest: 'Checkout totals now add tax' } }, error: null },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {

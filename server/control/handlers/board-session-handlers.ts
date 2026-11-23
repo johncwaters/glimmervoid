@@ -95,9 +95,9 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       const reply = { type: 'director-digests-result', id: message.id, requestId: message.requestId ?? null };
       const session = findSession(message);
       if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
-      if (!director) return ws.send(JSON.stringify({ ...reply, ok: true, digestByKey: {} }));
+      if (!director) return ws.send(JSON.stringify({ ...reply, ok: true, verdictByKey: {} }));
       try {
-        ws.send(JSON.stringify({ ...reply, ok: true, digestByKey: await director.digestsOf(message.sessionIds) }));
+        ws.send(JSON.stringify({ ...reply, ok: true, verdictByKey: await director.verdictsOf(message.sessionIds) }));
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Director digests read failed: ${errorMessage(error)}` }));
       }

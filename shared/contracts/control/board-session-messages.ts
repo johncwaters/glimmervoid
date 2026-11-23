@@ -35,5 +35,5 @@ export const boardSessionServerVariants = [
   loose('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
   loose('codemap-folder-toggle-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
   loose('director-digest-kept', { id: sessionId }),
-  loose('director-digests-result', { id: sessionId, requestId, ok: z.boolean(), digestByKey: z.record(z.string(), z.string()).default({}), error: optionalError }),
+  loose('director-digests-result', { id: sessionId, requestId, ok: z.boolean(), verdictByKey: z.record(z.string(), z.object({ chatLine: z.string().nullable(), digest: z.string().nullable() })).default({}), error: optionalError }),
 ] as const;

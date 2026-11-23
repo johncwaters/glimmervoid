@@ -12,7 +12,7 @@ import { wordCountOf } from './whiteboard-store-core.ts';
 export const DIRECTOR_PROMPT_FILE = 'director-prompt.txt';
 export const DIRECTOR_RESULT_FILE = 'director-result.json';
 export const DIRECTOR_REPLY_MAX_CHARS = 16000;
-const DIRECTOR_MIN_REPLY_CHARS = 400;
+const CHAT_LINE_MAX_CHARS = 160;
 const DIRECTOR_DIGESTS_PER_SESSION = 20;
 const DIRECTOR_SESSIONS_KEPT = 200;
 const DIRECTOR_UNTRUSTED_SOURCE = 'studio-turn-reply';
@@ -30,8 +30,14 @@ export interface DirectorTurn {
 }
 
 interface DirectedTurn {
-  digest: string;
+  chatLine: string | null;
+  digest: string | null;
   points: string[];
+}
+
+interface DirectorVerdict {
+  chatLine: string | null;
+  digest: string | null;
 }
 
 export function directorTurnOf(records: readonly TraceRecord[], endedAtMs: number): DirectorTurn | null {
@@ -44,8 +50,8 @@ export function directorTurnOf(records: readonly TraceRecord[], endedAtMs: numbe
   return { openedAt: opening.ts, replyText: replyTexts.join('\n\n') };
 }
 
-export function isWorthDirecting(turn: DirectorTurn): boolean {
-  return turn.replyText.length >= DIRECTOR_MIN_REPLY_CHARS;
+export function hasReply(turn: DirectorTurn): boolean {
+  return turn.replyText.trim().length > 0;
 }
 
 export function directorPayloadOf(turn: DirectorTurn, fetchedAt: string): UntrustedPayload {
@@ -56,15 +62,16 @@ export function buildDirectorPrompt(resultPath: string): string {
   return [
     UNTRUSTED_PREAMBLE,
     '',
-    `The one item in ${UNTRUSTED_PAYLOAD_FILENAME} is a coding agent's reply at the end of its turn. The operator will read your digest instead of that reply, on the agent's card in Studio.`,
+    `The one item in ${UNTRUSTED_PAYLOAD_FILENAME} is a coding agent's reply at the end of its turn. The operator never reads that reply directly: you decide what, if anything, reaches them.`,
     '',
     `Write ${resultPath} with the Write tool, holding only this JSON object:`,
-    '{"digest": "...", "points": ["..."]}',
+    '{"chatLine": "..." or null, "digest": "..." or null, "points": ["..."]}',
     '',
     'Rules:',
-    `- digest: one line, at most ${DIGEST_MAX_CHARS} characters, saying what the turn did or found, leading with the distinctive thing (the feature, file or bug), not a generic verb.`,
-    `- points: 0 to ${MAX_POINTS} short facts the operator still needs (a result, a failure, a follow-up), each at most ${POINT_MAX_CHARS} characters; digest and points together stay within ${CARD_WORD_LIMIT} words.`,
-    '- When the reply asks the operator a question or waits on a decision, the digest states that question.',
+    `- chatLine: one sentence of at most ${CHAT_LINE_MAX_CHARS} characters for the operator's chat, only when they must act (a question, a decision, a blocker) or a piece of work is finished; otherwise null. Most turns get null.`,
+    `- digest: what is worth keeping on the agent's card in Studio, one line of at most ${DIGEST_MAX_CHARS} characters leading with the distinctive thing (the feature, file or bug), not a generic verb; null when nothing is.`,
+    `- points: 0 to ${MAX_POINTS} short facts behind the digest (a result, a failure, a follow-up), each at most ${POINT_MAX_CHARS} characters; digest and points together stay within ${CARD_WORD_LIMIT} words.`,
+    '- When the reply asks the operator a question or waits on a decision, chatLine states that question.',
     '- Report only what the reply says. Never answer its questions, never add advice, never invent results.',
   ].join('\n');
 }
@@ -86,13 +93,18 @@ function pointsWithinWordLimit(digest: string, points: readonly string[]): strin
   return keptPoints;
 }
 
-export function parseDirectorDigest(laneOutput: Record<string, unknown> | null): DirectedTurn | null {
+function cardDigestOf(value: unknown): string | null {
+  const digest = cleanLine(value, DIGEST_MAX_CHARS);
+  return digest === null || wordCountOf(digest) > CARD_WORD_LIMIT ? null : digest;
+}
+
+export function parseDirectorVerdict(laneOutput: Record<string, unknown> | null): DirectedTurn | null {
   if (laneOutput === null) return null;
-  const digest = cleanLine(laneOutput.digest, DIGEST_MAX_CHARS);
-  if (digest === null || wordCountOf(digest) > CARD_WORD_LIMIT) return null;
+  const chatLine = cleanLine(laneOutput.chatLine, CHAT_LINE_MAX_CHARS);
+  const digest = cardDigestOf(laneOutput.digest);
   const rawPoints = Array.isArray(laneOutput.points) ? laneOutput.points : [];
-  const points = rawPoints.flatMap((point) => cleanLine(point, POINT_MAX_CHARS) ?? []).slice(0, MAX_POINTS);
-  return { digest, points: pointsWithinWordLimit(digest, points) };
+  const points = digest === null ? [] : pointsWithinWordLimit(digest, rawPoints.flatMap((point) => cleanLine(point, POINT_MAX_CHARS) ?? []).slice(0, MAX_POINTS));
+  return { chatLine, digest, points };
 }
 
 function newestOpenedAtOf(digests: readonly DirectorDigest[]): number {
@@ -108,12 +120,12 @@ export function withDirectorDigest(state: DirectorDigestState, sessionId: string
   return { ...state, digestsBySessionId: Object.fromEntries(keptSessions) };
 }
 
-export function directorDigestsOf(state: DirectorDigestState, sessionIds: readonly string[]): Record<string, string> {
-  const digestByKey: Record<string, string> = {};
+export function directorVerdictsOf(state: DirectorDigestState, sessionIds: readonly string[]): Record<string, DirectorVerdict> {
+  const verdictByKey: Record<string, DirectorVerdict> = {};
   for (const sessionId of sessionIds) {
-    for (const entry of state.digestsBySessionId[sessionId] ?? []) digestByKey[directorDigestKeyOf(sessionId, entry.openedAt)] = entry.digest;
+    for (const entry of state.digestsBySessionId[sessionId] ?? []) verdictByKey[directorDigestKeyOf(sessionId, entry.openedAt)] = { chatLine: entry.chatLine, digest: entry.digest };
   }
-  return digestByKey;
+  return verdictByKey;
 }
 
 export function leftoverDirectorCardOps(board: Board): Op[] {

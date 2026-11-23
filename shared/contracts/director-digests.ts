@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 export const DirectorDigest = z.object({
   openedAt: z.number().int().nonnegative(),
-  digest: z.string().min(1),
+  chatLine: z.string().min(1).nullable().default(null),
+  digest: z.string().min(1).nullable(),
   points: z.array(z.string().min(1)).default([]),
 });
 export type DirectorDigest = z.infer<typeof DirectorDigest>;

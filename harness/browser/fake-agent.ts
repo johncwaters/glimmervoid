@@ -54,7 +54,12 @@ if (process.argv.includes('--input-format')) {
 if (process.argv.includes('-p') && process.argv.at(-1) === DIRECTOR_LANE_PROMPT) {
   const directorPrompt = fs.readFileSync(path.join(process.cwd(), 'director-prompt.txt'), 'utf8');
   const resultPath = /^Write (.+) with the Write tool/m.exec(directorPrompt)?.[1] ?? '';
-  fs.writeFileSync(resultPath, JSON.stringify({ digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'] }));
+  const payloadText = fs.readFileSync(path.join(process.cwd(), 'untrusted.json'), 'utf8');
+  const isLongReply = payloadText.includes(LONG_CHECKOUT_REPLY.slice(0, 40));
+  const verdict = isLongReply
+    ? { chatLine: DIRECTOR_DIGEST_TEXT, digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'] }
+    : { chatLine: null, digest: null, points: [] };
+  fs.writeFileSync(resultPath, JSON.stringify(verdict));
   process.exit(0);
 }
 

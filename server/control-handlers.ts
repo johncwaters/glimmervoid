@@ -182,7 +182,7 @@ interface ControlHandlerDeps {
   commitSigning?: Pick<CommitSigning, 'act'> | null;
   hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
-  director?: Pick<Director, 'digestsOf'> | null;
+  director?: Pick<Director, 'verdictsOf'> | null;
   codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder' | 'branchTargetOf'> | null;
   boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;

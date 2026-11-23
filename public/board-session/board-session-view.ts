@@ -99,7 +99,7 @@ let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
 let digestsRequestSerial = 0;
-let digestByKey: Readonly<Record<string, string>> = {};
+let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null }>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
 let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
@@ -336,7 +336,11 @@ function paintPresence(): void {
 }
 
 function directorDigestOf(sessionId: string, openedAt: number): string | null {
-  return digestByKey[directorDigestKeyOf(sessionId, openedAt)] ?? null;
+  return verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.digest ?? null;
+}
+
+function directorChatLineOf(sessionId: string, openedAt: number): string | null {
+  return verdictByKey[directorDigestKeyOf(sessionId, openedAt)]?.chatLine ?? null;
 }
 
 function requestDigests(): void {
@@ -347,7 +351,7 @@ function requestDigests(): void {
   sendControlRequest('director-digests', { id: shownSessionId, sessionIds }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== digestsRequestSerial || reply.type !== 'director-digests-result' || !reply.ok) return;
-      digestByKey = { ...digestByKey, ...reply.digestByKey };
+      verdictByKey = { ...verdictByKey, ...reply.verdictByKey };
       dock?.refreshDigests();
       paintPresence();
     })
@@ -433,7 +437,7 @@ function mountDock(): void {
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
     boxChoices: () => moduleChoices,
-    digestOf: directorDigestOf,
+    digestOf: directorChatLineOf,
     railFields: () => sessionRailFieldsOf(sessionId, watchBySessionId.get(sessionId)?.subagents ?? [], false),
   });
   parts.dockSlot.append(dock.element);
@@ -453,7 +457,7 @@ function showSession(sessionId: string | null): void {
     return;
   }
   if (!isSameSession) {
-    digestByKey = {};
+    verdictByKey = {};
     changedBoxIds = new Set();
     boxIdByPath = {};
     answeredPaths = new Set();
