@@ -82,6 +82,32 @@ test('a failed git read under the default runner shows as a repo error, never as
   }
 });
 
+test('a blob:none partial clone maps its mainline, fetching only the missing blobs the map reads and refusing an option as its remote', { skip: !hasGit() }, async () => {
+  const { root } = createFixtureRepo();
+  writeRepoFile(root, 'docs/notes.md', 'not read by the map\n');
+  writeRepoFile(root, 'tsconfig.json', '{ "extends": "./tsconfig.base.json" }\n');
+  writeRepoFile(root, 'tsconfig.base.json', '{ "compilerOptions": { "baseUrl": ".", "paths": { "@server/*": ["server/*"] } } }\n');
+  writeRepoFile(root, 'server/c.ts', "import { b } from '@server/b.ts';\nexport const c = b;\n");
+  const mainline = commitAll(root, 'docs: notes');
+  const uploadPack = 'git -c uploadpack.allowFilter=true -c uploadpack.allowAnySHA1InWant=true upload-pack';
+  const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codemap-partial-'));
+  git(['clone', '-q', '--bare', '--filter=blob:none', '-u', uploadPack, `file://${root}`, cloneDir]);
+  git(['config', 'remote.origin.uploadpack', uploadPack], cloneDir);
+  const injectedCloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-codemap-partial-'));
+  git(['clone', '-q', '--bare', '--filter=blob:none', '-u', uploadPack, `file://${root}`, injectedCloneDir]);
+  const injectionMarker = path.join(injectedCloneDir, 'injected');
+  git(['config', '--unset', 'remote.origin.promisor'], injectedCloneDir);
+  git(['config', 'extensions.partialclone', `--upload-pack=touch ${injectionMarker}`], injectedCloneDir);
+  const extract = await createCodemapClient().extract(cloneDir, mainline);
+  const edges = [...extract.importerIndexes].map((importerIndex, edgeIndex) => `${extract.paths[importerIndex]} imports ${extract.paths[extract.importedIndexes[edgeIndex] ?? -1]}`);
+  assert.ok(edges.includes('server/b.ts imports server/a.ts'));
+  assert.ok(edges.includes('server/c.ts imports server/b.ts'));
+  const missingObjects = git(['rev-list', '--objects', '--missing=print', mainline], cloneDir).split('\n').filter((line) => line.startsWith('?'));
+  assert.ok(missingObjects.length > 0);
+  await assert.rejects(createCodemapClient().extract(injectedCloneDir, mainline), /not a remote name/);
+  assert.equal(fs.existsSync(injectionMarker), false);
+});
+
 test('change map joins git facts for a real repo into one contract-valid map, finding a sibling in another session registry', { skip: !hasGit() }, async () => {
   const { root, base } = createFixtureRepo();
   try {

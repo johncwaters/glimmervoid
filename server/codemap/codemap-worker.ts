@@ -19,7 +19,7 @@ const ExtractRequest = z.strictObject({ repoDir: z.string().min(1), sha: z.strin
 const ScanFilesRequest = z.strictObject({ kind: z.literal('scanFiles'), root: z.string().min(1), repoPaths: z.array(z.string().min(1)) });
 
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
-const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1' };
 
 interface TreeEntry {
   objectId: string;
@@ -27,13 +27,20 @@ interface TreeEntry {
   repoPath: string;
 }
 
-function parseTree(treeText: string): TreeEntry[] {
+interface PartialClone {
+  promisorRemote: string;
+  missingObjectIds: Set<string>;
+}
+
+type FetchBlobsOf = (entries: readonly TreeEntry[]) => Promise<TreeEntry[]>;
+
+function parseTree(treeText: string): Omit<TreeEntry, 'sizeBytes'>[] {
   return treeText.split(String.fromCharCode(0)).flatMap((record) => {
     const tabIndex = record.indexOf('\t');
     if (tabIndex < 0) return [];
-    const [, objectType, objectId, sizeText] = record.slice(0, tabIndex).split(/\s+/);
+    const [, objectType, objectId] = record.slice(0, tabIndex).split(/\s+/);
     if (objectType !== 'blob' || !objectId) return [];
-    return [{ objectId, sizeBytes: Number(sizeText), repoPath: record.slice(tabIndex + 1) }];
+    return [{ objectId, repoPath: record.slice(tabIndex + 1) }];
   });
 }
 
@@ -60,13 +67,14 @@ async function readTextsByPath(repoDir: string, entries: readonly TreeEntry[]): 
   return new Map(entries.map((entry) => [entry.repoPath, textByObjectId.get(entry.objectId) ?? '']));
 }
 
-async function readTsconfigs(repoDir: string, entries: readonly TreeEntry[]): Promise<Map<string, TsconfigPaths>> {
+async function readTsconfigs(repoDir: string, entries: readonly TreeEntry[], fetchBlobsOf: FetchBlobsOf): Promise<Map<string, TsconfigPaths>> {
   const entryByPath = new Map(entries.map((entry) => [entry.repoPath, entry]));
   const configsByPath = new Map<string, TsconfigPaths>();
   const visitedPaths = new Set<string>();
   let pendingEntries = entries.filter((entry) => path.posix.basename(entry.repoPath) === 'tsconfig.json');
   while (pendingEntries.length > 0) {
     for (const entry of pendingEntries) visitedPaths.add(entry.repoPath);
+    pendingEntries = await fetchBlobsOf(pendingEntries);
     const textByPath = await readTextsByPath(repoDir, pendingEntries.filter((entry) => entry.sizeBytes <= CODEMAP_TUNABLES.maxFileBytes));
     const parentEntries = new Map<string, TreeEntry>();
     for (const [configPath, configText] of textByPath) {
@@ -155,9 +163,73 @@ async function ignoredPathsOf(repoDir: string, candidatePaths: readonly string[]
   return new Set(ignoredText.split(String.fromCharCode(0)).filter(Boolean));
 }
 
-async function assertFullClone(repoDir: string): Promise<void> {
-  const promisorSettings = await execFileAsync('git', ['config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV }).then(({ stdout }) => stdout.trim(), () => '');
-  if (promisorSettings) throw new Error(`${repoDir} is a partial clone; the code map reads every source file at the mainline commit and does not fetch missing ones`);
+function isReadByMap(entry: TreeEntry): boolean {
+  return isSourcePath(entry.repoPath) || entry.repoPath === 'package.json' || isImportManifestPath(entry.repoPath) || path.posix.basename(entry.repoPath) === 'tsconfig.json';
+}
+
+function runGitWithInput(repoDir: string, args: readonly string[], input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { cwd: repoDir, env: GIT_ENV, stdio: ['pipe', 'pipe', 'pipe'] });
+    const chunks: Buffer[] = [];
+    let stderrText = '';
+    child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => { stderrText += chunk.toString('utf8'); });
+    child.on('error', reject);
+    child.on('close', (exitCode: number | null) => {
+      if (exitCode === 0) {
+        resolve(Buffer.concat(chunks).toString('utf8'));
+        return;
+      }
+      reject(new Error(`git ${args.join(' ')} exited ${exitCode}: ${stderrText.trim()}`));
+    });
+    child.stdin?.end(input);
+  });
+}
+
+async function promisorRemoteOf(repoDir: string): Promise<string | null> {
+  const settingsText = await execFileAsync('git', ['config', '--get-regexp', '^(extensions\\.partialclone|remote\\..*\\.promisor)$'], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV }).then(({ stdout }) => stdout, () => '');
+  for (const line of settingsText.split('\n')) {
+    const promisorRemote = /^remote\.(.+)\.promisor true$/.exec(line.trim())?.[1] ?? /^extensions\.partialclone (.+)$/.exec(line.trim())?.[1];
+    if (promisorRemote) return promisorRemote;
+  }
+  return null;
+}
+
+async function partialCloneOf(repoDir: string, sha: string): Promise<PartialClone | null> {
+  const promisorRemote = await promisorRemoteOf(repoDir);
+  if (!promisorRemote) return null;
+  const { stdout: objectsText } = await execFileAsync('git', ['rev-list', '--objects', '--no-walk', '--missing=print', sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES });
+  const missingObjectIds = new Set(objectsText.split('\n').filter((line) => line.startsWith('?')).map((line) => line.slice(1)));
+  return { promisorRemote, missingObjectIds };
+}
+
+async function sizeByObjectIdOf(repoDir: string, objectIds: readonly string[]): Promise<Map<string, number>> {
+  if (objectIds.length === 0) return new Map();
+  const sizesText = await runGitWithInput(repoDir, ['cat-file', '--batch-check'], objectIds.map((objectId) => `${objectId}\n`).join(''));
+  return new Map(sizesText.split('\n').flatMap((line) => {
+    const [objectId, objectType, sizeText] = line.split(' ');
+    return objectId && objectType === 'blob' ? [[objectId, Number(sizeText)] as const] : [];
+  }));
+}
+
+async function listTree(repoDir: string, sha: string, partialClone: PartialClone | null): Promise<TreeEntry[]> {
+  const { stdout: treeText } = await execFileAsync('git', ['ls-tree', '-r', '-z', sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES });
+  const treeObjects = parseTree(treeText);
+  const presentObjectIds = [...new Set(treeObjects.map((treeObject) => treeObject.objectId))].filter((objectId) => !partialClone?.missingObjectIds.has(objectId));
+  const sizeByObjectId = await sizeByObjectIdOf(repoDir, presentObjectIds);
+  return treeObjects.map((treeObject) => ({ ...treeObject, sizeBytes: sizeByObjectId.get(treeObject.objectId) ?? Number.NaN }));
+}
+
+async function fetchMissingBlobs(repoDir: string, partialClone: PartialClone | null, entries: readonly TreeEntry[]): Promise<TreeEntry[]> {
+  const missingObjectIds = [...new Set(entries.map((entry) => entry.objectId))].filter((objectId) => partialClone?.missingObjectIds.has(objectId));
+  if (!partialClone || missingObjectIds.length === 0) return [...entries];
+  const { promisorRemote } = partialClone;
+  if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(promisorRemote)) throw new Error(`${repoDir} names ${JSON.stringify(promisorRemote)} as its promisor remote, which is not a remote name the code map fetches from`);
+  await runGitWithInput(repoDir, ['-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--filter=blob:none', '--stdin', '--end-of-options', promisorRemote], missingObjectIds.map((objectId) => `${objectId}\n`).join(''))
+    .catch((error: unknown) => { throw new Error(`could not fetch the ${missingObjectIds.length} missing source files of ${repoDir} from ${promisorRemote}: ${errorMessage(error)}`); });
+  for (const objectId of missingObjectIds) partialClone.missingObjectIds.delete(objectId);
+  const sizeByObjectId = await sizeByObjectIdOf(repoDir, missingObjectIds);
+  return entries.map((entry) => ({ ...entry, sizeBytes: sizeByObjectId.get(entry.objectId) ?? entry.sizeBytes }));
 }
 
 function readBlobs(repoDir: string, objectIds: readonly string[]): Promise<string[]> {
@@ -194,9 +266,11 @@ function readBlobs(repoDir: string, objectIds: readonly string[]): Promise<strin
 }
 
 async function extract(repoDir: string, sha: string, base: CodemapExtractBase | null, markPhase: (phase: string) => void) {
-  await assertFullClone(repoDir);
-  const { stdout: treeText } = await execFileAsync('git', ['ls-tree', '-r', '-z', '--long', sha], { cwd: repoDir, encoding: 'utf8', env: GIT_ENV, maxBuffer: GIT_MAX_BUFFER_BYTES });
-  const entries = parseTree(treeText);
+  const partialClone = await partialCloneOf(repoDir, sha);
+  const listedEntries = await listTree(repoDir, sha, partialClone);
+  const fetchedEntries = await fetchMissingBlobs(repoDir, partialClone, listedEntries.filter(isReadByMap));
+  const fetchedEntryByPath = new Map(fetchedEntries.map((entry) => [entry.repoPath, entry]));
+  const entries = listedEntries.map((entry) => fetchedEntryByPath.get(entry.repoPath) ?? entry);
   const exportFilePaths = new Set(Object.values(CODEMAP_EXPORT_FILE_BY_KIND));
   const { kept: sourceEntries, skipped } = partitionByBudget(entries.filter((entry) => isSourcePath(entry.repoPath) && !exportFilePaths.has(entry.repoPath)));
   markPhase('list tree');
@@ -204,7 +278,7 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   const configEntries = entries.filter((entry) => (entry.repoPath === 'package.json' || isImportManifestPath(entry.repoPath)) && entry.sizeBytes <= CODEMAP_TUNABLES.maxFileBytes);
   const unscannedEntries = sourceEntries.filter((entry) => !reusableScans.has(entry.repoPath));
   const textByPath = await readTextsByPath(repoDir, [...unscannedEntries, ...configEntries]);
-  const configsByPath = await readTsconfigs(repoDir, entries);
+  const configsByPath = await readTsconfigs(repoDir, entries, (wantedEntries) => fetchMissingBlobs(repoDir, partialClone, wantedEntries));
   markPhase(`read blobs (${unscannedEntries.length} changed, ${sourceEntries.length - unscannedEntries.length} reused)`);
   const scanByPath = new Map<string, FileScan>();
   const overBudgetPaths: string[] = [];
