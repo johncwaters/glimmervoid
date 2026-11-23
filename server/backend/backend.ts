@@ -68,7 +68,6 @@ import { createBackendHealth } from './backend-health.ts';
 import { createBackendNotifications } from './backend-notifications.ts';
 import { createBackendControl } from './backend-control.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
-import type { BranchWiring } from '../board-session/branch-wiring.ts';
 import { pruneOrphanedWargamesProjects } from '../wargames/wargames-launch.ts';
 import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
 import { createBackendUpdateCheck } from './backend-update.ts';
@@ -209,7 +208,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   let removeExitedSession: ((id: string) => void) | null = null;
   let raceLauncher: RaceLauncher | null = null;
   let wargamesLauncher: WargamesLauncher | null = null;
-  let branches: BranchWiring | null = null;
   let agentApi: AgentApiPort | null = null;
   let gitWorkspace: ReturnType<typeof createBackendLanes>['gitWorkspace'] | null = null;
   warnWhenGitIsTooOld({ log: console });
@@ -573,12 +571,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     verification,
     codemap,
     boardAsks,
-    startBranch: async (parent, about, prompt) => {
-      if (!branches) return { ok: false, error: 'Studio branches are not running' };
-      const outcome = await branches.spawn({ parentId: parent.id, about: { path: about }, prompt });
-      if (!outcome.ok) return outcome;
-      return { ok: true, sessionId: outcome.sessionId, name: sessions.get(outcome.sessionId)?.name ?? about };
-    },
     logger: console,
   });
   const remoteSetup = createRemoteSetupWiring({
@@ -959,7 +951,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     },
   };
 
-  ({ removeExitedSession, raceLauncher, wargamesLauncher, branches } = createBackendControl({
+  ({ removeExitedSession, raceLauncher, wargamesLauncher } = createBackendControl({
     onControlConnection,
     sessions,
     agentSessions,

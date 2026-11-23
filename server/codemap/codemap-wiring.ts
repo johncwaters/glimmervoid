@@ -574,20 +574,11 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if ('error' in map) return { ok: false, error: map.error };
     if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
     const model = map.model;
-    if ('boxId' in about) {
-      const folder = folderOfMapBoxId(model, about.boxId);
-      if (folder !== null) return branchTargetAt(about.boxId, folder);
-      const moduleId = model.modules.map((summary) => summary.id).find((candidate) => candidate !== '.' && moduleBoxIdOf(candidate) === about.boxId) ?? (about.boxId === fallbackBoxIdOf(model) ? '.' : null);
-      if (moduleId === null) return { ok: false, error: 'that box is not a folder or file on the code map any more; pick another' };
-      return branchTargetOfModule(model, moduleId);
-    }
-    const repoPath = about.path;
-    const relativePath = repoPath.replace(/^\.\//, '').replace(/\/+$/, '');
-    const isInsideRepo = relativePath.length > 0 && !path.isAbsolute(relativePath) && !relativePath.split('/').includes('..');
-    const folderPath = `${relativePath}/`;
-    const isMapped = isInsideRepo && (model.indexByPath.has(relativePath) || model.paths.some((mappedPath) => mappedPath.startsWith(folderPath)));
-    if (!isMapped) return { ok: false, error: `${repoPath} is not a file or folder on the code map of ${path.basename(repoDir)}; pass a path relative to the repo root, such as server/api` };
-    return branchTargetOfModule(model, moduleOfPath(model, folderPath));
+    const folder = folderOfMapBoxId(model, about.boxId);
+    if (folder !== null) return branchTargetAt(about.boxId, folder);
+    const moduleId = model.modules.map((summary) => summary.id).find((candidate) => candidate !== '.' && moduleBoxIdOf(candidate) === about.boxId) ?? (about.boxId === fallbackBoxIdOf(model) ? '.' : null);
+    if (moduleId === null) return { ok: false, error: 'that box is not a folder or file on the code map any more; pick another' };
+    return branchTargetOfModule(model, moduleId);
   }
 
   function overlayTextOf(repoName: string, drawing: OverlayDrawing): string {

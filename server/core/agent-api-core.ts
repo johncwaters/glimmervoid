@@ -462,7 +462,6 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
       { name: 'model', type: 'string', valueName: 'model', summary: "The model the new session runs, by the agent's own model id; defaults to the agent's configured model" },
       { name: 'effort', type: 'string', valueName: 'level', summary: 'The reasoning effort the new session runs at, where the agent takes one' },
       { name: 'done', type: 'string', valueName: 'lines', summary: "What finished means, as lines split by ';'; they join the new session's prompt, which proves them with its own done commands" },
-      { name: 'about', type: 'string', valueName: 'path', summary: "From a Studio main agent: a repo path to start a Studio branch on its code map box instead of a child session" },
     ],
     summary: 'Start a session on that prompt, with its own dashboard card, that this session owns until its task is done',
     missingArgumentHint: 'this command needs text, for example "glimmervoid spawn check the failing test"',

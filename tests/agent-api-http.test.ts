@@ -261,7 +261,6 @@ interface WiringFixtureOptions {
   wargames?: Pick<AgentApiWiringOptions, 'wargames' | 'startWargames'>;
   reviewComments?: AgentApiWiringOptions['reviewComments'];
   parentIsStudioMain?: boolean;
-  startBranch?: AgentApiWiringOptions['startBranch'];
   budgetHoldReason?: () => string | null;
 }
 
@@ -318,7 +317,7 @@ function manualClock() {
 function wiringFixture({
   parentSkipsPermissions = true, spawnFails = false, makeSessionThrowsFirst = false, laneSessions = [],
   holdSpawnGate = false, headroomBytes = 64 * 1024 * 1024 * 1024, holdFirstHeadroomRead = false,
-  clock, childGitWorkspace, teamReviewStatus, arena, wargames, reviewComments, parentIsStudioMain = false, startBranch = null, budgetHoldReason = () => null,
+  clock, childGitWorkspace, teamReviewStatus, arena, wargames, reviewComments, parentIsStudioMain = false, budgetHoldReason = () => null,
 }: WiringFixtureOptions = {}) {
   const config: GlimmervoidConfig = { ...DEFAULT_CONFIG, agentApi: { enabled: true }, projects: [] };
   const agentSessions = new Map<string, Session>();
@@ -398,7 +397,6 @@ function wiringFixture({
     ...arena,
     ...wargames,
     reviewComments,
-    startBranch,
     budgetHoldReason,
     logger: { warn: () => {} },
     ...clock,
@@ -449,39 +447,16 @@ test('a valid spawn creates exactly one sibling that may not spawn again', async
   }
 });
 
-test('spawn with about starts a Studio branch only from a Studio main, never a child session', async () => {
-  const branchRequests: { parentId: string; about: string; prompt: string }[] = [];
-  const startBranch: NonNullable<AgentApiWiringOptions['startBranch']> = async (parent, about, prompt) => {
-    branchRequests.push({ parentId: parent.id, about, prompt });
-    return { ok: true, sessionId: 'branch-1', name: 'parent server' };
-  };
-  const focusFixture = wiringFixture({ startBranch });
+test('a Studio main starts no session of its own, and a retired about is refused', async () => {
+  const fixture = wiringFixture({ parentIsStudioMain: true });
   try {
-    const refused = await focusFixture.spawn(focusFixture.parent, { prompt: 'fix the api', about: 'server/' });
+    const refused = await fixture.spawn(fixture.parent, { prompt: 'fix the api' });
     assert.equal(refused.status, 403);
-    assert.equal(branchRequests.length, 0);
+    assert.equal(fixture.created.length, 0);
+    const withAbout = await fixture.spawn(fixture.parent, { prompt: 'fix the api', about: 'server/' });
+    assert.equal(withAbout.status, 400);
   } finally {
-    focusFixture.destroyAll();
-  }
-  const studioFixture = wiringFixture({ parentIsStudioMain: true, startBranch });
-  try {
-    const reply = await studioFixture.spawn(studioFixture.parent, { prompt: 'fix the api', about: 'server/' });
-    assert.equal(reply.status, 200);
-    assert.equal(reply.body.ok && 'sessionId' in reply.body ? reply.body.sessionId : null, 'branch-1');
-    assert.deepEqual(branchRequests, [{ parentId: 'parent', about: 'server/', prompt: 'fix the api' }]);
-    assert.equal(studioFixture.created.length, 0, 'no child session starts beside the branch');
-    const withChildOptions = await studioFixture.spawn(studioFixture.parent, { prompt: 'fix the api', about: 'server/', model: 'opus' });
-    assert.equal(withChildOptions.status, 400);
-  } finally {
-    studioFixture.destroyAll();
-  }
-  const heldFixture = wiringFixture({ parentIsStudioMain: true, startBranch, budgetHoldReason: () => 'the weekly budget is spent' });
-  try {
-    const held = await heldFixture.spawn(heldFixture.parent, { prompt: 'fix the api', about: 'server/' });
-    assert.equal(held.status, 429);
-    assert.equal(branchRequests.length, 1, 'a held budget starts no branch');
-  } finally {
-    heldFixture.destroyAll();
+    fixture.destroyAll();
   }
 });
 
@@ -1050,30 +1025,22 @@ test('a parent and the child it spawned message each other through their own cha
   }
 });
 
-test('a Studio branch and its main message each other on a channel opened from the branch link, which a replaced main takes over with one copy of each note, the branch reaches no other session, and close leaves a branch alone', async () => {
+test('a Studio branch and its main message each other on a channel opened from the branch link, which a replaced main takes over with one copy of each note, neither starts a session, the branch reaches no other session, and close leaves a branch alone', async () => {
   const branch = new Session({ id: 'branch-server', name: 'parent server', path: process.cwd(), ptySpawn: () => fakePty(), branchOf: { parentId: 'parent', aboutBoxId: 'box-server', aboutTitle: 'server' } });
   const fixture = wiringFixture({ parentIsStudioMain: true, laneSessions: [branch] });
   try {
     fixture.wiring.linkBranchSession(fixture.parent);
-    const spawned = await fixture.spawn(fixture.parent, { prompt: 'build the ui' });
-    const childId = String(spawned.body.sessionId);
-    const [child] = fixture.created;
+    assert.equal((await fixture.spawn(fixture.parent, { prompt: 'build the ui' })).status, 403, 'a Studio main starts no session of its own');
     assert.equal((await fixture.wiring.handle(branch, 'send', { words: ['need', 'a', 'shared', 'type'] })).status, 200);
     const mainRead = AgentReadReply.parse((await fixture.wiring.handle(fixture.parent, 'read', {})).body).channels;
     assert.deepEqual(mainRead.flatMap(({ sessionId, entries }) => entries.map(({ from, text }) => [sessionId, from, text])), [['branch-server', 'child', 'need a shared type']]);
     assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: ['branch-server', 'add', 'it', 'in', 'server'] })).status, 200);
     const branchRead = AgentReadReply.parse((await fixture.wiring.handle(branch, 'read', {})).body).channels;
     assert.deepEqual(branchRead.flatMap(({ entries }) => entries.map(({ from, text }) => [from, text])), [['parent', 'add it in server']]);
-    const branchSpawned = await fixture.spawn(branch, { prompt: 'write the migration' });
-    const grandchildId = String(branchSpawned.body.sessionId);
-    assert.equal((await fixture.wiring.handle(branch, 'send', { words: [grandchildId, 'add', 'an', 'index'] })).status, 200);
-    const grandchild = fixture.created.find((created) => created.id === grandchildId);
-    const grandchildRead = AgentReadReply.parse((await fixture.wiring.handle(grandchild ?? branch, 'read', {})).body).channels;
-    assert.deepEqual(grandchildRead.flatMap(({ entries }) => entries.map(({ text }) => text)), ['add an index'], 'a branch still steers a session it spawned');
-    const branchToChild = await fixture.wiring.handle(branch, 'send', { words: ['hello'], to: childId });
-    assert.equal(branchToChild.status, 404);
-    assert.match(String((branchToChild.body as { error?: string }).error), /messages only its main/);
-    assert.equal((await fixture.wiring.handle(child ?? branch, 'send', { words: ['hello'], to: 'branch-server' })).status, 404, 'a spawned child has no branch siblings');
+    assert.equal((await fixture.spawn(branch, { prompt: 'write the migration' })).status, 403, 'a branch starts no session of its own');
+    const branchToOther = await fixture.wiring.handle(branch, 'send', { words: ['hello'], to: 'someone-else' });
+    assert.equal(branchToOther.status, 404);
+    assert.match(String((branchToOther.body as { error?: string }).error), /messages only its main/);
     assert.equal((await fixture.wiring.handle(fixture.parent, 'close', { child: 'branch-server' })).status, 409);
     assert.equal(branch._destroyed, false);
 

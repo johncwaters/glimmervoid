@@ -58,7 +58,6 @@ function createAgentApiWiring({
   verification = null,
   codemap = null,
   boardAsks = null,
-  startBranch = null,
   budgetHoldReason = () => null,
   logger = console,
   setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn,
@@ -67,7 +66,7 @@ function createAgentApiWiring({
 }: AgentApiWiringOptions): AgentApiPort {
   const runtime: AgentApiRuntime = {
     config, agentSessions, listAllSessions, listBoardSessions, makeSession, wireSessionEvents, closeSessionDataClients,
-    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, wargames, startWargames, reviewComments, repoClones, wakesFilePath, memoryFilePath, fileClaims, sessionPreviews, verification, codemap, boardAsks, startBranch, budgetHoldReason,
+    broadcastControl, spawnGate, sessionDocs, recordLane, memoryAdmission, operatorState, whiteboards, lookupWhy, secrets, races, startRace, wargames, startWargames, reviewComments, repoClones, wakesFilePath, memoryFilePath, fileClaims, sessionPreviews, verification, codemap, boardAsks, budgetHoldReason,
     logger, setTimeoutFn, clearTimeoutFn, now,
     channelsByChildId: new Map<string, AgentChannel>(),
     linksByChildId: new Map<string, ChannelLink>(),

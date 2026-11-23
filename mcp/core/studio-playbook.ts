@@ -10,7 +10,7 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
   {
     id: 'board-first',
     roles: ['main', 'branch'],
-    text: "The operator watches you on the repo's code map board, not in chat: keep chat replies to a line or two and point at the board for anything longer.",
+    text: "The operator watches you on the repo's code map board, not in chat: reply in one sentence and put anything longer on the board.",
   },
   {
     id: 'plan-on-map',
@@ -26,11 +26,6 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
     id: 'show-on-board',
     roles: ['main', 'branch'],
     text: 'Show results (screenshots, reports, tables, diagrams) on the board with show, beside the box they belong to, instead of describing them in chat.',
-  },
-  {
-    id: 'branch-per-box',
-    roles: ['main'],
-    text: "When work spans several folders, split it: start one branch per folder with the session spawn action, setting about to that folder's path, and give each branch only its part; a folder another live branch holds, or one inside or above it, is refused. Branches commit on their own and their commits come back to you when they go idle. Each branch reaches you with session send, which wakes you; read what they sent with session read, steer one with session send to its id, and pass anything one branch needs from another on yourself, since branches never message each other. Glimmervoid holds back a branch's commits that change files outside its folder and tells you, so you check them and merge them yourself. Keep the coordination and the merge to yourself.",
   },
   {
     id: 'stay-on-box',
