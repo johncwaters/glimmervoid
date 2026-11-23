@@ -375,7 +375,18 @@ export function createDock(session: DockSession): Dock {
   const openLogWhenTurnLive = () => {
     if (!session.isTurnOver()) openLog();
   };
+  const foldLogWhenTurnOver = () => {
+    if (session.isTurnOver() && !isAddressedTurnRunning()) delete element.dataset.logOpen;
+  };
+  const isOutsideDock = (target: EventTarget | null) => target instanceof Node && !element.contains(target);
+  const dockListeners = new AbortController();
   element.addEventListener('focusin', openLog);
+  element.addEventListener('focusout', (event) => {
+    if (isOutsideDock(event.relatedTarget)) foldLogWhenTurnOver();
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (isOutsideDock(event.target)) foldLogWhenTurnOver();
+  }, { capture: true, signal: dockListeners.signal });
   openLogWhenTurnLive();
 
   const mainFeed = openFeed(mainSpeaker, session.workingDirectory, session.isTurnOver);
@@ -577,6 +588,7 @@ export function createDock(session: DockSession): Dock {
       paintProgressAnswers();
     }),
     close: () => {
+      dockListeners.abort();
       clearInterval(railTimer);
       for (const feed of feedBySessionId.values()) feed.close();
       feedBySessionId.clear();

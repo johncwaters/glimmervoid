@@ -109,7 +109,10 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
   await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 
+  await root.getByRole('textbox').click();
+  await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await chip.click();
+  await root.locator('.bs-log').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   const menu = root.getByRole('menu');
   await menu.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.ok((await menu.getByRole('menuitemradio', { checked: true }).count()) === 1, 'the repo menu marks the shown repo');
