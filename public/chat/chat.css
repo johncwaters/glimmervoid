@@ -497,18 +497,24 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
-  padding: 4px 6px 4px 10px;
+  min-height: 52px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
   border-radius: var(--radius);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
   font-size: var(--type-body);
   transition: background-color var(--transition-fast);
 }
 
-.chat-board-change:hover { background: color-mix(in oklab, var(--accent) 8%, transparent); }
+.chat-board-change:hover { background: color-mix(in oklab, var(--accent) 16%, transparent); }
 
-.chat-board-change-icon { flex: none; width: 16px; height: 16px; color: var(--accent); }
+.chat-board-change-icon { flex: none; color: var(--accent); }
 
-.chat-board-change-text { flex: 1; min-width: 0; overflow: hidden; color: var(--text-dim); text-overflow: ellipsis; white-space: nowrap; }
+.chat-board-change-text { display: flex; flex: 1; flex-direction: column; min-width: 0; color: var(--text); }
+
+.chat-board-change-eyebrow { color: var(--accent); font-size: var(--type-meta); font-weight: 700; }
+
+.chat-board-change-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-board-change-text strong { color: var(--text-head); font-weight: 700; }
 

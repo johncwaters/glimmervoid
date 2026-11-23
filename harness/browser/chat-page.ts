@@ -520,7 +520,7 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
   await page.locator('.session-chat .chat-board-change[data-card-type="board-change"]').waitFor({ timeout: CARD_TIMEOUT_MS });
   const cardTitles = await page.locator('.session-chat .chat-log .chat-board-change[data-card-type="board-change"]').allTextContents();
   assert.equal(cardTitles.length, 1, 'two agent changes in one turn share one card in the chat history');
-  assert.match(cardTitles[0] ?? '', /^Changed Store rows/, 'the row names the latest change without the agent name');
+  assert.match(cardTitles[0] ?? '', /^Board updatedChanged Store rows/, 'the row names the latest change without the agent name');
   assert.equal(await page.locator('.session-chat .chat-dock .chat-card').count(), 0, 'nothing about the change floats over the chat');
   const showOnBoard = page.locator('.session-chat .chat-board-change .ui-button');
   assert.match(await showOnBoard.innerText(), process.platform === 'darwin' ? /B$/ : /Alt\+B$/, 'Show on board carries the board shortcut');
