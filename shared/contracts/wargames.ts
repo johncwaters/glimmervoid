@@ -8,7 +8,10 @@ const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4']);
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 const WARGAMES_SEAT_COUNT = 6;
 export const WARGAMES_HEX_RADIUS = 3;
+export const WARGAMES_MIN_HEX_RADIUS = 3;
+export const WARGAMES_MAX_HEX_RADIUS = 8;
 export const WARGAMES_HEX_COUNT = 37;
+const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_RADIUS + 1) + 1;
 const WARGAMES_MAX_TICKS = 40;
 const WARGAMES_TICK_DEADLINE_SECONDS = 60;
 export const WARGAMES_SQUEEZE_TICK = 25;
@@ -51,9 +54,9 @@ export const WargamesMatchId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}
 export type WargamesMatchId = z.infer<typeof WargamesMatchId>;
 
 export const HexCoord = z.strictObject({
-  q: z.number().int().min(-WARGAMES_HEX_RADIUS).max(WARGAMES_HEX_RADIUS),
-  r: z.number().int().min(-WARGAMES_HEX_RADIUS).max(WARGAMES_HEX_RADIUS),
-}).refine((coord) => Math.abs(coord.q + coord.r) <= WARGAMES_HEX_RADIUS, {
+  q: z.number().int().min(-WARGAMES_MAX_HEX_RADIUS).max(WARGAMES_MAX_HEX_RADIUS),
+  r: z.number().int().min(-WARGAMES_MAX_HEX_RADIUS).max(WARGAMES_MAX_HEX_RADIUS),
+}).refine((coord) => Math.abs(coord.q + coord.r) <= WARGAMES_MAX_HEX_RADIUS, {
   error: 'hex coordinate outside radius',
 });
 export type HexCoord = z.infer<typeof HexCoord>;
@@ -93,6 +96,7 @@ export const WargamesMatchSpec = z.strictObject({
   rulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
   title: z.string().trim().min(1).max(120).default('Wargames Match'),
   seed: z.number().int().min(1).max(2147483647),
+  mapRadius: z.number().int().min(WARGAMES_MIN_HEX_RADIUS).max(WARGAMES_MAX_HEX_RADIUS).default(WARGAMES_HEX_RADIUS),
   tickDeadlineSeconds: z.number().int().min(5).max(300).default(WARGAMES_TICK_DEADLINE_SECONDS),
   maxTicks: z.number().int().min(5).max(80).default(WARGAMES_MAX_TICKS),
   seats: z.array(SeatConfig).length(WARGAMES_SEAT_COUNT),
@@ -135,28 +139,28 @@ export type ContractRecord = z.infer<typeof ContractRecord>;
 
 const BuildOrder = z.strictObject({
   kind: z.literal('build'),
-  hexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
+  hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   building: BuildingKind,
 });
 
 const TrainOrder = z.strictObject({
   kind: z.literal('train'),
-  hexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
+  hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   troop: TroopKind,
   count: z.number().int().min(1).max(200),
 });
 
 const MarchOrder = z.strictObject({
   kind: z.literal('march'),
-  fromHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
-  toHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
+  fromHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
+  toHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   troops: TroopCounts,
 });
 
 const ScoutOrder = z.strictObject({
   kind: z.literal('scout'),
-  fromHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
-  toHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
+  fromHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
+  toHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
 });
 
 const TribeJoinOrder = z.strictObject({
@@ -183,7 +187,7 @@ export const SignedReportPayload = z.discriminatedUnion('kind', [
     kind: z.literal('battle'),
     reportId: z.string().min(1).max(64),
     tick: z.number().int().min(1),
-    hexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
+    hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
     attacker: SeatId,
     defender: SeatId.nullable(),
     attackerSent: TroopCounts,
@@ -199,7 +203,7 @@ export const SignedReportPayload = z.discriminatedUnion('kind', [
     reportId: z.string().min(1).max(64),
     tick: z.number().int().min(1),
     scoutSeat: SeatId,
-    targetHexIndex: z.number().int().min(0).max(WARGAMES_HEX_COUNT - 1),
+    targetHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
     owner: SeatId.nullable(),
     productionState: VillageProductionState,
     loyalty: z.number().int().min(0).max(100),

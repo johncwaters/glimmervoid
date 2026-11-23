@@ -668,6 +668,20 @@ function battleLossSegmentsOf(reports: readonly BattleReportPayload[]): BattleLo
   return segments;
 }
 
+interface ViewBoxBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+const DEFAULT_VIEW_BOX_BOUNDS: ViewBoxBounds = Object.freeze({
+  minX: -266,
+  maxX: 266,
+  minY: -232,
+  maxY: 232,
+});
+
 function appendBattleBubble(
   fxLayer: SVGElement,
   anchorX: number,
@@ -675,6 +689,7 @@ function appendBattleBubble(
   reports: readonly BattleReportPayload[],
   labelOf: (seatId: SeatId) => string,
   durationMs: number,
+  bounds: ViewBoxBounds,
 ): SVGElement | null {
   if (reports.length === 0) return null;
   const headline = battleHeadlineOf(reports, labelOf);
@@ -684,7 +699,7 @@ function appendBattleBubble(
   const segmentsWidth = measuredSegments.reduce((sum, segment) => sum + segment.width, 0) + Math.max(0, segments.length - 1) * segmentGap;
   const cardWidth = Math.min(230, Math.max(96, Math.max(headline.text.length * 5.6, segmentsWidth) + 16));
   const cardHeight = 30;
-  const position = clampToViewBox(anchorX, anchorY, cardWidth, cardHeight, 30);
+  const position = clampToViewBox(anchorX, anchorY, cardWidth, cardHeight, 30, bounds);
 
   const group = createSvgShape('g', { class: 'wg-battle-bubble' });
   group.style.animationDuration = `${durationMs}ms`;
@@ -816,11 +831,12 @@ function clampToViewBox(
   width: number,
   height: number,
   offsetY: number,
+  bounds: ViewBoxBounds,
 ): { x: number; y: number } {
   const aboveY = anchorY - offsetY;
-  const preferredY = aboveY - height / 2 < -232 ? anchorY + offsetY : aboveY;
-  const clampedX = Math.max(-266 + width / 2, Math.min(266 - width / 2, anchorX));
-  const clampedY = Math.max(-232 + height / 2, Math.min(232 - height / 2, preferredY));
+  const preferredY = aboveY - height / 2 < bounds.minY ? anchorY + offsetY : aboveY;
+  const clampedX = Math.max(bounds.minX + width / 2, Math.min(bounds.maxX - width / 2, anchorX));
+  const clampedY = Math.max(bounds.minY + height / 2, Math.min(bounds.maxY - height / 2, preferredY));
   return { x: clampedX, y: clampedY };
 }
 
@@ -846,10 +862,10 @@ function appendSpeakerMarker(
   fxLayer: SVGElement,
   anchorX: number,
   anchorY: number,
-  options: { color: string; isThought: boolean; durationMs: number },
+  options: { color: string; isThought: boolean; durationMs: number; bounds: ViewBoxBounds },
 ): SVGElement {
   const markerSize = 18;
-  const position = clampToViewBox(anchorX, anchorY, markerSize, markerSize, 28);
+  const position = clampToViewBox(anchorX, anchorY, markerSize, markerSize, 28, options.bounds);
   const group = createSvgShape('g', { class: 'wg-board-callout' });
   group.style.animationDuration = `${options.durationMs}ms`;
   appendPillFrame(group, position.x, position.y, markerSize, markerSize, options.color, {
@@ -1115,6 +1131,7 @@ export function createWargamesMap(
             color: speakerColor,
             isThought: false,
             durationMs,
+            bounds: viewBoxBounds,
           }),
           showCaption(captionLine),
         ]),
@@ -1132,6 +1149,7 @@ export function createWargamesMap(
             color: SEAT_COLORS[entry.seatId],
             isThought: true,
             durationMs,
+            bounds: viewBoxBounds,
           }),
           showCaption({
             color: SEAT_COLORS[entry.seatId],
@@ -1216,6 +1234,7 @@ export function createWargamesMap(
     spotlightSeatId: SeatId | null,
   ): void {
     const slot = slots[index];
+    if (!slot) return;
     const isSelected = selectedHexIndex === index;
     const isFogged = pov !== 'god' && state.villages[index] !== null && village === null;
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
@@ -1278,7 +1297,7 @@ export function createWargamesMap(
     if (pov === 'god') return state.villages.map(cloneVillage);
     const seatView = projectSeatState(state, pov);
     const byHex = new Map(seatView.visibleVillages.map((village) => [village.hexIndex, village]));
-    return ALL_HEXES.map((_, index) => cloneVillage(byHex.get(index) ?? null));
+    return state.hexes.map((_, index) => cloneVillage(byHex.get(index) ?? null));
   }
 
   function visibleActiveArmies(state: MatchState, pov: WargamesPov) {
@@ -1397,38 +1416,73 @@ export function createWargamesMap(
     },
   });
 
-  const slots: HexNodeSlot[] = ALL_HEXES.map((tile) => {
-    const { x, y } = hexCenter(tile.q, tile.r);
-    const group = createSvgShape('g', { class: 'wg-hex-cell' });
-    const polygon = createSvgShape('polygon', {
-      points: hexPolygonPoints(x, y),
-      fill: 'var(--bg-surface)',
-      stroke: 'var(--border)',
-      'stroke-width': '1.2',
-    });
-    const indexLabel = createSvgShape('text', {
-      x: x.toFixed(1),
-      y: (y - 26).toFixed(1),
-      'text-anchor': 'middle',
-      'font-size': '7',
-      class: 'wg-hex-index',
-    });
-    indexLabel.textContent = `#${tile.index}`;
-    const detailLabel = createSvgShape('text', {
-      x: x.toFixed(1),
-      y: (y + 3.5).toFixed(1),
-      'text-anchor': 'middle',
-      'font-size': '8.5',
-      class: 'wg-hex-detail',
-    });
-    const unitGroup = createSvgShape('g', { class: 'wg-hex-units' });
-    const controlGroup = createSvgShape('g', { class: 'wg-hex-control' });
+  let slots: HexNodeSlot[] = [];
+  let viewBoxBounds: ViewBoxBounds = DEFAULT_VIEW_BOX_BOUNDS;
 
-    group.append(polygon, indexLabel, detailLabel, unitGroup, controlGroup);
-    group.addEventListener('click', () => onSelectHex(tile.index));
-    hexLayer.append(group);
-    return { group, polygon, indexLabel, detailLabel, unitGroup, controlGroup, centerX: x, centerY: y };
-  });
+  function syncHexSlots(hexes: readonly MatchState['hexes'][number][]): void {
+    if (hexes.length === slots.length && slots.length > 0) return;
+    animQueue.clear();
+    resetDiplomacyFx();
+    hexLayer.replaceChildren();
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    slots = hexes.map((tile) => {
+      const { x, y } = hexCenter(tile.q, tile.r);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      const group = createSvgShape('g', { class: 'wg-hex-cell' });
+      const polygon = createSvgShape('polygon', {
+        points: hexPolygonPoints(x, y),
+        fill: 'var(--bg-surface)',
+        stroke: 'var(--border)',
+        'stroke-width': '1.2',
+      });
+      const indexLabel = createSvgShape('text', {
+        x: x.toFixed(1),
+        y: (y - 26).toFixed(1),
+        'text-anchor': 'middle',
+        'font-size': '7',
+        class: 'wg-hex-index',
+      });
+      indexLabel.textContent = `#${tile.index}`;
+      const detailLabel = createSvgShape('text', {
+        x: x.toFixed(1),
+        y: (y + 3.5).toFixed(1),
+        'text-anchor': 'middle',
+        'font-size': '8.5',
+        class: 'wg-hex-detail',
+      });
+      const unitGroup = createSvgShape('g', { class: 'wg-hex-units' });
+      const controlGroup = createSvgShape('g', { class: 'wg-hex-control' });
+
+      group.append(polygon, indexLabel, detailLabel, unitGroup, controlGroup);
+      group.addEventListener('click', () => onSelectHex(tile.index));
+      hexLayer.append(group);
+      return { group, polygon, indexLabel, detailLabel, unitGroup, controlGroup, centerX: x, centerY: y };
+    });
+    const padX = HEX_SIZE + 14;
+    const padY = HEX_SIZE + 14;
+    const viewMinX = Math.floor(minX - padX);
+    const viewMinY = Math.floor(minY - padY);
+    const viewWidth = Math.ceil(maxX - minX + padX * 2);
+    const viewHeight = Math.ceil(maxY - minY + padY * 2);
+    svg.setAttribute('viewBox', `${viewMinX} ${viewMinY} ${viewWidth} ${viewHeight}`);
+    svg.setAttribute('aria-label', `Wargames ${hexes.length}-hex tactical map`);
+    viewBoxBounds = {
+      minX: viewMinX + 4,
+      maxX: viewMinX + viewWidth - 4,
+      minY: viewMinY + 8,
+      maxY: viewMinY + viewHeight - 8,
+    };
+    lastVillageSnapshots = hexes.map(() => null);
+    displayedVillages = hexes.map(() => null);
+  }
+
+  syncHexSlots(ALL_HEXES);
 
   function renderOrderPreviews(): void {
     previewLayer.replaceChildren();
@@ -1574,12 +1628,14 @@ export function createWargamesMap(
       lastActiveContractIds = new Set();
       lastLedgerCount = 0;
       lastNoteBySeat = new Map();
-      lastVillageSnapshots = ALL_HEXES.map(() => null);
-      displayedVillages = ALL_HEXES.map(() => null);
+      lastVillageSnapshots = slots.map(() => null);
+      displayedVillages = slots.map(() => null);
       lastArmySnapshots = new Map();
       resetSlotsToBlank();
       return;
     }
+
+    syncHexSlots(state.hexes);
 
     const resolvedTick = latestResolvedTickOf(state.ordersByTick);
     const isSameView = lastRenderedMatchId === state.matchId && lastRenderedPov === pov;
@@ -1784,10 +1840,9 @@ export function createWargamesMap(
             }
             if (item.delta) {
               const applyVillageUpdate = () => {
+                if (!latestState || latestState.matchId !== state.matchId) return;
                 displayedVillages[item.hexIndex] = cloneVillage(item.delta?.targetVillage ?? null);
-                if (latestState) {
-                  paintHexSlot(item.hexIndex, displayedVillages[item.hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
-                }
+                paintHexSlot(item.hexIndex, displayedVillages[item.hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
               };
               if (item.hasIncomingGlide) deferredUpdates.push(applyVillageUpdate);
               if (!item.hasIncomingGlide) applyVillageUpdate();
@@ -1863,7 +1918,7 @@ export function createWargamesMap(
             const clashOwner = delta?.targetVillage.owner ?? null;
             const clashColor = clashOwner !== null ? SEAT_COLORS[clashOwner] : 'var(--state-failed)';
             mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.min(1200, Math.round(durationMs * 0.6))));
-            const bubbleNode = appendBattleBubble(fxLayer, slot.centerX, slot.centerY, hexBattleReports, labelOf, durationMs);
+            const bubbleNode = appendBattleBubble(fxLayer, slot.centerX, slot.centerY, hexBattleReports, labelOf, durationMs, viewBoxBounds);
             if (bubbleNode) mounted.push(bubbleNode);
             if (!bubbleNode && delta && delta.troopDelta !== 0) {
               const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);

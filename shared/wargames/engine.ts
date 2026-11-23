@@ -1,8 +1,9 @@
 import {
-  WARGAMES_HEX_COUNT,
   WARGAMES_HEX_RADIUS,
+  WARGAMES_MAX_HEX_RADIUS,
   WARGAMES_MAX_MESSAGES_PER_TICK,
   WARGAMES_MAX_TRIBE_SIZE,
+  WARGAMES_MIN_HEX_RADIUS,
   WARGAMES_NOTE_MAX_BYTES,
   WARGAMES_SEAT_IDS,
   WARGAMES_SQUEEZE_TICK,
@@ -207,40 +208,50 @@ function hexDistance(first: HexCoord, second: HexCoord): number {
   return Math.max(Math.abs(deltaQ), Math.abs(deltaR), Math.abs(deltaS));
 }
 
-function buildHexGrid(): HexTile[] {
+function buildHexGrid(radius: number): HexTile[] {
   const tiles: HexTile[] = [];
-  for (let axialQ = -WARGAMES_HEX_RADIUS; axialQ <= WARGAMES_HEX_RADIUS; axialQ += 1) {
-    for (let axialR = -WARGAMES_HEX_RADIUS; axialR <= WARGAMES_HEX_RADIUS; axialR += 1) {
+  for (let axialQ = -radius; axialQ <= radius; axialQ += 1) {
+    for (let axialR = -radius; axialR <= radius; axialR += 1) {
       const ring = hexRing(axialQ, axialR);
-      if (ring > WARGAMES_HEX_RADIUS) continue;
+      if (ring > radius) continue;
       tiles.push({ index: tiles.length, q: axialQ, r: axialR, ring });
     }
   }
   return tiles;
 }
 
-export const ALL_HEXES: readonly HexTile[] = Object.freeze(buildHexGrid());
-
-const HEX_INDEX_BY_KEY: ReadonlyMap<string, number> = new Map(
-  ALL_HEXES.map((tile) => [`${tile.q},${tile.r}`, tile.index]),
-);
-
-export function hexIndexAt(axialQ: number, axialR: number): number {
-  return HEX_INDEX_BY_KEY.get(`${axialQ},${axialR}`) ?? -1;
+const HEX_GRIDS_BY_RADIUS = new Map<number, readonly HexTile[]>();
+const HEX_INDEX_MAPS_BY_RADIUS = new Map<number, ReadonlyMap<string, number>>();
+for (let radius = WARGAMES_MIN_HEX_RADIUS; radius <= WARGAMES_MAX_HEX_RADIUS; radius += 1) {
+  const grid = Object.freeze(buildHexGrid(radius));
+  HEX_GRIDS_BY_RADIUS.set(radius, grid);
+  HEX_INDEX_MAPS_BY_RADIUS.set(radius, new Map(grid.map((tile) => [`${tile.q},${tile.r}`, tile.index])));
 }
 
-function stepTowardHex(fromIndex: number, toIndex: number, maxSteps: number): number {
+export const ALL_HEXES: readonly HexTile[] = HEX_GRIDS_BY_RADIUS.get(WARGAMES_HEX_RADIUS) ?? Object.freeze(buildHexGrid(WARGAMES_HEX_RADIUS));
+
+function hexGridForRadius(radius: number): readonly HexTile[] {
+  return HEX_GRIDS_BY_RADIUS.get(radius) ?? ALL_HEXES;
+}
+
+export function hexIndexAt(axialQ: number, axialR: number, radius = WARGAMES_HEX_RADIUS): number {
+  return HEX_INDEX_MAPS_BY_RADIUS.get(radius)?.get(`${axialQ},${axialR}`) ?? -1;
+}
+
+function stepTowardHex(radius: number, fromIndex: number, toIndex: number, maxSteps: number): number {
+  const grid = hexGridForRadius(radius);
   let current = fromIndex;
   for (let step = 0; step < maxSteps; step += 1) {
     if (current === toIndex) return current;
-    const fromTile = ALL_HEXES[current];
-    const targetTile = ALL_HEXES[toIndex];
+    const fromTile = grid[current];
+    const targetTile = grid[toIndex];
+    if (!fromTile || !targetTile) return current;
     let bestIndex = current;
     let bestDistance = hexDistance(fromTile, targetTile);
     for (const direction of AXIAL_DIRECTIONS) {
-      const candidateIndex = hexIndexAt(fromTile.q + direction.q, fromTile.r + direction.r);
+      const candidateIndex = hexIndexAt(fromTile.q + direction.q, fromTile.r + direction.r, radius);
       if (candidateIndex < 0) continue;
-      const candidateDistance = hexDistance(ALL_HEXES[candidateIndex], targetTile);
+      const candidateDistance = hexDistance(grid[candidateIndex], targetTile);
       if (candidateDistance >= bestDistance) continue;
       bestDistance = candidateDistance;
       bestIndex = candidateIndex;
@@ -333,32 +344,74 @@ function cloneState(state: MatchState): MatchState {
   };
 }
 
-function seatHomeHexCoords(): HexCoord[][] {
-  return [
-    [{ q: 2, r: 0 }, { q: 2, r: -1 }, { q: 3, r: -1 }],
-    [{ q: 0, r: -2 }, { q: 1, r: -2 }, { q: 1, r: -3 }],
-    [{ q: -2, r: 0 }, { q: -1, r: -1 }, { q: -2, r: -1 }],
-    [{ q: -2, r: 2 }, { q: -2, r: 1 }, { q: -3, r: 1 }],
-    [{ q: 0, r: 2 }, { q: -1, r: 2 }, { q: -1, r: 3 }],
-    [{ q: 1, r: 2 }, { q: 1, r: 1 }, { q: 2, r: 1 }],
-  ];
+function seatHomeHexCoords(radius: number): HexCoord[][] {
+  if (radius === WARGAMES_HEX_RADIUS) {
+    return [
+      [{ q: 2, r: 0 }, { q: 2, r: -1 }, { q: 3, r: -1 }],
+      [{ q: 0, r: -2 }, { q: 1, r: -2 }, { q: 1, r: -3 }],
+      [{ q: -2, r: 0 }, { q: -1, r: -1 }, { q: -2, r: -1 }],
+      [{ q: -2, r: 2 }, { q: -2, r: 1 }, { q: -3, r: 1 }],
+      [{ q: 0, r: 2 }, { q: -1, r: 2 }, { q: -1, r: 3 }],
+      [{ q: 1, r: 2 }, { q: 1, r: 1 }, { q: 2, r: 1 }],
+    ];
+  }
+  return AXIAL_DIRECTIONS.map((primaryAxis, directionIndex) => {
+    const nextAxis = AXIAL_DIRECTIONS[(directionIndex + 1) % AXIAL_DIRECTIONS.length];
+    return [
+      { q: primaryAxis.q * radius, r: primaryAxis.r * radius },
+      { q: primaryAxis.q * (radius - 1), r: primaryAxis.r * (radius - 1) },
+      { q: primaryAxis.q * (radius - 1) + nextAxis.q, r: primaryAxis.r * (radius - 1) + nextAxis.r },
+    ];
+  });
 }
 
-function barbarianHexCoords(): HexCoord[] {
-  return [
-    { q: 0, r: 0 },
-    { q: 1, r: 0 },
-    { q: 0, r: -1 },
-    { q: -1, r: 0 },
-    { q: -1, r: 1 },
-    { q: 0, r: 1 },
-    { q: 1, r: -1 },
-    { q: 3, r: 0 },
-    { q: 0, r: -3 },
-    { q: -3, r: 0 },
-    { q: 0, r: 3 },
-    { q: 3, r: -3 },
-  ];
+function barbarianHexCoords(radius: number): HexCoord[] {
+  if (radius === WARGAMES_HEX_RADIUS) {
+    return [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: 0, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+      { q: 1, r: -1 },
+      { q: 3, r: 0 },
+      { q: 0, r: -3 },
+      { q: -3, r: 0 },
+      { q: 0, r: 3 },
+      { q: 3, r: -3 },
+    ];
+  }
+  const coords: HexCoord[] = [{ q: 0, r: 0 }, ...AXIAL_DIRECTIONS];
+  for (let ring = 2; ring <= radius - 2; ring += 1) {
+    for (const axis of AXIAL_DIRECTIONS) {
+      coords.push({ q: axis.q * ring, r: axis.r * ring });
+    }
+  }
+  const outerFirstHalf = Math.floor(radius / 2);
+  const outerSecondHalf = radius - outerFirstHalf;
+  for (let directionIndex = 0; directionIndex < AXIAL_DIRECTIONS.length; directionIndex += 1) {
+    const primaryAxis = AXIAL_DIRECTIONS[directionIndex];
+    const nextAxis = AXIAL_DIRECTIONS[(directionIndex + 1) % AXIAL_DIRECTIONS.length];
+    coords.push({
+      q: primaryAxis.q * outerFirstHalf + nextAxis.q * outerSecondHalf,
+      r: primaryAxis.r * outerFirstHalf + nextAxis.r * outerSecondHalf,
+    });
+  }
+  if (radius >= 5) {
+    const innerRing = radius - 2;
+    const innerFirstHalf = Math.floor(innerRing / 2);
+    const innerSecondHalf = innerRing - innerFirstHalf;
+    for (let directionIndex = 0; directionIndex < AXIAL_DIRECTIONS.length; directionIndex += 1) {
+      const primaryAxis = AXIAL_DIRECTIONS[directionIndex];
+      const nextAxis = AXIAL_DIRECTIONS[(directionIndex + 1) % AXIAL_DIRECTIONS.length];
+      coords.push({
+        q: primaryAxis.q * innerFirstHalf + nextAxis.q * innerSecondHalf,
+        r: primaryAxis.r * innerFirstHalf + nextAxis.r * innerSecondHalf,
+      });
+    }
+  }
+  return coords;
 }
 
 export function createInitialMatchState(
@@ -366,12 +419,15 @@ export function createInitialMatchState(
   createdAtMs: number,
   spec: WargamesMatchSpec,
 ): MatchState {
-  const villages: (VillageState | null)[] = Array.from({ length: WARGAMES_HEX_COUNT }, () => null);
-  const homeCoords = seatHomeHexCoords();
+  const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
+  const hexes = hexGridForRadius(mapRadius);
+  const villages: (VillageState | null)[] = Array.from({ length: hexes.length }, () => null);
+  const homeCoords = seatHomeHexCoords(mapRadius);
   for (let seatIdx = 0; seatIdx < WARGAMES_SEAT_IDS.length; seatIdx += 1) {
     const seatId = WARGAMES_SEAT_IDS[seatIdx];
     for (const coord of homeCoords[seatIdx]) {
-      const hexIdx = hexIndexAt(coord.q, coord.r);
+      const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
+      if (hexIdx < 0) continue;
       villages[hexIdx] = {
         hexIndex: hexIdx,
         owner: seatId,
@@ -383,9 +439,9 @@ export function createInitialMatchState(
       };
     }
   }
-  for (const coord of barbarianHexCoords()) {
-    const hexIdx = hexIndexAt(coord.q, coord.r);
-    if (villages[hexIdx] !== null) continue;
+  for (const coord of barbarianHexCoords(mapRadius)) {
+    const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
+    if (hexIdx < 0 || villages[hexIdx] !== null) continue;
     villages[hexIdx] = {
       hexIndex: hexIdx,
       owner: null,
@@ -423,7 +479,7 @@ export function createInitialMatchState(
     rngState: spec.seed | 0,
     winnerSeatId: null,
     abortReason: null,
-    hexes: [...ALL_HEXES],
+    hexes: [...hexes],
     villages,
     seats: orderedSeats,
     armies: new Map(),
@@ -920,7 +976,7 @@ function resolveTick(
 
   if (state.spec.rulesVersion !== 'v4' && state.tick >= WARGAMES_SQUEEZE_TICK) {
     for (const village of state.villages) {
-      if (!village || state.hexes[village.hexIndex].ring !== WARGAMES_HEX_RADIUS) continue;
+      if (!village || state.hexes[village.hexIndex].ring !== state.spec.mapRadius) continue;
       if (village.productionState !== 'producing') continue;
       const squeezed = transitionVillage(village.productionState, 'outer_ring_squeeze');
       if (squeezed.ok) village.productionState = squeezed.state;
@@ -1003,6 +1059,7 @@ function resolveTick(
       if (order.kind !== 'march') continue;
       const village = state.villages[order.fromHexIndex];
       if (!village || village.owner !== seat.config.seatId) continue;
+      if (order.toHexIndex < 0 || order.toHexIndex >= state.hexes.length) continue;
       if (totalTroops(order.troops) <= 0) continue;
       if (village.troops.raider < order.troops.raider || village.troops.guard < order.troops.guard || village.troops.envoy < order.troops.envoy) continue;
       village.troops.raider -= order.troops.raider;
@@ -1076,7 +1133,7 @@ function resolveTick(
   if (state.spec.rulesVersion === 'v1') {
     for (const army of state.armies.values()) {
       if (army.status === 'marching') {
-        army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+        army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
         if (army.currentHexIndex !== army.targetHexIndex) continue;
         const arrived = transitionArmy(army.status, 'army_arrive');
         if (!arrived.ok) continue;
@@ -1085,7 +1142,7 @@ function resolveTick(
         continue;
       }
       if (army.status === 'returning') {
-        army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+        army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
         if (army.currentHexIndex !== army.originHexIndex) continue;
         const homeVillage = state.villages[army.originHexIndex];
         if (homeVillage && homeVillage.owner === army.owner) {
@@ -1107,7 +1164,7 @@ function resolveTick(
     const hostileByHex = new Map<number, ArmyState[]>();
     for (const army of state.armies.values()) {
       if (army.status !== 'marching') continue;
-      army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+      army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
       if (army.currentHexIndex !== army.targetHexIndex) continue;
       const arrived = transitionArmy(army.status, 'army_arrive');
       if (!arrived.ok) continue;
@@ -1140,7 +1197,7 @@ function resolveTick(
     for (const armyId of returningBeforeCombat) {
       const army = state.armies.get(armyId);
       if (!army || army.status !== 'returning') continue;
-      army.currentHexIndex = stepTowardHex(army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+      army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
       if (army.currentHexIndex !== army.originHexIndex) continue;
       const homeVillage = state.villages[army.originHexIndex];
       if (homeVillage && homeVillage.owner === army.owner) {

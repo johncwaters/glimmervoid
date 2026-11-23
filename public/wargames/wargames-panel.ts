@@ -1,7 +1,14 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
-import { WARGAMES_RULES_VERSION, WARGAMES_SEAT_IDS, WARGAMES_WIN_VILLAGES } from '#shared/contracts/wargames.ts';
+import {
+  WARGAMES_HEX_RADIUS,
+  WARGAMES_MAX_HEX_RADIUS,
+  WARGAMES_MIN_HEX_RADIUS,
+  WARGAMES_RULES_VERSION,
+  WARGAMES_SEAT_IDS,
+  WARGAMES_WIN_VILLAGES,
+} from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
-import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
+import { projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -370,9 +377,19 @@ function ensureNewMatchSection(): HTMLElement {
   const seedInput = el('input', 'wg-input') as HTMLInputElement;
   seedInput.type = 'number';
   seedInput.value = String(Math.floor(Math.random() * 900_000) + 100_000);
+  const mapRadiusInput = el('input', 'wg-input') as HTMLInputElement;
+  mapRadiusInput.type = 'number';
+  mapRadiusInput.min = String(WARGAMES_MIN_HEX_RADIUS);
+  mapRadiusInput.max = String(WARGAMES_MAX_HEX_RADIUS);
+  mapRadiusInput.value = String(WARGAMES_HEX_RADIUS + 1);
+  mapRadiusInput.placeholder = 'Map radius (3-8)';
+  mapRadiusInput.setAttribute('aria-label', 'Map radius (3 to 8)');
+
+  const mapRadiusLabel = el('label', 'wg-card-meta', 'Map radius (3-8) ');
+  mapRadiusLabel.append(mapRadiusInput);
 
   const metaRow = el('div', 'wg-meta-inputs');
-  metaRow.append(titleInput, seedInput);
+  metaRow.append(titleInput, seedInput, mapRadiusLabel);
   section.append(metaRow);
 
   const seatInputs: {
@@ -411,11 +428,14 @@ function ensureNewMatchSection(): HTMLElement {
     onClick: () => {
       startButton.disabled = true;
       formStatus.textContent = 'Starting 6-seat match...';
+      const parsedRadius = Math.round(Number(mapRadiusInput.value) || WARGAMES_HEX_RADIUS);
+      const mapRadius = Math.max(WARGAMES_MIN_HEX_RADIUS, Math.min(WARGAMES_MAX_HEX_RADIUS, parsedRadius));
       const spec: WargamesMatchSpec = {
         version: 1,
         rulesVersion: WARGAMES_RULES_VERSION,
         title: titleInput.value.trim() || 'Wargames Match',
         seed: Math.max(1, Number(seedInput.value) || 424242),
+        mapRadius,
         tickDeadlineSeconds: 60,
         maxTicks: 40,
         seats: seatInputs.map((entry, index) => ({
@@ -926,7 +946,11 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
     return bar;
   }
 
-  const tile = ALL_HEXES[selectedHexIndex];
+  const tile = state.hexes[selectedHexIndex];
+  if (!tile) {
+    bar.append(el('span', 'wg-card-meta', 'Click a hex to inspect it'));
+    return bar;
+  }
   const seatView = pov === 'god' ? null : projectSeatState(state, pov);
   const village = seatView
     ? seatView.visibleVillages.find((entry) => entry.hexIndex === selectedHexIndex) ?? null

@@ -603,3 +603,43 @@ test('v4 garrisons surviving attackers in captured villages, returns non-capturi
   assert.equal(checkSqueeze('v4'), 'producing');
   assert.equal(checkSqueeze('v3'), 'barren');
 });
+
+test('customizable mapRadius deterministically generates larger symmetric grids and steps armies across them', () => {
+  for (const radius of [4, 5, 6] as const) {
+    const expectedHexes = 3 * radius * (radius + 1) + 1;
+    const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v4', mapRadius: radius });
+    const firstState = createInitialMatchState(`wg-r${radius}-a`, 1000, spec);
+    const secondState = createInitialMatchState(`wg-r${radius}-b`, 1000, spec);
+    assert.equal(firstState.hexes.length, expectedHexes);
+    assert.equal(firstState.villages.length, expectedHexes);
+    assert.deepEqual(firstState.villages, secondState.villages);
+    for (const seatId of WARGAMES_SEAT_IDS) {
+      const owned = firstState.villages.filter((village) => village?.owner === seatId);
+      assert.equal(owned.length, 3);
+    }
+    const barbarians = firstState.villages.filter((village) => village !== null && village.owner === null);
+    assert.ok(barbarians.length >= 19);
+  }
+
+  const radiusFourSpec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v4', mapRadius: 4 });
+  const marchState = createInitialMatchState('wg-r4-march', 1000, radiusFourSpec);
+  const s1Home = marchState.villages.find((village) => village?.owner === 's1');
+  const centerIndex = hexIndexAt(0, 0, 4);
+  assert.ok(s1Home && centerIndex >= 0);
+  marchState.armies.set('army-r4', {
+    id: 'army-r4',
+    owner: 's1',
+    status: 'marching',
+    originHexIndex: s1Home.hexIndex,
+    currentHexIndex: s1Home.hexIndex,
+    targetHexIndex: centerIndex,
+    troops: { raider: 4, guard: 0, envoy: 0 },
+    departedTick: 0,
+    intendedTargetOwner: null,
+    scoutedBy: [],
+  });
+  const stepped = advanceToResolution(marchState);
+  const movedArmy = stepped.armies.get('army-r4');
+  assert.ok(movedArmy);
+  assert.notEqual(movedArmy.currentHexIndex, s1Home.hexIndex);
+});
