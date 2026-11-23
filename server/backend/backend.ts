@@ -931,6 +931,15 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     beforeHandOff: updateApply.handOffStagedUpdate,
   });
 
+  const seatSandboxedWargames: typeof laneAssembly.wargames = {
+    ...laneAssembly.wargames,
+    startMatch: async (...startArguments) => {
+      const refusal = await sessionRuntime.seatSandboxRefusal();
+      if (refusal !== null) return { ok: false, error: `Wargames seats cannot be sandboxed here: ${refusal}` };
+      return laneAssembly.wargames.startMatch(...startArguments);
+    },
+  };
+
   ({ removeExitedSession, raceLauncher, wargamesLauncher, branches } = createBackendControl({
     onControlConnection,
     sessions,
@@ -970,7 +979,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       updateApply.noteRestartRequested();
       updateCheck.refreshApplyAvailability();
     },
-    laneAssembly,
+    laneAssembly: { ...laneAssembly, wargames: seatSandboxedWargames },
     posthog,
     teamReview,
     community,

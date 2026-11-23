@@ -51,7 +51,7 @@ interface SessionFactoryDependencies {
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
   getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch' | 'deniedLaunchNames'> | null;
-  sessionSandboxFor?: ((sessionTempFolder: string | null) => PrepareSandbox) | null;
+  sandboxForProject?: ((project: ProjectEntry, sessionTempFolder: string | null) => PrepareSandbox | null) | null;
   packMcpServers?: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
   sharedPackMcpServers?: ((agentId: string) => PackMcpServer[]) | null;
 }
@@ -101,7 +101,6 @@ function gitCredentialHelperResolverFor(helperProgram: string | null | undefined
 }
 
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
-  const resolveGitCredentialHelper = gitCredentialHelperResolverFor(dependencies.gitCredentialProgram, Boolean(dependencies.sessionSandboxFor));
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     return resolveUsageConfig(config.usage).enabled;
   }
@@ -127,6 +126,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
     const packMcpServersOf = isMachineShell || overrides.ephemeral ? null : dependencies.packMcpServers ?? null;
     const sessionTempFolder = ensureSessionTempFolder(project.id);
+    const prepareSandbox = dependencies.sandboxForProject?.(project, sessionTempFolder) ?? null;
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -166,7 +166,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       sharedPackMcpServers: isMachineShell ? null : dependencies.sharedPackMcpServers ?? null,
       packMcpServers: packMcpServersOf === null ? null : async (agentId, cwd) => packMcpLaunchFor(await packMcpServersOf(agentId, cwd), { id: project.id, project: project.path, cwd }, dependencies.getSecretsBroker?.() ?? null),
       commitSigningProgram: dependencies.commitSigningProgram ?? null,
-      resolveGitCredentialHelper,
+      resolveGitCredentialHelper: gitCredentialHelperResolverFor(dependencies.gitCredentialProgram, prepareSandbox !== null),
       resolveHostSigningEnv: dependencies.hostSigningKeys?.gitEnvFor ?? null,
       questionManager: isMachineShell ? null : dependencies.questionManager?.forSession({ projectPath: project.path, isOn: project.questionManagerOn === true }) ?? null,
       resolveAccountHome,
@@ -176,7 +176,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
         if (broker === null) return { refusal: `${names.join(', ')} cannot be read: the vault is not ready` };
         return broker.holdForLaunch({ id: project.id, project: project.path, cwd }, names, OPENROUTER_LAUNCH_REASON);
       },
-      prepareSandbox: dependencies.sessionSandboxFor?.(sessionTempFolder) ?? null,
+      prepareSandbox,
       ...overrides,
       prependPathDirs: [...ghShimDirsForSpawn(), ...(overrides.prependPathDirs ?? [])],
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,

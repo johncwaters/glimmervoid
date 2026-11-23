@@ -184,7 +184,7 @@ function readableFilesIn(env: SpawnEnv): string[] {
   return systemGitConfig ? [systemGitConfig] : [];
 }
 
-function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTempFolder: string): PrepareSandbox {
+function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTempFolder: string, hiddenFolders: readonly string[]): PrepareSandbox {
   return async (facts: SandboxLaunchFacts) => {
     const ingressPort = dependencies.getIngressPort();
     if (ingressPort === null) return { ok: false, reason: 'the agent endpoint is not listening yet' };
@@ -192,14 +192,14 @@ function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTemp
     if ('refusal' in tools) return { ok: false, reason: tools.refusal };
     const credentialProxy = await holdCredentialProxy(dependencies, facts);
     if ('refusal' in credentialProxy) return { ok: false, reason: credentialProxy.refusal };
-    const prepared = await launchWithin(dependencies, sessionTempFolder, facts, tools, ingressPort, credentialProxy)
+    const prepared = await launchWithin(dependencies, sessionTempFolder, hiddenFolders, facts, tools, ingressPort, credentialProxy)
       .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
     if (!prepared.ok) credentialProxy.release();
     return prepared;
   };
 }
 
-async function launchWithin(dependencies: SessionSandboxDependencies, sessionTempFolder: string, facts: SandboxLaunchFacts, tools: SandboxTools, ingressPort: number, credentialProxy: HeldCredentialProxy): ReturnType<PrepareSandbox> {
+async function launchWithin(dependencies: SessionSandboxDependencies, sessionTempFolder: string, hiddenFolders: readonly string[], facts: SandboxLaunchFacts, tools: SandboxTools, ingressPort: number, credentialProxy: HeldCredentialProxy): ReturnType<PrepareSandbox> {
   const trustEnv = await writeProxyTrustFiles(sessionTempFolder, await dependencies.proxyCertificatePem(), facts.env);
   const loginEntries = await modelLoginEntriesOf(dependencies, facts.accountFolder);
   const hiddenLoginEntries = await existingRealPaths(loginEntries);
@@ -220,6 +220,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     extraAllowedHosts: dependencies.getExtraAllowedHosts(),
     enableWeakerNetworkIsolation: dependencies.isWeakerNetworkIsolationOn(),
     credentialProxy: credentialProxy.route,
+    hiddenFolders: [...new Set([...hiddenFolders, ...await existingRealPaths(hiddenFolders)])],
   });
   const settingsText = `${JSON.stringify(settings, null, 2)}\n`;
   const env = { ...withoutInheritedCredentials(facts.env, facts.launchSetEnvNames), ...trustEnv, ...placeholderEnv(facts.agent) };

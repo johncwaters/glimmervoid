@@ -4,7 +4,7 @@ import { sweepOrphans } from '../../detection/settings-injector.ts';
 import { hooksForProject } from '../../session/core/user-hooks-core.ts';
 import type { GitWorkspace } from '../../session/worktree/worktree-lifecycle-context.ts';
 import type { ControlBroadcast } from './backend-websockets.ts';
-import type { ConfigStore, GlimmervoidConfig } from '../config-store.ts';
+import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { resolveHookTools } from '../hook-tools.ts';
@@ -20,7 +20,8 @@ import { DEFAULT_TERMINAL_COLORS } from '../../session/core/terminal-color-query
 import type { TerminalColors } from '../../session/core/terminal-color-query.ts';
 import { createPackSessionFiles } from '../packs/pack-session-files.ts';
 import type { SecretsBroker } from '../secrets/secrets-broker.ts';
-import { createSessionSandbox } from '../sandbox/sandbox-wiring.ts';
+import { createSessionSandbox, refusingSandbox } from '../sandbox/sandbox-wiring.ts';
+import { WARGAMES_SEAT_ROOT_DIR, isWargamesSeatProject } from '../wargames/wargames-launch.ts';
 import { listenAgentIngressSocket } from './backend-http.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import type { PackMcpServer } from '../../shared/contracts/pack.ts';
@@ -40,6 +41,8 @@ interface BackendSessionRuntimeDependencies {
   packMcpServersFor?: (agentId: string, cwd: string) => Promise<PackMcpServer[]>;
   sharedPackMcpServersFor?: (agentId: string) => PackMcpServer[];
 }
+
+const SEAT_NEEDS_SANDBOX_PLATFORM = 'Wargames seats run only inside the session sandbox, which needs Linux or macOS';
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
   const hookRouter = new HookRouter({ recordOutcome: dependencies.recordOutcome });
@@ -90,7 +93,6 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   const setTerminalColors = (colors: TerminalColors) => { terminalColors = colors; };
   const packSessionFiles = createPackSessionFiles({ root: configSiblingPath(dependencies.configStore.configPath, 'pack-session-files') });
   const sessionSandbox = createSessionSandbox({
-    isOn: dependencies.config.sessionSandbox === true,
     platform: process.platform,
     glimmervoidHome: glimmervoidHomeDir(),
     configPath: dependencies.configStore.configPath,
@@ -103,8 +105,17 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
     githubUserToken: dependencies.githubUserToken,
     logger: dependencies.logger,
   });
+  const isSessionSandboxOn = dependencies.config.sessionSandbox === true;
+  if (isSessionSandboxOn && sessionSandbox === null) throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux and macOS (this machine is ${process.platform})`);
+  const sandboxForProject = (project: ProjectEntry, sessionTempFolder: string | null) => {
+    const isSeat = isWargamesSeatProject(project);
+    if (!isSeat && !isSessionSandboxOn) return null;
+    if (sessionSandbox === null) return refusingSandbox(SEAT_NEEDS_SANDBOX_PLATFORM);
+    return sessionSandbox.sandboxFor(sessionTempFolder, isSeat ? [WARGAMES_SEAT_ROOT_DIR] : []);
+  };
+  const seatSandboxRefusal = async () => sessionSandbox === null ? SEAT_NEEDS_SANDBOX_PLATFORM : sessionSandbox.refusal();
   const makeSession = createSessionFactory({
-    sessionSandboxFor: sessionSandbox?.sandboxFor ?? null,
+    sandboxForProject,
     getPackAgentLaunch: packSessionFiles.launch,
     getSecretsBroker: dependencies.getSecretsBroker,
     commitSigningProgram,
@@ -126,7 +137,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
 
   const recheckSandboxLogins = () => { sessionSandbox?.recheckLogins(); };
 
-  return { agentAccounts, agentIngressServer, recheckSandboxLogins, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
+  return { agentAccounts, agentIngressServer, recheckSandboxLogins, seatSandboxRefusal, getHookPort, ghShimDir, hookRouter, hostSigningKeys, makeSession, packSessionFiles, setTerminalColors, sshSigner };
 }
 
 export { createBackendSessionRuntime };

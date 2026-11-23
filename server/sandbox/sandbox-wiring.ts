@@ -11,7 +11,6 @@ import { modelTokenFrom } from './core/credential-decider-core.ts';
 import type { SandboxLauncher, SandboxTools } from './sandbox-launch.ts';
 
 interface SessionSandboxWiring {
-  isOn: boolean;
   platform: NodeJS.Platform;
   glimmervoidHome: string;
   configPath: string;
@@ -61,18 +60,26 @@ async function findSandboxTools(platform: NodeJS.Platform): Promise<SandboxTools
   return { nodePath, srtCliPath, launcher };
 }
 
+const RUNTIME_COMMANDS_BY_PLATFORM: Readonly<Partial<Record<NodeJS.Platform, readonly string[]>>> = Object.freeze({ linux: ['bwrap', 'rg'], darwin: ['sandbox-exec'] });
+
+async function missingRuntimeCommand(platform: NodeJS.Platform): Promise<string | null> {
+  const commandPaths = await Promise.all((RUNTIME_COMMANDS_BY_PLATFORM[platform] ?? []).map(async (command) => ({ command, commandPath: await firstCommandOnPath(command) })));
+  const missing = commandPaths.find((found) => found.commandPath === null);
+  return missing ? `${missing.command} is not on PATH` : null;
+}
+
 function refusingSandbox(reason: string): PrepareSandbox {
   return async () => ({ ok: false, reason });
 }
 
 interface SessionSandbox {
-  sandboxFor: (sessionTempFolder: string | null) => PrepareSandbox;
+  sandboxFor: (sessionTempFolder: string | null, hiddenFolders: readonly string[]) => PrepareSandbox;
+  refusal: () => Promise<string | null>;
   recheckLogins: () => void;
 }
 
 function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | null {
-  if (!wiring.isOn) return null;
-  if (!SANDBOXED_PLATFORMS.includes(wiring.platform)) throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux and macOS (this machine is ${wiring.platform})`);
+  if (!SANDBOXED_PLATFORMS.includes(wiring.platform)) return null;
   let foundTools: SandboxTools | null = null;
   let certificateAuthority: Promise<ProxyCertificateAuthority> | null = null;
   const proxyCertificateAuthority = () => {
@@ -111,11 +118,16 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
     proxyCertificatePem: async () => (await proxyCertificateAuthority()).certificatePem,
   };
   return {
-    sandboxFor: (sessionTempFolder) => sessionTempFolder === null
+    sandboxFor: (sessionTempFolder, hiddenFolders) => sessionTempFolder === null
       ? refusingSandbox('the session has no temp folder to hold its sandbox')
-      : sessionSandboxFor(dependencies, sessionTempFolder),
+      : sessionSandboxFor(dependencies, sessionTempFolder, hiddenFolders),
+    refusal: async () => {
+      const tools = await resolveTools();
+      if ('refusal' in tools) return tools.refusal;
+      return missingRuntimeCommand(wiring.platform);
+    },
     recheckLogins: loginRefresher.recheckAll,
   };
 }
 
-export { createSessionSandbox };
+export { createSessionSandbox, refusingSandbox };

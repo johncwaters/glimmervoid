@@ -17,7 +17,7 @@ import type { WargamesRunner } from './wargames-runner.ts';
 const SEAT_PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
 const SEAT_NUDGE_TIMEOUT_MS = 15_000;
 const IDLE_NUDGE_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
-const DEFAULT_SEAT_ROOT_DIR = path.join(os.tmpdir(), 'glimmervoid-wargames-seats');
+const WARGAMES_SEAT_ROOT_DIR = path.join(os.tmpdir(), 'glimmervoid-wargames-seats');
 
 type WargamesStartResult = { ok: true; matchId: string; error: string | null } | { ok: false; error: string };
 type WargamesStartPermissions = { dangerouslySkipPermissions: boolean; saneYolo: boolean };
@@ -37,7 +37,7 @@ interface PruneOrphanedWargamesDeps {
 
 export function isWargamesSeatProject(
   project: Pick<WargamesSeatProjectCandidate, 'path' | 'attentionOwner'>,
-  seatRootDir: string = DEFAULT_SEAT_ROOT_DIR,
+  seatRootDir: string = WARGAMES_SEAT_ROOT_DIR,
 ): boolean {
   if (project.attentionOwner === 'wargames') return true;
   if (!project.path) return false;
@@ -47,7 +47,7 @@ export function isWargamesSeatProject(
 export function pruneOrphanedWargamesProjects({
   configStore,
   config,
-  seatRootDir = DEFAULT_SEAT_ROOT_DIR,
+  seatRootDir = WARGAMES_SEAT_ROOT_DIR,
   logger,
 }: PruneOrphanedWargamesDeps): { removedIds: string[]; cleanupSeatDirs: Promise<void> } {
   const orphaned = config.projects.filter((project) => isWargamesSeatProject(project, seatRootDir));
@@ -79,6 +79,8 @@ export function pruneOrphanedWargamesProjects({
   ).then(() => undefined);
   return { removedIds: [...orphanedIds], cleanupSeatDirs };
 }
+
+export { WARGAMES_SEAT_ROOT_DIR };
 
 export interface WargamesLauncher {
   start(candidate: unknown, permissions?: WargamesStartPermissions): Promise<WargamesStartResult>;
@@ -127,7 +129,7 @@ export function createWargamesLauncher({
   config,
   createProjectSession,
   discardSession,
-  seatRootDir = DEFAULT_SEAT_ROOT_DIR,
+  seatRootDir = WARGAMES_SEAT_ROOT_DIR,
 }: WargamesLauncherDeps): WargamesLauncher {
   const discardedSessionIds = new Set<string>();
   const foldCase = process.platform === 'win32';
