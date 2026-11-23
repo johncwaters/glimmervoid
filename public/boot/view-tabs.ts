@@ -34,7 +34,7 @@ function openView(view: string) {
 
 function openBoardsSurface() {
   if (showPhoneScreen('boards')) return;
-  activateView('focus');
+  if (getActiveView() !== 'focus') activateView('focus');
   openRequestedBoardInFocus();
 }
 

@@ -556,7 +556,9 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
     return unshownAgentChangeOf(sessionId)?.boardId ?? null;
   });
   assert.equal(unshownBoardId, 'harness-board', 'the board shortcut has the newest change to frame');
+  await page.locator('.session-chat').evaluate((chat) => { chat.dataset.beforeShowOnBoard = 'true'; });
   await showOnBoard.click();
+  assert.equal(await page.locator('.session-chat[data-before-show-on-board]').count(), 1, 'Show on board keeps the chat it was clicked in instead of rebuilding it');
   const focusedBoxIds = await page.evaluate(async () => {
     const boardStoreUrl = '/whiteboard/board-store.ts';
     const { takeBoardFocusFor } = await import(boardStoreUrl);
