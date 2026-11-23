@@ -2,7 +2,7 @@ import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
-import { createSvgShape } from '../svg-dom.ts';
+import { CHAT_ICON_PATH, createSvgShape } from '../svg-dom.ts';
 import {
   createBoardAnimationQueue,
   directTurnEvents,
@@ -58,30 +58,52 @@ export const SEAT_COLORS: Readonly<Record<SeatId, string>> = Object.freeze({
 
 const HEX_SIZE = 40;
 const HEX_INNER_RADIUS = HEX_SIZE - 2;
-const LOYALTY_BAR_WIDTH = 36;
-const LOYALTY_BAR_HEIGHT = 3;
 const SQRT_3 = Math.sqrt(3);
+const HEX_EDGE_INSET = (HEX_INNER_RADIUS * SQRT_3) / 2 - 4;
+const MARKER_ALONG_LINE_STEPS = [0.5, 0.38, 0.62, 0.26, 0.74];
+const MARKER_SIDE_STEPS = [0, -13, 13];
+const BATTLE_LABEL_MAX_CHARS = 24;
+const NEUTRAL_COLOR = 'var(--text-dim)';
 const DIPLOMACY_MESSAGE_BEAT_MS = 2600;
 const DIPLOMACY_THOUGHT_BEAT_MS = 2400;
 const DIPLOMACY_PACT_BEAT_MS = 2000;
 const DIPLOMACY_BREACH_BEAT_MS = 2400;
 const DIPLOMACY_MAX_PENDING_BEATS = 10;
 
-export const UNIT_GLYPH_PATHS: readonly { key: 'raider' | 'guard' | 'envoy'; label: string; path: string }[] = [
-  { key: 'raider', label: 'Raider', path: 'M 3 13 L 13 3 M 10 3 H 13 V 6 M 4.5 9.5 L 6.5 11.5' },
-  { key: 'guard', label: 'Guard', path: 'M 8 2.2 L 13 4.2 V 8.2 C 13 11.2 10.7 13 8 13.8 C 5.3 13 3 11.2 3 8.2 V 4.2 Z M 8 4.5 V 11.5' },
-  { key: 'envoy', label: 'Envoy', path: 'M 2.5 12.5 L 3.5 5.5 L 6.5 8.5 L 8 4 L 9.5 8.5 L 12.5 5.5 L 13.5 12.5 Z' },
+type UnitKey = 'raider' | 'guard' | 'envoy';
+type BuildingKey = 'farm' | 'mine' | 'barracks' | 'wall';
+
+export const UNIT_GLYPH_PATHS: readonly { key: UnitKey; label: string; color: string; path: string }[] = [
+  { key: 'raider', label: 'Raider', color: '#f77f6a', path: 'M 3 13 L 13 3 M 10 3 H 13 V 6 M 4.5 9.5 L 6.5 11.5' },
+  { key: 'guard', label: 'Guard', color: '#7da3c8', path: 'M 8 2.2 L 13 4.2 V 8.2 C 13 11.2 10.7 13 8 13.8 C 5.3 13 3 11.2 3 8.2 V 4.2 Z M 8 4.5 V 11.5' },
+  { key: 'envoy', label: 'Envoy', color: '#e8b931', path: 'M 2.5 12.5 L 3.5 5.5 L 6.5 8.5 L 8 4 L 9.5 8.5 L 12.5 5.5 L 13.5 12.5 Z' },
 ];
 
-export const BUILDING_GLYPH_PATHS: readonly { key: 'farm' | 'mine' | 'barracks' | 'wall'; label: string; path: string }[] = [
-  { key: 'farm', label: 'Farm', path: 'M 2.5 8 L 8 3 L 13.5 8 M 4 7 V 13.5 H 12 V 7 M 6.5 13.5 V 9.5 H 9.5 V 13.5' },
-  { key: 'mine', label: 'Mine', path: 'M 3 13 L 10.5 5.5 M 6 3 C 9.2 3 12 5.2 13 8.5' },
-  { key: 'barracks', label: 'Barracks', path: 'M 2.5 13 L 8 3.5 L 13.5 13 Z M 6.5 13 L 8 9.5 L 9.5 13' },
-  { key: 'wall', label: 'Wall', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
+export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; color: string; path: string }[] = [
+  { key: 'farm', label: 'Farm', color: '#84cc16', path: 'M 2.5 8 L 8 3 L 13.5 8 M 4 7 V 13.5 H 12 V 7 M 6.5 13.5 V 9.5 H 9.5 V 13.5' },
+  { key: 'mine', label: 'Mine', color: '#94a3b8', path: 'M 3 13 L 10.5 5.5 M 6 3 C 9.2 3 12 5.2 13 8.5' },
+  { key: 'barracks', label: 'Barracks', color: '#f59e0b', path: 'M 2.5 13 L 8 3.5 L 13.5 13 Z M 6.5 13 L 8 9.5 L 9.5 13' },
+  { key: 'wall', label: 'Wall', color: '#a8a29e', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
 ];
 
 export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
+export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8.5 H 4';
+export const PACT_SCROLL_PATH = 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9';
+export const BREACH_WARNING_PATH = 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5';
+export const THOUGHT_CLOUD_PATH = 'M 5 10.5 A 2.5 2.5 0 0 1 4.2 5.6 A 3 3 0 0 1 9.8 4.2 A 2.6 2.6 0 0 1 12.2 10 Z M 4.5 13 L 4.6 13 M 2.6 14.8 L 2.7 14.8';
 const BUILD_HAMMER_PATH = 'M 3 13 L 9.5 6.5 M 7.5 3.5 L 12.5 8.5 L 10.8 10.2 L 5.8 5.2 Z';
+
+export function controlToneColor(loyalty: number, owner: SeatId | null): string {
+  if (loyalty <= 35) return 'var(--state-failed)';
+  if (loyalty <= 65) return 'var(--state-waiting)';
+  if (owner !== null) return SEAT_COLORS[owner];
+  return NEUTRAL_COLOR;
+}
+
+export function seatLabelOf(state: MatchState, seatId: SeatId): string {
+  const seat = state.seats.find((candidate) => candidate.config.seatId === seatId);
+  return seat ? seat.config.label : `Seat ${WARGAMES_SEAT_IDS.indexOf(seatId) + 1}`;
+}
 
 function createMapStrokeGlyph(
   pathData: string,
@@ -106,126 +128,183 @@ function createMapStrokeGlyph(
   return group;
 }
 
-function renderArmyPill(
-  armyGroup: SVGElement,
-  midX: number,
-  midY: number,
-  owner: SeatId,
-  troops: { raider: number; guard: number; envoy: number },
-  color: string,
-  isReturning = false,
-): void {
-  const active = UNIT_GLYPH_PATHS
-    .filter((unit) => troops[unit.key] > 0)
-    .map((unit) => {
-      const digits = String(troops[unit.key]);
-      return { unit, digits, width: 10.5 + digits.length * 5.1 };
-    });
-  const ownerTag = isReturning ? `RET ${owner.toUpperCase()}` : owner.toUpperCase();
-  const ownerWidth = ownerTag.length * 5.2;
-  const gap = 4;
-  const tokensWidth = active.reduce((sum, item) => sum + item.width, 0) + Math.max(0, active.length - 1) * gap;
-  const contentWidth = active.length > 0 ? ownerWidth + gap + tokensWidth : ownerWidth;
-  const pillWidth = Math.max(30, contentWidth + 10);
-  const pillHeight = 16;
-
-  const pillAttrs: Record<string, string> = {
-    x: (midX - pillWidth / 2).toFixed(1),
-    y: (midY - pillHeight / 2).toFixed(1),
-    width: pillWidth.toFixed(1),
-    height: String(pillHeight),
-    rx: '2',
-    fill: 'var(--bg)',
-    stroke: color,
-    'stroke-width': '1.2',
-  };
-  if (isReturning) pillAttrs['stroke-dasharray'] = '3 2';
-  armyGroup.append(createSvgShape('rect', pillAttrs));
-
-  let cursorX = midX - contentWidth / 2;
-  const baselineY = midY + 3;
-  const ownerText = createSvgShape('text', {
-    x: cursorX.toFixed(1),
-    y: baselineY.toFixed(1),
-    'text-anchor': 'start',
-    'font-size': '8.5',
-    fill: color,
-    class: 'wg-army-pill-text',
-  });
-  ownerText.textContent = ownerTag;
-  armyGroup.append(ownerText);
-  cursorX += ownerWidth + gap;
-
-  for (const item of active) {
-    const iconGroup = createMapStrokeGlyph(item.unit.path, cursorX + 4.5, baselineY - 2.8, 9, color);
-    const countText = createSvgShape('text', {
-      x: (cursorX + 10.2).toFixed(1),
-      y: baselineY.toFixed(1),
-      'text-anchor': 'start',
-      'font-size': '8.5',
-      fill: 'var(--text-head)',
-      class: 'wg-army-pill-text',
-    });
-    countText.textContent = item.digits;
-    armyGroup.append(iconGroup, countText);
-    cursorX += item.width + gap;
-  }
-}
-
-function renderHexUnitRow(
+function appendBoardText(
   container: SVGElement,
-  centerX: number,
-  baselineY: number,
-  items: readonly { unit: (typeof UNIT_GLYPH_PATHS)[number]; digits: string; width: number }[],
-  fillColor: string,
-): void {
-  const gap = 3.5;
-  const totalWidth = items.reduce((sum, item) => sum + item.width, 0) + gap * (items.length - 1);
-  let cursorX = centerX - totalWidth / 2;
-  for (const item of items) {
-    const iconGroup = createMapStrokeGlyph(item.unit.path, cursorX + 4.5, baselineY - 2.8, 9, fillColor);
-    const countText = createSvgShape('text', {
-      x: (cursorX + 10.2).toFixed(1),
-      y: baselineY.toFixed(1),
-      'text-anchor': 'start',
-      'font-size': '8.5',
-      fill: 'var(--text-head)',
-      class: 'wg-hex-detail',
-    });
-    countText.textContent = item.digits;
-    container.append(iconGroup, countText);
-    cursorX += item.width + gap;
-  }
+  label: string,
+  attributes: { x: number; y: number; anchor: 'start' | 'middle'; fontSize: string; fill: string; className: string },
+): SVGElement {
+  const textNode = createSvgShape('text', {
+    x: attributes.x.toFixed(1),
+    y: attributes.y.toFixed(1),
+    'text-anchor': attributes.anchor,
+    'font-size': attributes.fontSize,
+    fill: attributes.fill,
+    class: attributes.className,
+  });
+  textNode.textContent = label;
+  container.append(textNode);
+  return textNode;
 }
 
-function renderHexUnitTokens(
+function appendPillFrame(
   container: SVGElement,
   centerX: number,
   centerY: number,
-  troops: { raider: number; guard: number; envoy: number },
-  fillColor: string,
-  hasOwnerBadge = false,
-): boolean {
-  container.replaceChildren();
-  container.removeAttribute('transform');
-  const active = UNIT_GLYPH_PATHS
+  width: number,
+  height: number,
+  stroke: string,
+  options: { strokeWidth?: string; dasharray?: string } = {},
+): void {
+  const frameAttributes: Record<string, string> = {
+    x: (centerX - width / 2).toFixed(1),
+    y: (centerY - height / 2).toFixed(1),
+    width: width.toFixed(1),
+    height: height.toFixed(1),
+    rx: '2',
+    fill: 'var(--bg)',
+    stroke,
+    'stroke-width': options.strokeWidth ?? '1',
+  };
+  if (options.dasharray) frameAttributes['stroke-dasharray'] = options.dasharray;
+  container.append(createSvgShape('rect', frameAttributes));
+}
+
+interface UnitCountToken {
+  readonly path: string;
+  readonly color: string;
+  readonly digits: string;
+  readonly width: number;
+}
+
+function unitCountTokensOf(troops: TroopCounts): UnitCountToken[] {
+  return UNIT_GLYPH_PATHS
     .filter((unit) => troops[unit.key] > 0)
     .map((unit) => {
       const digits = String(troops[unit.key]);
-      return { unit, digits, width: 10.5 + digits.length * 5.2 };
+      return { path: unit.path, color: unit.color, digits, width: 10.5 + digits.length * 5.2 };
     });
-  if (active.length === 0) return false;
-  if (hasOwnerBadge) {
-    renderHexUnitRow(container, centerX, centerY + 14, active, fillColor);
-    return true;
+}
+
+function tokenRowWidth(tokens: readonly UnitCountToken[], gap: number): number {
+  return tokens.reduce((sum, token) => sum + token.width, 0) + Math.max(0, tokens.length - 1) * gap;
+}
+
+function appendUnitCountRow(
+  container: SVGElement,
+  startX: number,
+  baselineY: number,
+  tokens: readonly UnitCountToken[],
+  gap: number,
+  className: string,
+): void {
+  let cursorX = startX;
+  for (const token of tokens) {
+    container.append(createMapStrokeGlyph(token.path, cursorX + 4.5, baselineY - 2.8, 9, token.color));
+    appendBoardText(container, token.digits, {
+      x: cursorX + 10.2,
+      y: baselineY,
+      anchor: 'start',
+      fontSize: '8.5',
+      fill: 'var(--text-head)',
+      className,
+    });
+    cursorX += token.width + gap;
   }
-  if (active.length <= 2) {
-    renderHexUnitRow(container, centerX, centerY + 6, active, fillColor);
-    return true;
+}
+
+interface BoardBox {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+interface ArrowSegment {
+  readonly startX: number;
+  readonly startY: number;
+  readonly endX: number;
+  readonly endY: number;
+}
+
+type MarkerPlacer = (segment: ArrowSegment, markerWidth: number, markerHeight: number) => { x: number; y: number };
+
+function boxAround(centerX: number, centerY: number, width: number, height: number): BoardBox {
+  return { left: centerX - width / 2, top: centerY - height / 2, right: centerX + width / 2, bottom: centerY + height / 2 };
+}
+
+function boxesOverlap(first: BoardBox, second: BoardBox): boolean {
+  return first.left < second.right && second.left < first.right && first.top < second.bottom && second.top < first.bottom;
+}
+
+function armyCounterWidth(troops: TroopCounts): number {
+  return 10 + 2 + String(troopCountOf(troops)).length * 5.6 + 9;
+}
+
+function renderArmyCounter(
+  armyGroup: SVGElement,
+  midX: number,
+  midY: number,
+  troops: TroopCounts,
+  seatColor: string,
+): void {
+  const leadUnit = leadUnitOf(troops);
+  const totalLabel = String(troopCountOf(troops));
+  const contentWidth = armyCounterWidth(troops) - 9;
+  appendPillFrame(armyGroup, midX, midY, contentWidth + 9, 15, seatColor, {
+    strokeWidth: '1.4',
+  });
+  const startX = midX - contentWidth / 2;
+  armyGroup.append(createMapStrokeGlyph(leadUnit.path, startX + 5, midY, 10, leadUnit.color));
+  appendBoardText(armyGroup, totalLabel, {
+    x: startX + 12,
+    y: midY + 3,
+    anchor: 'start',
+    fontSize: '9',
+    fill: 'var(--text-head)',
+    className: 'wg-army-pill-text',
+  });
+}
+
+function renderHexUnitRow(container: SVGElement, centerX: number, baselineY: number, tokens: readonly UnitCountToken[]): void {
+  const gap = 3.5;
+  appendUnitCountRow(container, centerX - tokenRowWidth(tokens, gap) / 2, baselineY, tokens, gap, 'wg-hex-detail');
+}
+
+function renderHexUnitTokens(container: SVGElement, centerX: number, centerY: number, troops: TroopCounts): void {
+  container.replaceChildren();
+  const tokens = unitCountTokensOf(troops);
+  if (tokens.length === 0) return;
+  if (tokens.length <= 2) {
+    renderHexUnitRow(container, centerX, centerY + 5, tokens);
+    return;
   }
-  renderHexUnitRow(container, centerX, centerY + 1, active.slice(0, 2), fillColor);
-  renderHexUnitRow(container, centerX, centerY + 13, active.slice(2), fillColor);
-  return true;
+  renderHexUnitRow(container, centerX, centerY - 1, tokens.slice(0, 2));
+  renderHexUnitRow(container, centerX, centerY + 11, tokens.slice(2));
+}
+
+function renderControlBadge(container: SVGElement, centerX: number, centerY: number, loyalty: number, owner: SeatId | null): void {
+  container.replaceChildren();
+  const controlPercent = Math.max(0, Math.min(100, Math.round(loyalty)));
+  if (controlPercent >= 100) return;
+  const tone = controlToneColor(controlPercent, owner);
+  const label = `${controlPercent}%`;
+  const contentWidth = 9 + 1.5 + label.length * 4.9;
+  const badgeCenterY = centerY + 22;
+  appendPillFrame(container, centerX, badgeCenterY, contentWidth + 7, 11, tone);
+  const startX = centerX - contentWidth / 2;
+  container.append(createMapStrokeGlyph(CONTROL_FLAG_PATH, startX + 4.5, badgeCenterY, 8.5, tone, '2'));
+  appendBoardText(container, label, {
+    x: startX + 10.5,
+    y: badgeCenterY + 2.8,
+    anchor: 'start',
+    fontSize: '8',
+    fill: tone,
+    className: 'wg-army-pill-text',
+  });
+}
+
+function arrowEndpointTrims(distance: number): { startTrim: number; endTrim: number } {
+  return { startTrim: Math.min(HEX_EDGE_INSET, distance * 0.4), endTrim: Math.min(16, distance * 0.25) };
 }
 
 function hexCenter(axialQ: number, axialR: number): { x: number; y: number } {
@@ -246,13 +325,6 @@ function hexPolygonPoints(centerX: number, centerY: number): string {
   return points.join(' ');
 }
 
-function loyaltyFillColor(loyalty: number, owner: SeatId | null): string {
-  if (loyalty <= 35) return 'var(--state-failed)';
-  if (loyalty <= 65) return 'var(--state-waiting)';
-  if (owner !== null) return SEAT_COLORS[owner];
-  return 'var(--text-dim)';
-}
-
 function villageFillColor(owner: SeatId | null, isBarren: boolean): string {
   if (owner !== null) {
     const mixPercent = isBarren ? 8 : 18;
@@ -267,12 +339,9 @@ interface HexNodeSlot {
   group: SVGElement;
   polygon: SVGElement;
   indexLabel: SVGElement;
-  ownerBadge: SVGElement;
-  ownerLabel: SVGElement;
   detailLabel: SVGElement;
   unitGroup: SVGElement;
-  loyaltyTrack: SVGElement;
-  loyaltyFill: SVGElement;
+  controlGroup: SVGElement;
   centerX: number;
   centerY: number;
 }
@@ -282,16 +351,17 @@ interface ArmySnapshot {
   targetHexIndex: number;
   originHexIndex: number;
   owner: SeatId;
-  troops: { raider: number; guard: number; envoy: number };
+  troops: TroopCounts;
   status: string;
 }
 
-function troopCountOf(troops: { raider: number; guard: number; envoy: number }): number {
+function troopCountOf(troops: TroopCounts): number {
   return troops.raider + troops.guard + troops.envoy;
 }
 
 interface BuildingUpgradeCallout {
   path: string;
+  color: string;
   level: number;
 }
 
@@ -307,10 +377,14 @@ function collectBuildingUpgrades(prev: VillageState['buildings'], next: VillageS
   const upgrades: BuildingUpgradeCallout[] = [];
   for (const entry of BUILDING_GLYPH_PATHS) {
     if (next[entry.key] > prev[entry.key]) {
-      upgrades.push({ path: entry.path, level: next[entry.key] });
+      upgrades.push({ path: entry.path, color: entry.color, level: next[entry.key] });
     }
   }
   return upgrades;
+}
+
+function pairKeyOf(fromHexIndex: number, toHexIndex: number): string {
+  return `${Math.min(fromHexIndex, toHexIndex)}-${Math.max(fromHexIndex, toHexIndex)}`;
 }
 
 function appendDiplomacyArc(
@@ -320,7 +394,9 @@ function appendDiplomacyArc(
   options: {
     stroke: string;
     dasharray: string;
+    glyphPath: string;
     label: string;
+    markerId: string | null;
     durationMs: number;
   },
 ): SVGElement | null {
@@ -329,49 +405,48 @@ function appendDiplomacyArc(
   const distance = Math.hypot(vectorX, vectorY);
   if (distance < 1) return null;
 
-  const midX = (fromSlot.centerX + toSlot.centerX) / 2;
-  const midY = (fromSlot.centerY + toSlot.centerY) / 2;
+  const unitX = vectorX / distance;
+  const unitY = vectorY / distance;
+  const { startTrim, endTrim } = arrowEndpointTrims(distance);
+  const startX = fromSlot.centerX + unitX * startTrim;
+  const startY = fromSlot.centerY + unitY * startTrim;
+  const endX = toSlot.centerX - unitX * endTrim;
+  const endY = toSlot.centerY - unitY * endTrim;
+  const midX = (startX + endX) / 2;
+  const midY = (startY + endY) / 2;
   const curveLift = Math.min(44, distance * 0.24);
-  const controlX = midX - (vectorY / distance) * curveLift;
-  const controlY = midY + (vectorX / distance) * curveLift;
-  const peakX = (fromSlot.centerX + 2 * controlX + toSlot.centerX) / 4;
-  const peakY = (fromSlot.centerY + 2 * controlY + toSlot.centerY) / 4;
+  const controlX = midX - unitY * curveLift;
+  const controlY = midY + unitX * curveLift;
+  const peakX = (startX + 2 * controlX + endX) / 4;
+  const peakY = (startY + 2 * controlY + endY) / 4;
 
   const group = createSvgShape('g', { class: 'wg-diplomacy-arc' });
   group.style.animationDuration = `${options.durationMs}ms`;
-  group.append(
-    createSvgShape('path', {
-      d: `M ${fromSlot.centerX.toFixed(1)} ${fromSlot.centerY.toFixed(1)} Q ${controlX.toFixed(1)} ${controlY.toFixed(1)} ${toSlot.centerX.toFixed(1)} ${toSlot.centerY.toFixed(1)}`,
-      fill: 'none',
-      stroke: options.stroke,
-      'stroke-width': '2',
-      'stroke-dasharray': options.dasharray,
-    }),
-  );
+  const pathAttributes: Record<string, string> = {
+    d: `M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${controlX.toFixed(1)} ${controlY.toFixed(1)} ${endX.toFixed(1)} ${endY.toFixed(1)}`,
+    fill: 'none',
+    stroke: options.stroke,
+    'stroke-width': '2',
+    'stroke-dasharray': options.dasharray,
+  };
+  if (options.markerId) pathAttributes['marker-end'] = `url(#${options.markerId})`;
+  group.append(createSvgShape('path', pathAttributes));
 
-  const pillWidth = Math.max(26, options.label.length * 6.2 + 10);
-  group.append(
-    createSvgShape('rect', {
-      x: (peakX - pillWidth / 2).toFixed(1),
-      y: (peakY - 7).toFixed(1),
-      width: pillWidth.toFixed(1),
-      height: '14',
-      rx: '2',
-      fill: 'var(--bg)',
-      stroke: options.stroke,
-      'stroke-width': '1',
-    }),
-  );
-  const tag = createSvgShape('text', {
-    x: peakX.toFixed(1),
-    y: (peakY + 3).toFixed(1),
-    'text-anchor': 'middle',
-    'font-size': '8.5',
-    fill: options.stroke,
-    class: 'wg-delta-text',
-  });
-  tag.textContent = options.label;
-  group.append(tag);
+  const labelWidth = options.label.length > 0 ? 2 + options.label.length * 5.4 : 0;
+  const contentWidth = 10 + labelWidth;
+  appendPillFrame(group, peakX, peakY, contentWidth + 8, 15, options.stroke);
+  const contentStartX = peakX - contentWidth / 2;
+  group.append(createMapStrokeGlyph(options.glyphPath, contentStartX + 5, peakY, 10, options.stroke, '1.6'));
+  if (options.label.length > 0) {
+    appendBoardText(group, options.label, {
+      x: contentStartX + 12,
+      y: peakY + 3,
+      anchor: 'start',
+      fontSize: '8.5',
+      fill: options.stroke,
+      className: 'wg-delta-text',
+    });
+  }
   fxLayer.append(group);
   return group;
 }
@@ -396,31 +471,10 @@ function appendDeltaCallout(
   fill: string,
   durationMs: number,
 ): SVGElement {
-  const pillWidth = Math.max(24, label.length * 6.5 + 8);
   const group = createSvgShape('g', { class: 'wg-delta-callout' });
   group.style.animationDuration = `${durationMs}ms`;
-  group.append(
-    createSvgShape('rect', {
-      x: (centerX - pillWidth / 2).toFixed(1),
-      y: (centerY - 10).toFixed(1),
-      width: pillWidth.toFixed(1),
-      height: '14',
-      rx: '2',
-      fill: 'var(--bg)',
-      stroke: fill,
-      'stroke-width': '1',
-    }),
-  );
-  const callout = createSvgShape('text', {
-    x: centerX.toFixed(1),
-    y: (centerY + 0.5).toFixed(1),
-    'text-anchor': 'middle',
-    'font-size': '9.5',
-    fill,
-    class: 'wg-delta-text',
-  });
-  callout.textContent = label;
-  group.append(callout);
+  appendPillFrame(group, centerX, centerY - 3, Math.max(24, label.length * 6.5 + 8), 14, fill);
+  appendBoardText(group, label, { x: centerX, y: centerY + 0.5, anchor: 'middle', fontSize: '9.5', fill, className: 'wg-delta-text' });
   fxLayer.append(group);
   return group;
 }
@@ -429,49 +483,26 @@ function appendGlyphCallout(
   fxLayer: SVGElement,
   centerX: number,
   centerY: number,
-  glyphPath: string,
-  level: number,
-  fill: string,
-  durationMs: number,
+  options: { prefix: string; glyphPath: string; glyphColor: string; label: string; stroke: string; durationMs: number },
 ): SVGElement {
-  const digits = String(level);
-  const contentWidth = 17.5 + digits.length * 5.8;
-  const pillWidth = Math.max(30, contentWidth + 8);
+  const prefixWidth = options.prefix.length * 5.8;
+  const contentWidth = prefixWidth + 11 + options.label.length * 5.6;
   const group = createSvgShape('g', { class: 'wg-delta-callout' });
-  group.style.animationDuration = `${durationMs}ms`;
-  group.append(
-    createSvgShape('rect', {
-      x: (centerX - pillWidth / 2).toFixed(1),
-      y: (centerY - 10).toFixed(1),
-      width: pillWidth.toFixed(1),
-      height: '14',
-      rx: '2',
-      fill: 'var(--bg)',
-      stroke: fill,
-      'stroke-width': '1',
-    }),
-  );
+  group.style.animationDuration = `${options.durationMs}ms`;
+  appendPillFrame(group, centerX, centerY - 3, Math.max(30, contentWidth + 8), 14, options.stroke);
   const startX = centerX - contentWidth / 2;
-  const plusText = createSvgShape('text', {
-    x: startX.toFixed(1),
-    y: (centerY + 0.5).toFixed(1),
-    'text-anchor': 'start',
-    'font-size': '9',
-    fill,
-    class: 'wg-delta-text',
+  if (options.prefix.length > 0) {
+    appendBoardText(group, options.prefix, { x: startX, y: centerY + 0.5, anchor: 'start', fontSize: '9', fill: options.stroke, className: 'wg-delta-text' });
+  }
+  group.append(createMapStrokeGlyph(options.glyphPath, startX + prefixWidth + 4.5, centerY - 3, 9, options.glyphColor));
+  appendBoardText(group, options.label, {
+    x: startX + prefixWidth + 10.5,
+    y: centerY + 0.5,
+    anchor: 'start',
+    fontSize: '9',
+    fill: options.stroke,
+    className: 'wg-delta-text',
   });
-  plusText.textContent = '+';
-  const iconGroup = createMapStrokeGlyph(glyphPath, startX + 10.5, centerY - 3, 9, fill);
-  const levelText = createSvgShape('text', {
-    x: (startX + 16.5).toFixed(1),
-    y: (centerY + 0.5).toFixed(1),
-    'text-anchor': 'start',
-    'font-size': '9',
-    fill,
-    class: 'wg-delta-text',
-  });
-  levelText.textContent = digits;
-  group.append(plusText, iconGroup, levelText);
   fxLayer.append(group);
   return group;
 }
@@ -499,7 +530,7 @@ function appendCombatClash(
   return clash;
 }
 
-function leadUnitGlyphPath(troops: TroopCounts): string {
+function leadUnitOf(troops: TroopCounts): (typeof UNIT_GLYPH_PATHS)[number] {
   let best = UNIT_GLYPH_PATHS[0];
   let bestCount = -1;
   for (const unit of UNIT_GLYPH_PATHS) {
@@ -508,21 +539,20 @@ function leadUnitGlyphPath(troops: TroopCounts): string {
       bestCount = troops[unit.key];
     }
   }
-  return best.path;
+  return best;
 }
 
 function renderDivisionToken(group: SVGElement, centerX: number, centerY: number, owner: SeatId, troops: TroopCounts): void {
-  const color = SEAT_COLORS[owner];
+  const leadUnit = leadUnitOf(troops);
   group.append(
     createSvgShape('polygon', {
       points: `${centerX.toFixed(1)},${(centerY - 9).toFixed(1)} ${(centerX + 9).toFixed(1)},${centerY.toFixed(1)} ${centerX.toFixed(1)},${(centerY + 9).toFixed(1)} ${(centerX - 9).toFixed(1)},${centerY.toFixed(1)}`,
       fill: 'var(--bg)',
-      stroke: color,
+      stroke: SEAT_COLORS[owner],
       'stroke-width': '1.6',
     }),
   );
-  const iconGroup = createMapStrokeGlyph(leadUnitGlyphPath(troops), centerX, centerY, 9, color);
-  group.append(iconGroup);
+  group.append(createMapStrokeGlyph(leadUnit.path, centerX, centerY, 9, leadUnit.color));
 }
 
 function appendGlidingArmy(
@@ -549,17 +579,16 @@ function appendGlidingArmy(
   const deltaY = fromSlot.centerY - landY;
 
   const wrapper = createSvgShape('g', {});
-  const trim = Math.min(16, distance * 0.25);
+  const { startTrim, endTrim } = arrowEndpointTrims(distance);
   wrapper.append(
     createSvgShape('line', {
-      x1: (fromSlot.centerX + unitX * trim).toFixed(1),
-      y1: (fromSlot.centerY + unitY * trim).toFixed(1),
-      x2: (toSlot.centerX - unitX * trim).toFixed(1),
-      y2: (toSlot.centerY - unitY * trim).toFixed(1),
+      x1: (fromSlot.centerX + unitX * startTrim).toFixed(1),
+      y1: (fromSlot.centerY + unitY * startTrim).toFixed(1),
+      x2: (toSlot.centerX - unitX * endTrim).toFixed(1),
+      y2: (toSlot.centerY - unitY * endTrim).toFixed(1),
       stroke: SEAT_COLORS[army.owner],
       'stroke-width': '2.2',
       'stroke-dasharray': '6 3',
-      opacity: '0.85',
       'marker-end': `url(#wg-arrow-${army.owner})`,
     }),
   );
@@ -590,100 +619,110 @@ function battleReportsForHex(state: MatchState, pov: WargamesPov, tick: number, 
   return matched;
 }
 
+interface BattleHeadline {
+  readonly text: string;
+  readonly color: string;
+}
+
+function battleHeadlineOf(reports: readonly BattleReportPayload[], fullLabelOf: (seatId: SeatId) => string): BattleHeadline {
+  const labelOf = (seatId: SeatId) => truncateCalloutText(fullLabelOf(seatId), BATTLE_LABEL_MAX_CHARS);
+  const first = reports[0];
+  const capturedReport = reports.find((report) => report.captured) ?? null;
+  if (capturedReport) return { text: `${labelOf(capturedReport.attacker)} captured`, color: SEAT_COLORS[capturedReport.attacker] };
+  const defenderBeforeTotal = troopCountOf(first.defenderBefore);
+  const defenderFell = defenderBeforeTotal === 0 || troopCountOf(first.defenderLost) >= defenderBeforeTotal;
+  if (!defenderFell) {
+    const defenderLabel = first.defender ? labelOf(first.defender) : 'Barbarians';
+    return { text: `${defenderLabel} held`, color: first.defender ? SEAT_COLORS[first.defender] : 'var(--text-head)' };
+  }
+  const survivingAttackers = reports.filter((report) => troopCountOf(report.attackerLost) < troopCountOf(report.attackerSent));
+  if (survivingAttackers.length === 0) return { text: 'Both sides wiped out', color: 'var(--state-waiting)' };
+  const survivorsOf = (report: BattleReportPayload) => troopCountOf(report.attackerSent) - troopCountOf(report.attackerLost);
+  const winningAttacker = survivingAttackers.reduce((best, candidate) => (survivorsOf(candidate) > survivorsOf(best) ? candidate : best));
+  return { text: `${labelOf(winningAttacker.attacker)} won`, color: SEAT_COLORS[winningAttacker.attacker] };
+}
+
+interface BattleLossSegment {
+  readonly color: string;
+  readonly label: string;
+  readonly glyphPath: string | null;
+}
+
+function battleLossSegmentsOf(reports: readonly BattleReportPayload[]): BattleLossSegment[] {
+  const first = reports[0];
+  const capturedReport = reports.find((report) => report.captured) ?? null;
+  const segments: BattleLossSegment[] = reports.map((report) => ({
+    color: SEAT_COLORS[report.attacker],
+    label: `-${troopCountOf(report.attackerLost)}`,
+    glyphPath: null,
+  }));
+  segments.push({
+    color: first.defender ? SEAT_COLORS[first.defender] : NEUTRAL_COLOR,
+    label: `-${troopCountOf(first.defenderLost)}`,
+    glyphPath: null,
+  });
+  const finalLoyalty = capturedReport ? capturedReport.loyaltyAfter : first.loyaltyAfter;
+  if (finalLoyalty < first.loyaltyBefore) {
+    segments.push({ color: 'var(--state-waiting)', label: `${finalLoyalty}%`, glyphPath: CONTROL_FLAG_PATH });
+  }
+  return segments;
+}
+
 function appendBattleBubble(
   fxLayer: SVGElement,
   anchorX: number,
   anchorY: number,
   reports: readonly BattleReportPayload[],
+  labelOf: (seatId: SeatId) => string,
   durationMs: number,
 ): SVGElement | null {
   if (reports.length === 0) return null;
-  const first = reports[0];
-  const capturedReport = reports.find((report) => report.captured) ?? null;
-  const defenderBeforeTotal = troopCountOf(first.defenderBefore);
-  const defenderLostTotal = troopCountOf(first.defenderLost);
-  const defenderFell = defenderBeforeTotal === 0 || defenderLostTotal >= defenderBeforeTotal;
-  const survivingAttackers = reports.filter(
-    (report) => troopCountOf(report.attackerLost) < troopCountOf(report.attackerSent),
-  );
-  const winningAttacker = survivingAttackers.length > 0
-    ? survivingAttackers.reduce((best, candidate) => (
-      troopCountOf(candidate.attackerSent) - troopCountOf(candidate.attackerLost)
-        > troopCountOf(best.attackerSent) - troopCountOf(best.attackerLost)
-        ? candidate
-        : best
-    ), survivingAttackers[0])
-    : null;
-
-  let headline = '';
-  let accentColor = 'var(--state-failed)';
-  if (capturedReport) {
-    headline = `${capturedReport.attacker.toUpperCase()} CAPTURED`;
-    accentColor = SEAT_COLORS[capturedReport.attacker];
-  }
-  if (!capturedReport && defenderFell && winningAttacker) {
-    headline = `${winningAttacker.attacker.toUpperCase()} WON`;
-    accentColor = SEAT_COLORS[winningAttacker.attacker];
-  }
-  if (!capturedReport && defenderFell && !winningAttacker) {
-    headline = 'MUTUAL WIPE';
-    accentColor = 'var(--state-waiting)';
-  }
-  if (!capturedReport && !defenderFell) {
-    const defenderLabel = first.defender ? first.defender.toUpperCase() : 'BARB';
-    headline = `${defenderLabel} HELD`;
-    accentColor = first.defender ? SEAT_COLORS[first.defender] : 'var(--text-head)';
-  }
-
-  const attackerLossParts = reports.map((report) => `${report.attacker.toUpperCase()} -${troopCountOf(report.attackerLost)}`);
-  const defenderName = first.defender ? first.defender.toUpperCase() : 'BARB';
-  const lossParts = [...attackerLossParts, `${defenderName} -${defenderLostTotal}`];
-  const finalLoyalty = capturedReport ? capturedReport.loyaltyAfter : first.loyaltyAfter;
-  if (finalLoyalty < first.loyaltyBefore) {
-    lossParts.push(`LOY ${finalLoyalty}%`);
-  }
-  const detailLine = lossParts.join(' | ');
-
-  const cardWidth = Math.min(210, Math.max(96, Math.max(headline.length * 5.6, detailLine.length * 4.9) + 16));
+  const headline = battleHeadlineOf(reports, labelOf);
+  const segments = battleLossSegmentsOf(reports);
+  const segmentGap = 7;
+  const measuredSegments = segments.map((segment) => ({ ...segment, width: 9 + segment.label.length * 4.9 }));
+  const segmentsWidth = measuredSegments.reduce((sum, segment) => sum + segment.width, 0) + Math.max(0, segments.length - 1) * segmentGap;
+  const cardWidth = Math.min(230, Math.max(96, Math.max(headline.text.length * 5.6, segmentsWidth) + 16));
   const cardHeight = 30;
-  const pos = clampToViewBox(anchorX, anchorY, cardWidth, cardHeight, 30);
+  const position = clampToViewBox(anchorX, anchorY, cardWidth, cardHeight, 30);
 
   const group = createSvgShape('g', { class: 'wg-battle-bubble' });
   group.style.animationDuration = `${durationMs}ms`;
-  group.append(
-    createSvgShape('rect', {
-      x: (pos.x - cardWidth / 2).toFixed(1),
-      y: (pos.y - cardHeight / 2).toFixed(1),
-      width: cardWidth.toFixed(1),
-      height: String(cardHeight),
-      rx: '2',
-      fill: 'var(--bg)',
-      stroke: accentColor,
-      'stroke-width': '1.5',
-    }),
-  );
-
-  const titleNode = createSvgShape('text', {
-    x: pos.x.toFixed(1),
-    y: (pos.y - 3).toFixed(1),
-    'text-anchor': 'middle',
-    'font-size': '8.5',
-    fill: accentColor,
-    class: 'wg-army-pill-text',
+  appendPillFrame(group, position.x, position.y, cardWidth, cardHeight, headline.color, { strokeWidth: '1.5' });
+  appendBoardText(group, headline.text, {
+    x: position.x,
+    y: position.y - 3,
+    anchor: 'middle',
+    fontSize: '8.5',
+    fill: headline.color,
+    className: 'wg-army-pill-text',
   });
-  titleNode.textContent = headline;
 
-  const detailNode = createSvgShape('text', {
-    x: pos.x.toFixed(1),
-    y: (pos.y + 9).toFixed(1),
-    'text-anchor': 'middle',
-    'font-size': '8',
-    fill: 'var(--text-head)',
-    class: 'wg-hex-detail',
-  });
-  detailNode.textContent = detailLine;
-
-  group.append(titleNode, detailNode);
+  const rowY = position.y + 8;
+  let cursorX = position.x - segmentsWidth / 2;
+  for (const segment of measuredSegments) {
+    if (segment.glyphPath) {
+      group.append(createMapStrokeGlyph(segment.glyphPath, cursorX + 3.5, rowY - 0.5, 8, segment.color, '2'));
+    }
+    if (!segment.glyphPath) {
+      group.append(createSvgShape('rect', {
+        x: cursorX.toFixed(1),
+        y: (rowY - 3.5).toFixed(1),
+        width: '6',
+        height: '6',
+        fill: segment.color,
+      }));
+    }
+    appendBoardText(group, segment.label, {
+      x: cursorX + 9,
+      y: rowY + 2.5,
+      anchor: 'start',
+      fontSize: '8',
+      fill: 'var(--text-head)',
+      className: 'wg-hex-detail',
+    });
+    cursorX += segment.width + segmentGap;
+  }
   fxLayer.append(group);
   return group;
 }
@@ -693,17 +732,16 @@ function renderMarchVector(
   fromSlot: HexNodeSlot,
   toSlot: HexNodeSlot,
   owner: SeatId,
-  troops: { raider: number; guard: number; envoy: number },
+  troops: TroopCounts,
   options: {
     strokeDasharray: string;
     strokeWidth: string;
-    opacity: string;
     groupClass: string;
     lineClass: string;
     showPill?: boolean;
     lateralOffset?: number;
-    isReturning?: boolean;
     midIconPath?: string;
+    placeMarker?: MarkerPlacer;
   },
 ): void {
   const deltaX = toSlot.centerX - fromSlot.centerX;
@@ -716,16 +754,23 @@ function renderMarchVector(
   const lateral = options.lateralOffset ?? 0;
   const offsetX = -unitY * lateral;
   const offsetY = unitX * lateral;
-  const trim = Math.min(16, distance * 0.25);
-  const startX = fromSlot.centerX + unitX * trim + offsetX;
-  const startY = fromSlot.centerY + unitY * trim + offsetY;
-  const endX = toSlot.centerX - unitX * trim + offsetX;
-  const endY = toSlot.centerY - unitY * trim + offsetY;
-  const midX = (startX + endX) / 2;
-  const midY = (startY + endY) / 2;
+  const { startTrim, endTrim } = arrowEndpointTrims(distance);
+  const startX = fromSlot.centerX + unitX * startTrim + offsetX;
+  const startY = fromSlot.centerY + unitY * startTrim + offsetY;
+  const endX = toSlot.centerX - unitX * endTrim + offsetX;
+  const endY = toSlot.centerY - unitY * endTrim + offsetY;
+  const showsPill = options.showPill !== false;
+  const markerWidth = showsPill ? armyCounterWidth(troops) : 14;
+  const markerHeight = showsPill ? 15 : 14;
+  const hasMarker = showsPill || options.midIconPath !== undefined;
+  const markerCenter = hasMarker && options.placeMarker
+    ? options.placeMarker({ startX, startY, endX, endY }, markerWidth, markerHeight)
+    : { x: (startX + endX) / 2, y: (startY + endY) / 2 };
+  const midX = markerCenter.x;
+  const midY = markerCenter.y;
 
   const color = SEAT_COLORS[owner];
-  const vectorGroup = createSvgShape('g', { class: options.groupClass, opacity: options.opacity });
+  const vectorGroup = createSvgShape('g', { class: options.groupClass });
   vectorGroup.append(
     createSvgShape('line', {
       x1: startX.toFixed(1),
@@ -739,8 +784,8 @@ function renderMarchVector(
       class: options.lineClass,
     }),
   );
-  if (options.showPill !== false) {
-    renderArmyPill(vectorGroup, midX, midY, owner, troops, color, options.isReturning);
+  if (showsPill) {
+    renderArmyCounter(vectorGroup, midX, midY, troops, color);
   }
   if (options.midIconPath) {
     vectorGroup.append(
@@ -753,8 +798,7 @@ function renderMarchVector(
         'stroke-width': '1.1',
       }),
     );
-    const iconGroup = createMapStrokeGlyph(options.midIconPath, midX, midY, 9, color);
-    vectorGroup.append(iconGroup);
+    vectorGroup.append(createMapStrokeGlyph(options.midIconPath, midX, midY, 9, color));
   }
   layer.append(vectorGroup);
 }
@@ -762,6 +806,7 @@ function renderMarchVector(
 interface PreviewGlyphToken {
   kind: 'build' | 'train';
   path: string;
+  color: string;
   count: number | null;
 }
 
@@ -779,56 +824,39 @@ function clampToViewBox(
   return { x: clampedX, y: clampedY };
 }
 
-function glyphPathForUnit(troop: 'raider' | 'guard' | 'envoy'): string {
-  return UNIT_GLYPH_PATHS.find((entry) => entry.key === troop)?.path ?? UNIT_GLYPH_PATHS[0].path;
+function unitGlyphOf(troop: UnitKey): (typeof UNIT_GLYPH_PATHS)[number] {
+  return UNIT_GLYPH_PATHS.find((entry) => entry.key === troop) ?? UNIT_GLYPH_PATHS[0];
 }
 
-function glyphPathForBuilding(building: 'farm' | 'mine' | 'barracks' | 'wall'): string {
-  return BUILDING_GLYPH_PATHS.find((entry) => entry.key === building)?.path ?? BUILDING_GLYPH_PATHS[0].path;
+function buildingGlyphOf(building: BuildingKey): (typeof BUILDING_GLYPH_PATHS)[number] {
+  return BUILDING_GLYPH_PATHS.find((entry) => entry.key === building) ?? BUILDING_GLYPH_PATHS[0];
+}
+
+function collapsedWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 function truncateCalloutText(text: string, maxChars: number): string {
-  const normalized = text.replace(/\s+/g, ' ').trim();
+  const normalized = collapsedWhitespace(text);
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, maxChars - 3)}...`;
 }
 
-function appendBoardCallout(
+function appendSpeakerMarker(
   fxLayer: SVGElement,
   anchorX: number,
   anchorY: number,
-  options: { label: string; color: string; isThought: boolean; durationMs: number },
+  options: { color: string; isThought: boolean; durationMs: number },
 ): SVGElement {
-  const clipped = truncateCalloutText(options.label, 42);
-  const pillWidth = Math.min(204, Math.max(54, clipped.length * 4.8 + 14));
-  const pillHeight = 16;
-  const pos = clampToViewBox(anchorX, anchorY, pillWidth, pillHeight, 26);
-
+  const markerSize = 18;
+  const position = clampToViewBox(anchorX, anchorY, markerSize, markerSize, 28);
   const group = createSvgShape('g', { class: 'wg-board-callout' });
   group.style.animationDuration = `${options.durationMs}ms`;
-  const rectAttrs: Record<string, string> = {
-    x: (pos.x - pillWidth / 2).toFixed(1),
-    y: (pos.y - pillHeight / 2).toFixed(1),
-    width: pillWidth.toFixed(1),
-    height: String(pillHeight),
-    rx: '2',
-    fill: 'var(--bg)',
-    stroke: options.color,
-    'stroke-width': '1.2',
-  };
-  if (options.isThought) rectAttrs['stroke-dasharray'] = '3 2';
-  group.append(createSvgShape('rect', rectAttrs));
-
-  const textNode = createSvgShape('text', {
-    x: pos.x.toFixed(1),
-    y: (pos.y + 2.8).toFixed(1),
-    'text-anchor': 'middle',
-    'font-size': '8',
-    fill: 'var(--text-head)',
-    class: 'wg-army-pill-text',
+  appendPillFrame(group, position.x, position.y, markerSize, markerSize, options.color, {
+    strokeWidth: '1.4',
+    dasharray: options.isThought ? '3 2' : undefined,
   });
-  textNode.textContent = clipped;
-  group.append(textNode);
+  group.append(createMapStrokeGlyph(options.isThought ? THOUGHT_CLOUD_PATH : CHAT_ICON_PATH, position.x, position.y, 11, options.color, '1.6'));
   fxLayer.append(group);
   return group;
 }
@@ -838,77 +866,74 @@ function renderPreviewBadge(
   centerX: number,
   centerY: number,
   tokens: readonly PreviewGlyphToken[],
-  color: string,
-  opacity: string,
+  seatColor: string,
 ): void {
   const measured = tokens.map((token) => {
     const digits = token.count === null ? '' : String(token.count);
     const prefixWidth = token.kind === 'build' ? 18.5 : 14.5;
-    return { kind: token.kind, path: token.path, digits, width: prefixWidth + digits.length * 4.7 };
+    return { ...token, digits, width: prefixWidth + digits.length * 4.7 };
   });
   const gap = 3.5;
   const contentWidth = measured.reduce((sum, item) => sum + item.width, 0) + Math.max(0, measured.length - 1) * gap;
-  const badgeWidth = Math.max(24, contentWidth + 8);
-  const badgeHeight = 14;
-  const badgeX = centerX + 14;
-  const badgeY = centerY - 15;
-  const group = createSvgShape('g', { opacity });
-  group.append(createSvgShape('rect', {
-    x: (badgeX - badgeWidth / 2).toFixed(1),
-    y: (badgeY - badgeHeight / 2).toFixed(1),
-    width: badgeWidth.toFixed(1),
-    height: String(badgeHeight),
-    rx: '2',
-    fill: 'var(--bg)',
-    stroke: color,
-    'stroke-width': '1',
-    'stroke-dasharray': '2 2',
-  }));
-  let cursorX = badgeX - contentWidth / 2;
+  const badgeY = centerY - 17;
+  const group = createSvgShape('g', {});
+  appendPillFrame(group, centerX, badgeY, Math.max(24, contentWidth + 8), 12, seatColor, { dasharray: '2 2' });
+  let cursorX = centerX - contentWidth / 2;
   for (const item of measured) {
     if (item.kind === 'build') {
-      const hammerGroup = createMapStrokeGlyph(BUILD_HAMMER_PATH, cursorX + 4, badgeY, 8, color);
-      const iconGroup = createMapStrokeGlyph(item.path, cursorX + 13.5, badgeY, 8.5, color);
-      group.append(hammerGroup, iconGroup);
+      group.append(
+        createMapStrokeGlyph(BUILD_HAMMER_PATH, cursorX + 4, badgeY, 8, NEUTRAL_COLOR),
+        createMapStrokeGlyph(item.path, cursorX + 13.5, badgeY, 8.5, item.color),
+      );
       cursorX += item.width + gap;
       continue;
     }
-    const plusText = createSvgShape('text', {
-      x: cursorX.toFixed(1),
-      y: (badgeY + 2.6).toFixed(1),
-      'text-anchor': 'start',
-      'font-size': '7.5',
-      fill: color,
-      class: 'wg-army-pill-text',
-    });
-    plusText.textContent = '+';
-    const iconGroup = createMapStrokeGlyph(item.path, cursorX + 9.2, badgeY, 8.5, color);
-    group.append(plusText, iconGroup);
+    appendBoardText(group, '+', { x: cursorX, y: badgeY + 2.6, anchor: 'start', fontSize: '7.5', fill: NEUTRAL_COLOR, className: 'wg-army-pill-text' });
+    group.append(createMapStrokeGlyph(item.path, cursorX + 9.2, badgeY, 8.5, item.color));
     if (item.digits.length > 0) {
-      const countText = createSvgShape('text', {
-        x: (cursorX + 14.2).toFixed(1),
-        y: (badgeY + 2.6).toFixed(1),
-        'text-anchor': 'start',
-        'font-size': '7.5',
-        fill: color,
-        class: 'wg-army-pill-text',
+      appendBoardText(group, item.digits, {
+        x: cursorX + 14.2,
+        y: badgeY + 2.6,
+        anchor: 'start',
+        fontSize: '7.5',
+        fill: 'var(--text-head)',
+        className: 'wg-army-pill-text',
       });
-      countText.textContent = item.digits;
-      group.append(countText);
     }
     cursorX += item.width + gap;
   }
   layer.append(group);
 }
 
-function cleanupNodes(nodes: readonly (SVGElement | null)[]): () => void {
+function cleanupNodes(nodes: readonly (SVGElement | (() => void) | null)[]): () => void {
   return () => {
-    for (const node of nodes) node?.remove();
+    for (const node of nodes) {
+      if (typeof node === 'function') {
+        node();
+        continue;
+      }
+      node?.remove();
+    }
   };
+}
+
+type BoardCaptionTone = 'message' | 'thought' | 'pact' | 'breach';
+
+interface BoardCaptionLine {
+  readonly color: string;
+  readonly speaker: string;
+  readonly text: string;
+  readonly tone: BoardCaptionTone;
+}
+
+export function isMatchOver(state: MatchState): boolean {
+  return state.status === 'finished' || state.status === 'aborted';
 }
 
 interface WargamesMapView {
   readonly element: SVGSVGElement;
+  readonly caption: HTMLDivElement;
+  isBoardSettled(): boolean;
   update(
     state: MatchState | null,
     pov: WargamesPov,
@@ -918,7 +943,24 @@ interface WargamesMapView {
   dispose(): void;
 }
 
-export function createWargamesMap(onSelectHex: (hexIndex: number) => void): WargamesMapView {
+function createArrowMarker(markerId: string, fill: string): SVGElement {
+  const marker = createSvgShape('marker', {
+    id: markerId,
+    viewBox: '0 0 10 10',
+    refX: '8',
+    refY: '5',
+    markerWidth: '6',
+    markerHeight: '6',
+    orient: 'auto',
+  });
+  marker.append(createSvgShape('path', { d: 'M 0 1 L 10 5 L 0 9 z', fill }));
+  return marker;
+}
+
+export function createWargamesMap(
+  onSelectHex: (hexIndex: number) => void,
+  onBoardSettled: () => void,
+): WargamesMapView {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '-270 -240 540 480');
   svg.setAttribute('class', 'wg-hex-svg');
@@ -927,21 +969,9 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
   const defs = createSvgShape('defs', {});
   for (const seatId of WARGAMES_SEAT_IDS) {
-    const marker = createSvgShape('marker', {
-      id: `wg-arrow-${seatId}`,
-      viewBox: '0 0 10 10',
-      refX: '8',
-      refY: '5',
-      markerWidth: '6',
-      markerHeight: '6',
-      orient: 'auto',
-    });
-    marker.append(createSvgShape('path', {
-      d: 'M 0 1 L 10 5 L 0 9 z',
-      fill: SEAT_COLORS[seatId],
-    }));
-    defs.append(marker);
+    defs.append(createArrowMarker(`wg-arrow-${seatId}`, SEAT_COLORS[seatId]));
   }
+  defs.append(createArrowMarker('wg-arrow-breach', 'var(--state-failed)'));
 
   const hexLayer = createSvgShape('g', { class: 'wg-hex-layer' });
   const previewLayer = createSvgShape('g', { class: 'wg-preview-layer' });
@@ -949,6 +979,38 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   const fxLayer = createSvgShape('g', { class: 'wg-fx-layer' });
   const commsLayer = createSvgShape('g', { class: 'wg-fx-layer' });
   svg.append(defs, hexLayer, previewLayer, armyLayer, fxLayer, commsLayer);
+
+  const caption = document.createElement('div');
+  caption.className = 'wg-board-caption';
+  caption.setAttribute('aria-live', 'polite');
+  caption.dataset.state = 'empty';
+  let captionLineId = 0;
+
+  function showCaption(line: BoardCaptionLine): () => void {
+    captionLineId += 1;
+    const shownLineId = captionLineId;
+    const swatch = document.createElement('span');
+    swatch.className = 'wg-board-caption-swatch';
+    swatch.style.background = line.color;
+    const speaker = document.createElement('span');
+    speaker.className = 'wg-board-caption-speaker';
+    speaker.textContent = line.speaker;
+    const text = document.createElement('span');
+    text.className = 'wg-board-caption-text';
+    text.textContent = line.text;
+    caption.replaceChildren(swatch, speaker, text);
+    caption.dataset.state = 'shown';
+    caption.dataset.tone = line.tone;
+    return () => {
+      if (shownLineId !== captionLineId) return;
+      clearCaption();
+    };
+  }
+
+  function clearCaption(): void {
+    caption.replaceChildren();
+    caption.dataset.state = 'empty';
+  }
 
   let lastRenderedMatchId: string | null = null;
   let lastRenderedPov: WargamesPov | null = null;
@@ -965,6 +1027,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   let lastActiveContractIds = new Set<string>();
   let lastLedgerCount = 0;
   let lastNoteBySeat = new Map<SeatId, string>();
+
   const diplomacyQueue = createBoardAnimationQueue({
     shouldSkip: () => !prefersMotion(),
     maxPendingBeats: DIPLOMACY_MAX_PENDING_BEATS,
@@ -973,6 +1036,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   function resetDiplomacyFx(): void {
     diplomacyQueue.clear();
     commsLayer.replaceChildren();
+    clearCaption();
   }
 
   function seatAnchorSlot(state: MatchState, pov: WargamesPov, seatId: SeatId): HexNodeSlot | null {
@@ -988,6 +1052,13 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     );
     lastLedgerCount = state.ledger.length;
     lastNoteBySeat = new Map(state.seats.map((seat) => [seat.config.seatId, seat.note]));
+  }
+
+  function messageSpeakerLabel(state: MatchState, message: MatchState['messages'][number]): string {
+    const speakerLabel = seatLabelOf(state, message.from);
+    if (message.channel === 'dm' && message.to !== null) return `${speakerLabel} to ${seatLabelOf(state, message.to)}`;
+    if (message.channel === 'tribe') return `${speakerLabel} to tribe`;
+    return speakerLabel;
   }
 
   function emitLiveDiplomacyFx(state: MatchState, pov: WargamesPov): void {
@@ -1019,25 +1090,33 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       const speakerSlot = seatAnchorSlot(state, pov, message.from);
       if (!speakerSlot) continue;
       const recipientSlot = message.channel === 'dm' && message.to !== null ? seatAnchorSlot(state, pov, message.to) : null;
-      const prefix = message.to ? `${message.from.toUpperCase()}->${message.to.toUpperCase()}` : message.from.toUpperCase();
+      const speakerColor = SEAT_COLORS[message.from];
+      const captionLine: BoardCaptionLine = {
+        color: speakerColor,
+        speaker: messageSpeakerLabel(state, message),
+        text: collapsedWhitespace(message.text),
+        tone: 'message',
+      };
       beats.push({
         id: `message-${firstNewMessageNumber + offset}`,
         durationMs: DIPLOMACY_MESSAGE_BEAT_MS,
         start: (durationMs) => cleanupNodes([
           recipientSlot
             ? appendDiplomacyArc(commsLayer, speakerSlot, recipientSlot, {
-              stroke: SEAT_COLORS[message.from],
+              stroke: speakerColor,
               dasharray: '4 4',
-              label: `${prefix} DM`,
+              glyphPath: CHAT_ICON_PATH,
+              label: '',
+              markerId: `wg-arrow-${message.from}`,
               durationMs,
             })
             : null,
-          appendBoardCallout(commsLayer, speakerSlot.centerX, speakerSlot.centerY, {
-            label: `${prefix}: ${message.text}`,
-            color: SEAT_COLORS[message.from],
+          appendSpeakerMarker(commsLayer, speakerSlot.centerX, speakerSlot.centerY, {
+            color: speakerColor,
             isThought: false,
             durationMs,
           }),
+          showCaption(captionLine),
         ]),
       });
     }
@@ -1049,11 +1128,16 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         id: `note-${entry.seatId}-${state.tick}`,
         durationMs: DIPLOMACY_THOUGHT_BEAT_MS,
         start: (durationMs) => cleanupNodes([
-          appendBoardCallout(commsLayer, thinkerSlot.centerX, thinkerSlot.centerY, {
-            label: `${entry.seatId.toUpperCase()}: ${entry.note}`,
+          appendSpeakerMarker(commsLayer, thinkerSlot.centerX, thinkerSlot.centerY, {
             color: SEAT_COLORS[entry.seatId],
             isThought: true,
             durationMs,
+          }),
+          showCaption({
+            color: SEAT_COLORS[entry.seatId],
+            speaker: `${seatLabelOf(state, entry.seatId)} thinks`,
+            text: collapsedWhitespace(entry.note),
+            tone: 'thought',
           }),
         ]),
       });
@@ -1070,8 +1154,16 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           appendDiplomacyArc(commsLayer, proposerSlot, counterpartySlot, {
             stroke: 'var(--state-running)',
             dasharray: 'none',
-            label: 'PACT',
+            glyphPath: PACT_SCROLL_PATH,
+            label: 'Pact',
+            markerId: null,
             durationMs,
+          }),
+          showCaption({
+            color: 'var(--state-running)',
+            speaker: `${seatLabelOf(state, contract.proposer)} and ${seatLabelOf(state, contract.counterparty)}`,
+            text: 'signed a pact',
+            tone: 'pact',
           }),
         ]),
       });
@@ -1087,8 +1179,16 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           appendDiplomacyArc(commsLayer, breacherSlot, victimSlot, {
             stroke: 'var(--state-failed)',
             dasharray: '6 3',
-            label: 'BREACH',
+            glyphPath: BREACH_WARNING_PATH,
+            label: 'Breach',
+            markerId: 'wg-arrow-breach',
             durationMs,
+          }),
+          showCaption({
+            color: 'var(--state-failed)',
+            speaker: seatLabelOf(state, breach.breacher),
+            text: `broke its pact with ${seatLabelOf(state, breach.victim)}`,
+            tone: 'breach',
           }),
         ]),
       });
@@ -1127,55 +1227,18 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       slot.polygon.setAttribute('fill', villageFillColor(village.owner, isBarren));
       slot.polygon.setAttribute('stroke', stroke);
       slot.polygon.setAttribute('stroke-width', isSelected ? '3' : seatColor ? '2' : '1.5');
-      if (isBarren) {
-        slot.polygon.setAttribute('stroke-dasharray', '3 3');
-      }
-      if (!isBarren) {
-        slot.polygon.removeAttribute('stroke-dasharray');
-      }
+      if (isBarren) slot.polygon.setAttribute('stroke-dasharray', '3 3');
+      if (!isBarren) slot.polygon.removeAttribute('stroke-dasharray');
 
-      if (village.owner !== null) {
-        slot.ownerBadge.setAttribute('visibility', 'hidden');
-        slot.ownerLabel.textContent = '';
-      }
-      if (village.owner === null) {
-        slot.ownerBadge.setAttribute('visibility', 'visible');
-        slot.ownerBadge.setAttribute('fill', 'var(--bg-surface)');
-        slot.ownerBadge.setAttribute('stroke', 'var(--border-hover)');
-        slot.ownerBadge.setAttribute('stroke-width', '1');
-        slot.ownerLabel.textContent = 'BARB';
-        slot.ownerLabel.setAttribute('fill', 'var(--text-dim)');
-      }
+      slot.detailLabel.textContent = isBarren ? 'Barren' : '';
+      slot.detailLabel.setAttribute('class', 'wg-hex-detail');
+      slot.detailLabel.setAttribute('font-size', '8.5');
+      slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
+      if (isBarren) slot.unitGroup.replaceChildren();
+      if (!isBarren) renderHexUnitTokens(slot.unitGroup, slot.centerX, slot.centerY, village.troops);
+      renderControlBadge(slot.controlGroup, slot.centerX, slot.centerY, village.loyalty, village.owner);
 
-      if (isBarren) {
-        slot.unitGroup.replaceChildren();
-        slot.detailLabel.textContent = 'BARREN';
-        slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
-      }
-      if (!isBarren) {
-        const hasUnits = renderHexUnitTokens(
-          slot.unitGroup,
-          slot.centerX,
-          slot.centerY,
-          village.troops,
-          seatColor ?? 'var(--text-dim)',
-          village.owner === null,
-        );
-        slot.detailLabel.textContent = hasUnits ? '' : '0';
-        slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
-      }
-
-      const clampedLoyalty = Math.max(0, Math.min(100, village.loyalty));
-      const isContestedLoyalty = clampedLoyalty < 100;
-      slot.loyaltyTrack.setAttribute('visibility', isContestedLoyalty ? 'visible' : 'hidden');
-      slot.loyaltyFill.setAttribute('visibility', isContestedLoyalty ? 'visible' : 'hidden');
-      if (isContestedLoyalty) {
-        slot.loyaltyFill.setAttribute('width', String(Math.round((clampedLoyalty / 100) * LOYALTY_BAR_WIDTH)));
-        slot.loyaltyFill.setAttribute('fill', loyaltyFillColor(clampedLoyalty, village.owner));
-      }
-
-      const matchesSpotlight = !isSpotlightActive || isSelected || village.owner === spotlightSeatId;
-      slot.group.setAttribute('opacity', matchesSpotlight ? '1' : '0.28');
+      setHexDetailShown(slot, !isSpotlightActive || isSelected || village.owner === spotlightSeatId);
       return;
     }
 
@@ -1183,17 +1246,21 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     slot.polygon.setAttribute('stroke', isSelected ? 'var(--accent)' : 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
     slot.polygon.removeAttribute('stroke-dasharray');
-
-    slot.ownerBadge.setAttribute('visibility', 'hidden');
-    slot.ownerLabel.textContent = isFogged ? '?' : '';
-    slot.ownerLabel.setAttribute('fill', 'var(--text-muted)');
-    slot.detailLabel.textContent = '';
+    slot.detailLabel.textContent = isFogged ? '?' : '';
+    slot.detailLabel.setAttribute('class', 'wg-hex-owner');
+    slot.detailLabel.setAttribute('font-size', '12');
+    slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
     slot.unitGroup.replaceChildren();
-    slot.loyaltyTrack.setAttribute('visibility', 'hidden');
-    slot.loyaltyFill.setAttribute('visibility', 'hidden');
+    slot.controlGroup.replaceChildren();
 
-    const matchesEmptySpotlight = !isSpotlightActive || isSelected;
-    slot.group.setAttribute('opacity', matchesEmptySpotlight ? '1' : '0.28');
+    setHexDetailShown(slot, !isSpotlightActive || isSelected);
+  }
+
+  function setHexDetailShown(slot: HexNodeSlot, isShown: boolean): void {
+    const visibility = isShown ? 'visible' : 'hidden';
+    slot.detailLabel.setAttribute('visibility', visibility);
+    slot.unitGroup.setAttribute('visibility', visibility);
+    slot.controlGroup.setAttribute('visibility', visibility);
   }
 
   function paintAllDisplayedSlots(
@@ -1221,23 +1288,96 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     return projectSeatState(state, pov).visibleArmies;
   }
 
+  function armyLegOf(army: { status: string; currentHexIndex: number; originHexIndex: number; targetHexIndex: number }): { fromHexIndex: number; toHexIndex: number } {
+    return {
+      fromHexIndex: army.currentHexIndex,
+      toHexIndex: army.status === 'returning' ? army.originHexIndex : army.targetHexIndex,
+    };
+  }
+
+  function lateralOffsetFor(totalOnEdge: number, indexOnEdge: number, fromHexIndex: number, toHexIndex: number, spacing: number): number {
+    if (totalOnEdge <= 1) return 0;
+    const directionSign = fromHexIndex < toHexIndex ? 1 : -1;
+    return (indexOnEdge - (totalOnEdge - 1) / 2) * spacing * directionSign;
+  }
+
+  let occupiedBoardBoxes: BoardBox[] = [];
+
+  function resetOccupiedBoardBoxes(): void {
+    occupiedBoardBoxes = [];
+    for (let index = 0; index < slots.length; index += 1) {
+      const slot = slots[index];
+      occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY - 28.5, 18, 9));
+      const village = displayedVillages[index];
+      if (!village) continue;
+      if (village.productionState !== 'barren' && troopCountOf(village.troops) > 0) {
+        occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 3, 46, 28));
+      }
+      if (village.loyalty < 100) occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 22, 38, 12));
+    }
+  }
+
+  function placeMarkerClear(segment: ArrowSegment, markerWidth: number, markerHeight: number): { x: number; y: number } {
+    const lengthX = segment.endX - segment.startX;
+    const lengthY = segment.endY - segment.startY;
+    const length = Math.max(1, Math.hypot(lengthX, lengthY));
+    const normalX = -lengthY / length;
+    const normalY = lengthX / length;
+    let bestCenter = { x: segment.startX + lengthX / 2, y: segment.startY + lengthY / 2 };
+    let bestOverlapCount = Number.POSITIVE_INFINITY;
+    for (const sideStep of MARKER_SIDE_STEPS) {
+      for (const alongStep of MARKER_ALONG_LINE_STEPS) {
+        const candidate = {
+          x: segment.startX + lengthX * alongStep + normalX * sideStep,
+          y: segment.startY + lengthY * alongStep + normalY * sideStep,
+        };
+        const candidateBox = boxAround(candidate.x, candidate.y, markerWidth + 2, markerHeight + 2);
+        const overlapCount = occupiedBoardBoxes.filter((box) => boxesOverlap(box, candidateBox)).length;
+        if (overlapCount >= bestOverlapCount) continue;
+        bestCenter = candidate;
+        bestOverlapCount = overlapCount;
+        if (overlapCount === 0) break;
+      }
+      if (bestOverlapCount === 0) break;
+    }
+    occupiedBoardBoxes.push(boxAround(bestCenter.x, bestCenter.y, markerWidth, markerHeight));
+    return bestCenter;
+  }
+
+  function restingArmiesOf(state: MatchState, pov: WargamesPov, spotlightSeatId: SeatId | null) {
+    if (isMatchOver(state)) return [];
+    const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
+    return visibleActiveArmies(state, pov).filter((army) => (
+      army.status !== 'returning' && (!isSpotlightActive || army.owner === spotlightSeatId)
+    ));
+  }
+
   function renderActiveArmies(state: MatchState, pov: WargamesPov, spotlightSeatId: SeatId | null): void {
     armyLayer.replaceChildren();
-    const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
-    for (const army of visibleActiveArmies(state, pov)) {
-      const fromSlot = slots[army.currentHexIndex];
-      const targetIndex = army.status === 'returning' ? army.originHexIndex : army.targetHexIndex;
-      const toSlot = slots[targetIndex];
+    resetOccupiedBoardBoxes();
+    const armies = restingArmiesOf(state, pov, spotlightSeatId);
+    const countsByEdge = new Map<string, number>();
+    for (const army of armies) {
+      const leg = armyLegOf(army);
+      const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
+      countsByEdge.set(edgeKey, (countsByEdge.get(edgeKey) ?? 0) + 1);
+    }
+    const seenByEdge = new Map<string, number>();
+    for (const army of armies) {
+      const leg = armyLegOf(army);
+      const fromSlot = slots[leg.fromHexIndex];
+      const toSlot = slots[leg.toHexIndex];
       if (!fromSlot || !toSlot) continue;
-      const baseOpacity = army.status === 'returning' ? '0.88' : '1';
-      const armyOpacity = !isSpotlightActive || army.owner === spotlightSeatId ? baseOpacity : '0.2';
+      const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
+      const indexOnEdge = seenByEdge.get(edgeKey) ?? 0;
+      seenByEdge.set(edgeKey, indexOnEdge + 1);
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
-        strokeDasharray: army.status === 'returning' ? '3 3' : '6 3',
+        strokeDasharray: '6 3',
         strokeWidth: '2.4',
-        opacity: armyOpacity,
         groupClass: 'wg-army-arrow',
         lineClass: 'wg-army-line',
-        isReturning: army.status === 'returning',
+        lateralOffset: lateralOffsetFor(countsByEdge.get(edgeKey) ?? 1, indexOnEdge, leg.fromHexIndex, leg.toHexIndex, 18),
+        placeMarker: placeMarkerClear,
       });
     }
   }
@@ -1253,6 +1393,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       }
       renderOrderPreviews();
       diplomacyQueue.resume();
+      onBoardSettled();
     },
   });
 
@@ -1267,75 +1408,31 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     });
     const indexLabel = createSvgShape('text', {
       x: x.toFixed(1),
-      y: (y - 16).toFixed(1),
+      y: (y - 26).toFixed(1),
       'text-anchor': 'middle',
-      'font-size': '8.5',
+      'font-size': '7',
       class: 'wg-hex-index',
     });
     indexLabel.textContent = `#${tile.index}`;
-
-    const ownerBadge = createSvgShape('rect', {
-      x: (x - 16).toFixed(1),
-      y: (y - 11).toFixed(1),
-      width: '32',
-      height: '15',
-      rx: '2',
-      visibility: 'hidden',
-    });
-    const ownerLabel = createSvgShape('text', {
-      x: x.toFixed(1),
-      y: (y + 0.5).toFixed(1),
-      'text-anchor': 'middle',
-      'font-size': '10.5',
-      class: 'wg-hex-owner',
-    });
     const detailLabel = createSvgShape('text', {
       x: x.toFixed(1),
-      y: (y + 15).toFixed(1),
+      y: (y + 3.5).toFixed(1),
       'text-anchor': 'middle',
-      'font-size': '9.5',
+      'font-size': '8.5',
       class: 'wg-hex-detail',
     });
     const unitGroup = createSvgShape('g', { class: 'wg-hex-units' });
-    const loyaltyTrack = createSvgShape('rect', {
-      x: (x - LOYALTY_BAR_WIDTH / 2).toFixed(1),
-      y: (y + 20).toFixed(1),
-      width: String(LOYALTY_BAR_WIDTH),
-      height: String(LOYALTY_BAR_HEIGHT),
-      fill: 'var(--bg)',
-      visibility: 'hidden',
-    });
-    const loyaltyFill = createSvgShape('rect', {
-      x: (x - LOYALTY_BAR_WIDTH / 2).toFixed(1),
-      y: (y + 20).toFixed(1),
-      width: '0',
-      height: String(LOYALTY_BAR_HEIGHT),
-      fill: 'var(--text-dim)',
-      class: 'wg-loyalty-fill',
-      visibility: 'hidden',
-    });
+    const controlGroup = createSvgShape('g', { class: 'wg-hex-control' });
 
-    group.append(polygon, indexLabel, ownerBadge, ownerLabel, detailLabel, unitGroup, loyaltyTrack, loyaltyFill);
+    group.append(polygon, indexLabel, detailLabel, unitGroup, controlGroup);
     group.addEventListener('click', () => onSelectHex(tile.index));
     hexLayer.append(group);
-    return {
-      group,
-      polygon,
-      indexLabel,
-      ownerBadge,
-      ownerLabel,
-      detailLabel,
-      unitGroup,
-      loyaltyTrack,
-      loyaltyFill,
-      centerX: x,
-      centerY: y,
-    };
+    return { group, polygon, indexLabel, detailLabel, unitGroup, controlGroup, centerX: x, centerY: y };
   });
 
   function renderOrderPreviews(): void {
     previewLayer.replaceChildren();
-    if (!latestState || overlayMode === 'recap' || animQueue.getState() !== 'idle') return;
+    if (!latestState || isMatchOver(latestState) || overlayMode === 'recap' || animQueue.getState() !== 'idle') return;
     const isSpotlightActive = latestPov === 'god' && latestSpotlightSeatId !== null;
     const previewVectors: {
       seatId: SeatId;
@@ -1360,13 +1457,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       if (latestPov !== 'god' && seatId !== latestPov) continue;
       for (const order of seat.sealedOrders) {
         if (order.kind === 'march') {
-          previewVectors.push({
-            seatId,
-            fromHexIndex: order.fromHexIndex,
-            toHexIndex: order.toHexIndex,
-            troops: order.troops,
-            kind: 'march',
-          });
+          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops, kind: 'march' });
           continue;
         }
         if (order.kind === 'scout') {
@@ -1380,59 +1471,82 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           continue;
         }
         if (order.kind === 'build') {
-          pushHexBadge(order.hexIndex, seatId, { kind: 'build', path: glyphPathForBuilding(order.building), count: null });
+          const building = buildingGlyphOf(order.building);
+          pushHexBadge(order.hexIndex, seatId, { kind: 'build', path: building.path, color: building.color, count: null });
           continue;
         }
         if (order.kind === 'train') {
-          pushHexBadge(order.hexIndex, seatId, { kind: 'train', path: glyphPathForUnit(order.troop), count: order.count });
+          const unit = unitGlyphOf(order.troop);
+          pushHexBadge(order.hexIndex, seatId, { kind: 'train', path: unit.path, color: unit.color, count: order.count });
         }
       }
     }
 
-    const countsByPair = new Map<string, number>();
-    const seenByPair = new Map<string, number>();
+    const armyCountsByEdge = new Map<string, number>();
+    for (const army of restingArmiesOf(latestState, latestPov, latestSpotlightSeatId)) {
+      const leg = armyLegOf(army);
+      const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
+      armyCountsByEdge.set(edgeKey, (armyCountsByEdge.get(edgeKey) ?? 0) + 1);
+    }
+    const previewCountsByEdge = new Map<string, number>();
     for (const entry of previewVectors) {
-      const pairKey = `${Math.min(entry.fromHexIndex, entry.toHexIndex)}-${Math.max(entry.fromHexIndex, entry.toHexIndex)}`;
-      countsByPair.set(pairKey, (countsByPair.get(pairKey) ?? 0) + 1);
+      const edgeKey = pairKeyOf(entry.fromHexIndex, entry.toHexIndex);
+      previewCountsByEdge.set(edgeKey, (previewCountsByEdge.get(edgeKey) ?? 0) + 1);
     }
 
+    const showsEveryPlan = latestPov !== 'god';
+    const isPlanShown = (seatId: SeatId, hexIndices: readonly number[]) => (
+      (!isSpotlightActive || seatId === latestSpotlightSeatId)
+      && (showsEveryPlan || (latestSelectedHexIndex !== null && hexIndices.includes(latestSelectedHexIndex)))
+    );
     let renderedCount = 0;
+    const seenByEdge = new Map<string, number>();
     for (const entry of previewVectors) {
+      if (!isPlanShown(entry.seatId, [entry.fromHexIndex, entry.toHexIndex])) continue;
       const fromSlot = slots[entry.fromHexIndex];
       const toSlot = slots[entry.toHexIndex];
       if (!fromSlot || !toSlot) continue;
-      const pairKey = `${Math.min(entry.fromHexIndex, entry.toHexIndex)}-${Math.max(entry.fromHexIndex, entry.toHexIndex)}`;
-      const totalForPair = countsByPair.get(pairKey) ?? 1;
-      const indexForPair = seenByPair.get(pairKey) ?? 0;
-      seenByPair.set(pairKey, indexForPair + 1);
-      const directionSign = entry.fromHexIndex < entry.toHexIndex ? 1 : -1;
-      const lateralOffset = totalForPair > 1 ? (indexForPair - (totalForPair - 1) / 2) * 6 * directionSign : 0;
-      const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.85' : '0.18';
+      const edgeKey = pairKeyOf(entry.fromHexIndex, entry.toHexIndex);
+      const armiesOnEdge = armyCountsByEdge.get(edgeKey) ?? 0;
+      const indexOnEdge = armiesOnEdge + (seenByEdge.get(edgeKey) ?? 0);
+      seenByEdge.set(edgeKey, (seenByEdge.get(edgeKey) ?? 0) + 1);
+      const totalOnEdge = armiesOnEdge + (previewCountsByEdge.get(edgeKey) ?? 1);
       const isFriendlyReinforce = entry.kind === 'march' && latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
-      const strokeDasharray = entry.kind === 'scout' ? '1 3' : isFriendlyReinforce ? '2 4' : '6 3';
-      const strokeWidth = entry.kind === 'scout' ? '1.4' : isFriendlyReinforce ? '1.8' : '2.5';
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
-        strokeDasharray,
-        strokeWidth,
-        opacity,
+        strokeDasharray: entry.kind === 'scout' ? '1 3' : isFriendlyReinforce ? '2 4' : '5 4',
+        strokeWidth: entry.kind === 'scout' ? '1.4' : '1.8',
         groupClass: 'wg-preview-arrow',
         lineClass: 'wg-preview-line',
         showPill: false,
-        lateralOffset,
+        lateralOffset: lateralOffsetFor(totalOnEdge, indexOnEdge, entry.fromHexIndex, entry.toHexIndex, 18),
         midIconPath: entry.kind === 'scout' ? SCOUT_EYE_PATH : undefined,
+        placeMarker: placeMarkerClear,
       });
       renderedCount += 1;
     }
 
     for (const [hexIndex, entry] of hexBadges) {
+      if (!isPlanShown(entry.seatId, [hexIndex])) continue;
       const slot = slots[hexIndex];
       if (!slot) continue;
-      const opacity = !isSpotlightActive || entry.seatId === latestSpotlightSeatId ? '0.9' : '0.2';
-      renderPreviewBadge(previewLayer, slot.centerX, slot.centerY, entry.tokens, SEAT_COLORS[entry.seatId], opacity);
+      renderPreviewBadge(previewLayer, slot.centerX, slot.centerY, entry.tokens, SEAT_COLORS[entry.seatId]);
       renderedCount += 1;
     }
 
     advanceOverlay(renderedCount > 0 ? 'show_previews' : 'hide_previews');
+  }
+
+  function resetSlotsToBlank(): void {
+    for (const slot of slots) {
+      setHexDetailShown(slot, true);
+      slot.polygon.setAttribute('fill', 'var(--bg-surface)');
+      slot.polygon.setAttribute('stroke', 'var(--border)');
+      slot.polygon.setAttribute('stroke-width', '1.2');
+      slot.polygon.removeAttribute('stroke-dasharray');
+      slot.detailLabel.textContent = '';
+      slot.unitGroup.replaceChildren();
+      slot.controlGroup.replaceChildren();
+    }
   }
 
   function update(
@@ -1463,19 +1577,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       lastVillageSnapshots = ALL_HEXES.map(() => null);
       displayedVillages = ALL_HEXES.map(() => null);
       lastArmySnapshots = new Map();
-      for (const slot of slots) {
-        slot.group.setAttribute('opacity', '1');
-        slot.polygon.setAttribute('fill', 'var(--bg-surface)');
-        slot.polygon.setAttribute('stroke', 'var(--border)');
-        slot.polygon.setAttribute('stroke-width', '1.2');
-        slot.polygon.removeAttribute('stroke-dasharray');
-        slot.ownerBadge.setAttribute('visibility', 'hidden');
-        slot.ownerLabel.textContent = '';
-        slot.detailLabel.textContent = '';
-        slot.unitGroup.replaceChildren();
-        slot.loyaltyTrack.setAttribute('visibility', 'hidden');
-        slot.loyaltyFill.setAttribute('visibility', 'hidden');
-      }
+      resetSlotsToBlank();
       return;
     }
 
@@ -1630,6 +1732,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     lastResolvedTick = resolvedTick;
     lastVillageSnapshots = targetVillages.map(cloneVillage);
     lastArmySnapshots = nextArmySnapshots;
+    const labelOf = (seatId: SeatId) => seatLabelOf(state, seatId);
 
     const beats: BoardAnimationBeat[] = [];
     const activeHexIndices = [...new Set([...glidesByDestHex.keys(), ...deltasByHex.keys()])]
@@ -1677,15 +1780,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
           for (const item of batch) {
             for (let glideIndex = 0; glideIndex < item.glides.length; glideIndex += 1) {
               const glide = item.glides[glideIndex];
-              const node = appendGlidingArmy(
-                fxLayer,
-                glide.fromSlot,
-                glide.toSlot,
-                glide.army,
-                durationMs,
-                glideIndex,
-                item.glides.length,
-              );
+              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs, glideIndex, item.glides.length);
               if (node) mounted.push(node);
             }
             if (item.delta) {
@@ -1695,12 +1790,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
                   paintHexSlot(item.hexIndex, displayedVillages[item.hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
                 }
               };
-              if (item.hasIncomingGlide) {
-                deferredUpdates.push(applyVillageUpdate);
-              }
-              if (!item.hasIncomingGlide) {
-                applyVillageUpdate();
-              }
+              if (item.hasIncomingGlide) deferredUpdates.push(applyVillageUpdate);
+              if (!item.hasIncomingGlide) applyVillageUpdate();
               if (item.delta.troopDelta !== 0) {
                 const deltaLabel = item.delta.troopDelta > 0 ? `+${item.delta.troopDelta}` : String(item.delta.troopDelta);
                 const deltaFill = item.delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--text-dim)';
@@ -1709,7 +1800,14 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
               if (item.delta.buildingUpgrades.length > 0) {
                 const upgrade = item.delta.buildingUpgrades[0];
                 const upgradeY = item.delta.troopDelta !== 0 ? item.slot.centerY + 11 : item.slot.centerY - 4;
-                mounted.push(appendGlyphCallout(fxLayer, item.slot.centerX, upgradeY, upgrade.path, upgrade.level, 'var(--accent)', durationMs));
+                mounted.push(appendGlyphCallout(fxLayer, item.slot.centerX, upgradeY, {
+                  prefix: '+',
+                  glyphPath: upgrade.path,
+                  glyphColor: upgrade.color,
+                  label: `Lv ${upgrade.level}`,
+                  stroke: 'var(--accent)',
+                  durationMs,
+                }));
               }
             }
           }
@@ -1731,15 +1829,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
             const mounted: SVGElement[] = [appendFocusRing(fxLayer, slot.centerX, slot.centerY)];
             for (let glideIndex = 0; glideIndex < glides.length; glideIndex += 1) {
               const glide = glides[glideIndex];
-              const node = appendGlidingArmy(
-                fxLayer,
-                glide.fromSlot,
-                glide.toSlot,
-                glide.army,
-                durationMs,
-                glideIndex,
-                glides.length,
-              );
+              const node = appendGlidingArmy(fxLayer, glide.fromSlot, glide.toSlot, glide.army, durationMs, glideIndex, glides.length);
               if (node) mounted.push(node);
             }
             return () => {
@@ -1774,20 +1864,23 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
             const clashOwner = delta?.targetVillage.owner ?? null;
             const clashColor = clashOwner !== null ? SEAT_COLORS[clashOwner] : 'var(--state-failed)';
             mounted.push(appendCombatClash(fxLayer, slot.centerX, slot.centerY, clashColor, Math.min(1200, Math.round(durationMs * 0.6))));
-            const bubbleNode = appendBattleBubble(fxLayer, slot.centerX, slot.centerY, hexBattleReports, durationMs);
-            if (bubbleNode) {
-              mounted.push(bubbleNode);
+            const bubbleNode = appendBattleBubble(fxLayer, slot.centerX, slot.centerY, hexBattleReports, labelOf, durationMs);
+            if (bubbleNode) mounted.push(bubbleNode);
+            if (!bubbleNode && delta && delta.troopDelta !== 0) {
+              const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
+              const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
+              mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
             }
-            if (!bubbleNode) {
-              if (delta && delta.troopDelta !== 0) {
-                const deltaLabel = delta.troopDelta > 0 ? `+${delta.troopDelta}` : String(delta.troopDelta);
-                const deltaFill = delta.troopDelta > 0 ? 'var(--state-running)' : 'var(--state-failed)';
-                mounted.push(appendDeltaCallout(fxLayer, slot.centerX, slot.centerY - 4, deltaLabel, deltaFill, durationMs));
-              }
-              if (delta && delta.loyaltyDelta < 0) {
-                const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
-                mounted.push(appendDeltaCallout(fxLayer, slot.centerX, loyaltyY, `${delta.loyaltyDelta}%`, 'var(--state-waiting)', durationMs));
-              }
+            if (!bubbleNode && delta && delta.loyaltyDelta < 0) {
+              const loyaltyY = delta.troopDelta !== 0 ? slot.centerY + 11 : slot.centerY - 4;
+              mounted.push(appendGlyphCallout(fxLayer, slot.centerX, loyaltyY, {
+                prefix: '',
+                glyphPath: CONTROL_FLAG_PATH,
+                glyphColor: 'var(--state-waiting)',
+                label: `${delta.loyaltyDelta}%`,
+                stroke: 'var(--state-waiting)',
+                durationMs,
+              }));
             }
             return () => {
               for (const node of mounted) node.remove();
@@ -1850,5 +1943,9 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     advanceOverlay('reset');
   }
 
-  return { element: svg, update, dispose };
+  function isBoardSettled(): boolean {
+    return overlayMode !== 'recap' && animQueue.getState() === 'idle';
+  }
+
+  return { element: svg, caption, update, isBoardSettled, dispose };
 }

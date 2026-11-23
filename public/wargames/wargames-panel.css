@@ -167,9 +167,9 @@
 
 .wg-podium-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr));
   gap: 8px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .wg-podium-slot {
@@ -184,16 +184,12 @@
 .wg-podium-slot[data-rank="1"] {
   background: color-mix(in srgb, var(--wg-seat-color) 12%, var(--bg-surface));
   border-color: var(--wg-seat-color);
+  border-width: 2px;
   padding: 14px 12px;
-  order: 2;
 }
 
-.wg-podium-slot[data-rank="2"] {
-  order: 1;
-}
-
-.wg-podium-slot[data-rank="3"] {
-  order: 3;
+.wg-podium-slot[data-rank="1"] .wg-podium-rank {
+  color: var(--wg-seat-color);
 }
 
 .wg-podium-slot .wg-win-track {
@@ -386,6 +382,47 @@
   letter-spacing: 0.08em;
 }
 
+.wg-board-caption {
+  width: 100%;
+  max-width: 860px;
+  min-height: 40px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--type-body);
+  line-height: 1.4;
+}
+
+.wg-board-caption[data-state="empty"] {
+  visibility: hidden;
+}
+
+.wg-board-caption-swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  align-self: center;
+}
+
+.wg-board-caption-speaker {
+  color: var(--text-head);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.wg-board-caption-text {
+  color: var(--text-head);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wg-board-caption[data-tone="thought"] .wg-board-caption-text {
+  font-style: italic;
+}
+
 .wg-hex-svg {
   width: 100%;
   max-width: 860px;
@@ -457,11 +494,26 @@
   width: 100%;
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 8px 24px;
   color: var(--text-dim);
   font-size: var(--type-meta);
+}
+
+.wg-legend-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.wg-legend-heading {
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .wg-legend-item {
@@ -575,10 +627,6 @@
     transition: fill var(--transition-fast), stroke var(--transition-fast);
   }
 
-  .wg-loyalty-fill {
-    transition: width var(--transition-fast), fill var(--transition-fast);
-  }
-
   .wg-win-fill {
     transition: width var(--transition-fast);
   }
@@ -618,10 +666,6 @@
 
 .wg-preview-layer {
   pointer-events: none;
-}
-
-.wg-preview-line {
-  opacity: 0.72;
 }
 
 .wg-inspector {

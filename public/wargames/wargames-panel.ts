@@ -22,7 +22,20 @@ import { select } from '../ui/select.ts';
 import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
-import { BUILDING_GLYPH_PATHS, createWargamesMap, SCOUT_EYE_PATH, SEAT_COLORS, UNIT_GLYPH_PATHS } from './wargames-map.ts';
+import {
+  BREACH_WARNING_PATH,
+  BUILDING_GLYPH_PATHS,
+  CONTROL_FLAG_PATH,
+  controlToneColor,
+  createWargamesMap,
+  isMatchOver,
+  PACT_SCROLL_PATH,
+  SCOUT_EYE_PATH,
+  SEAT_COLORS,
+  seatLabelOf,
+  THOUGHT_CLOUD_PATH,
+  UNIT_GLYPH_PATHS,
+} from './wargames-map.ts';
 import './wargames-panel.css';
 import {
   displayedMatchAnalytics,
@@ -145,15 +158,30 @@ const SEAT_STATUS_LABELS: Readonly<Record<SeatStatus, string>> = Object.freeze({
 
 const WARGAMES_GLYPH_PATHS = Object.freeze({
   skull: 'M 4 7 A 4 4 0 1 1 12 7 V 10 H 10 V 13 H 6 V 10 H 4 Z M 6.5 7.5 H 6.6 M 9.5 7.5 H 9.6',
-  scroll: 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9',
+  scroll: PACT_SCROLL_PATH,
   crosshair: 'M 8 2 V 5 M 8 11 V 14 M 2 8 H 5 M 11 8 H 14 M 5 8 A 3 3 0 1 0 11 8 A 3 3 0 1 0 5 8',
   swords: 'M 3 13 L 12 4 M 10 3 L 13 3 L 13 6 M 13 13 L 4 4 M 6 3 L 3 3 L 3 6',
   clock: 'M 3 8 A 5 5 0 1 0 13 8 A 5 5 0 1 0 3 8 M 8 5 V 8 L 10 9.5',
   ready: 'M 5 8 A 3 3 0 1 0 11 8 A 3 3 0 1 0 5 8',
   offline: 'M 4 8 A 4 4 0 1 0 12 8 A 4 4 0 1 0 4 8 M 5 11 L 11 5',
-  breach: 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5',
+  breach: BREACH_WARNING_PATH,
+  territory: 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z',
+  arrow: 'M 3 8 H 13 M 9 4 L 13 8 L 9 12',
   grain: 'M 8 13 V 3 M 8 6 L 5 4 M 8 6 L 11 4 M 8 9 L 5 7 M 8 9 L 11 7',
   ore: 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z',
+});
+
+const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap', string>> = Object.freeze({
+  escrow: 'Escrow deal',
+  nap: 'Non-aggression pact',
+});
+
+const PHASE_BADGE_LABELS: Readonly<Record<TickPhase, string>> = Object.freeze({
+  talk: 'Talk',
+  contracts: 'Negotiate',
+  orders: 'Orders',
+  resolving: 'Resolving',
+  reported: 'Resolved',
 });
 
 const ACTING_PHASE_GLYPHS: Readonly<Record<TickPhase, string>> = Object.freeze({
@@ -206,17 +234,22 @@ function buildResourceReadout(grain: number, ore: number): HTMLElement {
 }
 
 function buildGlyphChips<Key extends string>(
-  glyphs: readonly { key: Key; label: string; path: string }[],
+  glyphs: readonly { key: Key; label: string; path: string; color: string }[],
   counts: Readonly<Record<Key, number>>,
-  color: string,
+  options: { hideZero?: boolean; countPrefix?: string } = {},
 ): HTMLElement {
   const group = el('span', 'wg-faction-units');
   for (const glyph of glyphs) {
+    if (options.hideZero === true && counts[glyph.key] <= 0) continue;
     const chip = el('span', 'wg-legend-item');
-    chip.append(createWargamesGlyph(glyph.path, 13, color, glyph.label), el('span', '', String(counts[glyph.key])));
+    chip.append(createWargamesGlyph(glyph.path, 13, glyph.color, glyph.label), el('span', '', `${options.countPrefix ?? ''}${counts[glyph.key]}`));
     group.append(chip);
   }
   return group;
+}
+
+function pluralized(count: number, singular: string): string {
+  return count === 1 ? `${count} ${singular}` : `${count} ${singular}s`;
 }
 
 function formatSeatStatusLabel(status: SeatStatus, phase: TickPhase, matchStatus: MatchState['status']): string {
@@ -366,7 +399,7 @@ function ensureNewMatchSection(): HTMLElement {
     });
     instructionsInput.maxLength = 4000;
     instructionsInput.classList.add('wg-seat-strategy');
-    row.append(el('span', 'wg-seat-label', seatId.toUpperCase()), agentSelect.element, modelInput, instructionsInput);
+    row.append(el('span', 'wg-seat-label', `Seat ${index + 1}`), agentSelect.element, modelInput, instructionsInput);
     section.append(row);
     seatInputs.push({ seatId, agentSelect, modelInput, instructionsInput });
   }
@@ -501,7 +534,11 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     swatch.style.background = SEAT_COLORS[seatId];
     nameWrap.append(swatch, el('span', 'wg-faction-id', seat.config.label));
     const headRight = el('span', 'wg-faction-name');
-    headRight.append(statusIcon, el('span', 'wg-faction-villages', `${ownedVillages}/${WARGAMES_WIN_VILLAGES}`));
+    headRight.append(
+      statusIcon,
+      createWargamesGlyph(WARGAMES_GLYPH_PATHS.territory, 12, SEAT_COLORS[seatId], 'Villages held toward victory'),
+      el('span', 'wg-faction-villages', `${ownedVillages}/${WARGAMES_WIN_VILLAGES}`),
+    );
     head.append(nameWrap, headRight);
 
     const agentAndModel = formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay);
@@ -514,7 +551,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     track.append(fill);
 
     const stats = el('div', 'wg-faction-stats');
-    stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops, SEAT_COLORS[seatId]), buildResourceReadout(tally.grain, tally.ore));
+    stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops), buildResourceReadout(tally.grain, tally.ore));
 
     banner.append(head, modelLine, track, stats);
     strip.append(banner);
@@ -522,40 +559,48 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
   return strip;
 }
 
-function buildOrderElement(order: OrderItem, color: string): HTMLElement {
+function hexRouteElements(fromHexIndex: number, toHexIndex: number): HTMLElement[] {
+  const arrow = el('span', 'wg-legend-item');
+  arrow.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.arrow, 12, 'var(--text-dim)', 'to'));
+  return [el('span', '', `#${fromHexIndex}`), arrow, el('span', '', `#${toHexIndex}`)];
+}
+
+function buildOrderElement(order: OrderItem, labelOf: (seatId: SeatId) => string): HTMLElement {
   const item = el('span', 'wg-legend-item');
   switch (order.kind) {
     case 'build': {
       const building = BUILDING_GLYPH_PATHS.find((entry) => entry.key === order.building) ?? BUILDING_GLYPH_PATHS[0];
       item.append(
-        el('span', '', '+'),
-        createWargamesGlyph(building.path, 13, color, building.label),
-        el('span', '', `@#${order.hexIndex}`),
+        createWargamesGlyph(building.path, 13, building.color, building.label),
+        el('span', '', `Build ${building.label} at #${order.hexIndex}`),
       );
       return item;
     }
     case 'train': {
       const unit = UNIT_GLYPH_PATHS.find((entry) => entry.key === order.troop) ?? UNIT_GLYPH_PATHS[0];
       item.append(
-        el('span', '', '+'),
-        createWargamesGlyph(unit.path, 13, color, unit.label),
-        el('span', '', `${order.count} @#${order.hexIndex}`),
+        createWargamesGlyph(unit.path, 13, unit.color, unit.label),
+        el('span', '', `Train ${pluralized(order.count, unit.label)} at #${order.hexIndex}`),
       );
       return item;
     }
     case 'march': {
-      item.append(el('span', '', `#${order.fromHexIndex}->#${order.toHexIndex}`));
+      item.append(el('span', '', 'March'), ...hexRouteElements(order.fromHexIndex, order.toHexIndex));
       for (const unit of UNIT_GLYPH_PATHS) {
         if (order.troops[unit.key] <= 0) continue;
-        item.append(createWargamesGlyph(unit.path, 13, color, unit.label), el('span', '', String(order.troops[unit.key])));
+        item.append(createWargamesGlyph(unit.path, 13, unit.color, unit.label), el('span', '', String(order.troops[unit.key])));
       }
       return item;
     }
     case 'scout':
-      item.append(el('span', '', `Scout #${order.fromHexIndex}->#${order.toHexIndex}`));
+      item.append(
+        createWargamesGlyph(SCOUT_EYE_PATH, 13, 'var(--text-dim)', 'Scout'),
+        el('span', '', 'Scout'),
+        ...hexRouteElements(order.fromHexIndex, order.toHexIndex),
+      );
       return item;
     case 'tribe_join':
-      item.append(el('span', '', `Tribe ${order.partner.toUpperCase()}`));
+      item.append(el('span', '', `Join tribe with ${labelOf(order.partner)}`));
       return item;
     case 'tribe_leave':
       item.append(el('span', '', 'Leave tribe'));
@@ -577,10 +622,11 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
   const tribePartner = seat.tribeId
     ? state.seats.find((candidate) => candidate.tribeId === seat.tribeId && candidate.config.seatId !== seatId)?.config.seatId ?? null
     : null;
-  const tribeTag = tribePartner ? ` · Tribe ${tribePartner.toUpperCase()}` : '';
+  const labelOf = (otherSeatId: SeatId) => seatLabelOf(state, otherSeatId);
+  const tribeTag = tribePartner ? ` · Tribe with ${labelOf(tribePartner)}` : '';
   titleWrap.append(
     swatch,
-    el('span', 'wg-card-title', `${seatId.toUpperCase()} ${seat.config.label}`),
+    el('span', 'wg-card-title', seat.config.label),
     el('span', 'wg-card-meta', `${agentAndModel} · ${formatSeatStatusLabel(seat.status, state.phase, state.status)}${tribeTag}`),
   );
   head.append(
@@ -603,13 +649,15 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
   const recentMessages = currentTickMessages.length > 0
     ? currentTickMessages
     : state.messages.filter((message) => message.from === seatId).slice(-3);
-  const saidText = recentMessages.length > 0
-    ? recentMessages
-      .map((message) => (message.to ? `[T${message.tick} -> ${message.to.toUpperCase()}] ${message.text}` : `[T${message.tick}] ${message.text}`))
-      .join(' | ')
-    : 'No messages yet.';
   const saidCol = el('div', 'wg-dm-box');
-  saidCol.append(el('div', 'wg-dm-label', 'Messages'), el('div', 'wg-dm-text', saidText));
+  saidCol.append(el('div', 'wg-dm-label', 'Messages'));
+  for (const message of recentMessages) {
+    const audience = message.to ? ` to ${labelOf(message.to)}` : message.channel === 'tribe' ? ' to tribe' : '';
+    saidCol.append(el('div', 'wg-dm-text', `Turn ${message.tick}${audience}: ${message.text}`));
+  }
+  if (recentMessages.length === 0) {
+    saidCol.append(el('div', 'wg-dm-text', 'No messages yet.'));
+  }
 
   const tickOrders = state.ordersByTick[state.tick] ?? state.ordersByTick[Math.max(1, state.tick - 1)];
   const orders = seat.sealedOrders.length > 0 ? seat.sealedOrders : (tickOrders?.[seatId] ?? []);
@@ -617,17 +665,22 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
     .filter((contract) => contract.status === 'active' && (contract.proposer === seatId || contract.counterparty === seatId))
     .map((contract) => {
       const other = contract.proposer === seatId ? contract.counterparty : contract.proposer;
-      return `${contract.terms.kind.toUpperCase()} w/ ${other.toUpperCase()}`;
+      return `${CONTRACT_KIND_LABELS[contract.terms.kind]} with ${labelOf(other)}`;
     });
   const ordersList = el('div', 'wg-dm-text wg-hex-intel-group');
   for (const order of orders) {
-    ordersList.append(buildOrderElement(order, SEAT_COLORS[seatId]));
+    ordersList.append(buildOrderElement(order, labelOf));
   }
   if (activeContracts.length > 0) {
-    ordersList.append(el('span', 'wg-card-meta', `Pacts: ${activeContracts.join(', ')}`));
+    const pactLine = el('span', 'wg-legend-item');
+    pactLine.append(
+      createWargamesGlyph(PACT_SCROLL_PATH, 13, 'var(--state-running)', 'Pacts'),
+      el('span', 'wg-card-meta', `Pacts: ${activeContracts.join(', ')}`),
+    );
+    ordersList.append(pactLine);
   }
   if (orders.length === 0 && activeContracts.length === 0) {
-    ordersList.append(el('span', '', 'Hold'));
+    ordersList.append(el('span', '', 'Holding position'));
   }
   const ordersCol = el('div', 'wg-dm-box');
   ordersCol.append(el('div', 'wg-dm-label', 'Orders & contracts'), ordersList);
@@ -661,11 +714,11 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   }
 
   const ranked = [...state.seats].sort((left, right) => {
+    if (left.config.seatId === state.winnerSeatId) return -1;
+    if (right.config.seatId === state.winnerSeatId) return 1;
     const leftCount = tallies.get(left.config.seatId)?.villages ?? 0;
     const rightCount = tallies.get(right.config.seatId)?.villages ?? 0;
     if (rightCount !== leftCount) return rightCount - leftCount;
-    if (left.config.seatId === state.winnerSeatId) return -1;
-    if (right.config.seatId === state.winnerSeatId) return 1;
     const leftUnits = tallies.get(left.config.seatId)?.totalUnits ?? 0;
     const rightUnits = tallies.get(right.config.seatId)?.totalUnits ?? 0;
     return rightUnits - leftUnits;
@@ -686,7 +739,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
       ? 'MATCH ABORTED'
       : 'MATCH FINISHED';
   const heading = el('div', 'wg-endgame-title', headingText);
-  const sub = el('div', 'wg-card-meta', `${state.spec.rulesVersion} · Tick ${state.tick}/${state.spec.maxTicks}`);
+  const sub = el('div', 'wg-card-meta', `Rules ${state.spec.rulesVersion} · Turn ${state.tick}/${state.spec.maxTicks}`);
   titleGroup.append(heading, sub);
   winnerWrap.append(emblem, titleGroup);
 
@@ -730,7 +783,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     if (rankIndex === 0) {
       rankLabel.append(createWargamesGlyph(TROPHY_ICON_PATH, 14, SEAT_COLORS[seatId], 'First place'));
     }
-    rankLabel.append(el('span', 'wg-podium-rank', `#${rankIndex + 1}`));
+    rankLabel.append(el('span', 'wg-podium-rank', rankIndex === 0 ? '#1 Champion' : `#${rankIndex + 1}`));
     topRow.append(rankLabel, el('span', 'wg-podium-score', `${tally.villages}/${WARGAMES_WIN_VILLAGES}`));
 
     const nameRow = el('div', 'wg-faction-name');
@@ -771,7 +824,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   if (warlord) {
     const warlordUnits = tallies.get(warlord.config.seatId)?.totalUnits ?? 0;
     if (warlordUnits > 0) {
-      addAward(WARGAMES_GLYPH_PATHS.swords, SEAT_COLORS[warlord.config.seatId], 'Warlord', warlord.config.label, `${warlordUnits} units`, SEAT_COLORS[warlord.config.seatId]);
+      addAward(WARGAMES_GLYPH_PATHS.swords, SEAT_COLORS[warlord.config.seatId], 'Warlord', warlord.config.label, pluralized(warlordUnits, 'unit'), SEAT_COLORS[warlord.config.seatId]);
     }
   }
 
@@ -780,7 +833,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   ))[0];
   if (backstabber && (breachesBySeat.get(backstabber.config.seatId) ?? 0) > 0) {
     const count = breachesBySeat.get(backstabber.config.seatId) ?? 0;
-    addAward(WARGAMES_GLYPH_PATHS.breach, 'var(--state-waiting)', 'Backstabber', backstabber.config.label, `${count}x`, SEAT_COLORS[backstabber.config.seatId]);
+    addAward(WARGAMES_GLYPH_PATHS.breach, 'var(--state-waiting)', 'Backstabber', backstabber.config.label, count === 1 ? '1 breach' : `${count} breaches`, SEAT_COLORS[backstabber.config.seatId]);
   }
 
   const diplomat = [...state.seats].sort((left, right) => (
@@ -788,7 +841,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   ))[0];
   if (diplomat && (messagesBySeat.get(diplomat.config.seatId) ?? 0) > 0) {
     const msgCount = messagesBySeat.get(diplomat.config.seatId) ?? 0;
-    addAward(CHAT_ICON_PATH, SEAT_COLORS[diplomat.config.seatId], 'Diplomat', diplomat.config.label, `${msgCount} msgs`, SEAT_COLORS[diplomat.config.seatId]);
+    addAward(CHAT_ICON_PATH, SEAT_COLORS[diplomat.config.seatId], 'Diplomat', diplomat.config.label, pluralized(msgCount, 'message'), SEAT_COLORS[diplomat.config.seatId]);
   }
 
   const table = el('table', 'wg-table');
@@ -834,7 +887,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     territoryCell.append(territoryWrap);
 
     const armyCell = el('td');
-    armyCell.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops, SEAT_COLORS[seatId]));
+    armyCell.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops));
 
     const breachCell = el('td', 'wg-num');
     if (breaches > 0) {
@@ -869,10 +922,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
 function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnapshot>['pov']): HTMLElement {
   const bar = el('div', 'wg-hex-intel');
   if (selectedHexIndex === null) {
-    bar.append(
-      el('span', 'wg-hex-intel-lead', 'HEX'),
-      el('span', 'wg-card-meta', 'Select a hex'),
-    );
+    bar.append(el('span', 'wg-card-meta', 'Click a hex to inspect it'));
     return bar;
   }
 
@@ -884,43 +934,39 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
   const isFogged = seatView !== null && state.villages[selectedHexIndex] !== null && village === null;
 
   if (isFogged) {
-    bar.append(
-      el('span', 'wg-hex-intel-lead', `#${tile.index}`),
-      el('span', 'wg-card-meta', `Fog · ${pov.toUpperCase()}`),
-    );
+    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', 'Hidden by fog of war'));
     return bar;
   }
 
   if (!village) {
-    bar.append(
-      el('span', 'wg-hex-intel-lead', `#${tile.index}`),
-      el('span', 'wg-card-meta', `R${tile.ring} (${tile.q}, ${tile.r})`),
-    );
+    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', 'Open land, no village'));
     return bar;
   }
 
   const left = el('div', 'wg-hex-intel-group');
   left.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`));
   if (village.owner !== null) {
-    const ownerSeat = state.seats.find((seat) => seat.config.seatId === village.owner);
     const swatch = el('span', 'wg-faction-swatch');
     swatch.style.background = SEAT_COLORS[village.owner];
-    const ownerName = ownerSeat ? ownerSeat.config.label : village.owner.toUpperCase();
-    const ownerTag = el('span', 'wg-hex-intel-owner', ownerName);
+    const ownerTag = el('span', 'wg-hex-intel-owner', seatLabelOf(state, village.owner));
     ownerTag.style.color = SEAT_COLORS[village.owner];
     left.append(swatch, ownerTag);
   }
   if (village.owner === null) {
-    left.append(el('span', 'wg-hex-intel-owner', 'BARB'));
+    left.append(el('span', 'wg-hex-intel-owner', 'Barbarians'));
   }
-  const productionTag = village.productionState === 'barren' ? ' · BARREN' : '';
-  left.append(el('span', 'wg-card-meta', `${village.loyalty}%${productionTag}`));
+  const controlTone = controlToneColor(village.loyalty, village.owner);
+  const controlChip = el('span', 'wg-legend-item');
+  controlChip.append(createWargamesGlyph(CONTROL_FLAG_PATH, 12, controlTone, 'Control'), el('span', '', `Control ${village.loyalty}%`));
+  left.append(controlChip);
+  if (village.productionState === 'barren') {
+    left.append(el('span', 'wg-card-meta', 'Barren'));
+  }
 
   const right = el('div', 'wg-hex-intel-group');
-  const unitColor = village.owner !== null ? SEAT_COLORS[village.owner] : 'var(--text-dim)';
   right.append(
-    buildGlyphChips(UNIT_GLYPH_PATHS, village.troops, unitColor),
-    buildGlyphChips(BUILDING_GLYPH_PATHS, village.buildings, 'var(--text-dim)'),
+    buildGlyphChips(UNIT_GLYPH_PATHS, village.troops, { hideZero: true }),
+    buildGlyphChips(BUILDING_GLYPH_PATHS, village.buildings, { hideZero: true, countPrefix: 'Lv ' }),
     buildResourceReadout(village.resources.grain, village.resources.ore),
   );
 
@@ -934,33 +980,28 @@ function legendItem(icon: SVGSVGElement, label: string): HTMLElement {
   return item;
 }
 
-function buildMapLegend(): HTMLElement {
-  const legend = el('div', 'wg-map-legend');
-  for (const unit of UNIT_GLYPH_PATHS) {
-    legend.append(legendItem(createWargamesGlyph(unit.path, 14, 'var(--text-head)'), unit.label));
-  }
-  for (const building of BUILDING_GLYPH_PATHS) {
-    legend.append(legendItem(createWargamesGlyph(building.path, 14, 'var(--text-dim)'), building.label));
-  }
+function legendGroup(title: string, items: readonly HTMLElement[]): HTMLElement {
+  const group = el('div', 'wg-legend-group');
+  group.append(el('span', 'wg-legend-heading', title), ...items);
+  return group;
+}
 
-  const territoryIcon = createSvgIcon(12, 12);
-  territoryIcon.append(createSvgShape('polygon', {
+function hexSwatchIcon(fill: string, stroke: string, dasharray: string | null): SVGSVGElement {
+  const icon = createSvgIcon(12, 12);
+  const attributes: Record<string, string> = {
     points: '6,1 11,3.5 11,8.5 6,11 1,8.5 1,3.5',
-    fill: 'color-mix(in srgb, var(--accent) 28%, var(--bg-card))',
-    stroke: 'var(--accent)',
+    fill,
+    stroke,
     'stroke-width': '1.2',
-  }));
-  legend.append(legendItem(territoryIcon, 'Territory'));
+  };
+  if (dasharray) attributes['stroke-dasharray'] = dasharray;
+  icon.append(createSvgShape('polygon', attributes));
+  return icon;
+}
 
-  const loyaltyIcon = createSvgIcon(14, 12);
-  loyaltyIcon.append(
-    createSvgShape('rect', { x: '1', y: '5', width: '12', height: '3', fill: 'var(--bg)' }),
-    createSvgShape('rect', { x: '1', y: '5', width: '8', height: '3', fill: 'var(--state-waiting)' }),
-  );
-  legend.append(legendItem(loyaltyIcon, 'Contested Loyalty'));
-
-  const marchIcon = createSvgIcon(16, 12);
-  marchIcon.append(
+function arrowSwatchIcon(dasharray: string): SVGSVGElement {
+  const icon = createSvgIcon(16, 12);
+  icon.append(
     createSvgShape('line', {
       x1: '1',
       y1: '6',
@@ -968,13 +1009,36 @@ function buildMapLegend(): HTMLElement {
       y2: '6',
       stroke: 'var(--text-head)',
       'stroke-width': '2',
-      'stroke-dasharray': '4 2',
+      'stroke-dasharray': dasharray,
     }),
     createSvgShape('polygon', { points: '10,3 15,6 10,9', fill: 'var(--text-head)' }),
   );
-  legend.append(legendItem(marchIcon, 'March'));
+  return icon;
+}
 
-  legend.append(legendItem(createWargamesGlyph(SCOUT_EYE_PATH, 14, 'var(--text-head)'), 'Scout'));
+function buildMapLegend(): HTMLElement {
+  const legend = el('div', 'wg-map-legend');
+  legend.append(
+    legendGroup('Units', UNIT_GLYPH_PATHS.map((unit) => legendItem(createWargamesGlyph(unit.path, 14, unit.color), unit.label))),
+    legendGroup('Buildings', BUILDING_GLYPH_PATHS.map((building) => legendItem(createWargamesGlyph(building.path, 14, building.color), building.label))),
+    legendGroup('Board', [
+      legendItem(hexSwatchIcon(`color-mix(in srgb, ${SEAT_COLORS.s1} 28%, var(--bg-card))`, SEAT_COLORS.s1, null), 'Faction village'),
+      legendItem(hexSwatchIcon('color-mix(in srgb, var(--text-dim) 10%, var(--bg-card))', 'var(--border-hover)', null), 'Barbarian village'),
+      legendItem(hexSwatchIcon('var(--bg)', 'var(--border-hover)', '2 2'), 'Barren'),
+      legendItem(createWargamesGlyph(CONTROL_FLAG_PATH, 14, 'var(--state-waiting)'), 'Control under 100%, lower falls sooner'),
+    ]),
+    legendGroup('Moves', [
+      legendItem(arrowSwatchIcon('4 2'), 'Army marching'),
+      legendItem(arrowSwatchIcon('2 3'), 'Planned order (seat view or selected hex)'),
+      legendItem(createWargamesGlyph(SCOUT_EYE_PATH, 14, 'var(--text-head)'), 'Scout'),
+    ]),
+    legendGroup('Diplomacy', [
+      legendItem(createWargamesGlyph(CHAT_ICON_PATH, 14, 'var(--text-head)'), 'Message'),
+      legendItem(createWargamesGlyph(THOUGHT_CLOUD_PATH, 14, 'var(--text-head)'), 'Private thought'),
+      legendItem(createWargamesGlyph(PACT_SCROLL_PATH, 14, 'var(--state-running)'), 'Pact'),
+      legendItem(createWargamesGlyph(BREACH_WARNING_PATH, 14, 'var(--state-failed)'), 'Breach'),
+    ]),
+  );
   return legend;
 }
 
@@ -1049,7 +1113,7 @@ function buildHistorySection(): HTMLElement {
     const strategyTag = match.hasCustomStrategy ? ' · Custom strategy' : '';
     matchMeta.append(
       el('div', 'wg-card-title', `${match.title} (${match.matchId})`),
-      el('div', 'wg-card-meta', `${match.rulesVersion} · ${match.status} · Tick ${match.tick}/${match.maxTicks} · Winner: ${match.winnerModelDisplay ?? '-'} · Breaches: ${match.breachCount}${strategyTag}`),
+      el('div', 'wg-card-meta', `Rules ${match.rulesVersion} · ${match.status} · Turn ${match.tick}/${match.maxTicks} · Winner: ${match.winnerModelDisplay ?? '-'} · Breaches: ${match.breachCount}${strategyTag}`),
     );
     const watchBtn = button({
       variant: 'secondary',
@@ -1080,10 +1144,13 @@ function ensurePanelShell(): PersistentPanelShell {
 function ensureLiveShell(): PersistentLiveShell {
   if (liveShell) return liveShell;
   if (!mapView) {
-    mapView = createWargamesMap((hexIndex) => {
-      selectedHexIndex = hexIndex;
-      render();
-    });
+    mapView = createWargamesMap(
+      (hexIndex) => {
+        selectedHexIndex = hexIndex;
+        render();
+      },
+      () => queueMicrotask(revealSettledEndgame),
+    );
   }
   if (!inspectorView) inspectorView = createWargamesInspector();
 
@@ -1098,11 +1165,18 @@ function ensureLiveShell(): PersistentLiveShell {
   const boardBarSlot = el('div', 'wg-board-bar');
   const hexIntelSlot = el('div');
 
-  stage.append(boardBarSlot, mapView.element, hexIntelSlot, buildMapLegend());
+  stage.append(boardBarSlot, mapView.element, mapView.caption, hexIntelSlot, buildMapLegend());
   mapPane.append(stage);
   wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane);
   liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot };
   return liveShell;
+}
+
+function revealSettledEndgame(): void {
+  if (!liveShell?.endgameSlot.hidden) return;
+  const state = displayedMatchState();
+  if (!state || !isMatchOver(state)) return;
+  render();
 }
 
 function updateLiveShell(state: MatchState): HTMLElement {
@@ -1118,9 +1192,10 @@ function updateLiveShell(state: MatchState): HTMLElement {
     shell.spotlightSlot.replaceChildren();
   }
 
-  const isEnded = state.status === 'finished' || state.status === 'aborted';
-  shell.endgameSlot.hidden = !isEnded;
-  if (isEnded) {
+  mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
+  const isEndgameShown = isMatchOver(state) && (mapView?.isBoardSettled() ?? true);
+  shell.endgameSlot.hidden = !isEndgameShown;
+  if (isEndgameShown) {
     const endgameChildren: HTMLElement[] = [buildEndgameCard(state)];
     if (postgameReportMode === 'expanded' && inspectorView) {
       const analytics = displayedMatchAnalytics(state);
@@ -1129,18 +1204,16 @@ function updateLiveShell(state: MatchState): HTMLElement {
     }
     shell.endgameSlot.replaceChildren(...endgameChildren);
   }
-  if (!isEnded) {
+  if (!isEndgameShown) {
     shell.endgameSlot.replaceChildren();
   }
 
   const selectedSeat = spotlightSeatId ? state.seats.find((seat) => seat.config.seatId === spotlightSeatId) : null;
-  const modeHint = selectedSeat ? `FOG · ${selectedSeat.config.label.toUpperCase()}` : 'FULL MAP';
+  const modeHint = selectedSeat ? `Fog of war · ${selectedSeat.config.label} view` : 'Full map';
   const followStatus = isActiveMatchStatus(state.status)
-    ? `LIVE · ${state.spec.rulesVersion}`
-    : `${state.status.toUpperCase()} · ${state.spec.rulesVersion}`;
+    ? `Live · Rules ${state.spec.rulesVersion}`
+    : `${state.status} · Rules ${state.spec.rulesVersion}`;
   shell.boardBarSlot.replaceChildren(el('span', 'wg-board-hint', modeHint), el('span', 'wg-board-hint', followStatus));
-
-  mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
   shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
   return shell.wrap;
 }
@@ -1174,7 +1247,7 @@ function render(): void {
   if (state) {
     const isLive = isActiveMatchStatus(state.status);
     const statusLabel = isLive ? 'LIVE' : state.status.toUpperCase();
-    const statusBadge = el('span', 'wg-badge', `${statusLabel} · TICK ${state.tick}/${state.spec.maxTicks} · ${state.phase.toUpperCase()}`);
+    const statusBadge = el('span', 'wg-badge', `${statusLabel} · Turn ${state.tick}/${state.spec.maxTicks} · ${PHASE_BADGE_LABELS[state.phase]}`);
     statusBadge.dataset.tone = isLive ? 'live' : 'done';
     meta.append(
       statusBadge,
