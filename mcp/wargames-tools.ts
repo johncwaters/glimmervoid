@@ -109,7 +109,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('send_message', {
     title: 'Send Message',
-    description: 'Send a DM or tribe message during the talk phase (at most 2 messages per tick). Optionally attach a signed or modified report.',
+    description: 'Send a direct or tribe message during the talk phase. Optionally attach a signed or modified report.',
     inputSchema: z.strictObject({
       channel: MessageChannel.default('dm'),
       to: SeatId.nullable().default(null),
@@ -120,7 +120,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('propose_contract', {
     title: 'Propose Contract',
-    description: 'Propose an engine-enforced escrow or collateral-backed NAP contract during the contracts phase.',
+    description: 'Propose an engine-enforced resource escrow or collateral-backed Non-Aggression Pact (NAP) contract during the contracts phase.',
     inputSchema: z.strictObject({ terms: ContractTerms }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'propose_contract', args)));
 
