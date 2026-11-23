@@ -69,7 +69,7 @@ export const settingsServerVariants = [
     requestId,
     directories: z.array(openObject({
       root: z.string(),
-      projects: z.array(openObject({ name: z.string(), path: z.string(), isGit: z.boolean().optional(), lastActivityMs: z.number().optional() })),
+      projects: z.array(openObject({ name: z.string(), path: z.string(), isGit: z.boolean().optional(), hasCommits: z.boolean().optional(), lastActivityMs: z.number().optional() })),
     })),
     suggestions: z.array(openObject({ path: z.string(), label: z.string(), gitRepoCount: z.number().int().nonnegative() })).optional(),
     error: z.string().optional(),

@@ -90,10 +90,6 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   color: var(--text-head);
 }
 
-.first-run-start-host {
-  margin-top: 16px;
-}
-
 .first-run-step-text {
   margin: 0;
   font-size: var(--type-meta);
@@ -254,10 +250,96 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   color: var(--text-muted);
 }
 
-.first-run-start {
+.first-run-found {
+  margin: -8px 0 0;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.first-run-found[hidden] {
+  display: none;
+}
+
+.first-run-repo-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius);
+}
+
+.first-run-repo-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--border-dim);
+  background: none;
+  font: inherit;
+  font-size: var(--type-meta);
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.first-run-repo-row:first-child {
+  border-top: 0;
+}
+
+.first-run-repo-row:hover,
+.first-run-repo-row:focus-visible {
+  background: var(--bg-surface);
+  color: var(--text-head);
+}
+
+.first-run-repo-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.first-run-repo-root,
+.first-run-repo-age {
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.first-run-agent-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.first-run-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.first-run-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  gap: 4px;
+}
+
+.first-run-task-prompt {
+  margin: 0;
+  max-width: 70ch;
+  font-size: var(--type-meta);
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.first-run-tasks .ui-input {
+  width: 100%;
+}
+
+.first-run-start-status {
+  margin: 0;
 }
 
 .first-run-load-status {

@@ -1,13 +1,16 @@
 import type { OnboardingStepReport } from '#shared/contracts/control-messages.ts';
 import { SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../session-card/agent-core.ts';
+import type { ScannedProject } from '../add-session-core.ts';
+import { filterRows, lastPathSegment } from '../add-session-core.ts';
+import { elapsedText } from '#shared/display-text.ts';
 
 type FirstRunStepState = 'done' | 'current' | 'upcoming';
 
-type FirstRunSteps = { agent: FirstRunStepState; repoRoots: FirstRunStepState; notifications: FirstRunStepState };
+type FirstRunSteps = { agent: FirstRunStepState; repoRoots: FirstRunStepState; notifications: FirstRunStepState; chooseRepo: FirstRunStepState; start: FirstRunStepState };
 
 type NotificationChoice = 'on' | 'off' | 'ask';
 
-const UPCOMING_STEPS: FirstRunSteps = { agent: 'upcoming', repoRoots: 'upcoming', notifications: 'upcoming' };
+const UPCOMING_STEPS: FirstRunSteps = { agent: 'upcoming', repoRoots: 'upcoming', notifications: 'upcoming', chooseRepo: 'upcoming', start: 'upcoming' };
 
 function stepStateFor(stepNumber: number, currentStepNumber: number): FirstRunStepState {
   if (stepNumber < currentStepNumber) return 'done';
@@ -32,25 +35,27 @@ function withoutShell(agentListing: unknown): unknown {
   return { ...reply, agents: listedAgents(reply).filter((agent) => !isShellAgent(agent)) };
 }
 
-function currentStepNumberFor(hasAgent: boolean, hasGitCheckout: boolean, notificationChoice: NotificationChoice): number {
+type FirstRunProgress = { hasAgent: boolean; hasGitCheckout: boolean; notificationChoice: NotificationChoice; hasChosenRepo: boolean; hasStarted: boolean };
+
+function currentStepNumberFor({ hasAgent, hasGitCheckout, notificationChoice, hasChosenRepo, hasStarted }: FirstRunProgress): number {
   if (!hasAgent) return 1;
   if (!hasGitCheckout) return 2;
   if (notificationChoice === 'ask') return 3;
-  return 4;
+  if (!hasChosenRepo) return 4;
+  if (!hasStarted) return 5;
+  return 6;
 }
 
-function decideFirstRunSteps({ agentListing, hasGitCheckout, notificationChoice }: { agentListing: unknown; hasGitCheckout: boolean; notificationChoice: NotificationChoice }): FirstRunSteps {
+function decideFirstRunSteps({ agentListing, ...progress }: Omit<FirstRunProgress, 'hasAgent'> & { agentListing: unknown }): FirstRunSteps {
   const hasAgent = decideAgentAvailability(withoutShell(agentListing)).canSpawn;
-  const currentStepNumber = currentStepNumberFor(hasAgent, hasGitCheckout, notificationChoice);
+  const currentStepNumber = currentStepNumberFor({ hasAgent, ...progress });
   return {
     agent: stepStateFor(1, currentStepNumber),
     repoRoots: stepStateFor(2, currentStepNumber),
     notifications: stepStateFor(3, currentStepNumber),
+    chooseRepo: stepStateFor(4, currentStepNumber),
+    start: stepStateFor(5, currentStepNumber),
   };
-}
-
-function isSetupDone(steps: FirstRunSteps): boolean {
-  return steps.agent === 'done' && steps.repoRoots === 'done' && steps.notifications === 'done';
 }
 
 function notificationChoiceSummary(notificationChoice: NotificationChoice): string {
@@ -62,7 +67,7 @@ function reportedStepStates(steps: FirstRunSteps): ReadonlyArray<readonly [Onboa
     ['agent', steps.agent],
     ['repo_roots', steps.repoRoots],
     ['notifications', steps.notifications],
-    ['first_session', isSetupDone(steps) ? 'current' : 'upcoming'],
+    ['first_session', steps.start],
   ];
 }
 
@@ -96,8 +101,39 @@ function installableAgentsText(agentListing: unknown): string {
   return agentChoiceJoiner.format(labels);
 }
 
+function firstRunAgentChoices(agentListing: unknown): { options: { id: string; label: string }[]; selectedId: string } {
+  const { options, selectedId } = decideAgentPicker(listedAgents(agentListing).filter((agent) => !isShellAgent(agent)));
+  return { options, selectedId };
+}
+
 function gitRepoCountText(gitRepoCount: number): string {
   return gitRepoCount === 1 ? '1 git repo' : `${gitRepoCount} git repos`;
+}
+
+type RepoChoice = ScannedProject & { root: string };
+
+const SHOWN_REPO_CHOICES = 5;
+
+function gitRepoChoicesIn(directories: readonly { root: string; projects: readonly (ScannedProject & { hasCommits?: boolean })[] }[]): RepoChoice[] {
+  const choices = directories.flatMap(({ root, projects }) => projects.filter((project) => project.hasCommits === true).map(({ name, path, lastActivityMs }) => ({ name, path, lastActivityMs, root })));
+  return choices.sort((first, second) => (second.lastActivityMs ?? 0) - (first.lastActivityMs ?? 0));
+}
+
+function shownRepoChoices(choices: readonly RepoChoice[], query: string): { shown: RepoChoice[]; moreCount: number } {
+  const matching = filterRows(choices, query);
+  return { shown: matching.slice(0, SHOWN_REPO_CHOICES), moreCount: Math.max(0, matching.length - SHOWN_REPO_CHOICES) };
+}
+
+function lastActivityText(lastActivityMs: number | undefined, nowMs: number): string {
+  if (lastActivityMs === undefined) return '';
+  return elapsedText(nowMs - lastActivityMs, { rounding: 'floor', wording: 'abbreviated', suffix: ' ago', justNowBelowSeconds: 60 });
+}
+
+function foundReposText(choices: readonly RepoChoice[]): string {
+  if (choices.length === 0) return '';
+  const roots = [...new Set(choices.map((choice) => lastPathSegment(choice.root)))];
+  const repoWord = choices.length === 1 ? 'repo' : 'repos';
+  return `${choices.length} ${repoWord} in ${roots.join(', ')}`;
 }
 
 function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly string[]): string[] | null {
@@ -109,8 +145,8 @@ function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly s
   return nextRoots.length === repoRoots.length ? null : nextRoots;
 }
 
-function hasGitCheckoutIn(directories: readonly { projects: readonly { isGit?: boolean }[] }[]): boolean {
-  return directories.some((directory) => directory.projects.some((project) => project.isGit === true));
+function hasGitCheckoutIn(directories: readonly { projects: readonly { hasCommits?: boolean }[] }[]): boolean {
+  return directories.some((directory) => directory.projects.some((project) => project.hasCommits === true));
 }
 
 function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: string; gitRepoCount: number }[]): string[] {
@@ -118,5 +154,5 @@ function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: 
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-export { hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, isSetupDone, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
-export type { FirstRunSteps, NotificationChoice };
+export { firstRunAgentChoices, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, gitRepoChoicesIn, shownRepoChoices, lastActivityText, foundReposText, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export type { FirstRunSteps, NotificationChoice, RepoChoice };

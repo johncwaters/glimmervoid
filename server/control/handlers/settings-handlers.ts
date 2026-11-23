@@ -36,7 +36,7 @@ import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
 
-type ScannedProject = { name: string; path: string; isGit?: boolean; lastActivityMs?: number };
+type ScannedProject = { name: string; path: string; isGit?: boolean; hasCommits?: boolean; lastActivityMs?: number };
 
 function realPathOrSelf(candidate: string): string {
   try {
@@ -106,11 +106,24 @@ async function gitDirectoryOf(projectPath: string): Promise<string | undefined> 
   return linkedGitDir ? path.resolve(projectPath, linkedGitDir) : undefined;
 }
 
-async function projectGitFacts(projectPath: string): Promise<{ isGit: boolean; lastActivityMs?: number }> {
+const HEAD_REF_LINE = /^ref:\s*(\S+)/;
+
+async function hasHeadCommit(gitDirectory: string): Promise<boolean> {
+  const headRef = HEAD_REF_LINE.exec(await fs.promises.readFile(path.join(gitDirectory, 'HEAD'), 'utf8'))?.[1];
+  if (!headRef) return true;
+  const commonDirectoryText = await fs.promises.readFile(path.join(gitDirectory, 'commondir'), 'utf8').catch(() => '');
+  const commonDirectory = commonDirectoryText.trim() ? path.resolve(gitDirectory, commonDirectoryText.trim()) : gitDirectory;
+  if (await fs.promises.stat(path.join(commonDirectory, headRef)).then(() => true, () => false)) return true;
+  const packedRefs = await fs.promises.readFile(path.join(commonDirectory, 'packed-refs'), 'utf8').catch(() => '');
+  return packedRefs.split('\n').some((line) => line.endsWith(` ${headRef}`));
+}
+
+async function projectGitFacts(projectPath: string): Promise<{ isGit: boolean; hasCommits?: boolean; lastActivityMs?: number }> {
   try {
     const gitDirectory = await gitDirectoryOf(projectPath);
     if (!gitDirectory) return { isGit: false };
-    return { isGit: true, lastActivityMs: (await fs.promises.stat(gitDirectory)).mtimeMs };
+    const [hasCommits, gitDirectoryStat] = await Promise.all([hasHeadCommit(gitDirectory).catch(() => false), fs.promises.stat(gitDirectory)]);
+    return { isGit: true, hasCommits, lastActivityMs: gitDirectoryStat.mtimeMs };
   } catch {
     return { isGit: false };
   }

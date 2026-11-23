@@ -438,7 +438,7 @@ test('a settings payload build reads the resolution cache and spawns no PATH pro
   }
 });
 
-test('a repo root scan lists a link to a directory once at its real path, skips broken links and links to files, and reports each git directory mtime on request, following the gitdir file of a worktree', async () => {
+test('a repo root scan lists a link to a directory once at its real path, skips broken links and links to files, and reports each git directory mtime and whether HEAD has a commit on request, following the gitdir file of a worktree', async () => {
   const workArea = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-scan-links-')));
   try {
     const repoRoot = path.join(workArea, 'Projects');
@@ -465,12 +465,21 @@ test('a repo root scan lists a link to a directory once at its real path, skips 
     fs.mkdirSync(worktreeGitDir, { recursive: true });
     fs.mkdirSync(path.join(repoRoot, 'feature'));
     fs.writeFileSync(path.join(repoRoot, 'feature', '.git'), `gitdir: ${worktreeGitDir}\n`, 'utf8');
+    fs.mkdirSync(path.join(repoRoot, 'real-repo', '.git', 'refs', 'heads'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'real-repo', '.git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'real-repo', '.git', 'refs', 'heads', 'main'), `${'a'.repeat(40)}\n`, 'utf8');
+    fs.writeFileSync(path.join(repoRoot, 'real-repo', '.git', 'packed-refs'), `${'b'.repeat(40)} refs/heads/feature\n`, 'utf8');
+    fs.writeFileSync(path.join(worktreeGitDir, 'HEAD'), 'ref: refs/heads/feature\n', 'utf8');
+    fs.writeFileSync(path.join(worktreeGitDir, 'commondir'), '../..\n', 'utf8');
+    fs.mkdirSync(path.join(repoRoot, 'unborn', '.git'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'unborn', '.git', 'HEAD'), 'ref: refs/heads/main\n', 'utf8');
+    fs.utimesSync(path.join(repoRoot, 'unborn', '.git'), lastCommitAt, lastCommitAt);
     fs.utimesSync(worktreeGitDir, worktreeCommitAt, worktreeCommitAt);
     fs.utimesSync(path.join(repoRoot, 'real-repo', '.git'), lastCommitAt, lastCommitAt);
     await settings.send({ type: 'scan-repo-roots', requestId: 'scan-activity', includeActivity: true });
     const scannedWithActivity = settings.sent.filter((message) => message.type === 'repo-roots-scanned').at(-1);
     assert.deepEqual(blockOf(scannedWithActivity, 'directories'), [
-      { root: repoRoot, projects: [{ name: 'feature', path: path.join(repoRoot, 'feature'), isGit: true, lastActivityMs: worktreeCommitAt.getTime() }, { name: 'posthog', path: linkedRepo, isGit: false }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo'), isGit: true, lastActivityMs: lastCommitAt.getTime() }] },
+      { root: repoRoot, projects: [{ name: 'feature', path: path.join(repoRoot, 'feature'), isGit: true, hasCommits: true, lastActivityMs: worktreeCommitAt.getTime() }, { name: 'posthog', path: linkedRepo, isGit: false }, { name: 'real-repo', path: path.join(repoRoot, 'real-repo'), isGit: true, hasCommits: true, lastActivityMs: lastCommitAt.getTime() }, { name: 'unborn', path: path.join(repoRoot, 'unborn'), isGit: true, hasCommits: false, lastActivityMs: lastCommitAt.getTime() }] },
       { root: workArea, projects: [{ name: 'Projects', path: repoRoot, isGit: false }] },
     ]);
   } finally {
