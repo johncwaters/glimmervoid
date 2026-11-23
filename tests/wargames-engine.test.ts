@@ -11,6 +11,7 @@ import {
   WARGAMES_SQUEEZE_TICK,
   WargamesMatchSpec,
   WargamesMatchSummary,
+  victoryVillagesFor,
 } from '../shared/contracts/wargames.ts';
 import type { WargamesEvent } from '../shared/contracts/wargames.ts';
 import {
@@ -518,7 +519,7 @@ test('v3 charges an attack split into one-troop armies the same losses as one ar
   const oneArmy = [raidersSent];
   const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v4');
+  assert.equal(WARGAMES_RULES_VERSION, 'v5');
   const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
   assert.ok(lostAsOneArmy > 0);
   assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
@@ -642,4 +643,44 @@ test('customizable mapRadius deterministically generates larger symmetric grids 
   const movedArmy = stepped.armies.get('army-r4');
   assert.ok(movedArmy);
   assert.notEqual(movedArmy.currentHexIndex, s1Home.hexIndex);
+});
+
+test('v5 populates dense maps, scales victory goal with mapRadius, and projects 2-deep owner-only border intel', () => {
+  const expectedByRadius = [
+    { radius: 3, villages: 31, goal: 12 },
+    { radius: 4, villages: 55, goal: 22 },
+    { radius: 5, villages: 85, goal: 34 },
+  ] as const;
+
+  for (const { radius, villages, goal } of expectedByRadius) {
+    const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v5', mapRadius: radius });
+    const state = createInitialMatchState(`wg-v5-r${radius}`, 1000, spec);
+    const activeVillages = state.villages.filter((village) => village !== null);
+    assert.equal(activeVillages.length, villages);
+    assert.equal(victoryVillagesFor(spec), goal);
+  }
+
+  assert.equal(victoryVillagesFor({ rulesVersion: 'v4', mapRadius: 4 }), 12);
+
+  const r4Spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v5', mapRadius: 4 });
+  const r4State = createInitialMatchState('wg-v5-vision', 1000, r4Spec);
+  const s1View = projectSeatState(r4State, 's1');
+  assert.equal(s1View.visibleVillages.length, 3);
+  assert.equal(s1View.visibleVillages.every((village) => village.owner === 's1'), true);
+  assert.ok(s1View.nearbyHexOwners.length > 0);
+  for (const entry of s1View.nearbyHexOwners) {
+    assert.deepEqual(Object.keys(entry).sort(), ['hexIndex', 'owner']);
+    const targetTile = r4State.hexes[entry.hexIndex];
+    const minDist = Math.min(
+      ...s1View.visibleVillages.map((owned) => {
+        const ownedTile = r4State.hexes[owned.hexIndex];
+        return Math.max(
+          Math.abs(ownedTile.q - targetTile.q),
+          Math.abs(ownedTile.r - targetTile.r),
+          Math.abs((-ownedTile.q - ownedTile.r) - (-targetTile.q - targetTile.r)),
+        );
+      }),
+    );
+    assert.ok(minDist >= 1 && minDist <= 2);
+  }
 });

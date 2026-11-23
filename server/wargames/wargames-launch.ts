@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { WargamesMatchSpec } from '../../shared/contracts/wargames.ts';
+import { WargamesMatchSpec, victoryVillagesFor } from '../../shared/contracts/wargames.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
@@ -101,11 +101,12 @@ interface WargamesLauncherDeps {
 }
 
 function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchSpecType): string {
+  const winVillages = victoryVillagesFor(spec);
   const lines = [
     `You are playing Wargames match "${spec.title}" (${matchId}) as seat ${seat.seatId} (${seat.label}).`,
     '',
     '=== WARGAMES RULEBOOK ===',
-    `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick). First seat to hold 12 villages wins; otherwise the seat with the most villages after tick ${spec.maxTicks} wins.`,
+    `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick). First seat to hold ${winVillages} villages wins; otherwise the seat with the most villages after tick ${spec.maxTicks} wins.`,
     '',
     'Units & Combat (1.5x Counter Bonus):',
     '- Raider (12 grain / 8 ore, base power 10): deals 1.5x power (15) if the opposing force has any Envoys.',

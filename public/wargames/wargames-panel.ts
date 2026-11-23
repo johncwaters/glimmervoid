@@ -5,7 +5,7 @@ import {
   WARGAMES_MIN_HEX_RADIUS,
   WARGAMES_RULES_VERSION,
   WARGAMES_SEAT_IDS,
-  WARGAMES_WIN_VILLAGES,
+  victoryVillagesFor,
 } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
 import { projectSeatState } from '#shared/wargames/engine.ts';
@@ -548,6 +548,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
       statusLabel,
     );
 
+    const winVillages = victoryVillagesFor(state.spec);
     const head = el('div', 'wg-faction-head');
     const nameWrap = el('span', 'wg-faction-name');
     const swatch = el('span', 'wg-faction-swatch');
@@ -557,7 +558,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     headRight.append(
       statusIcon,
       createWargamesGlyph(WARGAMES_GLYPH_PATHS.territory, 12, SEAT_COLORS[seatId], 'Villages held toward victory'),
-      el('span', 'wg-faction-villages', `${ownedVillages}/${WARGAMES_WIN_VILLAGES}`),
+      el('span', 'wg-faction-villages', `${ownedVillages}/${winVillages}`),
     );
     head.append(nameWrap, headRight);
 
@@ -566,7 +567,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
 
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');
-    const winRatio = Math.min(100, Math.round((ownedVillages / WARGAMES_WIN_VILLAGES) * 100));
+    const winRatio = Math.min(100, Math.round((ownedVillages / winVillages) * 100));
     fill.style.width = `${winRatio}%`;
     track.append(fill);
 
@@ -798,13 +799,14 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     slot.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
     slot.dataset.rank = String(rankIndex + 1);
 
+    const winVillages = victoryVillagesFor(state.spec);
     const topRow = el('div', 'wg-faction-head');
     const rankLabel = el('span', 'wg-faction-name');
     if (rankIndex === 0) {
       rankLabel.append(createWargamesGlyph(TROPHY_ICON_PATH, 14, SEAT_COLORS[seatId], 'First place'));
     }
     rankLabel.append(el('span', 'wg-podium-rank', rankIndex === 0 ? '#1 Champion' : `#${rankIndex + 1}`));
-    topRow.append(rankLabel, el('span', 'wg-podium-score', `${tally.villages}/${WARGAMES_WIN_VILLAGES}`));
+    topRow.append(rankLabel, el('span', 'wg-podium-score', `${tally.villages}/${winVillages}`));
 
     const nameRow = el('div', 'wg-faction-name');
     const swatch = el('span', 'wg-faction-swatch');
@@ -818,7 +820,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     );
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');
-    fill.style.width = `${Math.min(100, Math.round((tally.villages / WARGAMES_WIN_VILLAGES) * 100))}%`;
+    fill.style.width = `${Math.min(100, Math.round((tally.villages / winVillages) * 100))}%`;
     track.append(fill);
 
     slot.append(topRow, nameRow, modelText, track);
@@ -896,14 +898,15 @@ function buildEndgameCard(state: MatchState): HTMLElement {
 
     const modelCell = el('td', 'wg-card-meta', formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay));
 
+    const winVillages = victoryVillagesFor(state.spec);
     const territoryCell = el('td');
     const territoryWrap = el('div', 'wg-leaderboard-bar');
     const track = el('div', 'wg-win-track');
     track.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
     const fill = el('div', 'wg-win-fill');
-    fill.style.width = `${Math.min(100, Math.round((tally.villages / WARGAMES_WIN_VILLAGES) * 100))}%`;
+    fill.style.width = `${Math.min(100, Math.round((tally.villages / winVillages) * 100))}%`;
     track.append(fill);
-    territoryWrap.append(track, el('span', 'wg-faction-villages', `${tally.villages}/${WARGAMES_WIN_VILLAGES}`));
+    territoryWrap.append(track, el('span', 'wg-faction-villages', `${tally.villages}/${winVillages}`));
     territoryCell.append(territoryWrap);
 
     const armyCell = el('td');

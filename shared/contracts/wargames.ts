@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v4' as const;
+export const WARGAMES_RULES_VERSION = 'v5' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5']);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 const WARGAMES_SEAT_COUNT = 6;
@@ -15,7 +15,9 @@ const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_R
 const WARGAMES_MAX_TICKS = 40;
 const WARGAMES_TICK_DEADLINE_SECONDS = 60;
 export const WARGAMES_SQUEEZE_TICK = 25;
-export const WARGAMES_WIN_VILLAGES = 12;
+const WARGAMES_WIN_VILLAGES = 12;
+const WARGAMES_V5_OPEN_HEXES = 6;
+const WARGAMES_V5_VICTORY_SHARE = 0.4;
 export const WARGAMES_NOTE_MAX_BYTES = 4096;
 export const WARGAMES_MAX_MESSAGES_PER_TICK = 2;
 export const WARGAMES_MAX_TRIBE_SIZE = 2;
@@ -105,6 +107,13 @@ export const WargamesMatchSpec = z.strictObject({
   path: ['seats'],
 });
 export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;
+
+export function victoryVillagesFor(spec: Pick<WargamesMatchSpec, 'rulesVersion' | 'mapRadius'>): number {
+  if (spec.rulesVersion !== 'v5') return WARGAMES_WIN_VILLAGES;
+  const radius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
+  const totalVillages = 3 * radius * (radius + 1) + 1 - WARGAMES_V5_OPEN_HEXES;
+  return Math.max(WARGAMES_WIN_VILLAGES, Math.round(totalVillages * WARGAMES_V5_VICTORY_SHARE));
+}
 
 const EscrowTerms = z.strictObject({
   kind: z.literal('escrow'),
