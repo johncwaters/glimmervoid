@@ -156,17 +156,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
   }
 
 
-  async function refuseBranch(parent: Session, liveBranchCount: number): Promise<{ status: number; error: string } | null> {
-    const holdReason = budgetHoldReason();
-    if (holdReason !== null) return { status: 429, error: `no new sessions: ${holdReason}` };
-    const maxBranches = config.spawnedSessionsMax ?? SPAWNED_SESSIONS_DEFAULT;
-    if (liveBranchCount >= maxBranches) return { status: 429, error: `${parent.name} already has ${liveBranchCount} live branches, the most it may run at once; wait for one to finish` };
-    const memoryShortfall = await describeMemoryShortfall();
-    if (memoryShortfall) return { status: 503, error: memoryShortfall };
-    return null;
-  }
-
-  return { spawn, describeMemoryShortfall, refuseBranch };
+  return { spawn, describeMemoryShortfall };
 }
 
 type AgentSpawner = ReturnType<typeof createAgentSpawner>;

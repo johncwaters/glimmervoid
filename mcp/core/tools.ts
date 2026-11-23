@@ -128,7 +128,6 @@ const SESSION_TOOL: GroupedTool = {
     agent: AgentSpawnRequest.shape.agent.describe(`spawn: the agent to run, one of ${SPAWNABLE_AGENT_IDS} or a custom agent id; defaults to this session's`),
     model: AgentSpawnRequest.shape.model.describe("spawn: the model the new session runs, by the agent's own model id; defaults to the agent's configured model"),
     effort: AgentSpawnRequest.shape.effort.describe('spawn: the reasoning effort the new session runs at, where the agent takes one'),
-    about: AgentSpawnRequest.shape.about.describe("spawn, from a Studio main agent: a repo path (file or folder) to start a Studio branch on its code map box instead of a child session; the branch starts from this session's last commit and its commits come back here"),
     done: AgentSpawnRequest.shape.done.describe("spawn: what finished means, one line each; they join the new session's prompt, which proves them with its own done commands"),
     child: ChildField.optional(),
     text: z.string().min(1).max(20000).optional().describe('send: the message'),
@@ -140,7 +139,7 @@ const SESSION_TOOL: GroupedTool = {
     lines: AgentDoneRequest.shape.lines.optional().describe("done: what finished means for the operator's request, one line each, every line with the command that proves it (a plain program and arguments, no shell syntax, exiting 0 when the line holds); session check runs them in the worktree and returns each result, and a later done call replaces these lines"),
   },
   actions: {
-    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done', 'about'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
+    spawn: routeTo('spawn', ['prompt', 'name', 'agent', 'model', 'effort', 'done'], { required: ['prompt'], hints: WRITES, presenter: 'spawn-reply' }),
     send: { verb: 'send', required: ['text'], accepts: ['child', 'text', 'to'], hints: WRITES, toPayload: sendPayload },
     read: routeTo('read', ['child'], { hints: WRITES }),
     close: routeTo('close', ['child', 'discard'], { required: ['child'], hints: DESTROYS }),
@@ -457,8 +456,8 @@ function allowedActionNames(tool: GroupedTool, isVerbAllowed: (verb: AgentApiVer
 
 function inputSchemaFor(tool: GroupedTool, actionNames: readonly string[]): z.ZodObject {
   const [firstAction, ...otherActions] = actionNames;
-  if (firstAction === undefined || Object.keys(tool.actions).length === 1) return z.object(tool.fields);
-  return z.object({
+  if (firstAction === undefined || Object.keys(tool.actions).length === 1) return z.looseObject(tool.fields);
+  return z.looseObject({
     action: z.enum([firstAction, ...otherActions]).describe('What to do'),
     ...tool.fields,
   });

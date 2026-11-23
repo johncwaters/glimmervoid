@@ -86,9 +86,8 @@ function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapReques
   return request;
 }
 
-const BRANCH_REFUSED_FIELDS = ['name', 'agent', 'model', 'effort', 'done'] as const;
 
-function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall, refuseBranch }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
+function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
@@ -280,23 +279,8 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     return planRuns.run(request.board, planRunPortsOf(session, whiteboards));
   }
 
-  async function branchReply(session: Session, request: AgentSpawnRequest & { about: string }): Promise<AgentReplyOf<'spawn'>> {
-    const { about, prompt } = request;
-    if (!session.isStudioMain) return refusal(403, 'only a Studio main agent starts branches; spawn without about starts a child session');
-    const childOnlyFields = BRANCH_REFUSED_FIELDS.filter((field) => request[field] !== undefined);
-    if (childOnlyFields.length > 0) return refusal(400, `a branch runs on this session's agent and settings, so drop ${childOnlyFields.join(', ')} when you pass about`);
-    if (!runtime.startBranch) return refusal(503, 'Studio branches are not running on this host');
-    const liveBranchCount = [...runtime.listAllSessions()].filter((candidate) => candidate.branchOf?.parentId === session.id && !candidate._destroyed).length;
-    const branchRefusal = await refuseBranch(session, liveBranchCount);
-    if (branchRefusal) return refusal(branchRefusal.status, branchRefusal.error);
-    const outcome = await runtime.startBranch(session, about, prompt);
-    if (!outcome.ok) return refusal(409, outcome.error);
-    const note = `the branch ${outcome.name} works on ${about} from your last commit; its commits come back to this session when it goes idle, and it shows as a face on that box in Studio`;
-    return { status: 200, body: { ok: true, sessionId: outcome.sessionId, name: outcome.name, note } };
-  }
-
   async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
-    if (request.about !== undefined) return branchReply(session, { ...request, about: request.about });
+    if (session.isStudioMain || session.branchOf) return refusal(403, 'a Studio session starts no sessions: the operator starts branches from the board, and whiteboard run starts the plan steps');
     const outcome = await spawn(session, request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
     const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it and discards its worktree, refusing while it holds work that is not on the integration branch unless you add --discard`;

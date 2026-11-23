@@ -14,7 +14,7 @@ export function operatorPartOfPrompt(promptText: string): string {
 
 export const REPO_ROOT_BRANCH_TITLE = 'repo root';
 
-export type BranchAbout = { boxId: string } | { path: string };
+export type BranchAbout = { boxId: string };
 export type BranchTarget = { ok: true; boxId: string; title: string } | { ok: false; error: string };
 
 function folderPrefixOf(aboutTitle: string): string {

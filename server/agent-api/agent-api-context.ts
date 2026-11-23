@@ -75,7 +75,6 @@ interface AgentApiWiringOptions {
   verification?: Pick<VerificationWiring, 'checkNow'> | null;
   codemap?: Pick<CodemapService, 'handle'> | null;
   boardAsks?: Pick<BoardAsks, 'ask'> | null;
-  startBranch?: ((parent: Session, about: string, prompt: string) => Promise<{ ok: true; sessionId: string; name: string } | { ok: false; error: string }>) | null;
   budgetHoldReason?: () => string | null;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
