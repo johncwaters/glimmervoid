@@ -189,14 +189,15 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }
     return null;
   };
+  const liveWorktreePaths = async (): Promise<Set<string>> => new Set(await Promise.all(allLiveSessions()
+    .flatMap((session) => [session.worktreeDir, session.path])
+    .filter((sessionDirectory): sessionDirectory is string => Boolean(sessionDirectory))
+    .map((sessionDirectory) => comparableDirectoryPath(sessionDirectory))));
   const branchGc = createBranchGcWiring({
     config,
     gitWorkspace,
     liveSessionIds: () => new Set(allLiveSessions().map((session) => session.id)),
-    liveWorktreePaths: async () => new Set(await Promise.all(allLiveSessions()
-      .flatMap((session) => [session.worktreeDir, session.path])
-      .filter((sessionDirectory): sessionDirectory is string => Boolean(sessionDirectory))
-      .map((sessionDirectory) => comparableDirectoryPath(sessionDirectory)))),
+    liveWorktreePaths,
     ...(options.branchGcWiringOptions || {}),
   });
   const laneTelemetry: Pick<Telemetry, 'capture'> = telemetry;
@@ -536,6 +537,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
 
   return {
     allLiveSessions,
+    liveWorktreePaths,
     findLiveSession,
     raceSessions,
     races,

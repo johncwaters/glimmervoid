@@ -41,5 +41,5 @@ function decideRemovalKeep(facts: RemovalOwnershipFacts & { lastTouchedMs: numbe
   return { keep: false, checksPassed: ['not-protected', 'not-ledger-owned', 'untouched-24h'] };
 }
 
-export { decideRemovalKeep, isRecencyProbeNeeded, sessionIdFromOwner };
+export { SESSION_WORK_RECENCY_FLOOR_MS, decideRemovalKeep, isRecencyProbeNeeded, sessionIdFromOwner };
 export type { RemovalOwnershipFacts };

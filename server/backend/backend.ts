@@ -48,6 +48,7 @@ import { startAwakeUsageAlerts } from '../awake-usage-wiring.ts';
 import { startGithubConnectionAlerts } from '../github-connection-alerts.ts';
 import { createGithubSource } from '../github/github-source.ts';
 import { startDiskAlerts } from '../disk-headroom.ts';
+import { measureSessionTempFolders } from '../session-temp/session-temp.ts';
 import { diskReserveBytes } from '../core/disk-headroom-core.ts';
 import { configuredWorktreeRoot } from '../core/integration-branch-core.ts';
 import { createRemoteWatcherStarter } from '../../cloud/link/remote-watcher-starter.ts';
@@ -838,6 +839,12 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     watchedPaths: () => [glimmervoidHomeDir(), ...configStore.config.projects.map((project) => configuredWorktreeRoot(configStore.config, project.path))],
     reserveBytes: () => diskReserveBytes(configStore.config),
     notify: (name, category, message) => { notificationManager.trigger(name, category, message); },
+    reclaim: {
+      worktreeRoots: () => configStore.config.projects.map((project) => configuredWorktreeRoot(configStore.config, project.path)),
+      projectPaths: () => configStore.config.projects.map((project) => project.path),
+      liveWorktreePaths: laneAssembly.liveWorktreePaths,
+    },
+    measureSessionTemp: measureSessionTempFolders,
   });
   let stopConfigWatch: (() => void) | null = null;
   const shutdown = createBackendShutdown({
