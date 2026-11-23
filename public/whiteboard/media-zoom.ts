@@ -1,7 +1,7 @@
 import { FIT_ZOOM, isZoomedIn, panBy, stagePointOf, toggleFitAbout, wheelZoomFactor, zoomAbout } from './media-zoom-core.ts';
 import type { MediaZoom, StagePoint } from './media-zoom-core.ts';
 import { WHEEL_ZOOM_STEP } from './board-edit.ts';
-import { BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_MEDIA_MOUSE_PAN_BUTTONS, BOARD_MIDDLE_MOUSE_BUTTON } from '#shared/contracts/whiteboard.ts';
 import type { BoardPageGesture } from '#shared/contracts/whiteboard.ts';
 
 const PAN_SLOP_PX = 6;
@@ -80,7 +80,7 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (event.pointerType === 'mouse' && !BOARD_MOUSE_PAN_BUTTONS.includes(event.button)) return;
+    if (event.pointerType === 'mouse' && !BOARD_MEDIA_MOUSE_PAN_BUTTONS.includes(event.button)) return;
     const point = stagePointOfClient(event.clientX, event.clientY);
     pointers.set(event.pointerId, point);
     if (pointers.size === 2) {

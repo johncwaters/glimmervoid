@@ -2098,7 +2098,8 @@ async function verifyViewerZoom(page: Page, media: Locator, viewerClose: Locator
   await page.mouse.down();
   await page.mouse.move(center.x - 80, center.y, { steps: 5 });
   await page.mouse.up();
-  assert.deepEqual(await settledBoundsOf(media), beforeDrag, 'a left drag leaves zoomed media where it is, as it never pans the board');
+  const afterDrag = await settledBoundsOf(media);
+  assert.ok(beforeDrag && afterDrag && Math.abs(beforeDrag.x - afterDrag.x - 80) < 1.5, 'a left drag pans zoomed media');
   for (const [panButton, dragX] of [['right', -80], ['middle', 80]] as const) {
     const beforePanDrag = await settledBoundsOf(media);
     await page.mouse.move(center.x, center.y);
