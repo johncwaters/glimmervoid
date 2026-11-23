@@ -60,9 +60,29 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
 }
 
 .first-run-mark svg {
-  width: 22px;
-  height: 22px;
+  width: 40px;
+  height: 40px;
   overflow: visible;
+}
+
+.first-run-mark .lock-mark-bracket {
+  stroke: var(--text-muted);
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), stroke 420ms ease-out;
+}
+
+.first-run-mark .lock-mark-bracket[data-side="top"]:not([data-clamped]) { transform: translateY(-10px); }
+.first-run-mark .lock-mark-bracket[data-side="right"]:not([data-clamped]) { transform: translateX(10px); }
+.first-run-mark .lock-mark-bracket[data-side="bottom"]:not([data-clamped]) { transform: translateY(10px); }
+.first-run-mark .lock-mark-bracket[data-side="left"]:not([data-clamped]) { transform: translateX(-10px); }
+
+.first-run-mark .lock-mark-bracket[data-clamped] {
+  stroke: var(--text-head);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-run-mark .lock-mark-bracket {
+    transition: none;
+  }
 }
 
 .first-run-sample-mark svg {

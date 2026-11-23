@@ -3,6 +3,7 @@ import { SHELL_AGENT_ID, decideAgentAvailability, decideAgentPicker } from '../s
 import type { ScannedProject } from '../add-session-core.ts';
 import { filterRows, lastPathSegment } from '../add-session-core.ts';
 import { elapsedText } from '#shared/display-text.ts';
+import type { BrandMarkSide } from '#shared/brand-mark.ts';
 
 type FirstRunStepState = 'done' | 'current' | 'upcoming';
 
@@ -136,6 +137,12 @@ function foundReposText(choices: readonly RepoChoice[]): string {
   return `${choices.length} ${repoWord} in ${roots.join(', ')}`;
 }
 
+const BRACKET_SIDE_BY_STEP = [['agent', 'top'], ['chooseRepo', 'right'], ['notifications', 'bottom'], ['start', 'left']] as const satisfies readonly (readonly [keyof FirstRunSteps, BrandMarkSide])[];
+
+function clampedBracketSides(steps: FirstRunSteps, isStarting: boolean): BrandMarkSide[] {
+  return BRACKET_SIDE_BY_STEP.filter(([step]) => steps[step] === 'done' || (step === 'start' && isStarting)).map(([, side]) => side);
+}
+
 function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly string[]): string[] | null {
   const nextRoots = [...repoRoots];
   for (const addedRoot of addedRoots) {
@@ -154,5 +161,5 @@ function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: 
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-export { firstRunAgentChoices, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, gitRepoChoicesIn, shownRepoChoices, lastActivityText, foundReposText, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export { clampedBracketSides, firstRunAgentChoices, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, gitRepoChoicesIn, shownRepoChoices, lastActivityText, foundReposText, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
 export type { FirstRunSteps, NotificationChoice, RepoChoice };

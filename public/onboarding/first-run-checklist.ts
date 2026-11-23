@@ -5,9 +5,9 @@ import { isPhoneLayout } from '../form-factor.ts';
 import { currentNotificationChoice, ensureNotificationPermission } from '../notifications.ts';
 import { setNotificationsEnabled } from '../ui-prefs.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
-import { agentSummaryText, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, firstRunAgentChoices, foundReposText, gitRepoChoicesIn, lastActivityText, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, hasGitCheckoutIn, shownRepoChoices, UPCOMING_STEPS } from './first-run-checklist-core.ts';
+import { agentSummaryText, clampedBracketSides, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, firstRunAgentChoices, foundReposText, gitRepoChoicesIn, lastActivityText, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, hasGitCheckoutIn, shownRepoChoices, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps, NotificationChoice, RepoChoice } from './first-run-checklist-core.ts';
-import { buildLockMark } from '../loading-unlock.ts';
+import { buildLockMark, playLockMark } from '../loading-unlock.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { suggestSessionName } from '../session-card/naming.ts';
 import { lastPathSegment, sessionNameBase } from '../add-session-core.ts';
@@ -36,6 +36,7 @@ const FIRST_TASKS = [
 let checklistEl: HTMLElement | null = null;
 let stepsEl: HTMLOListElement | null = null;
 let foundEl: HTMLElement | null = null;
+let markEl: HTMLElement | null = null;
 let rescanButton: HTMLButtonElement | null = null;
 let repoRootsAdder: ReturnType<typeof createRepoRootsAdder> | null = null;
 let hostReadyRowsElement: HTMLElement | null = null;
@@ -262,7 +263,10 @@ function startFirstSession(prompt: string) {
     .finally(() => {
       pendingStart = null;
       setStartControlsDisabled(false);
+      renderBrackets();
     });
+  renderBrackets();
+  if (markEl) void playLockMark(markEl);
 }
 
 type SetupStepRow = { title: string; state: FirstRunSteps[keyof FirstRunSteps]; summary: string; body: () => HTMLElement[] };
@@ -280,7 +284,14 @@ function setupStepRows(): HTMLLIElement[] {
   return rows.map((row, index) => buildSetupStep({ ...row, title: `${index + 1}. ${row.title}`, badge: '' }));
 }
 
+function renderBrackets() {
+  if (!markEl) return;
+  const clampedSides = new Set<string>(clampedBracketSides(currentState.steps, pendingStart !== null));
+  for (const bracket of markEl.querySelectorAll<SVGElement>('.lock-mark-bracket')) bracket.toggleAttribute('data-clamped', clampedSides.has(bracket.dataset.side ?? ''));
+}
+
 function renderSteps() {
+  renderBrackets();
   if (!stepsEl) return;
   const focusedFilter = document.activeElement instanceof HTMLInputElement && stepsEl.contains(document.activeElement) && document.activeElement.type === 'search';
   stepsEl.replaceChildren(...setupStepRows());
@@ -358,7 +369,8 @@ function ensureChecklist(): HTMLElement {
   const checklist = el('section', 'first-run-checklist');
   checklist.setAttribute('aria-label', 'Glimmervoid setup');
   const lockup = el('div', 'first-run-lockup');
-  lockup.append(buildLockMark('first-run-mark'), el('span', 'first-run-wordmark', 'GLIMMERVOID'));
+  markEl = buildLockMark('first-run-mark');
+  lockup.append(markEl, el('span', 'first-run-wordmark', 'GLIMMERVOID'));
   foundEl = el('p', 'first-run-found');
   foundEl.hidden = true;
   stepsEl = el('ol', 'first-run-steps');
