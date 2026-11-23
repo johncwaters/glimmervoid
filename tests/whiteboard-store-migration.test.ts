@@ -269,7 +269,7 @@ test('a session closing while its board loads after a restart keeps the loaded e
   assert.equal((await restarted.handleOperator.get(boardId)).board?.elements.size, 2000);
 });
 
-test('a restart draws a viewed board from its saved layout and edits it without laying it out again, sends its backdrop once the board loads, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {
+test('a restart draws a viewed board from its saved layout and edits it without laying it out again, sends its backdrop once the board loads unless the viewer moved on, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-'));
   const cachePath = path.join(boardsRoot, 'layout-cache.sqlite');
   const boardView = { view: { x: -200, y: -200, width: 4000, height: 3000 }, lod: 'full' as const, knownVersion: null };
@@ -363,6 +363,8 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   const stagePut = await resuming.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: stage }]));
   assert.equal(stagePut.ok, true, JSON.stringify(stagePut));
   await tilesSeenBy(resuming, boardId);
+  const otherBoardId = (await resuming.handleOperator.create('Other plan')).summary?.id ?? '';
+  assert.equal((await resuming.handleOperator.put(otherBoardId, boxesFrom(0, 2))).ok, true);
   const savedVersionOf = (): number => {
     const cache = new DatabaseSync(cachePath, { readOnly: true });
     const head = cache.prepare('SELECT version FROM layout_head WHERE board_id = ?').get(boardId);
@@ -377,4 +379,17 @@ test('a restart draws a viewed board from its saved layout and edits it without 
   await coldOpened.tiles.view({ send: (message) => { if (message.type === 'whiteboard-tiles') backdropAssetsSent.push(message.backdrop?.asset ?? null); } }, { boardId, ...boardView });
   for (let attempt = 0; attempt < 400 && backdropAssetsSent.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
   assert.deepEqual(backdropAssetsSent, [null, stage.media.asset], 'the saved layout draws first with no backdrop, then the loaded board sends it');
+
+  const switching = restartIn(boardsRoot);
+  await switching.loaded;
+  const boardIdsSent: string[] = [];
+  const switchingViewer = { send: (message: { type: string; boardId?: string }) => { if (message.boardId) boardIdsSent.push(message.boardId); } };
+  await switching.tiles.view(switchingViewer, { boardId, ...boardView });
+  await switching.tiles.view(switchingViewer, { boardId: otherBoardId, ...boardView });
+  const sentBeforeSwitch = boardIdsSent.indexOf(otherBoardId);
+  await switching.boardOf(boardId);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal((await switching.handleOperator.put(otherBoardId, retitle('box-0', 'edited after switching'))).ok, true);
+  for (let attempt = 0; attempt < 200 && boardIdsSent.lastIndexOf(otherBoardId) === sentBeforeSwitch; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual([...new Set(boardIdsSent.slice(sentBeforeSwitch))], [otherBoardId], 'a viewer that moved to another board keeps that board and its edits after the first board loads');
 });

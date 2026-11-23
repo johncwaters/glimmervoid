@@ -1,15 +1,14 @@
 import { z } from 'zod';
-import { BRAND_ACCENT } from '../brand-mark.ts';
 import { DEVICE_FITS, DEVICE_NAMES } from '../whiteboard-devices.ts';
 import { ICON_NAMES } from '../whiteboard-icons.ts';
 import { BOX_SHAPES, SHAPE_TRAITS } from '../whiteboard-shapes.ts';
-import { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox } from '../whiteboard-constants.ts';
+import { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, TITLE_GRADIENT_HEX, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox } from '../whiteboard-constants.ts';
 import type { NoteTone, TextSize } from '../whiteboard-constants.ts';
 import { elementTableOf, isElementTable } from './whiteboard-element-table.ts';
 import { STATES } from '../states.ts';
 import type { ElementTable } from './whiteboard-element-table.ts';
 
-export { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox };
+export { BOX_CHANGES, NOTE_TONE_HEX, NOTE_TONES, STEP_STATUSES, TEXT_SIZES, TITLE_GRADIENT_HEX, WHITEBOARD_LIMITS, WIRE_TONES, boxIdOfEnd, boxIdsOfWire, dialValuesOfBox, pointOfBox };
 export type { NoteTone, TextSize };
 
 

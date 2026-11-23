@@ -1754,7 +1754,7 @@ function createWhiteboardWiring({
 
   async function sendBackdropAfterWarming(...[viewer, request, openSteps]: Parameters<BoardTileService['view']>): Promise<void> {
     const warmedBoard = await warmEditPathOf(request.boardId);
-    if (!warmedBoard || !backdropOfBoard(warmedBoard)) return;
+    if (!warmedBoard || !backdropOfBoard(warmedBoard) || !tiles.isViewing(viewer, request.boardId)) return;
     const latestView = tiles.operatorViewOf(request.boardId);
     await tiles.view(viewer, latestView ? { ...request, view: latestView.view, lod: latestView.lod } : request, openSteps);
   }
