@@ -8,7 +8,7 @@ import { browserTypeOf } from '../support/browser-engines.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const PAGE_ROOT = path.join(import.meta.dirname, 'chat-view');
-const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--fingerprint <out.json>] [--fingerprint-compare <baseline.json>] [--perf <runs>] [--screenshot <out.png>] [--executable <chrome path>]';
+const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--moved] [--fingerprint <out.json>] [--fingerprint-compare <baseline.json>] [--perf <runs>] [--screenshot <out.png>] [--executable <chrome path>]';
 
 interface ChatViewOptions {
   tracePath: string;
@@ -19,6 +19,7 @@ interface ChatViewOptions {
   playsLive: boolean;
   staysWorking: boolean;
   checksEarlier: boolean;
+  checksMoved: boolean;
   fingerprintPath: string | null;
   fingerprintComparePath: string | null;
   perfRuns: number | null;
@@ -56,6 +57,7 @@ function parseOptions(argumentList: readonly string[]): ChatViewOptions | null {
     playsLive: argumentList.includes('--live'),
     staysWorking: argumentList.includes('--working'),
     checksEarlier: argumentList.includes('--earlier'),
+    checksMoved: argumentList.includes('--moved'),
     fingerprintPath: fingerprintPath === null ? null : path.resolve(fingerprintPath),
     fingerprintComparePath: fingerprintComparePath === null ? null : path.resolve(fingerprintComparePath),
     perfRuns,
@@ -142,6 +144,65 @@ async function checkEarlierFills(url: string, executablePath: string | null): Pr
   await browser.close();
   if (!isFilled) throw new Error(`earlier history stopped loading with ${shownPartCount} parts shown, earliest record ${earliestRecord}`);
   return `earlier history filled the Chat: ${shownPartCount} parts shown, earliest record ${earliestRecord}`;
+}
+
+interface ChatScrollPlace {
+  scrollTopPx: number;
+  distanceFromBottomPx: number;
+  isJumpShown: boolean;
+}
+
+const MOVE_SETTLE_MS = 300;
+const SCROLLED_UP_PX = 300;
+
+async function readScrollPlace(page: Page): Promise<ChatScrollPlace> {
+  return page.evaluate(() => {
+    const scroller = document.querySelector('.chat-scroller');
+    const jumpButton = document.querySelector('.chat-jump-slot button');
+    if (!(scroller instanceof HTMLElement) || !(jumpButton instanceof HTMLButtonElement)) throw new Error('the Chat has no scroller or Jump to latest button');
+    return { scrollTopPx: Math.round(scroller.scrollTop), distanceFromBottomPx: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop), isJumpShown: !jumpButton.hidden };
+  });
+}
+
+async function moveChatWithinOneTask(page: Page): Promise<ChatScrollPlace> {
+  await page.evaluate(() => {
+    const chatElement = document.querySelector('.chat-view');
+    const parent = chatElement?.parentElement;
+    if (!chatElement || !parent) throw new Error('the Chat is not mounted');
+    const newParent = document.createElement('div');
+    newParent.style.display = 'contents';
+    parent.append(newParent);
+    newParent.append(chatElement);
+  });
+  await page.waitForTimeout(MOVE_SETTLE_MS);
+  return readScrollPlace(page);
+}
+
+async function checkMovedChatKeepsPlace(url: string, executablePath: string | null): Promise<string> {
+  const chromium = await browserTypeOf('chromium');
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+    await page.goto(url);
+    await page.waitForSelector('body[data-rendered="true"]');
+    await page.waitForTimeout(MOVE_SETTLE_MS);
+    const atRest = await readScrollPlace(page);
+    if (atRest.scrollTopPx === 0 || atRest.distanceFromBottomPx > 1) throw new Error(`the Chat did not overflow at the latest message before the move: ${JSON.stringify(atRest)}`);
+    const followingAfterMove = await moveChatWithinOneTask(page);
+    if (followingAfterMove.distanceFromBottomPx > 1) throw new Error(`moving a following Chat left it ${followingAfterMove.distanceFromBottomPx}px above the latest message`);
+    await page.evaluate((scrolledUpPx) => {
+      const scroller = document.querySelector('.chat-scroller');
+      if (scroller instanceof HTMLElement) scroller.scrollTop -= scrolledUpPx;
+    }, SCROLLED_UP_PX);
+    await page.waitForTimeout(MOVE_SETTLE_MS);
+    const scrolledUp = await readScrollPlace(page);
+    if (!scrolledUp.isJumpShown) throw new Error(`the trace is too short to scroll the Chat up away from the latest message: ${JSON.stringify(scrolledUp)}`);
+    const scrolledUpAfterMove = await moveChatWithinOneTask(page);
+    if (scrolledUpAfterMove.scrollTopPx !== scrolledUp.scrollTopPx || !scrolledUpAfterMove.isJumpShown) throw new Error(`moving a scrolled up Chat lost its place: before ${JSON.stringify(scrolledUp)}, after ${JSON.stringify(scrolledUpAfterMove)}`);
+    return `a moved Chat kept its place: following stayed at the latest message, scrolled up stayed at ${scrolledUp.scrollTopPx}px with Jump to latest shown`;
+  } finally {
+    await browser.close();
+  }
 }
 
 async function captureScreenshot(url: string, screenshotPath: string, executablePath: string | null): Promise<void> {
@@ -268,6 +329,10 @@ async function main(): Promise<void> {
   if (options.perfRuns !== null) {
     const perfJson = await measurePerf(baseUrl, options.perfRuns, options.executablePath).finally(() => server.close());
     console.log(perfJson);
+    return;
+  }
+  if (options.checksMoved) {
+    console.log(await checkMovedChatKeepsPlace(url, options.executablePath).finally(() => server.close()));
     return;
   }
   if (options.checksEarlier) {

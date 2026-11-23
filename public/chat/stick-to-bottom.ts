@@ -6,6 +6,9 @@ type FollowSignal = 'scroll-up' | 'select-text' | 'reach-bottom' | 'jump-to-late
 
 const BOTTOM_THRESHOLD_PX = 70;
 const JUMP_ICON_PATH = 'M8 3v10M3.5 8.5L8 13l4.5-4.5';
+const RECONNECT_SENTINEL_TAG = 'chat-reconnect-sentinel';
+
+const restorePlaceBySentinel = new WeakMap<HTMLElement, () => void>();
 
 const NEXT_MODE_BY_SIGNAL: Record<FollowSignal, FollowMode> = {
   'scroll-up': 'escaped',
@@ -28,6 +31,23 @@ function hasSelectionInside(scroller: HTMLElement): boolean {
   const selection = document.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
   return scroller.contains(selection.getRangeAt(0).commonAncestorContainer);
+}
+
+function defineReconnectSentinel(): void {
+  if (customElements.get(RECONNECT_SENTINEL_TAG)) return;
+  customElements.define(RECONNECT_SENTINEL_TAG, class extends HTMLElement {
+    connectedCallback() {
+      restorePlaceBySentinel.get(this)?.();
+    }
+  });
+}
+
+function watchReconnects(scroller: HTMLElement, restorePlace: () => void): void {
+  defineReconnectSentinel();
+  const sentinel = document.createElement(RECONNECT_SENTINEL_TAG);
+  sentinel.hidden = true;
+  restorePlaceBySentinel.set(sentinel, restorePlace);
+  scroller.append(sentinel);
 }
 
 export function stickToBottom(scroller: HTMLElement, content: HTMLElement): StickToBottom {
@@ -78,14 +98,16 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
     lastScrollTop = scroller.scrollTop;
     receive(distanceFromBottom(scroller) <= 1 ? 'reach-bottom' : 'scroll-up');
   };
-  const followObserver = new ResizeObserver(() => {
+  const restorePlace = () => {
     if (mode === 'following') {
       scrollToBottom();
       return;
     }
     if (scroller.scrollTop !== lastScrollTop) scroller.scrollTop = lastScrollTop;
-  });
+  };
+  const followObserver = new ResizeObserver(restorePlace);
   followObserver.observe(content, { box: 'border-box' });
   followObserver.observe(scroller);
+  watchReconnects(scroller, restorePlace);
   return { jumpButton, followLatest, keepInPlace };
 }
