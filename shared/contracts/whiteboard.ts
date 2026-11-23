@@ -82,7 +82,7 @@ export const BOARD_PAGE_SCROLL_MESSAGE = 'glimmervoid-board-page-scroll';
 export const BOARD_PAGE_SCROLLED_MESSAGE = 'glimmervoid-board-page-scrolled';
 export const BoardPageScrolled = z.object({ type: z.literal(BOARD_PAGE_SCROLLED_MESSAGE), hasScrolled: z.boolean() }).strict();
 
-const BOARD_PRIMARY_MOUSE_BUTTON = 0;
+export const BOARD_PRIMARY_MOUSE_BUTTON = 0;
 export const BOARD_MIDDLE_MOUSE_BUTTON = 1;
 export const BOARD_CONTEXT_MOUSE_BUTTON = 2;
 export const BOARD_MOUSE_PAN_BUTTONS: readonly number[] = [BOARD_MIDDLE_MOUSE_BUTTON, BOARD_CONTEXT_MOUSE_BUTTON];

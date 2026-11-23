@@ -1788,6 +1788,19 @@ async function verifyCtrlWheelOverInteractivePageZoomsBoard({ page, panel }: Ope
   await page.waitForTimeout(100);
   assert.ok(Number.isFinite(await panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e)), 'a page cannot pan the board camera to infinity');
   await page.waitForFunction((before) => Math.abs(new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-world') ?? document.body).transform).a - before) < 0.001, scaleBefore, { timeout: BOARD_TIMEOUT_MS }).catch(() => assert.fail('a ctrl wheel back inside the page zooms the board out to where it was'));
+  const worldOffsetX = () => panel.locator('.wb-world').evaluate((world) => new DOMMatrixReadOnly(getComputedStyle(world).transform).e);
+  const pageBounds = await pageMedia.boundingBox();
+  assert.ok(pageBounds, 'the interactive page has bounds');
+  const pressedAt = { x: pageBounds.x + pageBounds.width / 2, y: pageBounds.y + pageBounds.height / 2 };
+  for (const [button, expectedShiftX] of [['left', 0], ['right', 60]] as const) {
+    const offsetBefore = await worldOffsetX();
+    await page.mouse.move(pressedAt.x, pressedAt.y);
+    await page.mouse.down({ button });
+    await page.mouse.move(pressedAt.x + 60, pressedAt.y, { steps: 6 });
+    await page.mouse.up({ button });
+    await page.waitForTimeout(100);
+    assert.ok(Math.abs((await worldOffsetX()) - offsetBefore - expectedShiftX) < 2, `a ${button} drag inside an interactive page moves the board ${expectedShiftX}px`);
+  }
 }
 
 async function deselectAll({ page, panel }: OpenBoard): Promise<void> {
