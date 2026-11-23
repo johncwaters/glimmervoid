@@ -26,6 +26,10 @@ export const BoardAsk = z.object({ sessionId: z.string().min(1), question: AskQu
   .describe('a question a session asked the operator on the board; the server sets it');
 export type BoardAsk = z.infer<typeof BoardAsk>;
 
+export const BoxPullRequest = z.object({ url: z.url({ protocol: /^https$/, hostname: /^github\.com$/ }).max(WHITEBOARD_LIMITS.ref) }).strict()
+  .describe('the pull request a card follows, which a click opens; the server sets it');
+export type BoxPullRequest = z.infer<typeof BoxPullRequest>;
+
 export const AnchorRef = z.string().min(1).max(WHITEBOARD_LIMITS.ref, { error: `a ref is at most ${WHITEBOARD_LIMITS.ref} characters` })
   .regex(/^[^#\s]+(#L[1-9]\d*(-L[1-9]\d*)?)?$/, { error: 'a ref is path, path#L12 or path#L12-L30' })
   .meta({ id: 'AnchorRef', description: 'a code location: path, path#L12 or path#L12-L30' });
@@ -241,6 +245,7 @@ const boxFields = {
   step: Step.nullable().default(null).describe('makes the box a plan step; a wire from one step to another means the second is built after the first'),
   author: z.string().min(1).max(WHITEBOARD_LIMITS.title).nullable().default(null).describe('who wrote a note; the server sets it'),
   ask: BoardAsk.nullable().default(null),
+  pullRequest: BoxPullRequest.nullable().default(null),
   refHashes: RefHashes,
 };
 
@@ -684,7 +689,7 @@ export function filledBox(box: SparseBox): Box {
     borderless: box.borderless ?? null, tone: box.tone ?? null, textSize: box.textSize ?? 'M', titleGradient: box.titleGradient ?? false, fullBleed: box.fullBleed ?? false, autoplay: box.autoplay ?? false, backdrop: box.backdrop ?? false, feeds: box.feeds ?? [], angle: box.angle ?? 0, device: box.device ?? null, fit: box.fit ?? 'fill',
     lines: (box.lines ?? []).map(filledLine), media: filledMedia(box.media), params: box.params ?? {},
     refs: box.refs ?? [], change: box.change ?? 'none', was: box.was ?? null,
-    step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, refHashes: box.refHashes ?? {},
+    step: box.step ? { status: box.step.status ?? 'planned' } : null, author: box.author ?? null, ask: box.ask ?? null, pullRequest: box.pullRequest ?? null, refHashes: box.refHashes ?? {},
   };
 }
 

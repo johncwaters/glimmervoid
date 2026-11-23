@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
+import { FAKE_PR_NUMBER, FAKE_PR_URL } from './fake-pr.ts';
 
 const ESC = String.fromCharCode(0x1b);
 const DIRECTOR_LANE_PROMPT = 'Read director-prompt.txt and follow its instructions';
@@ -179,6 +180,11 @@ async function postHookAwaitingReply(event: string, payload: Record<string, unkn
     body: JSON.stringify({ session_id: SESSION_ID, cwd: process.cwd(), ...payload }),
   }).catch(() => null);
   return await reply?.text().catch(() => '') ?? '';
+}
+
+function prToolCallOf(command: 'open-pr' | 'mark-pr-ready'): Record<string, unknown> {
+  if (command === 'mark-pr-ready') return { tool_input: { command: `gh pr ready ${FAKE_PR_NUMBER}` }, tool_response: { stdout: '' } };
+  return { tool_input: { command: 'gh pr create --draft --fill' }, tool_response: { stdout: FAKE_PR_URL, gitOperation: { pr: { action: 'created', url: FAKE_PR_URL } } } };
 }
 
 function postHook(event: string, payload: Record<string, unknown>): void {
@@ -466,6 +472,13 @@ function dispatch(command: string): void {
     const pagePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-page-')), SHOWN_PAGE_FILE_NAME);
     fs.writeFileSync(pagePath, SHOWN_PAGE_HTML);
     postAgentVerb('whiteboard', { sub: 'show', path: pagePath });
+    dispatch('stop');
+    return;
+  }
+  if (command === 'open-pr' || command === 'mark-pr-ready') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    postHook('posttooluse', { hook_event_name: 'PostToolUse', tool_name: 'Bash', ...prToolCallOf(command) });
     dispatch('stop');
     return;
   }

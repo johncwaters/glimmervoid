@@ -153,6 +153,15 @@ async function boardBoxCenterWhere(page: Page, panel: Locator, boardId: string, 
   return { found, center: centerOf(screenRectOn(await cameraOf(open), laidOut)) };
 }
 
+export async function boardElementsOf(page: Page, panel: Locator, boardId: string): Promise<BoardElement[]> {
+  return [...(await boardOf({ page, panel, boardId })).elements.values()];
+}
+
+export async function boxBoardRectsOf(page: Page, panel: Locator, boardId: string): Promise<Map<string, ScreenRect>> {
+  const laidOutRects = layoutBoard(await boardOf({ page, panel, boardId })).elements.flatMap((element) => (element.kind === 'box' ? [[element.id, { x: element.x, y: element.y, width: element.width, height: element.height }] as const] : []));
+  return new Map(laidOutRects);
+}
+
 export async function boxScreenRectsOf(page: Page, panel: Locator, boardId: string): Promise<Map<string, ScreenRect>> {
   const open: OpenBoard = { page, panel, boardId };
   const camera = await cameraOf(open);

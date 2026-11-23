@@ -615,6 +615,15 @@ function newShownCardPoint(board: Board, context: ShowPlacementContext, media: B
   return { x: drawnPoint.x, y: drawnPoint.y - context.pinnedOffsetY };
 }
 
+function serverCardPoint(board: Board, context: ShowPlacementContext, cardHeight: number): { x: number; y: number } {
+  if (board.elements.size === 0) return EMPTY_BOARD_ORIGIN;
+  const besideAnchor = context.ownCard ? freeSpotBesideOwnCard(context.ownCard, cardHeight) : null;
+  const inView = besideAnchor ?? (context.operatorView ? freeSpotIn(context.operatorView, context.boxesInView, cardHeight) : null);
+  const { contentBounds } = context;
+  const drawnPoint = inView ?? { x: contentBounds.x + BOARD_MARGIN, y: contentBounds.y + contentBounds.height + SHOWN_BOX_GAP };
+  return { x: drawnPoint.x, y: drawnPoint.y - context.pinnedOffsetY };
+}
+
 function shownNumberOf(elementId: string): number {
   return Number(SHOWN_BOX_ID_RE.exec(elementId)?.[1] ?? 0);
 }
@@ -755,6 +764,6 @@ function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
   return [...likeTitledWarnings(boardAfter, addedBoxes), ...allWordsWarnings(ops, addedBoxes)];
 }
 
-export { agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, shownBoxOp, wordCountOf };
+export { agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, serverCardPoint, shownBoxOp, wordCountOf, SHOWN_BOX_WIDTH };
 export type { ShownCard };
 export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, shownCardUpdateRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

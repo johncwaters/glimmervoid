@@ -11,7 +11,7 @@ function exportedMediaOf(media: BoxMedia): BoxMedia {
 
 function exportedElementOf(element: Element): Element {
   if (element.kind !== 'box') return element;
-  return { ...element, ask: null, feeds: [], media: element.media ? exportedMediaOf(element.media) : null };
+  return { ...element, ask: null, pullRequest: null, feeds: [], media: element.media ? exportedMediaOf(element.media) : null };
 }
 
 function exportedBoardOf(board: Board): ExportedBoard {
@@ -46,12 +46,12 @@ function importedElementsOf(file: BoardFile, adoptedByExportedFilename: Readonly
       continue;
     }
     if (!element.media) {
-      elements.push({ ...element, ask: null, feeds: [] });
+      elements.push({ ...element, ask: null, pullRequest: null, feeds: [] });
       continue;
     }
     const adopted = adoptedByExportedFilename.get(boardMediaOriginalFilename(element.media));
     if (!adopted) return { error: `box ${element.id} shows media ${element.media.asset}, which the board file does not carry` };
-    elements.push({ ...element, ask: null, feeds: [], media: importedMediaOf(element.media, adopted.media, adopted.name) });
+    elements.push({ ...element, ask: null, pullRequest: null, feeds: [], media: importedMediaOf(element.media, adopted.media, adopted.name) });
   }
   return elements;
 }
@@ -87,8 +87,8 @@ function withLocalMediaKept(current: Board, element: Element): Element {
 function withLocalOnlyFieldsKept(current: Board, element: Element): Element {
   if (element.kind !== 'box') return element;
   const existing = current.elements.get(element.id);
-  if (existing?.kind !== 'box') return { ...element, ask: null, feeds: [] };
-  return { ...element, ask: existing.ask, feeds: existing.feeds };
+  if (existing?.kind !== 'box') return { ...element, ask: null, pullRequest: null, feeds: [] };
+  return { ...element, ask: existing.ask, pullRequest: existing.pullRequest, feeds: existing.feeds };
 }
 
 function boardDiffOps(current: Board, target: BoardContent): Op[] {

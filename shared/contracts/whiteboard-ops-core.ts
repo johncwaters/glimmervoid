@@ -8,7 +8,7 @@ import type { BoardDiff, DiffBefore, ElementChange } from './control/whiteboard-
 import { elementTableOf, isArrayIndexKey } from './whiteboard-element-table.ts';
 import { appendElement, boardIndexOf, boxIdsDependedOnBy, copyOfElements, dropElement, storeElement } from '../whiteboard-board-index.ts';
 
-type Author = { id: string; name: string; setsAsks?: boolean };
+type Author = { id: string; name: string; setsAsks?: boolean; setsPullRequests?: boolean };
 type ApplyResult = { ok: true; board: Board; changes: BoardChange[]; diff: BoardDiff; before: DiffBefore } | { ok: false; error: string; opIndex: number };
 type StagedOps = {
   ok: true;
@@ -47,6 +47,10 @@ const CODEMAP_ID_PREFIXES = Object.freeze({ map: 'cm-', overlay: 'cmo-', steps: 
 const CODEMAP_OWNED_REFUSAL = 'ids starting cm-, cmo- or cms- belong to codemap, which regenerates them; anyone may change place, step status on a cms- step, and the operator may add or remove one';
 const NO_PLAN_STEPS = new Map<string, never>();
 const ASK_REFUSAL = 'ask is set only by the whiteboard ask action';
+const PULL_REQUEST_REFUSAL = 'pullRequest is set only by Glimmervoid for a pull request a Studio agent opened';
+const PULL_REQUEST_CARD_REFUSAL = 'a pull request card is kept current by Glimmervoid, so only its place can change';
+const PULL_REQUEST_CARD_ID_RE = /^pr-\d+-[0-9a-f]{8}$/;
+const PULL_REQUEST_CARD_ID_REFUSAL = 'ids like pr-<number>-<8 hex> belong to pull request cards Glimmervoid places';
 
 function isOperatorAuthor(author: Author): boolean {
   return author.id === OPERATOR_AUTHOR.id;
@@ -54,6 +58,14 @@ function isOperatorAuthor(author: Author): boolean {
 
 function canSetAsks(author: Author): boolean {
   return author.setsAsks === true || isOperatorAuthor(author);
+}
+
+function canSetPullRequests(author: Author): boolean {
+  return author.setsPullRequests === true || isOperatorAuthor(author);
+}
+
+function isPullRequestCardFor(element: Element | undefined, author: Author): boolean {
+  return element?.kind === 'box' && element.pullRequest !== null && !canSetPullRequests(author);
 }
 
 function isCodemapOwnedId(id: string): boolean {
@@ -200,6 +212,8 @@ function addElement(draft: Draft, element: ElementInput, author: Author): OpOutc
   if (isOwnedByCodemapFor(element.id, author) && !isOperatorAuthor(author)) return refuse(CODEMAP_OWNED_REFUSAL);
   if (element.kind === 'stroke' && draft.strokeCount >= WHITEBOARD_LIMITS.strokes) return refuse(`a board holds at most ${WHITEBOARD_LIMITS.strokes} strokes`);
   if (element.kind === 'box' && element.ask !== null && !canSetAsks(author)) return refuse(ASK_REFUSAL);
+  if (element.kind === 'box' && element.pullRequest !== null && !canSetPullRequests(author)) return refuse(PULL_REQUEST_REFUSAL);
+  if (PULL_REQUEST_CARD_ID_RE.test(element.id) && !canSetPullRequests(author)) return refuse(PULL_REQUEST_CARD_ID_REFUSAL);
   const placed = placedAtNear(draft, isOperatorAuthor(author) ? element : withFittedWidth(element));
   if (!placed.ok) return placed;
   const stored = authoredNote(placed.element, undefined, author);
@@ -244,6 +258,8 @@ function setFields(draft: Draft, id: string, rawFields: Record<string, unknown>,
   const fields = withStepMerged(existing, rawFields);
   if ('kind' in fields || 'id' in fields) return refuse('set cannot change an element kind or id; remove it and add a new one');
   if ('ask' in fields && !canSetAsks(author)) return refuse(ASK_REFUSAL);
+  if ('pullRequest' in fields && !canSetPullRequests(author)) return refuse(PULL_REQUEST_REFUSAL);
+  if (isPullRequestCardFor(existing, author) && Object.keys(fields).some((field) => field !== 'place')) return refuse(PULL_REQUEST_CARD_REFUSAL);
   if (existing.kind === 'stroke' && !isOperatorAuthor(author)) return refuse('only the operator changes strokes; an agent may read or remove one');
   const parsed = ELEMENT_SCHEMAS[existing.kind].safeParse({ ...existingFieldsKeptBy(existing, fields), ...fields });
   if (!parsed.success) return refuse(`${id}: ${parsed.error.issues[0]?.message ?? 'invalid fields'}`);
@@ -260,6 +276,7 @@ function removeElement(draft: Draft, id: string, author: Author): OpOutcome {
   const existing = elementOf(draft, id);
   if (!existing) return refuse(`no element has id ${id}`);
   if (isOwnedByCodemapFor(id, author) && !isOperatorAuthor(author)) return refuse(CODEMAP_OWNED_REFUSAL);
+  if (isPullRequestCardFor(existing, author)) return refuse(PULL_REQUEST_CARD_REFUSAL);
   eraseElement(draft, id);
   if (existing.kind !== 'box') return OK;
   for (const dependent of currentDependentsOf(draft, id)) removeDependent(draft, dependent, id);

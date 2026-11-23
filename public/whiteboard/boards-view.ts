@@ -63,6 +63,7 @@ import {
 } from './board-store.ts';
 import { clock } from '#shared/clock.ts';
 import { getPhoneSessionId } from '../phone/phone-shell-gate.ts';
+import { openExternalUrl } from '../external-link.ts';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 const EMPTY_TEXT = 'No boards yet. Make one here, or have an agent run glimmervoid whiteboard new <title>.';
@@ -225,6 +226,11 @@ function openTextDialog(options: TextDialogOptions): void {
 
 function heldBoardOf(boardId: string): Board | null {
   return tiledBoardOf(boardId)?.board ?? null;
+}
+
+function pullRequestUrlOf(boxId: string): string | null {
+  const box = selectedBoard()?.elements.get(boxId);
+  return box?.kind === 'box' ? box.pullRequest?.url ?? null : null;
 }
 
 function selectedBoard(): Board | null {
@@ -1805,6 +1811,11 @@ export function mountBoardHost(): HTMLElement {
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
     onClickBox: (boxId) => {
+      const pullRequestUrl = pullRequestUrlOf(boxId);
+      if (pullRequestUrl !== null) {
+        openExternalUrl(pullRequestUrl);
+        return;
+      }
       if (guest && selectedBoardId) guest.onBoxClicked(selectedBoardId, boxId);
     },
     isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),

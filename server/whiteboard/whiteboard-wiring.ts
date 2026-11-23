@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, NOTE_TONES, TEXT_SIZES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
+import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, BoxInput, NOTE_TONES, TEXT_SIZES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { OpenBoardAsk } from '../../shared/contracts/control/board-session-messages.ts';
@@ -32,9 +32,10 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, shownCardUpdateRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, shownCardUpdateRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, serverCardPoint, shownBoxOp, SHOWN_BOX_WIDTH, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
+import type { PrCardFields } from '../core/studio-pr-card-core.ts';
 import { BOARD_LAYOUT_CHECK_ID, VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import { createJsonStateStore, loadJsonStateFile } from '../json-file.ts';
@@ -179,6 +180,14 @@ interface CodeContext {
   buildChangeMap: () => Promise<ChangeMap>;
 }
 
+interface ServerCard {
+  boxId: string;
+  fields: PrCardFields;
+  height: number;
+  anchorBoxId: string | null;
+  ownerSessionId: string;
+}
+
 interface WhiteboardPort {
   loaded: Promise<void>;
   assets: WhiteboardAssetStore;
@@ -187,6 +196,7 @@ interface WhiteboardPort {
   layoutFreshnessOf(sessionId: string): string;
   putWithoutReadCheck(caller: WhiteboardCaller, boardRef: string, ops: readonly Op[]): Promise<WhiteboardReply>;
   putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply>;
+  putPrCard(boardId: string, card: ServerCard): Promise<WhiteboardReply>;
   openAsksOf(boardId: string): Promise<OpenBoardAsk[]>;
   boardOf(boardId: string): Promise<Board | null>;
   readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
@@ -1576,7 +1586,11 @@ function createWhiteboardWiring({
   async function ownCardNear(board: Board, sessionId: string, pinnedOffsetY: number): Promise<{ rect: Rect; boxesNear: Rect[] } | null> {
     const newestOwnCardId = ownShownCardIdsOf(board, sessionId).at(-1);
     if (newestOwnCardId === undefined) return null;
-    const rect = await tiles.pinPositionsOf(board, [newestOwnCardId]).then((pins) => pins.laidOutBoxOf(newestOwnCardId) ?? null, () => null);
+    return boxNear(board, newestOwnCardId, pinnedOffsetY);
+  }
+
+  async function boxNear(board: Board, boxId: string, pinnedOffsetY: number): Promise<{ rect: Rect; boxesNear: Rect[] } | null> {
+    const rect = await tiles.pinPositionsOf(board, [boxId]).then((pins) => pins.laidOutBoxOf(boxId) ?? null, () => null);
     if (!rect) return null;
     const region = { x: rect.x - OWN_CARD_REACH, y: rect.y - OWN_CARD_REACH, width: rect.width + 2 * OWN_CARD_REACH, height: rect.height + 2 * OWN_CARD_REACH };
     const boxesNear = await drawnRectsIn(board, region, pinnedOffsetY);
@@ -1790,6 +1804,42 @@ function createWhiteboardWiring({
     return applyPut(boardId, () => ops, { ...author, setsAsks: true }, { confirmsRefs: false });
   }
 
+  async function anchorNear(board: Board, card: ServerCard, pinnedOffsetY: number): Promise<{ rect: Rect; boxesNear: Rect[] } | null> {
+    const anchorBoxId = card.anchorBoxId !== null && board.elements.get(card.anchorBoxId)?.kind === 'box' ? card.anchorBoxId : null;
+    if (anchorBoxId === null) return ownCardNear(board, card.ownerSessionId, pinnedOffsetY);
+    return boxNear(board, anchorBoxId, pinnedOffsetY);
+  }
+
+  async function newServerCardOp(record: BoardRecord, card: ServerCard): Promise<{ ok: true; op: Op } | { ok: false; reply: WhiteboardReply }> {
+    const layout = await tiles.summaryOf(record.board).catch((error: unknown) => {
+      logger.warn(`[whiteboard] board ${record.board.id} could not be laid out to place a pull request card: ${errorMessage(error)}`);
+      return null;
+    });
+    if (!layout) return { ok: false, reply: refusal(503, 'the board layout could not be read, so no pull request card was placed') };
+    const { bounds: contentBounds, pinnedOffsetY } = layout.chrome;
+    const lastOperatorView = tiles.operatorViewOf(record.board.id)?.view ?? null;
+    const drawnInView = lastOperatorView ? await drawnRectsIn(record.board, lastOperatorView, pinnedOffsetY) : null;
+    const operatorView = drawnInView ? lastOperatorView : null;
+    const ownCard = await anchorNear(record.board, card, pinnedOffsetY);
+    const at = serverCardPoint(record.board, { contentBounds, pinnedOffsetY, operatorView, boxesInView: drawnInView ?? [], ownCard }, card.height);
+    const box = BoxInput.safeParse({ kind: 'box', id: card.boxId, ...card.fields, width: SHOWN_BOX_WIDTH, height: card.height, place: { at } });
+    if (!box.success) return { ok: false, reply: refusal(400, `box ${card.boxId} could not be built: ${box.error.issues[0]?.message ?? 'invalid box'}`) };
+    return { ok: true, op: { op: 'add', element: box.data } };
+  }
+
+  async function putPrCard(boardId: string, card: ServerCard): Promise<WhiteboardReply> {
+    await loaded;
+    const author: Author = { id: card.ownerSessionId, name: 'Glimmervoid', setsPullRequests: true };
+    return changeRecord(boardId, async (record) => {
+      const isPlaced = record.board.elements.get(card.boxId)?.kind === 'box';
+      const built = isPlaced ? { ok: true as const, op: { op: 'set' as const, id: card.boxId, fields: card.fields } } : await newServerCardOp(record, card);
+      if (!built.ok) return { ok: false, reply: built.reply };
+      const applied = await applyOpsToRecord(record, [built.op], author);
+      if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
+      return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summaryOf(applied.record, now()), note: `pull request card ${card.boxId} ${isPlaced ? 'updated' : 'placed'}` } }, patch: applied.patch, staged: applied.staged };
+    });
+  }
+
   async function loadedBoardOf(boardId: string): Promise<Board | null> {
     const loading = await loadedRecordOf(boardId);
     return loading.ok ? loading.record.board : null;
@@ -1872,7 +1922,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, openAsksOf, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, putPrCard, openAsksOf, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

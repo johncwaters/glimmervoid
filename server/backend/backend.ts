@@ -95,6 +95,7 @@ import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createBranchMerge } from '../board-session/branch-merge.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
 import { createDirector, isStudioSession } from '../board-session/director.ts';
+import { createStudioPrCards } from '../board-session/studio-pr-cards.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -344,6 +345,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }
     return null;
   };
+  const studioMapBoardIdOf = async (sessionId: string): Promise<string | null> => {
+    const studioRepoPath = studioRepoPathOf(sessionId);
+    return studioRepoPath === null ? null : codemap.mapBoardIdOfRepo(studioRepoPath);
+  };
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -355,10 +360,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     parentIdOf: (sessionId) => getSessionAny(sessionId)?.parent?.sessionId ?? null,
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
     codemapNoticeOf: (project) => codemap.noticeOf(project),
-    studioBoardIdOf: async (sessionId) => {
-      const studioRepoPath = studioRepoPathOf(sessionId);
-      return studioRepoPath === null ? null : codemap.mapBoardIdOfRepo(studioRepoPath);
-    },
+    studioBoardIdOf: studioMapBoardIdOf,
   });
   const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
     changesOfSession: async (sessionId) => {
@@ -630,12 +632,22 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
 
+  const studioPrCards = createStudioPrCards({
+    store: laneAssembly.githubStore.laneStore,
+    studioSessions: () => allLiveSessions().filter((session) => studioRepoPathOf(session.id) !== null),
+    studioBoardIdOf: studioMapBoardIdOf,
+    anchorBoxIdOf: (sessionId) => getSessionAny(sessionId)?.parent?.box?.id ?? null,
+    boards: whiteboards,
+    logger: console,
+  });
+
   const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false, logger: console });
 
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);
     codemap.attachSession(session);
     branchMerge.attachSession(session);
+    session.on('pr-links-change', studioPrCards.syncSoon);
     agentApi?.watchSessionWakes(session);
     agentApi?.linkBranchSession(session);
     secretsWiring.seedSessionMasks(session);

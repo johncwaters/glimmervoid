@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Pull requests Studio agents open show on the map.** When the Orchestrator or a branch agent opens a pull request, a card for it appears on the repo's Studio map beside the box the branch is about (or beside the agent's other cards), clear of the map's boxes. It shows whether the pull request is a draft, open, merged or closed, how its checks and review stand and whether it can merge, and updates in place as that changes. Click the card to open the pull request.
 - **Studio teaches itself on first run.** While a repo's map is still being drawn, the Studio canvas shows a welcome card with four things to try and a plain line saying the map is being drawn or could not be drawn yet. Once the map appears the card moves to the corner, each step ticks off as you do it, and the card is gone when all four are done; your progress is kept by Glimmervoid, so another browser picks up where you are.
 
 ### Fixed

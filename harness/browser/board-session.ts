@@ -3,7 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
 import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_TICKED_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
-import { boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
+import fs from 'node:fs';
+import { boardElementsOf, boxBoardRectsOf, boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
+import { DRAFT_PR_STATE, FAKE_PR_NUMBER, FAKE_PR_STATE_ENV, FAKE_PR_URL, READY_PR_STATE } from './fake-pr.ts';
+import type { Element as BoardElement } from '../../shared/contracts/whiteboard.ts';
+import { pollFor } from './review-changes.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
@@ -104,6 +108,19 @@ async function shownPageInViewBoundsOf(page: Page): Promise<Box> {
   assert.fail('a card a Studio agent shows comes into the Studio view');
 }
 
+function clearMapPointIn(page: Page, bounds: Box): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((rect) => {
+    for (let row = 1; row < 10; row += 1) {
+      for (let column = 1; column < 10; column += 1) {
+        const point = { x: rect.x + (rect.width * column) / 10, y: rect.y + (rect.height * row) / 10 };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest('.wb-viewport')) return point;
+      }
+    }
+    return null;
+  }, bounds);
+}
+
 async function verifyShownPageOnMap(page: Page): Promise<void> {
   const root = page.locator('.board-session-view');
   const pillInput = root.locator('.bs-pill textarea.chat-composer-input');
@@ -129,6 +146,86 @@ async function verifyShownPageOnMap(page: Page): Promise<void> {
   await viewerPage.getByRole('button', { name: SHOWN_PAGE_TICKED_TEXT, exact: true }).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.keyboard.press('Escape');
   assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a page an agent showed on the map takes no address');
+}
+
+function prCardLinesOf(element: BoardElement | undefined): Record<string, string> | null {
+  if (element?.kind !== 'box' || element.pullRequest?.url !== FAKE_PR_URL) return null;
+  return Object.fromEntries(element.lines.map((line) => [line.key ?? '', line.text]));
+}
+
+async function prCardWith(page: Page, root: Locator, boardId: string, expectedLines: Record<string, string>): Promise<BoardElement> {
+  return pollFor(`the pull request card showing ${JSON.stringify(expectedLines)}`, BOARD_SESSION_TIMEOUT_MS, async () => {
+    const card = (await boardElementsOf(page, root, boardId)).find((element) => prCardLinesOf(element) !== null);
+    const lines = prCardLinesOf(card);
+    if (!card || !lines) return null;
+    return Object.entries(expectedLines).every(([key, text]) => lines[key] === text) ? card : null;
+  });
+}
+
+function rectsOverlap(first: Box, second: Box): boolean {
+  return first.x < second.x + second.width && second.x < first.x + first.width && first.y < second.y + second.height && second.y < first.y + first.height;
+}
+
+async function bringBoxIntoView(page: Page, root: Locator, boardId: string, boxId: string): Promise<void> {
+  const viewport = await root.locator('.wb-viewport').boundingBox();
+  const cardOnScreen = (await boxScreenRectsOf(page, root, boardId)).get(boxId);
+  assert.ok(viewport && cardOnScreen, 'the map and the card are laid out');
+  const center = { x: cardOnScreen.x + cardOnScreen.width / 2, y: cardOnScreen.y + cardOnScreen.height / 2 };
+  const isInView = center.x > viewport.x && center.x < viewport.x + viewport.width && center.y > viewport.y && center.y < viewport.y + viewport.height;
+  if (isInView) return;
+  await page.locator('.wb-island-agent-change', { hasText: `#${FAKE_PR_NUMBER}` }).getByRole('button', { name: 'Go to card', exact: true }).click({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await delay(MAP_GLIDE_SETTLE_MS);
+}
+
+async function verifyPrCardOnMap(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const statePath = process.env[FAKE_PR_STATE_ENV] ?? '';
+  assert.ok(statePath.length > 0, 'the harness serves a fake gh with a pull request state file');
+  fs.writeFileSync(statePath, JSON.stringify(DRAFT_PR_STATE));
+  const boardId = await studioMapBoardIdOf(page, root);
+  assert.ok(boardId, 'the Studio map board is known');
+  const pillInput = root.locator('.bs-pill textarea.chat-composer-input');
+  await pillInput.fill('open-pr');
+  await pillInput.press('Enter');
+  const draftCard = await prCardWith(page, root, boardId, { State: 'Draft', Checks: 'Running', Review: 'Needs review' });
+  assert.ok(draftCard.kind === 'box' && draftCard.title === `#${FAKE_PR_NUMBER} Add refunds beside the card module`, 'the card names the pull request number and title');
+  const rectsBefore = await boxBoardRectsOf(page, root, boardId);
+  const cardBefore = rectsBefore.get(draftCard.id);
+  assert.ok(cardBefore, 'the pull request card is laid out on the map');
+  const coveredBoxIds = [...rectsBefore].filter(([boxId, rect]) => boxId !== draftCard.id && rectsOverlap(cardBefore, rect)).map(([boxId]) => boxId);
+  assert.deepEqual(coveredBoxIds, [], 'the pull request card covers no map box');
+
+  fs.writeFileSync(statePath, JSON.stringify(READY_PR_STATE));
+  await pillInput.fill('mark-pr-ready');
+  await pillInput.press('Enter');
+  const readyCard = await prCardWith(page, root, boardId, { State: 'Open', Checks: 'Passing', Review: 'Approved', Merge: 'Ready' });
+  assert.equal(readyCard.id, draftCard.id, 'the status changes on the same card');
+  const cardAfter = (await boxBoardRectsOf(page, root, boardId)).get(readyCard.id);
+  assert.ok(cardAfter, 'the updated card is still laid out');
+  assertSameBox(cardBefore, cardAfter, 'the pull request card');
+
+  await page.evaluate(() => {
+    const openedUrls: string[] = [];
+    Reflect.set(window, '__openedPrUrls', openedUrls);
+    window.open = (url) => {
+      openedUrls.push(String(url));
+      return null;
+    };
+  });
+  await page.route('**/open-external', async (route) => {
+    const requested: unknown = JSON.parse(route.request().postData() ?? '{}');
+    await page.evaluate((url) => (Reflect.get(window, '__openedPrUrls') as string[]).push(url), String(Reflect.get(requested as object, 'url')));
+    await route.fulfill({ status: 200, body: '{}' });
+  });
+  await bringBoxIntoView(page, root, boardId, readyCard.id);
+  const cardOnScreen = (await boxScreenRectsOf(page, root, boardId)).get(readyCard.id);
+  assert.ok(cardOnScreen, 'the card is on screen');
+  const clearPoint = await clearMapPointIn(page, cardOnScreen);
+  assert.ok(clearPoint, 'part of the pull request card is clear of the Studio cards and log');
+  await page.mouse.click(clearPoint.x, clearPoint.y);
+  await page.waitForFunction((url) => (Reflect.get(window, '__openedPrUrls') as string[]).includes(url), FAKE_PR_URL, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.unroute('**/open-external');
+  assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'clicking the pull request card does not address the message bar');
 }
 
 async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
@@ -374,6 +471,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-pill-address-clear').click();
   await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   await verifyShownPageOnMap(page);
+  await verifyPrCardOnMap(page);
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');

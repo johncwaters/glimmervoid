@@ -28,11 +28,13 @@ import {
   summarize,
 } from './report-core.ts';
 import type { BrowserRunReport, CaseRecord, SurvivorCheck } from './report-core.ts';
+import { FAKE_PR_STATE_ENV, fakePrStatePathIn } from './fake-pr.ts';
 import { COLD_START_PAGE_READY_MS, DEFAULT_DEADLINES, errorText, runCase } from './runner.ts';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const DEFAULT_ARTIFACTS_DIR = path.join(REPO_ROOT, 'harness', 'browser', 'artifacts');
 const FAKE_AGENT_PATH = path.join(import.meta.dirname, 'fake-agent.ts');
+const FAKE_GH_PATH = path.join(import.meta.dirname, 'fake-gh.ts');
 const REFUSED_LIFECYCLE_EVENTS = new Set(['build', 'start', 'prepare', 'postinstall']);
 const LEFTOVER_SCAN_ATTEMPTS = 25;
 const LEFTOVER_SCAN_INTERVAL_MS = 200;
@@ -216,6 +218,10 @@ function writeAgentShim(shimDirectory: string): string {
   const body = `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_AGENT_PATH)} "$@"\n`;
   fs.writeFileSync(shimPath, body, 'utf8');
   fs.chmodSync(shimPath, 0o755);
+  const ghShimPath = path.join(shimDirectory, 'gh');
+  const ghBody = `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_GH_PATH)} ${JSON.stringify(fakePrStatePathIn(shimDirectory))} "$@"\n`;
+  fs.writeFileSync(ghShimPath, ghBody, 'utf8');
+  fs.chmodSync(ghShimPath, 0o755);
   return shimPath;
 }
 
@@ -392,6 +398,7 @@ async function main(): Promise<number> {
     GLIMMERVOID_CONFIG: process.env.GLIMMERVOID_CONFIG,
     GLIMMERVOID_PORT: process.env.GLIMMERVOID_PORT,
     PATH: process.env.PATH,
+    [FAKE_PR_STATE_ENV]: process.env[FAKE_PR_STATE_ENV],
     ...Object.fromEntries(agentCredentialEnvNames().map((name) => [name, process.env[name]])),
   };
   for (const name of agentCredentialEnvNames()) delete process.env[name];
@@ -467,6 +474,7 @@ async function main(): Promise<number> {
     process.env.GLIMMERVOID_PORT = String(port);
     const shimDirectory = path.join(tempDirectory, 'shim');
     writeAgentShim(shimDirectory);
+    process.env[FAKE_PR_STATE_ENV] = fakePrStatePathIn(shimDirectory);
     process.env.PATH = `${shimDirectory}${path.delimiter}${previousEnvironment.PATH ?? ''}`;
 
     const { createServer } = await import('vite');
