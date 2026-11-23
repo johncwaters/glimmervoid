@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { ownerIdOf } from '../../shared/parent-link.ts';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -127,8 +128,9 @@ function mapSpawnedChildren(socket: WebSocket, children: CaptureSessionEntry[], 
     const parsedFrame = ServerMessage.safeParse(JSON.parse(raw.toString()));
     if (!parsedFrame.success || parsedFrame.data.type !== 'session-added') return;
     const card = parsedFrame.data;
-    if (!card.ownerId || environment.sessionsById[card.id]) return;
-    const parentName = [...sessionIds].find(([, id]) => id === card.ownerId)?.[0];
+    const ownerId = ownerIdOf(card.parent);
+    if (!ownerId || environment.sessionsById[card.id]) return;
+    const parentName = [...sessionIds].find(([, id]) => id === ownerId)?.[0];
     const childIndex = pendingChildren.findIndex((child) => child.spawnedBy === parentName);
     const child = pendingChildren[childIndex];
     if (!child) return;

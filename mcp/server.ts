@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { branchParentIdOf } from '../shared/parent-link.ts';
 
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { McpServer, createMcpHandler } from '@modelcontextprotocol/server';
@@ -106,7 +107,7 @@ function registerGroupedTool(server: McpServer, tool: GroupedTool, session: Sess
 
 function studioRoleOf(session: Session): StudioRole | null {
   if (session.isStudioMain) return 'main';
-  if (session.branchOf !== null) return 'branch';
+  if (branchParentIdOf(session.parent) !== null) return 'branch';
   return null;
 }
 

@@ -1,4 +1,5 @@
 import type { Pane } from '#shared/contracts/focus-layout.ts';
+import { ownerIdOf } from '#shared/parent-link.ts';
 import { resetClockText } from './usage-limit-text.ts';
 import type { UsageLimit } from '#shared/contracts/session.ts';
 import { API_KEY_PROMPT_KIND, SIGN_IN_PROMPT_KIND, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND } from '#shared/states.ts';
@@ -343,7 +344,8 @@ function paintSessionRowMark(row: HTMLElement, refs: SessionRowRefs, ui: Session
 }
 
 function describeSessionOwnership(ui: SessionUi): string | null {
-  const ownerUi = ui.ownerId ? sessionUIs.get(ui.ownerId) : undefined;
+  const ownerId = ownerIdOf(ui.parent);
+  const ownerUi = ownerId ? sessionUIs.get(ownerId) : undefined;
   const ownerName = ownerUi ? sessionName(ownerUi) : null;
   const ownedCount = attentionTally.ownedCountByOwnerId.get(ui.card.dataset.id ?? '') ?? 0;
   return describeOwnership({ ownerName, ownedCount });
@@ -351,7 +353,8 @@ function describeSessionOwnership(ui: SessionUi): string | null {
 
 function paintSessionRowOwnership(row: HTMLElement, ui: SessionUi) {
   const ownershipText = describeSessionOwnership(ui);
-  row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-owned', ui.ownerId !== null && sessionUIs.has(ui.ownerId));
+  const ownerId = ownerIdOf(ui.parent);
+  row.closest<HTMLElement>('.session-row-item')?.toggleAttribute('data-owned', ownerId !== null && sessionUIs.has(ownerId));
   paintCardOwnership(ui.card, ownershipText);
   return ownershipText;
 }

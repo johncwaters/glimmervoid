@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { branchParentIdOf } from '../../shared/parent-link.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,7 +43,7 @@ interface DirectorDeps {
   logger?: Pick<Console, 'warn'>;
 }
 
-type DirectedSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'isStudioMain' | 'branchOf' | '_destroyed'>;
+type DirectedSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'isStudioMain' | 'parent' | '_destroyed'>;
 
 interface QueuedTurn {
   session: DirectedSession;
@@ -50,7 +51,7 @@ interface QueuedTurn {
 }
 
 function isStudioSession(session: DirectedSession): boolean {
-  return !session.ephemeral && (session.isStudioMain || session.branchOf !== null);
+  return !session.ephemeral && (session.isStudioMain || branchParentIdOf(session.parent) !== null);
 }
 
 function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, announceDigest, boards, settleMs = DIRECTOR_SETTLE_MS, logger = console }: DirectorDeps) {

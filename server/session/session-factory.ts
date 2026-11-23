@@ -32,7 +32,7 @@ import type { PackMcpLaunchHold, PackMcpServer } from '../../shared/contracts/pa
 import { packMcpLaunchOf, packSecretNamesOf } from '../packs/core/pack-core.ts';
 
 type SessionSpawnOverrides = Pick<SessionOptions,
-  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'ownerId' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'doneMeans' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
+  'requireWorktree' | 'gitWorkspace' | 'settingsPermissions' | 'hookTools' | 'dangerouslySkipPermissions' | 'agent' | 'agentDepth' | 'parent' | 'holdsQuestionsForParent' | 'ephemeral' | 'initialPrompt' | 'doneMeans' | 'extraClaudeArgs' | 'extraUserHooks' | 'prependPathDirs' | 'spawnEnv'>;
 
 interface SessionFactoryDependencies {
   configStore: { configPath: string };
@@ -152,7 +152,7 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
       startSha: project.startSha ?? null,
       raceId: project.raceId ?? null,
       attentionOwner: project.attentionOwner ?? null,
-      branchOf: project.branchOf ?? null,
+      parent: project.parent ?? null,
       isStudioMain: project.isStudioMain === true,
       bypassHookTrust: project.codexBypassHookTrust === true,
       hookRouter: dependencies.hookRouter,

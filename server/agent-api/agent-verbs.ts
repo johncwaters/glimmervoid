@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { branchParentIdOf, ownerIdOf } from '../../shared/parent-link.ts';
 import path from 'node:path';
 import { unsafeLaunchValueOf } from '../../shared/agent-models-core.ts';
 import { describeSessionLimits } from '../../session/core/session-routes.ts';
@@ -94,7 +95,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf, liveSessionOf, tellParent } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
-    const raceProject = config.projects.find((project) => (project.id === session.id || project.id === session.ownerId) && project.raceId !== undefined);
+    const raceProject = config.projects.find((project) => (project.id === session.id || project.id === ownerIdOf(session.parent)) && project.raceId !== undefined);
     return {
       isEphemeral: session.ephemeral,
       isSpawnedChild: agentSessions.has(session.id) && session.id.startsWith(`${AGENT_LANE_TAG}-`),
@@ -280,7 +281,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   async function spawnReply(session: Session, request: AgentSpawnRequest): Promise<AgentReplyOf<'spawn'>> {
-    if (session.isStudioMain || session.branchOf) return refusal(403, 'a Studio session starts no sessions: the operator starts branches from the board, and whiteboard run starts the plan steps');
+    if (session.isStudioMain || branchParentIdOf(session.parent) !== null) return refusal(403, 'a Studio session starts no sessions: the operator starts branches from the board, and whiteboard run starts the plan steps');
     const outcome = await spawn(session, request);
     if (!outcome.ok) return { status: outcome.status, body: { ok: false, error: outcome.error } };
     const note = `this session owns ${outcome.name} until the task is done: glimmervoid read ${outcome.sessionId} reads its messages, glimmervoid send ${outcome.sessionId} <text> steers it, and glimmervoid close ${outcome.sessionId} ends it and discards its worktree, refusing while it holds work that is not on the integration branch unless you add --discard`;

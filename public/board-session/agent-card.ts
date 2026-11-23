@@ -2,7 +2,6 @@ import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { createChatActivity } from '../chat/chat-activity.ts';
 import { stringDetailOf } from '../chat/chat-page.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
-import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { el } from '../dom-helpers.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { createSvgShape } from '../svg-dom.ts';
@@ -30,7 +29,6 @@ export interface AgentCardModel {
   phase: ChatPhase;
   beat: ActivityBeat | null;
   digest: string | null;
-  subagents: readonly RunningSubagent[];
   approvals: HTMLElement;
   isAsking: boolean;
   isOpened: boolean;
@@ -90,7 +88,6 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   const head = el('div', 'bs-card-head');
   const faceSlot = el('span', 'bs-card-face-slot');
   const name = el('span', 'bs-card-name');
-  const subagents = el('span', 'bs-card-subagents');
   const menu = el('div', 'bs-menu bs-card-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
@@ -118,7 +115,7 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       actions.switchAccount(sessionId);
     }),
   );
-  head.append(faceSlot, name, subagents, moreButton);
+  head.append(faceSlot, name, moreButton);
   const activity = createChatActivity();
   const digest = el('p', 'bs-card-digest');
   const approvals = el('div', 'bs-card-approvals-slot');
@@ -172,7 +169,6 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       }
       name.textContent = model.name;
       card.setAttribute('aria-label', model.name);
-      subagents.replaceChildren(...model.subagents.map((subagent) => el('span', 'bs-face bs-face-sub', subagent.type.slice(0, 1).toUpperCase())));
       activity.setPhase(model.phase);
       if (model.beat !== null && model.beat !== shownBeat) activity.beat([model.beat]);
       shownBeat = model.beat;

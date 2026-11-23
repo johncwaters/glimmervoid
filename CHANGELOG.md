@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Studio cards show agents, not their helpers.** A Studio agent card no longer draws a small face for each helper the agent runs inside its own turn; only the agents Glimmervoid started appear on the map. Studio branches are now saved in config.json under a new key; this release reads the old one, but going back to 0.63.0 afterwards brings saved branches back as plain sessions.
 - **See what changed on the Studio map.** Hover a box the main agent changed to list its files with lines added and removed; click a file to read its diff in a panel at the side of the map, and press Esc or Close to put it away. Clicking the box itself still puts it in the message bar.
 - **Ask Studio how it is going.** A message to the main agent that only asks how the work is going, what is done or what is left gets a short answer from Glimmervoid, written from the plan steps on the map and each agent's latest notes, and never reaches the agent. Any other message goes to the main agent as before.
 - **Question options show their preview.** When an agent offers options with a preview, such as a sketch of a layout or a snippet of code, each option in Chat's question card shows it under its label, and so does the same card on a Studio agent card.

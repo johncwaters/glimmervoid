@@ -1,4 +1,5 @@
 import { pathsOutsideBranchFolder } from '../../shared/board-branch-core.ts';
+import { branchParentIdOf } from '../../shared/parent-link.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -60,15 +61,15 @@ function createBranchMerge({ findSession, liveSessions, tellMain, logger }: Bran
   }
 
   async function outsideFolderProblem(branch: Session, parentBranch: string, branchName: string, branchDir: string): Promise<string | null> {
-    const link = branch.branchOf;
-    if (link === null) return null;
+    const branchTitle = branch.parent?.box?.title;
+    if (branchTitle === undefined) return null;
     const changed = await runGit(['diff', '--name-only', '-z', `${parentBranch}...${branchName}`], branchDir);
     if (!changed.ok) return `listing the files its commits change failed: ${changed.err}`;
-    const outsidePaths = pathsOutsideBranchFolder(changed.out.split('\0').filter(Boolean), link.aboutTitle);
+    const outsidePaths = pathsOutsideBranchFolder(changed.out.split('\0').filter(Boolean), branchTitle);
     if (outsidePaths.length === 0) return null;
     const namedPaths = outsidePaths.slice(0, OUTSIDE_PATHS_NAMED).join(', ');
     const morePaths = outsidePaths.length > OUTSIDE_PATHS_NAMED ? ` and ${outsidePaths.length - OUTSIDE_PATHS_NAMED} more` : '';
-    return `its commits change ${namedPaths}${morePaths}, outside ${link.aboutTitle}, the folder it holds. Check them, then merge it yourself with git merge ${branchName}, or tell ${branch.name} what to undo with glimmervoid send ${branch.id} <text>.`;
+    return `its commits change ${namedPaths}${morePaths}, outside ${branchTitle}, the folder it holds. Check them, then merge it yourself with git merge ${branchName}, or tell ${branch.name} what to undo with glimmervoid send ${branch.id} <text>.`;
   }
 
   async function bringIn(branch: Session, parent: Session): Promise<void> {
@@ -102,9 +103,9 @@ function createBranchMerge({ findSession, liveSessions, tellMain, logger }: Bran
   }
 
   async function mergeWhenReady(branch: Session): Promise<void> {
-    const link = branch.branchOf;
-    if (link === null || !isSettled(branch)) return;
-    const parent = findSession(link.parentId);
+    const parentId = branchParentIdOf(branch.parent);
+    if (parentId === null || !isSettled(branch)) return;
+    const parent = findSession(parentId);
     if (!parent?.isWorktree || !branch.isWorktree || !isSettled(parent) || isWorktreeBusy(parent)) return;
     try {
       await bringIn(branch, parent);
@@ -114,23 +115,23 @@ function createBranchMerge({ findSession, liveSessions, tellMain, logger }: Bran
   }
 
   function queueMerge(branch: Session): void {
-    const link = branch.branchOf;
-    if (link === null || mergingBranchIds.has(branch.id)) return;
+    const parentId = branchParentIdOf(branch.parent);
+    if (parentId === null || mergingBranchIds.has(branch.id)) return;
     mergingBranchIds.add(branch.id);
-    const previous = mergeQueueByParentId.get(link.parentId) ?? Promise.resolve();
+    const previous = mergeQueueByParentId.get(parentId) ?? Promise.resolve();
     const queued = previous.then(() => mergeWhenReady(branch)).finally(() => {
       mergingBranchIds.delete(branch.id);
-      if (mergeQueueByParentId.get(link.parentId) === queued) mergeQueueByParentId.delete(link.parentId);
+      if (mergeQueueByParentId.get(parentId) === queued) mergeQueueByParentId.delete(parentId);
     });
-    mergeQueueByParentId.set(link.parentId, queued);
+    mergeQueueByParentId.set(parentId, queued);
   }
 
   function attachSession(session: Session): void {
     session.on('state-change', ({ to }: { to: SessionState }) => {
       if (!SETTLED_STATES.includes(to)) return;
-      if (session.branchOf !== null) return queueMerge(session);
+      if (branchParentIdOf(session.parent) !== null) return queueMerge(session);
       for (const branch of liveSessions()) {
-        if (branch.branchOf?.parentId === session.id) queueMerge(branch);
+        if (branchParentIdOf(branch.parent) === session.id) queueMerge(branch);
       }
     });
   }

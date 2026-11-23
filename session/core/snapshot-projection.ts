@@ -1,5 +1,5 @@
 import type { SessionCardFields } from "../../shared/contracts/control-messages.ts";
-import type { AgentDoneLine, AttentionNote, AttentionOwner, BranchLink, ChatOutboxEntry, ConversationApproval, UnseenOutcome, UsageLimit } from "../../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionNote, AttentionOwner, ParentLink, ChatOutboxEntry, ConversationApproval, UnseenOutcome, UsageLimit } from "../../shared/contracts/session.ts";
 import type { LinkedPr } from "../../shared/contracts/my-prs.ts";
 import type { PlanGate } from "../../shared/contracts/plan-gate.ts";
 import type { AgentSetup, ModelSelection } from "../../shared/contracts/agent-models.ts";
@@ -17,13 +17,12 @@ interface SessionCardSource {
   saneYolo?: boolean;
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
-  branchOf?: BranchLink | null;
+  parent?: ParentLink | null;
   isStudioMain?: boolean;
   isWorktree?: boolean;
   isWorkspace?: boolean;
   resumeSessionId?: string | null;
   ephemeral?: boolean;
-  ownerId?: string | null;
   attentionOwner?: AttentionOwner;
   linkedPrs?: LinkedPr[];
   doneMeans?: readonly string[];
@@ -65,8 +64,7 @@ function projectSessionCard(
     ...(source.linkedPrs?.length ? { linkedPrs: source.linkedPrs } : {}),
     ...(source.doneMeans?.length ? { doneMeans: [...source.doneMeans] } : {}),
     ...(source.agentDoneLines?.length ? { agentDoneLines: source.agentDoneLines.map((line) => ({ ...line })) } : {}),
-    ...(source.ownerId ? { ownerId: source.ownerId } : {}),
-    ...(source.branchOf ? { branchOf: { ...source.branchOf } } : {}),
+    ...(source.parent ? { parent: { sessionId: source.parent.sessionId, box: source.parent.box ? { ...source.parent.box } : null } } : {}),
     ...(source.isStudioMain ? { isStudioMain: true } : {}),
     ...(source.attentionOwner && source.attentionOwner !== 'operator' ? { attentionOwner: source.attentionOwner } : {}),
     ...(typeof source.isQuestionManagerOn === 'boolean' ? { isQuestionManagerOn: source.isQuestionManagerOn } : {}),
@@ -91,7 +89,6 @@ interface SnapshotSource {
   dangerouslySkipPermissions: boolean;
   saneYolo?: boolean;
   ephemeral: boolean;
-  ownerId?: string | null;
   attentionOwner?: AttentionOwner;
   isWorktree: boolean;
   isWorkspace: boolean;
@@ -113,7 +110,7 @@ interface SnapshotSource {
   passedQuestionSeq?: number;
   isQuestionManagerOn?: boolean | null;
   accountId?: string | null;
-  branchOf?: BranchLink | null;
+  parent?: ParentLink | null;
   isStudioMain?: boolean;
   agentSetup?: AgentSetup | null;
   effectiveBase: string | null;
@@ -140,7 +137,6 @@ function projectSessionSnapshots(source: SnapshotSource) {
     dangerouslySkipPermissions: source.dangerouslySkipPermissions,
     saneYolo: !!source.saneYolo,
     ephemeral: source.ephemeral,
-    ownerId: source.ownerId ?? null,
     attentionOwner: source.attentionOwner ?? 'operator',
     isWorktree: source.isWorktree,
     isWorkspace: source.isWorkspace,
@@ -162,7 +158,7 @@ function projectSessionSnapshots(source: SnapshotSource) {
     passedQuestionSeq: source.passedQuestionSeq ?? 0,
     isQuestionManagerOn: source.isQuestionManagerOn ?? null,
     accountId: source.accountId ?? null,
-    branchOf: source.branchOf ?? null,
+    parent: source.parent ?? null,
     isStudioMain: source.isStudioMain === true,
     modelSelection: modelSelectionOf(source.agentSetup),
     effectiveBase: source.effectiveBase ?? null,

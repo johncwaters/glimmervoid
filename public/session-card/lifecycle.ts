@@ -1,4 +1,5 @@
 import { paintSecretRequest } from './secret-request-face.ts';
+import { ownerIdOf } from '#shared/parent-link.ts';
 import type { UnseenOutcome, UsageLimit } from '#shared/contracts/session.ts';
 import { STATES } from '#shared/states.ts';
 import { hasSessionDocs } from '../doc-editor/doc-editor.ts';
@@ -67,7 +68,7 @@ export function refreshTerminalFonts() {
 }
 
 function tallyRowOf(ui: SessionUi) {
-  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ui.ownerId, attentionOwner: ui.attentionOwner, isStudio: isStudioSession(ui) };
+  return { state: ui.currentState, unseenOutcome: ui.unseenOutcome, ownerId: ownerIdOf(ui.parent), attentionOwner: ui.attentionOwner, isStudio: isStudioSession(ui) };
 }
 
 export function updateAttentionTitle() {
@@ -102,8 +103,7 @@ export function createSessionCard(sessionId: unknown, sessionName: unknown, init
     taskTitleIsCustom: options.taskTitleIsCustom ?? false,
 
     path: asText(options.path),
-    ownerId: options.ownerId ?? null,
-    branchOf: options.branchOf ?? null,
+    parent: options.parent ?? null,
     isStudioMain: options.isStudioMain === true,
     attentionOwner: options.attentionOwner ?? 'operator',
 

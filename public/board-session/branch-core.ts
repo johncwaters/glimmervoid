@@ -1,4 +1,5 @@
-import type { BranchLink } from '#shared/contracts/session.ts';
+import type { ParentLink } from '#shared/contracts/session.ts';
+import { branchParentIdOf } from '#shared/parent-link.ts';
 
 export interface BoxChoice {
   boxId: string;
@@ -47,10 +48,10 @@ export function matchingBoxChoices(choices: readonly BoxChoice[], query: string)
     .slice(0, MAX_BOX_CHOICES);
 }
 
-export function branchSessionIdsOf(sessions: Iterable<[string, { branchOf: BranchLink | null }]>, parentId: string): string[] {
+export function branchSessionIdsOf(sessions: Iterable<[string, { parent: ParentLink | null }]>, parentId: string): string[] {
   const branchIds: string[] = [];
   for (const [sessionId, session] of sessions) {
-    if (session.branchOf?.parentId === parentId) branchIds.push(sessionId);
+    if (branchParentIdOf(session.parent) === parentId) branchIds.push(sessionId);
   }
   return branchIds;
 }

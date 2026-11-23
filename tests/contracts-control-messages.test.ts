@@ -77,7 +77,7 @@ const SESSION = {
   passedQuestionSeq: 0,
   isQuestionManagerOn: true,
   accountId: null,
-  branchOf: null,
+  parent: null,
   isStudioMain: false,
   modelSelection: { agent: 'claude-code', model: 'opus', options: [] },
   effectiveBase: 'develop',

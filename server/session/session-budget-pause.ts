@@ -1,7 +1,8 @@
 import { KILLABLE_STATES } from '../../shared/states.ts';
+import { ownerIdOf } from '../../shared/parent-link.ts';
 import type { Session } from '../../session/sessions.ts';
 
-type PausableSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'ownerId' | 'state' | '_lastOperatorInputAt' | 'snooze' | 'killSession'>;
+type PausableSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'parent' | 'state' | '_lastOperatorInputAt' | 'snooze' | 'killSession'>;
 type BudgetHoldPhase = 'start' | 'continue' | 'end';
 
 function pauseOne(session: PausableSession): boolean {
@@ -13,7 +14,7 @@ function createBudgetSessionPauser(liveSessions: () => readonly PausableSession[
   const pausedSessionIds = new Set<string>();
 
   function isRunning(session: PausableSession): boolean {
-    const isLaneSession = session.ephemeral && session.ownerId === null;
+    const isLaneSession = session.ephemeral && ownerIdOf(session.parent) === null;
     return !isLaneSession && KILLABLE_STATES.includes(session.state);
   }
 
