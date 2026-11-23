@@ -370,6 +370,17 @@ function unreadChangeRefusalOf(record: BoardRecord, readerId: string, afterById:
   return `${unread.elementId} changed since this session last read the board (${unread.summary}); ${READ_FIRST_TEXT}`;
 }
 
+function shownCardUpdateRefusalOf(record: BoardRecord, readerId: string, boxId: string): string | null {
+  const card = record.board.elements.get(boxId);
+  const isOwnCard = card?.kind === 'box' && card.media?.source?.from === 'file' && card.media.source.sessionId === readerId;
+  const cursor = record.cursorBySessionId[readerId];
+  if (!isOwnCard || cursor === undefined) return unreadChangeRefusalOf(record, readerId, new Map([[boxId, card ?? null]]));
+  const readVersion = readVersionOf(cursor);
+  const unread = record.log.find((change) => change.version > readVersion && change.author !== readerId && change.elementId === boxId);
+  if (!unread) return null;
+  return `${boxId} changed since this session last read the board (${unread.summary}); ${READ_FIRST_TEXT}`;
+}
+
 function changedSinceRefusalOf(record: BoardRecord, expected: DiffBefore, afterById: ReadonlyMap<string, Element | null>): string | null {
   const changedFieldName = Object.entries(expected.fields).find(([fieldName, value]) => !isDeepStrictEqual(record.board[fieldName as keyof DiffBefore['fields']], value))?.[0];
   if (changedFieldName !== undefined) return `the board ${changedFieldName} changed since that edit`;
@@ -746,4 +757,4 @@ function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
 
 export { agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, shownBoxOp, wordCountOf };
 export type { ShownCard };
-export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };
+export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, shownCardUpdateRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

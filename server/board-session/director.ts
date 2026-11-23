@@ -257,5 +257,5 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
 
 type Director = ReturnType<typeof createDirector>;
 
-export { DIRECTOR_LANE_TOOLS, createDirector };
+export { DIRECTOR_LANE_TOOLS, createDirector, isStudioSession };
 export type { Director };

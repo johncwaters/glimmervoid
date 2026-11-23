@@ -1925,6 +1925,50 @@ test('a board saved with units, panels, columns, lanes and retired fields loads 
   assert.equal(/"kind":"(unit|panel)"|"columns"|"lanes"|"column"|"lane"|"outputs"|"fromOutput"|"back"|"loop"|"linkedBoardId"|"numbered"/.test(JSON.stringify(storedPlanned)), false);
 });
 
+test('a Studio session shows onto its repo code map board, beside a map box with near, refuses a board of its own, and updates its card in place, while a Focus session keeps its own board', async () => {
+  const { default: sharp } = await import('sharp');
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'studio-show-'));
+  const showerDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'studio-shower-'));
+  fs.writeFileSync(path.join(showerDir, 'chapter.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#38bdf8' } }).png().toBuffer());
+  fs.writeFileSync(path.join(showerDir, 'ticks.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#22c55e' } }).png().toBuffer());
+  let mapBoardId = '';
+  let isMapLookupFailing = false;
+  const studioBoardIdOf = async (sessionId: string) => {
+    if (isMapLookupFailing) throw new Error('map store busy');
+    return sessionId === 'studio-main' ? mapBoardId : null;
+  };
+  const wiring = createWhiteboardWiring({ boardsRoot, studioBoardIdOf });
+  mapBoardId = ((await wiring.handleOperator.create('Code map: site')) as { summary: { id: string } }).summary.id;
+  assert.equal((await wiring.handleOperator.put(mapBoardId, z.array(Op).parse([{ op: 'add', element: { kind: 'box', id: 'cm-module-docs', title: 'docs', place: { at: { x: 40, y: 40 } } } }, { op: 'add', element: { kind: 'box', id: 'operator-note', title: 'keep this', place: { at: { x: 40, y: 400 } } } }]))).ok, true);
+  const orchestrator = { id: 'studio-main', name: 'site main', project: showerDir, cwd: showerDir };
+
+  isMapLookupFailing = true;
+  assert.equal((await wiring.handleAgent(orchestrator, { sub: 'show', path: 'chapter.png' })).status, 503);
+  assert.equal(wiring.snapshotMessage().boards.length, 1, 'a failed map lookup makes no board of its own');
+  isMapLookupFailing = false;
+
+  const shown = await wiring.handleAgent(orchestrator, { sub: 'show', path: 'chapter.png' });
+  assert.equal(shown.status, 200, JSON.stringify(shown.body));
+  assert.equal((shown.body as { board: { id: string } }).board.id, mapBoardId);
+  const besideModule = await wiring.handleAgent(orchestrator, { sub: 'show', path: 'ticks.png', near: { of: 'cm-module-docs', side: 'right', gap: 60 } });
+  assert.equal(besideModule.status, 200, JSON.stringify(besideModule.body));
+  assert.equal(wiring.snapshotMessage().boards.length, 1, 'the Studio session made no board of its own');
+  const blindRemoval = await wiring.handleAgent(orchestrator, { sub: 'put', board: mapBoardId, ops: z.array(Op).parse([{ op: 'remove', id: 'operator-note' }]) });
+  assert.equal(blindRemoval.status, 409, 'showing does not count as reading the map');
+  const ownBoard = await wiring.handleAgent(orchestrator, { sub: 'new', title: 'Chapter ticks' });
+  assert.equal(ownBoard.status, 409);
+  assert.doesNotMatch(JSON.stringify(ownBoard.body), /disconnect/, 'a Studio session is not told disconnecting frees it to make a board');
+  assert.equal((await wiring.handleOperator.get(mapBoardId)).board?.codeSessionId ?? null, null, 'showing does not make the Studio session the code session of the map');
+  const shownAgain = await wiring.handleAgent(orchestrator, { sub: 'show', path: 'chapter.png', caption: 'after the fix' });
+  assert.equal(shownAgain.status, 200, JSON.stringify(shownAgain.body));
+  assert.match((shownAgain.body as { note: string }).note, /updated chapter\.png in place in box shown-1/);
+
+  const focusSession = { id: 'focus-session', name: 'focus', project: showerDir, cwd: showerDir };
+  const focusShown = await wiring.handleAgent(focusSession, { sub: 'show', path: 'chapter.png' });
+  assert.equal(focusShown.status, 200, JSON.stringify(focusShown.body));
+  assert.notEqual((focusShown.body as { board: { id: string } }).board.id, mapBoardId);
+});
+
 test('show puts each file on a board the session is connected to, creating one named after the first file title, placing a later card below the content with no operator view and in a free spot of the operator view lined up with a neighbour when one is open, updating the card of a file shown again in place, refusing an agent second card of that file, warning on wordy boxes, and numbering past an oversized shown id', async () => {
   const { default: sharp } = await import('sharp');
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'show-'));

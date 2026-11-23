@@ -31,7 +31,7 @@ import type { PlanStep } from '../../shared/whiteboard-plan-core.ts';
 import { DEVICE_NAMES } from '../../shared/whiteboard-devices.ts';
 import { ICON_NAMES } from '../../shared/whiteboard-icons.ts';
 import {
-  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
+  attachedBoardNoticeLineFor, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, shownCardUpdateRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, markRead, agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, projectBoardsNoticeFor, recordPut, resolveBoardRef, shownBoxOp, summarizeBoard, isFiledFor, isListedFor, isSameProject,
 } from '../core/whiteboard-store-core.ts';
 import type { ShownCard } from '../core/whiteboard-store-core.ts';
 import { BOARD_LAYOUT_CHECK_ID, VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
@@ -157,6 +157,7 @@ interface WhiteboardWiringOptions {
   parentIdOf?: (sessionId: string) => string | null;
   onBoardNamedProvisionally?: (naming: ProvisionalBoardNaming) => void;
   codemapNoticeOf?: (project: string) => string | null;
+  studioBoardIdOf?: (sessionId: string) => Promise<string | null>;
 }
 
 interface ProvisionalBoardNaming {
@@ -302,7 +303,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null,
+  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null, studioBoardIdOf = () => Promise.resolve(null),
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const linkedFolderKeeperIdByKey = new Map<string, string>();
@@ -1441,6 +1442,12 @@ function createWhiteboardWiring({
   }
 
   async function showBoardIdFor(caller: WhiteboardCaller, newBoardTitle: string): Promise<{ ok: true; boardId: string; provisionalTitle: string | null } | { ok: false; reply: WhiteboardReply }> {
+    const studioLookup = await studioBoardOf(caller.id);
+    if (!studioLookup.ok) return studioLookup;
+    if (studioLookup.record) {
+      const joinRefusal = await joinRefusalForShow(studioLookup.record.board.id, caller.id);
+      return joinRefusal ? { ok: false, reply: joinRefusal } : { ok: true, boardId: studioLookup.record.board.id, provisionalTitle: null };
+    }
     const sessionBoard = sessionBoardOf(caller.id);
     const isCallerOnSessionBoard = sessionBoard !== null && caller.id in sessionBoard.cursorBySessionId;
     const connected = sessionBoard && !isCallerOnSessionBoard ? await connectBoard(sessionBoard.board.id, caller.id, caller.project) : null;
@@ -1484,16 +1491,18 @@ function createWhiteboardWiring({
     return { ok: false, reply: refusal(409, `show links a file inside ${worktrees}, and ${sourcePath} is not in it, so nothing was shown`) };
   }
 
-  function nearRefusalFor(caller: WhiteboardCaller, near: Near | null): WhiteboardReply | null {
+  async function nearRefusalFor(caller: WhiteboardCaller, near: Near | null): Promise<WhiteboardReply | null> {
     if (near === null) return null;
-    const sessionBoard = sessionBoardOf(caller.id);
+    const studioLookup = await studioBoardOf(caller.id);
+    if (!studioLookup.ok) return studioLookup.reply;
+    const sessionBoard = studioLookup.record ?? sessionBoardOf(caller.id);
     if (!sessionBoard) return refusal(409, `show places a card near ${near.of} only on a board this session is connected to, and it has none yet, so nothing was shown; show without near first, or connect to the board that holds ${near.of}`);
     if (sessionBoard.board.elements.get(near.of)?.kind === 'box') return null;
     return refusal(400, `${near.of} is not a box on board "${sessionBoard.board.title}", so nothing was shown`);
   }
 
   async function showOnBoard(caller: WhiteboardCaller, requestedPath: string, caption: string | null, isLinked: boolean, near: Near | null): Promise<WhiteboardReply> {
-    const nearRefusal = nearRefusalFor(caller, near);
+    const nearRefusal = await nearRefusalFor(caller, near);
     if (nearRefusal) return nearRefusal;
     const sourcePath = path.resolve(caller.cwd ?? boardsRoot, requestedPath);
     const ingested = await assets.ingestFile(sourcePath, caller.id);
@@ -1591,13 +1600,31 @@ function createWhiteboardWiring({
       const isFramedCleanly = framed?.ok === true && !unreadChangeRefusalOf(record, author.id, framed.staged.afterById);
       const applied = isFramedCleanly && framed ? framed : await applyOpsToRecord(record, [op], author);
       if (!applied.ok) return { ok: false, reply: refusal(400, `${applied.error}, so nothing changed`) };
-      const unreadRefusal = unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
+      const unreadRefusal = isUpdate ? shownCardUpdateRefusalOf(record, author.id, boxId) : unreadChangeRefusalOf(record, author.id, applied.staged.afterById);
       if (unreadRefusal) return { ok: false, reply: refusal(409, `${unreadRefusal}, so nothing changed`) };
       const { board } = applied.record;
       const linkNote = card.media.link ? `, linked to ${card.media.link.path}: the card follows every change to that file live, and an operator save writes it` : '';
       const note = withUnloadedNote(`${isUpdate ? 'updated' : 'showed'} ${card.title} ${isUpdate ? 'in place in' : 'as'} box ${boxId} on board "${board.title}" (${board.id})${linkNote}, where the operator sees it; show the same file again to update this card, or change it with whiteboard put`, unloaded);
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, board: summaryOf(applied.record, now()), note } }, patch: applied.patch, staged: applied.staged };
     });
+  }
+
+  async function joinRefusalForShow(boardId: string, sessionId: string): Promise<WhiteboardReply | null> {
+    if (sessionId in (recordsByBoardId.get(boardId)?.cursorBySessionId ?? {})) return null;
+    const reply = await changeRecord(boardId, (record) => {
+      const joined = connectSession(record, sessionId);
+      return { ok: true, record: joined, reply: connectionReply(joined, PUT_GUIDE) };
+    });
+    return reply.status === 200 ? null : reply;
+  }
+
+  async function studioBoardOf(sessionId: string): Promise<{ ok: true; record: BoardRecord | null } | { ok: false; reply: WhiteboardReply }> {
+    const lookup = await studioBoardIdOf(sessionId).then((boardId) => ({ boardId, error: null }), (error: unknown) => ({ boardId: null, error: errorMessage(error) }));
+    if (lookup.error !== null) return { ok: false, reply: refusal(503, `a Studio session shows and draws on its repo's code map, and the map board could not be found (${lookup.error}), so nothing changed; try again`) };
+    if (lookup.boardId === null) return { ok: true, record: null };
+    const record = recordsByBoardId.get(lookup.boardId);
+    if (!record) return { ok: false, reply: refusal(503, 'a Studio session shows and draws on its repo\'s code map, and the map board is not loaded, so nothing changed; try again') };
+    return { ok: true, record };
   }
 
   function ancestorIdsOf(sessionId: string): string[] {
@@ -1640,6 +1667,10 @@ function createWhiteboardWiring({
   }
 
   async function createUnlessOnBoard(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
+    const studioLookup = await studioBoardOf(caller.id);
+    if (!studioLookup.ok) return studioLookup.reply;
+    const studioBoard = studioLookup.record?.board;
+    if (studioBoard) return refusal(409, `a Studio session shows and draws on its repo's code map, board "${studioBoard.title}" (${studioBoard.id}), where the operator watches it, so no new board was made; draw on it with whiteboard get ${studioBoard.id} and whiteboard put`);
     const sessionBoard = sessionBoardOf(caller.id);
     if (!sessionBoard) return createFamilyBoardFor(caller, title);
     const loading = await loadedRecordOf(sessionBoard.board.id);

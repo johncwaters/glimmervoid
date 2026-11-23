@@ -94,7 +94,7 @@ import { createCodemapService } from '../codemap/codemap-wiring.ts';
 import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createBranchMerge } from '../board-session/branch-merge.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
-import { createDirector } from '../board-session/director.ts';
+import { createDirector, isStudioSession } from '../board-session/director.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -334,6 +334,16 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   };
   const sessionDocs = createSessionDocsWiring({ broadcastControl: broadcastControlFromWebSockets });
   const sessionPreviews = createSessionPreviews({ broadcastControl: broadcastControlFromWebSockets, isSessionLive: (sessionId) => getSessionAny(sessionId) !== null });
+  const studioRepoPathOf = (sessionId: string): string | null => {
+    const visitedIds = new Set<string>();
+    let session = getSessionAny(sessionId);
+    while (session && !visitedIds.has(session.id)) {
+      if (isStudioSession(session)) return session.path;
+      visitedIds.add(session.id);
+      session = session.parent ? getSessionAny(session.parent.sessionId) : null;
+    }
+    return null;
+  };
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
@@ -345,6 +355,10 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     parentIdOf: (sessionId) => getSessionAny(sessionId)?.parent?.sessionId ?? null,
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
     codemapNoticeOf: (project) => codemap.noticeOf(project),
+    studioBoardIdOf: async (sessionId) => {
+      const studioRepoPath = studioRepoPathOf(sessionId);
+      return studioRepoPath === null ? null : codemap.mapBoardIdOfRepo(studioRepoPath);
+    },
   });
   const codemap = createCodemapService({ detectDefaultBranch: (probe) => assembledGitWorkspace.detectDefaultBranch(probe), whiteboards, mapBoardIdsFilePath: configSiblingPath(configStore.configPath, 'codemap-boards.json'), configuredMainlineBranch: () => configuredIntegrationBranch(configStore.config), homeDir: glimmervoidHomeDir(),
     changesOfSession: async (sessionId) => {

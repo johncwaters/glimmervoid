@@ -13,6 +13,7 @@ import type { CheckOutcome } from '../../shared/contracts/verification.ts';
 import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { BoxMedia, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
@@ -222,6 +223,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   let startedOverlayRefreshCount = 0;
   const drawingByRepoDir = new Map<string, Promise<boolean>>();
   const mapBoardIdByRepoDir = new Map<string, string>();
+  const mapBoardLookupsByRepoDir = createKeyedSerialQueue();
   const mapBoardIdStore = createJsonStateStore({
     name: 'code map boards', filePath: mapBoardIdsFilePath,
     parse: (raw) => MapBoardIds.safeParse(raw).data ?? null,
@@ -238,7 +240,11 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return boardId;
   }
 
-  async function mapBoardIdOf(boards: MapBoards, repoDir: string): Promise<string> {
+  function mapBoardIdOf(boards: MapBoards, repoDir: string): Promise<string> {
+    return mapBoardLookupsByRepoDir.run(repoDir, () => lookUpMapBoardId(boards, repoDir));
+  }
+
+  async function lookUpMapBoardId(boards: MapBoards, repoDir: string): Promise<string> {
     await mapBoardIdStore.load();
     const caller = { id: CODEMAP_AUTHOR.id, name: CODEMAP_AUTHOR.name, project: repoDir };
     const rememberedBoardId = mapBoardIdByRepoDir.get(repoDir);
@@ -252,6 +258,10 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const createdBoardId = created.board?.id ?? created.summary?.id;
     if (!created.ok || !createdBoardId) throw new Error(`the map board could not be created: ${created.error ?? 'no reason given'}`);
     return rememberMapBoard(repoDir, createdBoardId);
+  }
+
+  function mapBoardIdOfRepo(repoDir: string): Promise<string | null> {
+    return whiteboards ? mapBoardIdOf(whiteboards, repoDir) : Promise.resolve(null);
   }
 
   async function drawMapBoard(boards: MapBoards, repoDir: string, changedModel: CodemapModel | null, status: CodemapStatus, overlay: OverlayDrawing): Promise<void> {
@@ -684,7 +694,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, branchTargetOf, toggleFolder };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, branchTargetOf, toggleFolder, mapBoardIdOfRepo };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;
