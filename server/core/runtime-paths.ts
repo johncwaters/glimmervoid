@@ -77,7 +77,7 @@ type RelayExecutableProblem = { code: 'RELAY_ABSENT' | 'RELAY_MISSING' | 'RELAY_
 function relayExecutableProblemOf({ runner, runnerRealPath, executableRealPath }: RelayExecutableFacts): RelayExecutableProblem | null {
   const executableDirectory = path.dirname(executableRealPath);
   if (runner.kind === 'main-binary') return { code: 'RELAY_ABSENT', refusesSpawn: false, message: `no ${SHIPPED_RELAY_NAME} beside ${runner.path} or the running glimmervoid, so hooks run through glimmervoid itself, which is slower; reinstall Glimmervoid to restore it` };
-  if (runnerRealPath === null) return { code: 'RELAY_MISSING', refusesSpawn: true, message: `${SHIPPED_RELAY_NAME} is missing at ${runner.path}; reinstall Glimmervoid so it sits beside glimmervoid` };
+  if (runnerRealPath === null) return { code: 'RELAY_MISSING', refusesSpawn: true, message: `${SHIPPED_RELAY_NAME} is missing at ${runner.path}, where it was when Glimmervoid started, so an update is replacing it; restart Glimmervoid once the update finishes, and reinstall only if that does not clear this` };
   if (path.dirname(runnerRealPath) === executableDirectory) return null;
   return { code: 'RELAY_ELSEWHERE', refusesSpawn: true, message: `${runner.path} resolves to ${runnerRealPath}, outside ${executableDirectory} where the running glimmervoid lives; restart Glimmervoid so it runs the release beside its relay, and reinstall only if that does not clear this` };
 }
