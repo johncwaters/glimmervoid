@@ -16,7 +16,7 @@ type BuildButtonOptions = { variant: ButtonVariant | 'outline-icon'; label: stri
 
 type CommonButtonOptions = {
   size?: ButtonSize;
-  textCase?: 'upper' | 'sentence';
+  textCase?: 'upper' | 'sentence' | 'inline';
   action?: string;
   shortcutKey?: string;
   onClick?: (event: MouseEvent) => void;
@@ -78,7 +78,7 @@ function buildButton(options: BuildButtonOptions): HTMLButtonElement {
   const element = createPressable('ui-button');
   element.dataset.variant = options.variant;
   element.dataset.size = options.size ?? 'default';
-  if (options.textCase === 'sentence') element.dataset.textCase = 'sentence';
+  if (options.textCase !== undefined && options.textCase !== 'upper') element.dataset.textCase = options.textCase;
   if (options.action) element.dataset.action = options.action;
   if (options.icon) element.append(options.icon);
   if (isIconVariant(options.variant)) element.setAttribute('aria-label', options.label);

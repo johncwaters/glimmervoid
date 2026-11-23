@@ -73,6 +73,11 @@
     text-transform: none;
   }
 
+  .ui-button[data-text-case="inline"] {
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
   .ui-button[data-variant="primary"] {
     border-color: var(--accent-dim);
     color: var(--accent);

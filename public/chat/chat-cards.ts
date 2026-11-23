@@ -138,7 +138,7 @@ const ESCAPE_KEY = 'Escape';
 
 function dismissFootOf(onDismiss: () => void): HTMLElement {
   const foot = el('div', 'chat-card-foot');
-  const dismissButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Dismiss', shortcutKey: 'Esc', onClick: onDismiss });
+  const dismissButton = button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Dismiss', shortcutKey: 'Esc', onClick: onDismiss });
   dismissButton.setAttribute('aria-keyshortcuts', ESCAPE_KEY);
   markCardKeys(dismissButton, [ESCAPE_KEY]);
   foot.append(dismissButton);
@@ -148,7 +148,7 @@ function dismissFootOf(onDismiss: () => void): HTMLElement {
 function answerReceiptOf(answer: string, canChangeAnswer: boolean, onChange: () => void): HTMLElement {
   const row = el('div', 'chat-card-answer-row');
   row.append(receipt(`Answered: ${withoutRecommendedSuffix(answer)}`));
-  if (canChangeAnswer) row.append(button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Change', onClick: onChange }));
+  if (canChangeAnswer) row.append(button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Change', onClick: onChange }));
   return row;
 }
 
@@ -240,7 +240,7 @@ function boardChangeTextOf(card: ChatCardByType['board-change']): HTMLElement {
 function renderBoardChangeCard(card: ChatCardByType['board-change']): HTMLElement {
   const row = el('section', 'chat-board-change');
   row.dataset.cardType = card.cardType;
-  const showOnBoard = button({ variant: 'primary', size: 'small', textCase: 'sentence', label: 'Show on board', shortcutKey: shortcutHint('show-board-change', SHORTCUT_PLATFORM), onClick: () => dispatchCardAction(row, card, 'focus', '') });
+  const showOnBoard = button({ variant: 'primary', size: 'small', textCase: 'inline', label: 'Show on board', shortcutKey: shortcutHint('show-board-change', SHORTCUT_PLATFORM), onClick: () => dispatchCardAction(row, card, 'focus', '') });
   const icon = createLineIcon(BOARDS_ICON_PATH, '1.5');
   icon.classList.add('chat-board-change-icon');
   row.append(icon, boardChangeTextOf(card), showOnBoard);

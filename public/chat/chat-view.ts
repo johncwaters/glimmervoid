@@ -151,7 +151,7 @@ function queuedStatusOf(entry: ChatOutboxEntry): string {
 }
 
 function sendNowButtonOf(entry: ChatOutboxEntry): HTMLButtonElement {
-  const sendNowButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Send now' });
+  const sendNowButton = button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Send now' });
   sendNowButton.addEventListener('click', () => {
     sendNowButton.disabled = true;
     sendNowButton.dispatchEvent(new CustomEvent('chat-send-now', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
@@ -163,7 +163,7 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
   const row = el('div', 'chat-queued-row');
   row.dataset.state = entry.state;
   const status = el('span', 'chat-queued-status', queuedStatusOf(entry));
-  const cancelButton = button({ variant: 'quiet', size: 'small', textCase: 'sentence', label: 'Cancel', disabled: entry.state === 'sending' });
+  const cancelButton = button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Cancel', disabled: entry.state === 'sending' });
   cancelButton.addEventListener('click', () => {
     row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
   });
