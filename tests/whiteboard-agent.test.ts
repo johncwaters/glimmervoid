@@ -2609,7 +2609,50 @@ test('the code map board puts a moved box back at its generated place and keeps 
   assert.equal((await toolsFrameOf())?.collapsed, true);
 });
 
-test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step whose session ended or was forgotten by a restart, and refuses a loop', async () => {
+test('a step session that ends while another plan run waits in the queue leaves the step that run restarts building', async () => {
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'plan-race-'));
+  const project = path.join(boardsRoot, 'app');
+  const runner = { id: 'plan-runner', name: 'runner', project };
+  const wiring = createWhiteboardWiring({ boardsRoot, projectOf: () => project });
+  const boardId = ((await wiring.handleAgent(runner, { sub: 'new', title: 'Race it' })).body as { board: { id: string } }).board.id;
+  const stepOp = (id: string) => ({ op: 'add', element: { kind: 'box', id, title: `Build ${id}`, place: 'plan', step: { status: 'planned' } } });
+  const putOps = async (ops: unknown[]) => assert.equal((await wiring.handleAgent(runner, { sub: 'put', board: boardId, ops: z.array(Op).parse(ops) })).status, 200);
+  await putOps([stepOp('a')]);
+  const liveChildren = new Map<string, EventEmitter>();
+  let holdSpawn: Promise<void> | null = null;
+  const ports: PlanRunPorts = {
+    readPlanBoard: (boardRef) => wiring.readPlanBoard(runner, boardRef),
+    setStepStatus: async (id, stepId, status) => { assert.equal((await wiring.handleAgent(runner, { sub: 'put', board: id, ops: [{ op: 'set', id: stepId, fields: { step: { status } } }] })).status, 200); },
+    spawnStep: async (name) => {
+      if (name === 'Build b' && holdSpawn) await holdSpawn;
+      const childId = `child-${liveChildren.size + 1}-${name}`;
+      const events = new EventEmitter();
+      liveChildren.set(childId, events);
+      return { ok: true, childId, childName: name, onLanded: (listener) => { events.once('commits-landed', listener); }, onEnded: (listener) => { events.once('teardown', listener); } };
+    },
+    isLive: (sessionId) => liveChildren.has(sessionId),
+    tellRunner: () => {},
+  };
+  const runs = createPlanRuns({ warn: (message) => assert.fail(message) });
+  const statuses = async () => planSteps(Board.parse(((await wiring.handleAgent(runner, { sub: 'get', board: boardId })).body as { board: unknown }).board)).map((step) => `${step.boxId}:${step.status}`);
+  await runs.run(boardId, ports);
+  const [firstChildOfA = ''] = liveChildren.keys();
+  await putOps([stepOp('b')]);
+  let releaseSpawn = () => {};
+  holdSpawn = new Promise((resolve) => { releaseSpawn = resolve; });
+  const heldRun = runs.run(boardId, ports);
+  const queuedRun = runs.run(boardId, ports);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  liveChildren.get(firstChildOfA)?.emit('teardown');
+  liveChildren.delete(firstChildOfA);
+  releaseSpawn();
+  await Promise.all([heldRun, queuedRun]);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(await statuses(), ['a:building', 'b:building']);
+  assert.equal([...liveChildren.keys()].filter((childId) => childId.endsWith('Build a')).length, 1);
+});
+
+test('a plan run spawns each planned step whose earlier steps landed, starts the next once a step merges unless it was added after the run, reopens a step the moment its session ends unlanded or once a restart forgot it, tells the runner each landing and reopening on that step session, and refuses a loop', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'plan-run-'));
   const project = path.join(boardsRoot, 'app');
   const runner = { id: 'plan-runner', name: 'runner', project };
@@ -2623,6 +2666,7 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   const childEvents = new Map<string, EventEmitter>();
   const prompts: string[] = [];
   const toldRunner: string[] = [];
+  const toldRunnerBy: string[] = [];
   let refuseSpawnsAfter = Number.POSITIVE_INFINITY;
   const portsFor = (): PlanRunPorts => ({
     readPlanBoard: (boardRef) => wiring.readPlanBoard(runner, boardRef),
@@ -2636,10 +2680,10 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
       const childId = `child-${prompts.length}`;
       const events = new EventEmitter();
       childEvents.set(childId, events);
-      return { ok: true, childId, childName: name, onLanded: (listener) => { events.once('commits-landed', listener); } };
+      return { ok: true, childId, childName: name, onLanded: (listener) => { events.once('commits-landed', listener); }, onEnded: (listener) => { events.once('teardown', listener); } };
     },
     isLive: (sessionId) => childEvents.has(sessionId),
-    tellRunner: (text) => { toldRunner.push(text); },
+    tellRunner: (childId, text) => { toldRunnerBy.push(childId); toldRunner.push(text); },
   });
   const ports = portsFor();
   const runs = createPlanRuns({ warn: (message) => assert.fail(message) });
@@ -2654,9 +2698,25 @@ test('a plan run spawns each planned step whose earlier steps landed, starts the
   assert.match(prompts[0] ?? '', /Build a.*\n- details of a\n.*glimmervoid push/s);
 
   await putOps([stepOp('late')]);
-  childEvents.get(childOfPrompt('Build a'))?.emit('commits-landed');
+  const childOfA = childOfPrompt('Build a');
+  childEvents.get(childOfA)?.emit('commits-landed');
   await untilStatus('a:landed');
-  assert.deepEqual(await statuses(), ['a:landed', 'b:building', 'late:planned', 'c:planned'], 'a step added after the run waits for another run');
+  childEvents.get(childOfA)?.emit('teardown');
+  assert.deepEqual(await statuses(), ['a:landed', 'b:building', 'late:planned', 'c:planned'], 'a step added after the run waits for another run, and a landed step stays landed when its session ends');
+  assert.deepEqual([toldRunner.splice(0), toldRunnerBy.splice(0)], [['The plan step a landed.'], [childOfA]]);
+
+  const childOfB = childOfPrompt('Build b');
+  childEvents.get(childOfB)?.emit('teardown');
+  await untilStatus('b:planned');
+  assert.deepEqual(await statuses(), ['a:landed', 'b:planned', 'late:planned', 'c:planned'], 'a step is planned again as soon as its session ends unlanded');
+  assert.match(toldRunner.splice(0).join('\n'), /The plan step b is planned again, because its session ended before its work landed; run glimmervoid whiteboard run/);
+  assert.deepEqual(toldRunnerBy.splice(0), [childOfB]);
+  await runs.run(boardId, ports);
+  assert.deepEqual(await statuses(), ['a:landed', 'b:building', 'late:building', 'c:planned']);
+  childEvents.get(childOfPrompt('Build late'))?.emit('teardown');
+  await untilStatus('late:planned');
+  toldRunner.splice(0);
+  toldRunnerBy.splice(0);
 
   childEvents.delete(childOfPrompt('Build b'));
   refuseSpawnsAfter = prompts.length;

@@ -252,10 +252,22 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
           childId: outcome.sessionId,
           childName: outcome.name,
           onLanded: (listener) => { agentSessions.get(outcome.sessionId)?.once('commits-landed', listener); },
+          onEnded: (listener) => {
+            const child = agentSessions.get(outcome.sessionId);
+            if (!child) {
+              queueMicrotask(listener);
+              return;
+            }
+            child.once('teardown', listener);
+          },
         };
       },
       isLive: (sessionId) => agentSessions.has(sessionId),
-      tellRunner: (text) => {
+      tellRunner: (childId, text) => {
+        if (channelsByChildId.has(childId)) {
+          post(childId, 'toParent', { author: 'glimmervoid', text, at: clock.nowMs(), wakes: true });
+          return;
+        }
         runtime.logger?.warn(`[plan run] ${text}`);
         if (!session._destroyed) session.raiseAttention('agent', text);
       },
