@@ -744,6 +744,6 @@ function habitWarningsOf(boardAfter: Board, ops: readonly Op[]): string[] {
   return [...likeTitledWarnings(boardAfter, addedBoxes), ...allWordsWarnings(ops, addedBoxes)];
 }
 
-export { agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, shownBoxOp };
+export { agentPutRefusalOf, habitWarningsOf, ownShownCardIdsOf, pickShowBoardId, shownBoxOp, wordCountOf };
 export type { ShownCard };
 export { ATTACHED_BOARD_NOTE, attachedBoardNoticeLineFor, BOARD_CONTEXT_NOTE, upgradedBoardRecord, changesForReader, unreadChangeRefusalOf, changedSinceRefusalOf, connectSession, disconnectSession, boardNoticeFor, isFiledFor, isListedFor, isSameProject, markRead, projectBoardsNoticeFor, recordPut, resolveBoardRef, summarizeBoard };

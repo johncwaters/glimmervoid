@@ -54,6 +54,7 @@ interface SessionEventDependencies {
   closeSessionDataClients: (id: string) => void;
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
+  director?: { onTurnEnd: (session: Session) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   verification?: { attachSession: (session: Session) => void } | null;
   loopGuard?: { attachSession: (session: Session) => void } | null;
@@ -260,6 +261,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     }) => {
       if (to === STATES.IDLE || to === STATES.COMPLETE) {
         dependencies.taskTitleRefiner?.onTurnEnd(session);
+        dependencies.director?.onTurnEnd(session);
       }
       if (event === 'spawn_success') {
         spawnedAtMs = clock.nowMs();

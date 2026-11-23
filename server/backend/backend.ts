@@ -94,6 +94,7 @@ import { createCodemapService } from '../codemap/codemap-wiring.ts';
 import { createCodemapClient } from '../codemap/codemap-client.ts';
 import { createBranchMerge } from '../board-session/branch-merge.ts';
 import { createBoardAsks } from '../whiteboard/board-ask.ts';
+import { createDirector } from '../board-session/director.ts';
 import { configuredIntegrationBranch } from '../core/integration-branch-core.ts';
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -477,6 +478,13 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     usage,
   } = laneAssembly;
   gitWorkspace = assembledGitWorkspace;
+  const director = traceWiring ? createDirector({
+    spawnLane: laneAssembly.directorLaneSpawn,
+    drainTrace: traceWiring.drainSession,
+    readTracePage: traceWiring.readTracePage,
+    boxesOfSession: (repoDir, sessionId, paths) => codemap.boxesOfSession(repoDir, sessionId, paths),
+    boards: whiteboards,
+  }) : null;
   const vaultSourceFor = (lookIn: unknown) => {
     const manager = vaultManagerOf(config.vault);
     return SecretSource.safeParse(manager === 'age' ? { manager } : { manager, lookIn });
@@ -606,6 +614,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     }),
     pushProvenanceNotes: (repoDir: string) => assembledGitWorkspace.pushProvenanceNotes(repoDir),
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
+    director,
     starHint: laneAssembly.starHint,
     closeSessionDataClients,
     removeExitedSession: (id: string) => removeExitedSession?.(id),
@@ -856,6 +865,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     reviewSessions,
     investigationSessions,
     taskTitleSessions: laneAssembly.taskTitleSessions,
+    directorSessions: laneAssembly.directorSessions,
     questionManagerSessions: laneAssembly.questionManagerSessions,
     raceSessions: laneAssembly.raceSessions,
     branchGc,
@@ -877,6 +887,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     traceChangeBroadcast,
     taskTitleRefiner: laneAssembly.taskTitleRefiner,
+    director,
     telegramOutbox,
     heartbeat,
     outcomes,

@@ -2,7 +2,7 @@ import { BADGE_LABELS, STATES } from '#shared/states.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { BUSY_BEAT, MONITORING_VERB, verbChoicesFor } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
-import { fileEditsOf } from '../chat/turn-digest-core.ts';
+import { fileEditsOf } from '#shared/file-edits-core.ts';
 
 export interface Presence {
   workedPath: string | null;

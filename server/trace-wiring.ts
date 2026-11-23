@@ -131,6 +131,15 @@ function createTraceWiring({
     unrefTimer(pollTimer);
   }
 
+  async function drainSession(glimmervoidSessionId: string): Promise<void> {
+    await operationQueue.run(async () => {
+      const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
+      if (hasStopped || binding === undefined || binding.isClosing) return;
+      await drainBinding(binding);
+    });
+    await recordStore.flushSession(glimmervoidSessionId);
+  }
+
   async function whenIdle(): Promise<void> {
     await operationQueue.idle();
     await flushEverySession();
@@ -163,6 +172,7 @@ function createTraceWiring({
 
   return {
     attachSession,
+    drainSession,
     on: (event: 'trace-appended', listener: (payload: TraceAppended) => void) => emitter.on(event, listener),
     readTracePage,
     start,

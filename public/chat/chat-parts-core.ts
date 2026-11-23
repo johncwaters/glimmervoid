@@ -6,8 +6,10 @@ import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { unwrapPastedContent } from '#shared/pasted-content.ts';
-import { fileEditsOf, filePatchesOf, outputHeadOf, truncatedFileEditsOf, toolLabelOf } from './turn-digest-core.ts';
-import type { FileEdit, FileEditTally, FilePatch, ToolCallEntry, TurnSegment } from './turn-digest-core.ts';
+import { fileEditsOf } from '#shared/file-edits-core.ts';
+import type { FileEdit } from '#shared/file-edits-core.ts';
+import { filePatchesOf, outputHeadOf, truncatedFileEditsOf, toolLabelOf } from './turn-digest-core.ts';
+import type { FileEditTally, FilePatch, ToolCallEntry, TurnSegment } from './turn-digest-core.ts';
 
 interface ChatTurn {
   promptAt: number | null;

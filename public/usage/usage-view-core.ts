@@ -100,6 +100,7 @@ const LANE_LABELS: Readonly<Record<string, string>> = Object.freeze({
   benchmark: 'Benchmarks',
   'agent-spawn': 'Agent API',
   'task-title': 'Task titles',
+  director: 'Studio director',
   other: 'Other',
 });
 

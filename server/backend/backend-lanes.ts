@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import { createGitWorkspace, createGitWorkspaceSync } from '../git/git-workspace.ts';
 import { createOwnedPathsLedger } from '../owned-paths-ledger.ts';
 import { TASK_TITLE_LANE_TOOLS, createTaskTitleRefiner } from '../task-title-refiner.ts';
+import { DIRECTOR_LANE_TOOLS } from '../board-session/director.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import { createSessionReviewWiring } from '../review/session-review-wiring.ts';
 import { createQuestionManagerLane, QUESTION_MANAGER_LANE_TOOLS } from '../question-manager/question-manager.ts';
@@ -431,6 +432,13 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     }),
   });
 
+  const directorSessions = new Map<string, Session>();
+  const directorLaneSpawn = createLaneSpawn({
+    sessions: directorSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
+    laneName: 'director', allowTools: DIRECTOR_LANE_TOOLS, getSaneYoloUnreadablePaths: () => configStore.config.saneYoloUnreadablePaths ?? [], getLaneAccessConfig,
+    accountHomeFor: laneAccountHomeFor(() => configStore.config, 'task-title'),
+  });
+
   const questionManagerSessions = new Map<string, Session>();
   const questionManagerLane = createQuestionManagerLane(createLaneSpawn({
     sessions: questionManagerSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane,
@@ -535,6 +543,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     branchGc,
     taskTitleRefiner,
     taskTitleSessions,
+    directorSessions,
+    directorLaneSpawn,
     questionManagerLane,
     questionManagerSessions,
     current,
