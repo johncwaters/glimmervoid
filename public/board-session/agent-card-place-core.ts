@@ -5,13 +5,13 @@ import { rectsOverlap } from '#shared/whiteboard-route-core.ts';
 
 export type CardSide = 'right' | 'left' | 'below' | 'above';
 
-export interface CardSpot {
+interface CardSpot {
   x: number;
   y: number;
   side: CardSide;
 }
 
-export interface CardPlacementArea {
+interface CardPlacementArea {
   mapRects: readonly Rect[];
   mapGrid: SpatialGrid;
   view: Rect;
