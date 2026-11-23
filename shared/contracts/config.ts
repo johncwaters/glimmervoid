@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { AttentionOwner, BranchLink, DONE_MEANS_MAX_LINES, TaskTitle } from './session.ts';
+import { AttentionOwner, DONE_MEANS_MAX_LINES, ParentLink, TaskTitle } from './session.ts';
+import { legacyParentLinkOf } from '../parent-link.ts';
 import { SessionPrLinks } from './my-prs.ts';
 import { BranchGcControlSettings, GithubSettings,
   createBrowserConfig, optionalBoolean, optionalLooseObject, WorktreeControlSettings,
@@ -115,7 +116,7 @@ function readablePersistedDoneLines(lines: unknown[]): z.infer<typeof PersistedA
   }).slice(0, DONE_MEANS_MAX_LINES);
 }
 
-export const ProjectConfig = z.object({
+export const ProjectConfig = z.preprocess(legacyParentLinkOf, z.object({
   id: z.string().optional(),
   name: z.string().optional(),
   customTitle: TaskTitle.optional(),
@@ -136,11 +137,11 @@ export const ProjectConfig = z.object({
   attentionOwner: AttentionOwner.optional(),
   startSha: GitObjectSha.optional(),
   isStartPinned: z.boolean().optional(),
-  branchOf: BranchLink.optional().catch(undefined),
+  parent: ParentLink.optional().catch(undefined),
   isStudioMain: z.boolean().optional().catch(undefined),
   isDoneMeansOff: z.boolean().optional(),
   agentDoneLines: z.array(z.unknown()).transform(readablePersistedDoneLines).optional().catch(undefined),
-}).passthrough();
+}).passthrough());
 const FILE_CONFIG_SHAPE = {
   ...BROWSER_CONFIG_SHAPE,
   branchGc: optionalLooseObject('branchGc'),

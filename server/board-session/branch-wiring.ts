@@ -1,5 +1,6 @@
 import type { ProjectEntry } from '../config-store.ts';
-import type { BranchLink } from '../../shared/contracts/session.ts';
+import { branchParentIdOf } from '../../shared/parent-link.ts';
+import type { ParentLink } from '../../shared/contracts/session.ts';
 import { branchPromptOf, overlappingBranchTitle } from '../../shared/board-branch-core.ts';
 import type { BranchAbout, BranchTarget } from '../../shared/board-branch-core.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -58,14 +59,14 @@ function createBranchWiring({ findSession, listSessions, resolveTarget, createPr
     if (!parent.isWorktree) return { ok: false, error: `${parent.name} has no worktree of its own, so a branch has no commit to start from.` };
     const target = await resolveTarget(parent.path, request.about);
     if (!target.ok) return target;
-    const liveBranches = [...listSessions()].filter((session) => session.branchOf?.parentId === parent.id && !session._destroyed);
-    const heldTitle = overlappingBranchTitle(target.title, liveBranches.map((branch) => branch.branchOf?.aboutTitle ?? ''));
-    const holder = liveBranches.find((branch) => branch.branchOf?.aboutTitle === heldTitle);
+    const liveBranches = [...listSessions()].filter((session) => branchParentIdOf(session.parent) === parent.id && !session._destroyed);
+    const heldTitle = overlappingBranchTitle(target.title, liveBranches.map((branch) => branch.parent?.box?.title ?? ''));
+    const holder = liveBranches.find((branch) => branch.parent?.box?.title === heldTitle);
     if (heldTitle !== null) return { ok: false, error: `${holder?.name ?? 'A live branch'} already works on ${heldTitle}, which overlaps ${target.title}; send that branch the work, or close it in Studio first.` };
     const parentDir = parent.effectiveCwd();
     const head = await headShaOf(parentDir);
     if (!head.ok) return { ok: false, error: `Could not read the last commit of ${parent.name}: ${head.error}` };
-    const link: BranchLink = { parentId: parent.id, aboutBoxId: target.boxId, aboutTitle: target.title };
+    const link: ParentLink = { sessionId: parent.id, box: { id: target.boxId, title: target.title } };
     const created = createProjectSession({
       name: `${parent.name} ${target.title.split('/').filter(Boolean).at(-1) ?? target.title}`,
       path: parent.path,
@@ -74,12 +75,12 @@ function createBranchWiring({ findSession, listSessions, resolveTarget, createPr
       saneYolo: parent.saneYolo,
       accountId: parent.accountId,
       requireExistingPath: true,
-      runSettings: { startSha: head.sha, isStartPinned: true, branchOf: link },
+      runSettings: { startSha: head.sha, isStartPinned: true, parent: link },
     });
     if (!created.ok) return created;
     const branch = findSession(created.project.id);
     if (!branch) return { ok: false, error: `The branch session ${created.project.name} did not start.` };
-    const queued = branch.queueChatMessage(branchPromptOf(parent.name, link.aboutTitle, request.prompt), []);
+    const queued = branch.queueChatMessage(branchPromptOf(parent.name, target.title, request.prompt), []);
     if (!queued.ok) return { ok: false, error: queued.error };
     return { ok: true, sessionId: branch.id };
   }

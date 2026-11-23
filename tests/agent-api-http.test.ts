@@ -591,11 +591,11 @@ test('a spawned child reaches the dashboard as one session-added card naming its
       saneYolo: false,
       worktree: fixture.parent.isWorktree,
       resumeSessionId: null,
-      ownerId: 'parent',
+      parent: { sessionId: 'parent', box: null },
       attentionOwner: 'parent',
       ephemeral: true,
     });
-    assert.equal(fixture.created[0].toSnapshot().ownerId, 'parent', 'a reconnecting dashboard learns the owner from the snapshot too');
+    assert.deepEqual(fixture.created[0].toSnapshot().parent, { sessionId: 'parent', box: null }, 'a reconnecting dashboard learns the owner from the snapshot too');
     assert.equal(fixture.created[0].toSnapshot().attentionOwner, 'parent', 'a reconnecting dashboard learns the parent attends the child');
   } finally {
     fixture.destroyAll();
@@ -1026,7 +1026,7 @@ test('a parent and the child it spawned message each other through their own cha
 });
 
 test('a Studio branch and its main message each other on a channel opened from the branch link, which a replaced main takes over with one copy of each note, neither starts a session, the branch reaches no other session, and close leaves a branch alone', async () => {
-  const branch = new Session({ id: 'branch-server', name: 'parent server', path: process.cwd(), ptySpawn: () => fakePty(), branchOf: { parentId: 'parent', aboutBoxId: 'box-server', aboutTitle: 'server' } });
+  const branch = new Session({ id: 'branch-server', name: 'parent server', path: process.cwd(), ptySpawn: () => fakePty(), parent: { sessionId: 'parent', box: { id: 'box-server', title: 'server' } } });
   const fixture = wiringFixture({ parentIsStudioMain: true, laneSessions: [branch] });
   try {
     fixture.wiring.linkBranchSession(fixture.parent);

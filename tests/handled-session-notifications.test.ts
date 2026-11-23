@@ -62,7 +62,7 @@ test('a child session its parent owns and an arena contestant never notify the o
       session.emit('attention-notes', { notes: [{ origin: 'child-kept', note: 'look at this', at: Date.now() }] });
     };
     startWired(makeSession(plainProject, configStore.config));
-    startWired(makeSession(childProject, configStore.config, { ownerId: 'plain-session' }));
+    startWired(makeSession(childProject, configStore.config, { parent: { sessionId: 'plain-session', box: null } }));
     startWired(makeSession(contestantProject, configStore.config));
     startWired(makeSession(wargamesProject, configStore.config));
 

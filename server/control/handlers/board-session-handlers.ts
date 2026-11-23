@@ -1,4 +1,5 @@
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
+import { branchParentIdOf } from '../../../shared/parent-link.ts';
 import { errorMessage } from '../../../shared/text.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
@@ -109,7 +110,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       if (!main) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
       if (!director || !main.isStudioMain) return ws.send(JSON.stringify({ ...reply, ok: true, isAnswered: false }));
       try {
-        const branches = [...sessions.values()].filter((candidate) => candidate.branchOf?.parentId === main.id && !candidate._destroyed);
+        const branches = [...sessions.values()].filter((candidate) => branchParentIdOf(candidate.parent) === main.id && !candidate._destroyed);
         const agents = [main, ...branches].map((agent) => ({ sessionId: agent.id, name: agent.name }));
         const boardIdOf = async () => {
           const boxes = codemap ? await codemap.boxesOfSession(main.path, main.id, []) : null;

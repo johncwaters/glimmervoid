@@ -120,7 +120,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
       const spawned = makeSession(project, config, {
         agent: agentId,
         agentDepth: budget.depth + 1,
-        ownerId: parent.id,
+        parent: { sessionId: parent.id, box: null },
         holdsQuestionsForParent: true,
         ephemeral: true,
         initialPrompt: request.prompt,

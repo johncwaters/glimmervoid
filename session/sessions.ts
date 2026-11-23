@@ -12,7 +12,8 @@ import type { ResolvedHookTool } from './core/hook-tools.ts';
 import fs from "node:fs";
 import { isSelfWakePrompt } from "./core/task-title-core.ts";
 import type { PersistedTaskTitle } from "../shared/contracts/config.ts";
-import type { BranchLink } from "../shared/contracts/session.ts";
+import type { ParentLink } from "../shared/contracts/session.ts";
+import { ownerIdOf } from "../shared/parent-link.ts";
 import type { SessionEndCause } from "../shared/contracts/telemetry.ts";
 import type { LinkedPr, SessionPrLinks } from "../shared/contracts/my-prs.ts";
 import type { PromptContextReply, QuestionToolDenyResponse } from "../shared/contracts/refocus.ts";
@@ -254,10 +255,9 @@ interface SessionOptions {
   workspaceRepos?: string[];
   seedDependencies?: SeedDependencies | null;
   agentDepth?: number;
-  ownerId?: string | null;
   raceId?: string | null;
   attentionOwner?: AttentionOwner | null;
-  branchOf?: BranchLink | null;
+  parent?: ParentLink | null;
   isStudioMain?: boolean;
   commitSigningProgram?: string | null;
   resolveGitCredentialHelper?: ((cwd: string) => Promise<string | null>) | null;
@@ -361,8 +361,7 @@ class Session extends EventEmitter {
   _sharedPackMcpServers: ((agentId: string) => PackMcpServer[]) | null;
   _hooks: ReturnType<typeof createSessionHookLifecycle>;
   _agentDepth: number;
-  readonly ownerId: string | null;
-  readonly branchOf: BranchLink | null;
+  readonly parent: ParentLink | null;
   readonly isStudioMain: boolean;
   readonly doneMeans: readonly string[];
   agentDoneLines: readonly AgentDoneLine[];
@@ -489,10 +488,9 @@ class Session extends EventEmitter {
     seedDependencies = null,
 
     agentDepth = 0,
-    ownerId = null,
     raceId = null,
     attentionOwner = null,
-    branchOf = null,
+    parent = null,
     isStudioMain = false,
     commitSigningProgram = null,
     resolveGitCredentialHelper = null,
@@ -507,12 +505,11 @@ class Session extends EventEmitter {
     const hasScheduledWakeups = detectScheduledWakeups ?? true;
     const hasBackgroundAgentDetection = detectBackgroundAgents ?? true;
     this.id = id;
-    this.ownerId = ownerId;
-    this.branchOf = branchOf;
+    this.parent = parent;
     this.isStudioMain = isStudioMain;
     this.doneMeans = doneMeans;
     this.agentDoneLines = agentDoneLines.map((line) => ({ ...line }));
-    this.attentionOwner = attentionOwner ?? attentionOwnerOf(ownerId, raceId);
+    this.attentionOwner = attentionOwner ?? attentionOwnerOf(ownerIdOf(parent), raceId);
     this.name = name;
     const resolvedAdapter = adapter || resolveAdapter(agent, { label: `session:${name}` });
     if (!resolvedAdapter) throw new TypeError("default agent adapter is unavailable");
@@ -1661,7 +1658,6 @@ class Session extends EventEmitter {
       dangerouslySkipPermissions: this.dangerouslySkipPermissions,
       saneYolo: this.saneYolo,
       ephemeral: this.ephemeral,
-      ownerId: this.ownerId,
       attentionOwner: this.attentionOwner,
       isWorktree: this.isWorktree,
       isWorkspace: this.isWorkspace,
@@ -1683,7 +1679,7 @@ class Session extends EventEmitter {
       passedQuestionSeq: this.passedQuestionSeq,
       isQuestionManagerOn: this.isQuestionManagerOn,
       accountId: this.accountId,
-      branchOf: this.branchOf,
+      parent: this.parent,
       isStudioMain: this.isStudioMain,
       agentSetup: this._agentSetup,
       effectiveBase: this.worktreeLifecycle.snapshot().effectiveBase,

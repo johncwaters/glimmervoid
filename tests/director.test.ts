@@ -42,7 +42,7 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
     settleMs,
     logger: { warn: () => {} },
   });
-  const session = { id: 'main-1', name: 'repo main', ephemeral: false, isStudioMain: true, branchOf: null, _destroyed: false };
+  const session = { id: 'main-1', name: 'repo main', ephemeral: false, isStudioMain: true, parent: null, _destroyed: false };
   director.onTurnEnd(session);
   await waitMs(LATER_RECORD_DELAY_MS);
   director.onTraceAppended({ id: session.id, ...afterTurnEnd(records) });

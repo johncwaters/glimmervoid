@@ -1,4 +1,5 @@
 import './board-session.css';
+import { branchParentIdOf } from '#shared/parent-link.ts';
 import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
@@ -254,13 +255,14 @@ function shownBranchIds(): string[] {
 function dockBranchesOf(branchIds: readonly string[]): DockBranch[] {
   return branchIds.flatMap((branchId) => {
     const ui = sessionUIs.get(branchId);
-    if (!ui?.branchOf) return [];
+    const branchTitle = ui?.parent?.box?.title;
+    if (!ui || branchTitle === undefined) return [];
     return [{
       sessionId: branchId,
       name: sessionName(ui) || branchId.slice(0, 8),
       workingDirectory: sessionWorkingDirectoryOf(branchId) ?? ui.path,
       agentId: ui.agent ?? null,
-      aboutTitle: ui.branchOf.aboutTitle,
+      aboutTitle: branchTitle,
       isTurnOver: () => chatPhaseOf(sessionUIs.get(branchId)?.currentState) !== 'working',
     }];
   });
@@ -328,12 +330,11 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     name: sessionName(ui) || sessionId.slice(0, 8),
     agentId: ui.agent ?? null,
     isMain: sessionId === shownSessionId,
-    isBranch: Boolean(ui.branchOf),
-    boxIds: [ui.branchOf?.aboutBoxId ?? null, fallbackBoxId].flatMap((candidate) => candidate ?? []),
+    isBranch: branchParentIdOf(ui.parent) !== null,
+    boxIds: [ui.parent?.box?.id ?? null, fallbackBoxId].flatMap((candidate) => candidate ?? []),
     phase,
     beat: phase === 'working' ? watch.lastBeat : null,
     digest: latestDigestOf(sessionId, watch),
-    subagents: isBusyPhase(phase) ? watch.subagents : [],
     approvals: watch.waits.element,
     isAsking: watch.waits.isAsking(),
     isOpened: openedBranchIds.has(sessionId),

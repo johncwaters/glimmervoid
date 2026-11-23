@@ -1,7 +1,8 @@
 import type { ManagerDecision } from '#shared/contracts/question-manager.ts';
+import { ownerIdOf } from '#shared/parent-link.ts';
 import type { SessionState } from '#shared/states.ts';
 import { STATES } from '#shared/states.ts';
-import { UnseenOutcome, type AttentionOwner } from '#shared/contracts/session.ts';
+import { UnseenOutcome, type AttentionOwner, type ParentLink } from '#shared/contracts/session.ts';
 import type { SessionStateSource } from './session-actions-core.ts';
 import { moveViewId } from './view-registry-core.ts';
 
@@ -47,13 +48,13 @@ export interface SessionRow<Session, Name = string> extends RosterEntry {
   attentionOwner: AttentionOwner;
 }
 
-export function buildSessionRows<Session extends SessionStateSource & { ownerId?: string | null; attentionOwner?: AttentionOwner; unseenOutcome?: UnseenOutcome | null }, Name>(
+export function buildSessionRows<Session extends SessionStateSource & { parent?: ParentLink | null; attentionOwner?: AttentionOwner; unseenOutcome?: UnseenOutcome | null }, Name>(
   sessions: Iterable<readonly [string, Session]>,
   nameOf: (session: Session) => Name,
 ): SessionRow<Session, Name>[] {
   return [...sessions].map(([id, ui]) => {
     const state = ui.currentState || STATES.DORMANT;
-    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseenOutcome: ui.unseenOutcome ?? null, ownerId: ui.ownerId ?? null, attentionOwner: ui.attentionOwner ?? 'operator' };
+    return { id, ui, name: nameOf(ui), isDormant: state === STATES.DORMANT, state, unseenOutcome: ui.unseenOutcome ?? null, ownerId: ownerIdOf(ui.parent), attentionOwner: ui.attentionOwner ?? 'operator' };
   });
 }
 

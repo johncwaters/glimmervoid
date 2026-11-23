@@ -18,12 +18,11 @@ import { InFlightReview, QueuedReview, ReviewDraft } from './team-review.ts';
 import { REVIEW_TEXT_MAX_CHARS, ReviewCommentId } from './review-state.ts';
 import { WhiteboardAgentReply } from './whiteboard.ts';
 
-export const BranchLink = z.object({
-  parentId: z.string().min(1),
-  aboutBoxId: z.string().min(1).max(40),
-  aboutTitle: z.string().max(80),
+export const ParentLink = z.object({
+  sessionId: z.string().min(1),
+  box: z.object({ id: z.string().min(1).max(40), title: z.string().max(80) }).nullable().default(null),
 });
-export type BranchLink = z.infer<typeof BranchLink>;
+export type ParentLink = z.infer<typeof ParentLink>;
 
 export const MergeStatus = z.enum(['none', 'pending-review', 'merging', 'parked', 'merged']);
 export type MergeStatus = z.infer<typeof MergeStatus>;
@@ -147,7 +146,6 @@ export const SessionSnapshot = z.object({
   dangerouslySkipPermissions: z.boolean(),
   saneYolo: z.boolean().default(false),
   ephemeral: z.boolean(),
-  ownerId: z.string().nullable().optional(),
   attentionOwner: AttentionOwner.default('operator'),
   isWorktree: z.boolean(),
   isWorkspace: z.boolean().default(false),
@@ -165,7 +163,7 @@ export const SessionSnapshot = z.object({
   passedQuestionSeq: z.number().int().nonnegative().default(0),
   isQuestionManagerOn: z.boolean().nullable().default(null),
   accountId: AgentAccountId.nullable().default(null),
-  branchOf: BranchLink.nullable().default(null),
+  parent: ParentLink.nullable().default(null),
   isStudioMain: z.boolean().default(false),
   modelSelection: ModelSelection.nullable().default(null),
   effectiveBase: z.string().nullable(),

@@ -1,7 +1,7 @@
 import type { FitAddon } from '@xterm/addon-fit';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import type { Terminal } from '@xterm/xterm';
-import type { AttentionOwner, BranchLink, UnseenOutcome, UsageLimit } from '#shared/contracts/session.ts';
+import type { AttentionOwner, ParentLink, UnseenOutcome, UsageLimit } from '#shared/contracts/session.ts';
 import type { TerminalGrid } from './grid-core.ts';
 import { createAttentionTally } from '../attention-core.ts';
 
@@ -22,8 +22,7 @@ export interface SessionUi {
   taskTitleIsCustom: boolean;
   titleTargetEl?: HTMLElement | null;
   path: string;
-  ownerId: string | null;
-  branchOf: BranchLink | null;
+  parent: ParentLink | null;
   isStudioMain: boolean;
   attentionOwner: AttentionOwner;
   stateSince: number;

@@ -1,4 +1,6 @@
 import { checkCommand } from 'cc-safety-net/api';
+import type { ParentLink } from '../../shared/contracts/session.ts';
+import { ownerIdOf } from '../../shared/parent-link.ts';
 import { execFile, spawn } from '../child-process-safe.ts';
 import { buildAllowlistedChildEnv } from '../git/core/git-invocation-core.ts';
 import { decideStandardsGate } from '../../session/core/merge-gate.ts';
@@ -28,7 +30,7 @@ interface VerifiableSession {
   id: string;
   path: string;
   ephemeral: boolean;
-  ownerId?: string | null;
+  parent?: ParentLink | null;
   agentDoneLines: readonly { text: string; command: string }[];
   hasOwnWorktree: boolean;
   worktreeDir: string | null;
@@ -345,7 +347,7 @@ function createVerificationWiring(dependencies: VerificationWiringDependencies):
     attachedSessionIds.add(session.id);
     attachedSessionById.set(session.id, session);
     session.worktreeLifecycle.setMergeGate((tree) => gateMerge(session, tree));
-    if (session.ephemeral && !session.ownerId) return;
+    if (session.ephemeral && ownerIdOf(session.parent) === null) return;
     session.on('post-turn-check', () => {
       verifyAtTurnEnd(session).catch((error: unknown) => {
         dependencies.logger.warn(`[verification] ${session.id}: ${errorMessage(error)}`);

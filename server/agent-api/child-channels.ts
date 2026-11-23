@@ -1,4 +1,5 @@
 import type { Session } from '../../session/sessions.ts';
+import { branchParentIdOf } from '../../shared/parent-link.ts';
 import type { AgentReadReply, ConversationApproval } from '../../shared/contracts/session.ts';
 import type { WakeOrigin } from '../../shared/contracts/wakes.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
@@ -281,14 +282,15 @@ function createChildChannels(runtime: AgentApiRuntime) {
   }
 
   function linkBranchSession(session: Session): void {
-    if (session.branchOf) {
-      const main = liveSessionOf(session.branchOf.parentId);
+    const mainId = branchParentIdOf(session.parent);
+    if (mainId !== null) {
+      const main = liveSessionOf(mainId);
       if (main) openBranchChannel(main, session);
       return;
     }
     if (!session.isStudioMain) return;
     for (const candidate of listAllSessions()) {
-      if (candidate.branchOf?.parentId === session.id && !candidate._destroyed) openBranchChannel(session, candidate);
+      if (branchParentIdOf(candidate.parent) === session.id && !candidate._destroyed) openBranchChannel(session, candidate);
     }
   }
 
