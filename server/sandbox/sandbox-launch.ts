@@ -193,13 +193,13 @@ function readableFilesIn(env: SpawnEnv): string[] {
 function sessionSandboxFor(dependencies: SessionSandboxDependencies, sessionTempFolder: string, hiddenFolders: readonly string[]): PrepareSandbox {
   return async (facts: SandboxLaunchFacts) => {
     const ingressPort = dependencies.getIngressPort();
-    if (ingressPort === null) return { ok: false, reason: 'the agent endpoint is not listening yet' };
+    if (ingressPort === null) return { ok: false, reason: 'the agent endpoint is not listening yet', code: 'SANDBOX_ENDPOINT_NOT_LISTENING' };
     const tools = await dependencies.resolveTools();
-    if ('refusal' in tools) return { ok: false, reason: tools.refusal };
+    if ('refusal' in tools) return { ok: false, reason: tools.refusal, code: 'SANDBOX_TOOLS_MISSING' };
     const credentialProxy = await holdCredentialProxy(dependencies, facts);
-    if ('refusal' in credentialProxy) return { ok: false, reason: credentialProxy.refusal };
+    if ('refusal' in credentialProxy) return { ok: false, reason: credentialProxy.refusal, code: 'SANDBOX_CREDENTIAL_PROXY_FAILED' };
     const prepared = await launchWithin(dependencies, sessionTempFolder, hiddenFolders, facts, tools, ingressPort, credentialProxy)
-      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error), code: 'SANDBOX_LAUNCH_FAILED' as const }));
     if (!prepared.ok) credentialProxy.release();
     return prepared;
   };
@@ -238,7 +238,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     const written = await writeTextAtomic(launcherSettingsPath, settingsText).then(() => null, (error: unknown) => ({ refusal: `the sandbox settings could not be written: ${errorMessage(error)}` }));
     if (written !== null) {
       await removeLauncherFolder();
-      return { ok: false, reason: written.refusal };
+      return { ok: false, reason: written.refusal, code: 'SANDBOX_SETTINGS_UNWRITABLE' };
     }
     const command = seatbeltCommand({ nodePath: tools.nodePath, seatbeltLauncherPath: tools.launcher.seatbeltLauncherPath, settingsPath: launcherSettingsPath, ingressPort, agentTempFolder: sessionTempFolder, restoredLinks, file: facts.file, args: facts.args });
     return {
@@ -262,7 +262,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     .catch((error: unknown) => ({ refusal: `the session bridge could not listen: ${errorMessage(error)}` }));
   if ('refusal' in ingressSocket) {
     await removeSocketFolder();
-    return { ok: false, reason: ingressSocket.refusal };
+    return { ok: false, reason: ingressSocket.refusal, code: 'SANDBOX_BRIDGE_LISTEN_FAILED' };
   }
   const command = sandboxedCommand({ nodePath: tools.nodePath, srtCliPath: tools.srtCliPath, socatPath: tools.launcher.socatPath, settingsPath, ingressPort, ingressSocketPath, agentTempFolder: sessionTempFolder, restoredLinks, file: facts.file, args: facts.args });
   return {

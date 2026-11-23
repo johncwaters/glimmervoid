@@ -46,7 +46,20 @@ interface SandboxLaunch {
   dispose(): Promise<void>;
 }
 
-type PrepareSandbox = (facts: SandboxLaunchFacts) => Promise<{ ok: true; launch: SandboxLaunch } | { ok: false; reason: string }>;
+type SandboxRefusalCode =
+  | 'SANDBOX_ENDPOINT_NOT_LISTENING'
+  | 'SANDBOX_TOOLS_MISSING'
+  | 'SANDBOX_CREDENTIAL_PROXY_FAILED'
+  | 'SANDBOX_SETTINGS_UNWRITABLE'
+  | 'SANDBOX_BRIDGE_LISTEN_FAILED'
+  | 'SANDBOX_LAUNCH_FAILED'
+  | 'SANDBOX_PREPARE_FAILED'
+  | 'SANDBOX_NO_TEMP_FOLDER'
+  | 'SANDBOX_PLATFORM_UNSUPPORTED';
+
+type SandboxRefusal = { ok: false; reason: string; code: SandboxRefusalCode };
+
+type PrepareSandbox = (facts: SandboxLaunchFacts) => Promise<{ ok: true; launch: SandboxLaunch } | SandboxRefusal>;
 
 type LaunchHooks = Pick<ReturnType<typeof createSessionHookLifecycle>, 'listenerPort'>;
 
@@ -319,14 +332,14 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
     if (port.prepareSandbox === null) return { ...command, env };
     disposeSandbox();
     const prepared = await port.prepareSandbox({ ...command, agent: adapter.id, accountFolder, env, launchSetEnvNames, cwd: port.effectiveCwd() })
-      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }));
+      .catch((error: unknown): SandboxRefusal => ({ ok: false, reason: errorMessage(error), code: 'SANDBOX_PREPARE_FAILED' }));
     if (isSuperseded()) {
       if (prepared.ok) disposeLaunch(prepared.launch);
       port.onSupersededSandbox();
       return null;
     }
     if (!prepared.ok) {
-      port.onSandboxRefused(new Error(`the session sandbox refused to start: ${prepared.reason}`));
+      port.onSandboxRefused(Object.assign(new Error(`the session sandbox refused to start: ${prepared.reason}`), { code: prepared.code }));
       return null;
     }
     sandboxLaunch = prepared.launch;
@@ -380,4 +393,4 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
 }
 
 export { createSessionLaunch };
-export type { LaunchSecretsOutcome, PrepareSandbox, ResolveLaunchSecrets, SandboxLaunchFacts, SessionLaunch };
+export type { LaunchSecretsOutcome, PrepareSandbox, ResolveLaunchSecrets, SandboxLaunchFacts, SandboxRefusalCode, SessionLaunch };

@@ -3,6 +3,7 @@ import type { RequestListener, Server } from 'node:http';
 import { findNodeLauncherPath, resolveSrtCliPath, seatbeltLauncherPath } from '../runtime-paths.ts';
 import { firstCommandOnPath } from '../stable-node-path.ts';
 import type { PrepareSandbox } from '../../session/sessions.ts';
+import type { SandboxRefusalCode } from '../../session/session-launch.ts';
 import { sessionSandboxFor } from './sandbox-launch.ts';
 import { createCredentialProxies } from './credential-proxy.ts';
 import { createLoginRefresher } from './login-refresh.ts';
@@ -68,8 +69,8 @@ async function missingRuntimeCommand(platform: NodeJS.Platform): Promise<string 
   return missing ? `${missing.command} is not on PATH` : null;
 }
 
-function refusingSandbox(reason: string): PrepareSandbox {
-  return async () => ({ ok: false, reason });
+function refusingSandbox(reason: string, code: SandboxRefusalCode): PrepareSandbox {
+  return async () => ({ ok: false, reason, code });
 }
 
 interface SessionSandbox {
@@ -119,7 +120,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
   };
   return {
     sandboxFor: (sessionTempFolder, hiddenFolders) => sessionTempFolder === null
-      ? refusingSandbox('the session has no temp folder to hold its sandbox')
+      ? refusingSandbox('the session has no temp folder to hold its sandbox', 'SANDBOX_NO_TEMP_FOLDER')
       : sessionSandboxFor(dependencies, sessionTempFolder, hiddenFolders),
     refusal: async () => {
       const tools = await resolveTools();

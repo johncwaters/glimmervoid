@@ -115,7 +115,7 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   const isSessionSandboxOn = dependencies.config.sessionSandbox === true;
   if (isSessionSandboxOn && sessionSandbox === null) throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux and macOS (this machine is ${process.platform})`);
   const seatIsolation = (project: ProjectEntry, sessionTempFolder: string | null): SessionIsolation => {
-    if (sessionSandbox === null) return { prepareSandbox: refusingSandbox(SEAT_NEEDS_SANDBOX_PLATFORM), privateHomeKey: null, extraClaudeArgs: [] };
+    if (sessionSandbox === null) return { prepareSandbox: refusingSandbox(SEAT_NEEDS_SANDBOX_PLATFORM, 'SANDBOX_PLATFORM_UNSUPPORTED'), privateHomeKey: null, extraClaudeArgs: [] };
     const hiddenFolders = [WARGAMES_SEAT_ROOT_DIR, ...ensureEverySandboxedHomesRoot(), SHARED_AGENT_SKILLS_FOLDER];
     return { prepareSandbox: sessionSandbox.sandboxFor(sessionTempFolder, hiddenFolders), privateHomeKey: project.id, extraClaudeArgs: (project.agent ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID ? SEAT_CLAUDE_ARGS : [] };
   };
