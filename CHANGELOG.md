@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Change an answer before the questions go out.** When an agent asks several questions in chat, each answered one shows a Change button until the last is answered, so a misclick can be fixed before the agent sees anything. The line under Dismiss explaining that it stops the agent is gone.
 - **Board changes stand out in chat.** The line saying a session changed a board is now an accent card headed Board updated, with Show on board as the main action, so it no longer reads like a muted tool note.
 - **Chat names the running call once.** While a turn runs, its row shows just the tool call count; the call in progress shows only on the activity line below it, where it used to appear on both.
 - **First-run setup ends in your first session.** After the setup steps, Choose a repo lists your repos newest first, five at a time with a filter, and picks the repo for you when there is only one. Start a session then offers three ready tasks (map the repo on a board, fix one small bug, explain one module), each with what it touches and its prompt, or your own prompt, and opens the new session at once. The Add a repository step shows only when no repo was found. A repo with no commits yet is listed as such and its session works in that folder directly, since a worktree needs a commit. Each finished step closes one bracket of the Glimmervoid mark, and starting the session plays the lock before the session opens.

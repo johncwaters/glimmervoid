@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
-import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME } from './cases-core.ts';
+import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME, STACKED_ANSWERS_PREFIX } from './cases-core.ts';
 import { PANEL_MIN_CHANGED_LINES } from '../../shared/contracts/verification.ts';
 
 const CARD_TIMEOUT_MS = 20000;
@@ -274,6 +274,7 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   assert.equal(await dockBoxOf(), idleDockBox, 'ending a turn swaps Stop for Send without moving the composer');
   await verifyInterimRepliesRideActivityLine(page);
   await verifyQuestionTakesRecommendedOnEnter(page);
+  await verifyStackedAnswerChanges(page);
   await verifyComposerAttachesImage(page);
 }
 
@@ -310,7 +311,7 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   await waitForTurnRunning(page, false);
   await sendFromComposer(page, 'ask-question-chat');
   await openQuestion.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
-  assert.match(await openQuestion.innerText(), /Dismiss\s*Esc\s*Stops the agent/, 'an open question carries the Dismiss control and what it does');
+  assert.match(await openQuestion.locator('.chat-card-foot').innerText(), /^Dismiss\s*Esc$/, 'an open question carries only the Dismiss control in its foot');
   await composer.focus();
   await page.keyboard.down('Escape');
   await page.keyboard.down('Escape');
@@ -320,6 +321,30 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   assert.match(await dismissedQuestion.innerText(), /Dismissed$/m, 'Escape in the composer dismisses the open question');
   assert.equal(await page.locator('.session-chat .chat-composer').isVisible(), true, 'Escape with a question open does not leave Chat');
   assert.equal(await openQuestion.count(), 0, 'the dismissed question leaves no open card');
+}
+
+async function verifyStackedAnswerChanges(page: Page): Promise<void> {
+  const composer = page.locator('.session-chat').getByRole('textbox', { name: 'Message the agent' });
+  await composer.fill('');
+  await sendFromComposer(page, 'ask-questions-stacked');
+  const storeCard = page.locator('.session-chat .chat-card[data-card-type="question"]', { hasText: 'Which store?' });
+  const cacheCard = page.locator('.session-chat .chat-card[data-card-type="question"]', { hasText: 'Which cache?' });
+  await storeCard.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await storeCard.getByRole('button', { name: /^Postgres/ }).click();
+  const changeButton = storeCard.getByRole('button', { name: 'Change', exact: true });
+  await changeButton.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await changeButton.click();
+  await storeCard.and(page.locator('[data-resolved="false"]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await cacheCard.getAttribute('data-resolved'), 'false', 'changing the first answer leaves the second question open');
+  await storeCard.getByRole('button', { name: /^SQLite/ }).click();
+  await storeCard.getByRole('button', { name: 'Change', exact: true }).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await cacheCard.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await cacheCard.getByRole('button', { name: /^Memory/ }).click();
+  const answersLine = page.locator('.session-chat .chat-log', { hasText: STACKED_ANSWERS_PREFIX });
+  await answersLine.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const answersText = await answersLine.innerText();
+  assert.match(answersText, /"answers":\{"Which store\?":"SQLite \(Recommended\)","Which cache\?":"Memory"\}/, 'the changed answer is the one sent, beside the later answer');
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="question"]').getByRole('button', { name: 'Change', exact: true }).count(), 0, 'once the set is sent no answer offers Change');
 }
 
 async function answerOpenCardFromComposer(page: Page, openCard: Locator): Promise<void> {

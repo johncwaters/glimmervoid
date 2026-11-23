@@ -75,8 +75,23 @@ function dismissedQuestionsStep(sessionId: string, shown: ShownApproval): Approv
   return { message: { type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' }, resolvedCards, answers: new Map() };
 }
 
+function reopenedQuestionStep(shown: ShownApproval, card: ChatCard): ApprovalStep | null {
+  if (card.cardType !== 'question' || card.resolution === null || !('canChange' in card.resolution)) return null;
+  const answers = new Map(shown.answers);
+  answers.delete(card.data.question);
+  return { message: null, resolvedCards: [{ ...card, resolution: null }], answers };
+}
+
+function answeredQuestionsStep(sessionId: string, shown: ShownApproval, card: Extract<ChatCard, { cardType: 'question' }>, value: string): ApprovalStep {
+  const answers = new Map(shown.answers).set(card.data.question, value);
+  if (answers.size < shown.cards.length) return { message: null, resolvedCards: [{ ...card, resolution: { answer: value, canChange: true } }], answers };
+  const resolvedCards = shown.cards.flatMap((shownCard): ChatCard[] => shownCard.cardType === 'question' ? [{ ...shownCard, resolution: { answer: answers.get(shownCard.data.question) ?? value } }] : []);
+  return { message: { type: 'answer-approval', id: sessionId, requestId: shown.approval.requestId, answers: Object.fromEntries(answers) }, resolvedCards, answers };
+}
+
 function approvalStepOf(sessionId: string, shown: ShownApproval, cardId: string, action: string, value: string): ApprovalStep | null {
   const card = shown.cards.find((shownCard) => shownCard.cardId === cardId);
+  if (card && action === 'change') return reopenedQuestionStep(shown, card);
   if (!card || card.resolution !== null) return null;
   const { requestId } = shown.approval;
   if (card.cardType === 'permission' && action === 'decide' && (value === 'allow' || value === 'deny')) {
@@ -87,10 +102,11 @@ function approvalStepOf(sessionId: string, shown: ShownApproval, cardId: string,
   }
   if (card.cardType === 'question' && action === 'dismiss') return dismissedQuestionsStep(sessionId, shown);
   if (card.cardType !== 'question' || action !== 'answer') return null;
-  const answers = new Map(shown.answers).set(card.data.question, value);
-  const resolvedCards: ChatCard[] = [{ ...card, resolution: { answer: value } }];
-  if (answers.size < shown.cards.length) return { message: null, resolvedCards, answers };
-  return { message: { type: 'answer-approval', id: sessionId, requestId, answers: Object.fromEntries(answers) }, resolvedCards, answers };
+  return answeredQuestionsStep(sessionId, shown, card, value);
+}
+
+function isUnsentCard(card: ChatCard): boolean {
+  return card.resolution === null || 'canChange' in card.resolution;
 }
 
 function withApprovalStep(shown: ShownApproval, step: ApprovalStep): ShownApproval {
@@ -263,8 +279,8 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
 
   const settleShownApproval = () => {
     if (!shownApproval) return;
-    const unanswered = shownApproval.cards.filter((card) => card.resolution === null).map((card) => card.cardId);
-    view().remove(unanswered);
+    const unsent = shownApproval.cards.filter(isUnsentCard).map((card) => card.cardId);
+    view().remove(unsent);
     shownApproval = null;
   };
 

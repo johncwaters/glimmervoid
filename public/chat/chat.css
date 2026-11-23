@@ -579,6 +579,8 @@ html[data-layout="phone"] .chat-card-option-keys .ui-keycap { display: none; }
 
 .chat-card-receipt { color: var(--text-muted); font-size: var(--type-meta); }
 
+.chat-card-answer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: var(--control-height-small); }
+
 .chat-card[data-card-type="question"][data-resolved="false"] { position: relative; z-index: 2; }
 
 .chat-card[data-card-type="question"][data-resolved="false"] ~ .chat-card[data-card-type="question"][data-resolved="false"] {
