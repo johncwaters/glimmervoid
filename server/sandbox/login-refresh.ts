@@ -12,6 +12,7 @@ import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { withoutInheritedCredentials } from './core/credential-decider-core.ts';
 import { kimiLoginFileText, kimiRefreshRequest, kimiRefreshTokenOf, loginExpiryAtMs, nextRefreshAtMs } from './core/login-refresh-core.ts';
+import { kimiLoginSource } from '../../shared/kimi-login-core.ts';
 import type { ModelLogin } from './credential-proxy.ts';
 
 const REFRESH_TIMEOUT_MS = 60_000;
@@ -21,7 +22,8 @@ const KIMI_LOCK_STALE_MS = 5_000;
 const KIMI_LOCK_KEEPALIVE_MS = 2_000;
 const KIMI_LOCK_WAIT_MS = 500;
 const KIMI_LOCK_ATTEMPTS = 20;
-const KIMI_TOKEN_NAME = 'kimi-code';
+const KIMI_CONFIG_NAME = 'config.toml';
+const KIMI_LOGIN_FILE_EXTENSION = '.json';
 const KIMI_LASTING_STATUSES: ReadonlySet<number> = new Set([401, 403]);
 const CLAUDE_SIGNED_OUT_OUTPUT = /\/login|log ?in again|not logged in|invalid api key/i;
 const CLAUDE_REFRESH_ARGS = ['-p', 'Reply with OK.', '--tools', '', '--setting-sources', 'project', '--strict-mcp-config', '--no-session-persistence', ...selectionArgs(choiceSelection('claude-code', { model: DEFAULT_MODELS.loginRefresh }))];
@@ -111,8 +113,8 @@ async function takeKimiLock(lockFolder: string): Promise<boolean> {
   return false;
 }
 
-async function withKimiRefreshLock(home: string, work: () => Promise<RefreshOutcome>): Promise<RefreshOutcome> {
-  const lockFolder = `${path.join(home, 'oauth', KIMI_TOKEN_NAME)}.lock`;
+async function withKimiRefreshLock(home: string, tokenName: string, work: () => Promise<RefreshOutcome>): Promise<RefreshOutcome> {
+  const lockFolder = `${path.join(home, 'oauth', tokenName)}.lock`;
   await fsp.mkdir(path.dirname(lockFolder), { recursive: true, mode: 0o700 });
   const isLockHeld = await takeKimiLock(lockFolder);
   const keepalive = isLockHeld ? setInterval(() => {
@@ -127,8 +129,11 @@ async function withKimiRefreshLock(home: string, work: () => Promise<RefreshOutc
   }
 }
 
-async function postKimiRefresh(refreshToken: string): Promise<{ reply: unknown } | RefreshOutcome> {
-  const request = kimiRefreshRequest(refreshToken, process.env);
+async function postKimiRefresh(refreshToken: string, home: string): Promise<{ reply: unknown } | RefreshOutcome> {
+  const configText = await fsp.readFile(path.join(home, KIMI_CONFIG_NAME), 'utf8').catch(() => null);
+  const login = kimiLoginSource(configText, process.env);
+  if ('refusal' in login) return lastingFailure(login.refusal);
+  const request = kimiRefreshRequest(refreshToken, process.env, login.oauthHost);
   const response = await fetch(request.url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
@@ -144,12 +149,12 @@ async function postKimiRefresh(refreshToken: string): Promise<{ reply: unknown }
 
 async function refreshKimiLogin(loginFile: string): Promise<RefreshOutcome> {
   const home = path.dirname(path.dirname(loginFile));
-  return withKimiRefreshLock(home, async () => {
+  return withKimiRefreshLock(home, path.basename(loginFile, KIMI_LOGIN_FILE_EXTENSION), async () => {
     const current = await readLoginState('kimi', loginFile);
     if (current === null || clock.nowMs() < current.dueAtMs) return REFRESHED;
     const refreshToken = kimiRefreshTokenOf(current.text);
     if (refreshToken === null) return lastingFailure('the Kimi Code login has no refresh token');
-    const answer = await postKimiRefresh(refreshToken);
+    const answer = await postKimiRefresh(refreshToken, home);
     if (!('reply' in answer)) return answer;
     const loginText = kimiLoginFileText(answer.reply, clock.nowMs());
     if (loginText === null) return transientFailure('the Kimi Code token endpoint answered in a shape Glimmervoid does not read');

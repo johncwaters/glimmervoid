@@ -4,7 +4,6 @@ const MIN_REFRESH_LEAD_MS = 5 * 60_000;
 const LIFETIME_LEAD_DIVISOR = 5;
 const CLI_WINDOW_LEAD_MS = 4 * 60_000;
 const AGENTS_REFRESHING_ONLY_NEAR_EXPIRY: readonly string[] = Object.freeze(['claude-code', 'codex']);
-const KIMI_DEFAULT_OAUTH_HOST = 'https://auth.kimi.com';
 const KIMI_CLIENT_ID = '17e5f671-d194-4dfb-9706-5516cb48c098';
 
 const ClaudeLogin = z.object({ claudeAiOauth: z.object({ expiresAt: z.number() }) });
@@ -61,8 +60,8 @@ function kimiRefreshTokenOf(loginFileText: string): string | null {
   return login.success ? login.data.refresh_token : null;
 }
 
-function kimiRefreshRequest(refreshToken: string, env: Readonly<Record<string, string | undefined>>): { url: string; body: string } {
-  const oauthHost = env.KIMI_CODE_OAUTH_HOST?.trim() || env.KIMI_OAUTH_HOST?.trim() || KIMI_DEFAULT_OAUTH_HOST;
+function kimiRefreshRequest(refreshToken: string, env: Readonly<Record<string, string | undefined>>, configuredOAuthHost: string): { url: string; body: string } {
+  const oauthHost = env.KIMI_CODE_OAUTH_HOST?.trim() || env.KIMI_OAUTH_HOST?.trim() || configuredOAuthHost;
   const body = new URLSearchParams({ client_id: KIMI_CLIENT_ID, grant_type: 'refresh_token', refresh_token: refreshToken }).toString();
   return { url: `${oauthHost.replace(/\/$/, '')}/api/oauth/token`, body };
 }

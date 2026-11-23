@@ -1,18 +1,11 @@
 import { z } from 'zod';
 
+import { kimiLoginSource } from '../../../shared/kimi-login-core.ts';
 import { rateLimitWindow } from './usage-statusline-core.ts';
 import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
 
-const KIMI_PROVIDER_TABLE = '[providers."managed:kimi-code"]';
-const KIMI_PROVIDER_OAUTH_TABLE = '[providers."managed:kimi-code".oauth]';
-const KIMI_DEFAULT_BASE_URL = 'https://api.kimi.com/coding/v1';
-const KIMI_FILE_STORAGE = 'file';
-const KIMI_OAUTH_KEY_PREFIX = 'oauth/';
 const TOKEN_EXPIRY_MARGIN_SECONDS = 30;
 const PERCENT_PER_RATIO = 100;
-
-const TOML_TRAILING_COMMENT = /\s*#[^"']*$/;
-const TOML_STRING_ASSIGNMENT = /^\s*([A-Za-z0-9_-]+)\s*=\s*"([^"\\]*)"\s*(?:#.*)?$/;
 
 const StoredKimiToken = z.object({
   access_token: z.string().min(1),
@@ -41,41 +34,12 @@ interface KimiPlanLimitsSnapshot {
   ts: number;
 }
 
-function providerStringsByTable(configText: string): Map<string, Map<string, string>> {
-  const stringsByTable = new Map<string, Map<string, string>>();
-  let currentTable = '';
-  for (const line of configText.split(/\r?\n/)) {
-    if (line.trimStart().startsWith('[')) {
-      currentTable = line.replace(TOML_TRAILING_COMMENT, '').replaceAll(/\s+/g, '');
-      continue;
-    }
-    const assignment = TOML_STRING_ASSIGNMENT.exec(line);
-    if (!assignment) continue;
-    const tableStrings = stringsByTable.get(currentTable) ?? new Map<string, string>();
-    tableStrings.set(assignment[1], assignment[2]);
-    stringsByTable.set(currentTable, tableStrings);
-  }
-  return stringsByTable;
-}
-
-function tokenStorageName(oauthKey: string): string | null {
-  const name = oauthKey.startsWith(KIMI_OAUTH_KEY_PREFIX) ? oauthKey.slice(KIMI_OAUTH_KEY_PREFIX.length) : oauthKey;
-  if (!/^[A-Za-z0-9_-]+$/.test(name)) return null;
-  return name;
-}
-
 function kimiUsagesSource(configText: string | null, env: Record<string, string | undefined>): KimiUsagesSource | null {
   if (configText === null) return null;
-  const stringsByTable = providerStringsByTable(configText);
-  const oauth = stringsByTable.get(KIMI_PROVIDER_OAUTH_TABLE);
-  const oauthKey = oauth?.get('key');
-  if (!oauth || !oauthKey) return null;
-  if ((oauth.get('storage') ?? KIMI_FILE_STORAGE) !== KIMI_FILE_STORAGE) return null;
-  const credentialsName = tokenStorageName(oauthKey);
-  if (credentialsName === null) return null;
-  const baseUrl = stringsByTable.get(KIMI_PROVIDER_TABLE)?.get('base_url') ?? env.KIMI_CODE_BASE_URL ?? KIMI_DEFAULT_BASE_URL;
-  if (!URL.canParse(baseUrl) || new URL(baseUrl).protocol !== 'https:') return null;
-  return { credentialsName, usagesUrl: `${baseUrl.replace(/\/+$/, '')}/usages` };
+  const login = kimiLoginSource(configText, env);
+  if ('refusal' in login) return null;
+  if (!URL.canParse(login.baseUrl) || new URL(login.baseUrl).protocol !== 'https:') return null;
+  return { credentialsName: login.credentialsName, usagesUrl: `${login.baseUrl.replace(/\/+$/, '')}/usages` };
 }
 
 function pickKimiAccessToken(credentialsText: string, nowMs: number): string | null {

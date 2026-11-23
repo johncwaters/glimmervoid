@@ -634,14 +634,17 @@ function holdPreparedAccountHome(profile: AgentHomeProfile, env: AgentHomeEnv, {
   return prepared;
 }
 
-function placeholderLoginFiles(profile: AgentHomeProfile, loginHome: string, nowMs: number): { files: Record<string, string> } | { refusal: string } {
+function placeholderLoginFiles(profile: AgentHomeProfile, loginHome: string, env: AgentHomeEnv, nowMs: number): { files: Record<string, string> } | { refusal: string } {
   const sandboxLogin = profile.sandboxLogin;
   if (sandboxLogin === undefined) return { files: {} };
-  const realLoginText = readOptionalText(path.join(loginHome, ...sandboxLogin.fileSegments));
+  const loginConfigText = profile.config === null ? null : readOptionalText(path.join(loginHome, profile.config.configName));
+  const loginFileSegments = sandboxLogin.fileSegmentsOf(loginConfigText, env);
+  if ("refusal" in loginFileSegments) return { refusal: `A sandboxed ${profile.vendor} session cannot start: ${loginFileSegments.refusal}.` };
+  const realLoginText = readOptionalText(path.join(loginHome, ...loginFileSegments));
   if (realLoginText === null) return { files: {} };
   const placeholder = sandboxLogin.placeholderOf(realLoginText, nowMs);
   if ("refusal" in placeholder) return { refusal: `A sandboxed ${profile.vendor} session cannot start: ${placeholder.refusal}.` };
-  return { files: { [path.join(...sandboxLogin.fileSegments)]: placeholder.placeholder } };
+  return { files: { [path.join(...loginFileSegments)]: placeholder.placeholder } };
 }
 
 function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv, { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers }: HeldHomeContent, choice: SessionAgentHomeChoice): { home: string } | { refusal: string } {
@@ -654,7 +657,7 @@ function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv,
   const generatedHome = sessionAgentHomePath(profile, env, choice);
   const linkRefusal = agentHomeLinkRefusal(generatedHome);
   if (linkRefusal !== null) return { refusal: linkRefusal };
-  const placeholderLogin = placeholderLoginFiles(profile, realAgentHome(profile, loginEnv), clock.nowMs());
+  const placeholderLogin = placeholderLoginFiles(profile, realAgentHome(profile, loginEnv), loginEnv, clock.nowMs());
   if ("refusal" in placeholderLogin) return placeholderLogin;
   holdAgentHome(generatedHome);
   const generatedFiles = { ...renderGeneratedFiles(), ...placeholderLogin.files };

@@ -280,6 +280,8 @@ test('a private sandboxed Kimi home keeps only the operator model and provider c
     'base_url = "https://api.kimi.ai/coding/v1/search"',
     '',
   ].join('\n'));
+  fs.mkdirSync(path.join(kimiHome, 'credentials'));
+  writeJson(path.join(kimiHome, 'credentials', 'kimi-code-env-scoped.json'), { access_token: 'operator-access', refresh_token: 'operator-refresh', expires_at: 1, token_type: 'Bearer' });
   const env = { HOME: homeDir, GLIMMERVOID_HOME: path.join(homeDir, '.glimmervoid'), KIMI_CODE_HOME: kimiHome };
 
   const prepared = holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => '', { isSandboxed: true, privateKey: 'kimi-seat' });
@@ -291,6 +293,9 @@ test('a private sandboxed Kimi home keeps only the operator model and provider c
   const entries = fs.readdirSync(prepared.home, { withFileTypes: true });
   assert.deepEqual(entries.filter((entry) => entry.isSymbolicLink()).map((entry) => entry.name), []);
   for (const operatorEntry of ['AGENTS.md', 'skills']) assert.equal(fs.existsSync(path.join(prepared.home, operatorEntry)), false);
+  const seatLoginText = fs.readFileSync(path.join(prepared.home, 'credentials', 'kimi-code-env-scoped.json'), 'utf8');
+  assert.equal(JSON.parse(seatLoginText).token_type, 'Bearer');
+  for (const operatorSecret of ['operator-access', 'operator-refresh']) assert.equal(seatLoginText.includes(operatorSecret), false, operatorSecret);
   releaseAgentHome(prepared.home);
 });
 

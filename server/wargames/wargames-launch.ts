@@ -20,6 +20,8 @@ const SEAT_PROMPT_TIMEOUT_MS = 5 * 60 * 1000;
 const SEAT_NUDGE_TIMEOUT_MS = 15_000;
 const IDLE_NUDGE_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
 const WARGAMES_SEAT_ROOT_DIR = path.join(os.tmpdir(), 'glimmervoid-wargames-seats');
+const SEAT_PROJECT_MCP_FILE_NAME = '.mcp.json';
+const SEAT_PROJECT_MCP_FILE_TEXT = '{"mcpServers":{}}\n';
 
 type WargamesStartResult = { ok: true; matchId: string; error: string | null } | { ok: false; error: string };
 type WargamesStartPermissions = { dangerouslySkipPermissions: boolean; saneYolo: boolean };
@@ -229,6 +231,7 @@ export function createWargamesLauncher({
         return { ok: false as const, error: `Invalid seat directory for match ${matchId}` };
       }
       await fsp.mkdir(seatDir, { recursive: true });
+      await fsp.writeFile(path.join(seatDir, SEAT_PROJECT_MCP_FILE_NAME), SEAT_PROJECT_MCP_FILE_TEXT);
       const agent = seat.setup.agent;
       const created = createProjectSession({
         name: `Wargames ${matchId.slice(-6)} - ${seat.seatId}`,

@@ -4,6 +4,7 @@ import { parseEnv } from "node:util";
 import { KIMI_MCP_BASE_NAME, KIMI_MCP_CONFIG_NAME, KIMI_PACK_SERVERS_NAME } from "../../server/core/mcp-env-core.ts";
 import { listClaudeGlobalConfigPathCandidates } from "../../server/core/claude-config-paths-core.ts";
 import { cleanJsonc } from "../../server/core/tsconfig-paths-core.ts";
+import { kimiLoginSource } from "../../shared/kimi-login-core.ts";
 import { isRecord } from "../../shared/coerce.ts";
 import type { SeededKeys } from "./agent-account-core.ts";
 import { buildHookCommand } from "./hook-command-core.ts";
@@ -221,7 +222,7 @@ type PrivateConfig = { text: string } | { refusal: string };
 
 interface SandboxLogin {
   entryName: string;
-  fileSegments: readonly string[];
+  fileSegmentsOf(realConfigText: string | null, env: Readonly<Record<string, string | undefined>>): readonly string[] | { refusal: string };
   placeholderOf(realLoginText: string, nowMs: number): { placeholder: string } | { refusal: string };
 }
 
@@ -475,6 +476,11 @@ function holdsStaticApiKey(table: TomlUnit): boolean {
 function isUnitSplitSafely(unit: TomlUnit): boolean {
   const bodyText = unit.text.slice(unit.text.indexOf("\n") + 1);
   return !TOML_MULTILINE_QUOTES.some((quotes) => unit.text.includes(quotes)) && !TOML_HEADER_LINE_PATTERN.test(bodyText);
+}
+
+function kimiLoginFileSegments(realConfigText: string | null, env: Readonly<Record<string, string | undefined>>): readonly string[] | { refusal: string } {
+  const login = kimiLoginSource(realConfigText, env);
+  return "refusal" in login ? login : login.tokenFileSegments;
 }
 
 function kimiPrivateConfig(operatorConfigText: string): PrivateConfig {
@@ -795,10 +801,11 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   isPrivateEntryName: () => false,
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
   account: accountSeamOf(/^(?:credentials|oauth|region|region\.json)$/, /^\[[^[].*\.oauth#\d+$/),
-  sandboxLogin: Object.freeze({ entryName: "credentials", fileSegments: Object.freeze(["credentials", "kimi-code.json"]), placeholderOf: kimiPlaceholderCredentials }),
+  sandboxLogin: Object.freeze({ entryName: "credentials", fileSegmentsOf: kimiLoginFileSegments, placeholderOf: kimiPlaceholderCredentials }),
   privateConfigOf: kimiPrivateConfig,
 });
 
+const CODEX_LOGIN_FILE_SEGMENTS: readonly string[] = Object.freeze(["auth.json"]);
 const CODEX_HOOK_HANDLER_TABLE_HEADER_PATTERN = /^\s*\[(?!\[)\s*hooks\s*(?:\]|\.(?!\s*state\s*[\].]))/;
 const CODEX_SQLITE_NAME_PATTERN = /\.sqlite(?:-wal|-shm|-journal)?$/;
 
@@ -832,7 +839,7 @@ const CODEX_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   isPrivateEntryName: (name: string, platform: NodeJS.Platform, isSandboxed: boolean) => (platform === "win32" || isSandboxed) && CODEX_SQLITE_NAME_PATTERN.test(name),
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "AGENTS.override.md", "hooks.json", "skills", "prompts", "rules", "plugins"]), configTablePrefixes: Object.freeze(["[hooks", "[[hooks"]) }),
   account: accountSeamOf(/^auth\.(?:json|lock)$/),
-  sandboxLogin: Object.freeze({ entryName: "auth.json", fileSegments: Object.freeze(["auth.json"]), placeholderOf: codexPlaceholderAuth }),
+  sandboxLogin: Object.freeze({ entryName: "auth.json", fileSegmentsOf: () => CODEX_LOGIN_FILE_SEGMENTS, placeholderOf: codexPlaceholderAuth }),
 });
 
 function renderGeminiLauncherConfig(operatorLauncherText: string): string {

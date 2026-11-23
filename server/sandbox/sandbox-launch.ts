@@ -13,7 +13,7 @@ import type { PrepareSandbox, SandboxLaunchFacts } from '../../session/sessions.
 import type { SpawnEnv } from '../../session/core/spawn-env.ts';
 import type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink } from './core/sandbox-policy-core.ts';
 import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, seatbeltCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
-import { CREDENTIALED_HOSTS, everyModelLoginEntry, withoutInheritedCredentials, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
+import { CREDENTIALED_HOSTS, everyModelLoginEntry, withoutInheritedCredentials, modelLoginConfigFileFor, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
 import { placeholderEnv } from '../../session/core/agent-home-core.ts';
 import type { CredentialProxies } from './credential-proxy.ts';
 
@@ -47,7 +47,11 @@ async function realPathOrSame(filePath: string | null): Promise<string | null> {
 }
 
 async function holdCredentialProxy(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<HeldCredentialProxy | { refusal: string }> {
-  const loginFile = await realPathOrSame(modelLoginFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder));
+  const loginConfigFile = modelLoginConfigFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder);
+  const loginConfigText = loginConfigFile === null ? null : await fsp.readFile(loginConfigFile, 'utf8').catch(() => null);
+  const login = modelLoginFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder, loginConfigText, facts.env);
+  if ('refusal' in login) return { refusal: `A sandboxed ${facts.agent} session cannot start: ${login.refusal}.` };
+  const loginFile = await realPathOrSame(login.loginFile);
   const acquisition = await dependencies.credentialProxies.acquire({ agent: facts.agent, loginFile });
   if (!acquisition.ok) return { refusal: acquisition.reason };
   return { route: { socketPath: acquisition.socketPath, proxiesFolder: acquisition.proxiesFolder, hosts: CREDENTIALED_HOSTS }, release: acquisition.release };

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
 import { isSecretEnvName } from '../../../shared/secret-patterns.ts';
+import { kimiLoginSource } from '../../../shared/kimi-login-core.ts';
 
 const FRAME_LENGTH_BYTES = 4;
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -8,19 +9,33 @@ const DECIDER_PROTOCOL_VERSION = 1;
 
 type CredentialedAgentId = 'claude-code' | 'codex' | 'kimi';
 
+interface ModelLoginLocation {
+  fileSegments: readonly string[];
+  modelHost: string;
+}
+
 interface ModelLoginLayout {
   homeEnvName: string;
   defaultHomeFolderName: string;
-  loginFileSegments: readonly string[];
-  modelHost: string;
+  loginEntryName: string;
+  loginOf(loginConfigText: string | null, env: Readonly<Record<string, string | undefined>>): ModelLoginLocation | { refusal: string };
+  loginConfigName: string | null;
+  modelHosts: readonly string[];
   credentialClass: string;
   tokenKeyPath: readonly string[];
 }
 
+function kimiLoginLocation(loginConfigText: string | null, env: Readonly<Record<string, string | undefined>>): ModelLoginLocation | { refusal: string } {
+  const login = kimiLoginSource(loginConfigText, env);
+  if ('refusal' in login) return login;
+  if (!URL.canParse(login.baseUrl)) return { refusal: `its Kimi Code base_url ${login.baseUrl} is not a URL` };
+  return { fileSegments: login.tokenFileSegments, modelHost: new URL(login.baseUrl).hostname };
+}
+
 const MODEL_LOGIN_LAYOUTS: Readonly<Record<CredentialedAgentId, ModelLoginLayout>> = Object.freeze({
-  'claude-code': { homeEnvName: 'CLAUDE_CONFIG_DIR', defaultHomeFolderName: '.claude', loginFileSegments: ['.credentials.json'], modelHost: 'api.anthropic.com', credentialClass: 'claude', tokenKeyPath: ['claudeAiOauth', 'accessToken'] },
-  codex: { homeEnvName: 'CODEX_HOME', defaultHomeFolderName: '.codex', loginFileSegments: ['auth.json'], modelHost: 'chatgpt.com', credentialClass: 'codex', tokenKeyPath: ['tokens', 'access_token'] },
-  kimi: { homeEnvName: 'KIMI_CODE_HOME', defaultHomeFolderName: '.kimi-code', loginFileSegments: ['credentials', 'kimi-code.json'], modelHost: 'api.kimi.com', credentialClass: 'kimi', tokenKeyPath: ['access_token'] },
+  'claude-code': { homeEnvName: 'CLAUDE_CONFIG_DIR', defaultHomeFolderName: '.claude', loginEntryName: '.credentials.json', loginOf: () => ({ fileSegments: ['.credentials.json'], modelHost: 'api.anthropic.com' }), loginConfigName: null, modelHosts: ['api.anthropic.com'], credentialClass: 'claude', tokenKeyPath: ['claudeAiOauth', 'accessToken'] },
+  codex: { homeEnvName: 'CODEX_HOME', defaultHomeFolderName: '.codex', loginEntryName: 'auth.json', loginOf: () => ({ fileSegments: ['auth.json'], modelHost: 'chatgpt.com' }), loginConfigName: null, modelHosts: ['chatgpt.com'], credentialClass: 'codex', tokenKeyPath: ['tokens', 'access_token'] },
+  kimi: { homeEnvName: 'KIMI_CODE_HOME', defaultHomeFolderName: '.kimi-code', loginEntryName: 'credentials', loginOf: kimiLoginLocation, loginConfigName: 'config.toml', modelHosts: ['api.kimi.com', 'api.kimi.ai'], credentialClass: 'kimi', tokenKeyPath: ['access_token'] },
 });
 
 const GITHUB_CREDENTIAL_CLASS_BY_HOST: Readonly<Record<string, string>> = Object.freeze({ 'github.com': 'github', 'api.github.com': 'api' });
@@ -30,7 +45,7 @@ function withoutInheritedCredentials(sessionEnv: Readonly<Record<string, string 
   return Object.fromEntries(Object.entries(sessionEnv).filter(([name]) => !isInheritedCredential(name)));
 }
 
-const CREDENTIALED_HOSTS: readonly string[] = Object.freeze([...Object.values(MODEL_LOGIN_LAYOUTS).map((layout) => layout.modelHost), ...Object.keys(GITHUB_CREDENTIAL_CLASS_BY_HOST)]);
+const CREDENTIALED_HOSTS: readonly string[] = Object.freeze([...Object.values(MODEL_LOGIN_LAYOUTS).flatMap((layout) => layout.modelHosts), ...Object.keys(GITHUB_CREDENTIAL_CLASS_BY_HOST)]);
 
 const ProxyHello = z.object({ t: z.literal('hello'), proto: z.literal(DECIDER_PROTOCOL_VERSION) }).strict();
 const ProxyRequest = z.object({
@@ -66,10 +81,19 @@ function modelLoginHomeFor(layout: ModelLoginLayout, env: Readonly<Record<string
   return configuredHome ? configuredHome : path.join(homeDir, layout.defaultHomeFolderName);
 }
 
-function modelLoginFileFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
+function modelLoginConfigFileFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
   const layout = modelLoginLayoutFor(agent);
-  if (layout === null) return null;
-  return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), ...layout.loginFileSegments);
+  if (layout === null || layout.loginConfigName === null) return null;
+  return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), layout.loginConfigName);
+}
+
+function modelLoginFileFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null, loginConfigText: string | null, sessionEnv: Readonly<Record<string, string | undefined>> = env): { loginFile: string | null } | { refusal: string } {
+  const layout = modelLoginLayoutFor(agent);
+  if (layout === null) return { loginFile: null };
+  const location = layout.loginOf(loginConfigText, sessionEnv);
+  if ('refusal' in location) return location;
+  if (!layout.modelHosts.includes(location.modelHost)) return { refusal: `the ${agent} login talks to ${location.modelHost}, and the sandbox places a login only on ${layout.modelHosts.join(' and ')}` };
+  return { loginFile: path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), ...location.fileSegments) };
 }
 
 function modelLoginHomeOf(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
@@ -86,7 +110,7 @@ function sessionAgentHomeOf(agent: string, sessionEnv: Readonly<Record<string, s
 function modelLoginEntryFor(agent: string, env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolder: string | null = null): string | null {
   const layout = modelLoginLayoutFor(agent);
   if (layout === null) return null;
-  return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), layout.loginFileSegments[0] ?? '');
+  return path.join(modelLoginHomeFor(layout, env, homeDir, accountFolder), layout.loginEntryName);
 }
 
 function everyModelLoginEntry(env: Readonly<Record<string, string | undefined>>, homeDir: string, accountFolders: readonly string[]): string[] {
@@ -171,13 +195,13 @@ function credentialFor(host: string, tokens: LoginTokens): { credentialClass: st
   const githubClass = GITHUB_CREDENTIAL_CLASS_BY_HOST[host];
   if (githubClass !== undefined) return { credentialClass: githubClass, token: tokens.githubToken };
   const layout = modelLoginLayoutFor(tokens.agent);
-  if (layout === null || layout.modelHost !== host) return null;
+  if (layout === null || !layout.modelHosts.includes(host)) return null;
   return { credentialClass: layout.credentialClass, token: tokens.modelToken };
 }
 
 function credentialSourceFor(host: string, agent: string): 'github' | 'model' | null {
   if (Object.hasOwn(GITHUB_CREDENTIAL_CLASS_BY_HOST, host)) return 'github';
-  return modelLoginLayoutFor(agent)?.modelHost === host ? 'model' : null;
+  return modelLoginLayoutFor(agent)?.modelHosts.includes(host) ? 'model' : null;
 }
 
 function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
@@ -187,5 +211,5 @@ function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
   return { ...allow, cred: credential.credentialClass, credential: credential.token };
 }
 
-export { CREDENTIALED_HOSTS, createFrameReader, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginFileFor, modelTokenFrom, verdictFor };
+export { CREDENTIALED_HOSTS, createFrameReader, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginConfigFileFor, modelLoginFileFor, modelTokenFrom, verdictFor };
 export type { ProxyFrame, ProxyRequest };
