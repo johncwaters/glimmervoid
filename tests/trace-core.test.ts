@@ -75,6 +75,11 @@ test('only operator messages are prompts: queued mid-turn ones count, task notif
     message: { role: 'user', content: '[Image: original 5120x2646, displayed at 2000x1034. Multiply coordinates by 2.56 to map to original image.]' },
   });
   assert.deepEqual(traceRecordsFromTranscriptLine(imageReadNote, context).map((record) => record.kind), ['raw']);
+
+  const interruptLine = (text: string) => JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } });
+  for (const marker of ['[Request interrupted by user for tool use]', '[Request interrupted by user]\n']) {
+    assert.deepEqual(traceRecordsFromTranscriptLine(interruptLine(marker), context).map((record) => record.kind), ['notice']);
+  }
 });
 
 test('text bodies at and above the cap retain their truncation state', () => {

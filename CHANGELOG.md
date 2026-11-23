@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Interrupting Claude Code no longer shows as your message.** Chat used to show Claude Code's `[Request interrupted by user for tool use]` line as a message you sent; it now shows a muted Interrupted note.
 - **Chat no longer opens at the top.** When the dashboard moved a session's card, for example while opening or closing a split pane beside it, its Chat could land on the oldest loaded message with no button back to the latest one. The Chat now stays on the latest message, or on the place you scrolled to.
 - **Partial clones get a code map.** A repo cloned with `--filter=blob:none` no longer shows the code map as failed and its import gate as skipped: Glimmervoid fetches the missing source files the map reads from the clone's remote in one fetch, leaving images and other files unfetched. A clone whose files were all backfilled already maps with no fetch.
 - **Chat no longer claims an unmeasured session cost $0.00.** Glimmervoid does not track Antigravity usage, yet its Chat footer read session $0.00. A session with no recorded usage now shows no cost at all.

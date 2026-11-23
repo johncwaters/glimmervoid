@@ -275,6 +275,8 @@ function everyTextBlockJoined(blocks: TranscriptContentBlock[]): string | null {
   return blockTexts.join('\n');
 }
 
+const CLAUDE_INTERRUPT_MARKERS: ReadonlySet<string> = new Set(['[Request interrupted by user]', '[Request interrupted by user for tool use]']);
+
 function isTaskNotificationLine(line: TranscriptLine): boolean {
   const turnOriginKind = typeof line.turnOrigin === 'string' ? line.turnOrigin : line.turnOrigin?.kind;
   return line.origin?.kind === 'task-notification' || turnOriginKind === 'task_notification';
@@ -334,6 +336,7 @@ function mapUserLine(
   const text = typeof content === 'string' ? content : firstTextBlock(blocks);
   if (!text) return [rawRecord(rawLine, line, context)];
   if (isTaskNotificationLine(line)) return [{ ...base, kind: 'expansion', ...boundedTextFields(text) }];
+  if (CLAUDE_INTERRUPT_MARKERS.has(text.trim())) return [{ ...base, kind: 'notice', text: 'Interrupted' }];
   if (typeof content === 'string' && /<command-name>[\s\S]*?<\/command-name>/.test(content)) {
     return [{ ...base, kind: 'expansion', ...boundedTextFields(content) }];
   }
