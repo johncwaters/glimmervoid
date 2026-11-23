@@ -51,7 +51,7 @@ interface SessionFactoryDependencies {
   homeDir?: string;
   getPackAgentLaunch?: () => PackAgentLaunch | null;
   getSecretsBroker?: () => Pick<SecretsBroker, 'holdForLaunch' | 'deniedLaunchNames'> | null;
-  sandboxForProject?: ((project: ProjectEntry, sessionTempFolder: string | null) => PrepareSandbox | null) | null;
+  isolationForProject?: ((project: ProjectEntry, sessionTempFolder: string | null) => SessionIsolation | null) | null;
   packMcpServers?: ((agentId: string, cwd: string) => Promise<PackMcpServer[]>) | null;
   sharedPackMcpServers?: ((agentId: string) => PackMcpServer[]) | null;
 }
@@ -100,6 +100,12 @@ function gitCredentialHelperResolverFor(helperProgram: string | null | undefined
   };
 }
 
+interface SessionIsolation {
+  prepareSandbox: PrepareSandbox;
+  privateHomeKey: string | null;
+  extraClaudeArgs: readonly string[];
+}
+
 function createSessionFactory(dependencies: SessionFactoryDependencies) {
   function planLimitsEnabled(config: GlimmervoidConfig): boolean {
     return resolveUsageConfig(config.usage).enabled;
@@ -126,7 +132,8 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
     const isMachineShell = (overrides.agent ?? project.agent) === SHELL_AGENT_ID;
     const packMcpServersOf = isMachineShell || overrides.ephemeral ? null : dependencies.packMcpServers ?? null;
     const sessionTempFolder = ensureSessionTempFolder(project.id);
-    const prepareSandbox = dependencies.sandboxForProject?.(project, sessionTempFolder) ?? null;
+    const isolation = dependencies.isolationForProject?.(project, sessionTempFolder) ?? null;
+    const prepareSandbox = isolation?.prepareSandbox ?? null;
     const session = new Session({
       id: project.id,
       name: project.name,
@@ -177,8 +184,10 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
         return broker.holdForLaunch({ id: project.id, project: project.path, cwd }, names, OPENROUTER_LAUNCH_REASON);
       },
       prepareSandbox,
+      privateHomeKey: isolation?.privateHomeKey ?? null,
       ...overrides,
       prependPathDirs: [...ghShimDirsForSpawn(), ...(overrides.prependPathDirs ?? [])],
+      extraClaudeArgs: [...(isolation?.extraClaudeArgs ?? []), ...(overrides.extraClaudeArgs ?? [])],
       spawnEnv: sessionTempFolder ? { CLAUDE_CODE_TMPDIR: sessionTempFolder, ...(overrides.spawnEnv ?? {}) } : overrides.spawnEnv,
     });
     const captureConfig = {
@@ -192,4 +201,4 @@ function createSessionFactory(dependencies: SessionFactoryDependencies) {
 }
 
 export { createSessionFactory };
-export type { SessionSpawnOverrides };
+export type { SessionIsolation, SessionSpawnOverrides };

@@ -493,7 +493,7 @@ function prepareHome(env: Record<string, string | undefined>, sessionFolder: str
       .filter(({ relativeKey }) => !disabledKeys.has(relativeKey))
       .map(({ relativeKey, currentHash }) => ({ key: `${canonicalGeneratedHome}${path.sep}${relativeKey}`, currentHash }));
     return renderCodexHooksBlock({ hooks, trustedHashes, projectHookTrust: [...userHookTrust, ...folderProjectHookTrust], operatorText, realHome, generatedHome: canonicalGeneratedHome, trustedFolders });
-  }, { isClean: homeChoice.isClean, accountFolder: homeChoice.accountFolder ?? null, packSkillDirs, isSandboxed: homeChoice.isSandboxed });
+  }, { isClean: homeChoice.isClean, accountFolder: homeChoice.accountFolder ?? null, packSkillDirs, isSandboxed: homeChoice.isSandboxed, privateKey: homeChoice.privateKey ?? null });
   if ("refusal" in prepared) {
     releaseTrustedFolder(sessionFolder);
     return prepared;

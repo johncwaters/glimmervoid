@@ -109,6 +109,7 @@ async function launchSandboxedProbe(probeSource: string, probeArguments: (run: O
     enableWeakerNetworkIsolation,
     credentialProxy: null,
     hiddenFolders: [],
+    ownFolders: [],
   });
   const launcherFolder = fs.mkdtempSync(SHORT_SOCKET_FOLDER_PREFIX);
   const settingsPath = srtSettingsPathIn(launcherFolder);

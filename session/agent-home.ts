@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -7,8 +8,9 @@ import { glimmervoidHomeDir } from "../server/core/config-path-core.ts";
 import { loadFileLocks } from "../server/session-temp/session-temp-locks.ts";
 import { writeTextAtomicSync } from "../server/json-file.ts";
 import { clock } from "../shared/clock.ts";
+import { safePathSegment } from "../shared/paths.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, PACK_SKILLS_MARKER_NAME, SKILLS_ENTRY_NAME, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
+import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, CLAUDE_HOME_PROFILE, GROK_HOME_PROFILE, PACK_SKILLS_MARKER_NAME, SKILLS_ENTRY_NAME, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import { mergeSharedKeys } from "./core/agent-account-core.ts";
 import { takeClaudeConfigLock } from "./adapters/claude-trust.ts";
 import type { AgentHomeLinkKind, AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
@@ -18,6 +20,7 @@ const GENERATED_FILE_MODE = 0o600;
 const CLEAN_HOME_FOLDER_NAME = "clean";
 const SANDBOXED_HOME_FOLDER_NAME = "sandboxed";
 const SANDBOXED_ACCOUNT_HOME_PREFIX = "account-";
+const PRIVATE_HOME_PREFIX = "private-";
 
 type AgentHomeEnv = Record<string, string | undefined>;
 
@@ -32,6 +35,7 @@ interface AgentHomeOptions {
   isClean?: boolean;
   isAccountHome?: boolean;
   isSandboxed?: boolean;
+  isPrivate?: boolean;
   packSkillDirs?: readonly string[];
 }
 
@@ -39,6 +43,7 @@ interface SessionAgentHomeChoice {
   isClean?: boolean;
   accountFolder?: string | null;
   isSandboxed?: boolean;
+  privateKey?: string | null;
 }
 
 interface ScratchAgentHomeOptions {
@@ -61,12 +66,54 @@ function sandboxedHomesRootOf(profile: AgentHomeProfile, env: AgentHomeEnv): str
   return path.join(glimmervoidHomeDir(os.homedir(), env), "agent-homes", profile.vendor, SANDBOXED_HOME_FOLDER_NAME);
 }
 
-function sessionAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv, { isClean = false, accountFolder = null, isSandboxed = false }: SessionAgentHomeChoice): string {
+function sessionAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv, { isClean = false, accountFolder = null, isSandboxed = false, privateKey = null }: SessionAgentHomeChoice): string {
   if (!isSandboxed) return accountFolder === null ? generatedAgentHomePath(profile, env, os.homedir(), isClean) : accountHomeOf(profile, accountFolder);
   const sandboxedRoot = sandboxedHomesRootOf(profile, env);
+  if (privateKey !== null) return path.join(sandboxedRoot, `${PRIVATE_HOME_PREFIX}${safePathSegment(privateKey)}`, profile.homeEnvSubfolder ?? "");
   if (accountFolder === null) return path.join(sandboxedRoot, isClean ? CLEAN_HOME_FOLDER_NAME : "", profile.homeEnvSubfolder ?? "");
   const accountKey = createHash("sha256").update(path.resolve(accountFolder)).digest("hex").slice(0, 16);
   return path.join(sandboxedRoot, `${SANDBOXED_ACCOUNT_HOME_PREFIX}${accountKey}`, profile.homeEnvSubfolder ?? "");
+}
+
+function everySandboxedHomesRoot(env: AgentHomeEnv = process.env): string[] {
+  return [...new Set([CLAUDE_HOME_PROFILE, GROK_HOME_PROFILE, ...AGENT_HOME_PROFILES].map((profile) => sandboxedHomesRootOf(profile, env)))];
+}
+
+function ensureEverySandboxedHomesRoot(env: AgentHomeEnv = process.env): string[] {
+  const roots = everySandboxedHomesRoot(env);
+  for (const root of roots) fs.mkdirSync(root, { recursive: true, mode: GENERATED_HOME_MODE });
+  return roots;
+}
+
+async function makeFoldersWritable(folder: string): Promise<void> {
+  const entries = await fsp.readdir(folder, { withFileTypes: true }).catch(() => []);
+  await fsp.chmod(folder, GENERATED_HOME_MODE).catch(() => {});
+  for (const entry of entries) {
+    if (entry.isDirectory()) await makeFoldersWritable(path.join(folder, entry.name));
+  }
+}
+
+async function removePrivateHomeFolder(folder: string): Promise<string | null> {
+  if (!fs.existsSync(folder)) return null;
+  await makeFoldersWritable(folder);
+  return fsp.rm(folder, { recursive: true, force: true }).then(() => null, (error: unknown) => `${folder} could not be removed: ${errorMessage(error)}`);
+}
+
+async function removePrivateAgentHomes(privateKey: string, env: AgentHomeEnv = process.env): Promise<string[]> {
+  const folders = everySandboxedHomesRoot(env).map((root) => path.join(root, `${PRIVATE_HOME_PREFIX}${safePathSegment(privateKey)}`));
+  const failures = await Promise.all(folders.map(removePrivateHomeFolder));
+  return failures.filter((failure): failure is string => failure !== null);
+}
+
+async function removeEveryPrivateAgentHome(env: AgentHomeEnv = process.env): Promise<string[]> {
+  const failures: (string | null)[] = [];
+  for (const root of everySandboxedHomesRoot(env)) {
+    const entries = await fsp.readdir(root, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.startsWith(PRIVATE_HOME_PREFIX)) failures.push(await removePrivateHomeFolder(path.join(root, entry.name)));
+    }
+  }
+  return failures.filter((failure): failure is string => failure !== null);
 }
 
 function agentHomeLinkRefusal(generatedHome: string): string | null {
@@ -222,7 +269,7 @@ function readConfigTexts(profile: AgentHomeProfile, realHome: string, generatedH
   };
 }
 
-function planFromDisk(profile: AgentHomeProfile, { renderBlock, managedMcpServers, platform = process.platform, isClean, isAccountHome, isSandboxed, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
+function planFromDisk(profile: AgentHomeProfile, { renderBlock, managedMcpServers, platform = process.platform, isClean, isAccountHome, isSandboxed, isPrivate, packSkillDirs = [] }: AgentHomeOptions, realHome: string, generatedHome: string): AgentHomePlan {
   const configTexts = readConfigTexts(profile, realHome, generatedHome);
   if ("refusal" in configTexts) return { kind: "refused", reason: configTexts.refusal };
   const generatedEntries = childNamesOf(generatedHome).map((name) => describeGeneratedEntry(generatedHome, realHome, name));
@@ -241,6 +288,7 @@ function planFromDisk(profile: AgentHomeProfile, { renderBlock, managedMcpServer
     isClean: isClean === true,
     isAccountHome: isAccountHome === true,
     isSandboxed: isSandboxed === true,
+    isPrivate: isPrivate === true,
     packSkillDirs,
   });
 }
@@ -490,17 +538,18 @@ function pickReadCandidate(candidatePaths: readonly string[]): string {
   return candidatePaths.find((candidatePath) => statOrNull(candidatePath) !== null) ?? candidatePaths[candidatePaths.length - 1];
 }
 
-async function syncMixedAccountFiles(profile: AgentHomeProfile, accountFolder: string, env: AgentHomeEnv, homeDir: string): Promise<string | null> {
+async function syncMixedAccountFiles(profile: AgentHomeProfile, accountFolder: string, env: AgentHomeEnv, homeDir: string, { isPrivate = false }: { isPrivate?: boolean } = {}): Promise<string | null> {
   for (const mixedFile of profile.account?.mixedFiles ?? []) {
     const realFilePath = pickReadCandidate(mixedFile.candidatePaths(env, homeDir));
     const accountFilePath = pickReadCandidate(mixedFile.candidatePaths({ ...env, [profile.homeEnvName]: accountFolder }, homeDir));
+    if (isPrivate && !fs.existsSync(accountFilePath)) writeTextAtomicSync(accountFilePath, '{}\n', { mode: GENERATED_FILE_MODE, enforceMode: true });
     const lockPath = await takeClaudeConfigLock(accountFilePath).catch(() => null);
     if (lockPath === null) return `${accountFilePath} is locked by another process, so the shared keys of ${realFilePath} cannot be copied`;
     try {
       const accountFile = readJsonObjectFile(accountFilePath);
       const realFile = readJsonObjectFile(realFilePath);
       if (accountFile === null || realFile === null) continue;
-      const merged = mergeSharedKeys(accountFile, realFile, mixedFile.sharedKeys, mixedFile.seededKeys);
+      const merged = mergeSharedKeys(accountFile, realFile, isPrivate ? [] : mixedFile.sharedKeys, mixedFile.seededKeys);
       if (merged !== null) writeTextAtomicSync(accountFilePath, `${JSON.stringify(merged, null, 2)}\n`, { mode: GENERATED_FILE_MODE, enforceMode: true });
     } catch (error) {
       return `${accountFilePath} cannot take the shared keys of ${realFilePath}: ${errorMessage(error)}`;
@@ -541,14 +590,14 @@ async function prepareAccountHome(profile: AgentHomeProfile, { env, accountFolde
   return prepared;
 }
 
-async function prepareSandboxedAccountHome(profile: AgentHomeProfile, { env, accountFolder, homeDir = os.homedir() }: { env: AgentHomeEnv; accountFolder: string | null; homeDir?: string }): Promise<{ home: string } | { refusal: string }> {
+async function prepareSandboxedAccountHome(profile: AgentHomeProfile, { env, accountFolder, privateKey = null, homeDir = os.homedir() }: { env: AgentHomeEnv; accountFolder: string | null; privateKey?: string | null; homeDir?: string }): Promise<{ home: string } | { refusal: string }> {
   const refusal = accountFolder === null ? null : accountFolderRefusal(profile, env, accountFolder, homeDir);
   if (refusal !== null) return { refusal };
   const loginEnv = accountFolder === null ? env : { ...env, [profile.homeEnvName]: accountHomeOf(profile, accountFolder) };
-  const sandboxedHome = sessionAgentHomePath(profile, env, { accountFolder, isSandboxed: true });
-  const prepared = prepareAgentHome(profile, { env: loginEnv, homeDir, renderBlock: () => (profile.config?.kind === "json" ? "{}" : ""), generatedHome: sandboxedHome, isAccountHome: true, isSandboxed: true });
+  const sandboxedHome = sessionAgentHomePath(profile, env, { accountFolder, isSandboxed: true, privateKey });
+  const prepared = prepareAgentHome(profile, { env: loginEnv, homeDir, renderBlock: () => (profile.config?.kind === "json" ? "{}" : ""), generatedHome: sandboxedHome, isAccountHome: true, isSandboxed: true, isPrivate: privateKey !== null });
   if ("refusal" in prepared) return prepared;
-  const syncRefusal = await syncMixedAccountFiles(profile, sandboxedHome, loginEnv, homeDir);
+  const syncRefusal = await syncMixedAccountFiles(profile, sandboxedHome, loginEnv, homeDir, { isPrivate: privateKey !== null });
   if (syncRefusal !== null) return { refusal: syncRefusal };
   return prepared;
 }
@@ -571,6 +620,7 @@ interface HeldAgentHomeOptions {
   accountFolder?: string | null;
   packSkillDirs?: readonly string[];
   isSandboxed?: boolean;
+  privateKey?: string | null;
   managedMcpServers?: Readonly<Record<string, unknown>>;
 }
 
@@ -608,16 +658,16 @@ function holdPreparedSandboxedHome(profile: AgentHomeProfile, env: AgentHomeEnv,
   if ("refusal" in placeholderLogin) return placeholderLogin;
   holdAgentHome(generatedHome);
   const generatedFiles = { ...renderGeneratedFiles(), ...placeholderLogin.files };
-  const prepared = prepareAgentHome(profile, { env: loginEnv, renderBlock, generatedFiles, generatedHome, isClean: choice.isClean, isSandboxed: true, packSkillDirs, managedMcpServers });
+  const prepared = prepareAgentHome(profile, { env: loginEnv, renderBlock, generatedFiles, generatedHome, isClean: choice.isClean, isSandboxed: true, isPrivate: (choice.privateKey ?? null) !== null, packSkillDirs, managedMcpServers });
   if ("refusal" in prepared) releaseAgentHome(generatedHome);
   return prepared;
 }
 
-function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, { renderGeneratedFiles = () => ({}), isClean, accountFolder = null, packSkillDirs = [], isSandboxed = false, managedMcpServers }: HeldAgentHomeOptions = {}): { home: string } | { refusal: string } {
+function holdPreparedAgentHome(profile: AgentHomeProfile, env: AgentHomeEnv, renderBlock: (operatorText: string) => string, { renderGeneratedFiles = () => ({}), isClean, accountFolder = null, packSkillDirs = [], isSandboxed = false, privateKey = null, managedMcpServers }: HeldAgentHomeOptions = {}): { home: string } | { refusal: string } {
   if (isClean && !profile.cleanOmits) return { refusal: `a clean ${profile.vendor} home is not supported` };
   if (isClean && accountFolder !== null) return { refusal: `a clean ${profile.vendor} home cannot run under an added account` };
   const content = { renderBlock, renderGeneratedFiles, packSkillDirs, managedMcpServers };
-  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, content, { isClean, accountFolder, isSandboxed });
+  if (isSandboxed) return holdPreparedSandboxedHome(profile, env, content, { isClean, accountFolder, isSandboxed, privateKey });
   if (accountFolder !== null) return holdPreparedAccountHome(profile, env, content, accountFolder);
   const generatedHome = generatedAgentHomePath(profile, env, os.homedir(), isClean);
   if (path.resolve(realAgentHome(profile, env)) === path.resolve(generatedHome)) return { refusal: `${profile.homeEnvName} already points at the generated home ${generatedHome}` };
@@ -759,6 +809,6 @@ function releaseEveryUnheldAgentHomeSecrets(env: AgentHomeEnv = process.env, acc
   }
 }
 
-export { describeAgentHome, generatedAgentHomePath, sessionAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareSandboxedAccountHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
+export { describeAgentHome, ensureEverySandboxedHomesRoot, removeEveryPrivateAgentHome, removePrivateAgentHomes, generatedAgentHomePath, sessionAgentHomePath, holdAgentHome, holdPreparedAgentHome, prepareAccountHome, prepareAgentHome, prepareSandboxedAccountHome, prepareScratchAgentHome, readOptionalText, realAgentHome, releaseAgentHome, releaseEveryUnheldAgentHomeSecrets, releaseUnheldAgentHomeSecrets };
 
 export type { SessionAgentHomeChoice };

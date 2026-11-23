@@ -1,4 +1,6 @@
 import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
 import { HookRouter } from '../../detection/hook-source.ts';
 import { sweepOrphans } from '../../detection/settings-injector.ts';
 import { hooksForProject } from '../../session/core/user-hooks-core.ts';
@@ -9,6 +11,9 @@ import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { resolveHookTools } from '../hook-tools.ts';
 import { createSessionFactory } from '../session/session-factory.ts';
+import type { SessionIsolation } from '../session/session-factory.ts';
+import { ensureEverySandboxedHomesRoot } from '../../session/agent-home.ts';
+import { DEFAULT_AGENT_ID } from '../../session/adapters/index.ts';
 import { selfLaunch } from '../runtime-paths.ts';
 import { createSshSigner, installCommitSigningShim, installGhShim, installGitCredentialShim } from '../ssh-signing.ts';
 import { createHostSigningKeyStore } from '../commit-signing.ts';
@@ -42,6 +47,8 @@ interface BackendSessionRuntimeDependencies {
   sharedPackMcpServersFor?: (agentId: string) => PackMcpServer[];
 }
 
+const SHARED_AGENT_SKILLS_FOLDER = path.join(os.homedir(), '.agents');
+const SEAT_CLAUDE_ARGS = ['--strict-mcp-config'];
 const SEAT_NEEDS_SANDBOX_PLATFORM = 'Wargames seats run only inside the session sandbox, which needs Linux or macOS';
 
 function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependencies) {
@@ -107,15 +114,19 @@ function createBackendSessionRuntime(dependencies: BackendSessionRuntimeDependen
   });
   const isSessionSandboxOn = dependencies.config.sessionSandbox === true;
   if (isSessionSandboxOn && sessionSandbox === null) throw new Error(`sessionSandbox is on, but sandboxed sessions run only on Linux and macOS (this machine is ${process.platform})`);
-  const sandboxForProject = (project: ProjectEntry, sessionTempFolder: string | null) => {
-    const isSeat = isWargamesSeatProject(project);
-    if (!isSeat && !isSessionSandboxOn) return null;
-    if (sessionSandbox === null) return refusingSandbox(SEAT_NEEDS_SANDBOX_PLATFORM);
-    return sessionSandbox.sandboxFor(sessionTempFolder, isSeat ? [WARGAMES_SEAT_ROOT_DIR] : []);
+  const seatIsolation = (project: ProjectEntry, sessionTempFolder: string | null): SessionIsolation => {
+    if (sessionSandbox === null) return { prepareSandbox: refusingSandbox(SEAT_NEEDS_SANDBOX_PLATFORM), privateHomeKey: null, extraClaudeArgs: [] };
+    const hiddenFolders = [WARGAMES_SEAT_ROOT_DIR, ...ensureEverySandboxedHomesRoot(), SHARED_AGENT_SKILLS_FOLDER];
+    return { prepareSandbox: sessionSandbox.sandboxFor(sessionTempFolder, hiddenFolders), privateHomeKey: project.id, extraClaudeArgs: (project.agent ?? DEFAULT_AGENT_ID) === DEFAULT_AGENT_ID ? SEAT_CLAUDE_ARGS : [] };
+  };
+  const isolationForProject = (project: ProjectEntry, sessionTempFolder: string | null): SessionIsolation | null => {
+    if (isWargamesSeatProject(project)) return seatIsolation(project, sessionTempFolder);
+    if (!isSessionSandboxOn || sessionSandbox === null) return null;
+    return { prepareSandbox: sessionSandbox.sandboxFor(sessionTempFolder, []), privateHomeKey: null, extraClaudeArgs: [] };
   };
   const seatSandboxRefusal = async () => sessionSandbox === null ? SEAT_NEEDS_SANDBOX_PLATFORM : sessionSandbox.refusal();
   const makeSession = createSessionFactory({
-    sandboxForProject,
+    isolationForProject,
     getPackAgentLaunch: packSessionFiles.launch,
     getSecretsBroker: dependencies.getSecretsBroker,
     commitSigningProgram,

@@ -56,6 +56,7 @@ interface HookSettings {
   sandbox?: unknown;
   env?: unknown;
   apiKeyHelper?: unknown;
+  skipDangerousModePermissionPrompt?: boolean;
 }
 
 interface BuildHookSettingsOptions {
@@ -72,6 +73,7 @@ interface BuildHookSettingsOptions {
   planLimits?: boolean;
   userSettingsPath?: string | null;
   carryOperatorPermissions?: boolean;
+  carryBypassModeAcceptance?: boolean;
   agentSandboxSetting?: { enabled: false } | null;
   relayLaunch?: readonly string[];
   commandHookRelayLaunch?: readonly string[];
@@ -125,12 +127,13 @@ interface OperatorPermissions {
 interface OperatorClaudeSettings {
   statuslineCommand: string | null;
   awaySummaryEnabled: boolean | null;
+  hasAcceptedBypassMode: boolean;
   operatorPermissions: OperatorPermissions;
 }
 
 const CARRIED_PERMISSION_KEYS = ['sandbox', 'env', 'apiKeyHelper'] as const;
 const NO_OPERATOR_PERMISSIONS: OperatorPermissions = { denyRules: [], askRules: [], carried: {} };
-const NO_OPERATOR_SETTINGS: OperatorClaudeSettings = { statuslineCommand: null, awaySummaryEnabled: null, operatorPermissions: NO_OPERATOR_PERMISSIONS };
+const NO_OPERATOR_SETTINGS: OperatorClaudeSettings = { statuslineCommand: null, awaySummaryEnabled: null, hasAcceptedBypassMode: false, operatorPermissions: NO_OPERATOR_PERMISSIONS };
 
 function ruleListOf(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((rule): rule is string => typeof rule === 'string') : [];
@@ -159,6 +162,7 @@ function readOperatorClaudeSettings(settingsPath: string): OperatorClaudeSetting
       return {
         statuslineCommand: statuslineCommandFrom(parsed),
         awaySummaryEnabled: typeof parsed.awaySummaryEnabled === 'boolean' ? parsed.awaySummaryEnabled : null,
+        hasAcceptedBypassMode: parsed.skipDangerousModePermissionPrompt === true,
         operatorPermissions: operatorPermissionsFrom(parsed),
       };
     },
@@ -197,7 +201,7 @@ function buildSessionStartCommand(
   return buildRemoteCommandHookCommand({ nodePath: remoteNodePath, postUrl, replyHandler: isRewake ? REMOTE_RELAY_REWAKE_HANDLER : REMOTE_RELAY_STDOUT_HANDLER });
 }
 
-function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
+function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TIMEOUT_SEC, permissions = null, detectScheduledWakeups = true, observeToolCalls = false, chatApprovals = 'off', enableProjectMcp = false, hookTools = [], planLimits = false, userSettingsPath = null, carryOperatorPermissions, carryBypassModeAcceptance, agentSandboxSetting = null, relayLaunch = RELAY_LAUNCH, commandHookRelayLaunch = COMMAND_HOOK_RELAY_LAUNCH, userHooks = [], remoteNodePath = null }: BuildHookSettingsOptions): HookSettings {
   if (!port || !glimmervoidId || !token) {
     throw new Error('buildHookSettings requires port, glimmervoidId, token');
   }
@@ -257,7 +261,8 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
   const operatorSettingsPath = userSettingsPath || path.join(os.homedir(), '.claude', 'settings.json');
   const operatorSettings = readOperatorClaudeSettings(operatorSettingsPath);
   const carriedPermissions = carryOperatorPermissions ? operatorSettings.operatorPermissions : NO_OPERATOR_PERMISSIONS;
-  const settings: HookSettings = { hooks, ...carriedPermissions.carried, ...(agentSandboxSetting === null ? {} : { sandbox: agentSandboxSetting }) };
+  const bypassModeAcceptance = carryBypassModeAcceptance && operatorSettings.hasAcceptedBypassMode ? { skipDangerousModePermissionPrompt: true } : {};
+  const settings: HookSettings = { hooks, ...carriedPermissions.carried, ...bypassModeAcceptance, ...(agentSandboxSetting === null ? {} : { sandbox: agentSandboxSetting }) };
   const allowRules = permissions && Array.isArray(permissions.allow) ? permissions.allow.slice() : [];
   const denyRules = [...(permissions && Array.isArray(permissions.deny) ? permissions.deny : []), ...carriedPermissions.denyRules];
   const askRules = carriedPermissions.askRules;

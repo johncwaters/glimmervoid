@@ -262,6 +262,7 @@ interface AgentHomeInputs {
   isClean: boolean;
   isAccountHome: boolean;
   isSandboxed: boolean;
+  isPrivate: boolean;
   packSkillDirs: readonly string[];
 }
 
@@ -553,6 +554,7 @@ function withoutOperatorTables(configText: string, tablePrefixes: readonly strin
 
 function cleanRealConfigText(inputs: AgentHomeInputs): string | null {
   const omits = inputs.profile.cleanOmits;
+  if (inputs.isPrivate) return inputs.realConfigText === null ? null : "";
   if (!inputs.isClean || !omits || inputs.realConfigText === null) return inputs.realConfigText;
   const operatorText = withoutBlock(inputs.realConfigText);
   if (operatorText === "foreign") return inputs.realConfigText;
@@ -651,6 +653,7 @@ function isAccountEntryName(name: string, inputs: AgentHomeInputs): boolean {
 }
 
 function isKeptOutOfLinks(name: string, inputs: AgentHomeInputs): boolean {
+  if (inputs.isPrivate) return true;
   if (inputs.isClean && inputs.profile.cleanOmits?.entryNames.includes(name)) return true;
   if (inputs.isSandboxed && inputs.profile.sandboxLogin?.entryName === name) return true;
   return GENERATED_ONLY_NAMES.has(name) || isConfigFileName(name, inputs.profile) || inputs.profile.generatedFileNames.includes(name) || inputs.profile.isPrivateEntryName(name, inputs.platform, inputs.isSandboxed === true) || isAccountEntryName(name, inputs);
@@ -661,7 +664,7 @@ function isPackSkillsFolder(entry: GeneratedAgentHomeEntry | undefined): boolean
 }
 
 function wantsPackSkills(inputs: AgentHomeInputs): boolean {
-  return !inputs.isClean && inputs.packSkillDirs.length > 0;
+  return !inputs.isClean && !inputs.isPrivate && inputs.packSkillDirs.length > 0;
 }
 
 function realSkillsFolder(inputs: AgentHomeInputs): RealAgentHomeEntry | undefined {

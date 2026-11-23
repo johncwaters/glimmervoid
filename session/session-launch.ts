@@ -67,6 +67,7 @@ interface LaunchPort {
   getPackMcpServers: () => ((agentId: string, cwd: string) => Promise<PackMcpLaunchHold>) | null;
   getSharedPackMcpServers: () => ((agentId: string) => PackMcpServer[]) | null;
   prepareSandbox: PrepareSandbox | null;
+  privateHomeKey: string | null;
   probeGraphicalSession: () => Promise<GraphicalSessionState>;
   onSandboxRefused: (cause: Error) => void;
   onSupersededSandbox: () => void;
@@ -239,7 +240,7 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
   async function prepareSandboxedConfigHome(): Promise<string | null> {
     const profile = adapter.accountHomeProfile;
     if (port.prepareSandbox === null || hookProfileOf(adapter)?.injection.kind !== 'settings-file' || !profile) return null;
-    const prepared = await prepareSandboxedAccountHome(profile, { env: process.env, accountFolder });
+    const prepared = await prepareSandboxedAccountHome(profile, { env: process.env, accountFolder, privateKey: port.privateHomeKey });
     if ('refusal' in prepared) return `the sandboxed ${adapter.label} home cannot be prepared: ${prepared.refusal}`;
     accountEnv = { [profile.homeEnvName]: prepared.home };
     return null;

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE, GROK_HOME_PROFILE, KIMI_HOME_PROFILE } from '../session/core/agent-home-core.ts';
-import { holdPreparedAgentHome, prepareAccountHome, releaseAgentHome } from '../session/agent-home.ts';
+import { holdPreparedAgentHome, prepareAccountHome, releaseAgentHome, removePrivateAgentHomes } from '../session/agent-home.ts';
 
 function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -215,4 +215,39 @@ test('a sandboxed session home holds a placeholder login and never the real toke
   writeJson(path.join(codexHome, 'auth.json'), { auth_mode: 'apikey', OPENAI_API_KEY: realToken, tokens: null });
   const apiKeyLaunch = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, () => '', { isClean: false, isSandboxed: true });
   assert.ok('refusal' in apiKeyLaunch && !apiKeyLaunch.refusal.includes(realToken));
+});
+
+test('a private sandboxed home links nothing from the operator home, copies none of its config, is its own folder per key, and goes with its key', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-private-home-'));
+  const codexHome = path.join(homeDir, '.codex');
+  fs.mkdirSync(path.join(codexHome, 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'AGENTS.md'), 'operator instructions');
+  fs.writeFileSync(path.join(codexHome, 'history.jsonl'), 'operator history');
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), '[mcp_servers.operator_private]\ncommand = "operator-mcp"\n');
+  writeJson(path.join(codexHome, 'auth.json'), { auth_mode: 'chatgpt', tokens: { id_token: 'a.b.c', access_token: 'a.b.c', refresh_token: 'r', account_id: 'personal' } });
+  const env = { HOME: homeDir, GLIMMERVOID_HOME: path.join(homeDir, '.glimmervoid'), CODEX_HOME: codexHome };
+  const privateHomeOf = (privateKey: string) => {
+    const prepared = holdPreparedAgentHome(CODEX_HOME_PROFILE, env, () => 'model = "seat"\n', { isSandboxed: true, privateKey });
+    assert.ok('home' in prepared);
+    releaseAgentHome(prepared.home);
+    return prepared.home;
+  };
+
+  const firstSeatHome = privateHomeOf('seat-one');
+  const secondSeatHome = privateHomeOf('seat-two');
+
+  assert.notEqual(firstSeatHome, secondSeatHome);
+  const entries = fs.readdirSync(firstSeatHome, { withFileTypes: true });
+  assert.deepEqual(entries.filter((entry) => entry.isSymbolicLink()).map((entry) => entry.name), []);
+  for (const operatorEntry of ['sessions', 'AGENTS.md', 'history.jsonl']) assert.equal(fs.existsSync(path.join(firstSeatHome, operatorEntry)), false);
+
+  const homeFileTexts = fs.readdirSync(firstSeatHome, { withFileTypes: true }).filter((entry) => entry.isFile()).map((entry) => fs.readFileSync(path.join(firstSeatHome, entry.name), 'utf8'));
+  assert.equal(homeFileTexts.some((text) => text.includes('operator-mcp')), false);
+  fs.mkdirSync(path.join(firstSeatHome, 'locked'));
+  fs.writeFileSync(path.join(firstSeatHome, 'locked', 'transcript.jsonl'), '');
+  fs.chmodSync(path.join(firstSeatHome, 'locked'), 0o500);
+
+  assert.deepEqual(await removePrivateAgentHomes('seat-one', env), []);
+  assert.equal(fs.existsSync(firstSeatHome), false);
+  assert.equal(fs.existsSync(secondSeatHome), true);
 });

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.ts';
+import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
 import { WargamesMatchSpec } from '../../shared/contracts/wargames.ts';
@@ -33,7 +34,7 @@ interface PruneOrphanedWargamesDeps {
   configStore: { save: (mutate: (savedConfig: GlimmervoidConfig) => void) => GlimmervoidConfig | null };
   config: GlimmervoidConfig;
   seatRootDir?: string;
-  logger?: Pick<Console, 'log'>;
+  logger?: Pick<Console, 'log' | 'warn'>;
 }
 
 export function isWargamesSeatProject(
@@ -52,7 +53,10 @@ export function pruneOrphanedWargamesProjects({
   logger,
 }: PruneOrphanedWargamesDeps): { removedIds: string[]; cleanupSeatDirs: Promise<void> } {
   const orphaned = config.projects.filter((project) => isWargamesSeatProject(project, seatRootDir));
-  if (orphaned.length === 0) return { removedIds: [], cleanupSeatDirs: Promise.resolve() };
+  const privateHomesRemoved = removeEveryPrivateAgentHome().then((failures) => {
+    for (const failure of failures) logger?.warn(`[wargames] ${failure}`);
+  });
+  if (orphaned.length === 0) return { removedIds: [], cleanupSeatDirs: privateHomesRemoved };
   const orphanedIds = new Set(orphaned.map((project) => project.id));
   const saved = configStore.save((savedConfig) => {
     savedConfig.projects = savedConfig.projects.filter((project) => !orphanedIds.has(project.id));
@@ -77,7 +81,7 @@ export function pruneOrphanedWargamesProjects({
   }
   const cleanupSeatDirs = Promise.all(
     [...dirsToRemove].map((dir) => fsp.rm(dir, { recursive: true, force: true }).catch(() => {})),
-  ).then(() => undefined);
+  ).then(() => privateHomesRemoved);
   return { removedIds: [...orphanedIds], cleanupSeatDirs };
 }
 
@@ -145,9 +149,13 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
   return lines.join('\n');
 }
 
+const PRIVATE_HOME_SEAT_AGENT_IDS: ReadonlySet<string> = new Set(['claude-code', 'codex', 'kimi']);
+
 function refusalOf(spec: WargamesMatchSpecType): string | null {
   const invalidSeat = spec.seats.find((seat) => seat.setup.agent === SHELL_AGENT_ID || !isKnownAgentId(seat.setup.agent));
   if (invalidSeat) return `"${invalidSeat.setup.agent}" cannot play Wargames: a seat must be a coding agent`;
+  const sharedHomeSeat = spec.seats.find((seat) => !PRIVATE_HOME_SEAT_AGENT_IDS.has(seat.setup.agent));
+  if (sharedHomeSeat) return `"${sharedHomeSeat.setup.agent}" cannot play Wargames yet: its sessions share one agent home, so a seat could read another seat or play under your own instructions`;
   return providerRefusalOf(spec.seats.map((seat) => seat.setup));
 }
 
@@ -195,7 +203,10 @@ export function createWargamesLauncher({
       }
       sessions.get(sessionId)?.destroy();
     }
-    const settled = Promise.allSettled(removals).then(() => undefined);
+    const settled = Promise.allSettled(removals).then(async () => {
+      const failures = (await Promise.all(sessionIds.map((sessionId) => removePrivateAgentHomes(sessionId)))).flat();
+      for (const failure of failures) console.warn(`[wargames] ${failure}`);
+    });
     if (!matchId) return settled;
     const matchDir = path.resolve(seatRootDir, matchId);
     if (!isPathInside(seatRootDir, matchDir, { allowEqual: false, foldCase })) return settled;

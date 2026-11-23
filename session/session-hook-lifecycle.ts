@@ -2,6 +2,8 @@ import { errorMessage, isMissingFileError } from "../shared/text.ts";
 import type { ChatApprovalMode } from '../shared/contracts/session.ts';
 import fs from "node:fs";
 import path from "node:path";
+import { realAgentHome } from "./agent-home.ts";
+import { CLAUDE_HOME_PROFILE } from "./core/agent-home-core.ts";
 import { writeSessionSettings, generateToken } from "../detection/settings-injector.ts";
 import type { HookRegistration, HookSignal } from "../detection/hook-source.ts";
 import type { ModelSelection } from "../shared/contracts/agent-models.ts";
@@ -67,6 +69,7 @@ interface SessionHookOptions {
   scratchAgentHome?: ScratchAgentHome | null;
   isCleanHome?: boolean;
   isOsSandboxed?: boolean;
+  privateHomeKey?: string | null;
   packSkillDirs?: () => readonly string[];
   packHookFiles?: () => readonly string[];
   modelSelection?: () => ModelSelection | null;
@@ -226,7 +229,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function holdHookedHome(home: HookedAgentHome): { home: string; isTrusted: boolean } | { refusal: string } {
     const sessionFolder = options.effectiveCwd();
-    const prepared = home.prepareHome(process.env, sessionFolder, { isClean: options.isCleanHome ?? false, accountFolder: options.accountFolder(), isSandboxed: options.isOsSandboxed ?? false }, options.packSkillDirs?.() ?? []);
+    const prepared = home.prepareHome(process.env, sessionFolder, { isClean: options.isCleanHome ?? false, accountFolder: options.accountFolder(), isSandboxed: options.isOsSandboxed ?? false, privateKey: options.privateHomeKey ?? null }, options.packSkillDirs?.() ?? []);
     if ("refusal" in prepared) return prepared;
     heldGeneratedHome = { releaseHome: (heldHome) => home.releaseHome(heldHome, sessionFolder), home: prepared.home };
     return prepared;
@@ -308,7 +311,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
 
   function injectGeneratedHomeHooks(port: number, injection: GeneratedHomeInjection): HookInjectionResult {
     releaseGeneratedHome();
-    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), sessionFolder: options.effectiveCwd(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], hasPackHooks: (options.packHookFiles?.() ?? []).length > 0, modelSelection: options.modelSelection?.() ?? null, isSandboxed: options.isOsSandboxed ?? false, packServers: options.packMcpServers(), sharedPackServers: options.sharedPackMcpServers() });
+    const prepared = options.scratchAgentHome ? injection.prepareScratchHome(process.env, options.scratchAgentHome) : injection.prepareHome(process.env, { listenerPort: port, folderTrustRoot: options.folderTrustRoot(), sessionFolder: options.effectiveCwd(), isCleanHome: options.isCleanHome ?? false, accountFolder: options.accountFolder(), packSkillDirs: options.packSkillDirs?.() ?? [], hasPackHooks: (options.packHookFiles?.() ?? []).length > 0, modelSelection: options.modelSelection?.() ?? null, isSandboxed: options.isOsSandboxed ?? false, privateHomeKey: options.privateHomeKey ?? null, packServers: options.packMcpServers(), sharedPackServers: options.sharedPackMcpServers() });
     if ("refusal" in prepared) return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: ${prepared.refusal}` };
     if (!options.scratchAgentHome) heldGeneratedHome = { releaseHome: injection.releaseHome, home: prepared.home };
     const hooksOffConfig = findProjectAgentConfig(injection.projectConfigCandidates, injection.userConfigFolders(options.agentEnv()), injection.mayTurnHooksOff);
@@ -382,6 +385,8 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
         chatApprovals: options.readChatApprovals(),
         enableProjectMcp: options.enableProjectMcp,
         carryOperatorPermissions: options.isCleanHome ?? false,
+        carryBypassModeAcceptance: (options.privateHomeKey ?? null) !== null,
+        userSettingsPath: (options.privateHomeKey ?? null) === null ? null : path.join(realAgentHome(CLAUDE_HOME_PROFILE, process.env), 'settings.json'),
         agentSandboxSetting: options.isOsSandboxed ? { enabled: false } : null,
         hookTools: options.hookTools,
         planLimits: options.planLimits,

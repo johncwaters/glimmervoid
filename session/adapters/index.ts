@@ -108,6 +108,7 @@ interface GeneratedHomeLaunch {
   hasPackHooks?: boolean;
   modelSelection?: ModelSelection | null;
   isSandboxed?: boolean;
+  privateHomeKey?: string | null;
   packServers?: readonly PackMcpServer[];
   sharedPackServers?: readonly PackMcpServer[];
 }

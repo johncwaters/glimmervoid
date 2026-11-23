@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { buildSrtSettings } from '../server/sandbox/core/sandbox-policy-core.ts';
 
-function seatSettings(root: string, hiddenFolders: readonly string[]) {
+function seatSettings(root: string, hiddenFolders: readonly string[], ownFolders: readonly string[] = []) {
   const glimmervoidHome = path.join(root, 'home', '.glimmervoid');
   return buildSrtSettings({
     homeDir: path.join(root, 'home'),
@@ -26,6 +26,7 @@ function seatSettings(root: string, hiddenFolders: readonly string[]) {
     enableWeakerNetworkIsolation: false,
     credentialProxy: null,
     hiddenFolders,
+    ownFolders,
   });
 }
 
@@ -44,4 +45,11 @@ test('a Wargames seat sandbox denies the whole seat root and the Glimmervoid hom
   const ordinarySession = seatSettings(root, []).filesystem;
   assert.equal(ordinarySession.denyRead.includes(seatRoot), false);
   assert.equal(ordinarySession.allowRead.includes(ownSeatFolder), false);
+
+  const sharedHomes = path.join(root, 'home', '.glimmervoid', 'agent-homes', 'claude', 'sandboxed');
+  const ownHome = path.join(sharedHomes, 'private-seat-one');
+  const withPrivateHome = seatSettings(root, [seatRoot, sharedHomes], [ownHome]).filesystem;
+  assert.ok(withPrivateHome.denyRead.includes(sharedHomes));
+  assert.ok(withPrivateHome.allowRead.includes(ownHome));
+  assert.ok(withPrivateHome.allowWrite.includes(ownHome));
 });

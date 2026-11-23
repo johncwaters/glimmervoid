@@ -69,6 +69,7 @@ interface SandboxPolicyInput {
   enableWeakerNetworkIsolation: boolean;
   credentialProxy: CredentialProxyRoute | null;
   hiddenFolders: readonly string[];
+  ownFolders: readonly string[];
 }
 
 interface SealedHomeLink {
@@ -120,7 +121,7 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
   const isSealed = (folder: string) => input.sealedLoginHomes.some((sealedHome) => isPathInside(sealedHome, folder));
   const accountFolders = input.accountFolder === null || isSealed(input.accountFolder) ? [] : [input.accountFolder];
   const writableHomePaths = [...SHARED_HOME_WRITABLE_PATHS, ...ownHomePaths].map(underHome).filter((homePath) => !isSealed(homePath));
-  const isWorktreeHidden = input.hiddenFolders.some((hiddenFolder) => isPathInside(hiddenFolder, input.worktree));
+  const revealedOwnFolders = [input.worktree, ...input.ownFolders].filter((ownFolder) => input.hiddenFolders.some((hiddenFolder) => isPathInside(hiddenFolder, ownFolder)));
   return {
     network: {
       allowedDomains: [...new Set([...DEFAULT_ALLOWED_HOSTS, ...input.extraAllowedHosts])],
@@ -131,7 +132,7 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
     },
     filesystem: {
       denyRead: [...(input.credentialProxy === null ? [] : [input.credentialProxy.proxiesFolder]), input.glimmervoidHome, ...input.secretPaths, ...HOME_UNREADABLE_PATHS.map(underHome), ...otherAgentHomePaths.map(underHome), ...input.sealedLoginHomes, ...PLATFORM_SOCKET_PATHS, path.join('/run/user', String(input.userId)), ...input.hiddenFolders],
-      allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), ...accountFolders, ...input.sealedLoginHomeCarveOuts, input.sessionTempFolder, ...input.readableFiles, ...(isWorktreeHidden ? [input.worktree] : [])],
+      allowRead: [...underGlimmervoidFolders(GLIMMERVOID_HOME_READABLE_FOLDERS), ...accountFolders, ...input.sealedLoginHomeCarveOuts, input.sessionTempFolder, ...input.readableFiles, ...revealedOwnFolders],
       allowWrite: [
         input.worktree,
         ...new Set(input.gitRepositories.map((repository) => repository.commonDir)),
@@ -140,6 +141,7 @@ function buildSrtSettings(input: SandboxPolicyInput): SrtSettings {
         ...accountFolders,
         ...input.sealedLoginHomeCarveOuts,
         ...writableHomePaths,
+        ...revealedOwnFolders,
       ],
       denyWrite: [...new Set(input.gitRepositories.flatMap(gitMetadataDeniedWrites))],
     },

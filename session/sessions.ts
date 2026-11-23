@@ -264,6 +264,7 @@ interface SessionOptions {
   resolveHostSigningEnv?: ((cwd: string) => Promise<Record<string, string>>) | null;
   resolveLaunchSecrets?: ResolveLaunchSecrets | null;
   prepareSandbox?: PrepareSandbox | null;
+  privateHomeKey?: string | null;
 }
 
 interface ClaudeSessionIdEvent {
@@ -498,6 +499,7 @@ class Session extends EventEmitter {
     resolveHostSigningEnv = null,
     resolveLaunchSecrets = null,
     prepareSandbox = null,
+    privateHomeKey = null,
   }: SessionOptions) {
     super();
     const isEphemeral = ephemeral === true;
@@ -679,6 +681,7 @@ class Session extends EventEmitter {
       scratchAgentHome,
       isCleanHome,
       isOsSandboxed: prepareSandbox !== null,
+      privateHomeKey: prepareSandbox === null ? null : privateHomeKey,
       packSkillDirs: () => this._launch.packLaunch?.namedSkillDirs ?? [],
       packHookFiles: () => this._launch.packLaunch?.hookFiles ?? [],
       modelSelection: () => this._agentSetup,
@@ -737,6 +740,7 @@ class Session extends EventEmitter {
         getPackMcpServers: () => this._packMcpServers,
         getSharedPackMcpServers: () => this._sharedPackMcpServers,
         prepareSandbox,
+        privateHomeKey: prepareSandbox === null ? null : privateHomeKey,
         probeGraphicalSession: () => this._probeGraphicalSession(),
         onSandboxRefused: (cause) => this._abandonSpawn(cause),
         onSupersededSandbox: () => this._hooks.cleanup(),

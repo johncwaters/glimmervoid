@@ -179,6 +179,12 @@ async function gitRepositoriesUnder(worktree: string): Promise<GitRepositoryLayo
   return childRepositories.filter((repository) => repository !== null);
 }
 
+async function ownSessionHomeOf(facts: SandboxLaunchFacts): Promise<string[]> {
+  const sessionHome = sessionAgentHomeOf(facts.agent, facts.env);
+  if (sessionHome === null) return [];
+  return [...new Set([sessionHome, ...await existingRealPaths([sessionHome])])];
+}
+
 function readableFilesIn(env: SpawnEnv): string[] {
   const systemGitConfig = env.GIT_CONFIG_SYSTEM;
   return systemGitConfig ? [systemGitConfig] : [];
@@ -221,6 +227,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     enableWeakerNetworkIsolation: dependencies.isWeakerNetworkIsolationOn(),
     credentialProxy: credentialProxy.route,
     hiddenFolders: [...new Set([...hiddenFolders, ...await existingRealPaths(hiddenFolders)])],
+    ownFolders: await ownSessionHomeOf(facts),
   });
   const settingsText = `${JSON.stringify(settings, null, 2)}\n`;
   const env = { ...withoutInheritedCredentials(facts.env, facts.launchSetEnvNames), ...trustEnv, ...placeholderEnv(facts.agent) };
