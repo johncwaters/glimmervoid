@@ -918,7 +918,7 @@ function resolveTick(
     state.scoutedHexesBySeat[seatId] = [];
   }
 
-  if (state.tick >= WARGAMES_SQUEEZE_TICK) {
+  if (state.spec.rulesVersion !== 'v4' && state.tick >= WARGAMES_SQUEEZE_TICK) {
     for (const village of state.villages) {
       if (!village || state.hexes[village.hexIndex].ring !== WARGAMES_HEX_RADIUS) continue;
       if (village.productionState !== 'producing') continue;

@@ -386,7 +386,7 @@ const lengthSigner: ReportSigner = {
   verify: (payload, signature) => signature === `sig:${payload.length}`,
 };
 
-function advanceToResolution(state: ReturnType<typeof createInitialMatchState>) {
+function advanceToResolution(state: ReturnType<typeof createInitialMatchState>, tickOverride?: number) {
   let current = state;
   const applyNext = (event: EventWithoutSeq<WargamesEvent>) => {
     const applied = applyEvent(current, { ...event, seq: current.lastSeq + 1 } as WargamesEvent, lengthSigner);
@@ -395,6 +395,7 @@ function advanceToResolution(state: ReturnType<typeof createInitialMatchState>) 
   };
   applyNext({ type: 'seating_started' });
   for (const seatId of WARGAMES_SEAT_IDS) applyNext({ type: 'seat_connected', seatId });
+  if (tickOverride !== undefined) current.tick = tickOverride;
   applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
   applyNext({ type: 'phase_advanced', reason: 'deadline', signatures: {} });
   applyNext({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
@@ -591,4 +592,14 @@ test('v4 garrisons surviving attackers in captured villages, returns non-capturi
   const v3Third = sendThreeMessages('v3');
   assert.equal(v3Third.ok, false);
   if (!v3Third.ok) assert.equal(v3Third.rejection.code, 'message_limit_exceeded');
+
+  const checkSqueeze = (rulesVersion: WargamesMatchSpec['rulesVersion']) => {
+    const state = createInitialMatchState('wg-v4-squeeze', 1000, { ...buildTestSpec(), rulesVersion });
+    const resolved = advanceToResolution(state, WARGAMES_SQUEEZE_TICK);
+    const outerHex = ALL_HEXES.find((hex) => hex.ring === 3 && resolved.villages[hex.index] !== null);
+    assert.ok(outerHex);
+    return resolved.villages[outerHex.index]?.productionState;
+  };
+  assert.equal(checkSqueeze('v4'), 'producing');
+  assert.equal(checkSqueeze('v3'), 'barren');
 });
