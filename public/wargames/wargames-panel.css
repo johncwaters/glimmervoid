@@ -385,12 +385,15 @@
 .wg-board-caption {
   width: 100%;
   max-width: 860px;
-  min-height: 40px;
+  height: 84px;
+  flex: none;
+  box-sizing: border-box;
+  overflow-y: auto;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   padding: 8px 12px;
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   font-size: var(--type-body);
   line-height: 1.4;
@@ -404,7 +407,8 @@
   width: 10px;
   height: 10px;
   flex: none;
-  align-self: center;
+  align-self: flex-start;
+  margin-top: 5px;
 }
 
 .wg-board-caption-speaker {
