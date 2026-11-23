@@ -31,7 +31,55 @@ export type PlanInline =
   | { type: 'code'; text: string }
   | { type: 'emphasis'; children: PlanInline[] }
   | { type: 'strong'; children: PlanInline[] }
-  | { type: 'link'; href: string; children: PlanInline[] };
+  | { type: 'link'; href: string; children: PlanInline[] }
+  | { type: 'fileRef'; text: string; path: string };
+
+interface FileRef {
+  path: string;
+  lineStart: number | null;
+  lineEnd: number | null;
+}
+
+const FILE_URL_PREFIX = 'file://';
+const URL_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+const LINE_FRAGMENT = /#L(\d+)(?:C\d+)?(?:-L(\d+)(?:C\d+)?)?$/;
+const LINE_SUFFIX = /:(\d+)(?:-(\d+))?(?::\d+)?$/;
+const ABSOLUTE_PATH_PREFIXES = ['/', '~/'];
+
+function lineNumberOf(digits: string | undefined): number | null {
+  return digits === undefined ? null : Number(digits);
+}
+
+function withoutLineMark(target: string): FileRef {
+  const fragment = LINE_FRAGMENT.exec(target) ?? LINE_SUFFIX.exec(target);
+  if (!fragment) return { path: target, lineStart: null, lineEnd: null };
+  return { path: target.slice(0, fragment.index), lineStart: lineNumberOf(fragment[1]), lineEnd: lineNumberOf(fragment[2]) };
+}
+
+function decodedPath(encodedPath: string): string | null {
+  try {
+    return decodeURIComponent(encodedPath);
+  } catch {
+    return null;
+  }
+}
+
+function fileRefOf(target: string): FileRef | null {
+  const isFileUrl = target.startsWith(FILE_URL_PREFIX);
+  const marked = withoutLineMark(isFileUrl ? target.slice(FILE_URL_PREFIX.length) : target);
+  if (marked.path.length === 0 || marked.path.startsWith('#') || /\s/.test(marked.path)) return null;
+  if (!isFileUrl && URL_SCHEME.test(marked.path)) return null;
+  const isFileReference = isFileUrl || marked.lineStart !== null || ABSOLUTE_PATH_PREFIXES.some((prefix) => marked.path.startsWith(prefix));
+  if (!isFileReference) return null;
+  const path = isFileUrl ? decodedPath(marked.path) : marked.path;
+  return path === null ? null : { ...marked, path };
+}
+
+function fileRefText({ path, lineStart, lineEnd }: FileRef): string {
+  const fileName = path.split('/').filter(Boolean).at(-1) ?? path;
+  if (lineStart === null) return fileName;
+  return lineEnd === null || lineEnd === lineStart ? `${fileName}:${lineStart}` : `${fileName}:${lineStart}-${lineEnd}`;
+}
 
 export interface PlanListItem {
   children: PlanBlock[];
@@ -187,6 +235,14 @@ function planLinkAt(
   };
 }
 
+function linkNodeOf(link: PlanLinkSpan): PlanInline | null {
+  const target = link.target.trim();
+  const href = normalizedHttpUrl(target);
+  if (href) return { type: 'link', href, children: parseInlineSpan(link.label, true) };
+  const fileRef = fileRefOf(target);
+  return fileRef ? { type: 'fileRef', text: fileRefText(fileRef), path: fileRef.path } : null;
+}
+
 function parsePlanInline(source: string): PlanInline[] {
   return parseInlineSpan(source, false);
 }
@@ -201,9 +257,9 @@ function parseInlineSpan(source: string, isInsideLink: boolean): PlanInline[] {
   while (cursor < source.length) {
     const link = planLinkAt(source, cursor, closeBracketAtOrAfter);
     if (link) {
-      const href = normalizedHttpUrl(link.target.trim());
-      if (href) nodes.push({ type: 'link', href, children: parseInlineSpan(link.label, true) });
-      if (!href) appendText(nodes, link.label);
+      const linkNode = linkNodeOf(link);
+      if (linkNode) nodes.push(linkNode);
+      if (!linkNode) appendText(nodes, link.label);
       cursor = link.end;
       continue;
     }
@@ -273,7 +329,7 @@ function parseInlineSpan(source: string, isInsideLink: boolean): PlanInline[] {
 
 function planInlineText(nodes: readonly PlanInline[]): string {
   return nodes.map((node) => {
-    if (node.type === 'text' || node.type === 'code') return node.text;
+    if (node.type === 'text' || node.type === 'code' || node.type === 'fileRef') return node.text;
     return planInlineText(node.children);
   }).join('');
 }

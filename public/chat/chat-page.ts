@@ -26,6 +26,7 @@ import type { ChatModelPicker } from './model-picker.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
+import { refreshChatFileRefs } from './chat-parts.ts';
 import { changedCardsOf, markAgentChangeShown, onAgentChange } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
@@ -702,7 +703,9 @@ onAgentChange((sessionId, boardChange) => {
 });
 
 onReviewChange((sessionId) => {
-  if (mountedChat?.sessionId === sessionId) mountedChat.showDone();
+  if (mountedChat?.sessionId !== sessionId) return;
+  mountedChat.showDone();
+  refreshChatFileRefs(mountedChat.root);
 });
 
 subscribeUsage((change) => {

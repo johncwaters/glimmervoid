@@ -49,7 +49,7 @@ function descendants(root: FakeElement): FakeElement[] {
   return [root, ...nested.flatMap(descendants)];
 }
 
-test('plan rendering keeps safe links and leaves unsafe URLs and raw HTML as text', async () => {
+test('plan rendering keeps safe links, shows file links as name and line, and leaves unsafe URLs and raw HTML as text', async () => {
   const fakeDocument = {
     createElement: (tag: string) => new FakeElement(tag),
     createTextNode: (text: string) => new FakeText(text),
@@ -60,6 +60,7 @@ test('plan rendering keeps safe links and leaves unsafe URLs and raw HTML as tex
     '[web](https://example.com/path) [plain](http://example.org)',
     '[script](javascript:alert(1)) [payload](data:text/html;base64,abc)',
     '<script>alert(1)</script>',
+    '[boards-view.ts](file:///wt/public/boards-view.ts#L516-L530) and [app.py](/abs/path/app.py:12) and [main.rs](/repo/src/main.rs:12:5) per the [setup guide](docs/setup.md#install)',
   ].join('\n\n');
   const root = renderPlanBlocks(parsePlanMarkdown(markdown));
   const links = Array.from(root.querySelectorAll('a'));
@@ -71,6 +72,7 @@ test('plan rendering keeps safe links and leaves unsafe URLs and raw HTML as tex
   assert.match(root.textContent, /script payload/);
   assert.match(root.textContent, /<script>alert\(1\)<\/script>/);
   assert.doesNotMatch(root.textContent, /javascript:|data:text/);
+  assert.match(root.textContent, /boards-view\.ts:516-530 and app\.py:12 and main\.rs:12 per the setup guide/);
 });
 
 test('a fenced code info string renders at most one safe language class', async () => {

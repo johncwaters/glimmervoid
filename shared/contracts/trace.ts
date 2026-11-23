@@ -47,6 +47,7 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     kind: z.literal('expansion'),
     text: z.string(),
     toolUseId: z.string().min(1).optional(),
+    midTurn: z.literal(true).optional(),
   }),
   TraceRecordBase.extend({
     kind: z.literal('thinking'),

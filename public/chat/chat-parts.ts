@@ -5,6 +5,13 @@ import { clock } from '#shared/clock.ts';
 import { renderCard } from './chat-cards.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
+import type { PlanFileRefs } from '../plan/plan-render.ts';
+import { openSessionPage } from '../page-registry.ts';
+import { findLinkedReaderFile } from '../review/review-reader-core.ts';
+import { reviewOf } from '../review/review-store.ts';
+import { getSelectedId } from '../review/selection.ts';
+import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
+import { sessionUIs } from '../session-card/card-registry.ts';
 import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
 import { copyButton } from '../ui/copy-button.ts';
@@ -140,9 +147,29 @@ function frameCodeBlock(codeBlock: HTMLPreElement): void {
   frame.append(header, codeBlock);
 }
 
+function changedFileOf(linkedPath: string): { sessionId: string; changedPath: string } | null {
+  const sessionId = getSelectedId();
+  if (!sessionId) return null;
+  const workingDirectory = sessionWorkingDirectoryOf(sessionId) ?? sessionUIs.get(sessionId)?.path ?? null;
+  const changedFile = findLinkedReaderFile(reviewOf(sessionId)?.files ?? [], linkedPath, workingDirectory);
+  return changedFile ? { sessionId, changedPath: changedFile.path } : null;
+}
+
+const CHAT_FILE_REFS: PlanFileRefs = {
+  canOpen: (linkedPath) => changedFileOf(linkedPath) !== null,
+  open: (linkedPath) => {
+    const changed = changedFileOf(linkedPath);
+    if (changed) openSessionPage('changes', changed.sessionId, changed.changedPath);
+  },
+};
+
+export function refreshChatFileRefs(chatRoot: HTMLElement): void {
+  for (const fileRef of chatRoot.querySelectorAll<HTMLButtonElement>('button.plan-file-ref[data-path]')) fileRef.disabled = !CHAT_FILE_REFS.canOpen(fileRef.dataset.path ?? '');
+}
+
 function renderTextSegment(text: string): HTMLElement {
   const textElement = el('div', 'chat-turn-text');
-  const textBody = renderPlanBlocks(parsePlanMarkdown(text));
+  const textBody = renderPlanBlocks(parsePlanMarkdown(text), { fileRefs: CHAT_FILE_REFS });
   for (const anchoredHeading of textBody.querySelectorAll('[id]')) anchoredHeading.removeAttribute('id');
   for (const codeBlock of textBody.querySelectorAll<HTMLPreElement>('pre.plan-code')) frameCodeBlock(codeBlock);
   textElement.append(textBody);

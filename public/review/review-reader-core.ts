@@ -64,6 +64,18 @@ export function findReaderFile(files: readonly ReaderFile[], path: string | null
   return files.find((file) => file.path === path) ?? files.find((file) => file.oldPath === path) ?? null;
 }
 
+export function findLinkedReaderFile(files: readonly ReaderFile[], linkedPath: string, workingDirectory: string | null): ReaderFile | null {
+  const relativePath = linkedPath.startsWith('/') ? relativeToWorkingDirectory(linkedPath, workingDirectory) : linkedPath.replace(/^\.\//, '');
+  if (relativePath === null) return null;
+  return files.find((file) => file.path === relativePath) ?? null;
+}
+
+function relativeToWorkingDirectory(absolutePath: string, workingDirectory: string | null): string | null {
+  if (workingDirectory === null) return null;
+  const rootPrefix = `${workingDirectory.replace(/\/+$/, '')}/`;
+  return absolutePath.startsWith(rootPrefix) ? absolutePath.slice(rootPrefix.length) : null;
+}
+
 export function stepReaderFile(files: readonly ReaderFile[], selectedPath: string | null, step: 1 | -1): string | null {
   const selectedIndex = files.findIndex((file) => file.path === selectedPath);
   const fallbackIndex = step === 1 ? 0 : files.length - 1;

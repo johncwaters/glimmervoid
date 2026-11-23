@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { TraceRecord } from '../shared/contracts/trace.ts';
 import { antigravityRecordsFromLine } from '../server/core/conversation/antigravity-core.ts';
+import { opensOperatorTurn } from '../shared/trace-turn.ts';
 
 const FIXTURE = path.join(import.meta.dirname, 'fixtures', 'conversation', 'antigravity-transcript.jsonl');
 const VENDOR_SESSION_ID = 'e49c4f93-2b16-498c-ac66-a509a837905c';
@@ -33,4 +34,10 @@ test('an oversized Antigravity MCP call keeps its server and tool names in the c
   const [call] = antigravityRecordsFromLine(JSON.stringify(step), { vendorSessionId: VENDOR_SESSION_ID, now: 0 });
   assert.ok(call?.kind === 'tool_call' && call.truncated === true && typeof call.input === 'string');
   assert.match(call.input, /^\{"ServerName":"glimmervoid_glimmervoid","ToolName":"whiteboard"/);
+});
+
+test('an Antigravity system message stays inside the running turn instead of opening an operator turn', () => {
+  const systemMessageStep = { step_index: 195, source: 'SYSTEM', type: 'SYSTEM_MESSAGE', status: 'DONE', created_at: '2026-11-23T16:27:50Z', content: '<SYSTEM_MESSAGE>\nReminder: work efficiently.\n</SYSTEM_MESSAGE>' };
+  const records = antigravityRecordsFromLine(JSON.stringify(systemMessageStep), { vendorSessionId: VENDOR_SESSION_ID, now: 0 });
+  assert.deepEqual(records.map((record) => [record.kind, TraceRecord.safeParse(record).success, opensOperatorTurn(record)]), [['expansion', true, false]]);
 });
