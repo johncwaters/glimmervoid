@@ -148,19 +148,8 @@
   .bs-failure { margin: 0; color: var(--state-failed); font-size: var(--type-meta); text-align: center; }
   .bs-failure[hidden] { display: none; }
 
-  .bs-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 36px;
-    padding: 0 4px 0 14px;
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    background: var(--bg-card);
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
-  }
-  .bs-pill:focus-within { border-color: var(--accent-dim); }
-  .bs-pill-input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font: inherit; outline: none; }
+  .bs-pill { margin: 0; box-shadow: 0 6px 20px rgb(0 0 0 / 0.3); }
+  .bs-pill .chat-composer-attach { display: none; }
 
   .bs-presence { position: absolute; top: 0; left: 0; width: 0; height: 0; pointer-events: none; }
   .bs-presence-glow { position: absolute; top: 0; left: 0; box-sizing: border-box; }

@@ -20,6 +20,7 @@ import { canSwitchSessionModel, sessionAccountIdOf, switchableSetupOf, switchSes
 import { clock } from '#shared/clock.ts';
 import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
+import type { RailField } from './status-rail-core.ts';
 import { openChatModelPicker } from './model-picker.ts';
 import type { ChatModelPicker } from './model-picker.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
@@ -381,19 +382,7 @@ function buildChat(sessionId: string): MountedChat {
     const canChangeModel = canSwitchSessionModel(sessionId) && !isSessionWorking(sessionId);
     if (!canChangeModel) openModelPicker?.close();
     refreshLimitCountdowns(root, clock.nowMs());
-    const isMachineLogin = sessionAccountIdOf(sessionId) === null;
-    const agent = sessionUIs.get(sessionId)?.agent ?? null;
-    const vendor = isMachineLogin ? planVendorOfAgent(agent) : null;
-    chatView.showRail(railFieldsOf({
-      meter: sessionMeterOf(sessionId),
-      selection: sessionModelSelectionOf(sessionId),
-      planLimits: vendor === null ? null : planLimitsOf(vendor),
-      sessionCostUSD: sessionCostOf(sessionId),
-      subagents: runningSubagents,
-      nowMs: clock.nowMs(),
-      canChangeModel,
-      agent,
-    }));
+    chatView.showRail(sessionRailFieldsOf(sessionId, runningSubagents, canChangeModel));
   };
   showRail();
   let railTimer: ReturnType<typeof setInterval> | null = setInterval(showRail, RAIL_TICK_MS);
@@ -637,6 +626,22 @@ function dropKeptChatsOfGoneSessions(): void {
 function dropAllKeptChats(): void {
   for (const keptChat of keptChatBySessionId.values()) keptChat.close();
   keptChatBySessionId.clear();
+}
+
+export function sessionRailFieldsOf(sessionId: string, subagents: readonly RunningSubagent[], canChangeModel: boolean): RailField[] {
+  const isMachineLogin = sessionAccountIdOf(sessionId) === null;
+  const agent = sessionUIs.get(sessionId)?.agent ?? null;
+  const vendor = isMachineLogin ? planVendorOfAgent(agent) : null;
+  return railFieldsOf({
+    meter: sessionMeterOf(sessionId),
+    selection: sessionModelSelectionOf(sessionId),
+    planLimits: vendor === null ? null : planLimitsOf(vendor),
+    sessionCostUSD: sessionCostOf(sessionId),
+    subagents,
+    nowMs: clock.nowMs(),
+    canChangeModel,
+    agent,
+  });
 }
 
 export function chatApprovalOf(sessionId: string): ConversationApproval | null {

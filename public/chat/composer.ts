@@ -15,6 +15,7 @@ const REMOVE_ICON_PATH = 'M4.5 4.5l7 7M11.5 4.5l-7 7';
 
 interface ChatComposer {
   element: HTMLElement;
+  input: HTMLTextAreaElement;
   setTurnRunning(isTurnRunning: boolean): void;
   readDraft(): string;
   restoreDraft(text: string): void;
@@ -62,6 +63,7 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
   const stopButton = outlineIconButton({ label: 'Stop', icon: createLineIcon(STOP_ICON_PATH, '1.8'), size: 'large', disabled: true, states: ['idle'] }).element;
   stopButton.classList.add('chat-composer-stop');
   const attachButton = button({ variant: 'icon', size: 'large', label: 'Attach', icon: createLineIcon(ATTACH_ICON_PATH, '1.4') });
+  attachButton.classList.add('chat-composer-attach');
   const filePicker = el('input', 'chat-composer-file-picker');
   filePicker.type = 'file';
   filePicker.multiple = true;
@@ -170,5 +172,5 @@ export function createComposer(uploadUrlOf: (fileName: string) => string): ChatC
     attachments.append(preview);
     updateSendButton();
   };
-  return { element, setTurnRunning, readDraft: () => input.value, restoreDraft, readAttachments: () => [...attachedFileNames], showAttachment, showRail: rail.show };
+  return { element, input, setTurnRunning, readDraft: () => input.value, restoreDraft, readAttachments: () => [...attachedFileNames], showAttachment, showRail: rail.show };
 }

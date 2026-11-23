@@ -116,6 +116,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await menu.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
 
   const pillBefore = await boxOf(page, '.board-session-view .bs-pill');
+  assert.equal(await root.locator('.bs-pill.chat-composer textarea.chat-composer-input').count(), 1, 'the message bar is Chat\'s composer');
   const chipBefore = await boxOf(page, '.board-session-view .bs-chip');
   const pillInput = root.getByRole('textbox');
   await page.waitForFunction(() => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -159,7 +160,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await verifyBranch(page, projectDirectory, pillBefore);
 
   await pillInput.fill('narrate');
-  const sendButton = root.getByRole('button', { name: 'Send', exact: true });
+  const sendButton = root.locator('.bs-pill .chat-composer-send');
   assert.equal(await sendButton.isEnabled(), true, 'Send turns on once the pill holds text');
   await pillInput.press('Enter');
   await root.locator('.bs-row-you', { hasText: 'narrate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });

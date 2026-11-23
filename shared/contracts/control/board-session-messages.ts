@@ -4,7 +4,7 @@ import { loose, optionalError, requestId, sessionId } from './control-fields.ts'
 export const CODEMAP_BOXES_MAX_PATHS = 200;
 const ASK_ANSWER_MAX_CHARS = 2000;
 export const CODEMAP_BOX_CHOICES_MAX = 5000;
-const BRANCH_PROMPT_MAX_CHARS = 20000;
+export const BRANCH_PROMPT_MAX_CHARS = 20000;
 export const DIRECTOR_DIGEST_SESSIONS_MAX = 50;
 
 const RepoPath = z.string().min(1).max(1000);

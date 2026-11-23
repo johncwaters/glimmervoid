@@ -33,6 +33,7 @@ import type { GlowTier, PresenceLayer } from './presence-layer.ts';
 import { createAgentCards, isBusyPhase } from './agent-card.ts';
 import type { AgentCardModel, AgentCards } from './agent-card.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
+import { sessionRailFieldsOf } from '../chat/chat-page.ts';
 import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -413,6 +414,7 @@ function mountDock(): void {
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
     boxChoices: () => moduleChoices,
     digestOf: directorDigestOf,
+    railFields: () => sessionRailFieldsOf(sessionId, watchBySessionId.get(sessionId)?.subagents ?? [], false),
   });
   parts.dockSlot.append(dock.element);
   syncBranches();

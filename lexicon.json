@@ -1541,6 +1541,10 @@
     {
       "name": "digest",
       "definition": "The one-line summary the Studio director writes of an agent's long reply, shown on the agent's card and in place of the reply in the Studio log"
+    },
+    {
+      "name": "approval",
+      "definition": "The operator's go-ahead Glimmervoid waits for before something proceeds: an agent's held question or permission request (a conversation approval, answered on its Chat or Studio card), a plan, a pack's files, or a PR flow command"
     }
   ],
   "retired": [

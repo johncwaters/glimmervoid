@@ -1,15 +1,19 @@
 import { renderCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
+import { createComposer } from '../chat/composer.ts';
+import { stringDetailOf } from '../chat/chat-page.ts';
+import type { RailField } from '../chat/status-rail-core.ts';
+import { BRANCH_PROMPT_MAX_CHARS } from '#shared/contracts/control/board-session-messages.ts';
+import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import type { ChatPart } from '../chat/chat-part.ts';
 import { operatorPartOfPrompt } from '#shared/board-branch-core.ts';
-import { sendControlRequest } from '../control-ws.ts';
+import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { createLineIcon } from '../svg-dom.ts';
-import { button } from '../ui/button.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { errorMessage } from '#shared/text.ts';
 import { addressLabelOf, boxMentionAt, matchingBoxChoices, textWithoutMention } from './branch-core.ts';
@@ -20,10 +24,11 @@ const CHAT_SEND_TIMEOUT_MS = 10000;
 const BRANCH_SPAWN_TIMEOUT_MS = 30000;
 const NEAR_TOP_PX = 48;
 const NEAR_BOTTOM_PX = 24;
-const SEND_ICON_PATH = 'M8 13V3M3.5 7.5L8 3l4.5 4.5';
 const CLEAR_ICON_PATH = 'M4 4l8 8M12 4l-8 8';
 const NOT_SENT_TEXT = 'The message was not sent.';
 const MAIN_ADDRESS: DockAddress = { kind: 'main' };
+const RAIL_TICK_MS = 30_000;
+const NO_UPLOADS_URL = '';
 
 interface DockSession {
   sessionId: string;
@@ -33,6 +38,7 @@ interface DockSession {
   isTurnOver: () => boolean;
   boxChoices: () => readonly BoxChoice[];
   digestOf: (sessionId: string, openedAt: number) => string | null;
+  railFields: () => readonly RailField[];
 }
 
 export interface DockBranch {
@@ -135,7 +141,9 @@ export function createDock(session: DockSession): Dock {
   mentions.setAttribute('role', 'listbox');
   mentions.setAttribute('aria-label', 'Boxes');
   mentions.hidden = true;
-  const pill = el('form', 'bs-pill');
+  const composer = createComposer(() => NO_UPLOADS_URL);
+  const pill = composer.element;
+  pill.classList.add('bs-pill');
   const addressChip = el('span', 'bs-pill-address');
   const addressText = el('span', 'bs-pill-address-text');
   const clearAddressButton = createPressable('bs-pill-address-clear');
@@ -144,14 +152,12 @@ export function createDock(session: DockSession): Dock {
   clearAddressButton.append(createLineIcon(CLEAR_ICON_PATH, '1.6'));
   addressChip.append(addressText, clearAddressButton);
   addressChip.hidden = true;
-  const input = el('input', 'bs-pill-input');
-  input.type = 'text';
+  const input = composer.input;
+  input.classList.add('bs-pill-input');
   input.placeholder = `Message ${session.name}, or @ a box to branch`;
   input.setAttribute('aria-label', `Message ${session.name}`);
   input.setAttribute('aria-autocomplete', 'list');
-  const sendButton = button({ variant: 'primary-icon', size: 'small', label: 'Send', icon: createLineIcon(SEND_ICON_PATH, '1.8'), action: 'board-session-send', disabled: true });
-  sendButton.type = 'submit';
-  pill.append(addressChip, input, sendButton);
+  input.before(addressChip);
   element.append(log, failure, mentions, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
@@ -163,6 +169,7 @@ export function createDock(session: DockSession): Dock {
   let mention: BoxMention | null = null;
   let mentionChoices: BoxChoice[] = [];
   let activeChoiceIndex = 0;
+  const branchTurnOverBySessionId = new Map<string, () => boolean>();
 
   const rowKeyOf = (sessionId: string, partId: string) => `${sessionId}:${partId}`;
   const isNearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight <= NEAR_BOTTOM_PX;
@@ -184,7 +191,9 @@ export function createDock(session: DockSession): Dock {
 
   const setAddress = (nextAddress: DockAddress) => {
     address = nextAddress;
+    input.maxLength = nextAddress.kind === 'new-branch' ? BRANCH_PROMPT_MAX_CHARS : CHAT_SEND_MAX_CHARS;
     paintAddress();
+    paintComposer();
   };
 
   const addressBranch = (branch: DockBranch) => {
@@ -301,7 +310,7 @@ export function createDock(session: DockSession): Dock {
     input.value = textWithoutMention(input.value, mention);
     closeMentions();
     setAddress({ kind: 'new-branch', aboutBoxId: choice.boxId, aboutTitle: choice.title });
-    sendButton.disabled = input.value.trim().length === 0;
+    composer.restoreDraft(input.value);
     input.focus();
   };
 
@@ -339,16 +348,14 @@ export function createDock(session: DockSession): Dock {
     input.focus();
   });
 
-  input.addEventListener('input', () => {
-    sendButton.disabled = input.value.trim().length === 0;
-    readMention();
-  });
+  input.addEventListener('input', readMention);
 
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Backspace' && input.value.length === 0 && address.kind !== 'main') return setAddress(MAIN_ADDRESS);
     if (mentions.hidden || mentionChoices.length === 0) return;
     if (event.key === 'Escape') {
       event.preventDefault();
+      event.stopImmediatePropagation();
       return closeMentions();
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -361,8 +368,9 @@ export function createDock(session: DockSession): Dock {
     const choice = mentionChoices[activeChoiceIndex];
     if (!choice) return;
     event.preventDefault();
+    event.stopImmediatePropagation();
     pickChoice(choice);
-  });
+  }, { capture: true });
 
   input.addEventListener('blur', closeMentions);
 
@@ -384,17 +392,27 @@ export function createDock(session: DockSession): Dock {
       });
   };
 
-  pill.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const text = input.value.trim();
-    if (text.length === 0) return;
-    input.value = '';
-    sendButton.disabled = true;
+  const addressedSessionId = () => address.kind === 'branch' ? address.sessionId : address.kind === 'main' ? session.sessionId : null;
+
+  const isAddressedTurnRunning = () => {
+    const sessionId = addressedSessionId();
+    if (sessionId === null) return false;
+    if (sessionId === session.sessionId) return !session.isTurnOver();
+    return feedBySessionId.has(sessionId) && !(branchTurnOverBySessionId.get(sessionId)?.() ?? true);
+  };
+
+  const paintComposer = () => {
+    composer.setTurnRunning(isAddressedTurnRunning());
+    composer.showRail(session.railFields());
+  };
+
+  pill.addEventListener('chat-send', (event) => {
+    const text = stringDetailOf(event, 'text');
+    if (text === null || text.length === 0) return;
     closeMentions();
     const sentAddress = address;
     const restoreText = (failureText: string) => {
-      if (input.value.trim().length === 0) input.value = text;
-      sendButton.disabled = input.value.trim().length === 0;
+      if (input.value.trim().length === 0) composer.restoreDraft(text);
       showFailure(failureText);
     };
     sendText(text, sentAddress)
@@ -405,7 +423,17 @@ export function createDock(session: DockSession): Dock {
       .catch((reason: unknown) => restoreText(`Could not confirm the message was queued: ${errorMessage(reason)}`));
   });
 
+  pill.addEventListener('chat-stop', () => {
+    const sessionId = addressedSessionId();
+    if (sessionId !== null) sendControlMsg({ type: 'chat-stop', id: sessionId });
+  });
+
+  paintComposer();
+  const railTimer = setInterval(paintComposer, RAIL_TICK_MS);
+
   const setBranches = (branches: readonly DockBranch[]) => {
+    branchTurnOverBySessionId.clear();
+    for (const branch of branches) branchTurnOverBySessionId.set(branch.sessionId, branch.isTurnOver);
     const shownBranchIds = new Set(branches.map((branch) => branch.sessionId));
     for (const [sessionId, feed] of feedBySessionId) {
       if (sessionId === session.sessionId || shownBranchIds.has(sessionId)) continue;
@@ -434,6 +462,7 @@ export function createDock(session: DockSession): Dock {
     },
     refresh: () => {
       openLogWhenTurnLive();
+      paintComposer();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },
     refreshDigests: () => keepingBottom(() => {
@@ -446,6 +475,7 @@ export function createDock(session: DockSession): Dock {
       }
     }),
     close: () => {
+      clearInterval(railTimer);
       for (const feed of feedBySessionId.values()) feed.close();
       feedBySessionId.clear();
     },
