@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v3' as const;
+export const WARGAMES_RULES_VERSION = 'v4' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4']);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 const WARGAMES_SEAT_COUNT = 6;

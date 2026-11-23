@@ -615,6 +615,21 @@ function finalizeArmyAfterCombat(army: ArmyState, surviving: TroopCounts): void 
   if (returning.ok) army.status = returning.state;
 }
 
+function garrisonArmyInVillage(army: ArmyState, village: VillageState, surviving: TroopCounts): void {
+  if (totalTroops(surviving) <= 0) {
+    finalizeArmyAfterCombat(army, surviving);
+    return;
+  }
+  village.troops.raider += surviving.raider;
+  village.troops.guard += surviving.guard;
+  village.troops.envoy += surviving.envoy;
+  army.troops = emptyTroops();
+  const reached = transitionArmy(army.status, 'army_return');
+  if (!reached.ok) return;
+  const home = transitionArmy(reached.state, 'army_reach_home');
+  if (home.ok) army.status = home.state;
+}
+
 function resolveV1MarchArrival(
   state: MatchState,
   army: ArmyState,
@@ -879,8 +894,15 @@ function resolveV2SimultaneousBattles(
       if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
       effects.push({ kind: 'report_signed', detail: { reportId, seatId: resolved.entry.seatId, signature: report.signature } });
 
+      const shouldGarrisonCapturedVillage = state.spec.rulesVersion === 'v4' && resolved.captured;
       for (let index = 0; index < resolved.entry.armies.length; index += 1) {
-        finalizeArmyAfterCombat(resolved.entry.armies[index], resolved.survivingByArmy[index].surviving);
+        const army = resolved.entry.armies[index];
+        const surviving = resolved.survivingByArmy[index].surviving;
+        if (shouldGarrisonCapturedVillage) {
+          garrisonArmyInVillage(army, targetVillage, surviving);
+          continue;
+        }
+        finalizeArmyAfterCombat(army, surviving);
       }
     }
   }
@@ -1281,7 +1303,7 @@ export function applyEvent(
     if (state.phase !== 'talk') return reject('invalid_phase', `send_message allowed only in talk phase, got ${state.phase}`);
     const seat = state.seats[seatIndexOf(event.seatId)];
     if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
-    if (seat.messagesSentThisTick >= WARGAMES_MAX_MESSAGES_PER_TICK) {
+    if (state.spec.rulesVersion !== 'v4' && seat.messagesSentThisTick >= WARGAMES_MAX_MESSAGES_PER_TICK) {
       return reject('message_limit_exceeded', `at most ${WARGAMES_MAX_MESSAGES_PER_TICK} messages per tick`);
     }
     if (event.channel === 'dm' && (event.to === null || event.to === event.seatId)) {

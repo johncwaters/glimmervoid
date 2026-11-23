@@ -517,10 +517,78 @@ test('v3 charges an attack split into one-troop armies the same losses as one ar
   const oneArmy = [raidersSent];
   const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v3');
+  assert.equal(WARGAMES_RULES_VERSION, 'v4');
   const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
   assert.ok(lostAsOneArmy > 0);
   assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
   assert.equal(attackerLossesOf('v2', oneArmy), lostAsOneArmy);
   assert.equal(attackerLossesOf('v2', oneTroopArmies), 0);
+});
+
+test('v4 garrisons surviving attackers in captured villages, returns non-capturing raiders, and removes the per-tick message cap', () => {
+  const runCapture = (rulesVersion: WargamesMatchSpec['rulesVersion'], envoys: number) => {
+    const state = createInitialMatchState('wg-v4-cap', 1000, { ...buildTestSpec(), rulesVersion });
+    const s1Capital = state.villages.find((village) => village?.owner === 's1');
+    const neutralVillage = state.villages.find((village) => village && village.owner === null);
+    assert.ok(s1Capital && neutralVillage);
+    neutralVillage.troops = { raider: 0, guard: 2, envoy: 0 };
+    state.armies.set('army-capture', {
+      id: 'army-capture',
+      owner: 's1',
+      status: 'marching',
+      originHexIndex: s1Capital.hexIndex,
+      currentHexIndex: neutralVillage.hexIndex,
+      targetHexIndex: neutralVillage.hexIndex,
+      troops: { raider: 12, guard: 0, envoy: envoys },
+      departedTick: 0,
+      intendedTargetOwner: null,
+      scoutedBy: [],
+    });
+    const resolved = advanceToResolution(state);
+    return {
+      village: resolved.villages[neutralVillage.hexIndex],
+      army: resolved.armies.get('army-capture'),
+    };
+  };
+
+  const v4Captured = runCapture('v4', 4);
+  assert.equal(v4Captured.village?.owner, 's1');
+  assert.equal(v4Captured.village?.loyalty, 25);
+  assert.ok((v4Captured.village?.troops.raider ?? 0) > 0);
+  assert.equal(v4Captured.army?.status, 'home');
+  assert.equal(v4Captured.army?.troops.raider, 0);
+
+  const v4RaidOnly = runCapture('v4', 0);
+  assert.equal(v4RaidOnly.village?.owner, null);
+  assert.equal(v4RaidOnly.army?.status, 'returning');
+  assert.ok((v4RaidOnly.army?.troops.raider ?? 0) > 0);
+
+  const v3Captured = runCapture('v3', 4);
+  assert.equal(v3Captured.village?.owner, 's1');
+  assert.equal(v3Captured.village?.troops.raider, 0);
+  assert.equal(v3Captured.army?.status, 'returning');
+
+  const sendThreeMessages = (rulesVersion: WargamesMatchSpec['rulesVersion']) => {
+    const spec = { ...buildTestSpec(), rulesVersion };
+    let state = createInitialMatchState('wg-v4-msg', 1000, spec);
+    let seq = 1;
+    const apply = (event: WargamesEvent) => {
+      const appliedOutcome = applyEvent(state, event);
+      seq += 1;
+      if (appliedOutcome.ok) state = appliedOutcome.state;
+      return appliedOutcome;
+    };
+    assert.equal(apply({ seq, type: 'seating_started' }).ok, true);
+    for (const seatId of WARGAMES_SEAT_IDS) {
+      assert.equal(apply({ seq, type: 'seat_connected', seatId }).ok, true);
+    }
+    assert.equal(apply({ seq, type: 'message_sent', seatId: 's1', channel: 'dm', to: 's2', text: 'one', attachedReport: null }).ok, true);
+    assert.equal(apply({ seq, type: 'message_sent', seatId: 's1', channel: 'dm', to: 's3', text: 'two', attachedReport: null }).ok, true);
+    return apply({ seq, type: 'message_sent', seatId: 's1', channel: 'dm', to: 's4', text: 'three', attachedReport: null });
+  };
+
+  assert.equal(sendThreeMessages('v4').ok, true);
+  const v3Third = sendThreeMessages('v3');
+  assert.equal(v3Third.ok, false);
+  if (!v3Third.ok) assert.equal(v3Third.rejection.code, 'message_limit_exceeded');
 });
