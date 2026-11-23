@@ -61,4 +61,3 @@ function kimiLoginSource(configText: string | null, env: Readonly<Record<string,
 }
 
 export { kimiLoginSource };
-export type { KimiLoginResolution, KimiLoginSource };
