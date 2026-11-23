@@ -76,6 +76,7 @@ const MAX_TURN_FILE_PATCHES = 50;
 const TRIM_BATCH_PARTS = 200;
 const MAX_REMEMBERED_SUBAGENTS = 200;
 const MAX_REMEMBERED_BACKGROUND_TASKS = 200;
+const COARSEST_TRANSCRIPT_STAMP_MS = 1000;
 const BACKGROUND_TASK_TYPE_BY_TOOL_NAME: ReadonlyMap<string, string> = new Map([['Bash', 'shell'], ['Monitor', 'monitor'], ['Workflow', 'workflow']]);
 const BACKGROUND_TASK_LABEL_BY_TYPE: ReadonlyMap<string, string> = new Map([['shell', 'Shell'], ['monitor', 'Monitor'], ['workflow', 'Workflow']]);
 
@@ -274,9 +275,13 @@ function attachedPromptOf(state: ChatPartsState, sent: SentAttachments): PromptP
   return state.latestPrompt;
 }
 
+function isPromptAtOrAfterBoardAnswer(promptAt: number, sent: SentBoardAnswer): boolean {
+  return Math.floor(promptAt / COARSEST_TRANSCRIPT_STAMP_MS) >= Math.floor(sent.ts / COARSEST_TRANSCRIPT_STAMP_MS);
+}
+
 function answeredPromptOf(state: ChatPartsState, sent: SentBoardAnswer): PromptPart | null {
   const newestPrompt = state.newestPrompt;
-  if (newestPrompt === null || newestPrompt.isBoardAnswer || newestPrompt.at < sent.ts) {
+  if (newestPrompt === null || newestPrompt.isBoardAnswer || !isPromptAtOrAfterBoardAnswer(newestPrompt.at, sent)) {
     state.pendingBoardAnswer = sent;
     return null;
   }
@@ -293,9 +298,10 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   const part = nonPromptPartOf(state, record);
   if (part !== null || record.kind === 'assistant') state.latestPrompt = null;
   if (record.kind !== 'prompt') return part;
-  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: unwrapPastedContent(record.text), at: record.ts, attachments: [], isBoardAnswer: state.pendingBoardAnswer !== null && record.ts >= state.pendingBoardAnswer.ts }, state.pendingAttachments);
+  const isBoardAnswer = state.pendingBoardAnswer !== null && isPromptAtOrAfterBoardAnswer(record.ts, state.pendingBoardAnswer);
+  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: unwrapPastedContent(record.text), at: record.ts, attachments: [], isBoardAnswer }, state.pendingAttachments);
   state.pendingAttachments = null;
-  state.pendingBoardAnswer = null;
+  if (isBoardAnswer) state.pendingBoardAnswer = null;
   state.latestPrompt = prompt;
   state.newestPrompt = prompt;
   return prompt;

@@ -92,6 +92,11 @@ test('a board answer prompt is marked whether its record arrives before or after
   assert.deepEqual(boardAnswerFlagsOf([answerPrompt, boardAnswer, reply, nextPrompt]), [true, false]);
   const askingPrompt: TraceRecord = { kind: 'prompt', text: 'ask-shop', ts: 1_000, ...recordBase };
   assert.deepEqual(boardAnswerFlagsOf([askingPrompt, boardAnswer, answerPrompt, reply]), [false, true]);
+  assert.deepEqual(boardAnswerFlagsOf([boardAnswer, askingPrompt, answerPrompt, reply]), [false, true]);
+  const answeredMidSecond: TraceRecord = { kind: 'board-answer', ts: 2_480, ...recordBase };
+  const wholeSecondAnswerPrompt: TraceRecord = { kind: 'prompt', text: 'Answer to your board question', ts: 2_000, ...recordBase };
+  assert.deepEqual(boardAnswerFlagsOf([answeredMidSecond, wholeSecondAnswerPrompt, reply, nextPrompt]), [true, false]);
+  assert.deepEqual(boardAnswerFlagsOf([wholeSecondAnswerPrompt, answeredMidSecond, reply, nextPrompt]), [true, false]);
   assert.deepEqual(boardAnswerFlagsOf([answerPrompt, reply, boardAnswer, nextPrompt]), [true, false]);
 });
 
