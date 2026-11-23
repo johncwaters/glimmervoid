@@ -258,4 +258,46 @@ function extractNodePtyFromBinary(): string | null {
   }
 }
 
-export { extractNodePtyFromBinary, findNodeLauncherPath, grammarWasmPath, hookLaunch, installedHookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath, treeSitterRuntimeWasmPath };
+let srtCliPath: string | null | undefined;
+
+function resolveSrtCliPath(): string | null {
+  if (srtCliPath !== undefined) return srtCliPath;
+  srtCliPath = mode === 'binary' ? extractSrtFromBinary() : resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
+  return srtCliPath;
+}
+
+function resolveSrtSeccompDir(): string | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    const manifestPath = createRequire(path.join(packageRoot, 'package.json')).resolve('@anthropic-ai/sandbox-runtime/package.json');
+    const seccompDir = path.join(path.dirname(manifestPath), 'vendor', 'seccomp', process.arch);
+    return fs.existsSync(seccompDir) ? seccompDir : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractSrtFromBinary(): string | null {
+  const snapshotCliPath = path.join(assetRoot, 'sandbox', 'srt-cli.mjs');
+  if (!fs.existsSync(snapshotCliPath)) return null;
+  const extractedDir = path.join(binaryRuntimeDir(), 'srt');
+  const extractedEntry = path.join(extractedDir, 'srt-cli.mjs');
+  if (fs.existsSync(extractedEntry)) return extractedEntry;
+  const partialDir = `${extractedDir}.${process.pid}.partial`;
+  try {
+    fs.mkdirSync(partialDir, { recursive: true });
+    fs.writeFileSync(path.join(partialDir, 'srt-cli.mjs'), fs.readFileSync(snapshotCliPath), { mode: 0o755 });
+    const seccompDir = resolveSrtSeccompDir();
+    if (seccompDir !== null) {
+      copySnapshotFiles(seccompDir, path.join(partialDir, 'vendor', 'seccomp', process.arch), () => true);
+    }
+    fs.renameSync(partialDir, extractedDir);
+    return extractedEntry;
+  } catch (err) {
+    fs.rmSync(partialDir, { recursive: true, force: true });
+    if (fs.existsSync(extractedEntry)) return extractedEntry;
+    throw err;
+  }
+}
+
+export { extractNodePtyFromBinary, findNodeLauncherPath, grammarWasmPath, hookLaunch, installedHookLaunch, refuseUnstableSelfLaunches, relayExecutablePath, relayExecutableProblem, requireRelayExecutable, resolveFfmpegPath, resolveFnoxPath, resolvePackageBin, resolveSrtCliPath, scriptLaunch, selfLaunch, selfRelaunch, stableLauncherPath, treeSitterRuntimeWasmPath };

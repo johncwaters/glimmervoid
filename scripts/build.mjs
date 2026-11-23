@@ -58,6 +58,25 @@ async function buildBinary() {
     configFile: path.join(repoRoot, 'vite.server.config.ts'),
     build: { rolldownOptions: { output: { entryFileNames: '[name].mjs', chunkFileNames: 'chunks/[name]-[hash].mjs' } } },
   });
+  await build({
+    configFile: false,
+    root: repoRoot,
+    publicDir: false,
+    logLevel: 'warn',
+    ssr: { noExternal: true },
+    build: {
+      ssr: path.join(repoRoot, 'node_modules', '@anthropic-ai', 'sandbox-runtime', 'dist', 'cli.js'),
+      outDir: path.join(distDir, 'sandbox'),
+      emptyOutDir: false,
+      target: 'node22',
+      minify: false,
+      sourcemap: false,
+      rolldownOptions: {
+        external: (id) => id.startsWith('node:'),
+        output: { format: 'es', entryFileNames: 'srt-cli.mjs', inlineDynamicImports: true },
+      },
+    },
+  });
   const binaryName = process.platform === 'win32' ? 'glimmervoid.exe' : 'glimmervoid';
   const binaryOutputDirectory = path.resolve(repoRoot, optionValue('--binary-out') ?? 'dist-binary');
   const binaryPath = path.join(binaryOutputDirectory, binaryName);

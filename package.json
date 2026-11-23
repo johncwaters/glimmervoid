@@ -135,10 +135,13 @@
     "assets": [
       "dist/client/**/*",
       "dist/examples/**/*",
+      "dist/sandbox/srt-cli.mjs",
       "dist/schema/**/*",
       "dist/session/remote-setup/**/*",
       "dist/package.json",
       "package.json",
+      "node_modules/@anthropic-ai/sandbox-runtime/package.json",
+      "node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp/**/*",
       "node_modules/@img/**/*",
       "node_modules/ffmpeg-static/ffmpeg*",
       "node_modules/node-pty/build/Release/*.node",

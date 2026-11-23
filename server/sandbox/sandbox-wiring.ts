@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import type { RequestListener, Server } from 'node:http';
-import { findNodeLauncherPath, resolvePackageBin, seatbeltLauncherPath } from '../runtime-paths.ts';
+import { findNodeLauncherPath, resolveSrtCliPath, seatbeltLauncherPath } from '../runtime-paths.ts';
 import { firstCommandOnPath } from '../stable-node-path.ts';
 import type { PrepareSandbox } from '../../session/sessions.ts';
 import { sessionSandboxFor } from './sandbox-launch.ts';
@@ -51,7 +51,7 @@ async function findSandboxLauncher(platform: NodeJS.Platform): Promise<SandboxLa
 }
 
 async function findSandboxTools(platform: NodeJS.Platform): Promise<SandboxTools | { refusal: string }> {
-  const srtCliPath = resolvePackageBin('@anthropic-ai/sandbox-runtime', 'srt');
+  const srtCliPath = resolveSrtCliPath();
   if (srtCliPath === null) return { refusal: 'the sandbox runtime (srt) is not installed' };
   const launcher = await findSandboxLauncher(platform);
   if ('refusal' in launcher) return launcher;
