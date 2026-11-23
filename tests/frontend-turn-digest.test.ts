@@ -77,6 +77,24 @@ test('a prompt Claude Code wrapped as pasted content shows the pasted text with 
   assert.deepEqual(promptTextsOf([attachments, recordOf(`\n\n<pasted_content id="b2">\n${pastedPrefix} what is wrong here\n</pasted_content id="b2">`)]), [{ text: 'what is wrong here', attachments: [imageName] }]);
 });
 
+test('a board answer prompt is marked whether its record arrives before or after the prompt, and the next operator prompt is not', () => {
+  const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  const boardAnswer: TraceRecord = { kind: 'board-answer', ts: 2_000, ...recordBase };
+  const answerPrompt: TraceRecord = { kind: 'prompt', text: 'Answer to your board question', ts: 2_100, ...recordBase };
+  const reply: TraceRecord = { kind: 'assistant', text: 'Reusing it.', ts: 2_200, ...recordBase };
+  const nextPrompt: TraceRecord = { kind: 'prompt', text: 'Now add tax', ts: 3_000, ...recordBase };
+  const boardAnswerFlagsOf = (records: readonly TraceRecord[]) => {
+    const { parts } = appendChatRecords(createChatPartsState(WORKING_DIRECTORY), records);
+    const promptById = new Map(parts.flatMap((part) => (part.kind === 'prompt' ? [[part.id, part.isBoardAnswer] as const] : [])));
+    return [...promptById.values()];
+  };
+  assert.deepEqual(boardAnswerFlagsOf([boardAnswer, answerPrompt, reply, nextPrompt]), [true, false]);
+  assert.deepEqual(boardAnswerFlagsOf([answerPrompt, boardAnswer, reply, nextPrompt]), [true, false]);
+  const askingPrompt: TraceRecord = { kind: 'prompt', text: 'ask-shop', ts: 1_000, ...recordBase };
+  assert.deepEqual(boardAnswerFlagsOf([askingPrompt, boardAnswer, answerPrompt, reply]), [false, true]);
+  assert.deepEqual(boardAnswerFlagsOf([answerPrompt, reply, boardAnswer, nextPrompt]), [true, false]);
+});
+
 test('a background shell the Stop payload reports running gets a row named by its call that keeps its start and ends at its stop or when a new agent process starts', () => {
   const state = createChatPartsState(WORKING_DIRECTORY);
   const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };

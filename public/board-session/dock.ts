@@ -138,6 +138,7 @@ function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedS
   if (speaker.branch) bubble.append(el('span', 'bs-bubble-who', `To ${speaker.branch.aboutTitle}`));
   bubble.append(renderPlanBlocks(parsePlanMarkdown(speaker.branch ? operatorPartOfPrompt(part.text) : part.text)));
   row.append(bubble);
+  row.hidden = part.isBoardAnswer;
   return row;
 }
 

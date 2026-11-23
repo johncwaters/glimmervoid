@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoardAsk } from '../../shared/contracts/whiteboard.ts';
+import { isRecommendedOptionLabel } from '../../shared/contracts/question-manager.ts';
 import { OPERATOR_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from './whiteboard-wiring.ts';
@@ -26,7 +27,19 @@ interface BoardAskDeps {
 
 const ASK_ID_PREFIX = 'ask-';
 const ASK_ID_BYTES = 4;
-const ASK_NOTE_TONE = 'yellow';
+const ASK_CARD_WIDTH = 360;
+const ASK_CARD_CHROME_HEIGHT = 26;
+const ASK_CARD_META_HEIGHT = 26;
+const ASK_CARD_LINE_HEIGHT = 21;
+const ASK_CARD_GAP = 8;
+const ASK_OPTION_GAP = 6;
+const ASK_OPTION_CHROME_HEIGHT = 22;
+const ASK_ANSWER_ROW_HEIGHT = 43;
+const ASK_STATUS_ROW_HEIGHT = 26;
+const ASK_CHAR_WIDTH = 8.4;
+const ASK_HEADING_WIDTH = 330;
+const ASK_RECOMMENDED_LABEL_WIDTH = 210;
+const ASK_OPTION_LABEL_WIDTH = 290;
 
 function newAskId(): string {
   return `${ASK_ID_PREFIX}${randomBytes(ASK_ID_BYTES).toString('hex')}`;
@@ -36,9 +49,21 @@ function refused(status: number, error: string): AskReply {
   return { status, body: { ok: false, error } };
 }
 
-function askNoteOps(askId: string, aboutBoxId: string, ask: BoardAsk): Op[] {
+function wrappedLineCount(text: string, widthPx: number): number {
+  return Math.max(1, Math.ceil((text.length * ASK_CHAR_WIDTH) / widthPx));
+}
+
+function askCardHeightOf(ask: BoardAsk): number {
+  const headingHeight = wrappedLineCount(ask.question, ASK_HEADING_WIDTH) * ASK_CARD_LINE_HEIGHT;
+  const optionHeights = ask.options.map((option) => ASK_OPTION_CHROME_HEIGHT + ASK_CARD_LINE_HEIGHT * wrappedLineCount(option, isRecommendedOptionLabel(option) ? ASK_RECOMMENDED_LABEL_WIDTH : ASK_OPTION_LABEL_WIDTH));
+  const optionsHeight = optionHeights.reduce((total, height) => total + height + ASK_OPTION_GAP, 0) + (optionHeights.length > 0 ? ASK_CARD_GAP - ASK_OPTION_GAP : 0);
+  return ASK_CARD_CHROME_HEIGHT + ASK_CARD_META_HEIGHT + headingHeight + ASK_CARD_GAP + optionsHeight + ASK_ANSWER_ROW_HEIGHT + ASK_STATUS_ROW_HEIGHT;
+}
+
+function askBoxOps(askId: string, aboutBoxId: string, ask: BoardAsk): Op[] {
+  const lines = ask.options.map((option) => ({ text: option, style: 'item' }));
   return [
-    Op.parse({ op: 'add', element: { kind: 'box', id: askId, shape: 'note', title: ask.question.slice(0, WHITEBOARD_LIMITS.title), tone: ASK_NOTE_TONE, ask, place: { near: { of: aboutBoxId, side: 'right' } } } }),
+    Op.parse({ op: 'add', element: { kind: 'box', id: askId, shape: 'note', title: ask.question.slice(0, WHITEBOARD_LIMITS.title), lines, ask, width: ASK_CARD_WIDTH, height: askCardHeightOf(ask), place: 'aside' } }),
     Op.parse({ op: 'add', element: { kind: 'wire', id: `${askId}-about`, from: askId, to: aboutBoxId, dashed: true } }),
   ];
 }
@@ -65,9 +90,9 @@ function createBoardAsks({ boards, mapOf, sendToSession }: BoardAskDeps) {
     const askId = newAskId();
     const author: Author = { id: session.id, name: session.name };
     const boardAsk: BoardAsk = { sessionId: session.id, question: request.question, options: [...request.options] };
-    const reply = await boards.putAsks(lookup.boardId, askNoteOps(askId, aboutBoxId, boardAsk), author);
+    const reply = await boards.putAsks(lookup.boardId, askBoxOps(askId, aboutBoxId, boardAsk), author);
     if (!reply.body.ok) return refused(reply.status, reply.body.error);
-    return { status: 200, body: { ok: true, boardId: lookup.boardId, ask: askId, note: 'the operator sees the question beside the box; their answer arrives as a chat message, so end the turn and wait for it' } };
+    return { status: 200, body: { ok: true, boardId: lookup.boardId, ask: askId, note: 'the operator sees the question as a card right of the map, wired to the box; their answer arrives as your next message, so end the turn and wait for it' } };
   }
 
   async function answer(boardId: string, askBoxId: string, answerText: string): Promise<AnswerOutcome> {

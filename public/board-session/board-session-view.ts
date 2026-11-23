@@ -14,7 +14,7 @@ import { loadResumeDialog } from '../session-card/deferred-loads.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
-import { boundsOfHostBox, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
+import { boundsOfHostBox, glideHostTo, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
 import { tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
@@ -109,6 +109,9 @@ let boardId: string | null = null;
 const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
 let peekedBoxId: string | null = null;
+let askGlide: { askBoxIds: ReadonlySet<string>; returnArea: Rect; shownArea: Rect } | null = null;
+const ASK_VIEW_TOP_MARGIN_PX = 64;
+const ASK_VIEW_SIDE_MARGIN_PX = 24;
 let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
@@ -294,7 +297,55 @@ function paintAsks(): void {
   if (!parts) return;
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   const askingSessionIds = new Set(shownSessionId === null ? [] : [shownSessionId, ...shownBranchIds()]);
-  parts.askCards.paint(boardId, asksOfSessions(board, askingSessionIds), boundsOfHostBox, hostCamera);
+  const shownAsks = asksOfSessions(board, askingSessionIds);
+  const newAsks = parts.askCards.paint(boardId, shownAsks, boundsOfHostBox, hostCamera);
+  const overlay = parts.askCards.element;
+  returnFromAnsweredAsk(shownAsks, overlay);
+  const askArea = unionOf(newAsks.flatMap((shown) => boundsOfHostBox(shown.askBoxId) ?? []));
+  if (askArea === null) return;
+  const rightReservedPx = reservedRightOf(overlay, parts.guide.element);
+  const clearArea = clearViewArea(overlay.clientWidth, overlay.clientHeight, parts.dockSlot.offsetHeight, rightReservedPx);
+  if (isRectInside(askArea, clearArea)) return;
+  const shownArea = viewShowingAsk(askArea, overlay.clientWidth, overlay.clientHeight, rightReservedPx);
+  askGlide = { askBoxIds: new Set(newAsks.map((shown) => shown.askBoxId)), returnArea: currentViewArea(overlay), shownArea };
+  glideHostTo(shownArea);
+}
+
+function currentViewArea(overlay: HTMLElement): Rect {
+  return { x: hostCamera.x, y: hostCamera.y, width: overlay.clientWidth / hostCamera.scale, height: overlay.clientHeight / hostCamera.scale };
+}
+
+function isSameArea(left: Rect, right: Rect): boolean {
+  return Math.abs(left.x - right.x) < 1 && Math.abs(left.y - right.y) < 1 && Math.abs(left.width - right.width) < 1 && Math.abs(left.height - right.height) < 1;
+}
+
+function returnFromAnsweredAsk(shownAsks: readonly { askBoxId: string }[], overlay: HTMLElement): void {
+  if (askGlide === null) return;
+  const glide = askGlide;
+  if (shownAsks.some((shown) => glide.askBoxIds.has(shown.askBoxId))) return;
+  askGlide = null;
+  if (isSameArea(currentViewArea(overlay), glide.shownArea)) glideHostTo(glide.returnArea);
+}
+
+function reservedRightOf(overlay: HTMLElement, guideElement: HTMLElement): number {
+  if (guideElement.hidden) return 0;
+  return Math.max(0, overlay.getBoundingClientRect().right - guideElement.getBoundingClientRect().left);
+}
+
+function clearViewArea(viewWidthPx: number, viewHeightPx: number, reservedBottomPx: number, reservedRightPx: number): Rect {
+  const scale = hostCamera.scale;
+  return { x: hostCamera.x + ASK_VIEW_SIDE_MARGIN_PX / scale, y: hostCamera.y + ASK_VIEW_TOP_MARGIN_PX / scale, width: Math.max(0, viewWidthPx - ASK_VIEW_SIDE_MARGIN_PX * 2 - reservedRightPx) / scale, height: Math.max(0, viewHeightPx - ASK_VIEW_TOP_MARGIN_PX - reservedBottomPx) / scale };
+}
+
+function viewShowingAsk(askArea: Rect, viewWidthPx: number, viewHeightPx: number, reservedRightPx: number): Rect {
+  const scale = hostCamera.scale;
+  const width = viewWidthPx / scale;
+  const height = viewHeightPx / scale;
+  return { x: askArea.x + askArea.width + (ASK_VIEW_SIDE_MARGIN_PX + reservedRightPx) / scale - width, y: askArea.y - ASK_VIEW_TOP_MARGIN_PX / scale, width, height };
+}
+
+function isRectInside(inner: Rect, outer: Rect): boolean {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
 }
 
 function sessionBoxIds(): string[] {

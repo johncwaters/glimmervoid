@@ -60,7 +60,7 @@ export function reconcileOutboxEcho(state: OutboxEchoState, entries: readonly Ch
   const addedStandIns: ChatPart[] = [];
   for (const entry of sentEntries) {
     if (state.standInByEntryId.has(entry.entryId) || state.entryIdsTakenByPrompt.has(entry.entryId)) continue;
-    const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: nowMs, attachments: [...entry.attachments] };
+    const standIn: ChatPart = { kind: 'prompt', id: `sent-${entry.entryId}`, text: entry.text, at: nowMs, attachments: [...entry.attachments], isBoardAnswer: false };
     state.standInByEntryId.set(entry.entryId, standIn);
     addedStandIns.push(standIn);
   }

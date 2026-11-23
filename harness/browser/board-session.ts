@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Page } from 'playwright-core';
+import type { Locator, Page } from 'playwright-core';
 import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
-import { clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
+import { boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
@@ -43,6 +43,27 @@ async function waitForRefundsInParent(projectDirectory: string): Promise<void> {
     await delay(MERGE_POLL_MS);
   }
   assert.fail(`the branch commit reached ${branchesHoldingRefunds(projectDirectory)} branch, not the branch and its parent`);
+}
+
+async function studioMapBoardIdOf(page: Page, root: Locator): Promise<string | null> {
+  const mapSessionId = await root.locator('.bs-card[data-main]').first().getAttribute('data-session-id');
+  assert.ok(mapSessionId, 'the main card names its session');
+  return page.evaluate(async (sessionId) => {
+    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
+    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
+    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/control?token=${encodeURIComponent(token)}`);
+    const requestId = `harness-boxes-${Date.now()}`;
+    return new Promise<string | null>((resolve) => {
+      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'codemap-boxes-of', requestId, id: sessionId, paths: [] })));
+      socket.addEventListener('message', (event) => {
+        const reply: unknown = JSON.parse(String(event.data));
+        if (typeof reply !== 'object' || reply === null || Reflect.get(reply, 'requestId') !== requestId) return;
+        socket.close();
+        const boardId = Reflect.get(reply, 'boardId');
+        resolve(typeof boardId === 'string' ? boardId : null);
+      });
+    });
+  }, mapSessionId);
 }
 
 async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
@@ -144,12 +165,26 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   await pillInput.fill('ask-shop');
   await pillInput.press('Enter');
-  const askCard = root.locator('.bs-ask', { has: page.getByRole('button', { name: 'Yes, reuse it', exact: true }) });
+  const reuseOption = page.getByRole('button', { name: /^Yes, reuse it/ });
+  const askCard = root.locator('.bs-ask', { has: reuseOption });
   await askCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await askCard.locator('.chat-card[data-card-type="question"] .chat-card-option').count(), 2, 'the board ask shows as Chat\'s question card with its options');
   assert.equal(await askCard.getByRole('button', { name: 'Send answer', exact: true }).isDisabled(), true, 'Send answer waits for typed text');
-  await askCard.getByRole('button', { name: 'Yes, reuse it', exact: true }).click();
+  const askBoardId = await studioMapBoardIdOf(page, root);
+  assert.ok(askBoardId, 'the Studio map has a board for the ask');
+  const askBoxId = await askCard.getAttribute('data-ask-box-id');
+  const askCardRect = await askCard.boundingBox();
+  assert.ok(askBoxId && askCardRect, 'the ask card names its box and is on screen');
+  const boxRects = await boxScreenRectsOf(page, root, askBoardId);
+  const askBoxRect = boxRects.get(askBoxId);
+  const ringCoverPx = 8;
+  assert.ok(askBoxRect && Math.abs(askBoxRect.x - askCardRect.x) < ringCoverPx && Math.abs(askBoxRect.y - askCardRect.y) < ringCoverPx && Math.abs(askBoxRect.width - askCardRect.width) < ringCoverPx * 2 && Math.abs(askBoxRect.height - askCardRect.height) < ringCoverPx * 2, 'the ask card sits on its own box');
+  const coveredBoxIds = [...boxRects].filter(([boxId, rect]) => boxId !== askBoxId && rect.x < askCardRect.x + askCardRect.width && askCardRect.x < rect.x + rect.width && rect.y < askCardRect.y + askCardRect.height && askCardRect.y < rect.y + rect.height).map(([boxId]) => boxId);
+  assert.deepEqual(coveredBoxIds, [], 'the ask card covers no map box');
+  await askCard.locator('.chat-card-option').first().click();
   await askCard.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-row-you', { hasText: 'Yes, reuse it' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-you[hidden]', { hasText: 'Yes, reuse it' }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-row-you:not([hidden])', { hasText: 'Yes, reuse it' }).count(), 0, 'a board answer adds no message to the Studio chat');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the ask resolves');
 
   await pillInput.fill('ask-question-resume');
@@ -209,24 +244,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-activity').count(), 0, 'the working status shows on the face only');
 
 
-  const mapSessionId = await root.locator('.bs-card[data-main]').first().getAttribute('data-session-id');
-  assert.ok(mapSessionId, 'the main card names its session');
-  const mapReply = await page.evaluate(async (sessionId) => {
-    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
-    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
-    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/control?token=${encodeURIComponent(token)}`);
-    const requestId = `harness-boxes-${Date.now()}`;
-    return new Promise<string | null>((resolve) => {
-      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'codemap-boxes-of', requestId, id: sessionId, paths: [] })));
-      socket.addEventListener('message', (event) => {
-        const reply: unknown = JSON.parse(String(event.data));
-        if (typeof reply !== 'object' || reply === null || Reflect.get(reply, 'requestId') !== requestId) return;
-        socket.close();
-        const boardId = Reflect.get(reply, 'boardId');
-        resolve(typeof boardId === 'string' ? boardId : null);
-      });
-    });
-  }, mapSessionId);
+  const mapReply = await studioMapBoardIdOf(page, root);
   assert.ok(mapReply, 'the Studio map has a board');
   await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title === 'repo root' && element.lines.some((line) => line.text.includes('crossed wires')));
   await hoverBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title === 'repo root' && element.lines.some((line) => line.text.includes('imported by')));

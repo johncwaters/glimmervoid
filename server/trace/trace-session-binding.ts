@@ -248,6 +248,12 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     appendConversationRecords(glimmervoidSessionId, [{ ts: payload.ts, uuid: null, parentUuid: null, vendorSessionId, kind: 'attachments', files: payload.files, pastedPrefix: payload.pastedPrefix }]);
   }
 
+  function appendSentBoardAnswer(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
+    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
+    if (!vendorSessionId) return;
+    appendConversationRecords(glimmervoidSessionId, [{ ts: payload.ts, uuid: null, parentUuid: null, vendorSessionId, kind: 'board-answer' }]);
+  }
+
   function appendSubagentSignal(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = SubagentSignal.safeParse(payload);
     if (!parsed.success) return;
@@ -291,6 +297,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     session.on('conversation-records', ({ records }) => { appendConversationRecords(session.id, records); });
     session.on(MANAGER_DECISION_EVENT, (payload) => { appendManagerDecisionNotice(session.id, payload); });
     session.on('chat-attachments-sent', (payload) => { appendSentAttachments(session.id, payload); });
+    session.on('chat-board-answer-sent', (payload) => { appendSentBoardAnswer(session.id, payload); });
     session.on(SUBAGENT_SIGNAL_EVENT, (payload) => { appendSubagentSignal(session.id, payload); });
     session.on(BACKGROUND_TASK_SIGNAL_EVENT, (payload) => { appendBackgroundTaskSignal(session.id, payload); });
     session.on('exit', () => { detachSession(session.id); });

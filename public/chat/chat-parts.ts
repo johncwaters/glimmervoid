@@ -94,7 +94,9 @@ export function renderPromptBubble(text: string, attachments: readonly string[],
 }
 
 function renderPrompt(part: Extract<ChatPart, { kind: 'prompt' }>, uploadUrlOf: UploadUrlOf): HTMLElement {
-  return renderPromptBubble(part.text, part.attachments, uploadUrlOf);
+  const bubble = renderPromptBubble(part.text, part.attachments, uploadUrlOf);
+  bubble.hidden = part.isBoardAnswer;
+  return bubble;
 }
 
 function countText(count: number, singular: string, plural: string): string {

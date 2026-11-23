@@ -117,7 +117,7 @@ function denyMessageRowOf(shell: HTMLElement, card: ChatCardByType['permission']
   return row;
 }
 
-interface QuestionCardModel {
+export interface QuestionCardModel {
   readonly cardType: string;
   readonly heading: string;
   readonly detail: string;
@@ -131,7 +131,6 @@ interface QuestionCardModel {
 interface QuestionCardActions {
   readonly onAnswer: (label: string) => void;
   readonly onChange: () => void;
-  readonly onDismiss: () => void;
 }
 
 const ESCAPE_KEY = 'Escape';
@@ -160,7 +159,7 @@ function questionMetaLineOf(question: QuestionCardModel): HTMLElement | null {
   return metaLine;
 }
 
-function questionCardOf(question: QuestionCardModel, actions: QuestionCardActions): HTMLElement {
+export function questionCardOf(question: QuestionCardModel, actions: QuestionCardActions, foot: HTMLElement): HTMLElement {
   const shell = shellOf(question.cardType, question.heading, question.answer !== null || question.isDismissed);
   const metaLine = questionMetaLineOf(question);
   if (metaLine) shell.prepend(metaLine);
@@ -176,7 +175,7 @@ function questionCardOf(question: QuestionCardModel, actions: QuestionCardAction
   for (const [index, option] of shownOptionsOf(question.options).entries()) {
     options.appendChild(optionRowOf(option, digitKeyOf(index + 1), actions.onAnswer));
   }
-  shell.append(options, dismissFootOf(actions.onDismiss));
+  shell.append(options, foot);
   return shell;
 }
 
@@ -195,8 +194,7 @@ function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
   const shell: HTMLElement = questionCardOf(question, {
     onAnswer: (label) => dispatchCardAction(shell, card, 'answer', label),
     onChange: () => dispatchCardAction(shell, card, 'change', ''),
-    onDismiss: () => dispatchCardAction(shell, card, 'dismiss', ''),
-  });
+  }, dismissFootOf(() => dispatchCardAction(shell, card, 'dismiss', '')));
   return shell;
 }
 

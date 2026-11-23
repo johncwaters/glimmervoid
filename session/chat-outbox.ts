@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CHAT_OUTBOX_MAX_ENTRIES } from "../shared/contracts/session.ts";
-import type { ChatOutboxEntry } from "../shared/contracts/session.ts";
+import type { ChatOutboxEntry, ChatOutboxOrigin } from "../shared/contracts/session.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import type { DeliverySettlement } from "./core/input-delivery-core.ts";
 
@@ -24,6 +24,8 @@ interface ChatOutboxPort {
   isDeliveryInFlight(): boolean;
   deliver(entry: ChatOutboxEntry, onSettled: (settlement: DeliverySettlement) => void): { ok: boolean; reason?: string };
   noteSubmitted(entry: ChatOutboxEntry): void;
+  noteTaken(entry: ChatOutboxEntry, submittedAtMs: number): void;
+  nowMs(): number;
   noteNotTaken(): void;
   emitChange(entries: ChatOutboxEntry[]): void;
 }
@@ -32,7 +34,7 @@ type QueueOutcome = { ok: true; entryId: string } | { ok: false; error: string }
 
 interface ChatOutbox {
   entries(): ChatOutboxEntry[];
-  queue(text: string, attachments: readonly string[]): QueueOutcome;
+  queue(text: string, attachments: readonly string[], origin: ChatOutboxOrigin): QueueOutcome;
   adopt(carriedEntries: readonly ChatOutboxEntry[]): void;
   cancel(entryId: string): ChatOutboxEntry[];
   sendNext(entryId: string): boolean;
@@ -49,6 +51,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
   let outboxEntries: ChatOutboxEntry[] = [];
   let recheckTimer: ReturnType<typeof setTimeout> | null = null;
   const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
+  const submittedAtByEntryId = new Map<string, number>();
 
   function publish(nextEntries: ChatOutboxEntry[]): void {
     outboxEntries = nextEntries;
@@ -63,6 +66,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (settlement === "submitted") {
       const submittedEntry = outboxEntries.find((entry) => entry.entryId === entryId);
       if (submittedEntry) port.noteSubmitted(submittedEntry);
+      submittedAtByEntryId.set(entryId, port.nowMs());
       replaceEntry(entryId, { state: "submitted" });
       awaitTurnFor(entryId);
       drain();
@@ -80,22 +84,31 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     unrecordedTimerByEntryId.set(entryId, unrefTimer(setTimeout(() => settleUnstartedTurn(entryId), SUBMITTED_UNRECORDED_MAX_MS)));
   }
 
+  function markTaken(entry: ChatOutboxEntry): void {
+    port.noteTaken(entry, submittedAtByEntryId.get(entry.entryId) ?? port.nowMs());
+    submittedAtByEntryId.delete(entry.entryId);
+  }
+
   function noteTurnTaken(): void {
     stopUnrecordedTimers();
-    if (!outboxEntries.some((entry) => entry.state === "submitted")) return;
+    const takenEntries = outboxEntries.filter((entry) => entry.state === "submitted");
+    if (takenEntries.length === 0) return;
+    for (const takenEntry of takenEntries) markTaken(takenEntry);
     publish(outboxEntries.filter((entry) => entry.state !== "submitted"));
     drain();
   }
 
   function settleUnstartedTurn(entryId: string): void {
     unrecordedTimerByEntryId.delete(entryId);
-    const isStillSubmitted = outboxEntries.some((entry) => entry.entryId === entryId && entry.state === "submitted");
-    if (!isStillSubmitted) return;
+    const submittedEntry = outboxEntries.find((entry) => entry.entryId === entryId && entry.state === "submitted");
+    if (!submittedEntry) return;
     if (port.reportsTurnStarts()) {
+      submittedAtByEntryId.delete(entryId);
       replaceEntry(entryId, { state: "failed", failure: NOT_TAKEN_TEXT });
       port.noteNotTaken();
       return;
     }
+    markTaken(submittedEntry);
     publish(outboxEntries.filter((entry) => entry.entryId !== entryId));
     drain();
   }
@@ -121,10 +134,10 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (!delivery.ok) replaceEntry(nextEntry.entryId, { state: "failed", failure: `The message could not be typed into the session: ${delivery.reason ?? "unknown reason"}.` });
   }
 
-  function queue(text: string, attachments: readonly string[]): QueueOutcome {
+  function queue(text: string, attachments: readonly string[], origin: ChatOutboxOrigin): QueueOutcome {
     if (outboxEntries.length >= CHAT_OUTBOX_MAX_ENTRIES) return { ok: false, error: OUTBOX_FULL_TEXT };
     const entryId = randomUUID();
-    publish([...outboxEntries, { entryId, text, attachments: [...attachments], state: "held", failure: null }]);
+    publish([...outboxEntries, { entryId, text, attachments: [...attachments], state: "held", failure: null, origin }]);
     drain();
     return { ok: true, entryId };
   }
@@ -166,6 +179,7 @@ function createChatOutbox(port: ChatOutboxPort): ChatOutbox {
     if (recheckTimer) clearTimeout(recheckTimer);
     recheckTimer = null;
     stopUnrecordedTimers();
+    submittedAtByEntryId.clear();
   }
 
   return { entries: () => outboxEntries, queue, adopt, cancel, sendNext, drain, noteTurnTaken, dispose };

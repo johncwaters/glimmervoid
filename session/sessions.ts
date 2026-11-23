@@ -55,7 +55,7 @@ import type { MetaStatusSignal, ResolvedStatusSignal } from "../detection/status
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
-import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome, UsageLimit } from "../shared/contracts/session.ts";
+import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ChatOutboxOrigin, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome, UsageLimit } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
@@ -573,6 +573,10 @@ class Session extends EventEmitter {
         const pastedPrefix = this.chatAttachmentPrefixOf(entry);
         if (pastedPrefix !== null) this.emit("chat-attachments-sent", { files: entry.attachments, pastedPrefix, ts: clock.nowMs() });
       },
+      noteTaken: (entry, submittedAtMs) => {
+        if (entry.origin === "board-answer") this.emit("chat-board-answer-sent", { ts: submittedAtMs });
+      },
+      nowMs: () => clock.nowMs(),
       noteNotTaken: () => this.enterCheckTerminal(),
       emitChange: (chatOutbox) => this.emit("chat-outbox-change", { chatOutbox }),
     });
@@ -2301,7 +2305,7 @@ class Session extends EventEmitter {
     this._titleGate = "open";
   }
 
-  queueChatMessage(text: string, attachments: readonly string[] = []) { return this._chatOutbox.queue(text, attachments); }
+  queueChatMessage(text: string, attachments: readonly string[] = [], origin: ChatOutboxOrigin = "operator") { return this._chatOutbox.queue(text, attachments, origin); }
 
   cancelChatMessage(entryId: string): ChatOutboxEntry[] { return this._chatOutbox.cancel(entryId); }
   noteChatPromptRecorded() { this._chatOutbox.noteTurnTaken(); }
@@ -2314,7 +2318,7 @@ class Session extends EventEmitter {
     }
     if (isTurnEndHeldForBackgroundWork) {
       const isStopAlreadyAsked = this._chatOutbox.entries().some((entry) => entry.text === STOP_BACKGROUND_WORK_TEXT && entry.state !== "failed");
-      if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, []);
+      if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, [], "operator");
       return;
     }
     this.write(LONE_ESCAPE);

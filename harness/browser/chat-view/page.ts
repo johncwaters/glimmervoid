@@ -139,7 +139,7 @@ async function playBoot(): Promise<void> {
   const sentText = await new Promise<string>((resolve) => {
     chatView.element.addEventListener('chat-send', (event) => resolve(event instanceof CustomEvent ? String(event.detail.text) : ''), { once: true });
   });
-  chatView.showQueued([{ entryId: 'boot-held', text: sentText, attachments: [], state: 'held', failure: null }]);
+  chatView.showQueued([{ entryId: 'boot-held', text: sentText, attachments: [], state: 'held', failure: null, origin: 'operator' }]);
   await pause();
   chatView.setPhase('quiet', false);
   await pause();

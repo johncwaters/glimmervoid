@@ -15,7 +15,7 @@ export type SignInStage = 'offered' | 'signing-in' | 'refused-key';
 export type ChatCardType = ChatCard['cardType'];
 
 export type ChatPart =
-  | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[] }
+  | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[]; isBoardAnswer: boolean }
   | TurnPart
   | { kind: 'skill'; id: string; skillName: string }
   | BackgroundTaskPart

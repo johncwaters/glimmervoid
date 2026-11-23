@@ -3,13 +3,16 @@ import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { createLineIcon } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
+import { questionCardOf } from '../chat/chat-cards.ts';
+import type { QuestionCardModel } from '../chat/chat-cards.ts';
+import { withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
+import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 
 const ANSWER_TIMEOUT_MS = 10000;
-const CARD_GAP_PX = 8;
-const SEND_ICON_PATH = 'M8 13V3M3.5 7.5L8 3l4.5 4.5';
+const BOARD_QUESTION_TOPIC = 'Board question';
+const CARD_RING_COVER = 5;
 const NOT_SENT_TEXT = 'The answer was not sent.';
 
 interface ShownAsk {
@@ -19,7 +22,7 @@ interface ShownAsk {
 
 export interface AskCards {
   element: HTMLElement;
-  paint(boardId: string | null, asks: readonly ShownAsk[], boundsOf: (boxId: string) => Rect | null, camera: Camera): void;
+  paint(boardId: string | null, asks: readonly ShownAsk[], boundsOf: (boxId: string) => Rect | null, camera: Camera): ShownAsk[];
 }
 
 export function asksOfSessions(board: Board | null, sessionIds: ReadonlySet<string>): ShownAsk[] {
@@ -32,56 +35,70 @@ export function asksOfSessions(board: Board | null, sessionIds: ReadonlySet<stri
   return asks;
 }
 
-function createAskCard(boardId: string, shown: ShownAsk): HTMLElement {
-  const element = el('form', 'bs-ask');
-  element.setAttribute('aria-label', shown.ask.question);
-  element.dataset.askBoxId = shown.askBoxId;
-  const options = el('div', 'bs-ask-options');
-  const answerInput = el('input', 'bs-ask-input');
+function answerFormOf(onSubmit: (answer: string) => void): { form: HTMLFormElement; answerInput: HTMLInputElement; sendButton: HTMLButtonElement; failure: HTMLElement } {
+  const form = el('form', 'bs-ask-foot');
+  const answerInput = el('input', 'chat-card-message');
   answerInput.type = 'text';
+  answerInput.maxLength = CHAT_SEND_MAX_CHARS;
   answerInput.placeholder = 'Your answer';
   answerInput.setAttribute('aria-label', 'Your answer');
-  const sendButton = button({ variant: 'primary-icon', size: 'small', label: 'Send answer', icon: createLineIcon(SEND_ICON_PATH, '1.8'), action: 'board-ask-send', disabled: true });
+  const sendButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Send answer', action: 'board-ask-send', disabled: true });
   sendButton.type = 'submit';
   const answerRow = el('div', 'bs-ask-row');
   answerRow.append(answerInput, sendButton);
   const failure = el('p', 'bs-ask-failure');
   failure.setAttribute('role', 'status');
-  const optionButtons = shown.ask.options.map((option) => button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: option, action: 'board-ask-option', onClick: () => sendAnswer(option) }));
-  options.append(...optionButtons);
-  element.append(options, answerRow, failure);
-  options.hidden = optionButtons.length === 0;
+  form.append(answerRow, failure);
+  answerInput.addEventListener('input', () => {
+    sendButton.disabled = answerInput.value.trim().length === 0;
+  });
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const answer = answerInput.value.trim();
+    if (answer.length === 0) return;
+    onSubmit(answer);
+  });
+  return { form, answerInput, sendButton, failure };
+}
+
+function createAskCard(boardId: string, shown: ShownAsk): HTMLElement {
+  const element = el('div', 'bs-ask');
+  element.dataset.askBoxId = shown.askBoxId;
+  const answerForm = answerFormOf((answer) => sendAnswer(answer));
+  const question: QuestionCardModel = {
+    cardType: 'question',
+    heading: shown.ask.question,
+    detail: BOARD_QUESTION_TOPIC,
+    options: shown.ask.options.map((option) => ({ label: option, note: '' })),
+    answer: null,
+    canChangeAnswer: false,
+    isDismissed: false,
+  };
+  const card = questionCardOf(question, { onAnswer: (label) => sendAnswer(withoutRecommendedSuffix(label)), onChange: () => {} }, answerForm.form);
+  card.setAttribute('aria-label', shown.ask.question);
+  element.append(card);
 
   const setBusy = (isBusy: boolean) => {
-    for (const optionButton of optionButtons) optionButton.disabled = isBusy;
-    answerInput.disabled = isBusy;
-    sendButton.disabled = isBusy || answerInput.value.trim().length === 0;
+    for (const optionButton of card.querySelectorAll<HTMLButtonElement>('.chat-card-option')) optionButton.disabled = isBusy;
+    answerForm.answerInput.disabled = isBusy;
+    answerForm.sendButton.disabled = isBusy || answerForm.answerInput.value.trim().length === 0;
   };
 
   const sendAnswer = (answer: string) => {
-    failure.textContent = '';
+    answerForm.failure.textContent = '';
     setBusy(true);
     sendControlRequest('board-ask-answer', { boardId, askBoxId: shown.askBoxId, answer }, { timeoutMs: ANSWER_TIMEOUT_MS })
       .then((reply) => {
         setBusy(false);
         if (reply.type === 'board-ask-answer-result' && reply.ok) return;
-        failure.textContent = reply.type === 'board-ask-answer-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT;
+        answerForm.failure.textContent = reply.type === 'board-ask-answer-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT;
       })
       .catch((reason: unknown) => {
         setBusy(false);
-        failure.textContent = `Could not confirm the answer was sent: ${errorMessage(reason)}`;
+        answerForm.failure.textContent = `Could not confirm the answer was sent: ${errorMessage(reason)}`;
       });
   };
 
-  answerInput.addEventListener('input', () => {
-    sendButton.disabled = answerInput.value.trim().length === 0;
-  });
-  element.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const answer = answerInput.value.trim();
-    if (answer.length === 0) return;
-    sendAnswer(answer);
-  });
   element.addEventListener('pointerdown', (event) => event.stopPropagation());
   element.addEventListener('wheel', (event) => event.stopPropagation(), { passive: true });
 
@@ -96,6 +113,7 @@ export function createAskCards(): AskCards {
     element,
     paint: (boardId, asks, boundsOf, camera) => {
       const shownKeys = new Set<string>();
+      const newAsks: ShownAsk[] = [];
       for (const shown of asks) {
         const rect = boundsOf(shown.askBoxId);
         if (boardId === null || rect === null) continue;
@@ -103,18 +121,22 @@ export function createAskCards(): AskCards {
         shownKeys.add(key);
         const card = cardByKey.get(key) ?? createAskCard(boardId, shown);
         if (!cardByKey.has(key)) {
+          newAsks.push(shown);
           cardByKey.set(key, card);
           element.append(card);
         }
-        const left = (rect.x - camera.x) * camera.scale;
-        const top = (rect.y + rect.height - camera.y) * camera.scale + CARD_GAP_PX;
-        card.style.transform = `translate(${left}px, ${top}px)`;
+        const left = (rect.x - CARD_RING_COVER - camera.x) * camera.scale;
+        const top = (rect.y - CARD_RING_COVER - camera.y) * camera.scale;
+        card.style.width = `${rect.width + CARD_RING_COVER * 2}px`;
+        card.style.height = `${rect.height + CARD_RING_COVER * 2}px`;
+        card.style.transform = `translate(${left}px, ${top}px) scale(${camera.scale})`;
       }
       for (const [key, card] of cardByKey) {
         if (shownKeys.has(key)) continue;
         card.remove();
         cardByKey.delete(key);
       }
+      return newAsks;
     },
   };
 }

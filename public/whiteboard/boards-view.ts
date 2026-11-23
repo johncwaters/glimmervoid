@@ -1848,6 +1848,10 @@ export function leaveBoardHost(leavingGuest: BoardHostGuest): void {
   if (leavingGuest === guest) seatGuest(null);
 }
 
+export function glideHostTo(area: Rect): void {
+  editor?.frameArea(area);
+}
+
 export function boundsOfHostBox(boxId: string): Rect | null {
   return renderer?.boundsOf(boxId) ?? null;
 }

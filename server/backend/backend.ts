@@ -374,7 +374,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     sendToSession: (sessionId, text) => {
       const session = getSessionAny(sessionId);
       if (!session) return { ok: false, error: 'The session that asked is gone.' };
-      const queued = session.queueChatMessage(text, []);
+      const queued = session.queueChatMessage(text, [], 'board-answer');
       return queued.ok ? { ok: true } : { ok: false, error: queued.error };
     },
   });

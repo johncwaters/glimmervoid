@@ -73,12 +73,15 @@ export const CHAT_OUTBOX_MAX_ENTRIES = 20;
 export const CHAT_SEND_MAX_ATTACHMENTS = 8;
 export const UPLOAD_FILENAME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{8}(-chat)?(\.[a-z0-9]{1,16})?$/;
 export const UploadFileName = z.string().regex(UPLOAD_FILENAME_PATTERN);
+export const ChatOutboxOrigin = z.enum(['operator', 'board-answer']);
+
 export const ChatOutboxEntry = z.object({
   entryId: z.string().min(1).max(64),
   text: z.string().max(CHAT_OUTBOX_TEXT_MAX_CHARS),
   attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]),
   state: z.enum(['held', 'next', 'sending', 'submitted', 'failed']),
   failure: z.string().max(500).nullable(),
+  origin: ChatOutboxOrigin.default('operator'),
 }).strict();
 
 export const ConversationAnswers = z.record(z.string().max(CONVERSATION_QUESTION_MAX_CHARS), z.string().max(CONVERSATION_ANSWER_MAX_CHARS));
@@ -183,6 +186,7 @@ export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
 export type ChatOutboxEntry = z.infer<typeof ChatOutboxEntry>;
+export type ChatOutboxOrigin = z.infer<typeof ChatOutboxOrigin>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;
 export type ConversationAnswers = z.infer<typeof ConversationAnswers>;
 export type PermissionDecision = z.infer<typeof PermissionDecision>;

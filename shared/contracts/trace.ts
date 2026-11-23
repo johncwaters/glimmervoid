@@ -85,6 +85,7 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     files: z.array(UploadFileName).min(1).max(CHAT_SEND_MAX_ATTACHMENTS),
     pastedPrefix: z.string().max(MAX_RAW_LINE_CHARS),
   }),
+  TraceRecordBase.extend({ kind: z.literal('board-answer') }),
   TraceRecordBase.extend({
     kind: z.literal('usage_limit'),
     text: z.string().max(MAX_RAW_LINE_CHARS),

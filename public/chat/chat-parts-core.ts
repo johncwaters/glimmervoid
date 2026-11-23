@@ -32,6 +32,7 @@ interface ChatTurn {
 
 type PromptPart = Extract<ChatPart, { kind: 'prompt' }>;
 type UsageLimitCard = Extract<ChatCard, { cardType: 'usage-limit' }>;
+type SentBoardAnswer = Extract<TraceRecord, { kind: 'board-answer' }>;
 type SentAttachments = Pick<Extract<TraceRecord, { kind: 'attachments' }>, 'files' | 'pastedPrefix'>;
 
 interface TrackedSubagent {
@@ -49,7 +50,9 @@ interface ChatPartsState {
   residentPartIds: string[];
   turn: ChatTurn;
   pendingAttachments: SentAttachments | null;
+  pendingBoardAnswer: SentBoardAnswer | null;
   latestPrompt: PromptPart | null;
+  newestPrompt: PromptPart | null;
   openUsageLimitCard: UsageLimitCard | null;
   runningSubagents: Set<TrackedSubagent>;
   subagentByToolUseId: Map<string, TrackedSubagent>;
@@ -77,7 +80,7 @@ const BACKGROUND_TASK_TYPE_BY_TOOL_NAME: ReadonlyMap<string, string> = new Map([
 const BACKGROUND_TASK_LABEL_BY_TYPE: ReadonlyMap<string, string> = new Map([['shell', 'Shell'], ['monitor', 'Monitor'], ['workflow', 'Workflow']]);
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, latestPrompt: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, pendingBoardAnswer: null, latestPrompt: null, newestPrompt: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -267,18 +270,34 @@ function attachedPromptOf(state: ChatPartsState, sent: SentAttachments): PromptP
     return null;
   }
   state.latestPrompt = promptWithAttachments(latestPrompt, sent);
+  if (state.newestPrompt?.id === latestPrompt.id) state.newestPrompt = state.latestPrompt;
   return state.latestPrompt;
+}
+
+function answeredPromptOf(state: ChatPartsState, sent: SentBoardAnswer): PromptPart | null {
+  const newestPrompt = state.newestPrompt;
+  if (newestPrompt === null || newestPrompt.isBoardAnswer || newestPrompt.at < sent.ts) {
+    state.pendingBoardAnswer = sent;
+    return null;
+  }
+  const answeredPrompt = { ...newestPrompt, isBoardAnswer: true };
+  state.newestPrompt = answeredPrompt;
+  if (state.latestPrompt?.id === answeredPrompt.id) state.latestPrompt = answeredPrompt;
+  return answeredPrompt;
 }
 
 function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
   if (record.agentId !== undefined) return null;
   if (record.kind === 'attachments') return attachedPromptOf(state, record);
+  if (record.kind === 'board-answer') return answeredPromptOf(state, record);
   const part = nonPromptPartOf(state, record);
   if (part !== null || record.kind === 'assistant') state.latestPrompt = null;
   if (record.kind !== 'prompt') return part;
-  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: unwrapPastedContent(record.text), at: record.ts, attachments: [] }, state.pendingAttachments);
+  const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: unwrapPastedContent(record.text), at: record.ts, attachments: [], isBoardAnswer: state.pendingBoardAnswer !== null && record.ts >= state.pendingBoardAnswer.ts }, state.pendingAttachments);
   state.pendingAttachments = null;
+  state.pendingBoardAnswer = null;
   state.latestPrompt = prompt;
+  state.newestPrompt = prompt;
   return prompt;
 }
 
