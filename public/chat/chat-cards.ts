@@ -20,7 +20,7 @@ const DECISION_RECEIPT_BY_DECISION = { allow: 'Allowed', deny: 'Denied' } as con
 const ENTER_KEY = 'Enter';
 const MAX_DIGIT_KEY = 9;
 
-type ShownOption = { label: string; note: string; isRecommended: boolean };
+type ShownOption = { label: string; note: string; preview?: string; isRecommended: boolean };
 
 const CARD_KEYS_READY_DELAY_MS = 500;
 
@@ -45,7 +45,7 @@ function digitKeyOf(position: number): string | null {
   return position <= MAX_DIGIT_KEY ? String(position) : null;
 }
 
-function shownOptionsOf(options: readonly { label: string; note: string }[]): ShownOption[] {
+function shownOptionsOf(options: readonly { label: string; note: string; preview?: string }[]): ShownOption[] {
   const recommendedOptions = options.filter((option) => isRecommendedOptionLabel(option.label));
   if (recommendedOptions.length !== 1) return options.map((option) => ({ ...option, isRecommended: false }));
   const [recommendedOption] = recommendedOptions;
@@ -122,7 +122,7 @@ interface QuestionCardModel {
   readonly heading: string;
   readonly detail: string;
   readonly step?: string;
-  readonly options: readonly { label: string; note: string }[];
+  readonly options: readonly { label: string; note: string; preview?: string }[];
   readonly answer: string | null;
   readonly canChangeAnswer: boolean;
   readonly isDismissed: boolean;
@@ -210,6 +210,7 @@ function optionRowOf(option: ShownOption, digitKey: string | null, onAnswer: (la
   if (shownKey !== null) keys.appendChild(keycap(shownKey, { tone: option.isRecommended ? 'accent' : 'neutral' }));
   optionRow.append(el('span', 'chat-card-option-label', label), keys);
   if (option.note) optionRow.appendChild(el('span', 'chat-card-option-note', option.note));
+  if (option.preview) optionRow.appendChild(el('pre', 'chat-card-option-preview', option.preview));
   const answerKeys = [digitKey, option.isRecommended ? ENTER_KEY : null].filter((key): key is string => key !== null);
   if (answerKeys.length > 0) optionRow.setAttribute('aria-keyshortcuts', answerKeys.join(' '));
   markCardKeys(optionRow, answerKeys);

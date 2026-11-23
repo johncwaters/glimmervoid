@@ -164,7 +164,7 @@ const ROLLOUT_QUESTION_REQUEST = {
       question: 'Which rollout?',
       header: 'Rollout',
       multiSelect: false,
-      options: [{ label: 'Move now', description: 'The old path stops today' }, { label: 'Run both for a week (Recommended)', description: 'The old path stays as a fallback' }],
+      options: [{ label: 'Move now', description: 'The old path stops today', preview: 'old path: off\nnew path: live' }, { label: 'Run both for a week (Recommended)', description: 'The old path stays as a fallback' }],
     }],
   },
 };
