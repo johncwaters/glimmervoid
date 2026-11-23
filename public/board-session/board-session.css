@@ -282,5 +282,46 @@
   .bs-mention { height: 28px; padding: 0 8px; overflow: hidden; border: 0; border-radius: 6px; background: none; color: var(--text); font-family: var(--font-mono); font-size: var(--type-meta); text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
   .bs-mention[aria-selected='true'], .bs-mention:hover { background: color-mix(in srgb, var(--bs-branch) 18%, var(--bg-surface)); color: var(--text-head); }
 
+  .bs-changes {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 320px;
+    max-height: 240px;
+    padding: 6px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-card);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+    pointer-events: auto;
+  }
+  .bs-changes[hidden] { display: none; }
+  .bs-changes-row { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+  .bs-changes-path { flex: 1; min-width: 0; padding: 2px 6px; overflow: hidden; border: 0; border-radius: 6px; background: none; color: var(--text); font: var(--type-meta)/1.4 var(--font-mono); text-align: left; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
+  .bs-changes-path:hover, .bs-changes-path:focus-visible { background: var(--bg-surface); color: var(--text-head); }
+  .bs-changes-counts { display: flex; flex: none; gap: 6px; font: var(--type-meta)/1 var(--font-mono); }
+  .bs-changes-added { color: var(--state-running); }
+  .bs-changes-removed { color: var(--state-failed); }
+  .bs-diff-panel {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    width: min(640px, 50%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-card);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.3);
+    pointer-events: auto;
+  }
+  .bs-diff-panel[hidden] { display: none; }
+  .bs-diff-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-dim); }
+  .bs-diff-title { flex: 1; min-width: 0; margin: 0; overflow: hidden; color: var(--text-head); font: var(--type-meta)/1.4 var(--font-mono); white-space: nowrap; text-overflow: ellipsis; }
+  .bs-diff-body { flex: 1; min-height: 0; overflow: auto; }
+
   :root:has(.board-session-view:not([hidden])) .feature-hint { top: 64px; bottom: auto; }
 }

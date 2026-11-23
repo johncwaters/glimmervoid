@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
 import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
-import { clickBoardBoxWhere } from './boards.ts';
+import { clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
@@ -219,6 +219,20 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     });
   }, mapSessionId);
   assert.ok(mapReply, 'the Studio map has a board');
+  await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title === 'repo root' && element.lines.some((line) => line.text.includes('crossed wires')));
+  await hoverBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title === 'repo root' && element.lines.some((line) => line.text.includes('imported by')));
+  const changedFile = root.locator('.bs-changes:not([hidden]) .bs-changes-row', { has: page.locator('.bs-changes-path', { hasText: 'src/payments/refund-policy.js' }) });
+  await changedFile.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.match(String(await changedFile.locator('.bs-changes-counts').innerText()), /^\+\d+\s+-\d+$/, 'hovering a changed box lists each file with lines added and removed');
+  await changedFile.locator('.bs-changes-path').click();
+  const diffPanel = root.locator('.bs-diff-panel:not([hidden])');
+  await diffPanel.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await diffPanel.locator('.bs-diff-title').textContent(), 'src/payments/refund-policy.js', 'clicking a changed file opens its diff in the side panel');
+  await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-diff-host')?.childElementCount ?? 0) > 0, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await diffPanel.locator('.bs-diff-body').click({ position: { x: 20, y: 20 } });
+  await page.keyboard.press('Escape');
+  await diffPanel.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
+
   await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title.startsWith('Map at'));
   assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a box that is not a folder or file on the map takes no address');
   const barInput = root.locator('.bs-pill textarea.chat-composer-input');
