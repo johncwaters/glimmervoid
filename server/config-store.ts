@@ -23,6 +23,7 @@ import { configBackupPath, configSecretsPath } from './secrets/core/secret-files
 
 const CONFIG_RELOAD_DEBOUNCE_MS = 500;
 const MAX_RECENT_SELF_WRITES = 8;
+const CONFIG_CHANGED_DURING_SAVE = Symbol('config changed during save');
 
 function secretSourcesOf(env: Record<string, string | undefined>): Record<string, string> {
   return Object.fromEntries(readEnvSecrets(env).map((secret) => [
@@ -173,7 +174,18 @@ function createConfigStore({
     return recentSelfWrites.some((selfWrite) => selfWrite.revision >= revisionAtRead && selfWrite.content === content);
   }
 
+  function configFileChangedSince(contentAtRead: string): boolean {
+    return fs.readFileSync(configPath, 'utf8') !== contentAtRead;
+  }
+
   function save(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null {
+    for (;;) {
+      const attempt = attemptSave(mutatorFn);
+      if (attempt !== CONFIG_CHANGED_DURING_SAVE) return attempt;
+    }
+  }
+
+  function attemptSave(mutatorFn: (config: GlimmervoidConfig) => unknown): GlimmervoidConfig | null | typeof CONFIG_CHANGED_DURING_SAVE {
     lastSaveFailureReason = null;
     let loaded: LoadedConfig | FailedConfigLoad;
     try {
@@ -197,6 +209,7 @@ function createConfigStore({
 
       _lastAppliedContent = null;
 
+      if (configFileChangedSince(freshContent)) return CONFIG_CHANGED_DURING_SAVE;
       writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
       recordSelfWrite(nextContent);
       synchronousWriteRevision++;
@@ -229,7 +242,8 @@ function createConfigStore({
             }
           }
           const staged = await stageTextAtomic(configPath, nextContent, { mode: CONFIG_FILE_MODE });
-          if (revision !== synchronousWriteRevision) {
+          const contentBeforeCommit = await fs.promises.readFile(configPath, 'utf8');
+          if (revision !== synchronousWriteRevision || contentBeforeCommit !== freshContent) {
             await staged.discard();
             continue;
           }

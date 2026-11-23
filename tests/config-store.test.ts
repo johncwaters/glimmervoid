@@ -301,6 +301,38 @@ test('save is an atomic read-modify-write round-trip', () => {
   });
 });
 
+function writeExternalProjectOnce(configPath: string): () => void {
+  let hasWritten = false;
+  return () => {
+    if (hasWritten) return;
+    hasWritten = true;
+    const onDisk = readJson(configPath);
+    fs.writeFileSync(configPath, JSON.stringify({ ...onDisk, projects: [{ id: 'ext', name: 'ext', path: 'C:/ext' }] }, null, 2));
+  };
+}
+
+function projectIdsOnDisk(configPath: string): unknown[] {
+  const onDiskProjects = readJson(configPath).projects;
+  assert.ok(Array.isArray(onDiskProjects));
+  return onDiskProjects.map((project) => block(project).id);
+}
+
+test('save keeps a config.json edit another process writes between its read and its write', () => {
+  withStore({ projects: [] }, (store, configPath) => {
+    const writeExternalProject = writeExternalProjectOnce(configPath);
+    store.save((cfg) => { writeExternalProject(); cfg.projects.push({ id: 'x1', name: 'x', path: 'C:/x' }); });
+    assert.deepEqual(projectIdsOnDisk(configPath), ['ext', 'x1']);
+  });
+});
+
+test('saveAsync keeps a config.json edit another process writes between its read and its commit', async () => {
+  await withStoreAsync({ projects: [] }, async (store, configPath) => {
+    const writeExternalProject = writeExternalProjectOnce(configPath);
+    await store.saveAsync((cfg) => { writeExternalProject(); cfg.projects.push({ id: 'x1', name: 'x', path: 'C:/x' }); });
+    assert.deepEqual(projectIdsOnDisk(configPath), ['ext', 'x1']);
+  });
+});
+
 test('save returns null when the config file is unreadable', () => {
   withStore({ projects: [] }, (store, p) => {
     fs.rmSync(p);
