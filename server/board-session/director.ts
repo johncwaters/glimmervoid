@@ -10,7 +10,7 @@ import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import {
   DIRECTOR_PROMPT_FILE, DIRECTOR_REPLY_MAX_CHARS, DIRECTOR_RESULT_FILE, buildDirectorPrompt, directorPayloadOf, directorTurnOf,
-  directorVerdictsOf, hasReply, leftoverDirectorCardOps, parseDirectorVerdict, withDirectorDigest,
+  directorVerdictsOf, fallbackVerdictOf, hasReply, leftoverDirectorCardOps, parseDirectorVerdict, withDirectorDigest,
 } from '../core/director-core.ts';
 import type { DirectorTurn } from '../core/director-core.ts';
 import { createJsonStateStore } from '../json-file.ts';
@@ -121,13 +121,14 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     if (turn === null || !hasReply(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
     const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(DIRECTOR_TIMEOUT_MS)]);
-    const laneOutput = await runLane(turn, signal);
-    if (signal.aborted) return;
-    const verdict = parseDirectorVerdict(laneOutput);
-    if (verdict === null) {
-      logger.warn(`[director] ${session.name}: the lane returned no usable verdict`);
-      return;
-    }
+    const laneOutput = await runLane(turn, signal).catch((error: unknown) => {
+      logger.warn(`[director] ${session.name}: ${errorMessage(error)}`);
+      return null;
+    });
+    if (shutdownController.signal.aborted) return;
+    const parsedVerdict = parseDirectorVerdict(laneOutput);
+    if (parsedVerdict === null) logger.warn(`[director] ${session.name}: the lane returned no usable verdict, keeping the reply's first sentence`);
+    const verdict = parsedVerdict ?? fallbackVerdictOf(turn);
     if (verdict.chatLine === null && verdict.digest === null) return;
     await keepVerdict(session.id, turn.openedAt, verdict);
   }

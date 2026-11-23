@@ -72,7 +72,7 @@ async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Bo
 
   await root.locator('.bs-pill-address-clear').click();
   await addressText.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await branchReply.click();
+  await branchReply.locator('.bs-face').click();
   await page.waitForFunction(() => (document.querySelector('.board-session-view .bs-pill-address-text')?.textContent ?? '').startsWith('To '), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   await pillInput.fill('branch-follow-up');
   await pillInput.press('Enter');
@@ -123,7 +123,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await page.waitForFunction(() => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
-  await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-agent[hidden]').first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   const faceOnBox = root.locator('.bs-card[data-main] .bs-face-main').first();
   await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -154,9 +154,18 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   await pillInput.fill('long-shop');
   await pillInput.press('Enter');
-  await root.locator('.bs-row-agent .bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
-  assert.equal(await root.locator('.bs-log', { hasText: 'The tax table is read once' }).count(), 0, 'a directed turn shows its digest in place of the full reply');
-  assert.equal(await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).count() > 0, true, 'a short reply stays as written');
+  const directedLine = root.locator('.bs-row-agent .bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }).first();
+  await directedLine.waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-log', { hasText: 'The tax table is read once' }).count(), 0, 'a directed turn shows only its chat line');
+  assert.equal(await root.locator('.bs-row-agent:not([hidden])', { hasText: 'The charge goes through' }).count(), 0, 'a turn the director leaves out never reaches chat');
+  const directedBubble = root.locator('.bs-row-agent', { has: page.locator('.bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }) }).first().locator('.bs-bubble-agent');
+  const logBefore = await boxOf(page, '.board-session-view .bs-pill');
+  await directedBubble.click();
+  await root.locator('.bs-full-reply', { hasText: 'The tax table is read once' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await directedBubble.getAttribute('aria-expanded'), 'true', 'clicking a chat line opens the whole reply');
+  await directedBubble.locator('.bs-digest').click();
+  await root.locator('.bs-full-reply').first().waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  assertSameBox(logBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after a reply opens and closes');
 
   await verifyBranch(page, projectDirectory, pillBefore);
 
@@ -165,8 +174,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await sendButton.isEnabled(), true, 'Send turns on once the pill holds text');
   await pillInput.press('Enter');
   await root.locator('.bs-row-you', { hasText: 'narrate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-row-agent', { hasText: 'Build passed' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await root.locator('.bs-row-agent .bs-face').count() > 0, true, 'an agent bubble carries the agent face');
+  assert.equal(await root.locator('.bs-row-agent:not([hidden]) .bs-face').count() > 0, true, 'an agent chat line carries the agent face');
   await root.locator('.bs-card[data-main][data-phase="working"] .chat-activity[data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-card[data-main]').count(), 1, 'the main agent has exactly one card');
   assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');

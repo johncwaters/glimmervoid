@@ -14,6 +14,7 @@ export const DIRECTOR_RESULT_FILE = 'director-result.json';
 export const DIRECTOR_REPLY_MAX_CHARS = 16000;
 const CHAT_LINE_MAX_CHARS = 160;
 const DIRECTOR_DIGESTS_PER_SESSION = 20;
+const DIRECTOR_CHAT_LINES_PER_SESSION = 100;
 const DIRECTOR_SESSIONS_KEPT = 200;
 const DIRECTOR_UNTRUSTED_SOURCE = 'studio-turn-reply';
 const DIGEST_MAX_CHARS = 80;
@@ -107,13 +108,22 @@ export function parseDirectorVerdict(laneOutput: Record<string, unknown> | null)
   return { chatLine, digest, points };
 }
 
+export function fallbackVerdictOf(turn: DirectorTurn): DirectedTurn {
+  const reply = turn.replyText.trim();
+  const firstSentence = /^[\s\S]*?[.!?](?=\s|$)/.exec(reply)?.[0] ?? reply;
+  return { chatLine: cleanLine(firstSentence, CHAT_LINE_MAX_CHARS), digest: null, points: [] };
+}
+
 function newestOpenedAtOf(digests: readonly DirectorDigest[]): number {
   return digests.at(-1)?.openedAt ?? 0;
 }
 
 export function withDirectorDigest(state: DirectorDigestState, sessionId: string, digest: DirectorDigest): DirectorDigestState {
   const otherTurns = (state.digestsBySessionId[sessionId] ?? []).filter((entry) => entry.openedAt !== digest.openedAt);
-  const sessionDigests = [...otherTurns, digest].sort((left, right) => left.openedAt - right.openedAt).slice(-DIRECTOR_DIGESTS_PER_SESSION);
+  const turnsInOrder = [...otherTurns, digest].sort((left, right) => left.openedAt - right.openedAt);
+  const recentTurns = turnsInOrder.slice(-DIRECTOR_DIGESTS_PER_SESSION);
+  const olderChatLines = turnsInOrder.slice(0, -DIRECTOR_DIGESTS_PER_SESSION).filter((entry) => entry.chatLine !== null).slice(-(DIRECTOR_CHAT_LINES_PER_SESSION - DIRECTOR_DIGESTS_PER_SESSION));
+  const sessionDigests = [...olderChatLines, ...recentTurns];
   const keptSessions = Object.entries({ ...state.digestsBySessionId, [sessionId]: sessionDigests })
     .sort(([, left], [, right]) => newestOpenedAtOf(right) - newestOpenedAtOf(left))
     .slice(0, DIRECTOR_SESSIONS_KEPT);

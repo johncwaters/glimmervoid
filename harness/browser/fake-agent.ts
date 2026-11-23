@@ -56,9 +56,14 @@ if (process.argv.includes('-p') && process.argv.at(-1) === DIRECTOR_LANE_PROMPT)
   const resultPath = /^Write (.+) with the Write tool/m.exec(directorPrompt)?.[1] ?? '';
   const payloadText = fs.readFileSync(path.join(process.cwd(), 'untrusted.json'), 'utf8');
   const isLongReply = payloadText.includes(LONG_CHECKOUT_REPLY.slice(0, 40));
-  const verdict = isLongReply
-    ? { chatLine: DIRECTOR_DIGEST_TEXT, digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'] }
-    : { chatLine: null, digest: null, points: [] };
+  const isUnimportantReply = payloadText.includes('The charge goes through src/payments/card.js');
+  const replyLine = /"text":\s*"([^"]{1,160})/.exec(payloadText)?.[1]?.trim() ?? null;
+  const verdictOf = () => {
+    if (isLongReply) return { chatLine: DIRECTOR_DIGEST_TEXT, digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'] };
+    if (isUnimportantReply) return { chatLine: null, digest: null, points: [] };
+    return { chatLine: replyLine, digest: null, points: [] };
+  };
+  const verdict = verdictOf();
   fs.writeFileSync(resultPath, JSON.stringify(verdict));
   process.exit(0);
 }
