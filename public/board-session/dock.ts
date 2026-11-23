@@ -7,6 +7,7 @@ import { BRANCH_PROMPT_MAX_CHARS } from '#shared/contracts/control/board-session
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import type { ChatPart } from '../chat/chat-part.ts';
+import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
 import { operatorPartOfPrompt } from '#shared/board-branch-core.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -21,6 +22,8 @@ import type { BoxChoice, BoxMention, DockAddress } from './branch-core.ts';
 
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const CHAT_SEND_TIMEOUT_MS = 10000;
+const PROGRESS_ASK_TIMEOUT_MS = 130000;
+const GLIMMERVOID_NAME = 'Glimmervoid';
 const BRANCH_SPAWN_TIMEOUT_MS = 30000;
 const NEAR_TOP_PX = 48;
 const NEAR_BOTTOM_PX = 24;
@@ -38,6 +41,7 @@ interface DockSession {
   isTurnOver: () => boolean;
   boxChoices: () => readonly BoxChoice[];
   digestOf: (sessionId: string, openedAt: number) => string | null;
+  progressAnswers: () => readonly SessionProgressAnswer[];
   railFields: () => readonly RailField[];
 }
 
@@ -132,6 +136,25 @@ function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedS
   bubble.append(renderPlanBlocks(parsePlanMarkdown(speaker.branch ? operatorPartOfPrompt(part.text) : part.text)));
   row.append(bubble);
   return row;
+}
+
+function progressAnswerRowsOf(entry: SessionProgressAnswer): HTMLElement[] {
+  const questionRow = el('div', 'bs-row bs-row-you');
+  const questionBubble = el('div', 'bs-bubble bs-bubble-you');
+  questionBubble.append(renderPlanBlocks(parsePlanMarkdown(entry.question)));
+  questionRow.append(questionBubble);
+  const answerRow = el('div', 'bs-row bs-row-agent bs-row-glimmervoid');
+  const answerBubble = el('div', 'bs-bubble bs-bubble-agent');
+  answerBubble.append(el('span', 'bs-bubble-who', GLIMMERVOID_NAME), el('p', 'bs-digest', entry.answer));
+  answerRow.append(answerBubble);
+  for (const row of [questionRow, answerRow]) row.dataset.at = String(entry.askedAt);
+  return [questionRow, answerRow];
+}
+
+function partTimeOf(part: ChatPart): number | null {
+  if (part.kind === 'prompt') return part.at;
+  if (part.kind === 'turn') return part.openedAt;
+  return null;
 }
 
 function digestOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf']): string | null {
@@ -236,6 +259,22 @@ export function createDock(session: DockSession): Dock {
     input.focus();
   };
 
+  const shownAnswerKeys = new Set<string>();
+  const insertByTime = (row: HTMLElement) => {
+    const rowTime = Number(row.dataset.at);
+    const laterRow = [...log.children].find((child) => child instanceof HTMLElement && child.dataset.at !== undefined && Number(child.dataset.at) > rowTime);
+    if (laterRow) return laterRow.before(row);
+    log.append(row);
+  };
+  const paintProgressAnswers = () => {
+    for (const entry of session.progressAnswers()) {
+      const answerKey = String(entry.askedAt);
+      if (shownAnswerKeys.has(answerKey)) continue;
+      shownAnswerKeys.add(answerKey);
+      for (const row of progressAnswerRowsOf(entry)) insertByTime(row);
+    }
+  };
+
   const upsertParts = (sessionId: string, parts: readonly ChatPart[]) => {
     const speaker = speakerBySessionId.get(sessionId);
     if (!speaker) return;
@@ -258,6 +297,8 @@ export function createDock(session: DockSession): Dock {
       }
       row.dataset.partId = part.id;
       row.dataset.sessionId = sessionId;
+      const partTime = partTimeOf(part);
+      if (partTime !== null) row.dataset.at = String(partTime);
       const shownRow = rowByKey.get(key);
       rowByKey.set(key, row);
       if (shownRow) {
@@ -308,7 +349,9 @@ export function createDock(session: DockSession): Dock {
         log.replaceChildren();
         rowByKey.clear();
         turnByKey.clear();
+        shownAnswerKeys.clear();
         upsertParts(sessionId, rebuiltParts);
+        paintProgressAnswers();
         log.scrollTop = log.scrollHeight - distanceFromBottom;
       },
       onBeats: () => {},
@@ -421,6 +464,13 @@ export function createDock(session: DockSession): Dock {
 
   input.addEventListener('blur', closeMentions);
 
+  let mainSendQueue: Promise<string | null> = Promise.resolve(null);
+  const sendToAgent = (targetId: string, text: string) => sendControlRequest('chat-send', { id: targetId, text, attachments: [] }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type === 'chat-send-result' && reply.ok) return null;
+      return reply.type === 'chat-send-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT;
+    });
+
   const sendText = (text: string, sentAddress: DockAddress) => {
     if (sentAddress.kind === 'new-branch') {
       return requestBranchSpawn(session.sessionId, sentAddress.aboutBoxId, text)
@@ -430,12 +480,13 @@ export function createDock(session: DockSession): Dock {
           return null;
         });
     }
-    const targetId = sentAddress.kind === 'branch' ? sentAddress.sessionId : session.sessionId;
-    return sendControlRequest('chat-send', { id: targetId, text, attachments: [] }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
-      .then((reply) => {
-        if (reply.type === 'chat-send-result' && reply.ok) return null;
-        return reply.type === 'chat-send-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT;
-      });
+    if (sentAddress.kind === 'branch') return sendToAgent(sentAddress.sessionId, text);
+    const mainSend = mainSendQueue.then(() => sendControlRequest('studio-progress-ask', { id: session.sessionId, text }, { timeoutMs: PROGRESS_ASK_TIMEOUT_MS })
+      .then((reply) => reply.type === 'studio-progress-ask-result' && reply.isAnswered)
+      .catch(() => false)
+      .then((isAnswered) => isAnswered ? null : sendToAgent(session.sessionId, text)));
+    mainSendQueue = mainSend.catch(() => null);
+    return mainSend;
   };
 
   const addressedSessionId = () => address.kind === 'branch' ? address.sessionId : address.kind === 'main' ? session.sessionId : null;
@@ -523,6 +574,7 @@ export function createDock(session: DockSession): Dock {
         if ((rowByKey.get(key)?.dataset.digest ?? null) === digest) continue;
         upsertParts(sessionId, [part]);
       }
+      paintProgressAnswers();
     }),
     close: () => {
       clearInterval(railTimer);

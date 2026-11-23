@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
-import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT } from './cases-core.ts';
+import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import { clickBoardBoxWhere } from './boards.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
@@ -166,6 +166,16 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await directedBubble.locator('.bs-digest').click();
   await root.locator('.bs-full-reply').first().waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(logBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after a reply opens and closes');
+
+  await pillInput.fill('How is it going?');
+  await pillInput.press('Enter');
+  const progressRow = root.locator('.bs-row-glimmervoid', { hasText: STUDIO_PROGRESS_ANSWER });
+  await progressRow.waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
+  assert.equal(await progressRow.locator('.bs-bubble-who').textContent(), 'Glimmervoid', 'Glimmervoid answers how it is going');
+  assert.equal(await root.locator('.bs-row-you[data-part-id]', { hasText: 'How is it going?' }).count(), 0, 'a progress question never reaches the main agent');
+  await pillInput.fill('Where does tax get added?');
+  await pillInput.press('Enter');
+  await root.locator('.bs-row-you[data-part-id]', { hasText: 'Where does tax get added?' }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
 
   await verifyBranch(page, projectDirectory, pillBefore);
 

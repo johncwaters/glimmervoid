@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY } from './cases-core.ts';
+import { RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY } from './cases-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
@@ -59,6 +59,7 @@ if (process.argv.includes('-p') && process.argv.at(-1) === DIRECTOR_LANE_PROMPT)
   const isUnimportantReply = payloadText.includes('The charge goes through src/payments/card.js');
   const replyLine = /"text":\s*"([^"]{1,160})/.exec(payloadText)?.[1]?.trim() ?? null;
   const verdictOf = () => {
+    if (payloadText.includes('"studio-progress"')) return /how is it going/i.test(payloadText) ? { isProgress: true, answer: STUDIO_PROGRESS_ANSWER } : { isProgress: false, answer: null };
     if (isLongReply) return { chatLine: DIRECTOR_DIGEST_TEXT, digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'] };
     if (isUnimportantReply) return { chatLine: null, digest: null, points: [] };
     return { chatLine: replyLine, digest: null, points: [] };
@@ -426,6 +427,11 @@ function dispatch(command: string): void {
   }
   if (command === 'away-reply') {
     answerPrompt(command, AWAY_REPLY_TEXT);
+    dispatch('stop');
+    return;
+  }
+  if (command === 'Where does tax get added?') {
+    answerPrompt(command, 'Tax is added in src/checkout/checkout.js.');
     dispatch('stop');
     return;
   }

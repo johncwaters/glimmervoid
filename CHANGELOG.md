@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Ask Studio how it is going.** A message to the main agent that only asks how the work is going, what is done or what is left gets a short answer from Glimmervoid, written from the plan steps on the map and each agent's latest notes, and never reaches the agent. Any other message goes to the main agent as before.
 - **Question options show their preview.** When an agent offers options with a preview, such as a sketch of a layout or a snippet of code, each option in Chat's question card shows it under its label, and so does the same card on a Studio agent card.
 - **Chat actions match the text beside them.** Send now, Cancel, Change, Dismiss and Show on board now use the same small type as the status text next to them instead of a larger, different face.
 - **Change an answer before the questions go out.** When an agent asks several questions in chat, each answered one shows a Change button until the last is answered, so a misclick can be fixed before the agent sees anything. The line under Dismiss explaining that it stops the agent is gone.

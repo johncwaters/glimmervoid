@@ -1,7 +1,7 @@
 import { Op } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
-import type { DirectorDigest, DirectorDigestState } from '../../shared/contracts/director-digests.ts';
+import type { DirectorDigest, DirectorDigestState, ProgressAnswer, SessionProgressAnswer } from '../../shared/contracts/director-digests.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedPayload } from '../../shared/contracts/untrusted-payload.ts';
 import { directorDigestKeyOf } from '../../shared/director-digest-key.ts';
@@ -17,6 +17,12 @@ const DIRECTOR_DIGESTS_PER_SESSION = 20;
 const DIRECTOR_CHAT_LINES_PER_SESSION = 100;
 const DIRECTOR_SESSIONS_KEPT = 200;
 const DIRECTOR_UNTRUSTED_SOURCE = 'studio-turn-reply';
+const PROGRESS_UNTRUSTED_SOURCE = 'studio-progress';
+const PROGRESS_SHAPED_MAX_CHARS = 80;
+const PROGRESS_PHRASE_PATTERN = /^(how('s| is| are) (it|this|that|things|everything|the work|we|you)( all)? (going|doing|coming along)|how far along|status( update)?|progress( update)?|any (progress|update|news)|what('s| is) (left|done|the status|the progress)|where are (we|things|you)( at)?)\b/i;
+const PROGRESS_ANSWER_MAX_CHARS = 300;
+const PROGRESS_ANSWERS_PER_SESSION = 20;
+const PROGRESS_NOTES_PER_AGENT = 3;
 const DIGEST_MAX_CHARS = 80;
 const POINT_MAX_CHARS = 60;
 const MAX_POINTS = 3;
@@ -145,4 +151,61 @@ export function leftoverDirectorCardOps(board: Board): Op[] {
     if (wire?.kind !== 'wire' || wire.from !== element.id) return [];
     return [Op.parse({ op: 'remove', id: wire.id }), Op.parse({ op: 'remove', id: element.id })];
   });
+}
+
+interface ProgressContext {
+  question: string;
+  steps: { title: string; status: string }[];
+  agents: { name: string; notes: string[] }[];
+}
+
+export function isProgressShaped(question: string): boolean {
+  const trimmed = question.trim();
+  return trimmed.length <= PROGRESS_SHAPED_MAX_CHARS && PROGRESS_PHRASE_PATTERN.test(trimmed);
+}
+
+export function planStepsOf(board: Board): { title: string; status: string }[] {
+  return [...board.elements.values()].flatMap((element) => element.kind === 'box' && element.step ? [{ title: element.title, status: element.step.status }] : []);
+}
+
+export function latestNotesOf(state: DirectorDigestState, sessionId: string): string[] {
+  return (state.digestsBySessionId[sessionId] ?? []).flatMap((entry) => entry.chatLine ?? entry.digest ?? []).slice(-PROGRESS_NOTES_PER_AGENT);
+}
+
+export function progressPayloadOf(context: ProgressContext, fetchedAt: string): UntrustedPayload {
+  const stateText = JSON.stringify({ steps: context.steps, agents: context.agents }).slice(0, DIRECTOR_REPLY_MAX_CHARS);
+  return { trust: 'untrusted', source: PROGRESS_UNTRUSTED_SOURCE, fetchedAt, items: [{ kind: 'operator-question', ref: 'question', text: context.question }, { kind: 'studio-state', ref: 'state', text: stateText }] };
+}
+
+export function buildProgressPrompt(resultPath: string): string {
+  return [
+    UNTRUSTED_PREAMBLE,
+    '',
+    `${UNTRUSTED_PAYLOAD_FILENAME} holds the operator's message to their Studio agents (ref question) and the state of the work (ref state): the plan steps with their status, and each agent's latest notes.`,
+    '',
+    `Write ${resultPath} with the Write tool, holding only this JSON object:`,
+    '{"isProgress": true or false, "answer": "..." or null}',
+    '',
+    'Rules:',
+    '- isProgress is true only when the message asks how the work is going, what is done, what is left or what an agent is doing, and asks nothing else; any request for work, a decision or an answer about the code is false.',
+    `- answer, when isProgress is true: at most ${PROGRESS_ANSWER_MAX_CHARS} characters answering from the state alone, naming steps and agents; say plainly when the state does not tell. Null when isProgress is false.`,
+    '- Report only what the state says. Never invent progress.',
+  ].join('\n');
+}
+
+export function parseProgressAnswer(laneOutput: Record<string, unknown> | null): string | null {
+  if (laneOutput === null || laneOutput.isProgress !== true) return null;
+  return cleanLine(laneOutput.answer, PROGRESS_ANSWER_MAX_CHARS);
+}
+
+export function withProgressAnswer(state: DirectorDigestState, sessionId: string, answer: ProgressAnswer): DirectorDigestState {
+  const sessionAnswers = [...(state.progressAnswersBySessionId[sessionId] ?? []), answer].slice(-PROGRESS_ANSWERS_PER_SESSION);
+  const keptSessions = Object.entries({ ...state.progressAnswersBySessionId, [sessionId]: sessionAnswers })
+    .sort(([, left], [, right]) => (right.at(-1)?.askedAt ?? 0) - (left.at(-1)?.askedAt ?? 0))
+    .slice(0, DIRECTOR_SESSIONS_KEPT);
+  return { ...state, progressAnswersBySessionId: Object.fromEntries(keptSessions) };
+}
+
+export function progressAnswersOf(state: DirectorDigestState, sessionIds: readonly string[]): SessionProgressAnswer[] {
+  return sessionIds.flatMap((sessionId) => (state.progressAnswersBySessionId[sessionId] ?? []).map((answer) => ({ sessionId, ...answer })));
 }
