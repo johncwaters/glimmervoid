@@ -302,6 +302,7 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   const optionTexts = await openQuestion.locator('.chat-card-option').allInnerTexts();
   assert.match(optionTexts[0] ?? '', /^Run both for a week\s*Recommended\s*Enter/, 'the recommended option comes first with its tag and the Enter key cap');
   assert.match(optionTexts[1] ?? '', /^Move now\s*2/, 'the other option keeps its position key');
+  assert.equal(await openQuestion.locator('.chat-card-option-preview').innerText(), 'old path: off\nnew path: live', 'an option shows the preview the agent gave it');
   await composer.focus();
   await page.keyboard.press('Enter');
   const answeredQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').last();

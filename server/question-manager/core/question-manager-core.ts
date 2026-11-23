@@ -141,9 +141,13 @@ export function buildManagerRequest(
     '{"rule": <the number of the one rule that decides>, "answers": [{"question": "<the question ref>", "labels": ["<exact option label>"]}]}',
     'with one answers entry for every question. When no rule clearly decides every question, write {"escalate": "<one short reason>"} instead.',
   ].join('\n');
-  const questionItems = questions.map((question, index) => ({ kind: 'agent-question', ref: questionRef(index), text: JSON.stringify(question).slice(0, MANAGER_ITEM_CHARS) }));
+  const questionItems = questions.map((question, index) => ({ kind: 'agent-question', ref: questionRef(index), text: JSON.stringify(withoutOptionPreviews(question)).slice(0, MANAGER_ITEM_CHARS) }));
   const titleItems = task.title ? [{ kind: 'session-task-title', ref: 'task-title', text: task.title.slice(0, MANAGER_ITEM_CHARS) }] : [];
   return { prompt, untrustedItems: [...questionItems, ...titleItems] };
+}
+
+function withoutOptionPreviews(question: ConversationQuestion): Omit<ConversationQuestion, 'options'> & { options: Omit<ConversationQuestion['options'][number], 'preview'>[] } {
+  return { ...question, options: question.options.map(({ preview: _preview, ...option }) => option) };
 }
 
 function escalation(reason: string): ManagerVerdict {

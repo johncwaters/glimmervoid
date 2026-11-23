@@ -45,6 +45,7 @@ export { CONVERSATION_PERMISSION_HOOK_EVENT } from '../question-tool-hold.ts';
 export const CONVERSATION_TOOL_RESULT_HOOK_EVENT = 'posttooluse-conversation';
 const CONVERSATION_QUESTION_MAX_CHARS = 1000;
 const CONVERSATION_ANSWER_MAX_CHARS = 2000;
+const CONVERSATION_OPTION_PREVIEW_MAX_CHARS = 4000;
 
 export const ConversationQuestion = z.object({
   question: z.string().min(1).max(CONVERSATION_QUESTION_MAX_CHARS),
@@ -52,6 +53,7 @@ export const ConversationQuestion = z.object({
   options: z.array(z.object({
     label: z.string().min(1).max(200),
     description: z.string().max(CONVERSATION_QUESTION_MAX_CHARS).default(''),
+    preview: z.string().default('').transform((preview) => preview.slice(0, CONVERSATION_OPTION_PREVIEW_MAX_CHARS)),
   })).min(1).max(8),
   multiSelect: z.boolean().default(false),
 });

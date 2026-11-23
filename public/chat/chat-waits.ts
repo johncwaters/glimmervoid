@@ -125,7 +125,7 @@ function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
   return questions.map((question, index) => ({
     cardType: 'question',
     cardId: `${requestKey}-${index}`,
-    data: { question: question.question, detail: question.header, ...(isStacked ? { step: `${index + 1} of ${questions.length}` } : {}), options: question.options.map((option) => ({ label: option.label, note: option.description })) },
+    data: { question: question.question, detail: question.header, ...(isStacked ? { step: `${index + 1} of ${questions.length}` } : {}), options: question.options.map((option) => ({ label: option.label, note: option.description, ...(option.preview ? { preview: option.preview } : {}) })) },
     resolution: null,
   }));
 }

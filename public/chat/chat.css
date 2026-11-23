@@ -556,6 +556,8 @@ html[data-layout="phone"] .chat-card-option-keys .ui-keycap { display: none; }
 
 .chat-card-option-note { grid-column: 1 / -1; color: var(--text-dim); line-height: 1.55; overflow-wrap: anywhere; }
 
+.chat-card-option-preview { grid-column: 1 / -1; margin: 0; padding: 8px 10px; max-height: 240px; overflow: auto; border: 1px solid var(--border-dim); border-radius: 4px; color: var(--text); font: var(--type-meta)/1.4 var(--font-mono); white-space: pre; }
+
 .chat-card-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; color: var(--text-muted); font-size: var(--type-meta); }
 
 .chat-card-topic { color: var(--text-dim); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; overflow-wrap: anywhere; }
