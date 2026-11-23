@@ -214,7 +214,10 @@ interface AgentHomeProfile {
   cleanOmits: CleanHomeOmits | null;
   account: AgentAccountSeam | null;
   sandboxLogin?: SandboxLogin;
+  privateConfigOf?(operatorConfigText: string): PrivateConfig;
 }
+
+type PrivateConfig = { text: string } | { refusal: string };
 
 interface SandboxLogin {
   entryName: string;
@@ -458,6 +461,35 @@ function codexPlaceholderAuth(realAuthJson: string, nowMs: number): { placeholde
   return { placeholder: `${JSON.stringify({ ...auth, OPENAI_API_KEY: apiKey, tokens: placeholderTokens, last_refresh: new Date(nowMs).toISOString() }, null, 2)}\n` };
 }
 
+const KIMI_PRIVATE_KEY_NAMES: readonly string[] = Object.freeze(["default_model"]);
+const KIMI_PRIVATE_TABLE_PATTERN = /^\[(?:providers\."managed:kimi-code"(?:\.oauth)?|models\.[^#]+)#\d+$/;
+const KIMI_MODEL_ROOT_PATTERN = /^\[?(?:providers|models)(?:\.|#)/;
+const KIMI_API_KEY_LINE_PATTERN = /^\s*api_key\s*=\s*(\S*)/gm;
+const KIMI_EMPTY_API_KEY_VALUE = '""';
+const TOML_HEADER_LINE_PATTERN = /^\s*\[/m;
+
+function holdsStaticApiKey(table: TomlUnit): boolean {
+  return [...table.text.matchAll(KIMI_API_KEY_LINE_PATTERN)].some((apiKeyLine) => apiKeyLine[1] !== KIMI_EMPTY_API_KEY_VALUE);
+}
+
+function isUnitSplitSafely(unit: TomlUnit): boolean {
+  const bodyText = unit.text.slice(unit.text.indexOf("\n") + 1);
+  return !TOML_MULTILINE_QUOTES.some((quotes) => unit.text.includes(quotes)) && !TOML_HEADER_LINE_PATTERN.test(bodyText);
+}
+
+function kimiPrivateConfig(operatorConfigText: string): PrivateConfig {
+  const operatorText = withoutBlock(operatorConfigText);
+  if (operatorText === "foreign") return { refusal: "its Glimmervoid hooks block markers are unbalanced" };
+  const units = splitTomlUnits(operatorText);
+  const keptKeys = units.keys.filter((key) => KIMI_PRIVATE_KEY_NAMES.includes(key.id));
+  const keptTables = units.tables.filter((table) => KIMI_PRIVATE_TABLE_PATTERN.test(table.id));
+  const hasModelConfigInOtherShape = units.keys.some((key) => KIMI_MODEL_ROOT_PATTERN.test(key.id)) || units.tables.some((table) => /^\[(?:providers|models)#/.test(table.id));
+  const keptUnits = [...keptKeys, ...keptTables];
+  if (hasModelConfigInOtherShape || !keptUnits.every(isUnitSplitSafely)) return { refusal: "a private Kimi Code home copies only default_model and [providers.\"managed:kimi-code\"] and [models.<name>] tables without multiline strings, and this config writes its models or providers another way" };
+  if (keptTables.some(holdsStaticApiKey)) return { refusal: "Kimi Code is signed in with an API key, and a private Kimi Code home carries only the Kimi Code OAuth login the sandbox places" };
+  return { text: keptUnits.map((unit) => withLineEnd(unit.text)).join("") };
+}
+
 function kimiPlaceholderCredentials(realCredentialsJson: string, nowMs: number): { placeholder: string } | { refusal: string } {
   const credentials = parseJsonObject(realCredentialsJson);
   if (credentials === null) return { refusal: UNREADABLE_LOGIN_REFUSAL };
@@ -554,7 +586,6 @@ function withoutOperatorTables(configText: string, tablePrefixes: readonly strin
 
 function cleanRealConfigText(inputs: AgentHomeInputs): string | null {
   const omits = inputs.profile.cleanOmits;
-  if (inputs.isPrivate) return inputs.realConfigText === null ? null : "";
   if (!inputs.isClean || !omits || inputs.realConfigText === null) return inputs.realConfigText;
   const operatorText = withoutBlock(inputs.realConfigText);
   if (operatorText === "foreign") return inputs.realConfigText;
@@ -563,7 +594,17 @@ function cleanRealConfigText(inputs: AgentHomeInputs): string | null {
 
 function generatedConfigFor(inputs: AgentHomeInputs, format: TomlConfigFormat | JsonConfigFormat): GeneratedConfig {
   if (format.kind === "json") return generatedJsonAgentConfig(inputs, format);
-  return generatedAgentConfig({ ...inputs, realConfigText: cleanRealConfigText(inputs), format });
+  if (!inputs.isPrivate) return generatedAgentConfig({ ...inputs, realConfigText: cleanRealConfigText(inputs), format });
+  const privateConfig = privateConfigTextOf(inputs);
+  if ("refusal" in privateConfig) return privateConfig;
+  return generatedAgentConfig({ ...inputs, realConfigText: privateConfig.text, format });
+}
+
+function privateConfigTextOf(inputs: AgentHomeInputs): { text: string | null } | { refusal: string } {
+  if (inputs.realConfigText === null) return { text: null };
+  const privateConfigOf = inputs.profile.privateConfigOf;
+  if (privateConfigOf === undefined) return { text: "" };
+  return privateConfigOf(inputs.realConfigText);
 }
 
 type ConfigStepsPlan = { steps: AgentHomeStep[]; hadBlock: boolean } | { refusal: string };
@@ -755,6 +796,7 @@ const KIMI_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   cleanOmits: Object.freeze({ entryNames: Object.freeze(["AGENTS.md", "skills", "plugins"]), configTablePrefixes: Object.freeze(["[[hooks"]) }),
   account: accountSeamOf(/^(?:credentials|oauth|region|region\.json)$/, /^\[[^[].*\.oauth#\d+$/),
   sandboxLogin: Object.freeze({ entryName: "credentials", fileSegments: Object.freeze(["credentials", "kimi-code.json"]), placeholderOf: kimiPlaceholderCredentials }),
+  privateConfigOf: kimiPrivateConfig,
 });
 
 const CODEX_HOOK_HANDLER_TABLE_HEADER_PATTERN = /^\s*\[(?!\[)\s*hooks\s*(?:\]|\.(?!\s*state\s*[\].]))/;

@@ -251,3 +251,65 @@ test('a private sandboxed home links nothing from the operator home, copies none
   assert.equal(fs.existsSync(firstSeatHome), false);
   assert.equal(fs.existsSync(secondSeatHome), true);
 });
+
+test('a private sandboxed Kimi home keeps only the operator model and provider config, so the seat model resolves', () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-private-kimi-home-'));
+  const kimiHome = path.join(homeDir, '.kimi-code');
+  fs.mkdirSync(path.join(kimiHome, 'skills', 'operator-skill'), { recursive: true });
+  fs.writeFileSync(path.join(kimiHome, 'AGENTS.md'), 'operator instructions');
+  fs.writeFileSync(path.join(kimiHome, 'config.toml'), [
+    'default_model = "kimi-code/k3.1-pro"',
+    'operator_preference = "kept out"',
+    '',
+    '[providers."managed:kimi-code"]',
+    'api_key = ""',
+    'base_url = "https://api.kimi.ai/coding/v1"',
+    '',
+    '[providers."managed:kimi-code".oauth]',
+    'key = "oauth/kimi-code-env-scoped"',
+    'oauth_host = "https://auth.kimi.ai"',
+    '',
+    '[models."kimi-code/k3.1-pro"]',
+    'provider = "managed:kimi-code"',
+    '',
+    '[[hooks]]',
+    'event = "Stop"',
+    'command = "operator-hook"',
+    '',
+    '[services.moonshot_search]',
+    'base_url = "https://api.kimi.ai/coding/v1/search"',
+    '',
+  ].join('\n'));
+  const env = { HOME: homeDir, GLIMMERVOID_HOME: path.join(homeDir, '.glimmervoid'), KIMI_CODE_HOME: kimiHome };
+
+  const prepared = holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => '', { isSandboxed: true, privateKey: 'kimi-seat' });
+
+  assert.ok('home' in prepared);
+  const seatConfig = fs.readFileSync(path.join(prepared.home, 'config.toml'), 'utf8');
+  for (const kept of ['default_model = "kimi-code/k3.1-pro"', '[providers."managed:kimi-code"]', 'key = "oauth/kimi-code-env-scoped"', '[models."kimi-code/k3.1-pro"]']) assert.ok(seatConfig.includes(kept), kept);
+  for (const leftOut of ['operator_preference', 'operator-hook', 'moonshot_search']) assert.equal(seatConfig.includes(leftOut), false, leftOut);
+  const entries = fs.readdirSync(prepared.home, { withFileTypes: true });
+  assert.deepEqual(entries.filter((entry) => entry.isSymbolicLink()).map((entry) => entry.name), []);
+  for (const operatorEntry of ['AGENTS.md', 'skills']) assert.equal(fs.existsSync(path.join(prepared.home, operatorEntry)), false);
+  releaseAgentHome(prepared.home);
+});
+
+test('a private sandboxed Kimi home refuses a config whose model tables it cannot copy cleanly or that holds a static API key', () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-private-kimi-refusal-'));
+  const kimiHome = path.join(homeDir, '.kimi-code');
+  fs.mkdirSync(kimiHome);
+  const env = { HOME: homeDir, GLIMMERVOID_HOME: path.join(homeDir, '.glimmervoid'), KIMI_CODE_HOME: kimiHome };
+  const operatorConfigs = {
+    multilineQuotesHidingHooks: 'default_model = "m"\n\n[models.m]\nprovider = "p" # """\n\n[[hooks]]\nevent = "Stop"\ncommand = "operator-hook"\n',
+    modelsSupertable: 'default_model = "m"\n\n[models]\n"m".provider = "p"\n',
+    dottedModelKeys: 'default_model = "m"\nmodels."m".provider = "p"\n',
+    staticApiKey: 'default_model = "m"\n\n[providers."managed:kimi-code"]\napi_key = "operator-secret"\n\n[models.m]\nprovider = "managed:kimi-code"\n',
+  };
+
+  for (const [shape, configText] of Object.entries(operatorConfigs)) {
+    fs.writeFileSync(path.join(kimiHome, 'config.toml'), configText);
+    const prepared = holdPreparedAgentHome(KIMI_HOME_PROFILE, env, () => '', { isSandboxed: true, privateKey: `kimi-${shape}` });
+    assert.ok('refusal' in prepared, shape);
+    assert.equal(prepared.refusal.includes('operator-secret'), false, shape);
+  }
+});
