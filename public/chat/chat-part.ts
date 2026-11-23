@@ -18,13 +18,10 @@ export type ChatPart =
   | { kind: 'prompt'; id: string; text: string; at: number; attachments: string[] }
   | TurnPart
   | { kind: 'skill'; id: string; skillName: string }
-  | SubagentPart
   | BackgroundTaskPart
   | { kind: 'card'; id: string; card: ChatCard };
 
 export type TurnPart = { kind: 'turn'; id: string; openedAt: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; failedCount: number; fileEdits: FileEditTally; filePatches: readonly FilePatch[]; unshownPatchCount: number; thoughtText: string | null; durationText: string | null; isOver: boolean };
-
-export type SubagentPart = { kind: 'subagent'; id: string; subagentType: string; task: string | null; startedAt: number; endedAt: number | null; steps: readonly string[]; stepCount: number; report: string | null };
 
 export type BackgroundTaskPart = { kind: 'background-task'; id: string; taskType: string | null; label: string; command: string | null; startedAt: number; endedAt: number | null };
 

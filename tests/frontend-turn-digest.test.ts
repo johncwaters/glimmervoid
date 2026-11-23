@@ -109,10 +109,6 @@ test('a running subagent left open before a restart closes when a new session re
     { kind: 'session', vendor: 'antigravity', transcriptPath: '/transcripts/vendor.jsonl', ts: 10_000, ...recordBase },
   ]);
   assert.deepEqual(restarted.runningSubagents, []);
-  const closedSubagents = restarted.parts.flatMap((part) => part.kind === 'subagent' ? [part] : []);
-  assert.deepEqual(closedSubagents.map(({ subagentType, startedAt, endedAt }) => ({ subagentType, startedAt, endedAt })), [
-    { subagentType: 'redteam', startedAt: 2_000, endedAt: 10_000 },
-  ]);
 });
 
 test('each tool call settles from its result into the turn rows with its state, duration and output head, a call left unanswered reads stopped once the turn ends, and thinking time reaches the ended turn', () => {

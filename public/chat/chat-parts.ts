@@ -1,6 +1,6 @@
 import { el } from '../dom-helpers.ts';
-import type { BackgroundTaskPart, ChatPart, ChatPartKind, SubagentPart, TurnPart } from './chat-part.ts';
-import { backgroundTaskKindText, runTimeText, subagentDurationText } from './chat-parts-core.ts';
+import type { BackgroundTaskPart, ChatPart, ChatPartKind, TurnPart } from './chat-part.ts';
+import { backgroundTaskKindText, runTimeText } from './chat-parts-core.ts';
 import { clock } from '#shared/clock.ts';
 import { renderCard } from './chat-cards.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
@@ -450,13 +450,6 @@ function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
   return skillLine;
 }
 
-function subagentStepRowsOf(part: SubagentPart): HTMLElement[] {
-  const stepRows = part.steps.map((label) => el('div', 'chat-turn-call', label));
-  const unkeptStepCount = part.stepCount - part.steps.length;
-  if (unkeptStepCount <= 0) return stepRows;
-  return [el('div', 'chat-turn-call', `+ ${unkeptStepCount} earlier`), ...stepRows];
-}
-
 function renderRunRow(isRunning: boolean, typeText: string, taskText: string, timeText: string, workElements: readonly HTMLElement[]): HTMLElement {
   const details = el('details', 'chat-subagent');
   details.toggleAttribute('data-running', isRunning);
@@ -474,28 +467,19 @@ function renderRunRow(isRunning: boolean, typeText: string, taskText: string, ti
   return details;
 }
 
-function renderSubagent(part: SubagentPart): HTMLElement {
-  const workElements = [...subagentStepRowsOf(part)];
-  if (part.report !== null) workElements.push(renderTextSegment(part.report));
-  if (part.endedAt === null) workElements.push(el('div', 'chat-turn-call', 'Running'));
-  if (part.endedAt !== null && part.report === null && part.stepCount === 0) workElements.push(el('div', 'chat-turn-call', 'No report'));
-  return renderRunRow(part.endedAt === null, part.subagentType, part.task ?? '', subagentDurationText(part) ?? 'Running', workElements);
-}
-
 function renderBackgroundTask(part: BackgroundTaskPart): HTMLElement {
   const timeText = part.endedAt === null ? '' : runTimeText(part.startedAt, part.endedAt);
   return renderRunRow(part.endedAt === null, backgroundTaskKindText(part.taskType), part.label, timeText, [el('div', 'chat-turn-call', part.command ?? part.label)]);
 }
 
 function startedAtOfRunning(part: FlatPart): number | null {
-  if (part.kind !== 'subagent' && part.kind !== 'background-task') return null;
+  if (part.kind !== 'background-task') return null;
   return part.endedAt === null ? part.startedAt : null;
 }
 
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   skill: renderSkill,
-  subagent: renderSubagent,
   'background-task': renderBackgroundTask,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;

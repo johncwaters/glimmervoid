@@ -218,20 +218,18 @@ test('Antigravity enriches subagent metadata, transcript path, PR refresh, and c
   assert.ok(subagentRecords.every((record) => record.agentId === 'sub-1' && record.agentType === 'qa-code-reviewer' && record.uuid?.startsWith('sub-1:step-')));
 
   const chatState = createChatPartsState();
-  const appended = appendChatRecords(chatState, [
+  const running = appendChatRecords(chatState, [
     ...parentCallRecords,
     ...parentResultRecords,
     { ts: 1020, uuid: null, parentUuid: null, vendorSessionId: 'parent-1', kind: 'subagent', phase: 'start', subagentId: 'sub-1', subagentType: 'qa-code-reviewer', task: 'Code Review Lane' },
     ...subagentRecords,
+  ]);
+  assert.deepEqual(running.runningSubagents, [{ type: 'qa-code-reviewer', model: null }]);
+  const appended = appendChatRecords(chatState, [
     { ts: 2000, uuid: null, parentUuid: null, vendorSessionId: 'parent-1', kind: 'subagent', phase: 'stop', subagentId: 'sub-1', subagentType: 'qa-code-reviewer', task: null },
   ]);
-  const subagentParts = appended.parts.filter((part) => part.kind === 'subagent');
-  assert.equal(subagentParts.length, 1);
-  assert.equal(subagentParts[0].subagentType, 'qa-code-reviewer');
-  assert.equal(subagentParts[0].task, 'Code Review Lane');
-  assert.equal(subagentParts[0].stepCount, 1);
-  assert.equal(subagentParts[0].report, 'Subagent report');
-  assert.equal(appended.parts.some((part) => part.kind === 'turn'), false);
+  assert.deepEqual(appended.runningSubagents, []);
+  assert.equal([...running.parts, ...appended.parts].some((part) => part.kind === 'turn'), false);
 
   const pushPayload = enrich('PostToolUse', {
     conversationId: 'parent-1',

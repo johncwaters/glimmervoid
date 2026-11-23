@@ -1,7 +1,7 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
-import type { BackgroundTaskPart, ChatCard, ChatPart, SubagentPart, TurnPart } from './chat-part.ts';
+import type { BackgroundTaskPart, ChatCard, ChatPart, TurnPart } from './chat-part.ts';
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -35,7 +35,7 @@ type UsageLimitCard = Extract<ChatCard, { cardType: 'usage-limit' }>;
 type SentAttachments = Pick<Extract<TraceRecord, { kind: 'attachments' }>, 'files' | 'pastedPrefix'>;
 
 interface TrackedSubagent {
-  part: SubagentPart & { steps: string[] };
+  subagentType: string;
   subagentId: string | null;
   toolUseId: string | null;
   model: string | null;
@@ -43,8 +43,6 @@ interface TrackedSubagent {
 }
 
 type BackgroundTaskLaunch = Pick<BackgroundTaskPart, 'taskType' | 'label' | 'command' | 'startedAt'>;
-
-type SubagentStart = Pick<SubagentPart, 'subagentType' | 'task' | 'startedAt'>;
 
 interface ChatPartsState {
   nextPartNumber: number;
@@ -319,14 +317,8 @@ function rememberSubagent(subagentByKey: Map<string, TrackedSubagent>, key: stri
   if (oldestKey !== undefined) subagentByKey.delete(oldestKey);
 }
 
-function openSubagentRow(state: ChatPartsState, start: SubagentStart): TrackedSubagent {
-  const tracked: TrackedSubagent = {
-    part: { kind: 'subagent', id: nextPartId(state, 'subagent'), ...start, endedAt: null, steps: [], stepCount: 0, report: null },
-    subagentId: null,
-    toolUseId: null,
-    model: null,
-    isBackground: false,
-  };
+function trackSubagent(state: ChatPartsState, subagentType: string): TrackedSubagent {
+  const tracked: TrackedSubagent = { subagentType, subagentId: null, toolUseId: null, model: null, isBackground: false };
   state.runningSubagents.add(tracked);
   return tracked;
 }
@@ -336,11 +328,6 @@ function oldestRunningSubagent(state: ChatPartsState, isCandidate: (tracked: Tra
     if (isCandidate(tracked)) return tracked;
   }
   return null;
-}
-
-function finishSubagent(state: ChatPartsState, tracked: TrackedSubagent, endedAt: number): void {
-  tracked.part.endedAt ??= endedAt;
-  state.runningSubagents.delete(tracked);
 }
 
 function attachSubagentId(state: ChatPartsState, tracked: TrackedSubagent, subagentId: string): void {
@@ -353,37 +340,29 @@ function attachCall(state: ChatPartsState, tracked: TrackedSubagent, toolUseId: 
   rememberSubagent(state.subagentByToolUseId, toolUseId, tracked);
 }
 
-function startSubagent(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'subagent' }>): TrackedSubagent | null {
-  if (state.subagentById.has(record.subagentId)) return null;
+function startSubagent(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'subagent' }>): void {
+  if (state.subagentById.has(record.subagentId)) return;
   const launchingCall = state.subagentByToolUseId.get(record.subagentId)
-    ?? oldestRunningSubagent(state, (tracked) => tracked.toolUseId !== null && tracked.subagentId === null && (record.subagentType === null || tracked.part.subagentType === record.subagentType));
-  const tracked = launchingCall ?? openSubagentRow(state, { subagentType: record.subagentType ?? 'Subagent', task: record.task, startedAt: record.ts });
-  tracked.part.task ??= record.task;
-  attachSubagentId(state, tracked, record.subagentId);
-  return tracked;
+    ?? oldestRunningSubagent(state, (tracked) => tracked.toolUseId !== null && tracked.subagentId === null && (record.subagentType === null || tracked.subagentType === record.subagentType));
+  attachSubagentId(state, launchingCall ?? trackSubagent(state, record.subagentType ?? 'Subagent'), record.subagentId);
 }
 
-function openSubagentCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): TrackedSubagent {
+function openSubagentCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_call' }>): void {
   const calledType = textFieldOf(record.input, 'subagent_type') ?? textFieldOf(record.input, 'TypeName');
   const startedSubagent = state.subagentById.get(record.toolUseId)
-    ?? oldestRunningSubagent(state, (tracked) => tracked.subagentId !== null && tracked.toolUseId === null && (calledType === null || tracked.part.subagentType === calledType));
-  const tracked = startedSubagent ?? openSubagentRow(state, { subagentType: calledType ?? record.name, task: null, startedAt: record.ts });
-  tracked.part.subagentType = calledType ?? tracked.part.subagentType;
-  tracked.part.task = textFieldOf(record.input, 'description') ?? textFieldOf(record.input, 'Role') ?? tracked.part.task;
-  tracked.part.startedAt = Math.min(tracked.part.startedAt, record.ts);
+    ?? oldestRunningSubagent(state, (tracked) => tracked.subagentId !== null && tracked.toolUseId === null && (calledType === null || tracked.subagentType === calledType));
+  const tracked = startedSubagent ?? trackSubagent(state, calledType ?? record.name);
+  tracked.subagentType = calledType ?? tracked.subagentType;
   tracked.model = textFieldOf(record.input, 'model');
   tracked.isBackground = record.name === 'invoke_subagent'
     || (typeof record.input === 'object' && record.input !== null && Reflect.get(record.input, 'run_in_background') === true);
   attachCall(state, tracked, record.toolUseId);
-  return tracked;
 }
 
 function swapCalls(state: ChatPartsState, first: TrackedSubagent, second: TrackedSubagent): void {
-  const firstCall = { toolUseId: first.toolUseId, task: first.part.task, model: first.model, isBackground: first.isBackground };
-  first.part.task = second.part.task;
+  const firstCall = { toolUseId: first.toolUseId, model: first.model, isBackground: first.isBackground };
   first.model = second.model;
   first.isBackground = second.isBackground;
-  second.part.task = firstCall.task;
   second.model = firstCall.model;
   second.isBackground = firstCall.isBackground;
   first.toolUseId = second.toolUseId;
@@ -403,53 +382,38 @@ function launchedSubagentOf(state: ChatPartsState, calledSubagent: TrackedSubage
   return launchedSubagent;
 }
 
-function settleSubagentCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_result' }>): TrackedSubagent[] {
+function settleSubagentCall(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'tool_result' }>): void {
   const calledSubagent = state.subagentByToolUseId.get(record.toolUseId);
-  if (calledSubagent === undefined) return [];
+  if (calledSubagent === undefined) return;
   const tracked = record.subagentId === undefined ? calledSubagent : launchedSubagentOf(state, calledSubagent, record.subagentId);
-  const changed = tracked === calledSubagent ? [tracked] : [tracked, calledSubagent];
   const awaitsStop = tracked.isBackground && record.subagentId !== undefined && !record.isError;
-  if (awaitsStop) return changed;
-  if (!tracked.isBackground) tracked.part.report ??= record.content.trim() || null;
-  finishSubagent(state, tracked, record.ts);
-  return changed;
+  if (!awaitsStop) state.runningSubagents.delete(tracked);
 }
 
-function noteSubagentSignal(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'subagent' }>): TrackedSubagent | null {
-  if (record.phase === 'start') return startSubagent(state, record);
-  const tracked = state.subagentById.get(record.subagentId);
-  if (tracked === undefined) return null;
-  finishSubagent(state, tracked, record.ts);
-  return tracked;
-}
-
-function noteSubagentStep(state: ChatPartsState, record: TraceRecord, subagentId: string): TrackedSubagent | null {
-  const tracked = state.subagentById.get(subagentId);
-  if (tracked === undefined) return null;
-  if (record.kind === 'assistant' && record.text.trim().length > 0) {
-    tracked.part.report = record.text;
-    return tracked;
+function noteSubagentSignal(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'subagent' }>): void {
+  if (record.phase === 'start') {
+    startSubagent(state, record);
+    return;
   }
-  if (record.kind !== 'tool_call') return null;
-  tracked.part.steps.push(toolLabelOf(record.name, record.input, state.workingDirectory));
-  if (tracked.part.steps.length > MAX_RUN_LABELS) tracked.part.steps.shift();
-  tracked.part.stepCount += 1;
-  return tracked;
+  const tracked = state.subagentById.get(record.subagentId);
+  if (tracked !== undefined) state.runningSubagents.delete(tracked);
 }
 
-function stopEverySubagent(state: ChatPartsState, endedAt: number): TrackedSubagent[] {
-  const running = [...state.runningSubagents];
-  for (const tracked of running) finishSubagent(state, tracked, Math.max(endedAt, tracked.part.startedAt));
-  return running;
-}
-
-function changedSubagentsOf(state: ChatPartsState, record: TraceRecord): TrackedSubagent[] {
-  if (record.agentId !== undefined) return [noteSubagentStep(state, record, record.agentId)].filter((tracked) => tracked !== null);
-  if (record.kind === 'session') return stopEverySubagent(state, record.ts);
-  if (record.kind === 'subagent') return [noteSubagentSignal(state, record)].filter((tracked) => tracked !== null);
-  if (record.kind === 'tool_result') return settleSubagentCall(state, record);
-  if (record.kind !== 'tool_call' || !SUBAGENT_TOOL_NAMES.has(record.name)) return [];
-  return [openSubagentCall(state, record)];
+function noteSubagentRecord(state: ChatPartsState, record: TraceRecord): void {
+  if (record.agentId !== undefined) return;
+  if (record.kind === 'session') {
+    state.runningSubagents.clear();
+    return;
+  }
+  if (record.kind === 'subagent') {
+    noteSubagentSignal(state, record);
+    return;
+  }
+  if (record.kind === 'tool_result') {
+    settleSubagentCall(state, record);
+    return;
+  }
+  if (record.kind === 'tool_call' && SUBAGENT_TOOL_NAMES.has(record.name)) openSubagentCall(state, record);
 }
 
 function rememberBounded<Value>(valueByKey: Map<string, Value>, key: string, value: Value): void {
@@ -525,16 +489,11 @@ function changedBackgroundTasksOf(state: ChatPartsState, record: TraceRecord): B
 }
 
 function runningSubagentsOf(state: ChatPartsState): RunningSubagent[] {
-  return [...state.runningSubagents].map((tracked) => ({ type: tracked.part.subagentType, model: tracked.model }));
+  return [...state.runningSubagents].map((tracked) => ({ type: tracked.subagentType, model: tracked.model }));
 }
 
 export function runTimeText(startedAt: number, endedAt: number): string {
   return twoUnitDurationText(Math.max(1, Math.round((endedAt - startedAt) / 1000)), { smallestUnit: 's', dropsZeroRemainder: false });
-}
-
-export function subagentDurationText(part: SubagentPart): string | null {
-  if (part.endedAt === null) return null;
-  return runTimeText(part.startedAt, part.endedAt);
 }
 
 export function appendChatRecords(state: ChatPartsState, appended: readonly TraceRecord[]): AppendedChat {
@@ -556,7 +515,7 @@ export function appendChatRecords(state: ChatPartsState, appended: readonly Trac
     const part = chatPartOf(state, record);
     if (part) emit(part);
     noteTurnRecord(state, record, emit);
-    for (const changedSubagent of changedSubagentsOf(state, record)) emit({ ...changedSubagent.part, steps: [...changedSubagent.part.steps] });
+    noteSubagentRecord(state, record);
     for (const changedBackgroundTask of changedBackgroundTasksOf(state, record)) emit(changedBackgroundTask);
     const beat = beatOfRecord(record);
     if (beat) beats.push(beat);
