@@ -4,7 +4,7 @@ import { stringDetailOf } from '../chat/chat-page.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { el } from '../dom-helpers.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
-import { createSvgShape } from '../svg-dom.ts';
+import { createLineIcon, createSvgShape } from '../svg-dom.ts';
 import { menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
@@ -17,6 +17,7 @@ const UNPLACED_MAIN_TOP_PX = 64;
 const MENU_TEXT = 'Agent menu';
 const RESTART_TEXT = 'Restart';
 const ACCOUNT_TEXT = 'Model and account';
+const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const BUSY_PHASES: ReadonlySet<ChatPhase> = new Set(['starting', 'working', 'monitoring']);
 
 export interface AgentCardModel {
@@ -24,6 +25,7 @@ export interface AgentCardModel {
   name: string;
   agentId: string | null;
   isMain: boolean;
+  repoLabel: string | null;
   isBranch: boolean;
   boxIds: readonly string[];
   phase: ChatPhase;
@@ -39,6 +41,7 @@ interface AgentCardActions {
   restart(sessionId: string): void;
   switchAccount(sessionId: string): void;
   toggleOpened(sessionId: string): void;
+  toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void;
   answer(sessionId: string, cardId: string, action: string, value: string): void;
 }
 
@@ -115,7 +118,14 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       actions.switchAccount(sessionId);
     }),
   );
-  head.append(faceSlot, name, moreButton);
+  const repoButton = createPressable('bs-card-repo');
+  repoButton.dataset.action = 'board-session-repo';
+  repoButton.setAttribute('aria-haspopup', 'menu');
+  repoButton.setAttribute('aria-expanded', 'false');
+  const repoName = el('span', 'bs-card-repo-name');
+  repoButton.append(repoName, createLineIcon(CARET_ICON_PATH, '1.5'));
+  repoButton.addEventListener('click', () => actions.toggleRepoMenu(card, repoButton));
+  head.append(faceSlot, name, repoButton, moreButton);
   const activity = createChatActivity();
   const digest = el('p', 'bs-card-digest');
   const approvals = el('div', 'bs-card-approvals-slot');
@@ -168,6 +178,10 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
         shrunkFace.replaceChildren(shrunkButton);
       }
       name.textContent = model.name;
+      name.hidden = model.repoLabel !== null;
+      repoName.textContent = model.repoLabel ?? '';
+      repoButton.hidden = model.repoLabel === null;
+      moreButton.hidden = model.repoLabel !== null;
       card.setAttribute('aria-label', model.name);
       activity.setPhase(model.phase);
       if (model.beat !== null && model.beat !== shownBeat) activity.beat([model.beat]);

@@ -96,10 +96,13 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await picker.locator('.add-session-row', { hasText: 'Any folder' }).click();
   await picker.locator('#add-session-path').fill(projectDirectory);
   await picker.getByRole('button', { name: 'Start session', exact: true }).click();
+  const repoButton = root.locator('.bs-card[data-main] .bs-card-repo');
   await page.waitForFunction(() => {
-    const name = document.querySelector('.board-session-view .bs-chip-name')?.textContent ?? '';
+    const name = document.querySelector('.board-session-view .bs-card[data-main] .bs-card-repo-name')?.textContent ?? '';
     return name.length > 0 && name !== 'No repo';
   }, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await chip.isHidden(), true, 'the Orchestrator card names the repo, so the repo pill hides');
+  await root.locator('.bs-guide:not([hidden])').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.waitForFunction(() => {
     const notice = document.querySelector<HTMLElement>('.board-session-view .bs-notice');
     const canvas = document.querySelector<HTMLCanvasElement>('.board-session-view canvas.wb-gl');
@@ -111,21 +114,24 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   await root.getByRole('textbox').click();
   await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await chip.click();
+  await repoButton.click();
   await root.locator('.bs-log').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   const menu = root.getByRole('menu');
   await menu.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.ok((await menu.getByRole('menuitemradio', { checked: true }).count()) === 1, 'the repo menu marks the shown repo');
+  assert.equal(await menu.locator('[data-action="board-session-agent-restart"]').textContent(), 'Restart Orchestrator', 'the one menu holds the Orchestrator actions');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
 
   const pillBefore = await boxOf(page, '.board-session-view .bs-pill');
   assert.equal(await root.locator('.bs-pill.chat-composer textarea.chat-composer-input').count(), 1, 'the message bar is Chat\'s composer');
-  const chipBefore = await boxOf(page, '.board-session-view .bs-chip');
+  const repoButtonBefore = await boxOf(page, '.board-session-view .bs-card[data-main] .bs-card-repo');
   const pillInput = root.getByRole('textbox');
   await page.waitForFunction(() => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-guide-step[data-done]').count(), 0, 'a new carbon unit starts with no guide step done');
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
+  await root.locator('.bs-guide-step[data-done]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-agent[hidden]').first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   const faceOnBox = root.locator('.bs-card[data-main] .bs-face-main').first();
@@ -193,7 +199,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill');
-  assertSameBox(chipBefore, await boxOf(page, '.board-session-view .bs-chip'), 'the repo chip');
+  assert.equal((await boxOf(page, '.board-session-view .bs-card[data-main] .bs-card-repo')).height, repoButtonBefore.height, 'the repo name keeps its height');
   assert.equal(await root.locator('.wb-island-board').isVisible(), false, 'Studio hides the board title island; the repo chip names the map');
   await root.locator('.wb-island-board .wb-status').evaluate((status: HTMLElement) => { status.hidden = false; status.textContent = 'Could not undo that change.'; });
   assert.equal(await root.locator('.wb-island-board .wb-status').isVisible(), true, 'a board error still shows in Studio');
@@ -261,11 +267,9 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   const mainCard = root.locator('.bs-card[data-main]').first();
   const studioMainId = await mainCard.getAttribute('data-session-id');
   assert.ok(studioMainId, 'the Studio main shows as a card');
-  await chip.click();
-  assert.equal(await root.locator('.bs-menu [data-action="board-session-restart-main"]').count(), 0, 'the repo menu holds repos and Open a repo only');
-  await chip.click();
-  await mainCard.locator('[data-action="board-session-agent-menu"]').click();
-  await mainCard.locator('[data-action="board-session-agent-restart"]').click();
+  assert.equal(await mainCard.locator('[data-action="board-session-agent-menu"]').isHidden(), true, 'the Orchestrator card has no second menu button');
+  await repoButton.click();
+  await root.getByRole('menuitem', { name: 'Restart Orchestrator', exact: true }).click();
   const restartDialog = page.locator('.resume-dialog');
   await restartDialog.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await restartDialog.getByText('Fresh conversation', { exact: true }).click();

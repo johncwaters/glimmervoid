@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { loose, optionalError, requestId, sessionId } from './control-fields.ts';
 import { SessionProgressAnswer } from '../director-digests.ts';
+import { StudioGuideStep } from '../studio-guide.ts';
 
 export const CODEMAP_BOXES_MAX_PATHS = 200;
 const ASK_ANSWER_MAX_CHARS = 2000;
@@ -19,6 +20,7 @@ export const boardSessionClientVariants = [
   loose('codemap-folder-toggle', { id: sessionId, requestId, boxId: z.string().min(1).max(40) }),
   loose('director-digests', { id: sessionId, requestId, sessionIds: z.array(z.string().min(1).max(200)).max(DIRECTOR_DIGEST_SESSIONS_MAX).default([]) }),
   loose('studio-progress-ask', { id: sessionId, requestId, text: z.string().trim().min(1).max(PROGRESS_QUESTION_MAX_CHARS) }),
+  loose('studio-guide', { requestId, step: StudioGuideStep.nullable().default(null) }),
 ] as const;
 
 export const boardSessionServerVariants = [
@@ -31,6 +33,7 @@ export const boardSessionServerVariants = [
     fallbackBoxId: z.string().nullable().default(null),
     changedBoxIds: z.array(z.string()).default([]),
     boxChoices: z.array(z.object({ boxId: z.string(), title: z.string() })).max(CODEMAP_BOX_CHOICES_MAX).default([]),
+    isMapFailed: z.boolean().default(false),
     error: optionalError,
   }),
   loose('board-ask-answer-result', { requestId, ok: z.boolean(), error: optionalError }),
@@ -47,4 +50,5 @@ export const boardSessionServerVariants = [
     error: optionalError,
   }),
   loose('studio-progress-ask-result', { id: sessionId, requestId, ok: z.boolean(), isAnswered: z.boolean().default(false), error: optionalError }),
+  loose('studio-guide-result', { requestId, ok: z.boolean(), doneSteps: z.array(StudioGuideStep).default([]), error: optionalError }),
 ] as const;

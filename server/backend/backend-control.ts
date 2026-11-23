@@ -10,6 +10,7 @@ import { registerControlHandlers } from '../control-handlers.ts';
 import path from 'node:path';
 import { glimmervoidHomeDir } from '../config-store.ts';
 import { createStartPicksStore } from '../start-picks-store.ts';
+import { createStudioGuideStore } from '../board-session/studio-guide-store.ts';
 import type { RaceLauncher } from '../race/race-launch.ts';
 import type { WargamesLauncher } from '../wargames/wargames-launch.ts';
 import type { CommunityActionControl, ControlHandlerDeps, MyPrMergeControl, RadarFixControl, SessionWakesControl, TeamReviewActionControl } from '../control-handlers.ts';
@@ -205,6 +206,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     wargames: laneAssembly.wargames,
     readGithubIssue: laneAssembly.readGithubIssue,
     startPicks: createStartPicksStore({ filePath: path.join(glimmervoidHomeDir(), 'start-picks.json'), logger: console }),
+    studioGuide: createStudioGuideStore({ filePath: path.join(glimmervoidHomeDir(), 'studio-guide.json'), logger: console }),
     githubStore: laneAssembly.githubStore,
     requestViewer: laneAssembly.githubStore.laneStore.requestViewer,
     requestViewerTeams: laneAssembly.githubStore.laneStore.requestViewerTeams,

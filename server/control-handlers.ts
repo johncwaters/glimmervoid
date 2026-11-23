@@ -33,6 +33,7 @@ import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
 import type { Director } from './board-session/director.ts';
+import type { StudioGuideStore } from './board-session/studio-guide-store.ts';
 import type { ReviewPort } from './review/review-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { ChangeMapService } from './change-map/change-map-wiring.ts';
@@ -183,6 +184,7 @@ interface ControlHandlerDeps {
   hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   director?: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
+  studioGuide?: StudioGuideStore | null;
   codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder' | 'branchTargetOf'> | null;
   boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;

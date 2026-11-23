@@ -537,11 +537,11 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: false, error: 'error' in redrawn ? redrawn.error : `the code map of ${path.basename(repoDir)} was not redrawn` };
   }
 
-  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; fallbackBoxId: string; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[]} | { ok: false; error: string }> {
+  async function boxesOfSession(repoDir: string, sessionId: string, paths: readonly string[]): Promise<{ ok: true; boardId: string | null; boxIdByPath: Record<string, string>; fallbackBoxId: string; changedBoxIds: string[]; boxChoices: { boxId: string; title: string }[]} | { ok: false; error: string; isMapFailed: boolean }> {
     const map = await currentMap({ repoDir });
-    if ('error' in map) return { ok: false, error: map.error };
+    if ('error' in map) return { ok: false, error: map.error, isMapFailed: true };
     const model = map.model;
-    if (!model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
+    if (!model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet`, isMapFailed: map.status.state === 'failed' };
     const boxIdOfPath = (repoPath: string) => drawnBoxIdOfPath(model, repoPath);
     const repoRelativePaths = paths.filter((repoPath) => !path.isAbsolute(repoPath) && !repoPath.startsWith('..'));
     const overlay = await sessionOverlayOf(repoDir, sessionId);

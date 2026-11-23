@@ -2067,6 +2067,10 @@ test('show puts each file on a board the session is connected to, creating one n
   ]) });
   assert.equal(prose.status, 409, JSON.stringify(prose.body));
   assert.match(String((prose.body as { error: string }).error), /box registry holds 28 words; a card holds one idea in 24 words or fewer/);
+  const systemDrawn = await wiring.putWithoutReadCheck(shower, boardId, z.array(Op).parse([
+    { op: 'add', element: { kind: 'box', id: 'map-stamp', title: 'Map at ff5fe0f: failed', lines: proseLines, place: { at: { x: 0, y: 1800 } } } },
+  ]));
+  assert.equal(systemDrawn.status, 200, `Glimmervoid's own drawing, such as a code map stamp carrying a long failure reason, is not held to the agent card habit: ${JSON.stringify(systemDrawn.body)}`);
   const planned = await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([
     { op: 'add', element: { kind: 'box', id: 'registry-step', title: 'Agent security registry', lines: proseLines, step: {}, place: { at: { x: 0, y: 1500 } } } },
   ]) });

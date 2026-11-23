@@ -7,9 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Studio teaches itself on first run.** While a repo's map is still being drawn, the Studio canvas shows a welcome card with four things to try and a plain line saying the map is being drawn or could not be drawn yet. Once the map appears the card moves to the corner, each step ticks off as you do it, and the card is gone when all four are done; your progress is kept by Glimmervoid, so another browser picks up where you are.
+
+### Fixed
+
+- **A repo's code map draws even when its build reported a long failure.** The map board refused its own redraw whenever its status box carried a long reason, so Studio showed an empty canvas for good; Studio now also shows a map within 15 seconds of it becoming ready.
+
 ### Changed
 
 - **Studio chat folds when you click away.** Clicking the Studio message bar opens the chat log above it; clicking the map or anywhere outside the chat now folds it again, so an empty chat box no longer stays over the map. While the main agent or the agent you are messaging is working, the log stays open.
+- **Studio's main agent is the Orchestrator, and its card picks the repo.** The separate repo pill is gone: the Orchestrator's card names the repo, and clicking the name opens the one menu with your repos, each with its Orchestrator's state, Open a repo, Restart Orchestrator and Model and account. The Orchestrator talks only in the chat at the bottom, so its card no longer repeats its last note.
 - **Studio cards show agents, not their helpers.** A Studio agent card no longer draws a small face for each helper the agent runs inside its own turn; only the agents Glimmervoid started appear on the map. Studio branches are now saved in config.json under a new key; this release reads the old one, but going back to 0.63.0 afterwards brings saved branches back as plain sessions.
 - **See what changed on the Studio map.** Hover a box the main agent changed to list its files with lines added and removed; click a file to read its diff in a panel at the side of the map, and press Esc or Close to put it away. Clicking the box itself still puts it in the message bar.
 - **A full disk frees its own build caches.** When the disk holding a worktree folder drops under the worktree disk reserve, Glimmervoid now deletes build caches in worktrees of your configured projects that no session is using, starting with the one idle longest, and stops once free space is back over the reserve. Only folders their tool marked as a cache with a `CACHEDIR.TAG` file are deleted (cargo `target`, uv `.venv`, ruff and mypy caches), and only once untouched for a day and holding no git-tracked files; `node_modules` and everything else stay. Each deletion is written to the removals journal first, and while the disk stays short it tries again every 30 minutes. The Disk space notification says how much was freed and, while still short, names the three largest session temp folders by session id.

@@ -43,7 +43,10 @@ interface DockSession {
   digestOf: (sessionId: string, openedAt: number) => string | null;
   progressAnswers: () => readonly SessionProgressAnswer[];
   railFields: () => readonly RailField[];
+  onDelivered: (kind: DockDelivery) => void;
 }
+
+type DockDelivery = 'talk' | 'branch' | 'progress';
 
 export interface DockBranch {
   sessionId: string;
@@ -482,11 +485,17 @@ export function createDock(session: DockSession): Dock {
       return reply.type === 'chat-send-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT;
     });
 
+  const deliveredAs = (kind: DockDelivery, sending: Promise<string | null>) => sending.then((failureText) => {
+    if (failureText === null) session.onDelivered(kind);
+    return failureText;
+  });
+
   const sendText = (text: string, sentAddress: DockAddress) => {
     if (sentAddress.kind === 'new-branch') {
       return requestBranchSpawn(session.sessionId, sentAddress.aboutBoxId, text)
         .then((spawned) => {
           if (spawned.branchId === null) return spawned.failureText;
+          session.onDelivered('branch');
           if (address === sentAddress) setAddress({ kind: 'branch', sessionId: spawned.branchId, aboutTitle: sentAddress.aboutTitle });
           return null;
         });
@@ -495,7 +504,7 @@ export function createDock(session: DockSession): Dock {
     const mainSend = mainSendQueue.then(() => sendControlRequest('studio-progress-ask', { id: session.sessionId, text }, { timeoutMs: PROGRESS_ASK_TIMEOUT_MS })
       .then((reply) => reply.type === 'studio-progress-ask-result' && reply.isAnswered)
       .catch(() => false)
-      .then((isAnswered) => isAnswered ? null : sendToAgent(session.sessionId, text)));
+      .then((isAnswered) => isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', sendToAgent(session.sessionId, text))));
     mainSendQueue = mainSend.catch(() => null);
     return mainSend;
   };

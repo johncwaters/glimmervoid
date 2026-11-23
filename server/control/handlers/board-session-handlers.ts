@@ -20,7 +20,7 @@ type MainAgentOutcome = { ok: true; mainId: string } | { ok: false; error: strin
 
 function createBoardSessionHandlers(context: ControlContext, deps: ControlHandlerDeps, branches: BranchWiring): ControlHandlerGroup {
   const { findSession, createProjectSession, findConfiguredProject, sessions } = context;
-  const { codemap = null, boardAsks = null, director = null } = deps;
+  const { codemap = null, boardAsks = null, director = null, studioGuide = null } = deps;
 
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
     const repoPath = anchor.path;
@@ -122,6 +122,16 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
         ws.send(JSON.stringify({ ...reply, ok: true, isAnswered: false, error: errorMessage(error) }));
       }
     },
+    'studio-guide': async (message: ClientMessageOf<'studio-guide'>, ws: ControlSocket) => {
+      const reply = { type: 'studio-guide-result', requestId: message.requestId ?? null };
+      if (!studioGuide) return ws.send(JSON.stringify({ ...reply, ok: true, doneSteps: [] }));
+      try {
+        const doneSteps = message.step === null ? await studioGuide.doneSteps() : await studioGuide.markDone(message.step);
+        ws.send(JSON.stringify({ ...reply, ok: true, doneSteps }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `The Studio guide was not saved: ${errorMessage(error)}` }));
+      }
+    },
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -132,6 +142,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     'codemap-folder-toggle': (msg, requestId, message) => ({ type: 'codemap-folder-toggle-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'director-digests': (msg, requestId, message) => ({ type: 'director-digests-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'studio-progress-ask': (msg, requestId, message) => ({ type: 'studio-progress-ask-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'studio-guide': (_msg, requestId, message) => ({ type: 'studio-guide-result', requestId, ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: [] };

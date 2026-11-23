@@ -11,7 +11,6 @@ import { getJSON, setJSON } from '../local-store.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionName, sessionUIs } from '../session-card/card-registry.ts';
 import { loadResumeDialog } from '../session-card/deferred-loads.ts';
-import { createLineIcon } from '../svg-dom.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
@@ -30,6 +29,8 @@ import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
 import { createChangesPeek, createDiffPanel } from './studio-diff-panel.ts';
+import { createStudioGuide } from './studio-guide.ts';
+import type { StudioGuide, StudioMapState } from './studio-guide.ts';
 import type { ChangesPeek, DiffPanel } from './studio-diff-panel.ts';
 import { onReviewChange, reloadReview, reviewOf } from '../review/review-store.ts';
 import type { AskCards } from './ask-card.ts';
@@ -49,17 +50,24 @@ import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio
 import { openStudioRepoDialog } from '../session-actions.ts';
 import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
+import { STATES } from '#shared/states.ts';
+import { createLineIcon } from '../svg-dom.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
+const MAP_RETRY_MS = 15000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
 const MAIN_ENSURE_TIMEOUT_MS = 15000;
 const TITLE_SIZE_FALLBACK_PX = 16;
-const CARET_ICON_PATH = 'M4 6l4 4 4-4';
 const PEEK_OVERLAP_PX = 4;
 const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
 const OPEN_REPO_TEXT = 'Open a repo';
 const NO_MAP_TEXT = 'This session has no code map yet.';
-const NO_MAIN_TEXT = 'The main agent for this repo did not start.';
+const NO_MAIN_TEXT = 'The Orchestrator for this repo did not start.';
+const ORCHESTRATOR_TEXT = 'Orchestrator';
+const CARET_ICON_PATH = 'M4 6l4 4 4-4';
+const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
+const ACCOUNT_TEXT = 'Model and account';
+const NO_REPO_TEXT = 'No repo';
 const TURN_OPENINGS_KEPT = 20;
 
 interface SessionWatch {
@@ -73,15 +81,17 @@ interface SessionWatch {
 
 interface ViewParts {
   root: HTMLElement;
-  chip: HTMLButtonElement;
-  chipName: HTMLElement;
   menu: HTMLElement;
+  menuOpener: HTMLButtonElement | null;
+  topLeft: HTMLElement;
+  noRepoChip: HTMLButtonElement;
   notice: HTMLElement;
   dockSlot: HTMLElement;
   presenceLayer: PresenceLayer;
   askCards: AskCards;
   changesPeek: ChangesPeek;
   diffPanel: DiffPanel;
+  guide: StudioGuide;
   agentCards: AgentCards;
   guest: BoardHostGuest;
 }
@@ -102,6 +112,7 @@ let peekedBoxId: string | null = null;
 let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
+let mapRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let digestsRequestSerial = 0;
 let progressAnswers: readonly SessionProgressAnswer[] = [];
 let verdictByKey: Readonly<Record<string, { chatLine: string | null; digest: string | null }>> = {};
@@ -226,6 +237,13 @@ function syncWatches(): void {
   }
 }
 
+function repoStateWordOf(sessionId: string | undefined): string {
+  if (sessionId === undefined) return '';
+  if (sessionUIs.get(sessionId)?.currentState === STATES.WAITING) return 'Waiting on you';
+  const wordByPhase: Record<ChatPhase, string> = { starting: 'Starting', working: 'Working', monitoring: 'Working', quiet: 'Idle', stopped: 'Stopped' };
+  return wordByPhase[phaseOfSession(sessionId)];
+}
+
 function addressAgent(model: AgentCardModel): void {
   dock?.addressSession(model.sessionId, model.name);
 }
@@ -327,14 +345,15 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
   watch.waits.sync();
   return {
     sessionId,
-    name: sessionName(ui) || sessionId.slice(0, 8),
+    name: sessionId === shownSessionId ? ORCHESTRATOR_TEXT : sessionName(ui) || sessionId.slice(0, 8),
     agentId: ui.agent ?? null,
     isMain: sessionId === shownSessionId,
+    repoLabel: sessionId === shownSessionId ? shownRepoLabel() : null,
     isBranch: branchParentIdOf(ui.parent) !== null,
     boxIds: [ui.parent?.box?.id ?? null, fallbackBoxId].flatMap((candidate) => candidate ?? []),
     phase,
     beat: phase === 'working' ? watch.lastBeat : null,
-    digest: latestDigestOf(sessionId, watch),
+    digest: sessionId === shownSessionId ? null : latestDigestOf(sessionId, watch),
     approvals: watch.waits.element,
     isAsking: watch.waits.isAsking(),
     isOpened: openedBranchIds.has(sessionId),
@@ -422,16 +441,35 @@ function notePresenceRecords(sessionId: string, appendedRecords: readonly TraceR
   paintPresence();
 }
 
-function paintChip(): void {
-  if (!parts) return;
-  parts.chipName.textContent = repoChoices().find((choice) => choice.path === shownRepoPath)?.label ?? 'No repo';
+function shownRepoLabel(): string {
+  return repoChoices().find((choice) => choice.path === shownRepoPath)?.label ?? NO_REPO_TEXT;
 }
 
 function isUnaskedPath(presencePath: string): boolean {
   return !(presencePath in boxIdByPath) && !answeredPaths.has(presencePath);
 }
 
+function stopMapRetry(): void {
+  if (mapRetryTimer !== null) clearTimeout(mapRetryTimer);
+  mapRetryTimer = null;
+}
+
+function showMapState(mapState: StudioMapState): void {
+  parts?.guide.show(mapState, shownSessionId === null ? NO_REPO_TEXT : shownRepoLabel());
+}
+
+function showMapMissing(text: string, isMapFailed: boolean): void {
+  showMapState(isMapFailed ? 'failed' : 'building');
+  showNotice(parts?.guide.isShowingWelcome() ? null : text);
+  stopMapRetry();
+  mapRetryTimer = setTimeout(() => {
+    mapRetryTimer = null;
+    if (isActive) requestBoxes();
+  }, MAP_RETRY_MS);
+}
+
 function requestBoxes(): void {
+  stopMapRetry();
   if (shownSessionId === null) return;
   const sessionId = shownSessionId;
   boxesRequestSerial += 1;
@@ -440,9 +478,10 @@ function requestBoxes(): void {
   sendControlRequest('codemap-boxes-of', { id: sessionId, paths: askedPaths }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
       if (serial !== boxesRequestSerial || reply.type !== 'codemap-boxes-of-response') return;
-      if (!reply.ok) return showNotice(reply.error ?? NO_MAP_TEXT);
-      if (reply.boardId === null) return showNotice(NO_MAP_TEXT);
+      if (!reply.ok) return showMapMissing(reply.error ?? NO_MAP_TEXT, reply.isMapFailed);
+      if (reply.boardId === null) return showMapMissing(NO_MAP_TEXT, false);
       showNotice(null);
+      showMapState('drawn');
       changedBoxIds = new Set(reply.changedBoxIds);
       fallbackBoxId = reply.fallbackBoxId;
       boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
@@ -455,7 +494,7 @@ function requestBoxes(): void {
       if (watchedPaths().some(isUnaskedPath)) requestBoxes();
     })
     .catch(() => {
-      if (serial === boxesRequestSerial) showNotice(NO_MAP_TEXT);
+      if (serial === boxesRequestSerial) showMapMissing(NO_MAP_TEXT, true);
     });
 }
 
@@ -468,7 +507,7 @@ function mountDock(): void {
   const ui = sessionUIs.get(sessionId);
   dock = createDock({
     sessionId,
-    name: ui ? sessionName(ui) : sessionId.slice(0, 8),
+    name: ORCHESTRATOR_TEXT,
     workingDirectory: sessionWorkingDirectoryOf(sessionId) ?? ui?.path ?? null,
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
@@ -476,6 +515,7 @@ function mountDock(): void {
     digestOf: directorChatLineOf,
     progressAnswers: () => progressAnswers.filter((answer) => answer.sessionId === sessionId),
     railFields: () => sessionRailFieldsOf(sessionId, watchBySessionId.get(sessionId)?.subagents ?? [], false),
+    onDelivered: (kind) => parts?.guide.markDone(kind),
   });
   parts.dockSlot.append(dock.element);
   syncBranches();
@@ -485,11 +525,12 @@ function showSession(sessionId: string | null): void {
   const isSameSession = sessionId === shownSessionId;
   shownSessionId = sessionId;
   if (!isSameSession) fallbackBoxId = null;
-  paintChip();
+  if (parts) parts.noRepoChip.hidden = sessionId !== null;
   if (sessionId === null) {
     boardId = null;
     seatOnHost();
     mountDock();
+    showMapState('drawn');
     showNotice(NO_SESSION_TEXT);
     return;
   }
@@ -513,7 +554,8 @@ function showSession(sessionId: string | null): void {
 function closeMenu(): void {
   if (!parts) return;
   parts.menu.hidden = true;
-  parts.chip.setAttribute('aria-expanded', 'false');
+  parts.menuOpener?.setAttribute('aria-expanded', 'false');
+  parts.menuOpener = null;
 }
 
 function showRepo(repoPath: string | null): void {
@@ -580,13 +622,22 @@ function restartAgent(sessionId: string): void {
   void loadResumeDialog().then((resumeDialog) => resumeDialog?.openRestartDialog(sessionId, { readState: () => ui.currentState, canListEarlier: true }));
 }
 
-function openMenu(): void {
+function toggleRepoMenu(card: HTMLElement, repoButton: HTMLButtonElement): void {
+  if (!parts) return;
+  const isOpenHere = parts.menuOpener === repoButton && !parts.menu.hidden;
+  closeMenu();
+  if (isOpenHere) return;
+  card.append(parts.menu);
+  openMenu(repoButton);
+}
+
+function openMenu(opener: HTMLButtonElement): void {
   if (!parts) return;
   const items = repoChoices().map((choice) => {
     const item = createPressable('bs-menu-item');
     item.setAttribute('role', 'menuitemradio');
     item.setAttribute('aria-checked', String(choice.path === shownRepoPath));
-    item.append(el('span', 'bs-menu-name', choice.label));
+    item.append(el('span', 'bs-menu-name', choice.label), el('span', 'bs-menu-state', repoStateWordOf(choice.sessionIds.at(-1))));
     item.addEventListener('click', () => {
       closeMenu();
       setJSON(SHOWN_REPO_KEY, choice.path);
@@ -595,9 +646,16 @@ function openMenu(): void {
     return item;
   });
   const openRepoItem = menuActionItem(OPEN_REPO_TEXT, 'board-session-open-repo', openStudioRepo);
-  parts.menu.replaceChildren(...items, openRepoItem);
+  const orchestratorId = shownSessionId;
+  const orchestratorItems = orchestratorId === null ? [] : [
+    el('div', 'bs-menu-rule'),
+    menuActionItem(RESTART_ORCHESTRATOR_TEXT, 'board-session-agent-restart', () => restartAgent(orchestratorId)),
+    menuActionItem(ACCOUNT_TEXT, 'board-session-agent-account', () => openSwitchAccountDialog(orchestratorId)),
+  ];
+  parts.menu.replaceChildren(...items, openRepoItem, ...orchestratorItems);
   parts.menu.hidden = false;
-  parts.chip.setAttribute('aria-expanded', 'true');
+  parts.menuOpener = opener;
+  opener.setAttribute('aria-expanded', 'true');
 }
 
 function mountBoardSessionView(panel: HTMLElement): void {
@@ -605,23 +663,24 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (isActive) showRepo(repoPath);
   });
   const root = el('div', 'bs-root');
-  const chip = createPressable('bs-chip');
-  chip.setAttribute('aria-haspopup', 'menu');
-  chip.setAttribute('aria-expanded', 'false');
-  chip.dataset.action = 'board-session-repo';
-  const chipName = el('span', 'bs-chip-name');
-  chip.append(chipName, createLineIcon(CARET_ICON_PATH, '1.5'));
-  chip.addEventListener('click', () => {
-    if (parts?.menu.hidden === false) return closeMenu();
-    openMenu();
-  });
-  const menu = el('div', 'bs-menu');
+  const menu = el('div', 'bs-menu bs-card-menu bs-repo-menu');
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   const presenceLayer = createPresenceLayer(boundsOfHostBox);
-  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, toggleOpened: toggleOpenedBranch, answer: answerAgentCard });
+  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, toggleOpened: toggleOpenedBranch, toggleRepoMenu, answer: answerAgentCard });
   const topLeft = el('div', 'bs-top-left');
-  topLeft.append(chip, menu);
+  const noRepoChip = createPressable('bs-chip');
+  noRepoChip.setAttribute('aria-haspopup', 'menu');
+  noRepoChip.setAttribute('aria-expanded', 'false');
+  noRepoChip.dataset.action = 'board-session-repo';
+  noRepoChip.append(el('span', 'bs-chip-name', NO_REPO_TEXT), createLineIcon(CARET_ICON_PATH, '1.5'));
+  noRepoChip.addEventListener('click', () => {
+    if (parts?.menuOpener === noRepoChip) return closeMenu();
+    closeMenu();
+    topLeft.append(menu);
+    openMenu(noRepoChip);
+  });
+  topLeft.append(noRepoChip);
   const notice = el('p', 'bs-notice');
   notice.setAttribute('role', 'status');
   notice.hidden = true;
@@ -629,10 +688,12 @@ function mountBoardSessionView(panel: HTMLElement): void {
   dockSlot.dataset.boardIsland = '';
   const askCards = createAskCards();
   const diffPanel = createDiffPanel();
+  const guide = createStudioGuide();
   const changesPeek = createChangesPeek((file) => {
     peekedBoxId = null;
     changesPeek.hide();
     diffPanel.open(file);
+    guide.markDone('diff');
   });
   root.addEventListener('pointermove', peekChangedBox, { capture: true });
   root.addEventListener('pointerleave', () => {
@@ -647,7 +708,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   panel.replaceChildren(root);
   const guest: BoardHostGuest = {
     chrome: topLeft,
-    overlays: [notice, dockSlot, agentCards.element, askCards.element, changesPeek.element, diffPanel.element],
+    overlays: [notice, guide.element, dockSlot, agentCards.element, askCards.element, changesPeek.element, diffPanel.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,
@@ -659,12 +720,12 @@ function mountBoardSessionView(panel: HTMLElement): void {
       paintChangesPeek();
     },
   };
-  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, agentCards, changesPeek, diffPanel, guest };
+  parts = { root, menu, menuOpener: null, topLeft, noRepoChip, notice, dockSlot, presenceLayer, askCards, agentCards, changesPeek, diffPanel, guide, guest };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });
   document.addEventListener('pointerdown', (event) => {
-    if (menu.hidden || !(event.target instanceof Node) || topLeft.contains(event.target)) return;
+    if (menu.hidden || !(event.target instanceof Node) || menu.contains(event.target) || parts?.menuOpener?.contains(event.target)) return;
     closeMenu();
   });
   onDirectorDigestKept((sessionId) => {
@@ -693,6 +754,7 @@ function activateBoardSessionView(): void {
 
 function deactivateBoardSessionView(): void {
   isActive = false;
+  stopMapRetry();
   closeWatches();
   shownRepoPath = null;
   ensuredRepoPath = null;

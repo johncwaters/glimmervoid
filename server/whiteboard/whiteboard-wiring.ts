@@ -1023,10 +1023,9 @@ function createWhiteboardWiring({
     return { status: 200, body: { ok: true, box: boxId, text } };
   }
 
-  async function reviewedPut(boardId: string, ops: readonly Op[], author: Author, { checksReads }: { checksReads: boolean }): Promise<WhiteboardReply> {
-    const habitRefusalOf: PutRefusalCheck = (recordBefore, afterById) => agentPutRefusalOf(recordBefore.board, afterById);
-    const readCheckedRefusalOf: PutRefusalCheck = (recordBefore, afterById) => unreadChangeRefusalOf(recordBefore, author.id, afterById) ?? habitRefusalOf(recordBefore, afterById);
-    const reply = await putOps(boardId, ops, author, checksReads ? readCheckedRefusalOf : habitRefusalOf);
+  async function reviewedPut(boardId: string, ops: readonly Op[], author: Author, { isAgentWritten }: { isAgentWritten: boolean }): Promise<WhiteboardReply> {
+    const agentRefusalOf: PutRefusalCheck = (recordBefore, afterById) => unreadChangeRefusalOf(recordBefore, author.id, afterById) ?? agentPutRefusalOf(recordBefore.board, afterById);
+    const reply = await putOps(boardId, ops, author, isAgentWritten ? agentRefusalOf : noPutRefusal);
     const board = recordsByBoardId.get(boardId)?.board;
     if (!reply.body.ok || !('version' in reply.body) || 'elements' in reply.body || !board) return reply;
     const habitWarnings = habitWarningsOf(board, ops);
@@ -1690,7 +1689,7 @@ function createWhiteboardWiring({
       case 'disconnect': return disconnectBoard(found.boardId, caller.id);
       case 'get': return readBoard(found.boardId, caller.id, request);
       case 'query': return queryBoard(found.boardId, request);
-      case 'put': return reviewedPut(found.boardId, request.ops, author, { checksReads: true });
+      case 'put': return reviewedPut(found.boardId, request.ops, author, { isAgentWritten: true });
       case 'doc': return readDocOf(found.boardId, request.box);
       case 'delete': return deleteProjectBoard(found.boardId, caller.project);
       case 'export': return exportBoardForAgent(found.boardId);
@@ -1702,7 +1701,7 @@ function createWhiteboardWiring({
     const found = findBoardId(boardRef, caller.project);
     if (!found.ok) return found.reply;
     await adoptIfUnfiled(found.boardId, caller.project);
-    return reviewedPut(found.boardId, ops, { id: caller.id, name: caller.name }, { checksReads: false });
+    return reviewedPut(found.boardId, ops, { id: caller.id, name: caller.name }, { isAgentWritten: false });
   }
 
   async function putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply> {

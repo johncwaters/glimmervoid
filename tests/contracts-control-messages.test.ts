@@ -330,7 +330,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'wargames-start-result', requestId: 'w1', ok: true, error: null, matchId: 'wg-1' },
   { type: 'wargames-abort-result', requestId: 'w2', ok: true, error: null },
   { type: 'wargames-watch-result', requestId: 'w3', ok: true, error: null, matchId: 'wg-1' },
-  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], fallbackBoxId: 'm-root', error: null },
+  { type: 'codemap-boxes-of-response', id: 's1', requestId: 'b1', ok: true, boardId: 'board-1', boxIdByPath: { 'src/payments/card.js': 'm-src-payments' }, changedBoxIds: ['m-src-payments'], boxChoices: [{ boxId: 'm-src-payments', title: 'src/payments' }], fallbackBoxId: 'm-root', isMapFailed: false, error: null },
   { type: 'board-ask-answer-result', requestId: 'b2', ok: false, error: 'That question was already answered.' },
   { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
   { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null },
@@ -338,6 +338,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'director-digest-kept', id: 's1' },
   { type: 'director-digests-result', id: 's1', requestId: 'b6', ok: true, verdictByKey: { 'dir-0pc501t-334': { chatLine: null, digest: 'Checkout totals now add tax' } }, progressAnswers: [{ sessionId: 's1', askedAt: 334, question: 'How is it going?', answer: 'Checkout totals are in.' }], error: null },
   { type: 'studio-progress-ask-result', id: 's1', requestId: 'b7', ok: true, isAnswered: true, error: null },
+  { type: 'studio-guide-result', requestId: 'b8', ok: true, doneSteps: ['talk', 'diff'], error: null },
 ];
 
 test('real server payloads round-trip through every server contract variant', () => {
