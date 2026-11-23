@@ -32,6 +32,7 @@ import type { StarHintWiring } from './star-hint-wiring.ts';
 import type { UpdateApplyOutcome } from './update-apply.ts';
 import type { SessionDocsPort } from './session/session-docs-wiring.ts';
 import type { WhiteboardPort } from './whiteboard/whiteboard-wiring.ts';
+import type { Director } from './board-session/director.ts';
 import type { ReviewPort } from './review/review-wiring.ts';
 import type { TracePage, TracePageRequest } from './trace-wiring.ts';
 import type { ChangeMapService } from './change-map/change-map-wiring.ts';
@@ -180,7 +181,8 @@ interface ControlHandlerDeps {
   githubConnection?: ((action: GithubConnectionAction) => Promise<GithubConnection | null>) | null;
   commitSigning?: Pick<CommitSigning, 'act'> | null;
   hostReady?: HostReadyReader | null;
-  whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles' | 'boardOf'> | null;
+  whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
+  director?: Pick<Director, 'digestsOf'> | null;
   codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
   boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;

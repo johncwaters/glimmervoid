@@ -1,4 +1,4 @@
-const DIRECTOR_CARD_PREFIX = 'dir-';
+const DIRECTOR_DIGEST_KEY_PREFIX = 'dir-';
 const FNV_OFFSET_BASIS = 0x811c9dc5;
 const FNV_PRIME = 0x01000193;
 
@@ -11,10 +11,6 @@ function sessionKeyOf(sessionId: string): string {
   return hash.toString(36).padStart(7, '0');
 }
 
-export function directorCardPrefixOf(sessionId: string): string {
-  return `${DIRECTOR_CARD_PREFIX}${sessionKeyOf(sessionId)}-`;
-}
-
-export function directorCardIdOf(sessionId: string, openedAt: number): string {
-  return `${directorCardPrefixOf(sessionId)}${Math.max(0, Math.trunc(openedAt)).toString(36)}`;
+export function directorDigestKeyOf(sessionId: string, openedAt: number): string {
+  return `${DIRECTOR_DIGEST_KEY_PREFIX}${sessionKeyOf(sessionId)}-${Math.max(0, Math.trunc(openedAt)).toString(36)}`;
 }

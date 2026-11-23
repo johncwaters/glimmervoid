@@ -39,6 +39,7 @@ import type { HostReadyReader } from '../ready-host.ts';
 import type { CodemapService } from '../codemap/codemap-wiring.ts';
 import type { BoardAsks } from '../whiteboard/board-ask.ts';
 import type { BranchWiring } from '../board-session/branch-wiring.ts';
+import type { Director } from '../board-session/director.ts';
 
 interface SnapshotLane {
   snapshotMessage: () => Record<string, unknown>;
@@ -126,7 +127,8 @@ interface BackendControlDependencies {
   githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>;
   commitSigning: Pick<CommitSigning, 'act'>;
   hostReady: HostReadyReader;
-  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles' | 'boardOf'>;
+  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
+  director: Pick<Director, 'digestsOf'> | null;
   codemap: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
   boardAsks: Pick<BoardAsks, 'answer'> | null;
   reviews: ReviewPort;
@@ -224,6 +226,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     whiteboards: dependencies.whiteboards,
     codemap: dependencies.codemap,
     boardAsks: dependencies.boardAsks,
+    director: dependencies.director,
     reviews: dependencies.reviews,
     changeMaps: dependencies.changeMaps,
     verification: dependencies.verification,

@@ -9,7 +9,6 @@ import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from
 import type { Session } from '../../../session/sessions.ts';
 import { mainAgentNameOf } from '../../core/studio-main-core.ts';
 import { wakeStudioMain } from '../../board-session/studio-main.ts';
-import { directorDigestsOf } from '../../core/director-core.ts';
 
 const CODE_MAP_OFF_TEXT = 'The code map is not running';
 const BOARD_ASKS_OFF_TEXT = 'Board questions are not running';
@@ -20,7 +19,7 @@ type MainAgentOutcome = { ok: true; mainId: string } | { ok: false; error: strin
 
 function createBoardSessionHandlers(context: ControlContext, deps: ControlHandlerDeps, branches: BranchWiring): ControlHandlerGroup {
   const { findSession, createProjectSession, findConfiguredProject, sessions } = context;
-  const { codemap = null, boardAsks = null, whiteboards = null } = deps;
+  const { codemap = null, boardAsks = null, director = null } = deps;
 
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
     const repoPath = anchor.path;
@@ -96,13 +95,11 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       const reply = { type: 'director-digests-result', id: message.id, requestId: message.requestId ?? null };
       const session = findSession(message);
       if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
-      if (!codemap || !whiteboards) return ws.send(JSON.stringify({ ...reply, ok: false, error: CODE_MAP_OFF_TEXT }));
+      if (!director) return ws.send(JSON.stringify({ ...reply, ok: true, digestByKey: {} }));
       try {
-        const lookup = await codemap.boxesOfSession(session.path, session.id, []);
-        const board = lookup.ok && lookup.boardId !== null ? await whiteboards.boardOf(lookup.boardId) : null;
-        ws.send(JSON.stringify({ ...reply, ok: true, digestByCardId: board === null ? {} : directorDigestsOf(board, message.sessionIds) }));
+        ws.send(JSON.stringify({ ...reply, ok: true, digestByKey: await director.digestsOf(message.sessionIds) }));
       } catch (error) {
-        ws.send(JSON.stringify({ ...reply, ok: false, error: `Code map read failed: ${errorMessage(error)}` }));
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `Director digests read failed: ${errorMessage(error)}` }));
       }
     },
   } satisfies ControlHandlerTable;

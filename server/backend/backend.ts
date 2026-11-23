@@ -482,9 +482,11 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     spawnLane: laneAssembly.directorLaneSpawn,
     drainTrace: traceWiring.drainSession,
     readTracePage: traceWiring.readTracePage,
-    boxesOfSession: (repoDir, sessionId, paths) => codemap.boxesOfSession(repoDir, sessionId, paths),
+    digestsPath: path.join(glimmervoidHomeDir(), 'director-digests.json'),
+    announceDigest: (sessionId) => broadcastControlFromWebSockets({ type: 'director-digest-kept', id: sessionId }),
     boards: whiteboards,
   }) : null;
+  if (director && traceWiring) traceWiring.on('trace-appended', (appended) => director.onTraceAppended(appended));
   const vaultSourceFor = (lookIn: unknown) => {
     const manager = vaultManagerOf(config.vault);
     return SecretSource.safeParse(manager === 'age' ? { manager } : { manager, lookIn });
@@ -1007,6 +1009,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     whiteboards,
     codemap,
     boardAsks,
+    director,
     reviews,
     changeMaps,
     verification,

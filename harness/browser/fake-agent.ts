@@ -54,8 +54,7 @@ if (process.argv.includes('--input-format')) {
 if (process.argv.includes('-p') && process.argv.at(-1) === DIRECTOR_LANE_PROMPT) {
   const directorPrompt = fs.readFileSync(path.join(process.cwd(), 'director-prompt.txt'), 'utf8');
   const resultPath = /^Write (.+) with the Write tool/m.exec(directorPrompt)?.[1] ?? '';
-  const boxId = /^Boxes:\n- ([^:]+):/m.exec(directorPrompt)?.[1] ?? '';
-  fs.writeFileSync(resultPath, JSON.stringify({ digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'], boxId }));
+  fs.writeFileSync(resultPath, JSON.stringify({ digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'] }));
   process.exit(0);
 }
 

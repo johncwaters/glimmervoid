@@ -34,5 +34,6 @@ export const boardSessionServerVariants = [
   loose('branch-spawn-result', { id: sessionId, requestId, ok: z.boolean(), branchId: z.string().nullable().default(null), error: optionalError }),
   loose('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
   loose('codemap-folder-toggle-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
-  loose('director-digests-result', { id: sessionId, requestId, ok: z.boolean(), digestByCardId: z.record(z.string(), z.string()).default({}), error: optionalError }),
+  loose('director-digest-kept', { id: sessionId }),
+  loose('director-digests-result', { id: sessionId, requestId, ok: z.boolean(), digestByKey: z.record(z.string(), z.string()).default({}), error: optionalError }),
 ] as const;
