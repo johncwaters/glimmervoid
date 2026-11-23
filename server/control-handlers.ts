@@ -186,7 +186,7 @@ interface ControlHandlerDeps {
   director?: Pick<Director, 'verdictsOf' | 'answerProgress' | 'progressAnswersFor'> | null;
   studioGuide?: StudioGuideStore | null;
   codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder' | 'branchTargetOf'> | null;
-  boardAsks?: Pick<BoardAsks, 'answer'> | null;
+  boardAsks?: Pick<BoardAsks, 'answer' | 'openAsksOf'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
   agentAccounts?: Pick<AgentAccounts, 'add' | 'cancel' | 'list' | 'refresh' | 'remove' | 'rename' | 'setDefault' | 'setLaneAccount' | 'signIn' | 'signInRefusal' | 'submitCode'> | null;

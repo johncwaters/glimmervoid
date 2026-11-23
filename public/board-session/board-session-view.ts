@@ -49,6 +49,7 @@ import type { BoxChoice } from './branch-core.ts';
 import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
 import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
+import type { OpenBoardAsk } from '#shared/contracts/control/board-session-messages.ts';
 import { directorDigestKeyOf } from '#shared/director-digest-key.ts';
 import { STATES } from '#shared/states.ts';
 import { createLineIcon } from '../svg-dom.ts';
@@ -109,6 +110,9 @@ let boardId: string | null = null;
 const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
 let peekedBoxId: string | null = null;
+let fetchedAsks: { boardId: string; asks: readonly OpenBoardAsk[] } | null = null;
+let requestedAsksKey: string | null = null;
+const OPEN_ASKS_TIMEOUT_MS = 10000;
 let askGlide: { askBoxIds: ReadonlySet<string>; returnArea: Rect; shownArea: Rect } | null = null;
 const ASK_VIEW_TOP_MARGIN_PX = 64;
 const ASK_VIEW_SIDE_MARGIN_PX = 24;
@@ -295,13 +299,14 @@ function syncBranches(): void {
 
 function paintAsks(): void {
   if (!parts) return;
-  const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
+  requestOpenAsksIfStale();
   const askingSessionIds = new Set(shownSessionId === null ? [] : [shownSessionId, ...shownBranchIds()]);
-  const shownAsks = asksOfSessions(board, askingSessionIds);
-  const newAsks = parts.askCards.paint(boardId, shownAsks, boundsOfHostBox, hostCamera);
+  const openAsks = fetchedAsks !== null && fetchedAsks.boardId === boardId ? fetchedAsks.asks : [];
+  const shownAsks = asksOfSessions(openAsks, askingSessionIds);
+  const newAsks = parts.askCards.paint(boardId, shownAsks, hostCamera);
   const overlay = parts.askCards.element;
   returnFromAnsweredAsk(shownAsks, overlay);
-  const askArea = unionOf(newAsks.flatMap((shown) => boundsOfHostBox(shown.askBoxId) ?? []));
+  const askArea = unionOf(newAsks.map((shown) => shown.rect));
   if (askArea === null) return;
   const rightReservedPx = reservedRightOf(overlay, parts.guide.element);
   const clearArea = clearViewArea(overlay.clientWidth, overlay.clientHeight, parts.dockSlot.offsetHeight, rightReservedPx);
@@ -309,6 +314,27 @@ function paintAsks(): void {
   const shownArea = viewShowingAsk(askArea, overlay.clientWidth, overlay.clientHeight, rightReservedPx);
   askGlide = { askBoxIds: new Set(newAsks.map((shown) => shown.askBoxId)), returnArea: currentViewArea(overlay), shownArea };
   glideHostTo(shownArea);
+}
+
+function requestOpenAsksIfStale(): void {
+  const askedBoardId = boardId;
+  const heldVersion = askedBoardId === null ? null : tiledBoardOf(askedBoardId)?.version ?? null;
+  if (askedBoardId === null || heldVersion === null) return;
+  const versionKey = `${askedBoardId}@${heldVersion}`;
+  if (requestedAsksKey === versionKey) return;
+  requestedAsksKey = versionKey;
+  void sendControlRequest('board-asks-of', { boardId: askedBoardId }, { timeoutMs: OPEN_ASKS_TIMEOUT_MS })
+    .then((reply) => {
+      if (requestedAsksKey !== versionKey) return;
+      if (reply.type !== 'board-asks-of-result' || !reply.ok) {
+        requestedAsksKey = null;
+        return;
+      }
+      fetchedAsks = { boardId: askedBoardId, asks: reply.asks };
+      paintAsks();
+    }, () => {
+      if (requestedAsksKey === versionKey) requestedAsksKey = null;
+    });
 }
 
 function currentViewArea(overlay: HTMLElement): Rect {

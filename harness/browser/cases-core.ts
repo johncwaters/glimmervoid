@@ -851,6 +851,7 @@ export const DONE_CHILD_NAME = 'done-child';
 export const DONE_CHILD_LINES = ['The status check passes', 'done-means.txt is committed'];
 export const AWAY_REPLY_TEXT = 'Written while you were away.';
 export const RESUMED_AFTER_QUESTION_TEXT = 'Going with the rollout you picked.';
+export const BOARD_ASK_QUESTION = 'Should refunds go through the card module too, or keep their own charge path so the two can change apart later?';
 export const STACKED_ANSWERS_PREFIX = 'Answers received: ';
 export const DIRECTOR_DIGEST_TEXT = 'Checkout totals now add tax before the card charge';
 export const STUDIO_PROGRESS_ANSWER = 'Checkout totals are in, and no plan step is left.';

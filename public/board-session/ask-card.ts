@@ -1,5 +1,4 @@
-import type { Board, BoardAsk } from '#shared/contracts/whiteboard.ts';
-import type { Rect } from '#shared/whiteboard-layout-core.ts';
+import type { OpenBoardAsk } from '#shared/contracts/control/board-session-messages.ts';
 import { errorMessage } from '#shared/text.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -15,24 +14,13 @@ const BOARD_QUESTION_TOPIC = 'Board question';
 const CARD_RING_COVER = 5;
 const NOT_SENT_TEXT = 'The answer was not sent.';
 
-interface ShownAsk {
-  askBoxId: string;
-  ask: BoardAsk;
-}
-
 export interface AskCards {
   element: HTMLElement;
-  paint(boardId: string | null, asks: readonly ShownAsk[], boundsOf: (boxId: string) => Rect | null, camera: Camera): ShownAsk[];
+  paint(boardId: string | null, asks: readonly OpenBoardAsk[], camera: Camera): OpenBoardAsk[];
 }
 
-export function asksOfSessions(board: Board | null, sessionIds: ReadonlySet<string>): ShownAsk[] {
-  if (!board) return [];
-  const asks: ShownAsk[] = [];
-  for (const element of board.elements.values()) {
-    if (element.kind !== 'box' || element.ask === null || !sessionIds.has(element.ask.sessionId)) continue;
-    asks.push({ askBoxId: element.id, ask: element.ask });
-  }
-  return asks;
+export function asksOfSessions(openAsks: readonly OpenBoardAsk[], sessionIds: ReadonlySet<string>): OpenBoardAsk[] {
+  return openAsks.filter((shown) => sessionIds.has(shown.ask.sessionId));
 }
 
 function answerFormOf(onSubmit: (answer: string) => void): { form: HTMLFormElement; answerInput: HTMLInputElement; sendButton: HTMLButtonElement; failure: HTMLElement } {
@@ -61,7 +49,7 @@ function answerFormOf(onSubmit: (answer: string) => void): { form: HTMLFormEleme
   return { form, answerInput, sendButton, failure };
 }
 
-function createAskCard(boardId: string, shown: ShownAsk): HTMLElement {
+function createAskCard(boardId: string, shown: OpenBoardAsk): HTMLElement {
   const element = el('div', 'bs-ask');
   element.dataset.askBoxId = shown.askBoxId;
   const answerForm = answerFormOf((answer) => sendAnswer(answer));
@@ -111,12 +99,12 @@ export function createAskCards(): AskCards {
 
   return {
     element,
-    paint: (boardId, asks, boundsOf, camera) => {
+    paint: (boardId, asks, camera) => {
       const shownKeys = new Set<string>();
-      const newAsks: ShownAsk[] = [];
+      const newAsks: OpenBoardAsk[] = [];
       for (const shown of asks) {
-        const rect = boundsOf(shown.askBoxId);
-        if (boardId === null || rect === null) continue;
+        const { rect } = shown;
+        if (boardId === null) continue;
         const key = `${boardId}:${shown.askBoxId}`;
         shownKeys.add(key);
         const card = cardByKey.get(key) ?? createAskCard(boardId, shown);

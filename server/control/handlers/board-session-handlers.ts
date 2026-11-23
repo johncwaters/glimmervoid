@@ -54,6 +54,15 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Code map read failed: ${errorMessage(error)}` }));
       }
     },
+    'board-asks-of': async (message: ClientMessageOf<'board-asks-of'>, ws: ControlSocket) => {
+      const reply = { type: 'board-asks-of-result', requestId: message.requestId ?? null };
+      if (!boardAsks) return ws.send(JSON.stringify({ ...reply, ok: false, error: BOARD_ASKS_OFF_TEXT }));
+      try {
+        ws.send(JSON.stringify({ ...reply, ok: true, asks: await boardAsks.openAsksOf(message.boardId) }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `The board questions could not be read: ${errorMessage(error)}` }));
+      }
+    },
     'board-ask-answer': async (message: ClientMessageOf<'board-ask-answer'>, ws: ControlSocket) => {
       const reply = { type: 'board-ask-answer-result', requestId: message.requestId ?? null };
       if (!boardAsks) return ws.send(JSON.stringify({ ...reply, ok: false, error: BOARD_ASKS_OFF_TEXT }));
@@ -136,6 +145,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
 
   const invalidReplies = {
     'codemap-boxes-of': (msg, requestId, message) => ({ type: 'codemap-boxes-of-response', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'board-asks-of': (_msg, requestId, message) => ({ type: 'board-asks-of-result', requestId, ok: false, error: message }),
     'board-ask-answer': (_msg, requestId, message) => ({ type: 'board-ask-answer-result', requestId, ok: false, error: message }),
     'branch-spawn': (msg, requestId, message) => ({ type: 'branch-spawn-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'studio-main-ensure': (msg, requestId, message) => ({ type: 'studio-main-ensure-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),

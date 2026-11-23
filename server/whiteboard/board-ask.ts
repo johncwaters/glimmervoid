@@ -6,7 +6,7 @@ import { OPERATOR_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { Author } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from './whiteboard-wiring.ts';
 
-type AskBoards = Pick<WhiteboardPort, 'putAsks' | 'boardOf'>;
+type AskBoards = Pick<WhiteboardPort, 'putAsks' | 'boardOf' | 'openAsksOf'>;
 
 interface AskingSession {
   id: string;
@@ -105,7 +105,7 @@ function createBoardAsks({ boards, mapOf, sendToSession }: BoardAskDeps) {
     return { ok: true };
   }
 
-  return { ask, answer };
+  return { ask, answer, openAsksOf: boards.openAsksOf };
 }
 
 type BoardAsks = ReturnType<typeof createBoardAsks>;

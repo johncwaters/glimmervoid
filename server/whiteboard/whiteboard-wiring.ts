@@ -5,6 +5,7 @@ import path from 'node:path';
 import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, NOTE_TONES, TEXT_SIZES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { OpenBoardAsk } from '../../shared/contracts/control/board-session-messages.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { DiffBefore, SlideChain, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
@@ -186,6 +187,7 @@ interface WhiteboardPort {
   layoutFreshnessOf(sessionId: string): string;
   putWithoutReadCheck(caller: WhiteboardCaller, boardRef: string, ops: readonly Op[]): Promise<WhiteboardReply>;
   putAsks(boardId: string, ops: readonly Op[], author: Author): Promise<WhiteboardReply>;
+  openAsksOf(boardId: string): Promise<OpenBoardAsk[]>;
   boardOf(boardId: string): Promise<Board | null>;
   readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
   handleOperator: {
@@ -1837,6 +1839,18 @@ function createWhiteboardWiring({
     await tiles.view(viewer, latestView ? { ...request, view: latestView.view, lod: latestView.lod } : request, openSteps);
   }
 
+  async function openAsksOf(boardId: string): Promise<OpenBoardAsk[]> {
+    const board = await loadedBoardOf(boardId);
+    if (!board) return [];
+    const askBoxes = [...board.elements.valuesOfKind('box')].flatMap((box) => (box.ask === null ? [] : [{ askBoxId: box.id, ask: box.ask }]));
+    if (askBoxes.length === 0) return [];
+    const pins = await tiles.pinPositionsOf(board, askBoxes.map(({ askBoxId }) => askBoxId));
+    return askBoxes.flatMap(({ askBoxId, ask }) => {
+      const laidOut = pins.laidOutBoxOf(askBoxId);
+      return laidOut ? [{ askBoxId, ask, rect: { x: laidOut.x, y: laidOut.y, width: laidOut.width, height: laidOut.height } }] : [];
+    });
+  }
+
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
     view: async (viewer, request) => {
       const openSteps = openStepLogs.openStepLogOf(request.boardId);
@@ -1858,7 +1872,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, openAsksOf, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

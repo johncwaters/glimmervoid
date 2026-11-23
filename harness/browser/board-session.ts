@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
-import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import { boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
@@ -17,6 +17,10 @@ interface Box {
   width: number;
   height: number;
 }
+
+const MAP_PAN_STEPS = 10;
+const MAP_PAN_STEP_PX = 1500;
+const MAP_GLIDE_SETTLE_MS = 800;
 
 async function boxOf(page: Page, selector: string): Promise<Box> {
   const box = await page.locator(selector).boundingBox();
@@ -163,12 +167,21 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the agent edits');
 
+  const mapViewport = root.locator('.wb-viewport');
+  const panAwayFrom = await mapViewport.boundingBox();
+  assert.ok(panAwayFrom, 'the Studio map is on screen');
+  const panMap = async (deltaY: number) => {
+    await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
+    for (let step = 0; step < MAP_PAN_STEPS; step += 1) await page.mouse.wheel(0, deltaY);
+  };
+  await panMap(-MAP_PAN_STEP_PX);
   await pillInput.fill('ask-shop');
   await pillInput.press('Enter');
   const reuseOption = page.getByRole('button', { name: /^Yes, reuse it/ });
   const askCard = root.locator('.bs-ask', { has: reuseOption });
   await askCard.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await askCard.locator('.chat-card[data-card-type="question"] .chat-card-option').count(), 2, 'the board ask shows as Chat\'s question card with its options');
+  assert.equal(await askCard.locator('.chat-card-heading').textContent(), BOARD_ASK_QUESTION, 'the card shows the whole question');
   assert.equal(await askCard.getByRole('button', { name: 'Send answer', exact: true }).isDisabled(), true, 'Send answer waits for typed text');
   const askBoardId = await studioMapBoardIdOf(page, root);
   assert.ok(askBoardId, 'the Studio map has a board for the ask');
@@ -186,6 +199,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-row-you[hidden]', { hasText: 'Yes, reuse it' }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-you:not([hidden])', { hasText: 'Yes, reuse it' }).count(), 0, 'a board answer adds no message to the Studio chat');
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the ask resolves');
+  await delay(MAP_GLIDE_SETTLE_MS);
+  await panMap(MAP_PAN_STEP_PX);
 
   await pillInput.fill('ask-question-resume');
   await pillInput.press('Enter');
