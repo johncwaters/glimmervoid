@@ -9,7 +9,7 @@
 
   .lock-mark-dial {
     transform-box: view-box;
-    transform-origin: 50% 50%;
+    transform-origin: 50px 50px;
   }
 
   .lock-mark-halo {
