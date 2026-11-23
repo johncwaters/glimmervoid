@@ -32,6 +32,7 @@ interface DockSession {
   agentId: string | null;
   isTurnOver: () => boolean;
   boxChoices: () => readonly BoxChoice[];
+  digestOf: (sessionId: string, openedAt: number) => string | null;
 }
 
 export interface DockBranch {
@@ -48,6 +49,7 @@ export interface Dock {
   setBranches(branches: readonly DockBranch[]): void;
   addressSession(sessionId: string | null, name: string): void;
   refresh(): void;
+  refreshDigests(): void;
   close(): void;
 }
 
@@ -64,7 +66,12 @@ function agentFaceOf(speaker: FeedSpeaker): HTMLElement {
   return face;
 }
 
-function turnBodyOf(part: Extract<ChatPart, { kind: 'turn' }>): HTMLElement | null {
+function turnBodyOf(part: Extract<ChatPart, { kind: 'turn' }>, digest: string | null): HTMLElement | null {
+  if (digest !== null) {
+    const digestBody = el('div', 'bs-bubble-body');
+    digestBody.append(el('p', 'bs-digest', digest));
+    return digestBody;
+  }
   const replyTexts = part.segments.flatMap((segment) => segment.kind === 'text' && segment.text.trim().length > 0 ? [segment.text] : []);
   if (replyTexts.length === 0) return null;
   const body = el('div', 'bs-bubble-body');
@@ -81,12 +88,19 @@ function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedS
   return row;
 }
 
-function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (branch: DockBranch) => void): HTMLElement | null {
+function digestOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf']): string | null {
+  if (part.openedAt === null) return null;
+  return digestOf(speaker.sessionId, part.openedAt);
+}
+
+function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (branch: DockBranch) => void, digestOf: DockSession['digestOf']): HTMLElement | null {
   if (part.kind === 'prompt') return promptRowOf(part, speaker);
   if (part.kind === 'turn') {
-    const body = turnBodyOf(part);
+    const digest = digestOfTurn(part, speaker, digestOf);
+    const body = turnBodyOf(part, digest);
     if (body === null) return null;
     const row = el('div', speaker.branch ? 'bs-row bs-row-agent bs-row-branch' : 'bs-row bs-row-agent');
+    if (digest !== null) row.dataset.digest = digest;
     const bubble = el('div', 'bs-bubble bs-bubble-agent');
     bubble.append(el('span', 'bs-bubble-who', speaker.name), body);
     row.append(agentFaceOf(speaker), bubble);
@@ -141,6 +155,7 @@ export function createDock(session: DockSession): Dock {
   element.append(log, failure, mentions, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
+  const turnByKey = new Map<string, { sessionId: string; part: Extract<ChatPart, { kind: 'turn' }> }>();
   const feedBySessionId = new Map<string, ChatFeed>();
   const speakerBySessionId = new Map<string, FeedSpeaker>();
   const mainSpeaker: FeedSpeaker = { sessionId: session.sessionId, name: session.name, agentId: session.agentId, branch: null };
@@ -182,7 +197,8 @@ export function createDock(session: DockSession): Dock {
     if (!speaker) return;
     for (const part of parts) {
       const key = rowKeyOf(sessionId, part.id);
-      const row = renderedPartOf(part, speaker, addressBranch);
+      if (part.kind === 'turn') turnByKey.set(key, { sessionId, part });
+      const row = renderedPartOf(part, speaker, addressBranch, session.digestOf);
       if (row === null) {
         rowByKey.get(key)?.remove();
         rowByKey.delete(key);
@@ -205,6 +221,7 @@ export function createDock(session: DockSession): Dock {
       const key = rowKeyOf(sessionId, partId);
       rowByKey.get(key)?.remove();
       rowByKey.delete(key);
+      turnByKey.delete(key);
     }
   };
 
@@ -213,6 +230,7 @@ export function createDock(session: DockSession): Dock {
       if (row.dataset.sessionId !== sessionId) continue;
       row.remove();
       rowByKey.delete(key);
+      turnByKey.delete(key);
     }
   };
 
@@ -237,6 +255,7 @@ export function createDock(session: DockSession): Dock {
         removeParts(sessionId, replacedPartIds);
         log.replaceChildren();
         rowByKey.clear();
+        turnByKey.clear();
         upsertParts(sessionId, rebuiltParts);
         log.scrollTop = log.scrollHeight - distanceFromBottom;
       },
@@ -417,6 +436,15 @@ export function createDock(session: DockSession): Dock {
       openLogWhenTurnLive();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },
+    refreshDigests: () => keepingBottom(() => {
+      for (const [key, { sessionId, part }] of turnByKey) {
+        const speaker = speakerBySessionId.get(sessionId);
+        if (!speaker) continue;
+        const digest = digestOfTurn(part, speaker, session.digestOf);
+        if ((rowByKey.get(key)?.dataset.digest ?? null) === digest) continue;
+        upsertParts(sessionId, [part]);
+      }
+    }),
     close: () => {
       for (const feed of feedBySessionId.values()) feed.close();
       feedBySessionId.clear();

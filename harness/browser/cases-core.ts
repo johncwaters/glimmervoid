@@ -850,6 +850,8 @@ export function casesFor(options: CasesForOptions = {}): HarnessCase[] {
 export const DONE_CHILD_NAME = 'done-child';
 export const DONE_CHILD_LINES = ['The status check passes', 'done-means.txt is committed'];
 export const AWAY_REPLY_TEXT = 'Written while you were away.';
+export const DIRECTOR_DIGEST_TEXT = 'Checkout totals now add tax before the card charge';
+export const LONG_CHECKOUT_REPLY = `I changed src/checkout/checkout.js so the order total adds tax before the charge reaches the card module. ${'The tax table is read once per order, rounded to cents, and logged beside the order id for support. '.repeat(5)}`;
 export const AGENT_DONE_LINE = { text: 'node starts in the worktree', command: 'node --version' };
 
 export function needsDoneMeansChecks(scenario: Scenario): boolean {

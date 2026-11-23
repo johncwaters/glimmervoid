@@ -105,6 +105,7 @@ function turnPartOf(turn: ChatTurn, partId: string): TurnPart {
   return {
     kind: 'turn',
     id: partId,
+    openedAt: turn.promptAt,
     segments: turn.segments,
     droppedSegmentCount: turn.droppedSegmentCount,
     toolCount: turn.toolCount,

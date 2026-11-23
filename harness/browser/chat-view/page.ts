@@ -260,7 +260,7 @@ if (harnessMode.has('narrating')) {
   const showNextNarrationState = () => {
     const segments = narrationTurnStates[narrationStep % narrationTurnStates.length] ?? [];
     narrationStep += 1;
-    chatView.upsert([{ kind: 'turn', id: 'narrating-turn', segments, droppedSegmentCount: 0, toolCount: 0, failedCount: 0, fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: false }, filePatches: [], unshownPatchCount: 0, thoughtText: null, durationText: null, isOver: false }], NO_ARRIVING_PARTS);
+    chatView.upsert([{ kind: 'turn', id: 'narrating-turn', openedAt: null, segments, droppedSegmentCount: 0, toolCount: 0, failedCount: 0, fileEdits: { fileCount: 0, added: 0, removed: 0, hasLineCounts: false }, filePatches: [], unshownPatchCount: 0, thoughtText: null, durationText: null, isOver: false }], NO_ARRIVING_PARTS);
   };
   showNextNarrationState();
   setInterval(showNextNarrationState, 700);

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
+import { DIRECTOR_DIGEST_TEXT } from './cases-core.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
 const MERGE_POLL_MS = 250;
+const DIRECTOR_TIMEOUT_MS = 60000;
 const REFUNDS_COMMIT_SUBJECT = 'Add refunds beside the card module';
 
 interface Box {
@@ -134,6 +136,12 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await askCard.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-row-you', { hasText: 'Yes, reuse it' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the ask resolves');
+
+  await pillInput.fill('long-shop');
+  await pillInput.press('Enter');
+  await root.locator('.bs-row-agent .bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-log', { hasText: 'The tax table is read once' }).count(), 0, 'a directed turn shows its digest in place of the full reply');
+  assert.equal(await root.locator('.bs-row-agent', { hasText: 'src/payments/card.js' }).count() > 0, true, 'a short reply stays as written');
 
   await verifyBranch(page, projectDirectory, pillBefore);
 

@@ -16,7 +16,7 @@ import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { boundsOfHostBox, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
-import { tiledBoardOf } from '../whiteboard/board-tile-store.ts';
+import { onTilesChanged, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { onBoardSessionTraceChanged } from './board-session-signals.ts';
 import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
@@ -36,7 +36,8 @@ import { branchSessionIdsOf } from './branch-core.ts';
 import type { BoxChoice } from './branch-core.ts';
 import { SHOWN_REPO_KEY, isStudioSession, onStudioRepoRequested } from './studio-target.ts';
 import { openStudioRepoDialog } from '../session-actions.ts';
-import { CODEMAP_BOXES_MAX_PATHS } from '#shared/contracts/control/board-session-messages.ts';
+import { CODEMAP_BOXES_MAX_PATHS, DIRECTOR_DIGEST_SESSIONS_MAX } from '#shared/contracts/control/board-session-messages.ts';
+import { directorCardIdOf } from '#shared/director-card.ts';
 
 const BOXES_TIMEOUT_MS = 10000;
 const TRACE_PAGE_TIMEOUT_MS = 10000;
@@ -83,6 +84,9 @@ let changedBoxIds: ReadonlySet<string> = new Set();
 let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
+let digestsRequestSerial = 0;
+let digestBoardVersion: number | null = null;
+let digestByCardId: Readonly<Record<string, string>> = {};
 let watchBySessionId = new Map<string, SessionWatch>();
 let boxIdByPath: Readonly<Record<string, string>> = {};
 let moduleChoices: readonly BoxChoice[] = [];
@@ -260,6 +264,29 @@ function paintPresence(): void {
   const faces = [...watchBySessionId].flatMap(([sessionId, watch]) => sessionFaceOf(sessionId, watch) ?? []);
   parts.presenceLayer.paint({ glows, faces, fallbackBoxId }, tiledBoardOf(boardId)?.board ?? null);
   paintAsks();
+  requestDigestsOnBoardChange();
+}
+
+function directorDigestOf(sessionId: string, openedAt: number): string | null {
+  return digestByCardId[directorCardIdOf(sessionId, openedAt)] ?? null;
+}
+
+function requestDigestsOnBoardChange(): void {
+  const boardVersion = boardId === null ? null : tiledBoardOf(boardId)?.version ?? null;
+  if (shownSessionId === null || boardVersion === null || boardVersion === digestBoardVersion) return;
+  digestBoardVersion = boardVersion;
+  digestsRequestSerial += 1;
+  const serial = digestsRequestSerial;
+  const sessionIds = [shownSessionId, ...watchBySessionId.keys()].slice(0, DIRECTOR_DIGEST_SESSIONS_MAX);
+  sendControlRequest('director-digests', { id: shownSessionId, sessionIds }, { timeoutMs: BOXES_TIMEOUT_MS })
+    .then((reply) => {
+      if (serial !== digestsRequestSerial || reply.type !== 'director-digests-result' || !reply.ok) return;
+      digestByCardId = { ...digestByCardId, ...reply.digestByCardId };
+      dock?.refreshDigests();
+    })
+    .catch(() => {
+      if (serial === digestsRequestSerial) digestBoardVersion = null;
+    });
 }
 
 async function toggleFolder(folderBoardId: string, frameId: string): Promise<boolean> {
@@ -339,6 +366,7 @@ function mountDock(): void {
     agentId: ui?.agent ?? null,
     isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
     boxChoices: () => moduleChoices,
+    digestOf: directorDigestOf,
   });
   parts.dockSlot.append(dock.element);
   syncBranches();
@@ -357,6 +385,8 @@ function showSession(sessionId: string | null): void {
     return;
   }
   if (!isSameSession) {
+    digestByCardId = {};
+    digestBoardVersion = null;
     changedBoxIds = new Set();
     boxIdByPath = {};
     answeredPaths = new Set();
@@ -507,6 +537,9 @@ function mountBoardSessionView(panel: HTMLElement): void {
   document.addEventListener('pointerdown', (event) => {
     if (menu.hidden || !(event.target instanceof Node) || topLeft.contains(event.target)) return;
     closeMenu();
+  });
+  onTilesChanged(() => {
+    if (isActive) requestDigestsOnBoardChange();
   });
   onBoardSessionTraceChanged((sessionId) => {
     if (!isActive) return;

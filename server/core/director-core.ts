@@ -96,10 +96,14 @@ export function touchedPathsOf(turn: DirectorTurn): string[] {
 }
 
 export function candidatesOf(turn: DirectorTurn, lookup: BoxLookup): DirectorCandidate[] {
-  const titleByBoxId = new Map(lookup.boxChoices.map((choice) => [choice.boxId, choice.title]));
-  const boxIds = [...new Set(touchedPathsOf(turn).flatMap((path) => lookup.boxIdByPath[path] ?? []))].slice(0, MAX_CANDIDATES);
-  const chosenBoxIds = boxIds.length > 0 ? boxIds : [lookup.fallbackBoxId];
-  return chosenBoxIds.map((boxId) => ({ boxId, title: cleanLine(titleByBoxId.get(boxId), CANDIDATE_TITLE_MAX_CHARS) ?? boxId }));
+  const touchedPathByBoxId = new Map<string, string>();
+  for (const path of touchedPathsOf(turn)) {
+    const boxId = lookup.boxIdByPath[path];
+    if (boxId !== undefined && !touchedPathByBoxId.has(boxId)) touchedPathByBoxId.set(boxId, path);
+  }
+  const touched = [...touchedPathByBoxId].slice(0, MAX_CANDIDATES);
+  const chosen = touched.length > 0 ? touched : [[lookup.fallbackBoxId, lookup.boxChoices.find((choice) => choice.boxId === lookup.fallbackBoxId)?.title ?? lookup.fallbackBoxId] as const];
+  return chosen.map(([boxId, title]) => ({ boxId, title: cleanLine(title, CANDIDATE_TITLE_MAX_CHARS) ?? boxId }));
 }
 
 export function directorPayloadOf(turn: DirectorTurn, fetchedAt: string): UntrustedPayload {
@@ -182,4 +186,14 @@ export function directorCardOps(sessionId: string, turn: DirectorTurn, directed:
     .sort((left, right) => cardOpenedAtOf(right, prefix) - cardOpenedAtOf(left, prefix));
   const retiredOps = olderCardIds.slice(DIRECTOR_CARDS_KEPT - 1).flatMap((retiredId) => removeCardOps(board, retiredId));
   return [...removeCardOps(board, cardId), ...retiredOps, card, wire];
+}
+
+export function directorDigestsOf(board: Board, sessionIds: readonly string[]): Record<string, string> {
+  const prefixes = sessionIds.map(directorCardPrefixOf);
+  const digestByCardId: Record<string, string> = {};
+  for (const element of board.elements.values()) {
+    if (element.kind !== 'box' || !prefixes.some((prefix) => element.id.startsWith(prefix))) continue;
+    digestByCardId[element.id] = element.title;
+  }
+  return digestByCardId;
 }

@@ -143,6 +143,7 @@
   .bs-bubble-agent { border: 1px solid var(--border-dim); border-bottom-left-radius: 4px; background: var(--bg-surface); color: var(--text); }
   .bs-bubble-who { display: block; margin-bottom: 2px; color: var(--agent-brand, #ff7a59); font-size: var(--type-meta); font-weight: 700; }
   .bs-bubble-body { display: flex; flex-direction: column; gap: 4px; }
+  .bs-digest { margin: 0; color: var(--text-head); }
 
   .bs-failure { margin: 0; color: var(--state-failed); font-size: var(--type-meta); text-align: center; }
   .bs-failure[hidden] { display: none; }

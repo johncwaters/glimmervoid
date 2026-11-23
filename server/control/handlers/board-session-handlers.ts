@@ -9,6 +9,7 @@ import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from
 import type { Session } from '../../../session/sessions.ts';
 import { mainAgentNameOf } from '../../core/studio-main-core.ts';
 import { wakeStudioMain } from '../../board-session/studio-main.ts';
+import { directorDigestsOf } from '../../core/director-core.ts';
 
 const CODE_MAP_OFF_TEXT = 'The code map is not running';
 const BOARD_ASKS_OFF_TEXT = 'Board questions are not running';
@@ -19,7 +20,7 @@ type MainAgentOutcome = { ok: true; mainId: string } | { ok: false; error: strin
 
 function createBoardSessionHandlers(context: ControlContext, deps: ControlHandlerDeps, branches: BranchWiring): ControlHandlerGroup {
   const { findSession, createProjectSession, findConfiguredProject, sessions } = context;
-  const { codemap = null, boardAsks = null } = deps;
+  const { codemap = null, boardAsks = null, whiteboards = null } = deps;
 
   function ensureMainAgent(anchor: Session): MainAgentOutcome {
     const repoPath = anchor.path;
@@ -91,6 +92,19 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
         ws.send(JSON.stringify({ ...reply, ok: false, error: `The folder did not open: ${errorMessage(error)}` }));
       }
     },
+    'director-digests': async (message: ClientMessageOf<'director-digests'>, ws: ControlSocket) => {
+      const reply = { type: 'director-digests-result', id: message.id, requestId: message.requestId ?? null };
+      const session = findSession(message);
+      if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
+      if (!codemap || !whiteboards) return ws.send(JSON.stringify({ ...reply, ok: false, error: CODE_MAP_OFF_TEXT }));
+      try {
+        const lookup = await codemap.boxesOfSession(session.path, session.id, []);
+        const board = lookup.ok && lookup.boardId !== null ? await whiteboards.boardOf(lookup.boardId) : null;
+        ws.send(JSON.stringify({ ...reply, ok: true, digestByCardId: board === null ? {} : directorDigestsOf(board, message.sessionIds) }));
+      } catch (error) {
+        ws.send(JSON.stringify({ ...reply, ok: false, error: `Code map read failed: ${errorMessage(error)}` }));
+      }
+    },
   } satisfies ControlHandlerTable;
 
   const invalidReplies = {
@@ -99,6 +113,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     'branch-spawn': (msg, requestId, message) => ({ type: 'branch-spawn-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'studio-main-ensure': (msg, requestId, message) => ({ type: 'studio-main-ensure-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'codemap-folder-toggle': (msg, requestId, message) => ({ type: 'codemap-folder-toggle-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'director-digests': (msg, requestId, message) => ({ type: 'director-digests-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
   } satisfies InvalidReplyTable;
 
   return { handlers, invalidReplies, genericErrorTypes: [] };

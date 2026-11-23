@@ -126,7 +126,7 @@ interface BackendControlDependencies {
   githubConnection: (action: GithubConnectionAction) => Promise<GithubConnection | null>;
   commitSigning: Pick<CommitSigning, 'act'>;
   hostReady: HostReadyReader;
-  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles'>;
+  whiteboards: Pick<WhiteboardPort, 'handleOperator' | 'snapshotMessage' | 'tiles' | 'boardOf'>;
   codemap: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
   boardAsks: Pick<BoardAsks, 'answer'> | null;
   reviews: ReviewPort;

@@ -180,7 +180,7 @@ interface ControlHandlerDeps {
   githubConnection?: ((action: GithubConnectionAction) => Promise<GithubConnection | null>) | null;
   commitSigning?: Pick<CommitSigning, 'act'> | null;
   hostReady?: HostReadyReader | null;
-  whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
+  whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles' | 'boardOf'> | null;
   codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
   boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;

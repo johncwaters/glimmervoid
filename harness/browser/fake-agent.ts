@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_LINES, DONE_CHILD_NAME } from './cases-core.ts';
+import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY } from './cases-core.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
 const ESC = String.fromCharCode(0x1b);
+const DIRECTOR_LANE_PROMPT = 'Read director-prompt.txt and follow its instructions';
 const BEL = String.fromCharCode(0x07);
 const WORKING_GLYPH = String.fromCharCode(0x280b);
 const IDLE_GLYPH = String.fromCharCode(0x2733);
@@ -47,6 +48,14 @@ const CLAUDE_MODEL_PROBE_FIXTURE = new URL('../../tests/fixtures/agent-models/cl
 
 if (process.argv.includes('--input-format')) {
   process.stdout.write(fs.readFileSync(CLAUDE_MODEL_PROBE_FIXTURE, 'utf8'));
+  process.exit(0);
+}
+
+if (process.argv.includes('-p') && process.argv.at(-1) === DIRECTOR_LANE_PROMPT) {
+  const directorPrompt = fs.readFileSync(path.join(process.cwd(), 'director-prompt.txt'), 'utf8');
+  const resultPath = /^Write (.+) with the Write tool/m.exec(directorPrompt)?.[1] ?? '';
+  const boxId = /^Boxes:\n- ([^:]+):/m.exec(directorPrompt)?.[1] ?? '';
+  fs.writeFileSync(resultPath, JSON.stringify({ digest: DIRECTOR_DIGEST_TEXT, points: ['Tax rounds to cents'], boxId }));
   process.exit(0);
 }
 
@@ -349,6 +358,13 @@ function dispatch(command: string): void {
     dispatch('work');
     appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
     editThenReply('src/checkout/checkout.js', 'The charge goes through src/payments/card.js, so I left it alone.');
+    dispatch('stop');
+    return;
+  }
+  if (command === 'long-shop') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    editThenReply('src/checkout/checkout.js', LONG_CHECKOUT_REPLY);
     dispatch('stop');
     return;
   }
