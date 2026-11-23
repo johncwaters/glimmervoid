@@ -11,3 +11,28 @@ export function operatorPartOfPrompt(promptText: string): string {
   if (markerIndex < 0) return promptText;
   return promptText.slice(markerIndex + OPERATOR_PART_MARKER.length);
 }
+
+export const REPO_ROOT_BRANCH_TITLE = 'repo root';
+
+export type BranchAbout = { boxId: string } | { path: string };
+export type BranchTarget = { ok: true; boxId: string; title: string } | { ok: false; error: string };
+
+function folderPrefixOf(aboutTitle: string): string {
+  return aboutTitle === REPO_ROOT_BRANCH_TITLE ? '' : `${aboutTitle.replace(/\/+$/, '')}/`;
+}
+
+function isInsideBranchFolder(repoPath: string, aboutTitle: string): boolean {
+  return repoPath.startsWith(folderPrefixOf(aboutTitle));
+}
+
+export function overlappingBranchTitle(aboutTitle: string, liveBranchTitles: readonly string[]): string | null {
+  const wantedPrefix = folderPrefixOf(aboutTitle);
+  return liveBranchTitles.find((liveTitle) => {
+    const livePrefix = folderPrefixOf(liveTitle);
+    return livePrefix.startsWith(wantedPrefix) || wantedPrefix.startsWith(livePrefix);
+  }) ?? null;
+}
+
+export function pathsOutsideBranchFolder(repoPaths: readonly string[], aboutTitle: string): string[] {
+  return repoPaths.filter((repoPath) => !isInsideBranchFolder(repoPath, aboutTitle));
+}

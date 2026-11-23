@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Session } from '../../session/sessions.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
+import { pathsOutsideBranchFolder } from '../../shared/board-branch-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import {
@@ -22,6 +23,7 @@ const DIRECTOR_AUTHOR = Object.freeze({ id: 'director', name: 'Director' });
 const BOOTSTRAP_PROMPT = `Read ${DIRECTOR_PROMPT_FILE} and follow its instructions`;
 const DIRECTOR_TIMEOUT_MS = 120_000;
 const MAX_TRACE_PAGES = 8;
+const OUTSIDE_PATHS_NAMED = 5;
 
 type MapLookup = { ok: true; boardId: string | null; boxIdByPath: Record<string, string>; fallbackBoxId: string; boxChoices: { boxId: string; title: string }[] } | { ok: false; error: string };
 
@@ -31,6 +33,7 @@ interface DirectorDeps {
   readTracePage: (sessionId: string, request: TracePageRequest) => Promise<TracePage>;
   boxesOfSession: (repoDir: string, sessionId: string, paths: readonly string[]) => Promise<MapLookup>;
   boards: Pick<WhiteboardPort, 'boardOf' | 'putWithoutReadCheck'>;
+  tellMain: (branchId: string, text: string) => boolean;
   logger?: Pick<Console, 'warn'>;
 }
 
@@ -38,7 +41,7 @@ function isStudioSession(session: Session): boolean {
   return !session.ephemeral && (session.isStudioMain || session.branchOf !== null);
 }
 
-function createDirector({ spawnLane, drainTrace, readTracePage, boxesOfSession, boards, logger = console }: DirectorDeps) {
+function createDirector({ spawnLane, drainTrace, readTracePage, boxesOfSession, boards, tellMain, logger = console }: DirectorDeps) {
   const queuedBySessionId = new Map<string, Session>();
   const directedOpenedAtBySessionId = new Map<string, number>();
   const shutdownController = new AbortController();
@@ -73,10 +76,21 @@ function createDirector({ spawnLane, drainTrace, readTracePage, boxesOfSession, 
     }
   }
 
+  function flagEditsOutsideBranch(session: Session, turn: DirectorTurn): void {
+    if (session.branchOf === null) return;
+    const outsidePaths = [...pathsOutsideBranchFolder(turn.editedPaths, session.branchOf.aboutTitle), ...turn.editedOutsideWorktreePaths];
+    if (outsidePaths.length === 0) return;
+    const namedPaths = outsidePaths.slice(0, OUTSIDE_PATHS_NAMED).join(', ');
+    const morePaths = outsidePaths.length > OUTSIDE_PATHS_NAMED ? ` and ${outsidePaths.length - OUTSIDE_PATHS_NAMED} more` : '';
+    tellMain(session.id, `The branch ${session.name} works on ${session.branchOf.aboutTitle} but its last turn changed ${namedPaths}${morePaths} outside it; check those before its commits come back, or steer it with glimmervoid send ${session.id} <text>.`);
+  }
+
   async function direct(session: Session): Promise<void> {
     const turn = await readTurn(session);
-    if (turn === null || !isWorthDirecting(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
+    if (turn === null || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
+    flagEditsOutsideBranch(session, turn);
+    if (!isWorthDirecting(turn)) return;
     const lookup = await boxesOfSession(session.path, session.id, touchedPathsOf(turn));
     if (!lookup.ok || lookup.boardId === null) return;
     const candidates = candidatesOf(turn, lookup);

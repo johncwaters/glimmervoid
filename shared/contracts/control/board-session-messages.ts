@@ -12,7 +12,7 @@ const RepoPath = z.string().min(1).max(1000);
 export const boardSessionClientVariants = [
   loose('codemap-boxes-of', { id: sessionId, requestId, paths: z.array(RepoPath).max(CODEMAP_BOXES_MAX_PATHS).default([]) }),
   loose('board-ask-answer', { requestId, boardId: z.string().min(1).max(200), askBoxId: z.string().min(1).max(40), answer: z.string().trim().min(1).max(ASK_ANSWER_MAX_CHARS) }),
-  loose('branch-spawn', { id: sessionId, requestId, aboutBoxId: z.string().min(1).max(40), aboutTitle: z.string().min(1).max(80), prompt: z.string().trim().min(1).max(BRANCH_PROMPT_MAX_CHARS) }),
+  loose('branch-spawn', { id: sessionId, requestId, aboutBoxId: z.string().min(1).max(40), prompt: z.string().trim().min(1).max(BRANCH_PROMPT_MAX_CHARS) }),
   loose('studio-main-ensure', { id: sessionId, requestId }),
   loose('codemap-folder-toggle', { id: sessionId, requestId, boxId: z.string().min(1).max(40) }),
   loose('director-digests', { id: sessionId, requestId, sessionIds: z.array(z.string().min(1).max(200)).max(DIRECTOR_DIGEST_SESSIONS_MAX).default([]) }),

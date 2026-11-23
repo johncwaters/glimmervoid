@@ -4,7 +4,7 @@ import type { WakeOrigin } from '../../shared/contracts/wakes.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
 import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
-import type { AgentChannel, ChannelEntry, ChannelSide } from '../core/child-channel-core.ts';
+import type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
@@ -41,13 +41,14 @@ function createChildChannels(runtime: AgentApiRuntime) {
   function forgetLink(childId: string): void {
     const link = linksByChildId.get(childId);
     if (link) for (const timer of link.retryTimersBySide.values()) clearTimeoutFn(timer);
+    link?.stopWatchingChild();
     linksByChildId.delete(childId);
     channelsByChildId.delete(childId);
   }
 
   function forgetChannelsOf(parent: Session): void {
     for (const [childId, channel] of channelsByChildId) {
-      if (channel.parentId === parent.id) forgetLink(childId);
+      if (channel.parentId === parent.id && linksByChildId.get(childId)?.parent === parent) forgetLink(childId);
     }
   }
 
@@ -192,20 +193,20 @@ function createChildChannels(runtime: AgentApiRuntime) {
     link.waitingStopNoteText = null;
   }
 
-  function watchChild(link: ChannelLink, childId: string): void {
+  function watchChild(link: ChannelLink, childId: string): () => void {
     let lastRelayedQuestionId: ConversationApproval['requestId'] | null = null;
-    link.child.on('conversation-change', ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => {
+    const relayQuestion = ({ conversationApproval }: { conversationApproval: ConversationApproval | null }) => {
       if (conversationApproval?.kind !== 'question' || conversationApproval.requestId === lastRelayedQuestionId) return;
       lastRelayedQuestionId = conversationApproval.requestId;
       withdrawWaitingStopNote(childId, link);
       const text = describeQuestionNote(link.child.name, childId, conversationApproval);
       post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: true });
-    });
-    link.child.on('hook-event', ({ event, payload }: HookEvent) => {
+    };
+    const keepLastMessage = ({ event, payload }: HookEvent) => {
       if (event.toLowerCase() !== 'stop') return;
       link.lastChildMessage = readLastAssistantMessage(payload);
-    });
-    link.child.on('state-change', ({ from, to }: StateChange) => {
+    };
+    const relayStateChange = ({ from, to }: StateChange) => {
       const isHeldQuestionWaiting = to === STATES.WAITING && link.child._conversationApproval?.kind === 'question';
       if (!isHeldQuestionWaiting && shouldPostStopNote(from, to)) {
         const text = describeStopNote({ childName: link.child.name, state: to, lastMessage: link.lastChildMessage });
@@ -215,34 +216,76 @@ function createChildChannels(runtime: AgentApiRuntime) {
       }
       wakeRecipient(childId, 'toParent');
       wakeRecipient(childId, 'toChild');
-    });
+    };
+    link.child.on('conversation-change', relayQuestion);
+    link.child.on('hook-event', keepLastMessage);
+    link.child.on('state-change', relayStateChange);
+    return () => {
+      link.child.off('conversation-change', relayQuestion);
+      link.child.off('hook-event', keepLastMessage);
+      link.child.off('state-change', relayStateChange);
+    };
   }
 
-  function openChildChannel(parent: Session, child: Session, childName: string): () => void {
-    channelsByChildId.set(child.id, openChannel({ parentId: parent.id, childId: child.id, childName }));
+  function openChildChannel(parent: Session, child: Session, childName: string, kind: ChannelKind = 'spawned'): () => void {
+    channelsByChildId.set(child.id, openChannel({ kind, parentId: parent.id, childId: child.id, childName }));
     const link: ChannelLink = {
-      parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(),
+      parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(), stopWatchingChild: () => {},
     };
+    linksByChildId.get(child.id)?.stopWatchingChild();
     linksByChildId.set(child.id, link);
-    watchChild(link, child.id);
+    link.stopWatchingChild = watchChild(link, child.id);
     watchOperatorInput(parent);
     watchOperatorInput(child);
     if (!parentsWithChannelCleanup.has(parent)) {
       parentsWithChannelCleanup.add(parent);
       parent.once('teardown', () => forgetChannelsOf(parent));
     }
+    const wakeParent = () => wakeRecipient(child.id, 'toParent');
+    parent.on('state-change', wakeParent);
+    if (kind === 'branch') return () => parent.off('state-change', wakeParent);
     const closeChildWithParent = () => {
       noteEndCause(child.id, 'parent-ended');
       child.destroy();
     };
-    const wakeParent = () => wakeRecipient(child.id, 'toParent');
     parent.on('exit', closeChildWithParent);
     parent.on('teardown', closeChildWithParent);
-    parent.on('state-change', wakeParent);
     return () => {
       parent.off('exit', closeChildWithParent);
       parent.off('teardown', closeChildWithParent);
     };
+  }
+
+  function liveSessionOf(sessionId: string): Session | null {
+    return listAllSessions().find((session) => session.id === sessionId && !session._destroyed) ?? null;
+  }
+
+  function openBranchChannel(main: Session, branch: Session): void {
+    if (linksByChildId.get(branch.id)?.parent === main || main._destroyed || branch._destroyed) return;
+    const detachFromMain = openChildChannel(main, branch, branch.name, 'branch');
+    const forgetBranch = () => {
+      detachFromMain();
+      if (linksByChildId.get(branch.id)?.parent === main) forgetLink(branch.id);
+    };
+    branch.once('teardown', forgetBranch);
+  }
+
+  function linkBranchSession(session: Session): void {
+    if (session.branchOf) {
+      const main = liveSessionOf(session.branchOf.parentId);
+      if (main) openBranchChannel(main, session);
+      return;
+    }
+    if (!session.isStudioMain) return;
+    for (const candidate of listAllSessions()) {
+      if (candidate.branchOf?.parentId === session.id && !candidate._destroyed) openBranchChannel(session, candidate);
+    }
+  }
+
+  function tellParent(childId: string, text: string): boolean {
+    if (!channelsByChildId.has(childId)) return false;
+    post(childId, 'toParent', { author: 'glimmervoid', text, at: now(), wakes: true });
+    return true;
   }
 
   async function keepOrDiscardChildWorktree(child: Session, worktree: ChildWorktree | null, isParentRemoved: boolean): Promise<boolean> {
@@ -319,7 +362,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     return findSibling([...channelsByChildId.values()], child.id, target);
   }
 
-  return { noteEndCause, forgetLink, openChildChannel, settleChildWorktree, post, drain, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, operatorWakeFactsOf, flagWakeCap, isWakeLineInFlight, submitWakeLine };
+  return { noteEndCause, forgetLink, openChildChannel, linkBranchSession, liveSessionOf, tellParent, settleChildWorktree, post, drain, ownedChannels, findChildOf, findSiblingOf, watchOperatorInput, operatorWakeFactsOf, flagWakeCap, isWakeLineInFlight, submitWakeLine };
 }
 
 type ChildChannels = ReturnType<typeof createChildChannels>;

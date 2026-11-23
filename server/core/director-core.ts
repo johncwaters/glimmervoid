@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Op } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
@@ -28,6 +29,7 @@ export interface DirectorTurn {
   openedAt: number;
   replyText: string;
   editedPaths: string[];
+  editedOutsideWorktreePaths: string[];
   readPaths: string[];
 }
 
@@ -55,10 +57,10 @@ function forwardSlashed(path: string): string {
 }
 
 function repoPathOf(toolPath: string, workingDirectory: string | null): string | null {
-  const slashedPath = forwardSlashed(toolPath);
-  const slashedRoot = workingDirectory === null ? null : forwardSlashed(workingDirectory).replace(/\/+$/, '');
+  const slashedPath = path.posix.normalize(forwardSlashed(toolPath));
+  const slashedRoot = workingDirectory === null ? null : path.posix.normalize(forwardSlashed(workingDirectory)).replace(/\/+$/, '');
   const relativePath = slashedRoot !== null && slashedPath.startsWith(`${slashedRoot}/`) ? slashedPath.slice(slashedRoot.length + 1) : slashedPath;
-  if (relativePath.length === 0 || ABSOLUTE_PATH.test(relativePath)) return null;
+  if (relativePath.length === 0 || relativePath === '.' || ABSOLUTE_PATH.test(relativePath) || relativePath === '..' || relativePath.startsWith('../')) return null;
   return relativePath;
 }
 
@@ -68,6 +70,7 @@ export function directorTurnOf(records: readonly TraceRecord[], workingDirectory
   if (opening === undefined) return null;
   const replyTexts: string[] = [];
   const editedPaths = new Set<string>();
+  const editedOutsideWorktreePaths = new Set<string>();
   const readPaths = new Set<string>();
   for (const record of records.slice(openingIndex + 1)) {
     if (record.agentId !== undefined) continue;
@@ -75,6 +78,7 @@ export function directorTurnOf(records: readonly TraceRecord[], workingDirectory
     if (record.kind !== 'tool_call') continue;
     for (const edit of fileEditsOf(record.input, null)) {
       const repoPath = repoPathOf(edit.path, workingDirectory);
+      if (repoPath === null && edit.hasLineCounts) editedOutsideWorktreePaths.add(forwardSlashed(edit.path));
       if (repoPath === null) continue;
       if (edit.hasLineCounts) {
         editedPaths.add(repoPath);
@@ -84,7 +88,7 @@ export function directorTurnOf(records: readonly TraceRecord[], workingDirectory
     }
   }
   const unchangedReadPaths = [...readPaths].filter((path) => !editedPaths.has(path));
-  return { openedAt: opening.ts, replyText: replyTexts.join('\n\n'), editedPaths: [...editedPaths], readPaths: unchangedReadPaths };
+  return { openedAt: opening.ts, replyText: replyTexts.join('\n\n'), editedPaths: [...editedPaths], editedOutsideWorktreePaths: [...editedOutsideWorktreePaths], readPaths: unchangedReadPaths };
 }
 
 export function isWorthDirecting(turn: DirectorTurn): boolean {

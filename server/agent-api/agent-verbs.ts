@@ -92,7 +92,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
-  const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf } = channels;
+  const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf, liveSessionOf, tellParent } = channels;
 
   function roleFactsOf(session: Session): SessionRoleFacts {
     const raceProject = config.projects.find((project) => (project.id === session.id || project.id === session.ownerId) && project.raceId !== undefined);
@@ -264,10 +264,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
       },
       isLive: (sessionId) => agentSessions.has(sessionId),
       tellRunner: (childId, text) => {
-        if (channelsByChildId.has(childId)) {
-          post(childId, 'toParent', { author: 'glimmervoid', text, at: clock.nowMs(), wakes: true });
-          return;
-        }
+        if (tellParent(childId, text)) return;
         runtime.logger?.warn(`[plan run] ${text}`);
         if (!session._destroyed) session.raiseAttention('agent', text);
       },
@@ -327,7 +324,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     if (!text) return refusal(400, 'send needs the spawned session and the text, for example glimmervoid send <child> fix the failing test');
     const owned = findChildOf(session, target);
     if (!owned.ok) return refusal(404, owned.error);
-    if (!agentSessions.has(owned.channel.childId)) return refusal(409, `${owned.channel.childName} has ended, so nothing was sent`);
+    if (!liveSessionOf(owned.channel.childId)) return refusal(409, `${owned.channel.childName} has ended, so nothing was sent`);
     post(owned.channel.childId, 'toChild', { author: 'parent', text, at, wakes: true });
     return { status: 200, body: { ok: true } };
   }
@@ -350,7 +347,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   function answer(session: Session, request: AgentAnswerRequest): AgentReplyOf<'answer'> {
     const owned = findChildOf(session, request.child);
     if (!owned.ok) return refusal(404, owned.error);
-    const child = agentSessions.get(owned.channel.childId);
+    const child = liveSessionOf(owned.channel.childId);
     if (!child) return refusal(409, `${owned.channel.childName} has already ended`);
     const approval = child._conversationApproval;
     if (approval?.kind !== 'question') return refusal(409, `${owned.channel.childName} has no held question`);
@@ -369,6 +366,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   async function close(session: Session, { child, discard = false }: AgentCloseRequest): Promise<AgentReplyOf<'close'>> {
     const owned = findChildOf(session, child);
     if (!owned.ok) return refusal(404, owned.error);
+    if (owned.channel.kind === 'branch') return refusal(409, `${owned.channel.childName} is a Studio branch; its commits come back to this session when it goes idle, and the operator closes it in Studio`);
     const childSession = agentSessions.get(owned.channel.childId);
     const alreadyEnded = refusal(409, `${owned.channel.childName} has already ended`);
     if (!childSession) return alreadyEnded;

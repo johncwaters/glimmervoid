@@ -484,6 +484,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     readTracePage: traceWiring.readTracePage,
     boxesOfSession: (repoDir, sessionId, paths) => codemap.boxesOfSession(repoDir, sessionId, paths),
     boards: whiteboards,
+    tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false,
   }) : null;
   const vaultSourceFor = (lookIn: unknown) => {
     const manager = vaultManagerOf(config.vault);
@@ -572,11 +573,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     boardAsks,
     startBranch: async (parent, about, prompt) => {
       if (!branches) return { ok: false, error: 'Studio branches are not running' };
-      const target = await codemap.branchTargetOf(parent.path, about);
-      if (!target.ok) return target;
-      const outcome = await branches.spawn({ parentId: parent.id, aboutBoxId: target.boxId, aboutTitle: target.title, prompt });
+      const outcome = await branches.spawn({ parentId: parent.id, about: { path: about }, prompt });
       if (!outcome.ok) return outcome;
-      return { ok: true, sessionId: outcome.sessionId, name: sessions.get(outcome.sessionId)?.name ?? target.title };
+      return { ok: true, sessionId: outcome.sessionId, name: sessions.get(outcome.sessionId)?.name ?? about };
     },
     logger: console,
   });
@@ -629,6 +628,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     codemap.attachSession(session);
     branchMerge.attachSession(session);
     agentApi?.watchSessionWakes(session);
+    agentApi?.linkBranchSession(session);
     secretsWiring.seedSessionMasks(session);
   }
 

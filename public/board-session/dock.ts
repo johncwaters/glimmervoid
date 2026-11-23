@@ -368,7 +368,7 @@ export function createDock(session: DockSession): Dock {
 
   const sendText = (text: string, sentAddress: DockAddress) => {
     if (sentAddress.kind === 'new-branch') {
-      return sendControlRequest('branch-spawn', { id: session.sessionId, aboutBoxId: sentAddress.aboutBoxId, aboutTitle: sentAddress.aboutTitle, prompt: text }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
+      return sendControlRequest('branch-spawn', { id: session.sessionId, aboutBoxId: sentAddress.aboutBoxId, prompt: text }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
         .then((reply) => {
           if (reply.type !== 'branch-spawn-result') return NOT_SENT_TEXT;
           if (!reply.ok || reply.branchId === null) return reply.error ?? NOT_SENT_TEXT;

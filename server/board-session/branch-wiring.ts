@@ -1,6 +1,8 @@
 import type { ProjectEntry } from '../config-store.ts';
 import type { BranchLink } from '../../shared/contracts/session.ts';
-import { branchPromptOf } from '../../shared/board-branch-core.ts';
+import { branchPromptOf, overlappingBranchTitle } from '../../shared/board-branch-core.ts';
+import type { BranchAbout, BranchTarget } from '../../shared/board-branch-core.ts';
+import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { errorMessage } from '../../shared/text.ts';
 import type { Session } from '../../session/sessions.ts';
 import { runHardenedGit } from '../git/git-workspace.ts';
@@ -21,13 +23,14 @@ type CreateProjectSession = (args: {
 
 interface BranchWiringDeps {
   findSession: (sessionId: string) => Session | null;
+  listSessions: () => Iterable<Session>;
+  resolveTarget: (repoDir: string, about: BranchAbout) => Promise<BranchTarget>;
   createProjectSession: CreateProjectSession;
 }
 
 interface BranchSpawnRequest {
   parentId: string;
-  aboutBoxId: string;
-  aboutTitle: string;
+  about: BranchAbout;
   prompt: string;
 }
 
@@ -42,17 +45,29 @@ async function headShaOf(worktreeDir: string): Promise<{ ok: true; sha: string }
   }
 }
 
-function createBranchWiring({ findSession, createProjectSession }: BranchWiringDeps) {
-  async function spawn(request: BranchSpawnRequest): Promise<BranchSpawnOutcome> {
+function createBranchWiring({ findSession, listSessions, resolveTarget, createProjectSession }: BranchWiringDeps) {
+  const spawnsByParentId = createKeyedSerialQueue();
+
+  function spawn(request: BranchSpawnRequest): Promise<BranchSpawnOutcome> {
+    return spawnsByParentId.run(request.parentId, () => spawnNow(request));
+  }
+
+  async function spawnNow(request: BranchSpawnRequest): Promise<BranchSpawnOutcome> {
     const parent = findSession(request.parentId);
     if (!parent) return { ok: false, error: 'That session is gone.' };
     if (!parent.isWorktree) return { ok: false, error: `${parent.name} has no worktree of its own, so a branch has no commit to start from.` };
+    const target = await resolveTarget(parent.path, request.about);
+    if (!target.ok) return target;
+    const liveBranches = [...listSessions()].filter((session) => session.branchOf?.parentId === parent.id && !session._destroyed);
+    const heldTitle = overlappingBranchTitle(target.title, liveBranches.map((branch) => branch.branchOf?.aboutTitle ?? ''));
+    const holder = liveBranches.find((branch) => branch.branchOf?.aboutTitle === heldTitle);
+    if (heldTitle !== null) return { ok: false, error: `${holder?.name ?? 'A live branch'} already works on ${heldTitle}, which overlaps ${target.title}; send that branch the work, or close it in Studio first.` };
     const parentDir = parent.effectiveCwd();
     const head = await headShaOf(parentDir);
     if (!head.ok) return { ok: false, error: `Could not read the last commit of ${parent.name}: ${head.error}` };
-    const link: BranchLink = { parentId: parent.id, aboutBoxId: request.aboutBoxId, aboutTitle: request.aboutTitle };
+    const link: BranchLink = { parentId: parent.id, aboutBoxId: target.boxId, aboutTitle: target.title };
     const created = createProjectSession({
-      name: `${parent.name} ${request.aboutTitle.split('/').filter(Boolean).at(-1) ?? request.aboutTitle}`,
+      name: `${parent.name} ${target.title.split('/').filter(Boolean).at(-1) ?? target.title}`,
       path: parent.path,
       agent: parent.agentId,
       dangerouslySkipPermissions: parent.dangerouslySkipPermissions,
