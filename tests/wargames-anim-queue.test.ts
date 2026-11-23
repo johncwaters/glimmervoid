@@ -151,3 +151,54 @@ test('directTurnEvents batches low-impact moves by actor while isolating high-im
   assert.deepEqual(quietTurn.lowImpactBatches.map((batch) => batch.map((item) => item.id)), [['train'], ['reinforce']]);
   assert.deepEqual(quietTurn.highImpact, []);
 });
+
+test('diplomacy queue plays appended beats one at a time, parks during a hold, and drops the oldest beats past its cap', () => {
+  const clock = createManualClock();
+  const events: string[] = [];
+  const beatNamed = (name: string) => ({
+    id: name,
+    durationMs: 300,
+    start: () => {
+      events.push(`start:${name}`);
+      return () => events.push(`end:${name}`);
+    },
+  });
+  const queue = createBoardAnimationQueue({
+    maxPendingBeats: 2,
+    scheduleTimer: clock.scheduleTimer,
+    cancelTimer: clock.cancelTimer,
+  });
+
+  queue.appendBeats([beatNamed('message')]);
+  queue.appendBeats([beatNamed('pact')]);
+  assert.deepEqual(events, ['start:message']);
+  assert.equal(queue.getState(), 'playing');
+
+  queue.hold();
+  assert.equal(queue.getState(), 'held');
+  assert.equal(clock.scheduled.size, 0);
+  assert.deepEqual(events, ['start:message', 'end:message']);
+
+  queue.resume();
+  assert.equal(events.at(-1), 'start:pact');
+  assert.equal(clock.flushNext(), 300);
+  assert.equal(queue.getState(), 'idle');
+
+  queue.hold();
+  queue.appendBeats([beatNamed('breach'), beatNamed('note'), beatNamed('thought')]);
+  assert.equal(queue.getState(), 'held');
+  assert.equal(events.at(-1), 'end:pact');
+  queue.resume();
+  assert.equal(events.at(-1), 'start:note');
+  clock.flushNext();
+  assert.equal(events.at(-1), 'start:thought');
+  clock.flushNext();
+  assert.equal(queue.getState(), 'idle');
+  assert.equal(events.includes('start:breach'), false);
+
+  queue.hold();
+  queue.resume();
+  assert.equal(queue.getState(), 'idle');
+  assert.equal(transitionBoardQueue('held', 'enqueue'), null);
+  assert.equal(transitionBoardQueue('held', 'clear'), 'idle');
+});

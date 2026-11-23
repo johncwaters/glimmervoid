@@ -1,5 +1,14 @@
-type BoardQueueState = 'idle' | 'playing' | 'disposed';
-type BoardQueueEvent = 'enqueue' | 'step_complete' | 'queue_drained' | 'clear' | 'dispose';
+type BoardQueueState = 'idle' | 'playing' | 'held' | 'disposed';
+type BoardQueueEvent =
+  | 'enqueue'
+  | 'append'
+  | 'step_complete'
+  | 'queue_drained'
+  | 'hold'
+  | 'resume'
+  | 'resume_idle'
+  | 'clear'
+  | 'dispose';
 
 export type BoardOverlayMode = 'idle' | 'recap' | 'preview';
 type BoardOverlayEvent = 'start_recap' | 'recap_drained' | 'show_previews' | 'hide_previews' | 'reset';
@@ -7,8 +16,16 @@ type BoardOverlayEvent = 'start_recap' | 'recap_drained' | 'show_previews' | 'hi
 type TransitionTable<State extends string, Event extends string> = Readonly<Record<State, Readonly<Partial<Record<Event, State>>>>>;
 
 const BOARD_QUEUE_TRANSITIONS: TransitionTable<BoardQueueState, BoardQueueEvent> = Object.freeze({
-  idle: { enqueue: 'playing', clear: 'idle', dispose: 'disposed' },
-  playing: { step_complete: 'playing', queue_drained: 'idle', clear: 'idle', dispose: 'disposed' },
+  idle: { enqueue: 'playing', append: 'playing', hold: 'held', clear: 'idle', dispose: 'disposed' },
+  playing: {
+    step_complete: 'playing',
+    queue_drained: 'idle',
+    append: 'playing',
+    hold: 'held',
+    clear: 'idle',
+    dispose: 'disposed',
+  },
+  held: { append: 'held', hold: 'held', resume: 'playing', resume_idle: 'idle', clear: 'idle', dispose: 'disposed' },
   disposed: {},
 });
 
@@ -35,6 +52,7 @@ export interface BoardAnimationBeat {
 interface BoardAnimationQueueOptions<TimerHandle = ReturnType<typeof setTimeout>> {
   readonly maxBatchDurationMs?: number;
   readonly minBeatDurationMs?: number;
+  readonly maxPendingBeats?: number;
   readonly shouldSkip?: () => boolean;
   readonly scheduleTimer?: (callback: () => void, delayMs: number) => TimerHandle;
   readonly cancelTimer?: (handle: TimerHandle) => void;
@@ -43,9 +61,17 @@ interface BoardAnimationQueueOptions<TimerHandle = ReturnType<typeof setTimeout>
 
 interface BoardAnimationQueue {
   enqueueBatch(beats: readonly BoardAnimationBeat[]): void;
+  appendBeats(beats: readonly BoardAnimationBeat[]): void;
+  hold(): void;
+  resume(): void;
   clear(): void;
   dispose(): void;
   getState(): BoardQueueState;
+}
+
+interface PendingBeat {
+  readonly beat: BoardAnimationBeat;
+  readonly scaledDurationMs: number;
 }
 
 const DEFAULT_MAX_BATCH_DURATION_MS = 40_000;
@@ -56,6 +82,7 @@ export function createBoardAnimationQueue<TimerHandle = ReturnType<typeof setTim
 ): BoardAnimationQueue {
   const maxBatchDurationMs = options.maxBatchDurationMs ?? DEFAULT_MAX_BATCH_DURATION_MS;
   const minBeatDurationMs = options.minBeatDurationMs ?? DEFAULT_MIN_BEAT_DURATION_MS;
+  const maxPendingBeats = options.maxPendingBeats ?? Number.POSITIVE_INFINITY;
   const shouldSkip = options.shouldSkip ?? (() => false);
   const scheduleTimer = options.scheduleTimer
     ?? ((callback: () => void, delayMs: number) => setTimeout(callback, delayMs) as TimerHandle);
@@ -64,7 +91,7 @@ export function createBoardAnimationQueue<TimerHandle = ReturnType<typeof setTim
   const onDrain = options.onDrain;
 
   let state: BoardQueueState = 'idle';
-  let pending: { beat: BoardAnimationBeat; scaledDurationMs: number }[] = [];
+  let pending: PendingBeat[] = [];
   let activeTimer: TimerHandle | null = null;
   let activeCleanup: (() => void) | null = null;
 
@@ -147,6 +174,31 @@ export function createBoardAnimationQueue<TimerHandle = ReturnType<typeof setTim
     runNextBeat();
   }
 
+  function appendBeats(beats: readonly BoardAnimationBeat[]): void {
+    if (state === 'disposed' || beats.length === 0 || shouldSkip()) return;
+    const wasIdle = state === 'idle';
+    pending.push(...beats.map((beat) => ({ beat, scaledDurationMs: Math.max(minBeatDurationMs, beat.durationMs) })));
+    if (pending.length > maxPendingBeats) pending = pending.slice(pending.length - maxPendingBeats);
+    if (!applyTransition('append')) return;
+    if (wasIdle) runNextBeat();
+  }
+
+  function hold(): void {
+    if (state === 'disposed') return;
+    stopActiveBeat();
+    applyTransition('hold');
+  }
+
+  function resume(): void {
+    if (state !== 'held') return;
+    if (pending.length === 0) {
+      applyTransition('resume_idle');
+      return;
+    }
+    applyTransition('resume');
+    runNextBeat();
+  }
+
   function dispose(): void {
     if (state === 'disposed') return;
     stopActiveBeat();
@@ -158,7 +210,7 @@ export function createBoardAnimationQueue<TimerHandle = ReturnType<typeof setTim
     return state;
   }
 
-  return { enqueueBatch, clear, dispose, getState };
+  return { enqueueBatch, appendBeats, hold, resume, clear, dispose, getState };
 }
 
 interface TurnHexImpactInput {
