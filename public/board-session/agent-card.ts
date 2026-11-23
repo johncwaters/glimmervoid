@@ -56,7 +56,7 @@ export function isBusyPhase(phase: ChatPhase): boolean {
   return BUSY_PHASES.has(phase);
 }
 
-export function isShrunk(model: AgentCardModel): boolean {
+function isShrunk(model: AgentCardModel): boolean {
   return model.isBranch && !model.isOpened && !isBusyPhase(model.phase);
 }
 
