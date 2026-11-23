@@ -34,7 +34,7 @@ import type { StudioGuide, StudioMapState } from './studio-guide.ts';
 import type { ChangesPeek, DiffPanel } from './studio-diff-panel.ts';
 import { onReviewChange, reloadReview, reviewOf } from '../review/review-store.ts';
 import type { AskCards } from './ask-card.ts';
-import { GLOW_TIER_RANK, createPresenceLayer, shownBoundsOfBoard } from './presence-layer.ts';
+import { GLOW_TIER_RANK, createPresenceLayer, shownBoundsOfBoard, shownMapBoundsOfBoard } from './presence-layer.ts';
 import type { GlowTier, PresenceLayer } from './presence-layer.ts';
 import { createAgentCards, isBusyPhase } from './agent-card.ts';
 import type { AgentCardModel, AgentCards } from './agent-card.ts';
@@ -385,7 +385,7 @@ function paintPresence(): void {
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   parts.presenceLayer.paint({ glows }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
-  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), hostCamera, dockAreaIn(parts.agentCards.element));
+  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, dockAreaIn(parts.agentCards.element));
   paintAsks();
 }
 

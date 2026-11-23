@@ -8,9 +8,9 @@ import { createLineIcon, createSvgShape } from '../svg-dom.ts';
 import { menuButton } from '../ui/button.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
+import { cardPlacementAreaOf, cardSpotOf } from './agent-card-place-core.ts';
+import type { CardSide } from './agent-card-place-core.ts';
 
-const CARD_OFFSET_PX = 48;
-const CARD_STACK_GAP_PX = 10;
 const FACE_SIZE_PX = 28;
 const UNPLACED_MAIN_LEFT_PX = 16;
 const UNPLACED_MAIN_TOP_PX = 64;
@@ -47,7 +47,7 @@ interface AgentCardActions {
 
 export interface AgentCards {
   element: HTMLElement;
-  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, camera: Camera, keepClearOf: Rect | null): void;
+  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, mapBounds: readonly Rect[], camera: Camera, keepClearOf: Rect | null): void;
 }
 
 interface ShownCard {
@@ -194,30 +194,25 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   };
 }
 
-function overlappingRectOf(left: number, top: number, card: HTMLElement, rects: readonly Rect[]): Rect | null {
-  return rects.find((rect) => {
-    const isBeside = left + card.offsetWidth <= rect.x || left >= rect.x + rect.width;
-    const isClear = top + card.offsetHeight + CARD_STACK_GAP_PX <= rect.y || top >= rect.y + rect.height + CARD_STACK_GAP_PX;
-    return !isBeside && !isClear;
-  }) ?? null;
+function wirePathOf(box: Rect, card: Rect, side: CardSide): string {
+  if (side === 'right' || side === 'left') {
+    const boxEdgeX = side === 'right' ? box.x + box.width : box.x;
+    const cardEdgeX = side === 'right' ? card.x : card.x + card.width;
+    const boxMiddleY = box.y + box.height / 2;
+    const cardEndY = card.y + Math.min(card.height / 2, FACE_SIZE_PX);
+    const bendX = (boxEdgeX + cardEdgeX) / 2;
+    return `M${boxEdgeX} ${boxMiddleY} C ${bendX} ${boxMiddleY}, ${bendX} ${cardEndY}, ${cardEdgeX} ${cardEndY}`;
+  }
+  const boxEdgeY = side === 'below' ? box.y + box.height : box.y;
+  const cardEdgeY = side === 'below' ? card.y : card.y + card.height;
+  const boxMiddleX = box.x + box.width / 2;
+  const cardEndX = card.x + Math.min(card.width / 2, FACE_SIZE_PX);
+  const bendY = (boxEdgeY + cardEdgeY) / 2;
+  return `M${boxMiddleX} ${boxEdgeY} C ${boxMiddleX} ${bendY}, ${cardEndX} ${bendY}, ${cardEndX} ${cardEdgeY}`;
 }
 
-function freeTopOf(cardLeft: number, wantedTop: number, card: HTMLElement, placedCardRects: readonly Rect[], keepClearOf: Rect | null): number {
-  const obstacles = keepClearOf === null ? placedCardRects : [...placedCardRects, keepClearOf];
-  let downTop = wantedTop;
-  for (let attempt = 0; attempt <= obstacles.length; attempt += 1) {
-    const overlapped = overlappingRectOf(cardLeft, downTop, card, obstacles);
-    if (overlapped === null) return downTop;
-    if (overlapped === keepClearOf) break;
-    downTop = overlapped.y + overlapped.height + CARD_STACK_GAP_PX;
-  }
-  let upTop = wantedTop;
-  for (let attempt = 0; attempt <= obstacles.length; attempt += 1) {
-    const overlapped = overlappingRectOf(cardLeft, upTop, card, obstacles);
-    if (overlapped === null) return Math.max(CARD_STACK_GAP_PX, upTop);
-    upTop = overlapped.y - card.offsetHeight - CARD_STACK_GAP_PX;
-  }
-  return Math.max(CARD_STACK_GAP_PX, upTop);
+function screenRectOf(rect: Rect, camera: Camera): Rect {
+  return { x: (rect.x - camera.x) * camera.scale, y: (rect.y - camera.y) * camera.scale, width: rect.width * camera.scale, height: rect.height * camera.scale };
 }
 
 export function createAgentCards(actions: AgentCardActions): AgentCards {
@@ -237,8 +232,10 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
 
   return {
     element,
-    paint: (models, boundsOf, camera, keepClearOf) => {
-      const placedCardRects: Rect[] = [];
+    paint: (models, boundsOf, mapBounds, camera, keepClearOf) => {
+      const placedCardRects: Rect[] = keepClearOf === null ? [] : [keepClearOf];
+      const view: Rect = { x: 0, y: UNPLACED_MAIN_TOP_PX, width: element.clientWidth, height: Math.max(0, element.clientHeight - UNPLACED_MAIN_TOP_PX) };
+      const placementArea = cardPlacementAreaOf(mapBounds.map((rect) => screenRectOf(rect, camera)), view);
       const paintedIds = new Set<string>();
       for (const model of models) {
         const boxId = model.boxIds.find((candidate) => boundsOf(candidate) !== null);
@@ -254,24 +251,21 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
           shown.card.style.transform = `translate(${UNPLACED_MAIN_LEFT_PX}px, ${UNPLACED_MAIN_TOP_PX}px)`;
           continue;
         }
-        const boxRight = (rect.x + rect.width - camera.x) * camera.scale;
-        const boxTop = (rect.y - camera.y) * camera.scale;
-        const boxMiddle = (rect.y + rect.height / 2 - camera.y) * camera.scale;
+        const boxOnScreen = screenRectOf(rect, camera);
         const isCardShrunk = isShrunk(model);
         shown.card.hidden = isCardShrunk;
         shown.shrunkFace.hidden = !isCardShrunk;
         shown.wire.toggleAttribute('data-hidden', isCardShrunk);
         if (isCardShrunk) {
-          shown.shrunkFace.style.transform = `translate(${boxRight - FACE_SIZE_PX / 2}px, ${boxTop - FACE_SIZE_PX / 2}px)`;
+          shown.shrunkFace.style.transform = `translate(${boxOnScreen.x + boxOnScreen.width - FACE_SIZE_PX / 2}px, ${boxOnScreen.y - FACE_SIZE_PX / 2}px)`;
           continue;
         }
-        const cardLeft = boxRight + CARD_OFFSET_PX;
-        const cardTop = freeTopOf(cardLeft, boxTop, shown.card, placedCardRects, keepClearOf);
-        placedCardRects.push({ x: cardLeft, y: cardTop, width: shown.card.offsetWidth, height: shown.card.offsetHeight });
-        shown.card.style.transform = `translate(${cardLeft}px, ${cardTop}px)`;
-        const wireEndY = cardTop + Math.min(shown.card.offsetHeight / 2, FACE_SIZE_PX);
-        const bendX = (boxRight + cardLeft) / 2;
-        shown.wire.setAttribute('d', `M${boxRight} ${boxMiddle} C ${bendX} ${boxMiddle}, ${bendX} ${wireEndY}, ${cardLeft} ${wireEndY}`);
+        const cardSize = { width: shown.card.offsetWidth, height: shown.card.offsetHeight };
+        const spot = cardSpotOf(boxOnScreen, cardSize, placementArea, placedCardRects);
+        const cardRect = { x: spot.x, y: spot.y, ...cardSize };
+        placedCardRects.push(cardRect);
+        shown.card.style.transform = `translate(${spot.x}px, ${spot.y}px)`;
+        shown.wire.setAttribute('d', wirePathOf(boxOnScreen, cardRect, spot.side));
       }
       for (const [sessionId, shown] of shownBySessionId) {
         if (paintedIds.has(sessionId)) continue;

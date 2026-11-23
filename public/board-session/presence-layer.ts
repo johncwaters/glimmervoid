@@ -40,6 +40,16 @@ export function shownBoundsOfBoard(board: Board | null, boundsOf: (boxId: string
   };
 }
 
+export function shownMapBoundsOfBoard(board: Board | null, boundsOf: (boxId: string) => Rect | null): Rect[] {
+  if (!board) return [];
+  const frameIdByBoxId = collapsedFrameIdByBoxIdOf(board);
+  const shownIds = new Set<string>();
+  for (const element of board.elements.values()) {
+    if (element.kind === 'box') shownIds.add(frameIdByBoxId.get(element.id) ?? element.id);
+  }
+  return [...shownIds].flatMap((shownId) => boundsOf(shownId) ?? []);
+}
+
 export function createPresenceLayer(boundsOf: (boxId: string) => Rect | null): PresenceLayer {
   const element = el('div', 'bs-presence');
   const glows = el('div', 'bs-presence-glows');
