@@ -2000,11 +2000,11 @@ async function verifyViewerPageZoom(page: Page, viewerPage: Locator): Promise<vo
   assert.equal(Math.round((zoomedBounds?.y ?? 0) - ((await settledBoundsOf(viewerPage))?.y ?? 0)), 20, 'a plain wheel inside a zoomed page pans it');
   const beforeDrag = await settledBoundsOf(viewerPage);
   await page.mouse.move(center.x, center.y);
-  await page.mouse.down();
+  await page.mouse.down({ button: 'right' });
   await page.mouse.move(center.x, center.y + 15, { steps: 5 });
-  await page.mouse.up();
+  await page.mouse.up({ button: 'right' });
   await page.waitForFunction((targetY) => Math.round((document.querySelector('iframe.wb-image-viewer-page')?.getBoundingClientRect().y ?? 0) - targetY) === 0, (beforeDrag?.y ?? 0) + 15, { timeout: BOARD_TIMEOUT_MS }).catch(() => undefined);
-  assert.equal(Math.round(((await settledBoundsOf(viewerPage))?.y ?? 0) - (beforeDrag?.y ?? 0)), 15, 'a mouse drag inside a zoomed page pans it');
+  assert.equal(Math.round(((await settledBoundsOf(viewerPage))?.y ?? 0) - (beforeDrag?.y ?? 0)), 15, 'a right drag inside a zoomed page pans it');
   await viewerPage.evaluate((frame) => new Promise((resolve) => {
     frame.addEventListener('load', resolve, { once: true });
     frame.setAttribute('src', frame.getAttribute('src') ?? '');
@@ -2098,8 +2098,18 @@ async function verifyViewerZoom(page: Page, media: Locator, viewerClose: Locator
   await page.mouse.down();
   await page.mouse.move(center.x - 80, center.y, { steps: 5 });
   await page.mouse.up();
-  const afterDrag = await settledBoundsOf(media);
-  assert.ok(beforeDrag && afterDrag && Math.abs(beforeDrag.x - afterDrag.x - 80) < 1.5, 'a drag pans zoomed media');
+  assert.deepEqual(await settledBoundsOf(media), beforeDrag, 'a left drag leaves zoomed media where it is, as it never pans the board');
+  for (const [panButton, dragX] of [['right', -80], ['middle', 80]] as const) {
+    const beforePanDrag = await settledBoundsOf(media);
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down({ button: panButton });
+    await page.mouse.move(center.x + dragX, center.y, { steps: 5 });
+    await page.mouse.up({ button: panButton });
+    const afterPanDrag = await settledBoundsOf(media);
+    assert.ok(beforePanDrag && afterPanDrag && Math.abs(afterPanDrag.x - beforePanDrag.x - dragX) < 1.5, `a ${panButton} drag pans zoomed media, as it pans the board`);
+  }
+  const isZoomedContextMenuCancelled = await media.evaluate((node) => !node.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 })));
+  assert.ok(isZoomedContextMenuCancelled, 'zoomed media keeps the browser context menu off its pan drag');
   await doubleTapOn(page, center);
   await untilScaleOf(media, 1, 1, 'a double tap on dragged media returns it to fit');
   await page.mouse.wheel(0, 40);

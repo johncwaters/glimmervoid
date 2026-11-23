@@ -82,6 +82,12 @@ export const BOARD_PAGE_SCROLL_MESSAGE = 'glimmervoid-board-page-scroll';
 export const BOARD_PAGE_SCROLLED_MESSAGE = 'glimmervoid-board-page-scrolled';
 export const BoardPageScrolled = z.object({ type: z.literal(BOARD_PAGE_SCROLLED_MESSAGE), hasScrolled: z.boolean() }).strict();
 
+export const BOARD_MIDDLE_MOUSE_BUTTON = 1;
+export const BOARD_CONTEXT_MOUSE_BUTTON = 2;
+export const BOARD_MOUSE_PAN_BUTTONS: readonly number[] = [BOARD_MIDDLE_MOUSE_BUTTON, BOARD_CONTEXT_MOUSE_BUTTON];
+const MOUSE_BUTTONS_BIT_BY_BUTTON: readonly number[] = [1, 4, 2, 8, 16];
+export const BOARD_MOUSE_PAN_BUTTONS_MASK = BOARD_MOUSE_PAN_BUTTONS.reduce((mask, button) => mask | (MOUSE_BUTTONS_BIT_BY_BUTTON[button] ?? 0), 0);
+
 const PagePixels = z.number().finite();
 export const BoardPageGesture = z.discriminatedUnion('gesture', [
   z.object({ type: z.literal(BOARD_PAGE_GESTURE_MESSAGE), gesture: z.literal('pinch'), centerX: PagePixels, centerY: PagePixels, scaleFactor: z.number().finite().positive() }).strict(),

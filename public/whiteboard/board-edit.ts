@@ -1,4 +1,4 @@
-import { boxIdOfEnd, filledBox, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
+import { BOARD_CONTEXT_MOUSE_BUTTON, BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS, boxIdOfEnd, filledBox, LINE_STYLES, WHITEBOARD_LIMITS } from '#shared/contracts/whiteboard.ts';
 import type { Board, Element as BoardElement, Box, BoxLine, BoxMedia, Frame, Op, Wire, WireEnd } from '#shared/contracts/whiteboard.ts';
 import { PLACED_DEVICE } from '#shared/whiteboard-devices.ts';
 import { PLACED_ICON } from '#shared/whiteboard-icons.ts';
@@ -128,10 +128,6 @@ interface NudgeRun {
 }
 
 type BoxFields = { place: { at: ViewPoint } } | { width: number };
-
-const AUXILIARY_PAN_BUTTON = 1;
-const CONTEXT_MENU_BUTTON = 2;
-const MOUSE_PAN_BUTTONS: ReadonlySet<number> = new Set([AUXILIARY_PAN_BUTTON, CONTEXT_MENU_BUTTON]);
 
 type PanButton = 'primary' | 'auxiliary' | 'context';
 type StackOrder = Extract<Op, { op: 'order' }>['to'];
@@ -804,7 +800,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
     event.preventDefault();
     activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     viewport.setPointerCapture(event.pointerId);
-    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: event.button === CONTEXT_MENU_BUTTON ? 'context' : 'auxiliary', tappedBoxId: null, pressedImage: null };
+    gesture = { kind: 'pan', pointerId: event.pointerId, lastClient: { x: event.clientX, y: event.clientY }, hasMoved: false, pressedButton: event.button === BOARD_CONTEXT_MOUSE_BUTTON ? 'context' : 'auxiliary', tappedBoxId: null, pressedImage: null };
   }
 
   function startInk(event: PointerEvent): void {
@@ -905,7 +901,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   function onPointerDown(event: PointerEvent): void {
     if (inlineEditor) return;
-    if (event.pointerType === 'mouse' && MOUSE_PAN_BUTTONS.has(event.button) && !gesture) {
+    if (event.pointerType === 'mouse' && BOARD_MOUSE_PAN_BUTTONS.includes(event.button) && !gesture) {
       startButtonPan(event);
       return;
     }
@@ -2089,12 +2085,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
       if (cancelAuxClickSuppression === clearSuppression) cancelAuxClickSuppression = null;
     };
     const stopAuxiliaryClick = (event: MouseEvent) => {
-      if (event.button !== AUXILIARY_PAN_BUTTON) return;
+      if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON) return;
       event.preventDefault();
       clearSuppression();
     };
     const scheduleCleanup = (event: MouseEvent) => {
-      if (event.button !== AUXILIARY_PAN_BUTTON || cleanupTimer !== null) return;
+      if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON || cleanupTimer !== null) return;
       cleanupTimer = setTimeout(clearSuppression, 0);
     };
     window.addEventListener('auxclick', stopAuxiliaryClick, true);
@@ -2106,18 +2102,18 @@ export function createBoardEditor(options: BoardEditorOptions) {
   }
 
   function armOnAuxiliaryPointerDown(event: PointerEvent): void {
-    if (event.button !== AUXILIARY_PAN_BUTTON) return;
+    if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON) return;
     armAuxiliaryClickSuppression();
   }
 
   function preventAuxiliaryMouseDown(event: MouseEvent): void {
-    if (event.button !== AUXILIARY_PAN_BUTTON) return;
+    if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON) return;
     event.preventDefault();
     armAuxiliaryClickSuppression();
   }
 
   function preventAuxiliaryClick(event: MouseEvent): void {
-    if (event.button !== AUXILIARY_PAN_BUTTON) return;
+    if (event.button !== BOARD_MIDDLE_MOUSE_BUTTON) return;
     event.preventDefault();
   }
 
@@ -2134,7 +2130,7 @@ export function createBoardEditor(options: BoardEditorOptions) {
   viewport.addEventListener('dblclick', onDoubleClick);
   viewport.addEventListener('contextmenu', (event) => {
     event.preventDefault();
-    if (gesture || event.button === CONTEXT_MENU_BUTTON || isPhoneLayout()) return;
+    if (gesture || event.button === BOARD_CONTEXT_MOUSE_BUTTON || isPhoneLayout()) return;
     openContextMenuFromKeyboard();
   });
   viewport.addEventListener('keydown', onKeyDown);

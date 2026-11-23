@@ -1,6 +1,7 @@
 import { FIT_ZOOM, isZoomedIn, panBy, stagePointOf, toggleFitAbout, wheelZoomFactor, zoomAbout } from './media-zoom-core.ts';
 import type { MediaZoom, StagePoint } from './media-zoom-core.ts';
 import { WHEEL_ZOOM_STEP } from './board-edit.ts';
+import { BOARD_MIDDLE_MOUSE_BUTTON, BOARD_MOUSE_PAN_BUTTONS } from '#shared/contracts/whiteboard.ts';
 import type { BoardPageGesture } from '#shared/contracts/whiteboard.ts';
 
 const PAN_SLOP_PX = 6;
@@ -79,7 +80,7 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
   }
 
   function onPointerDown(event: PointerEvent): void {
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (event.pointerType === 'mouse' && !BOARD_MOUSE_PAN_BUTTONS.includes(event.button)) return;
     const point = stagePointOfClient(event.clientX, event.clientY);
     pointers.set(event.pointerId, point);
     if (pointers.size === 2) {
@@ -142,7 +143,18 @@ export function attachMediaZoom(stage: HTMLElement, media: HTMLElement, onZoomed
     show(panBy(zoom, -event.deltaX, -event.deltaY, mediaSize()));
   }
 
+  function keepContextMenuOffZoomedMedia(event: MouseEvent): void {
+    if (isZoomedIn(zoom)) event.preventDefault();
+  }
+
+  function keepMiddleButtonForPanning(event: MouseEvent): void {
+    if (event.button === BOARD_MIDDLE_MOUSE_BUTTON && isZoomedIn(zoom)) event.preventDefault();
+  }
+
   stage.addEventListener('pointerdown', onPointerDown);
+  stage.addEventListener('contextmenu', keepContextMenuOffZoomedMedia);
+  stage.addEventListener('mousedown', keepMiddleButtonForPanning);
+  stage.addEventListener('auxclick', keepMiddleButtonForPanning);
   stage.addEventListener('pointermove', onPointerMove);
   stage.addEventListener('pointerup', onPointerEnd);
   stage.addEventListener('pointercancel', onPointerEnd);
