@@ -61,6 +61,11 @@ const HEX_INNER_RADIUS = HEX_SIZE - 2;
 const LOYALTY_BAR_WIDTH = 36;
 const LOYALTY_BAR_HEIGHT = 3;
 const SQRT_3 = Math.sqrt(3);
+const DIPLOMACY_MESSAGE_BEAT_MS = 2600;
+const DIPLOMACY_THOUGHT_BEAT_MS = 2400;
+const DIPLOMACY_PACT_BEAT_MS = 2000;
+const DIPLOMACY_BREACH_BEAT_MS = 2400;
+const DIPLOMACY_MAX_PENDING_BEATS = 10;
 
 export const UNIT_GLYPH_PATHS: readonly { key: 'raider' | 'guard' | 'envoy'; label: string; path: string }[] = [
   { key: 'raider', label: 'Raider', path: 'M 3 13 L 13 3 M 10 3 H 13 V 6 M 4.5 9.5 L 6.5 11.5' },
@@ -896,6 +901,12 @@ function renderPreviewBadge(
   layer.append(group);
 }
 
+function cleanupNodes(nodes: readonly (SVGElement | null)[]): () => void {
+  return () => {
+    for (const node of nodes) node?.remove();
+  };
+}
+
 interface WargamesMapView {
   readonly element: SVGSVGElement;
   update(
@@ -954,17 +965,13 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   let lastActiveContractIds = new Set<string>();
   let lastLedgerCount = 0;
   let lastNoteBySeat = new Map<SeatId, string>();
-  const transientFxTimers = new Set<ReturnType<typeof setTimeout>>();
-  const activeCalloutBySeat = new Map<SeatId, { node: SVGElement; timer: ReturnType<typeof setTimeout> }>();
+  const diplomacyQueue = createBoardAnimationQueue({
+    shouldSkip: () => !prefersMotion(),
+    maxPendingBeats: DIPLOMACY_MAX_PENDING_BEATS,
+  });
 
-  function clearTransientFx(): void {
-    for (const handle of transientFxTimers) clearTimeout(handle);
-    transientFxTimers.clear();
-    for (const entry of activeCalloutBySeat.values()) {
-      clearTimeout(entry.timer);
-      entry.node.remove();
-    }
-    activeCalloutBySeat.clear();
+  function resetDiplomacyFx(): void {
+    diplomacyQueue.clear();
     commsLayer.replaceChildren();
   }
 
@@ -972,41 +979,6 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     const owned = visibleVillagesArray(state, pov).find((village) => village?.owner === seatId);
     if (!owned) return null;
     return slots[owned.hexIndex] ?? null;
-  }
-
-  function mountSeatBoardCallout(
-    seatId: SeatId,
-    anchorSlot: HexNodeSlot | null,
-    options: { label: string; color: string; isThought: boolean; durationMs: number },
-  ): void {
-    if (!anchorSlot) return;
-    const previous = activeCalloutBySeat.get(seatId);
-    if (previous) {
-      clearTimeout(previous.timer);
-      previous.node.remove();
-      activeCalloutBySeat.delete(seatId);
-    }
-    const node = appendBoardCallout(commsLayer, anchorSlot.centerX, anchorSlot.centerY, options);
-    const timer = setTimeout(() => {
-      activeCalloutBySeat.delete(seatId);
-      node.remove();
-    }, options.durationMs);
-    activeCalloutBySeat.set(seatId, { node, timer });
-  }
-
-  function mountTransientDiplomacyArc(
-    fromSlot: HexNodeSlot | null,
-    toSlot: HexNodeSlot | null,
-    options: { stroke: string; dasharray: string; label: string; durationMs: number },
-  ): void {
-    if (!fromSlot || !toSlot) return;
-    const node = appendDiplomacyArc(commsLayer, fromSlot, toSlot, options);
-    if (!node) return;
-    const handle = setTimeout(() => {
-      transientFxTimers.delete(handle);
-      node.remove();
-    }, options.durationMs);
-    transientFxTimers.add(handle);
   }
 
   function syncDiplomacyTracking(state: MatchState): void {
@@ -1019,7 +991,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
   }
 
   function emitLiveDiplomacyFx(state: MatchState, pov: WargamesPov): void {
-    const allowsMotion = prefersMotion();
+    const firstNewMessageNumber = lastMessageCount;
+    const firstNewBreachNumber = lastLedgerCount;
     const newMessages = state.messages.slice(lastMessageCount);
     const activeContracts = [...state.contracts.values()].filter((contract) => contract.status === 'active');
     const newlyAccepted = activeContracts.filter((contract) => !lastActiveContractIds.has(contract.id));
@@ -1033,57 +1006,94 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
       }
     }
     syncDiplomacyTracking(state);
+    if (!prefersMotion()) return;
 
-    if (!allowsMotion) return;
+    const beats: BoardAnimationBeat[] = [];
     const povSeat = pov === 'god' ? null : state.seats.find((candidate) => candidate.config.seatId === pov) ?? null;
-    for (const message of newMessages) {
+    for (const [offset, message] of newMessages.entries()) {
       const isVisible = pov === 'god'
         || message.from === pov
         || message.to === pov
         || (message.channel === 'tribe' && povSeat !== null && povSeat.tribeId !== null && povSeat.tribeId === message.tribeId);
       if (!isVisible) continue;
-      if (message.channel === 'dm' && message.to !== null) {
-        mountTransientDiplomacyArc(seatAnchorSlot(state, pov, message.from), seatAnchorSlot(state, pov, message.to), {
-          stroke: SEAT_COLORS[message.from],
-          dasharray: '4 4',
-          label: `${message.from.toUpperCase()}->${message.to.toUpperCase()} DM`,
-          durationMs: 3800,
-        });
-      }
+      const speakerSlot = seatAnchorSlot(state, pov, message.from);
+      if (!speakerSlot) continue;
+      const recipientSlot = message.channel === 'dm' && message.to !== null ? seatAnchorSlot(state, pov, message.to) : null;
       const prefix = message.to ? `${message.from.toUpperCase()}->${message.to.toUpperCase()}` : message.from.toUpperCase();
-      mountSeatBoardCallout(message.from, seatAnchorSlot(state, pov, message.from), {
-        label: `${prefix}: ${message.text}`,
-        color: SEAT_COLORS[message.from],
-        isThought: false,
-        durationMs: 4500,
+      beats.push({
+        id: `message-${firstNewMessageNumber + offset}`,
+        durationMs: DIPLOMACY_MESSAGE_BEAT_MS,
+        start: (durationMs) => cleanupNodes([
+          recipientSlot
+            ? appendDiplomacyArc(commsLayer, speakerSlot, recipientSlot, {
+              stroke: SEAT_COLORS[message.from],
+              dasharray: '4 4',
+              label: `${prefix} DM`,
+              durationMs,
+            })
+            : null,
+          appendBoardCallout(commsLayer, speakerSlot.centerX, speakerSlot.centerY, {
+            label: `${prefix}: ${message.text}`,
+            color: SEAT_COLORS[message.from],
+            isThought: false,
+            durationMs,
+          }),
+        ]),
       });
     }
     for (const entry of updatedNotes) {
       if (pov !== 'god' && entry.seatId !== pov) continue;
-      mountSeatBoardCallout(entry.seatId, seatAnchorSlot(state, pov, entry.seatId), {
-        label: `${entry.seatId.toUpperCase()}: ${entry.note}`,
-        color: SEAT_COLORS[entry.seatId],
-        isThought: true,
-        durationMs: 4500,
+      const thinkerSlot = seatAnchorSlot(state, pov, entry.seatId);
+      if (!thinkerSlot) continue;
+      beats.push({
+        id: `note-${entry.seatId}-${state.tick}`,
+        durationMs: DIPLOMACY_THOUGHT_BEAT_MS,
+        start: (durationMs) => cleanupNodes([
+          appendBoardCallout(commsLayer, thinkerSlot.centerX, thinkerSlot.centerY, {
+            label: `${entry.seatId.toUpperCase()}: ${entry.note}`,
+            color: SEAT_COLORS[entry.seatId],
+            isThought: true,
+            durationMs,
+          }),
+        ]),
       });
     }
     for (const contract of newlyAccepted) {
       if (pov !== 'god' && contract.proposer !== pov && contract.counterparty !== pov) continue;
-      mountTransientDiplomacyArc(seatAnchorSlot(state, pov, contract.proposer), seatAnchorSlot(state, pov, contract.counterparty), {
-        stroke: 'var(--state-running)',
-        dasharray: 'none',
-        label: 'PACT',
-        durationMs: 4200,
+      const proposerSlot = seatAnchorSlot(state, pov, contract.proposer);
+      const counterpartySlot = seatAnchorSlot(state, pov, contract.counterparty);
+      if (!proposerSlot || !counterpartySlot) continue;
+      beats.push({
+        id: `pact-${contract.id}`,
+        durationMs: DIPLOMACY_PACT_BEAT_MS,
+        start: (durationMs) => cleanupNodes([
+          appendDiplomacyArc(commsLayer, proposerSlot, counterpartySlot, {
+            stroke: 'var(--state-running)',
+            dasharray: 'none',
+            label: 'PACT',
+            durationMs,
+          }),
+        ]),
       });
     }
-    for (const breach of newBreaches) {
-      mountTransientDiplomacyArc(seatAnchorSlot(state, pov, breach.breacher), seatAnchorSlot(state, pov, breach.victim), {
-        stroke: 'var(--state-failed)',
-        dasharray: '6 3',
-        label: 'BREACH',
-        durationMs: 4800,
+    for (const [offset, breach] of newBreaches.entries()) {
+      const breacherSlot = seatAnchorSlot(state, pov, breach.breacher);
+      const victimSlot = seatAnchorSlot(state, pov, breach.victim);
+      if (!breacherSlot || !victimSlot) continue;
+      beats.push({
+        id: `breach-${firstNewBreachNumber + offset}`,
+        durationMs: DIPLOMACY_BREACH_BEAT_MS,
+        start: (durationMs) => cleanupNodes([
+          appendDiplomacyArc(commsLayer, breacherSlot, victimSlot, {
+            stroke: 'var(--state-failed)',
+            dasharray: '6 3',
+            label: 'BREACH',
+            durationMs,
+          }),
+        ]),
       });
     }
+    diplomacyQueue.appendBeats(beats);
   }
 
   function prefersMotion(): boolean {
@@ -1242,6 +1252,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
         renderActiveArmies(latestState, latestPov, latestSpotlightSeatId);
       }
       renderOrderPreviews();
+      diplomacyQueue.resume();
     },
   });
 
@@ -1437,7 +1448,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (!state) {
       animQueue.clear();
-      clearTransientFx();
+      resetDiplomacyFx();
       armyLayer.replaceChildren();
       fxLayer.replaceChildren();
       previewLayer.replaceChildren();
@@ -1476,6 +1487,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (isSameView && resolvedTick === lastResolvedTick && overlayMode === 'recap') {
       paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
+      emitLiveDiplomacyFx(state, pov);
       return;
     }
 
@@ -1493,7 +1505,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     if (!isSameView || !allowsMotion || isResolutionJump || !isConsecutiveResolution) {
       if (!isSameView || !allowsMotion || isResolutionJump) {
         animQueue.clear();
-        clearTransientFx();
+        resetDiplomacyFx();
         fxLayer.replaceChildren();
         advanceOverlay('reset');
         syncDiplomacyTracking(state);
@@ -1515,6 +1527,7 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (overlayMode === 'recap') {
       animQueue.clear();
+      diplomacyQueue.resume();
       fxLayer.replaceChildren();
       advanceOverlay('reset');
     }
@@ -1617,7 +1630,6 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
     lastResolvedTick = resolvedTick;
     lastVillageSnapshots = targetVillages.map(cloneVillage);
     lastArmySnapshots = nextArmySnapshots;
-    emitLiveDiplomacyFx(state, pov);
 
     const beats: BoardAnimationBeat[] = [];
     const activeHexIndices = [...new Set([...glidesByDestHex.keys(), ...deltasByHex.keys()])]
@@ -1816,10 +1828,13 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
     if (beats.length > 0) {
       advanceOverlay('start_recap');
+      diplomacyQueue.hold();
       animQueue.enqueueBatch(beats);
+      emitLiveDiplomacyFx(state, pov);
       return;
     }
 
+    emitLiveDiplomacyFx(state, pov);
     displayedVillages = targetVillages.map(cloneVillage);
     paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
     renderActiveArmies(state, pov, spotlightSeatId);
@@ -1828,7 +1843,8 @@ export function createWargamesMap(onSelectHex: (hexIndex: number) => void): Warg
 
   function dispose(): void {
     animQueue.dispose();
-    clearTransientFx();
+    diplomacyQueue.dispose();
+    commsLayer.replaceChildren();
     fxLayer.replaceChildren();
     previewLayer.replaceChildren();
     advanceOverlay('reset');
