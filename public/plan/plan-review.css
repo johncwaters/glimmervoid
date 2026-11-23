@@ -41,6 +41,10 @@ ul.plan-list { list-style: disc; }
 .plan-blockquote { margin: 0 0 1em; padding: 10px 14px; border: 1px solid var(--border-dim); color: var(--text-dim); }
 .plan-rule { margin: 20px 0; border: 0; border-top: 1px solid var(--border); }
 .plan-link { color: var(--text-head); text-decoration: underline; text-underline-offset: 2px; }
+.plan-file-ref { display: inline; padding: 0; border: 0; background: none; color: var(--text-head); font: inherit; font-family: var(--font-mono); }
+button.plan-file-ref:disabled { cursor: text; color: var(--text-head); user-select: text; }
+button.plan-file-ref:enabled { cursor: pointer; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+button.plan-file-ref:enabled:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; border-radius: var(--radius); }
 @container (max-width: 700px) {
   .plan-control { padding-inline: 6px; }
 }

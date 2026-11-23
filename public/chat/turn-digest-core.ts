@@ -56,7 +56,7 @@ function askedOf(finalText: string): string | null {
 const MAX_INTERIM_REPLY_CHARS = 60;
 
 function hasLink(inlines: readonly PlanInline[]): boolean {
-  return inlines.some((inline) => inline.type === 'link' || ('children' in inline && hasLink(inline.children)));
+  return inlines.some((inline) => inline.type === 'link' || inline.type === 'fileRef' || ('children' in inline && hasLink(inline.children)));
 }
 
 export function interimReplyText(text: string): string | null {

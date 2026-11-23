@@ -417,6 +417,29 @@ test('a pass with no new entries pushes its changed totals, an incremental io-fa
   await wiring.stop();
 });
 
+test('a session the scanner never measured gets no usage row, so Chat shows no cost instead of $0.00', async () => {
+  const scanner = scriptedScanner([], [COMPLETE_PASS]);
+  scanner.liveSessionStats = () => new Map([['claude:resume-a', { tokens: 10, costUSD: 1, lastTs: 1, lastHourCostUSD: 0 }]]);
+  const pushedSessionIds: string[][] = [];
+  const wiring = createUsageWiring({
+    config: {},
+    sessions: new Map([['card-a', { resumeSessionId: 'resume-a' }], ['card-unmeasured', { resumeSessionId: 'resume-unmeasured', agentId: 'antigravity' }]]),
+    broadcast: (message) => {
+      if (message.type !== 'usage-sessions' || !Array.isArray(message.sessions)) return;
+      pushedSessionIds.push(message.sessions.map((row: unknown) => String((row as { id?: unknown }).id)));
+    },
+    createScanner: () => scanner,
+    loadPricingFn: async () => ({ table: new Map(), source: 'snapshot', fetchedAt: null }),
+    logger: { warn: () => {}, log: () => {} },
+  });
+
+  await wiring.start();
+  await wiring.requestReport({ force: true });
+
+  assert.deepEqual(pushedSessionIds.at(-1), ['card-a']);
+  await wiring.stop();
+});
+
 test('a byte-limited continuation re-arms while a real scan is in flight without starting a concurrent pass', async (context) => {
   const directory = await realFsp.mkdtemp(path.join(os.tmpdir(), 'glimmervoid-usage-continuation-'));
   const claudeHome = path.join(directory, 'claude');

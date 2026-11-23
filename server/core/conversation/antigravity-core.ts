@@ -65,10 +65,14 @@ function toolResultRecords(base: RecordBase, stepNamespace: string, step: Step):
   }];
 }
 
+function midTurnRecords(records: TraceRecord[]): TraceRecord[] {
+  return records.map((record) => (record.kind === 'expansion' ? { ...record, midTurn: true } : record));
+}
+
 function recordsOfStep(base: RecordBase, stepNamespace: string, step: Step): TraceRecord[] {
   if (step.type === 'PLANNER_RESPONSE') return plannerRecords(base, stepNamespace, step);
   if (step.type === 'GENERIC') return toolResultRecords(base, stepNamespace, step);
-  if (step.type === 'SYSTEM_MESSAGE') return textRecords(base, 'expansion', taggedText(step.content, 'SYSTEM_MESSAGE') ?? step.content);
+  if (step.type === 'SYSTEM_MESSAGE') return midTurnRecords(textRecords(base, 'expansion', taggedText(step.content, 'SYSTEM_MESSAGE') ?? step.content));
   if (step.type !== 'USER_INPUT') return [];
   const request = taggedText(step.content, 'USER_REQUEST') ?? step.content;
   return textRecords(base, step.source === 'USER_EXPLICIT' ? 'prompt' : 'expansion', request);

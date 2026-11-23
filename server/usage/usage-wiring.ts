@@ -479,12 +479,13 @@ function createUsageWiring({
       const vendor = vendorForAgentId(sess.agentId);
       const stats = liveStats?.get(`${vendor}:${resumeId}`);
       const fallback = fallbackTotals?.get(resumeId);
+      const officialCostUSD = selectOfficialSessionCost(USAGE_COST_MODE, officialCostByClaudeId.get(resumeId));
+      if (!stats && !fallback && officialCostUSD === null) continue;
       const tokens = stats?.tokens ?? fallback?.tokens ?? 0;
       const costUSD = stats?.costUSD ?? fallback?.costUSD ?? 0;
       const lastTs = stats?.lastTs ?? fallback?.lastTs ?? null;
       const totalInput = (stats?.input ?? 0) + (stats?.cacheRead ?? 0);
       const cacheHitPct = stats && totalInput > 0 ? Math.round(((stats.cacheRead ?? 0) / totalInput) * 100) : null;
-      const officialCostUSD = selectOfficialSessionCost(USAGE_COST_MODE, officialCostByClaudeId.get(resumeId));
       rows.push({
         id,
         name: sess.name,

@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chat no longer claims an unmeasured session cost $0.00.** Glimmervoid does not track Antigravity usage, yet its Chat footer read session $0.00. A session with no recorded usage now shows no cost at all.
+- **An Antigravity turn's summary covers the whole turn.** Antigravity's own reminders and background task notices each started a new turn in Chat, so a long turn could end with a summary like 1 tool and 13s. The summary under a reply now counts every tool and the full time since your message.
+- **File links in Antigravity and Codex chats show the file and line.** When an agent linked a file in its reply, Chat showed only the link text, so a summary could read "boards-view.ts and boards-view.ts" with no way to tell the two apart. Chat now shows the file name with its line, like boards-view.ts:516-530, and a file among the session's changes opens in Changes when clicked.
 - **Destructive menu items show in red again.** Delete board in the board menu, Delete in the board right-click menu and Remove in an agent account menu now use the danger menu item tone so they stand out in red instead of blending in with the other menu items.
 - **Show on board no longer jolts the chat.** Clicking Show on board, or its shortcut, while already in Focus rebuilt the chat, so it jumped up a little. It now opens the board and leaves the chat as it was.
 - **A config.json edit from outside Glimmervoid survives a save.** When another tool, such as `glimmervoid settings set --file` or a dotfiles sync, wrote config.json while Glimmervoid was saving its own change, Glimmervoid wrote over it. A save now checks the file again just before writing and, if it changed, redoes its change on top of the new content.

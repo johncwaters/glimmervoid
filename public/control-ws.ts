@@ -17,7 +17,7 @@ export const UNREADABLE_SERVER_MESSAGE_TEXT = 'The server sent a message this da
 interface PendingRequest {
   resolve: (message: ServerMessage) => void;
   reject: (reason: Error) => void;
-  timer: number;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 interface ControlClientOptions {
@@ -45,7 +45,7 @@ export function nextRequestId(prefix: string): string {
 
 function createControlClient(options: ControlClientOptions): ControlClient {
   let controlWs: WebSocket | null = null;
-  let controlRetryTimer: number | null = null;
+  let controlRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let controlRetryAttempt = 0;
   let lastSeq = 0;
   let isAbandoned = false;
