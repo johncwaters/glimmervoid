@@ -1545,6 +1545,10 @@
     {
       "name": "approval",
       "definition": "The operator's go-ahead Glimmervoid waits for before something proceeds: an agent's held question or permission request (a conversation approval, answered on its Chat or Studio card), a plan, a pack's files, or a PR flow command"
+    },
+    {
+      "name": "orchestrator",
+      "definition": "What Glimmervoid is: a local agent orchestrator that spawns and supervises coding agent sessions (Glimmervoid.spec.md, AGENTS.md); in Studio, the Orchestrator is a repo's main agent (isStudioMain), which takes the operator's Studio messages, works on the repo's code map board and starts no sessions of its own"
     }
   ],
   "retired": [
