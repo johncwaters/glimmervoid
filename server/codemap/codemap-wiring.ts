@@ -559,10 +559,14 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     };
   }
 
+  function branchTargetAt(boxId: string, repoPath: string): BranchTarget {
+    const title = repoPath === '.' ? REPO_ROOT_BRANCH_TITLE : repoPath;
+    if (title.length > WHITEBOARD_LIMITS.title) return { ok: false, error: `${repoPath} is too long a path to name a branch after; start the branch on a folder above it` };
+    return { ok: true, boxId, title };
+  }
+
   function branchTargetOfModule(model: CodemapModel, moduleId: string): BranchTarget {
-    const title = moduleId === '.' ? REPO_ROOT_BRANCH_TITLE : moduleId;
-    if (title.length > WHITEBOARD_LIMITS.title) return { ok: false, error: `${moduleId} is too long a path to name a branch after; start the branch on a folder above it` };
-    return { ok: true, boxId: moduleId === '.' ? fallbackBoxIdOf(model) : moduleBoxIdOf(moduleId), title };
+    return branchTargetAt(moduleId === '.' ? fallbackBoxIdOf(model) : moduleBoxIdOf(moduleId), moduleId);
   }
 
   async function branchTargetOf(repoDir: string, about: BranchAbout): Promise<BranchTarget> {
@@ -571,6 +575,8 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
     const model = map.model;
     if ('boxId' in about) {
+      const folder = folderOfMapBoxId(model, about.boxId);
+      if (folder !== null) return branchTargetAt(about.boxId, folder);
       const moduleId = model.modules.map((summary) => summary.id).find((candidate) => candidate !== '.' && moduleBoxIdOf(candidate) === about.boxId) ?? (about.boxId === fallbackBoxIdOf(model) ? '.' : null);
       if (moduleId === null) return { ok: false, error: 'that box is not a folder or file on the code map any more; pick another' };
       return branchTargetOfModule(model, moduleId);

@@ -38,17 +38,23 @@ function createChildChannels(runtime: AgentApiRuntime) {
     if (!endCauseByChildId.has(childId)) endCauseByChildId.set(childId, cause);
   }
 
-  function forgetLink(childId: string): void {
+  function unlink(childId: string): void {
     const link = linksByChildId.get(childId);
     if (link) for (const timer of link.retryTimersBySide.values()) clearTimeoutFn(timer);
     link?.stopWatchingChild();
     linksByChildId.delete(childId);
+  }
+
+  function forgetLink(childId: string): void {
+    unlink(childId);
     channelsByChildId.delete(childId);
   }
 
   function forgetChannelsOf(parent: Session): void {
     for (const [childId, channel] of channelsByChildId) {
-      if (channel.parentId === parent.id && linksByChildId.get(childId)?.parent === parent) forgetLink(childId);
+      if (channel.parentId !== parent.id || linksByChildId.get(childId)?.parent !== parent) continue;
+      if (channel.kind === 'branch') unlink(childId);
+      if (channel.kind !== 'branch') forgetLink(childId);
     }
   }
 
@@ -228,7 +234,8 @@ function createChildChannels(runtime: AgentApiRuntime) {
   }
 
   function openChildChannel(parent: Session, child: Session, childName: string, kind: ChannelKind = 'spawned'): () => void {
-    channelsByChildId.set(child.id, openChannel({ kind, parentId: parent.id, childId: child.id, childName }));
+    const keptChannel = channelsByChildId.get(child.id);
+    channelsByChildId.set(child.id, kind === 'branch' && keptChannel?.kind === 'branch' && keptChannel.parentId === parent.id ? keptChannel : openChannel({ kind, parentId: parent.id, childId: child.id, childName }));
     const link: ChannelLink = {
       parent, child, lastChildMessage: null, waitingStopNoteText: null, hasParentRead: false, pendingWakeSides: new Set(), retryTimersBySide: new Map(), stopWatchingChild: () => {},
     };
@@ -265,9 +272,12 @@ function createChildChannels(runtime: AgentApiRuntime) {
     const detachFromMain = openChildChannel(main, branch, branch.name, 'branch');
     const forgetBranch = () => {
       detachFromMain();
-      if (linksByChildId.get(branch.id)?.parent === main) forgetLink(branch.id);
+      const link = linksByChildId.get(branch.id);
+      if (!link || link.parent === main) forgetLink(branch.id);
     };
     branch.once('teardown', forgetBranch);
+    wakeRecipient(branch.id, 'toParent');
+    wakeRecipient(branch.id, 'toChild');
   }
 
   function linkBranchSession(session: Session): void {

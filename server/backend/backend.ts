@@ -485,7 +485,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     digestsPath: path.join(glimmervoidHomeDir(), 'director-digests.json'),
     announceDigest: (sessionId) => broadcastControlFromWebSockets({ type: 'director-digest-kept', id: sessionId }),
     boards: whiteboards,
-    tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false,
   }) : null;
   if (director && traceWiring) traceWiring.on('trace-appended', (appended) => director.onTraceAppended(appended));
   const vaultSourceFor = (lookIn: unknown) => {
@@ -623,7 +622,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     logger: console,
   });
 
-  const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, logger: console });
+  const branchMerge = createBranchMerge({ findSession: getSessionAny, liveSessions: allLiveSessions, tellMain: (branchId, text) => agentApi?.tellParent(branchId, text) ?? false, logger: console });
 
   function wireSessionEvents(session: Session): void {
     wireSessionStatusEvents(session);

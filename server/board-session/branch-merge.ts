@@ -1,3 +1,4 @@
+import { pathsOutsideBranchFolder } from '../../shared/board-branch-core.ts';
 import { STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -7,6 +8,7 @@ import { runHardenedGit } from '../git/git-workspace.ts';
 const GIT_TIMEOUT_MS = 60000;
 const SETTLED_STATES: readonly SessionState[] = [STATES.IDLE, STATES.COMPLETE];
 const BUSY_MERGE_STATUSES: readonly string[] = ['merging', 'parked'];
+const OUTSIDE_PATHS_NAMED = 5;
 
 interface GitResult {
   ok: boolean;
@@ -17,6 +19,7 @@ interface GitResult {
 interface BranchMergeDeps {
   findSession: (sessionId: string) => Session | null;
   liveSessions: () => readonly Session[];
+  tellMain: (branchId: string, text: string) => boolean;
   logger: Pick<Console, 'warn'>;
 }
 
@@ -42,7 +45,7 @@ function isWorktreeBusy(session: Session): boolean {
   return session.isAutoRebasing || BUSY_MERGE_STATUSES.includes(session.mergeStatus);
 }
 
-function createBranchMerge({ findSession, liveSessions, logger }: BranchMergeDeps) {
+function createBranchMerge({ findSession, liveSessions, tellMain, logger }: BranchMergeDeps) {
   const mergingBranchIds = new Set<string>();
   const mergeQueueByParentId = new Map<string, Promise<void>>();
   const reportedHeadByBranchId = new Map<string, string>();
@@ -50,8 +53,22 @@ function createBranchMerge({ findSession, liveSessions, logger }: BranchMergeDep
   function tellParent(parent: Session, branch: Session, branchHead: string, problem: string): void {
     if (reportedHeadByBranchId.get(branch.id) === branchHead) return;
     reportedHeadByBranchId.set(branch.id, branchHead);
-    const queued = parent.queueChatMessage(`Glimmervoid could not bring the commits of your branch session ${branch.name} into your branch: ${problem}`, []);
+    const text = `Glimmervoid could not bring the commits of your branch session ${branch.name} into your branch: ${problem}`;
+    if (tellMain(branch.id, text)) return;
+    const queued = parent.queueChatMessage(text, []);
     if (!queued.ok) logger.warn(`[branch-merge] could not tell ${parent.name} about ${branch.name}: ${queued.error}`);
+  }
+
+  async function outsideFolderProblem(branch: Session, parentBranch: string, branchName: string, branchDir: string): Promise<string | null> {
+    const link = branch.branchOf;
+    if (link === null) return null;
+    const changed = await runGit(['diff', '--name-only', '-z', `${parentBranch}...${branchName}`], branchDir);
+    if (!changed.ok) return `listing the files its commits change failed: ${changed.err}`;
+    const outsidePaths = pathsOutsideBranchFolder(changed.out.split('\0').filter(Boolean), link.aboutTitle);
+    if (outsidePaths.length === 0) return null;
+    const namedPaths = outsidePaths.slice(0, OUTSIDE_PATHS_NAMED).join(', ');
+    const morePaths = outsidePaths.length > OUTSIDE_PATHS_NAMED ? ` and ${outsidePaths.length - OUTSIDE_PATHS_NAMED} more` : '';
+    return `its commits change ${namedPaths}${morePaths}, outside ${link.aboutTitle}, the folder it holds. Check them, then merge it yourself with git merge ${branchName}, or tell ${branch.name} what to undo with glimmervoid send ${branch.id} <text>.`;
   }
 
   async function bringIn(branch: Session, parent: Session): Promise<void> {
@@ -62,6 +79,11 @@ function createBranchMerge({ findSession, liveSessions, logger }: BranchMergeDep
     if (!parentBranch.ok || !branchName.ok) return logger.warn(`[branch-merge] could not read the branches of ${branch.name}: ${parentBranch.err || branchName.err}`);
     const ahead = await runGit(['rev-list', '--count', `${parentBranch.out}..${branchName.out}`], branchDir);
     if (!ahead.ok || Number(ahead.out) === 0) return;
+    const heldBack = await outsideFolderProblem(branch, parentBranch.out, branchName.out, branchDir);
+    if (heldBack !== null) {
+      const head = await runGit(['rev-parse', 'HEAD'], branchDir);
+      return tellParent(parent, branch, head.out, heldBack);
+    }
     const isParentAncestor = await runGit(['merge-base', '--is-ancestor', parentBranch.out, branchName.out], branchDir);
     if (!isParentAncestor.ok) {
       const rebased = await runGit(['rebase', '--autostash', parentBranch.out], branchDir);

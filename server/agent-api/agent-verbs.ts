@@ -313,12 +313,15 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function send(session: Session, { words, to }: AgentSendRequest): AgentReplyOf<'send'> {
-    const at = clock.nowMs();
     if (to !== undefined) return sendToSibling(session, to, words.join(' ').trim());
-    if (channelsByChildId.has(session.id)) {
-      post(session.id, 'toParent', { author: 'child', text: words.join(' '), at, wakes: true });
-      return { status: 200, body: { ok: true } };
-    }
+    const [target = ''] = words;
+    if (!channelsByChildId.has(session.id) || findChildOf(session, target).ok) return sendToChild(session, words);
+    post(session.id, 'toParent', { author: 'child', text: words.join(' '), at: clock.nowMs(), wakes: true });
+    return { status: 200, body: { ok: true } };
+  }
+
+  function sendToChild(session: Session, words: readonly string[]): AgentReplyOf<'send'> {
+    const at = clock.nowMs();
     const [target = '', ...textWords] = words;
     const text = textWords.join(' ').trim();
     if (!text) return refusal(400, 'send needs the spawned session and the text, for example glimmervoid send <child> fix the failing test');
@@ -330,13 +333,10 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
   }
 
   function read(session: Session, { child }: AgentReadRequest): AgentReplyOf<'read'> {
-    if (channelsByChildId.has(session.id)) {
-      const fromParent = drain(session.id, 'toChild');
-      return { status: 200, body: { ok: true, channels: fromParent ? [fromParent] : [] } };
-    }
     if (child === undefined) {
-      const channels = ownedChannels(session).flatMap((channel) => drain(channel.childId, 'toParent') ?? []);
-      return { status: 200, body: { ok: true, channels } };
+      const fromParent = channelsByChildId.has(session.id) ? drain(session.id, 'toChild') : null;
+      const fromChildren = ownedChannels(session).flatMap((channel) => drain(channel.childId, 'toParent') ?? []);
+      return { status: 200, body: { ok: true, channels: [...(fromParent ? [fromParent] : []), ...fromChildren] } };
     }
     const owned = findChildOf(session, child);
     if (!owned.ok) return refusal(404, owned.error);

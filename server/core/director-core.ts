@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { Op } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
 import type { TraceRecord } from '../../shared/contracts/trace.ts';
@@ -6,7 +5,6 @@ import type { DirectorDigest, DirectorDigestState } from '../../shared/contracts
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedPayload } from '../../shared/contracts/untrusted-payload.ts';
 import { directorDigestKeyOf } from '../../shared/director-digest-key.ts';
-import { fileEditsOf } from '../../shared/file-edits-core.ts';
 import { withoutControlCharacters } from '../../shared/lane-report-core.ts';
 import { opensOperatorTurn } from '../../shared/trace-turn.ts';
 import { wordCountOf } from './whiteboard-store-core.ts';
@@ -29,37 +27,6 @@ const LEFTOVER_DIRECTOR_WIRE_SUFFIX = '-to';
 export interface DirectorTurn {
   openedAt: number;
   replyText: string;
-  editedPaths: string[];
-  editedOutsideWorktreePaths: string[];
-}
-
-const ABSOLUTE_PATH = /^(?:[A-Za-z]:)?\//;
-
-function forwardSlashed(toolPath: string): string {
-  return toolPath.replaceAll('\\', '/');
-}
-
-function repoPathOf(toolPath: string, workingDirectory: string | null): string | null {
-  const slashedPath = path.posix.normalize(forwardSlashed(toolPath));
-  const slashedRoot = workingDirectory === null ? null : path.posix.normalize(forwardSlashed(workingDirectory)).replace(/\/+$/, '');
-  const relativePath = slashedRoot !== null && slashedPath.startsWith(`${slashedRoot}/`) ? slashedPath.slice(slashedRoot.length + 1) : slashedPath;
-  if (relativePath.length === 0 || relativePath === '.' || ABSOLUTE_PATH.test(relativePath) || relativePath === '..' || relativePath.startsWith('../')) return null;
-  return relativePath;
-}
-
-function editedPathsOf(turnRecords: readonly TraceRecord[], workingDirectory: string | null): Pick<DirectorTurn, 'editedPaths' | 'editedOutsideWorktreePaths'> {
-  const editedPaths = new Set<string>();
-  const editedOutsideWorktreePaths = new Set<string>();
-  for (const record of turnRecords) {
-    if (record.agentId !== undefined || record.kind !== 'tool_call') continue;
-    for (const edit of fileEditsOf(record.input, null)) {
-      if (!edit.hasLineCounts) continue;
-      const repoPath = repoPathOf(edit.path, workingDirectory);
-      if (repoPath === null) editedOutsideWorktreePaths.add(forwardSlashed(edit.path));
-      if (repoPath !== null) editedPaths.add(repoPath);
-    }
-  }
-  return { editedPaths: [...editedPaths], editedOutsideWorktreePaths: [...editedOutsideWorktreePaths] };
 }
 
 interface DirectedTurn {
@@ -67,14 +34,14 @@ interface DirectedTurn {
   points: string[];
 }
 
-export function directorTurnOf(records: readonly TraceRecord[], endedAtMs: number, workingDirectory: string | null): DirectorTurn | null {
+export function directorTurnOf(records: readonly TraceRecord[], endedAtMs: number): DirectorTurn | null {
   const openingIndex = records.findLastIndex((record) => opensOperatorTurn(record) && record.ts <= endedAtMs);
   const opening = records[openingIndex];
   if (opening === undefined) return null;
   const nextOpeningIndex = records.findIndex((record, index) => index > openingIndex && opensOperatorTurn(record));
   const turnRecords = records.slice(openingIndex + 1, nextOpeningIndex === -1 ? undefined : nextOpeningIndex);
   const replyTexts = turnRecords.flatMap((record) => record.agentId === undefined && record.kind === 'assistant' && record.text.trim().length > 0 ? [record.text.trim()] : []);
-  return { openedAt: opening.ts, replyText: replyTexts.join('\n\n'), ...editedPathsOf(turnRecords, workingDirectory) };
+  return { openedAt: opening.ts, replyText: replyTexts.join('\n\n') };
 }
 
 export function isWorthDirecting(turn: DirectorTurn): boolean {

@@ -1064,6 +1064,12 @@ test('a Studio branch and its main message each other on a channel opened from t
     assert.equal((await fixture.wiring.handle(fixture.parent, 'send', { words: ['branch-server', 'add', 'it', 'in', 'server'] })).status, 200);
     const branchRead = AgentReadReply.parse((await fixture.wiring.handle(branch, 'read', {})).body).channels;
     assert.deepEqual(branchRead.flatMap(({ entries }) => entries.map(({ from, text }) => [from, text])), [['parent', 'add it in server']]);
+    const branchSpawned = await fixture.spawn(branch, { prompt: 'write the migration' });
+    const grandchildId = String(branchSpawned.body.sessionId);
+    assert.equal((await fixture.wiring.handle(branch, 'send', { words: [grandchildId, 'add', 'an', 'index'] })).status, 200);
+    const grandchild = fixture.created.find((created) => created.id === grandchildId);
+    const grandchildRead = AgentReadReply.parse((await fixture.wiring.handle(grandchild ?? branch, 'read', {})).body).channels;
+    assert.deepEqual(grandchildRead.flatMap(({ entries }) => entries.map(({ text }) => text)), ['add an index'], 'a branch still steers a session it spawned');
     const branchToChild = await fixture.wiring.handle(branch, 'send', { words: ['hello'], to: childId });
     assert.equal(branchToChild.status, 404);
     assert.match(String((branchToChild.body as { error?: string }).error), /messages only its main/);
@@ -1072,12 +1078,14 @@ test('a Studio branch and its main message each other on a channel opened from t
     assert.equal(branch._destroyed, false);
 
     const replacedMain = new Session({ id: 'parent', name: 'parent', path: process.cwd(), isStudioMain: true, ptySpawn: () => fakePty() });
+    assert.equal((await fixture.wiring.handle(branch, 'send', { words: ['sent', 'before', 'the', 'replace'] })).status, 200);
     fixture.parent.destroy('replaced');
     fixture.registerParent(replacedMain);
     fixture.wiring.linkBranchSession(replacedMain);
     branch.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
     const replacedRead = AgentReadReply.parse((await fixture.wiring.handle(replacedMain, 'read', {})).body).channels;
     assert.equal(replacedRead.flatMap(({ entries }) => entries).filter(({ text }) => /finished a turn/.test(text)).length, 1);
+    assert.ok(replacedRead.flatMap(({ entries }) => entries).some(({ text }) => text === 'sent before the replace'), 'unread mail survives the replace');
     replacedMain.destroy();
   } finally {
     branch.destroy();
