@@ -217,15 +217,18 @@ function loadConfigFile(
 }
 
 function writeMutatedConfigFile(configPath: string, mutatorFn: (config: GlimmervoidConfig) => void): ConfigFileSave {
-  const loaded = loadConfigFile(configPath, { exitOnError: false, envSecrets: [] });
-  if ('error' in loaded) return { ok: false, message: loaded.message };
-  mutatorFn(loaded.config);
-  const validation = validateConfig(loaded.config);
-  if (!validation.ok) return { ok: false, message: `config.json at ${configPath} was not written; validation failed: ${validation.errors.join('; ')}` };
-  const nextContent = JSON.stringify(validation.config, null, 2);
-  if (nextContent !== loaded.loadedContent) writeBackupContent(configBackupPath(configPath), loaded.loadedContent);
-  writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
-  return { ok: true, config: validation.config };
+  for (;;) {
+    const loaded = loadConfigFile(configPath, { exitOnError: false, envSecrets: [] });
+    if ('error' in loaded) return { ok: false, message: loaded.message };
+    mutatorFn(loaded.config);
+    const validation = validateConfig(loaded.config);
+    if (!validation.ok) return { ok: false, message: `config.json at ${configPath} was not written; validation failed: ${validation.errors.join('; ')}` };
+    const nextContent = JSON.stringify(validation.config, null, 2);
+    if (nextContent !== loaded.loadedContent) writeBackupContent(configBackupPath(configPath), loaded.loadedContent);
+    if (fs.readFileSync(configPath, 'utf8') !== loaded.loadedContent) continue;
+    writeTextAtomicSync(configPath, nextContent, { mode: CONFIG_FILE_MODE });
+    return { ok: true, config: validation.config };
+  }
 }
 
 function saveConfigFileOnce(configPath: string, mutatorFn: (config: GlimmervoidConfig) => void): ConfigFileSave {
