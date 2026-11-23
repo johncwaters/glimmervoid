@@ -18,7 +18,7 @@ import { CODEMAP_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
-import { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
+import { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
@@ -552,10 +552,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
       boxIdByPath: Object.fromEntries(repoRelativePaths.map((repoPath) => [repoPath, boxIdOfPath(repoPath)])),
       fallbackBoxId: fallbackBoxIdOf(model),
       changedBoxIds: [...new Set((overlay?.paths ?? []).map(boxIdOfPath))].sort(),
-      boxChoices: [
-        ...model.modules.flatMap((summary) => summary.id === '.' ? [] : [{ boxId: moduleBoxIdOf(summary.id), title: summary.id.slice(-WHITEBOARD_LIMITS.title) }]),
-        ...model.paths.map((repoPath) => ({ boxId: boxIdOfPath(repoPath), title: repoPath.slice(-WHITEBOARD_LIMITS.title) })),
-      ].slice(0, CODEMAP_BOX_CHOICES_MAX),
+      boxChoices: branchBoxChoicesOf(model, boxIdOfPath).slice(0, CODEMAP_BOX_CHOICES_MAX),
     };
   }
 

@@ -213,26 +213,6 @@
   .bs-card-shrunk-face { width: 28px; height: 28px; border: 0; opacity: 0.7; cursor: pointer; }
   .bs-card-shrunk-face:hover, .bs-card-shrunk-face:focus-visible { opacity: 1; outline: 2px solid var(--bs-branch); outline-offset: 2px; }
 
-  .bs-new-agent {
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    width: 360px;
-    padding: 10px;
-    border: 1px solid color-mix(in srgb, var(--bs-branch) 55%, var(--border));
-    border-radius: 12px;
-    background: var(--bg-card);
-    box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
-    box-sizing: border-box;
-  }
-  .bs-new-agent[hidden] { display: none; }
-  .bs-new-agent-title { margin: 0; color: var(--text-head); font-size: var(--type-meta); font-weight: 700; }
-  .bs-new-agent .chat-composer { margin: 0; }
-  .bs-new-agent .chat-composer-attach, .bs-new-agent .chat-rail { display: none; }
 
   .bs-asks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
   .bs-ask {

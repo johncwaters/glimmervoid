@@ -209,15 +209,27 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
     });
   }, mapSessionId);
   assert.ok(mapReply, 'the Studio map has a board');
-  const branchCardsBefore = await root.locator('.bs-card[data-branch]').count();
-  const clickedBox = await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title.startsWith('Map at'));
-  const newAgent = root.locator('.bs-new-agent:not([hidden])');
-  await newAgent.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  assert.equal(await newAgent.locator('.bs-new-agent-title').textContent(), `New agent in ${clickedBox.kind === 'box' ? clickedBox.title : ''}`, 'clicking a box opens a new agent composer named for it');
-  await newAgent.getByRole('textbox').fill('work');
-  await newAgent.getByRole('textbox').press('Enter');
-  await newAgent.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await page.waitForFunction((before) => document.querySelectorAll('.board-session-view .bs-card[data-branch]').length > before, branchCardsBefore, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title.startsWith('Map at'));
+  assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a box that is not a folder or file on the map takes no address');
+  const barInput = root.locator('.bs-pill textarea.chat-composer-input');
+  const barAddress = root.locator('.bs-pill-address-text');
+  const addressRepoRoot = async () => {
+    for (let clickCount = 0; clickCount < 3; clickCount += 1) {
+      await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title === 'repo root');
+      if ((await root.locator('.bs-pill-address').isVisible()) && (await barAddress.textContent()) === 'New branch on repo root') return;
+    }
+    assert.fail('clicking the repo root box, after its stack opens, puts its address in the message bar');
+  };
+  await addressRepoRoot();
+  assert.equal(await barInput.evaluate((input) => input === document.activeElement), true, 'clicking a box focuses the message bar');
+  await barInput.press('Escape');
+  await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await addressRepoRoot();
+  assert.match(String(await barAddress.textContent()), /^New branch on /, 'a box address starts a new agent on it');
+  await barInput.fill('work');
+  await barInput.press('Enter');
+  await root.locator('.bs-failure:not([hidden])', { hasText: 'already works on repo root' }).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await barAddress.textContent(), 'New branch on repo root', 'a refused box address stays in the bar to retarget');
 
   const mainCard = root.locator('.bs-card[data-main]').first();
   const studioMainId = await mainCard.getAttribute('data-session-id');
