@@ -129,6 +129,15 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (br
   return row;
 }
 
+export function requestBranchSpawn(parentId: string, aboutBoxId: string, aboutTitle: string, prompt: string): Promise<{ branchId: string | null; failureText: string }> {
+  return sendControlRequest('branch-spawn', { id: parentId, aboutBoxId, aboutTitle, prompt }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
+    .then((reply) => {
+      if (reply.type !== 'branch-spawn-result') return { branchId: null, failureText: NOT_SENT_TEXT };
+      if (!reply.ok || reply.branchId === null) return { branchId: null, failureText: reply.error ?? NOT_SENT_TEXT };
+      return { branchId: reply.branchId, failureText: '' };
+    });
+}
+
 export function createDock(session: DockSession): Dock {
   const element = el('section', 'bs-dock');
   element.setAttribute('aria-label', 'Chat');
@@ -376,11 +385,10 @@ export function createDock(session: DockSession): Dock {
 
   const sendText = (text: string, sentAddress: DockAddress) => {
     if (sentAddress.kind === 'new-branch') {
-      return sendControlRequest('branch-spawn', { id: session.sessionId, aboutBoxId: sentAddress.aboutBoxId, aboutTitle: sentAddress.aboutTitle, prompt: text }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
-        .then((reply) => {
-          if (reply.type !== 'branch-spawn-result') return NOT_SENT_TEXT;
-          if (!reply.ok || reply.branchId === null) return reply.error ?? NOT_SENT_TEXT;
-          if (address === sentAddress) setAddress({ kind: 'branch', sessionId: reply.branchId, aboutTitle: sentAddress.aboutTitle });
+      return requestBranchSpawn(session.sessionId, sentAddress.aboutBoxId, sentAddress.aboutTitle, text)
+        .then((spawned) => {
+          if (spawned.branchId === null) return spawned.failureText;
+          if (address === sentAddress) setAddress({ kind: 'branch', sessionId: spawned.branchId, aboutTitle: sentAddress.aboutTitle });
           return null;
         });
     }

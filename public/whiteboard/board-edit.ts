@@ -97,6 +97,7 @@ interface BoardEditorOptions {
   onOpenImage: (image: PressedImage) => void;
   onStackBoxes: (targetBoxId: string, droppedBoxId: string, targetStack: Frame | null) => void;
   onOpenStack: (frameId: string) => void;
+  onClickBox: (boxId: string) => void;
   isOpenedStack: (frameId: string) => boolean;
   onToolChange: (tool: BoardTool) => void;
   onToolLockChange: (isToolLocked: boolean) => void;
@@ -1500,7 +1501,12 @@ export function createBoardEditor(options: BoardEditorOptions) {
       options.onOpenStack(stack.id);
       return;
     }
-    if (drag.pressedImage && !drag.isAdditive) options.onOpenImage(drag.pressedImage);
+    if (drag.isAdditive) return;
+    if (drag.pressedImage) {
+      options.onOpenImage(drag.pressedImage);
+      return;
+    }
+    options.onClickBox(drag.boxId);
   }
 
   function onPointerUp(event: PointerEvent): void {

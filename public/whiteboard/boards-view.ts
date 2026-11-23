@@ -153,6 +153,7 @@ export interface BoardHostGuest {
   markedBoxIds: () => ReadonlySet<string>;
   firstViewArea: (boardBounds: Rect, viewWidthPx: number, viewHeightPx: number) => Rect | null;
   toggleStack: (boardId: string, frameId: string) => Promise<boolean>;
+  onBoxClicked: (boardId: string, boxId: string) => void;
   onPainted: (camera: Camera) => void;
 }
 
@@ -1781,6 +1782,9 @@ export function mountBoardHost(): HTMLElement {
     },
     onStackBoxes: stackBoxes,
     onOpenStack: openStack,
+    onClickBox: (boxId) => {
+      if (guest && selectedBoardId) guest.onBoxClicked(selectedBoardId, boxId);
+    },
     isOpenedStack: (frameId) => clickOpenedStacksByFrameId.has(frameId),
     onToolChange: paintActiveTool,
     onToolLockChange: paintToolLock,

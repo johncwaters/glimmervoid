@@ -145,6 +145,16 @@ async function clickElement(open: OpenBoard, elementId: string): Promise<void> {
   await open.page.mouse.click(center.x, center.y);
 }
 
+export async function clickBoardBoxWhere(page: Page, panel: Locator, boardId: string, isMatch: (element: BoardElement) => boolean): Promise<BoardElement> {
+  const open: OpenBoard = { page, panel, boardId };
+  const found = await pollFor('a matching board box', BOARD_TIMEOUT_MS, async () => [...(await boardOf(open)).elements.values()].find(isMatch) ?? null);
+  const laidOut = layoutBoard(await boardOf(open)).elements.find((element) => element.id === found.id);
+  assert.ok(laidOut && laidOut.kind !== 'wire', `the board lays out ${found.id} as a rect`);
+  const center = centerOf(screenRectOn(await cameraOf(open), laidOut));
+  await page.mouse.click(center.x, center.y);
+  return found;
+}
+
 async function cursorAt(open: OpenBoard, point: { x: number; y: number }): Promise<string> {
   await open.page.mouse.move(point.x, point.y);
   return open.panel.locator('.wb-viewport').evaluate((viewport) => (viewport instanceof HTMLElement ? viewport.style.cursor : ''));

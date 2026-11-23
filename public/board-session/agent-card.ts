@@ -184,11 +184,30 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   };
 }
 
-function clearedTopOf(cardLeft: number, cardTop: number, card: HTMLElement, keepClearOf: Rect | null): number {
-  if (keepClearOf === null) return cardTop;
-  const isBesideClearArea = cardLeft + card.offsetWidth <= keepClearOf.x || cardLeft >= keepClearOf.x + keepClearOf.width;
-  if (isBesideClearArea || cardTop + card.offsetHeight + CARD_STACK_GAP_PX <= keepClearOf.y) return cardTop;
-  return Math.max(CARD_STACK_GAP_PX, keepClearOf.y - card.offsetHeight - CARD_STACK_GAP_PX);
+function overlappingRectOf(left: number, top: number, card: HTMLElement, rects: readonly Rect[]): Rect | null {
+  return rects.find((rect) => {
+    const isBeside = left + card.offsetWidth <= rect.x || left >= rect.x + rect.width;
+    const isClear = top + card.offsetHeight + CARD_STACK_GAP_PX <= rect.y || top >= rect.y + rect.height + CARD_STACK_GAP_PX;
+    return !isBeside && !isClear;
+  }) ?? null;
+}
+
+function freeTopOf(cardLeft: number, wantedTop: number, card: HTMLElement, placedCardRects: readonly Rect[], keepClearOf: Rect | null): number {
+  const obstacles = keepClearOf === null ? placedCardRects : [...placedCardRects, keepClearOf];
+  let downTop = wantedTop;
+  for (let attempt = 0; attempt <= obstacles.length; attempt += 1) {
+    const overlapped = overlappingRectOf(cardLeft, downTop, card, obstacles);
+    if (overlapped === null) return downTop;
+    if (overlapped === keepClearOf) break;
+    downTop = overlapped.y + overlapped.height + CARD_STACK_GAP_PX;
+  }
+  let upTop = wantedTop;
+  for (let attempt = 0; attempt <= obstacles.length; attempt += 1) {
+    const overlapped = overlappingRectOf(cardLeft, upTop, card, obstacles);
+    if (overlapped === null) return Math.max(CARD_STACK_GAP_PX, upTop);
+    upTop = overlapped.y - card.offsetHeight - CARD_STACK_GAP_PX;
+  }
+  return Math.max(CARD_STACK_GAP_PX, upTop);
 }
 
 export function createAgentCards(actions: AgentCardActions): AgentCards {
@@ -209,7 +228,7 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
   return {
     element,
     paint: (models, boundsOf, camera, keepClearOf) => {
-      const stackedPxByBoxId = new Map<string, number>();
+      const placedCardRects: Rect[] = [];
       const paintedIds = new Set<string>();
       for (const model of models) {
         const boxId = model.boxIds.find((candidate) => boundsOf(candidate) !== null);
@@ -236,10 +255,9 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
           shown.shrunkFace.style.transform = `translate(${boxRight - FACE_SIZE_PX / 2}px, ${boxTop - FACE_SIZE_PX / 2}px)`;
           continue;
         }
-        const stackedPx = stackedPxByBoxId.get(boxId) ?? 0;
         const cardLeft = boxRight + CARD_OFFSET_PX;
-        const cardTop = clearedTopOf(cardLeft, boxTop + stackedPx, shown.card, keepClearOf);
-        stackedPxByBoxId.set(boxId, stackedPx + shown.card.offsetHeight + CARD_STACK_GAP_PX);
+        const cardTop = freeTopOf(cardLeft, boxTop, shown.card, placedCardRects, keepClearOf);
+        placedCardRects.push({ x: cardLeft, y: cardTop, width: shown.card.offsetWidth, height: shown.card.offsetHeight });
         shown.card.style.transform = `translate(${cardLeft}px, ${cardTop}px)`;
         const wireEndY = cardTop + Math.min(shown.card.offsetHeight / 2, FACE_SIZE_PX);
         const bendX = (boxRight + cardLeft) / 2;

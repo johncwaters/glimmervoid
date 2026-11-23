@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
 import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT } from './cases-core.ts';
+import { clickBoardBoxWhere } from './boards.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
@@ -180,6 +181,35 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.wb-island-agent').isVisible(), false, 'Studio shows no pairing notice for its main agent');
   assert.equal(await root.locator('.bs-activity').count(), 0, 'the working status shows on the face only');
 
+
+  const mapSessionId = await root.locator('.bs-card[data-main]').first().getAttribute('data-session-id');
+  assert.ok(mapSessionId, 'the main card names its session');
+  const mapReply = await page.evaluate(async (sessionId) => {
+    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
+    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
+    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/control?token=${encodeURIComponent(token)}`);
+    const requestId = `harness-boxes-${Date.now()}`;
+    return new Promise<string | null>((resolve) => {
+      socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'codemap-boxes-of', requestId, id: sessionId, paths: [] })));
+      socket.addEventListener('message', (event) => {
+        const reply: unknown = JSON.parse(String(event.data));
+        if (typeof reply !== 'object' || reply === null || Reflect.get(reply, 'requestId') !== requestId) return;
+        socket.close();
+        const boardId = Reflect.get(reply, 'boardId');
+        resolve(typeof boardId === 'string' ? boardId : null);
+      });
+    });
+  }, mapSessionId);
+  assert.ok(mapReply, 'the Studio map has a board');
+  const branchCardsBefore = await root.locator('.bs-card[data-branch]').count();
+  const clickedBox = await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title.startsWith('Map at'));
+  const newAgent = root.locator('.bs-new-agent:not([hidden])');
+  await newAgent.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await newAgent.locator('.bs-new-agent-title').textContent(), `New agent in ${clickedBox.kind === 'box' ? clickedBox.title : ''}`, 'clicking a box opens a new agent composer named for it');
+  await newAgent.getByRole('textbox').fill('work');
+  await newAgent.getByRole('textbox').press('Enter');
+  await newAgent.waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.waitForFunction((before) => document.querySelectorAll('.board-session-view .bs-card[data-branch]').length > before, branchCardsBefore, { timeout: BOARD_SESSION_TIMEOUT_MS });
 
   const mainCard = root.locator('.bs-card[data-main]').first();
   const studioMainId = await mainCard.getAttribute('data-session-id');

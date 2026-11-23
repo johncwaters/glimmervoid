@@ -23,7 +23,9 @@ import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
 import type { TraceRecord } from '#shared/contracts/trace.ts';
-import { createDock } from './dock.ts';
+import { createDock, requestBranchSpawn } from './dock.ts';
+import { createNewAgentPopover } from './new-agent.ts';
+import type { NewAgentPopover } from './new-agent.ts';
 import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
@@ -55,6 +57,8 @@ const OPEN_REPO_TEXT = 'Open a repo';
 const NO_MAP_TEXT = 'This session has no code map yet.';
 const NO_MAIN_TEXT = 'The main agent for this repo did not start.';
 const TURN_OPENINGS_KEPT = 20;
+const NEW_AGENT_GAP_PX = 12;
+const ABOUT_TITLE_MAX_CHARS = 80;
 
 interface SessionWatch {
   feed: ChatFeed;
@@ -75,6 +79,7 @@ interface ViewParts {
   presenceLayer: PresenceLayer;
   askCards: AskCards;
   agentCards: AgentCards;
+  newAgent: NewAgentPopover;
   guest: BoardHostGuest;
 }
 
@@ -185,6 +190,21 @@ function addressAgent(model: AgentCardModel): void {
 function answerAgentCard(sessionId: string, cardId: string, action: string, value: string): void {
   watchBySessionId.get(sessionId)?.waits.answer(cardId, action, value);
   paintPresence();
+}
+
+function openNewAgent(clickedBoardId: string, boxId: string): void {
+  if (!parts || clickedBoardId !== boardId || shownSessionId === null) return;
+  const box = tiledBoardOf(clickedBoardId)?.board.elements.get(boxId);
+  const rect = boundsOfHostBox(boxId);
+  if (box?.kind !== 'box' || rect === null) return;
+  const left = (rect.x + rect.width - hostCamera.x) * hostCamera.scale + NEW_AGENT_GAP_PX;
+  const top = (rect.y - hostCamera.y) * hostCamera.scale;
+  parts.newAgent.open({ boxId, title: box.title.slice(0, ABOUT_TITLE_MAX_CHARS) }, left, top);
+}
+
+function spawnNewAgent(target: { boxId: string; title: string }, prompt: string): Promise<string | null> {
+  if (shownSessionId === null) return Promise.resolve(NO_SESSION_TEXT);
+  return requestBranchSpawn(shownSessionId, target.boxId, target.title, prompt).then((spawned) => spawned.branchId === null ? spawned.failureText : null);
 }
 
 function toggleOpenedBranch(sessionId: string): void {
@@ -562,20 +582,22 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const dockSlot = el('div', 'bs-dock-slot');
   dockSlot.dataset.boardIsland = '';
   const askCards = createAskCards();
+  const newAgent = createNewAgentPopover(spawnNewAgent);
   panel.replaceChildren(root);
   const guest: BoardHostGuest = {
     chrome: topLeft,
-    overlays: [notice, dockSlot, agentCards.element, askCards.element],
+    overlays: [notice, dockSlot, agentCards.element, newAgent.element, askCards.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,
     toggleStack: toggleFolder,
+    onBoxClicked: openNewAgent,
     onPainted: (camera) => {
       hostCamera = camera;
       paintPresence();
     },
   };
-  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, agentCards, guest };
+  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, agentCards, newAgent, guest };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });
