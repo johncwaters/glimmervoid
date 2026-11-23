@@ -204,7 +204,7 @@ function openNewAgent(clickedBoardId: string, boxId: string): void {
 
 function spawnNewAgent(target: { boxId: string; title: string }, prompt: string): Promise<string | null> {
   if (shownSessionId === null) return Promise.resolve(NO_SESSION_TEXT);
-  return requestBranchSpawn(shownSessionId, target.boxId, target.title, prompt).then((spawned) => spawned.branchId === null ? spawned.failureText : null);
+  return requestBranchSpawn(shownSessionId, target.boxId, prompt).then((spawned) => spawned.branchId === null ? spawned.failureText : null);
 }
 
 function toggleOpenedBranch(sessionId: string): void {

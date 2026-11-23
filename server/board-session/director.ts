@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Session } from '../../session/sessions.ts';
+import { pathsOutsideBranchFolder } from '../../shared/board-branch-core.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { DirectorDigestState } from '../../shared/contracts/director-digests.ts';
 import { clock } from '../../shared/clock.ts';
@@ -26,6 +27,7 @@ const DIRECTOR_TIMEOUT_MS = 120_000;
 const DIRECTOR_SETTLE_MS = 5_000;
 const SETTLE_REARMS_MAX = 6;
 const MAX_TRACE_PAGES = 8;
+const OUTSIDE_PATHS_NAMED = 5;
 
 interface DirectorDeps {
   spawnLane: LaneSpawn;
@@ -34,11 +36,12 @@ interface DirectorDeps {
   digestsPath: string | null;
   announceDigest: (sessionId: string) => void;
   boards: Pick<WhiteboardPort, 'loaded' | 'boardOf' | 'putWithoutReadCheck' | 'snapshotMessage'>;
+  tellMain: (branchId: string, text: string) => boolean;
   settleMs?: number;
   logger?: Pick<Console, 'warn'>;
 }
 
-type DirectedSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'isStudioMain' | 'branchOf' | '_destroyed'>;
+type DirectedSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'isStudioMain' | 'branchOf' | '_destroyed' | 'effectiveCwd'>;
 
 interface QueuedTurn {
   session: DirectedSession;
@@ -49,7 +52,7 @@ function isStudioSession(session: DirectedSession): boolean {
   return !session.ephemeral && (session.isStudioMain || session.branchOf !== null);
 }
 
-function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, announceDigest, boards, settleMs = DIRECTOR_SETTLE_MS, logger = console }: DirectorDeps) {
+function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, announceDigest, boards, tellMain, settleMs = DIRECTOR_SETTLE_MS, logger = console }: DirectorDeps) {
   const queuedBySessionId = new Map<string, QueuedTurn>();
   const settlingBySessionId = new Map<string, { session: DirectedSession; endedAtMs: number; settleDeadlineMs: number; timer: ReturnType<typeof setTimeout> }>();
   const directedOpenedAtBySessionId = new Map<string, number>();
@@ -66,10 +69,11 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
 
   async function readTurn(session: DirectedSession, endedAtMs: number): Promise<DirectorTurn | null> {
     await drainTrace(session.id);
+    const workingDirectory = session.effectiveCwd();
     let page = await readTracePage(session.id, { after: 0, endingAt: 'tail' });
     let records = page.records;
     for (let pageCount = 1; pageCount <= MAX_TRACE_PAGES; pageCount += 1) {
-      const turn = directorTurnOf(records, endedAtMs);
+      const turn = directorTurnOf(records, endedAtMs, workingDirectory);
       if (turn !== null || page.start === 0) return turn;
       page = await readTracePage(session.id, { after: 0, endingAt: page.start });
       records = [...page.records, ...records];
@@ -100,10 +104,21 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     announceDigest(sessionId);
   }
 
+  function flagEditsOutsideBranch(session: DirectedSession, turn: DirectorTurn): void {
+    if (session.branchOf === null) return;
+    const outsidePaths = [...pathsOutsideBranchFolder(turn.editedPaths, session.branchOf.aboutTitle), ...turn.editedOutsideWorktreePaths];
+    if (outsidePaths.length === 0) return;
+    const namedPaths = outsidePaths.slice(0, OUTSIDE_PATHS_NAMED).join(', ');
+    const morePaths = outsidePaths.length > OUTSIDE_PATHS_NAMED ? ` and ${outsidePaths.length - OUTSIDE_PATHS_NAMED} more` : '';
+    tellMain(session.id, `The branch ${session.name} works on ${session.branchOf.aboutTitle} but its last turn changed ${namedPaths}${morePaths} outside it; check those before its commits come back, or steer it with glimmervoid send ${session.id} <text>.`);
+  }
+
   async function direct({ session, endedAtMs }: QueuedTurn): Promise<void> {
     const turn = await readTurn(session, endedAtMs);
-    if (turn === null || !isWorthDirecting(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
+    if (turn === null || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
+    flagEditsOutsideBranch(session, turn);
+    if (!isWorthDirecting(turn)) return;
     const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(DIRECTOR_TIMEOUT_MS)]);
     const laneOutput = await runLane(turn, signal);
     if (signal.aborted) return;

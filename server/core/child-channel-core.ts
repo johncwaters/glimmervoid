@@ -29,7 +29,10 @@ interface Mailbox {
   droppedCount: number;
 }
 
+type ChannelKind = 'spawned' | 'branch';
+
 interface AgentChannel {
+  kind: ChannelKind;
   parentId: string;
   childId: string;
   childName: string;
@@ -61,8 +64,8 @@ type ChildTarget = { ok: true; channel: AgentChannel } | { ok: false; error: str
 
 const EMPTY_MAILBOX: Mailbox = Object.freeze({ unread: Object.freeze([]), droppedCount: 0 });
 
-function openChannel({ parentId, childId, childName }: { parentId: string; childId: string; childName: string }): AgentChannel {
-  return { parentId, childId, childName, toParent: EMPTY_MAILBOX, toChild: EMPTY_MAILBOX };
+function openChannel({ kind, parentId, childId, childName }: { kind: ChannelKind; parentId: string; childId: string; childName: string }): AgentChannel {
+  return { kind, parentId, childId, childName, toParent: EMPTY_MAILBOX, toChild: EMPTY_MAILBOX };
 }
 
 function truncateEntryText(text: string): string {
@@ -103,8 +106,9 @@ function findOwnedChild(channels: readonly AgentChannel[], parentId: string, tar
 function findSibling(channels: readonly AgentChannel[], senderChildId: string, target: string): ChildTarget {
   const sender = channels.find((channel) => channel.childId === senderChildId);
   if (!sender) return { ok: false, error: 'only a spawned session has siblings to message' };
+  if (sender.kind === 'branch') return { ok: false, error: 'a branch messages only its main: glimmervoid send <text> reaches the main, which passes it on to other branches' };
   const wanted = target.trim();
-  const siblings = channels.filter((channel) => channel.parentId === sender.parentId && channel.childId !== senderChildId);
+  const siblings = channels.filter((channel) => channel.kind === 'spawned' && channel.parentId === sender.parentId && channel.childId !== senderChildId);
   const match = siblings.find((channel) => channel.childId === wanted) ?? siblings.find((channel) => channel.childName === wanted);
   if (match) return { ok: true, channel: match };
   if (siblings.length === 0) return { ok: false, error: 'this session has no sibling sessions spawned by the same parent' };
@@ -201,4 +205,4 @@ export {
   WAKE_TURN_START_TIMEOUT_MS, decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread,
   isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote,
 };
-export type { AgentChannel, ChannelEntry, ChannelSide };
+export type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide };

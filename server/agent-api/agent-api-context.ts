@@ -91,6 +91,7 @@ interface ChannelLink {
   hasParentRead: boolean;
   pendingWakeSides: Set<ChannelSide>;
   retryTimersBySide: Map<ChannelSide, TimerHandle>;
+  stopWatchingChild: () => void;
 }
 
 interface SessionWakeBudget {

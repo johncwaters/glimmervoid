@@ -183,7 +183,7 @@ interface ControlHandlerDeps {
   hostReady?: HostReadyReader | null;
   whiteboards?: Pick<WhiteboardPort, 'handleOperator' | 'tiles'> | null;
   director?: Pick<Director, 'digestsOf'> | null;
-  codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder'> | null;
+  codemap?: Pick<CodemapService, 'boxesOfSession' | 'toggleFolder' | 'branchTargetOf'> | null;
   boardAsks?: Pick<BoardAsks, 'answer'> | null;
   reviews?: Pick<ReviewPort, 'read' | 'markViewed' | 'sendComment' | 'resolve'> | null;
   telemetry?: (Pick<Telemetry, 'captureException' | 'captureClientError'> & Partial<Pick<Telemetry, 'capture' | 'requestDataDeletion'>>) | null;
@@ -213,7 +213,12 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
   const { serverBuild = () => null, controlReplayLog = null } = deps;
   const context = createControlContext(deps);
   const session = createSessionHandlers(context, deps);
-  const branches = createBranchWiring({ findSession: (sessionId) => context.findSession({ id: sessionId }), createProjectSession: context.createProjectSession });
+  const branches = createBranchWiring({
+    findSession: (sessionId) => context.findSession({ id: sessionId }),
+    listSessions: () => context.sessions.values(),
+    resolveTarget: async (repoDir, about) => deps.codemap ? deps.codemap.branchTargetOf(repoDir, about) : { ok: false, error: 'the code map is not running, so a branch has no box to work on' },
+    createProjectSession: context.createProjectSession,
+  });
   const github = createGithubHandlers(context, deps);
   const race = createRaceHandlers(context, deps, { discardSession: session.discardSession });
   const wargames = createWargamesHandlers(context, deps, { discardSession: session.discardSession });

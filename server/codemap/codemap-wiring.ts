@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 
+import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
+import type { BranchAbout, BranchTarget } from '../../shared/board-branch-core.ts';
 import { CODEMAP_CHECK_ID, CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_BOX_CHOICES_MAX } from '../../shared/contracts/control/board-session-messages.ts';
 import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
@@ -557,17 +559,29 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     };
   }
 
-  async function branchTargetOf(repoDir: string, repoPath: string): Promise<{ ok: true; boxId: string; title: string } | { ok: false; error: string }> {
+  function branchTargetOfModule(model: CodemapModel, moduleId: string): BranchTarget {
+    const title = moduleId === '.' ? REPO_ROOT_BRANCH_TITLE : moduleId;
+    if (title.length > WHITEBOARD_LIMITS.title) return { ok: false, error: `${moduleId} is too long a path to name a branch after; start the branch on a folder above it` };
+    return { ok: true, boxId: moduleId === '.' ? fallbackBoxIdOf(model) : moduleBoxIdOf(moduleId), title };
+  }
+
+  async function branchTargetOf(repoDir: string, about: BranchAbout): Promise<BranchTarget> {
     const map = await currentMap({ repoDir });
     if ('error' in map) return { ok: false, error: map.error };
     if (!map.model) return { ok: false, error: `the code map of ${path.basename(repoDir)} is not built yet` };
+    const model = map.model;
+    if ('boxId' in about) {
+      const moduleId = model.modules.map((summary) => summary.id).find((candidate) => candidate !== '.' && moduleBoxIdOf(candidate) === about.boxId) ?? (about.boxId === fallbackBoxIdOf(model) ? '.' : null);
+      if (moduleId === null) return { ok: false, error: 'that box is not a folder or file on the code map any more; pick another' };
+      return branchTargetOfModule(model, moduleId);
+    }
+    const repoPath = about.path;
     const relativePath = repoPath.replace(/^\.\//, '').replace(/\/+$/, '');
     const isInsideRepo = relativePath.length > 0 && !path.isAbsolute(relativePath) && !relativePath.split('/').includes('..');
     const folderPath = `${relativePath}/`;
-    const isMapped = isInsideRepo && (map.model.indexByPath.has(relativePath) || map.model.paths.some((mappedPath) => mappedPath.startsWith(folderPath)));
+    const isMapped = isInsideRepo && (model.indexByPath.has(relativePath) || model.paths.some((mappedPath) => mappedPath.startsWith(folderPath)));
     if (!isMapped) return { ok: false, error: `${repoPath} is not a file or folder on the code map of ${path.basename(repoDir)}; pass a path relative to the repo root, such as server/api` };
-    const moduleId = moduleOfPath(map.model, folderPath);
-    return { ok: true, boxId: drawnBoxIdOfPath(map.model, folderPath), title: moduleId === '.' ? 'repo root' : moduleId };
+    return branchTargetOfModule(model, moduleOfPath(model, folderPath));
   }
 
   function overlayTextOf(repoName: string, drawing: OverlayDrawing): string {

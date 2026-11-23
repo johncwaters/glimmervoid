@@ -30,6 +30,8 @@ interface AgentApiPort {
   refuseRole(session: Session, verb: AgentApiVerb | SessionCommand): AgentRefusalReply | null;
   markChildWorktreeDiscard(childId: string): void;
   watchSessionWakes(session: Session): void;
+  linkBranchSession(session: Session): void;
+  tellParent(childId: string, text: string): boolean;
   sessionWakes: Pick<WakeWiring, 'pendingWakesBySession' | 'cancelForOperator' | 'scheduleAtLimitReset' | 'alarms' | 'onAlarm' | 'onAlarmsMayHaveChanged'>;
   operatorRules(): string[];
 }
@@ -119,7 +121,7 @@ function createAgentApiWiring({
     return describeRoleRefusal(verb, roleFactsOf(session));
   }
 
-  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession, sessionWakes: wakes, operatorRules: () => readAgentRules(config.agentRules) };
+  return { handle, refuseRole, markChildWorktreeDiscard, watchSessionWakes: wakes.watchSession, linkBranchSession: channels.linkBranchSession, tellParent: channels.tellParent, sessionWakes: wakes, operatorRules: () => readAgentRules(config.agentRules) };
 }
 
 export { createAgentApiWiring };

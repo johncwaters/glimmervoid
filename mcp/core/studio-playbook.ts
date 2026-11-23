@@ -30,12 +30,12 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
   {
     id: 'branch-per-box',
     roles: ['main'],
-    text: "When work spans several folders, split it: start one branch per folder with the session spawn action, setting about to that folder's path, and give each branch only its part; branches commit on their own and their commits come back to you when they go idle. Keep the coordination and the merge to yourself.",
+    text: "When work spans several folders, split it: start one branch per folder with the session spawn action, setting about to that folder's path, and give each branch only its part; a folder another live branch holds, or one inside or above it, is refused. Branches commit on their own and their commits come back to you when they go idle. Each branch reaches you with session send, which wakes you; read what they sent with session read, steer one with session send to its id, and pass anything one branch needs from another on yourself, since branches never message each other. Glimmervoid also tells you when a branch's turn changed files outside its folder. Keep the coordination and the merge to yourself.",
   },
   {
     id: 'stay-on-box',
     roles: ['branch'],
-    text: 'You are a branch working on one box of the map: keep your changes inside it, commit them on this branch, and ask the main through the board when the work needs changes elsewhere.',
+    text: 'You are a branch working on one box of the map: keep your changes inside it, commit them on this branch, and when the work needs changes outside it or anything from another branch, tell the main with session send (glimmervoid send <text>), which reaches only the main; read its replies with session read.',
   },
 ];
 

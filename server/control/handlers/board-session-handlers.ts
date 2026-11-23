@@ -66,7 +66,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     'branch-spawn': async (message: ClientMessageOf<'branch-spawn'>, ws: ControlSocket) => {
       const reply = { type: 'branch-spawn-result', id: message.id, requestId: message.requestId ?? null };
       try {
-        const outcome = await branches.spawn({ parentId: message.id, aboutBoxId: message.aboutBoxId, aboutTitle: message.aboutTitle, prompt: message.prompt });
+        const outcome = await branches.spawn({ parentId: message.id, about: { boxId: message.aboutBoxId }, prompt: message.prompt });
         if (!outcome.ok) return ws.send(JSON.stringify({ ...reply, ok: false, error: outcome.error }));
         ws.send(JSON.stringify({ ...reply, ok: true, branchId: outcome.sessionId }));
       } catch (error) {

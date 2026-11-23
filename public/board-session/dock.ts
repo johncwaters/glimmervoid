@@ -129,8 +129,8 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (br
   return row;
 }
 
-export function requestBranchSpawn(parentId: string, aboutBoxId: string, aboutTitle: string, prompt: string): Promise<{ branchId: string | null; failureText: string }> {
-  return sendControlRequest('branch-spawn', { id: parentId, aboutBoxId, aboutTitle, prompt }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
+export function requestBranchSpawn(parentId: string, aboutBoxId: string, prompt: string): Promise<{ branchId: string | null; failureText: string }> {
+  return sendControlRequest('branch-spawn', { id: parentId, aboutBoxId, prompt }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
     .then((reply) => {
       if (reply.type !== 'branch-spawn-result') return { branchId: null, failureText: NOT_SENT_TEXT };
       if (!reply.ok || reply.branchId === null) return { branchId: null, failureText: reply.error ?? NOT_SENT_TEXT };
@@ -385,7 +385,7 @@ export function createDock(session: DockSession): Dock {
 
   const sendText = (text: string, sentAddress: DockAddress) => {
     if (sentAddress.kind === 'new-branch') {
-      return requestBranchSpawn(session.sessionId, sentAddress.aboutBoxId, sentAddress.aboutTitle, text)
+      return requestBranchSpawn(session.sessionId, sentAddress.aboutBoxId, text)
         .then((spawned) => {
           if (spawned.branchId === null) return spawned.failureText;
           if (address === sentAddress) setAddress({ kind: 'branch', sessionId: spawned.branchId, aboutTitle: sentAddress.aboutTitle });

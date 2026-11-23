@@ -24,10 +24,11 @@ function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord[]) => { opensOperatorTurn: boolean }) {
+async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord[]) => { opensOperatorTurn: boolean }, branchOf: { parentId: string; aboutBoxId: string; aboutTitle: string } | null = null) {
   const openedAt = Date.now() - 1000;
   const records: TraceRecord[] = [recordOf('prompt', 'add tax to checkout', openedAt)];
   const repliesSeenByLane: string[] = [];
+  const toldMain: string[] = [];
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'director-test-'));
   const director = createDirector({
     spawnLane: async ({ cwd }) => {
@@ -38,11 +39,12 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
     readTracePage: async () => ({ records: [...records], start: 0, next: records.length, reset: false, path: 'trace.jsonl' }),
     digestsPath: path.join(home, 'director-digests.json'),
     announceDigest: () => {},
+    tellMain: (_branchId, text) => { toldMain.push(text); return true; },
     boards: { loaded: Promise.resolve(), boardOf: async () => null, putWithoutReadCheck: async () => { throw new Error('no board writes'); }, snapshotMessage: () => ({ type: 'whiteboards-snapshot', boards: [] }) },
     settleMs,
     logger: { warn: () => {} },
   });
-  const session = { id: 'main-1', name: 'repo main', ephemeral: false, isStudioMain: true, branchOf: null, _destroyed: false };
+  const session = { id: 'main-1', name: 'repo main', ephemeral: false, isStudioMain: branchOf === null, branchOf, _destroyed: false, effectiveCwd: () => '/work/branch' };
   director.onTurnEnd(session);
   await waitMs(LATER_RECORD_DELAY_MS);
   director.onTraceAppended({ id: session.id, ...afterTurnEnd(records) });
@@ -50,7 +52,7 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
   const digests = await director.digestsOf([session.id]);
   await director.stop();
   await fs.rm(home, { recursive: true, force: true });
-  return { digests, repliesSeenByLane, key: directorDigestKeyOf(session.id, openedAt) };
+  return { digests, repliesSeenByLane, toldMain, key: directorDigestKeyOf(session.id, openedAt) };
 }
 
 test('a reply that reaches the trace after the turn-end hook is still digested', async () => {
@@ -71,6 +73,17 @@ test('the next prompt arriving inside the settle window still digests the turn t
   });
   assert.match(repliesSeenByLane[0] ?? '', /Checkout totals now add tax/);
   assert.deepEqual(digests, { [key]: DIGEST });
+});
+
+test('a branch turn that edits outside its folder, by a path that climbs out or one outside its worktree, tells the main once and leaves edits inside unmentioned', async () => {
+  const editOf = (filePath: string): TraceRecord => ({ kind: 'tool_call', ts: Date.now(), tool: 'Edit', toolUseId: filePath, input: { file_path: filePath, old_string: 'a', new_string: 'b' }, uuid: null, parentUuid: null, vendorSessionId: 'vendor-1' } as TraceRecord);
+  const { toldMain } = await runDirector(SETTLE_MS, (records) => {
+    records.push(editOf('/work/branch/server/api/routes.ts'), editOf('/work/branch/server/api/../../session/sessions.ts'), editOf('/work/main/shared/types.ts'));
+    return { opensOperatorTurn: false };
+  }, { parentId: 'main-0', aboutBoxId: 'box-api', aboutTitle: 'server/api' });
+  assert.equal(toldMain.length, 1);
+  assert.match(toldMain[0] ?? '', /changed session\/sessions\.ts, \/work\/main\/shared\/types\.ts outside it/);
+  assert.doesNotMatch(toldMain[0] ?? '', /routes\.ts/);
 });
 
 test('the leftover sweep removes only director cards with their own wire', () => {
