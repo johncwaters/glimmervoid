@@ -1,13 +1,18 @@
 import { renderCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import { createComposer } from '../chat/composer.ts';
-import { stringDetailOf } from '../chat/chat-page.ts';
+import { STAND_IN_UNRECORDED_MAX_MS, draftWithRestoredText, stringDetailOf } from '../chat/chat-page.ts';
+import { onChatOutboxNoted } from '../chat/chat-session-state.ts';
+import { queuedStatusOf } from '../chat/chat-view.ts';
+import { createOutboxEchoState, reconcileOutboxEcho, takeStandInsForPrompts } from '../chat/outbox-echo-core.ts';
+import { stickToBottom } from '../chat/stick-to-bottom.ts';
 import type { RailField } from '../chat/status-rail-core.ts';
 import { BRANCH_PROMPT_MAX_CHARS } from '#shared/contracts/control/board-session-messages.ts';
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
 import type { ChatPart } from '../chat/chat-part.ts';
 import type { SessionProgressAnswer } from '#shared/contracts/director-digests.ts';
+import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { operatorPartOfPrompt } from '#shared/board-branch-core.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -15,8 +20,10 @@ import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { paintAgentMark } from '../session-card/agent-mark.ts';
 import { createLineIcon } from '../svg-dom.ts';
+import { button } from '../ui/button.ts';
 import { createPressable, labelIconPressable } from '../ui/pressable.ts';
 import { errorMessage } from '#shared/text.ts';
+import { clock } from '#shared/clock.ts';
 import { addressLabelOf, boxMentionAt, matchingBoxChoices, textWithoutMention } from './branch-core.ts';
 import type { BoxChoice, BoxMention, DockAddress } from './branch-core.ts';
 
@@ -26,12 +33,13 @@ const PROGRESS_ASK_TIMEOUT_MS = 130000;
 const GLIMMERVOID_NAME = 'Glimmervoid';
 const BRANCH_SPAWN_TIMEOUT_MS = 30000;
 const NEAR_TOP_PX = 48;
-const NEAR_BOTTOM_PX = 24;
 const CLEAR_ICON_PATH = 'M4 4l8 8M12 4l-8 8';
 const NOT_SENT_TEXT = 'The message was not sent.';
 const MAIN_ADDRESS: DockAddress = { kind: 'main' };
 const RAIL_TICK_MS = 30_000;
 const NO_UPLOADS_URL = '';
+const PENDING_RUNNING_STATUS_TEXT = 'Queued';
+const PENDING_IDLE_STATUS_TEXT = 'Sending';
 
 interface DockSession {
   sessionId: string;
@@ -44,6 +52,7 @@ interface DockSession {
   progressAnswers: () => readonly SessionProgressAnswer[];
   railFields: () => readonly RailField[];
   onDelivered: (kind: DockDelivery) => void;
+  outbox: () => readonly ChatOutboxEntry[];
 }
 
 type DockDelivery = 'talk' | 'branch' | 'progress';
@@ -87,6 +96,11 @@ function fullReplyOf(part: Extract<ChatPart, { kind: 'turn' }>): HTMLElement {
   return fullReply;
 }
 
+interface TurnShownText {
+  kind: 'chat-line' | 'last-reply';
+  text: string;
+}
+
 interface TurnRowOptions {
   isExpanded: boolean;
   toggleExpanded: () => void;
@@ -114,13 +128,20 @@ function pressableOnKeys(target: HTMLElement, label: string, press: () => void):
   });
 }
 
-function turnRowOf(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, chatLine: string, options: TurnRowOptions): HTMLElement {
+function shownTextElementOf(shownText: TurnShownText): HTMLElement {
+  if (shownText.kind === 'chat-line') return el('p', 'bs-digest', shownText.text);
+  const lastReply = el('div', 'bs-digest bs-last-reply');
+  lastReply.append(renderPlanBlocks(parsePlanMarkdown(shownText.text)));
+  return lastReply;
+}
+
+function turnRowOf(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, shownText: TurnShownText, options: TurnRowOptions): HTMLElement {
   const row = el('div', speaker.branch ? 'bs-row bs-row-agent bs-row-branch' : 'bs-row bs-row-agent');
-  row.dataset.digest = chatLine;
+  row.dataset.digest = shownText.text;
   row.dataset.expanded = String(options.isExpanded);
   const bubble = el('div', 'bs-bubble bs-bubble-agent');
   const body = el('div', 'bs-bubble-body');
-  body.append(el('p', 'bs-digest', chatLine));
+  body.append(shownTextElementOf(shownText));
   if (options.isExpanded) body.append(fullReplyOf(part));
   bubble.append(el('span', 'bs-bubble-who', speaker.name), body);
   bubble.setAttribute('aria-expanded', String(options.isExpanded));
@@ -142,6 +163,27 @@ function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedS
   return row;
 }
 
+interface PendingSend {
+  text: string;
+  entryIdsAtDispatch: ReadonlySet<string> | null;
+  isClaimed: boolean;
+}
+
+function queuedRowOf(text: string, statusText: string, state: string, cancelButton: HTMLButtonElement): HTMLElement {
+  const row = el('div', 'bs-row bs-row-you bs-row-queued');
+  row.dataset.state = state;
+  const meta = el('div', 'bs-queued-meta');
+  meta.append(el('span', 'bs-queued-status', statusText), cancelButton);
+  const bubble = el('div', 'bs-bubble bs-bubble-you');
+  bubble.append(renderPlanBlocks(parsePlanMarkdown(text)));
+  row.append(meta, bubble);
+  return row;
+}
+
+function cancelButtonOf(isDisabled: boolean): HTMLButtonElement {
+  return button({ variant: 'quiet', size: 'small', textCase: 'inline', label: 'Cancel', disabled: isDisabled });
+}
+
 function progressAnswerRowsOf(entry: SessionProgressAnswer): HTMLElement[] {
   const questionRow = el('div', 'bs-row bs-row-you');
   const questionBubble = el('div', 'bs-bubble bs-bubble-you');
@@ -161,16 +203,29 @@ function partTimeOf(part: ChatPart): number | null {
   return null;
 }
 
-function digestOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf']): string | null {
+function chatLineOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf']): string | null {
   if (part.openedAt === null) return null;
   return digestOf(speaker.sessionId, part.openedAt);
+}
+
+function lastReplyTextOf(part: Extract<ChatPart, { kind: 'turn' }>): string | null {
+  const lastTextSegment = part.segments.findLast((segment) => segment.kind === 'text' && segment.text.trim().length > 0);
+  return lastTextSegment?.kind === 'text' ? lastTextSegment.text : null;
+}
+
+function shownTextOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, digestOf: DockSession['digestOf']): TurnShownText | null {
+  const chatLine = chatLineOfTurn(part, speaker, digestOf);
+  if (chatLine !== null) return { kind: 'chat-line', text: chatLine };
+  if (speaker.branch !== null || !part.isOver) return null;
+  const lastReplyText = lastReplyTextOf(part);
+  return lastReplyText === null ? null : { kind: 'last-reply', text: lastReplyText };
 }
 
 function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, digestOf: DockSession['digestOf'], options: TurnRowOptions): HTMLElement | null {
   if (part.kind === 'prompt') return promptRowOf(part, speaker);
   if (part.kind === 'turn') {
-    const chatLine = digestOfTurn(part, speaker, digestOf);
-    if (chatLine !== null) return turnRowOf(part, speaker, chatLine, options);
+    const shownText = shownTextOfTurn(part, speaker, digestOf);
+    if (shownText !== null) return turnRowOf(part, speaker, shownText, options);
     const unshownTurn = el('div', 'bs-row bs-row-agent');
     unshownTurn.hidden = true;
     return unshownTurn;
@@ -195,6 +250,16 @@ export function createDock(session: DockSession): Dock {
   element.setAttribute('aria-label', 'Chat');
   const log = el('div', 'bs-log');
   log.setAttribute('role', 'log');
+  const logRows = el('div', 'bs-log-rows');
+  const queueRows = el('div', 'bs-log-queue');
+  const logContent = el('div', 'bs-log-content');
+  logContent.append(logRows, queueRows);
+  log.append(logContent);
+  const { jumpButton, followLatest } = stickToBottom(log, logContent);
+  const jumpSlot = el('div', 'bs-jump-slot');
+  jumpSlot.append(jumpButton);
+  const logFrame = el('div', 'bs-log-frame');
+  logFrame.append(log, jumpSlot);
   const failure = el('p', 'bs-failure');
   failure.setAttribute('role', 'status');
   failure.hidden = true;
@@ -219,7 +284,7 @@ export function createDock(session: DockSession): Dock {
   input.setAttribute('aria-label', `Message ${session.name}`);
   input.setAttribute('aria-autocomplete', 'list');
   input.before(addressChip);
-  element.append(log, failure, mentions, pill);
+  element.append(logFrame, failure, mentions, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
   const expandedRowKeys = new Set<string>();
@@ -234,12 +299,6 @@ export function createDock(session: DockSession): Dock {
   const branchTurnOverBySessionId = new Map<string, () => boolean>();
 
   const rowKeyOf = (sessionId: string, partId: string) => `${sessionId}:${partId}`;
-  const isNearBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight <= NEAR_BOTTOM_PX;
-  const keepingBottom = (change: () => void) => {
-    const wasNearBottom = isNearBottom();
-    change();
-    if (wasNearBottom) log.scrollTop = log.scrollHeight;
-  };
 
   const showFailure = (failureText: string | null) => {
     failure.hidden = failureText === null;
@@ -266,9 +325,9 @@ export function createDock(session: DockSession): Dock {
   const shownAnswerKeys = new Set<string>();
   const insertByTime = (row: HTMLElement) => {
     const rowTime = Number(row.dataset.at);
-    const laterRow = [...log.children].find((child) => child instanceof HTMLElement && child.dataset.at !== undefined && Number(child.dataset.at) > rowTime);
+    const laterRow = [...logRows.children].find((child) => child instanceof HTMLElement && child.dataset.at !== undefined && Number(child.dataset.at) > rowTime);
     if (laterRow) return laterRow.before(row);
-    log.append(row);
+    logRows.append(row);
   };
   const paintProgressAnswers = () => {
     for (const entry of session.progressAnswers()) {
@@ -287,11 +346,11 @@ export function createDock(session: DockSession): Dock {
       if (part.kind === 'turn') turnByKey.set(key, { sessionId, part });
       const row = renderedPartOf(part, speaker, session.digestOf, {
         isExpanded: expandedRowKeys.has(key),
-        toggleExpanded: () => keepingBottom(() => {
+        toggleExpanded: () => {
           if (!expandedRowKeys.delete(key)) expandedRowKeys.add(key);
           upsertParts(sessionId, [turnByKey.get(key)?.part ?? part]);
           rowByKey.get(key)?.querySelector<HTMLElement>('.bs-bubble-agent')?.focus();
-        }),
+        },
         addressBranch,
       });
       if (row === null) {
@@ -309,7 +368,7 @@ export function createDock(session: DockSession): Dock {
         shownRow.replaceWith(row);
         continue;
       }
-      log.append(row);
+      logRows.append(row);
     }
   };
 
@@ -331,6 +390,27 @@ export function createDock(session: DockSession): Dock {
     }
   };
 
+  const outboxEcho = createOutboxEchoState();
+  const shownPromptPartIds = new Set<string>();
+  const unrecordedTimerByEntryId = new Map<string, ReturnType<typeof setTimeout>>();
+  let pendingSends: PendingSend[] = [];
+  const removeStandIns = (entryIds: readonly string[]) => {
+    for (const entryId of entryIds) {
+      outboxEcho.standInByEntryId.delete(entryId);
+      clearTimeout(unrecordedTimerByEntryId.get(entryId));
+      unrecordedTimerByEntryId.delete(entryId);
+    }
+  };
+  const takeRecordedPrompts = (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => {
+    for (const droppedPartId of droppedPartIds) shownPromptPartIds.delete(droppedPartId);
+    const newPromptParts = changedParts.filter((part) => part.kind === 'prompt' && !part.isBoardAnswer && !shownPromptPartIds.has(part.id));
+    for (const promptPart of newPromptParts) shownPromptPartIds.add(promptPart.id);
+    if (!isLive) return;
+    const takenEntryIds = takeStandInsForPrompts(outboxEcho, newPromptParts.length);
+    removeStandIns(takenEntryIds);
+    if (takenEntryIds.length > 0) paintQueue();
+  };
+
   const openFeed = (speaker: FeedSpeaker, workingDirectory: string | null, isTurnOver: () => boolean) => {
     const sessionId = speaker.sessionId;
     speakerBySessionId.set(sessionId, speaker);
@@ -338,22 +418,25 @@ export function createDock(session: DockSession): Dock {
       sessionId,
       workingDirectory,
       requestPage: (payload) => sendControlRequest('session-trace', payload, { timeoutMs: TRACE_PAGE_TIMEOUT_MS }),
-      onPartsChanged: (changedParts, droppedPartIds) => keepingBottom(() => {
+      onPartsChanged: (changedParts, droppedPartIds, isLive) => {
+        if (!speaker.branch) takeRecordedPrompts(changedParts, droppedPartIds, isLive);
         upsertParts(sessionId, changedParts);
         removeParts(sessionId, droppedPartIds);
-      }),
+      },
       onRebuilt: (rebuiltParts, replacedPartIds) => {
         if (speaker.branch) {
           removeParts(sessionId, replacedPartIds);
           removeSessionRows(sessionId);
-          return keepingBottom(() => upsertParts(sessionId, rebuiltParts));
+          return upsertParts(sessionId, rebuiltParts);
         }
         const distanceFromBottom = log.scrollHeight - log.scrollTop;
         removeParts(sessionId, replacedPartIds);
-        log.replaceChildren();
+        logRows.replaceChildren();
         rowByKey.clear();
         turnByKey.clear();
         shownAnswerKeys.clear();
+        shownPromptPartIds.clear();
+        for (const part of rebuiltParts) if (part.kind === 'prompt') shownPromptPartIds.add(part.id);
         upsertParts(sessionId, rebuiltParts);
         paintProgressAnswers();
         log.scrollTop = log.scrollHeight - distanceFromBottom;
@@ -361,20 +444,20 @@ export function createDock(session: DockSession): Dock {
       onBeats: () => {},
       onSubagents: () => {},
       isTurnOver,
-      onReset: () => removeSessionRows(sessionId),
+      onReset: () => {
+        if (!speaker.branch) shownPromptPartIds.clear();
+        removeSessionRows(sessionId);
+      },
       onFailure: showFailure,
     });
     feedBySessionId.set(sessionId, feed);
     return feed;
   };
 
-  const scrollLogToBottom = () => {
-    log.scrollTop = log.scrollHeight;
-  };
   const openLog = () => {
     if (element.dataset.logOpen === 'true') return;
     element.dataset.logOpen = 'true';
-    scrollLogToBottom();
+    followLatest();
   };
   const openLogWhenTurnLive = () => {
     if (!session.isTurnOver()) openLog();
@@ -394,8 +477,64 @@ export function createDock(session: DockSession): Dock {
   openLogWhenTurnLive();
 
   const mainFeed = openFeed(mainSpeaker, session.workingDirectory, session.isTurnOver);
-  mainFeed.whenCaughtUp(() => {
-    log.scrollTop = log.scrollHeight;
+  mainFeed.whenCaughtUp(followLatest);
+
+  const restoreToBar = (text: string) => composer.restoreDraft(draftWithRestoredText(text, composer.readDraft()));
+  const cancelEntry = (entryId: string) => {
+    sendControlRequest('chat-cancel', { id: session.sessionId, entryId }, { timeoutMs: CHAT_SEND_TIMEOUT_MS })
+      .then((reply) => {
+        if (reply.type !== 'chat-cancel-result' || reply.cancelledTexts.length === 0) return;
+        restoreToBar(reply.cancelledTexts.join('\n\n'));
+      })
+      .catch((reason: unknown) => showFailure(`Could not cancel the message: ${errorMessage(reason)}`));
+  };
+  const awaitPromptFor = (entryId: string) => {
+    if (unrecordedTimerByEntryId.has(entryId)) return;
+    unrecordedTimerByEntryId.set(entryId, setTimeout(() => {
+      mainFeed.whenCaughtUp(() => {
+        removeStandIns([entryId]);
+        paintQueue();
+      });
+      mainFeed.refresh();
+    }, STAND_IN_UNRECORDED_MAX_MS));
+  };
+  const claimPendingSends = (entries: readonly ChatOutboxEntry[]) => {
+    const claimedEntryIds = new Set<string>();
+    for (const pending of pendingSends) {
+      const dispatchedEntryIds = pending.entryIdsAtDispatch;
+      if (pending.isClaimed || dispatchedEntryIds === null) continue;
+      const claimedEntry = entries.find((entry) => entry.text === pending.text && !dispatchedEntryIds.has(entry.entryId) && !claimedEntryIds.has(entry.entryId));
+      if (claimedEntry === undefined) continue;
+      claimedEntryIds.add(claimedEntry.entryId);
+      pending.isClaimed = true;
+    }
+  };
+  const queuedEntryRowOf = (entry: ChatOutboxEntry) => {
+    const cancelButton = cancelButtonOf(entry.state === 'sending');
+    cancelButton.addEventListener('click', () => {
+      cancelButton.disabled = true;
+      cancelEntry(entry.entryId);
+    });
+    return queuedRowOf(entry.text, queuedStatusOf(entry), entry.state, cancelButton);
+  };
+  const pendingRowOf = (pending: PendingSend) => queuedRowOf(pending.text, session.isTurnOver() ? PENDING_IDLE_STATUS_TEXT : PENDING_RUNNING_STATUS_TEXT, 'pending', cancelButtonOf(true));
+  const paintQueue = () => {
+    const entries = session.outbox();
+    const update = reconcileOutboxEcho(outboxEcho, entries, !session.isTurnOver(), clock.nowMs());
+    removeStandIns(update.removedStandInEntryIds);
+    for (const entryId of update.clearedStandInEntryIds) awaitPromptFor(entryId);
+    claimPendingSends(entries);
+    const shownPendingSends = pendingSends.filter((pending) => !pending.isClaimed);
+    const standInRows = [...outboxEcho.standInByEntryId.values()].flatMap((standIn) => standIn.kind === 'prompt' ? [promptRowOf(standIn, mainSpeaker)] : []);
+    queueRows.replaceChildren(...standInRows, ...update.queuedEntries.map(queuedEntryRowOf), ...shownPendingSends.map(pendingRowOf));
+    if (update.clearedStandInEntryIds.length > 0) mainFeed.refresh();
+  };
+  const dropPendingSend = (pending: PendingSend) => {
+    pendingSends = pendingSends.filter((candidate) => candidate !== pending);
+    paintQueue();
+  };
+  const stopFollowingOutbox = onChatOutboxNoted((sessionId) => {
+    if (sessionId === session.sessionId) paintQueue();
   });
 
   const closeMentions = () => {
@@ -502,10 +641,18 @@ export function createDock(session: DockSession): Dock {
         });
     }
     if (sentAddress.kind === 'branch') return sendToAgent(sentAddress.sessionId, text);
+    const pending: PendingSend = { text, entryIdsAtDispatch: null, isClaimed: false };
+    pendingSends = [...pendingSends, pending];
+    paintQueue();
+    const dispatchToMain = () => {
+      pending.entryIdsAtDispatch = new Set(session.outbox().map((entry) => entry.entryId));
+      return sendToAgent(session.sessionId, text);
+    };
     const mainSend = mainSendQueue.then(() => sendControlRequest('studio-progress-ask', { id: session.sessionId, text }, { timeoutMs: PROGRESS_ASK_TIMEOUT_MS })
       .then((reply) => reply.type === 'studio-progress-ask-result' && reply.isAnswered)
       .catch(() => false)
-      .then((isAnswered) => isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', sendToAgent(session.sessionId, text))));
+      .then((isAnswered) => isAnswered ? deliveredAs('progress', Promise.resolve(null)) : deliveredAs('talk', dispatchToMain())))
+      .finally(() => dropPendingSend(pending));
     mainSendQueue = mainSend.catch(() => null);
     return mainSend;
   };
@@ -529,6 +676,7 @@ export function createDock(session: DockSession): Dock {
     if (text === null || text.length === 0) return;
     closeMentions();
     const sentAddress = address;
+    followLatest();
     const restoreText = (failureText: string) => {
       if (input.value.trim().length === 0) composer.restoreDraft(text);
       showFailure(failureText);
@@ -547,6 +695,7 @@ export function createDock(session: DockSession): Dock {
   });
 
   paintComposer();
+  paintQueue();
   const railTimer = setInterval(paintComposer, RAIL_TICK_MS);
 
   const setBranches = (branches: readonly DockBranch[]) => {
@@ -585,19 +734,22 @@ export function createDock(session: DockSession): Dock {
     refresh: () => {
       openLogWhenTurnLive();
       paintComposer();
+      paintQueue();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },
-    refreshDigests: () => keepingBottom(() => {
+    refreshDigests: () => {
       for (const [key, { sessionId, part }] of turnByKey) {
         const speaker = speakerBySessionId.get(sessionId);
         if (!speaker) continue;
-        const digest = digestOfTurn(part, speaker, session.digestOf);
-        if ((rowByKey.get(key)?.dataset.digest ?? null) === digest) continue;
+        const shownText = shownTextOfTurn(part, speaker, session.digestOf)?.text ?? null;
+        if ((rowByKey.get(key)?.dataset.digest ?? null) === shownText) continue;
         upsertParts(sessionId, [part]);
       }
       paintProgressAnswers();
-    }),
+    },
     close: () => {
+      stopFollowingOutbox();
+      for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);
       dockListeners.abort();
       clearInterval(railTimer);
       for (const feed of feedBySessionId.values()) feed.close();

@@ -187,13 +187,16 @@ function prToolCallOf(command: 'open-pr' | 'mark-pr-ready'): Record<string, unkn
   return { tool_input: { command: 'gh pr create --draft --fill' }, tool_response: { stdout: FAKE_PR_URL, gitOperation: { pr: { action: 'created', url: FAKE_PR_URL } } } };
 }
 
+let postedHooksInOrder: Promise<unknown> = Promise.resolve();
+
 function postHook(event: string, payload: Record<string, unknown>): void {
-  if (!endpoint) return;
-  fetch(`${endpoint.base}/${event}${endpoint.query}`, {
+  const hookEndpoint = endpoint;
+  if (!hookEndpoint) return;
+  postedHooksInOrder = postedHooksInOrder.then(() => fetch(`${hookEndpoint.base}/${event}${hookEndpoint.query}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ session_id: SESSION_ID, cwd: process.cwd(), ...payload }),
-  }).catch(() => {});
+  }).catch(() => {}));
 }
 
 const transcriptPath = process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'fake-agent', `${SESSION_ID}.jsonl`) : null;
@@ -415,6 +418,13 @@ function dispatch(command: string): void {
     for (const testRun of [1, 2, 3]) replyThenRun('Running.', `npm test -- run-${testRun}`);
     replyThenRun('Build passed. The rail now shows the agent logo and the meters color by level, so next I check the board.', 'npm run build');
     replyThenRun('Checking the board.', 'npm run board');
+    isNarrating = true;
+    return;
+  }
+  if (command === 'delegate') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_${randomUUID().replaceAll('-', '')}`, name: 'Task', input: { subagent_type: 'Explore', description: 'Find the tax table' } }] } });
     isNarrating = true;
     return;
   }

@@ -13,6 +13,8 @@ const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
 const MERGE_POLL_MS = 250;
 const DIRECTOR_TIMEOUT_MS = 60000;
+const RAIL_REPAINT_WAIT_MS = 35000;
+const DIRECTOR_AWAY_MS = 15000;
 const REFUNDS_COMMIT_SUBJECT = 'Add refunds beside the card module';
 
 interface Box {
@@ -265,6 +267,90 @@ async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Bo
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the branch');
 }
 
+async function typeIntoAgent(page: Page, sessionId: string, command: string): Promise<void> {
+  await page.evaluate(async ({ targetId, frame }) => {
+    const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
+    const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
+    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/terminals/${encodeURIComponent(targetId)}?token=${encodeURIComponent(token)}`);
+    await new Promise<void>((resolve) => socket.addEventListener('open', () => resolve()));
+    socket.send(JSON.stringify({ type: 'input', data: frame }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    socket.close();
+  }, { targetId: sessionId, frame: `${String.fromCharCode(0x1b)}]7777;${command}${String.fromCharCode(0x07)}` });
+}
+
+async function waitForLogAtNewest(page: Page, reason: string): Promise<void> {
+  const isAtNewest = () => {
+    const log = document.querySelector<HTMLElement>('.board-session-view .bs-log');
+    return log !== null && log.clientHeight > 0 && log.scrollHeight > log.clientHeight && log.scrollHeight - log.clientHeight - log.scrollTop <= 1;
+  };
+  await page.waitForFunction(isAtNewest, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS }).catch(() => undefined);
+  assert.equal(await page.evaluate(isAtNewest), true, reason);
+}
+
+async function verifyStudioChatOpensAtNewest(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  await page.reload();
+  await page.locator('#tab-board-session').click();
+  await root.locator('.bs-card[data-main][data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-you', { hasText: 'delegate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await waitForLogAtNewest(page, 'the Studio chat opens on its newest message');
+  await page.locator('#tab-focus').click();
+  await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.locator('#tab-board-session').click();
+  await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await waitForLogAtNewest(page, 'the Studio chat reopens on its newest message after another tab');
+}
+
+async function verifyStudioRailShowsNoSubagents(page: Page, studioMainId: string): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const pillInput = root.getByRole('textbox');
+  await typeIntoAgent(page, studioMainId, 'stop');
+  await root.locator('.bs-card[data-main][data-phase="working"]').waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await pillInput.fill('');
+  await pillInput.press('Escape');
+  await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await pillInput.fill('delegate');
+  await pillInput.press('Enter');
+  await root.locator('.bs-card[data-main]', { hasText: 'Using Task' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-you', { hasText: 'delegate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await waitForLogAtNewest(page, 'the Studio chat stays on its newest message as rows arrive');
+  const namesSubagent = await page.waitForFunction(() => /subagent/i.test(document.querySelector<HTMLElement>('.board-session-view .bs-dock')?.innerText ?? ''), undefined, { timeout: RAIL_REPAINT_WAIT_MS }).then(() => true, () => false);
+  assert.equal(namesSubagent, false, 'the Studio chat names no subagent the main agent runs');
+}
+
+async function verifyQueuedMessagesDeliveredOnceInOrder(page: Page, studioMainId: string): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const pillInput = root.getByRole('textbox');
+  const sentRowsOf = (text: string) => root.locator('.bs-row-you:not(.bs-row-queued)', { hasText: text });
+  const queuedRowOf = (text: string) => root.locator('.bs-row-queued', { hasText: text });
+  const editSentBefore = await sentRowsOf('edit-shop').count();
+  const longSentBefore = await sentRowsOf('long-shop').count();
+  for (const queuedText of ['edit-shop', 'long-shop']) {
+    await pillInput.fill(queuedText);
+    await pillInput.press('Enter');
+    await queuedRowOf(queuedText).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  }
+  await page.waitForFunction(() => [...document.querySelectorAll('.board-session-view .bs-row-queued .bs-queued-status')].every((status) => status.textContent === 'Queued'), undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await queuedRowOf('edit-shop').count(), 1, 'a message sent mid-turn shows once as queued');
+  assert.equal(await sentRowsOf('edit-shop').count(), editSentBefore, 'a queued message shows no sent copy');
+  await typeIntoAgent(page, studioMainId, 'stop');
+  await queuedRowOf('long-shop').waitFor({ state: 'detached', timeout: DIRECTOR_TIMEOUT_MS });
+  await page.waitForFunction(({ editCount, longCount }) => {
+    const sentTexts = [...document.querySelectorAll('.board-session-view .bs-row-you[data-part-id]:not(.bs-row-queued)')].map((row) => row.textContent ?? '');
+    return sentTexts.filter((text) => text.includes('edit-shop')).length === editCount && sentTexts.filter((text) => text.includes('long-shop')).length === longCount;
+  }, { editCount: editSentBefore + 1, longCount: longSentBefore + 1 }, { timeout: DIRECTOR_TIMEOUT_MS });
+  await delay(1000);
+  assert.equal(await sentRowsOf('edit-shop').count(), editSentBefore + 1, 'the queued message is delivered once');
+  assert.equal(await sentRowsOf('long-shop').count(), longSentBefore + 1, 'the second queued message is delivered once');
+  const sentOrder = await root.locator('.bs-row-you:not(.bs-row-queued)').evaluateAll((rows) => rows.map((row) => row.textContent ?? ''));
+  assert.ok(sentOrder.findLastIndex((text) => text.includes('edit-shop')) < sentOrder.findLastIndex((text) => text.includes('long-shop')), 'queued messages are delivered in the order sent');
+  await pillInput.fill('narrate');
+  await pillInput.press('Enter');
+  await root.locator('.bs-card[data-main][data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+}
+
 export async function verifyBoardSession(page: Page, projectDirectory: string): Promise<void> {
   const root = page.locator('.board-session-view');
   await page.locator('#tab-board-session').click();
@@ -315,7 +401,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.fill('edit-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-guide-step[data-done]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-row-agent[hidden]').first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-row-agent:not([hidden]) .bs-last-reply', { hasText: 'The charge goes through' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await root.locator('.bs-presence-glow[data-tier="edited"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   const faceOnBox = root.locator('.bs-card[data-main] .bs-face-main').first();
   await faceOnBox.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -371,10 +457,16 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   await pillInput.fill('long-shop');
   await pillInput.press('Enter');
+  await root.locator('.bs-row-you', { hasText: 'long-shop' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.locator('#tab-focus').click();
+  await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await delay(DIRECTOR_AWAY_MS);
+  await page.locator('#tab-board-session').click();
+  await pillInput.click();
   const directedLine = root.locator('.bs-row-agent .bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }).first();
-  await directedLine.waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
-  assert.equal(await root.locator('.bs-log', { hasText: 'The tax table is read once' }).count(), 0, 'a directed turn shows only its chat line');
-  assert.equal(await root.locator('.bs-row-agent:not([hidden])', { hasText: 'The charge goes through' }).count(), 0, 'a turn the director leaves out never reaches chat');
+  await directedLine.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-log', { hasText: 'The tax table is read once' }).count(), 0, 'a chat line kept while Studio was away replaces the last reply');
+  assert.equal(await root.locator('.bs-row-agent:not([hidden]) .bs-last-reply', { hasText: 'The charge goes through' }).count(), 1, 'a turn the director gives no chat line shows the agent\'s last reply');
   const directedBubble = root.locator('.bs-row-agent', { has: page.locator('.bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }) }).first().locator('.bs-bubble-agent');
   const logBefore = await boxOf(page, '.board-session-view .bs-pill');
   await directedBubble.click();
@@ -458,6 +550,9 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   const mainCard = root.locator('.bs-card[data-main]').first();
   const studioMainId = await mainCard.getAttribute('data-session-id');
   assert.ok(studioMainId, 'the Studio main shows as a card');
+  await verifyStudioRailShowsNoSubagents(page, studioMainId);
+  await verifyStudioChatOpensAtNewest(page);
+  await verifyQueuedMessagesDeliveredOnceInOrder(page, studioMainId);
   assert.equal(await mainCard.locator('[data-action="board-session-agent-menu"]').isHidden(), true, 'the Orchestrator card has no second menu button');
   await repoButton.click();
   await root.getByRole('menuitem', { name: 'Restart Orchestrator', exact: true }).click();
@@ -468,7 +563,6 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await restartDialog.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.getByRole('button', { name: 'Restart fresh', exact: true }).click();
   await page.getByRole('button', { name: 'Restart fresh', exact: true }).waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
-  await root.locator('.bs-pill-address-clear').click();
   await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   await verifyShownPageOnMap(page);
   await verifyPrCardOnMap(page);

@@ -4,7 +4,6 @@ import { chatPhaseOf, shownChatPhaseOf } from '../chat/chat-activity-core.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import type { ChatFeed } from '../chat/chat-feed.ts';
-import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { getJSON, setJSON } from '../local-store.ts';
@@ -18,7 +17,7 @@ import { boundsOfHostBox, glideHostTo, leaveBoardHost, mountBoardHost, paintBoar
 import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
 import { dismissAgentChange, onAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
-import { onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
+import { onBoardSessionStatusChanged, onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
 import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
@@ -41,6 +40,7 @@ import { createAgentCards, isBusyPhase } from './agent-card.ts';
 import type { AgentCardModel, AgentCards } from './agent-card.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionRailFieldsOf } from '../chat/chat-page.ts';
+import { chatSessionStateOf } from '../chat/chat-session-state.ts';
 import { createAgentWaits } from './agent-waits.ts';
 import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
@@ -71,12 +71,12 @@ const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
 const ACCOUNT_TEXT = 'Model and account';
 const NO_REPO_TEXT = 'No repo';
 const TURN_OPENINGS_KEPT = 20;
+const NO_SUBAGENTS: readonly [] = [];
 
 interface SessionWatch {
   feed: ChatFeed;
   presence: Presence;
   lastBeat: ActivityBeat | null;
-  subagents: readonly RunningSubagent[];
   turnOpenedAts: number[];
   waits: AgentWaits;
 }
@@ -211,10 +211,7 @@ function openWatch(sessionId: string): SessionWatch {
         watch.lastBeat = beats.at(-1) ?? watch.lastBeat;
         paintPresence();
       },
-      onSubagents: (runningSubagents) => {
-        watch.subagents = runningSubagents;
-        paintPresence();
-      },
+      onSubagents: () => {},
       isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
       onReset: () => {},
       onRebuilt: () => {},
@@ -223,7 +220,6 @@ function openWatch(sessionId: string): SessionWatch {
     }),
     presence: NO_PRESENCE,
     lastBeat: null,
-    subagents: [],
     turnOpenedAts: [],
     waits: createAgentWaits(sessionId, showNotice),
   };
@@ -614,8 +610,9 @@ function mountDock(): void {
     boxChoices: () => moduleChoices,
     digestOf: directorChatLineOf,
     progressAnswers: () => progressAnswers.filter((answer) => answer.sessionId === sessionId),
-    railFields: () => sessionRailFieldsOf(sessionId, watchBySessionId.get(sessionId)?.subagents ?? [], false),
+    railFields: () => sessionRailFieldsOf(sessionId, NO_SUBAGENTS, false),
     onDelivered: (kind) => parts?.guide.markDone(kind),
+    outbox: () => chatSessionStateOf(sessionId).outbox.filter((entry) => entry.origin === 'operator'),
   });
   parts.dockSlot.append(dock.element);
   syncBranches();
@@ -832,6 +829,10 @@ function mountBoardSessionView(panel: HTMLElement): void {
   onDirectorDigestKept((sessionId) => {
     if (isActive && (sessionId === shownSessionId || watchBySessionId.has(sessionId))) requestDigests();
   });
+  onBoardSessionStatusChanged((sessionId) => {
+    if (!isActive || (sessionId !== shownSessionId && !shownBranchIds().includes(sessionId))) return;
+    dock?.refresh();
+  });
   onBoardSessionTraceChanged((sessionId) => {
     if (!isActive) return;
     watchBySessionId.get(sessionId)?.feed.refresh();
@@ -850,6 +851,7 @@ function activateBoardSessionView(): void {
   placeBoardTitle(null);
   seatOnHost();
   showPickedRepo();
+  requestDigests();
   reopenSelectedBoard();
 }
 

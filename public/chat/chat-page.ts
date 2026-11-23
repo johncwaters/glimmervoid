@@ -32,7 +32,7 @@ import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { boardSummariesOf } from '../whiteboard/board-store.ts';
 import { openBoardAtAgentChange } from '../whiteboard/board-chips.ts';
 import { donePanelModelOf } from './done-panel-core.ts';
-import { chatSessionStateOf, clearChatSnapshotState } from './chat-session-state.ts';
+import { chatSessionStateOf, clearChatSnapshotState, noteChatOutboxEntries } from './chat-session-state.ts';
 import { createOutboxEchoState, isOutboxAwaitingTurn, newestCancellableOutboxEntryOf, queuedOutboxEntriesOf, reconcileOutboxEcho, takeStandInsForPrompts } from './outbox-echo-core.ts';
 import { cardPartOf, createChatWaits } from './chat-waits.ts';
 
@@ -44,7 +44,7 @@ const RUN_TIME_TICK_MS = 1000;
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const TOO_MANY_ATTACHMENTS_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files, so the rest were not attached.`;
 const TOO_MANY_TO_SEND_TEXT = `A Chat message carries up to ${CHAT_SEND_MAX_ATTACHMENTS} files. Remove some and send again.`;
-const STAND_IN_UNRECORDED_MAX_MS = 5000;
+export const STAND_IN_UNRECORDED_MAX_MS = 5000;
 
 interface MountedChat {
   sessionId: string;
@@ -77,7 +77,7 @@ function isChatEnabled(): boolean {
   return typeof sessionChat === 'object' && sessionChat !== null && 'enabled' in sessionChat && sessionChat.enabled === true;
 }
 
-function draftWithRestoredText(restoredText: string, draft: string): string {
+export function draftWithRestoredText(restoredText: string, draft: string): string {
   if (draft.trim().length === 0) return restoredText;
   return `${restoredText}\n\n${draft}`;
 }
@@ -659,7 +659,7 @@ export function noteChatAgentDoneLines(sessionId: string, agentDoneLines: readon
 }
 
 export function noteChatOutbox(sessionId: string, entries: ChatOutboxEntry[]): void {
-  chatSessionStateOf(sessionId).outbox = entries;
+  noteChatOutboxEntries(sessionId, entries);
   if (mountedChat?.sessionId === sessionId) mountedChat.showOutbox();
 }
 

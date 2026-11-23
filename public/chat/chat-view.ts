@@ -145,7 +145,7 @@ function keepChatKeyed(chat: KeyedChat): void {
   window.addEventListener('storage', () => applyChatBriefOff(isChatBriefOff()));
 }
 
-function queuedStatusOf(entry: ChatOutboxEntry): string {
+export function queuedStatusOf(entry: ChatOutboxEntry): string {
   if (entry.state === 'failed') return entry.failure ?? 'Not sent.';
   return QUEUED_STATUS_TEXT[entry.state];
 }

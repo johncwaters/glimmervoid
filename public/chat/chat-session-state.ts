@@ -10,6 +10,7 @@ interface ChatSessionState {
 }
 
 const stateBySessionId = new Map<string, ChatSessionState>();
+const outboxListeners = new Set<(sessionId: string) => void>();
 
 function freshSessionState(): ChatSessionState {
   return { approval: null, draft: '', draftAttachments: [], outbox: [], agentDoneLines: [], uploadingCount: 0 };
@@ -21,6 +22,16 @@ export function chatSessionStateOf(sessionId: string): ChatSessionState {
   const created = freshSessionState();
   stateBySessionId.set(sessionId, created);
   return created;
+}
+
+export function noteChatOutboxEntries(sessionId: string, entries: ChatOutboxEntry[]): void {
+  chatSessionStateOf(sessionId).outbox = entries;
+  for (const listener of outboxListeners) listener(sessionId);
+}
+
+export function onChatOutboxNoted(listener: (sessionId: string) => void): () => void {
+  outboxListeners.add(listener);
+  return () => outboxListeners.delete(listener);
 }
 
 export function clearChatSnapshotState(): void {
