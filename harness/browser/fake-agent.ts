@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML } from './cases-core.ts';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { BURST_CAP, DECEPTIVE_LINK_ROW_NUMBER, DECEPTIVE_LINK_TEXT, DECEPTIVE_LINK_URL, LINK_ROW_LINK_TEXT, LINK_ROW_NUMBER, LINK_ROW_PLAIN_TEXT, LINK_ROW_URL, MOTION_REPORT_PREFIX, paintFull, repaintInPlace, WIDE_ROW_LEAD, WIDE_ROW_NUMBER, WIDE_ROW_TARGET } from './frame-core.ts';
 
@@ -456,6 +457,15 @@ function dispatch(command: string): void {
     dispatch('work');
     appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
     postAgentVerb('whiteboard', { sub: 'ask', about: 'src/payments/card.js', question: BOARD_ASK_QUESTION, options: ['Yes, reuse it', 'No, keep them apart'] });
+    dispatch('stop');
+    return;
+  }
+  if (command === 'show-page') {
+    dispatch('work');
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    const pagePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'shown-page-')), SHOWN_PAGE_FILE_NAME);
+    fs.writeFileSync(pagePath, SHOWN_PAGE_HTML);
+    postAgentVerb('whiteboard', { sub: 'show', path: pagePath });
     dispatch('stop');
     return;
   }

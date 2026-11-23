@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
-import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_TICKED_TEXT, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import { boxScreenRectsOf, clickBoardBoxWhere, hoverBoardBoxWhere } from './boards.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
@@ -68,6 +68,45 @@ async function studioMapBoardIdOf(page: Page, root: Locator): Promise<string | n
       });
     });
   }, mapSessionId);
+}
+
+async function shownPageBoundsOf(page: Page): Promise<Box> {
+  const deadline = Date.now() + BOARD_SESSION_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      const hasTick = await frame.locator('#tick').count().then((count) => count > 0, () => false);
+      const bounds = hasTick ? await (await frame.frameElement()).boundingBox() : null;
+      if (bounds) return bounds;
+    }
+    await delay(MERGE_POLL_MS);
+  }
+  assert.fail('the shown page renders on the Studio map');
+}
+
+async function verifyShownPageOnMap(page: Page): Promise<void> {
+  const root = page.locator('.board-session-view');
+  const pillInput = root.locator('.bs-pill textarea.chat-composer-input');
+  await pillInput.fill('show-page');
+  await pillInput.press('Enter');
+  await root.getByRole('button', { name: 'Go to card', exact: true }).click({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  const shownPageBounds = await shownPageBoundsOf(page);
+  const openPoint = await page.evaluate((bounds) => {
+    for (let row = 1; row < 10; row += 1) {
+      for (let column = 1; column < 10; column += 1) {
+        const point = { x: bounds.x + (bounds.width * column) / 10, y: bounds.y + (bounds.height * row) / 10 };
+        const hit = document.elementFromPoint(point.x, point.y);
+        if (hit?.closest('.wb-viewport')) return point;
+      }
+    }
+    return null;
+  }, shownPageBounds);
+  assert.ok(openPoint, 'part of the shown page is clear of the Studio cards and log');
+  await page.mouse.click(openPoint.x, openPoint.y);
+  const viewerPage = page.frameLocator('iframe.wb-image-viewer-page');
+  await viewerPage.getByRole('button', { name: 'Tick', exact: true }).click({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await viewerPage.getByRole('button', { name: SHOWN_PAGE_TICKED_TEXT, exact: true }).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await page.keyboard.press('Escape');
+  assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a page an agent showed on the map takes no address');
 }
 
 async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
@@ -310,6 +349,9 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await restartDialog.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await page.getByRole('button', { name: 'Restart fresh', exact: true }).click();
   await page.getByRole('button', { name: 'Restart fresh', exact: true }).waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-pill-address-clear').click();
+  await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await verifyShownPageOnMap(page);
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.isHidden(), true, 'the Studio tab hides when Focus opens');

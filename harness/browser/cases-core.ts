@@ -861,3 +861,9 @@ export const AGENT_DONE_LINE = { text: 'node starts in the worktree', command: '
 export function needsDoneMeansChecks(scenario: Scenario): boolean {
   return scenario.steps.some((step) => step.kind === 'assert-chat-done-means');
 }
+
+export const SHOWN_PAGE_FILE_NAME = 'chapter-ticks.html';
+export const SHOWN_PAGE_TICKED_TEXT = 'Ticked';
+export const SHOWN_PAGE_HTML = `<!doctype html><html><head><title>Chapter ticks</title></head><body><button type="button" id="tick">Tick</button><script>
+document.getElementById('tick').addEventListener('click', (event) => { event.currentTarget.textContent = '${SHOWN_PAGE_TICKED_TEXT}'; });
+</script></body></html>`;
