@@ -18,6 +18,7 @@ export interface MemoryReservation {
 export interface CgroupLevel {
   limitBytes: number | null;
   currentBytes: number | null;
+  inactiveFileBytes: number | null;
 }
 
 interface MemoryReserveConfig {
@@ -51,6 +52,12 @@ export function cgroupLimitBytes(memoryHighText: string | null, memoryMaxText: s
   return parseCgroupBytes(memoryHighText) ?? parseCgroupBytes(memoryMaxText);
 }
 
+export function parseInactiveFileBytes(memoryStatText: string | null): number | null {
+  if (memoryStatText === null) return null;
+  const match = /^inactive_file (\d+)$/m.exec(memoryStatText);
+  return match ? Number(match[1]) : null;
+}
+
 export function parseMemAvailableBytes(meminfoText: string): number | null {
   const match = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfoText);
   return match ? Number(match[1]) * 1024 : null;
@@ -60,9 +67,11 @@ export function headroomFromReadings({ cgroupLevels, hostAvailableBytes }: {
   cgroupLevels: readonly CgroupLevel[];
   hostAvailableBytes: number | null;
 }): number | null {
-  const candidates = cgroupLevels.flatMap(({ limitBytes, currentBytes }) => (
-    limitBytes === null || currentBytes === null ? [] : [Math.max(0, limitBytes - currentBytes)]
-  ));
+  const candidates = cgroupLevels.flatMap(({ limitBytes, currentBytes, inactiveFileBytes }) => {
+    if (limitBytes === null || currentBytes === null) return [];
+    const workingSetBytes = Math.max(0, currentBytes - (inactiveFileBytes ?? 0));
+    return [Math.max(0, limitBytes - workingSetBytes)];
+  });
   if (hostAvailableBytes !== null) candidates.push(hostAvailableBytes);
   return candidates.length === 0 ? null : Math.min(...candidates);
 }

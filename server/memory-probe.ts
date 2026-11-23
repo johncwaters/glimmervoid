@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { errorMessage } from '../shared/text.ts';
-import { cgroupAncestorPaths, cgroupLimitBytes, headroomFromReadings, parseCgroupBytes, parseCgroupV2Path, parseMemAvailableBytes } from './core/memory-admission-core.ts';
+import { cgroupAncestorPaths, cgroupLimitBytes, headroomFromReadings, parseCgroupBytes, parseInactiveFileBytes, parseCgroupV2Path, parseMemAvailableBytes } from './core/memory-admission-core.ts';
 import type { CgroupLevel, MemoryReading } from './core/memory-admission-core.ts';
 
 const CGROUP_ROOT = '/sys/fs/cgroup';
@@ -23,10 +23,14 @@ async function readTextIfPresent(filePath: string): Promise<string | null> {
 
 async function readCgroupLevel(cgroupPath: string): Promise<CgroupLevel> {
   const cgroupDirectory = path.posix.join(CGROUP_ROOT, cgroupPath);
-  const [memoryHighText, memoryMaxText, memoryCurrentText] = await Promise.all(
-    ['memory.high', 'memory.max', 'memory.current'].map((fileName) => readTextIfPresent(path.posix.join(cgroupDirectory, fileName))),
+  const [memoryHighText, memoryMaxText, memoryCurrentText, memoryStatText] = await Promise.all(
+    ['memory.high', 'memory.max', 'memory.current', 'memory.stat'].map((fileName) => readTextIfPresent(path.posix.join(cgroupDirectory, fileName))),
   );
-  return { limitBytes: cgroupLimitBytes(memoryHighText ?? null, memoryMaxText ?? null), currentBytes: parseCgroupBytes(memoryCurrentText ?? null) };
+  return {
+    limitBytes: cgroupLimitBytes(memoryHighText ?? null, memoryMaxText ?? null),
+    currentBytes: parseCgroupBytes(memoryCurrentText ?? null),
+    inactiveFileBytes: parseInactiveFileBytes(memoryStatText ?? null),
+  };
 }
 
 async function readLinuxHeadroom(): Promise<MemoryReading> {

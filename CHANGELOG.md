@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The memory gate no longer counts file cache as used.** Sessions were refused with memory is low while the machine had gigabytes available, because reclaimable file cache in Glimmervoid's cgroup (`inactive_file` in `memory.stat`) counted as used memory. Headroom now subtracts it, the way Kubernetes measures a container's working set.
 - **The logo's lock spin turns on its center.** The spin that plays when first-run setup finishes and on feature hints no longer swings off to one side.
 - **A session refused because glimmervoid-relay vanished says to restart, not reinstall.** The relay is only missing at spawn when it was there at startup, so something removed it while Glimmervoid ran, and the refusal now says to restart Glimmervoid and to reinstall only if that does not clear it.
 - **Codex sessions open ready without repeating startup trust prompts.** Generated `CODEX_HOME` configs now pre-trust the operator's own `~/.codex/hooks.json` hooks (using hashes from `codex app-server hooks/list` outside clean homes, superseding stale `~/.codex/config.toml` hashes) and trust both the raw and canonicalized session folder paths so symlinked folders skip the folder trust prompt, matching Antigravity and Claude Code.
