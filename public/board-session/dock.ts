@@ -72,17 +72,56 @@ function agentFaceOf(speaker: FeedSpeaker): HTMLElement {
   return face;
 }
 
-function turnBodyOf(part: Extract<ChatPart, { kind: 'turn' }>, digest: string | null): HTMLElement | null {
-  if (digest !== null) {
-    const digestBody = el('div', 'bs-bubble-body');
-    digestBody.append(el('p', 'bs-digest', digest));
-    return digestBody;
-  }
+function fullReplyOf(part: Extract<ChatPart, { kind: 'turn' }>): HTMLElement {
   const replyTexts = part.segments.flatMap((segment) => segment.kind === 'text' && segment.text.trim().length > 0 ? [segment.text] : []);
-  if (replyTexts.length === 0) return null;
+  const fullReply = el('div', 'bs-full-reply');
+  fullReply.append(...replyTexts.map((replyText) => renderPlanBlocks(parsePlanMarkdown(replyText))));
+  return fullReply;
+}
+
+interface TurnRowOptions {
+  isExpanded: boolean;
+  toggleExpanded: () => void;
+  addressBranch: (branch: DockBranch) => void;
+}
+
+function isInsideFullReply(eventTarget: EventTarget | null): boolean {
+  return eventTarget instanceof Element && eventTarget.closest('.bs-full-reply') !== null;
+}
+
+function pressableOnKeys(target: HTMLElement, label: string, press: () => void): void {
+  target.tabIndex = 0;
+  target.setAttribute('role', 'button');
+  target.setAttribute('aria-label', label);
+  target.addEventListener('click', (event) => {
+    if (isInsideFullReply(event.target)) return;
+    event.stopPropagation();
+    press();
+  });
+  target.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (isInsideFullReply(event.target)) return;
+    event.preventDefault();
+    press();
+  });
+}
+
+function turnRowOf(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSpeaker, chatLine: string, options: TurnRowOptions): HTMLElement {
+  const row = el('div', speaker.branch ? 'bs-row bs-row-agent bs-row-branch' : 'bs-row bs-row-agent');
+  row.dataset.digest = chatLine;
+  row.dataset.expanded = String(options.isExpanded);
+  const bubble = el('div', 'bs-bubble bs-bubble-agent');
   const body = el('div', 'bs-bubble-body');
-  body.append(...replyTexts.map((replyText) => renderPlanBlocks(parsePlanMarkdown(replyText))));
-  return body;
+  body.append(el('p', 'bs-digest', chatLine));
+  if (options.isExpanded) body.append(fullReplyOf(part));
+  bubble.append(el('span', 'bs-bubble-who', speaker.name), body);
+  bubble.setAttribute('aria-expanded', String(options.isExpanded));
+  pressableOnKeys(bubble, `Whole reply from ${speaker.name}`, options.toggleExpanded);
+  const face = agentFaceOf(speaker);
+  row.append(face, bubble);
+  const branch = speaker.branch;
+  if (branch !== null) pressableOnKeys(face, `Reply to ${branch.name}`, () => options.addressBranch(branch));
+  return row;
 }
 
 function promptRowOf(part: Extract<ChatPart, { kind: 'prompt' }>, speaker: FeedSpeaker): HTMLElement {
@@ -99,29 +138,14 @@ function digestOfTurn(part: Extract<ChatPart, { kind: 'turn' }>, speaker: FeedSp
   return digestOf(speaker.sessionId, part.openedAt);
 }
 
-function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, addressBranch: (branch: DockBranch) => void, digestOf: DockSession['digestOf']): HTMLElement | null {
+function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, digestOf: DockSession['digestOf'], options: TurnRowOptions): HTMLElement | null {
   if (part.kind === 'prompt') return promptRowOf(part, speaker);
   if (part.kind === 'turn') {
-    const digest = digestOfTurn(part, speaker, digestOf);
-    const body = turnBodyOf(part, digest);
-    if (body === null) return null;
-    const row = el('div', speaker.branch ? 'bs-row bs-row-agent bs-row-branch' : 'bs-row bs-row-agent');
-    if (digest !== null) row.dataset.digest = digest;
-    const bubble = el('div', 'bs-bubble bs-bubble-agent');
-    bubble.append(el('span', 'bs-bubble-who', speaker.name), body);
-    row.append(agentFaceOf(speaker), bubble);
-    const branch = speaker.branch;
-    if (branch === null) return row;
-    row.tabIndex = 0;
-    row.setAttribute('role', 'button');
-    row.setAttribute('aria-label', `Reply to ${branch.name}`);
-    row.addEventListener('click', () => addressBranch(branch));
-    row.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
-      event.preventDefault();
-      addressBranch(branch);
-    });
-    return row;
+    const chatLine = digestOfTurn(part, speaker, digestOf);
+    if (chatLine !== null) return turnRowOf(part, speaker, chatLine, options);
+    const unshownTurn = el('div', 'bs-row bs-row-agent');
+    unshownTurn.hidden = true;
+    return unshownTurn;
   }
   if (part.kind !== 'card') return null;
   const row = el('div', 'bs-row bs-row-card');
@@ -170,6 +194,7 @@ export function createDock(session: DockSession): Dock {
   element.append(log, failure, mentions, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
+  const expandedRowKeys = new Set<string>();
   const turnByKey = new Map<string, { sessionId: string; part: Extract<ChatPart, { kind: 'turn' }> }>();
   const feedBySessionId = new Map<string, ChatFeed>();
   const speakerBySessionId = new Map<string, FeedSpeaker>();
@@ -216,7 +241,15 @@ export function createDock(session: DockSession): Dock {
     for (const part of parts) {
       const key = rowKeyOf(sessionId, part.id);
       if (part.kind === 'turn') turnByKey.set(key, { sessionId, part });
-      const row = renderedPartOf(part, speaker, addressBranch, session.digestOf);
+      const row = renderedPartOf(part, speaker, session.digestOf, {
+        isExpanded: expandedRowKeys.has(key),
+        toggleExpanded: () => keepingBottom(() => {
+          if (!expandedRowKeys.delete(key)) expandedRowKeys.add(key);
+          upsertParts(sessionId, [turnByKey.get(key)?.part ?? part]);
+          rowByKey.get(key)?.querySelector<HTMLElement>('.bs-bubble-agent')?.focus();
+        }),
+        addressBranch,
+      });
       if (row === null) {
         rowByKey.get(key)?.remove();
         rowByKey.delete(key);
