@@ -1629,7 +1629,6 @@ export function createWargamesMap(
 
     if (overlayMode === 'recap') {
       animQueue.clear();
-      diplomacyQueue.resume();
       fxLayer.replaceChildren();
       advanceOverlay('reset');
     }
@@ -1927,6 +1926,7 @@ export function createWargamesMap(
       return;
     }
 
+    diplomacyQueue.resume();
     emitLiveDiplomacyFx(state, pov);
     displayedVillages = targetVillages.map(cloneVillage);
     paintAllDisplayedSlots(state, pov, selectedHexIndex, spotlightSeatId);
