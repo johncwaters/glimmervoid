@@ -35,6 +35,7 @@ import type { ControlContext } from '../control-context.ts';
 import { isExistingDirectory, replyTo, sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
 import { clock } from '../../../shared/clock.ts';
+import { runCommandSafely } from '../../child-process-safe.ts';
 
 type ScannedProject = { name: string; path: string; isGit?: boolean; hasCommits?: boolean; lastActivityMs?: number };
 
@@ -108,7 +109,7 @@ async function gitDirectoryOf(projectPath: string): Promise<string | undefined> 
 
 const HEAD_REF_LINE = /^ref:\s*(\S+)/;
 
-async function hasHeadCommit(gitDirectory: string): Promise<boolean> {
+async function hasLooseOrPackedHeadRef(gitDirectory: string): Promise<boolean> {
   const headRef = HEAD_REF_LINE.exec(await fs.promises.readFile(path.join(gitDirectory, 'HEAD'), 'utf8'))?.[1];
   if (!headRef) return true;
   const commonDirectoryText = await fs.promises.readFile(path.join(gitDirectory, 'commondir'), 'utf8').catch(() => '');
@@ -118,11 +119,20 @@ async function hasHeadCommit(gitDirectory: string): Promise<boolean> {
   return packedRefs.split('\n').some((line) => line.endsWith(` ${headRef}`));
 }
 
+const HEAD_CHECK_TIMEOUT_MS = 5000;
+const HEAD_CHECK_OUTPUT_LIMIT_BYTES = 4096;
+
+async function hasHeadCommit(projectPath: string, gitDirectory: string): Promise<boolean> {
+  if (await hasLooseOrPackedHeadRef(gitDirectory).catch(() => false)) return true;
+  const headCheck = await runCommandSafely('git', ['-C', projectPath, 'rev-parse', '--verify', '-q', 'HEAD'], { cwd: projectPath, env: process.env, timeoutMs: HEAD_CHECK_TIMEOUT_MS, maxBufferBytes: HEAD_CHECK_OUTPUT_LIMIT_BYTES });
+  return headCheck.ok;
+}
+
 async function projectGitFacts(projectPath: string): Promise<{ isGit: boolean; hasCommits?: boolean; lastActivityMs?: number }> {
   try {
     const gitDirectory = await gitDirectoryOf(projectPath);
     if (!gitDirectory) return { isGit: false };
-    const [hasCommits, gitDirectoryStat] = await Promise.all([hasHeadCommit(gitDirectory).catch(() => false), fs.promises.stat(gitDirectory)]);
+    const [hasCommits, gitDirectoryStat] = await Promise.all([hasHeadCommit(projectPath, gitDirectory), fs.promises.stat(gitDirectory)]);
     return { isGit: true, hasCommits, lastActivityMs: gitDirectoryStat.mtimeMs };
   } catch {
     return { isGit: false };

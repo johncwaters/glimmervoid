@@ -7,7 +7,7 @@ import { setNotificationsEnabled } from '../ui-prefs.ts';
 import type { OperatorActionOf } from '#shared/contracts/control-messages.ts';
 import { agentSummaryText, clampedBracketSides, installableAgentsText, decideFirstRunSteps, decideOnboardingStepReports, firstRunAgentChoices, foundReposText, gitRepoChoicesIn, lastActivityText, notificationChoiceSummary, onboardingStepReportKey, rootsToAutoSave, hasGitCheckoutIn, shownRepoChoices, UPCOMING_STEPS } from './first-run-checklist-core.ts';
 import type { FirstRunSteps, NotificationChoice, RepoChoice } from './first-run-checklist-core.ts';
-import { buildLockMark, playLockMark } from '../loading-unlock.ts';
+import { buildLockMark, playLockMarkThroughLight } from '../loading-unlock.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { suggestSessionName } from '../session-card/naming.ts';
 import { lastPathSegment, sessionNameBase } from '../add-session-core.ts';
@@ -29,7 +29,7 @@ type FirstRunInputs = { agentListing: unknown; hasGitCheckout: boolean; notifica
 
 const FIRST_TASKS = [
   { label: 'Map this repo on a board', scope: 'Reads only. Draws the map on a board here.', prompt: 'Map this repository on a new Glimmervoid whiteboard: one box per top-level module with its role in one line, wired by the imports between them. Read only; change no files. When the map is done, tell me in two lines where a newcomer should start reading.' },
-  { label: 'Find and fix one small bug', scope: 'Edits a copy of the repo on a new branch. Nothing is pushed.', prompt: 'Find one small, real bug in this repository and fix it with the smallest change, on this session\'s branch. Run the tests that cover it. Push nothing; show me the diff and the test output when done.' },
+  { label: 'Find and fix one small bug', scope: 'edits', prompt: 'Find one small, real bug in this repository and fix it with the smallest change. Run the tests that cover it. Push nothing; show me the diff and the test output when done.' },
   { label: 'Explain one module to me', scope: 'Reads only. Asks you one question at the end.', prompt: 'Pick the module of this repository a newcomer most needs to understand and explain it to me: what it does, what calls it, and the one thing most likely to surprise me. Read only; change no files. End by asking me one question about what I want to do next.' },
 ] as const;
 
@@ -153,7 +153,7 @@ function chooseRepo(path: string | null) {
 
 function repoChoiceRow(choice: RepoChoice): HTMLButtonElement {
   const row = createPressable('first-run-repo-row');
-  row.append(el('span', 'first-run-repo-name', choice.name), el('span', 'first-run-repo-root', lastPathSegment(choice.root)), el('span', 'first-run-repo-age', lastActivityText(choice.lastActivityMs, clock.nowMs())));
+  row.append(el('span', 'first-run-repo-name', choice.name), el('span', 'first-run-repo-root', lastPathSegment(choice.root)), el('span', 'first-run-repo-age', choice.hasCommits ? lastActivityText(choice.lastActivityMs, clock.nowMs()) : 'no commits'));
   row.addEventListener('click', () => chooseRepo(choice.path));
   return row;
 }
@@ -192,12 +192,23 @@ function agentChoiceRow(): HTMLElement {
   return group;
 }
 
-function taskRow(task: (typeof FIRST_TASKS)[number]): HTMLElement {
+const EDIT_SCOPE_TEXT = { inWorktree: 'Edits a copy of the repo on a new branch. Nothing is pushed.', inPlace: 'Edits the files in this folder. Nothing is pushed.' } as const;
+const WORKPLACE_TEXT = { inWorktree: 'It works on a new branch in its own worktree. Your checkout is untouched.', inPlace: 'This repo has no commits yet, so the session works in this folder directly.' } as const;
+
+function workplaceOf(repo: RepoChoice): keyof typeof WORKPLACE_TEXT {
+  return repo.hasCommits ? 'inWorktree' : 'inPlace';
+}
+
+function taskScopeText(task: (typeof FIRST_TASKS)[number], repo: RepoChoice): string {
+  return task.scope === 'edits' ? EDIT_SCOPE_TEXT[workplaceOf(repo)] : task.scope;
+}
+
+function taskRow(task: (typeof FIRST_TASKS)[number], repo: RepoChoice): HTMLElement {
   const row = el('div', 'first-run-task');
   const startButton = button({ variant: 'secondary', label: task.label, textCase: 'sentence' });
   startButton.addEventListener('click', () => startFirstSession(task.prompt));
   const promptView = disclosure({ summary: 'Show prompt', marker: 'chevron', body: () => el('p', 'first-run-task-prompt', task.prompt) });
-  row.append(startButton, el('p', 'first-run-step-hint', task.scope), promptView.element);
+  row.append(startButton, el('p', 'first-run-step-hint', taskScopeText(task, repo)), promptView.element);
   return row;
 }
 
@@ -229,8 +240,8 @@ function startStepBody(): HTMLElement[] {
     repoLine.append(changeButton);
   }
   const tasks = el('div', 'first-run-tasks');
-  tasks.append(...FIRST_TASKS.map(taskRow), ownPromptRow());
-  return [repoLine, el('p', 'first-run-step-hint', 'It works on a new branch in its own worktree. Your checkout is untouched.'), agentChoiceRow(), tasks, startStatus.element];
+  tasks.append(...FIRST_TASKS.map((task) => taskRow(task, repo)), ownPromptRow());
+  return [repoLine, el('p', 'first-run-step-hint', WORKPLACE_TEXT[workplaceOf(repo)]), agentChoiceRow(), tasks, startStatus.element];
 }
 
 function setStartControlsDisabled(isDisabled: boolean) {
@@ -249,7 +260,8 @@ function startFirstSession(prompt: string) {
   setStartControlsDisabled(true);
   startStatus.show('busy', 'Starting the session');
   const request = { name: suggestSessionName(sessionNameBase(repo.name)), path: repo.path, prompt, ...(chosenAgentId ? { agent: chosenAgentId } : {}) };
-  pendingStart = sendControlRequest('add-session', request, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS })
+  pendingStart = (markEl ? playLockMarkThroughLight(markEl) : Promise.resolve())
+    .then(() => sendControlRequest('add-session', request, { timeoutMs: DEFAULT_REPLY_TIMEOUT_MS }))
     .then((reply) => {
       if (reply.type === 'add-session-result' && reply.ok) {
         startStatus.clear();
@@ -266,7 +278,6 @@ function startFirstSession(prompt: string) {
       renderBrackets();
     });
   renderBrackets();
-  if (markEl) void playLockMark(markEl);
 }
 
 type SetupStepRow = { title: string; state: FirstRunSteps[keyof FirstRunSteps]; summary: string; body: () => HTMLElement[] };

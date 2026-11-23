@@ -110,6 +110,12 @@ export function playLockMark(host: Element): Promise<void> {
   return playMarkLock({ mark, dial, light, halo });
 }
 
+export async function playLockMarkThroughLight(host: Element): Promise<void> {
+  await playLockMark(host);
+  if (reducedMotion?.matches || document.hidden) return;
+  await wait(HOLD_AFTER_LIGHT_MS);
+}
+
 export async function playLoadingUnlock(screen: HTMLElement): Promise<void> {
   const mark = screen.querySelector('.loading-mark');
   const dial = screen.querySelector('.loading-mark-dial');

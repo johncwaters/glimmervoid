@@ -111,12 +111,12 @@ function gitRepoCountText(gitRepoCount: number): string {
   return gitRepoCount === 1 ? '1 git repo' : `${gitRepoCount} git repos`;
 }
 
-type RepoChoice = ScannedProject & { root: string };
+type RepoChoice = ScannedProject & { root: string; hasCommits: boolean };
 
 const SHOWN_REPO_CHOICES = 5;
 
-function gitRepoChoicesIn(directories: readonly { root: string; projects: readonly (ScannedProject & { hasCommits?: boolean })[] }[]): RepoChoice[] {
-  const choices = directories.flatMap(({ root, projects }) => projects.filter((project) => project.hasCommits === true).map(({ name, path, lastActivityMs }) => ({ name, path, lastActivityMs, root })));
+function gitRepoChoicesIn(directories: readonly { root: string; projects: readonly (ScannedProject & { isGit?: boolean; hasCommits?: boolean })[] }[]): RepoChoice[] {
+  const choices = directories.flatMap(({ root, projects }) => projects.filter((project) => project.isGit === true).map(({ name, path, lastActivityMs, hasCommits }) => ({ name, path, lastActivityMs, root, hasCommits: hasCommits === true })));
   return choices.sort((first, second) => (second.lastActivityMs ?? 0) - (first.lastActivityMs ?? 0));
 }
 
@@ -152,8 +152,8 @@ function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly s
   return nextRoots.length === repoRoots.length ? null : nextRoots;
 }
 
-function hasGitCheckoutIn(directories: readonly { projects: readonly { hasCommits?: boolean }[] }[]): boolean {
-  return directories.some((directory) => directory.projects.some((project) => project.hasCommits === true));
+function hasGitCheckoutIn(directories: readonly { projects: readonly { isGit?: boolean }[] }[]): boolean {
+  return directories.some((directory) => directory.projects.some((project) => project.isGit === true));
 }
 
 function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: string; gitRepoCount: number }[]): string[] {
