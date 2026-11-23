@@ -39,7 +39,9 @@ export function matchingBoxChoices(choices: readonly BoxChoice[], query: string)
     if (lastSegment.startsWith(needle)) return 1;
     return 2;
   };
-  return choices
+  const firstChoiceByTitle = new Map<string, BoxChoice>();
+  for (const choice of choices) if (!firstChoiceByTitle.has(choice.title)) firstChoiceByTitle.set(choice.title, choice);
+  return [...firstChoiceByTitle.values()]
     .filter((choice) => choice.title.toLowerCase().includes(needle))
     .sort((left, right) => rankOf(left) - rankOf(right) || left.title.length - right.title.length || left.title.localeCompare(right.title))
     .slice(0, MAX_BOX_CHOICES);

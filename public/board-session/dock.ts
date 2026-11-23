@@ -54,6 +54,7 @@ export interface Dock {
   element: HTMLElement;
   setBranches(branches: readonly DockBranch[]): void;
   addressSession(sessionId: string | null, name: string): void;
+  addressBox(boxId: string, title: string): void;
   refresh(): void;
   refreshDigests(): void;
   close(): void;
@@ -153,7 +154,7 @@ function renderedPartOf(part: ChatPart, speaker: FeedSpeaker, digestOf: DockSess
   return row;
 }
 
-export function requestBranchSpawn(parentId: string, aboutBoxId: string, prompt: string): Promise<{ branchId: string | null; failureText: string }> {
+function requestBranchSpawn(parentId: string, aboutBoxId: string, prompt: string): Promise<{ branchId: string | null; failureText: string }> {
   return sendControlRequest('branch-spawn', { id: parentId, aboutBoxId, prompt }, { timeoutMs: BRANCH_SPAWN_TIMEOUT_MS })
     .then((reply) => {
       if (reply.type !== 'branch-spawn-result') return { branchId: null, failureText: NOT_SENT_TEXT };
@@ -394,6 +395,10 @@ export function createDock(session: DockSession): Dock {
 
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Backspace' && input.value.length === 0 && address.kind !== 'main') return setAddress(MAIN_ADDRESS);
+    if (event.key === 'Escape' && mentions.hidden && address.kind === 'new-branch') {
+      event.preventDefault();
+      return setAddress(MAIN_ADDRESS);
+    }
     if (mentions.hidden || mentionChoices.length === 0) return;
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -499,6 +504,10 @@ export function createDock(session: DockSession): Dock {
     setBranches,
     addressSession: (sessionId, name) => {
       setAddress(sessionId === null || sessionId === session.sessionId ? MAIN_ADDRESS : { kind: 'branch', sessionId, aboutTitle: name });
+      input.focus();
+    },
+    addressBox: (boxId, title) => {
+      setAddress({ kind: 'new-branch', aboutBoxId: boxId, aboutTitle: title });
       input.focus();
     },
     refresh: () => {

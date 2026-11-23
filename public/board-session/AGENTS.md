@@ -13,7 +13,6 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 | `presence-layer.ts` / `presence-core.ts` | Glows on the boxes sessions read, name and edit |
 | `agent-card.ts` | One card per Studio agent beside its box (screen space, never on the board), with Chat's activity line, its digest and its menu; an idle branch folds to its face |
 | `agent-waits.ts` | Chat's waits (questions, permissions, sign-in, limits) run per agent card |
-| `new-agent.ts` | The New agent in <box> composer a box click opens |
 | `dock.ts` | The message bar (Chat's composer) and the folded log of prompts and replies |
 
 ## Invariants

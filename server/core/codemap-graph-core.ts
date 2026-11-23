@@ -6,6 +6,7 @@ import { CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.ts';
+import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 import { IMPORT_LANGUAGE_IDS, importLanguageOf } from './import-language-core.ts';
 
@@ -525,6 +526,16 @@ function folderCardIdOf(folder: string): string {
   return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} folder`, `folder\n${folder}`);
 }
 
+function branchBoxChoicesOf(model: CodemapModel, boxIdOfPath: (repoPath: string) => string): { boxId: string; title: string }[] {
+  const folders = [...new Set(model.modules.map((summary) => folderOf(summary.id)))];
+  const titleOf = (moduleOrFolder: string) => moduleOrFolder === ROOT_MODULE ? REPO_ROOT_BRANCH_TITLE : moduleOrFolder.slice(-WHITEBOARD_LIMITS.title);
+  return [
+    ...folders.map((folder) => ({ boxId: folderCardIdOf(folder), title: titleOf(folder) })),
+    ...model.modules.map((summary) => ({ boxId: moduleBoxIdOf(summary.id), title: titleOf(summary.id) })),
+    ...model.paths.map((repoPath) => ({ boxId: boxIdOfPath(repoPath), title: repoPath.slice(-WHITEBOARD_LIMITS.title) })),
+  ];
+}
+
 function folderFrameIdOf(folder: string): string {
   return generatedIdOf(CODEMAP_ID_PREFIXES.map, `${folder} frame`, `frame\n${folder}`);
 }
@@ -1020,5 +1031,5 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
-export { CODEMAP_EXPORT_FILE_BY_KIND, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
+export { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };
 export type { CodemapModel, MapDecorations, MapOverlay, SpecPlan };
