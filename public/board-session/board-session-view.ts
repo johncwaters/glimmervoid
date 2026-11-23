@@ -33,6 +33,8 @@ import type { GlowTier, PresenceLayer } from './presence-layer.ts';
 import { createAgentCards, isBusyPhase } from './agent-card.ts';
 import type { AgentCardModel, AgentCards } from './agent-card.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
+import { createAgentWaits } from './agent-waits.ts';
+import type { AgentWaits } from './agent-waits.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import type { Dock, DockBranch } from './dock.ts';
 import { branchSessionIdsOf } from './branch-core.ts';
@@ -59,6 +61,7 @@ interface SessionWatch {
   lastBeat: ActivityBeat | null;
   subagents: readonly RunningSubagent[];
   turnOpenedAts: number[];
+  waits: AgentWaits;
 }
 
 interface ViewParts {
@@ -121,7 +124,10 @@ function repoSessionIds(): string[] {
 }
 
 function closeWatches(): void {
-  for (const watch of watchBySessionId.values()) watch.feed.close();
+  for (const watch of watchBySessionId.values()) {
+    watch.feed.close();
+    watch.waits.close();
+  }
   watchBySessionId = new Map();
 }
 
@@ -150,6 +156,7 @@ function openWatch(sessionId: string): SessionWatch {
     lastBeat: null,
     subagents: [],
     turnOpenedAts: [],
+    waits: createAgentWaits(sessionId, showNotice),
   };
   return watch;
 }
@@ -159,6 +166,7 @@ function syncWatches(): void {
   for (const [sessionId, watch] of watchBySessionId) {
     if (wantedIds.has(sessionId)) continue;
     watch.feed.close();
+    watch.waits.close();
     watchBySessionId.delete(sessionId);
   }
   for (const sessionId of wantedIds) {
@@ -171,6 +179,11 @@ function syncWatches(): void {
 
 function addressAgent(model: AgentCardModel): void {
   dock?.addressSession(model.sessionId, model.name);
+}
+
+function answerAgentCard(sessionId: string, cardId: string, action: string, value: string): void {
+  watchBySessionId.get(sessionId)?.waits.answer(cardId, action, value);
+  paintPresence();
 }
 
 function toggleOpenedBranch(sessionId: string): void {
@@ -254,6 +267,7 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
   if (!ui) return null;
   const phase = phaseOfSession(sessionId);
   if (isBusyPhase(phase)) openedBranchIds.delete(sessionId);
+  watch.waits.sync();
   return {
     sessionId,
     name: sessionName(ui) || sessionId.slice(0, 8),
@@ -265,8 +279,17 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
     beat: phase === 'working' ? watch.lastBeat : null,
     digest: latestDigestOf(sessionId, watch),
     subagents: isBusyPhase(phase) ? watch.subagents : [],
+    approvals: watch.waits.element,
+    isAsking: watch.waits.isAsking(),
     isOpened: openedBranchIds.has(sessionId),
   };
+}
+
+function dockAreaIn(overlay: HTMLElement): Rect | null {
+  if (!parts || parts.dockSlot.offsetHeight === 0) return null;
+  const dockRect = parts.dockSlot.getBoundingClientRect();
+  const overlayRect = overlay.getBoundingClientRect();
+  return { x: dockRect.left - overlayRect.left, y: dockRect.top - overlayRect.top, width: dockRect.width, height: dockRect.height };
 }
 
 function paintPresence(): void {
@@ -287,7 +310,7 @@ function paintPresence(): void {
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   parts.presenceLayer.paint({ glows }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
-  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), hostCamera);
+  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), hostCamera, dockAreaIn(parts.agentCards.element));
   paintAsks();
 }
 
@@ -528,7 +551,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   menu.setAttribute('role', 'menu');
   menu.hidden = true;
   const presenceLayer = createPresenceLayer(boundsOfHostBox);
-  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, toggleOpened: toggleOpenedBranch });
+  const agentCards = createAgentCards({ address: addressAgent, restart: restartAgent, switchAccount: openSwitchAccountDialog, toggleOpened: toggleOpenedBranch, answer: answerAgentCard });
   const topLeft = el('div', 'bs-top-left');
   topLeft.append(chip, menu);
   const notice = el('p', 'bs-notice');
@@ -540,7 +563,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
   panel.replaceChildren(root);
   const guest: BoardHostGuest = {
     chrome: topLeft,
-    overlays: [notice, agentCards.element, dockSlot, askCards.element],
+    overlays: [notice, dockSlot, agentCards.element, askCards.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,

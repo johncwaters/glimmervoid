@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Page } from 'playwright-core';
-import { DIRECTOR_DIGEST_TEXT } from './cases-core.ts';
+import { DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT } from './cases-core.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
 const LAYOUT_TOLERANCE_PX = 0.5;
@@ -141,6 +141,15 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.bs-row-you', { hasText: 'Yes, reuse it' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the ask resolves');
 
+  await pillInput.fill('ask-question-resume');
+  await pillInput.press('Enter');
+  const askingMainCard = root.locator('.bs-card[data-main][data-asking]');
+  const heldQuestion = askingMainCard.locator('.chat-card[data-card-type="question"][data-resolved="false"]');
+  await heldQuestion.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await heldQuestion.getByRole('button', { name: /^Run both for a week/ }).click();
+  await root.locator('.bs-row-agent', { hasText: RESUMED_AFTER_QUESTION_TEXT }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await askingMainCard.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+
   await pillInput.fill('long-shop');
   await pillInput.press('Enter');
   await root.locator('.bs-row-agent .bs-digest', { hasText: DIRECTOR_DIGEST_TEXT }).first().waitFor({ timeout: DIRECTOR_TIMEOUT_MS });
@@ -169,6 +178,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.locator('.wb-island-board .wb-status').evaluate((status: HTMLElement) => { status.hidden = true; status.textContent = ''; });
   assert.equal(await root.locator('.wb-island-agent').isVisible(), false, 'Studio shows no pairing notice for its main agent');
   assert.equal(await root.locator('.bs-activity').count(), 0, 'the working status shows on the face only');
+
 
   const mainCard = root.locator('.bs-card[data-main]').first();
   const studioMainId = await mainCard.getAttribute('data-session-id');

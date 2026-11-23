@@ -1,5 +1,6 @@
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import { createChatActivity } from '../chat/chat-activity.ts';
+import { stringDetailOf } from '../chat/chat-page.ts';
 import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import type { RunningSubagent } from '../chat/status-rail-core.ts';
 import { el } from '../dom-helpers.ts';
@@ -30,6 +31,8 @@ export interface AgentCardModel {
   beat: ActivityBeat | null;
   digest: string | null;
   subagents: readonly RunningSubagent[];
+  approvals: HTMLElement;
+  isAsking: boolean;
   isOpened: boolean;
 }
 
@@ -38,11 +41,12 @@ interface AgentCardActions {
   restart(sessionId: string): void;
   switchAccount(sessionId: string): void;
   toggleOpened(sessionId: string): void;
+  answer(sessionId: string, cardId: string, action: string, value: string): void;
 }
 
 export interface AgentCards {
   element: HTMLElement;
-  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, camera: Camera): void;
+  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, camera: Camera, keepClearOf: Rect | null): void;
 }
 
 interface ShownCard {
@@ -57,7 +61,7 @@ export function isBusyPhase(phase: ChatPhase): boolean {
 }
 
 function isShrunk(model: AgentCardModel): boolean {
-  return model.isBranch && !model.isOpened && !isBusyPhase(model.phase);
+  return model.isBranch && !model.isOpened && !isBusyPhase(model.phase) && !model.isAsking;
 }
 
 function faceOf(model: AgentCardModel, classNames: readonly string[]): HTMLButtonElement {
@@ -117,7 +121,14 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
   head.append(faceSlot, name, subagents, moreButton);
   const activity = createChatActivity();
   const digest = el('p', 'bs-card-digest');
-  card.append(head, activity.element, digest, menu);
+  const approvals = el('div', 'bs-card-approvals-slot');
+  card.append(head, activity.element, digest, approvals, menu);
+  card.addEventListener('chat-card', (event) => {
+    const cardId = stringDetailOf(event, 'cardId');
+    const action = stringDetailOf(event, 'action');
+    const value = stringDetailOf(event, 'value');
+    if (cardId !== null && action !== null && value !== null) actions.answer(sessionId, cardId, action, value);
+  });
   stopBoardGestures(card);
   card.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
@@ -167,8 +178,17 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
       shownBeat = model.beat;
       digest.textContent = model.digest ?? '';
       digest.hidden = model.digest === null;
+      card.toggleAttribute('data-asking', model.isAsking);
+      if (approvals.firstElementChild !== model.approvals) approvals.replaceChildren(model.approvals);
     },
   };
+}
+
+function clearedTopOf(cardLeft: number, cardTop: number, card: HTMLElement, keepClearOf: Rect | null): number {
+  if (keepClearOf === null) return cardTop;
+  const isBesideClearArea = cardLeft + card.offsetWidth <= keepClearOf.x || cardLeft >= keepClearOf.x + keepClearOf.width;
+  if (isBesideClearArea || cardTop + card.offsetHeight + CARD_STACK_GAP_PX <= keepClearOf.y) return cardTop;
+  return Math.max(CARD_STACK_GAP_PX, keepClearOf.y - card.offsetHeight - CARD_STACK_GAP_PX);
 }
 
 export function createAgentCards(actions: AgentCardActions): AgentCards {
@@ -188,7 +208,7 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
 
   return {
     element,
-    paint: (models, boundsOf, camera) => {
+    paint: (models, boundsOf, camera, keepClearOf) => {
       const stackedPxByBoxId = new Map<string, number>();
       const paintedIds = new Set<string>();
       for (const model of models) {
@@ -218,7 +238,7 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
         }
         const stackedPx = stackedPxByBoxId.get(boxId) ?? 0;
         const cardLeft = boxRight + CARD_OFFSET_PX;
-        const cardTop = boxTop + stackedPx;
+        const cardTop = clearedTopOf(cardLeft, boxTop + stackedPx, shown.card, keepClearOf);
         stackedPxByBoxId.set(boxId, stackedPx + shown.card.offsetHeight + CARD_STACK_GAP_PX);
         shown.card.style.transform = `translate(${cardLeft}px, ${cardTop}px)`;
         const wireEndY = cardTop + Math.min(shown.card.offsetHeight / 2, FACE_SIZE_PX);

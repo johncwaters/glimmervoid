@@ -13,20 +13,26 @@ import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
 import type { ChatCard, ChatPart, SignInStage } from './chat-part.ts';
 import { NO_ARRIVING_PARTS, type createChatView } from './chat-view.ts';
 
-type ChatView = ReturnType<typeof createChatView>;
+export type ChatWaitsView = Pick<ReturnType<typeof createChatView>, 'element' | 'upsert' | 'remove' | 'keepLogInPlace' | 'readDraft' | 'readAttachments'>;
 type SignInCard = Extract<ChatCard, { cardType: 'sign-in' }>;
 type TerminalCardState = 'hidden' | 'borrowed' | 'released';
 
 interface ShownApproval {
   approval: ConversationApproval;
   cards: ChatCard[];
-  answers: Map<string, string>;
+  answers: ReadonlyMap<string, string>;
+}
+
+interface ApprovalStep {
+  message: Record<string, unknown> | null;
+  resolvedCards: ChatCard[];
+  answers: ReadonlyMap<string, string>;
 }
 
 interface ChatWaitsOptions {
   sessionId: string;
   root: HTMLElement;
-  view: () => ChatView;
+  view: () => ChatWaitsView;
   getApproval: () => ConversationApproval | null;
   showFailure: (failureText: string | null) => void;
   sendOrFail: (message: Parameters<typeof sendControlMsg>[0]) => boolean;
@@ -58,6 +64,38 @@ const FOCUSABLE_CONTROL_SELECTOR = 'button, a[href], input, select, textarea, su
 
 export function cardPartOf(card: ChatCard): ChatPart {
   return { kind: 'card', id: card.cardId, card };
+}
+
+function shownApprovalOf(approval: ConversationApproval): ShownApproval {
+  return { approval, cards: approvalCardsOf(approval), answers: new Map() };
+}
+
+function dismissedQuestionsStep(sessionId: string, shown: ShownApproval): ApprovalStep {
+  const resolvedCards = shown.cards.flatMap((card): ChatCard[] => card.cardType === 'question' ? [{ ...card, resolution: { isDismissed: true } }] : []);
+  return { message: { type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' }, resolvedCards, answers: new Map() };
+}
+
+function approvalStepOf(sessionId: string, shown: ShownApproval, cardId: string, action: string, value: string): ApprovalStep | null {
+  const card = shown.cards.find((shownCard) => shownCard.cardId === cardId);
+  if (!card || card.resolution !== null) return null;
+  const { requestId } = shown.approval;
+  if (card.cardType === 'permission' && action === 'decide' && (value === 'allow' || value === 'deny')) {
+    return { message: { type: 'decide-approval', id: sessionId, requestId, decision: value }, resolvedCards: [{ ...card, resolution: { decision: value } }], answers: shown.answers };
+  }
+  if (card.cardType === 'permission' && action === 'deny-with-message') {
+    return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value }, resolvedCards: [{ ...card, resolution: { decision: 'deny', message: value } }], answers: shown.answers };
+  }
+  if (card.cardType === 'question' && action === 'dismiss') return dismissedQuestionsStep(sessionId, shown);
+  if (card.cardType !== 'question' || action !== 'answer') return null;
+  const answers = new Map(shown.answers).set(card.data.question, value);
+  const resolvedCards: ChatCard[] = [{ ...card, resolution: { answer: value } }];
+  if (answers.size < shown.cards.length) return { message: null, resolvedCards, answers };
+  return { message: { type: 'answer-approval', id: sessionId, requestId, answers: Object.fromEntries(answers) }, resolvedCards, answers };
+}
+
+function withApprovalStep(shown: ShownApproval, step: ApprovalStep): ShownApproval {
+  const resolvedById = new Map(step.resolvedCards.map((card) => [card.cardId, card]));
+  return { ...shown, cards: shown.cards.map((card) => resolvedById.get(card.cardId) ?? card), answers: step.answers };
 }
 
 function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
@@ -234,7 +272,7 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
     const approval = getApproval();
     if (shownApproval && shownApproval.approval.requestId !== approval?.requestId) settleShownApproval();
     if (approval && !shownApproval) {
-      shownApproval = { approval, cards: approvalCardsOf(approval), answers: new Map() };
+      shownApproval = shownApprovalOf(approval);
       view().upsert(shownApproval.cards.map(cardPartOf), new Set(shownApproval.cards.map((card) => card.cardId)));
     }
     const isAnswerableFromChat = shownApproval !== null && shownApproval.cards.length > 0;
@@ -254,20 +292,17 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
     releaseTerminal();
   };
 
-  const resolveCard = (card: ChatCard) => {
-    if (!shownApproval) return;
-    shownApproval.cards = shownApproval.cards.map((shownCard) => (shownCard.cardId === card.cardId ? card : shownCard));
-    view().upsert([cardPartOf(card)], NO_ARRIVING_PARTS);
+  const applyStep = (step: ApprovalStep | null) => {
+    if (!shownApproval || step === null) return;
+    if (step.message !== null && !sendOrFail(step.message)) return;
+    shownApproval = withApprovalStep(shownApproval, step);
+    view().upsert(step.resolvedCards.map(cardPartOf), NO_ARRIVING_PARTS);
   };
 
   const dismissShownQuestion = () => {
     const shown = shownApproval;
     if (shown?.approval.kind !== 'question') return;
-    if (!sendOrFail({ type: 'decide-approval', id: sessionId, requestId: shown.approval.requestId, decision: 'deny' })) return;
-    shown.answers.clear();
-    for (const card of shown.cards) {
-      if (card.cardType === 'question') resolveCard({ ...card, resolution: { isDismissed: true } });
-    }
+    applyStep(dismissedQuestionsStep(sessionId, shown));
   };
 
   const dismissQuestionOnEscape = (event: KeyboardEvent): boolean => {
@@ -314,35 +349,8 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
       continueAtLimitReset(cardId, value);
       return;
     }
-    const shown = shownApproval;
-    const card = shown?.cards.find((shownCard) => shownCard.cardId === cardId);
-    if (!shown || !card || card.resolution !== null) return;
-    const { requestId } = shown.approval;
-    if (card.cardType === 'permission' && action === 'decide' && (value === 'allow' || value === 'deny')) {
-      if (!sendOrFail({ type: 'decide-approval', id: sessionId, requestId, decision: value })) return;
-      resolveCard({ ...card, resolution: { decision: value } });
-      return;
-    }
-    if (card.cardType === 'permission' && action === 'deny-with-message') {
-      if (!sendOrFail({ type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value })) return;
-      resolveCard({ ...card, resolution: { decision: 'deny', message: value } });
-      return;
-    }
-    if (card.cardType === 'question' && action === 'dismiss') {
-      dismissShownQuestion();
-      return;
-    }
-    if (card.cardType !== 'question' || action !== 'answer') return;
-    shown.answers.set(card.data.question, value);
-    if (shown.answers.size < shown.cards.length) {
-      resolveCard({ ...card, resolution: { answer: value } });
-      return;
-    }
-    if (!sendOrFail({ type: 'answer-approval', id: sessionId, requestId, answers: Object.fromEntries(shown.answers) })) {
-      shown.answers.delete(card.data.question);
-      return;
-    }
-    resolveCard({ ...card, resolution: { answer: value } });
+    if (!shownApproval) return;
+    applyStep(approvalStepOf(sessionId, shownApproval, cardId, action, value));
   };
 
   const handleKeydown = (event: KeyboardEvent) => {

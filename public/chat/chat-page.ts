@@ -93,7 +93,7 @@ function detailFieldOf(event: Event, key: string): unknown {
   return Reflect.get(event.detail, key);
 }
 
-function stringDetailOf(event: Event, key: string): string | null {
+export function stringDetailOf(event: Event, key: string): string | null {
   const value = detailFieldOf(event, key);
   return typeof value === 'string' ? value : null;
 }
@@ -637,6 +637,10 @@ function dropKeptChatsOfGoneSessions(): void {
 function dropAllKeptChats(): void {
   for (const keptChat of keptChatBySessionId.values()) keptChat.close();
   keptChatBySessionId.clear();
+}
+
+export function chatApprovalOf(sessionId: string): ConversationApproval | null {
+  return chatSessionStateOf(sessionId).approval;
 }
 
 export function noteChatApproval(sessionId: string, approval: ConversationApproval | null): void {

@@ -206,6 +206,11 @@
   .bs-card .chat-activity[data-idle] { display: none; }
   .bs-card-digest { margin: 0; color: var(--text-head); font-size: var(--type-meta); line-height: 1.4; }
   .bs-card-digest[hidden] { display: none; }
+  .bs-card[data-asking] { width: 340px; border-color: var(--state-waiting); }
+  .bs-card-approvals { display: flex; flex-direction: column; gap: 6px; }
+  .bs-card-approvals-slot:has(> .bs-card-approvals:empty) { display: none; }
+  .bs-card .chat-card { margin: 0; width: auto; }
+  .bs-card .chat-card[data-card-type='live-terminal'] .chat-card-actions { display: none; }
   .bs-card-menu { top: 40px; right: 8px; left: auto; min-width: 180px; }
   .bs-card-shrunk { position: absolute; top: 0; left: 0; pointer-events: auto; }
   .bs-card-shrunk[hidden] { display: none; }
