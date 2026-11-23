@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A spawned session's cards land on its parent's board.** A session another session spawned made a board of its own the first time it showed a file or drew, so its work never appeared on the board you were watching. It now shows and draws on the board of the session that spawned it (or one above it), and when none has a board yet, the new board belongs to that session. A board you open beside the spawned session itself still takes its cards, and a linked card it shows there keeps following the file in its own worktree.
 - **Dismissing "did not start a turn" no longer shows the agent as working.** When the agent did not take a Chat message and you dismissed the alert, the session was marked as working, so Chat showed Working on it while the agent sat idle, and Next step sent an interrupt to the idle agent. It now goes back to idle.
 - **A repo's code map draws even when its build reported a long failure.** The map board refused its own redraw whenever its status box carried a long reason, so Studio showed an empty canvas for good; Studio now also shows a map within 15 seconds of it becoming ready.
 

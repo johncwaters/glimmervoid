@@ -2102,6 +2102,57 @@ test('show puts each file on a board the session is connected to, creating one n
   assert.match(String((pastOddId.body as { note: string }).note), /as box shown-3 /);
 });
 
+test('a spawned session shows and draws on the board of the session above it, which owns the board made when none has one, a linked card there follows the file in the spawned session worktree, and a spawned session with no board above it uses the board it connected to', async () => {
+  const { default: sharp } = await import('sharp');
+  const boardsRoot = fs.mkdtempSync(path.join(fixture.tmpDir, 'family-show-'));
+  const childDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'family-child-'));
+  fs.writeFileSync(path.join(childDir, 'login.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#38bdf8' } }).png().toBuffer());
+  const parentDir = fs.mkdtempSync(path.join(fixture.tmpDir, 'family-parent-'));
+  const parentIdBySessionId = new Map([['child', 'parent'], ['grandchild', 'child'], ['orphan', null], ['loner', 'boardless-parent']]);
+  const worktreeBySessionId = new Map([['parent', parentDir], ['child', childDir]]);
+  const codeContextOf = (sessionId: string) => {
+    const root = worktreeBySessionId.get(sessionId);
+    return root ? { root, buildChangeMap: () => Promise.reject(new Error('no change map in this test')) } : null;
+  };
+  const wiring = createWhiteboardWiring({ boardsRoot, codeContextOf, parentIdOf: (sessionId) => parentIdBySessionId.get(sessionId) ?? null });
+  const grandchild = { id: 'grandchild', name: 'grandchild', project: childDir, cwd: childDir };
+  const child = { id: 'child', name: 'child', project: childDir, cwd: childDir };
+  const orphan = { id: 'orphan', name: 'orphan', project: childDir, cwd: childDir };
+
+  const firstShow = await wiring.handleAgent(grandchild, { sub: 'show', path: 'login.png' });
+  assert.equal(firstShow.status, 200, JSON.stringify(firstShow.body));
+  const familyBoardId = (firstShow.body as { board: { id: string } }).board.id;
+  assert.deepEqual(wiring.snapshotMessage().boards.map(({ id, connectedSessionIds }) => ({ id, connectedSessionIds: [...connectedSessionIds].sort() })), [{ id: familyBoardId, connectedSessionIds: ['grandchild', 'parent'] }], 'the board made for a spawned session belongs to the top session and the spawned session is on it');
+
+  fs.writeFileSync(path.join(childDir, 'checkout.png'), await sharp({ create: { width: 64, height: 32, channels: 3, background: '#22c55e' } }).png().toBuffer());
+  const childShow = await wiring.handleAgent(child, { sub: 'show', path: 'checkout.png' });
+  assert.equal(childShow.status, 200, JSON.stringify(childShow.body));
+  assert.equal((childShow.body as { board: { id: string } }).board.id, familyBoardId, 'a sibling in the same family shows on the same board');
+  const childNew = await wiring.handleAgent(child, { sub: 'new', title: 'My own board' });
+  assert.equal(childNew.status, 409);
+  assert.match(String(childNew.body.ok ? '' : childNew.body.error), new RegExp(`the session that spawned this one is on board "login" \\(${familyBoardId}\\)`));
+
+  fs.writeFileSync(path.join(childDir, 'notes.md'), '# Notes\n\nfirst\n');
+  const linkedShow = await wiring.handleAgent(child, { sub: 'show', path: 'notes.md', link: true });
+  assert.equal(linkedShow.status, 200, JSON.stringify(linkedShow.body));
+  const linkedCardOf = async () => [...((await wiring.handleOperator.get(familyBoardId)).board?.elements.values() ?? [])].find((element) => element.kind === 'box' && element.media?.link?.path === 'notes.md');
+  const linkedCard = await linkedCardOf();
+  assert.equal(linkedCard?.kind === 'box' ? linkedCard.media?.link?.sessionId : null, 'child', 'the linked card on the parent board follows the file in the spawned session worktree');
+  fs.writeFileSync(path.join(childDir, 'notes.md'), '# Notes\n\nedited by the child\n');
+  const followedCard = await linkedCardOf();
+  assert.notEqual(followedCard?.kind === 'box' ? followedCard.media?.asset : null, linkedCard?.kind === 'box' ? linkedCard.media?.asset : null, 'a read of the parent board takes the edit the spawned session made to its own file');
+
+  const orphanShow = await wiring.handleAgent(orphan, { sub: 'show', path: 'login.png' });
+  const orphanBoardId = (orphanShow.body as { board: { id: string } }).board.id;
+  assert.notEqual(orphanBoardId, familyBoardId, 'a session with no parent keeps a board of its own');
+  assert.equal(wiring.snapshotMessage().boards.length, 2);
+
+  const loner = { id: 'loner', name: 'loner', project: childDir, cwd: childDir };
+  assert.equal((await wiring.handleAgent(loner, { sub: 'connect', board: orphanBoardId })).status, 200);
+  const lonerShow = await wiring.handleAgent(loner, { sub: 'show', path: 'checkout.png' });
+  assert.equal((lonerShow.body as { board: { id: string } }).board.id, orphanBoardId, 'with no board above it a spawned session shows on the board it connected to');
+});
+
 test('a shown page brings the files it refers to by relative path, served beside it, and the reply names each local file that did not load', { skip: process.platform === 'win32' }, async () => {
   const plannerDir = path.join(fixture.tmpDir, PLANNER_ID);
   const pageDir = path.join(plannerDir, 'evidence');

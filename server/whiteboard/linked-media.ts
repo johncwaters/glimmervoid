@@ -16,6 +16,7 @@ import type { WhiteboardAssetStore } from './whiteboard-assets.ts';
 import { unloadedNote } from './page-bundle.ts';
 
 type LinkedMedia = BoxMedia & { link: MediaLink };
+type LinkRootOf = (link: MediaLink) => string | null;
 
 type OpenedLink = { ok: true; file: OpenedFile } | { ok: false; problem: string };
 
@@ -51,7 +52,8 @@ function capBytesOf(media: BoxMedia): number {
   return LINKED_CAP_BYTES_BY_KIND[media.kind] ?? SHOWN_FILE_CAP_BYTES;
 }
 
-async function openLinkedFile(root: string | null, media: LinkedMedia, opensForWriting: boolean): Promise<OpenedLink> {
+async function openLinkedFile(rootOf: LinkRootOf, media: LinkedMedia, opensForWriting: boolean): Promise<OpenedLink> {
+  const root = rootOf(media.link);
   if (root === null) return { ok: false, problem: NO_CODE_SESSION_TEXT };
   const pathProblem = linkPathProblem(media.link.path);
   if (pathProblem) return { ok: false, problem: pathProblem };
@@ -75,8 +77,8 @@ async function readingHashOf(file: OpenedFile, media: LinkedMedia, assets: White
   return assets.pageBundleIdOf(file.realPath, contents.toString('utf8'), fileHash);
 }
 
-async function readFileReading(root: string | null, media: LinkedMedia, assets: WhiteboardAssetStore): Promise<{ reading: FileReading; file: OpenedFile | null }> {
-  const opened = await openLinkedFile(root, media, false);
+async function readFileReading(rootOf: LinkRootOf, media: LinkedMedia, assets: WhiteboardAssetStore): Promise<{ reading: FileReading; file: OpenedFile | null }> {
+  const opened = await openLinkedFile(rootOf, media, false);
   if (!opened.ok) return { reading: { ok: false, problem: opened.problem }, file: null };
   try {
     return { reading: { ok: true, hash: await readingHashOf(opened.file, media, assets) }, file: opened.file };
@@ -111,17 +113,17 @@ async function ingestChunks(assets: WhiteboardAssetStore, chunks: AsyncIterable<
 }
 
 function syncedMediaOf(media: LinkedMedia, stored: BoxMedia): BoxMedia {
-  return { ...stored, alt: media.alt, source: media.source, link: { path: media.link.path, syncedHash: stored.asset } };
+  return { ...stored, alt: media.alt, source: media.source, link: { ...media.link, syncedHash: stored.asset } };
 }
 
 function linkedMediaOp(boxId: string, syncedMedia: BoxMedia): Op {
   return { op: 'set', id: boxId, fields: { media: syncedMedia } };
 }
 
-async function syncLinkedBox(board: Board, boxId: string, root: string | null, assets: WhiteboardAssetStore): Promise<{ op: Op | null; linkState: LinkStateOfBox | null }> {
+async function syncLinkedBox(board: Board, boxId: string, rootOf: LinkRootOf, assets: WhiteboardAssetStore): Promise<{ op: Op | null; linkState: LinkStateOfBox | null }> {
   const media = linkedMediaOf(board, boxId);
   if (!media) return { op: null, linkState: null };
-  const { reading, file } = await readFileReading(root, media, assets);
+  const { reading, file } = await readFileReading(rootOf, media, assets);
   try {
     const state = linkStateOf(media, reading);
     const linkState = { boxId, state, text: linkStateText(state, reading) };
@@ -144,7 +146,7 @@ async function writeLinkedDoc(boxId: string, file: OpenedFile, media: LinkedMedi
   return { ok: true, op: linkedMediaOp(boxId, syncedMedia), media: syncedMedia };
 }
 
-async function saveLinkedDoc(board: Board, boxId: string, root: string | null, text: string, baseAsset: string, assets: WhiteboardAssetStore): Promise<LinkedDocSave> {
+async function saveLinkedDoc(board: Board, boxId: string, rootOf: LinkRootOf, text: string, baseAsset: string, assets: WhiteboardAssetStore): Promise<LinkedDocSave> {
   const media = linkedMediaOf(board, boxId);
   if ((media?.kind !== 'doc' && media?.kind !== 'sheet') || media.mime === BOARD_WORKBOOK_MIME) return { ok: false, error: 'That card is not a Markdown or Fountain document or a CSV or TSV sheet linked to a file', isConflict: false };
   if (media.asset !== baseAsset) return { ok: false, error: 'The card changed since the editor loaded it', isConflict: true };
@@ -153,7 +155,7 @@ async function saveLinkedDoc(board: Board, boxId: string, root: string | null, t
   if (Buffer.byteLength(text, 'utf8') > capBytesOf(media)) return { ok: false, error: `A linked ${LINKED_KIND_NAME_BY_KIND[media.kind]} holds at most ${capBytesOf(media) / 1024} KiB`, isConflict: false };
   const textAsCard = await ingestChunks(assets, [Buffer.from(text, 'utf8')], media, null).catch((error: unknown) => ({ ok: false as const, problem: errorMessage(error) }));
   if (!textAsCard.ok) return { ok: false, error: `Nothing was saved: this text cannot be a ${LINKED_KIND_NAME_BY_KIND[media.kind]} card (${textAsCard.problem})`, isConflict: false };
-  const opened = await openLinkedFile(root, media, true);
+  const opened = await openLinkedFile(rootOf, media, true);
   if (!opened.ok) return { ok: false, error: opened.problem, isConflict: false };
   try {
     return await writeLinkedDoc(boxId, opened.file, media, syncedHash, text, assets);
@@ -164,11 +166,11 @@ async function saveLinkedDoc(board: Board, boxId: string, root: string | null, t
   }
 }
 
-async function syncLinkedBoxes(board: Board, boxIds: Iterable<string>, root: string | null, assets: WhiteboardAssetStore): Promise<{ ops: Op[]; linkStates: LinkStateOfBox[] }> {
+async function syncLinkedBoxes(board: Board, boxIds: Iterable<string>, rootOf: LinkRootOf, assets: WhiteboardAssetStore): Promise<{ ops: Op[]; linkStates: LinkStateOfBox[] }> {
   const ops: Op[] = [];
   const linkStates: LinkStateOfBox[] = [];
   for (const boxId of boxIds) {
-    const synced = await syncLinkedBox(board, boxId, root, assets);
+    const synced = await syncLinkedBox(board, boxId, rootOf, assets);
     if (synced.op) ops.push(synced.op);
     if (synced.linkState) linkStates.push(synced.linkState);
   }
@@ -176,3 +178,4 @@ async function syncLinkedBoxes(board: Board, boxIds: Iterable<string>, root: str
 }
 
 export { saveLinkedDoc, syncLinkedBoxes };
+export type { LinkRootOf };

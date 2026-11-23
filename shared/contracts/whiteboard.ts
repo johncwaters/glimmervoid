@@ -152,8 +152,11 @@ const DialParams = z.record(DialId, DialValue).default({}).describe('dial values
 const LINK_STATES = ['in-sync', 'file-ahead', 'card-ahead', 'diverged', 'broken'] as const;
 const LinkPath = z.string().min(1, { error: 'a linked file path is not empty' }).max(4096, { error: 'a linked file path is at most 4096 characters' })
   .describe('a file path relative to the board code session worktree, with no .. segment');
+const CodeSessionId = z.string().min(1).max(64);
+
 export const MediaLink = z.object({
   path: LinkPath,
+  sessionId: CodeSessionId.nullable().default(null).describe('the session whose worktree the path is in; null is the board code session'),
   syncedHash: AssetId.nullable().default(null).describe('the sha256 of the file at the last sync; leave null to take the file content on the next read'),
 }).strict().meta({ id: 'MediaLink' });
 
@@ -338,7 +341,6 @@ const LegendEntries = z.array(z.object({
   label: z.string().min(1, { error: 'a legend entry needs a label' }).max(WHITEBOARD_LIMITS.legendLabel, { error: `a legend label is at most ${WHITEBOARD_LIMITS.legendLabel} characters` }),
 }).strict()).max(WHITEBOARD_LIMITS.legendEntries, { error: `a legend has at most ${WHITEBOARD_LIMITS.legendEntries} entries` });
 
-const CodeSessionId = z.string().min(1).max(64);
 const ProjectPath = z.string().min(1).max(4096);
 export const BOARD_LINK_PATH_MAX_LENGTH = 4096;
 const BoardLinkPath = z.string().min(1).max(BOARD_LINK_PATH_MAX_LENGTH);
@@ -672,7 +674,7 @@ function filledSource(source: z.input<typeof MediaSource> | null | undefined): M
 
 function filledMedia(media: z.input<typeof BoxMedia> | null | undefined): BoxMedia | null {
   if (!media) return null;
-  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], sheets: media.sheets ?? [], link: media.link ? { path: media.link.path, syncedHash: media.link.syncedHash ?? null } : null, source: filledSource(media.source) };
+  return { kind: media.kind, asset: media.asset, mime: media.mime, width: media.width, height: media.height, alt: media.alt ?? '', hasPreview: media.hasPreview ?? false, dials: media.dials?.length ? DialManifest.parse(media.dials) : [], sheets: media.sheets ?? [], link: media.link ? { path: media.link.path, sessionId: media.link.sessionId ?? null, syncedHash: media.link.syncedHash ?? null } : null, source: filledSource(media.source) };
 }
 
 export function filledBox(box: SparseBox): Box {

@@ -342,6 +342,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
       return session ? { root: session.effectiveCwd(), buildChangeMap: () => changeMaps.build(session) } : null;
     },
     projectOf: (sessionId) => getSessionAny(sessionId)?.path ?? null,
+    parentIdOf: (sessionId) => getSessionAny(sessionId)?.parent?.sessionId ?? null,
     onBoardNamedProvisionally: (naming) => nameProvisionalBoard(naming),
     codemapNoticeOf: (project) => codemap.noticeOf(project),
   });

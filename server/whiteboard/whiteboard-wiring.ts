@@ -46,7 +46,7 @@ import { createWhiteboardAssetStore } from './whiteboard-assets.ts';
 import { adoptBoardFileAssets, boardFileBytes, forgetBoardFileExport, parseBoardFile, readBoardFileAt, writeBoardFile } from './board-file.ts';
 import { addOpsOf, boardDiffOps, importedElementsOf, nextCopyTitle } from '../core/board-file-core.ts';
 import type { BoardContent } from '../core/board-file-core.ts';
-import { saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
+import { type LinkRootOf, saveLinkedDoc, syncLinkedBoxes } from './linked-media.ts';
 import { createLinkedBoards } from './linked-board.ts';
 import type { LinkSync, WatchedFolder } from './linked-board.ts';
 import { createWatchDebounce } from '../../detection/watch-debounce.ts';
@@ -154,6 +154,7 @@ interface WhiteboardWiringOptions {
   logger?: Pick<Console, 'warn'> & Partial<Pick<Console, 'log'>>;
   codeContextOf?: (sessionId: string) => CodeContext | null;
   projectOf?: (sessionId: string) => string | null;
+  parentIdOf?: (sessionId: string) => string | null;
   onBoardNamedProvisionally?: (naming: ProvisionalBoardNaming) => void;
   codemapNoticeOf?: (project: string) => string | null;
 }
@@ -301,7 +302,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null,
+  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null,
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const linkedFolderKeeperIdByKey = new Map<string, string>();
@@ -527,21 +528,21 @@ function createWhiteboardWiring({
     return [...new Set([pageFolder, ...memberFolders])];
   }
 
-  function linkedCardBoxIdsByFolderOf(board: Board): Map<string, Set<string>> {
-    const boxIdsByFolder = new Map<string, Set<string>>();
-    const root = linkRootOf(board);
-    if (root === null) return boxIdsByFolder;
+  function linkedCardBoxIdsByFolderOf(board: Board): Map<string, { root: string; boxIds: Set<string> }> {
+    const cardsByFolder = new Map<string, { root: string; boxIds: Set<string> }>();
+    const rootOfLink = linkRootsOf(board);
     for (const boxId of boardIndexOf(board.elements).linkedBoxIds) {
       const element = board.elements.get(boxId);
       const media = element?.kind === 'box' ? element.media : null;
-      if (!media?.link) continue;
+      const root = media?.link ? rootOfLink(media.link) : null;
+      if (!media?.link || root === null) continue;
       for (const folder of linkedCardFoldersOf(root, { ...media, link: media.link })) {
-        const boxIds = boxIdsByFolder.get(folder) ?? new Set<string>();
-        boxIds.add(boxId);
-        boxIdsByFolder.set(folder, boxIds);
+        const cards = cardsByFolder.get(folder) ?? { root, boxIds: new Set<string>() };
+        cards.boxIds.add(boxId);
+        cardsByFolder.set(folder, cards);
       }
     }
-    return boxIdsByFolder;
+    return cardsByFolder;
   }
 
   async function nearestWatchableFolderOf(folder: string, root: string): Promise<WatchedFolder | null> {
@@ -586,10 +587,9 @@ function createWhiteboardWiring({
   }
 
   async function followLinkedCardsNow(board: Board): Promise<void> {
-    const root = linkRootOf(board);
     const boxIdsByWatchedFolder = new Map<string, { target: WatchedFolder; boxIds: Set<string> }>();
-    for (const [folder, boxIds] of linkedCardBoxIdsByFolderOf(board)) {
-      const target = root === null ? null : await nearestWatchableFolderOf(folder, root);
+    for (const [folder, { root, boxIds }] of linkedCardBoxIdsByFolderOf(board)) {
+      const target = await nearestWatchableFolderOf(folder, root);
       if (target === null) continue;
       const watched = boxIdsByWatchedFolder.get(target.folder) ?? { target, boxIds: new Set<string>() };
       for (const boxId of boxIds) watched.boxIds.add(boxId);
@@ -754,10 +754,11 @@ function createWhiteboardWiring({
     return { ok: true, boardId: resolved.id };
   }
 
-  async function createBoardFor(creator: WhiteboardCaller | null, title: string): Promise<WhiteboardReply> {
+  async function createBoardFor(creator: WhiteboardCaller | null, title: string, alsoConnectedSessionIds: readonly string[] = []): Promise<WhiteboardReply> {
     const boardId = newBoardId();
     const nowMs = now();
-    const cursorBySessionId: Record<string, number> = creator ? { [creator.id]: 0 } : {};
+    const connectedSessionIds = creator ? [creator.id, ...alsoConnectedSessionIds] : [...alsoConnectedSessionIds];
+    const cursorBySessionId: Record<string, number> = Object.fromEntries(connectedSessionIds.map((sessionId) => [sessionId, 0]));
     const board = createBoard({ id: boardId, title, nowMs, codeSessionId: creator?.id ?? null, project: creator?.project ?? null });
     const record: BoardRecord = { board, log: [], cursorBySessionId, createdBy: creator?.id ?? null };
     return saveNewRecord(record, 'created', PUT_GUIDE);
@@ -834,6 +835,11 @@ function createWhiteboardWiring({
     return board.codeSessionId ? codeContextOf(board.codeSessionId)?.root ?? null : null;
   }
 
+  function linkRootsOf(board: Board): LinkRootOf {
+    const boardRoot = linkRootOf(board);
+    return (link) => (link.sessionId === null ? boardRoot : codeContextOf(link.sessionId)?.root ?? null);
+  }
+
   function linkedFolderKeyOf(board: Board): string | null {
     const root = linkRootOf(board);
     return root === null || board.link === null ? null : path.resolve(root, board.link).toLowerCase();
@@ -878,7 +884,7 @@ function createWhiteboardWiring({
     const linkedBoxIds = [...boxIds].filter((boxId) => linkedBoxIdsOnBoard.has(boxId));
     if (linkedBoxIds.length === 0) return [];
     const mediaJsonReadByBoxId = new Map(linkedBoxIds.map((boxId) => [boxId, mediaJsonOf(syncedBoard, boxId)]));
-    const synced = await syncLinkedBoxes(syncedBoard, linkedBoxIds, linkRootOf(syncedBoard), assets);
+    const synced = await syncLinkedBoxes(syncedBoard, linkedBoxIds, linkRootsOf(syncedBoard), assets);
     if (synced.ops.length === 0) return synced.linkStates;
     const reply = await changeRecord(boardId, async (record) => {
       const freshOps = synced.ops.filter((op) => op.op === 'set' && mediaJsonOf(record.board, op.id) === mediaJsonReadByBoxId.get(op.id));
@@ -898,7 +904,7 @@ function createWhiteboardWiring({
     let isConflict = false;
     let savedMedia: BoxMedia | null = null;
     const reply = await changeRecord(found.boardId, async (record) => {
-      const saved = await saveLinkedDoc(record.board, boxId, linkRootOf(record.board), text, baseAsset, assets);
+      const saved = await saveLinkedDoc(record.board, boxId, linkRootsOf(record.board), text, baseAsset, assets);
       if (!saved.ok) {
         isConflict = saved.isConflict;
         return { ok: false, reply: refusal(isConflict ? 409 : 400, saved.error) };
@@ -1436,9 +1442,12 @@ function createWhiteboardWiring({
 
   async function showBoardIdFor(caller: WhiteboardCaller, newBoardTitle: string): Promise<{ ok: true; boardId: string; provisionalTitle: string | null } | { ok: false; reply: WhiteboardReply }> {
     const sessionBoard = sessionBoardOf(caller.id);
+    const isCallerOnSessionBoard = sessionBoard !== null && caller.id in sessionBoard.cursorBySessionId;
+    const connected = sessionBoard && !isCallerOnSessionBoard ? await connectBoard(sessionBoard.board.id, caller.id, caller.project) : null;
+    if (connected && connected.status !== 200) return { ok: false, reply: connected };
     if (sessionBoard) return { ok: true, boardId: sessionBoard.board.id, provisionalTitle: null };
     const provisionalTitle = newBoardTitle.slice(0, WHITEBOARD_LIMITS.title);
-    const created = await createBoardFor(caller, provisionalTitle);
+    const created = await createFamilyBoardFor(caller, provisionalTitle);
     if (!created.body.ok || !('board' in created.body)) return { ok: false, reply: created };
     return { ok: true, boardId: created.body.board.id, provisionalTitle };
   }
@@ -1455,14 +1464,24 @@ function createWhiteboardWiring({
     return reply.status === 200;
   }
 
-  async function linkedPathFor(boardId: string, sourcePath: string): Promise<{ ok: true; linkPath: string } | { ok: false; reply: WhiteboardReply }> {
-    const board = recordsByBoardId.get(boardId)?.board;
-    const root = board ? linkRootOf(board) : null;
-    if (root === null) return { ok: false, reply: refusal(409, 'show links a file inside the board code session worktree, and this board has no running code session; set one with {"op":"board","codeSessionId":"<session id>"} or show without link') };
+  async function worktreeRelativePathOf(root: string, sourcePath: string): Promise<string | null> {
     const [realRoot, realSource] = await Promise.all([fsp.realpath(root).catch(() => null), fsp.realpath(sourcePath).catch(() => null)]);
     const linkPath = realRoot && realSource ? path.relative(realRoot, realSource) : '';
-    if (!linkPath || linkPath.startsWith('..') || path.isAbsolute(linkPath)) return { ok: false, reply: refusal(409, `show links a file inside the board code session worktree ${root}, and ${sourcePath} is not in it, so nothing was shown`) };
-    return { ok: true, linkPath: linkPath.split(path.sep).join('/') };
+    if (!linkPath || linkPath.startsWith('..') || path.isAbsolute(linkPath)) return null;
+    return linkPath.split(path.sep).join('/');
+  }
+
+  async function linkFor(boardId: string, sourcePath: string, callerId: string): Promise<{ ok: true; link: { path: string; sessionId: string | null } } | { ok: false; reply: WhiteboardReply }> {
+    const board = recordsByBoardId.get(boardId)?.board;
+    const boardRoot = board ? linkRootOf(board) : null;
+    const pathInBoardWorktree = boardRoot === null ? null : await worktreeRelativePathOf(boardRoot, sourcePath);
+    if (pathInBoardWorktree !== null) return { ok: true, link: { path: pathInBoardWorktree, sessionId: null } };
+    const callerRoot = board?.codeSessionId === callerId ? null : codeContextOf(callerId)?.root ?? null;
+    const pathInCallerWorktree = callerRoot === null ? null : await worktreeRelativePathOf(callerRoot, sourcePath);
+    if (pathInCallerWorktree !== null) return { ok: true, link: { path: pathInCallerWorktree, sessionId: callerId } };
+    if (boardRoot === null && callerRoot === null) return { ok: false, reply: refusal(409, 'show links a file inside the board code session worktree or this session worktree, and neither is running; set one with {"op":"board","codeSessionId":"<session id>"} or show without link') };
+    const worktrees = [boardRoot, callerRoot].filter((root) => root !== null).join(' or ');
+    return { ok: false, reply: refusal(409, `show links a file inside ${worktrees}, and ${sourcePath} is not in it, so nothing was shown`) };
   }
 
   function nearRefusalFor(caller: WhiteboardCaller, near: Near | null): WhiteboardReply | null {
@@ -1484,9 +1503,9 @@ function createWhiteboardWiring({
     const fileName = path.basename(sourcePath);
     const target = await showBoardIdFor(caller, pageTitle ?? (path.parse(fileName).name || fileName));
     if (!target.ok) return target.reply;
-    const linked = isLinked ? await linkedPathFor(target.boardId, sourcePath) : null;
+    const linked = isLinked ? await linkFor(target.boardId, sourcePath, caller.id) : null;
     if (linked && !linked.ok) return linked.reply;
-    const media = linked ? { ...ingested.media, link: { path: linked.linkPath, syncedHash: ingested.media.asset } } : ingested.media;
+    const media = linked ? { ...ingested.media, link: { ...linked.link, syncedHash: ingested.media.asset } } : ingested.media;
     const card = { media, title: pageTitle ?? fileName, caption, near };
     const author: Author = { id: caller.id, name: caller.name };
     const reply = await placeShownCard(target.boardId, card, author, ingested.unloaded);
@@ -1581,23 +1600,52 @@ function createWhiteboardWiring({
     });
   }
 
-  function sessionBoardOf(sessionId: string): BoardRecord | null {
+  function ancestorIdsOf(sessionId: string): string[] {
+    const ancestorIds: string[] = [];
+    let parentId = parentIdOf(sessionId);
+    while (parentId !== null && parentId !== sessionId && !ancestorIds.includes(parentId)) {
+      ancestorIds.push(parentId);
+      parentId = parentIdOf(parentId);
+    }
+    return ancestorIds;
+  }
+
+  function ownBoardOf(sessionId: string): BoardRecord | null {
     const attached = attachedRecordOf(sessionId);
     if (attached) return attached;
     const pickedBoardId = pickShowBoardId([...recordsByBoardId.values()], sessionId);
     return pickedBoardId === null ? null : recordsByBoardId.get(pickedBoardId) ?? null;
   }
 
-  async function createUnlessOnBoard(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
-    const sessionBoard = sessionBoardOf(caller.id);
-    if (!sessionBoard) return createBoardFor(caller, title);
-    const loading = await loadedRecordOf(sessionBoard.board.id);
-    const isSessionBoardDamaged = !loading.ok && loading.reply.body.ok === false && loading.reply.body.error === DAMAGED_BOARD_TEXT;
-    if (isSessionBoardDamaged) return createBoardFor(caller, title);
+  function sessionBoardOf(sessionId: string): BoardRecord | null {
+    const ancestorIds = ancestorIdsOf(sessionId);
+    if (ancestorIds.length === 0) return ownBoardOf(sessionId);
+    return attachedRecordOf(sessionId) ?? ancestorIds.map(ownBoardOf).find((board) => board !== null) ?? ownBoardOf(sessionId);
+  }
+
+  function createFamilyBoardFor(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
+    const rootAncestorId = ancestorIdsOf(caller.id).at(-1);
+    if (rootAncestorId === undefined) return createBoardFor(caller, title);
+    const rootAncestor: WhiteboardCaller = { id: rootAncestorId, name: caller.name, project: projectOf(rootAncestorId) ?? caller.project };
+    return createBoardFor(rootAncestor, title, [caller.id]);
+  }
+
+  function whyNoNewBoardFor(caller: WhiteboardCaller, sessionBoard: BoardRecord): string {
     const { title: boardTitle, id } = sessionBoard.board;
     const boardNamed = `board "${boardTitle}" (${id})`;
-    const whyThisBoard = sessionBoard === attachedRecordOf(caller.id) ? `the operator opened ${boardNamed} beside this session` : `this session is already on ${boardNamed}`;
-    return refusal(409, `${whyThisBoard}, so no new board was made; draw on it with whiteboard get ${id} and whiteboard put, or whiteboard disconnect ${id} (and from any other board this session is on) first if this work needs a board of its own`);
+    const drawOnIt = `so no new board was made; draw on it with whiteboard get ${id} and whiteboard put`;
+    if (sessionBoard === attachedRecordOf(caller.id)) return `the operator opened ${boardNamed} beside this session, ${drawOnIt}`;
+    if (ancestorIdsOf(caller.id).length > 0) return `the session that spawned this one is on ${boardNamed}, where the operator sees it, and a spawned session draws only there, ${drawOnIt}`;
+    return `this session is already on ${boardNamed}, ${drawOnIt}, or whiteboard disconnect ${id} (and from any other board this session is on) first if this work needs a board of its own`;
+  }
+
+  async function createUnlessOnBoard(caller: WhiteboardCaller, title: string): Promise<WhiteboardReply> {
+    const sessionBoard = sessionBoardOf(caller.id);
+    if (!sessionBoard) return createFamilyBoardFor(caller, title);
+    const loading = await loadedRecordOf(sessionBoard.board.id);
+    const isSessionBoardDamaged = !loading.ok && loading.reply.body.ok === false && loading.reply.body.error === DAMAGED_BOARD_TEXT;
+    if (isSessionBoardDamaged) return createFamilyBoardFor(caller, title);
+    return refusal(409, whyNoNewBoardFor(caller, sessionBoard));
   }
 
   async function exportedBoardFile(boardId: string): Promise<{ ok: true; bytes: Buffer; title: string } | { ok: false; status: number; error: string }> {
