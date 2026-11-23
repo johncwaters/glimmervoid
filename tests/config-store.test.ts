@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import {
   createConfigStore, ensureProjectIds, validateConfig, loadConfigFile, DEFAULT_CONFIG,
-  CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX,
+  CONFIG_FILE_MODE, SECRET_PRESENCE_SUFFIX, saveConfigFileOnce,
 } from '../server/config-store.ts';
 import type { ConfigStore, DefaultConfig, GlimmervoidConfig } from '../server/config-store.ts';
 import { ENV_SECRET_BINDINGS } from '../server/core/config-secrets-core.ts';
@@ -329,6 +329,14 @@ test('saveAsync keeps a config.json edit another process writes between its read
   await withStoreAsync({ projects: [] }, async (store, configPath) => {
     const writeExternalProject = writeExternalProjectOnce(configPath);
     await store.saveAsync((cfg) => { writeExternalProject(); cfg.projects.push({ id: 'x1', name: 'x', path: 'C:/x' }); });
+    assert.deepEqual(projectIdsOnDisk(configPath), ['ext', 'x1']);
+  });
+});
+
+test('saveConfigFileOnce keeps a config.json edit another process writes between its read and its write', () => {
+  withStore({ projects: [] }, (_store, configPath) => {
+    const writeExternalProject = writeExternalProjectOnce(configPath);
+    saveConfigFileOnce(configPath, (cfg) => { writeExternalProject(); cfg.projects.push({ id: 'x1', name: 'x', path: 'C:/x' }); });
     assert.deepEqual(projectIdsOnDisk(configPath), ['ext', 'x1']);
   });
 });
