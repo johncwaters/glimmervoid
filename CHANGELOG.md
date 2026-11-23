@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Studio tab icon**: Studio has its own orbit icon instead of borrowing the Boards one.
 - **glimmervoid.dev hero**: moved the "See it before it's built." tagline and whiteboard description into its own section below the logo bar so "Open-source ADE for agents." sits cleanly under the wordmark without competing subheaders, and shortened the Glimmervoid Cloud alternative line under the install command to a waitlist link.
 
 ### Added

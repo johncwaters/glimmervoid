@@ -14,7 +14,7 @@ import { setSettingsRestartHandler } from '../settings/settings-store.ts';
 import { applyTeamReviewConnectionState } from '../github/team-review-store.ts';
 import { applyTraceConnectionState, openTraceForSession } from '../trace-store.ts';
 import { setOpenInReview } from '../whiteboard/board-store.ts';
-import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, PACKS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH, WARGAMES_ICON_PATH } from '../svg-dom.ts';
+import { ARENA_ICON_PATH, BOARDS_ICON_PATH, COMMUNITY_ICON_PATH, createLineIcon, FOCUS_ICON_PATH, PACKS_ICON_PATH, RADAR_ICON_PATH, REVIEWS_ICON_PATH, SETTINGS_ICON_PATH, STUDIO_ICON_PATH, TRACE_ICON_PATH, USAGE_ICON_PATH, WARGAMES_ICON_PATH } from '../svg-dom.ts';
 import { acknowledgeUsageAttention, applyUsageConnectionState, setUsageActivityCallback, setUsageNavigation } from '../usage/usage-store.ts';
 import { packPanelModule, packTabIcon } from '../packs/pack-views.ts';
 import type { PackPanelView } from '../packs/pack-views.ts';
@@ -153,7 +153,7 @@ export function createDashboardViews(actions: ViewRegistryActions): DashboardVie
   setOpenInReview(actions.openReviewFile);
   const definitions: PrimaryViewDefinition<HTMLElement>[] = [
     { view: 'focus', label: 'Focus', iconPath: FOCUS_ICON_PATH, panelClass: 'focus-view', hasOwnPhoneScreen: true, hasPanelChrome: false, refreshOn: ['connected'], module: { mount: () => mountFocusView({ rail: document.getElementById('focus-rail'), center: document.getElementById('focus-center'), resizer: document.getElementById('focus-rail-resizer') }), activate: activateFocusView, deactivate: deactivateFocusView, refresh: reopenFocusBoard } },
-    { view: 'board-session', label: 'Studio', iconPath: BOARDS_ICON_PATH, panelClass: 'board-session-view', isDesktopOnly: true, hasPanelChrome: false, load: () => import('../board-session/board-session-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'session-added', 'session-removed'] },
+    { view: 'board-session', label: 'Studio', iconPath: STUDIO_ICON_PATH, panelClass: 'board-session-view', isDesktopOnly: true, hasPanelChrome: false, load: () => import('../board-session/board-session-view.ts').then((panel) => panel.view), refreshOn: ['shown', 'connected', 'session-added', 'session-removed'] },
     { view: 'prs', label: 'Reviews', iconPath: REVIEWS_ICON_PATH, panelClass: 'pr-view', gate: { fromSettings: FEATURE_SURFACE_RULES.teamReview }, load: () => import('../github/review-queue-panel.ts').then((panel) => panel.view), refreshOn: ['shown'], attention: { subscribe: setReviewQueueActivityCallback, acknowledge: acknowledgeReviewQueueAttention }, onConnectionChange: (isConnected) => {
       applyMyPrsConnectionState(isConnected);
       applyTeamReviewConnectionState(isConnected);
