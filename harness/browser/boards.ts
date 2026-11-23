@@ -145,13 +145,23 @@ async function clickElement(open: OpenBoard, elementId: string): Promise<void> {
   await open.page.mouse.click(center.x, center.y);
 }
 
-export async function clickBoardBoxWhere(page: Page, panel: Locator, boardId: string, isMatch: (element: BoardElement) => boolean): Promise<BoardElement> {
+async function boardBoxCenterWhere(page: Page, panel: Locator, boardId: string, isMatch: (element: BoardElement) => boolean): Promise<{ found: BoardElement; center: { x: number; y: number } }> {
   const open: OpenBoard = { page, panel, boardId };
   const found = await pollFor('a matching board box', BOARD_TIMEOUT_MS, async () => [...(await boardOf(open)).elements.values()].find(isMatch) ?? null);
   const laidOut = layoutBoard(await boardOf(open)).elements.find((element) => element.id === found.id);
   assert.ok(laidOut && laidOut.kind !== 'wire', `the board lays out ${found.id} as a rect`);
-  const center = centerOf(screenRectOn(await cameraOf(open), laidOut));
+  return { found, center: centerOf(screenRectOn(await cameraOf(open), laidOut)) };
+}
+
+export async function clickBoardBoxWhere(page: Page, panel: Locator, boardId: string, isMatch: (element: BoardElement) => boolean): Promise<BoardElement> {
+  const { found, center } = await boardBoxCenterWhere(page, panel, boardId, isMatch);
   await page.mouse.click(center.x, center.y);
+  return found;
+}
+
+export async function hoverBoardBoxWhere(page: Page, panel: Locator, boardId: string, isMatch: (element: BoardElement) => boolean): Promise<BoardElement> {
+  const { found, center } = await boardBoxCenterWhere(page, panel, boardId, isMatch);
+  await page.mouse.move(center.x, center.y);
   return found;
 }
 

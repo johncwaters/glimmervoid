@@ -28,6 +28,9 @@ import type { SessionProgressAnswer } from '#shared/contracts/director-digests.t
 import { NO_PRESENCE, foldPresence, presencePathsOf } from './presence-core.ts';
 import type { Presence } from './presence-core.ts';
 import { asksOfSessions, createAskCards } from './ask-card.ts';
+import { createChangesPeek, createDiffPanel } from './studio-diff-panel.ts';
+import type { ChangesPeek, DiffPanel } from './studio-diff-panel.ts';
+import { onReviewChange, reloadReview, reviewOf } from '../review/review-store.ts';
 import type { AskCards } from './ask-card.ts';
 import { GLOW_TIER_RANK, createPresenceLayer, shownBoundsOfBoard } from './presence-layer.ts';
 import type { GlowTier, PresenceLayer } from './presence-layer.ts';
@@ -51,6 +54,7 @@ const TRACE_PAGE_TIMEOUT_MS = 10000;
 const MAIN_ENSURE_TIMEOUT_MS = 15000;
 const TITLE_SIZE_FALLBACK_PX = 16;
 const CARET_ICON_PATH = 'M4 6l4 4 4-4';
+const PEEK_OVERLAP_PX = 4;
 const NO_SESSION_TEXT = 'Open a repo from the repo menu to see its code map.';
 const OPEN_REPO_TEXT = 'Open a repo';
 const NO_MAP_TEXT = 'This session has no code map yet.';
@@ -75,6 +79,8 @@ interface ViewParts {
   dockSlot: HTMLElement;
   presenceLayer: PresenceLayer;
   askCards: AskCards;
+  changesPeek: ChangesPeek;
+  diffPanel: DiffPanel;
   agentCards: AgentCards;
   guest: BoardHostGuest;
 }
@@ -91,6 +97,7 @@ let pendingMainId: string | null = null;
 let boardId: string | null = null;
 const sessionIdByBoardId = new Map<string, string>();
 let changedBoxIds: ReadonlySet<string> = new Set();
+let peekedBoxId: string | null = null;
 let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
@@ -117,8 +124,46 @@ function presenceOf(sessionId: string | null): Presence {
   return watchBySessionId.get(sessionId)?.presence ?? NO_PRESENCE;
 }
 
+function changedFilesOfShownSession() {
+  return shownSessionId === null ? [] : reviewOf(shownSessionId)?.files ?? [];
+}
+
 function watchedPaths(): string[] {
-  return [...new Set([...watchBySessionId.values()].flatMap((watch) => presencePathsOf(watch.presence)))];
+  return [...new Set([...[...watchBySessionId.values()].flatMap((watch) => presencePathsOf(watch.presence)), ...changedFilesOfShownSession().map((file) => file.path)])];
+}
+
+function boxIdAtPointer(event: PointerEvent, overlayHost: HTMLElement): string | null {
+  const hostRect = overlayHost.getBoundingClientRect();
+  const boardX = (event.clientX - hostRect.left) / hostCamera.scale + hostCamera.x;
+  const boardY = (event.clientY - hostRect.top) / hostCamera.scale + hostCamera.y;
+  return [...changedBoxIds].find((boxId) => {
+    const bounds = boundsOfHostBox(boxId);
+    return bounds !== null && boardX >= bounds.x && boardX <= bounds.x + bounds.width && boardY >= bounds.y && boardY <= bounds.y + bounds.height;
+  }) ?? null;
+}
+
+function paintChangesPeek(): void {
+  if (!parts) return;
+  const bounds = peekedBoxId === null ? null : boundsOfHostBox(peekedBoxId);
+  if (bounds === null) {
+    parts.changesPeek.hide();
+    return;
+  }
+  const files = changedFilesOfShownSession().filter((file) => boxIdByPath[file.path] === peekedBoxId);
+  const left = (bounds.x + bounds.width - hostCamera.x) * hostCamera.scale - PEEK_OVERLAP_PX;
+  const top = (bounds.y - hostCamera.y) * hostCamera.scale;
+  parts.changesPeek.show(files, left, top);
+}
+
+function peekChangedBox(event: PointerEvent): void {
+  if (!parts || shownSessionId === null) return;
+  if (event.target instanceof Node && parts.changesPeek.element.contains(event.target)) return;
+  const overlayHost = parts.changesPeek.element.parentElement;
+  const boxId = overlayHost === null ? null : boxIdAtPointer(event, overlayHost);
+  if (boxId === peekedBoxId) return;
+  peekedBoxId = boxId;
+  if (boxId !== null) reloadReview(shownSessionId);
+  paintChangesPeek();
 }
 
 function repoSessionIds(): string[] {
@@ -454,8 +499,12 @@ function showSession(sessionId: string | null): void {
     boxIdByPath = {};
     answeredPaths = new Set();
     moduleChoices = [];
+    peekedBoxId = null;
+    parts?.changesPeek.hide();
+    parts?.diffPanel.close();
     mountDock();
     requestDigests();
+    reloadReview(sessionId);
   }
   requestBoxes();
 }
@@ -578,10 +627,26 @@ function mountBoardSessionView(panel: HTMLElement): void {
   const dockSlot = el('div', 'bs-dock-slot');
   dockSlot.dataset.boardIsland = '';
   const askCards = createAskCards();
+  const diffPanel = createDiffPanel();
+  const changesPeek = createChangesPeek((file) => {
+    peekedBoxId = null;
+    changesPeek.hide();
+    diffPanel.open(file);
+  });
+  root.addEventListener('pointermove', peekChangedBox, { capture: true });
+  root.addEventListener('pointerleave', () => {
+    peekedBoxId = null;
+    changesPeek.hide();
+  });
+  onReviewChange((sessionId) => {
+    if (!isActive || sessionId !== shownSessionId) return;
+    if (watchedPaths().some(isUnaskedPath)) requestBoxes();
+    paintChangesPeek();
+  });
   panel.replaceChildren(root);
   const guest: BoardHostGuest = {
     chrome: topLeft,
-    overlays: [notice, dockSlot, agentCards.element, askCards.element],
+    overlays: [notice, dockSlot, agentCards.element, askCards.element, changesPeek.element, diffPanel.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,
@@ -590,9 +655,10 @@ function mountBoardSessionView(panel: HTMLElement): void {
     onPainted: (camera) => {
       hostCamera = camera;
       paintPresence();
+      paintChangesPeek();
     },
   };
-  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, agentCards, guest };
+  parts = { root, chip, chipName, menu, notice, dockSlot, presenceLayer, askCards, agentCards, changesPeek, diffPanel, guest };
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && !menu.hidden) closeMenu();
   });
