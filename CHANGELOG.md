@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A full disk frees its own build caches.** When the disk holding a worktree folder drops under the worktree disk reserve, Glimmervoid now deletes build caches in worktrees of your configured projects that no session is using, starting with the one idle longest, and stops once free space is back over the reserve. Only folders their tool marked as a cache with a `CACHEDIR.TAG` file are deleted (cargo `target`, uv `.venv`, ruff and mypy caches), and only once untouched for a day and holding no git-tracked files; `node_modules` and everything else stay. Each deletion is written to the removals journal first, and while the disk stays short it tries again every 30 minutes. The Disk space notification says how much was freed and, while still short, names the three largest session temp folders by session id.
+
 - **Chat actions match the text beside them.** Send now, Cancel, Change, Dismiss and Show on board now use the same small type as the status text next to them instead of a larger, different face.
 - **Change an answer before the questions go out.** When an agent asks several questions in chat, each answered one shows a Change button until the last is answered, so a misclick can be fixed before the agent sees anything. The line under Dismiss explaining that it stops the agent is gone.
 - **Board changes stand out in chat.** The line saying a session changed a board is now an accent card headed Board updated, with Show on board as the main action, so it no longer reads like a muted tool note.

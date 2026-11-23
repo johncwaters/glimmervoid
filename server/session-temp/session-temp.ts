@@ -2,6 +2,8 @@ import { readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
+import { folderSizeAtLeast } from '../build-cache-reclaim.ts';
+import type { SessionTempUse } from '../core/disk-headroom-core.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
 import { recordSweptPath } from '../removal-journal.ts';
 import { createHeldSessionTempFolder, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFoldersOnceUnheld } from './session-temp-locks.ts';
@@ -105,4 +107,15 @@ async function removeSessionTempFolder(sessionId: string, log: Pick<Console, 'wa
   await deleteSessionTempFoldersOnceUnheld(glimmervoidHome, sessionId, false, log);
 }
 
-export { SESSION_TEMP_FOLDERS, ensureSessionTempFolder, pruneLeftoverSessionTempFolders, removeSessionTempFolder };
+async function measureSessionTempFolders(maxEntriesPerFolder: number): Promise<SessionTempUse[]> {
+  const sessionTempRoot = path.join(glimmervoidHomeDir(), SESSION_TEMP_FOLDER);
+  const sessionIds = (await readdir(sessionTempRoot).catch(() => [])).filter((sessionId) => SESSION_ID_SHAPE.test(sessionId));
+  const sessionTempUses: SessionTempUse[] = [];
+  for (const sessionId of sessionIds) {
+    const { bytes, isCapped } = await folderSizeAtLeast(path.join(sessionTempRoot, sessionId), maxEntriesPerFolder);
+    sessionTempUses.push({ sessionId, bytes, isCapped });
+  }
+  return sessionTempUses;
+}
+
+export { SESSION_TEMP_FOLDERS, ensureSessionTempFolder, measureSessionTempFolders, pruneLeftoverSessionTempFolders, removeSessionTempFolder };
