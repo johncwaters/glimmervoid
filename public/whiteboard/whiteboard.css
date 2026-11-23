@@ -310,8 +310,6 @@
   color: var(--text-muted);
 }
 
-.wb-board-menu-danger { color: var(--state-failed); }
-
 .wb-presence {
   display: flex;
   flex-wrap: wrap;

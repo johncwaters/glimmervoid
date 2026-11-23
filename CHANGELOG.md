@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Destructive menu items show in red again.** Delete board in the board menu, Delete in the board right-click menu and Remove in an agent account menu now use the danger menu item tone so they stand out in red instead of blending in with the other menu items.
 - **Show on board no longer jolts the chat.** Clicking Show on board, or its shortcut, while already in Focus rebuilt the chat, so it jumped up a little. It now opens the board and leaves the chat as it was.
 - **A config.json edit from outside Glimmervoid survives a save.** When another tool, such as `glimmervoid settings set --file` or a dotfiles sync, wrote config.json while Glimmervoid was saving its own change, Glimmervoid wrote over it. A save now checks the file again just before writing and, if it changed, redoes its change on top of the new content.
 - **The memory gate no longer counts file cache as used.** Sessions were refused with memory is low while the machine had gigabytes available, because reclaimable file cache in Glimmervoid's cgroup (`inactive_file` in `memory.stat`) counted as used memory. Headroom now subtracts it, the way Kubernetes measures a container's working set.

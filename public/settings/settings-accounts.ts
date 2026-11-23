@@ -127,7 +127,7 @@ function buildAccountMenu(agent: AccountAgent, account: AgentAccountStatus, acco
   renameItem.addEventListener('click', () => openRenameDialog(accountId, account.label));
   const signInItem = buildMenuItem('Sign in again', 'settings-accounts-menu-item');
   signInItem.addEventListener('click', () => openAgentAccountDialog(agent, accountId));
-  const removeItem = buildMenuItem('Remove', 'settings-accounts-menu-item');
+  const removeItem = buildMenuItem('Remove', 'settings-accounts-menu-item', { tone: 'danger' });
   removeItem.addEventListener('click', () => confirmAccountRemoval(agent, account));
   menu.append(renameItem, signInItem, removeItem);
   popupMenu({ trigger, menu, signal });

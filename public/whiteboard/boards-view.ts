@@ -292,7 +292,7 @@ function selectionMenuGroups(activeEditor: BoardEditor): ContextMenuGroup[] {
       { label: 'Copy', shortcut: commandChord('C'), run: () => void copySelectionToClipboard(() => activeEditor.copySelection(), 'C') },
       { label: 'Paste', shortcut: commandChord('V'), run: () => void pasteFromClipboard() },
       { label: 'Duplicate', shortcut: commandChord('D'), run: () => activeEditor.duplicateSelection() },
-      { label: 'Delete', shortcut: 'Delete', run: () => activeEditor.removeSelected() },
+      { label: 'Delete', shortcut: 'Delete', tone: 'danger', run: () => activeEditor.removeSelected() },
     ],
     [
       { label: 'Bring to front', shortcut: commandChord('Shift+]'), run: () => activeEditor.orderSelected('front') },
@@ -513,8 +513,8 @@ function buildBoardMenu(onBoardSettings: () => void) {
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', 'Board menu');
   const trigger = menuButton({ label: 'Board actions', action: 'open-board-menu' });
-  const actionItem = (label: string, onChoose: () => void, extraClass = '') => {
-    const item = buildMenuItem(label, `visible ${extraClass}`.trim());
+  const actionItem = (label: string, onChoose: () => void, tone?: 'danger') => {
+    const item = buildMenuItem(label, 'visible', { tone });
     item.addEventListener('click', onChoose);
     return item;
   };
@@ -527,7 +527,7 @@ function buildBoardMenu(onBoardSettings: () => void) {
     actionItem('Link to folder', linkBoardFromDialog),
     unlinkItem,
     boardSettingsItem,
-    actionItem('Delete board', confirmDeleteBoard, 'wb-board-menu-danger'),
+    actionItem('Delete board', confirmDeleteBoard, 'danger'),
   ];
   menuRoot.append(trigger, menu);
   popupMenu({

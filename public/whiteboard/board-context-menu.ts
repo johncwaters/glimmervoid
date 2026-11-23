@@ -16,6 +16,7 @@ export interface ArrangedRect {
 interface ContextMenuItem {
   label: string;
   shortcut: string | null;
+  tone?: 'danger';
   run: () => void;
 }
 
@@ -80,7 +81,7 @@ export function distributedRectsOf(rects: readonly ArrangedRect[], axis: Distrib
 }
 
 function menuItemOf(item: ContextMenuItem, choose: (item: ContextMenuItem) => void): HTMLElement {
-  const menuItem = buildMenuItem(item.label, 'wb-context-item');
+  const menuItem = buildMenuItem(item.label, 'wb-context-item', { tone: item.tone });
   if (item.shortcut) {
     const shortcut = el('span', 'wb-context-shortcut');
     shortcut.textContent = item.shortcut;
