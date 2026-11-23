@@ -84,14 +84,15 @@ function withLocalMediaKept(current: Board, element: Element): Element {
   return { ...element, media: { ...element.media, source: existing.media.source, link: existing.media.link } };
 }
 
-function withBoardAskKept(current: Board, element: Element): Element {
+function withLocalOnlyFieldsKept(current: Board, element: Element): Element {
   if (element.kind !== 'box') return element;
   const existing = current.elements.get(element.id);
-  return { ...element, ask: existing?.kind === 'box' ? existing.ask : null };
+  if (existing?.kind !== 'box') return { ...element, ask: null, feeds: [] };
+  return { ...element, ask: existing.ask, feeds: existing.feeds };
 }
 
 function boardDiffOps(current: Board, target: BoardContent): Op[] {
-  const targetElements = target.elements.map((element) => withBoardAskKept(current, withLocalMediaKept(current, element)));
+  const targetElements = target.elements.map((element) => withLocalOnlyFieldsKept(current, withLocalMediaKept(current, element)));
   const targetById = new Map(targetElements.map((element) => [element.id, element]));
   const isKindChanged = (element: Element) => { const existingKind = current.elements.get(element.id)?.kind; return existingKind !== undefined && existingKind !== element.kind; };
   const replacedIds = new Set(targetElements.filter(isKindChanged).map((element) => element.id));

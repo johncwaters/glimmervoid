@@ -81,7 +81,7 @@ const BOARD_PAGE_FEED_TOPICS = ['sessions'] as const;
 export const BoardPageFeed = z.object({
   type: z.literal(BOARD_PAGE_FEED_MESSAGE),
   topic: z.literal('sessions'),
-  sessions: z.array(z.object({ name: z.string(), agent: z.string(), state: z.enum(STATES) }).strict()),
+  sessions: z.array(z.object({ id: z.string(), name: z.string(), agent: z.string(), state: z.enum(STATES) }).strict()),
 }).strict();
 export type BoardPageFeed = z.infer<typeof BoardPageFeed>;
 export const BOARD_PAGE_TUNED_QUERY = 'tuned=1';

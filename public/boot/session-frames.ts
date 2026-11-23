@@ -32,9 +32,9 @@ import { markShownPhoneSessionSeen } from './viewer-focus.ts';
 function refreshAttentionSurfaces() {
   refreshMyPrsSessionState();
   refreshPhoneBoard();
-  showBoardSessionFeed([...sessionUIs.values()].flatMap((sessionUi) => {
+  showBoardSessionFeed([...sessionUIs.entries()].flatMap(([sessionId, sessionUi]) => {
     const parsedState = SessionState.safeParse(sessionUi.currentState);
-    return parsedState.success ? [{ name: sessionName(sessionUi), agent: sessionUi.agent ?? '', state: parsedState.data }] : [];
+    return parsedState.success ? [{ id: sessionId, name: sessionName(sessionUi), agent: sessionUi.agent ?? '', state: parsedState.data }] : [];
   }));
 }
 

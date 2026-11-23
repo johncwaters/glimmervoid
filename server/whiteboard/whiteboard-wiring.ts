@@ -21,7 +21,7 @@ import { LAYOUT_CACHE_FILENAME } from './layout-cache.ts';
 import type { BoardPictureRead, BoardTileService, LayoutSummary, OpenStepLog, PictureImage } from './board-tile-service.ts';
 import { createOpenStepLogs } from './open-step-log.ts';
 import type { ChangedElement } from './layout-client.ts';
-import { elementPageOf, fitsOnePage } from '../../shared/contracts/whiteboard-tile-core.ts';
+import { backdropOfBoard, elementPageOf, fitsOnePage } from '../../shared/contracts/whiteboard-tile-core.ts';
 import { referencedRefs, reviewBoard } from '../../shared/whiteboard-anchor-core.ts';
 import { cappedWarnings } from '../../shared/whiteboard-route-core.ts';
 import { readAnchorFileFacts, readChangeFacts } from './whiteboard-anchor-facts.ts';
@@ -1743,12 +1743,20 @@ function createWhiteboardWiring({
     },
   };
 
-  async function warmEditPathOf(boardId: string): Promise<void> {
+  async function warmEditPathOf(boardId: string): Promise<Board | null> {
     const loading = await loadedRecordOf(boardId);
-    if (!loading.ok) return;
+    if (!loading.ok) return null;
     await tiles.hold(loading.record.board).catch((error: unknown) => {
       logger.warn(`[whiteboard] board ${boardId} could not be readied for its first edit: ${errorMessage(error)}`);
     });
+    return loading.record.board;
+  }
+
+  async function sendBackdropAfterWarming(...[viewer, request, openSteps]: Parameters<BoardTileService['view']>): Promise<void> {
+    const warmedBoard = await warmEditPathOf(request.boardId);
+    if (!warmedBoard || !backdropOfBoard(warmedBoard)) return;
+    const latestView = tiles.operatorViewOf(request.boardId);
+    await tiles.view(viewer, latestView ? { ...request, view: latestView.view, lod: latestView.lod } : request, openSteps);
   }
 
   const tilesOnFirstUse: WhiteboardPort['tiles'] = {
@@ -1758,7 +1766,7 @@ function createWhiteboardWiring({
       openSteps.mark('heads ready');
       if (await tiles.viewCached(viewer, request, openSteps)) {
         openSteps.logIfBoardLoaded(false);
-        void warmEditPathOf(request.boardId);
+        void sendBackdropAfterWarming(viewer, request, openSteps);
         return;
       }
       openSteps.mark('saved layout tried');

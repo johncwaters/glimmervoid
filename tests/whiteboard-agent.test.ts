@@ -1114,14 +1114,14 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
   assert.equal((await listedBoard())?.link, null);
 });
 
-test('a linked board takes a pulled stroke and a teammate note as written, and a pull it cannot apply leaves the folder untouched by later edits', async () => {
+test('a linked board takes a pulled stroke and a teammate note as written, never takes a session feed from the folder, and a pull it cannot apply leaves the folder untouched by later edits', async () => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   const boardId = await newBoard('Pulled from a teammate');
   const put = async (ops: unknown[]) => {
     const reply = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops });
     assert.equal(reply.status, 200, JSON.stringify(reply.body));
   };
-  await put([{ op: 'add', element: { kind: 'box', id: 'mine', title: 'Mine', place: { at: { x: 40, y: 40 } } } }, { op: 'board', link: 'boards/pulls' }]);
+  await put([{ op: 'add', element: { kind: 'box', id: 'mine', title: 'Mine', feeds: ['sessions'], place: { at: { x: 40, y: 40 } } } }, { op: 'board', link: 'boards/pulls' }]);
   const documentPath = path.join(worktree, 'boards', 'pulls', 'board.jsonl');
   const eventually = async (check: () => Promise<boolean> | boolean, label: string) => {
     const deadline = Date.now() + 5000;
@@ -1136,13 +1136,14 @@ test('a linked board takes a pulled stroke and a teammate note as written, and a
   await eventually(() => documentText() !== '', 'linking writes board.jsonl');
 
   const strokeLine = JSON.stringify({ kind: 'stroke', id: 'teammate-ink', points: [0, 0, 40, 40], tone: 'blue', width: 5 });
-  const noteLine = JSON.stringify({ kind: 'box', id: 'teammate-note', title: 'From a teammate', shape: 'note', author: 'Teammate', place: { at: { x: 40, y: 240 } } });
+  const noteLine = JSON.stringify({ kind: 'box', id: 'teammate-note', title: 'From a teammate', shape: 'note', author: 'Teammate', feeds: ['sessions'], place: { at: { x: 40, y: 240 } } });
   fs.writeFileSync(documentPath, `${documentText()}${strokeLine}\n${noteLine}\n`);
   const pulled = await whiteboard(PLANNER_ID, { sub: 'get', board: boardId });
   const pulledById = new Map((pulled.body.elements as Record<string, unknown>[]).map((element) => [element.id, element]));
   assert.equal(pulledById.get('teammate-ink')?.kind, 'stroke', 'a pulled stroke lands on the board');
   const pulledNote = pulledById.get('teammate-note');
   assert.deepEqual([pulledNote?.author, pulledNote?.width], ['Teammate', undefined], 'a pulled note keeps its author and width as written');
+  assert.deepEqual([pulledNote?.feeds, pulledById.get('mine')?.feeds], [undefined, ['sessions']], 'the session feed stays as the operator set it here, since a page frame can reach the network');
   assert.equal((await linkStateOf())?.state, 'in-sync');
 
   const pulledText = documentText();
