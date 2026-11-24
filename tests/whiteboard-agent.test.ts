@@ -2230,6 +2230,9 @@ test('a spawned session shows and draws on the board of the session above it, wh
   fs.writeFileSync(path.join(childDir, 'notes.md'), '# Notes\n\nedited by the child\n');
   const followedCard = await linkedCardOf();
   assert.notEqual(followedCard?.kind === 'box' ? followedCard.media?.asset : null, linkedCard?.kind === 'box' ? linkedCard.media?.asset : null, 'a read of the parent board takes the edit the spawned session made to its own file');
+  const followSummariesFor = async (sessionId: string) => ((await wiring.handleAgent({ id: sessionId, name: sessionId, project: childDir, cwd: childDir }, { sub: 'get', board: familyBoardId })).body as { changes: { summary: string }[] }).changes.map(({ summary }) => summary).filter((summary) => summary.includes('Glimmervoid edited the document'));
+  assert.equal((await followSummariesFor('parent')).length, 1, 'the session that owns the board hears the edit a spawned session made to its linked file');
+  assert.deepEqual(await followSummariesFor('child'), [], 'the spawned session is not told of its own file edit');
 
   const orphanShow = await wiring.handleAgent(orphan, { sub: 'show', path: 'login.png' });
   const orphanBoardId = (orphanShow.body as { board: { id: string } }).board.id;
@@ -2589,10 +2592,11 @@ test('a board show creates is renamed once by the title lane, never over a renam
       lanePrompts.push(fs.readFileSync(path.join(cwd, 'task-title-prompt.txt'), 'utf8'));
       fs.writeFileSync(path.join(cwd, 'task-title-result.json'), JSON.stringify({ title: 'Revenue dashboard draft' }));
     },
-    retitleBoard: (boardId, provisionalTitle, title) => wiring.retitleProvisionalBoard(boardId, provisionalTitle, title),
+    retitleBoard: (boardId, provisionalTitle, title, namedForSessionId) => wiring.retitleProvisionalBoard(boardId, provisionalTitle, title, namedForSessionId),
   });
   const wiring = createWhiteboardWiring({
     boardsRoot,
+    parentIdOf: (sessionId) => (sessionId === 'named-agent' ? 'named-parent' : null),
     onBoardNamedProvisionally: (naming) => pendingNamings.push(refiner.nameBoard({ ...naming, sessionName: 'checkout fix', taskTitle: 'Chart the numbers' })),
   });
   const shower = { id: 'named-agent', name: 'checkout fix', project: showerDir, cwd: showerDir };
@@ -2604,9 +2608,12 @@ test('a board show creates is renamed once by the title lane, never over a renam
   assert.match(lanePrompts[0], /"Weekly report"/);
   assert.match(lanePrompts[0], /"checkout fix"/);
   assert.equal(titleOf(boardId), 'Revenue dashboard draft');
+  const queuedBySessionId = wiring.snapshotMessage().boards.find((board) => board.id === boardId)?.queuedBySessionId;
+  assert.deepEqual(queuedBySessionId, { 'named-parent': 2, [shower.id]: 0 });
+  assert.equal(wiring.takeBoardNotice(shower.id, null), null);
 
   await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'board', title: 'Mine' }]));
-  assert.equal(await wiring.retitleProvisionalBoard(boardId, 'Revenue dashboard draft', 'Late lane title'), false);
+  assert.equal(await wiring.retitleProvisionalBoard(boardId, 'Revenue dashboard draft', 'Late lane title', shower.id), false);
   assert.equal(titleOf(boardId), 'Mine');
   await refiner.stop();
 });

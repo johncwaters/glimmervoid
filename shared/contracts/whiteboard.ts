@@ -433,6 +433,7 @@ export const BoardChange = z.object({
   author: z.string(),
   elementId: z.string().nullable(),
   summary: z.string(),
+  forSessionId: z.string().optional(),
 }).strict();
 
 export const BoardSummary = z.object({

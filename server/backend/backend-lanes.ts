@@ -120,7 +120,7 @@ interface BackendLaneDependencies {
   provenanceWriterId: () => Promise<string>;
   renameSessionFromTaskTitle?: (session: Session, proposedName: string) => void;
   operatorSessionNames?: () => readonly string[];
-  retitleProvisionalBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
+  retitleProvisionalBoard?: (boardId: string, provisionalTitle: string, title: string, namedForSessionId: string) => Promise<boolean>;
   packSessionFiles: Pick<PackSessionFiles, 'sync'>;
 }
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, BoxInput, NOTE_TONES, TEXT_SIZES, WHITEBOARD_LIMITS, boxIdOfEnd } from '../../shared/contracts/whiteboard.ts';
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
-import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
+import type { Board, BoardChange, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { OpenBoardAsk } from '../../shared/contracts/control/board-session-messages.ts';
 import type { TelemetryEventProperties } from '../../shared/contracts/telemetry.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
@@ -138,6 +138,20 @@ const LINK_AUTOSAVE_DELAY_MS = 1000;
 const LINK_WATCH_DEBOUNCE_MS = 250;
 const LINK_NOT_SYNCED_TEXT = 'Not synced with the folder yet';
 const GLIMMERVOID_AUTHOR: Author = Object.freeze({ id: 'glimmervoid', name: 'Glimmervoid' });
+
+type SessionActedForOf = (elementId: string | null) => string | null;
+
+const noSessionActedFor: SessionActedForOf = () => null;
+
+function changeActedFor(change: BoardChange, sessionId: string | null): BoardChange {
+  return sessionId === null ? change : { ...change, forSessionId: sessionId };
+}
+
+function linkSessionOf(board: Board, elementId: string | null): string | null {
+  const element = elementId === null ? undefined : board.elements.get(elementId);
+  const link = element?.kind === 'box' ? element.media?.link : null;
+  return link ? link.sessionId ?? board.codeSessionId : null;
+}
 const DELETED_BOARD_TEXT = 'that board was deleted';
 const UNREADABLE_BOARD_TEXT = 'that board could not be read from the board store, so nothing changed; try again';
 const DAMAGED_BOARD_TEXT = 'that board has stored elements that cannot be read, so nothing changed';
@@ -216,7 +230,7 @@ interface WhiteboardPort {
     exportFile(boardId: string): Promise<{ ok: true; bytes: Buffer; title: string } | { ok: false; status: number; error: string }>;
     importFile(gzipped: Buffer): Promise<WhiteboardReply>;
   };
-  retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean>;
+  retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string, namedForSessionId: string): Promise<boolean>;
   forgetSession(sessionId: string): Promise<void>;
   forgetClosedSessions(isClosedSession: (sessionId: string) => boolean): Promise<void>;
   fileUnfiledBoards(): Promise<void>;
@@ -906,7 +920,7 @@ function createWhiteboardWiring({
     const reply = await changeRecord(boardId, async (record) => {
       const freshOps = synced.ops.filter((op) => op.op === 'set' && mediaJsonOf(record.board, op.id) === mediaJsonReadByBoxId.get(op.id));
       if (freshOps.length === 0) return { ok: false, reply: refusal(409, 'the linked cards changed while their files were read') };
-      const applied = await applyOpsToRecord(record, freshOps, GLIMMERVOID_AUTHOR);
+      const applied = await applyOpsToRecord(record, freshOps, GLIMMERVOID_AUTHOR, { sessionActedForOf: (elementId) => linkSessionOf(record.board, elementId) });
       if (!applied.ok) return { ok: false, reply: refusal(400, applied.error) };
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
     });
@@ -965,7 +979,7 @@ function createWhiteboardWiring({
     }
   }
 
-  async function applyOpsToRecord(record: BoardRecord, unstampedOps: readonly Op[], author: Author, { confirmsRefs = false, isAuthoring = author.id !== GLIMMERVOID_AUTHOR.id }: { confirmsRefs?: boolean; isAuthoring?: boolean } = {}): Promise<AppliedOps> {
+  async function applyOpsToRecord(record: BoardRecord, unstampedOps: readonly Op[], author: Author, { confirmsRefs = false, isAuthoring = author.id !== GLIMMERVOID_AUTHOR.id, sessionActedForOf = noSessionActedFor }: { confirmsRefs?: boolean; isAuthoring?: boolean; sessionActedForOf?: SessionActedForOf } = {}): Promise<AppliedOps> {
     const ops = await withRefHashesStamped(record.board, unstampedOps, confirmsRefs);
     const pinned = await basePinPositionsFor(record.board, ops);
     if (!pinned.ok) return pinned;
@@ -975,7 +989,7 @@ function createWhiteboardWiring({
     const refusalText = stagedRefusalOf(record.board, result.afterById);
     if (refusalText) return { ok: false, error: refusalText };
     const releasedAssetIds = new Set([...result.afterById.keys()].flatMap((id) => assetIdOf(record.board.elements.get(id)) ?? []));
-    const next = recordPut(record, result);
+    const next = recordPut(record, { ...result, changes: result.changes.map((change) => changeActedFor(change, sessionActedForOf(change.elementId))) });
     const patch: WhiteboardPatch = {
       boardId: record.board.id, fromVersion: record.board.version, toVersion: next.board.version,
       author: { id: author.id, name: author.name }, updatedAt: next.board.updatedAt, diff: result.diff, before: result.before,
@@ -1141,7 +1155,7 @@ function createWhiteboardWiring({
     return changeRecord(boardId, async (record) => {
       const isCodeSessionGone = record.board.codeSessionId === null || codeContextOf(record.board.codeSessionId) === null;
       const isOfBoardProject = record.board.project === null || isSameProject(record.board.project, project);
-      const claimed = isCodeSessionGone && isOfBoardProject ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR) : null;
+      const claimed = isCodeSessionGone && isOfBoardProject ? await applyOpsToRecord(record, [{ op: 'board', codeSessionId: sessionId }], GLIMMERVOID_AUTHOR, { sessionActedForOf: () => sessionId }) : null;
       if (!claimed?.ok) {
         const next = filedUnder(connectSession(record, sessionId), project);
         return { ok: true, record: next, reply: connectionReply(next, PUT_GUIDE) };
@@ -1477,12 +1491,12 @@ function createWhiteboardWiring({
     return { ok: true, boardId: created.body.board.id, provisionalTitle };
   }
 
-  async function retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string): Promise<boolean> {
+  async function retitleProvisionalBoard(boardId: string, provisionalTitle: string, title: string, namedForSessionId: string): Promise<boolean> {
     await loaded;
     if (!recordsByBoardId.has(boardId)) return false;
     const reply = await changeRecord(boardId, async (record) => {
       if (record.board.title !== provisionalTitle) return { ok: false, reply: refusal(409, 'the board was renamed since it was created') };
-      const applied = await applyOpsToRecord(record, [{ op: 'board', title }], GLIMMERVOID_AUTHOR);
+      const applied = await applyOpsToRecord(record, [{ op: 'board', title }], GLIMMERVOID_AUTHOR, { sessionActedForOf: () => namedForSessionId });
       if (!applied.ok) return { ok: false, reply: refusal(400, applied.error) };
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
     });

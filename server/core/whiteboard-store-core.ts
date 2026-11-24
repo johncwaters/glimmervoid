@@ -342,7 +342,7 @@ function changesForReader(record: BoardRecord, sessionId: string): BoardChange[]
   const cursor = record.cursorBySessionId[sessionId];
   if (cursor === undefined) return [];
   const readVersion = readVersionOf(cursor);
-  const unread = record.log.filter((change) => change.version > readVersion && change.author !== sessionId);
+  const unread = record.log.filter((change) => change.version > readVersion && change.author !== sessionId && change.forSessionId !== sessionId);
   const newestByTarget = newestChangePerTarget(unread);
   const summariesByElementId = new Map<string, Set<string>>();
   for (const change of unread) {

@@ -724,7 +724,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   function nameProvisionalBoard({ boardId, provisionalTitle, sessionId, cardTitle, caption }: ProvisionalBoardNaming): void {
     const session = getSessionAny(sessionId);
     void laneAssembly.taskTitleRefiner.nameBoard({
-      boardId, provisionalTitle, cardTitle, caption, sessionName: session?.name ?? null, taskTitle: session?.taskTitle ?? null,
+      boardId, provisionalTitle, sessionId, cardTitle, caption, sessionName: session?.name ?? null, taskTitle: session?.taskTitle ?? null,
     });
   }
 

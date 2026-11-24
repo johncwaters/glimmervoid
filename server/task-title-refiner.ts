@@ -27,6 +27,7 @@ const DEFAULT_REFINER_SETTINGS = Object.freeze({ enabled: true, model: DEFAULT_M
 interface BoardNamingRequest extends BoardNamingContext {
   boardId: string;
   provisionalTitle: string;
+  sessionId: string;
 }
 
 interface TaskTitleRefinerOptions {
@@ -34,7 +35,7 @@ interface TaskTitleRefinerOptions {
   spawnLane: LaneSpawn;
   renameSession?: (session: Session, proposedName: string) => void;
   sessionNames?: () => readonly string[];
-  retitleBoard?: (boardId: string, provisionalTitle: string, title: string) => Promise<boolean>;
+  retitleBoard?: (boardId: string, provisionalTitle: string, title: string, namedForSessionId: string) => Promise<boolean>;
   nowFn?: () => number;
   logger?: Pick<Console, 'warn'>;
 }
@@ -280,7 +281,7 @@ function createTaskTitleRefiner({ getConfig, spawnLane, renameSession, sessionNa
     if (signal.aborted) return;
     const title = parseBoardTitle(laneResult, request);
     if (title === null || title === request.provisionalTitle) return;
-    await retitleBoard(request.boardId, request.provisionalTitle, title);
+    await retitleBoard(request.boardId, request.provisionalTitle, title, request.sessionId);
   }
 
   function nameBoard(request: BoardNamingRequest): Promise<void> {
