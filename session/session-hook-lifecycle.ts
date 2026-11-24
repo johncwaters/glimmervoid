@@ -324,7 +324,7 @@ function createSessionHookLifecycle(options: SessionHookOptions): SessionHookLif
       releaseGeneratedHome();
       return { ...NO_HOOK_INJECTION, refusal: `${options.agentId} cannot start: its hooks could not be registered` };
     }
-    return { ...relayHooks, env: { ...relayHooks.env, [injection.homeEnvName]: prepared.homeEnvValue ?? prepared.home } };
+    return { ...relayHooks, env: { ...relayHooks.env, ...prepared.env, [injection.homeEnvName]: prepared.homeEnvValue ?? prepared.home } };
   }
 
   function resolveListenerPort(): number | null {

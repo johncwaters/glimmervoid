@@ -97,7 +97,7 @@ function createCredentialProxies(dependencies: CredentialProxyDependencies) {
   };
 
   const answer = async (request: ProxyRequest, login: ModelLogin): Promise<object> => {
-    const source = credentialSourceFor(request.host, login.agent);
+    const source = credentialSourceFor(request.host, request.path, login.agent);
     const githubToken = source === 'github' ? await dependencies.readGithubToken().catch(() => null) : null;
     const modelToken = source === 'model' ? await dependencies.readModelToken(login).catch(() => null) : null;
     return verdictFor(request, { agent: login.agent, githubToken, modelToken });

@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { antigravityLoginOf } from './keyring-login-core.ts';
 
 const MIN_REFRESH_LEAD_MS = 5 * 60_000;
 const LIFETIME_LEAD_DIVISOR = 5;
 const CLI_WINDOW_LEAD_MS = 4 * 60_000;
 const AGENTS_REFRESHING_ONLY_NEAR_EXPIRY: readonly string[] = Object.freeze(['claude-code', 'codex']);
+const ANTIGRAVITY_REFRESH_LEAD_MS = 8_000;
 const KIMI_CLIENT_ID = '17e5f671-d194-4dfb-9706-5516cb48c098';
 
 const ClaudeLogin = z.object({ claudeAiOauth: z.object({ expiresAt: z.number() }) });
@@ -19,6 +21,7 @@ const KimiTokenReply = z.object({
 });
 
 function nextRefreshAtMs(agent: string, expiresAtMs: number, lifetimeMs: number): number {
+  if (agent === 'antigravity') return expiresAtMs - ANTIGRAVITY_REFRESH_LEAD_MS;
   if (AGENTS_REFRESHING_ONLY_NEAR_EXPIRY.includes(agent)) return expiresAtMs - CLI_WINDOW_LEAD_MS;
   return expiresAtMs - Math.max(MIN_REFRESH_LEAD_MS, lifetimeMs / LIFETIME_LEAD_DIVISOR);
 }
@@ -48,6 +51,7 @@ function loginExpiryAtMs(agent: string, loginFileText: string): number | null {
     const codex = CodexLogin.safeParse(login);
     return codex.success ? codexExpiryAtMs(codex.data.tokens.access_token) : null;
   }
+  if (agent === 'antigravity') return antigravityLoginOf(loginFileText)?.expiresAtMs ?? null;
   if (agent === 'kimi') {
     const kimi = KimiLogin.safeParse(login);
     return kimi.success ? kimi.data.expires_at * 1000 : null;

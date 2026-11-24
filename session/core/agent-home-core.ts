@@ -165,7 +165,7 @@ const AGENT_HOME_ACCOUNT_CONFIG_NAME = ".glimmervoid-account.toml";
 const GENERATED_ONLY_NAMES: ReadonlySet<string> = new Set([AGENT_HOME_SOURCES_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_ACCOUNT_CONFIG_NAME]);
 const FILE_STAMP_PREFIX = "file:";
 
-type AgentHomeVendor = "claude" | "kimi" | "codex" | "gemini" | "qwen" | "copilot" | "grok";
+type AgentHomeVendor = "claude" | "kimi" | "codex" | "gemini" | "qwen" | "copilot" | "grok" | "antigravity";
 
 interface TomlConfigFormat {
   kind: "toml";
@@ -933,6 +933,22 @@ const GROK_HOME_PROFILE: AgentHomeProfile = Object.freeze({
   account: accountSeamOf(/^(?:auth|credentials|user-settings)\.json$/, null, [{ sharedKeys: [], seededKeys: { allExcept: ["apiKey", "baseURL"] }, candidatePaths: listGrokUserSettingsPathCandidates }]),
 });
 
+const ANTIGRAVITY_HOME_PROFILE: AgentHomeProfile = Object.freeze({
+  vendor: "antigravity",
+  homeEnvName: "HOME",
+  defaultHomeFolderName: ".gemini",
+  homeEnvSubfolder: null,
+  homeEnvDotenvNames: Object.freeze([]),
+  expandsHomeTilde: false,
+  homeRootLinkNames: Object.freeze([]),
+  renderLauncherConfig: null,
+  config: null,
+  generatedFileNames: Object.freeze([]),
+  isPrivateEntryName: () => false,
+  cleanOmits: null,
+  account: null,
+});
+
 const CLAUDE_CODE_PREFERENCE_KEYS = Object.freeze(["installMethod", "autoUpdates", "autoUpdatesProtectedForNative", "theme", "verbose", "preferredNotifChannel", "shiftEnterKeyBindingInstalled", "editorMode", "hasUsedBackslashReturn", "autoCompactEnabled", "autoScrollEnabled", "showTurnDuration", "externalEditorContext", "showMessageTimestamps", "diffTool", "tipsHistory", "todoFeatureEnabled", "showExpandedTodos", "briefTranscript", "diffSidebarOpen", "messageIdleNotifThresholdMs", "autoConnectIde", "autoInstallIdeExtension", "fileCheckpointingEnabled", "terminalProgressBarEnabled", "showStatusInTerminalTab", "taskCompleteNotifEnabled", "inputNeededNotifEnabled", "agentPushNotifEnabled", "respectGitignore", "claudeInChromeDefaultEnabled", "hasCompletedClaudeInChromeOnboarding", "lspRecommendationDisabled", "lspRecommendationNeverPlugins", "lspRecommendationIgnoredCount", "copyFullResponse", "copyOnSelect", "leftArrowOpensAgents", "defaultToAgentsView", "prStatusFooterEnabled", "remoteControlAtStartup", "autoUploadSessions", "autoAddRemoteControlDaemonWorker", "remoteDialogSeen", "workflowSizeGuideline"]);
 
 const CLAUDE_ACCOUNT_ENTRY_PATTERN = /^(?:\.claude\.json(?:\..+)?|\.config\.json(?:\..+)?|\.credentials\.json|backups|mcp-needs-auth-cache\.json|(?:remote-settings|policy-limits)\.json(?:\..+)?)$/;
@@ -1125,6 +1141,7 @@ export {
   GROK_HOME_PROFILE,
   COPILOT_HOME_PROFILE,
   AGENT_HOME_PROFILES,
+  ANTIGRAVITY_HOME_PROFILE,
   resolveRealAgentHome,
   AGENT_HOME_CONFLICTS_NAME,
   AGENT_HOME_ACCOUNT_CONFIG_NAME,
@@ -1143,6 +1160,8 @@ export {
   linkKindFor,
   planAgentHome,
   placeholderEnv,
+  placeholderExpirySeconds,
+  PLACEHOLDER_TOKEN,
   renderCodexHookTables,
   renderCodexHooksBlock,
   tomlBasicString,

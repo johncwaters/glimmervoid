@@ -116,8 +116,8 @@ interface GeneratedHomeLaunch {
 interface GeneratedHomeInjection {
   kind: "generated-home";
   homeEnvName: string;
-  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; homeEnvValue?: string; args?: string[] } | { refusal: string };
-  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string; homeEnvValue?: string; args?: string[] } | { refusal: string };
+  prepareHome(env: Record<string, string | undefined>, launch: GeneratedHomeLaunch): { home: string; homeEnvValue?: string; args?: string[]; env?: Record<string, string> } | { refusal: string };
+  prepareScratchHome(env: Record<string, string | undefined>, scratch: ScratchAgentHome): { home: string; homeEnvValue?: string; args?: string[]; env?: Record<string, string> } | { refusal: string };
   releaseHome(home: string): void;
   projectConfigCandidates: readonly ProjectConfigCandidate[];
   userConfigFolders(env: Record<string, string | undefined>): string[];

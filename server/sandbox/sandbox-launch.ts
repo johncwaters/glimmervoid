@@ -13,8 +13,11 @@ import type { PrepareSandbox, SandboxLaunchFacts } from '../../session/sessions.
 import type { SpawnEnv } from '../../session/core/spawn-env.ts';
 import type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink } from './core/sandbox-policy-core.ts';
 import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, seatbeltCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
-import { CREDENTIALED_HOSTS, everyModelLoginEntry, withoutInheritedCredentials, modelLoginConfigFileFor, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
+import { CREDENTIALED_HOSTS, everyModelLoginEntry, isKeyringLoginAgent, modelHostsOf, withoutInheritedCredentials, modelLoginConfigFileFor, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
 import { placeholderEnv } from '../../session/core/agent-home-core.ts';
+import { clock } from '../../shared/clock.ts';
+import { ANTIGRAVITY_TOKEN_FILE_SEGMENTS, antigravityPlaceholderLogin, sessionBusSocketPath } from './core/keyring-login-core.ts';
+import type { KeyringRead } from './keyring-reader.ts';
 import type { CredentialProxies } from './credential-proxy.ts';
 
 type SandboxLauncher = { kind: 'bubblewrap'; socatPath: string } | { kind: 'seatbelt'; seatbeltLauncherPath: string };
@@ -36,6 +39,7 @@ interface SessionSandboxDependencies {
   isWeakerNetworkIsolationOn: () => boolean;
   getAgentAccountFolders: () => readonly string[];
   credentialProxies: Pick<CredentialProxies, 'acquire'>;
+  readKeyringLogin: (agent: string) => Promise<KeyringRead>;
   proxyCertificatePem: () => Promise<string>;
 }
 
@@ -46,7 +50,53 @@ async function realPathOrSame(filePath: string | null): Promise<string | null> {
   return fsp.realpath(filePath).catch(() => filePath);
 }
 
+const KEYRING_LOGIN_FOLDER_MODE = 0o700;
+const KEYRING_LOGIN_FILE_MODE = 0o600;
+
+async function agentHomeInside(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<string | null> {
+  const sessionHome = sessionAgentHomeOf(facts.agent, facts.env);
+  const agentHomesRoot = await fsp.realpath(path.join(dependencies.glimmervoidHome, 'agent-homes')).catch(() => null);
+  const realSessionHome = sessionHome === null ? null : await fsp.realpath(sessionHome).catch(() => null);
+  if (agentHomesRoot === null || realSessionHome === null || !isPathInside(agentHomesRoot, realSessionHome, { allowEqual: false })) return null;
+  return realSessionHome;
+}
+
+async function placeKeyringLogin(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<{ refusal: string } | null> {
+  if (!isKeyringLoginAgent(facts.agent)) return null;
+  const sessionHome = await agentHomeInside(dependencies, facts);
+  if (sessionHome === null) return { refusal: 'its HOME is not a Glimmervoid agent home, so no placeholder login can be placed there' };
+  const login = await dependencies.readKeyringLogin(facts.agent);
+  if ('refusal' in login) return login;
+  const placed = antigravityPlaceholderLogin(login.secret, clock.nowMs());
+  if ('refusal' in placed) return placed;
+  const loginFile = path.join(sessionHome, ...ANTIGRAVITY_TOKEN_FILE_SEGMENTS);
+  await fsp.mkdir(path.dirname(loginFile), { recursive: true, mode: KEYRING_LOGIN_FOLDER_MODE });
+  await writeTextAtomic(loginFile, placed.placeholder, { mode: KEYRING_LOGIN_FILE_MODE, enforceMode: true });
+  return null;
+}
+
+const ABSTRACT_SOCKET_MARK = '\0';
+
+function hostSessionBusSocket(): string {
+  return sessionBusSocketPath(process.env.DBUS_SESSION_BUS_ADDRESS, os.userInfo().uid);
+}
+
+function sessionBusRefusal(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): { refusal: string } | null {
+  const isBusAbstract = hostSessionBusSocket().startsWith(ABSTRACT_SOCKET_MARK);
+  if (!isKeyringLoginAgent(facts.agent) || !isBusAbstract || !dependencies.isWeakerNetworkIsolationOn()) return null;
+  return { refusal: 'the session bus is an abstract socket, which weaker network isolation leaves reachable from the sandbox, so the keyring login would be exposed' };
+}
+
+function sessionBusFilesToHide(): string[] {
+  const busSocket = hostSessionBusSocket();
+  return busSocket.startsWith(ABSTRACT_SOCKET_MARK) ? [] : [busSocket];
+}
+
 async function holdCredentialProxy(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<HeldCredentialProxy | { refusal: string }> {
+  const busRefusal = sessionBusRefusal(dependencies, facts);
+  if (busRefusal !== null) return { refusal: `A sandboxed ${facts.agent} session cannot start: ${busRefusal.refusal}.` };
+  const keyringRefusal = await placeKeyringLogin(dependencies, facts);
+  if (keyringRefusal !== null) return { refusal: `A sandboxed ${facts.agent} session cannot start: ${keyringRefusal.refusal}.` };
   const loginConfigFile = modelLoginConfigFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder);
   const loginConfigText = loginConfigFile === null ? null : await fsp.readFile(loginConfigFile, 'utf8').catch(() => null);
   const login = modelLoginFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder, loginConfigText, facts.env);
@@ -218,7 +268,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     homeDir: os.homedir(),
     glimmervoidHome: dependencies.glimmervoidHome,
     configFolder: path.dirname(dependencies.configPath),
-    secretPaths: [...glimmervoidSecretPaths({ glimmervoidHome: dependencies.glimmervoidHome, configPath: dependencies.configPath }), ...hiddenLoginEntries],
+    secretPaths: [...glimmervoidSecretPaths({ glimmervoidHome: dependencies.glimmervoidHome, configPath: dependencies.configPath }), ...hiddenLoginEntries, ...sessionBusFilesToHide()],
     agent: facts.agent,
     accountFolder: facts.accountFolder,
     ...sealedLoginHomes,
@@ -227,7 +277,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     gitRepositories: await gitRepositoriesUnder(facts.cwd),
     sessionTempFolder,
     readableFiles: readableFilesIn(facts.env),
-    extraAllowedHosts: dependencies.getExtraAllowedHosts(),
+    extraAllowedHosts: [...new Set([...dependencies.getExtraAllowedHosts(), ...modelHostsOf(facts.agent)])],
     enableWeakerNetworkIsolation: dependencies.isWeakerNetworkIsolationOn(),
     credentialProxy: credentialProxy.route,
     hiddenFolders: [...new Set([...hiddenFolders, ...await existingRealPaths(hiddenFolders)])],

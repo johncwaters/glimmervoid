@@ -10,7 +10,7 @@ import { writeTextAtomicSync } from "../server/json-file.ts";
 import { clock } from "../shared/clock.ts";
 import { safePathSegment } from "../shared/paths.ts";
 import { errorMessage, isMissingFileError } from "../shared/text.ts";
-import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, CLAUDE_HOME_PROFILE, GROK_HOME_PROFILE, PACK_SKILLS_MARKER_NAME, SKILLS_ENTRY_NAME, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
+import { AGENT_HOME_ACCOUNT_CONFIG_NAME, AGENT_HOME_CONFLICTS_NAME, AGENT_HOME_IN_USE_LOCK_NAME, AGENT_HOME_SOURCES_NAME, AGENT_HOME_PROFILES, ANTIGRAVITY_HOME_PROFILE, CLAUDE_HOME_PROFILE, GROK_HOME_PROFILE, PACK_SKILLS_MARKER_NAME, SKILLS_ENTRY_NAME, fileStampKey, resolveRealAgentHome, linkKindFor, planAgentHome } from "./core/agent-home-core.ts";
 import { mergeSharedKeys } from "./core/agent-account-core.ts";
 import { takeClaudeConfigLock } from "./adapters/claude-trust.ts";
 import type { AgentHomeLinkKind, AgentHomePlan, AgentHomeProfile, AgentHomeStep, GeneratedAgentHomeEntry, RealAgentHomeEntry } from "./core/agent-home-core.ts";
@@ -76,7 +76,7 @@ function sessionAgentHomePath(profile: AgentHomeProfile, env: AgentHomeEnv, { is
 }
 
 function everySandboxedHomesRoot(env: AgentHomeEnv = process.env): string[] {
-  return [...new Set([CLAUDE_HOME_PROFILE, GROK_HOME_PROFILE, ...AGENT_HOME_PROFILES].map((profile) => sandboxedHomesRootOf(profile, env)))];
+  return [...new Set([CLAUDE_HOME_PROFILE, GROK_HOME_PROFILE, ANTIGRAVITY_HOME_PROFILE, ...AGENT_HOME_PROFILES].map((profile) => sandboxedHomesRootOf(profile, env)))];
 }
 
 function ensureEverySandboxedHomesRoot(env: AgentHomeEnv = process.env): string[] {

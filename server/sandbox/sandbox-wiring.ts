@@ -8,7 +8,13 @@ import { sessionSandboxFor } from './sandbox-launch.ts';
 import { createCredentialProxies } from './credential-proxy.ts';
 import { createLoginRefresher } from './login-refresh.ts';
 import type { ModelLogin } from './credential-proxy.ts';
-import { modelTokenFrom } from './core/credential-decider-core.ts';
+import { isKeyringLoginAgent, keyringEntryFor, modelTokenFrom } from './core/credential-decider-core.ts';
+import { antigravityLoginOf } from './core/keyring-login-core.ts';
+import type { AntigravityLogin } from './core/keyring-login-core.ts';
+import { nextRefreshAtMs } from './core/login-refresh-core.ts';
+import { clock } from '../../shared/clock.ts';
+import { readKeyringSecret } from './keyring-reader.ts';
+import type { KeyringRead } from './keyring-reader.ts';
 import type { SandboxLauncher, SandboxTools } from './sandbox-launch.ts';
 
 interface SessionSandboxWiring {
@@ -36,7 +42,26 @@ async function generateProxyCertificateAuthority(): Promise<ProxyCertificateAuth
   return { certificatePem: generated.certPem, privateKeyPem: generated.keyPem };
 }
 
-async function readModelToken(login: ModelLogin): Promise<string | null> {
+async function readKeyringLogin(agent: string): Promise<KeyringRead> {
+  const keyringEntry = keyringEntryFor(agent);
+  if (keyringEntry === null) return { refusal: `${agent} keeps no keyring login Glimmervoid reads` };
+  return readKeyringSecret(keyringEntry);
+}
+
+async function readKeyringLoginNow(agent: string): Promise<AntigravityLogin | null> {
+  const login = await readKeyringLogin(agent);
+  return 'refusal' in login ? null : antigravityLoginOf(login.secret);
+}
+
+async function readKeyringToken(login: ModelLogin, refreshIfDue: (login: ModelLogin) => Promise<void>): Promise<string | null> {
+  const current = await readKeyringLoginNow(login.agent);
+  if (current === null || clock.nowMs() < nextRefreshAtMs(login.agent, current.expiresAtMs, 0)) return current?.accessToken ?? null;
+  await refreshIfDue(login);
+  return (await readKeyringLoginNow(login.agent))?.accessToken ?? null;
+}
+
+async function readModelToken(login: ModelLogin, refreshIfDue: (login: ModelLogin) => Promise<void>): Promise<string | null> {
+  if (isKeyringLoginAgent(login.agent)) return readKeyringToken(login, refreshIfDue);
   if (login.loginFile === null) return null;
   const loginFileText = await fsp.readFile(login.loginFile, 'utf8').catch(() => null);
   return loginFileText === null ? null : modelTokenFrom(login.agent, loginFileText);
@@ -93,7 +118,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
     if (!('refusal' in tools)) foundTools = tools;
     return tools;
   };
-  const loginRefresher = createLoginRefresher(wiring.logger);
+  const loginRefresher = createLoginRefresher(wiring.logger, readKeyringLogin);
   const credentialProxies = createCredentialProxies({
     resolveTools,
     certificateAuthorityPem: async () => {
@@ -101,7 +126,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
       return `${authority.privateKeyPem.trim()}\n${authority.certificatePem.trim()}\n`;
     },
     readGithubToken: wiring.githubUserToken,
-    readModelToken,
+    readModelToken: (login) => readModelToken(login, loginRefresher.refreshIfDue),
     watchLogin: loginRefresher.watch,
     logger: wiring.logger,
   });
@@ -116,6 +141,7 @@ function createSessionSandbox(wiring: SessionSandboxWiring): SessionSandbox | nu
     getAgentAccountFolders: wiring.getAgentAccountFolders,
     resolveTools,
     credentialProxies,
+    readKeyringLogin,
     proxyCertificatePem: async () => (await proxyCertificateAuthority()).certificatePem,
   };
   return {

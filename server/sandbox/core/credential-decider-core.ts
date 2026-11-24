@@ -2,6 +2,8 @@ import path from 'node:path';
 import { z } from 'zod';
 import { isSecretEnvName } from '../../../shared/secret-patterns.ts';
 import { kimiLoginSource } from '../../../shared/kimi-login-core.ts';
+import { ANTIGRAVITY_KEYRING_ENTRY } from './keyring-login-core.ts';
+import type { KeyringEntry } from './keyring-login-core.ts';
 
 const FRAME_LENGTH_BYTES = 4;
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -38,6 +40,38 @@ const MODEL_LOGIN_LAYOUTS: Readonly<Record<CredentialedAgentId, ModelLoginLayout
   kimi: { homeEnvName: 'KIMI_CODE_HOME', defaultHomeFolderName: '.kimi-code', loginEntryName: 'credentials', loginOf: kimiLoginLocation, loginConfigName: 'config.toml', modelHosts: ['api.kimi.com', 'api.kimi.ai'], credentialClass: 'kimi', tokenKeyPath: ['access_token'] },
 });
 
+interface KeyringModelLogin {
+  keyringEntry: KeyringEntry;
+  homeEnvName: string;
+  modelHosts: readonly string[];
+  credentialPathPrefixesByHost: Readonly<Record<string, readonly string[]>>;
+  credentialClass: string;
+}
+
+const KEYRING_MODEL_LOGINS: Readonly<Record<string, KeyringModelLogin>> = Object.freeze({
+  antigravity: { keyringEntry: ANTIGRAVITY_KEYRING_ENTRY, homeEnvName: 'HOME', modelHosts: ['cloudcode-pa.googleapis.com', 'daily-cloudcode-pa.googleapis.com', 'aicode.googleapis.com', 'www.googleapis.com'], credentialPathPrefixesByHost: { 'www.googleapis.com': ['/oauth2/'] }, credentialClass: 'antigravity' },
+});
+
+function keyringModelLoginFor(agent: string): KeyringModelLogin | null {
+  return Object.hasOwn(KEYRING_MODEL_LOGINS, agent) ? KEYRING_MODEL_LOGINS[agent] : null;
+}
+
+function isKeyringLoginAgent(agent: string): boolean {
+  return keyringModelLoginFor(agent) !== null;
+}
+
+function keyringEntryFor(agent: string): KeyringEntry | null {
+  return keyringModelLoginFor(agent)?.keyringEntry ?? null;
+}
+
+function modelCredentialFor(agent: string): { modelHosts: readonly string[]; credentialClass: string } | null {
+  return modelLoginLayoutFor(agent) ?? keyringModelLoginFor(agent);
+}
+
+function modelHostsOf(agent: string): readonly string[] {
+  return modelCredentialFor(agent)?.modelHosts ?? [];
+}
+
 const GITHUB_CREDENTIAL_CLASS_BY_HOST: Readonly<Record<string, string>> = Object.freeze({ 'github.com': 'github', 'api.github.com': 'api' });
 
 function withoutInheritedCredentials(sessionEnv: Readonly<Record<string, string | undefined>>, launchSetEnvNames: readonly string[]): Record<string, string | undefined> {
@@ -45,7 +79,7 @@ function withoutInheritedCredentials(sessionEnv: Readonly<Record<string, string 
   return Object.fromEntries(Object.entries(sessionEnv).filter(([name]) => !isInheritedCredential(name)));
 }
 
-const CREDENTIALED_HOSTS: readonly string[] = Object.freeze([...Object.values(MODEL_LOGIN_LAYOUTS).flatMap((layout) => layout.modelHosts), ...Object.keys(GITHUB_CREDENTIAL_CLASS_BY_HOST)]);
+const CREDENTIALED_HOSTS: readonly string[] = Object.freeze([...Object.values(MODEL_LOGIN_LAYOUTS).flatMap((layout) => layout.modelHosts), ...Object.values(KEYRING_MODEL_LOGINS).flatMap((login) => login.modelHosts), ...Object.keys(GITHUB_CREDENTIAL_CLASS_BY_HOST)]);
 
 const ProxyHello = z.object({ t: z.literal('hello'), proto: z.literal(DECIDER_PROTOCOL_VERSION) }).strict();
 const ProxyRequest = z.object({
@@ -102,8 +136,8 @@ function modelLoginHomeOf(agent: string, env: Readonly<Record<string, string | u
 }
 
 function sessionAgentHomeOf(agent: string, sessionEnv: Readonly<Record<string, string | undefined>>): string | null {
-  const layout = modelLoginLayoutFor(agent);
-  const sessionHome = layout === null ? undefined : sessionEnv[layout.homeEnvName]?.trim();
+  const homeEnvName = modelLoginLayoutFor(agent)?.homeEnvName ?? keyringModelLoginFor(agent)?.homeEnvName;
+  const sessionHome = homeEnvName === undefined ? undefined : sessionEnv[homeEnvName]?.trim();
   return sessionHome ? sessionHome : null;
 }
 
@@ -191,25 +225,34 @@ function helloReply(): object {
   return { t: 'hello', proto: DECIDER_PROTOCOL_VERSION, allowedDomains: [...CREDENTIALED_HOSTS], deniedDomains: [] };
 }
 
-function credentialFor(host: string, tokens: LoginTokens): { credentialClass: string; token: string | null } | null {
-  const githubClass = GITHUB_CREDENTIAL_CLASS_BY_HOST[host];
-  if (githubClass !== undefined) return { credentialClass: githubClass, token: tokens.githubToken };
-  const layout = modelLoginLayoutFor(tokens.agent);
-  if (layout === null || !layout.modelHosts.includes(host)) return null;
-  return { credentialClass: layout.credentialClass, token: tokens.modelToken };
+const DOT_SEGMENT_PATTERN = /\.\.|%2e/i;
+
+function isPathCredentialed(agent: string, host: string, requestPath: string): boolean {
+  const pathPrefixes = keyringModelLoginFor(agent)?.credentialPathPrefixesByHost[host];
+  if (pathPrefixes === undefined) return true;
+  const pathOnly = requestPath.split('?')[0];
+  return !DOT_SEGMENT_PATTERN.test(pathOnly) && pathPrefixes.some((prefix) => pathOnly.startsWith(prefix));
 }
 
-function credentialSourceFor(host: string, agent: string): 'github' | 'model' | null {
+function credentialFor(host: string, requestPath: string, tokens: LoginTokens): { credentialClass: string; token: string | null } | null {
+  const githubClass = GITHUB_CREDENTIAL_CLASS_BY_HOST[host];
+  if (githubClass !== undefined) return { credentialClass: githubClass, token: tokens.githubToken };
+  const modelCredential = modelCredentialFor(tokens.agent);
+  if (modelCredential === null || !modelCredential.modelHosts.includes(host) || !isPathCredentialed(tokens.agent, host, requestPath)) return null;
+  return { credentialClass: modelCredential.credentialClass, token: tokens.modelToken };
+}
+
+function credentialSourceFor(host: string, requestPath: string, agent: string): 'github' | 'model' | null {
   if (Object.hasOwn(GITHUB_CREDENTIAL_CLASS_BY_HOST, host)) return 'github';
-  return modelLoginLayoutFor(agent)?.modelHosts.includes(host) ? 'model' : null;
+  return modelCredentialFor(agent)?.modelHosts.includes(host) && isPathCredentialed(agent, host, requestPath) ? 'model' : null;
 }
 
 function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
   const allow = { t: 'verdict', id: request.id, action: 'allow' };
-  const credential = credentialFor(request.host, tokens);
+  const credential = credentialFor(request.host, request.path, tokens);
   if (credential === null || credential.token === null) return allow;
   return { ...allow, cred: credential.credentialClass, credential: credential.token };
 }
 
-export { CREDENTIALED_HOSTS, createFrameReader, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginConfigFileFor, modelLoginFileFor, modelTokenFrom, verdictFor };
+export { CREDENTIALED_HOSTS, createFrameReader, isKeyringLoginAgent, keyringEntryFor, modelHostsOf, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginConfigFileFor, modelLoginFileFor, modelTokenFrom, verdictFor };
 export type { ProxyFrame, ProxyRequest };

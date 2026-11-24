@@ -10,10 +10,11 @@ import { choiceSelection, selectionArgs } from '../../shared/agent-models-core.t
 import { clock } from '../../shared/clock.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { withoutInheritedCredentials } from './core/credential-decider-core.ts';
+import { isKeyringLoginAgent, withoutInheritedCredentials } from './core/credential-decider-core.ts';
 import { kimiLoginFileText, kimiRefreshRequest, kimiRefreshTokenOf, loginExpiryAtMs, nextRefreshAtMs } from './core/login-refresh-core.ts';
 import { kimiLoginSource } from '../../shared/kimi-login-core.ts';
 import type { ModelLogin } from './credential-proxy.ts';
+import type { KeyringRead } from './keyring-reader.ts';
 
 const REFRESH_TIMEOUT_MS = 60_000;
 const RETRY_DELAY_MS = 60_000;
@@ -26,6 +27,8 @@ const KIMI_CONFIG_NAME = 'config.toml';
 const KIMI_LOGIN_FILE_EXTENSION = '.json';
 const KIMI_LASTING_STATUSES: ReadonlySet<number> = new Set([401, 403]);
 const CLAUDE_SIGNED_OUT_OUTPUT = /\/login|log ?in again|not logged in|invalid api key/i;
+const ANTIGRAVITY_SIGNED_OUT_OUTPUT = /not logged in|authentication required|log ?in|sign ?in/i;
+const ANTIGRAVITY_REFRESH_ARGS: readonly string[] = Object.freeze(['models']);
 const CLAUDE_REFRESH_ARGS = ['-p', 'Reply with OK.', '--tools', '', '--setting-sources', 'project', '--strict-mcp-config', '--no-session-persistence', ...selectionArgs(choiceSelection('claude-code', { model: DEFAULT_MODELS.loginRefresh }))];
 
 interface LoginWatch {
@@ -33,8 +36,10 @@ interface LoginWatch {
   unwatch: () => void;
 }
 
+type ReadKeyringLogin = (agent: string) => Promise<KeyringRead>;
+
 interface WatchedLogin {
-  login: ModelLogin & { loginFile: string };
+  login: ModelLogin;
   holders: number;
   timer: NodeJS.Timeout | null;
   inFlight: Promise<void> | null;
@@ -150,7 +155,7 @@ async function postKimiRefresh(refreshToken: string, home: string): Promise<{ re
 async function refreshKimiLogin(loginFile: string): Promise<RefreshOutcome> {
   const home = path.dirname(path.dirname(loginFile));
   return withKimiRefreshLock(home, path.basename(loginFile, KIMI_LOGIN_FILE_EXTENSION), async () => {
-    const current = await readLoginState('kimi', loginFile);
+    const current = await readFileLoginState('kimi', loginFile);
     if (current === null || clock.nowMs() < current.dueAtMs) return REFRESHED;
     const refreshToken = kimiRefreshTokenOf(current.text);
     if (refreshToken === null) return lastingFailure('the Kimi Code login has no refresh token');
@@ -163,26 +168,64 @@ async function refreshKimiLogin(loginFile: string): Promise<RefreshOutcome> {
   });
 }
 
-const REFRESH_BY_AGENT: Readonly<Record<string, (loginFile: string) => Promise<RefreshOutcome>>> = Object.freeze({
-  'claude-code': refreshClaudeLogin,
-  codex: refreshCodexLogin,
-  kimi: refreshKimiLogin,
+async function refreshAntigravityLogin(): Promise<RefreshOutcome> {
+  const command = agentCommand('antigravity', ANTIGRAVITY_REFRESH_ARGS);
+  if (command === null) return transientFailure('Antigravity CLI is not installed');
+  const run = await runCommandSafely(command.file, command.args, { cwd: os.homedir(), env: refreshEnv({}), timeoutMs: REFRESH_TIMEOUT_MS, maxBufferBytes: 1024 * 1024 });
+  if (run.ok) return REFRESHED;
+  const output = `${run.stdout}\n${run.stderr}`;
+  const reason = `agy models failed: ${output.trim().slice(-300) || `exit ${run.exitCode}`}`;
+  return ANTIGRAVITY_SIGNED_OUT_OUTPUT.test(output) ? lastingFailure(reason) : transientFailure(reason);
+}
+
+function withLoginFile(refresh: (loginFile: string) => Promise<RefreshOutcome>): (login: ModelLogin) => Promise<RefreshOutcome> {
+  return async (login) => login.loginFile === null ? transientFailure('the login has no file') : refresh(login.loginFile);
+}
+
+const REFRESH_BY_AGENT: Readonly<Record<string, (login: ModelLogin) => Promise<RefreshOutcome>>> = Object.freeze({
+  'claude-code': withLoginFile(refreshClaudeLogin),
+  codex: withLoginFile(refreshCodexLogin),
+  kimi: withLoginFile(refreshKimiLogin),
+  antigravity: refreshAntigravityLogin,
 });
 
-async function readLoginState(agent: string, loginFile: string): Promise<LoginState | null> {
-  const [text, loginStat] = await Promise.all([fsp.readFile(loginFile, 'utf8').catch(() => null), fsp.stat(loginFile).catch(() => null)]);
-  if (text === null || loginStat === null) return null;
+function loginStateOf(agent: string, text: string, changeStampMs: number): LoginState | null {
   const expiresAtMs = loginExpiryAtMs(agent, text);
   if (expiresAtMs === null) return null;
-  return { text, mtimeMs: loginStat.mtimeMs, expiresAtMs, dueAtMs: nextRefreshAtMs(agent, expiresAtMs, Math.max(0, expiresAtMs - loginStat.mtimeMs)) };
+  return { text, mtimeMs: changeStampMs, expiresAtMs, dueAtMs: nextRefreshAtMs(agent, expiresAtMs, Math.max(0, expiresAtMs - changeStampMs)) };
+}
+
+async function readFileLoginState(agent: string, loginFile: string): Promise<LoginState | null> {
+  const [text, loginStat] = await Promise.all([fsp.readFile(loginFile, 'utf8').catch(() => null), fsp.stat(loginFile).catch(() => null)]);
+  if (text === null || loginStat === null) return null;
+  return loginStateOf(agent, text, loginStat.mtimeMs);
+}
+
+async function readKeyringLoginState(agent: string, readKeyringLogin: ReadKeyringLogin): Promise<LoginState | null> {
+  const keyringLogin = await readKeyringLogin(agent);
+  if ('refusal' in keyringLogin) return null;
+  const expiresAtMs = loginExpiryAtMs(agent, keyringLogin.secret);
+  return expiresAtMs === null ? null : loginStateOf(agent, keyringLogin.secret, expiresAtMs);
+}
+
+function loginReaderFor(readKeyringLogin: ReadKeyringLogin): (login: ModelLogin) => Promise<LoginState | null> {
+  return async (login) => {
+    if (isKeyringLoginAgent(login.agent)) return readKeyringLoginState(login.agent, readKeyringLogin);
+    return login.loginFile === null ? null : readFileLoginState(login.agent, login.loginFile);
+  };
+}
+
+function loginLabelOf(login: ModelLogin): string {
+  return login.loginFile ?? 'the keyring';
 }
 
 function retryDelayMs(failureCount: number): number {
   return Math.min(RETRY_DELAY_MS * 2 ** Math.max(0, failureCount - 1), MAX_RETRY_DELAY_MS);
 }
 
-function createLoginRefresher(logger: Pick<Console, 'warn'>) {
+function createLoginRefresher(logger: Pick<Console, 'warn'>, readKeyringLogin: ReadKeyringLogin) {
   const watchedByKey = new Map<string, WatchedLogin>();
+  const readLoginState = loginReaderFor(readKeyringLogin);
 
   const warnOnce = (watched: WatchedLogin, warning: string) => {
     if (watched.lastWarning === warning) return;
@@ -190,7 +233,7 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     logger.warn(warning);
   };
 
-  const schedule = (watched: WatchedLogin, login: ModelLogin & { loginFile: string }, delayMs: number) => {
+  const schedule = (watched: WatchedLogin, login: ModelLogin, delayMs: number) => {
     if (watched.isStopped) return;
     if (watched.timer !== null) clearTimeout(watched.timer);
     watched.timer = setTimeout(() => {
@@ -200,21 +243,21 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     watched.timer.unref();
   };
 
-  const afterFailure = (watched: WatchedLogin, login: ModelLogin & { loginFile: string }, reason: string): number => {
+  const afterFailure = (watched: WatchedLogin, login: ModelLogin, reason: string): number => {
     watched.failureCount += 1;
     const delayMs = retryDelayMs(watched.failureCount);
-    warnOnce(watched, `[login-refresh] ${login.agent} login at ${login.loginFile} did not refresh: ${reason}; retrying in ${Math.round(delayMs / 1000)} s`);
+    warnOnce(watched, `[login-refresh] ${login.agent} login at ${loginLabelOf(login)} did not refresh: ${reason}; retrying in ${Math.round(delayMs / 1000)} s`);
     return delayMs;
   };
 
-  const refreshOnce = async (watched: WatchedLogin, login: ModelLogin & { loginFile: string }, before: LoginState): Promise<number> => {
+  const refreshOnce = async (watched: WatchedLogin, login: ModelLogin, before: LoginState): Promise<number> => {
     const refresh = REFRESH_BY_AGENT[login.agent];
     if (refresh === undefined) return Number.POSITIVE_INFINITY;
-    const outcome = await refresh(login.loginFile).catch((error: unknown) => transientFailure(errorMessage(error)));
-    const after = await readLoginState(login.agent, login.loginFile);
+    const outcome = await refresh(login).catch((error: unknown) => transientFailure(errorMessage(error)));
+    const after = await readLoginState(login);
     if (!outcome.ok && outcome.isLasting) {
       watched.lastingFailureMtimeMs = after?.mtimeMs ?? before.mtimeMs;
-      warnOnce(watched, `[login-refresh] ${login.agent} login at ${login.loginFile} needs signing in again: ${outcome.reason}; waiting for the login to change`);
+      warnOnce(watched, `[login-refresh] ${login.agent} login at ${loginLabelOf(login)} needs signing in again: ${outcome.reason}; waiting for the login to change`);
       return RETRY_DELAY_MS;
     }
     if (!outcome.ok) return afterFailure(watched, login, outcome.reason);
@@ -224,10 +267,10 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     return after.dueAtMs - clock.nowMs();
   };
 
-  const nextDelayMs = async (watched: WatchedLogin, login: ModelLogin & { loginFile: string }): Promise<number> => {
-    const state = await readLoginState(login.agent, login.loginFile);
+  const nextDelayMs = async (watched: WatchedLogin, login: ModelLogin): Promise<number> => {
+    const state = await readLoginState(login);
     if (state === null) {
-      warnOnce(watched, `[login-refresh] ${login.agent} login at ${login.loginFile} is missing or unreadable; checking again in ${RETRY_DELAY_MS / 1000} s`);
+      warnOnce(watched, `[login-refresh] ${login.agent} login at ${loginLabelOf(login)} is missing or unreadable; checking again in ${RETRY_DELAY_MS / 1000} s`);
       return RETRY_DELAY_MS;
     }
     if (watched.lastingFailureMtimeMs === state.mtimeMs) return RETRY_DELAY_MS;
@@ -236,18 +279,20 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     return refreshOnce(watched, login, state);
   };
 
-  const keepFresh = (watched: WatchedLogin, login: ModelLogin & { loginFile: string }): Promise<void> => {
+  const keepFresh = (watched: WatchedLogin, login: ModelLogin): Promise<void> => {
     watched.inFlight ??= nextDelayMs(watched, login)
       .then((delayMs) => { if (Number.isFinite(delayMs)) schedule(watched, login, delayMs); })
       .finally(() => { watched.inFlight = null; });
     return watched.inFlight;
   };
 
+  const watchKeyOf = (login: ModelLogin) => `${login.agent}\n${login.loginFile ?? ''}`;
+
   const watch = (login: ModelLogin): LoginWatch => {
-    const loginFile = login.loginFile;
-    if (loginFile === null || REFRESH_BY_AGENT[login.agent] === undefined) return { ready: Promise.resolve(), unwatch: () => {} };
-    const key = `${login.agent}\n${loginFile}`;
-    const watched = watchedByKey.get(key) ?? { login: { agent: login.agent, loginFile }, holders: 0, timer: null, inFlight: null, isStopped: false, failureCount: 0, lastingFailureMtimeMs: null, lastWarning: null };
+    const isWatchable = login.loginFile !== null || isKeyringLoginAgent(login.agent);
+    if (!isWatchable || REFRESH_BY_AGENT[login.agent] === undefined) return { ready: Promise.resolve(), unwatch: () => {} };
+    const key = watchKeyOf(login);
+    const watched = watchedByKey.get(key) ?? { login: { agent: login.agent, loginFile: login.loginFile }, holders: 0, timer: null, inFlight: null, isStopped: false, failureCount: 0, lastingFailureMtimeMs: null, lastWarning: null };
     watchedByKey.set(key, watched);
     watched.holders += 1;
     const ready = watched.inFlight ?? (watched.timer === null ? keepFresh(watched, watched.login) : Promise.resolve());
@@ -264,11 +309,20 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>) {
     return { ready: ready.catch(() => {}), unwatch };
   };
 
+  const refreshIfDue = async (login: ModelLogin): Promise<void> => {
+    const watched = watchedByKey.get(watchKeyOf(login));
+    if (watched === undefined || watched.isStopped) return;
+    if (watched.inFlight !== null) return watched.inFlight;
+    const isWaitingOutFailure = watched.failureCount > 0 || watched.lastingFailureMtimeMs !== null;
+    if (isWaitingOutFailure) return;
+    await keepFresh(watched, watched.login);
+  };
+
   const recheckAll = () => {
     for (const watched of watchedByKey.values()) void keepFresh(watched, watched.login);
   };
 
-  return { watch, recheckAll };
+  return { watch, recheckAll, refreshIfDue };
 }
 
 export { createLoginRefresher };

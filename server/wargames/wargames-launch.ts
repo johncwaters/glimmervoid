@@ -152,7 +152,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
   return lines.join('\n');
 }
 
-const PRIVATE_HOME_SEAT_AGENT_IDS: ReadonlySet<string> = new Set(['claude-code', 'codex', 'kimi']);
+const PRIVATE_HOME_SEAT_AGENT_IDS: ReadonlySet<string> = new Set(['claude-code', 'codex', 'kimi', 'antigravity']);
 
 function refusalOf(spec: WargamesMatchSpecType): string | null {
   const invalidSeat = spec.seats.find((seat) => seat.setup.agent === SHELL_AGENT_ID || !isKnownAgentId(seat.setup.agent));
