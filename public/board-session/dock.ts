@@ -1,3 +1,5 @@
+import { createChatActivity } from '../chat/chat-activity.ts';
+import type { ActivityBeat, ChatPhase } from '../chat/chat-activity-core.ts';
 import { renderCard } from '../chat/chat-cards.ts';
 import { createChatFeed } from '../chat/chat-feed.ts';
 import { createComposer } from '../chat/composer.ts';
@@ -41,6 +43,11 @@ const NO_UPLOADS_URL = '';
 const PENDING_RUNNING_STATUS_TEXT = 'Queued';
 const PENDING_IDLE_STATUS_TEXT = 'Sending';
 
+interface DockActivity {
+  phase: ChatPhase;
+  beat: ActivityBeat | null;
+}
+
 interface DockSession {
   sessionId: string;
   name: string;
@@ -53,6 +60,7 @@ interface DockSession {
   railFields: () => readonly RailField[];
   onDelivered: (kind: DockDelivery) => void;
   outbox: () => readonly ChatOutboxEntry[];
+  activity: () => DockActivity;
 }
 
 type DockDelivery = 'talk' | 'branch' | 'progress';
@@ -73,6 +81,7 @@ export interface Dock {
   addressBox(boxId: string, title: string): void;
   refresh(): void;
   refreshDigests(): void;
+  paintActivity(): void;
   close(): void;
 }
 
@@ -284,7 +293,8 @@ export function createDock(session: DockSession): Dock {
   input.setAttribute('aria-label', `Message ${session.name}`);
   input.setAttribute('aria-autocomplete', 'list');
   input.before(addressChip);
-  element.append(logFrame, failure, mentions, pill);
+  const activity = createChatActivity();
+  element.append(logFrame, failure, mentions, activity.element, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
   const expandedRowKeys = new Set<string>();
@@ -665,6 +675,14 @@ export function createDock(session: DockSession): Dock {
     return feedBySessionId.has(sessionId) && !(branchTurnOverBySessionId.get(sessionId)?.() ?? true);
   };
 
+  let shownActivityBeat: ActivityBeat | null = null;
+  const paintActivity = () => {
+    const { phase, beat } = session.activity();
+    activity.setPhase(phase);
+    if (beat !== null && beat !== shownActivityBeat) activity.beat([beat]);
+    shownActivityBeat = beat;
+  };
+
   const paintComposer = () => {
     composer.setTurnRunning(isAddressedTurnRunning());
     composer.showRail(session.railFields());
@@ -695,6 +713,7 @@ export function createDock(session: DockSession): Dock {
 
   paintComposer();
   paintQueue();
+  paintActivity();
   const railTimer = setInterval(paintComposer, RAIL_TICK_MS);
 
   const setBranches = (branches: readonly DockBranch[]) => {
@@ -734,6 +753,7 @@ export function createDock(session: DockSession): Dock {
       openLogWhenTurnLive();
       paintComposer();
       paintQueue();
+      paintActivity();
       for (const feed of feedBySessionId.values()) feed.refresh();
     },
     refreshDigests: () => {
@@ -746,6 +766,7 @@ export function createDock(session: DockSession): Dock {
       }
       paintProgressAnswers();
     },
+    paintActivity,
     close: () => {
       stopFollowingOutbox();
       for (const timer of unrecordedTimerByEntryId.values()) clearTimeout(timer);

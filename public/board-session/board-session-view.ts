@@ -485,6 +485,7 @@ function paintPresence(): void {
   parts.presenceLayer.paint({ glows }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
   parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, fixedAreasIn(parts.agentCards.element));
+  dock?.paintActivity();
   paintAsks();
 }
 
@@ -616,6 +617,10 @@ function mountDock(): void {
     railFields: () => sessionRailFieldsOf(sessionId, false),
     onDelivered: (kind) => parts?.guide.markDone(kind),
     outbox: () => chatSessionStateOf(sessionId).outbox.filter((entry) => entry.origin === 'operator'),
+    activity: () => {
+      const phase = phaseOfSession(sessionId);
+      return { phase, beat: phase === 'working' ? watchBySessionId.get(sessionId)?.lastBeat ?? null : null };
+    },
   });
   parts.dockSlot.append(dock.element);
   syncBranches();

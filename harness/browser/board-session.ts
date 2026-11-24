@@ -318,7 +318,8 @@ async function verifyStudioRailShowsNoSubagents(page: Page, studioMainId: string
   await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   await pillInput.fill('delegate');
   await pillInput.press('Enter');
-  await root.locator('.bs-card[data-main]', { hasText: 'Using Task' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-dock > .chat-activity', { hasText: 'Using Task' }).waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  assert.equal(await root.locator('.bs-card[data-main] .chat-activity').isVisible(), false, 'the Orchestrator card shows no working line; the chat does');
   await root.locator('.bs-row-you', { hasText: 'delegate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await waitForLogAtNewest(page, 'the Studio chat stays on its newest message as rows arrive');
   const namesSubagent = await page.waitForFunction(() => /subagent/i.test(document.querySelector<HTMLElement>('.board-session-view .bs-dock')?.innerText ?? ''), undefined, { timeout: RAIL_REPAINT_WAIT_MS }).then(() => true, () => false);
@@ -517,7 +518,8 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await pillInput.press('Enter');
   await root.locator('.bs-row-you', { hasText: 'narrate' }).first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-row-agent:not([hidden]) .bs-face').count() > 0, true, 'an agent chat line carries the agent face');
-  await root.locator('.bs-card[data-main][data-phase="working"] .chat-activity[data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-card[data-main][data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await root.locator('.bs-dock > .chat-activity[data-phase="working"]').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-card[data-main]').count(), 1, 'the main agent has exactly one card');
   assert.equal(await root.locator('.bs-log', { hasText: 'npm test -- run-1' }).count(), 0, 'the Studio log shows replies, not tool calls');
   assert.equal(await sendButton.getAttribute('aria-label'), 'Send', 'Send keeps its label after a send');
