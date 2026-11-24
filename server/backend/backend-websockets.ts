@@ -12,6 +12,7 @@ import { createReplayLog } from '../core/control-replay-core.ts';
 import type { ControlMessageRecord, ReplayLog } from '../core/control-replay-core.ts';
 import { decideControlSend } from '../core/control-send-core.ts';
 import { decideHostAllowed } from '../core/host-policy.ts';
+import { awaitBounded } from '../core/shutdown-core.ts';
 import type { OutcomeRecorder } from '../../shared/outcome-names.ts';
 import { classifyRequestOrigin, decideUpgradeAccess } from '../core/request-trust.ts';
 import type { RequestTrust } from '../core/request-trust.ts';
@@ -22,6 +23,10 @@ import type { WsSender } from '../ws-sender.ts';
 import { clock } from '../../shared/clock.ts';
 
 type ControlBroadcast = (message: ControlMessageRecord) => void;
+
+type FlushedControlBroadcast = (message: ControlMessageRecord) => Promise<void>;
+
+const CONTROL_FLUSH_CAP_MS = 1000;
 
 type ControlSocket = WebSocket & { glimmervoidTrust?: RequestTrust };
 
@@ -56,6 +61,7 @@ interface BackendWebSockets {
   controlReplayLog: ReplayLog;
   sessionDataClients: Map<string, Map<WebSocket, ViewerSizeRecord | null>>;
   broadcastControl: ControlBroadcast;
+  broadcastControlFlushed: FlushedControlBroadcast;
   viewerControlClientCount(): number;
   isViewerConnected(): boolean;
   closeSessionDataClients(sessionId: string): void;
@@ -63,18 +69,25 @@ interface BackendWebSockets {
   handleUpgrade(request: IncomingMessage, socket: UpgradeSocket, head: Buffer): void;
 }
 
-function sendControlFrame(client: WebSocket, payload: string, type: string, logger: Pick<Console, 'warn'>): void {
-  if (client.readyState !== 1) return;
+function sendControlFrame(client: WebSocket, payload: string, type: string, logger: Pick<Console, 'warn'>, onWritten: () => void = () => {}): void {
+  if (client.readyState !== 1) {
+    onWritten();
+    return;
+  }
   const decision = decideControlSend({ bufferedAmount: client.bufferedAmount, type });
-  if (decision.action === 'drop') return;
+  if (decision.action === 'drop') {
+    onWritten();
+    return;
+  }
   if (decision.action === 'close') {
     logger.warn(`[control-ws] client past the buffer ceiling (${client.bufferedAmount} bytes) - closing so it reconnects`);
     try {
       client.terminate();
     } catch {}
+    onWritten();
     return;
   }
-  client.send(payload);
+  client.send(payload, () => onWritten());
 }
 
 function sendPtySizeFrame(sender: WsSender, size: { cols: number; rows: number; seq: number }): void {
@@ -121,12 +134,22 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     return controlWss.clients as Set<ControlSocket>;
   }
 
-  function broadcastControl(message: ControlMessageRecord): void {
+  function stampControlFrame(message: ControlMessageRecord): { payload: string; type: string } {
     const stamped = controlReplayLog.stamp({ ...message });
-    const payload = JSON.stringify(stamped);
+    return { payload: JSON.stringify(stamped), type: frameType(stamped) };
+  }
+
+  function broadcastControl(message: ControlMessageRecord): void {
+    const { payload, type } = stampControlFrame(message);
     for (const client of controlClients()) {
-      sendControlFrame(client, payload, frameType(stamped), logger);
+      sendControlFrame(client, payload, type, logger);
     }
+  }
+
+  async function broadcastControlFlushed(message: ControlMessageRecord): Promise<void> {
+    const { payload, type } = stampControlFrame(message);
+    const framesWritten = [...controlClients()].map((client) => new Promise<void>((resolve) => sendControlFrame(client, payload, type, logger, resolve)));
+    await awaitBounded(framesWritten, { capMs: CONTROL_FLUSH_CAP_MS });
   }
 
   function viewerControlClientCount(): number {
@@ -392,6 +415,7 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
     controlReplayLog,
     sessionDataClients,
     broadcastControl,
+    broadcastControlFlushed,
     viewerControlClientCount,
     isViewerConnected,
     closeSessionDataClients,
@@ -401,4 +425,4 @@ function createBackendWebSockets(dependencies: BackendWebSocketDependencies): Ba
 }
 
 export { createBackendWebSockets };
-export type { ControlBroadcast, ControlConnectionHandler, ControlSocket };
+export type { ControlBroadcast, ControlConnectionHandler, ControlSocket, FlushedControlBroadcast };

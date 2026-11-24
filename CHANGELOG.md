@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every open dashboard hears about a restart or shutdown before the server goes away.** Restart and Shut down from the dashboard now wait until the restarting or shutting-down notice has been sent to every connected dashboard (at most one second for a dashboard that has stopped reading) instead of a fixed 200 ms.
 - **Keys typed while a terminal reconnects arrive the moment it reconnects.** The dashboard no longer waits an extra 50 ms before sending keys held during a reconnect.
 - **Sign in on a Claude Code sign-in card runs the login every time.** Clicking Sign in while the session's terminal was reconnecting could type `/login` without running it, because the command and its Enter arrived together and Claude Code took them as a paste. The server now types `/login` and presses Enter itself. If the dashboard isn't connected, the card says the command wasn't sent.
 - **A spawned session's questions reach its parent while the parent watches something in the background.** When a parent ended its turn with a background command or subagent still running (Monitoring), its children's questions and news, and its own scheduled wakes, waited until you typed into it. They now reach it as soon as its turn ends.

@@ -11,7 +11,7 @@ import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from
 
 function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps): ControlHandlerGroup {
   const {
-    broadcastControl,
+    broadcastControlFlushed,
     requestShutdown,
     requestRestart,
     acknowledgeSeenAlert,
@@ -53,10 +53,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
 
   function handleShutdown(): void {
     console.log('[control] Shutdown requested via UI');
-    broadcastControl({ type: 'shutting-down' });
-    setTimeout(() => {
-      if (requestShutdown) requestShutdown();
-    }, 200);
+    void broadcastControlFlushed({ type: 'shutting-down' }).then(() => requestShutdown?.());
   }
 
   async function handleUpdateCheck(_msg: ClientMessageOf<'update-check'>, ws: ControlSocket): Promise<void> {
@@ -80,10 +77,7 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
   function handleRestart(_msg: ClientMessageOf<'restart-server'>): void {
     noteRestartRequested?.();
     console.log('[control] Restart requested via UI');
-    broadcastControl({ type: 'restarting' });
-    setTimeout(() => {
-      if (requestRestart) requestRestart();
-    }, 200);
+    void broadcastControlFlushed({ type: 'restarting' }).then(() => requestRestart?.());
   }
 
   function connectFrames(): readonly unknown[] {

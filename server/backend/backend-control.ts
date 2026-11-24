@@ -4,7 +4,7 @@ import type { GithubPrsFreshness } from '../../shared/contracts/github-polling.t
 import type { GithubPrsFrame } from '../../shared/contracts/github-prs.ts';
 import type { WebSocket } from 'ws';
 import type { Session } from '../../session/sessions.ts';
-import type { ControlBroadcast, ControlConnectionHandler } from './backend-websockets.ts';
+import type { ControlBroadcast, ControlConnectionHandler, FlushedControlBroadcast } from './backend-websockets.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from '../config-store.ts';
 import { registerControlHandlers } from '../control-handlers.ts';
 import path from 'node:path';
@@ -92,6 +92,7 @@ interface BackendControlDependencies {
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: ControlBroadcast;
+  broadcastControlFlushed: FlushedControlBroadcast;
   controlReplayLog: ReplayLog;
   agentAccounts: NonNullable<ControlHandlerDeps['agentAccounts']>;
   remoteSetup: NonNullable<ControlHandlerDeps['remoteSetup']>;
@@ -167,6 +168,7 @@ function createBackendControl(dependencies: BackendControlDependencies): { remov
     config,
     configStore,
     broadcastControl,
+    broadcastControlFlushed: dependencies.broadcastControlFlushed,
     controlReplayLog,
     telegramDelivery: dependencies.telegramDelivery,
     generateProjectId: dependencies.generateProjectId,

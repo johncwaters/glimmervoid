@@ -64,6 +64,7 @@ function controlDeps(config: GlimmervoidConfig, overrides: Partial<ControlHandle
     applyConfigReload: () => {},
     applySettingsReload: () => {},
     broadcastControl: () => {},
+    broadcastControlFlushed: () => Promise.resolve(),
     ...overrides,
   };
 }

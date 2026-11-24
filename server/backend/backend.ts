@@ -993,6 +993,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     config,
     configStore,
     broadcastControl,
+    broadcastControlFlushed: webSockets.broadcastControlFlushed,
     controlReplayLog,
     agentAccounts,
     remoteSetup,

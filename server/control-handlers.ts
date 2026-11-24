@@ -19,7 +19,7 @@ import type { MyPrKeepMergeableRequest, MyPrKeepMergeableResult, MyPrMergeReques
 import { errorMessage } from '../shared/text.ts';
 import type { Session } from '../session/sessions.ts';
 import type { TerminalColors } from '../session/core/terminal-color-query.ts';
-import type { ControlConnectionHandler, ControlSocket } from './backend/backend-websockets.ts';
+import type { ControlConnectionHandler, ControlSocket, FlushedControlBroadcast } from './backend/backend-websockets.ts';
 import type { UpdateStatus } from './backend/backend-update.ts';
 import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-store.ts';
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
@@ -126,6 +126,7 @@ interface ControlHandlerDeps {
   config: GlimmervoidConfig;
   configStore: ConfigStore;
   broadcastControl: (message: ControlMessageRecord) => void;
+  broadcastControlFlushed: FlushedControlBroadcast;
   generateProjectId: () => string;
   applyConfigReload: (config: GlimmervoidConfig) => void;
   applySettingsReload: (config: GlimmervoidConfig) => void;
