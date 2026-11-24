@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v8' as const;
+export const WARGAMES_RULES_VERSION = 'v9' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9']);
 type WargamesRulesVersion = z.infer<typeof WargamesRulesVersion>;
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -61,11 +61,14 @@ export type ContractStatus = z.infer<typeof ContractStatus>;
 export const VillageProductionState = z.enum(['producing', 'barren']);
 export type VillageProductionState = z.infer<typeof VillageProductionState>;
 
-export const ArmyStatus = z.enum(['mustering', 'marching', 'arrived', 'returning', 'home', 'destroyed']);
+export const ArmyStatus = z.enum(['mustering', 'marching', 'arrived', 'standing', 'returning', 'home', 'destroyed']);
 export type ArmyStatus = z.infer<typeof ArmyStatus>;
 
 export const BuildingKind = z.enum(['farm', 'mine', 'barracks', 'wall']);
 export type BuildingKind = z.infer<typeof BuildingKind>;
+
+export const ImprovementKind = z.enum(['field', 'quarry', 'watchtower', 'outpost']);
+export type ImprovementKind = z.infer<typeof ImprovementKind>;
 
 const TroopKind = z.enum(['raider', 'guard', 'envoy']);
 type TroopKind = z.infer<typeof TroopKind>;
@@ -171,6 +174,27 @@ export interface WargamesBalance {
   readonly clusteredTerrain: WargamesTerrainRule | null;
   readonly diplomacy: WargamesDiplomacyRule | null;
   readonly roles: WargamesRolesRule | null;
+  readonly territory: WargamesTerritoryRule | null;
+}
+
+interface WargamesImprovementRule {
+  readonly cost: ResourceBundle;
+  readonly maxLevel: number;
+  readonly yieldPerLevel: number;
+}
+
+export interface WargamesTerritoryRule {
+  readonly tilesPerPoint: number;
+  readonly claimsPerVillagePerTurn: number;
+  readonly improvements: Readonly<Record<ImprovementKind, WargamesImprovementRule>>;
+  readonly quarryOreTileBonus: number;
+  readonly watchtowerRange: number;
+  readonly outpostDefenseBonus: number;
+  readonly captureLevelLoss: number;
+  readonly foundCost: ResourceBundle;
+  readonly foundEnvoys: number;
+  readonly foundSpacing: number;
+  readonly foundLimitByRadius: Readonly<Record<number, number>>;
 }
 
 interface WargamesUnitRole {
@@ -218,6 +242,7 @@ const V1_BALANCE: WargamesBalance = Object.freeze({
   clusteredTerrain: null,
   diplomacy: null,
   roles: null,
+  territory: null,
 });
 
 const V5_BALANCE: WargamesBalance = Object.freeze({
@@ -294,6 +319,38 @@ const V8_BALANCE: WargamesBalance = Object.freeze({
   }),
 });
 
+const V9_BALANCE: WargamesBalance = Object.freeze({
+  ...V8_BALANCE,
+  victory: Object.freeze({
+    kind: 'points',
+    beaconPoints: 4,
+    economyIncomePerPoint: 200,
+    targetByRadius: Object.freeze({
+      4: Object.freeze({ 4: 218, 6: 189 }),
+      6: Object.freeze({ 4: 668, 6: 516 }),
+      8: Object.freeze({ 4: 1503, 6: 1184 }),
+    }),
+  }),
+  territory: Object.freeze({
+    tilesPerPoint: 6,
+    claimsPerVillagePerTurn: 1,
+    improvements: Object.freeze({
+      field: Object.freeze({ cost: Object.freeze({ grain: 30, ore: 30 }), maxLevel: 5, yieldPerLevel: 15 }),
+      quarry: Object.freeze({ cost: Object.freeze({ grain: 30, ore: 30 }), maxLevel: 5, yieldPerLevel: 15 }),
+      watchtower: Object.freeze({ cost: Object.freeze({ grain: 20, ore: 40 }), maxLevel: 1, yieldPerLevel: 0 }),
+      outpost: Object.freeze({ cost: Object.freeze({ grain: 40, ore: 60 }), maxLevel: 1, yieldPerLevel: 0 }),
+    }),
+    quarryOreTileBonus: 10,
+    watchtowerRange: 2,
+    outpostDefenseBonus: 0.5,
+    captureLevelLoss: 0.5,
+    foundCost: Object.freeze({ grain: 150, ore: 150 }),
+    foundEnvoys: 2,
+    foundSpacing: 2,
+    foundLimitByRadius: Object.freeze({ 4: 1, 6: 2, 8: 3 }),
+  }),
+});
+
 const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
   v1: V1_BALANCE,
   v2: V1_BALANCE,
@@ -303,6 +360,7 @@ const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, Wargame
   v6: V6_BALANCE,
   v7: V7_BALANCE,
   v8: V8_BALANCE,
+  v9: V9_BALANCE,
 });
 
 export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): WargamesBalance {
@@ -313,6 +371,10 @@ export function troopCostsFor(balance: Pick<WargamesBalance, 'roles'>): Readonly
   if (balance.roles === null) return LEGACY_TROOP_COSTS;
   const { units } = balance.roles;
   return { raider: units.raider.cost, guard: units.guard.cost, envoy: units.envoy.cost };
+}
+
+export function foundCostFor(rule: Pick<WargamesTerritoryRule, 'foundCost'>, villagesFounded: number): ResourceBundle {
+  return { grain: rule.foundCost.grain * (villagesFounded + 1), ore: rule.foundCost.ore * (villagesFounded + 1) };
 }
 
 export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victory'>, villageCount: number): number {
@@ -383,7 +445,12 @@ export type ContractRecord = z.infer<typeof ContractRecord>;
 const BuildOrder = z.strictObject({
   kind: z.literal('build'),
   hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
-  building: BuildingKind,
+  building: z.union([BuildingKind, ImprovementKind]),
+});
+
+const FoundOrder = z.strictObject({
+  kind: z.literal('found'),
+  hexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
 });
 
 const TrainOrder = z.strictObject({
@@ -418,6 +485,7 @@ const TribeLeaveOrder = z.strictObject({
 
 export const OrderItem = z.discriminatedUnion('kind', [
   BuildOrder,
+  FoundOrder,
   TrainOrder,
   MarchOrder,
   ScoutOrder,

@@ -26,7 +26,7 @@ const BYTES_PER_MB = 2 ** 20;
 
 interface Candidate {
   name: string;
-  rulesVersion: 'v5' | 'v6' | 'v7' | 'v8';
+  rulesVersion: 'v5' | 'v6' | 'v7' | 'v8' | 'v9';
   balance: WargamesBalance;
 }
 
@@ -44,6 +44,7 @@ interface GameRecord {
   buildsJudged: number;
   buildsPaidBack: number;
   midGameLeaderLost: boolean;
+  landFullTurn: number | null;
 }
 
 const signer = { sign: () => 'sim', verify: () => true };
@@ -188,7 +189,98 @@ function ordersFor(state: MatchState, seatId: SeatId, strategy: StrategyName): O
     const target = barbarian && hexDistance(state.hexes[village.hexIndex], state.hexes[barbarian.hexIndex]) <= 3 ? barbarian : anyone;
     if (target) planAttack(state, orders, village, purse, target, targeted);
   }
+  if (state.balance.territory !== null) {
+    claimOrdersFor(state, seatId, strategy, owned, orders);
+    improvementOrdersFor(state, seatId, strategy, orders);
+  }
   return orders.slice(0, 64);
+}
+
+const CLAIMS_PER_VILLAGE: Readonly<Record<StrategyName, number>> = Object.freeze({ rusher: 1, builder: 2, turtle: 1, mixed: 3 });
+
+function isOpenTile(state: MatchState, hexIndex: number): boolean {
+  return state.villages[hexIndex] === null && state.terrain[hexIndex] !== 'mountain' && state.terrain[hexIndex] !== 'lake';
+}
+
+function ownsLand(state: MatchState, seatId: SeatId, hexIndex: number): boolean {
+  return state.villages[hexIndex]?.owner === seatId || state.territory.get(hexIndex)?.owner === seatId;
+}
+
+function neighborIndicesOf(state: MatchState, hexIndex: number): number[] {
+  const center = state.hexes[hexIndex];
+  return state.hexes.filter((tile) => hexDistance(center, tile) === 1).map((tile) => tile.index);
+}
+
+function claimOrdersFor(state: MatchState, seatId: SeatId, strategy: StrategyName, owned: readonly VillageState[], orders: OrderItem[]): void {
+  const targeted = new Set([...state.armies.values()].filter((army) => army.owner === seatId && army.status === 'marching').map((army) => army.targetHexIndex));
+  const frontier = state.hexes
+    .filter((tile) => isOpenTile(state, tile.index) && !ownsLand(state, seatId, tile.index) && !targeted.has(tile.index))
+    .filter((tile) => neighborIndicesOf(state, tile.index).some((neighbor) => ownsLand(state, seatId, neighbor)));
+  for (const army of state.armies.values()) {
+    if (army.owner !== seatId || army.status !== 'standing') continue;
+    const tile = state.territory.get(army.currentHexIndex);
+    if (tile?.owner !== seatId || tile.improvement === 'outpost') continue;
+    const nextTile = frontier.find((candidate) => !targeted.has(candidate.index) && hexDistance(state.hexes[army.currentHexIndex], candidate) === 1);
+    const destination = nextTile?.index ?? nearestOwnedVillage(state, seatId, army.currentHexIndex)?.hexIndex;
+    if (destination === undefined) continue;
+    targeted.add(destination);
+    orders.push({ kind: 'march', fromHexIndex: army.currentHexIndex, toHexIndex: destination, troops: { ...army.troops } });
+  }
+  for (const village of owned) {
+    const origin = state.hexes[village.hexIndex];
+    const nearby = frontier
+      .filter((tile) => !targeted.has(tile.index) && hexDistance(origin, tile) <= 3)
+      .sort((left, right) => hexDistance(origin, left) - hexDistance(origin, right));
+    let raidersLeft = village.troops.raider;
+    for (const tile of nearby.slice(0, CLAIMS_PER_VILLAGE[strategy])) {
+      if (raidersLeft < 1) break;
+      raidersLeft -= 1;
+      targeted.add(tile.index);
+      orders.push({ kind: 'march', fromHexIndex: village.hexIndex, toHexIndex: tile.index, troops: { raider: 1, guard: 0, envoy: 0 } });
+    }
+  }
+}
+
+function nearestOwnedVillage(state: MatchState, seatId: SeatId, hexIndex: number): VillageState | undefined {
+  const origin = state.hexes[hexIndex];
+  return ownedVillagesOf(state, seatId).sort((left, right) => hexDistance(origin, state.hexes[left.hexIndex]) - hexDistance(origin, state.hexes[right.hexIndex]) || left.hexIndex - right.hexIndex)[0];
+}
+
+function improvementOrdersFor(state: MatchState, seatId: SeatId, strategy: StrategyName, orders: OrderItem[]): void {
+  const rule = state.balance.territory;
+  if (rule === null || strategy === 'rusher') return;
+  const tiles = [...state.territory.entries()].filter(([, tile]) => tile.owner === seatId);
+  const hasWatchtower = tiles.some(([, tile]) => tile.improvement === 'watchtower');
+  const outposts = tiles.filter(([, tile]) => tile.improvement === 'outpost').length;
+  let buildsLeft = strategy === 'builder' ? 4 : 2;
+  for (const [hexIndex, tile] of tiles) {
+    if (buildsLeft <= 0) break;
+    const payer = nearestOwnedVillage(state, seatId, hexIndex);
+    if (!payer) continue;
+    const isBesideVillage = hexDistance(state.hexes[hexIndex], state.hexes[payer.hexIndex]) === 1;
+    const wanted = tile.improvement
+      ?? (strategy === 'turtle' && outposts === 0 && !isBesideVillage ? 'outpost'
+        : strategy === 'turtle' && !hasWatchtower ? 'watchtower'
+          : isBesideVillage ? 'field'
+            : state.terrain[hexIndex] === 'ore' || strategy === 'builder' ? 'quarry' : null);
+    if (wanted === null || tile.level >= rule.improvements[wanted].maxLevel) continue;
+    orders.push({ kind: 'build', hexIndex, building: wanted });
+    buildsLeft -= 1;
+    if (wanted === 'outpost' && tile.improvement === 'outpost' && payer.troops.guard > 6) {
+      orders.push({ kind: 'march', fromHexIndex: payer.hexIndex, toHexIndex: hexIndex, troops: { raider: 0, guard: 3, envoy: 0 } });
+    }
+  }
+  if (strategy !== 'mixed') return;
+  const site = tiles.find(([hexIndex, tile]) => tile.improvement === null
+    && state.villages.every((village) => village === null || hexDistance(state.hexes[hexIndex], state.hexes[village.hexIndex]) >= rule.foundSpacing));
+  if (!site) return;
+  const payer = nearestOwnedVillage(state, seatId, site[0]);
+  if (!payer) return;
+  if (payer.troops.envoy < rule.foundEnvoys) {
+    orders.push({ kind: 'train', hexIndex: payer.hexIndex, troop: 'envoy', count: rule.foundEnvoys - payer.troops.envoy });
+    return;
+  }
+  orders.unshift({ kind: 'found', hexIndex: site[0] });
 }
 
 function strategyOfSeat(seatIndex: number, seed: number): StrategyName {
@@ -215,6 +307,8 @@ function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius:
   let buildsPaidBack = 0;
   let seatsAliveAtMidGame: number = seatCount;
   const leaderByTurn: SeatId[] = [];
+  const openLandCount = state.hexes.filter((tile) => isOpenTile(state, tile.index)).length;
+  let landFullTurn: number | null = null;
   while (state.status === 'running') {
     const before = state.villages.map((village) => (village ? { owner: village.owner, buildings: { ...village.buildings } } : null));
     state = step(state, advance);
@@ -254,6 +348,8 @@ function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius:
       if (fellSeats.has(seat.config.seatId) && villageCount >= 3) cameBackSeats.add(seat.config.seatId);
     }
     leaderByTurn.push(standingLeaderOf(state));
+    const unclaimedLand = state.hexes.filter((tile) => isOpenTile(state, tile.index) && !state.territory.has(tile.index)).length;
+    if (landFullTurn === null && state.balance.territory !== null && unclaimedLand <= openLandCount * 0.05) landFullTurn = turn;
     if (turn === Math.floor(maxTicks / 2)) seatsAliveAtMidGame = state.seats.filter((seat) => ownedVillagesOf(state, seat.config.seatId).length > 0).length;
     if (state.status !== 'running') break;
     state = step(state, advance);
@@ -272,6 +368,7 @@ function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius:
     seatsThatCameBack: cameBackSeats.size,
     buildsJudged,
     buildsPaidBack,
+    landFullTurn,
   };
 }
 
@@ -311,7 +408,8 @@ function summarize(candidate: Candidate, sizeName: string, records: GameRecord[]
     `flip-backs ${percent(flipBacks, captures)} of ${captures} captures`,
     `comebacks ${percent(cameBack, fell)} of ${fell}`,
     `mid-game leader lost ${percent(records.filter((record) => record.midGameLeaderLost).length, records.length)}`,
-    `builds paid back ${percent(paidBack, judged)} |`,
+    `builds paid back ${percent(paidBack, judged)}`,
+    `land 95% claimed by turn ${median(records.map((record) => record.landFullTurn ?? record.maxTicks + 1))} |`,
   ].join(' | ');
 }
 
@@ -408,6 +506,32 @@ function v8Candidates(): Candidate[] {
   ];
 }
 
+function v9Candidates(): Candidate[] {
+  return [
+    { name: 'v8 VP', rulesVersion: 'v8', balance: wargamesBalanceFor('v8') },
+    { name: 'v9 land', rulesVersion: 'v9', balance: wargamesBalanceFor('v9') },
+  ];
+}
+
+const V9_GRID_TILES_PER_POINT = [5, 6, 8];
+const V9_GRID_YIELDS = [12, 15, 20];
+const V9_GRID_TARGET_SCALES = [0.9, 1, 1.1];
+
+function v9Grid(): Candidate[] {
+  const v9 = wargamesBalanceFor('v9');
+  const { territory, victory } = v9;
+  if (territory === null || victory.kind !== 'points') return [];
+  return V9_GRID_TILES_PER_POINT.flatMap((tilesPerPoint) => V9_GRID_YIELDS.flatMap((yieldPerLevel) => V9_GRID_TARGET_SCALES.map((targetScale) => {
+    const targetByRadius = Object.fromEntries(Object.entries(victory.targetByRadius).map(([radius, bySeats]) => [radius, { 4: Math.round(bySeats[4] * targetScale), 6: Math.round(bySeats[6] * targetScale) }]));
+    const improvements = { ...territory.improvements, field: { ...territory.improvements.field, yieldPerLevel }, quarry: { ...territory.improvements.quarry, yieldPerLevel } };
+    return {
+      name: `v9 tiles/VP ${tilesPerPoint} yield ${yieldPerLevel} target x${targetScale}`,
+      rulesVersion: 'v9' as const,
+      balance: { ...v9, victory: { ...victory, targetByRadius }, territory: { ...territory, tilesPerPoint, improvements } },
+    };
+  })));
+}
+
 function runSearch(seedCount: number): void {
   const seeds = SEEDS.slice(0, seedCount);
   console.log('candidate | worst top-strategy win | worst rusher win | min goal-win share | goal turn share by size | min leader-lost | worst churn | min payback');
@@ -498,7 +622,7 @@ function garrisonWithinFarmRoom(state: MatchState, village: VillageState, budget
 function playCoalitionRaid(row: CoalitionRow, seed: number): boolean {
   const random = seededRandom(seed);
   const spec = WargamesMatchSpec.parse({
-    version: 1, rulesVersion: 'v8', title: 'coalition', seed, mapRadius: 6, maxTicks: 40,
+    version: 1, rulesVersion: 'v9', title: 'coalition', seed, mapRadius: 6, maxTicks: 40,
     seats: seatIdsForCount(4).map((seatId) => ({ seatId, label: seatId, setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'bot' })),
   });
   let state = createInitialMatchState(`coalition-${seed}`, 0, spec);
@@ -564,15 +688,21 @@ function main(): void {
     return;
   }
   const onlyCandidate = process.argv.find((argument) => argument.startsWith('--only='))?.slice('--only='.length);
-  const candidates = (process.argv.includes('--v8') ? v8Candidates() : candidatesToRun()).filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
+  const versionCandidates = process.argv.includes('--v9-grid') ? v9Grid() : process.argv.includes('--v9') ? v9Candidates() : process.argv.includes('--v8') ? v8Candidates() : candidatesToRun();
+  const candidates = versionCandidates.filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
+  const onlySeats = process.argv.find((argument) => argument.startsWith('--seats='))?.slice('--seats='.length);
+  const seedCount = Number(process.argv.find((argument) => argument.startsWith('--seeds='))?.slice('--seeds='.length) ?? SEEDS.length);
+  const seedsToRun = Array.from({ length: seedCount }, (_, index) => 101 * (index + 1));
+  const onlySize = process.argv.find((argument) => argument.startsWith('--size='))?.slice('--size='.length);
+  const seatCountsToRun = SEAT_COUNTS.filter((seatCount) => onlySeats === undefined || String(seatCount) === onlySeats);
   console.log('| Rules | Size | Win rate by strategy | Goal win | Alive mid-game | Churn | Comeback | Mid-game leader lost | Build payback |');
   console.log('|---|---|---|---|---|---|---|---|---|');
   for (const candidate of candidates) {
-    for (const mapSize of WARGAMES_MAP_SIZES) {
+    for (const mapSize of WARGAMES_MAP_SIZES.filter((size) => onlySize === undefined || size.name === onlySize)) {
       const startedAt = performance.now();
       const records: GameRecord[] = [];
-      for (const seatCount of SEAT_COUNTS) {
-        for (const seed of SEEDS) records.push(playGame(candidate, seatCount, mapSize.mapRadius, mapSize.maxTicks, seed));
+      for (const seatCount of seatCountsToRun) {
+        for (const seed of seedsToRun) records.push(playGame(candidate, seatCount, mapSize.mapRadius, mapSize.maxTicks, seed));
       }
       console.log(summarize(candidate, mapSize.name, records));
       const { heapUsed, rss } = process.memoryUsage();

@@ -19,6 +19,8 @@ import {
   createInitialMatchState,
   hexIndexAt,
   projectSeatState,
+  territoryCountOf,
+  villageIncomeOf,
   replayMatch,
   replayMatchAtTick,
   victoryVillagesFor,
@@ -419,6 +421,11 @@ const lengthSigner: ReportSigner = {
   verify: (payload, signature) => signature === `sig:${payload.length}`,
 };
 
+function present<Value>(value: Value | null | undefined): Value {
+  assert.ok(value !== null && value !== undefined);
+  return value;
+}
+
 function advanceToResolution(state: ReturnType<typeof createInitialMatchState>, tickOverride?: number) {
   let current = state;
   const applyNext = (event: EventWithoutSeq<WargamesEvent>) => {
@@ -551,7 +558,7 @@ test('v3 charges an attack split into one-troop armies the same losses as one ar
   const oneArmy = [raidersSent];
   const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v8');
+  assert.equal(WARGAMES_RULES_VERSION, 'v9');
   const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
   assert.ok(lostAsOneArmy > 0);
   assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
@@ -1163,4 +1170,115 @@ test('v7 breaches an alliance on attack, opens the public channel, and swaps the
   running = allianceProposal.state;
   const stackedAlliance = applyNext({ type: 'contract_proposed', seatId: 's2', contractId: 'ctr-stacked', terms: { kind: 'alliance', counterparty: 's1', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
   assert.equal(stackedAlliance.ok, false);
+});
+
+test('v8 and v9 start on byte-identical maps, so stored v8 logs replay on the same map', () => {
+  const fingerprint = createHash('sha256');
+  for (const mapRadius of [4, 6, 8]) {
+    for (const seatCount of [4, 6]) {
+      for (let index = 0; index < 8; index += 1) {
+        const specOf = (rulesVersion: 'v8' | 'v9') => WargamesMatchSpec.parse({ ...buildTestSpec(20261124 + index * 7919), rulesVersion, mapRadius, seats: buildTestSpec().seats.slice(0, seatCount) });
+        const v8 = createInitialMatchState('fingerprint', 0, specOf('v8'));
+        const v9 = createInitialMatchState('fingerprint', 0, specOf('v9'));
+        const mapOf = (state: MatchState) => JSON.stringify([state.terrain, state.villages]);
+        assert.equal(mapOf(v9), mapOf(v8));
+        assert.equal(v8.territory.size, 0);
+        fingerprint.update(mapOf(v8));
+      }
+    }
+  }
+  assert.equal(fingerprint.digest('hex').slice(0, 16), '019506ddced347e1');
+});
+
+test('v9 claims land as a front, builds improvements paid by the nearest village, halves them on capture, founds villages and scores territory VP', () => {
+  const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v9', mapRadius: 6, seats: buildTestSpec().seats.slice(0, 4) });
+  let state = createInitialMatchState('wg-v9-land', 1000, spec);
+  const signer = createTestSigner(9);
+  const apply = (event: Record<string, unknown>) => {
+    const outcome = applyEvent(state, { ...event, seq: state.lastSeq + 1 } as WargamesEvent, signer);
+    assert.equal(outcome.ok, true, outcome.ok ? '' : outcome.rejection.message);
+    if (outcome.ok) state = outcome.state;
+  };
+  apply({ type: 'seating_started' });
+  for (const seat of state.seats) apply({ type: 'seat_connected', seatId: seat.config.seatId });
+  const playTurn = (ordersBySeat: Partial<Record<'s1' | 's2' | 's3' | 's4', unknown[]>>) => {
+    apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+    apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+    for (const seat of state.seats) apply({ type: 'orders_submitted', seatId: seat.config.seatId, orders: ordersBySeat[seat.config.seatId as 's1'] ?? [] });
+    apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+    apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  };
+  const home = present(state.villages.find((village) => village?.owner === 's1'));
+  const homeVillage = () => present(state.villages[home.hexIndex]);
+  const distanceBetween = (first: number, second: number) => {
+    const [from, to] = [state.hexes[first], state.hexes[second]];
+    return Math.max(Math.abs(from.q - to.q), Math.abs(from.r - to.r), Math.abs(from.q + from.r - to.q - to.r));
+  };
+  const isOpenLand = (hexIndex: number) => state.villages[hexIndex] === null && state.terrain[hexIndex] !== 'mountain' && state.terrain[hexIndex] !== 'lake';
+  const neighborsOf = (hexIndex: number) => state.hexes.filter((tile) => distanceBetween(hexIndex, tile.index) === 1).map((tile) => tile.index);
+  const [fieldHex, outpostHex] = neighborsOf(home.hexIndex).filter(isOpenLand);
+  const farHex = state.hexes.find((tile) => isOpenLand(tile.index) && distanceBetween(home.hexIndex, tile.index) === 2)?.index;
+  assert.ok(fieldHex !== undefined && outpostHex !== undefined && farHex !== undefined);
+  const scout = (toHexIndex: number) => ({ kind: 'march', fromHexIndex: home.hexIndex, toHexIndex, troops: { raider: 1, guard: 0, envoy: 0 } });
+
+  playTurn({ s1: [scout(fieldHex), scout(outpostHex), scout(farHex)] });
+  assert.equal(state.territory.has(fieldHex), false);
+  playTurn({});
+  assert.equal(state.territory.get(fieldHex)?.owner, 's1');
+  assert.equal(state.territory.get(outpostHex)?.owner, 's1');
+  assert.equal(state.territory.has(farHex), false);
+
+  const incomeBefore = villageIncomeOf(state, homeVillage());
+  const stockBefore = { ...homeVillage().resources };
+  playTurn({ s1: [{ kind: 'build', hexIndex: fieldHex, building: 'field' }, { kind: 'build', hexIndex: outpostHex, building: 'outpost' }] });
+  const territoryRule = present(state.balance.territory);
+  assert.equal(state.territory.get(fieldHex)?.level, 1);
+  assert.equal(state.territory.get(outpostHex)?.improvement, 'outpost');
+  assert.equal(villageIncomeOf(state, homeVillage()).grain, incomeBefore.grain + territoryRule.improvements.field.yieldPerLevel);
+  assert.ok(homeVillage().resources.ore < stockBefore.ore + incomeBefore.ore);
+
+  const standingAt = (hexIndex: number) => [...state.armies.values()].filter((army) => army.status === 'standing' && army.currentHexIndex === hexIndex);
+  assert.equal(standingAt(fieldHex).length, 1);
+  playTurn({ s1: [{ kind: 'march', fromHexIndex: home.hexIndex, toHexIndex: outpostHex, troops: { raider: 0, guard: 3, envoy: 0 } }, { kind: 'march', fromHexIndex: farHex, toHexIndex: home.hexIndex, troops: { raider: 1, guard: 0, envoy: 0 } }] });
+  assert.equal(standingAt(outpostHex).reduce((sum, army) => sum + army.troops.guard, 0), 3);
+  assert.equal(standingAt(farHex).length, 0);
+
+  const s2Home = present(state.villages.find((village) => village?.owner === 's2'));
+  state.territory.set(present(neighborsOf(fieldHex).find((hexIndex) => state.villages[hexIndex] === null && !state.territory.has(hexIndex))), { owner: 's2', improvement: null, level: 0});
+  present(state.territory.get(fieldHex)).level = 3;
+  state.armies.set('army-s2', {
+    id: 'army-s2', owner: 's2', status: 'marching', originHexIndex: s2Home.hexIndex, currentHexIndex: fieldHex, targetHexIndex: fieldHex,
+    troops: { raider: 2, guard: 0, envoy: 0 }, departedTick: state.tick, intendedTargetOwner: 's1', scoutedBy: [],
+  });
+  playTurn({});
+  assert.deepEqual(standingAt(fieldHex).map((army) => army.owner), ['s2']);
+  assert.equal(state.territory.get(fieldHex)?.owner, 's1');
+  playTurn({});
+  assert.equal(state.territory.get(fieldHex)?.owner, 's2');
+  assert.equal(state.territory.get(fieldHex)?.level, 1);
+  assert.deepEqual(standingAt(fieldHex).map((army) => army.owner), ['s2']);
+  assert.ok(state.reportsBySeat.s1.some((report) => report.payload.kind === 'battle' && report.payload.hexIndex === fieldHex));
+
+  const pointsBefore = state.victoryPointsBySeat.s1;
+  const extraLand = state.hexes.filter((tile) => isOpenLand(tile.index) && !state.territory.has(tile.index)).slice(-territoryRule.tilesPerPoint * 2).map((tile) => tile.index);
+  for (const hexIndex of extraLand) state.territory.set(hexIndex, { owner: 's1', improvement: null, level: 0});
+  const s1Land = territoryCountOf(state, 's1');
+  playTurn({});
+  const s1Villages = state.villages.filter((village): village is NonNullable<typeof village> => village?.owner === 's1' && !village.isBeacon);
+  const s1Income = s1Villages.reduce((sum, village) => sum + villageIncomeOf(state, village).grain + villageIncomeOf(state, village).ore, 0);
+  const economyIncomePerPoint = state.balance.victory.kind === 'points' ? state.balance.victory.economyIncomePerPoint : 1;
+  assert.equal(state.victoryPointsBySeat.s1 - pointsBefore, s1Villages.length + Math.floor(s1Land / territoryRule.tilesPerPoint) + Math.floor(s1Income / economyIncomePerPoint));
+  for (const hexIndex of extraLand) state.territory.delete(hexIndex);
+
+  const siteHex = present(state.hexes.find((tile) => isOpenLand(tile.index) && !state.territory.has(tile.index)
+    && state.villages.every((village) => village === null || distanceBetween(tile.index, village.hexIndex) >= territoryRule.foundSpacing)));
+  state.territory.set(siteHex.index, { owner: 's1', improvement: null, level: 0});
+  const payer = present(state.villages.find((village) => village?.owner === 's1'));
+  payer.troops.envoy = territoryRule.foundEnvoys;
+  payer.resources = { grain: 400, ore: 400 };
+  const villagesBefore = state.villages.filter((village) => village?.owner === 's1').length;
+  playTurn({ s1: [{ kind: 'found', hexIndex: neighborsOf(home.hexIndex)[0] }, { kind: 'found', hexIndex: siteHex.index }] });
+  assert.equal(state.villages.filter((village) => village?.owner === 's1').length, villagesBefore + 1);
+  assert.equal(state.villages[siteHex.index]?.owner, 's1');
+  assert.equal(state.territory.has(siteHex.index), false);
 });

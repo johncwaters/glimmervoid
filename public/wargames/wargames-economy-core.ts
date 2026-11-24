@@ -1,5 +1,5 @@
 import type { SeatId, TroopCounts, WargamesEvent } from '#shared/contracts/wargames.ts';
-import { applyEvent, createInitialMatchState, guestTroopsOwnedBy, villageIncomeOf, warehouseCapOf } from '#shared/wargames/engine.ts';
+import { applyEvent, createInitialMatchState, guestTroopsOwnedBy, territoryCountOf, villageIncomeOf, warehouseCapOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 
 export type GrowthMode = 'build' | 'capture' | 'mixed' | 'none';
@@ -8,6 +8,7 @@ export interface SeatEconomy {
   readonly seatId: SeatId;
   readonly victoryPoints: number;
   readonly villages: number;
+  readonly land: number;
   readonly grainIncome: number;
   readonly oreIncome: number;
   readonly grain: number;
@@ -123,14 +124,14 @@ function summarizeTurn(state: MatchState, growthBySeat: ReadonlyMap<SeatId, { bu
       totals.oreIncome += villageYield.ore;
     }
     for (const army of state.armies.values()) {
-      if (army.owner !== seatId || (army.status !== 'marching' && army.status !== 'returning')) continue;
+      if (army.owner !== seatId || (army.status !== 'marching' && army.status !== 'standing' && army.status !== 'returning')) continue;
       troops.raider += army.troops.raider;
       troops.guard += army.troops.guard;
       troops.envoy += army.troops.envoy;
       totals.field += army.troops.raider + army.troops.guard + army.troops.envoy;
     }
     const growth = growthBySeat.get(seatId) ?? { built: 0, taken: 0 };
-    return { seatId, victoryPoints: state.victoryPointsBySeat[seatId] ?? 0, ...totals, troops, levelsBuilt: growth.built, levelsTaken: growth.taken };
+    return { seatId, victoryPoints: state.victoryPointsBySeat[seatId] ?? 0, ...totals, land: territoryCountOf(state, seatId), troops, levelsBuilt: growth.built, levelsTaken: growth.taken };
   });
   return { tick: state.tick, seats };
 }

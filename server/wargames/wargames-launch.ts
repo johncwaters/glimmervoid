@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { WargamesMatchSpec, troopCostsFor, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
 import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
@@ -110,8 +110,9 @@ function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string | 
   const target = victoryPointTargetFor(balance, spec.mapRadius, spec.seats.length);
   if (victory.kind !== 'points' || target === null) return null;
   const economyRule = victory.economyIncomePerPoint > 0 ? ` plus 1 VP per ${victory.economyIncomePerPoint} income per tick,` : '';
+  const landRule = balance.territory === null ? '' : ` plus 1 VP per ${balance.territory.tilesPerPoint} land hexes it holds,`;
   return [
-    `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${economyRule} and VP are never lost.`,
+    `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${economyRule}${landRule} and VP are never lost.`,
     `The first seat to reach ${target} VP wins; otherwise the seat with the most VP after tick ${spec.maxTicks} wins (ties: more villages, then more income). get_state shows every seat's VP in victoryPointsBySeat and the target in victoryPointTarget.`,
     'Beacons are the sites with isBeacon true in get_state sites: they produce nothing and cannot be built on; capture them like a village, and a Beacon left with no troops goes back to unowned at the end of the tick. get_state sites lists every village and Beacon on the map, even ones you cannot see into.',
   ].join(' ');
@@ -230,6 +231,31 @@ function buildingLines(spec: WargamesMatchSpecType): string[] {
   ];
 }
 
+function landLines(spec: WargamesMatchSpecType): string[] {
+  const territory = wargamesBalanceFor(spec.rulesVersion).territory;
+  if (territory === null) return [];
+  const { field, quarry, watchtower, outpost } = territory.improvements;
+  const costText = (cost: { grain: number; ore: number }) => `${cost.grain} grain / ${cost.ore} ore`;
+  const firstFoundCost = foundCostFor(territory, 0);
+  const secondFoundCost = foundCostFor(territory, 1);
+  const foundLimit = valueForRadius(territory.foundLimitByRadius, spec.mapRadius);
+  return [
+    '',
+    'Land, Improvements & Founding (get_state territory lists every land hex with its owner, improvement and level):',
+    '- Standing armies: an army that marches to an open hex (no village or Beacon, not Mountain or Lake) stays there, holding it, until you order it on. Order it with a march whose fromHexIndex is that hex; send it to one of your villages to bring it home. It still counts against its home village\'s troop cap. get_state visibleArmies shows standing armies with status "arrived".',
+    `- Claiming: an army that has held an open hex through the end of a whole tick after the one it arrived in makes that hex your land, if the hex touches land you already hold (one of your villages or your land hexes) and no other seat stands there. Each tick a seat claims at most ${territory.claimsPerVillagePerTurn} new hex per village it holds. When two seats arrive at an empty hex in the same tick, both turn back.`,
+    '- Fighting on land: an army that marches onto a hex where another seat\'s army stands attacks it (your attack against their defense times any Forest bonus, no Wall). If the defenders fall, your strongest seat\'s survivors stand there; if not, your army is wiped. Attacking or taking land from a seat you hold a NAP or alliance with breaks the pact, like an attack on a village.',
+    `- Land VP: every tick you score 1 VP per ${territory.tilesPerPoint} land hexes you hold. Land produces nothing by itself; improvements do.`,
+    `- Improvements: each land hex holds one, built with a build order on that hex (building: ${ImprovementKind.options.map((kind) => `"${kind}"`).join(', ')}). Your nearest village pays from its own stock. Repeat the order to raise the level. One build per hex per tick.`,
+    `  - Field (${costText(field.cost)}, up to level ${field.maxLevel}): +${field.yieldPerLevel} grain per tick per level to your nearest village, only while that village is next to the Field.`,
+    `  - Quarry (${costText(quarry.cost)}, up to level ${quarry.maxLevel}): +${quarry.yieldPerLevel} ore per tick per level to your nearest village, +${territory.quarryOreTileBonus} more per level on an Ore deposit hex.`,
+    `  - Watchtower (${costText(watchtower.cost)}): armies within ${territory.watchtowerRange} hexes of it show in your get_state visibleArmies.`,
+    `  - Outpost (${costText(outpost.cost)}): your armies standing on it defend at +${Math.round(territory.outpostDefenseBonus * 100)}%.`,
+    `- When your land is taken, its improvement loses half its levels (rounded up), so a level 1 improvement is destroyed.`,
+    `- Founding: a found order ({ kind: "found", hexIndex }) turns one of your land hexes with no improvement into a new village, if no village or Beacon is within ${territory.foundSpacing - 1} hex of it. Your nearest village pays ${territory.foundEnvoys} Envoys and ${costText(firstFoundCost)} for your first, ${costText(secondFoundCost)} for your second, and so on; at most ${foundLimit} per seat on this map. get_state yourVillagesFounded counts yours. A new village starts at ${wargamesBalanceFor(spec.rulesVersion).capturedLoyalty} Loyalty with no troops, buildings or stock.`,
+  ];
+}
+
 function supportLine(spec: WargamesMatchSpecType): string {
   const attackSupport = '- Support: a march order may name support: <seat>. If that seat is your active ally and attacks the same target hex that tick, your troops fight on its side: one combined attack power against the defender, the ally takes the village if it captures, losses are shared in proportion, and your survivors march home.';
   const unsupported = 'With no active alliance, or no ally attack there, the support march turns back without fighting. Two seats that attack one hex without support fight each other too: only the strongest can take it, and the others are wiped.';
@@ -277,6 +303,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     '',
     'Economy & Buildings (max level 10, 1 build per village per tick):',
     ...buildingLines(spec),
+    ...landLines(spec),
     ...terrainLines(spec),
     '',
     'Diplomacy, Contracts & Tribes:',

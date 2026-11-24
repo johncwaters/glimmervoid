@@ -4,6 +4,7 @@ import {
   BUILDING_GLYPH_PATHS,
   CONTROL_FLAG_PATH,
   GRAIN_GLYPH_PATH,
+  LAND_GLYPH_PATH,
   MARCH_ARROW_PATH,
   ORE_GLYPH_PATH,
   UNIT_GLYPH_PATHS,
@@ -12,6 +13,7 @@ import {
 
 export type EconGlyphKey =
   | 'village'
+  | 'land'
   | 'grain'
   | 'ore'
   | 'farm'
@@ -46,6 +48,7 @@ function unitGlyph(key: 'raider' | 'guard' | 'envoy'): EconGlyph {
 
 export const ECON_GLYPHS: Readonly<Record<EconGlyphKey, EconGlyph>> = Object.freeze({
   village: { path: VILLAGE_GLYPH_PATH, color: 'var(--text-dim)', label: 'Villages' },
+  land: { path: LAND_GLYPH_PATH, color: 'var(--text-dim)', label: 'Land tiles' },
   grain: { path: GRAIN_GLYPH_PATH, color: GRAIN_COLOR, label: 'Grain' },
   ore: { path: ORE_GLYPH_PATH, color: ORE_COLOR, label: 'Ore' },
   farm: buildingGlyph('farm'),

@@ -53,6 +53,7 @@ import {
   BEACON_GLYPH_PATH,
   BREACH_WARNING_PATH,
   BUILDING_GLYPH_PATHS,
+  IMPROVEMENT_GLYPH_PATHS,
   CONTROL_FLAG_PATH,
   controlToneColor,
   createWargamesMap,
@@ -65,6 +66,7 @@ import {
   TERRAIN_GLYPHS,
   THOUGHT_CLOUD_PATH,
   UNIT_GLYPH_PATHS,
+  VILLAGE_GLYPH_PATH,
 } from './wargames-map.ts';
 import './wargames-panel.css';
 import {
@@ -570,7 +572,7 @@ function tallySeats(state: MatchState): Map<SeatId, SeatTally> {
     entry.ore += village.resources.ore;
   }
   for (const army of state.armies.values()) {
-    if (army.status !== 'marching' && army.status !== 'returning') continue;
+    if (army.status !== 'marching' && army.status !== 'standing' && army.status !== 'returning') continue;
     const entry = counts.get(army.owner);
     if (!entry) continue;
     entry.raider += army.troops.raider;
@@ -669,13 +671,19 @@ function buildOrderElement(order: OrderItem, labelOf: (seatId: SeatId) => string
   const item = el('span', 'wg-legend-item');
   switch (order.kind) {
     case 'build': {
-      const building = BUILDING_GLYPH_PATHS.find((entry) => entry.key === order.building) ?? BUILDING_GLYPH_PATHS[0];
+      const building = [...BUILDING_GLYPH_PATHS, ...IMPROVEMENT_GLYPH_PATHS].find((entry) => entry.key === order.building) ?? BUILDING_GLYPH_PATHS[0];
       item.append(
         createWargamesGlyph(building.path, 13, building.color, building.label),
         el('span', '', `Build ${building.label} at #${order.hexIndex}`),
       );
       return item;
     }
+    case 'found':
+      item.append(
+        createWargamesGlyph(VILLAGE_GLYPH_PATH, 13, 'var(--text-dim)', 'Found village'),
+        el('span', '', `Found village at #${order.hexIndex}`),
+      );
+      return item;
     case 'train': {
       const unit = UNIT_GLYPH_PATHS.find((entry) => entry.key === order.troop) ?? UNIT_GLYPH_PATHS[0];
       item.append(
@@ -1047,8 +1055,12 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
     return bar;
   }
 
+  const land = village ? undefined : state.territory.get(tile.index);
+  if (land) return buildLandIntel(bar, state, tile.index, land, armiesOnTile(state, pov, tile.index));
   if (!village) {
-    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', 'Open land, no village'));
+    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', state.balance.territory === null ? 'Open land, no village' : 'Open land, unclaimed'));
+    const armies = armiesOnTile(state, pov, tile.index);
+    if (armies.length > 0) bar.append(buildTileArmyGroup(state, armies));
     return bar;
   }
 
@@ -1081,6 +1093,63 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
   );
 
   bar.append(left, right);
+  return bar;
+}
+
+type LandTile = NonNullable<ReturnType<MatchState['territory']['get']>>;
+
+function improvementEffectOf(state: MatchState, hexIndex: number, land: LandTile): string {
+  const rule = state.balance.territory;
+  if (rule === null || land.improvement === null) return '';
+  if (land.improvement === 'field') return `+${land.level * rule.improvements.field.yieldPerLevel} grain to the village beside it`;
+  if (land.improvement === 'quarry') {
+    const oreTileBonus = state.terrain[hexIndex] === 'ore' ? rule.quarryOreTileBonus : 0;
+    return `+${land.level * (rule.improvements.quarry.yieldPerLevel + oreTileBonus)} ore to the nearest village`;
+  }
+  if (land.improvement === 'watchtower') return `Sees armies within ${rule.watchtowerRange} hexes`;
+  return `Armies holding it defend at +${Math.round(rule.outpostDefenseBonus * 100)}%`;
+}
+
+type TileArmy = Pick<NonNullable<ReturnType<MatchState['armies']['get']>>, 'owner' | 'status' | 'troops' | 'currentHexIndex' | 'targetHexIndex' | 'originHexIndex'>;
+
+function armiesOnTile(state: MatchState, pov: ReturnType<typeof wargamesSnapshot>['pov'], hexIndex: number): TileArmy[] {
+  const armies: TileArmy[] = pov === 'god' ? [...state.armies.values()] : projectSeatState(state, pov).visibleArmies;
+  return armies.filter((army) => army.currentHexIndex === hexIndex && (army.status === 'standing' || army.status === 'marching' || army.status === 'returning'));
+}
+
+function armyOrderText(army: TileArmy): string {
+  if (army.status === 'standing') return 'holding';
+  if (army.status === 'returning') return `home to #${army.originHexIndex}`;
+  return `to #${army.targetHexIndex}`;
+}
+
+function buildTileArmyGroup(state: MatchState, armies: readonly TileArmy[]): HTMLElement {
+  const group = el('div', 'wg-hex-intel-group');
+  for (const army of armies) {
+    const owner = el('span', 'wg-hex-intel-owner', seatLabelOf(state, army.owner));
+    owner.style.color = SEAT_COLORS[army.owner];
+    group.append(owner, buildGlyphChips(UNIT_GLYPH_PATHS, army.troops, { hideZero: true }), el('span', 'wg-card-meta', armyOrderText(army)));
+  }
+  return group;
+}
+
+function buildLandIntel(bar: HTMLElement, state: MatchState, hexIndex: number, land: LandTile, armies: readonly TileArmy[]): HTMLElement {
+  const left = el('div', 'wg-hex-intel-group');
+  const swatch = el('span', 'wg-faction-swatch');
+  swatch.style.background = SEAT_COLORS[land.owner];
+  const ownerTag = el('span', 'wg-hex-intel-owner', seatLabelOf(state, land.owner));
+  ownerTag.style.color = SEAT_COLORS[land.owner];
+  const tilesPerPoint = state.balance.territory?.tilesPerPoint ?? 0;
+  left.append(el('span', 'wg-hex-intel-lead', `#${hexIndex}`), swatch, ownerTag, el('span', 'wg-card-meta', `Land, 1 VP per ${tilesPerPoint} tiles`));
+  const right = el('div', 'wg-hex-intel-group');
+  const improvement = IMPROVEMENT_GLYPH_PATHS.find((entry) => entry.key === land.improvement);
+  if (improvement) {
+    const chip = el('span', 'wg-legend-item');
+    chip.append(createWargamesGlyph(improvement.path, 13, improvement.color, improvement.label), el('span', '', `${improvement.label} Lv ${land.level}`));
+    right.append(chip, el('span', 'wg-card-meta', improvementEffectOf(state, hexIndex, land)));
+  }
+  bar.append(left, right);
+  if (armies.length > 0) bar.append(buildTileArmyGroup(state, armies));
   return bar;
 }
 
@@ -1183,11 +1252,20 @@ function unitLegendGroup(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLE
   return legendGroup(title, rows.map((row) => legendItem(createWargamesGlyph(row.glyphPath, 14, row.color), row.label)));
 }
 
+function landLegendGroups(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement[] {
+  if (wargamesBalanceFor(rulesVersion).territory === null) return [];
+  return [legendGroup('Land', [
+    legendItem(hexSwatchIcon(`color-mix(in srgb, ${SEAT_COLORS.s1} 11%, var(--bg-surface))`, `color-mix(in srgb, ${SEAT_COLORS.s1} 45%, var(--border))`, null), 'Land'),
+    ...IMPROVEMENT_GLYPH_PATHS.map((improvement) => legendItem(createWargamesGlyph(improvement.path, 14, improvement.color), improvement.label)),
+  ])];
+}
+
 function buildMapLegend(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement {
   const legend = el('div', 'wg-map-legend');
   legend.append(
     unitLegendGroup(rulesVersion),
     legendGroup('Buildings', BUILDING_GLYPH_PATHS.map((building) => legendItem(createWargamesGlyph(building.path, 14, building.color), building.label))),
+    ...landLegendGroups(rulesVersion),
     legendGroup('Board', [
       legendItem(hexSwatchIcon(`color-mix(in srgb, ${SEAT_COLORS.s1} 28%, var(--bg-card))`, SEAT_COLORS.s1, null), 'Faction village'),
       legendItem(hexSwatchIcon('color-mix(in srgb, var(--text-dim) 10%, var(--bg-card))', 'var(--border-hover)', null), 'Barbarian village'),

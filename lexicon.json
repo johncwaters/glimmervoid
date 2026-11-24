@@ -1629,6 +1629,22 @@
     {
       "name": "system line",
       "definition": "A quiet centered line in Chat with the Glimmervoid mark that shows what started a turn the operator did not send: a spawned session's news, a parent or sibling message, a scheduled wake, or a finished background task"
+    },
+    {
+      "name": "land",
+      "definition": "In Wargames v9, a hex that is not a village and that a seat has claimed by holding it with a standing army; it scores victory points and can hold one improvement"
+    },
+    {
+      "name": "claim",
+      "definition": "In Wargames v9, to make an open hex a seat's land by keeping an army standing on it through a full turn after it arrives, next to land the seat already holds and with no other seat standing there; at most one new hex per village the seat holds each turn"
+    },
+    {
+      "name": "improvement",
+      "definition": "In Wargames v9, the one field, quarry, watchtower or outpost a land hex holds, built with a build order and paid by the seat's nearest village"
+    },
+    {
+      "name": "outpost",
+      "definition": "In Wargames v9, an improvement on a land hex that makes the owner's armies standing on it defend at +50%"
     }
   ],
   "retired": [

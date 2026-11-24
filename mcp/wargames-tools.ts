@@ -9,6 +9,7 @@ import {
   SignedReport,
   WARGAMES_NOTE_MAX_BYTES,
 } from '../shared/contracts/wargames.ts';
+import { ImprovementKind } from '../shared/contracts/wargames.ts';
 import type { WargamesRejection } from '../shared/contracts/wargames.ts';
 
 export const WARGAMES_TOOL_NAMES = [
@@ -132,7 +133,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('submit_orders', {
     title: 'Submit Sealed Orders',
-    description: 'Seal your orders (build, train, march, scout, tribe_join, tribe_leave) for simultaneous resolution during the orders phase. A march may name support: an allied seat, to join that seat\'s attack on the target or its garrison there.',
+    description: `Seal your orders (build, found, train, march, scout, tribe_join, tribe_leave) for simultaneous resolution during the orders phase. A march may name support: an allied seat, to join that seat's attack on the target or its garrison there. Where the rules have land, a march to an open hex leaves the army standing there (holding it next to your land claims it), a march may start from a hex where your army stands, build takes ${ImprovementKind.options.join(', ')} on your land hex, and found turns your land hex into a village.`,
     inputSchema: z.strictObject({ orders: z.array(OrderItem).max(64) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'submit_orders', args)));
 

@@ -1,6 +1,6 @@
-import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
+import { ImprovementKind, WARGAMES_MAX_HEX_RADIUS, WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
-import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
+import { ALL_HEXES, hexIndexAt, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { TERRAIN_MIN_RADIUS, isPassable } from '#shared/wargames/terrain.ts';
 import type { TerrainKind } from '#shared/wargames/terrain.ts';
@@ -89,6 +89,15 @@ export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; c
   { key: 'wall', label: 'Wall', color: '#a8a29e', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
 ];
 
+const IMPROVEMENT_GLYPHS: Readonly<Record<ImprovementKind, { label: string; color: string; path: string }>> = Object.freeze({
+  field: { label: 'Field', color: '#bef264', path: 'M 2 12.5 Q 8 9.5 14 12.5 M 2 8.5 Q 8 5.5 14 8.5 M 2 4.5 Q 8 1.5 14 4.5' },
+  quarry: { label: 'Quarry', color: 'var(--state-monitoring)', path: 'M 2.5 13 L 3.5 7 L 8 4.5 L 13 6.5 L 13.5 12 L 8 13.5 Z M 3.5 7 L 8.5 9 L 13 6.5 M 8.5 9 L 8 13.5' },
+  watchtower: { label: 'Watchtower', color: '#67e8f9', path: 'M 5.5 14 L 6.5 6.5 H 9.5 L 10.5 14 M 4.5 6.5 H 11.5 V 2.5 H 4.5 Z' },
+  outpost: { label: 'Outpost', color: '#f0abfc', path: 'M 3 14 V 6 L 4.5 4 L 6 6 V 14 M 6.5 14 V 6 L 8 4 L 9.5 6 V 14 M 10 14 V 6 L 11.5 4 L 13 6 V 14' },
+});
+
+export const IMPROVEMENT_GLYPH_PATHS: readonly { key: ImprovementKind; label: string; color: string; path: string }[] = ImprovementKind.options.map((key) => ({ key, ...IMPROVEMENT_GLYPHS[key] }));
+
 const WALL_GLYPH = BUILDING_GLYPH_PATHS.find((building) => building.key === 'wall') ?? BUILDING_GLYPH_PATHS[0];
 
 export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
@@ -116,6 +125,7 @@ function previewDashOf(kind: 'march' | 'support' | 'scout', isFriendlyReinforce:
 }
 export const BREACH_WARNING_PATH = 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5';
 export const THOUGHT_CLOUD_PATH = 'M 5 10.5 A 2.5 2.5 0 0 1 4.2 5.6 A 3 3 0 0 1 9.8 4.2 A 2.6 2.6 0 0 1 12.2 10 Z M 4.5 13 L 4.6 13 M 2.6 14.8 L 2.7 14.8';
+export const LAND_GLYPH_PATH = 'M 8 2.5 L 12.8 5.25 V 10.75 L 8 13.5 L 3.2 10.75 V 5.25 Z M 5.5 8 H 10.5 M 8 5.5 V 10.5';
 export const VILLAGE_GLYPH_PATH = 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z';
 export const MARCH_ARROW_PATH = 'M 3 8 H 13 M 9 4 L 13 8 L 9 12';
 export const GRAIN_GLYPH_PATH = 'M 8 13 V 3 M 8 6 L 5 4 M 8 6 L 11 4 M 8 9 L 5 7 M 8 9 L 11 7';
@@ -146,6 +156,94 @@ const BARRIER_SCALE = HEX_SIZE / HEX_INNER_RADIUS;
 
 function emptyHexFill(isFogged: boolean): string {
   return isFogged ? 'var(--bg)' : 'var(--bg-surface)';
+}
+
+type TerritoryTile = NonNullable<ReturnType<MatchState['territory']['get']>>;
+
+function territoryFill(owner: SeatId): string {
+  return `color-mix(in srgb, ${SEAT_COLORS[owner]} 11%, var(--bg-surface))`;
+}
+
+function territoryStroke(owner: SeatId): string {
+  return `color-mix(in srgb, ${SEAT_COLORS[owner]} 45%, var(--border))`;
+}
+
+const EDGE_NEIGHBOR_STEPS: readonly { q: number; r: number }[] = [
+  { q: 1, r: 0 }, { q: 0, r: 1 }, { q: -1, r: 1 }, { q: -1, r: 0 }, { q: 0, r: -1 }, { q: 1, r: -1 },
+];
+
+function hexCornerAt(centerX: number, centerY: number, corner: number): { x: number; y: number } {
+  const angle = (Math.PI / 180) * (60 * corner - 30);
+  return { x: centerX + HEX_INNER_RADIUS * Math.cos(angle), y: centerY + HEX_INNER_RADIUS * Math.sin(angle) };
+}
+
+function holdsLandAt(state: MatchState, owner: SeatId, axialQ: number, axialR: number): boolean {
+  const neighborIndex = hexIndexAt(axialQ, axialR, state.spec.mapRadius);
+  if (neighborIndex < 0) return false;
+  return state.territory.get(neighborIndex)?.owner === owner || state.villages[neighborIndex]?.owner === owner;
+}
+
+function renderTerritoryBorder(container: SVGElement, state: MatchState, hexIndex: number, owner: SeatId, centerX: number, centerY: number): void {
+  const tile = state.hexes[hexIndex];
+  EDGE_NEIGHBOR_STEPS.forEach((step, edge) => {
+    if (holdsLandAt(state, owner, tile.q + step.q, tile.r + step.r)) return;
+    const from = hexCornerAt(centerX, centerY, edge);
+    const to = hexCornerAt(centerX, centerY, edge + 1);
+    container.append(createSvgShape('line', {
+      x1: from.x.toFixed(1), y1: from.y.toFixed(1), x2: to.x.toFixed(1), y2: to.y.toFixed(1),
+      stroke: territoryStroke(owner), 'stroke-width': '1.6', 'stroke-linecap': 'round',
+    }));
+  });
+}
+
+function renderImprovement(slot: Pick<HexNodeSlot, 'terrainGroup' | 'centerX' | 'centerY'>, tile: TerritoryTile): void {
+  if (tile.improvement === null) return;
+  const glyph = buildingGlyphOf(tile.improvement);
+  const glyphElement = createMapStrokeGlyph(glyph.path, slot.centerX, slot.centerY - 8, 18, glyph.color, '2');
+  glyphElement.setAttribute('aria-label', `${tile.improvement} level ${tile.level}`);
+  slot.terrainGroup.append(glyphElement);
+  if (tile.level > 1) appendBoardText(slot.terrainGroup, String(tile.level), { x: slot.centerX + 11, y: slot.centerY - 4, anchor: 'start', fontSize: '8.5', fill: glyph.color, className: 'wg-hex-detail' });
+}
+
+const STANDING_TOKEN_GAP = 3;
+const STANDING_TOKEN_MAX_WIDTH = HEX_EDGE_INSET * 2;
+const SMALL_ARMY_MAX_TROOPS = 4;
+const STRONG_ARMIES_PER_SEAT = 3;
+const STRONG_ARMY_MIN_TROOPS = 10;
+const SMALL_ARMY_PIP_RADIUS = 3.2;
+
+type ArmyTokenWeight = 'pip' | 'token' | 'strong';
+
+function renderSmallArmyPip(layer: SVGElement, centerX: number, centerY: number, owner: SeatId, stackIndex: number, troops: TroopCounts): void {
+  const corner = hexCornerAt(centerX, centerY, 0);
+  const pip = createSvgShape('circle', {
+    cx: (corner.x - 8 - stackIndex * 8).toFixed(1),
+    cy: (corner.y + 6).toFixed(1),
+    r: String(SMALL_ARMY_PIP_RADIUS),
+    fill: SEAT_COLORS[owner],
+    stroke: 'var(--bg)',
+    'stroke-width': '1',
+    class: 'wg-standing-army',
+  });
+  pip.setAttribute('aria-label', `${troopCountOf(troops)} troops`);
+  layer.append(pip);
+}
+
+function renderStandingToken(layer: SVGElement, centerX: number, centerY: number, owner: SeatId, troops: TroopCounts, isCompact: boolean, isStrong: boolean): void {
+  const group = createSvgShape('g', { class: 'wg-standing-army' });
+  const color = SEAT_COLORS[owner];
+  const tokens = unitCountTokensOf(troops);
+  const rowWidth = tokenRowWidth(tokens, STANDING_TOKEN_GAP);
+  if (isCompact || rowWidth + 8 > STANDING_TOKEN_MAX_WIDTH) {
+    if (isStrong) appendPillFrame(group, centerX, centerY, armyCounterWidth(troops) + 4, 19, color, { strokeWidth: '1.2' });
+    renderArmyCounter(group, centerX, centerY, troops, color);
+    layer.append(group);
+    return;
+  }
+  if (isStrong) appendPillFrame(group, centerX, centerY, rowWidth + 12, 19, color, { strokeWidth: '1.2' });
+  appendPillFrame(group, centerX, centerY, rowWidth + 8, 15, color, { strokeWidth: isStrong ? '2' : '1.2' });
+  appendUnitCountRow(group, centerX - rowWidth / 2, centerY + 3, tokens, STANDING_TOKEN_GAP, 'wg-army-pill-text');
+  layer.append(group);
 }
 
 const TERRAIN_TINT_OPACITY = '0.1';
@@ -365,6 +463,32 @@ function renderArmyCounter(
     fill: 'var(--text-head)',
     className: 'wg-army-pill-text',
   });
+}
+
+function armyTokenWeights(tokens: readonly { hexIndex: number; owner: SeatId; troops: TroopCounts }[]): Map<string, ArmyTokenWeight> {
+  const weights = new Map<string, ArmyTokenWeight>();
+  const largeBySeat = new Map<SeatId, { key: string; total: number }[]>();
+  for (const token of tokens) {
+    const key = `${token.hexIndex}:${token.owner}`;
+    const total = troopCountOf(token.troops);
+    if (total <= SMALL_ARMY_MAX_TROOPS) {
+      weights.set(key, 'pip');
+      continue;
+    }
+    weights.set(key, 'token');
+    largeBySeat.set(token.owner, [...(largeBySeat.get(token.owner) ?? []), { key, total }]);
+  }
+  for (const seatTokens of largeBySeat.values()) {
+    const strongest = seatTokens.filter((entry) => entry.total >= STRONG_ARMY_MIN_TROOPS).sort((left, right) => right.total - left.total).slice(0, STRONG_ARMIES_PER_SEAT);
+    for (const entry of strongest) weights.set(entry.key, 'strong');
+  }
+  return weights;
+}
+
+function addTroopCounts(into: TroopCounts, amount: TroopCounts): void {
+  into.raider += amount.raider;
+  into.guard += amount.guard;
+  into.envoy += amount.envoy;
 }
 
 function renderHexUnitRow(container: SVGElement, centerX: number, baselineY: number, tokens: readonly UnitCountToken[]): void {
@@ -972,7 +1096,12 @@ function unitGlyphOf(troop: UnitKey): (typeof UNIT_GLYPH_PATHS)[number] {
   return UNIT_GLYPH_PATHS.find((entry) => entry.key === troop) ?? UNIT_GLYPH_PATHS[0];
 }
 
-function buildingGlyphOf(building: BuildingKey): (typeof BUILDING_GLYPH_PATHS)[number] {
+function isImprovementKey(key: BuildingKey | ImprovementKind): key is ImprovementKind {
+  return ImprovementKind.safeParse(key).success;
+}
+
+function buildingGlyphOf(building: BuildingKey | ImprovementKind): { path: string; color: string } {
+  if (isImprovementKey(building)) return IMPROVEMENT_GLYPHS[building];
   return BUILDING_GLYPH_PATHS.find((entry) => entry.key === building) ?? BUILDING_GLYPH_PATHS[0];
 }
 
@@ -1371,7 +1500,8 @@ export function createWargamesMap(
     const isDenseMap = state.spec.mapRadius >= TERRAIN_MIN_RADIUS;
     const terrainKind = state.terrain[index] ?? 'plain';
     slot.indexLabel.setAttribute('visibility', isDenseMap && !isSelected ? 'hidden' : 'visible');
-    renderTerrainGlyph(slot.terrainGroup, slot.centerX, slot.centerY, terrainKind, village === null);
+    const territoryTile = village === null ? state.territory.get(index) ?? null : null;
+    renderTerrainGlyph(slot.terrainGroup, slot.centerX, slot.centerY, terrainKind, village === null && territoryTile?.improvement == null);
     if (village) renderSiteGlyph(slot, village, isDenseMap && village.owner === null && !isSelected);
 
     if (village) {
@@ -1401,7 +1531,7 @@ export function createWargamesMap(
 
     const barrierFill = barrierFillFor(terrainKind);
     slot.polygon.setAttribute('points', hexPolygonPoints(slot.centerX, slot.centerY, barrierFill === undefined ? 1 : BARRIER_SCALE));
-    slot.polygon.setAttribute('fill', barrierFill ?? emptyHexFill(isFogged));
+    slot.polygon.setAttribute('fill', barrierFill ?? (territoryTile ? territoryFill(territoryTile.owner) : emptyHexFill(isFogged)));
     slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : barrierFill ?? 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
     slot.polygon.removeAttribute('stroke-dasharray');
@@ -1411,8 +1541,12 @@ export function createWargamesMap(
     slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
     slot.unitGroup.replaceChildren();
     slot.controlGroup.replaceChildren();
+    if (territoryTile) {
+      renderTerritoryBorder(slot.terrainGroup, state, index, territoryTile.owner, slot.centerX, slot.centerY);
+      renderImprovement(slot, territoryTile);
+    }
 
-    setHexDetailShown(slot, !isSpotlightActive || isSelected);
+    setHexDetailShown(slot, !isSpotlightActive || isSelected || territoryTile?.owner === spotlightSeatId);
   }
 
   function setHexDetailShown(slot: HexNodeSlot, isShown: boolean): void {
@@ -1442,7 +1576,8 @@ export function createWargamesMap(
 
   function visibleActiveArmies(state: MatchState, pov: WargamesPov) {
     if (pov === 'god') {
-      return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning');
+      const hasLand = state.balance.territory !== null;
+      return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning' || (hasLand && army.status === 'standing'));
     }
     return projectSeatState(state, pov).visibleArmies;
   }
@@ -1522,7 +1657,35 @@ export function createWargamesMap(
       countsByEdge.set(edgeKey, (countsByEdge.get(edgeKey) ?? 0) + 1);
     }
     const seenByEdge = new Map<string, number>();
+    const tokenTroopsByTile = new Map<string, { hexIndex: number; owner: SeatId; troops: TroopCounts }>();
     for (const army of armies) {
+      const isOnOpenTile = state.balance.territory !== null && state.villages[army.currentHexIndex] === null;
+      if (!isOnOpenTile) continue;
+      const tileKeyOfArmy = `${army.currentHexIndex}:${army.owner}`;
+      const entry = tokenTroopsByTile.get(tileKeyOfArmy) ?? { hexIndex: army.currentHexIndex, owner: army.owner, troops: { raider: 0, guard: 0, envoy: 0 } };
+      addTroopCounts(entry.troops, army.troops);
+      tokenTroopsByTile.set(tileKeyOfArmy, entry);
+    }
+    const weightOfToken = armyTokenWeights([...tokenTroopsByTile.values()]);
+    const tokensPerTile = new Map<number, number>();
+    const pipsPerTile = new Map<number, number>();
+    for (const [tileKeyOfToken, token] of tokenTroopsByTile) {
+      const slot = slots[token.hexIndex];
+      if (!slot) continue;
+      const weight = weightOfToken.get(tileKeyOfToken) ?? 'token';
+      if (weight === 'pip') {
+        const pipIndex = pipsPerTile.get(token.hexIndex) ?? 0;
+        pipsPerTile.set(token.hexIndex, pipIndex + 1);
+        renderSmallArmyPip(armyLayer, slot.centerX, slot.centerY, token.owner, pipIndex, token.troops);
+        continue;
+      }
+      const stackIndex = tokensPerTile.get(token.hexIndex) ?? 0;
+      tokensPerTile.set(token.hexIndex, stackIndex + 1);
+      renderStandingToken(armyLayer, slot.centerX, slot.centerY + 10 + stackIndex * 17, token.owner, token.troops, state.spec.mapRadius >= WARGAMES_MAX_HEX_RADIUS, weight === 'strong');
+      occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 10 + stackIndex * 17, STANDING_TOKEN_MAX_WIDTH, 15));
+    }
+    for (const army of armies) {
+      if (army.status === 'standing') continue;
       const leg = armyLegOf(army);
       const fromSlot = slots[leg.fromHexIndex];
       const toSlot = slots[leg.toHexIndex];
@@ -1531,7 +1694,9 @@ export function createWargamesMap(
       const indexOnEdge = seenByEdge.get(edgeKey) ?? 0;
       seenByEdge.set(edgeKey, indexOnEdge + 1);
       const isSupportMarch = army.supporting !== undefined;
+      const hasTileToken = tokenTroopsByTile.has(`${army.currentHexIndex}:${army.owner}`);
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
+        showPill: !hasTileToken,
         strokeDasharray: isSupportMarch ? SUPPORT_DASH : '6 3',
         strokeWidth: isSupportMarch ? SUPPORT_STROKE_WIDTH : '2.4',
         groupClass: 'wg-army-arrow',

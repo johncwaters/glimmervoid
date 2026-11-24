@@ -14,7 +14,7 @@ type TickEventKind = 'phase_complete' | 'resolution_complete' | 'next_tick';
 type SeatEventKind = 'seat_connect' | 'phase_start' | 'seat_submit' | 'phase_deadline' | 'seat_disconnect' | 'seat_eliminated';
 type ContractEventKind = 'contract_accept' | 'contract_reject' | 'contract_expire' | 'contract_fulfill' | 'contract_breach';
 type VillageEventKind = 'outer_ring_squeeze';
-type ArmyEventKind = 'army_depart' | 'army_arrive' | 'army_return' | 'army_reach_home' | 'army_destroy';
+type ArmyEventKind = 'army_depart' | 'army_arrive' | 'army_stand' | 'army_redeploy' | 'army_return' | 'army_reach_home' | 'army_destroy';
 
 type MachineResult<State extends string> =
   | { ok: true; state: State }
@@ -64,7 +64,8 @@ const VILLAGE_TRANSITIONS: TransitionTable<VillageProductionState, VillageEventK
 const ARMY_TRANSITIONS: TransitionTable<ArmyStatus, ArmyEventKind> = Object.freeze({
   mustering: { army_depart: 'marching', army_destroy: 'destroyed' },
   marching: { army_arrive: 'arrived', army_destroy: 'destroyed' },
-  arrived: { army_return: 'returning', army_destroy: 'destroyed' },
+  arrived: { army_stand: 'standing', army_return: 'returning', army_destroy: 'destroyed' },
+  standing: { army_redeploy: 'marching', army_return: 'returning', army_destroy: 'destroyed' },
   returning: { army_reach_home: 'home', army_destroy: 'destroyed' },
   home: {},
   destroyed: {},
