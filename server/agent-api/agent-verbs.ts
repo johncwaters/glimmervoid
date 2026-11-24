@@ -63,8 +63,10 @@ function pathExists(candidatePath: string): Promise<boolean> {
   return fs.promises.stat(candidatePath).then(() => true, () => false);
 }
 
-function hasGitFolder(folder: string): Promise<boolean> {
-  return pathExists(path.join(folder, '.git'));
+async function isGitRepositoryFolder(folder: string): Promise<boolean> {
+  if (await pathExists(path.join(folder, '.git'))) return true;
+  const bareLayout = await Promise.all(['HEAD', 'objects', 'refs'].map((entry) => pathExists(path.join(folder, entry))));
+  return bareLayout.every(Boolean);
 }
 
 function whiteboardCallerOf(session: Session) {
@@ -371,14 +373,14 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
       ? [repo]
       : config.projects.filter((project) => project.name === repo || path.basename(project.path || '') === repo).map((project) => project.path || '');
     for (const candidatePath of configuredPaths) {
-      if (await hasGitFolder(candidatePath)) return { ok: true, repoPath: path.resolve(candidatePath) };
+      if (await isGitRepositoryFolder(candidatePath)) return { ok: true, repoPath: path.resolve(candidatePath) };
     }
     if (path.isAbsolute(repo)) return { ok: false, error: `${repo} is not a git repository` };
     return { ok: false, error: `no configured project is named ${repo}; pass a project name, an absolute path to a git repository, or a GitHub owner/repo` };
   }
 
   async function claimRepoRootFolder(folder: string, slug: string, clones: NonNullable<typeof repoClones>): Promise<CheckoutResolution> {
-    if (!(await hasGitFolder(folder))) return { ok: false, error: `${folder} exists but is not a git repository, so ${slug} cannot be cloned there; move it, or ${CLONE_BY_HAND_HINT}` };
+    if (!(await isGitRepositoryFolder(folder))) return { ok: false, error: `${folder} exists but is not a git repository, so ${slug} cannot be cloned there; move it, or ${CLONE_BY_HAND_HINT}` };
     const originUrl = await clones.originUrl({ projectPath: folder });
     if (originUrl !== null && remoteMatchesGithubRepo(originUrl, slug)) return { ok: true, repoPath: folder };
     return { ok: false, error: `${folder} holds ${originUrl ?? 'a repository with no origin'}, not ${slug}; move it, or ${CLONE_BY_HAND_HINT}` };
@@ -401,7 +403,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const deadlineMs = clock.nowMs() + CHECKOUT_DEADLINE_MS;
     const projectPaths = config.projects.map((project) => project.path || '').filter((projectPath) => projectPath !== '');
     for (const projectPath of projectPaths) {
-      if (!(await hasGitFolder(projectPath))) continue;
+      if (!(await isGitRepositoryFolder(projectPath))) continue;
       const originUrl = await repoClones.originUrl({ projectPath });
       if (originUrl !== null && remoteMatchesGithubRepo(originUrl, target.slug)) return { ok: true, repoPath: path.resolve(projectPath) };
     }

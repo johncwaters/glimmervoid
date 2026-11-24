@@ -25,7 +25,7 @@ import { decideRemovalKeep, isRecencyProbeNeeded, sessionIdFromOwner } from '../
 import type { RemovalOwnershipFacts } from '../core/removal-guard-core.ts';
 import { appendRemovalRecord, appendRemovalRecordSync, removalsJournalPath } from '../removal-journal.ts';
 import { GLIMMERVOID_WORKTREE_LOCK_REASON, isWorktreeHiddenFromGuardedSessions, listHomeWorktreePathsMissingLock, listOwnLockedWorktreePaths } from './core/worktree-lock-core.ts';
-import { UNPROBED_MARKER, directoryExists, errResult, errorExitCode, findWorktreeForBranch, hasWorkFrom, isDirtyResult, mainWorktreePath, markerFrom, markerKey, okResult, parseWorktreeBranches } from './workspace/workspace-context.ts';
+import { ORIGIN_FETCH_REFSPEC_ARGS, REPOSITORY_PROBE_ARGS, UNPROBED_MARKER, directoryExists, doesFetchWriteLocalBranches, errResult, errorExitCode, findWorktreeForBranch, hasWorkFrom, isBareRepositoryProbe, isDirtyResult, isRepositoryProbe, mainWorktreePath, markerFrom, markerKey, okResult, parseWorktreeBranches } from './workspace/workspace-context.ts';
 import type { GitExtraOptions, GitResult, GitRunner, GitWorkspaceContext, OwnedPathsRecorder, OwnedWorktreeArgs, ProjectGitRunner, QueuedGitResult, RemovalAdmission, RemovalArgs, RemovalGuardOptions, RemovalTarget, ResetKeepArgs, ResolvedMarkerBase, RetiredShareLinks, SessionWorktree, StageDetachedWorktreeArgs, WorkspaceHandle, WorktreeArgs, WorktreeBranch, WorktreeDirtyProbe, WorktreeOwnership } from './workspace/workspace-context.ts';
 import { createOriginOps } from './workspace/origin-ops.ts';
 import { githubPushAuthEnv } from '../core/repository-source-core.ts';
@@ -399,6 +399,13 @@ function createGitWorkspace(opts: {
     }
     return runGitInProject(['worktree', 'prune']);
   }
+  async function refuseSessionBranches(projectPath: string): Promise<WorkspaceHandle | null> {
+    const probe = await run(REPOSITORY_PROBE_ARGS, projectPath);
+    if (!isRepositoryProbe(probe)) return { cwd: projectPath, isGit: false, reason: 'not-git' };
+    if (!isBareRepositoryProbe(probe)) return null;
+    if (!doesFetchWriteLocalBranches(await run(ORIGIN_FETCH_REFSPEC_ARGS, projectPath))) return null;
+    return { cwd: projectPath, isGit: false, error: `${projectPath} is a mirror clone: its fetch overwrites and prunes local branches, so a session branch there would be lost; use a bare clone made without --mirror` };
+  }
   async function createBody({
     projectPath,
     owner,
@@ -411,8 +418,8 @@ function createGitWorkspace(opts: {
     worktreeBase,
     shareList,
   }: OwnedWorktreeArgs): Promise<WorkspaceHandle> {
-    const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
-    if (!inside.ok || inside.out !== 'true') return { cwd: projectPath, isGit: false };
+    const branchRefusal = await refuseSessionBranches(projectPath);
+    if (branchRefusal) return branchRefusal;
     const head = await run(['rev-parse', 'HEAD'], projectPath);
     if (!head.ok) return { cwd: projectPath, isGit: false };
 
@@ -489,8 +496,8 @@ function createGitWorkspace(opts: {
 
   async function ensureWorkspaceMemberBody({ projectPath, owner, wtDir, branch, shareList }: OwnedWorktreeArgs): Promise<WorkspaceHandle> {
     if (!wtDir || !branch) return { cwd: projectPath, isGit: false, reason: 'missing-workspace-member' };
-    const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
-    if (!inside.ok || inside.out !== 'true') return { cwd: projectPath, isGit: false, reason: 'not-git' };
+    const branchRefusal = await refuseSessionBranches(projectPath);
+    if (branchRefusal) return branchRefusal;
     await pruneWorktreeEntries(runInProject(projectPath));
     const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
     if (!listed.ok) return { cwd: projectPath, isGit: false, error: listed.err };
@@ -700,8 +707,7 @@ function createGitWorkspace(opts: {
   }
 
   async function listWorktreeBranches({ projectPath }: WorktreeArgs): Promise<WorktreeBranch[]> {
-    const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
-    if (!inside.ok || inside.out !== 'true') return [];
+    if (!isRepositoryProbe(await run(REPOSITORY_PROBE_ARGS, projectPath))) return [];
     const listed = await run(['worktree', 'list', '--porcelain'], projectPath);
     if (!listed.ok) return [];
     return parseWorktreeBranches(listed.out);
@@ -849,8 +855,7 @@ function createGitWorkspaceSync(opts: { git?: (args: string[], cwd: string) => s
 
   function listSessionWorktrees({ projectPath, integrationBranch, configuredIntegrationBranch }: WorktreeArgs): SessionWorktree[] {
     const out: SessionWorktree[] = [];
-    const inside = run(['rev-parse', '--is-inside-work-tree'], projectPath);
-    if (!inside.ok || inside.out !== 'true') return out;
+    if (!isRepositoryProbe(run(REPOSITORY_PROBE_ARGS, projectPath))) return out;
     const listed = run(['worktree', 'list', '--porcelain'], projectPath);
     if (!listed.ok) return out;
     for (const { cwd: wt, branch: name } of parseWorktreeBranches(listed.out)) {

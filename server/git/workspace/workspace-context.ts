@@ -265,6 +265,27 @@ const WORK_PRESENCE_STATUS_ARGS = [...WORKTREE_STATUS_ARGS, ...COHERENCE_BOOKKEE
 
 const isDirtyResult = (dirty: GitResult) => dirty.ok && dirty.out !== '';
 
+const REPOSITORY_PROBE_ARGS = ['rev-parse', '--is-inside-work-tree', '--is-bare-repository'];
+
+const ORIGIN_FETCH_REFSPEC_ARGS = ['config', '--get-all', 'remote.origin.fetch'];
+
+function isRepositoryProbe(probe: GitResult): boolean {
+  if (!probe.ok) return false;
+  return probe.out.split('\n').some((line) => line.trim() === 'true');
+}
+
+function isBareRepositoryProbe(probe: GitResult): boolean {
+  return probe.ok && probe.out.split('\n')[1]?.trim() === 'true';
+}
+
+function doesFetchWriteLocalBranches(refspecs: GitResult): boolean {
+  if (!refspecs.ok) return false;
+  return refspecs.out.split('\n').some((refspec) => {
+    const destination = refspec.split(':')[1]?.trim() ?? '';
+    return destination === 'refs/*' || destination.startsWith('refs/heads/');
+  });
+}
+
 function hasWorkFrom(dirty: GitResult, ahead: GitResult | null): boolean {
   if (!dirty.ok) return true;
   if (isDirtyResult(dirty)) return true;
@@ -306,5 +327,5 @@ type GitWorkspaceContext = {
   probeOrigin(target: OriginProbeTarget): Promise<OriginReachability>;
 };
 
-export { ISOLATED_CHECKOUT_BASE_REF, ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS, ISOLATED_CHECKOUT_REVIEW_REF, MERGE_PROBE_TIMEOUT_MS, REMOTE_BRANCH_LISTING_MAX_BUFFER, REMOTE_REF_PREFIX, UNPROBED_MARKER, WORKTREE_STATUS_ARGS, WORK_PRESENCE_STATUS_ARGS, directoryExists, errResult, errorExitCode, findWorktreeForBranch, hasWorkFrom, isDirtyResult, mainWorktreePath, markerFrom, markerKey, okResult, parseWorktreeBranches };
+export { ISOLATED_CHECKOUT_BASE_REF, ISOLATED_CHECKOUT_HYDRATE_TIMEOUT_MS, ISOLATED_CHECKOUT_REVIEW_REF, MERGE_PROBE_TIMEOUT_MS, REMOTE_BRANCH_LISTING_MAX_BUFFER, ORIGIN_FETCH_REFSPEC_ARGS, REMOTE_REF_PREFIX, REPOSITORY_PROBE_ARGS, UNPROBED_MARKER, WORKTREE_STATUS_ARGS, WORK_PRESENCE_STATUS_ARGS, directoryExists, errResult, errorExitCode, findWorktreeForBranch, doesFetchWriteLocalBranches, hasWorkFrom, isBareRepositoryProbe, isDirtyResult, isRepositoryProbe, mainWorktreePath, markerFrom, markerKey, okResult, parseWorktreeBranches };
 export type { BaseClassification, BaseSyncResult, CheckoutDetachedArgs, GitExtraOptions, GitResult, GitRunner, GitWorkspaceContext, IntegrationSyncResult, IntegrationTip, LandedRange, ListedWorktree, MergeFastForwardArgs, MergeFastForwardResult, MergeOutcome, MergeProbeEnvArgs, MergeTreeArgs, MergeTreeProbe, OwnedPathsRecorder, OwnedWorktreeArgs, ProjectGitRunner, QueuedGitResult, RebaseOutcome, RemovalAdmission, RemovalArgs, RemovalGuardOptions, RemovalTarget, ResetKeepArgs, ResolvedMarkerBase, RetiredShareLinks, SessionWorktree, StageDetachedWorktreeArgs, StageIsolatedCheckoutArgs, WorkspaceHandle, WorktreeArgs, WorktreeBranch, WorktreeDirtyProbe, WorktreeOwnership, WorktreeProbe };

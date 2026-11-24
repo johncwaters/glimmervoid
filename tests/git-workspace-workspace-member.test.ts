@@ -146,3 +146,43 @@ test('workspace member release keeps tracked symlinks, unlinks ignored share lin
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('a workspace member forks the default branch of a bare repository and refuses a mirror clone', { skip: !hasGit() }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-workspace-bare-'));
+  try {
+    const origin = path.join(root, 'origin.git');
+    const seed = path.join(root, 'seed');
+    const bare = path.join(root, 'bare.git');
+    fs.mkdirSync(origin);
+    git(['init', '--bare', '-b', 'main'], origin);
+    git(['clone', origin, seed], root);
+    git(['config', 'user.email', 'test@example.com'], seed);
+    git(['config', 'user.name', 'Workspace Test'], seed);
+    git(['config', 'commit.gpgsign', 'false'], seed);
+    fs.writeFileSync(path.join(seed, 'README.md'), 'initial\n');
+    git(['add', '.'], seed);
+    git(['commit', '-m', 'initial'], seed);
+    git(['push', 'origin', 'HEAD:main'], seed);
+    git(['clone', '--bare', origin, bare], root);
+    git(['config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'], bare);
+    git(['fetch', 'origin'], bare);
+    git(['remote', 'set-head', 'origin', '-a'], bare);
+
+    const workspace = createGitWorkspace();
+    const wtDir = path.join(root, 'member');
+    const created = await workspace.ensureWorkspaceMember({ owner: 'lane:test', projectPath: bare, wtDir, branch: 'glimmervoid/workspace/bare-session' });
+    assert.equal(created.reason, undefined);
+    assert.equal(created.isGit, true);
+    assert.equal(created.base, 'main');
+    assert.equal(fs.readFileSync(path.join(wtDir, 'README.md'), 'utf8'), 'initial\n');
+
+    const mirror = path.join(root, 'mirror.git');
+    git(['clone', '--mirror', origin, mirror], root);
+    const refused = await workspace.ensureWorkspaceMember({ owner: 'lane:test', projectPath: mirror, wtDir: path.join(root, 'mirror-member'), branch: 'glimmervoid/workspace/mirror-session' });
+    assert.equal(refused.isGit, false);
+    assert.match(refused.error ?? '', /mirror clone/);
+    assert.equal(git(['branch', '--list', 'glimmervoid/*'], mirror).trim(), '');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

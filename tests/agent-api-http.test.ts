@@ -1961,3 +1961,29 @@ test('a reply that breaks its verb contract reaches the session as a 500 and nev
     fixture.destroyAll();
   }
 });
+
+test('checkout gives a session its own worktree of a project kept as a bare repository', { skip: !GIT }, async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-checkout-bare-')));
+  const fixture = wiringFixture();
+  const checkoutOwner = new Session({ id: fixture.parent.id, name: 'parent', path: root, ptySpawn: () => fakePty(), gitWorkspace: createGitWorkspace() });
+  try {
+    const origin = path.join(root, 'origin.git');
+    const seed = path.join(root, 'seed');
+    const bare = path.join(root, 'project.git');
+    fs.mkdirSync(origin);
+    git(['init', '--bare', '-b', 'main'], origin);
+    git(['clone', origin, seed], root);
+    git(['-c', 'user.email=test@example.com', '-c', 'user.name=Checkout Test', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'initial'], seed);
+    git(['push', 'origin', 'HEAD:main'], seed);
+    git(['clone', '--bare', origin, bare], root);
+    fixture.registerParent(checkoutOwner);
+
+    const reply = await fixture.wiring.handle(checkoutOwner, 'checkout', { repo: bare });
+    assert.equal(reply.body.ok, true, JSON.stringify(reply.body));
+    assert.equal(git(['rev-parse', '--is-inside-work-tree'], String(reply.body.path)).trim(), 'true');
+  } finally {
+    checkoutOwner.destroy();
+    fixture.destroyAll();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

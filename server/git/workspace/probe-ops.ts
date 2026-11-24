@@ -1,7 +1,7 @@
 import { isGcCandidateWorktree, sessionIdFromBranch } from '../../core/branch-gc-core.ts';
 import { comparableDirectoryPath } from '../../../shared/canonical-paths.ts';
 import { originTrackingRefProbe, unlandedCommitCountArgs } from '../../core/integration-branch-core.ts';
-import { WORK_PRESENCE_STATUS_ARGS, directoryExists, hasWorkFrom, isDirtyResult, mainWorktreePath, markerFrom, parseWorktreeBranches } from './workspace-context.ts';
+import { REPOSITORY_PROBE_ARGS, WORK_PRESENCE_STATUS_ARGS, directoryExists, hasWorkFrom, isDirtyResult, isRepositoryProbe, mainWorktreePath, markerFrom, parseWorktreeBranches } from './workspace-context.ts';
 import type { GitWorkspaceContext, ListedWorktree, SessionWorktree, WorktreeArgs, WorktreeBranch, WorktreeDirtyProbe, WorktreeProbe } from './workspace-context.ts';
 import type { OriginOps } from './origin-ops.ts';
 
@@ -63,8 +63,7 @@ function createProbeOps(context: GitWorkspaceContext, origin: OriginOps) {
     describe: (entry: WorktreeBranch, probe: () => Promise<WorktreeProbe>, mainWorktree: string | null) => Promise<Described | null>;
   }): Promise<Described[]> {
     const described: Described[] = [];
-    const inside = await run(['rev-parse', '--is-inside-work-tree'], projectPath);
-    if (!inside.ok || inside.out !== 'true') return described;
+    if (!isRepositoryProbe(await run(REPOSITORY_PROBE_ARGS, projectPath))) return described;
     const listed = await listWorktreePorcelain(projectPath);
     if (!listed.ok) return described;
     if (beforeDescribe) await beforeDescribe(listed.out);
