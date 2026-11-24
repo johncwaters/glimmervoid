@@ -173,9 +173,11 @@ function seatCell(label: string, seatId: SeatId): HTMLTableCellElement {
 function buildTable(state: MatchState, turns: readonly EconomyTurn[]): HTMLTableElement {
   const table = el('table', 'wg-table wg-econ-table');
   table.append(el('caption', 'wg-econ-caption', `Economy, turn ${state.tick}`));
+  const usesPoints = state.balance.victory.kind === 'points';
   const headRow = el('tr');
   headRow.append(
     wordHeaderCell('Seat'),
+    ...(usesPoints ? [glyphHeaderCell('points', 'wg-num')] : []),
     glyphHeaderCell('village', 'wg-num'),
     glyphHeaderCell('grain'),
     glyphHeaderCell('ore'),
@@ -199,6 +201,7 @@ function buildTable(state: MatchState, turns: readonly EconomyTurn[]): HTMLTable
     if (seat.status === 'eliminated' || economy.villages === 0) row.dataset.eliminated = 'true';
     row.append(
       seatCell(seat.config.label, seatId),
+      ...(usesPoints ? [el('td', 'wg-num wg-econ-points', String(economy.victoryPoints))] : []),
       el('td', 'wg-num wg-econ-villages', String(economy.villages)),
       stockCell('Grain', economy.grain, economy.grainIncome, economy.warehouseCap),
       stockCell('Ore', economy.ore, economy.oreIncome, economy.warehouseCap),

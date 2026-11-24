@@ -23,6 +23,7 @@ import {
   replayMatchAtTick,
   victoryVillagesFor,
 } from '../shared/wargames/engine.ts';
+import type { MatchState } from '../shared/wargames/engine.ts';
 import type { ReportSigner } from '../shared/wargames/engine.ts';
 import {
   transitionArmy,
@@ -760,45 +761,77 @@ test('4-seat matches seat s1 to s4 on an even dense map, refuse other seat sets,
   assert.equal(analyzeMatch(log, state).seats.length, 4);
 });
 
-test('v6 wins only when a seat holds the majority goal at two turn ends in a row, while v5 ends at the first', () => {
-  const fourSeatSeats = buildTestSpec().seats.slice(0, 4);
-  const playTurnsHoldingGoal = (rulesVersion: 'v5' | 'v6') => {
-    const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion, mapRadius: 4, seats: fourSeatSeats });
-    let state = createInitialMatchState(`wg-held-${rulesVersion}`, 1000, spec);
-    const goal = victoryVillagesFor(spec);
-    let granted = state.villages.filter((village) => village?.owner === 's1').length;
-    for (const village of state.villages) {
-      if (granted >= goal || village === null || village.owner !== null) continue;
-      village.owner = 's1';
-      granted += 1;
-    }
-    const signer = createTestSigner(6);
-    let seq = 0;
-    const nextSeq = () => {
-      seq += 1;
-      return seq;
-    };
-    const apply = (event: WargamesEvent) => {
-      const outcome = applyEvent(state, event, signer);
-      assert.equal(outcome.ok, true);
-      if (outcome.ok) state = outcome.state;
-    };
-    apply({ seq: nextSeq(), type: 'seating_started' });
-    for (const seat of state.seats) apply({ seq: nextSeq(), type: 'seat_connected', seatId: seat.config.seatId });
-    const statusAtTurnEnd: string[] = [];
-    for (let turn = 1; turn <= 2 && state.status === 'running'; turn += 1) {
-      apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
-      apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
-      for (const seat of state.seats) apply({ seq: nextSeq(), type: 'orders_submitted', seatId: seat.config.seatId, orders: [] });
-      apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
-      statusAtTurnEnd.push(state.status);
-      if (state.status === 'running') apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
-    }
-    return { statusAtTurnEnd, winner: state.winnerSeatId };
+const playEmptyTurn = (state: MatchState, signer: ReturnType<typeof createTestSigner>, seqStart: number): { state: MatchState; seq: number } => {
+  let current = state;
+  let seq = seqStart;
+  const apply = (event: Record<string, unknown>) => {
+    seq += 1;
+    const outcome = applyEvent(current, { ...event, seq } as WargamesEvent, signer);
+    assert.equal(outcome.ok, true);
+    if (outcome.ok) current = outcome.state;
   };
+  apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  for (const seat of current.seats) apply({ type: 'orders_submitted', seatId: seat.config.seatId, orders: [] });
+  apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  if (current.status === 'running') apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  return { state: current, seq };
+};
 
-  assert.deepEqual(playTurnsHoldingGoal('v5'), { statusAtTurnEnd: ['finished'], winner: 's1' });
-  assert.deepEqual(playTurnsHoldingGoal('v6'), { statusAtTurnEnd: ['running', 'finished'], winner: 's1' });
+const startFourSeatMatch = (rulesVersion: 'v5' | 'v6') => {
+  const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion, mapRadius: 4, seats: buildTestSpec().seats.slice(0, 4) });
+  let state = createInitialMatchState(`wg-goal-${rulesVersion}`, 1000, spec);
+  const signer = createTestSigner(6);
+  let seq = 0;
+  for (const event of [{ type: 'seating_started' }, ...state.seats.map((seat) => ({ type: 'seat_connected', seatId: seat.config.seatId }))]) {
+    seq += 1;
+    const outcome = applyEvent(state, { ...event, seq } as WargamesEvent, signer);
+    assert.equal(outcome.ok, true);
+    if (outcome.ok) state = outcome.state;
+  }
+  return { spec, state, signer, seq };
+};
+
+test('v5 still ends on its village goal, while v6 scores victory points each turn, counts a beacon only while garrisoned, and ends when a seat reaches the target', () => {
+  const v5 = startFourSeatMatch('v5');
+  let granted = v5.state.villages.filter((village) => village?.owner === 's1').length;
+  for (const village of v5.state.villages) {
+    if (granted >= victoryVillagesFor(v5.spec) || village === null || village.owner !== null) continue;
+    village.owner = 's1';
+    granted += 1;
+  }
+  const v5AfterTurn = playEmptyTurn(v5.state, v5.signer, v5.seq).state;
+  assert.equal(v5AfterTurn.status, 'finished');
+  assert.equal(v5AfterTurn.winnerSeatId, 's1');
+
+  const v6 = startFourSeatMatch('v6');
+  const beacon = v6.state.villages.find((village) => village?.isBeacon);
+  assert.ok(beacon);
+  beacon.owner = 's1';
+  beacon.troops = { raider: 0, guard: 1, envoy: 0 };
+  const homeVillages = v6.state.villages.filter((village) => village?.owner === 's1').length - 1;
+  const firstTurn = playEmptyTurn(v6.state, v6.signer, v6.seq);
+  assert.equal(firstTurn.state.status, 'running');
+  const beaconPoints = v6.state.balance.victory.kind === 'points' ? v6.state.balance.victory.beaconPoints : 0;
+  const firstTurnPoints = firstTurn.state.victoryPointsBySeat;
+  assert.ok(firstTurnPoints.s2 >= homeVillages);
+  assert.deepEqual(firstTurnPoints, { s1: firstTurnPoints.s2 + beaconPoints, s2: firstTurnPoints.s2, s3: firstTurnPoints.s2, s4: firstTurnPoints.s2 });
+  assert.deepEqual(projectSeatState(firstTurn.state, 's2').victoryPointsBySeat, firstTurn.state.victoryPointsBySeat);
+
+  const heldBeacon = firstTurn.state.villages[beacon.hexIndex];
+  assert.ok(heldBeacon);
+  heldBeacon.troops = { raider: 0, guard: 0, envoy: 0 };
+  const secondTurn = playEmptyTurn(firstTurn.state, v6.signer, firstTurn.seq);
+  assert.equal(secondTurn.state.villages[beacon.hexIndex]?.owner, null);
+  const secondTurnGain = secondTurn.state.victoryPointsBySeat.s2 - firstTurnPoints.s2;
+  assert.equal(secondTurn.state.victoryPointsBySeat.s1, firstTurnPoints.s1 + secondTurnGain);
+
+  const target = projectSeatState(secondTurn.state, 's1').victoryPointTarget;
+  assert.ok(target !== null);
+  secondTurn.state.victoryPointsBySeat.s2 = target - secondTurnGain;
+  const thirdTurn = playEmptyTurn(secondTurn.state, v6.signer, secondTurn.seq);
+  assert.equal(thirdTurn.state.status, 'finished');
+  assert.equal(thirdTurn.state.winnerSeatId, 's2');
 });
 
 test('v6 terrain on Large and Huge is seeded, the same around every seat, never under a village and in seat vision, while Standard stays plain', () => {
@@ -820,4 +853,29 @@ test('v6 terrain on Large and Huge is seeded, the same around every seat, never 
   }
   const standard = createInitialMatchState('wg-standard', 0, WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v6', mapRadius: 4 }));
   assert.equal(standard.terrain.every((kind) => kind === 'plain'), true);
+});
+
+test('v6 trade credit never lands in a beacon, so a beacon reverting to unowned takes no goods with it', () => {
+  const match = startFourSeatMatch('v6');
+  let state = match.state;
+  let seq = match.seq;
+  const beacon = state.villages.find((village) => village?.isBeacon);
+  assert.ok(beacon);
+  beacon.owner = 's1';
+  beacon.troops = { raider: 0, guard: 1, envoy: 0 };
+  const apply = (event: Record<string, unknown>) => {
+    seq += 1;
+    const outcome = applyEvent(state, { ...event, seq } as WargamesEvent, match.signer);
+    assert.equal(outcome.ok, true);
+    if (outcome.ok) state = outcome.state;
+  };
+  apply({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  apply({
+    type: 'contract_proposed',
+    seatId: 's2',
+    contractId: 'escrow-to-beacon-holder',
+    terms: { kind: 'escrow', counterparty: 's1', proposerGives: { grain: 150, ore: 0 }, counterpartyGives: { grain: 0, ore: 0 } },
+  });
+  apply({ type: 'contract_accepted', seatId: 's1', contractId: 'escrow-to-beacon-holder' });
+  assert.equal(state.villages[beacon.hexIndex]?.resources.grain, 0);
 });

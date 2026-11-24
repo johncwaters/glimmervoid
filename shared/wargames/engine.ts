@@ -1,7 +1,6 @@
 import {
   BuildingKind,
   WARGAMES_HEX_RADIUS,
-  WARGAMES_OPEN_HEX_COUNT,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_MAX_HEX_RADIUS,
   WARGAMES_MAX_MESSAGES_PER_TICK,
@@ -11,6 +10,8 @@ import {
   WARGAMES_SEAT_IDS,
   WARGAMES_SQUEEZE_TICK,
   WARGAMES_TRAVEL_HEXES_PER_TICK,
+  valueForRadius,
+  victoryPointTargetFor,
   victoryVillagesForBalance,
   wargamesBalanceFor,
 } from '../contracts/wargames.ts';
@@ -47,7 +48,7 @@ import {
   transitionTick,
   transitionVillage,
 } from './machines.ts';
-import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateTerrain, isPassable, marchCostOf, tileKey } from './terrain.ts';
+import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateSparseSites, generateTerrain, isPassable, marchCostOf, tileKey } from './terrain.ts';
 import type { TerrainKind } from './terrain.ts';
 
 export interface ReportSigner {
@@ -70,6 +71,7 @@ interface VillageState {
   resources: ResourceBundle;
   buildings: BuildingLevels;
   troops: TroopCounts;
+  isBeacon: boolean;
 }
 
 interface ArmyState {
@@ -133,6 +135,7 @@ export interface MatchState {
   balance: WargamesBalance;
   goalStreak: GoalStreak;
   terrain: TerrainKind[];
+  victoryPointsBySeat: Record<SeatId, number>;
 }
 
 interface GoalStreak {
@@ -172,6 +175,9 @@ interface SeatStateView {
   ledger: LedgerBreachEntry[];
   winnerSeatId: SeatId | null;
   terrain: { hexIndex: number; kind: TerrainKind }[];
+  sites: { hexIndex: number; isBeacon: boolean }[];
+  victoryPointsBySeat: Record<SeatId, number>;
+  victoryPointTarget: number | null;
 }
 
 const STARTING_GRAIN = 200;
@@ -183,6 +189,7 @@ const WAREHOUSE_PER_LEVEL = 200;
 const BASE_PRODUCTION_PER_TICK = 25;
 const PRODUCTION_PER_LEVEL = 20;
 const INITIAL_LOYALTY = 100;
+const BEACON_GUARDS = 6;
 const MAX_SCOUTS_PER_TICK = 2;
 
 const TROOP_COSTS: Readonly<Record<TroopKind, ResourceBundle>> = Object.freeze({
@@ -384,6 +391,7 @@ function cloneVillage(village: VillageState | null): VillageState | null {
     resources: { ...village.resources },
     buildings: { ...village.buildings },
     troops: { ...village.troops },
+    isBeacon: village.isBeacon,
   };
 }
 
@@ -423,6 +431,7 @@ function cloneState(state: MatchState): MatchState {
     ordersByTick,
     verifications: [...state.verifications],
     goalStreak: { ...state.goalStreak },
+    victoryPointsBySeat: { ...state.victoryPointsBySeat },
   };
 }
 
@@ -580,10 +589,35 @@ function terrainForSpec(spec: WargamesMatchSpec): TerrainKind[] {
   return generateTerrain({ tiles, radius: mapRadius, seatCount: spec.seats.length, seed: spec.seed, protectedKeys });
 }
 
-export function matchVillageCount(spec: WargamesMatchSpec): number {
+interface MapSites {
+  villageCoords: HexCoord[];
+  beaconCoords: HexCoord[];
+}
+
+function sitesForSpec(spec: WargamesMatchSpec, balance: WargamesBalance, terrain: readonly TerrainKind[], seatLayout: SeatLayout): MapSites {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
-  const blockedTiles = terrainForSpec(spec).filter((kind) => !isPassable(kind)).length;
-  return 3 * mapRadius * (mapRadius + 1) + 1 - WARGAMES_OPEN_HEX_COUNT - blockedTiles;
+  const sparseSites = balance.sparseSites;
+  if (sparseSites === null) return { villageCoords: barbarianHexCoords(mapRadius, spec.rulesVersion, seatLayout), beaconCoords: [] };
+  const protectedKeys = new Set<string>(seatLayout.openLandKeys(mapRadius));
+  for (const homeTile of seatLayout.homeHexCoords(mapRadius).flat()) protectedKeys.add(tileKey(homeTile));
+  const { villageKeys, beaconKeys } = generateSparseSites({
+    tiles: hexGridForRadius(mapRadius),
+    seatCount: spec.seats.length,
+    seed: spec.seed,
+    protectedKeys,
+    kinds: terrain,
+    villageShare: valueForRadius(sparseSites.villageShareByRadius, mapRadius),
+    beaconRings: valueForRadius(sparseSites.beaconRingsByRadius, mapRadius),
+  });
+  const coordOf = (key: string): HexCoord => {
+    const [q, r] = key.split(',').map(Number);
+    return { q, r };
+  };
+  return { villageCoords: [...villageKeys].map(coordOf), beaconCoords: [...beaconKeys].map(coordOf) };
+}
+
+export function matchVillageCount(spec: WargamesMatchSpec): number {
+  return villageCountOf(createInitialMatchState('village-count', 0, spec));
 }
 
 export function victoryVillagesFor(spec: WargamesMatchSpec): number {
@@ -591,10 +625,10 @@ export function victoryVillagesFor(spec: WargamesMatchSpec): number {
 }
 
 export function villageCountOf(state: Pick<MatchState, 'villages'>): number {
-  return state.villages.filter((village) => village !== null).length;
+  return state.villages.filter((village) => village !== null && !village.isBeacon).length;
 }
 
-export function victoryVillagesOf(state: Pick<MatchState, 'villages' | 'balance'>): number {
+function victoryVillagesOf(state: Pick<MatchState, 'villages' | 'balance'>): number {
   return victoryVillagesForBalance(state.balance, villageCountOf(state));
 }
 
@@ -606,6 +640,7 @@ export function createInitialMatchState(
   matchId: string,
   createdAtMs: number,
   spec: WargamesMatchSpec,
+  balance: WargamesBalance = wargamesBalanceFor(spec.rulesVersion),
 ): MatchState {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const hexes = hexGridForRadius(mapRadius);
@@ -627,10 +662,26 @@ export function createInitialMatchState(
         resources: { grain: STARTING_GRAIN, ore: STARTING_ORE },
         buildings: { farm: 1, mine: 1, barracks: 1, wall: 0 },
         troops: { raider: 6, guard: 6, envoy: 1 },
+        isBeacon: false,
       };
     }
   }
-  for (const coord of barbarianHexCoords(mapRadius, spec.rulesVersion, seatLayout)) {
+  const sites = sitesForSpec(spec, balance, terrain, seatLayout);
+  for (const coord of sites.beaconCoords) {
+    const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
+    if (hexIdx < 0 || villages[hexIdx] !== null) continue;
+    villages[hexIdx] = {
+      hexIndex: hexIdx,
+      owner: null,
+      productionState: 'producing',
+      loyalty: INITIAL_LOYALTY,
+      resources: { grain: 0, ore: 0 },
+      buildings: { farm: 0, mine: 0, barracks: 0, wall: 0 },
+      troops: { raider: 0, guard: BEACON_GUARDS, envoy: 0 },
+      isBeacon: true,
+    };
+  }
+  for (const coord of sites.villageCoords) {
     const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
     if (hexIdx < 0 || villages[hexIdx] !== null || !isPassable(terrain[hexIdx])) continue;
     villages[hexIdx] = {
@@ -641,6 +692,7 @@ export function createInitialMatchState(
       resources: { grain: BARBARIAN_GRAIN, ore: BARBARIAN_ORE },
       buildings: { farm: 1, mine: 1, barracks: 0, wall: 1 },
       troops: { raider: 3, guard: 4, envoy: 0 },
+      isBeacon: false,
     };
   }
   const orderedSeats = seatIds.map((seatId) => {
@@ -687,9 +739,10 @@ export function createInitialMatchState(
     nextReportNumber: 1,
     nextMessageNumber: 1,
     lastSeq: 0,
-    balance: wargamesBalanceFor(spec.rulesVersion),
+    balance,
     goalStreak: { seatId: null, turns: 0 },
     terrain,
+    victoryPointsBySeat: Object.fromEntries(seatIds.map((seatId) => [seatId, 0])) as Record<SeatId, number>,
   };
 }
 
@@ -726,7 +779,7 @@ function deductSeatResources(state: MatchState, seatId: SeatId, amount: Resource
 }
 
 function creditSeatResources(state: MatchState, seatId: SeatId, amount: ResourceBundle): void {
-  const owned = state.villages.filter((village): village is VillageState => village !== null && village.owner === seatId);
+  const owned = state.villages.filter((village): village is VillageState => village !== null && !village.isBeacon && village.owner === seatId);
   if (owned.length === 0) return;
   let remainingGrain = amount.grain;
   let remainingOre = amount.ore;
@@ -759,9 +812,47 @@ export function villageYieldOf(village: Pick<VillageState, 'buildings'>): Resour
 function villagesOwnedBy(state: MatchState, seatId: SeatId): number {
   let count = 0;
   for (const village of state.villages) {
-    if (village && village.owner === seatId) count += 1;
+    if (village && !village.isBeacon && village.owner === seatId) count += 1;
   }
   return count;
+}
+
+function beaconsHeldBy(state: MatchState, seatId: SeatId): number {
+  let count = 0;
+  for (const village of state.villages) {
+    if (village && village.isBeacon && village.owner === seatId && totalTroops(village.troops) > 0) count += 1;
+  }
+  return count;
+}
+
+function bonusTilesAround(state: MatchState, hexIndex: number, kind: TerrainKind): number {
+  const center = state.hexes[hexIndex];
+  let count = state.terrain[hexIndex] === kind ? 1 : 0;
+  for (const direction of AXIAL_DIRECTIONS) {
+    const neighborIndex = hexIndexAt(center.q + direction.q, center.r + direction.r, state.spec.mapRadius);
+    if (neighborIndex >= 0 && state.terrain[neighborIndex] === kind) count += 1;
+  }
+  return count;
+}
+
+export function villageIncomeOf(state: MatchState, village: VillageState): ResourceBundle {
+  if (village.isBeacon) return { grain: 0, ore: 0 };
+  const gain = villageYieldOf(village);
+  const productionMultiplier = isLastVillage(state, village) ? state.balance.lastVillageProductionMultiplier : 1;
+  return {
+    grain: gain.grain * productionMultiplier + bonusTilesAround(state, village.hexIndex, 'fertile') * BONUS_TILE_YIELD,
+    ore: gain.ore * productionMultiplier + bonusTilesAround(state, village.hexIndex, 'ore') * BONUS_TILE_YIELD,
+  };
+}
+
+function seatIncomeOf(state: MatchState, seatId: SeatId): number {
+  let income = 0;
+  for (const village of state.villages) {
+    if (!village || village.owner !== seatId || village.productionState !== 'producing') continue;
+    const villageIncome = villageIncomeOf(state, village);
+    income += villageIncome.grain + villageIncome.ore;
+  }
+  return income;
 }
 
 function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wallLevel: number, defenseMultiplier: number): { attackPower: number; defensePower: number } {
@@ -1204,13 +1295,11 @@ function resolveTick(
 
   for (const village of state.villages) {
     if (!village || village.productionState !== 'producing') continue;
+    if (village.isBeacon) continue;
     const cap = warehouseCapOf(village);
-    const gain = villageYieldOf(village);
-    const productionMultiplier = isLastVillage(state, village) ? state.balance.lastVillageProductionMultiplier : 1;
-    const grainBonus = state.terrain[village.hexIndex] === 'fertile' ? BONUS_TILE_YIELD : 0;
-    const oreBonus = state.terrain[village.hexIndex] === 'ore' ? BONUS_TILE_YIELD : 0;
-    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + gain.grain * productionMultiplier + grainBonus);
-    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + gain.ore * productionMultiplier + oreBonus);
+    const income = villageIncomeOf(state, village);
+    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + income.grain);
+    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + income.ore);
   }
 
   for (const village of state.villages) {
@@ -1261,7 +1350,7 @@ function resolveTick(
     for (const order of seat.sealedOrders) {
       if (order.kind === 'build') {
         const village = state.villages[order.hexIndex];
-        if (!village || village.owner !== seat.config.seatId || builtHexes.has(order.hexIndex)) continue;
+        if (!village || village.isBeacon || village.owner !== seat.config.seatId || builtHexes.has(order.hexIndex)) continue;
         const cost = state.balance.buildingCosts[order.building];
         if (village.resources.grain < cost.grain || village.resources.ore < cost.ore) continue;
         if (village.buildings[order.building] >= 10) continue;
@@ -1467,7 +1556,61 @@ function resolveTick(
   }
 }
 
+function settleBeaconsAndVictoryPoints(state: MatchState): void {
+  const victory = state.balance.victory;
+  if (victory.kind !== 'points') return;
+  for (const village of state.villages) {
+    if (!village || !village.isBeacon || village.owner === null || totalTroops(village.troops) > 0) continue;
+    village.owner = null;
+    village.loyalty = INITIAL_LOYALTY;
+  }
+  for (const seat of state.seats) {
+    if (seat.status === 'eliminated') continue;
+    const seatId = seat.config.seatId;
+    const economyPoints = victory.economyIncomePerPoint > 0 ? Math.floor(seatIncomeOf(state, seatId) / victory.economyIncomePerPoint) : 0;
+    state.victoryPointsBySeat[seatId] += villagesOwnedBy(state, seatId) + beaconsHeldBy(state, seatId) * victory.beaconPoints + economyPoints;
+  }
+}
+
+export function victoryPointTargetOf(state: Pick<MatchState, 'balance' | 'spec'>): number | null {
+  return victoryPointTargetFor(state.balance, state.spec.mapRadius, state.spec.seats.length);
+}
+
+export interface SeatStanding {
+  score: number;
+  goal: number;
+  isPoints: boolean;
+}
+
+export function seatStandingOf(state: MatchState, seatId: SeatId): SeatStanding {
+  const pointTarget = victoryPointTargetOf(state);
+  if (pointTarget !== null) return { score: state.victoryPointsBySeat[seatId] ?? 0, goal: pointTarget, isPoints: true };
+  return { score: villagesOwnedBy(state, seatId), goal: victoryVillagesOf(state), isPoints: false };
+}
+
+function standingSeats(state: MatchState): SeatId[] {
+  return state.seats.filter((seat) => seat.status !== 'eliminated').map((seat) => seat.config.seatId);
+}
+
+function bestSeatByPoints(state: MatchState, seatIds: readonly SeatId[]): SeatId {
+  const ranked = seatIds.map((seatId) => ({
+    seatId,
+    points: state.victoryPointsBySeat[seatId],
+    villages: villagesOwnedBy(state, seatId),
+    income: seatIncomeOf(state, seatId),
+  }));
+  ranked.sort((left, right) => right.points - left.points || right.villages - left.villages || right.income - left.income);
+  return ranked[0].seatId;
+}
+
+function pointsWinnerAfterTurn(state: MatchState, target: number): SeatId | null {
+  const seatsAtTarget = standingSeats(state).filter((seatId) => state.victoryPointsBySeat[seatId] >= target);
+  return seatsAtTarget.length > 0 ? bestSeatByPoints(state, seatsAtTarget) : null;
+}
+
 function goalWinnerAfterTurn(state: MatchState): SeatId | null {
+  const pointTarget = victoryPointTargetOf(state);
+  if (pointTarget !== null) return pointsWinnerAfterTurn(state, pointTarget);
   const winVillages = victoryVillagesOf(state);
   const seatsAtGoal = matchSeatIds(state).filter((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
   const holdTurns = state.balance.victory.kind === 'heldShare' ? state.balance.victory.holdTurns : 1;
@@ -1483,6 +1626,10 @@ function goalWinnerAfterTurn(state: MatchState): SeatId | null {
 }
 
 function determineWinnerAtLimit(state: MatchState): SeatId {
+  if (state.balance.victory.kind === 'points') {
+    const standing = standingSeats(state);
+    return bestSeatByPoints(state, standing.length > 0 ? standing : matchSeatIds(state));
+  }
   let bestSeat: SeatId = state.seats[0].config.seatId;
   let bestVillages = -1;
   let bestTroops = -1;
@@ -1778,6 +1925,7 @@ export function applyEvent(
       const reported = transitionTick(state.phase, 'resolution_complete');
       if (!reported.ok) return reported;
       state.phase = reported.state;
+      settleBeaconsAndVictoryPoints(state);
       const winSeat = goalWinnerAfterTurn(state);
       if (winSeat !== null) {
         const finished = transitionMatch(state.status, 'match_won');
@@ -1915,5 +2063,8 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     ledger: [...state.ledger],
     winnerSeatId: state.winnerSeatId,
     terrain: state.terrain.flatMap((kind, hexIndex) => (kind === 'plain' ? [] : [{ hexIndex, kind }])),
+    sites: state.villages.flatMap((village) => (village === null ? [] : [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon }])),
+    victoryPointsBySeat: { ...state.victoryPointsBySeat },
+    victoryPointTarget: victoryPointTargetOf(state),
   };
 }

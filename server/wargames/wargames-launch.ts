@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { WargamesMatchSpec, victoryHoldTurnsFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { WargamesMatchSpec, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
 import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
@@ -104,7 +104,22 @@ interface WargamesLauncherDeps {
   seatRootDir?: string;
 }
 
+function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string | null {
+  const balance = wargamesBalanceFor(spec.rulesVersion);
+  const victory = balance.victory;
+  const target = victoryPointTargetFor(balance, spec.mapRadius, spec.seats.length);
+  if (victory.kind !== 'points' || target === null) return null;
+  const economyRule = victory.economyIncomePerPoint > 0 ? ` plus 1 VP per ${victory.economyIncomePerPoint} income per tick,` : '';
+  return [
+    `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${economyRule} and VP are never lost.`,
+    `The first seat to reach ${target} VP wins; otherwise the seat with the most VP after tick ${spec.maxTicks} wins (ties: more villages, then more income). get_state shows every seat's VP in victoryPointsBySeat and the target in victoryPointTarget.`,
+    'Beacons are the sites with isBeacon true in get_state sites: they produce nothing and cannot be built on; capture them like a village, and a Beacon left with no troops goes back to unowned at the end of the tick. get_state sites lists every village and Beacon on the map, even ones you cannot see into.',
+  ].join(' ');
+}
+
 function objectiveLine(spec: WargamesMatchSpecType): string {
+  const pointsLine = victoryPointLine(spec, `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`);
+  if (pointsLine !== null) return pointsLine;
   const winVillages = victoryVillagesFor(spec);
   const holdTurns = victoryHoldTurnsFor(spec);
   const clock = `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`;
@@ -138,7 +153,7 @@ function terrainLines(spec: WargamesMatchSpecType): string[] {
     'Terrain (get_state lists every non-plain hex in terrain):',
     '- Mountain and Lake hexes are impassable and hold no village; armies march around them, so they make fronts and chokepoints.',
     `- Forest costs 2 of an army's 2 hexes of movement per tick to enter, and a village on Forest defends at ${FOREST_DEFENSE_MULTIPLIER}x power.`,
-    `- A village on Fertile land makes +${BONUS_TILE_YIELD} grain per tick; a village on an Ore deposit makes +${BONUS_TILE_YIELD} ore per tick.`,
+    `- A village makes +${BONUS_TILE_YIELD} grain per tick for each Fertile hex on or next to it, and +${BONUS_TILE_YIELD} ore per tick for each Ore deposit on or next to it.`,
     '- Terrain is symmetric: every seat faces the same terrain around its home.',
   ];
 }

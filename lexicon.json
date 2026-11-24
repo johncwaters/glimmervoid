@@ -1569,6 +1569,14 @@
     {
       "name": "shallow module",
       "definition": "A code map module whose top-level symbols referenced from other modules number more than the maxShownSymbols tunable and at least as many as it keeps to itself, read from a SCIP index; codemap check refuses a branch that makes one"
+    },
+    {
+      "name": "beacon",
+      "definition": "A Wargames v6 site worth victory points while its owner keeps troops inside; it produces nothing, cannot be built on, and goes back to unowned when left empty at turn end"
+    },
+    {
+      "name": "victory points",
+      "definition": "The Wargames v6 score (VP) each seat gains at every turn end from villages, held beacons and income, never lost; the first seat to its target wins"
     }
   ],
   "retired": [

@@ -1,4 +1,4 @@
-import { createLineIcon } from '../svg-dom.ts';
+import { createLineIcon, TROPHY_ICON_PATH } from '../svg-dom.ts';
 import {
   BUILD_HAMMER_PATH,
   BUILDING_GLYPH_PATHS,
@@ -22,7 +22,8 @@ export type EconGlyphKey =
   | 'envoy'
   | 'field'
   | 'built'
-  | 'taken';
+  | 'taken'
+  | 'points';
 
 interface EconGlyph {
   readonly path: string;
@@ -56,6 +57,7 @@ export const ECON_GLYPHS: Readonly<Record<EconGlyphKey, EconGlyph>> = Object.fre
   field: { path: MARCH_ARROW_PATH, color: 'var(--text-dim)', label: 'In the field' },
   built: { path: BUILD_HAMMER_PATH, color: 'var(--text-dim)', label: 'Levels built' },
   taken: { path: CONTROL_FLAG_PATH, color: 'var(--accent)', label: 'Levels taken' },
+  points: { path: TROPHY_ICON_PATH, color: 'var(--text-head)', label: 'Victory points' },
 });
 
 export function econGlyph(key: EconGlyphKey, size = 12, accessibleLabel: string | null = ECON_GLYPHS[key].label): SVGSVGElement {

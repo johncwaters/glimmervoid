@@ -17,7 +17,6 @@ const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_R
 const WARGAMES_MAX_TICKS = 40;
 const WARGAMES_TICK_DEADLINE_SECONDS = 60;
 export const WARGAMES_SQUEEZE_TICK = 25;
-export const WARGAMES_OPEN_HEX_COUNT = 6;
 export const WARGAMES_MAP_SIZES = [
   { name: 'Standard', mapRadius: 4, maxTicks: 25 },
   { name: 'Large', mapRadius: 6, maxTicks: 40 },
@@ -132,7 +131,18 @@ export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;
 type WargamesVictoryRule =
   | { readonly kind: 'flat'; readonly villages: number }
   | { readonly kind: 'share'; readonly share: number; readonly minimumVillages: number }
-  | { readonly kind: 'heldShare'; readonly share: number; readonly holdTurns: number };
+  | { readonly kind: 'heldShare'; readonly share: number; readonly holdTurns: number }
+  | {
+    readonly kind: 'points';
+    readonly beaconPoints: number;
+    readonly economyIncomePerPoint: number;
+    readonly targetByRadius: Readonly<Record<number, Readonly<Record<WargamesSeatCount, number>>>>;
+  };
+
+interface WargamesSparseSites {
+  readonly villageShareByRadius: Readonly<Record<number, number>>;
+  readonly beaconRingsByRadius: Readonly<Record<number, readonly number[]>>;
+}
 
 export interface WargamesBalance {
   readonly envoyLoyaltyDrain: number;
@@ -145,6 +155,7 @@ export interface WargamesBalance {
   readonly lastVillageProductionMultiplier: number;
   readonly lastVillageDefenseMultiplier: number;
   readonly victory: WargamesVictoryRule;
+  readonly sparseSites: WargamesSparseSites | null;
 }
 
 const V1_BUILDING_COSTS = Object.freeze({
@@ -165,6 +176,7 @@ const V1_BALANCE: WargamesBalance = Object.freeze({
   lastVillageProductionMultiplier: 1,
   lastVillageDefenseMultiplier: 1,
   victory: Object.freeze({ kind: 'flat', villages: 12 }),
+  sparseSites: null,
 });
 
 const V5_BALANCE: WargamesBalance = Object.freeze({
@@ -179,7 +191,20 @@ const V6_BALANCE: WargamesBalance = Object.freeze({
   captureRazeFraction: 0.5,
   barbarianGuardGrowthPerTurn: 1,
   barbarianGuardCap: 10,
-  victory: Object.freeze({ kind: 'heldShare', share: 0.51, holdTurns: 2 }),
+  victory: Object.freeze({
+    kind: 'points',
+    beaconPoints: 4,
+    economyIncomePerPoint: 200,
+    targetByRadius: Object.freeze({
+      4: Object.freeze({ 4: 150, 6: 130 }),
+      6: Object.freeze({ 4: 460, 6: 355 }),
+      8: Object.freeze({ 4: 1035, 6: 815 }),
+    }),
+  }),
+  sparseSites: Object.freeze({
+    villageShareByRadius: Object.freeze({ 4: 0.25, 6: 0.2, 8: 0.18 }),
+    beaconRingsByRadius: Object.freeze({ 4: Object.freeze([0]), 6: Object.freeze([0, 3]), 8: Object.freeze([0, 4]) }),
+  }),
 });
 
 const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
@@ -199,7 +224,21 @@ export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victor
   const victory = balance.victory;
   if (victory.kind === 'flat') return victory.villages;
   if (victory.kind === 'share') return Math.max(victory.minimumVillages, Math.round(villageCount * victory.share));
+  if (victory.kind === 'points') return villageCount;
   return Math.ceil(villageCount * victory.share);
+}
+
+export function victoryPointTargetFor(balance: Pick<WargamesBalance, 'victory'>, mapRadius: number, seatCount: number): number | null {
+  const victory = balance.victory;
+  if (victory.kind !== 'points') return null;
+  if (!isAllowedSeatCount(seatCount)) return null;
+  return valueForRadius(victory.targetByRadius, mapRadius)[seatCount];
+}
+
+export function valueForRadius<Value>(valueByRadius: Readonly<Record<number, Value>>, mapRadius: number): Value {
+  const radii = Object.keys(valueByRadius).map(Number).sort((left, right) => left - right);
+  const closestRadius = radii.filter((radius) => radius <= mapRadius).pop() ?? radii[0];
+  return valueByRadius[closestRadius];
 }
 
 export function victoryHoldTurnsFor(spec: Pick<WargamesMatchSpec, 'rulesVersion'>): number {
@@ -531,6 +570,7 @@ export const WargamesMatchSummary = z.strictObject({
     modelDisplay: z.string(),
     status: SeatStatus,
     villagesHeld: z.number().int().min(0),
+    victoryPoints: z.number().int().min(0).default(0),
     breaches: z.number().int().min(0).default(0),
   })),
 });

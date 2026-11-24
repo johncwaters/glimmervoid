@@ -137,3 +137,45 @@ export function generateTerrain({ tiles, radius, seatCount, seed, protectedKeys 
   }
   return plainTerrain(tiles.length);
 }
+
+interface SparseSiteRequest {
+  tiles: readonly TerrainTile[];
+  seatCount: number;
+  seed: number;
+  protectedKeys: ReadonlySet<string>;
+  kinds: readonly TerrainKind[];
+  villageShare: number;
+  beaconRings: readonly number[];
+}
+
+const BEACON_SALT = 101;
+const SPARSE_VILLAGE_SALT = 211;
+
+export function generateSparseSites({ tiles, seatCount, seed, protectedKeys, kinds, villageShare, beaconRings }: SparseSiteRequest): {
+  villageKeys: Set<string>;
+  beaconKeys: Set<string>;
+} {
+  const group = symmetryGroupFor(seatCount);
+  const openTiles = tiles.filter((tile, index) => isPassable(kinds[index]) && !protectedKeys.has(tileKey(tile)));
+  const beaconKeys = new Set<string>();
+  for (const ring of beaconRings) {
+    const ringTiles = openTiles.filter((tile) => tile.ring === ring);
+    const pickedOrbit = ringTiles
+      .map((tile) => orbitRepresentative(tile, group))
+      .sort((left, right) => hashToUnit(seed, BEACON_SALT + ring, left) - hashToUnit(seed, BEACON_SALT + ring, right) || left.localeCompare(right))[0];
+    if (pickedOrbit === undefined) continue;
+    for (const tile of ringTiles) {
+      if (orbitRepresentative(tile, group) === pickedOrbit) beaconKeys.add(tileKey(tile));
+    }
+  }
+  const villageOrbits = [...new Set(openTiles.map((tile) => orbitRepresentative(tile, group)))]
+    .filter((orbit) => !beaconKeys.has(orbit))
+    .sort((left, right) => hashToUnit(seed, SPARSE_VILLAGE_SALT, left) - hashToUnit(seed, SPARSE_VILLAGE_SALT, right) || left.localeCompare(right));
+  const chosenOrbits = new Set(villageOrbits.slice(0, Math.round(villageOrbits.length * villageShare)));
+  const villageKeys = new Set<string>();
+  for (const tile of openTiles) {
+    const key = tileKey(tile);
+    if (!beaconKeys.has(key) && chosenOrbits.has(orbitRepresentative(tile, group))) villageKeys.add(key);
+  }
+  return { villageKeys, beaconKeys };
+}

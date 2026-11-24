@@ -17,8 +17,8 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { matchSeatIds, projectSeatState, victoryVillagesOf, villageCountOf } from '#shared/wargames/engine.ts';
-import type { MatchState } from '#shared/wargames/engine.ts';
+import { matchSeatIds, projectSeatState, seatStandingOf, victoryPointTargetOf, villageCountOf } from '#shared/wargames/engine.ts';
+import type { MatchState, SeatStanding } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -521,7 +521,7 @@ function tallySeats(state: MatchState): Map<SeatId, SeatTally> {
     if (!village || village.owner === null) continue;
     const entry = counts.get(village.owner);
     if (!entry) continue;
-    entry.villages += 1;
+    if (!village.isBeacon) entry.villages += 1;
     entry.raider += village.troops.raider;
     entry.guard += village.troops.guard;
     entry.envoy += village.troops.envoy;
@@ -555,7 +555,6 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
   for (const seat of state.seats) {
     const seatId = seat.config.seatId;
     const tally = tallies.get(seatId) ?? { villages: 0, troops: { raider: 0, guard: 0, envoy: 0 }, totalUnits: 0, grain: 0, ore: 0 };
-    const ownedVillages = tally.villages;
 
     const isEliminated = seat.status === 'eliminated';
     const banner = createPressable('wg-faction-banner');
@@ -575,7 +574,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
       statusLabel,
     );
 
-    const winVillages = victoryVillagesOf(state);
+    const standing = seatStandingOf(state, seatId);
     const head = el('div', 'wg-faction-head');
     const nameWrap = el('span', 'wg-faction-name');
     const swatch = el('span', 'wg-faction-swatch');
@@ -584,8 +583,8 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     const headRight = el('span', 'wg-faction-name');
     headRight.append(
       statusIcon,
-      createWargamesGlyph(WARGAMES_GLYPH_PATHS.territory, 12, SEAT_COLORS[seatId], 'Villages held toward victory'),
-      el('span', 'wg-faction-villages', `${ownedVillages}/${winVillages}`),
+      standingGlyph(standing, SEAT_COLORS[seatId]),
+      el('span', 'wg-faction-villages', `${standing.score}/${standing.goal}`),
     );
     head.append(nameWrap, headRight);
 
@@ -594,7 +593,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
 
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');
-    const winRatio = Math.min(100, Math.round((ownedVillages / winVillages) * 100));
+    const winRatio = Math.min(100, Math.round((standing.score / standing.goal) * 100));
     fill.style.width = `${winRatio}%`;
     track.append(fill);
 
@@ -764,6 +763,9 @@ function buildEndgameCard(state: MatchState): HTMLElement {
   const ranked = [...state.seats].sort((left, right) => {
     if (left.config.seatId === state.winnerSeatId) return -1;
     if (right.config.seatId === state.winnerSeatId) return 1;
+    const leftScore = seatStandingOf(state, left.config.seatId).score;
+    const rightScore = seatStandingOf(state, right.config.seatId).score;
+    if (rightScore !== leftScore) return rightScore - leftScore;
     const leftCount = tallies.get(left.config.seatId)?.villages ?? 0;
     const rightCount = tallies.get(right.config.seatId)?.villages ?? 0;
     if (rightCount !== leftCount) return rightCount - leftCount;
@@ -821,19 +823,18 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     const seat = ranked[rankIndex];
     if (!seat) continue;
     const seatId = seat.config.seatId;
-    const tally = tallies.get(seatId) ?? { villages: 0, troops: { raider: 0, guard: 0, envoy: 0 }, totalUnits: 0, grain: 0, ore: 0 };
     const slot = el('div', 'wg-podium-slot');
     slot.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
     slot.dataset.rank = String(rankIndex + 1);
 
-    const winVillages = victoryVillagesOf(state);
+    const standing = seatStandingOf(state, seatId);
     const topRow = el('div', 'wg-faction-head');
     const rankLabel = el('span', 'wg-faction-name');
     if (rankIndex === 0) {
       rankLabel.append(createWargamesGlyph(TROPHY_ICON_PATH, 14, SEAT_COLORS[seatId], 'First place'));
     }
     rankLabel.append(el('span', 'wg-podium-rank', rankIndex === 0 ? '#1 Champion' : `#${rankIndex + 1}`));
-    topRow.append(rankLabel, el('span', 'wg-podium-score', `${tally.villages}/${winVillages}`));
+    topRow.append(rankLabel, el('span', 'wg-podium-score', `${standing.score}/${standing.goal}`));
 
     const nameRow = el('div', 'wg-faction-name');
     const swatch = el('span', 'wg-faction-swatch');
@@ -847,7 +848,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     );
     const track = el('div', 'wg-win-track');
     const fill = el('div', 'wg-win-fill');
-    fill.style.width = `${Math.min(100, Math.round((tally.villages / winVillages) * 100))}%`;
+    fill.style.width = `${Math.min(100, Math.round((standing.score / standing.goal) * 100))}%`;
     track.append(fill);
 
     slot.append(topRow, nameRow, modelText, track);
@@ -925,15 +926,15 @@ function buildEndgameCard(state: MatchState): HTMLElement {
 
     const modelCell = el('td', 'wg-card-meta', formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay));
 
-    const winVillages = victoryVillagesOf(state);
+    const standing = seatStandingOf(state, seatId);
     const territoryCell = el('td');
     const territoryWrap = el('div', 'wg-leaderboard-bar');
     const track = el('div', 'wg-win-track');
     track.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
     const fill = el('div', 'wg-win-fill');
-    fill.style.width = `${Math.min(100, Math.round((tally.villages / winVillages) * 100))}%`;
+    fill.style.width = `${Math.min(100, Math.round((standing.score / standing.goal) * 100))}%`;
     track.append(fill);
-    territoryWrap.append(track, el('span', 'wg-faction-villages', `${tally.villages}/${winVillages}`));
+    territoryWrap.append(track, el('span', 'wg-faction-villages', `${standing.score}/${standing.goal}`));
     territoryCell.append(territoryWrap);
 
     const armyCell = el('td');
@@ -1283,8 +1284,15 @@ function updateLiveShell(state: MatchState): HTMLElement {
   return shell.wrap;
 }
 
+function standingGlyph(standing: SeatStanding, color: string): SVGSVGElement {
+  if (standing.isPoints) return createWargamesGlyph(TROPHY_ICON_PATH, 12, color, 'Victory points toward the target');
+  return createWargamesGlyph(WARGAMES_GLYPH_PATHS.territory, 12, color, 'Villages held toward victory');
+}
+
 function goalText(state: MatchState): string {
-  const winVillages = victoryVillagesOf(state);
+  const pointTarget = victoryPointTargetOf(state);
+  if (pointTarget !== null) return `VP ${Math.max(0, ...Object.values(state.victoryPointsBySeat))} of ${pointTarget}`;
+  const winVillages = seatStandingOf(state, state.seats[0].config.seatId).goal;
   const holdTurns = victoryHoldTurnsFor(state.spec);
   if (holdTurns <= 1) return `Goal ${winVillages} villages`;
   return `Goal ${winVillages} of ${villageCountOf(state)} villages, hold ${holdTurns} turns`;

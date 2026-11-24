@@ -58,6 +58,7 @@ function ownerLabelOf(state: MatchState, owner: SeatId | null): string {
 }
 
 function summaryOf(state: MatchState, village: VillageState): string {
+  if (village.isBeacon) return `Beacon ${village.hexIndex}, ${village.owner === null ? 'unheld' : seatLabelOf(state, village.owner)}: raiders ${village.troops.raider}, guards ${village.troops.guard}, envoys ${village.troops.envoy}`;
   const income = incomeOf(village);
   const cap = warehouseCapOf(village);
   const { farm, mine, wall } = village.buildings;
@@ -72,7 +73,29 @@ function chip(key: EconGlyphKey, text: string): HTMLElement {
   return wrap;
 }
 
+function fillBeaconDetail(detail: HTMLElement, state: MatchState, village: VillageState): void {
+  const head = el('span', 'wg-lens-detail-head');
+  const swatch = el('span', 'wg-faction-swatch');
+  swatch.style.background = village.owner === null ? 'var(--text-dim)' : SEAT_COLORS[village.owner];
+  head.append(swatch, el('span', 'wg-lens-detail-owner', village.owner === null ? 'Beacon, unheld' : `Beacon, ${seatLabelOf(state, village.owner)}`), el('span', 'wg-econ-muted', `#${village.hexIndex}`));
+  const pointsRow = el('span', 'wg-lens-detail-group');
+  const beaconPoints = state.balance.victory.kind === 'points' ? state.balance.victory.beaconPoints : 0;
+  pointsRow.append(el('span', 'wg-lens-detail-key', 'Worth'), chip('points', `+${beaconPoints} VP a turn while held`));
+  const troopRow = el('span', 'wg-lens-detail-group');
+  troopRow.append(
+    el('span', 'wg-lens-detail-key', 'Troops'),
+    chip('raider', String(village.troops.raider)),
+    chip('guard', String(village.troops.guard)),
+    chip('envoy', String(village.troops.envoy)),
+  );
+  detail.replaceChildren(head, pointsRow, troopRow);
+}
+
 function fillDetail(detail: HTMLElement, state: MatchState, village: VillageState): void {
+  if (village.isBeacon) {
+    fillBeaconDetail(detail, state, village);
+    return;
+  }
   const income = incomeOf(village);
   const cap = warehouseCapOf(village);
   const head = el('span', 'wg-lens-detail-head');
@@ -229,8 +252,7 @@ export function createEconomyLens(onSelectHex: (hexIndex: number) => void, isBoa
       const tile = state.hexes[village.hexIndex];
       if (!tile) continue;
       const center = hexCenter(tile.q, tile.r);
-      const income = incomeOf(village);
-      appendIncomeBar(markLayer, center.x, center.y, income, maxVisibleIncome, village.owner === null);
+      if (!village.isBeacon) appendIncomeBar(markLayer, center.x, center.y, incomeOf(village), maxVisibleIncome, village.owner === null);
       villageByHexIndex.set(village.hexIndex, village);
       const hit = hitFor(village.hexIndex);
       hit.setAttribute('points', hitPolygonPoints(center.x, center.y));

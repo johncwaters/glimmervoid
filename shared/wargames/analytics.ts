@@ -8,6 +8,7 @@ import type {
   WargamesEvent,
   WargamesMatchSummary,
 } from '../contracts/wargames.ts';
+import { wargamesBalanceFor } from '../contracts/wargames.ts';
 import type { MatchState } from './engine.ts';
 import { canonicalReportString, createInitialMatchState, matchSeatIds, seatIndexOf } from './engine.ts';
 
@@ -34,7 +35,7 @@ export function summarizeMatch(state: MatchState, finishedAtMs: number | null, e
     breachCounts.set(seatId, 0);
   }
   for (const village of state.villages) {
-    if (village && village.owner !== null) {
+    if (village && !village.isBeacon && village.owner !== null) {
       villageCounts.set(village.owner, (villageCounts.get(village.owner) ?? 0) + 1);
     }
   }
@@ -65,6 +66,7 @@ export function summarizeMatch(state: MatchState, finishedAtMs: number | null, e
       modelDisplay: seat.config.modelDisplay,
       status: seat.status,
       villagesHeld: villageCounts.get(seat.config.seatId) ?? 0,
+      victoryPoints: state.victoryPointsBySeat[seat.config.seatId] ?? 0,
       breaches: breachCounts.get(seat.config.seatId) ?? 0,
     })),
   };
@@ -265,7 +267,7 @@ export function analyzeMatch(
   const villageCounts = new Map<SeatId, number>();
   for (const seatId of matchSeatIds(state)) villageCounts.set(seatId, 0);
   for (const village of state.villages) {
-    if (village && village.owner !== null) {
+    if (village && !village.isBeacon && village.owner !== null) {
       villageCounts.set(village.owner, (villageCounts.get(village.owner) ?? 0) + 1);
     }
   }
@@ -305,9 +307,11 @@ function pairwiseScore(
   seatA: WargamesMatchSummary['seats'][number],
   seatB: WargamesMatchSummary['seats'][number],
   winnerSeatId: SeatId | null,
+  isRankedByPoints: boolean,
 ): number {
   if (seatA.seatId === winnerSeatId) return 1;
   if (seatB.seatId === winnerSeatId) return 0;
+  if (isRankedByPoints && seatA.victoryPoints !== seatB.victoryPoints) return seatA.victoryPoints > seatB.victoryPoints ? 1 : 0;
   if (seatA.villagesHeld > seatB.villagesHeld) return 1;
   if (seatB.villagesHeld > seatA.villagesHeld) return 0;
   return 0.5;
@@ -342,7 +346,7 @@ function updateModelElo(
       const ratingA = next.get(seatA.modelDisplay)?.elo ?? ELO_DEFAULT;
       const ratingB = next.get(seatB.modelDisplay)?.elo ?? ELO_DEFAULT;
       const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-      const scoreA = pairwiseScore(seatA, seatB, summary.winnerSeatId);
+      const scoreA = pairwiseScore(seatA, seatB, summary.winnerSeatId, wargamesBalanceFor(summary.rulesVersion).victory.kind === 'points');
       const deltaA = (ELO_K_FACTOR / (summary.seats.length - 1)) * (scoreA - expectedA);
       deltas.set(seatA.modelDisplay, (deltas.get(seatA.modelDisplay) ?? 0) + deltaA);
       deltas.set(seatB.modelDisplay, (deltas.get(seatB.modelDisplay) ?? 0) - deltaA);

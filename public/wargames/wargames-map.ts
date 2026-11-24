@@ -100,10 +100,11 @@ export const ORE_GLYPH_PATH = 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z';
 const MOUNTAIN_GLYPH_PATH = 'M 2 13 L 6 5 L 9 10 L 11 7 L 14 13 Z';
 const LAKE_GLYPH_PATH = 'M 2 6 Q 4 4 6 6 T 10 6 T 14 6 M 2 10 Q 4 8 6 10 T 10 10 T 14 10';
 const FOREST_GLYPH_PATH = 'M 8 2 L 13 10 H 3 Z M 8 10 V 14';
+const BEACON_GLYPH_PATH = 'M 6 14 L 7 7 H 9 L 10 14 Z M 8 2 V 4.5 M 3.5 4 L 5.5 5.5 M 12.5 4 L 10.5 5.5';
 const TERRAIN_GLYPHS: Readonly<Record<Exclude<TerrainKind, 'plain'>, { path: string; color: string; label: string }>> = Object.freeze({
   mountain: { path: MOUNTAIN_GLYPH_PATH, color: 'var(--text-dim)', label: 'Mountain' },
   lake: { path: LAKE_GLYPH_PATH, color: 'var(--text-muted)', label: 'Lake' },
-  forest: { path: FOREST_GLYPH_PATH, color: 'var(--state-done)', label: 'Forest' },
+  forest: { path: FOREST_GLYPH_PATH, color: 'var(--text-dim)', label: 'Forest' },
   fertile: { path: GRAIN_GLYPH_PATH, color: 'var(--state-waiting)', label: 'Fertile land' },
   ore: { path: ORE_GLYPH_PATH, color: 'var(--state-monitoring)', label: 'Ore deposit' },
 });
@@ -113,7 +114,36 @@ function emptyHexFill(isBlockedTerrain: boolean, isFogged: boolean): string {
   return isFogged ? 'var(--bg)' : 'var(--bg-surface)';
 }
 
-const TERRAIN_TINT_OPACITY = '0.14';
+const TERRAIN_TINT_OPACITY = '0.1';
+const UNOWNED_VILLAGE_GLYPH_PATH = 'M 3 8 L 8 3.5 L 13 8 V 13 H 3 Z M 6.5 13 V 10 H 9.5 V 13';
+const BEACON_RING_SCALE = 0.74;
+
+function renderBeacon(slot: Pick<HexNodeSlot, 'terrainGroup' | 'centerX' | 'centerY'>, owner: SeatId | null, isQuietSite: boolean): void {
+  const ringColor = owner === null ? 'var(--text-head)' : SEAT_COLORS[owner];
+  slot.terrainGroup.append(createSvgShape('polygon', {
+    points: hexPolygonPoints(slot.centerX, slot.centerY, BEACON_RING_SCALE),
+    fill: 'none',
+    stroke: ringColor,
+    'stroke-width': '2',
+    'stroke-dasharray': '4 2',
+  }));
+  const glyph = isQuietSite || owner === null
+    ? createMapStrokeGlyph(BEACON_GLYPH_PATH, slot.centerX, slot.centerY, 22, ringColor, '2')
+    : createMapStrokeGlyph(BEACON_GLYPH_PATH, slot.centerX, slot.centerY - 15, 13, ringColor, '2');
+  glyph.setAttribute('aria-label', owner === null ? 'Beacon, unheld' : 'Beacon, held');
+  slot.terrainGroup.append(glyph);
+}
+
+function renderSiteGlyph(slot: Pick<HexNodeSlot, 'terrainGroup' | 'centerX' | 'centerY'>, village: { isBeacon: boolean; owner: SeatId | null }, isQuietSite: boolean): void {
+  if (village.isBeacon) {
+    renderBeacon(slot, village.owner, isQuietSite);
+    return;
+  }
+  if (!isQuietSite) return;
+  const glyph = createMapStrokeGlyph(UNOWNED_VILLAGE_GLYPH_PATH, slot.centerX, slot.centerY, 16, 'var(--text-dim)', '1.6');
+  glyph.setAttribute('aria-label', 'Village');
+  slot.terrainGroup.append(glyph);
+}
 
 function renderTerrainGlyph(container: SVGElement, centerX: number, centerY: number, kind: TerrainKind, isGlyphCentered: boolean): void {
   container.replaceChildren();
@@ -121,7 +151,7 @@ function renderTerrainGlyph(container: SVGElement, centerX: number, centerY: num
   const glyph = TERRAIN_GLYPHS[kind];
   const isBlocked = kind === 'mountain' || kind === 'lake';
   if (!isBlocked) {
-    container.append(createSvgShape('polygon', { points: hexPolygonPoints(centerX, centerY), fill: glyph.color, 'fill-opacity': TERRAIN_TINT_OPACITY, stroke: 'none' }));
+    container.append(createSvgShape('polygon', { points: hexPolygonPoints(centerX, centerY), fill: 'var(--text-muted)', 'fill-opacity': TERRAIN_TINT_OPACITY, stroke: 'none' }));
   }
   const glyphElement = isGlyphCentered
     ? createMapStrokeGlyph(glyph.path, centerX, centerY, 18, glyph.color, '2')
@@ -352,12 +382,12 @@ export function hexCenter(axialQ: number, axialR: number): { x: number; y: numbe
   };
 }
 
-function hexPolygonPoints(centerX: number, centerY: number): string {
+function hexPolygonPoints(centerX: number, centerY: number, scale = 1): string {
   const points: string[] = [];
   for (let corner = 0; corner < 6; corner += 1) {
     const angle = (Math.PI / 180) * (60 * corner - 30);
-    const pointX = centerX + HEX_INNER_RADIUS * Math.cos(angle);
-    const pointY = centerY + HEX_INNER_RADIUS * Math.sin(angle);
+    const pointX = centerX + HEX_INNER_RADIUS * scale * Math.cos(angle);
+    const pointY = centerY + HEX_INNER_RADIUS * scale * Math.sin(angle);
     points.push(`${pointX.toFixed(1)},${pointY.toFixed(1)}`);
   }
   return points.join(' ');
@@ -1280,8 +1310,8 @@ export function createWargamesMap(
     const isDenseMap = state.spec.mapRadius >= TERRAIN_MIN_RADIUS;
     const terrainKind = state.terrain[index] ?? 'plain';
     slot.indexLabel.setAttribute('visibility', isDenseMap && !isSelected ? 'hidden' : 'visible');
-    const isQuietHex = village === null || (isDenseMap && village.owner === null && !isSelected);
-    renderTerrainGlyph(slot.terrainGroup, slot.centerX, slot.centerY, terrainKind, isQuietHex);
+    renderTerrainGlyph(slot.terrainGroup, slot.centerX, slot.centerY, terrainKind, village === null);
+    if (village) renderSiteGlyph(slot, village, isDenseMap && village.owner === null && !isSelected);
 
     if (village) {
       const isBarren = village.productionState === 'barren';
