@@ -1,10 +1,9 @@
-import os from 'node:os';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { CLIENT_LOG_SCOPE_MAX_CHARS, CLIENT_LOG_TEXT_MAX_CHARS } from '../../../shared/contracts/control-messages.ts';
 import { DashboardTelemetryReport } from '../../../shared/contracts/telemetry.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import type { ControlHandlerDeps } from '../../control-handlers.ts';
-import { sanitizeOneLine, showHomeAsTilde } from '../../core/text-core.ts';
+import { sanitizeOneLine } from '../../core/text-core.ts';
 import type { ControlContext } from '../control-context.ts';
 import { sendError } from '../control-context.ts';
 import type { ControlHandlerGroup, ControlHandlerTable, InvalidReplyTable } from '../core/control-dispatch-core.ts';
@@ -43,11 +42,6 @@ function createServerHandlers(_context: ControlContext, deps: ControlHandlerDeps
     const report = DashboardTelemetryReport.safeParse(msg);
     if (!report.success) return;
     noteStarHintReport(report.data);
-    if (report.data.event === 'notice_shown') {
-      const { message, ...noticeFields } = report.data.properties;
-      deps.telemetry?.capture?.('notice_shown', { ...noticeFields, message: showHomeAsTilde(message, os.homedir()) });
-      return;
-    }
     deps.telemetry?.capture?.(report.data.event, report.data.properties);
   }
 

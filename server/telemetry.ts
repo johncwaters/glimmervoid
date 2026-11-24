@@ -1,17 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import type { ClientErrorReport } from '../shared/contracts/control-messages.ts';
 import { PendingCrashReport, TELEMETRY_EVENT_SCHEMAS, TelemetryState } from '../shared/contracts/telemetry.ts';
 import type { ExceptionProperties, SetupSnapshot, TelemetryEventName, TelemetryEventProperties, WatcherRollup } from '../shared/contracts/telemetry.ts';
 import {
   buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties,
-  buildPersonProperties, claudeAccountUuidOf, codexUserIdOf, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, POSTHOG_INGEST_HOST_ENV, isIngestOverrideIgnored, nodeMajorVersion, resolveProjectToken,
+  buildPersonProperties, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, POSTHOG_INGEST_HOST_ENV, isIngestOverrideIgnored, nodeMajorVersion, resolveProjectToken,
   telemetryBatchUrl, telemetryFlagsUrl,
 } from './core/telemetry-core.ts';
-import type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
-import { codexHomes, listClaudeGlobalConfigPathCandidates } from './core/claude-config-paths-core.ts';
+import type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment } from './core/telemetry-core.ts';
 import type { UsageGenerationRollupRow } from './usage/core/usage-entry-core.ts';
 import { createJsonStateStore, loadJsonStateFile, writeJsonAtomic, writeJsonAtomicSync } from './json-file.ts';
 import { createLaneLog } from './lanes/lane-log.ts';
@@ -30,7 +28,6 @@ const REMOTE_SWITCH_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_REPORTED_EXCEPTION_FINGERPRINTS = 256;
 const CRASH_MONITOR_EVENT = 'uncaughtExceptionMonitor';
 const PERSON_PROPERTY_EVENTS: ReadonlySet<TelemetryEventName> = new Set(['app_started', 'app_active']);
-const NO_ACCOUNT_IDS: AccountIds = Object.freeze({ claudeAccountUuid: null, codexUserId: null });
 
 interface QueuedEvent {
   event: TelemetryEventName;
@@ -69,7 +66,6 @@ interface TelemetryOptions {
   getActiveSessionCount?: () => number;
   takeWatcherRollup?: () => WatcherRollup;
   takeWorstLoopLagP99Ms?: () => number | null;
-  readAccountIds?: () => Promise<AccountIds>;
   readSetupSnapshot?: () => Promise<SetupSnapshot>;
   onInstallIdChange?: () => void;
   logger?: LaneLogger | null;
@@ -201,16 +197,6 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     enqueue(event, parsed.data);
   }
 
-  async function readAccountIdsOrNone(): Promise<AccountIds> {
-    if (!options.readAccountIds) return NO_ACCOUNT_IDS;
-    try {
-      return await options.readAccountIds();
-    } catch (error) {
-      log.warnOnce('account-ids-failed', 'could not read account ids', { error: errorKind(error) });
-      return NO_ACCOUNT_IDS;
-    }
-  }
-
   async function readSetupSnapshotOrNone(maxWaitMs: number): Promise<Partial<SetupSnapshot>> {
     if (!options.readSetupSnapshot) return {};
     let timer: NodeJS.Timeout | undefined;
@@ -231,8 +217,8 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   async function withInstallProperties(batch: QueuedEvent[], setupSnapshotMaxWaitMs: number): Promise<QueuedEvent[]> {
     if (!batch.some((queued) => PERSON_PROPERTY_EVENTS.has(queued.event))) return batch;
-    const [accountIds, setupSnapshot] = await Promise.all([readAccountIdsOrNone(), readSetupSnapshotOrNone(setupSnapshotMaxWaitMs)]);
-    const personProperties = buildPersonProperties(accountIds, firstSeen);
+    const setupSnapshot = await readSetupSnapshotOrNone(setupSnapshotMaxWaitMs);
+    const personProperties = buildPersonProperties(firstSeen);
     return batch.map((queued) => (PERSON_PROPERTY_EVENTS.has(queued.event) ? { ...queued, properties: { ...setupSnapshot, ...queued.properties, ...personProperties } } : queued));
   }
 
@@ -491,34 +477,5 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   };
 }
 
-interface AccountIdReaderOptions {
-  env: NodeJS.ProcessEnv;
-  homeDir: string;
-  readTextFile?: (filePath: string) => Promise<string | null>;
-}
-
-function readTextFileOrNull(filePath: string): Promise<string | null> {
-  return fs.promises.readFile(filePath, 'utf8').catch(() => null);
-}
-
-function createAccountIdReader({ env, homeDir, readTextFile = readTextFileOrNull }: AccountIdReaderOptions): () => Promise<AccountIds> {
-  async function readClaudeConfigText(): Promise<string | null> {
-    const [legacyConfigPath, currentConfigPath] = listClaudeGlobalConfigPathCandidates(env, homeDir);
-    return await readTextFile(legacyConfigPath) ?? await readTextFile(currentConfigPath);
-  }
-
-  return async () => {
-    const codexHome = codexHomes(env, homeDir)[0];
-    const [claudeConfigText, codexAuthText] = await Promise.all([
-      readClaudeConfigText(),
-      codexHome ? readTextFile(path.join(codexHome, 'auth.json')) : Promise.resolve(null),
-    ]);
-    return {
-      claudeAccountUuid: claudeConfigText === null ? null : claudeAccountUuidOf(claudeConfigText),
-      codexUserId: codexAuthText === null ? null : codexUserIdOf(codexAuthText),
-    };
-  };
-}
-
-export { createAccountIdReader, createTelemetry };
+export { createTelemetry };
 export type { Telemetry, TelemetryOptions };

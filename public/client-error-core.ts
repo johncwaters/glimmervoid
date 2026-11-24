@@ -103,10 +103,9 @@ export type NoticeShownReport = {
   kind?: InstallFailureKind;
 };
 
-function noticeShownProperties({ notice, message, tone, source, kind }: NoticeShownReport) {
+function noticeShownProperties({ notice, tone, source, kind }: Omit<NoticeShownReport, 'message'>) {
   return {
     notice,
-    message: message.slice(0, TELEMETRY_TEXT_MAX_CHARS),
     ...(tone ? { tone } : {}),
     ...(source ? { source: source.slice(0, TELEMETRY_TEXT_MAX_CHARS) } : {}),
     ...(kind ? { kind } : {}),
@@ -115,13 +114,13 @@ function noticeShownProperties({ notice, message, tone, source, kind }: NoticeSh
 
 function createNoticeTelemetryReporter(sendReport: SendReport): { report: (report: NoticeShownReport) => void; flushUnsent: () => void } {
   const holdingSender = createHoldingSender(sendReport);
-  const limitNotice = noticeShownProperties({ notice: 'header-error-notice', source: 'dashboard', message: `More than ${MAX_REPORTS_PER_PAGE} distinct notices on this page; later ones were not sent.`, tone: 'failed' });
+  const limitNotice = noticeShownProperties({ notice: 'header-error-notice', source: 'notice-limit', tone: 'failed' });
   const sendLimitNotice = () => holdingSender.sendOrHold({ type: 'dashboard-telemetry', event: 'notice_shown', properties: limitNotice });
   const sendOnce = createOncePerKeySender(holdingSender.sendOrHold, MAX_REPORTS_PER_PAGE, sendLimitNotice);
   return {
     report(report) {
       const properties = noticeShownProperties(report);
-      sendOnce(`${properties.notice}\n${properties.message}`, { type: 'dashboard-telemetry', event: 'notice_shown', properties });
+      sendOnce(JSON.stringify(properties), { type: 'dashboard-telemetry', event: 'notice_shown', properties });
     },
     flushUnsent: holdingSender.flushUnsent,
   };

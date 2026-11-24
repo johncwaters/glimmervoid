@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Usage data no longer reads your Claude Code or Codex login.** Glimmervoid used to read `~/.claude.json` and `~/.codex/auth.json` to send a hash of your account ids, so installs of one account counted together. Usage data no longer reads either file or sends any account hash, and clears the hashes it sent before from its PostHog profile. Dashboard notice reports also no longer send the notice text, which could name a session, folder or branch. The privacy page, Settings > Privacy and the README now say exactly what is sent, and promise the data is never sold or used for marketing.
+
 ### Added
 
 - **Usage data now records failed dependency installs.** When usage data is on, the server sends a `dependency_install_failed` event each time a new worktree's dependencies fail to install in a folder, with the tool (npm or pnpm), its major version and the cause, such as a refused argument, an outdated lockfile or a network error. It never sends the folder, the repository, package names or the install output. This lets the maintainers see a breaking npm or pnpm release the day it ships.

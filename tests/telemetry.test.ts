@@ -6,9 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { POSTHOG_PROJECT_TOKEN, telemetryBatchUrl } from '../server/core/telemetry-core.ts';
-import { createAccountIdReader, createTelemetry, } from '../server/telemetry.ts';
+import { createTelemetry } from '../server/telemetry.ts';
 import type { TelemetryOptions } from '../server/telemetry.ts';
-import { TELEMETRY_BASE_PROPERTY_KEYS } from '../shared/contracts/telemetry.ts';
+import { TELEMETRY_BASE_PROPERTY_KEYS, TELEMETRY_EVENT_SCHEMAS } from '../shared/contracts/telemetry.ts';
 
 interface SentBatch {
   url: string;
@@ -88,31 +88,20 @@ test('a batch posts the project token, the install id and an allowlisted event',
   );
 });
 
-test('app_started carries only hashes of the Claude and Codex account ids, never the login files', async () => {
-  const claudeAccountUuid = '3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
-  const codexUserId = 'user-AbC123xyz';
-  const idTokenClaims = { email: 'alice@example.com', name: 'Alice', 'https://api.openai.com/auth': { user_id: codexUserId, chatgpt_account_id: 'workspace-1' } };
-  const idToken = `header.${Buffer.from(JSON.stringify(idTokenClaims)).toString('base64url')}.signature`;
-  const homeDir = '/home/alice';
-  const filesByPath: Record<string, string> = {
-    [path.join(homeDir, '.claude.json')]: JSON.stringify({ oauthAccount: { accountUuid: claudeAccountUuid, emailAddress: 'alice@example.com', displayName: 'Alice' } }),
-    [path.join(homeDir, '.codex', 'auth.json')]: JSON.stringify({ tokens: { id_token: idToken, access_token: 'secret-access', refresh_token: 'secret-refresh', account_id: 'workspace-1' } }),
-  };
-  const readAccountIds = createAccountIdReader({ env: {}, homeDir, readTextFile: (filePath) => Promise.resolve(filesByPath[filePath] ?? null) });
+test('telemetry never links an install to an agent account and never sends notice text', async () => {
   const { sent, fetchFn } = recordingFetch();
-  const { telemetry } = buildTelemetry({ fetchFn, readAccountIds });
+  const { telemetry } = buildTelemetry({ fetchFn });
   telemetry.capture('app_started', { is_first_start: true });
-  telemetry.capture('session_started', { adapter: 'codex' });
   await telemetry.flush();
   await telemetry.stop();
-  const [appStarted, sessionStarted] = sent[0].body.batch;
-  assert.deepEqual(Object.keys(appStarted.properties.$set as object).sort(), ['claude_account_hash', 'codex_user_hash']);
+  const [appStarted] = sent[0].body.batch;
+  assert.equal(appStarted.properties.$set, undefined);
+  assert.deepEqual(appStarted.properties.$unset, ['claude_account_hash', 'codex_user_hash']);
   assert.deepEqual(appStarted.properties.$set_once, { first_app_version: '9.9.9', first_os_platform: 'linux', first_install_flavor: 'npm-global' });
-  assert.equal(sessionStarted.properties.$set, undefined);
-  const body = JSON.stringify(sent[0].body);
-  for (const secret of [claudeAccountUuid, codexUserId, 'alice@example.com', 'Alice', 'secret-access', 'secret-refresh', 'workspace-1']) {
-    assert.equal(body.includes(secret), false, `${secret} never leaves the machine`);
-  }
+  const accountHash = 'a'.repeat(64);
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.app_started.safeParse({ is_first_start: true, $set: { claude_account_hash: accountHash } }).success, false);
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.app_started.safeParse({ is_first_start: true, $set: { codex_user_hash: accountHash } }).success, false);
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.notice_shown.safeParse({ notice: 'header-error-notice', message: 'Could not open ~/work/repo' }).success, false);
 });
 
 test('deleting data sends one request under the old id even with telemetry off, then rotates the id', async () => {

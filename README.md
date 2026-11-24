@@ -148,7 +148,7 @@ Glimmervoid creates `~/.glimmervoid/config.json` on first run. Most settings liv
 
 Worktrees branch from each repo's default branch (`origin/HEAD`, then `main`, then `master`) unless you set `worktree.integrationBranch`.
 
-Glimmervoid sends anonymous usage and error data by default. [Telemetry](docs/configuration.md#telemetry) lists exactly what is sent and how to turn it off.
+Glimmervoid sends usage and error data under a random install id by default, never sold and never used for marketing. Turn it off in Settings > Privacy or with `DO_NOT_TRACK=1`; [Telemetry](docs/configuration.md#telemetry) lists exactly what is sent.
 
 ## How status detection works
 

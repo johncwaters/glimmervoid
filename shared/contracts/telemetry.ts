@@ -38,10 +38,9 @@ export const MAX_AI_MODEL_LENGTH = 128;
 
 const nonNegativeInteger = z.number().int().nonnegative();
 const boundedText = z.string().max(MAX_TEXT_LENGTH);
-const sha256Hex = z.string().regex(/^[0-9a-f]{64}$/);
 
 export const PersonProperties = z.object({
-  $set: z.object({ claude_account_hash: sha256Hex.optional(), codex_user_hash: sha256Hex.optional() }).strict(),
+  $unset: z.tuple([z.literal('claude_account_hash'), z.literal('codex_user_hash')]),
   $set_once: z.object({ first_app_version: boundedText, first_os_platform: boundedText, first_install_flavor: boundedText }).strict(),
 }).strict();
 
@@ -166,7 +165,6 @@ const OperatorActionProperties = z.object({
 const NoticeShownProperties = z.object({
   notice: NoticeId,
   tone: NoticeTone.optional(),
-  message: boundedText,
   source: boundedText.optional(),
   kind: InstallFailureKind.optional(),
 }).strict();
@@ -286,7 +284,7 @@ export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMAS;
 export type TelemetryEventProperties<EventName extends TelemetryEventName> = z.infer<(typeof TELEMETRY_EVENT_SCHEMAS)[EventName]>;
 
 export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description: string }[] = Object.freeze([
-  { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: a one-way hash of the Claude Code account id and the Codex user id when logged in, and the first version, platform and install flavor seen. Also carries the setup: how GitHub is reached (gh, a connection made in Settings, or neither), how many agent accounts were added beyond the login each agent already has and for which kinds of agent, whether Telegram is set up, how many packs are listed and whether the session sandbox is on. Never a login, account name or path.' },
+  { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: the first version, platform and install flavor seen. Also carries the setup: how GitHub is reached (gh, a connection made in Settings, or neither), how many agent accounts were added beyond the login each agent already has and for which kinds of agent, whether Telegram is set up, how many packs are listed and whether the session sandbox is on. Never a login, account name or path.' },
   { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live, how many probes the watcher was handed and how many of them it covers, how many watcher nudges arrived since the last one, and the worst one-minute event loop delay (99th percentile, in milliseconds) the server saw since the last one, and the same person properties and setup as app_started.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },
@@ -297,7 +295,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'view_shown', description: 'A dashboard tab opened, on desktop or phone, with which tab. Sent on every open.' },
   { name: 'operator_action', description: 'An action taken in the Usage, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
-  { name: 'notice_shown', description: 'A notice the dashboard showed under its header: which notice (an error or warning, an available update, old reports left in a repository, or the telemetry notice), whether it was an error or a warning, and its text, cut to 512 characters, with your home folder shown as ~. An error or warning can name a session, folder or branch, and also carries which part of the dashboard raised it and, for a dependency install warning, the failure kind: tool-missing, failed or timed-out. Each distinct notice text is sent once per page load.' },
+  { name: 'notice_shown', description: 'A notice the dashboard showed under its header: which notice (an error or warning, an available update, old reports left in a repository, or the telemetry notice), whether it was an error or a warning, which part of the dashboard raised it and, for a dependency install warning, the failure kind: tool-missing, failed or timed-out. Never the notice text. Each distinct notice is sent once per page load.' },
   { name: 'board_graphics_reset', description: 'A whiteboard lost its graphics context, got it back, or found the browser blocking graphics: which of those, how many losses this page has had, the time since the last one and how long the board stayed blank, how many terminal and media textures were on the graphics card, the board canvas size, whether the page was visible, the browser\'s GPU name and its context error text. Never the board or its contents.' },
   { name: 'dashboard_reconnected', description: 'The dashboard got its connection back after losing or replacing it: what started it (a long hide, a resume, a frozen page, a late or missed heartbeat, a slow handshake, a closed connection or a cloud machine waking), how long until connected, how long the handshake that won took and how many it took, whether the dashboard is on this machine, a tailnet or another host, how long the tab was hidden, and whether a cloud machine was waking. Never the host name or URL.' },
   { name: 'board_opened', description: 'The server opened a whiteboard for the dashboard: how long it took in all, how many tiles it sent, whether a saved layout let it skip laying the board out, which step was slowest and how long that took, and the server memory in use. Never the board, its id or its contents.' },

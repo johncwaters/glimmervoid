@@ -17,10 +17,6 @@ const POSTHOG_INGEST_HOST_ENV = 'GLIMMERVOID_POSTHOG_INGEST_HOST';
 const POSTHOG_PROJECT_TOKEN = 'phc_s68t9vWmeGcrWkx4NkLQaEiVZ9sMBxv8GjQBbAcix2Sf';
 
 const MAX_STACK_LENGTH = 16384;
-const ACCOUNT_HASH_SALT = 'glimmervoid-account-hash-v1';
-const OPENAI_AUTH_CLAIM = 'https://api.openai.com/auth';
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OPENAI_USER_ID_PATTERN = /^user-[A-Za-z0-9]+$/;
 
 const FIRST_RUN_NOTICE = [
   'Glimmervoid collects usage data to help us improve it. No prompts or project information are collected.',
@@ -383,55 +379,15 @@ function decideIsDevInstall(
   return comparablePath(homeDir) !== comparablePath(defaultHomeDir);
 }
 
-interface AccountIds {
-  claudeAccountUuid: string | null;
-  codexUserId: string | null;
-}
-
 interface FirstSeen {
   appVersion: string;
   osPlatform: string;
   installFlavor: string;
 }
 
-function parseJsonOrNull(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function fieldOf(value: unknown, key: string): unknown {
-  if (typeof value !== 'object' || value === null || !(key in value)) return undefined;
-  return Reflect.get(value, key);
-}
-
-function hashAccountId(rawAccountId: string): string {
-  return createHash('sha256').update(`${ACCOUNT_HASH_SALT}:${rawAccountId}`).digest('hex');
-}
-
-function claudeAccountUuidOf(claudeConfigText: string): string | null {
-  const accountUuid = fieldOf(fieldOf(parseJsonOrNull(claudeConfigText), 'oauthAccount'), 'accountUuid');
-  return typeof accountUuid === 'string' && UUID_PATTERN.test(accountUuid) ? accountUuid : null;
-}
-
-function codexUserIdOf(codexAuthText: string): string | null {
-  const idToken = fieldOf(fieldOf(parseJsonOrNull(codexAuthText), 'tokens'), 'id_token');
-  if (typeof idToken !== 'string') return null;
-  const encodedClaims = idToken.split('.')[1];
-  if (!encodedClaims) return null;
-  const claims = parseJsonOrNull(Buffer.from(encodedClaims, 'base64url').toString('utf8'));
-  const userId = fieldOf(fieldOf(claims, OPENAI_AUTH_CLAIM), 'user_id');
-  return typeof userId === 'string' && OPENAI_USER_ID_PATTERN.test(userId) ? userId : null;
-}
-
-function buildPersonProperties(accountIds: AccountIds, firstSeen: FirstSeen): PersonProperties {
+function buildPersonProperties(firstSeen: FirstSeen): PersonProperties {
   return {
-    $set: {
-      ...(accountIds.claudeAccountUuid ? { claude_account_hash: hashAccountId(accountIds.claudeAccountUuid) } : {}),
-      ...(accountIds.codexUserId ? { codex_user_hash: hashAccountId(accountIds.codexUserId) } : {}),
-    },
+    $unset: ['claude_account_hash', 'codex_user_hash'],
     $set_once: {
       first_app_version: firstSeen.appVersion.slice(0, MAX_TEXT_LENGTH),
       first_os_platform: firstSeen.osPlatform.slice(0, MAX_TEXT_LENGTH),
@@ -465,8 +421,8 @@ function nodeMajorVersion(nodeVersion: string): number {
 
 export {
   FIRST_RUN_NOTICE, POSTHOG_INGEST_HOST_ENV, POSTHOG_PROJECT_TOKEN,
-  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, buildSetupSnapshot, claudeAccountUuidOf,
-  classifySessionExit, codexUserIdOf, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isIngestOverrideIgnored, isTelemetryForcedOff, nodeMajorVersion,
+  adapterBucket, buildAiGenerationEvents, buildBrowserExceptionProperties, buildExceptionProperties, buildPersonProperties, buildSetupSnapshot,
+  classifySessionExit, decideIsDevInstall, decideRemoteTelemetryState, decideTelemetryConsent, exceptionFingerprint, isIngestOverrideIgnored, isTelemetryForcedOff, nodeMajorVersion,
   parsePosthogReleaseId, resolveProjectToken, telemetryBatchUrl, telemetryFlagsUrl,
 };
-export type { AccountIds, RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };
+export type { RemoteTelemetryState, TelemetryConfig, TelemetryEnvironment };

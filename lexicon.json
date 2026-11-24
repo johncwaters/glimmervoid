@@ -1649,6 +1649,10 @@
     {
       "name": "standard",
       "definition": "The smallest Wargames map size preset (radius 4, 25 turns), below Large and Huge"
+    },
+    {
+      "name": "telemetry",
+      "definition": "The usage and error events Glimmervoid sends to its own PostHog project under a random install id, which the operator turns off in Settings > Privacy, with GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true"
     }
   ],
   "retired": [

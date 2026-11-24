@@ -94,3 +94,7 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 - Both servers are heartbeat-reaped: focus suppression and the Telegram zero-connections gate COUNT open connections, so a half-open socket silently blocks the channel of last resort. Every such gate reads `viewerControlClientCount`.
 - Resize is arbitrated by ACTIVE VIEWER: a claim wins and a departure hands the PTY to the most recent survivor, since last-write-wins left a desktop stuck at a phone's column count forever.
 - ANSI is parsed in the browser for display and in the server keeper for attach, because raw bytes are only correct at the width that produced them.
+
+### Telemetry
+
+- Never copy a T3 Code (pingdotgg/t3code) design choice. Telemetry sends no account id, hash of one, value read from another tool's login, or free notice text: a hash under a public salt still links an install to its account. The strict schemas in `shared/contracts/telemetry.ts` refuse those fields.

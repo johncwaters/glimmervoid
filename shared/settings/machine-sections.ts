@@ -330,7 +330,7 @@ export const MACHINE_PRIVACY: SettingsSection = {
   settings: [
     {
       id: 'telemetry-enabled', path: 'telemetry.enabled', title: 'Send usage data',
-      description: 'Helps us improve Glimmervoid. Sent under a random install id, never with prompts or terminal output; the error text the dashboard shows in its header line is sent and can name a session, folder or branch. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
+      description: 'Helps us improve Glimmervoid. Sent under a random install id, never with prompts, paths, notice text or terminal output, and never sold. GLIMMERVOID_TELEMETRY=0, DO_NOT_TRACK=1 or CI=true turn it off regardless.',
       control: 'toggle', keywords: ['telemetry', 'analytics', 'tracking', 'opt out'], defaultValue: true, ...MACHINE_NOW,
     },
     {

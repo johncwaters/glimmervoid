@@ -254,9 +254,9 @@ const telemetryDeletionButton = button({
 const telemetryDeletionStatus = createActionStatus('settings-telemetry-deletion-status');
 
 const TELEMETRY_SENT_DETAIL = [
-  'Sent: version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, per session token counts, models and estimated costs from the usage scan, and a salted one-way hash of your Claude and Codex account ids so installs of one account count together.',
-  'Also sent: the text of errors the dashboard shows in its header line, with your home folder shown as ~, which can name a session, folder or branch.',
-  'Never sent: prompts, project information, other error messages, paths, repository or branch names, objectives, terminal output, emails or names.',
+  'Sent: version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, and per session token counts, models and estimated costs from the usage scan.',
+  'Never sent: prompts, project information, error messages from Glimmervoid or an agent, notice text, paths on your machine, repository or branch names, objectives, terminal output, account ids or hashes of them, emails, names, or anything read from another tool\'s login.',
+  'Used only to improve Glimmervoid: never sold, never used for marketing or sales.',
   'Delete my data asks for everything sent under this install to be erased and starts a new install id.',
 ];
 

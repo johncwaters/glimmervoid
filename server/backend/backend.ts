@@ -88,7 +88,7 @@ import type { RepositoryTrackingReports } from '../../shared/post-turn-leftovers
 import { errorMessage } from '../../shared/text.ts';
 import { chooseRefinedSessionName } from '../../session/core/task-title-core.ts';
 import { assetRoot, bundled, examplePacksDir, packageRoot, refuseUnstableSelfLaunches, resolveFnoxPath } from '../runtime-paths.ts';
-import { createAccountIdReader, createTelemetry } from '../telemetry.ts';
+import { createTelemetry } from '../telemetry.ts';
 import { createSessionPreviews } from '../session/session-previews.ts';
 import { createCodemapService } from '../codemap/codemap-wiring.ts';
 import { createCodemapClient } from '../codemap/codemap-client.ts';
@@ -196,7 +196,6 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     getActiveSessionCount: () => sessions.size + agentSessions.size,
     takeWatcherRollup: () => watcherLink.takeRollup(),
     takeWorstLoopLagP99Ms: () => outcomes.takeWorstLoopLagP99Ms(),
-    readAccountIds: createAccountIdReader({ env: process.env, homeDir: os.homedir() }),
     readSetupSnapshot: async () => buildSetupSnapshot(configStore.config, (await githubSource.current()).kind),
     onInstallIdChange: () => broadcastSettings?.(),
   });
