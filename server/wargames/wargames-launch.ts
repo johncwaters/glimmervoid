@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
 import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
@@ -242,7 +242,7 @@ function landLines(spec: WargamesMatchSpecType): string[] {
   return [
     '',
     'Land, Improvements & Founding (get_state territory lists every land hex with its owner, improvement and level):',
-    '- Standing armies: an army that marches to an open hex (no village or Beacon, not Mountain or Lake) stays there, holding it, until you order it on. Order it with a march whose fromHexIndex is that hex; send it to one of your villages to bring it home. It still counts against its home village\'s troop cap. get_state visibleArmies shows standing armies with status "arrived".',
+    `- Standing armies: an army that marches to an open hex (no village or Beacon, not Mountain or Lake) stays there, holding it, until you order it on. Order it with a march whose fromHexIndex is that hex; send it to one of your villages to bring it home. It still counts against its home village's troop cap. get_state visibleArmies shows standing armies with status "${ArmyStatus.enum.standing}".`,
     `- Claiming: an army that has held an open hex through the end of a whole tick after the one it arrived in makes that hex your land, if the hex touches land you already hold (one of your villages or your land hexes) and no other seat stands there. Each tick a seat claims at most ${territory.claimsPerVillagePerTurn} new hex per village it holds. When two seats arrive at an empty hex in the same tick, both turn back.`,
     '- Fighting on land: an army that marches onto a hex where another seat\'s army stands attacks it (your attack against their defense times any Forest bonus, no Wall). If the defenders fall, your strongest seat\'s survivors stand there; if not, your army is wiped. Attacking or taking land from a seat you hold a NAP or alliance with breaks the pact, like an attack on a village.',
     `- Land VP: every tick you score 1 VP per ${territory.tilesPerPoint} land hexes you hold. Land produces nothing by itself; improvements do.`,

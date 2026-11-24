@@ -1872,9 +1872,16 @@ function resolveTileArrivals(
   signer?: ReportSigner,
 ): void {
   for (const hexIndex of [...arrivalsByHex.keys()].sort((left, right) => left - right)) {
-    const arrivals = arrivalsByHex.get(hexIndex) ?? [];
     const standing = standingArmiesAt(state, hexIndex);
     const holder = standing[0]?.owner ?? null;
+    const arrivals: ArmyState[] = [];
+    for (const army of arrivalsByHex.get(hexIndex) ?? []) {
+      if (!isAlliedSupportOnTile(state, army, holder, arrivalsByHex.get(hexIndex) ?? [])) {
+        arrivals.push(army);
+        continue;
+      }
+      returnArmyHome(army);
+    }
     const hostileSeats = [...new Set(arrivals.map((army) => army.owner).filter((owner) => owner !== holder))];
     if (hostileSeats.length === 0) continue;
     if (holder === null) {
@@ -1900,6 +1907,13 @@ function resolveTileArrivals(
   }
 }
 
+function isAlliedSupportOnTile(state: MatchState, army: ArmyState, holder: SeatId | null, arrivals: readonly ArmyState[]): boolean {
+  const supported = army.supporting;
+  if (supported === undefined || !hasActiveAlliance(state, army.owner, supported)) return false;
+  if (holder !== null) return holder === supported;
+  return territoryOwnerAt(state, army.targetHexIndex) === supported || arrivals.some((other) => other.owner === supported);
+}
+
 function takeTile(state: MatchState, rule: WargamesTerritoryRule, hexIndex: number, seatId: SeatId): void {
   const tile = state.territory.get(hexIndex);
   if (!tile) {
@@ -1917,7 +1931,7 @@ function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, ar
     if (army.status !== 'standing' || state.villages[army.currentHexIndex] !== null) continue;
     holdersByHex.set(army.currentHexIndex, [...(holdersByHex.get(army.currentHexIndex) ?? []), army]);
   }
-  const claims: { hexIndex: number; seatId: SeatId }[] = [];
+  const claims: { hexIndex: number; seatId: SeatId; armies: ArmyState[]; tileOwner: SeatId | null }[] = [];
   for (const hexIndex of [...holdersByHex.keys()].sort((left, right) => left - right)) {
     const armies = holdersByHex.get(hexIndex) ?? [];
     const seatId = armies[0]?.owner;
@@ -1925,13 +1939,13 @@ function settleStandingClaims(state: MatchState, rule: WargamesTerritoryRule, ar
     if (armies.every((army) => arrivedThisTurn.has(army.id))) continue;
     const tile = state.territory.get(hexIndex);
     if (tile?.owner === seatId || !touchesLandOf(state, seatId, hexIndex)) continue;
-    if (tile && shouldBounceOffPact(state, seatId, armies, tile.owner, effects)) continue;
-    claims.push({ hexIndex, seatId });
+    claims.push({ hexIndex, seatId, armies, tileOwner: tile?.owner ?? null });
   }
   const claimsLeftBySeat = new Map<SeatId, number>();
   for (const claim of claims) {
     const claimsLeft = claimsLeftBySeat.get(claim.seatId) ?? villagesOwnedBy(state, claim.seatId) * rule.claimsPerVillagePerTurn;
     if (claimsLeft <= 0) continue;
+    if (claim.tileOwner !== null && shouldBounceOffPact(state, claim.seatId, claim.armies, claim.tileOwner, effects)) continue;
     claimsLeftBySeat.set(claim.seatId, claimsLeft - 1);
     takeTile(state, rule, claim.hexIndex, claim.seatId);
   }
