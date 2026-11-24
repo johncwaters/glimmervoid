@@ -5,7 +5,6 @@ import type { TraceRequest } from '../trace-store-core.ts';
 import type { ActivityBeat } from './chat-activity-core.ts';
 import type { ChatPart } from './chat-part.ts';
 import { appendChatRecords, createChatPartsState, endChatTurn, trimChatParts } from './chat-parts-core.ts';
-import type { RunningSubagent } from './status-rail-core.ts';
 
 const UNREADABLE_TRACE_TEXT = 'The conversation could not be read.';
 
@@ -19,7 +18,6 @@ interface ChatFeedOptions {
   requestPage: (payload: TracePagePayload) => Promise<ServerMessage>;
   onPartsChanged: (changedParts: readonly ChatPart[], droppedPartIds: readonly string[], isLive: boolean) => void;
   onBeats: (beats: readonly ActivityBeat[]) => void;
-  onSubagents: (runningSubagents: readonly RunningSubagent[]) => void;
   isTurnOver: () => boolean;
   onReset: () => void;
   onRebuilt: (rebuiltParts: readonly ChatPart[], replacedPartIds: readonly string[]) => void;
@@ -96,7 +94,6 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     const droppedPartIds = trimChatParts(partsState);
     if (droppedPartIds.length > 0) hasDroppedEarliestRecords = true;
     options.onPartsChanged([...changedParts, ...endedTurnPartsNotChanged], droppedPartIds, isLive);
-    options.onSubagents(appended.runningSubagents);
     if (isLive && appended.beats.length > 0) options.onBeats(appended.beats);
   };
 
@@ -112,7 +109,6 @@ export function createChatFeed(options: ChatFeedOptions): ChatFeed {
     if (trimChatParts(partsState).length > 0) hasDroppedEarliestRecords = true;
     const residentPartIds = new Set(partsState.residentPartIds);
     options.onRebuilt([...rebuiltPartById.values()].filter((part) => residentPartIds.has(part.id)), replacedPartIds);
-    options.onSubagents(rebuilt.runningSubagents);
   };
 
   const applyReply = (request: TraceRequest, reply: ServerMessage) => {

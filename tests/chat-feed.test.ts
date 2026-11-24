@@ -29,7 +29,6 @@ function createFeedOver(pages: ReturnType<typeof createDeferredPages>) {
     requestPage: pages.requestPage,
     onPartsChanged: () => {},
     onBeats: () => {},
-    onSubagents: () => {},
     isTurnOver: () => true,
     onReset: () => {},
     onRebuilt: () => {},

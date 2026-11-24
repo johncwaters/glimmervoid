@@ -3,7 +3,6 @@ import type { ChatPart, TurnPart } from '../../../public/chat/chat-part.ts';
 import { appendChatRecords, createChatPartsState, endChatTurn } from '../../../public/chat/chat-parts-core.ts';
 import { createChatFeed } from '../../../public/chat/chat-feed.ts';
 import { railFieldsOf } from '../../../public/chat/status-rail-core.ts';
-import type { RunningSubagent } from '../../../public/chat/status-rail-core.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from '../../../public/chat/chat-view.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
@@ -45,10 +44,10 @@ chatView.setPhase('working', true);
 const HARNESS_NOW_MS = Date.now();
 const EXAMPLE_METER = { model: 'Example Large 2', effort: 'medium', contextTokens: 167_000, contextWindow: 300_000, callCostUSD: 0.0334, outputStyle: 'Explanatory' };
 const EXAMPLE_PLAN_LIMITS = { fiveHour: { pct: 12, resetsAtMs: HARNESS_NOW_MS + 2 * 3_600_000 }, sevenDay: { pct: 44, resetsAtMs: HARNESS_NOW_MS + 3.4 * 86_400_000 } };
-function showExampleRail(subagents: readonly RunningSubagent[]): void {
-  chatView.showRail(railFieldsOf({ meter: EXAMPLE_METER, selection: null, planLimits: EXAMPLE_PLAN_LIMITS, sessionCostUSD: 186.39, subagents, nowMs: HARNESS_NOW_MS, agent: 'claude-code' }));
+function showExampleRail(): void {
+  chatView.showRail(railFieldsOf({ meter: EXAMPLE_METER, selection: null, planLimits: EXAMPLE_PLAN_LIMITS, sessionCostUSD: 186.39, nowMs: HARNESS_NOW_MS, agent: 'claude-code' }));
 }
-showExampleRail([]);
+showExampleRail();
 const LIVE_PAGE_RECORDS = 25;
 const LIVE_PAGE_INTERVAL_MS = 20;
 
@@ -65,7 +64,6 @@ async function playLive(): Promise<void> {
       chatView.upsert(changedParts, isLive ? new Set(changedParts.map((part) => part.id)) : NO_ARRIVING_PARTS);
       chatView.remove(droppedPartIds);
     },
-    onSubagents: showExampleRail,
     isTurnOver: () => false,
     onBeats: (beats) => {
       document.body.dataset.beatCount = String(Number(document.body.dataset.beatCount ?? 0) + beats.length);
@@ -113,7 +111,6 @@ function playEarlier(): void {
       chatView.remove(droppedPartIds);
       if (harnessMode.has('cards')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
     },
-    onSubagents: showExampleRail,
     isTurnOver: () => true,
     onBeats: () => {},
     onReset: () => {},
@@ -247,13 +244,6 @@ if (harnessMode.has('earlier')) playEarlier();
 if (!harnessMode.has('loading')) chatView.showLoaded();
 if (!harnessMode.has('live') && !harnessMode.has('boot') && !harnessMode.has('earlier')) showRecordsAtRest();
 if (harnessMode.has('cards') && !harnessMode.has('earlier')) chatView.upsert(EXAMPLE_CARD_PARTS, NO_ARRIVING_PARTS);
-if (new URLSearchParams(location.search).has('rail-updates')) {
-  const railStates: readonly RunningSubagent[][] = [[{ type: 'Explore', model: 'example-small' }, { type: 'reviewer', model: null }], [], [{ type: 'Explore', model: null }], []];
-  for (const subagents of railStates) {
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    showExampleRail(subagents);
-  }
-}
 if (harnessMode.has('monitoring')) {
   chatView.setPhase('monitoring', false);
   setInterval(() => chatView.tickRunTimes(), 1000);

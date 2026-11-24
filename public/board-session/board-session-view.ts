@@ -71,7 +71,6 @@ const RESTART_ORCHESTRATOR_TEXT = 'Restart Orchestrator';
 const ACCOUNT_TEXT = 'Model and account';
 const NO_REPO_TEXT = 'No repo';
 const TURN_OPENINGS_KEPT = 20;
-const NO_SUBAGENTS: readonly [] = [];
 
 interface SessionWatch {
   feed: ChatFeed;
@@ -211,7 +210,6 @@ function openWatch(sessionId: string): SessionWatch {
         watch.lastBeat = beats.at(-1) ?? watch.lastBeat;
         paintPresence();
       },
-      onSubagents: () => {},
       isTurnOver: () => chatPhaseOf(sessionUIs.get(sessionId)?.currentState) !== 'working',
       onReset: () => {},
       onRebuilt: () => {},
@@ -615,7 +613,7 @@ function mountDock(): void {
     boxChoices: () => moduleChoices,
     digestOf: directorChatLineOf,
     progressAnswers: () => progressAnswers.filter((answer) => answer.sessionId === sessionId),
-    railFields: () => sessionRailFieldsOf(sessionId, NO_SUBAGENTS, false),
+    railFields: () => sessionRailFieldsOf(sessionId, false),
     onDelivered: (kind) => parts?.guide.markDone(kind),
     outbox: () => chatSessionStateOf(sessionId).outbox.filter((entry) => entry.origin === 'operator'),
   });

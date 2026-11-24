@@ -442,7 +442,6 @@ export function createDock(session: DockSession): Dock {
         log.scrollTop = log.scrollHeight - distanceFromBottom;
       },
       onBeats: () => {},
-      onSubagents: () => {},
       isTurnOver,
       onReset: () => {
         if (!speaker.branch) shownPromptPartIds.clear();

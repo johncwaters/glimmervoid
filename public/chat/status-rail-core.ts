@@ -4,18 +4,12 @@ import { formatTokens, formatUsd, planWindowOf } from '../usage/usage-store-core
 import { agentLabel } from '../arena/lineup-core.ts';
 import type { PlanLimits, PlanLimitsVendor } from '../usage/usage-store-core.ts';
 
-export interface RunningSubagent {
-  type: string;
-  model: string | null;
-}
-
 export type RailField =
   | { kind: 'model'; name: string; effort: string | null; canChange: boolean; agent: string | null }
   | { kind: 'plan'; label: '5h' | 'wk'; pct: number; resetsInMs: number | null }
   | { kind: 'context'; tokens: number; window: number }
   | { kind: 'callCost'; usd: number }
   | { kind: 'sessionCost'; usd: number }
-  | { kind: 'subagents'; agents: readonly RunningSubagent[] }
   | { kind: 'mode'; name: string };
 
 interface RailInput {
@@ -23,7 +17,6 @@ interface RailInput {
   selection: ModelSelection | null;
   planLimits: PlanLimits | null;
   sessionCostUSD: number | null;
-  subagents: readonly RunningSubagent[];
   nowMs: number;
   canChangeModel?: boolean;
   agent?: string | null;
@@ -80,9 +73,8 @@ function modeFieldOf(meter: SessionMeterReading | null): RailField | null {
   return { kind: 'mode', name: outputStyle };
 }
 
-export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, subagents, nowMs, canChangeModel = false, agent = null }: RailInput): RailField[] {
-  const workFields: RailField[] = subagents.length > 0 ? [{ kind: 'subagents', agents: subagents }] : costFieldsOf(meter, sessionCostUSD);
-  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...workFields, modeFieldOf(meter)];
+export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, nowMs, canChangeModel = false, agent = null }: RailInput): RailField[] {
+  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...costFieldsOf(meter, sessionCostUSD), modeFieldOf(meter)];
   return fields.filter((field): field is RailField => field !== null);
 }
 
@@ -92,18 +84,12 @@ function countdownText(remainingMs: number): string {
   return `${Math.max(1, Math.ceil(remainingMs / MINUTE_MS))}m`;
 }
 
-function subagentText({ type, model }: RunningSubagent): string {
-  if (model === null) return type;
-  return `${type} (${model})`;
-}
-
 const RAIL_TEXT_BY_KIND: { [Kind in RailField['kind']]: (field: Extract<RailField, { kind: Kind }>) => string } = {
   model: ({ name, effort }) => (effort === null ? name : `${name} ${effort}`),
   plan: ({ label, pct, resetsInMs }) => (resetsInMs === null ? `${label} ${Math.round(pct)}%` : `${label} ${Math.round(pct)}% ${countdownText(resetsInMs)}`),
   context: ({ tokens, window }) => `ctx ${formatTokens(tokens)}/${formatTokens(window)}`,
   callCost: ({ usd }) => `~${formatUsd(usd)}/call`,
   sessionCost: ({ usd }) => `session ${formatUsd(usd)}`,
-  subagents: ({ agents }) => `${agents.length} ${agents.length === 1 ? 'subagent' : 'subagents'}: ${agents.map(subagentText).join(', ')}`,
   mode: ({ name }) => name,
 };
 

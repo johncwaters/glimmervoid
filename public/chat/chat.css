@@ -833,8 +833,6 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 .chat-rail-group[hidden], .chat-rail-field[hidden] { display: none; }
 
 .chat-rail-field { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-.chat-rail-field[data-kind="subagents"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.chat-rail-field[data-kind="subagents"] .chat-rail-text { overflow: hidden; text-overflow: ellipsis; }
 .chat-rail-field[data-kind="model"] { color: var(--text); }
 .chat-rail-group { display: inline-flex; align-items: center; gap: 18px; flex: 0 0 auto; }
 .chat-rail-group[data-group="work"] { flex: 0 1 auto; min-width: 0; overflow: hidden; }

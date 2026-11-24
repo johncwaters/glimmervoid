@@ -2,7 +2,6 @@ import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
 import type { BackgroundTaskPart, ChatCard, ChatPart, TurnPart } from './chat-part.ts';
-import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { glimmervoidLineLabelOf, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
@@ -539,6 +538,11 @@ function changedBackgroundTasksOf(state: ChatPartsState, record: TraceRecord): B
   if (record.kind !== 'background-task') return [];
   if (record.phase === 'stop') return [stopBackgroundTask(state, record.taskId, record.ts)].filter((stopped) => stopped !== null);
   return [startBackgroundTask(state, record)].filter((started) => started !== null);
+}
+
+interface RunningSubagent {
+  type: string;
+  model: string | null;
 }
 
 function runningSubagentsOf(state: ChatPartsState): RunningSubagent[] {

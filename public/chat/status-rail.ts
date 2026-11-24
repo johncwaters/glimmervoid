@@ -13,7 +13,6 @@ const RAIL_GROUP_BY_KIND: Readonly<Record<Exclude<RailField['kind'], 'model'>, R
   context: 'limits',
   callCost: 'work',
   sessionCost: 'work',
-  subagents: 'work',
   mode: 'work',
 };
 

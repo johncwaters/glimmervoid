@@ -23,7 +23,6 @@ import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
 import { openChatModelPicker } from './model-picker.ts';
 import type { ChatModelPicker } from './model-picker.ts';
-import type { RunningSubagent } from './status-rail-core.ts';
 import { onReviewChange, reviewOf } from '../review/review-store.ts';
 import { createDonePanel } from './done-panel.ts';
 import { refreshChatFileRefs } from './chat-parts.ts';
@@ -377,13 +376,12 @@ function buildChat(sessionId: string): MountedChat {
   const showDone = () => donePanel.show(donePanelModelOf({ run: reviewOf(sessionId)?.verification ?? null, agentDoneLines: sessionState.agentDoneLines, phase: sessionPhaseOf(sessionId) }));
   sendControlMsg({ type: 'request-verification', id: sessionId });
   root.append(failureLine, chatView.element);
-  let runningSubagents: readonly RunningSubagent[] = [];
   let openModelPicker: ChatModelPicker | null = null;
   const showRail = () => {
     const canChangeModel = canSwitchSessionModel(sessionId) && !isSessionWorking(sessionId);
     if (!canChangeModel) openModelPicker?.close();
     refreshLimitCountdowns(root, clock.nowMs());
-    chatView.showRail(sessionRailFieldsOf(sessionId, runningSubagents, canChangeModel));
+    chatView.showRail(sessionRailFieldsOf(sessionId, canChangeModel));
   };
   showRail();
   let railTimer: ReturnType<typeof setInterval> | null = setInterval(showRail, RAIL_TICK_MS);
@@ -522,10 +520,6 @@ function buildChat(sessionId: string): MountedChat {
       keepPendingPartsLast();
       keepRunTimesTicking();
     },
-    onSubagents: (subagents) => {
-      runningSubagents = subagents;
-      showRail();
-    },
     isTurnOver: () => !isSessionWorking(sessionId),
     onBeats: (beats) => chatView.beat(beats),
     onReset: () => {
@@ -541,7 +535,6 @@ function buildChat(sessionId: string): MountedChat {
       feedPosition = 'unseeded';
       feed.whenCaughtUp(showBoardChangesOnceCaughtUp);
       waits.restoreSignIn();
-      runningSubagents = [];
       showRail();
       waits.sync();
       chatView.setPhase(phaseToShow(), isSessionWorking(sessionId));
@@ -629,7 +622,7 @@ function dropAllKeptChats(): void {
   keptChatBySessionId.clear();
 }
 
-export function sessionRailFieldsOf(sessionId: string, subagents: readonly RunningSubagent[], canChangeModel: boolean): RailField[] {
+export function sessionRailFieldsOf(sessionId: string, canChangeModel: boolean): RailField[] {
   const isMachineLogin = sessionAccountIdOf(sessionId) === null;
   const agent = sessionUIs.get(sessionId)?.agent ?? null;
   const vendor = isMachineLogin ? planVendorOfAgent(agent) : null;
@@ -638,7 +631,6 @@ export function sessionRailFieldsOf(sessionId: string, subagents: readonly Runni
     selection: sessionModelSelectionOf(sessionId),
     planLimits: vendor === null ? null : planLimitsOf(vendor),
     sessionCostUSD: sessionCostOf(sessionId),
-    subagents,
     nowMs: clock.nowMs(),
     canChangeModel,
     agent,
