@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Opening the Community tab marks the question it shows as read.** The tab opens on a question straight away, but that question kept its unread dot until you clicked it. It now counts as read as soon as it is on screen. On the phone it still waits until you open the question.
+
 - **Focus rail rows no longer all show Undo.** Every session and board row in the left rail showed an UNDO button, crowding the rows and hiding which one, if any, you had just closed. Undo now shows only on a row you are removing, and other dashboard controls hidden the same way stay hidden.
 - **The context gauge counts toward your auto-compact window.** For a Claude Code session, the `ctx` gauge in the chat status line and the Usage panel used to show usage out of the model's full context window, such as `/1M`, even when you had set `autoCompactWindow` or `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to compact sooner. It now shows the window you set, such as `/600k`, including a per-model `modelSettings` window saved by `/autocompact`. If the setting is `"auto"` or missing, the gauge still shows the model's window.
 - **Buttons on a board page keep the page's own styles.** A page whose CSS sits in cascade layers, such as one built from the dashboard's own stylesheet, showed every native button on its board card as a solid lavender block. The board's base style for pages now sits below every style a page brings, so the card looks the same as the page in a browser.

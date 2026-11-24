@@ -277,6 +277,14 @@ function createDetail(entry: CommunityStateEntry): HTMLElement {
   return detail;
 }
 
+function markShownItemSeen(item: CommunityQueueItem): void {
+  const row = rowsByKey.get(item.key);
+  if (!root || isPanelHidden(root) || !row) return;
+  const isDetailOffScreen = document.documentElement.dataset.layout === 'phone' && root.dataset.detailOpen !== 'true';
+  if (isDetailOffScreen) return;
+  markSeen(item, row);
+}
+
 function showSelectedDetail(): void {
   if (!detailHost) return;
   const item = queueItemByKey(currentGroups, selectedKey);
@@ -286,6 +294,7 @@ function showSelectedDetail(): void {
   detailAgeTicker.reset();
   if (item) {
     detailHost.replaceChildren(createDetail(item.entry));
+    markShownItemSeen(item);
     return;
   }
   const hasAnyItem = currentGroups.some((group) => group.items.length > 0);
