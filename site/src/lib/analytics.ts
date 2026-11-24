@@ -3,7 +3,7 @@ import 'posthog-js/dist/posthog-recorder';
 import 'posthog-js/dist/exception-autocapture';
 import 'posthog-js/dist/dead-clicks-autocapture';
 import type { InstallPlatform } from './install-platform.ts';
-import { ACCOUNT_PAGE_URL, SITE_DISTINCT_ID_PARAM } from '../../../shared/cloud-account.ts';
+import { ACCOUNT_LINK_ATTRIBUTE, SITE_DISTINCT_ID_PARAM } from '../../../shared/cloud-account.ts';
 
 export type ConsentChoice = 'pending' | 'accepted' | 'declined';
 export type InstallLocation = 'hero' | 'install';
@@ -53,7 +53,7 @@ function anonymousVisitorIdOrNull(): string | null {
 
 function carryVisitorIdToAccountLinks(): void {
   const visitorDistinctId = anonymousVisitorIdOrNull();
-  for (const accountLink of document.querySelectorAll<HTMLAnchorElement>(`a[href^="${ACCOUNT_PAGE_URL}"]`)) {
+  for (const accountLink of document.querySelectorAll<HTMLAnchorElement>(`a[${ACCOUNT_LINK_ATTRIBUTE}]`)) {
     const accountLinkUrl = new URL(accountLink.href);
     accountLinkUrl.searchParams.delete(SITE_DISTINCT_ID_PARAM);
     if (visitorDistinctId !== null) accountLinkUrl.searchParams.set(SITE_DISTINCT_ID_PARAM, visitorDistinctId);

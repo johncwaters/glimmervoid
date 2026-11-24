@@ -20,8 +20,8 @@ export const GITHUB_DISCONNECT_PATH = `${WATCHER_PATH_PREFIX}github-disconnect`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 const MAX_COOKIE_HEADER_CHARS = 16 * 1024;
 
-const WORKOS_USER_ID_PATTERN = /^user_[A-Za-z0-9]{1,64}$/;
-export const OwnerLinkRequest = z.strictObject({ workosUserId: z.string().regex(WORKOS_USER_ID_PATTERN) });
+export const WorkosUserId = z.string().regex(/^user_[A-Za-z0-9]{1,64}$/);
+export const OwnerLinkRequest = z.strictObject({ workosUserId: WorkosUserId });
 export type OwnerLinkRequest = z.infer<typeof OwnerLinkRequest>;
 
 export const DevicePairingRequest = z.strictObject({ presentedCookieHeader: z.string().max(MAX_COOKIE_HEADER_CHARS).nullable() });

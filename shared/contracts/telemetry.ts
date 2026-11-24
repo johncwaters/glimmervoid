@@ -4,7 +4,7 @@ import { DASHBOARD_VIEWS, InstallFailureKind, NoticeId, NoticeTone, ONBOARDING_S
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 import { DashboardReconnectedProperties } from './control/control-fields.ts';
 import { SESSION_COMMANDS } from './session.ts';
-import { PROBE_CREDENTIALS, WATCHER_LANE_IDS } from './watcher-link.ts';
+import { PROBE_CREDENTIALS, WATCHER_LANE_IDS, WorkosUserId } from './watcher-link.ts';
 
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
@@ -73,7 +73,7 @@ const AppActiveProperties = z.object({
 
 const DataDeletionRequestedProperties = z.object({}).strict();
 
-const CloudAccountLinkProperties = z.object({ $set: z.object({ cloud_account: z.string().regex(/^user_[A-Za-z0-9]{1,64}$/) }).strict() }).strict();
+const CloudAccountLinkProperties = z.object({ $set: z.object({ cloud_account: WorkosUserId }).strict() }).strict();
 
 export const BOARD_OPEN_STEPS = Object.freeze(['heads ready', 'saved layout tried', 'saved layout read', 'saved layout missed', 'saved layout queued', 'saved routes and warnings read', 'tiles built from saved layout', 'layout world built', 'tile index built', 'store pages read', 'board record built', 'tiles answered', 'tiles sent'] as const);
 export type BoardOpenStep = (typeof BOARD_OPEN_STEPS)[number];

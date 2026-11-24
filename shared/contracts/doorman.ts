@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WorkosUserId } from './watcher-link.ts';
 
 const SecretManagerSecretName = z.string().regex(/^projects\/[a-z0-9-]{1,63}\/secrets\/[A-Za-z0-9_-]{1,255}$/);
 
@@ -25,7 +26,7 @@ const DoormanLinkSecret = z.discriminatedUnion('kind', [
 ]);
 
 const DoormanTenantOwner = z.strictObject({
-  workosUserId: z.string().regex(/^user_[A-Za-z0-9]{1,64}$/),
+  workosUserId: WorkosUserId,
   authkitClientId: z.string().regex(/^client_[A-Za-z0-9]{1,64}$/),
   accountPageUrl: z.url({ protocol: /^https$/ }),
 });

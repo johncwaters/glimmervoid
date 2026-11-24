@@ -9,7 +9,7 @@ const home = sitePath('');
 <nav class="site-nav" aria-label="Main">
   <a class="brand" href={home}><svg viewBox={BRAND_MARK_VIEWBOX} aria-hidden="true" set:html={brandMarkMarkup({ frame: 'currentColor', light: BRAND_ACCENT })}></svg><Wordmark /></a>
   <ul>
-    {siteNavLinks(home).map(({ label, href }) => <li><a href={href}>{label}</a></li>)}
+    {siteNavLinks(home).map(({ label, href, isAccountLink }) => <li><a href={href} data-account-link={isAccountLink ? '' : undefined}>{label}</a></li>)}
     <li><a class="nav-install" href={`${home}#install`}>Install</a></li>
   </ul>
 </nav>

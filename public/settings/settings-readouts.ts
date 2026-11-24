@@ -4,7 +4,7 @@ import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, reque
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { button, linkButton } from '../ui/button.ts';
-import { LINK_INSTALL_PARAM, STABLE_ACCOUNT_PAGE_URL } from '#shared/cloud-account.ts';
+import { ACCOUNT_PAGE_URL, LINK_INSTALL_PARAM } from '#shared/cloud-account.ts';
 import { tag } from '../ui/tag.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import { checkbox } from '../ui/checkbox.ts';
@@ -270,7 +270,7 @@ function accountLinkControl(telemetryInstallId: string | null) {
     unavailableControl.disabled = true;
     return unavailableControl;
   }
-  const accountLinkUrl = new URL(STABLE_ACCOUNT_PAGE_URL);
+  const accountLinkUrl = new URL(ACCOUNT_PAGE_URL);
   accountLinkUrl.searchParams.set(LINK_INSTALL_PARAM, telemetryInstallId);
   const linkControl = linkButton({ variant: 'secondary', label: ACCOUNT_LINK_LABEL, href: accountLinkUrl.href });
   linkControl.target = '_blank';
