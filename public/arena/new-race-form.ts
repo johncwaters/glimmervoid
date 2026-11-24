@@ -3,6 +3,7 @@ import type { AgentSetup } from '#shared/contracts/agent-models.ts';
 import type { RaceCheck, RaceContestant, RaceReviewCase, ReviewCaseEntry } from '#shared/contracts/race.ts';
 import { RACE_JUDGE_AGENTS, RACE_MAX_CONTESTANTS, RACE_MAX_JUDGES, RACE_MAX_ROUNDS, RaceSpec } from '#shared/contracts/race.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
 import { el } from '../dom-helpers.ts';
 import { textArea, textInput } from '../ui/text-input.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
@@ -36,8 +37,43 @@ interface RaceDraft {
 
 let catalog: AgentModelCatalog = AgentModelCatalog.parse({ agents: [] });
 let draft: RaceDraft = { raceTitle: '', prompt: '', repoPath: '', contestants: [], judges: [], check: null, checkTimeoutSeconds: DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: null, rounds: 1, reviewCase: null };
-let judgeSeed: 'pending' | 'settled' = 'pending';
+let seededJudges: AgentSetup[] = draft.judges;
+let seededContestants: RaceContestant[] = draft.contestants;
 let isEditingAsFile = false;
+let repaintNewRace: (() => void) | null = null;
+
+function catalogFromSettings(): AgentModelCatalog | null {
+  const parsed = AgentModelCatalog.safeParse(settingsPayloadSnapshot().agentModels);
+  return parsed.success ? parsed.data : null;
+}
+
+function modelChoicesOf(choices: AgentModelCatalog): string {
+  return JSON.stringify({
+    agents: choices.agents.map(({ checkedAt: _checkedAt, ...agentModels }) => agentModels),
+    openrouter: choices.openrouter.models,
+  });
+}
+
+function adoptCatalog(nextCatalog: AgentModelCatalog): void {
+  catalog = nextCatalog;
+  if (draft.judges === seededJudges) {
+    draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
+    seededJudges = draft.judges;
+  }
+  if (draft.contestants === seededContestants) {
+    const firstAgents = agentsWithModels(catalog).slice(0, 2);
+    draft.contestants = varyLineup(catalog, defaultSetup(catalog, firstAgents[0] ?? 'claude-code'), 'agent', firstAgents);
+    seededContestants = draft.contestants;
+  }
+}
+
+subscribeSettings((change) => {
+  if (change.kind !== 'broadcast') return;
+  const nextCatalog = catalogFromSettings();
+  if (!nextCatalog || modelChoicesOf(nextCatalog) === modelChoicesOf(catalog)) return;
+  adoptCatalog(nextCatalog);
+  if (!isEditingAsFile) repaintNewRace?.();
+});
 
 function draftSpec(): Record<string, unknown> {
   return {
@@ -208,7 +244,6 @@ function readDraftFromFile(text: string): string | null {
   if (!parsed.success) return `The race file is not valid: ${parsed.error.issues.map((issue) => `${issue.path.join('.') || 'file'}: ${issue.message}`).join('; ')}`;
   const spec = parsed.data;
   draft = { raceTitle: spec.title, prompt: spec.prompt, repoPath: spec.repoPath, contestants: spec.contestants, judges: spec.judges.map((judge) => judge.setup), check: spec.check, checkTimeoutSeconds: spec.check?.timeoutSeconds ?? DEFAULT_CHECK_TIMEOUT_SECONDS, timeLimitMinutes: spec.timeLimitMinutes, rounds: spec.rounds, reviewCase: spec.reviewCase };
-  judgeSeed = 'settled';
   return null;
 }
 
@@ -366,18 +401,9 @@ export function buildNewRace(onStarted: () => void): HTMLElement {
   const actions = el('div', 'arena-actions arena-new-actions');
   actions.append(startButton, statusEl);
   section.append(head, body, actions);
+  const settingsCatalog = catalogFromSettings();
+  if (settingsCatalog) adoptCatalog(settingsCatalog);
+  repaintNewRace = paint;
   paint();
-  sendControlRequest('get-settings', {})
-    .then((reply) => {
-      if (reply.type !== 'settings') return;
-      const parsed = AgentModelCatalog.safeParse(reply.settings.agentModels);
-      if (!parsed.success) return;
-      catalog = parsed.data;
-      if (judgeSeed === 'pending') draft.judges = [defaultSetup(catalog, RACE_JUDGE_AGENTS[0])];
-      judgeSeed = 'settled';
-      if (draft.contestants.length === 0) draft.contestants = varyLineup(catalog, defaultSetup(catalog, agentsWithModels(catalog)[0] ?? 'claude-code'), 'agent', agentsWithModels(catalog).slice(0, 2));
-      paint();
-    })
-    .catch((reason: unknown) => { statusEl.textContent = `Could not load the model list: ${reason instanceof Error ? reason.message : String(reason)}`; });
   return section;
 }
