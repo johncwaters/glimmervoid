@@ -1,7 +1,7 @@
-import type { SeatId, WargamesEvent } from '#shared/contracts/wargames.ts';
+import type { SeatId, TroopCounts, WargamesEvent } from '#shared/contracts/wargames.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { el } from '../dom-helpers.ts';
-import { createLineIcon, createSvgIcon, createSvgShape } from '../svg-dom.ts';
+import { createSvgIcon, createSvgShape } from '../svg-dom.ts';
 import { meter } from '../ui/meter.ts';
 import { tag } from '../ui/tag.ts';
 import {
@@ -11,15 +11,9 @@ import {
   totalIncomeOf,
 } from './wargames-economy-core.ts';
 import type { EconomyTimeline, EconomyTurn, GrowthMode, SeatEconomy } from './wargames-economy-core.ts';
-import {
-  BUILD_HAMMER_PATH,
-  BUILDING_GLYPH_PATHS,
-  CONTROL_FLAG_PATH,
-  GRAIN_GLYPH_PATH,
-  ORE_GLYPH_PATH,
-  SEAT_COLORS,
-  UNIT_GLYPH_PATHS,
-} from './wargames-map.ts';
+import { econGlyph } from './wargames-econ-glyphs.ts';
+import type { EconGlyphKey } from './wargames-econ-glyphs.ts';
+import { SEAT_COLORS } from './wargames-map.ts';
 import './wargames-economy.css';
 
 const NEAR_CAP_FRACTION = 0.9;
@@ -41,29 +35,16 @@ const GROWTH_TONES: Readonly<Record<GrowthMode, 'accent' | 'neutral' | 'muted'>>
   none: 'muted',
 });
 
-function glyph(pathData: string, color: string, label?: string): SVGSVGElement {
-  const icon = createLineIcon(pathData, '1.5');
-  icon.setAttribute('width', '12');
-  icon.setAttribute('height', '12');
-  icon.style.color = color;
-  if (!label) return icon;
-  icon.removeAttribute('aria-hidden');
-  icon.setAttribute('role', 'img');
-  icon.setAttribute('aria-label', label);
-  return icon;
+function wordHeaderCell(label: string, className = ''): HTMLTableCellElement {
+  const cell = el('th', className, label);
+  cell.scope = 'col';
+  return cell;
 }
 
-function buildingGlyphPath(key: 'farm' | 'mine' | 'wall'): string {
-  return BUILDING_GLYPH_PATHS.find((entry) => entry.key === key)?.path ?? '';
-}
-
-function headerCell(label: string, glyphPath: string | null, className = ''): HTMLTableCellElement {
+function glyphHeaderCell(key: EconGlyphKey, className = ''): HTMLTableCellElement {
   const cell = el('th', className);
   cell.scope = 'col';
-  const inner = el('span', 'wg-econ-head');
-  if (glyphPath) inner.append(glyph(glyphPath, 'var(--text-muted)'));
-  inner.append(el('span', '', label));
-  cell.append(inner);
+  cell.append(econGlyph(key, 14));
   return cell;
 }
 
@@ -72,12 +53,15 @@ function stockCell(resourceName: string, stock: number, income: number, warehous
   const fraction = warehouseCap > 0 ? stock / warehouseCap : 0;
   const isNearCap = fraction >= NEAR_CAP_FRACTION;
   const numbers = el('span', 'wg-econ-stock-numbers');
-  numbers.append(el('span', 'wg-num', String(stock)), el('span', 'wg-econ-muted wg-num', `+${income}`));
+  const stockGroup = el('span', 'wg-econ-stock-value');
+  stockGroup.append(el('span', 'wg-num', String(stock)));
+  if (isNearCap) stockGroup.append(tag({ text: 'Cap', tone: 'neutral' }));
+  numbers.append(stockGroup, el('span', 'wg-econ-muted wg-num', `+${income}`));
   const stockMeter = meter({
     value: fraction,
     label: `${resourceName} stock against warehouse cap`,
     valueText: `${stock} of ${warehouseCap}, ${Math.round(fraction * 100)}%`,
-    tone: isNearCap ? 'waiting' : 'muted',
+    tone: 'muted',
     thickness: 'thin',
   });
   cell.append(numbers, stockMeter.element);
@@ -90,10 +74,23 @@ function levelCell(level: number): HTMLTableCellElement {
   return cell;
 }
 
-function troopsCell(garrison: number, field: number): HTMLTableCellElement {
-  const cell = el('td', 'wg-num');
-  cell.append(el('span', '', String(garrison)));
-  if (field > 0) cell.append(el('span', 'wg-econ-muted', ` +${field} out`));
+const TROOP_KINDS = ['raider', 'guard', 'envoy'] as const;
+
+function troopsCell(troops: TroopCounts, field: number): HTMLTableCellElement {
+  const cell = el('td');
+  const wrap = el('span', 'wg-econ-chips');
+  for (const kind of TROOP_KINDS) {
+    const chip = el('span', 'wg-econ-chip');
+    chip.append(econGlyph(kind), el('span', 'wg-num', String(troops[kind])));
+    if (troops[kind] === 0) chip.classList.add('wg-econ-muted');
+    wrap.append(chip);
+  }
+  if (field > 0) {
+    const fieldChip = el('span', 'wg-econ-chip wg-econ-muted');
+    fieldChip.append(econGlyph('field'), el('span', 'wg-num', String(field)));
+    wrap.append(fieldChip);
+  }
+  cell.append(wrap);
   return cell;
 }
 
@@ -152,12 +149,11 @@ function growthCell(seat: SeatEconomy): HTMLTableCellElement {
   const cell = el('td');
   const wrap = el('span', 'wg-econ-growth');
   const counts = el('span', 'wg-econ-growth-counts');
-  counts.append(
-    glyph(BUILD_HAMMER_PATH, 'var(--text-muted)', 'Levels built'),
-    el('span', 'wg-num', String(seat.levelsBuilt)),
-    glyph(CONTROL_FLAG_PATH, 'var(--text-muted)', 'Levels taken'),
-    el('span', 'wg-num', String(seat.levelsTaken)),
-  );
+  const builtChip = el('span', 'wg-econ-chip');
+  builtChip.append(econGlyph('built'), el('span', 'wg-num', String(seat.levelsBuilt)));
+  const takenChip = el('span', 'wg-econ-chip wg-econ-taken');
+  takenChip.append(econGlyph('taken'), el('span', 'wg-num', String(seat.levelsTaken)));
+  counts.append(builtChip, takenChip);
   wrap.append(tag({ text: GROWTH_LABELS[mode], tone: GROWTH_TONES[mode] }), counts);
   cell.append(wrap);
   return cell;
@@ -179,16 +175,16 @@ function buildTable(state: MatchState, turns: readonly EconomyTurn[]): HTMLTable
   table.append(el('caption', 'wg-econ-caption', `Economy, turn ${state.tick}`));
   const headRow = el('tr');
   headRow.append(
-    headerCell('Seat', null),
-    headerCell('Villages', null, 'wg-num'),
-    headerCell('Grain', GRAIN_GLYPH_PATH),
-    headerCell('Ore', ORE_GLYPH_PATH),
-    headerCell('Farm', buildingGlyphPath('farm'), 'wg-num'),
-    headerCell('Mine', buildingGlyphPath('mine'), 'wg-num'),
-    headerCell('Wall', buildingGlyphPath('wall'), 'wg-num'),
-    headerCell('Troops', UNIT_GLYPH_PATHS.find((entry) => entry.key === 'guard')?.path ?? null, 'wg-num'),
-    headerCell('Income', null),
-    headerCell('Growth', null),
+    wordHeaderCell('Seat'),
+    glyphHeaderCell('village', 'wg-num'),
+    glyphHeaderCell('grain'),
+    glyphHeaderCell('ore'),
+    glyphHeaderCell('farm', 'wg-num'),
+    glyphHeaderCell('mine', 'wg-num'),
+    glyphHeaderCell('wall', 'wg-num'),
+    wordHeaderCell('Troops'),
+    wordHeaderCell('Income'),
+    wordHeaderCell('Growth'),
   );
   const thead = el('thead');
   thead.append(headRow);
@@ -209,7 +205,7 @@ function buildTable(state: MatchState, turns: readonly EconomyTurn[]): HTMLTable
       levelCell(economy.farm),
       levelCell(economy.mine),
       levelCell(economy.wall),
-      troopsCell(economy.garrison, economy.field),
+      troopsCell(economy.troops, economy.field),
       incomeCell(seatId, turns, maxIncome),
       growthCell(economy),
     );

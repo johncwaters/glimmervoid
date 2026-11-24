@@ -1,0 +1,116 @@
+@layer components {
+
+.wg-lens-controls {
+  width: 100%;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wg-lens-control-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 20px;
+}
+
+.wg-lens-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.wg-lens-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.wg-lens-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wg-lens-key-swatch {
+  width: 14px;
+  height: 7px;
+  border-radius: 2px;
+  border: 2px solid var(--bg);
+  outline: 1px solid var(--border-hover);
+  box-sizing: content-box;
+}
+
+.wg-lens-marks {
+  pointer-events: none;
+}
+
+.wg-lens-mark-unowned {
+  opacity: 0.4;
+}
+
+.wg-lens-chip-bg {
+  fill: var(--bg);
+  stroke: var(--border-hover);
+  stroke-width: 0.75;
+}
+
+.wg-lens-hit {
+  fill: transparent;
+  stroke: none;
+  cursor: pointer;
+  outline: none;
+}
+
+.wg-lens-hit:hover,
+.wg-lens-hit:focus-visible {
+  stroke: var(--text-head);
+  stroke-width: 1.5;
+}
+
+.wg-lens-controls[data-lens="off"] .wg-lens-legend,
+.wg-lens-controls[data-lens="off"] .wg-lens-detail {
+  visibility: hidden;
+}
+
+.wg-lens-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  min-height: 20px;
+  font-size: var(--type-meta);
+  color: var(--text);
+}
+
+.wg-lens-detail-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wg-lens-detail-owner {
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.wg-lens-detail-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wg-lens-detail-key {
+  color: var(--text-muted);
+}
+
+}

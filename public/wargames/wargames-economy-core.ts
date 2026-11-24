@@ -1,4 +1,4 @@
-import type { SeatId, WargamesEvent } from '#shared/contracts/wargames.ts';
+import type { SeatId, TroopCounts, WargamesEvent } from '#shared/contracts/wargames.ts';
 import { applyEvent, createInitialMatchState, villageYieldOf, warehouseCapOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 
@@ -15,7 +15,7 @@ export interface SeatEconomy {
   readonly farm: number;
   readonly mine: number;
   readonly wall: number;
-  readonly garrison: number;
+  readonly troops: TroopCounts;
   readonly field: number;
   readonly levelsBuilt: number;
   readonly levelsTaken: number;
@@ -88,7 +88,8 @@ function growthSince(
 function summarizeTurn(state: MatchState, growthBySeat: ReadonlyMap<SeatId, { built: number; taken: number }>): EconomyTurn {
   const seats = state.seats.map((seat): SeatEconomy => {
     const seatId = seat.config.seatId;
-    const totals = { villages: 0, grainIncome: 0, oreIncome: 0, grain: 0, ore: 0, warehouseCap: 0, farm: 0, mine: 0, wall: 0, garrison: 0, field: 0 };
+    const totals = { villages: 0, grainIncome: 0, oreIncome: 0, grain: 0, ore: 0, warehouseCap: 0, farm: 0, mine: 0, wall: 0, field: 0 };
+    const troops: TroopCounts = { raider: 0, guard: 0, envoy: 0 };
     for (const village of state.villages) {
       if (!village || village.owner !== seatId) continue;
       totals.villages += 1;
@@ -98,7 +99,9 @@ function summarizeTurn(state: MatchState, growthBySeat: ReadonlyMap<SeatId, { bu
       totals.farm += village.buildings.farm;
       totals.mine += village.buildings.mine;
       totals.wall += village.buildings.wall;
-      totals.garrison += village.troops.raider + village.troops.guard + village.troops.envoy;
+      troops.raider += village.troops.raider;
+      troops.guard += village.troops.guard;
+      troops.envoy += village.troops.envoy;
       if (village.productionState !== 'producing') continue;
       const villageYield = villageYieldOf(village);
       totals.grainIncome += villageYield.grain;
@@ -106,10 +109,13 @@ function summarizeTurn(state: MatchState, growthBySeat: ReadonlyMap<SeatId, { bu
     }
     for (const army of state.armies.values()) {
       if (army.owner !== seatId || (army.status !== 'marching' && army.status !== 'returning')) continue;
+      troops.raider += army.troops.raider;
+      troops.guard += army.troops.guard;
+      troops.envoy += army.troops.envoy;
       totals.field += army.troops.raider + army.troops.guard + army.troops.envoy;
     }
     const growth = growthBySeat.get(seatId) ?? { built: 0, taken: 0 };
-    return { seatId, ...totals, levelsBuilt: growth.built, levelsTaken: growth.taken };
+    return { seatId, ...totals, troops, levelsBuilt: growth.built, levelsTaken: growth.taken };
   });
   return { tick: state.tick, seats };
 }

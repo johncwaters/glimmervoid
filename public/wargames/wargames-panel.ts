@@ -37,7 +37,9 @@ import { createPressable } from '../ui/pressable.ts';
 import { select } from '../ui/select.ts';
 import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
+import { GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
 import { createWargamesEconomy } from './wargames-economy.ts';
+import { createEconomyLens } from './wargames-economy-lens.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
 import {
   BREACH_WARNING_PATH,
@@ -47,6 +49,7 @@ import {
   createWargamesMap,
   GRAIN_GLYPH_PATH,
   isMatchOver,
+  MARCH_ARROW_PATH,
   ORE_GLYPH_PATH,
   PACT_SCROLL_PATH,
   SCOUT_EYE_PATH,
@@ -54,6 +57,7 @@ import {
   seatLabelOf,
   THOUGHT_CLOUD_PATH,
   UNIT_GLYPH_PATHS,
+  VILLAGE_GLYPH_PATH,
 } from './wargames-map.ts';
 import './wargames-panel.css';
 import {
@@ -120,6 +124,7 @@ const failedAutoWatchIds = new Set<string>();
 let mapView: ReturnType<typeof createWargamesMap> | null = null;
 let inspectorView: ReturnType<typeof createWargamesInspector> | null = null;
 let economyView: ReturnType<typeof createWargamesEconomy> | null = null;
+let economyLens: ReturnType<typeof createEconomyLens> | null = null;
 let persistentNewMatchSection: HTMLElement | null = null;
 let panelShell: PersistentPanelShell | null = null;
 let liveShell: PersistentLiveShell | null = null;
@@ -185,8 +190,8 @@ const WARGAMES_GLYPH_PATHS = Object.freeze({
   ready: 'M 5 8 A 3 3 0 1 0 11 8 A 3 3 0 1 0 5 8',
   offline: 'M 4 8 A 4 4 0 1 0 12 8 A 4 4 0 1 0 4 8 M 5 11 L 11 5',
   breach: BREACH_WARNING_PATH,
-  territory: 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z',
-  arrow: 'M 3 8 H 13 M 9 4 L 13 8 L 9 12',
+  territory: VILLAGE_GLYPH_PATH,
+  arrow: MARCH_ARROW_PATH,
   grain: GRAIN_GLYPH_PATH,
   ore: ORE_GLYPH_PATH,
 });
@@ -246,9 +251,9 @@ function createWargamesGlyph(pathData: string, size: number, color: string, aria
 function buildResourceReadout(grain: number, ore: number): HTMLElement {
   const wrap = el('span', 'wg-faction-units');
   const grainChip = el('span', 'wg-legend-item');
-  grainChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.grain, 12, 'var(--state-waiting)', 'Grain'), el('span', '', String(grain)));
+  grainChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.grain, 12, GRAIN_COLOR, 'Grain'), el('span', '', String(grain)));
   const oreChip = el('span', 'wg-legend-item');
-  oreChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.ore, 12, 'var(--text-dim)', 'Ore'), el('span', '', String(ore)));
+  oreChip.append(createWargamesGlyph(WARGAMES_GLYPH_PATHS.ore, 12, ORE_COLOR, 'Ore'), el('span', '', String(ore)));
   wrap.append(grainChip, oreChip);
   return wrap;
 }
@@ -1195,19 +1200,23 @@ function ensurePanelShell(): PersistentPanelShell {
   return panelShell;
 }
 
+function selectHexOnBoard(hexIndex: number): void {
+  selectedHexIndex = hexIndex;
+  render();
+}
+
 function ensureLiveShell(): PersistentLiveShell {
   if (liveShell) return liveShell;
   if (!mapView) {
-    mapView = createWargamesMap(
-      (hexIndex) => {
-        selectedHexIndex = hexIndex;
-        render();
-      },
-      () => queueMicrotask(revealSettledEndgame),
-    );
+    mapView = createWargamesMap(selectHexOnBoard, () => {
+      economyLens?.showSettledBoard();
+      queueMicrotask(revealSettledEndgame);
+    });
   }
   if (!inspectorView) inspectorView = createWargamesInspector();
   if (!economyView) economyView = createWargamesEconomy();
+  if (!economyLens) economyLens = createEconomyLens(selectHexOnBoard, () => mapView?.isBoardSettled() ?? true);
+  economyLens.attach(mapView.element);
 
   const wrap = el('div', 'wg-live-wrap');
   const factionStripSlot = el('div');
@@ -1220,7 +1229,7 @@ function ensureLiveShell(): PersistentLiveShell {
   const boardBarSlot = el('div', 'wg-board-bar');
   const hexIntelSlot = el('div');
 
-  stage.append(boardBarSlot, mapView.element, mapView.caption, hexIntelSlot, buildMapLegend());
+  stage.append(boardBarSlot, economyLens.controls, mapView.element, mapView.caption, hexIntelSlot, buildMapLegend());
   mapPane.append(stage);
   wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane, economyView.element);
   liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot };
@@ -1249,6 +1258,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
 
   mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
   economyView?.update(state, snap.events);
+  economyLens?.update(state, snap.pov, selectedHexIndex);
   const isEndgameShown = isMatchOver(state) && (mapView?.isBoardSettled() ?? true);
   shell.endgameSlot.hidden = !isEndgameShown;
   if (isEndgameShown) {

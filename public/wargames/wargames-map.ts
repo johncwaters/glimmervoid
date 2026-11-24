@@ -80,8 +80,8 @@ export const UNIT_GLYPH_PATHS: readonly { key: UnitKey; label: string; color: st
 ];
 
 export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; color: string; path: string }[] = [
-  { key: 'farm', label: 'Farm', color: '#84cc16', path: 'M 2.5 8 L 8 3 L 13.5 8 M 4 7 V 13.5 H 12 V 7 M 6.5 13.5 V 9.5 H 9.5 V 13.5' },
-  { key: 'mine', label: 'Mine', color: '#94a3b8', path: 'M 3 13 L 10.5 5.5 M 6 3 C 9.2 3 12 5.2 13 8.5' },
+  { key: 'farm', label: 'Farm', color: '#84cc16', path: 'M 2 13.5 L 4.5 5.5 H 11.5 L 14 13.5 Z M 8 5.5 V 13.5 M 3.3 9.5 H 12.7' },
+  { key: 'mine', label: 'Mine', color: '#94a3b8', path: 'M 2.5 6.5 Q 8 1.5 13.5 6.5 M 8 4 V 14' },
   { key: 'barracks', label: 'Barracks', color: '#f59e0b', path: 'M 2.5 13 L 8 3.5 L 13.5 13 Z M 6.5 13 L 8 9.5 L 9.5 13' },
   { key: 'wall', label: 'Wall', color: '#a8a29e', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
 ];
@@ -91,9 +91,11 @@ export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8
 export const PACT_SCROLL_PATH = 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9';
 export const BREACH_WARNING_PATH = 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5';
 export const THOUGHT_CLOUD_PATH = 'M 5 10.5 A 2.5 2.5 0 0 1 4.2 5.6 A 3 3 0 0 1 9.8 4.2 A 2.6 2.6 0 0 1 12.2 10 Z M 4.5 13 L 4.6 13 M 2.6 14.8 L 2.7 14.8';
+export const VILLAGE_GLYPH_PATH = 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z';
+export const MARCH_ARROW_PATH = 'M 3 8 H 13 M 9 4 L 13 8 L 9 12';
 export const GRAIN_GLYPH_PATH = 'M 8 13 V 3 M 8 6 L 5 4 M 8 6 L 11 4 M 8 9 L 5 7 M 8 9 L 11 7';
 export const ORE_GLYPH_PATH = 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z';
-export const BUILD_HAMMER_PATH = 'M 3 13 L 9.5 6.5 M 7.5 3.5 L 12.5 8.5 L 10.8 10.2 L 5.8 5.2 Z';
+export const BUILD_HAMMER_PATH = 'M 8 7 V 14 M 3 3 H 11.5 L 13 5 L 11.5 7 H 3 Z';
 
 export function controlToneColor(loyalty: number, owner: SeatId | null): string {
   if (loyalty <= 35) return 'var(--state-failed)';
@@ -309,7 +311,7 @@ function arrowEndpointTrims(distance: number): { startTrim: number; endTrim: num
   return { startTrim: Math.min(HEX_EDGE_INSET, distance * 0.4), endTrim: Math.min(16, distance * 0.25) };
 }
 
-function hexCenter(axialQ: number, axialR: number): { x: number; y: number } {
+export function hexCenter(axialQ: number, axialR: number): { x: number; y: number } {
   return {
     x: HEX_SIZE * (SQRT_3 * axialQ + (SQRT_3 / 2) * axialR),
     y: HEX_SIZE * (1.5 * axialR),
@@ -1244,7 +1246,7 @@ export function createWargamesMap(
     if (village) {
       const isBarren = village.productionState === 'barren';
       const seatColor = village.owner !== null ? SEAT_COLORS[village.owner] : null;
-      const stroke = isSelected ? 'var(--accent)' : seatColor ?? 'var(--border-hover)';
+      const stroke = isSelected ? 'var(--text-head)' : seatColor ?? 'var(--border-hover)';
       slot.polygon.setAttribute('fill', villageFillColor(village.owner, isBarren));
       slot.polygon.setAttribute('stroke', stroke);
       slot.polygon.setAttribute('stroke-width', isSelected ? '3' : seatColor ? '2' : '1.5');
@@ -1264,7 +1266,7 @@ export function createWargamesMap(
     }
 
     slot.polygon.setAttribute('fill', isFogged ? 'var(--bg)' : 'var(--bg-surface)');
-    slot.polygon.setAttribute('stroke', isSelected ? 'var(--accent)' : 'var(--border)');
+    slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
     slot.polygon.removeAttribute('stroke-dasharray');
     slot.detailLabel.textContent = isFogged ? '?' : '';

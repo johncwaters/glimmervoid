@@ -35,12 +35,6 @@
   opacity: 0.55;
 }
 
-.wg-econ-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
 .wg-econ-table th.wg-num {
   text-align: right;
 }
@@ -57,6 +51,28 @@
 .wg-econ-stock {
   width: 200px;
   min-width: 200px;
+}
+
+.wg-econ-stock-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wg-econ-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wg-econ-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.wg-econ-taken {
+  color: var(--text-head);
 }
 
 .wg-econ-stock-numbers {
@@ -100,7 +116,7 @@
 .wg-econ-growth-counts {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   color: var(--text-dim);
 }
 
