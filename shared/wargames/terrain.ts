@@ -1,4 +1,6 @@
-import type { WargamesTerrainRule } from '../contracts/wargames.ts';
+import type { WargamesBalance } from '../contracts/wargames.ts';
+
+type WargamesTerrainRule = NonNullable<WargamesBalance['clusteredTerrain']>;
 
 export type TerrainKind = 'plain' | 'mountain' | 'lake' | 'forest' | 'fertile' | 'ore';
 
