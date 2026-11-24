@@ -168,12 +168,11 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
     row.dispatchEvent(new CustomEvent('chat-cancel', { bubbles: true, composed: true, detail: { entryId: entry.entryId } }));
   });
   const meta = el('div', 'chat-queued-meta');
-  meta.append(status);
   if (canSendNow && entry.state === 'held') meta.append(sendNowButtonOf(entry));
   meta.append(cancelButton);
   const queuedPrompt = renderPromptBubble(entry.text, entry.attachments, uploadUrlOf);
   queuedPrompt.classList.add('chat-prompt-queued');
-  row.append(queuedPrompt, meta);
+  row.append(status, queuedPrompt, meta);
   return row;
 }
 

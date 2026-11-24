@@ -972,18 +972,16 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-muted);
-  font: var(--type-meta)/1 var(--font-mono);
 }
 
-.chat-queued-row[data-state="failed"] .chat-queued-meta {
+.chat-queued-status {
   max-width: 80%;
-  align-items: flex-start;
-  line-height: 1.4;
-  color: var(--text);
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font: var(--type-meta)/1.4 var(--font-mono);
 }
 
-.chat-queued-status { overflow-wrap: anywhere; }
+.chat-queued-row[data-state="failed"] .chat-queued-status { color: var(--text); }
 
 .chat-turn .plan-document { max-width: none; margin: 0; }
 
