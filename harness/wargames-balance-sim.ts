@@ -1,0 +1,407 @@
+import { performance } from 'node:perf_hooks';
+
+import {
+  WARGAMES_MAP_SIZES,
+  WargamesMatchSpec,
+  seatIdsForCount,
+  victoryVillagesForBalance,
+  wargamesBalanceFor,
+} from '../shared/contracts/wargames.ts';
+import type { OrderItem, SeatId, TroopCounts, WargamesBalance, WargamesEvent, WargamesSeatCount } from '../shared/contracts/wargames.ts';
+import { applyEvent, createInitialMatchState } from '../shared/wargames/engine.ts';
+import type { MatchState } from '../shared/wargames/engine.ts';
+
+type VillageState = NonNullable<MatchState['villages'][number]>;
+
+type StrategyName = 'rusher' | 'builder' | 'turtle' | 'mixed';
+const STRATEGIES: readonly StrategyName[] = ['rusher', 'builder', 'turtle', 'mixed'];
+const SEEDS = Array.from({ length: 24 }, (_, index) => 101 * (index + 1));
+const SEAT_COUNTS: readonly WargamesSeatCount[] = [4, 6];
+const ATTACK_MARGIN = 2;
+const BUILD_PAYBACK_TURNS = 4;
+const FLIP_BACK_WINDOW_TURNS = 3;
+const TROOP_COSTS = { raider: { grain: 12, ore: 8 }, guard: { grain: 8, ore: 12 }, envoy: { grain: 25, ore: 20 } } as const;
+const BYTES_PER_MB = 2 ** 20;
+
+interface Candidate {
+  name: string;
+  rulesVersion: 'v5' | 'v6';
+  balance: WargamesBalance;
+}
+
+interface GameRecord {
+  winnerStrategy: StrategyName | null;
+  winKind: 'goal' | 'limit';
+  endTurn: number;
+  maxTicks: number;
+  seatsAliveAtMidGame: number;
+  seatCount: number;
+  captures: number;
+  flipBacks: number;
+  seatsThatFell: number;
+  seatsThatCameBack: number;
+  buildsJudged: number;
+  buildsPaidBack: number;
+}
+
+const signer = { sign: () => 'sim', verify: () => true };
+
+function hexDistance(first: { q: number; r: number }, second: { q: number; r: number }): number {
+  return Math.max(Math.abs(first.q - second.q), Math.abs(first.r - second.r), Math.abs(first.q + first.r - second.q - second.r));
+}
+
+function step(state: MatchState, event: Record<string, unknown>): MatchState {
+  const outcome = applyEvent(state, { ...event, seq: state.lastSeq + 1 } as WargamesEvent, signer);
+  if (!outcome.ok) throw new Error(`${String(event.type)} rejected: ${outcome.rejection.message}`);
+  return outcome.state;
+}
+
+function defensePowerOf(state: MatchState, village: VillageState, sendingRaiders: boolean): number {
+  const raiderPower = village.troops.raider * 10 * 1.5;
+  const guardPower = village.troops.guard * 10 * (sendingRaiders ? 1.5 : 1);
+  const envoyPower = village.troops.envoy * 8 * 1.5;
+  const ownerVillages = village.owner === null ? 0 : state.villages.filter((candidate) => candidate?.owner === village.owner).length;
+  const lastVillageMultiplier = ownerVillages === 1 ? state.balance.lastVillageDefenseMultiplier : 1;
+  return (raiderPower + guardPower + envoyPower) * (1 + village.buildings.wall * 0.15) * lastVillageMultiplier;
+}
+
+function raidersNeeded(state: MatchState, target: VillageState, envoys: number): number {
+  const envoyPower = envoys * 8 * (target.troops.guard > 0 ? 1.5 : 1);
+  const raiderPower = 10 * (target.troops.envoy > 0 ? 1.5 : 1);
+  return Math.max(0, Math.ceil((defensePowerOf(state, target, true) * ATTACK_MARGIN - envoyPower) / raiderPower));
+}
+
+function envoysNeeded(state: MatchState, target: VillageState): number {
+  return Math.ceil(target.loyalty / state.balance.envoyLoyaltyDrain / 0.6);
+}
+
+function ownedVillagesOf(state: MatchState, seatId: SeatId): VillageState[] {
+  return state.villages.filter((village): village is VillageState => village !== null && village.owner === seatId);
+}
+
+function nearestTargets(state: MatchState, from: VillageState, seatId: SeatId, onlyBarbarians: boolean): VillageState[] {
+  const origin = state.hexes[from.hexIndex];
+  return state.villages
+    .filter((village): village is VillageState => village !== null && village.owner !== seatId && (!onlyBarbarians || village.owner === null))
+    .sort((left, right) => hexDistance(origin, state.hexes[left.hexIndex]) - hexDistance(origin, state.hexes[right.hexIndex]));
+}
+
+interface Purse {
+  grain: number;
+  ore: number;
+}
+
+function canAfford(purse: Purse, cost: { grain: number; ore: number }, count = 1): boolean {
+  return purse.grain >= cost.grain * count && purse.ore >= cost.ore * count;
+}
+
+function spend(purse: Purse, cost: { grain: number; ore: number }, count = 1): void {
+  purse.grain -= cost.grain * count;
+  purse.ore -= cost.ore * count;
+}
+
+function trainAffordable(orders: OrderItem[], village: VillageState, purse: Purse, troop: keyof TroopCounts, wanted: number): number {
+  const cost = TROOP_COSTS[troop];
+  const affordable = Math.min(wanted, Math.floor(purse.grain / cost.grain), Math.floor(purse.ore / cost.ore), 200);
+  if (affordable <= 0) return 0;
+  spend(purse, cost, affordable);
+  orders.push({ kind: 'train', hexIndex: village.hexIndex, troop, count: affordable });
+  return affordable;
+}
+
+function buildIfAffordable(state: MatchState, orders: OrderItem[], village: VillageState, purse: Purse, building: 'farm' | 'mine' | 'wall'): boolean {
+  const cost = state.balance.buildingCosts[building];
+  if (village.buildings[building] >= 10 || !canAfford(purse, cost)) return false;
+  spend(purse, cost);
+  orders.push({ kind: 'build', hexIndex: village.hexIndex, building });
+  return true;
+}
+
+function planAttack(state: MatchState, orders: OrderItem[], village: VillageState, purse: Purse, target: VillageState, targeted: Set<number>): void {
+  const envoysWanted = envoysNeeded(state, target);
+  const raidersWanted = raidersNeeded(state, target, envoysWanted);
+  const envoys = village.troops.envoy + trainAffordable(orders, village, purse, 'envoy', Math.max(0, envoysWanted - village.troops.envoy));
+  const raiders = village.troops.raider + trainAffordable(orders, village, purse, 'raider', Math.max(0, raidersWanted - village.troops.raider));
+  if (envoys < envoysWanted || raiders < raidersWanted) return;
+  targeted.add(target.hexIndex);
+  orders.push({ kind: 'march', fromHexIndex: village.hexIndex, toHexIndex: target.hexIndex, troops: { raider: raiders, guard: 0, envoy: envoys } });
+}
+
+function firstUntargeted(targets: VillageState[], targeted: Set<number>): VillageState | undefined {
+  return targets.find((target) => !targeted.has(target.hexIndex));
+}
+
+function ordersFor(state: MatchState, seatId: SeatId, strategy: StrategyName): OrderItem[] {
+  const orders: OrderItem[] = [];
+  const targeted = new Set([...state.armies.values()].filter((army) => army.owner === seatId && army.status === 'marching').map((army) => army.targetHexIndex));
+  const owned = ownedVillagesOf(state, seatId);
+  for (const village of owned) {
+    const purse: Purse = { ...village.resources };
+    if (strategy === 'rusher') {
+      const target = firstUntargeted(nearestTargets(state, village, seatId, false), targeted);
+      if (target) planAttack(state, orders, village, purse, target, targeted);
+      continue;
+    }
+    if (strategy === 'turtle') {
+      buildIfAffordable(state, orders, village, purse, 'wall');
+      buildIfAffordable(state, orders, village, purse, village.buildings.farm <= village.buildings.mine ? 'farm' : 'mine');
+      trainAffordable(orders, village, purse, 'guard', Math.max(0, 12 - village.troops.guard));
+      const isRich = purse.grain > 300 && purse.ore > 300;
+      const target = isRich ? firstUntargeted(nearestTargets(state, village, seatId, true), targeted) : undefined;
+      if (target && hexDistance(state.hexes[village.hexIndex], state.hexes[target.hexIndex]) <= 2) planAttack(state, orders, village, purse, target, targeted);
+      continue;
+    }
+    if (strategy === 'builder') {
+      buildIfAffordable(state, orders, village, purse, village.buildings.farm <= village.buildings.mine ? 'farm' : 'mine');
+      trainAffordable(orders, village, purse, 'guard', Math.max(0, 8 - village.troops.guard));
+      const isEconomyBuilt = village.buildings.farm + village.buildings.mine >= 6;
+      const target = isEconomyBuilt ? firstUntargeted(nearestTargets(state, village, seatId, false), targeted) : undefined;
+      if (target) planAttack(state, orders, village, purse, target, targeted);
+      continue;
+    }
+    const isEarly = state.tick <= 3;
+    if (isEarly) buildIfAffordable(state, orders, village, purse, village.buildings.farm <= village.buildings.mine ? 'farm' : 'mine');
+    trainAffordable(orders, village, purse, 'guard', Math.max(0, 6 - village.troops.guard));
+    const barbarian = firstUntargeted(nearestTargets(state, village, seatId, true), targeted);
+    const anyone = firstUntargeted(nearestTargets(state, village, seatId, false), targeted);
+    const target = barbarian && hexDistance(state.hexes[village.hexIndex], state.hexes[barbarian.hexIndex]) <= 3 ? barbarian : anyone;
+    if (target) planAttack(state, orders, village, purse, target, targeted);
+  }
+  return orders.slice(0, 64);
+}
+
+function strategyOfSeat(seatIndex: number, seed: number): StrategyName {
+  return STRATEGIES[(seatIndex + seed) % STRATEGIES.length];
+}
+
+function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius: number, maxTicks: number, seed: number): GameRecord {
+  const spec = WargamesMatchSpec.parse({
+    version: 1, rulesVersion: candidate.rulesVersion, title: 'sim', seed, mapRadius, maxTicks,
+    seats: seatIdsForCount(seatCount).map((seatId) => ({ seatId, label: seatId, setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'bot' })),
+  });
+  let state = createInitialMatchState(`sim-${seed}`, 0, spec);
+  state.balance = candidate.balance;
+  state = step(state, { type: 'seating_started' });
+  for (const seat of state.seats) state = step(state, { type: 'seat_connected', seatId: seat.config.seatId });
+  const strategyBySeat = new Map(state.seats.map((seat, index) => [seat.config.seatId, strategyOfSeat(index, seed)]));
+  const advance = { type: 'phase_advanced', reason: 'all_submitted', signatures: {} };
+  const lastCaptureTurnByHex = new Map<number, number>();
+  const pendingBuilds: { hexIndex: number; owner: SeatId; turn: number }[] = [];
+  const fellSeats = new Set<SeatId>();
+  const cameBackSeats = new Set<SeatId>();
+  let captures = 0;
+  let flipBacks = 0;
+  let buildsJudged = 0;
+  let buildsPaidBack = 0;
+  let seatsAliveAtMidGame: number = seatCount;
+  while (state.status === 'running') {
+    const before = state.villages.map((village) => (village ? { owner: village.owner, buildings: { ...village.buildings } } : null));
+    state = step(state, advance);
+    state = step(state, advance);
+    for (const seat of state.seats) {
+      if (seat.status !== 'acting') continue;
+      const strategy = strategyBySeat.get(seat.config.seatId) ?? 'mixed';
+      state = step(state, { type: 'orders_submitted', seatId: seat.config.seatId, orders: ordersFor(state, seat.config.seatId, strategy) });
+    }
+    state = step(state, advance);
+    const turn = state.tick;
+    state.villages.forEach((village, hexIndex) => {
+      const previous = before[hexIndex];
+      if (!village || !previous) return;
+      if (village.owner !== previous.owner && village.owner !== null) {
+        captures += 1;
+        const lastCaptureTurn = lastCaptureTurnByHex.get(hexIndex);
+        if (lastCaptureTurn !== undefined && turn - lastCaptureTurn <= FLIP_BACK_WINDOW_TURNS) flipBacks += 1;
+        lastCaptureTurnByHex.set(hexIndex, turn);
+      }
+      const wasBuilt = village.owner === previous.owner && village.owner !== null
+        && (village.buildings.farm > previous.buildings.farm || village.buildings.mine > previous.buildings.mine);
+      if (wasBuilt && village.owner !== null) pendingBuilds.push({ hexIndex, owner: village.owner, turn });
+    });
+    for (let index = pendingBuilds.length - 1; index >= 0; index -= 1) {
+      const build = pendingBuilds[index];
+      const isLost = state.villages[build.hexIndex]?.owner !== build.owner;
+      const isPaidBack = turn - build.turn >= BUILD_PAYBACK_TURNS;
+      if (!isLost && !isPaidBack) continue;
+      buildsJudged += 1;
+      if (!isLost) buildsPaidBack += 1;
+      pendingBuilds.splice(index, 1);
+    }
+    for (const seat of state.seats) {
+      const villageCount = ownedVillagesOf(state, seat.config.seatId).length;
+      if (villageCount <= 1) fellSeats.add(seat.config.seatId);
+      if (fellSeats.has(seat.config.seatId) && villageCount >= 3) cameBackSeats.add(seat.config.seatId);
+    }
+    if (turn === Math.floor(maxTicks / 2)) seatsAliveAtMidGame = state.seats.filter((seat) => ownedVillagesOf(state, seat.config.seatId).length > 0).length;
+    if (state.status !== 'running') break;
+    state = step(state, advance);
+  }
+  const winVillages = victoryVillagesForBalance(candidate.balance, mapRadius);
+  const winnerVillages = state.winnerSeatId ? ownedVillagesOf(state, state.winnerSeatId).length : 0;
+  return {
+    winnerStrategy: state.winnerSeatId ? strategyBySeat.get(state.winnerSeatId) ?? null : null,
+    winKind: winnerVillages >= winVillages ? 'goal' : 'limit',
+    endTurn: state.tick,
+    maxTicks,
+    seatsAliveAtMidGame,
+    seatCount,
+    captures,
+    flipBacks,
+    seatsThatFell: fellSeats.size,
+    seatsThatCameBack: cameBackSeats.size,
+    buildsJudged,
+    buildsPaidBack,
+  };
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return Number.NaN;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function percent(part: number, whole: number): string {
+  return whole === 0 ? '-' : `${Math.round((part / whole) * 100)}%`;
+}
+
+function summarize(candidate: Candidate, sizeName: string, records: GameRecord[]): string {
+  const winsByStrategy = STRATEGIES.map((strategy) => `${strategy} ${percent(records.filter((record) => record.winnerStrategy === strategy).length, records.length)}`).join(' ');
+  const goalWins = records.filter((record) => record.winKind === 'goal');
+  const goalEndTurns = goalWins.map((record) => record.endTurn);
+  const aliveShare = records.reduce((sum, record) => sum + record.seatsAliveAtMidGame / record.seatCount, 0) / records.length;
+  const captures = records.reduce((sum, record) => sum + record.captures, 0);
+  const flipBacks = records.reduce((sum, record) => sum + record.flipBacks, 0);
+  const fell = records.reduce((sum, record) => sum + record.seatsThatFell, 0);
+  const cameBack = records.reduce((sum, record) => sum + record.seatsThatCameBack, 0);
+  const judged = records.reduce((sum, record) => sum + record.buildsJudged, 0);
+  const paidBack = records.reduce((sum, record) => sum + record.buildsPaidBack, 0);
+  return [
+    `| ${candidate.name} | ${sizeName} | ${winsByStrategy}`,
+    `goal wins ${percent(goalWins.length, records.length)}, median goal turn ${median(goalEndTurns)} of ${records[0].maxTicks}`,
+    `alive at mid ${Math.round(aliveShare * 100)}%`,
+    `flip-backs ${percent(flipBacks, captures)} of ${captures} captures`,
+    `comebacks ${percent(cameBack, fell)} of ${fell}`,
+    `builds paid back ${percent(paidBack, judged)} |`,
+  ].join(' | ');
+}
+
+function megabytes(bytes: number): string {
+  return `${(bytes / BYTES_PER_MB).toFixed(1)} MB`;
+}
+
+function candidatesToRun(): Candidate[] {
+  const v5 = wargamesBalanceFor('v5');
+  const v6 = wargamesBalanceFor('v6');
+  const heldGoal: WargamesBalance = { ...v5, victory: v6.victory };
+  const withoutBarbarianGrowth: WargamesBalance = { ...v6, barbarianGuardGrowthPerTurn: 0, barbarianGuardCap: 0 };
+  return [
+    { name: 'v5 today', rulesVersion: 'v5', balance: v5 },
+    { name: 'E held goal', rulesVersion: 'v6', balance: heldGoal },
+    { name: 'v6 without D', rulesVersion: 'v6', balance: withoutBarbarianGrowth },
+    { name: 'v6', rulesVersion: 'v6', balance: v6 },
+    { name: 'v6 plus F', rulesVersion: 'v6', balance: { ...v6, lastVillageProductionMultiplier: 2, lastVillageDefenseMultiplier: 1.5 } },
+    { name: 'v6 plus G', rulesVersion: 'v6', balance: { ...v6, buildingCosts: { ...v6.buildingCosts, wall: { grain: 40, ore: 50 } } } },
+  ];
+}
+
+interface SizeScore {
+  topStrategyWinShare: number;
+  rusherWinShare: number;
+  goalWinShare: number;
+  medianGoalTurnShare: number;
+  flipBackShare: number;
+  buildPaybackShare: number;
+}
+
+function scoreSize(records: GameRecord[]): SizeScore {
+  const winShares = STRATEGIES.map((strategy) => records.filter((record) => record.winnerStrategy === strategy).length / records.length);
+  const goalWins = records.filter((record) => record.winKind === 'goal');
+  const captures = records.reduce((sum, record) => sum + record.captures, 0);
+  const judged = records.reduce((sum, record) => sum + record.buildsJudged, 0);
+  return {
+    topStrategyWinShare: Math.max(...winShares),
+    rusherWinShare: winShares[STRATEGIES.indexOf('rusher')],
+    goalWinShare: goalWins.length / records.length,
+    medianGoalTurnShare: goalWins.length === 0 ? 1 : median(goalWins.map((record) => record.endTurn)) / records[0].maxTicks,
+    flipBackShare: captures === 0 ? 0 : records.reduce((sum, record) => sum + record.flipBacks, 0) / captures,
+    buildPaybackShare: judged === 0 ? 0 : records.reduce((sum, record) => sum + record.buildsPaidBack, 0) / judged,
+  };
+}
+
+const SEARCH_SHARES = [0.51, 0.55];
+const SEARCH_BARBARIAN_GUARD_CAPS = [0, 6, 10, 20];
+
+function searchGrid(): Candidate[] {
+  const v5 = wargamesBalanceFor('v5');
+  const v6 = wargamesBalanceFor('v6');
+  const candidates: Candidate[] = [];
+  for (const share of SEARCH_SHARES) {
+    for (const barbarianGuardCap of SEARCH_BARBARIAN_GUARD_CAPS) {
+      for (const knobs of Array.from({ length: 8 }, (_, mask) => mask)) {
+        const has = (bit: number) => (knobs & (1 << bit)) !== 0;
+        const balance: WargamesBalance = {
+          ...v5,
+          victory: { kind: 'heldShare', share, holdTurns: 2 },
+          captureRazeFraction: has(0) ? v6.captureRazeFraction : 0,
+          loyaltyRegenPerTurn: has(1) ? v6.loyaltyRegenPerTurn : 0,
+          envoyLoyaltyDrain: has(2) ? v6.envoyLoyaltyDrain : v5.envoyLoyaltyDrain,
+          barbarianGuardGrowthPerTurn: barbarianGuardCap > 0 ? 1 : 0,
+          barbarianGuardCap,
+        };
+        const name = `share ${share} cap ${barbarianGuardCap} ${['A', 'B', 'C'].filter((_, bit) => has(bit)).join('') || '-'}`;
+        candidates.push({ name, rulesVersion: 'v6', balance });
+      }
+    }
+  }
+  return candidates;
+}
+
+function runSearch(seedCount: number): void {
+  const seeds = SEEDS.slice(0, seedCount);
+  console.log('candidate | worst top-strategy win | worst rusher win | min goal-win share | goal turn share by size | worst churn | min payback');
+  for (const candidate of searchGrid()) {
+    const scores = WARGAMES_MAP_SIZES.map((mapSize) => {
+      const records: GameRecord[] = [];
+      for (const seatCount of SEAT_COUNTS) {
+        for (const seed of seeds) records.push(playGame(candidate, seatCount, mapSize.mapRadius, mapSize.maxTicks, seed));
+      }
+      return scoreSize(records);
+    });
+    const round = (value: number) => Math.round(value * 100);
+    console.log([
+      candidate.name,
+      round(Math.max(...scores.map((score) => score.topStrategyWinShare))),
+      round(Math.max(...scores.map((score) => score.rusherWinShare))),
+      round(Math.min(...scores.map((score) => score.goalWinShare))),
+      scores.map((score) => round(score.medianGoalTurnShare)).join('/'),
+      round(Math.max(...scores.map((score) => score.flipBackShare))),
+      round(Math.min(...scores.map((score) => score.buildPaybackShare))),
+    ].join(' | '));
+  }
+}
+
+function main(): void {
+  const searchSeeds = process.argv.find((argument) => argument.startsWith('--search='))?.slice('--search='.length);
+  if (searchSeeds !== undefined) {
+    runSearch(Number(searchSeeds));
+    return;
+  }
+  const onlyCandidate = process.argv.find((argument) => argument.startsWith('--only='))?.slice('--only='.length);
+  const candidates = candidatesToRun().filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
+  console.log('| Rules | Size | Win rate by strategy | Domination win | Alive mid-game | Churn | Comeback | Build payback |');
+  console.log('|---|---|---|---|---|---|---|---|');
+  for (const candidate of candidates) {
+    for (const mapSize of WARGAMES_MAP_SIZES) {
+      const startedAt = performance.now();
+      const records: GameRecord[] = [];
+      for (const seatCount of SEAT_COUNTS) {
+        for (const seed of SEEDS) records.push(playGame(candidate, seatCount, mapSize.mapRadius, mapSize.maxTicks, seed));
+      }
+      console.log(summarize(candidate, mapSize.name, records));
+      const { heapUsed, rss } = process.memoryUsage();
+      console.error(`${candidate.name} ${mapSize.name}: ${records.length} games in ${(performance.now() - startedAt).toFixed(0)} ms, heap ${megabytes(heapUsed)}, rss ${megabytes(rss)}`);
+    }
+  }
+}
+
+main();

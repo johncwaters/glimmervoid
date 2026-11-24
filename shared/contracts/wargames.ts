@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v5' as const;
+export const WARGAMES_RULES_VERSION = 'v6' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6']);
+type WargamesRulesVersion = z.infer<typeof WargamesRulesVersion>;
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 export const WARGAMES_SEAT_COUNTS = [4, 6] as const;
@@ -16,9 +17,7 @@ const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_R
 const WARGAMES_MAX_TICKS = 40;
 const WARGAMES_TICK_DEADLINE_SECONDS = 60;
 export const WARGAMES_SQUEEZE_TICK = 25;
-const WARGAMES_WIN_VILLAGES = 12;
-const WARGAMES_V5_OPEN_HEXES = 6;
-const WARGAMES_V5_VICTORY_SHARE = 0.4;
+const WARGAMES_OPEN_HEXES = 6;
 export const WARGAMES_MAP_SIZES = [
   { name: 'Standard', mapRadius: 4, maxTicks: 20 },
   { name: 'Large', mapRadius: 6, maxTicks: 40 },
@@ -130,11 +129,90 @@ export const WargamesMatchSpec = z.strictObject({
 });
 export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;
 
+type WargamesVictoryRule =
+  | { readonly kind: 'flat'; readonly villages: number }
+  | { readonly kind: 'share'; readonly share: number; readonly minimumVillages: number }
+  | { readonly kind: 'heldShare'; readonly share: number; readonly holdTurns: number };
+
+export interface WargamesBalance {
+  readonly envoyLoyaltyDrain: number;
+  readonly capturedLoyalty: number;
+  readonly loyaltyRegenPerTurn: number;
+  readonly captureRazeFraction: number;
+  readonly buildingCosts: Readonly<Record<BuildingKind, ResourceBundle>>;
+  readonly barbarianGuardGrowthPerTurn: number;
+  readonly barbarianGuardCap: number;
+  readonly lastVillageProductionMultiplier: number;
+  readonly lastVillageDefenseMultiplier: number;
+  readonly victory: WargamesVictoryRule;
+}
+
+const V1_BUILDING_COSTS = Object.freeze({
+  farm: Object.freeze({ grain: 40, ore: 30 }),
+  mine: Object.freeze({ grain: 30, ore: 40 }),
+  barracks: Object.freeze({ grain: 50, ore: 50 }),
+  wall: Object.freeze({ grain: 30, ore: 60 }),
+});
+
+const V1_BALANCE: WargamesBalance = Object.freeze({
+  envoyLoyaltyDrain: 35,
+  capturedLoyalty: 25,
+  loyaltyRegenPerTurn: 0,
+  captureRazeFraction: 0,
+  buildingCosts: V1_BUILDING_COSTS,
+  barbarianGuardGrowthPerTurn: 0,
+  barbarianGuardCap: 0,
+  lastVillageProductionMultiplier: 1,
+  lastVillageDefenseMultiplier: 1,
+  victory: Object.freeze({ kind: 'flat', villages: 12 }),
+});
+
+const V5_BALANCE: WargamesBalance = Object.freeze({
+  ...V1_BALANCE,
+  victory: Object.freeze({ kind: 'share', share: 0.4, minimumVillages: 12 }),
+});
+
+const V6_BALANCE: WargamesBalance = Object.freeze({
+  ...V1_BALANCE,
+  envoyLoyaltyDrain: 25,
+  loyaltyRegenPerTurn: 10,
+  captureRazeFraction: 0.5,
+  barbarianGuardGrowthPerTurn: 1,
+  barbarianGuardCap: 10,
+  victory: Object.freeze({ kind: 'heldShare', share: 0.51, holdTurns: 2 }),
+});
+
+const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
+  v1: V1_BALANCE,
+  v2: V1_BALANCE,
+  v3: V1_BALANCE,
+  v4: V1_BALANCE,
+  v5: V5_BALANCE,
+  v6: V6_BALANCE,
+});
+
+export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): WargamesBalance {
+  return WARGAMES_BALANCE_BY_VERSION[rulesVersion];
+}
+
+export function mapVillageCount(mapRadius: number): number {
+  return 3 * mapRadius * (mapRadius + 1) + 1 - WARGAMES_OPEN_HEXES;
+}
+
+export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victory'>, mapRadius: number): number {
+  const victory = balance.victory;
+  if (victory.kind === 'flat') return victory.villages;
+  if (victory.kind === 'share') return Math.max(victory.minimumVillages, Math.round(mapVillageCount(mapRadius) * victory.share));
+  return Math.ceil(mapVillageCount(mapRadius) * victory.share);
+}
+
 export function victoryVillagesFor(spec: Pick<WargamesMatchSpec, 'rulesVersion' | 'mapRadius'>): number {
-  if (spec.rulesVersion !== 'v5') return WARGAMES_WIN_VILLAGES;
-  const radius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
-  const totalVillages = 3 * radius * (radius + 1) + 1 - WARGAMES_V5_OPEN_HEXES;
-  return Math.max(WARGAMES_WIN_VILLAGES, Math.round(totalVillages * WARGAMES_V5_VICTORY_SHARE));
+  return victoryVillagesForBalance(wargamesBalanceFor(spec.rulesVersion), spec.mapRadius ?? WARGAMES_HEX_RADIUS);
+}
+
+export function victoryHoldTurnsFor(spec: Pick<WargamesMatchSpec, 'rulesVersion'>): number {
+  const victory = wargamesBalanceFor(spec.rulesVersion).victory;
+  return victory.kind === 'heldShare' ? victory.holdTurns : 1;
 }
 
 const EscrowTerms = z.strictObject({

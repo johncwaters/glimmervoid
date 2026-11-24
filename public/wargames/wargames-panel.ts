@@ -4,7 +4,9 @@ import {
   WARGAMES_RULES_VERSION,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_SEAT_IDS,
+  mapVillageCount,
   seatIdsForCount,
+  victoryHoldTurnsFor,
   victoryVillagesFor,
 } from '#shared/contracts/wargames.ts';
 import type {
@@ -1279,9 +1281,20 @@ function updateLiveShell(state: MatchState): HTMLElement {
   const followStatus = isActiveMatchStatus(state.status)
     ? `Live · Rules ${state.spec.rulesVersion}`
     : `${state.status} · Rules ${state.spec.rulesVersion}`;
-  shell.boardBarSlot.replaceChildren(el('span', 'wg-board-hint', modeHint), el('span', 'wg-board-hint', followStatus));
+  shell.boardBarSlot.replaceChildren(
+    el('span', 'wg-board-hint', modeHint),
+    el('span', 'wg-board-hint', goalText(state.spec)),
+    el('span', 'wg-board-hint', followStatus),
+  );
   shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
   return shell.wrap;
+}
+
+function goalText(spec: WargamesMatchSpec): string {
+  const winVillages = victoryVillagesFor(spec);
+  const holdTurns = victoryHoldTurnsFor(spec);
+  if (holdTurns <= 1) return `Goal ${winVillages} villages`;
+  return `Goal ${winVillages} of ${mapVillageCount(spec.mapRadius)} villages, hold ${holdTurns} turns`;
 }
 
 function render(): void {

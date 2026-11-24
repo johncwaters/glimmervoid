@@ -1,4 +1,5 @@
 import {
+  BuildingKind,
   WARGAMES_HEX_RADIUS,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_MAX_HEX_RADIUS,
@@ -9,11 +10,11 @@ import {
   WARGAMES_SEAT_IDS,
   WARGAMES_SQUEEZE_TICK,
   WARGAMES_TRAVEL_HEXES_PER_TICK,
-  victoryVillagesFor,
+  victoryVillagesForBalance,
+  wargamesBalanceFor,
 } from '../contracts/wargames.ts';
 import type {
   ArmyStatus,
-  BuildingKind,
   BuildingLevels,
   ContractRecord,
   HexCoord,
@@ -24,6 +25,7 @@ import type {
   ResourceBundle,
   SeatConfig,
   SeatId,
+  WargamesBalance,
   WargamesSeatCount,
   SeatStatus,
   SignedReport,
@@ -124,6 +126,13 @@ export interface MatchState {
   nextReportNumber: number;
   nextMessageNumber: number;
   lastSeq: number;
+  balance: WargamesBalance;
+  goalStreak: GoalStreak;
+}
+
+interface GoalStreak {
+  seatId: SeatId | null;
+  turns: number;
 }
 
 interface EngineEffect {
@@ -168,16 +177,7 @@ const WAREHOUSE_PER_LEVEL = 200;
 const BASE_PRODUCTION_PER_TICK = 25;
 const PRODUCTION_PER_LEVEL = 20;
 const INITIAL_LOYALTY = 100;
-const CAPTURED_LOYALTY = 25;
-const ENVOY_LOYALTY_DRAIN = 35;
 const MAX_SCOUTS_PER_TICK = 2;
-
-const BUILDING_COSTS: Readonly<Record<BuildingKind, ResourceBundle>> = Object.freeze({
-  farm: { grain: 40, ore: 30 },
-  mine: { grain: 30, ore: 40 },
-  barracks: { grain: 50, ore: 50 },
-  wall: { grain: 30, ore: 60 },
-});
 
 const TROOP_COSTS: Readonly<Record<TroopKind, ResourceBundle>> = Object.freeze({
   raider: { grain: 12, ore: 8 },
@@ -190,7 +190,7 @@ const SEAT_INDEX_BY_ID: Readonly<Record<SeatId, number>> = Object.freeze({
 });
 
 const RULES_VERSION_RANK: Readonly<Record<WargamesMatchSpec['rulesVersion'], number>> = Object.freeze({
-  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5,
+  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5, v6: 6,
 });
 
 function isRulesAtLeast(
@@ -368,6 +368,7 @@ function cloneState(state: MatchState): MatchState {
     scoutedHexesBySeat,
     ordersByTick,
     verifications: [...state.verifications],
+    goalStreak: { ...state.goalStreak },
   };
 }
 
@@ -595,6 +596,8 @@ export function createInitialMatchState(
     nextReportNumber: 1,
     nextMessageNumber: 1,
     lastSeq: 0,
+    balance: wargamesBalanceFor(spec.rulesVersion),
+    goalStreak: { seatId: null, turns: 0 },
   };
 }
 
@@ -669,7 +672,7 @@ function villagesOwnedBy(state: MatchState, seatId: SeatId): number {
   return count;
 }
 
-function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wallLevel: number): { attackPower: number; defensePower: number } {
+function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wallLevel: number, defenseMultiplier: number): { attackPower: number; defensePower: number } {
   const raiderBonus = defenders.envoy > 0 ? 1.5 : 1;
   const envoyBonus = defenders.guard > 0 ? 1.5 : 1;
   const guardBonus = defenders.raider > 0 ? 1.5 : 1;
@@ -678,8 +681,26 @@ function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wall
   const defGuardBonus = attackers.raider > 0 ? 1.5 : 1;
   const attackPower = attackers.raider * 10 * raiderBonus + attackers.guard * 10 * guardBonus + attackers.envoy * 8 * envoyBonus;
   const wallMultiplier = 1 + wallLevel * 0.15;
-  const defensePower = (defenders.raider * 10 * defRaiderBonus + defenders.guard * 10 * defGuardBonus + defenders.envoy * 8 * defEnvoyBonus) * wallMultiplier;
+  const defensePower = (defenders.raider * 10 * defRaiderBonus + defenders.guard * 10 * defGuardBonus + defenders.envoy * 8 * defEnvoyBonus) * wallMultiplier * defenseMultiplier;
   return { attackPower, defensePower };
+}
+
+function isLastVillage(state: MatchState, village: VillageState): boolean {
+  return village.owner !== null && villagesOwnedBy(state, village.owner) === 1;
+}
+
+function defenseMultiplierOf(state: MatchState, village: VillageState): number {
+  return isLastVillage(state, village) ? state.balance.lastVillageDefenseMultiplier : 1;
+}
+
+function captureVillage(state: MatchState, village: VillageState, newOwner: SeatId): void {
+  village.owner = newOwner;
+  village.loyalty = state.balance.capturedLoyalty;
+  const razeFraction = state.balance.captureRazeFraction;
+  if (razeFraction <= 0) return;
+  for (const building of BuildingKind.options) {
+    village.buildings[building] -= Math.ceil(village.buildings[building] * razeFraction);
+  }
 }
 
 function applyCasualties(troops: TroopCounts, lossFraction: number): { surviving: TroopCounts; lost: TroopCounts } {
@@ -856,7 +877,7 @@ function resolveV1MarchArrival(
   const loyaltyBefore = targetVillage.loyalty;
   const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
   state.rngState = nextRng;
-  const { attackPower, defensePower } = resolveCombatPower(army.troops, targetVillage.troops, targetVillage.buildings.wall);
+  const { attackPower, defensePower } = resolveCombatPower(army.troops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
   const jitteredAttack = attackPower * (0.9 + rngRoll * 0.2);
   const attackerWins = jitteredAttack >= defensePower;
   const attackerLossFraction = attackerWins ? (defensePower / Math.max(1, jitteredAttack)) * 0.65 : 1;
@@ -867,11 +888,10 @@ function resolveV1MarchArrival(
   let captured = false;
   const previousOwner = targetVillage.owner;
   if (attackerWins && attackerOutcome.surviving.envoy > 0) {
-    const drained = Math.max(0, targetVillage.loyalty - attackerOutcome.surviving.envoy * ENVOY_LOYALTY_DRAIN);
+    const drained = Math.max(0, targetVillage.loyalty - attackerOutcome.surviving.envoy * state.balance.envoyLoyaltyDrain);
     targetVillage.loyalty = drained;
     if (drained === 0) {
-      targetVillage.owner = army.owner;
-      targetVillage.loyalty = CAPTURED_LOYALTY;
+      captureVillage(state, targetVillage, army.owner);
       captured = true;
       effects.push({ kind: 'village_captured', detail: { hexIndex: targetVillage.hexIndex, newOwner: army.owner, previousOwner } });
     }
@@ -964,7 +984,7 @@ function resolveV2SimultaneousBattles(
         }
       }
       const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
-      const { attackPower } = resolveCombatPower(combinedTroops, targetVillage.troops, targetVillage.buildings.wall);
+      const { attackPower } = resolveCombatPower(combinedTroops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
       activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower });
     }
     if (activeAttackerSeats.length === 0) continue;
@@ -972,7 +992,7 @@ function resolveV2SimultaneousBattles(
     const defenderBefore = { ...targetVillage.troops };
     const loyaltyBefore = targetVillage.loyalty;
     const allCombinedTroops = sumTroopCounts(activeAttackerSeats.map((entry) => entry.combinedTroops));
-    const { defensePower } = resolveCombatPower(allCombinedTroops, targetVillage.troops, targetVillage.buildings.wall);
+    const { defensePower } = resolveCombatPower(allCombinedTroops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
     const totalAttackPower = activeAttackerSeats.reduce((sum, entry) => sum + entry.attackPower, 0);
     const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
     state.rngState = nextRng;
@@ -1021,14 +1041,12 @@ function resolveV2SimultaneousBattles(
       const totalLost = sumTroopCounts(survivingByArmy.map((outcome) => outcome.lost));
       const canDrainLoyalty = contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && totalSurviving.envoy > 0;
       const drainedLoyalty = canDrainLoyalty
-        ? Math.max(0, targetVillage.loyalty - totalSurviving.envoy * ENVOY_LOYALTY_DRAIN)
+        ? Math.max(0, targetVillage.loyalty - totalSurviving.envoy * state.balance.envoyLoyaltyDrain)
         : targetVillage.loyalty;
       const captured = canDrainLoyalty && drainedLoyalty === 0;
-      if (canDrainLoyalty) {
-        targetVillage.loyalty = captured ? CAPTURED_LOYALTY : drainedLoyalty;
-      }
+      if (canDrainLoyalty) targetVillage.loyalty = drainedLoyalty;
       if (captured) {
-        targetVillage.owner = entry.seatId;
+        captureVillage(state, targetVillage, entry.seatId);
         effects.push({ kind: 'village_captured', detail: { hexIndex: targetVillage.hexIndex, newOwner: entry.seatId, previousOwner } });
       }
       return { entry, survivingByArmy, totalLost, captured };
@@ -1094,8 +1112,19 @@ function resolveTick(
     if (!village || village.productionState !== 'producing') continue;
     const cap = warehouseCapOf(village);
     const gain = villageYieldOf(village);
-    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + gain.grain);
-    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + gain.ore);
+    const productionMultiplier = isLastVillage(state, village) ? state.balance.lastVillageProductionMultiplier : 1;
+    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + gain.grain * productionMultiplier);
+    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + gain.ore * productionMultiplier);
+  }
+
+  for (const village of state.villages) {
+    if (!village) continue;
+    if (village.owner !== null) {
+      village.loyalty = Math.min(INITIAL_LOYALTY, village.loyalty + state.balance.loyaltyRegenPerTurn);
+      continue;
+    }
+    if (village.troops.guard >= state.balance.barbarianGuardCap) continue;
+    village.troops.guard = Math.min(state.balance.barbarianGuardCap, village.troops.guard + state.balance.barbarianGuardGrowthPerTurn);
   }
 
   const tickOrdersRecord = {} as Record<SeatId, OrderItem[]>;
@@ -1137,7 +1166,7 @@ function resolveTick(
       if (order.kind === 'build') {
         const village = state.villages[order.hexIndex];
         if (!village || village.owner !== seat.config.seatId || builtHexes.has(order.hexIndex)) continue;
-        const cost = BUILDING_COSTS[order.building];
+        const cost = state.balance.buildingCosts[order.building];
         if (village.resources.grain < cost.grain || village.resources.ore < cost.ore) continue;
         if (village.buildings[order.building] >= 10) continue;
         village.resources.grain -= cost.grain;
@@ -1339,6 +1368,21 @@ function resolveTick(
     const eliminated = transitionSeat(seat.status, 'seat_eliminated');
     if (eliminated.ok) seat.status = eliminated.state;
   }
+}
+
+function goalWinnerAfterTurn(state: MatchState): SeatId | null {
+  const winVillages = victoryVillagesForBalance(state.balance, state.spec.mapRadius);
+  const seatsAtGoal = matchSeatIds(state).filter((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
+  const holdTurns = state.balance.victory.kind === 'heldShare' ? state.balance.victory.holdTurns : 1;
+  if (holdTurns <= 1) return seatsAtGoal.length > 0 ? determineWinnerAtLimit(state) : null;
+  if (seatsAtGoal.length !== 1) {
+    state.goalStreak = { seatId: null, turns: 0 };
+    return null;
+  }
+  const holder = seatsAtGoal[0];
+  const turns = holder === state.goalStreak.seatId ? state.goalStreak.turns + 1 : 1;
+  state.goalStreak = { seatId: holder, turns };
+  return turns >= holdTurns ? holder : null;
 }
 
 function determineWinnerAtLimit(state: MatchState): SeatId {
@@ -1628,10 +1672,8 @@ export function applyEvent(
       const reported = transitionTick(state.phase, 'resolution_complete');
       if (!reported.ok) return reported;
       state.phase = reported.state;
-      const winVillages = victoryVillagesFor(state.spec);
-      const hasThresholdWinner = matchSeatIds(state).some((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
-      if (hasThresholdWinner) {
-        const winSeat = determineWinnerAtLimit(state);
+      const winSeat = goalWinnerAfterTurn(state);
+      if (winSeat !== null) {
         const finished = transitionMatch(state.status, 'match_won');
         if (!finished.ok) return finished;
         state.status = finished.state;

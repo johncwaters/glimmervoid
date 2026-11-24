@@ -527,7 +527,7 @@ test('v3 charges an attack split into one-troop armies the same losses as one ar
   const oneArmy = [raidersSent];
   const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v5');
+  assert.equal(WARGAMES_RULES_VERSION, 'v6');
   const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
   assert.ok(lostAsOneArmy > 0);
   assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
@@ -758,4 +758,45 @@ test('4-seat matches seat s1 to s4 on an even dense map, refuse other seat sets,
   const summary = summarizeMatch(state, null, log.length + 1);
   assert.deepEqual(summary.seats.map((seat) => seat.seatId), ['s1', 's2', 's3', 's4']);
   assert.equal(analyzeMatch(log, state).seats.length, 4);
+});
+
+test('v6 wins only when a seat holds the majority goal at two turn ends in a row, while v5 ends at the first', () => {
+  const fourSeatSeats = buildTestSpec().seats.slice(0, 4);
+  const playTurnsHoldingGoal = (rulesVersion: 'v5' | 'v6') => {
+    const spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion, mapRadius: 4, seats: fourSeatSeats });
+    let state = createInitialMatchState(`wg-held-${rulesVersion}`, 1000, spec);
+    const goal = victoryVillagesFor(spec);
+    let granted = state.villages.filter((village) => village?.owner === 's1').length;
+    for (const village of state.villages) {
+      if (granted >= goal || village === null || village.owner !== null) continue;
+      village.owner = 's1';
+      granted += 1;
+    }
+    const signer = createTestSigner(6);
+    let seq = 0;
+    const nextSeq = () => {
+      seq += 1;
+      return seq;
+    };
+    const apply = (event: WargamesEvent) => {
+      const outcome = applyEvent(state, event, signer);
+      assert.equal(outcome.ok, true);
+      if (outcome.ok) state = outcome.state;
+    };
+    apply({ seq: nextSeq(), type: 'seating_started' });
+    for (const seat of state.seats) apply({ seq: nextSeq(), type: 'seat_connected', seatId: seat.config.seatId });
+    const statusAtTurnEnd: string[] = [];
+    for (let turn = 1; turn <= 2 && state.status === 'running'; turn += 1) {
+      apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+      apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+      for (const seat of state.seats) apply({ seq: nextSeq(), type: 'orders_submitted', seatId: seat.config.seatId, orders: [] });
+      apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+      statusAtTurnEnd.push(state.status);
+      if (state.status === 'running') apply({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+    }
+    return { statusAtTurnEnd, winner: state.winnerSeatId };
+  };
+
+  assert.deepEqual(playTurnsHoldingGoal('v5'), { statusAtTurnEnd: ['finished'], winner: 's1' });
+  assert.deepEqual(playTurnsHoldingGoal('v6'), { statusAtTurnEnd: ['running', 'finished'], winner: 's1' });
 });

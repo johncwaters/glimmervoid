@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { WargamesMatchSpec, victoryVillagesFor } from '../../shared/contracts/wargames.ts';
+import { WargamesMatchSpec, mapVillageCount, victoryHoldTurnsFor, victoryVillagesFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
@@ -102,13 +102,49 @@ interface WargamesLauncherDeps {
   seatRootDir?: string;
 }
 
-function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchSpecType): string {
+function objectiveLine(spec: WargamesMatchSpecType): string {
   const winVillages = victoryVillagesFor(spec);
+  const holdTurns = victoryHoldTurnsFor(spec);
+  const clock = `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`;
+  const fallback = `otherwise the seat with the most villages after tick ${spec.maxTicks} wins.`;
+  if (holdTurns <= 1) return `${clock} First seat to hold ${winVillages} villages wins; ${fallback}`;
+  return `${clock} A seat wins by holding at least ${winVillages} of the ${mapVillageCount(spec.mapRadius)} villages at the end of ${holdTurns} ticks in a row; ${fallback}`;
+}
+
+function loyaltyLines(spec: WargamesMatchSpecType): string[] {
+  const balance = wargamesBalanceFor(spec.rulesVersion);
+  const envoysForFullVillage = Math.ceil(100 / balance.envoyLoyaltyDrain);
+  const lines = [
+    '- Every village starts at 100 Loyalty. Winning a battle without surviving Envoys wipes the defenders but does not capture the village.',
+    `- Each surviving Envoy drains ${balance.envoyLoyaltyDrain} Loyalty (${envoysForFullVillage} surviving Envoys drop a 100-Loyalty village to 0 in one battle).`,
+    `- When Loyalty hits 0, the village flips to you at ${balance.capturedLoyalty} Loyalty with your surviving attackers as its garrison.`,
+  ];
+  if (balance.loyaltyRegenPerTurn > 0) lines.push(`- Every village you own regains ${balance.loyaltyRegenPerTurn} Loyalty per tick, up to 100, so a fresh capture hardens over a few ticks.`);
+  if (balance.captureRazeFraction > 0) lines.push(`- Capturing a village destroys ${Math.round(balance.captureRazeFraction * 100)}% of each building's levels (rounded up), so buildings are worth more to the seat that built them than to a raider.`);
+  if (balance.barbarianGuardGrowthPerTurn > 0) lines.push(`- Unowned villages gain ${balance.barbarianGuardGrowthPerTurn} Guard per tick, up to ${balance.barbarianGuardCap}, so late expansion costs more.`);
+  if (balance.lastVillageDefenseMultiplier > 1 || balance.lastVillageProductionMultiplier > 1) {
+    lines.push(`- A seat down to its last village produces ${balance.lastVillageProductionMultiplier}x and defends it at ${balance.lastVillageDefenseMultiplier}x power.`);
+  }
+  return lines;
+}
+
+function buildingLines(spec: WargamesMatchSpecType): string[] {
+  const costs = wargamesBalanceFor(spec.rulesVersion).buildingCosts;
+  return [
+    '- Base village: produces 25 grain and 25 ore per tick (500 base storage cap).',
+    `- Farm (${costs.farm.grain} grain / ${costs.farm.ore} ore): +20 grain/tick and +200 storage cap per level.`,
+    `- Mine (${costs.mine.grain} grain / ${costs.mine.ore} ore): +20 ore/tick and +200 storage cap per level.`,
+    `- Wall (${costs.wall.grain} grain / ${costs.wall.ore} ore): +15% defender combat power per level.`,
+    `- Barracks (${costs.barracks.grain} grain / ${costs.barracks.ore} ore): military infrastructure upgrade (training is instant and bounded by grain and ore).`,
+  ];
+}
+
+function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchSpecType): string {
   const lines = [
     `You are playing Wargames match "${spec.title}" (${matchId}) as seat ${seat.seatId} (${seat.label}).`,
     '',
     '=== WARGAMES RULEBOOK ===',
-    `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick). First seat to hold ${winVillages} villages wins; otherwise the seat with the most villages after tick ${spec.maxTicks} wins.`,
+    objectiveLine(spec),
     '',
     'Units & Combat (1.5x Counter Bonus):',
     '- Raider (12 grain / 8 ore, base power 10): deals 1.5x power (15) if the opposing force has any Envoys.',
@@ -117,16 +153,10 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     '- Movement & Battles: Armies travel 2 hexes per tick. March to your own village to reinforce it. Combat is simultaneous with +/-10% attack variance; the losing side is wiped and the winner takes proportional casualties. When you win a battle and capture a village, your surviving army stays there as its new garrison. If you win a battle without capturing (Loyalty still above 0), survivors return home.',
     '',
     'Loyalty & Capturing Villages:',
-    '- Every village starts at 100 Loyalty. Winning a battle without surviving Envoys wipes the defenders but does not capture the village.',
-    '- Each surviving Envoy drains 35 Loyalty (3 surviving Envoys drop a 100-Loyalty village to 0 in one battle).',
-    '- When Loyalty hits 0, the village flips to you at 25 Loyalty with your surviving attackers as its garrison. Because it starts at 25 Loyalty, a single surviving enemy Envoy can flip it back if you lose a defense there.',
+    ...loyaltyLines(spec),
     '',
     'Economy & Buildings (max level 10, 1 build per village per tick):',
-    '- Base village: produces 25 grain and 25 ore per tick (500 base storage cap).',
-    '- Farm (40 grain / 30 ore): +20 grain/tick and +200 storage cap per level.',
-    '- Mine (30 grain / 40 ore): +20 ore/tick and +200 storage cap per level.',
-    '- Wall (30 grain / 60 ore): +15% defender combat power per level.',
-    '- Barracks (50 grain / 50 ore): military infrastructure upgrade (training is instant and bounded by grain and ore).',
+    ...buildingLines(spec),
     '',
     'Diplomacy, Contracts & Tribes:',
     '- Messages: Send direct or tribe messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
