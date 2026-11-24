@@ -122,15 +122,20 @@ const LAKE_GLYPH_PATH = 'M 2 6 Q 4 4 6 6 T 10 6 T 14 6 M 2 10 Q 4 8 6 10 T 10 10
 const FOREST_GLYPH_PATH = 'M 8 2 L 13 10 H 3 Z M 8 10 V 14';
 export const BEACON_GLYPH_PATH = 'M 6 14 L 7 7 H 9 L 10 14 Z M 8 2 V 4.5 M 3.5 4 L 5.5 5.5 M 12.5 4 L 10.5 5.5';
 export const TERRAIN_GLYPHS: Readonly<Record<Exclude<TerrainKind, 'plain'>, { path: string; color: string; label: string }>> = Object.freeze({
-  mountain: { path: MOUNTAIN_GLYPH_PATH, color: 'var(--text-dim)', label: 'Mountain' },
-  lake: { path: LAKE_GLYPH_PATH, color: 'var(--text-muted)', label: 'Lake' },
+  mountain: { path: MOUNTAIN_GLYPH_PATH, color: 'var(--text)', label: 'Mountain' },
+  lake: { path: LAKE_GLYPH_PATH, color: 'var(--text)', label: 'Lake' },
   forest: { path: FOREST_GLYPH_PATH, color: 'var(--text-dim)', label: 'Forest' },
   fertile: { path: GRAIN_GLYPH_PATH, color: 'var(--state-waiting)', label: 'Fertile land' },
   ore: { path: ORE_GLYPH_PATH, color: 'var(--state-monitoring)', label: 'Ore deposit' },
 });
 
-function emptyHexFill(isBlockedTerrain: boolean, isFogged: boolean): string {
-  if (isBlockedTerrain) return 'var(--bg-header)';
+const BARRIER_FILLS: Readonly<Partial<Record<TerrainKind, string>>> = Object.freeze({
+  mountain: 'color-mix(in srgb, var(--text-dim) 42%, var(--bg))',
+  lake: 'color-mix(in srgb, var(--state-monitoring) 34%, var(--bg))',
+});
+const BARRIER_SCALE = HEX_SIZE / HEX_INNER_RADIUS;
+
+function emptyHexFill(isFogged: boolean): string {
   return isFogged ? 'var(--bg)' : 'var(--bg-surface)';
 }
 
@@ -169,12 +174,12 @@ function renderTerrainGlyph(container: SVGElement, centerX: number, centerY: num
   container.replaceChildren();
   if (kind === 'plain') return;
   const glyph = TERRAIN_GLYPHS[kind];
-  const isBlocked = kind === 'mountain' || kind === 'lake';
+  const isBlocked = BARRIER_FILLS[kind] !== undefined;
   if (!isBlocked) {
     container.append(createSvgShape('polygon', { points: hexPolygonPoints(centerX, centerY), fill: 'var(--text-muted)', 'fill-opacity': TERRAIN_TINT_OPACITY, stroke: 'none' }));
   }
   const glyphElement = isGlyphCentered
-    ? createMapStrokeGlyph(glyph.path, centerX, centerY, 18, glyph.color, '2')
+    ? createMapStrokeGlyph(glyph.path, centerX, centerY, isBlocked ? 26 : 18, glyph.color, '2')
     : createMapStrokeGlyph(glyph.path, centerX - 13, centerY - 15, 13, glyph.color, '2');
   glyphElement.setAttribute('aria-label', glyph.label);
   container.append(glyphElement);
@@ -1336,6 +1341,7 @@ export function createWargamesMap(
     if (village) renderSiteGlyph(slot, village, isDenseMap && village.owner === null && !isSelected);
 
     if (village) {
+      slot.polygon.setAttribute('points', hexPolygonPoints(slot.centerX, slot.centerY));
       const isBarren = village.productionState === 'barren';
       const seatColor = village.owner !== null ? SEAT_COLORS[village.owner] : null;
       const stroke = isSelected ? 'var(--text-head)' : seatColor ?? 'var(--border-hover)';
@@ -1358,9 +1364,10 @@ export function createWargamesMap(
       return;
     }
 
-    const isBlockedTerrain = terrainKind === 'mountain' || terrainKind === 'lake';
-    slot.polygon.setAttribute('fill', emptyHexFill(isBlockedTerrain, isFogged));
-    slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : 'var(--border)');
+    const barrierFill = BARRIER_FILLS[terrainKind];
+    slot.polygon.setAttribute('points', hexPolygonPoints(slot.centerX, slot.centerY, barrierFill === undefined ? 1 : BARRIER_SCALE));
+    slot.polygon.setAttribute('fill', barrierFill ?? emptyHexFill(isFogged));
+    slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : barrierFill ?? 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
     slot.polygon.removeAttribute('stroke-dasharray');
     slot.detailLabel.textContent = isFogged ? '?' : '';

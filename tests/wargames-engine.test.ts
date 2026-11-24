@@ -23,6 +23,7 @@ import {
   replayMatchAtTick,
   victoryVillagesFor,
 } from '../shared/wargames/engine.ts';
+import { widthRuleViolations } from '../shared/wargames/terrain.ts';
 import type { MatchState } from '../shared/wargames/engine.ts';
 import type { ReportSigner } from '../shared/wargames/engine.ts';
 import {
@@ -834,10 +835,10 @@ test('v5 still ends on its village goal, while v6 scores victory points each tur
   assert.equal(thirdTurn.state.winnerSeatId, 's2');
 });
 
-test('v6 terrain on Large and Huge is seeded, the same around every seat, never under a village and in seat vision, while Standard stays plain', () => {
-  for (const seatCount of [4, 6] as const) {
-    for (const mapRadius of [6, 8]) {
-      const spec = WargamesMatchSpec.parse({ ...buildTestSpec(777001), rulesVersion: 'v6', mapRadius, seats: buildTestSpec().seats.slice(0, seatCount) });
+test('v6 and v8 terrain on Large and Huge is seeded, the same around every seat, never under a village and in seat vision, while Standard stays plain', () => {
+  for (const rulesVersion of ['v6', 'v8'] as const) {
+    for (const [seatCount, mapRadius] of [[4, 6], [4, 8], [6, 6], [6, 8]] as const) {
+      const spec = WargamesMatchSpec.parse({ ...buildTestSpec(777001), rulesVersion, mapRadius, seats: buildTestSpec().seats.slice(0, seatCount) });
       const state = createInitialMatchState(`wg-terrain-${seatCount}-${mapRadius}`, 1000, spec);
       assert.deepEqual(createInitialMatchState('again', 0, spec).terrain, state.terrain);
       assert.ok(state.terrain.some((kind) => kind === 'mountain' || kind === 'lake'));
@@ -849,6 +850,7 @@ test('v6 terrain on Large and Huge is seeded, the same around every seat, never 
       });
       assert.equal(new Set(blockedNearSeat).size, 1);
       assert.equal(projectSeatState(state, 's1').terrain.length, state.terrain.filter((kind) => kind !== 'plain').length);
+      if (rulesVersion === 'v8') assert.equal(widthRuleViolations(state.hexes, state.terrain), 0);
     }
   }
   const standard = createInitialMatchState('wg-standard', 0, WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v6', mapRadius: 4 }));

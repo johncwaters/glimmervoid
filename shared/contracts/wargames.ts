@@ -3,7 +3,7 @@ import { AgentSetup } from './agent-models.ts';
 
 export const WARGAMES_RULES_VERSION = 'v7' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']);
 type WargamesRulesVersion = z.infer<typeof WargamesRulesVersion>;
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -141,7 +141,19 @@ type WargamesVictoryRule =
 
 interface WargamesSparseSites {
   readonly villageShareByRadius: Readonly<Record<number, number>>;
+  readonly villageSpacing: number;
   readonly beaconRingsByRadius: Readonly<Record<number, readonly number[]>>;
+}
+
+export interface WargamesTerrainRule {
+  readonly minBlockedShare: number;
+  readonly maxBlockedShare: number;
+  readonly lakeFeatureChance: number;
+  readonly rangeLengths: readonly number[];
+  readonly lakeSizes: readonly number[];
+  readonly forestShare: number;
+  readonly forestPatchSizes: readonly number[];
+  readonly bonusChance: number;
 }
 
 export interface WargamesBalance {
@@ -156,6 +168,7 @@ export interface WargamesBalance {
   readonly lastVillageDefenseMultiplier: number;
   readonly victory: WargamesVictoryRule;
   readonly sparseSites: WargamesSparseSites | null;
+  readonly clusteredTerrain: WargamesTerrainRule | null;
   readonly diplomacy: WargamesDiplomacyRule | null;
 }
 
@@ -183,6 +196,7 @@ const V1_BALANCE: WargamesBalance = Object.freeze({
   lastVillageDefenseMultiplier: 1,
   victory: Object.freeze({ kind: 'flat', villages: 12 }),
   sparseSites: null,
+  clusteredTerrain: null,
   diplomacy: null,
 });
 
@@ -210,6 +224,7 @@ const V6_BALANCE: WargamesBalance = Object.freeze({
   }),
   sparseSites: Object.freeze({
     villageShareByRadius: Object.freeze({ 4: 0.25, 6: 0.2, 8: 0.18 }),
+    villageSpacing: 1,
     beaconRingsByRadius: Object.freeze({ 4: Object.freeze([0]), 6: Object.freeze([0, 3]), 8: Object.freeze([0, 4]) }),
   }),
 });
@@ -217,6 +232,25 @@ const V6_BALANCE: WargamesBalance = Object.freeze({
 const V7_BALANCE: WargamesBalance = Object.freeze({
   ...V6_BALANCE,
   diplomacy: Object.freeze({ breachCollateralStep: 1, allianceVpPerTurn: 2 }),
+});
+
+const V8_BALANCE: WargamesBalance = Object.freeze({
+  ...V7_BALANCE,
+  sparseSites: Object.freeze({
+    villageShareByRadius: Object.freeze({ 4: 0.125, 6: 0.1, 8: 0.09 }),
+    villageSpacing: 2,
+    beaconRingsByRadius: Object.freeze({ 4: Object.freeze([0]), 6: Object.freeze([0, 3]), 8: Object.freeze([0, 4]) }),
+  }),
+  clusteredTerrain: Object.freeze({
+    minBlockedShare: 0.08,
+    maxBlockedShare: 0.12,
+    lakeFeatureChance: 0.4,
+    rangeLengths: Object.freeze([2, 3, 3, 4, 4, 5]),
+    lakeSizes: Object.freeze([2, 3, 3, 4]),
+    forestShare: 0.05,
+    forestPatchSizes: Object.freeze([3, 4, 4, 5]),
+    bonusChance: 0.05,
+  }),
 });
 
 const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
@@ -227,6 +261,7 @@ const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, Wargame
   v5: V5_BALANCE,
   v6: V6_BALANCE,
   v7: V7_BALANCE,
+  v8: V8_BALANCE,
 });
 
 export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): WargamesBalance {
