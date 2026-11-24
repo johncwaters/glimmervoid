@@ -6,6 +6,16 @@ const MAX_NEED_REASON_LENGTH = 300;
 export const SecretName = z.string({ error: 'a secret name must be a string' })
   .regex(/^[A-Z_][A-Z0-9_]{0,127}$/, { error: 'a secret name must be an environment variable name in capitals, for example OPENAI_API_KEY' });
 
+const PACK_VAULT_NAME_PREFIX = 'GLIMMERVOID_PACK_';
+
+export function isPackVaultName(name: string): boolean {
+  return name.startsWith(PACK_VAULT_NAME_PREFIX);
+}
+
+export function packVaultName(packName: string, settingKey: string): string {
+  return `${PACK_VAULT_NAME_PREFIX}${packName.toUpperCase().replaceAll('-', '_')}__${settingKey}`;
+}
+
 const MAX_LOOK_IN_LENGTH = 200;
 const MAX_SAVED_VALUE_LENGTH = 65_536;
 
@@ -39,7 +49,7 @@ const NEED_STATUSES = ['delivered', 'pending', 'denied', 'no-source', 'failed'] 
 export const NeedStatus = z.enum(NEED_STATUSES);
 
 export const AgentNeedRequest = z.object({
-  names: z.array(SecretName, { error: 'names must be a list of secret names' })
+  names: z.array(SecretName.refine((name) => !isPackVaultName(name), { error: 'a GLIMMERVOID_PACK_ secret belongs to a pack and only reaches that pack\'s commands' }), { error: 'names must be a list of secret names' })
     .min(1, { error: 'name at least one secret' })
     .max(MAX_NAMES_PER_NEED, { error: `name at most ${MAX_NAMES_PER_NEED} secrets at once` }),
   reason: z.string({ error: 'reason must be a string' }).trim()

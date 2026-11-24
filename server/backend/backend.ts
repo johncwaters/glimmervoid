@@ -447,6 +447,14 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     hasAny: () => githubAppGrantsOfLink.hasAny(),
   };
   const laneAssembly = createBackendLanes({
+    packVault: {
+      source: () => {
+        const source = vaultSourceFor(config.vault?.lookIn);
+        return source.success ? source.data : null;
+      },
+      read: (source, name) => fnoxRunner.read(source, name),
+      saveToAgeFile: (name, value) => fnoxRunner.saveToAgeFile(name, value),
+    },
     config,
     rebaseSigningArgs: hostSigningKeys.serverSigningArgsFor,
     frameSecret,

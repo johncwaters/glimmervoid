@@ -36,6 +36,7 @@ type PackStore = EventEmitter & {
   reopenRequest(packName: string): void;
   isRequestDismissed(packName: string): boolean;
   panelPackDir(packName: string): string | null;
+  packInUse(packName: string): PackOnDisk | null;
   setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
   setProviderStatuses(statusesOf: (urls: readonly string[]) => ProviderStatus[]): void;
   setSourceRows(sourceRows: () => readonly PackSourceRow[]): void;
@@ -353,7 +354,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   }
 
   return Object.assign(emitter, {
-    start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
+    start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, packInUse: (packName: string) => packsInUse().find((pack) => pack.header.name === packName) ?? null, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
     dismissRequest, reopenRequest: (packName: string) => { dismissedFingerprintByPackName.delete(packName); }, isRequestDismissed,
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
     setProviderStatuses: (statusesOf: (urls: readonly string[]) => ProviderStatus[]) => { providerStatusesOf = statusesOf; },

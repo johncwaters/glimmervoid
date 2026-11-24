@@ -8,6 +8,7 @@ import type { WebSocket } from 'ws';
 import { ClientMessage, configIssueMessage, type ClientMessageOf, type ServerMessageOf } from '../shared/contracts/index.ts';
 import type { PacksStatus } from '../shared/contracts/control/pack-messages.ts';
 import type { PackData } from './packs/pack-data.ts';
+import type { PackSettingsStore } from './packs/pack-settings.ts';
 import type { PackLaunchers } from './packs/launchers.ts';
 import type { GithubPollingRefreshResult, GithubPrsFreshness } from '../shared/contracts/github-polling.ts';
 import type { GithubPrsFrame } from '../shared/contracts/github-prs.ts';
@@ -158,6 +159,7 @@ interface ControlHandlerDeps {
   packs?: { statusFrame: () => PacksStatus; approve: (fingerprint: string) => Promise<{ ok: true } | { ok: false; error: string }>; dismissRequest: (packName: string) => void } | null;
   packLaunchers?: Pick<PackLaunchers, 'launchRequest' | 'panelSessionRequest' | 'panelMaySend' | 'attachSessionStarter'> | null;
   packData?: PackData | null;
+  packSettings?: PackSettingsStore | null;
   packSources?: Pick<PackSources, 'add' | 'update' | 'remove' | 'setPackEnabled' | 'removeHandPlacedFolder'> | null;
   races?: Pick<RaceWiring, 'start' | 'status' | 'historyFrame' | 'judge' | 'pickWinner' | 'contestantDiffText' | 'listCases' | 'mineCases'> | null;
   wargames?: Pick<WargamesRunner, 'startMatch' | 'seatSessionEnded' | 'abortMatch' | 'watchMatch' | 'unwatchMatch' | 'removeWatcher' | 'statusFrame' | 'historyFrame'> | null;

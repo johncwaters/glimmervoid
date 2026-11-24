@@ -5,7 +5,7 @@ import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
 import { PackAgent, PackHooks, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
-import type { PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackSessions } from '../../../shared/contracts/pack.ts';
+import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
 import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
@@ -206,6 +206,56 @@ export function packSecretNamesOf(servers: readonly PackMcpServer[]): string[] {
   return [...new Set(servers.flatMap((server) => (server.secret === undefined ? [] : [server.secret])))];
 }
 
+export function packCommandRefsOf(prFlows: PackPrFlowsSection | null): string[] {
+  if (prFlows === null) return [];
+  return [
+    ...prFlows.sources.map((command) => packCommandRef('pr-source', command.id)),
+    ...prFlows.actions.map((command) => packCommandRef('pr-item-action', command.id)),
+    ...prFlows.prActions.map((command) => packCommandRef('pr-action', command.id)),
+  ];
+}
+
+export function packCommandRef(kind: PackCommandKind, id: string): string {
+  return `${kind}:${id}`;
+}
+
+export function packSettingsOf(pack: PackOnDisk): PackSetting[] {
+  return pack.settings?.ok === true ? pack.settings.value : [];
+}
+
+export function secretSettingKeysFor(settings: readonly PackSetting[], commandRef: string): string[] {
+  return settings.filter((setting) => setting.kind === 'secret' && setting.commands.includes(commandRef)).map((setting) => setting.key);
+}
+
+export function packCommandEnv(settings: readonly PackSetting[], commandRef: string, plainValuesByKey: Readonly<Record<string, string>>, secretValuesByKey: Readonly<Record<string, string>>): Record<string, string> {
+  const plainEntries = settings.filter((setting) => setting.kind === 'text' && (plainValuesByKey[setting.key] ?? '') !== '').map((setting) => [setting.key, plainValuesByKey[setting.key] ?? '']);
+  const secretEntries = secretSettingKeysFor(settings, commandRef).filter((key) => (secretValuesByKey[key] ?? '') !== '').map((key) => [key, secretValuesByKey[key] ?? '']);
+  return Object.fromEntries([...plainEntries, ...secretEntries]);
+}
+
+export function missingSettingKeys(settings: readonly PackSetting[], plainValuesByKey: Readonly<Record<string, string>>, foundSecretKeys: ReadonlySet<string>): string[] {
+  return settings.filter((setting) => (setting.kind === 'secret' ? !foundSecretKeys.has(setting.key) : (plainValuesByKey[setting.key] ?? '') === '')).map((setting) => setting.key);
+}
+
+const MASKED_SECRET_TEXT = '[secret]';
+const SHORTEST_MASKED_SECRET_LENGTH = 4;
+
+export function maskSecrets(text: string, secretValues: readonly string[]): string {
+  return [...secretValues]
+    .filter((value) => value.length >= SHORTEST_MASKED_SECRET_LENGTH)
+    .sort((left, right) => right.length - left.length)
+    .reduce((masked, value) => masked.replaceAll(value, MASKED_SECRET_TEXT), text);
+}
+
+export function maskSecretsInJson(value: unknown, secretValues: readonly string[]): unknown {
+  if (secretValues.length === 0 || value === null || value === undefined) return value;
+  return JSON.parse(JSON.stringify(value), (_key, field: unknown) => (typeof field === 'string' ? maskSecrets(field, secretValues) : field));
+}
+
+function settingRows(pack: PackOnDisk): PackRow['settings'] {
+  return packSettingsOf(pack).map((setting) => ({ key: setting.key, label: setting.label, kind: setting.kind, hint: setting.hint ?? null, commands: setting.commands }));
+}
+
 function serverSecretNotes(server: PackMcpServer): string[] {
   if (server.secret === undefined) return [];
   return [`Sends your ${server.secret} vault secret to ${URL.parse(server.url)?.host ?? server.url} as a bearer token, read by name from your vault once you allow it for the project; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves this server out`];
@@ -226,7 +276,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
     sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack),
     mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })),
-    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), errors: sectionErrors,
+    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), settings: settingRows(pack), errors: sectionErrors,
   };
 }
 
@@ -234,7 +284,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints, operatorNames), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], errors: read.errors, isPlacedByHand,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], settings: [], errors: read.errors, isPlacedByHand,
   };
 }
 
