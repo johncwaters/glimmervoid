@@ -1,4 +1,4 @@
-import { readPosthogReadConnection } from '../community/core/community-core.ts';
+import { readPosthogReadConnection } from '../radar/core/radar-lane-core.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -967,10 +967,8 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   laneAssembly.packLaunchers.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
   watcherLink.registerAlarmSource(laneAssembly.teamReview.alarmSource);
   laneAssembly.teamReview.alarmSource.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
-  for (const posthogLane of [laneAssembly.posthog, laneAssembly.community]) {
-    watcherLink.registerProbeSource(posthogLane.probeSource);
-    posthogLane.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
-  }
+  watcherLink.registerProbeSource(laneAssembly.posthog.probeSource);
+  laneAssembly.posthog.onProbesMayHaveChanged(watcherLink.probesMayHaveChanged);
   const { requestShutdown, requestRestart } = createLifecycle({
     shutdown,
     httpServer,

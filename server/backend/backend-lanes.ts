@@ -228,6 +228,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     config, githubAppGrants, broadcast: broadcastControl, homeDir: glimmervoidHomeDir(), log: logger,
     controlClientCount: viewerControlClientCount,
     spawnDependencies: { investigationSessions, closeSessionDataClients, hookRouter, getHookPort, spawnGate, recordLane, accountHomeFor: laneAccountHomeFor(() => configStore.config, 'community') },
+    packs: { packsInUse: () => packStore.packsInUse(), commandSettings: (pack, commandRef) => packSettings.commandSettings(pack, commandRef) },
   });
   const providerStatus = createProviderStatus({ log: logger, onChange: () => broadcastPacksIfChanged() });
   const githubStatus = createGithubStatus({ providerStatus });

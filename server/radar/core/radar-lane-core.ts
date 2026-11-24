@@ -6,7 +6,7 @@ import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_POSTHOG_HOST = 'https://us.posthog.com';
 
-export interface PosthogConnection {
+interface PosthogConnection {
   host: string;
   apiKey: string;
 }
@@ -15,22 +15,12 @@ export function resolvePosthogHost(host: string | null | undefined): string {
   return host || DEFAULT_POSTHOG_HOST;
 }
 
-function posthogConnectionWith(config: { posthog?: unknown }, keyField: 'apiKey' | 'readApiKey'): PosthogConnection | null {
-  const block = isRecord(config.posthog) ? config.posthog : {};
-  const keyValue = block[keyField];
-  const apiKey = typeof keyValue === 'string' ? keyValue.trim() : '';
-  if (!apiKey) return null;
-  return { host: resolvePosthogHost(typeof block.host === 'string' ? block.host.trim() : null), apiKey };
-}
-
-export function readPosthogConnection(config: { posthog?: unknown }): PosthogConnection | null {
-  return posthogConnectionWith(config, 'apiKey');
-}
-
 export function readPosthogReadConnection(config: { posthog?: unknown }): PosthogConnection | null {
-  const connection = posthogConnectionWith(config, 'readApiKey');
-  if (connection === null || !connection.host.startsWith('https://')) return null;
-  return connection;
+  const block = isRecord(config.posthog) ? config.posthog : {};
+  const apiKey = typeof block.readApiKey === 'string' ? block.readApiKey.trim() : '';
+  if (!apiKey) return null;
+  const host = resolvePosthogHost(typeof block.host === 'string' ? block.host.trim() : null);
+  return host.startsWith('https://') ? { host, apiKey } : null;
 }
 const DEFAULT_USER_ESCALATION_THRESHOLD = 25;
 const DEFAULT_MIN_USERS_TO_INVESTIGATE = 1;

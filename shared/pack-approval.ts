@@ -8,6 +8,10 @@ export function packApprovalUrl(port: number, packName: string): string {
   return `http://localhost:${port}/${PACK_APPROVAL_HASH_PREFIX}${packName}`;
 }
 
+export function packApprovalHashOf(packName: string): string {
+  return `${PACK_APPROVAL_HASH_PREFIX}${packName}`;
+}
+
 export function packNameOfApprovalHash(hash: string): string | null {
   if (!hash.startsWith(PACK_APPROVAL_HASH_PREFIX)) return null;
   const packName = hash.slice(PACK_APPROVAL_HASH_PREFIX.length);
@@ -46,6 +50,8 @@ export function packGrants(row: PackRow): string[] {
     ...(row.mcpServers.length === 0 ? [] : [`MCP servers ${row.mcpServers.map((server) => server.name).join(', ')} for every session`]),
     ...row.hooks.map((hook) => `hook ${hook.id} running ${JSON.stringify(hook.command)} before ${hook.tools.join(' and ')} tool calls in every session`),
     ...(prFlowCommandCount === 0 ? [] : [plural(prFlowCommandCount, 'My PRs command')]),
+    ...(row.community?.sources ?? []).map((source) => `Community source ${source.label} running ${JSON.stringify(source.command)} on every Community poll${source.isJudged ? ', its messages judged first' : ''}`),
+    ...(row.community && row.community.docsDomains.length > 0 ? [`research runs fetching ${row.community.docsDomains.join(', ')} for ${row.community.product} questions`] : []),
     ...row.jobs.map((job) => `job ${job.label} running ${JSON.stringify(job.command)} on schedule ${job.schedule}`),
     ...row.settings.filter((setting) => setting.kind === 'secret').map((setting) => `secret ${setting.key} from your vault, handed to ${setting.commands.length === 0 ? 'no command' : setting.commands.join(', ')}`),
     ...(row.settings.some((setting) => setting.kind === 'text') ? [`settings ${row.settings.filter((setting) => setting.kind === 'text').map((setting) => setting.key).join(', ')} for every command of the pack`] : []),

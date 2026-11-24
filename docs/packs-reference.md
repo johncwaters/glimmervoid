@@ -28,6 +28,7 @@ Published as the JSON Schema `https://glimmervoid.dev/schema/pack.v1.json`; poin
 | `hooks` | array of objects |  |  | Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it See below. |
 | `settings` | array of objects |  |  | Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
 | `jobs` | array of objects |  |  | Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
+| `community` | object |  |  | Question sources the Community tab polls once the pack is approved, and what the questions are about. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
 
 ### `prFlows`
 
@@ -190,7 +191,7 @@ A list, min items 1, max items 16, of:
 | `settings[].label` | string, min length 1, max length 60 | yes |  | The field name shown to the operator in the pack Settings |
 | `settings[].kind` | one of `"text"`, `"secret"` |  | `"text"` | text: a plain value saved in Glimmervoid's pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands |
 | `settings[].hint` | string, max length 200 |  |  | One line under the field, such as where to find the value |
-| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action\|job):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command |
+| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action\|job\|community-source):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command |
 
 ### `jobs`
 
@@ -206,6 +207,26 @@ A list, min items 1, max items 8, of:
 | `jobs[].catchUp` | boolean |  |  | Run once at once when a scheduled run fell while Glimmervoid was down or the host slept; off skips missed runs |
 | `jobs[].command` | array of string, min length 1, max length 1000, min items 1, max items 32 | yes |  | The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold {packDir}, the pack's folder. Its environment has the pack settings and the secrets that list job:<id>. It prints one JSON value on stdout, which Glimmervoid saves in the pack store under the key job:<id>, where the pack's panels read it and which panels cannot write |
 | `jobs[].timeoutSeconds` | integer, min 1, max 600 |  | `60` | Seconds before the run is stopped and counts as failed |
+
+### `community`
+
+Question sources the Community tab polls once the pack is approved, and what the questions are about. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it
+
+| Field | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `community.product` | object | yes |  |  |
+| `community.product.name` | string, min length 1, max length 60 | yes |  | What the questions are about; the judge and the research prompt name it |
+| `community.product.docsDomains` | array of string, matches `^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$`, max items 8 |  | `[]` | Hosts a research run may fetch pages from besides GitHub, listed to the operator before approving |
+| `community.sources` | array of objects, min items 1, max items 8 | yes |  |  |
+| `community.sources[].id` | string, matches `^[a-z0-9][a-z0-9-]{0,39}$` | yes |  | Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack |
+| `community.sources[].label` | string, min length 1, max length 40 | yes |  | The source name the Community tab shows beside each question, such as Example forum |
+| `community.sources[].icon` | string | yes |  | An .svg file in the pack, drawn as a one-color mark in the source color |
+| `community.sources[].color` | object | yes |  | The mark color on dark and on light themes |
+| `community.sources[].color.dark` | string, matches `^#[0-9a-fA-F]{6}$` | yes |  |  |
+| `community.sources[].color.light` | string, matches `^#[0-9a-fA-F]{6}$` | yes |  |  |
+| `community.sources[].command` | array of string, min length 1, max length 1000, min items 1, max items 32 | yes |  | The program and its arguments, run without a shell from the Glimmervoid home folder on every Community poll; an argument may hold {packDir}. Its environment has GLIMMERVOID_SINCE, the time of the newest question it already gave, the pack settings and the secrets that list community-source:<id>. It prints {"items":[{"id","title","body","url","author","channel","tags","createdAt","resolved"}]} on stdout, at most 200 items. Glimmervoid cuts a title to 300 characters, a body to 20000, an author to 100 and tags to 20, and skips an item it cannot read without stopping the rest; printing an item it gave before updates its title and resolved |
+| `community.sources[].timeoutSeconds` | integer, min 1, max 300 |  | `60` | Seconds before a poll is stopped and counts as failed |
+| `community.sources[].judge` | boolean |  | `false` | Run the question judge on new items first, for a chat source where most messages are not questions |
 
 ## Panel bridge
 

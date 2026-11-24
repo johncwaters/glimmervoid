@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Community reads questions from packs.** A pack can add question sources to the Community tab under `community`: each source is a command that prints new questions as JSON, with its own name, icon and color, and the product the questions are about. A question a source prints again updates its title and whether it is solved. A source that fails shows its error above the queue while the other sources keep polling, and a source waiting on a setting points you to the pack. The approval screen lists each source command and any docs site research runs may read.
 - **Packs can run jobs on a schedule.** A pack lists `jobs`, each a command and a cron schedule. A job runs with the pack's settings and the keys that name it. The JSON it prints is saved in the pack store, where the pack's panels read it. A job still waiting on a setting is skipped and logged.
 - **Packs can ask for settings and API keys.** A pack lists the values it needs under `settings`. Plain values are saved in Glimmervoid's pack settings file, and keys go to your vault under a name only that pack can read. A key reaches only the pack commands it names, which the approval screen lists. Changing a value never asks for approval again, and a key a command prints in its error is hidden.
 

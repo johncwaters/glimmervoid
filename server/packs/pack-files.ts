@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackJobs, PackSessions, PackSettings, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackCommunity, PackJobs, PackSessions, PackSettings, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackHook, PackJob, PackOnDisk, PackSection, PackSetting } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -146,9 +146,16 @@ function withHookFilesPresent(hooks: PackSection<PackHook[]> | null, filesByPath
   return errors.length === 0 ? hooks : { ok: false, errors };
 }
 
-function withSettingCommandsDeclared(settings: PackSection<PackSetting[]> | null, prFlows: PackSection<PackPrFlows> | null, jobs: PackSection<PackJob[]> | null): PackSection<PackSetting[]> | null {
+function withSourceIconsPresent(community: PackSection<PackCommunity> | null, filesByPath: ReadonlyMap<string, Buffer>): PackSection<PackCommunity> | null {
+  if (community === null || !community.ok) return community;
+  const errors = community.value.sources.filter((source) => !filesByPath.has(source.icon)).map((source) => `${PACK_FILE_NAME} community.sources.${source.id}.icon: ${source.icon} is not a file in the pack`);
+  return errors.length === 0 ? community : { ok: false, errors };
+}
+
+function withSettingCommandsDeclared(settings: PackSection<PackSetting[]> | null, prFlows: PackSection<PackPrFlows> | null, jobs: PackSection<PackJob[]> | null, community: PackSection<PackCommunity> | null): PackSection<PackSetting[]> | null {
   if (settings === null || !settings.ok) return settings;
-  const declaredRefs = new Set(packCommandRefsOf(prFlows?.ok === true ? prFlows.value : null, jobs?.ok === true ? jobs.value : []));
+  const communitySourceIds = community?.ok === true ? community.value.sources.map((source) => source.id) : [];
+  const declaredRefs = new Set(packCommandRefsOf(prFlows?.ok === true ? prFlows.value : null, jobs?.ok === true ? jobs.value : [], communitySourceIds));
   const errors = settings.value.flatMap((setting, index) => setting.commands
     .filter((commandRef) => !declaredRefs.has(commandRef))
     .map((commandRef) => `${PACK_FILE_NAME} settings.${index}.commands: ${commandRef} names no command in this pack`));
@@ -200,14 +207,15 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const mcp = parseSection(PackMcp, header.data.mcp, 'mcp');
   const hooks = withHookFilesPresent(parseSection(PackHooks, header.data.hooks, 'hooks'), read.filesByPath);
   const jobs = parseSection(PackJobs, header.data.jobs, 'jobs');
-  const settings = withSettingCommandsDeclared(parseSection(PackSettings, header.data.settings, 'settings'), prFlows, jobs);
+  const community = withSourceIconsPresent(parseSection(PackCommunity, header.data.community, 'community'), read.filesByPath);
+  const settings = withSettingCommandsDeclared(parseSection(PackSettings, header.data.settings, 'settings'), prFlows, jobs, community);
   if (header.data.preview !== undefined && !read.filesByPath.has(header.data.preview)) read.errors.push(`${PACK_FILE_NAME} preview: ${header.data.preview} is not a file in the pack`);
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs].flatMap(sectionErrors)], filesByPath, header: header.data };
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs, community].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs, community, missingRequires: await missingRequires(header.data.requires, env),
       previewDataUrl: previewDataUrlOf(header.data.preview, read.filesByPath),
     },
   };
