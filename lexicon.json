@@ -1549,6 +1549,10 @@
     {
       "name": "orchestrator",
       "definition": "What Glimmervoid is: a local agent orchestrator that spawns and supervises coding agent sessions (Glimmervoid.spec.md, AGENTS.md); in Studio, the Orchestrator is a repo's main agent (isStudioMain), which takes the operator's Studio messages, works on the repo's code map board and starts no sessions of its own"
+    },
+    {
+      "name": "wargames",
+      "definition": "The six-seat strategy match Glimmervoid runs between coding agents, each seat a sandboxed agent session in its own private agent home playing through the Wargames MCP tools"
     }
   ],
   "retired": [
