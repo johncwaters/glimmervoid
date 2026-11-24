@@ -11,7 +11,7 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/github/team-review-poller.ts': { watcherBackedBy: 'githubStore' },
   'server/workflows-poller.ts': { watcherBackedBy: 'githubStore' },
   'server/radar/radar-poller.ts': { watcherBackedBy: 'posthog' },
-  'server/community/community-poller.ts': { watcherBackedBy: 'community' },
+  'server/community/community-poller.ts': { awakeOnly: 'runs pack source commands only this host can run; questions asked while asleep are read on wake from each source watermark' },
   'server/lanes/lane-runner.ts': { awakeOnly: 'the shared tick loop; each lane that starts one is classified in its own file' },
   'server/github/github-status.ts': { awakeOnly: 'status page refresh for pack panels; a missed read while asleep is fine, the next tick reads again' },
   'server/branch-gc-poller.ts': { awakeOnly: 'housekeeping git fetch; nothing the operator acts on while the host sleeps' },
