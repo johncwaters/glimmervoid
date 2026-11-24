@@ -143,15 +143,6 @@ function clampedBracketSides(steps: FirstRunSteps, isStarting: boolean): BrandMa
   return BRACKET_SIDE_BY_STEP.filter(([step]) => steps[step] === 'done' || (step === 'start' && isStarting)).map(([, side]) => side);
 }
 
-function withRepoRootsAdded(repoRoots: readonly string[], addedRoots: readonly string[]): string[] | null {
-  const nextRoots = [...repoRoots];
-  for (const addedRoot of addedRoots) {
-    const trimmedRoot = addedRoot.trim();
-    if (trimmedRoot && !nextRoots.includes(trimmedRoot)) nextRoots.push(trimmedRoot);
-  }
-  return nextRoots.length === repoRoots.length ? null : nextRoots;
-}
-
 function hasGitCheckoutIn(directories: readonly { projects: readonly { isGit?: boolean }[] }[]): boolean {
   return directories.some((directory) => directory.projects.some((project) => project.isGit === true));
 }
@@ -161,5 +152,5 @@ function rootsToAutoSave(hasGitCheckout: boolean, suggestions: readonly { path: 
   return suggestions.filter((suggestion) => suggestion.gitRepoCount > 0).map((suggestion) => suggestion.path);
 }
 
-export { clampedBracketSides, firstRunAgentChoices, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, gitRepoChoicesIn, shownRepoChoices, lastActivityText, foundReposText, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, withRepoRootsAdded, UPCOMING_STEPS };
+export { clampedBracketSides, firstRunAgentChoices, hasGitCheckoutIn, installableAgentsText, decideFirstRunSteps, gitRepoChoicesIn, shownRepoChoices, lastActivityText, foundReposText, notificationChoiceSummary, decideOnboardingStepReports, onboardingStepReportKey, agentSummaryText, gitRepoCountText, rootsToAutoSave, UPCOMING_STEPS };
 export type { FirstRunSteps, NotificationChoice, RepoChoice };

@@ -77,13 +77,17 @@ test('repository root files and missing paths reject the whole save without chan
   });
 });
 
-test('existing repository root directories persist and empty roots remain an explicit clearing action', () => {
+test('existing repository root directories persist, added roots merge into the stored list, and empty roots remain an explicit clearing action', () => {
   withRealStore({ projects: [], repoRoots: [] }, undefined, (settings, store, readDisk) => {
     const directory = path.dirname(store.configPath);
     settings.send({ type: 'update-settings', settings: { repoRoots: [directory] } });
     assert.equal(errorFrom(settings), undefined);
     assert.deepEqual(store.config.repoRoots, [directory]);
     assert.deepEqual(readDisk().repoRoots, [directory]);
+    const addedRoot = path.dirname(directory);
+    settings.send({ type: 'add-repo-roots', roots: [addedRoot, directory] });
+    assert.equal(errorFrom(settings), undefined);
+    assert.deepEqual(readDisk().repoRoots, [directory, addedRoot]);
     settings.send({ type: 'update-settings', settings: { repoRoots: [] } });
     assert.deepEqual(store.config.repoRoots, []);
     assert.deepEqual(readDisk().repoRoots, []);

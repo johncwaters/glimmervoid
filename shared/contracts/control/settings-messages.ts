@@ -30,6 +30,7 @@ export const settingsClientVariants = [
   loose('agent-lane-account', { lane: LaneAccountLane, followsDefault: z.boolean(), accountId: AgentAccountId.nullable(), requestId }),
   loose('update-settings', { settings: z.record(z.string(), z.unknown()), requestId }),
   loose('scan-repo-roots', { requestId, includeSuggestions: z.boolean().optional(), includeActivity: z.boolean().optional() }),
+  loose('add-repo-roots', { requestId, roots: z.array(z.string().min(1).max(4096)).min(1) }),
   loose('list-agents', { requestId, rescan: z.boolean().optional() }),
   loose('start-repository-clones', { requestId, sources: z.array(z.string().max(2048)).min(1).max(MAX_CLONE_SOURCES_PER_REQUEST) }),
   loose('cancel-repository-clone', { requestId, source: z.string().max(2048) }),

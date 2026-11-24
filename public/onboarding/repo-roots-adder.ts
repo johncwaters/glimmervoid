@@ -2,7 +2,7 @@ import type { ServerMessageOf } from '#shared/contracts/control-messages.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { textInput } from '../ui/text-input.ts';
-import { gitRepoCountText, withRepoRootsAdded } from './first-run-checklist-core.ts';
+import { gitRepoCountText } from './first-run-checklist-core.ts';
 import { button } from '../ui/button.ts';
 import { checkbox } from '../ui/checkbox.ts';
 import { field } from '../ui/field.ts';
@@ -17,24 +17,15 @@ type RepoRootSuggestion = NonNullable<ServerMessageOf<'repo-roots-scanned'>['sug
 
 let adderSequence = 0;
 
-const CURRENT_ROOTS_UNREADABLE_MESSAGE = 'Could not read the current repository roots.';
 const FOLDER_COMPLETION_DELAY_MS = 150;
 const GITHUB_GRANT_WAIT_ATTEMPTS = 6;
 const GITHUB_GRANT_WAIT_MS = 5_000;
 const TRAILING_SEPARATORS_RE = /(.)[\\/]+$/;
 
-function isStringList(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
-}
-
 export async function saveRepoRoots(addedRoots: readonly string[]): Promise<string | null> {
-  const settingsReply = await sendControlRequest('get-settings', {});
-  if (settingsReply.type !== 'settings') return CURRENT_ROOTS_UNREADABLE_MESSAGE;
-  const configuredRoots = settingsReply.settings.repoRoots;
-  if (!isStringList(configuredRoots)) return CURRENT_ROOTS_UNREADABLE_MESSAGE;
-  const nextRoots = withRepoRootsAdded(configuredRoots, addedRoots);
-  if (!nextRoots) return null;
-  const reply = await sendControlRequest('update-settings', { settings: { repoRoots: nextRoots } });
+  const rootsToAdd = addedRoots.map((root) => root.trim()).filter(Boolean);
+  if (rootsToAdd.length === 0) return null;
+  const reply = await sendControlRequest('add-repo-roots', { roots: rootsToAdd });
   if (reply.type === 'settings-error') return reply.message;
   return null;
 }

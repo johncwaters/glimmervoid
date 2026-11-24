@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ConfigUpdate, RUNTIME_CONFIG_SCALAR_KEYS, configIssueMessage } from '../../../shared/contracts/index.ts';
+import { withRepoRootsAdded } from '../../../shared/repo-roots.ts';
 import type { ClientMessageOf } from '../../../shared/contracts/index.ts';
 import { isRecord } from '../../../shared/coerce.ts';
 import { errorCode, errorMessage } from '../../../shared/text.ts';
@@ -251,13 +252,12 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
 
     const incoming: Record<string, unknown> = s;
 
-    if (s.repoRoots) s.repoRoots = s.repoRoots.map((root) => resolveFromHome(expandTilde(root, process.env, os.homedir()), os.homedir()));
-    if (s.repoRoots?.includes(defaultRepoRootOf(os.homedir()))) createDefaultRepoRoot();
-    const invalidPaths = (s.repoRoots || []).filter(root => !isExistingDirectory(root));
-    if (invalidPaths.length > 0) {
-      sendError(ws, `Repository roots must be existing directories: ${invalidPaths.join(', ')}`, { type: 'settings-error', requestId: msg.requestId || null });
+    const resolvedRoots = s.repoRoots ? resolvedRepoRoots(s.repoRoots) : null;
+    if (resolvedRoots && 'error' in resolvedRoots) {
+      sendError(ws, resolvedRoots.error, { type: 'settings-error', requestId: msg.requestId || null });
       return;
     }
+    if (resolvedRoots) s.repoRoots = resolvedRoots.roots;
 
     const blocks = incomingSettingsBlocks(incoming);
     const blockError = incomingSettingsBlocksError(blocks);
@@ -342,11 +342,33 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     }));
   }
 
-  function saveAddedRepoRoot(addedRoot: string): void {
-    const freshConfig = configStore.save((cfg) => { cfg.repoRoots = [...(cfg.repoRoots ?? []), addedRoot]; });
-    if (!freshConfig) return;
+  function resolvedRepoRoots(roots: readonly string[]): { roots: string[] } | { error: string } {
+    const resolvedRoots = roots.map((root) => resolveFromHome(expandTilde(root, process.env, os.homedir()), os.homedir()));
+    if (resolvedRoots.includes(defaultRepoRootOf(os.homedir()))) createDefaultRepoRoot();
+    const invalidPaths = resolvedRoots.filter((root) => !isExistingDirectory(root));
+    if (invalidPaths.length > 0) return { error: `Repository roots must be existing directories: ${invalidPaths.join(', ')}` };
+    return { roots: resolvedRoots };
+  }
+
+  function saveAddedRepoRoots(addedRoots: readonly string[]): ReturnType<typeof configStore.save> {
+    const freshConfig = configStore.save((cfg) => { cfg.repoRoots = withRepoRootsAdded(cfg.repoRoots ?? [], addedRoots) ?? cfg.repoRoots; });
+    if (!freshConfig) return null;
     applySettingsReload(freshConfig);
     broadcastControl({ type: 'settings-updated', settings: buildSettingsPayload() });
+    return freshConfig;
+  }
+
+  function handleAddRepoRoots(msg: ClientMessageOf<'add-repo-roots'>, ws: ControlSocket): void {
+    const resolvedRoots = resolvedRepoRoots(msg.roots);
+    if ('error' in resolvedRoots) {
+      sendError(ws, resolvedRoots.error, { type: 'settings-error', requestId: msg.requestId || null });
+      return;
+    }
+    if (!saveAddedRepoRoots(resolvedRoots.roots)) {
+      sendError(ws, settingsNotSavedText(configStore.lastSaveFailureReason()), { type: 'settings-error', requestId: msg.requestId || null });
+      return;
+    }
+    replyTo(ws, msg, 'settings-updated', { settings: buildSettingsPayload() });
   }
 
   function currentGithubCredential() {
@@ -387,7 +409,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     cloneRootFor: async () => cloneRootOf(await rootCheckoutsOf(config.repoRoots ?? []), defaultRepoRootOf(os.homedir())),
     tokenFor: async (source) => cloneTokenOf(await currentGithubCredential(), source),
     onCloned: (cloneRoot) => {
-      if (!(config.repoRoots ?? []).includes(cloneRoot)) saveAddedRepoRoot(cloneRoot);
+      if (!(config.repoRoots ?? []).includes(cloneRoot)) saveAddedRepoRoots([cloneRoot]);
     },
   });
   void removeInterruptedCloneFolders([...new Set([...(config.repoRoots ?? []), defaultRepoRootOf(os.homedir())])]);
@@ -553,6 +575,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-lane-account': (msg, ws) => answerAgentAccounts(msg, ws, async (accounts) => accounts.setLaneAccount(msg.lane, msg.followsDefault ? { followsDefault: true } : { followsDefault: false, accountId: msg.accountId })),
     'update-settings': handleUpdateSettings,
     'scan-repo-roots': handleScanRepoRoots,
+    'add-repo-roots': handleAddRepoRoots,
     'list-agents': handleListAgents,
     'start-repository-clones': handleStartRepositoryClones,
     'cancel-repository-clone': handleCancelRepositoryClone,
@@ -587,6 +610,7 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'agent-lane-account': (_msg, requestId, message) => ({ type: 'agent-accounts', requestId, accounts: [], error: message }),
     'update-settings': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
     'scan-repo-roots': (_msg, requestId, message) => ({ type: 'repo-roots-scanned', requestId, directories: [], error: message }),
+    'add-repo-roots': (_msg, requestId, message) => ({ type: 'settings-error', requestId, message }),
     'list-agents': (_msg, requestId, message) => ({ type: 'agents-listed', requestId, agents: [], error: message }),
     'start-repository-clones': (_msg, requestId, message) => ({ type: 'repository-clones', requestId, error: message }),
     'cancel-repository-clone': (_msg, requestId, message) => ({ type: 'repository-clones', requestId, error: message }),
