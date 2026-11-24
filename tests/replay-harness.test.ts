@@ -105,8 +105,8 @@ test('v2 fixture (AskUserQuestion answered while the title sits idle): the PostT
   assert.equal(session.state, STATES.RUNNING);
 });
 
-test('v2 fixture (conflict Stop+permission): awaiting-input dominates, no ready', async () => {
-  const { records } = load('v2-conflict-stop-then-notify.jsonl');
+test('v2 fixture (title ready racing a permission prompt): awaiting-input dominates, no ready', async () => {
+  const { records } = load('v2-conflict-title-ready-then-notify.jsonl');
   const { signals } = await replayDetection(records, FAST);
   const c = summarize(signals);
   assert.ok(c['awaiting-input'] >= 1, 'expected awaiting-input');

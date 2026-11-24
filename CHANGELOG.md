@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Session status follows the agent's own events instead of settle timers.** A session whose agent reports its turn end through a hook now shows Complete at once, instead of three quarters of a second later. A question the question manager answers no longer flashes Waiting when its hold hook arrives more than 2 seconds after the question shows; a question the manager leaves to you shows Waiting as soon as its hold hook says so.
+
 ## [0.64.0] - 2026-11-24
 
 ### Added

@@ -82,15 +82,14 @@ class StatusSource extends EventEmitter {
       return;
     }
 
+    if (signal === 'ready' && confidence === 'high') {
+      this._cancelPendingReady();
+      this._resolve(signal, source, confidence, ts);
+      return;
+    }
+
     if (signal === 'ready') {
-      if (this._pendingReadyTimer !== null) {
-        if (confidence === 'high' && this._pendingReadyConfidence !== 'high') {
-          this._pendingReadySource = source ?? null;
-          this._pendingReadyConfidence = confidence;
-          this._pendingReadyTs = ts;
-        }
-        return;
-      }
+      if (this._pendingReadyTimer !== null) return;
       this._pendingReadySource = source ?? null;
       this._pendingReadyConfidence = confidence;
       this._pendingReadyTs = ts;

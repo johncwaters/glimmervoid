@@ -234,6 +234,31 @@ test('the question manager answers a covered question only in a session switched
   }
 });
 
+test('a question the manager answers never shows the wait, however late its hold hook arrives after the plain hook', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-park-'));
+  const manager = createQuestionManager({ getSettings: () => ({ rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] }) });
+  const factory = recordingSessionFactory();
+  const session = factory.makeSession({ id: 'late-hold', name: 'late-hold', path: projectPath, questionManager: manager.forSession({ projectPath, isOn: true }) });
+  const askPayload = { tool_name: 'AskUserQuestion', tool_input: { questions: [{ question: 'Which store?', options: [{ label: 'sqlite' }, { label: 'postgres' }] }] } };
+  const seenStates: string[] = [];
+  session.on('state-change', ({ to }: { to: string }) => seenStates.push(to));
+  try {
+    session.transition('user_start');
+    session.transition('spawn_success', { spawnCwdExists: true });
+    session.transition('first_output');
+    session.transition('new_output');
+    session.ingestHookSignal({ signal: 'awaiting-input', source: 'hook', ts: Date.now(), promptKind: 'permission', promptToolName: 'AskUserQuestion', event: 'PermissionRequest', payload: askPayload });
+    context.mock.timers.tick(5_000);
+    const answered = await session.holdConversationPermission(askPayload, new AbortController().signal);
+    assert.equal(permissionRequestDecisionOf(answered)?.behavior, 'allow');
+    assert.ok(!seenStates.includes(STATES.WAITING), `states: ${seenStates.join(', ')}`);
+  } finally {
+    for (const created of factory.created) created.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  }
+});
+
 test('the operator switches the question manager per session over the control channel, and the switch is saved with the session', async () => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-question-manager-switch-'));
   const settings = { rules: [{ name: 'store choice', question: 'store', pick: ['SQLite'] }] };

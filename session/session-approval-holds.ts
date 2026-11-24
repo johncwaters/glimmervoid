@@ -35,7 +35,6 @@ interface QuestionStatusSignal {
 interface ParkedQuestionStatus<Signal> {
   signal: Signal;
   request: ClaudePermissionRequest;
-  timer: NodeJS.Timeout;
 }
 
 interface SettledQuestion {
@@ -59,7 +58,6 @@ interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
   port: ApprovalPort<Signal>;
 }
 
-const QUESTION_STATUS_PARK_MS = 2_000;
 const QUESTION_TOOL_NAMES: ReadonlySet<string> = new Set([ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME]);
 
 function questionCallKey(request: ClaudePermissionRequest): string {
@@ -167,19 +165,13 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       return settled.isAnswered;
     }
     if (!decidingCountByCall.has(callKey) && !isManagerHolding()) return false;
-    discardParkedStatus(callKey);
-    const timer = setTimeout(() => {
-      if (!decidingCountByCall.has(callKey)) flushParkedStatus(callKey);
-    }, QUESTION_STATUS_PARK_MS);
-    timer.unref();
-    parkedStatusByCall.set(callKey, { signal, request, timer });
+    parkedStatusByCall.set(callKey, { signal, request });
     return true;
   }
 
   function discardParkedStatus(callKey: string): ParkedQuestionStatus<Signal> | null {
     const parked = parkedStatusByCall.get(callKey);
     if (!parked) return null;
-    clearTimeout(parked.timer);
     parkedStatusByCall.delete(callKey);
     return parked;
   }
@@ -214,6 +206,16 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       return;
     }
     flushParkedStatus(callKey);
+  }
+
+  function settleHoldWithoutManager(request: ClaudePermissionRequest): void {
+    const callKey = questionCallKey(request);
+    if (questionManager === null || decidingCountByCall.has(callKey)) return;
+    if (parkedStatusByCall.has(callKey)) {
+      flushParkedStatus(callKey);
+      return;
+    }
+    settledQuestionByCall.set(callKey, { request, isAnswered: false });
   }
 
   function isQuestionPassedBy(request: ClaudePermissionRequest, event: string, payload: Record<string, unknown>): boolean {
@@ -325,7 +327,10 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     if (agentId === "claude-code") return null;
     const request = parseClaudePermissionRequest(payload);
     if (!request || !QUESTION_TOOL_NAMES.has(request.toolName)) return null;
-    if (!questionManager || !isManagerHolding()) return null;
+    if (!questionManager || !isManagerHolding()) {
+      settleHoldWithoutManager(request);
+      return null;
+    }
     return holdForManager(questionManager, request, abandoned, denyReplyFromVerdict);
   }
 
@@ -351,6 +356,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     if (agentId !== "claude-code") return null;
     if (holdsQuestionsForParent) return holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned);
     const managerReply = questionManager && isManagerHolding() ? holdForManager(questionManager, request, abandoned, (approval, verdict) => replyFromVerdict(request, approval, verdict)) : null;
+    if (managerReply === null) settleHoldWithoutManager(request);
     if (readChatApprovals() === "off") return managerReply;
     const holdQuestionForChat = () => holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned);
     if (managerReply === null) return holdQuestionForChat();

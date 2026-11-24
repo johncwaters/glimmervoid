@@ -245,7 +245,7 @@ const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
   'v2-kimi-command-hint.jsonl',
   'v2-kimi-command-hint-delivery.jsonl',
   'v2-complete-stop.jsonl',
-  'v2-conflict-stop-then-notify.jsonl',
+  'v2-conflict-title-ready-then-notify.jsonl',
   'v2-background-monitor-stop.jsonl',
   'v2-waiting-permission.jsonl',
   'v2-waiting-plan.jsonl',

@@ -65,7 +65,7 @@ import { clock } from '../../shared/clock.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
-const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { agentstate: 512 * 1024, permissionrequest: 512 * 1024, [PLAN_GATE_HOOK_EVENT]: 512 * 1024 };
+const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { agentstate: 512 * 1024, permissionrequest: 512 * 1024, [CONVERSATION_PERMISSION_HOOK_EVENT]: 512 * 1024, [QUESTION_TOOL_HOLD_HOOK_EVENT]: 512 * 1024, [PLAN_GATE_HOOK_EVENT]: 512 * 1024 };
 const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
 const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);

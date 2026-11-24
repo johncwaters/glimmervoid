@@ -77,11 +77,12 @@ test('Chat reads a held question from the session status and answers it and send
     const errorsBeforeAllow = connection.sent.filter((sent) => sent.type === 'error').length;
     connection.send({ type: 'decide-approval', id: session.id, requestId: dismissedRequestId, decision: 'allow' });
     assert.equal(connection.sent.filter((sent) => sent.type === 'error').length, errorsBeforeAllow + 1);
+    const dismissalStateChange = once(session, 'state-change');
     connection.send({ type: 'decide-approval', id: session.id, requestId: dismissedRequestId, decision: 'deny' });
     const dismissal = permissionRequestDecisionOf(await heldToDismiss);
     assert.equal(dismissal?.behavior, 'deny');
     assert.equal(dismissal?.interrupt, true);
-    await once(session, 'state-change');
+    await dismissalStateChange;
     assert.equal(session.state, 'COMPLETE');
     session.transition('new_output');
     assert.equal(session.toSnapshot().conversationApproval, null);

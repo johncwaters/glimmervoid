@@ -17,6 +17,8 @@ import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.
 import type { Backend } from './helpers/lanes.ts';
 import { agentIngressBase, settleBackendShutdown } from './helpers/lanes.ts';
 import type { UserPromptSubmitHookResponse } from '../shared/contracts/refocus.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT } from '../shared/contracts/session.ts';
+import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../shared/contracts/question-manager.ts';
 
 const SESSION_ID = 'hook-route-session';
 
@@ -225,7 +227,7 @@ test('oversize body (>64KB) is aborted and the server survives', async () => {
   assert.equal(after.status, 404, 'server is still alive and routing after the aborted request');
 });
 
-test('a plan-mode PermissionRequest over 64 KB still reaches the hook router', async () => {
+test('a PermissionRequest over 64 KB reaches the hook router on its plain route and on every question hold route', async () => {
   const routedEvents: string[] = [];
   const app = createAgentIngressApp({
     allowedHosts: [],
@@ -236,12 +238,15 @@ test('a plan-mode PermissionRequest over 64 KB still reaches the hook router', a
   const server = http.createServer(app);
   await listenOnLoopback(server);
   try {
-    const planBody = JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: 'x'.repeat(100 * 1024) } });
-    const response = await fetch(`http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}/permissionrequest?t=accepted`, {
-      method: 'POST', body: planBody, headers: { 'content-type': 'application/json' },
-    });
-    assert.equal(response.status, 200);
-    assert.deepEqual(routedEvents, ['permissionrequest']);
+    const largeBody = JSON.stringify({ hook_event_name: 'PermissionRequest', tool_name: 'ExitPlanMode', tool_input: { plan: 'x'.repeat(100 * 1024) } });
+    const routes = ['permissionrequest', CONVERSATION_PERMISSION_HOOK_EVENT, QUESTION_TOOL_HOLD_HOOK_EVENT];
+    for (const route of routes) {
+      const response = await fetch(`http://127.0.0.1:${boundPort(server)}/hook/${SESSION_ID}/${route}?t=accepted`, {
+        method: 'POST', body: largeBody, headers: { 'content-type': 'application/json' },
+      });
+      assert.equal(response.status, 200, route);
+    }
+    assert.deepEqual(routedEvents, routes);
   } finally {
     server.closeAllConnections();
     await closeServer(server);
