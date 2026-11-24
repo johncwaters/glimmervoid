@@ -6,7 +6,7 @@ import type { Readable, Writable } from 'node:stream';
 import { spawn } from '../child-process-safe.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
-import { createFrameReader, credentialSourceFor, encodeFrame, helloReply, verdictFor } from './core/credential-decider-core.ts';
+import { bearerOf, createFrameReader, credentialSourceFor, encodeFrame, helloReply, verdictFor } from './core/credential-decider-core.ts';
 import type { ProxyRequest } from './core/credential-decider-core.ts';
 import { CREDENTIAL_PROXIES_FOLDER_PREFIX } from './core/sandbox-policy-core.ts';
 
@@ -43,6 +43,13 @@ interface CredentialProxyDependencies {
 type ProxyAcquisition = { ok: true; socketPath: string; proxiesFolder: string; release: () => void } | { ok: false; reason: string };
 
 type ProxyOutcome = { ok: true } | { ok: false; reason: string };
+
+type PlaceholderOutcome = 'seen' | 'login-unreadable' | 'cancelled';
+
+interface PlaceholderExpectation {
+  outcome: Promise<PlaceholderOutcome>;
+  cancel: () => void;
+}
 
 interface RunningProxy {
   state: 'starting' | 'serving' | 'failed' | 'stopped';
@@ -96,10 +103,32 @@ function createCredentialProxies(dependencies: CredentialProxyDependencies) {
     return proxiesFolder;
   };
 
+  const settleByBearer = new Map<string, (outcome: PlaceholderOutcome) => void>();
+
+  const expectPlaceholder = (placeholder: string): PlaceholderExpectation => {
+    let settle: (outcome: PlaceholderOutcome) => void = () => {};
+    const outcome = new Promise<PlaceholderOutcome>((resolve) => { settle = resolve; });
+    settleByBearer.set(placeholder, settle);
+    const cancel = () => {
+      settleByBearer.delete(placeholder);
+      settle('cancelled');
+    };
+    return { outcome, cancel };
+  };
+
+  const noteBearer = (request: ProxyRequest, hasModelToken: boolean) => {
+    const bearer = bearerOf(request);
+    const settle = bearer === null ? undefined : settleByBearer.get(bearer);
+    if (bearer === null || settle === undefined) return;
+    settleByBearer.delete(bearer);
+    settle(hasModelToken ? 'seen' : 'login-unreadable');
+  };
+
   const answer = async (request: ProxyRequest, login: ModelLogin): Promise<object> => {
     const source = credentialSourceFor(request.host, request.path, login.agent);
     const githubToken = source === 'github' ? await dependencies.readGithubToken().catch(() => null) : null;
     const modelToken = source === 'model' ? await dependencies.readModelToken(login).catch(() => null) : null;
+    if (source === 'model') noteBearer(request, modelToken !== null);
     return verdictFor(request, { agent: login.agent, githubToken, modelToken });
   };
 
@@ -241,10 +270,10 @@ function createCredentialProxies(dependencies: CredentialProxyDependencies) {
     void proxiesFolder?.then((folder) => fsp.rm(folder, { recursive: true, force: true }));
   };
 
-  return { acquire, closeAll };
+  return { acquire, closeAll, expectPlaceholder };
 }
 
 type CredentialProxies = ReturnType<typeof createCredentialProxies>;
 
 export { createCredentialProxies };
-export type { CredentialProxies, ModelLogin };
+export type { CredentialProxies, ModelLogin, PlaceholderExpectation };

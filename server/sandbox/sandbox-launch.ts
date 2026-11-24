@@ -1,8 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { RequestListener } from 'node:http';
 import tls from 'node:tls';
+import { runCommandSafely } from '../child-process-safe.ts';
+import { resolveAdapter } from '../../session/adapters/index.ts';
 import { runGit } from '../git/git-exec.ts';
 import { writeTextAtomic } from '../json-file.ts';
 import { configSiblingPath } from '../pairings-store.ts';
@@ -14,11 +17,12 @@ import type { SpawnEnv } from '../../session/core/spawn-env.ts';
 import type { CredentialProxyRoute, GitRepositoryLayout, SealedHomeLink } from './core/sandbox-policy-core.ts';
 import { SHORT_SOCKET_FOLDER_PREFIX, buildSrtSettings, ingressSocketPathIn, proxyTrustEnv, proxyTrustFilesIn, sandboxedCommand, seatbeltCommand, srtSettingsPathIn } from './core/sandbox-policy-core.ts';
 import { CREDENTIALED_HOSTS, everyModelLoginEntry, isKeyringLoginAgent, modelHostsOf, withoutInheritedCredentials, modelLoginConfigFileFor, modelLoginFileFor, modelLoginHomeOf, sessionAgentHomeOf } from './core/credential-decider-core.ts';
-import { placeholderEnv } from '../../session/core/agent-home-core.ts';
+import { PLACEHOLDER_TOKEN, placeholderEnv } from '../../session/core/agent-home-core.ts';
+import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { clock } from '../../shared/clock.ts';
 import { ANTIGRAVITY_TOKEN_FILE_SEGMENTS, antigravityPlaceholderLogin, sessionBusSocketPath } from './core/keyring-login-core.ts';
 import type { KeyringRead } from './keyring-reader.ts';
-import type { CredentialProxies } from './credential-proxy.ts';
+import type { CredentialProxies, PlaceholderExpectation } from './credential-proxy.ts';
 
 type SandboxLauncher = { kind: 'bubblewrap'; socatPath: string } | { kind: 'seatbelt'; seatbeltLauncherPath: string };
 
@@ -38,12 +42,12 @@ interface SessionSandboxDependencies {
   getExtraAllowedHosts: () => readonly string[];
   isWeakerNetworkIsolationOn: () => boolean;
   getAgentAccountFolders: () => readonly string[];
-  credentialProxies: Pick<CredentialProxies, 'acquire'>;
+  credentialProxies: Pick<CredentialProxies, 'acquire' | 'expectPlaceholder'>;
   readKeyringLogin: (agent: string) => Promise<KeyringRead>;
   proxyCertificatePem: () => Promise<string>;
 }
 
-type HeldCredentialProxy = { route: CredentialProxyRoute; release: () => void };
+type HeldCredentialProxy = { route: CredentialProxyRoute; release: () => void; loginExpectation: PlaceholderExpectation | null };
 
 async function realPathOrSame(filePath: string | null): Promise<string | null> {
   if (filePath === null) return null;
@@ -52,6 +56,9 @@ async function realPathOrSame(filePath: string | null): Promise<string | null> {
 
 const KEYRING_LOGIN_FOLDER_MODE = 0o700;
 const KEYRING_LOGIN_FILE_MODE = 0o600;
+const PLACEHOLDER_NONCE_BYTES = 8;
+const LOGIN_PROOF_TIMEOUT_MS = 60_000;
+const AGENT_VERSION_TIMEOUT_MS = 10_000;
 
 async function agentHomeInside(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<string | null> {
   const sessionHome = sessionAgentHomeOf(facts.agent, facts.env);
@@ -61,18 +68,52 @@ async function agentHomeInside(dependencies: SessionSandboxDependencies, facts: 
   return realSessionHome;
 }
 
-async function placeKeyringLogin(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<{ refusal: string } | null> {
-  if (!isKeyringLoginAgent(facts.agent)) return null;
+async function placeKeyringLogin(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<{ refusal: string } | { placedBearer: string | null }> {
+  if (!isKeyringLoginAgent(facts.agent)) return { placedBearer: null };
   const sessionHome = await agentHomeInside(dependencies, facts);
   if (sessionHome === null) return { refusal: 'its HOME is not a Glimmervoid agent home, so no placeholder login can be placed there' };
   const login = await dependencies.readKeyringLogin(facts.agent);
   if ('refusal' in login) return login;
-  const placed = antigravityPlaceholderLogin(login.secret, clock.nowMs());
+  const placedBearer = `${PLACEHOLDER_TOKEN}-${randomBytes(PLACEHOLDER_NONCE_BYTES).toString('hex')}`;
+  const placed = antigravityPlaceholderLogin(login.secret, clock.nowMs(), placedBearer);
   if ('refusal' in placed) return placed;
   const loginFile = path.join(sessionHome, ...ANTIGRAVITY_TOKEN_FILE_SEGMENTS);
   await fsp.mkdir(path.dirname(loginFile), { recursive: true, mode: KEYRING_LOGIN_FOLDER_MODE });
   await writeTextAtomic(loginFile, placed.placeholder, { mode: KEYRING_LOGIN_FILE_MODE, enforceMode: true });
-  return null;
+  return { placedBearer };
+}
+
+async function agentVersionOf(agentFile: string): Promise<string> {
+  const run = await runCommandSafely(agentFile, ['--version'], { cwd: os.tmpdir(), env: withoutGlimmervoidSecrets(process.env), timeoutMs: AGENT_VERSION_TIMEOUT_MS, maxBufferBytes: 64 * 1024 }).catch(() => null);
+  const version = run?.ok === true ? run.stdout.trim().split('\n')[0] : '';
+  return version === '' ? 'of unknown version' : version;
+}
+
+function loginProofReason(agent: string, version: string): string {
+  const label = resolveAdapter(agent)?.label ?? agent;
+  const tokenPath = path.join('~', ...ANTIGRAVITY_TOKEN_FILE_SEGMENTS);
+  return `${label} ${version} did not sign in with the stand-in login Glimmervoid placed at ${tokenPath} in its private home within ${LOGIN_PROOF_TIMEOUT_MS / 1000} s, so this release likely keeps its sign-in elsewhere. The session was stopped. Run it without the session sandbox, or update Glimmervoid for ${label} ${version}`;
+}
+
+function keyringUnreadableReason(agent: string): string {
+  const label = resolveAdapter(agent)?.label ?? agent;
+  return `Glimmervoid could not read your ${label} sign-in from the login keyring while the session signed in, so it had no login to pass on. The session was stopped. Unlock the keyring or sign in to ${label} again outside Glimmervoid, then restart the session`;
+}
+
+function loginProofOf(expectation: PlaceholderExpectation | null, facts: SandboxLaunchFacts): { awaitLoginProof?: () => Promise<string | null> } {
+  if (expectation === null) return {};
+  return {
+    awaitLoginProof: async () => {
+      let timer: NodeJS.Timeout | null = null;
+      const timedOut = new Promise<'timeout'>((resolve) => { timer = setTimeout(() => resolve('timeout'), LOGIN_PROOF_TIMEOUT_MS); });
+      const outcome = await Promise.race([expectation.outcome, timedOut]);
+      if (timer !== null) clearTimeout(timer);
+      if (outcome === 'seen' || outcome === 'cancelled') return null;
+      expectation.cancel();
+      if (outcome === 'login-unreadable') return keyringUnreadableReason(facts.agent);
+      return loginProofReason(facts.agent, await agentVersionOf(facts.file));
+    },
+  };
 }
 
 const ABSTRACT_SOCKET_MARK = '\0';
@@ -95,8 +136,8 @@ function sessionBusFilesToHide(): string[] {
 async function holdCredentialProxy(dependencies: SessionSandboxDependencies, facts: SandboxLaunchFacts): Promise<HeldCredentialProxy | { refusal: string }> {
   const busRefusal = sessionBusRefusal(dependencies, facts);
   if (busRefusal !== null) return { refusal: `A sandboxed ${facts.agent} session cannot start: ${busRefusal.refusal}.` };
-  const keyringRefusal = await placeKeyringLogin(dependencies, facts);
-  if (keyringRefusal !== null) return { refusal: `A sandboxed ${facts.agent} session cannot start: ${keyringRefusal.refusal}.` };
+  const keyringLogin = await placeKeyringLogin(dependencies, facts);
+  if ('refusal' in keyringLogin) return { refusal: `A sandboxed ${facts.agent} session cannot start: ${keyringLogin.refusal}.` };
   const loginConfigFile = modelLoginConfigFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder);
   const loginConfigText = loginConfigFile === null ? null : await fsp.readFile(loginConfigFile, 'utf8').catch(() => null);
   const login = modelLoginFileFor(facts.agent, process.env, os.homedir(), facts.accountFolder, loginConfigText, facts.env);
@@ -104,7 +145,12 @@ async function holdCredentialProxy(dependencies: SessionSandboxDependencies, fac
   const loginFile = await realPathOrSame(login.loginFile);
   const acquisition = await dependencies.credentialProxies.acquire({ agent: facts.agent, loginFile });
   if (!acquisition.ok) return { refusal: acquisition.reason };
-  return { route: { socketPath: acquisition.socketPath, proxiesFolder: acquisition.proxiesFolder, hosts: CREDENTIALED_HOSTS }, release: acquisition.release };
+  const loginExpectation = keyringLogin.placedBearer === null ? null : dependencies.credentialProxies.expectPlaceholder(keyringLogin.placedBearer);
+  const release = () => {
+    loginExpectation?.cancel();
+    acquisition.release();
+  };
+  return { route: { socketPath: acquisition.socketPath, proxiesFolder: acquisition.proxiesFolder, hosts: CREDENTIALED_HOSTS }, release, loginExpectation };
 }
 
 async function childFoldersOf(folder: string): Promise<string[]> {
@@ -299,6 +345,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
       ok: true,
       launch: {
         ...command,
+        ...loginProofOf(credentialProxy.loginExpectation, facts),
         env: { ...env, TMPDIR: launcherFolder },
         dispose: async () => {
           credentialProxy.release();
@@ -323,6 +370,7 @@ async function launchWithin(dependencies: SessionSandboxDependencies, sessionTem
     ok: true,
     launch: {
       ...command,
+      ...loginProofOf(credentialProxy.loginExpectation, facts),
       env: { ...env, TMPDIR: socketFolder },
       dispose: async () => {
         credentialProxy.release();

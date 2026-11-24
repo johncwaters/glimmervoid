@@ -4,7 +4,7 @@ type ExitSignal = number | string | null | undefined;
 
 interface ExitTransition {
   event: "process_exit" | "process_exit_ok" | "process_exit_fail";
-  detail: { exitCode: number; signal: ExitSignal; reason?: string };
+  detail: { exitCode: number; signal: ExitSignal; reason?: string; error?: string };
 }
 
 function decideExitTransition(
@@ -12,7 +12,9 @@ function decideExitTransition(
   exitCode: number,
   signal: ExitSignal,
   receivedFirstOutput: boolean,
+  stopReason: string | null = null,
 ): ExitTransition {
+  if (stopReason !== null) return { event: state === STATES.STARTING ? "process_exit" : "process_exit_fail", detail: { exitCode, signal, error: stopReason } };
   if (state === STATES.STARTING && !receivedFirstOutput) {
     return { event: "process_exit", detail: { exitCode, signal, reason: "no_output_before_exit" } };
   }

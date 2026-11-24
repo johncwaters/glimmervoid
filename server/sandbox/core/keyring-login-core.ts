@@ -377,12 +377,12 @@ const ANTIGRAVITY_CONSUMER_AUTH_METHOD = 'consumer';
 const ANTIGRAVITY_TOKEN_TYPE = 'Bearer';
 const ANTIGRAVITY_PLACEHOLDER_EXPIRES_IN_SECONDS = 3599;
 
-function antigravityPlaceholderLogin(secretText: string, nowMs: number): { placeholder: string } | { refusal: string } {
+function antigravityPlaceholderLogin(secretText: string, nowMs: number, placeholderAccessToken: string): { placeholder: string } | { refusal: string } {
   const login = antigravityLoginOf(secretText);
   if (login === null) return { refusal: 'its Antigravity keyring login is not the JSON this sandbox reads, so no placeholder login can stand in for it' };
   if (login.authMethod !== ANTIGRAVITY_CONSUMER_AUTH_METHOD) return { refusal: `Antigravity is signed in with ${login.authMethod ?? 'an unknown method'}, and the sandbox places only a personal Google sign-in` };
   const expiry = new Date(placeholderExpirySeconds(nowMs) * 1000).toISOString();
-  const token = { access_token: PLACEHOLDER_TOKEN, token_type: ANTIGRAVITY_TOKEN_TYPE, refresh_token: PLACEHOLDER_TOKEN, expiry, expires_in: ANTIGRAVITY_PLACEHOLDER_EXPIRES_IN_SECONDS };
+  const token = { access_token: placeholderAccessToken, token_type: ANTIGRAVITY_TOKEN_TYPE, refresh_token: PLACEHOLDER_TOKEN, expiry, expires_in: ANTIGRAVITY_PLACEHOLDER_EXPIRES_IN_SECONDS };
   const email = login.email === null ? {} : { id_token_email: login.email };
   return { placeholder: JSON.stringify({ token, auth_method: ANTIGRAVITY_CONSUMER_AUTH_METHOD, ...email }) };
 }

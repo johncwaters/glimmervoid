@@ -89,6 +89,7 @@ const ProxyRequest = z.object({
   host: z.string(),
   port: z.number().int(),
   path: z.string(),
+  headers: z.record(z.string(), z.array(z.string())).optional(),
 }).passthrough();
 const ProxyFrame = z.discriminatedUnion('t', [ProxyHello, ProxyRequest]);
 
@@ -247,6 +248,13 @@ function credentialSourceFor(host: string, requestPath: string, agent: string): 
   return modelCredentialFor(agent)?.modelHosts.includes(host) && isPathCredentialed(agent, host, requestPath) ? 'model' : null;
 }
 
+const BEARER_PATTERN = /^Bearer\s+(\S+)$/i;
+
+function bearerOf(request: ProxyRequest): string | null {
+  const authorization = request.headers?.authorization?.[0];
+  return authorization === undefined ? null : BEARER_PATTERN.exec(authorization)?.[1] ?? null;
+}
+
 function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
   const allow = { t: 'verdict', id: request.id, action: 'allow' };
   const credential = credentialFor(request.host, request.path, tokens);
@@ -254,5 +262,5 @@ function verdictFor(request: ProxyRequest, tokens: LoginTokens): object {
   return { ...allow, cred: credential.credentialClass, credential: credential.token };
 }
 
-export { CREDENTIALED_HOSTS, createFrameReader, isKeyringLoginAgent, keyringEntryFor, modelHostsOf, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginConfigFileFor, modelLoginFileFor, modelTokenFrom, verdictFor };
+export { CREDENTIALED_HOSTS, bearerOf, createFrameReader, isKeyringLoginAgent, keyringEntryFor, modelHostsOf, withoutInheritedCredentials, credentialSourceFor, encodeFrame, everyModelLoginEntry, helloReply, modelLoginHomeOf, sessionAgentHomeOf, modelLoginConfigFileFor, modelLoginFileFor, modelTokenFrom, verdictFor };
 export type { ProxyFrame, ProxyRequest };

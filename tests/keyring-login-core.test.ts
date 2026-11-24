@@ -12,7 +12,7 @@ function keyringLoginText(authMethod: string): string {
 }
 
 test('the Antigravity placeholder login carries neither real token and still reads as a live consumer login', () => {
-  const placed = antigravityPlaceholderLogin(keyringLoginText('consumer'), NOW_MS);
+  const placed = antigravityPlaceholderLogin(keyringLoginText('consumer'), NOW_MS, 'glimmervoid-injected-0123');
   assert.ok('placeholder' in placed);
   assert.ok(!placed.placeholder.includes(REAL_ACCESS_TOKEN));
   assert.ok(!placed.placeholder.includes(REAL_REFRESH_TOKEN));
@@ -23,6 +23,6 @@ test('the Antigravity placeholder login carries neither real token and still rea
 });
 
 test('an Antigravity login other than a personal Google sign-in gets no placeholder', () => {
-  assert.ok('refusal' in antigravityPlaceholderLogin(keyringLoginText('gcp'), NOW_MS));
-  assert.ok('refusal' in antigravityPlaceholderLogin('not json', NOW_MS));
+  assert.ok('refusal' in antigravityPlaceholderLogin(keyringLoginText('gcp'), NOW_MS, 'glimmervoid-injected-0123'));
+  assert.ok('refusal' in antigravityPlaceholderLogin('not json', NOW_MS, 'glimmervoid-injected-0123'));
 });

@@ -44,6 +44,7 @@ interface SandboxLaunch {
   args: string[];
   env: SpawnEnv;
   dispose(): Promise<void>;
+  awaitLoginProof?: () => Promise<string | null>;
 }
 
 type SandboxRefusalCode =
@@ -123,6 +124,7 @@ interface SessionLaunch {
   osSandboxArgs(dangerouslySkipPermissions: boolean): string[];
   shouldDetachDesktopBus(): Promise<boolean>;
   disposeSandbox(): void;
+  sandboxLoginProof(): (() => Promise<string | null>) | null;
 }
 
 function launchSecretEnvOf(plan: LaunchPlan, valuesByName: Readonly<Record<string, string>>): Record<string, string> {
@@ -389,6 +391,7 @@ function createSessionLaunch({ id, usageVendor, adapter, hooks, port }: SessionL
     osSandboxArgs,
     shouldDetachDesktopBus,
     disposeSandbox,
+    sandboxLoginProof: () => sandboxLaunch?.awaitLoginProof ?? null,
   };
 }
 

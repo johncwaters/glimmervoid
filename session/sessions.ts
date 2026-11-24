@@ -115,6 +115,11 @@ const SPAWN_FAILURE_TEXT_BY_REASON: Record<string, string> = {
 };
 const SPAWN_FAILURE_FALLBACK_TEXT = "The agent could not be started. The server log has the cause.";
 
+function stopReasonOf(detail: unknown): string | null {
+  if (typeof detail !== "object" || detail === null || !("error" in detail)) return null;
+  return typeof detail.error === "string" && detail.error ? detail.error : null;
+}
+
 function describeSpawnFailure(detail: unknown): string {
   if (typeof detail !== "object" || detail === null) return SPAWN_FAILURE_FALLBACK_TEXT;
   if ("error" in detail && typeof detail.error === "string" && detail.error) return detail.error;
@@ -302,6 +307,7 @@ class Session extends EventEmitter {
   state: SessionState;
   stateSince: number;
   failureReason: string | null;
+  _stopReason: string | null;
   unseenOutcome: UnseenOutcome | null;
   managerSeenSeq: number;
   passedQuestionSeq: number;
@@ -540,6 +546,7 @@ class Session extends EventEmitter {
     this.state = STATES.DORMANT;
     this.stateSince = clock.nowMs();
     this.failureReason = null;
+    this._stopReason = null;
     this.unseenOutcome = null;
     this.managerSeenSeq = 0;
     this.passedQuestionSeq = 0;
@@ -1742,7 +1749,9 @@ class Session extends EventEmitter {
 
     this.state = to;
     if (event === "spawn_fail") this.failureReason = describeSpawnFailure(detail);
+    if (to === STATES.FAILED && event !== "spawn_fail") this.failureReason = stopReasonOf(detail);
     if (to === STATES.INITIALIZING) this.failureReason = null;
+    if (to === STATES.INITIALIZING) this._stopReason = null;
     const unseenOutcomeOnEntry = UNSEEN_OUTCOME_ON_ENTRY.get(to);
     if (unseenOutcomeOnEntry !== undefined && !isCompactionRestoreEvent(event)) this._setUnseenOutcome(unseenOutcomeOnEntry);
     if (to === STATES.IDLE || to === STATES.COMPLETE) this._observeCompaction("settled");
@@ -1990,6 +1999,8 @@ class Session extends EventEmitter {
       return;
     }
 
+    this._watchSandboxLogin();
+
     const initialPrompt = this._initialPrompt;
     const argsForLog = initialPrompt
       ? args.map((a) => a.replace(initialPrompt, `<prompt:${initialPrompt.length}c>`)).join(" ")
@@ -2131,6 +2142,19 @@ class Session extends EventEmitter {
     });
   }
 
+  _watchSandboxLogin(): void {
+    const awaitLoginProof = this._launch.sandboxLoginProof();
+    if (awaitLoginProof === null) return;
+    const generation = this._startGeneration;
+    void awaitLoginProof().then((reason) => {
+      if (reason === null || this._destroyed || generation !== this._startGeneration) return;
+      this._stopReason = reason;
+      this._emitError(new Error(reason));
+      this._launch.clearApprovedLaunches();
+      this.kill();
+    });
+  }
+
   _abandonSpawn(cause: unknown): void {
     this._startGeneration += 1;
     this._launch.clearApprovedLaunches();
@@ -2247,7 +2271,7 @@ class Session extends EventEmitter {
       this._reaper.exitReap = this._reaper.reapTreeOnce(pid, scopeUnit);
     }
 
-    const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._startupSignals.has("output"));
+    const { event, detail } = decideExitTransition(this.state, exitCode, signal, this._startupSignals.has("output"), this._stopReason);
     const reason = detail.reason || null;
     const didTransition = this.transition(event, detail);
     const isUnsignalledCleanExit = didTransition && event === "process_exit_ok" && !signal;
