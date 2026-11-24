@@ -2,7 +2,7 @@ import { errorMessage } from "../../shared/text.ts";
 import fs from "node:fs";
 import { isSameDirectoryPath } from "../../shared/canonical-paths.ts";
 import { SPAWN_GAP_TRIGGER } from "../core/rebase-gate.ts";
-import { describeDependencyCloneSkip, describeInstallNotice, describeInstallWarnings, describeInstalledDirs } from "../../server/git/core/dependency-clone-core.ts";
+import { describeDependencyCloneSkip, describeInstallNotice, describeInstallWarnings, describeInstalledDirs, installFailureReportsOf } from "../../server/git/core/dependency-clone-core.ts";
 import type { DependencySeedOutcome } from "../../server/git/dependency-clone.ts";
 import type { AdoptWorktreeOptions, GitWorkspace, IntegrationSyncResult, Workspace, WorkspaceMembersSetup, WorktreeLifecycleContext, WorktreeSignature } from "./worktree-lifecycle-context.ts";
 import { clock } from '../../shared/clock.ts';
@@ -241,6 +241,7 @@ function createWorktreeProvisioning(context: WorktreeLifecycleContext, deps: Wor
     const { clone, install } = outcome;
     logCloneOutcome(clone, worktreeDir);
     logInstallOutcome(install, worktreeDir);
+    for (const report of installFailureReportsOf(install)) port.emit("dependency-install-failed", { id, ...report });
     const { notice, failureKind, installDetails } = describeInstallNotice(install);
     if (!notice) return;
     port.emit("worktree-warning", { id, branch, notice, ...(failureKind ? { failureKind } : {}), ...(installDetails.length ? { installDetails } : {}) });

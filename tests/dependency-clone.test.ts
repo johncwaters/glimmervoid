@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { canCloneCopyOnWrite, seedWorktreeDependencies } from '../server/git/dependency-clone.ts';
 import type { DependencySeedOutcome } from '../server/git/dependency-clone.ts';
-import { describeInstallNotice, describeInstallWarnings } from '../server/git/core/dependency-clone-core.ts';
+import { describeInstallNotice, describeInstallWarnings, installFailureReportsOf } from '../server/git/core/dependency-clone-core.ts';
 import { runCommand } from '../server/git/git-exec.ts';
 import { hasGit, git } from './helpers/git-fixture.ts';
 
@@ -245,7 +245,7 @@ test('an install-script package arrives built from a matching main checkout inst
   assert.deepEqual(describeInstallWarnings(install), []);
 });
 
-test('a failed install leaves no node_modules, a yarn lockfile dir is logged but not installed, and neither raises a notice', { skip: !CAN_INSTALL }, async () => {
+test('a failed install leaves no node_modules, reports npm lockfile drift by cause, and a yarn lockfile dir is logged but not installed, with no notice', { skip: !CAN_INSTALL }, async () => {
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
   writeJson(path.join(worktreeDir, 'package.json'), { name: 'fixture', version: '1.0.0', dependencies: { 'left-pad': 'file:vendor/left-pad', 'not-in-lockfile': 'file:missing' } });
   fs.rmSync(path.join(worktreeDir, 'site', 'package-lock.json'));
@@ -260,9 +260,12 @@ test('a failed install leaves no node_modules, a yarn lockfile dir is logged but
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
   assert.deepEqual(describeInstallNotice(install), { notice: null, failureKind: null, installDetails: [] });
+  const [lockfileDriftReport, ...otherReports] = installFailureReportsOf(install);
+  assert.deepEqual({ ...lockfileDriftReport, tool_major: Number.isInteger(lockfileDriftReport?.tool_major) }, { tool: 'npm', tool_major: true, cause: 'outdated-lockfile' });
+  assert.deepEqual(otherReports, []);
 });
 
-test('a pnpm lockfile the local pnpm cannot read is skipped quietly while another pnpm failure quotes its ERR_PNPM_ line', { skip: !CAN_INSTALL || !hasPnpm() }, async () => {
+test('a pnpm lockfile the local pnpm cannot read is skipped quietly while another pnpm failure quotes its ERR_PNPM_ line, and both report their cause and pnpm major', { skip: !CAN_INSTALL || !hasPnpm() }, async () => {
   const { root, mainCheckout } = makeMainCheckout('gv-dependency-pnpm-');
   writeJson(path.join(mainCheckout, 'legacy', 'package.json'), { name: 'legacy', version: '1.0.0' });
   fs.writeFileSync(path.join(mainCheckout, 'legacy', 'pnpm-lock.yaml'), 'lockfileVersion: 5.4\n');
@@ -279,6 +282,9 @@ test('a pnpm lockfile the local pnpm cannot read is skipped quietly while anothe
   const [outdatedWarning, ...otherWarnings] = describeInstallWarnings(install);
   assert.match(outdatedWarning ?? '', /^Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock\.yaml is not up to date with (?:<ROOT>\/)?package\.json\. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --prefer-offline` in outdated\.$/);
   assert.deepEqual(otherWarnings, []);
+  const reports = installFailureReportsOf(install);
+  assert.deepEqual(reports.map((report) => report.cause).sort(), ['outdated-lockfile', 'unreadable-lockfile']);
+  assert.ok(reports.every((report) => report.tool === 'pnpm' && Number.isInteger(report.tool_major)), JSON.stringify(reports));
 });
 
 test('a server started with a PATH that lacks npm still installs a worktree with npm found in a usual folder', { skip: !CAN_INSTALL }, async () => {

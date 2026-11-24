@@ -22,6 +22,8 @@ import {
   lastOutputLineOf,
   outputTailOf,
   LOCKFILE_BY_KIND,
+  installFailureCauseOf,
+  majorVersionOf,
   packageDirsFromTrackedFiles,
   planDependencyClone,
   planDependencyInstall,
@@ -33,6 +35,7 @@ import {
 import type {
   DependencyClonePlan,
   DependencyCloneSkip,
+  DependencyInstallFailureReport,
   DependencyInstallOutcome,
   DependencyLock,
   InstallFailureKind,
@@ -169,7 +172,7 @@ async function installDependencies(mainCheckout: string, worktreeDir: string, si
     if (signal.aborted) break;
     if (missingTools.has(install.command)) {
       console.log(`[dependency-clone] ${install.command} not found for ${path.join(worktreeDir, install.dir)}; searched ${runEnv.searchedPath}`);
-      results.push(installFailed(install, `${install.command} was not found`, 'tool-missing', [], runEnv.searchedPath));
+      results.push(installFailed(install, `${install.command} was not found`, 'tool-missing', [], runEnv.searchedPath, { tool: install.tool, tool_major: null, cause: 'tool-missing' }));
       continue;
     }
     const isStagedRootInstall = isRootSeeded && install.dir === '.' && install.command === 'npm';
@@ -222,7 +225,7 @@ async function runStagedRootInstall(mainPackageDir: string, worktreeDir: string,
     const unbuiltPackages = await copyInstallScriptPackages(install, mainPackageDir, stagingDir);
     const isSwapped = await swapNodeModules(path.join(stagingDir, NODE_MODULES), path.join(worktreeDir, NODE_MODULES), previousNodeModules);
     if (isSwapped) return installSucceeded(install, unbuiltPackages);
-    return installFailed(install, 'could not move the installed node_modules into the worktree', 'failed', [], runEnv.searchedPath);
+    return installFailed(install, 'could not move the installed node_modules into the worktree', 'failed', [], runEnv.searchedPath, { tool: install.tool, tool_major: null, cause: 'other' });
   } finally {
     await removeTree(stagingDir);
     await removeTree(previousNodeModules);
@@ -296,7 +299,18 @@ async function replacedWithCopy(source: string, destination: string): Promise<bo
 async function installRunFailed(install: PlannedInstall, run: CommandResult, cwd: string, runEnv: InstallRunEnv): Promise<InstallResult> {
   const reason = installFailureReasonOf({ stdout: run.out, stderr: run.stderr ?? '', execError: run.err });
   const outputTail = outputTailOf(run.out, run.stderr ?? '', run.err);
-  return installFailed(install, reason, await installFailureKindOf(run, cwd), outputTail, runEnv.searchedPath);
+  const kind = await installFailureKindOf(run, cwd);
+  if (kind === 'folder-missing') return installFailed(install, reason, kind, outputTail, runEnv.searchedPath, null);
+  const fullOutput = [reason, run.out, run.stderr ?? '', run.err].join('\n');
+  const report = { tool: install.tool, tool_major: await toolMajorVersionIn(cwd, install, runEnv), cause: installFailureCauseOf(kind, fullOutput) };
+  return installFailed(install, reason, kind, outputTail, runEnv.searchedPath, report);
+}
+
+const TOOL_VERSION_TIMEOUT_MS = 5_000;
+
+async function toolMajorVersionIn(cwd: string, install: PlannedInstall, runEnv: InstallRunEnv): Promise<number | null> {
+  const version = await runCommand(install.command, ['--version'], { cwd, timeoutMs: TOOL_VERSION_TIMEOUT_MS, replaceEnv: runEnv.env });
+  return version.ok ? majorVersionOf(version.out) : null;
 }
 
 async function installFailureKindOf(run: CommandResult, cwd: string): Promise<InstallFailureKind> {
@@ -310,8 +324,8 @@ function isSpawnNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 }
 
-function installFailed(install: PlannedInstall, lastOutputLine: string, kind: InstallFailureKind, outputTail: string[], searchedPath: string): InstallResult {
-  return { dir: install.dir, command: [install.command, ...install.args].join(' '), ok: false, kind, lastOutputLine, outputTail, searchedPath };
+function installFailed(install: PlannedInstall, lastOutputLine: string, kind: InstallFailureKind, outputTail: string[], searchedPath: string, report: DependencyInstallFailureReport | null): InstallResult {
+  return { dir: install.dir, command: [install.command, ...install.args].join(' '), ok: false, kind, lastOutputLine, outputTail, searchedPath, report };
 }
 
 async function prepareStagingDir(stagingDir: string): Promise<void> {
@@ -340,7 +354,7 @@ async function dirsWithoutNodeModules(worktreeDir: string, relativeDirs: readonl
 
 function unreadableInstallOutcome(error: unknown): DependencyInstallOutcome {
   return {
-    results: [{ dir: '.', command: '', ok: false, kind: 'failed', lastOutputLine: errorMessage(error), outputTail: outputTailOf(errorMessage(error)), searchedPath: process.env.PATH ?? '' }],
+    results: [{ dir: '.', command: '', ok: false, kind: 'failed', lastOutputLine: errorMessage(error), outputTail: outputTailOf(errorMessage(error)), searchedPath: process.env.PATH ?? '', report: null }],
     unsupportedDirs: [],
     elapsedMs: 0,
   };

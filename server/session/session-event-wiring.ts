@@ -19,7 +19,7 @@ import { adapterBucket, classifySessionExit } from '../core/telemetry-core.ts';
 import { INTERACTIVE_LANE } from '../usage/core/usage-lane-core.ts';
 import type { Telemetry } from '../telemetry.ts';
 import type { CommitSessions } from '../commit-sessions.ts';
-import type { SessionEndCause, SessionExitKind } from '../../shared/contracts/telemetry.ts';
+import type { SessionEndCause, SessionExitKind, TelemetryEventProperties } from '../../shared/contracts/telemetry.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../../shared/contracts/question-manager.ts';
 import type { ManagerDecision } from '../../shared/contracts/question-manager.ts';
@@ -205,6 +205,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       if (isResumeTarget) persistProjectField('resumeSessionId', id);
       dependencies.recordLane(id, INTERACTIVE_LANE, vendor);
       dependencies.usage.refreshSessions();
+    });
+    session.on('dependency-install-failed', ({ tool, tool_major, cause }: TelemetryEventProperties<'dependency_install_failed'>) => {
+      dependencies.telemetry?.capture('dependency_install_failed', { tool, tool_major, cause });
     });
     session.on('background-work-outlived-limit', ({ kind, minutesPastLimit }: LateFinish) => {
       dependencies.telemetry?.capture('background_work_outlived_limit', {

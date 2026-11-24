@@ -9,6 +9,8 @@ import { PROBE_CREDENTIALS, WATCHER_LANE_IDS } from './watcher-link.ts';
 const TELEMETRY_ADAPTERS = Object.freeze([...BUILTIN_AGENT_IDS, 'custom'] as const);
 const SESSION_END_CAUSES = Object.freeze(['removed', 'replaced', 'server_stopped'] as const);
 const SESSION_EXIT_KINDS = Object.freeze(['clean', 'error', 'signal', 'no_output', ...SESSION_END_CAUSES] as const);
+export const DEPENDENCY_INSTALL_TOOLS = Object.freeze(['npm', 'pnpm'] as const);
+const DEPENDENCY_INSTALL_FAILURE_CAUSES = Object.freeze(['tool-missing', 'timed-out', 'refused-argument', 'trust-downgrade', 'outdated-lockfile', 'unreadable-lockfile', 'registry-refused', 'network', 'other'] as const);
 const TEAM_REVIEW_SETTLED_OUTCOMES = Object.freeze(['approve', 'comment', 'request-changes', 'approve-only', 'discarded', 'restored'] as const);
 const TEAM_REVIEW_POST_REFUSAL_REASONS = Object.freeze([
   'unknown-action', 'not-postable', 'comments-already-posted', 'empty-comment', 'rate-limited',
@@ -88,6 +90,12 @@ const BackgroundWorkOutlivedLimitProperties = z.object({
   adapter: z.enum(TELEMETRY_ADAPTERS),
   kind: z.enum(['subagent', 'shell']),
   minutes_past_limit: nonNegativeInteger,
+}).strict();
+
+const DependencyInstallFailedProperties = z.object({
+  tool: z.enum(DEPENDENCY_INSTALL_TOOLS),
+  tool_major: nonNegativeInteger.nullable(),
+  cause: z.enum(DEPENDENCY_INSTALL_FAILURE_CAUSES),
 }).strict();
 
 const IdleStopRequestedProperties = z.object({
@@ -270,6 +278,7 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   watcher_nudge_received: WatcherNudgeReceivedProperties,
   vault_secret_answered: VaultSecretAnsweredProperties,
   background_work_outlived_limit: BackgroundWorkOutlivedLimitProperties,
+  dependency_install_failed: DependencyInstallFailedProperties,
   idle_stop_requested: IdleStopRequestedProperties,
 });
 
@@ -303,6 +312,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'watcher_nudge_received', description: 'The watcher told a lane its answer changed or recovered: which lane and which of the two. Never the probe, URL or repository.' },
   { name: 'vault_secret_answered', description: 'An agent asked for secrets by name and got its answer: how many names came back delivered, pending, denied, no source chosen or failed. Never the names, values or project.' },
   { name: 'background_work_outlived_limit', description: 'A subagent or background shell finished after the 30 or 60 minute limit past which Glimmervoid stops counting it as working, with which kind of agent, which kind of work and how many whole minutes past the limit. Never the task or its output.' },
+  { name: 'dependency_install_failed', description: 'Installing a new worktree\'s dependencies failed in one folder: which tool (npm or pnpm), its major version when Glimmervoid could read it, and the cause, one of tool-missing, timed-out, refused-argument, trust-downgrade, outdated-lockfile, unreadable-lockfile, registry-refused (the registry answered 4xx, such as a missing package or refused login), network or other. Never the folder, the repository, package names or the install output.' },
   { name: 'idle_stop_requested', description: 'The server asked to put its host to sleep after 20 awake minutes with no agent working, with the answer (stopping, no host to stop, or failed) and how many sessions, subagents and background shells were still unfinished past their limit at that moment.' },
 ]);
 

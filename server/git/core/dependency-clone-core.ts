@@ -3,8 +3,10 @@ import path from 'node:path';
 
 import { INSTALL_DETAIL_MAX_FOLDERS, INSTALL_DETAIL_MAX_OUTPUT_LINES } from '../../../shared/contracts/control/control-fields.ts';
 import type { InstallDetail, InstallFailureKind } from '../../../shared/contracts/control/control-fields.ts';
+import type { DEPENDENCY_INSTALL_TOOLS } from '../../../shared/contracts/telemetry.ts';
+import type { TelemetryEventProperties } from '../../../shared/contracts/telemetry.ts';
 
-export type LockKind = 'npm' | 'pnpm';
+export type LockKind = (typeof DEPENDENCY_INSTALL_TOOLS)[number];
 
 export type DependencyLock = {
   kind: LockKind;
@@ -231,13 +233,14 @@ export function stagingPathFor(worktreeDir: string, relativeDir: string): string
 }
 
 export type PackageDirFacts = { dir: string; hasNodeModules: boolean; lockfiles: readonly string[] };
-export type PlannedInstall = { dir: string; command: string; args: readonly string[] };
+export type PlannedInstall = { dir: string; tool: LockKind; command: string; args: readonly string[] };
 type DependencyInstallPlan = { installs: PlannedInstall[]; unsupportedDirs: string[] };
 export type InstallResult =
   | { dir: string; command: string; ok: true; unbuiltPackages: string[] }
-  | { dir: string; command: string; ok: false; kind: InstallFailureKind; lastOutputLine: string; outputTail: string[]; searchedPath: string };
+  | { dir: string; command: string; ok: false; kind: InstallFailureKind; lastOutputLine: string; outputTail: string[]; searchedPath: string; report: DependencyInstallFailureReport | null };
 export type { InstallFailureKind };
 export type DependencyInstallOutcome = { results: InstallResult[]; unsupportedDirs: string[]; elapsedMs: number };
+export type DependencyInstallFailureReport = TelemetryEventProperties<'dependency_install_failed'>;
 
 export const INSTALL_TIMEOUT_MS = 10 * 60_000;
 
@@ -266,7 +269,7 @@ export function planDependencyInstall(platform: string, packageDirs: readonly Pa
     if (packageDir.hasNodeModules) continue;
     const lockKind = installableLockKind(packageDir.lockfiles);
     if (lockKind) {
-      plan.installs.push({ dir: packageDir.dir, ...INSTALL_COMMAND_BY_KIND[lockKind] });
+      plan.installs.push({ dir: packageDir.dir, tool: lockKind, ...INSTALL_COMMAND_BY_KIND[lockKind] });
       continue;
     }
     if (packageDir.lockfiles.length) plan.unsupportedDirs.push(packageDir.dir);
@@ -382,6 +385,29 @@ export function installFailureReasonOf({ stdout, stderr, execError }: InstallFai
 
 export function isUnreadablePnpmLockfileFailure(result: InstallResult): boolean {
   return !result.ok && UNREADABLE_PNPM_LOCKFILE.test(result.lastOutputLine);
+}
+
+const INSTALL_FAILURE_CAUSE_PATTERNS: readonly [DependencyInstallFailureReport['cause'], RegExp][] = [
+  ['refused-argument', /unexpected argument|unknown (?:cli )?option|unrecognized option/i],
+  ['trust-downgrade', /trust downgrade|ERR_PNPM_TRUST_DOWNGRADE/i],
+  ['outdated-lockfile', /ERR_PNPM_OUTDATED_LOCKFILE|package\.json and package-lock\.json (?:or npm-shrinkwrap\.json )?are in sync|lockfile needs updates/i],
+  ['unreadable-lockfile', UNREADABLE_PNPM_LOCKFILE],
+  ['registry-refused', /ERR_PNPM_FETCH_4\d\d|HTTP status client error|npm error code E4\d\d\b/],
+  ['network', /ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ERR_PNPM_META_FETCH_FAIL|ERR_PNPM_FETCH_|ERR_SOCKET_TIMEOUT/],
+];
+
+export function majorVersionOf(versionOutput: string): number | null {
+  const major = /^v?(\d+)\./.exec(versionOutput.trim())?.[1];
+  return major === undefined ? null : Number(major);
+}
+
+export function installFailureReportsOf(outcome: DependencyInstallOutcome): DependencyInstallFailureReport[] {
+  return outcome.results.flatMap((result) => (!result.ok && result.report ? [result.report] : []));
+}
+
+export function installFailureCauseOf(kind: InstallFailureKind, fullOutput: string): DependencyInstallFailureReport['cause'] {
+  if (kind === 'tool-missing' || kind === 'timed-out') return kind;
+  return INSTALL_FAILURE_CAUSE_PATTERNS.find(([, pattern]) => pattern.test(fullOutput))?.[0] ?? 'other';
 }
 
 export function describeInstalledDirs(outcome: DependencyInstallOutcome): string | null {
