@@ -21,7 +21,7 @@ const RECORDED_FLAG_COUNTS = new Map<string, number>([
   ['public/github/team-review-detail-views.ts', 3],
   ['public/render-scheduler.ts', 8],
   ['public/session-card/card-debug.ts', 3],
-  ['public/session-card/terminal-data-socket.ts', 5],
+  ['public/session-card/terminal-data-socket.ts', 4],
   ['public/session-card/terminal-setup.ts', 2],
   ['public/session-card/webgl-pool.ts', 8],
   ['public/settings/settings-panel.ts', 4],

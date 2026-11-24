@@ -1,6 +1,6 @@
 import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-supervisor-core.ts';
 import type { ConnectionAction, ConnectionEvent, SupervisorState, TenantWakeStatus } from './connection-supervisor-core.ts';
-import { abandonControlSocket, onControlSocketChange, probeControl, replaceControlSocket } from './control-ws.ts';
+import { abandonControlSocket, onControlSocketChange, probeControl, raceControlHandshake, replaceControlSocket } from './control-ws.ts';
 import { reportTerminalColors } from './terminal-color-report.ts';
 import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
 import { holdTerminalInputDuringWakeCheck, releaseHeldTerminalInput } from './session-card/terminal.ts';
@@ -62,6 +62,9 @@ function runConnectionAction(action: ConnectionAction) {
       return;
     case 'replace-control':
       replaceControlSocket();
+      return;
+    case 'race-control':
+      raceControlHandshake();
       return;
     case 'close-sockets':
       cancelHandshakeDeadline();

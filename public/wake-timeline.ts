@@ -8,7 +8,7 @@ type WakeMarkName =
   | 'control-opened'
   | 'control-closed'
   | 'terminal-connecting'
-  | 'terminal-abandoned'
+  | 'terminal-raced'
   | 'terminal-closed'
   | 'terminal-opened'
   | 'terminal-bytes';

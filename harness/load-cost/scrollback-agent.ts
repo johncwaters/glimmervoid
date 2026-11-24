@@ -1,3 +1,7 @@
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
 const IDLE_GLYPH = String.fromCharCode(0x2733);
@@ -43,6 +47,35 @@ function dispatch(command: string): void {
   if (command === 'exit') process.exit(0);
 }
 
+function settingsPathFromArgv(argv: string[]): string | null {
+  const flagIndex = argv.indexOf('--settings');
+  if (flagIndex < 0) return null;
+  return argv[flagIndex + 1] ?? null;
+}
+
+function sessionStartHookCommands(settingsPath: string | null): string[] {
+  if (!settingsPath) return [];
+  const settings: unknown = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+  const sessionStartGroups: unknown = Reflect.get(Reflect.get(Object(settings), 'hooks') ?? {}, 'SessionStart');
+  if (!Array.isArray(sessionStartGroups)) return [];
+  return sessionStartGroups
+    .flatMap((group: unknown) => {
+      const hooks: unknown = Reflect.get(Object(group), 'hooks');
+      return Array.isArray(hooks) ? hooks : [];
+    })
+    .filter((hook: unknown) => Reflect.get(Object(hook), 'type') === 'command' && Reflect.get(Object(hook), 'async') !== true)
+    .map((hook: unknown) => Reflect.get(Object(hook), 'command'))
+    .filter((command: unknown): command is string => typeof command === 'string');
+}
+
+function runSessionStartHooks(): void {
+  const hookInput = JSON.stringify({ hook_event_name: 'SessionStart', source: 'startup', session_id: randomUUID(), cwd: process.cwd() });
+  for (const command of sessionStartHookCommands(settingsPathFromArgv(process.argv.slice(2)))) {
+    const hookProcess = spawn('/bin/sh', ['-c', command], { stdio: ['pipe', 'ignore', 'ignore'] });
+    hookProcess.stdin.end(hookInput);
+  }
+}
+
 let pending = '';
 
 function onInput(chunk: string): void {
@@ -57,6 +90,7 @@ function onInput(chunk: string): void {
 
 if (process.argv[1] === import.meta.filename) {
   process.stdout.write(`${ESC}]0;${IDLE_GLYPH} idle${BEL}`);
+  runSessionStartHooks();
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   process.stdin.setEncoding('utf8');
   process.stdin.resume();

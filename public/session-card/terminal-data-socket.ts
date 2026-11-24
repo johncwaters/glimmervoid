@@ -4,6 +4,8 @@ import { el } from '../dom-helpers.ts';
 import { nextReconnectDelayMs } from '../reconnect-backoff.ts';
 import { HANDSHAKE_DEADLINE_MS } from '../connection-supervisor-core.ts';
 import { noteWakeMark } from '../wake-timeline.ts';
+import { createHandshakeRace } from '../handshake-race-core.ts';
+import type { HandshakeRace } from '../handshake-race-core.ts';
 import { renderScheduler } from '../render-scheduler.ts';
 import { buildWebSocketUrl } from '../ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from '../ws-token.ts';
@@ -208,7 +210,18 @@ function notifyTerminalLinkSubscribers() {
   for (const notify of terminalLinkSubscribers) notify();
 }
 
+const handshakeRaceBySessionUi = new WeakMap<SessionUi, HandshakeRace<WebSocket>>();
+
+function handshakeRaceOf(ui: SessionUi): HandshakeRace<WebSocket> {
+  const existingRace = handshakeRaceBySessionUi.get(ui);
+  if (existingRace) return existingRace;
+  const race = createHandshakeRace<WebSocket>((attempt) => attempt.close());
+  handshakeRaceBySessionUi.set(ui, race);
+  return race;
+}
+
 function detachDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
+  handshakeRaceOf(ui).closeAll();
   rememberScrollOffsetForReattach(ui, term);
   clearSnapshotDrain(ui);
   renderScheduler.unregister(sessionId);
@@ -276,17 +289,12 @@ function prewarmDataSocket(sessionId: string) {
   const bufferedMessages: MessageEvent[] = [];
   const bufferMessage = (event: MessageEvent) => bufferedMessages.push(event);
   const discard = () => discardPrewarmedDataSocket(sessionId, socket);
-  const abandonUnopenedHandshake = () => {
-    if (socket.readyState === WebSocket.CONNECTING) discard();
-  };
   socket.addEventListener('message', bufferMessage);
   socket.addEventListener('close', discard);
-  const handshakeTimer = setTimeout(abandonUnopenedHandshake, HANDSHAKE_DEADLINE_MS);
   const unclaimedTimer = setTimeout(discard, PREWARM_UNCLAIMED_LIFETIME_MS);
   const release = () => {
     socket.removeEventListener('message', bufferMessage);
     socket.removeEventListener('close', discard);
-    clearTimeout(handshakeTimer);
     clearTimeout(unclaimedTimer);
   };
   prewarmedDataSocketBySessionId.set(sessionId, { socket, attachPath, bufferedMessages, release });
@@ -352,18 +360,32 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
   const ws = prewarmed?.socket ?? new WebSocket(buildWebSocketUrl(location, withPageToken(attachPath)));
   outputFlowBySocket.set(ws, isAttachedFlowing ? 'flowing' : 'paused');
   ws.binaryType = 'arraybuffer';
+  const handshakeRace = handshakeRaceOf(ui);
+  handshakeRace.start(ws);
   ui.dataWs = ws;
   if (isAttachedFlowing) noteWakeMark('terminal-connecting');
   refreshTerminalLink(ui);
   let hasEverOpened = false;
-  let isHandshakeAbandoned = false;
   const socketLife: TerminalSocketLife = { sessionId, attachDescription: describeDataAttach({ history: isDeepAttach ? 'deep' : 'screen', isOutputPaused: !isAttachedFlowing }), openedAtMs: null, hasReceivedBytes: false };
   const frameState: DataFrameState = { hasSeenSize: false, lastSeq: 0 };
+  const raceAnotherAttempt = () => {
+    if (deepHistoryLinesFromBottom !== undefined) deepHistoryLinesFromBottomBySessionUi.set(ui, deepHistoryLinesFromBottom);
+    if (restoredLinesFromBottom !== undefined) restoredLinesFromBottomBySessionUi.set(ui, restoredLinesFromBottom);
+    connectDataWs(sessionId, ui, term);
+  };
+  const raceAgainAfterBackoff = () => {
+    const retryDelayMs = nextReconnectDelayMs(ui._dataWsRetryAttempt || 0);
+    ui._dataWsRetryAttempt = (ui._dataWsRetryAttempt || 0) + 1;
+    pendingRetryTimerBySessionUi.set(ui, setTimeout(() => {
+      pendingRetryTimerBySessionUi.delete(ui);
+      if (ui.dataWs !== ws) return;
+      raceAnotherAttempt();
+    }, retryDelayMs));
+  };
   const handshakeTimer = setTimeout(() => {
-    if (ws.readyState !== WebSocket.CONNECTING) return;
-    isHandshakeAbandoned = true;
-    if (isAttachedFlowing) noteWakeMark('terminal-abandoned');
-    ws.close();
+    if (ws.readyState !== WebSocket.CONNECTING || ui.dataWs !== ws) return;
+    if (isAttachedFlowing) noteWakeMark('terminal-raced');
+    raceAnotherAttempt();
   }, HANDSHAKE_DEADLINE_MS);
 
   renderScheduler.register(sessionId, (data, cb) => term.write(data, cb));
@@ -419,17 +441,18 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
   ws.addEventListener('close', (event) => {
     clearTimeout(handshakeTimer);
-    if (ui.dataWs !== ws) return;
-    reportFastTerminalClose(ui, socketLife, event);
-    if (isAttachedFlowing && !isHandshakeAbandoned) noteWakeMark('terminal-closed');
-    sessionUisReattachingQuietly.delete(ui);
-    if (!hasEverOpened && !isHandshakeAbandoned) clearPageToken();
-    if (!isTerminalOutputWanted(sessionId)) {
-      detachUntilShown(sessionId, ui, term);
+    const wasRacing = handshakeRace.isRacing(ws);
+    if (wasRacing && handshakeRace.drop(ws) > 0) {
+      if (ui.dataWs === ws) raceAgainAfterBackoff();
       return;
     }
-    if (isHandshakeAbandoned) {
-      detachThenReconnect(sessionId, ui, term, 0);
+    if (!wasRacing && ui.dataWs !== ws) return;
+    reportFastTerminalClose(ui, socketLife, event);
+    if (isAttachedFlowing) noteWakeMark('terminal-closed');
+    sessionUisReattachingQuietly.delete(ui);
+    if (!hasEverOpened) clearPageToken();
+    if (!isTerminalOutputWanted(sessionId)) {
+      detachUntilShown(sessionId, ui, term);
       return;
     }
     const retryDelayMs = nextReconnectDelayMs(ui._dataWsRetryAttempt || 0);
@@ -439,6 +462,8 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
   const handleOpen = () => {
     clearTimeout(handshakeTimer);
+    if (handshakeRace.adopt(ws) === null) return;
+    ui.dataWs = ws;
     hasEverOpened = true;
     socketLife.openedAtMs = performance.now();
     if (isAttachedFlowing) noteWakeMark('terminal-opened');
@@ -491,6 +516,7 @@ function closeEveryTerminalUntilShown() {
 }
 
 function closeDataWs(ui: SessionUi, sessionId: string) {
+  handshakeRaceOf(ui).closeAll();
   const closingSocket = ui.dataWs;
   ui.dataWs = null;
   clearSnapshotDrain(ui);

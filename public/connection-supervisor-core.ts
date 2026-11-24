@@ -26,6 +26,7 @@ export type TenantWakeStatus = 'waking' | 'awake' | 'unknown';
 export type ConnectionAction =
   | { kind: 'probe-control'; deadlineMs: number; isAnnounced: boolean }
   | { kind: 'replace-control' }
+  | { kind: 'race-control' }
   | { kind: 'close-sockets' }
   | { kind: 'reconnect-shown-terminals' }
   | { kind: 'hold-input' }
@@ -144,7 +145,7 @@ export function decideConnectionActions(state: SupervisorState, event: Connectio
       return { state: replaced.state, actions: [...replaced.actions, { kind: 'release-input' }] };
     }
     case 'handshake-overdue':
-      return checkWake({ ...state, isReplacing: true }, [{ kind: 'replace-control' }]);
+      return checkWake({ ...state, isReplacing: true }, [{ kind: 'race-control' }]);
     case 'control-opened':
       return { state: { ...state, isReplacing: false }, actions: heartbeatWhileVisible(state) };
     case 'control-closed':

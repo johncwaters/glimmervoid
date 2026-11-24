@@ -40,6 +40,7 @@ export interface ShapingProxy {
   endMeasure(): Promise<ChannelTallies>;
   stallOpenConnections(): void;
   setWedgingNewConnections(isWedging: boolean): void;
+  setUpgradeDelayMs(delayMs: number): void;
   close(): Promise<void>;
 }
 
@@ -137,6 +138,7 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
   const stalledSockets = new Set<net.Socket>();
   const wedgedSockets = new Set<net.Socket>();
   let isWedgingNewConnections = false;
+  let upgradeDelayMs = 0;
   let measure = openMeasure();
 
   const tunnel = (client: net.Socket, server: net.Socket, establishedAtMs: number, leftover: Buffer): void => {
@@ -151,12 +153,17 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
     });
     const toClient = createDeliveryQueue(profile, downLink, openCongestionWindow(profile, establishedAtMs), (bytes) => { client.write(bytes); });
     const fromClient = (bytes: Buffer): void => {
+      const isFirstRequest = channel === null;
       if (channel === null) {
         channel = classifyChannel(bytes.toString('latin1'));
         measure[channel].tally.connections += 1;
       }
       measure[channel].tally.wireBytesUp += bytes.length;
-      toServer.push(bytes, performance.now());
+      if (!isFirstRequest || channel === 'http' || upgradeDelayMs === 0) {
+        toServer.push(bytes, performance.now());
+        return;
+      }
+      setTimeout(() => toServer.push(bytes, performance.now()), upgradeDelayMs);
     };
     server.on('data', (bytes: Buffer) => {
       const current = measure[channel ?? 'http'];
@@ -269,6 +276,9 @@ export async function createShapingProxy({ targetPort, profile }: { targetPort: 
       if (isWedging) return;
       for (const socket of wedgedSockets) socket.destroy();
       wedgedSockets.clear();
+    },
+    setUpgradeDelayMs(delayMs: number) {
+      upgradeDelayMs = delayMs;
     },
     async close() {
       for (const socket of [...openSockets, ...stalledSockets, ...wedgedSockets]) socket.destroy();

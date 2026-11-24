@@ -618,7 +618,7 @@ function measureT3Profile(options: HarnessOptions): Promise<T3ProfileResult> {
 const WAKE_HIDDEN_MS = 20_000;
 const WAKE_WAIT_MS = 30_000;
 
-type WakeCaseId = 'healthy' | 'stalled' | 'stalled-visible' | 'wedged-handshake';
+type WakeCaseId = 'healthy' | 'stalled' | 'stalled-visible' | 'wedged-handshake' | 'slow-handshake';
 
 interface WakeCase {
   id: WakeCaseId;
@@ -720,6 +720,8 @@ async function measureControlRetryGap(watch: WakeVisit['watch']): Promise<number
   throw new Error(`a wedged control handshake was never retried within ${Math.round(WAKE_WAIT_MS / 1000)} s`);
 }
 
+const SLOW_HANDSHAKE_DELAY_MS = 2500;
+
 const WAKE_CASES: WakeCase[] = [
   {
     id: 'healthy',
@@ -768,6 +770,23 @@ const WAKE_CASES: WakeCase[] = [
       proxy.setWedgingNewConnections(false);
       await waitForFullScrollbackArrived(watch, 'the shown terminal did not come back once handshakes were answered again');
       return controlRetryGapMs;
+    },
+  },
+  {
+    id: 'slow-handshake',
+    detail: `hidden 20 s, connection silently dead, every WebSocket upgrade answered after ${SLOW_HANDSHAKE_DELAY_MS} ms, ms to shown terminal live`,
+    boundMs: SLOW_HANDSHAKE_DELAY_MS + 1500,
+    async measure({ proxy, watch, hide, show }) {
+      await hide();
+      proxy.stallOpenConnections();
+      proxy.setUpgradeDelayMs(SLOW_HANDSHAKE_DELAY_MS);
+      await sleep(WAKE_HIDDEN_MS);
+      try {
+        await show();
+        return await waitForFullScrollbackArrived(watch, 'the shown terminal never came back while every handshake took longer than the handshake deadline');
+      } finally {
+        proxy.setUpgradeDelayMs(0);
+      }
     },
   },
 ];

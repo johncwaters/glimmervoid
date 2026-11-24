@@ -1,4 +1,5 @@
 import { nextReconnectDelayMs } from './reconnect-backoff.ts';
+import { createHandshakeRace } from './handshake-race-core.ts';
 import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
@@ -32,6 +33,7 @@ interface ControlClient {
   connect(): void;
   abandon(): void;
   reconnectNow(): void;
+  raceHandshake(): void;
   send(msg: Record<string, unknown>): boolean;
   request(type: string, payload?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<ServerMessage>;
 }
@@ -51,6 +53,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
   let isAbandoned = false;
   let isTokenFetchPending = false;
   const pendingRequests = new Map<string, PendingRequest>();
+  const handshakeRace = createHandshakeRace<WebSocket>((attempt) => attempt.close());
 
   function send(msg: Record<string, unknown>): boolean {
     if (controlWs?.readyState !== WebSocket.OPEN) return false;
@@ -105,6 +108,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     controlWs = null;
     isAbandoned = true;
     clearControlRetryTimer();
+    handshakeRace.closeAll();
     rejectPendingRequests(NOT_CONNECTED_TEXT);
     options.onStateChange?.('disconnected', 'Reconnecting');
     abandonedSocket?.close();
@@ -113,6 +117,11 @@ function createControlClient(options: ControlClientOptions): ControlClient {
   function reconnectNow() {
     abandon();
     controlRetryAttempt = 0;
+    connect();
+  }
+
+  function raceHandshake() {
+    if (isAbandoned || controlWs !== null) return;
     connect();
   }
 
@@ -170,12 +179,13 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     const since = lastSeq > 0 ? `?since=${lastSeq}` : '';
     const url = buildWebSocketUrl(location, withPageToken(`/control${since}`));
     const ws = new WebSocket(url);
-    controlWs = ws;
+    handshakeRace.start(ws);
     options.onSocketChange?.('connecting');
     let hasEverOpened = false;
 
     ws.addEventListener('open', () => {
-      if (controlWs !== ws) return;
+      if (handshakeRace.adopt(ws) === null) return;
+      controlWs = ws;
       hasEverOpened = true;
       controlRetryAttempt = 0;
       options.onStateChange?.('connected', 'Connected');
@@ -186,7 +196,9 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     ws.addEventListener('message', (event: MessageEvent<string>) => receive(ws, event));
 
     ws.addEventListener('close', () => {
-      if (controlWs !== ws) return;
+      const wasRacing = handshakeRace.isRacing(ws);
+      if (wasRacing && handshakeRace.drop(ws) > 0) return;
+      if (!wasRacing && controlWs !== ws) return;
       controlWs = null;
       rejectPendingRequests(NOT_CONNECTED_TEXT);
 
@@ -199,7 +211,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     });
   }
 
-  return { connect, abandon, reconnectNow, send, request };
+  return { connect, abandon, reconnectNow, raceHandshake, send, request };
 }
 
 let _messageHandler: ControlMessageHandler | null = null;
@@ -261,6 +273,10 @@ export function abandonControlSocket() {
 
 export function replaceControlSocket() {
   localClient.reconnectNow();
+}
+
+export function raceControlHandshake() {
+  localClient.raceHandshake();
 }
 
 export function probeControl(deadlineMs: number, isAnnounced: boolean): Promise<boolean> {
