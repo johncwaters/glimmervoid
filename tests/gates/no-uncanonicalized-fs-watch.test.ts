@@ -28,6 +28,7 @@ const CANONICALIZED_ARG = /^canonicalizePath\(/;
 const ALLOWED = new Map([
   [path.join(ROOT, "server", "config-store.js"), "watchDir"],
   [path.join(ROOT, "server", "config-store.ts"), "watchDir"],
+  [path.join(ROOT, "server", "path-watch.ts"), "realFolder"],
 ]);
 
 function collectJsFiles(dir: string, acc: string[]): string[] {

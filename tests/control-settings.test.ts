@@ -502,10 +502,9 @@ test('the team review environment announces its skill scan once it lands, so the
     const scanLanded = new Promise<void>((resolve) => {
       const stopListening = onTeamReviewEnvironmentChanged(() => { stopListening(); resolve(); });
     });
-    const scanStartedAtMs = Date.now() + 3_600_000;
-    currentTeamReviewEnvironment({ nowMs: scanStartedAtMs, homeDir, env: { CLAUDE_CONFIG_DIR: claudeHome } });
+    currentTeamReviewEnvironment({ homeDir, env: { CLAUDE_CONFIG_DIR: claudeHome } });
     await scanLanded;
-    const environment = currentTeamReviewEnvironment({ nowMs: scanStartedAtMs, homeDir, env: { CLAUDE_CONFIG_DIR: claudeHome } });
+    const environment = currentTeamReviewEnvironment({ homeDir, env: { CLAUDE_CONFIG_DIR: claudeHome } });
     assert.deepEqual(environment.agents[0]?.skills.map((skill) => skill.name), ['reviewing']);
   } finally {
     fs.rmSync(homeDir, { recursive: true, force: true });

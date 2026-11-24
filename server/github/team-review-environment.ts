@@ -7,25 +7,42 @@ import { currentAgentModelCatalog } from '../agent-models/agent-models.ts';
 import type { ReviewAgentOffer, ReviewSkillOffer, TeamReviewEnvironment } from '../../shared/contracts/team-review-environment.ts';
 import * as environmentCore from './core/team-review-environment-core.ts';
 import { parseSkillFrontmatter } from '../../shared/skill-frontmatter-core.ts';
-import { clock } from '../../shared/clock.ts';
+import { watchPath, watchTree } from '../path-watch.ts';
+import type { StopWatching } from '../path-watch.ts';
 
-const SCAN_FRESH_FOR_MS = 60_000;
 const SKILL_FILE_NAME = 'SKILL.md';
+const IGNORED_SKILL_FOLDER_NAMES: ReadonlySet<string> = new Set(['node_modules', '.git']);
 
 interface AgentScan { id: ReviewAgentOffer['id']; skills: ReviewSkillOffer[] }
 
+interface FollowedClaudeHome {
+  claudeHome: string;
+  stopFileWatches: StopWatching;
+  stopPluginWatches: StopWatching;
+  watchedPluginSkillFolders: string;
+}
+
 let lastScan: AgentScan[] = [];
-let lastScanStartedAtMs = Number.NEGATIVE_INFINITY;
-let scanInFlight: Promise<void> | null = null;
+let scanChain: Promise<void> = Promise.resolve();
+let followed: FollowedClaudeHome | null = null;
 const changeListeners = new Set<() => void>();
 
 function teamReviewScanSettled(): Promise<void> {
-  return scanInFlight ?? Promise.resolve();
+  return scanChain;
+}
+
+function stopFollowing(): void {
+  followed?.stopFileWatches();
+  followed?.stopPluginWatches();
+  followed = null;
 }
 
 function onTeamReviewEnvironmentChanged(listener: () => void): () => void {
   changeListeners.add(listener);
-  return () => { changeListeners.delete(listener); };
+  return () => {
+    changeListeners.delete(listener);
+    if (changeListeners.size === 0) stopFollowing();
+  };
 }
 
 async function readTextOrNull(filePath: string): Promise<string | null> {
@@ -57,29 +74,68 @@ async function scanSkillFolder(skillsFolder: string, source: ReviewSkillOffer['s
   return skills;
 }
 
-async function scanClaude(homeDir: string, env: NodeJS.ProcessEnv): Promise<AgentScan> {
-  const claudeHome = env.CLAUDE_CONFIG_DIR?.trim() || path.join(homeDir, '.claude');
+function claudeHomeOf(homeDir: string, env: NodeJS.ProcessEnv): string {
+  return env.CLAUDE_CONFIG_DIR?.trim() || path.join(homeDir, '.claude');
+}
+
+async function scanClaude(claudeHome: string): Promise<{ scan: AgentScan; pluginSkillFolders: string[] }> {
   const [userSkills, installedPlugins, settings] = await Promise.all([
     scanSkillFolder(path.join(claudeHome, 'skills'), 'user'),
     readJsonOrNull(path.join(claudeHome, 'plugins', 'installed_plugins.json')),
     readJsonOrNull(path.join(claudeHome, 'settings.json')),
   ]);
-  const pluginSkills = await Promise.all(environmentCore.enabledClaudePluginInstalls(installedPlugins, settings)
-    .map(({ pluginName, installPath }) => scanSkillFolder(path.join(installPath, 'skills'), 'plugin', `${pluginName}:`)));
-  return { id: 'claude', skills: [...userSkills, ...pluginSkills.flat()] };
+  const pluginInstalls = environmentCore.enabledClaudePluginInstalls(installedPlugins, settings);
+  const pluginSkills = await Promise.all(pluginInstalls.map(({ pluginName, installPath }) => scanSkillFolder(path.join(installPath, 'skills'), 'plugin', `${pluginName}:`)));
+  return {
+    scan: { id: 'claude', skills: [...userSkills, ...pluginSkills.flat()] },
+    pluginSkillFolders: pluginInstalls.map(({ installPath }) => path.join(installPath, 'skills')),
+  };
 }
 
-async function scanReviewAgents(homeDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+function isIgnoredSkillFolder(relativePath: string): boolean {
+  return IGNORED_SKILL_FOLDER_NAMES.has(path.posix.basename(relativePath));
+}
+
+function watchSkillFolder(skillsFolder: string, onChange: () => void): StopWatching {
+  return watchTree(skillsFolder, onChange, { isIgnored: isIgnoredSkillFolder });
+}
+
+function watchPluginSkillFolders(target: FollowedClaudeHome, pluginSkillFolders: readonly string[]): void {
+  const folderKey = JSON.stringify(pluginSkillFolders);
+  if (folderKey === target.watchedPluginSkillFolders) return;
+  target.stopPluginWatches();
+  const stops = pluginSkillFolders.map((skillsFolder) => watchSkillFolder(skillsFolder, () => queueScan(target)));
+  target.stopPluginWatches = () => { for (const stop of stops) stop(); };
+  target.watchedPluginSkillFolders = folderKey;
+}
+
+async function scanReviewAgents(target: FollowedClaudeHome): Promise<void> {
   const previousScan = JSON.stringify(lastScan);
-  lastScan = [await scanClaude(homeDir, env)];
+  const { scan, pluginSkillFolders } = await scanClaude(target.claudeHome);
+  if (followed !== target) return;
+  lastScan = [scan];
+  watchPluginSkillFolders(target, pluginSkillFolders);
   if (JSON.stringify(lastScan) === previousScan) return;
   for (const listener of changeListeners) listener();
 }
 
-function refreshWhenStale(nowMs: number, homeDir: string, env: NodeJS.ProcessEnv): void {
-  if (scanInFlight || nowMs - lastScanStartedAtMs < SCAN_FRESH_FOR_MS) return;
-  lastScanStartedAtMs = nowMs;
-  scanInFlight = scanReviewAgents(homeDir, env).finally(() => { scanInFlight = null; });
+function queueScan(target: FollowedClaudeHome): void {
+  scanChain = scanChain.then(() => scanReviewAgents(target)).catch(() => {});
+}
+
+function follow(claudeHome: string): void {
+  if (followed?.claudeHome === claudeHome) return;
+  stopFollowing();
+  const target: FollowedClaudeHome = { claudeHome, stopFileWatches: () => {}, stopPluginWatches: () => {}, watchedPluginSkillFolders: '[]' };
+  followed = target;
+  const onChange = () => queueScan(target);
+  const stops = [
+    watchSkillFolder(path.join(claudeHome, 'skills'), onChange),
+    watchPath(path.join(claudeHome, 'settings.json'), onChange),
+    watchPath(path.join(claudeHome, 'plugins', 'installed_plugins.json'), onChange),
+  ];
+  target.stopFileWatches = () => { for (const stop of stops) stop(); };
+  queueScan(target);
 }
 
 function agentOffer(scan: AgentScan): ReviewAgentOffer {
@@ -89,9 +145,9 @@ function agentOffer(scan: AgentScan): ReviewAgentOffer {
 }
 
 function currentTeamReviewEnvironment(
-  { nowMs = clock.nowMs(), homeDir = os.homedir(), env = process.env }: { nowMs?: number; homeDir?: string; env?: NodeJS.ProcessEnv } = {},
+  { homeDir = os.homedir(), env = process.env }: { homeDir?: string; env?: NodeJS.ProcessEnv } = {},
 ): TeamReviewEnvironment {
-  refreshWhenStale(nowMs, homeDir, env);
+  follow(claudeHomeOf(homeDir, env));
   return {
     agents: lastScan.map(agentOffer),
   };

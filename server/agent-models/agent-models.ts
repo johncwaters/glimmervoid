@@ -10,8 +10,7 @@ import { realAgentHome } from '../../session/agent-home.ts';
 import { CLAUDE_HOME_PROFILE, CODEX_HOME_PROFILE } from '../../session/core/agent-home-core.ts';
 import type { ConfiguredDefault, AgentModelCatalog, AgentModels, CatalogAgentId, CatalogModel, ProviderModels } from '../../shared/contracts/agent-models.ts';
 import { clock } from '../../shared/clock.ts';
-import { createCoalescedTimer } from '../../shared/coalesce-timer.ts';
-import { existsSync, watch as watchFolder } from 'node:fs';
+import { watchPath } from '../path-watch.ts';
 
 const CHANGE_DEBOUNCE_MS = 500;
 const WINDOWS_COMMAND_EXTENSIONS = ['.exe', '.cmd', '.bat', '.ps1'];
@@ -151,43 +150,11 @@ async function rereadConfiguredDefault(agent: CatalogAgentId): Promise<void> {
   replaceAgentModels(configuredDefault ? { ...withoutDefault, configuredDefault } : withoutDefault);
 }
 
-function watchFolderFor(folder: string, fileNames: readonly string[], onChange: () => void): () => void {
-  const changeTimer = createCoalescedTimer({ mode: 'leading', delayMs: CHANGE_DEBOUNCE_MS, run: onChange });
-  try {
-    const watcher = watchFolder(folder, { persistent: false }, (_event, changedName) => {
-      if (changedName === null || fileNames.includes(changedName)) changeTimer.schedule();
-    });
-    watcher.on('error', () => {
-      warnSubscribers(`[agent-models] stopped watching ${folder}; its agent keeps the models last listed`);
-      watcher.close();
-    });
-    return () => {
-      changeTimer.cancel();
-      watcher.close();
-    };
-  } catch {
-    warnSubscribers(`[agent-models] cannot watch ${folder}; its agent keeps the models last listed`);
-    return () => {};
-  }
+function warnUnwatchable(target: string): void {
+  warnSubscribers(`[agent-models] cannot watch ${target}; its agent keeps the models last listed`);
 }
 
-function nearestExistingFolderOf(filePath: string): string {
-  let folder = path.dirname(filePath);
-  while (!existsSync(folder) && path.dirname(folder) !== folder) folder = path.dirname(folder);
-  return folder;
-}
-
-function watchPath(filePath: string, onChange: () => void): () => void {
-  const folder = nearestExistingFolderOf(filePath);
-  if (folder === path.dirname(filePath)) return watchFolderFor(folder, [path.basename(filePath)], onChange);
-  const nextSegment = path.relative(folder, filePath).split(path.sep)[0];
-  let stopCurrent = watchFolderFor(folder, [nextSegment], () => {
-    stopCurrent();
-    stopCurrent = watchPath(filePath, onChange);
-    onChange();
-  });
-  return () => stopCurrent();
-}
+const CATALOG_WATCH_OPTIONS = Object.freeze({ debounceMs: CHANGE_DEBOUNCE_MS, onUnwatchable: warnUnwatchable });
 
 function commandFileNamesOf(commandName: string): string[] {
   if (process.platform !== 'win32') return [commandName];
@@ -198,9 +165,9 @@ function watchExecutable(agent: CatalogAgentId): () => void {
   const adapter = getAdapter(agent);
   if (!adapter) return () => {};
   const executablePath = commandFor(adapter)?.path ?? null;
-  if (executablePath !== null) return watchPath(executablePath, () => listAgent(agent));
-  const pathFolders = (process.env.PATH ?? '').split(path.delimiter).filter((folder) => folder !== '' && existsSync(folder));
-  const stops = pathFolders.map((folder) => watchFolderFor(folder, commandFileNamesOf(adapter.commandName), () => listAgent(agent)));
+  if (executablePath !== null) return watchPath(executablePath, () => listAgent(agent), CATALOG_WATCH_OPTIONS);
+  const pathFolders = (process.env.PATH ?? '').split(path.delimiter).filter((folder) => folder !== '');
+  const stops = pathFolders.flatMap((folder) => commandFileNamesOf(adapter.commandName).map((fileName) => watchPath(path.join(folder, fileName), () => listAgent(agent), CATALOG_WATCH_OPTIONS)));
   return () => { for (const stop of stops) stop(); };
 }
 
@@ -214,7 +181,7 @@ function watchAgent(agent: CatalogAgentId): void {
   stopWatchingByAgent.get(agent)?.();
   const stopExecutable = watchExecutable(agent);
   const configFile = CONFIG_FILE_WATCHES[agent]?.();
-  const stopConfig = configFile ? watchPath(configFile.filePath, configFile.onChange) : () => {};
+  const stopConfig = configFile ? watchPath(configFile.filePath, configFile.onChange, CATALOG_WATCH_OPTIONS) : () => {};
   stopWatchingByAgent.set(agent, () => {
     stopExecutable();
     stopConfig();
