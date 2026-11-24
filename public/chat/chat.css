@@ -179,48 +179,31 @@
   overflow-wrap: anywhere;
 }
 
-.chat-skill {
-  color: var(--text-muted);
-  font-size: var(--type-meta);
-  line-height: 1.4;
-}
-
-.chat-skill code { font-family: var(--font-mono); color: var(--text); }
-
-.chat-skill + .chat-skill { margin-top: -12px; }
+.chat-skill .chat-subagent-row { cursor: default; }
 
 .chat-system-line {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
   color: var(--text-muted);
   font-size: var(--type-meta);
   line-height: 1.4;
 }
 
-.chat-system-line::before,
-.chat-system-line::after {
-  content: '';
-  flex: 1 1 24px;
-  height: 1px;
-  background: var(--border-dim);
-}
+.chat-subagent + .chat-system-line { margin-top: -10px; }
 
 .chat-system-text {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   min-width: 0;
-  max-width: 70%;
 }
 
 .chat-system-label { display: -webkit-box; overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 
 .chat-system-mark {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
+  margin: 3px -1px 0;
   overflow: visible;
   fill: none;
   stroke: var(--accent);

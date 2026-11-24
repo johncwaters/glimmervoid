@@ -459,9 +459,11 @@ function renderSystemLine(part: Extract<ChatPart, { kind: 'system-line' }>): HTM
 }
 
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
-  const skillLine = el('div', 'chat-skill');
-  skillLine.append('Loaded skill ', el('code', null, part.skillName));
-  return skillLine;
+  const skillRow = el('div', 'chat-subagent chat-skill');
+  const row = el('div', 'chat-subagent-row');
+  row.append(el('span', 'chat-subagent-dot'), el('span', 'chat-subagent-type', 'Skill'), el('span', 'chat-subagent-task', part.skillName));
+  skillRow.append(row);
+  return skillRow;
 }
 
 function renderRunRow(isRunning: boolean, typeText: string, taskText: string, timeText: string, workElements: readonly HTMLElement[]): HTMLElement {
