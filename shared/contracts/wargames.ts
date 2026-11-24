@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v7' as const;
+export const WARGAMES_RULES_VERSION = 'v8' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']);
 type WargamesRulesVersion = z.infer<typeof WargamesRulesVersion>;
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -67,8 +67,8 @@ export type ArmyStatus = z.infer<typeof ArmyStatus>;
 export const BuildingKind = z.enum(['farm', 'mine', 'barracks', 'wall']);
 export type BuildingKind = z.infer<typeof BuildingKind>;
 
-export const TroopKind = z.enum(['raider', 'guard', 'envoy']);
-export type TroopKind = z.infer<typeof TroopKind>;
+const TroopKind = z.enum(['raider', 'guard', 'envoy']);
+type TroopKind = z.infer<typeof TroopKind>;
 
 const SeatControllerKind = z.enum(['local-agent']);
 
@@ -157,6 +157,25 @@ export interface WargamesBalance {
   readonly victory: WargamesVictoryRule;
   readonly sparseSites: WargamesSparseSites | null;
   readonly diplomacy: WargamesDiplomacyRule | null;
+  readonly roles: WargamesRolesRule | null;
+}
+
+interface WargamesUnitRole {
+  readonly attack: number;
+  readonly defense: number;
+  readonly cost: ResourceBundle;
+}
+
+export interface WargamesRolesRule {
+  readonly units: Readonly<Record<TroopKind, WargamesUnitRole>>;
+  readonly wallDefensePerLevel: number;
+  readonly wallBonusPerLevel: number;
+  readonly captureDrainMin: number;
+  readonly captureDrainMax: number;
+  readonly troopCapBase: number;
+  readonly troopCapPerFarmLevel: number;
+  readonly moraleFloor: number;
+  readonly moraleMinAttackerPoints: number;
 }
 
 interface WargamesDiplomacyRule {
@@ -184,6 +203,7 @@ const V1_BALANCE: WargamesBalance = Object.freeze({
   victory: Object.freeze({ kind: 'flat', villages: 12 }),
   sparseSites: null,
   diplomacy: null,
+  roles: null,
 });
 
 const V5_BALANCE: WargamesBalance = Object.freeze({
@@ -219,6 +239,31 @@ const V7_BALANCE: WargamesBalance = Object.freeze({
   diplomacy: Object.freeze({ breachCollateralStep: 1, allianceVpPerTurn: 2 }),
 });
 
+const LEGACY_TROOP_COSTS: Readonly<Record<TroopKind, ResourceBundle>> = Object.freeze({
+  raider: Object.freeze({ grain: 12, ore: 8 }),
+  guard: Object.freeze({ grain: 8, ore: 12 }),
+  envoy: Object.freeze({ grain: 25, ore: 20 }),
+});
+
+const V8_BALANCE: WargamesBalance = Object.freeze({
+  ...V7_BALANCE,
+  roles: Object.freeze({
+    units: Object.freeze({
+      raider: Object.freeze({ attack: 12, defense: 3, cost: LEGACY_TROOP_COSTS.raider }),
+      guard: Object.freeze({ attack: 3, defense: 12, cost: Object.freeze({ grain: 5, ore: 7 }) }),
+      envoy: Object.freeze({ attack: 0, defense: 1, cost: LEGACY_TROOP_COSTS.envoy }),
+    }),
+    wallDefensePerLevel: 15,
+    wallBonusPerLevel: 0.04,
+    captureDrainMin: 20,
+    captureDrainMax: 35,
+    troopCapBase: 40,
+    troopCapPerFarmLevel: 20,
+    moraleFloor: 0.5,
+    moraleMinAttackerPoints: 20,
+  }),
+});
+
 const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
   v1: V1_BALANCE,
   v2: V1_BALANCE,
@@ -227,10 +272,17 @@ const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, Wargame
   v5: V5_BALANCE,
   v6: V6_BALANCE,
   v7: V7_BALANCE,
+  v8: V8_BALANCE,
 });
 
 export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): WargamesBalance {
   return WARGAMES_BALANCE_BY_VERSION[rulesVersion];
+}
+
+export function troopCostsFor(balance: Pick<WargamesBalance, 'roles'>): Readonly<Record<TroopKind, ResourceBundle>> {
+  if (balance.roles === null) return LEGACY_TROOP_COSTS;
+  const { units } = balance.roles;
+  return { raider: units.raider.cost, guard: units.guard.cost, envoy: units.envoy.cost };
 }
 
 export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victory'>, villageCount: number): number {
@@ -359,6 +411,8 @@ export const SignedReportPayload = z.discriminatedUnion('kind', [
     loyaltyBefore: z.number().int().min(0).max(100),
     loyaltyAfter: z.number().int().min(0).max(100),
     captured: z.boolean(),
+    wallBefore: z.number().int().min(0).max(10).optional(),
+    wallAfter: z.number().int().min(0).max(10).optional(),
   }),
   z.strictObject({
     kind: z.literal('scout'),
