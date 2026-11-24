@@ -42,7 +42,7 @@
   .community-message-place { color: var(--text-muted); }
   .community-bubble { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--border-dim); border-radius: var(--radius); background: var(--bg-card); }
   .community-message[data-own="true"] .community-bubble { border-color: color-mix(in oklch, var(--accent) 45%, var(--border)); }
-  .community-question-body, .community-draft-body { max-width: 78ch; margin: 0; font-size: var(--type-meta); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .community-question-body, .community-draft-body { margin: 0; font-size: var(--type-meta); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
   .community-question-body { max-height: 14lh; overflow-y: auto; color: var(--text); overscroll-behavior: contain; }
   .community-question-body:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
   .community-draft-body { color: var(--text-head); }
