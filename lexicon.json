@@ -1645,6 +1645,10 @@
     {
       "name": "outpost",
       "definition": "In Wargames v9, an improvement on a land hex that makes the owner's armies standing on it defend at +50%"
+    },
+    {
+      "name": "standard",
+      "definition": "The smallest Wargames map size preset (radius 4, 25 turns), below Large and Huge"
     }
   ],
   "retired": [
