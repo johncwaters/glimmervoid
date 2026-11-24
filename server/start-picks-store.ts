@@ -1,5 +1,6 @@
 import { createJsonStateStore } from './json-file.ts';
-import { StartPicks } from '../shared/contracts/start-picks.ts';
+import { StartPicksFile } from '../shared/contracts/start-picks.ts';
+import type { StartPicks } from '../shared/contracts/start-picks.ts';
 import { emptyStartPicks, rememberStart } from '../shared/start-picks-core.ts';
 import type { RememberedStart } from '../shared/start-picks-core.ts';
 import { clock } from '../shared/clock.ts';
@@ -14,7 +15,7 @@ function createStartPicksStore({ filePath, logger }: { filePath: string | null; 
   const store = createJsonStateStore<StartPicks>({
     name: 'start picks',
     filePath,
-    parse: (raw) => StartPicks.safeParse(raw).data ?? null,
+    parse: (raw) => StartPicksFile.safeParse(raw).data ?? null,
     adopt: (loaded) => { picks = loaded ?? emptyStartPicks(); },
     warn: (message, fields) => logger.warn(`[start-picks] ${message} ${JSON.stringify(fields)}`),
   });

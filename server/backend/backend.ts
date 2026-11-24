@@ -100,7 +100,7 @@ import { configuredIntegrationBranch } from '../core/integration-branch-core.ts'
 import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
-import { buildSettingsPayload } from '../settings-payload.ts';
+import { buildSettingsPayload, startLiveSettingsSources } from '../settings-payload.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
 import { buildSetupSnapshot, decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
@@ -1051,12 +1051,17 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   httpServer.once('listening', startPostTurnLeftoverCleanup);
 
   broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore }) });
-  stopConfigWatch = configStore.watchForChanges((newConfig) => {
+  const agentModelCatalog = startLiveSettingsSources({ onChange: () => broadcastSettings?.(), log: console });
+  const stopConfigFileWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();
     broadcastControl?.(secretsBroker.approvalsMessage());
     secretsBroker.refreshCards();
   }, { reloadDebounceMs: options.configReloadDebounceMs });
+  stopConfigWatch = () => {
+    stopConfigFileWatch();
+    agentModelCatalog.stop();
+  };
   updateCheck.start();
 
   return {

@@ -93,7 +93,7 @@ interface WargamesRunnerDeps {
   now?: () => number;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;
-  readAgentModels?: (nowMs?: number) => AgentModelCatalog;
+  readAgentModels?: () => AgentModelCatalog;
 }
 
 function normalizeModelDisplay(candidate: string | null | undefined, fallback: string): string {
@@ -306,7 +306,7 @@ export function createWargamesRunner({
     hooks?: WargamesMatchHooks,
   ): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }> {
     const createdAtMs = now();
-    const catalog = readAgentModels(createdAtMs);
+    const catalog = readAgentModels();
     const pinnedSpec: WargamesMatchSpec = {
       ...spec,
       rulesVersion: WARGAMES_RULES_VERSION,

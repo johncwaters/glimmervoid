@@ -115,10 +115,11 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       return;
     }
     const picks = await startPicks.current();
-    const filled = withRememberedStart(request, picks, currentAgentModelCatalog(), { defaultAgentId: DEFAULT_AGENT_ID, isKnownAgentId });
+    const catalog = currentAgentModelCatalog();
+    const filled = withRememberedStart(request, picks, catalog, { defaultAgentId: DEFAULT_AGENT_ID, isKnownAgentId });
     const replyToSocket = socketReply(ws, filled);
     addSession(filled, (outcome) => {
-      if (outcome.ok) void startPicks.record(startToRemember(filled, request.setup ?? null, DEFAULT_AGENT_ID));
+      if (outcome.ok) void startPicks.record(startToRemember(filled, request.setup ?? null, DEFAULT_AGENT_ID, catalog));
       replyToSocket(outcome);
     }, {});
   }

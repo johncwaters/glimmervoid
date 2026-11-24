@@ -3,7 +3,7 @@ import type { CustomAgentDeclaration, CustomAgentSummaryRow, TelegramDeliverySta
 import type { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
 import type { TeamReviewSettingsSource } from './github/core/team-review-core.ts';
 import { currentTeamReviewEnvironment } from './github/team-review-environment.ts';
-import { currentAgentModelCatalog } from './agent-models/agent-models.ts';
+import { currentAgentModelCatalog, startAgentModelCatalog } from './agent-models/agent-models.ts';
 import type { AgentModelCatalog } from '../shared/contracts/agent-models.ts';
 import { resolvePackageBin } from './runtime-paths.ts';
 
@@ -46,4 +46,4 @@ function buildSettingsPayload({
   };
 }
 
-export { buildSettingsPayload };
+export { buildSettingsPayload, startAgentModelCatalog as startLiveSettingsSources };

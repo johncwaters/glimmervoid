@@ -1,14 +1,14 @@
 import { EFFORT_OPTION_ID } from './agent-models-core.ts';
-import type { AgentModelCatalog, ModelSelection } from './contracts/agent-models.ts';
+import type { AgentModelCatalog, ConfiguredDefault, ModelSelection } from './contracts/agent-models.ts';
 import type { StartPicks } from './contracts/start-picks.ts';
 
 const MAX_REMEMBERED_STARTS = 50;
 
 export function emptyStartPicks(): StartPicks {
-  return { version: 1, agentByPath: {}, selectionByAgent: {} };
+  return { version: 2, agentByPath: {}, selectionByAgent: {} };
 }
 
-export type RememberedStart = { path: string | null; agentId: string; selection: ModelSelection | null };
+export type RememberedStart = { path: string | null; agentId: string; selection: ModelSelection | null; configuredAtPick: ConfiguredDefault | null };
 
 function withAgentForPath(picks: StartPicks, path: string | null, agentId: string, nowMs: number): StartPicks['agentByPath'] {
   if (path === null) return picks.agentByPath;
@@ -18,16 +18,17 @@ function withAgentForPath(picks: StartPicks, path: string | null, agentId: strin
   return Object.fromEntries(newestFirst);
 }
 
-function withSelectionForAgent(picks: StartPicks, selection: ModelSelection | null, nowMs: number): StartPicks['selectionByAgent'] {
+function withSelectionForAgent(picks: StartPicks, start: RememberedStart, nowMs: number): StartPicks['selectionByAgent'] {
+  const { selection, configuredAtPick } = start;
   if (selection === null) return picks.selectionByAgent;
-  return { ...picks.selectionByAgent, [selection.agent]: { selection, pickedAtMs: nowMs } };
+  return { ...picks.selectionByAgent, [selection.agent]: { selection, pickedAtMs: nowMs, configuredAtPick } };
 }
 
 export function rememberStart(picks: StartPicks, start: RememberedStart, nowMs: number): StartPicks {
   return {
-    version: 1,
+    version: 2,
     agentByPath: withAgentForPath(picks, start.path, start.agentId, nowMs),
-    selectionByAgent: withSelectionForAgent(picks, start.selection, nowMs),
+    selectionByAgent: withSelectionForAgent(picks, start, nowMs),
   };
 }
 
@@ -58,9 +59,25 @@ function withListedEffort(catalog: AgentModelCatalog, selection: ModelSelection)
   return { ...selection, options };
 }
 
+export function configuredDefaultOf(catalog: AgentModelCatalog, agentId: string): ConfiguredDefault | null {
+  return catalog.agents.find((agentModels) => agentModels.agent === agentId)?.configuredDefault ?? null;
+}
+
+function sortedEntriesOf(configured: ConfiguredDefault): string {
+  return JSON.stringify(Object.entries(configured).sort(([firstKey], [secondKey]) => firstKey.localeCompare(secondKey)));
+}
+
+function hasConfiguredDefaultChanged(atPick: ConfiguredDefault | null, current: ConfiguredDefault | null): boolean {
+  if (current === null) return false;
+  if (atPick === null) return true;
+  return sortedEntriesOf(atPick) !== sortedEntriesOf(current);
+}
+
 export function rememberedSelectionFor(picks: StartPicks, agentId: string, catalog: AgentModelCatalog): ModelSelection | null {
-  const selection = picks.selectionByAgent[agentId]?.selection ?? null;
-  if (selection === null || selection.agent !== agentId) return null;
+  const remembered = picks.selectionByAgent[agentId];
+  if (!remembered || remembered.selection.agent !== agentId) return null;
+  if (hasConfiguredDefaultChanged(remembered.configuredAtPick, configuredDefaultOf(catalog, agentId))) return null;
+  const { selection } = remembered;
   if (isNativeModelUnconfirmed(catalog, selection)) return null;
   return withListedEffort(catalog, selection);
 }

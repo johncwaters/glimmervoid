@@ -616,7 +616,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
   }
 
   function setupForTheStart(): ModelSelection | null {
-    const setup = isModelPickable(selectedAgentId) ? chosenSetup() : null;
+    const setup = isModelPickable(selectedAgentId) && operatorSetup?.agent === selectedAgentId ? operatorSetup : null;
     if (setup === null) return null;
     const { instructions: _instructions, ...selection } = setup;
     return selection;

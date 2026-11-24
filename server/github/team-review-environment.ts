@@ -69,9 +69,9 @@ function refreshWhenStale(nowMs: number, homeDir: string, env: NodeJS.ProcessEnv
   scanInFlight = scanReviewAgents(homeDir, env).finally(() => { scanInFlight = null; });
 }
 
-function agentOffer(scan: AgentScan, nowMs: number): ReviewAgentOffer {
+function agentOffer(scan: AgentScan): ReviewAgentOffer {
   const { label, resolvable } = cachedAgentResolvability(scan.id);
-  const claudeModels = currentAgentModelCatalog(nowMs).agents.find((agentModels) => agentModels.agent === 'claude-code')?.models ?? [];
+  const claudeModels = currentAgentModelCatalog().agents.find((agentModels) => agentModels.agent === 'claude-code')?.models ?? [];
   return { ...scan, ...environmentCore.reviewModelOffers(claudeModels), label, installed: resolvable };
 }
 
@@ -80,7 +80,7 @@ function currentTeamReviewEnvironment(
 ): TeamReviewEnvironment {
   refreshWhenStale(nowMs, homeDir, env);
   return {
-    agents: lastScan.map((scan) => agentOffer(scan, nowMs)),
+    agents: lastScan.map(agentOffer),
   };
 }
 

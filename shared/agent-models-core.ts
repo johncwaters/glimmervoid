@@ -155,9 +155,9 @@ function resolvedConfiguredDefault(models: CatalogModel[], configuredModel: stri
   return { model: model.id, effort };
 }
 
-function claudeConfiguredDefault(settingsJson: string, models: CatalogModel[]): ConfiguredDefault {
+function claudeConfiguredDefault(settingsJson: string, models: CatalogModel[]): ConfiguredDefault | undefined {
   const settings = parseJsonLine(settingsJson);
-  if (!isRecord(settings)) return NO_CONFIGURED_DEFAULT;
+  if (!isRecord(settings)) return undefined;
   const settingsByModel = isRecord(settings.modelSettings) ? settings.modelSettings : {};
   const modelEffort = (model: CatalogModel) => {
     const modelSettings = namesOf(model).map((name) => settingsByModel[name]).find(isRecord);

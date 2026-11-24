@@ -1,6 +1,6 @@
 import type { AgentModelCatalog, ModelSelection } from '../../shared/contracts/agent-models.ts';
 import type { StartPicks } from '../../shared/contracts/start-picks.ts';
-import { rememberedAgentFor, rememberedSelectionFor } from '../../shared/start-picks-core.ts';
+import { configuredDefaultOf, rememberedAgentFor, rememberedSelectionFor } from '../../shared/start-picks-core.ts';
 import type { RememberedStart } from '../../shared/start-picks-core.ts';
 import { SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 
@@ -33,7 +33,8 @@ export function withRememberedStart<Request extends StartRequest>(request: Reque
   return setup === null ? withAgent : { ...withAgent, setup };
 }
 
-export function startToRemember(filled: StartRequest, explicitSelection: ModelSelection | null, defaultAgentId: string): RememberedStart {
+export function startToRemember(filled: StartRequest, explicitSelection: ModelSelection | null, defaultAgentId: string, catalog: AgentModelCatalog): RememberedStart {
   const agentId = requestedAgentOf(filled) ?? defaultAgentId;
-  return { path: agentId === SHELL_AGENT_ID ? null : rememberedPathOf(filled), agentId, selection: explicitSelection };
+  const configuredAtPick = configuredDefaultOf(catalog, agentId);
+  return { path: agentId === SHELL_AGENT_ID ? null : rememberedPathOf(filled), agentId, selection: explicitSelection, configuredAtPick };
 }
