@@ -1,11 +1,13 @@
 import { watcherProblemNotice } from '../lane-placeholder-core.ts';
 import '../github/review-queue-panel.css';
 import './community-panel.css';
-import type { CommunityAction, CommunitySource, CommunityStateEntry } from '#shared/contracts/community.ts';
+import type { CommunityAction, CommunitySource, CommunitySourceView, CommunityStateEntry } from '#shared/contracts/community.ts';
+import { packApprovalHashOf } from '#shared/pack-approval.ts';
+import { PACKS_TAB_HASH } from '../packs/packs-store.ts';
 import { clock } from '#shared/clock.ts';
 import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
-import { el, elWithMarkup, externalLink, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
+import { el, externalLink, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
 import { copyButton } from '../ui/copy-button.ts';
 import { sectionHeading } from '../ui/section-heading.ts';
@@ -13,10 +15,7 @@ import { disclosure } from '../ui/disclosure.ts';
 import { emptyState } from '../ui/empty-state.ts';
 import { buildMenuItem, popupMenu } from '../ui/popup-menu.ts';
 import { monogramFor } from '../avatar-core.ts';
-import { sourceBrandColorReference } from '../brand-colors.ts';
 import { getCommunityFilter, getCommunitySort, setCommunityFilter, setCommunitySort } from '../ui-prefs.ts';
-import posthogIcon from './source-icons/posthog.svg?raw';
-import discordIcon from './source-icons/discord.svg?raw';
 import { createPressable } from '../ui/pressable.ts';
 import { select } from '../ui/select.ts';
 import { isExternalHttpUrl } from '../external-link-core.ts';
@@ -35,14 +34,13 @@ import {
 } from './community-store.ts';
 import {
   arrangeCommunityGroups, canRerunCommunityEntry, canSetAsideCommunityEntry, COMMUNITY_SORT_CHOICES, communityBadge, communityCaughtUpText, communityEmptyText, communityFilterCounts,
-  communityItemLabel, communityStatusText, parseCommunityFilter, SOURCE_NAMES, startSessionChoices, VERDICT_FILTER_CHOICES,
+  communityItemLabel, communitySetupState, communityStatusText, parseCommunityFilter, startSessionChoices, VERDICT_FILTER_CHOICES,
 } from './community-view-core.ts';
 import type { CommunityFilterPrefs, CommunitySort } from './community-view-core.ts';
 import { createCommunitySetupCard } from './community-setup-card.ts';
 
 const CONFIDENCE_PIP_COUNT = 3;
 
-const SOURCE_ICON_SVG: Readonly<Record<CommunitySource, string>> = { forum: posthogIcon, discord: discordIcon };
 
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
@@ -97,9 +95,26 @@ function createConfidenceMark(entry: CommunityStateEntry, className: string, isW
   return mark;
 }
 
+function sourceViewOf(source: CommunitySource): CommunitySourceView | null {
+  return communityStatusView()?.sources.find((view) => view.id === source) ?? null;
+}
+
+function sourceLabel(source: CommunitySource): string {
+  return sourceViewOf(source)?.label ?? source.split(':').at(-1) ?? source;
+}
+
 function createSourceMark(source: CommunitySource): HTMLElement {
-  const mark = elWithMarkup('span', 'community-source-mark', SOURCE_ICON_SVG[source]);
-  mark.style.setProperty('--source-brand', sourceBrandColorReference(source));
+  const view = sourceViewOf(source);
+  const mark = el('span', 'community-source-mark');
+  mark.setAttribute('aria-hidden', 'true');
+  if (view === null || view.iconUrl === null) {
+    mark.dataset.fallback = 'true';
+    mark.textContent = monogramFor(view?.label ?? source);
+    return mark;
+  }
+  mark.style.setProperty('--source-icon', `url("${view.iconUrl}")`);
+  mark.style.setProperty('--source-brand-dark', view.color.dark);
+  mark.style.setProperty('--source-brand-light', view.color.light);
   return mark;
 }
 
@@ -149,7 +164,7 @@ function createMessage(options: { label: string; avatarText: string; isOwn: bool
 
 function createQuestionBlock(entry: CommunityStateEntry): HTMLElement {
   const source = el('span', 'community-message-source');
-  source.append(createSourceMark(entry.item.source), el('span', null, SOURCE_NAMES[entry.item.source]));
+  source.append(createSourceMark(entry.item.source), el('span', null, sourceLabel(entry.item.source)));
   const askedAtMs = askedAtMsOf(entry);
   const head = [el('strong', 'community-message-author', entry.item.author), source];
   if (entry.item.channel) head.push(el('span', 'community-message-place', `#${entry.item.channel}`));
@@ -288,7 +303,7 @@ function markShownItemSeen(item: CommunityQueueItem): void {
 function showSelectedDetail(): void {
   if (!detailHost) return;
   const item = queueItemByKey(currentGroups, selectedKey);
-  const signature = item ? JSON.stringify(item.entry) : `empty:${turnItems(currentGroups).length}:${hiddenByFilterCount()}`;
+  const signature = item ? JSON.stringify(item.entry) : `empty:${turnItems(currentGroups).length}:${hiddenByFilterCount()}:${JSON.stringify(communitySetupState(communityStatusView()))}`;
   if (signature === shownDetailSignature) return;
   shownDetailSignature = signature;
   detailAgeTicker.reset();
@@ -300,7 +315,7 @@ function showSelectedDetail(): void {
   const hasAnyItem = currentGroups.some((group) => group.items.length > 0);
   detailHost.replaceChildren(hasAnyItem
     ? createCaughtUpBanner({ title: 'All caught up', detail: communityCaughtUpText(currentGroups) })
-    : createQueueEmptyState());
+    : createQueueEmptyState({ withSetupAction: true }));
 }
 
 function markSeen(item: CommunityQueueItem, row: HTMLButtonElement): void {
@@ -353,7 +368,7 @@ function createRow(item: CommunityQueueItem, isTurn: boolean): HTMLButtonElement
   const age = el('span', 'community-row-age');
   rowAgeTicker.track(age, askedAtMsOf(item.entry), shortAgeText);
   const sourceMark = createSourceMark(item.entry.item.source);
-  sourceMark.setAttribute('aria-label', SOURCE_NAMES[item.entry.item.source]);
+  sourceMark.setAttribute('aria-label', sourceLabel(item.entry.item.source));
   sourceMark.setAttribute('role', 'img');
   row.append(
     sourceMark,
@@ -394,7 +409,7 @@ function createGroupHeading(group: CommunityQueueGroup): HTMLElement {
 
 function createSourceHeading(source: CommunitySource, count: number): HTMLElement {
   const heading = el('div', 'community-source-heading');
-  heading.append(createSourceMark(source), el('span', 'community-source-heading-name', SOURCE_NAMES[source]), el('span', 'review-group-count', String(count)));
+  heading.append(createSourceMark(source), el('span', 'community-source-heading-name', sourceLabel(source)), el('span', 'review-group-count', String(count)));
   return heading;
 }
 
@@ -437,7 +452,7 @@ function createFilterItem(options: { label: string; count: number; isChecked: bo
 function fillFilterMenu(menu: HTMLElement): void {
   const counts = communityFilterCounts(communityQueue(), parseCommunityFilter(filterPrefs));
   const sourceItems = [...counts.sources].map(([source, count]) => createFilterItem({
-    label: SOURCE_NAMES[source], count, isChecked: filterPrefs.sources.includes(source), lead: createSourceMark(source),
+    label: sourceLabel(source), count, isChecked: filterPrefs.sources.includes(source), lead: createSourceMark(source),
     onToggle: () => storeFilter({ ...filterPrefs, sources: toggledList(filterPrefs.sources, source) }),
   }));
   const verdictItems = VERDICT_FILTER_CHOICES.flatMap((choice) => {
@@ -507,8 +522,20 @@ function hiddenByFilterCount(): number {
   return countItems(communityQueue()) - countItems(currentGroups);
 }
 
-function createQueueEmptyState(): HTMLElement {
+function openPacksHash(hash: string): void {
+  location.hash = hash;
+}
+
+function setupEmptyState(setup: NonNullable<ReturnType<typeof communitySetupState>>): HTMLElement {
+  const hash = setup.packName === null ? PACKS_TAB_HASH : packApprovalHashOf(setup.packName);
+  const open = button({ variant: 'primary', size: 'small', label: setup.packName === null ? 'Open Packs' : 'Open pack settings', action: 'open-community-source-pack', onClick: () => openPacksHash(hash) });
+  return emptyState({ title: setup.title, text: setup.text, actions: [open] });
+}
+
+function createQueueEmptyState({ withSetupAction }: { withSetupAction: boolean }): HTMLElement {
   const hiddenCount = hiddenByFilterCount();
+  const setup = hiddenCount === 0 ? communitySetupState(communityStatusView()) : null;
+  if (setup !== null) return withSetupAction ? setupEmptyState(setup) : createPrEmptyState(setup.title);
   const text = communityEmptyText(communityStatusView(), hiddenCount);
   if (hiddenCount === 0) return createPrEmptyState(text);
   const clear = button({ variant: 'secondary', size: 'small', label: 'Clear filters', action: 'clear-community-filters', onClick: () => storeFilter({ sources: [], verdicts: [], channels: [] }) });
@@ -516,7 +543,7 @@ function createQueueEmptyState(): HTMLElement {
 }
 
 function syncToolbar(): void {
-  if (toolbarStatus) toolbarStatus.textContent = communityStatusText(chosenSort, parseCommunityFilter(filterPrefs));
+  if (toolbarStatus) toolbarStatus.textContent = communityStatusText(chosenSort, parseCommunityFilter(filterPrefs), sourceLabel);
 }
 
 function createGroupSection(group: CommunityQueueGroup): HTMLElement {
@@ -543,21 +570,32 @@ function syncSetupCard(): boolean {
   return isSetupShown;
 }
 
+function sourceProblems(): HTMLElement[] {
+  return (communityStatusView()?.sources ?? []).filter((view) => view.error !== null).map((view) => {
+    const problem = el('div', 'community-source-problem');
+    problem.setAttribute('role', 'status');
+    const head = el('div', 'community-source-problem-head');
+    head.append(createSourceMark(view.id), el('span', 'community-source-problem-label', view.label), el('span', 'community-source-problem-state', 'Last poll failed'));
+    problem.append(head, el('p', 'community-source-problem-text', view.error ?? ''));
+    return problem;
+  });
+}
+
 function render(): void {
   if (!queueElement) return;
   if (syncSetupCard()) return;
   currentGroups = arrangeCommunityGroups(communityQueue(), chosenSort, parseCommunityFilter(filterPrefs));
   syncToolbar();
   selectedKey = chooseQueueSelection(currentGroups.filter((group) => group.id !== 'aside' || isSetAsideOpen), selectedKey);
-  const signature = JSON.stringify([currentGroups, hiddenByFilterCount(), chosenSort, selectedKey, isSetAsideOpen, communityUnseenSignature(), communityStatusView()?.error ?? null, watcherProblemNotice(communityStatusView())]);
+  const signature = JSON.stringify([currentGroups, hiddenByFilterCount(), chosenSort, selectedKey, isSetAsideOpen, communityUnseenSignature(), communityStatusView()?.error ?? null, communityStatusView()?.sources ?? [], watcherProblemNotice(communityStatusView())]);
   if (signature !== renderedSignature) {
     renderedSignature = signature;
     rowsByKey.clear();
     rowAgeTicker.reset();
     const laneError = communityStatusView()?.error || watcherProblemNotice(communityStatusView());
-    const notices = laneError ? [el('p', 'my-pr-note', laneError)] : [];
+    const notices = [...(laneError ? [el('p', 'my-pr-note', laneError)] : []), ...sourceProblems()];
     const sections = currentGroups.filter((group) => group.items.length > 0).map(createGroupSection);
-    queueElement.replaceChildren(...notices, ...(sections.length > 0 ? sections : [createQueueEmptyState()]));
+    queueElement.replaceChildren(...notices, ...(sections.length > 0 ? sections : [createQueueEmptyState({ withSetupAction: false })]));
   }
   showSelectedDetail();
 }

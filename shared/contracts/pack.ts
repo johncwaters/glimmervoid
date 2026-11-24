@@ -2,7 +2,7 @@ import { Cron } from 'croner';
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { LaunchAgent, LaunchEffort, LaunchModel, LaunchPrompt, LauncherLabel, LauncherProject } from './pack-launch.ts';
-import { PackBridgeTopic, PackName, PackPanelAct, PackSettingValue, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
+import { PACK_ID_PATTERN, PackBridgeTopic, PackName, PackPanelAct, PackSettingValue, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { SKILL_NAME_PATTERN } from '../skill-frontmatter-core.ts';
 import { isLoopbackHostname } from '../loopback-hosts.ts';
@@ -31,6 +31,7 @@ export const PackHeader = z.strictObject({
   hooks: z.unknown().optional(),
   settings: z.unknown().optional(),
   jobs: z.unknown().optional(),
+  community: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -51,7 +52,7 @@ export const PackPrFlows = z.strictObject({
 });
 export type PackPrFlows = z.infer<typeof PackPrFlows>;
 
-const PackItemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' }).describe('Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack');
+const PackItemId = z.string().regex(new RegExp(`^${PACK_ID_PATTERN}$`), { error: 'an id is lowercase letters, digits and dashes, at most 40 characters' }).describe('Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack');
 
 
 export const PackPanel = z.strictObject({
@@ -222,7 +223,7 @@ export const PackHooks = z.array(PackHook).min(1).max(PACK_HOOKS_MAX).superRefin
   });
 });
 
-const PACK_COMMAND_KINDS = ['pr-source', 'pr-item-action', 'pr-action', 'job'] as const;
+const PACK_COMMAND_KINDS = ['pr-source', 'pr-item-action', 'pr-action', 'job', 'community-source'] as const;
 export type PackCommandKind = (typeof PACK_COMMAND_KINDS)[number];
 const PACK_SETTINGS_MAX = 16;
 const PackCommandRef = z.string().regex(new RegExp(`^(${PACK_COMMAND_KINDS.join('|')}):[a-z0-9][a-z0-9-]{0,39}$`), { error: `a command reference is <kind>:<id>, where kind is one of ${PACK_COMMAND_KINDS.join(', ')}` });
@@ -273,6 +274,36 @@ export const PackJobs = z.array(PackJob).min(1).max(PACK_JOBS_MAX).superRefine((
   });
 });
 
+const PACK_COMMUNITY_SOURCES_MAX = 8;
+const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, { error: 'a color is #rrggbb' });
+const DocsDomain = z.string().regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/, { error: 'a docs domain is a lowercase host name such as docs.example.com' });
+
+const PackCommunitySource = z.strictObject({
+  id: PackItemId,
+  label: z.string().trim().min(1).max(40).describe('The source name the Community tab shows beside each question, such as Example forum'),
+  icon: PackFilePath.regex(/\.svg$/, { error: 'a source icon is an .svg file' }).describe('An .svg file in the pack, drawn as a one-color mark in the source color'),
+  color: z.strictObject({ dark: HexColor, light: HexColor }).describe('The mark color on dark and on light themes'),
+  command: z.array(z.string().min(1).max(1000)).min(1, { error: 'a source command needs at least the program to run' }).max(32)
+    .describe(`The program and its arguments, run without a shell from the Glimmervoid home folder on every Community poll; an argument may hold ${PACK_DIR_PLACEHOLDER}. Its environment has GLIMMERVOID_SINCE, the time of the newest question it already gave, the pack settings and the secrets that list community-source:<id>. It prints {"items":[{"id","title","body","url","author","channel","tags","createdAt","resolved"}]} on stdout, at most 200 items. Glimmervoid cuts a title to 300 characters, a body to 20000, an author to 100 and tags to 20, and skips an item it cannot read without stopping the rest; printing an item it gave before updates its title and resolved`),
+  timeoutSeconds: z.number().int().min(1).max(300).default(60).describe('Seconds before a poll is stopped and counts as failed'),
+  judge: z.boolean().default(false).describe('Run the question judge on new items first, for a chat source where most messages are not questions'),
+});
+
+export const PackCommunity = z.strictObject({
+  product: z.strictObject({
+    name: z.string().trim().min(1).max(60).describe('What the questions are about; the judge and the research prompt name it'),
+    docsDomains: z.array(DocsDomain).max(8).default([]).describe('Hosts a research run may fetch pages from besides GitHub, listed to the operator before approving'),
+  }),
+  sources: z.array(PackCommunitySource).min(1).max(PACK_COMMUNITY_SOURCES_MAX).superRefine((sources, context) => {
+    const seenIds = new Set<string>();
+    sources.forEach((source, index) => {
+      if (seenIds.has(source.id)) context.addIssue({ code: 'custom', path: [index, 'id'], message: `the id '${source.id}' is already used in sources` });
+      seenIds.add(source.id);
+    });
+  }),
+});
+export type PackCommunity = z.infer<typeof PackCommunity>;
+
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
@@ -304,6 +335,7 @@ export type PackOnDisk = {
   hooks: PackSection<PackHook[]> | null;
   settings: PackSection<PackSetting[]> | null;
   jobs: PackSection<PackJob[]> | null;
+  community: PackSection<PackCommunity> | null;
   missingRequires: string[];
   previewDataUrl: string | null;
 };
@@ -317,6 +349,7 @@ const PackManifestForSchema = PackHeader.extend({
   mcp: PackMcp.optional().describe('MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it'),
   hooks: PackHooks.optional().describe('Checks every session\'s agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it'),
   settings: PackSettings.optional().describe('Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
+  community: PackCommunity.optional().describe('Question sources the Community tab polls once the pack is approved, and what the questions are about. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
   jobs: PackJobs.optional().describe('Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
 });
 

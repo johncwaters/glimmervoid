@@ -1,11 +1,11 @@
 import { createTickLoop } from '../lanes/lane-runner.ts';
 import type { TickOutcome } from '../lanes/lane-runner.ts';
 import * as core from './core/community-core.ts';
-import type { CommunityAction, CommunityItem, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import type { CommunityAction, CommunityItem, CommunitySource, CommunitySourceView, CommunityState, CommunityStateEntry } from '../../shared/contracts/community.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { clock } from '../../shared/clock.ts';
 
-type SourceRows = { ok: true; rows: Record<string, unknown>[] } | { ok: false; error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined };
+type SourceFetch = { ok: true; items: CommunityItem[]; printedTimes: string[] } | { ok: false; error: string; isRateLimited?: boolean; retryAfterMs?: number | undefined };
 type SourceFailure = { error: string; isRateLimited: boolean; retryAfterMs?: number | undefined };
 
 const MAX_RATE_LIMIT_WAIT_MS = 60 * 60000;
@@ -14,26 +14,28 @@ function sourceFailure(fetched: { error: string; isRateLimited?: boolean; retryA
   return { error: fetched.error, isRateLimited: fetched.isRateLimited === true, retryAfterMs: fetched.retryAfterMs };
 }
 
+interface PollSource {
+  id: CommunitySource;
+  productName: string;
+  isJudged: boolean;
+  waitingFor: () => Promise<string[]>;
+  fetch: (sinceIso: string) => Promise<SourceFetch>;
+}
+
 interface CommunityPollerDependencies {
   intervalMinutes: number;
-  queryForum: (sinceIso: string) => Promise<SourceRows>;
-  discord?: DiscordSource | null;
+  sources: () => readonly PollSource[];
+  judgeQuestions?: ((candidates: readonly CommunityItem[], productName: string) => Promise<Set<string> | null>) | null;
   readState: () => Promise<CommunityState>;
   writeState: (state: CommunityState) => Promise<void>;
   runItem?: (entry: CommunityStateEntry, signal: AbortSignal) => Promise<core.CommunityRunResult>;
   maxConcurrentRuns?: number;
   onTickComplete?: (summary: Record<string, unknown>) => void;
   onDraftReady?: (entry: CommunityStateEntry) => void;
+  sourceViews?: (errorBySource: ReadonlyMap<string, string>, waitingBySource: ReadonlyMap<string, string[]>) => CommunitySourceView[];
   firstTickDelayMs?: () => number;
   now?: () => number;
   log?: Pick<Console, 'warn'>;
-  isCoveredByWatcher?: () => boolean;
-}
-
-interface DiscordSource {
-  channels: readonly string[];
-  query: (sinceIso: string) => Promise<SourceRows>;
-  judgeQuestions: (candidates: readonly CommunityItem[], replyFacts: ReadonlyMap<string, core.DiscordReplyFacts>) => Promise<Set<string> | null>;
 }
 
 interface CommunityPoller {
@@ -46,13 +48,12 @@ interface CommunityPoller {
 }
 
 function createCommunityPoller({
-  intervalMinutes, queryForum, discord = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
-  onTickComplete = () => {}, onDraftReady = () => {}, firstTickDelayMs, now = clock.nowMs, log = console, isCoveredByWatcher = () => false,
+  intervalMinutes, sources, judgeQuestions = null, readState, writeState, runItem, maxConcurrentRuns = core.MAX_CONCURRENT_RUNS,
+  onTickComplete = () => {}, onDraftReady = () => {}, sourceViews = () => [], firstTickDelayMs, now = clock.nowMs, log = console,
 }: CommunityPollerDependencies): CommunityPoller {
   let state: CommunityState = core.emptyCommunityState();
-  let lastPollOutcome: 'none' | 'ok' | 'failed' = 'none';
-  let requestedPollCount = 0;
-  let handledPollCount = 0;
+  const errorBySource = new Map<string, string>();
+  const waitingBySource = new Map<string, string[]>();
   let fullPageCount = 0;
   const runAborts = new Map<string, AbortController>();
 
@@ -70,44 +71,44 @@ function createCommunityPoller({
   });
 
   function publishStatus(error: string | null): void {
-    onTickComplete({ type: 'community-status', ts: now(), intervalMinutes, error, entries: Object.values(state.entries) });
+    onTickComplete({ type: 'community-status', ts: now(), intervalMinutes, error, entries: Object.values(state.entries), sources: sourceViews(errorBySource, waitingBySource) });
   }
 
-  async function pollForum(): Promise<SourceFailure | null> {
-    const watermark = state.watermarks.forum;
+  async function pollSource(source: PollSource): Promise<SourceFailure | null> {
+    const watermark = state.watermarks[source.id] ?? null;
     const nowIso = new Date(now()).toISOString();
     if (watermark === null) {
-      state = core.admitSourceItems(state, 'forum', [], nowIso).state;
+      state = core.admitSourceItems(state, source.id, [], nowIso).state;
       return null;
     }
-    const fetched = await queryForum(watermark);
+    const fetched = await source.fetch(watermark);
     if (!fetched.ok) return sourceFailure(fetched);
-    if (fetched.rows.length >= core.SOURCE_ROW_LIMIT) fullPageCount += 1;
-    const { items, droppedRows, newestRowAt } = core.forumItemsFromRows(fetched.rows);
-    if (droppedRows > 0) log.warn(`[${core.COMMUNITY_LANE_ID}] dropped ${droppedRows} malformed forum row(s)`);
-    state = core.withWatermarkAtLeast(core.admitSourceItems(state, 'forum', items, nowIso).state, 'forum', newestRowAt);
+    const printedSinceWatermark = fetched.printedTimes.filter((printedAt) => Date.parse(printedAt) > Date.parse(watermark));
+    if (printedSinceWatermark.length >= core.SOURCE_ROW_LIMIT) fullPageCount += 1;
+    const newestPrintedAt = printedSinceWatermark.reduce<string | null>((newest, printedAt) => (newest === null || Date.parse(printedAt) > Date.parse(newest) ? printedAt : newest), null);
+    const candidates = core.freshItems(state, source.id, fetched.items);
+    const questionKeys = source.isJudged && candidates.length > 0 ? await (judgeQuestions?.(candidates, source.productName) ?? Promise.resolve(null)).catch(() => null) : new Set(candidates.map((item) => item.key));
+    if (questionKeys === null) return { error: `The question judge gave no usable answer for ${source.id}; these messages are checked again next poll`, isRateLimited: false };
+    state = core.withWatermarkAtLeast(core.admitSourceItems(state, source.id, fetched.items, nowIso, (key) => questionKeys.has(key)).state, source.id, newestPrintedAt);
     return null;
   }
 
-  async function pollDiscord(source: DiscordSource): Promise<SourceFailure | null> {
-    const watermark = state.watermarks.discord;
-    const nowIso = new Date(now()).toISOString();
-    if (watermark === null) {
-      state = core.admitSourceItems(state, 'discord', [], nowIso).state;
-      return null;
+  async function pollEverySource(): Promise<SourceFailure[]> {
+    const failures: SourceFailure[] = [];
+    errorBySource.clear();
+    waitingBySource.clear();
+    for (const source of sources()) {
+      const waitingFor = await source.waitingFor();
+      if (waitingFor.length > 0) {
+        waitingBySource.set(source.id, waitingFor);
+        continue;
+      }
+      const failure = await pollSource(source).catch((error: unknown): SourceFailure => ({ error: errorMessage(error), isRateLimited: false }));
+      if (failure === null) continue;
+      errorBySource.set(source.id, failure.error);
+      failures.push(failure);
     }
-    const fetched = await source.query(watermark);
-    if (!fetched.ok) return sourceFailure(fetched);
-    if (fetched.rows.length >= core.SOURCE_ROW_LIMIT) fullPageCount += 1;
-    const { items, replyFacts, dropReasons, newestRowAt } = core.discordItemsFromRows(fetched.rows, source.channels);
-    const dropSummary = core.discordDropSummary(dropReasons);
-    if (dropSummary) log.warn(`[${core.COMMUNITY_LANE_ID}] ${dropSummary}`);
-    const candidates = core.freshItems(state, 'discord', items);
-    const questionKeys = candidates.length > 0 ? await source.judgeQuestions(candidates, replyFacts).catch(() => null) : new Set<string>();
-    if (questionKeys === null) return { error: 'The Discord question judge gave no usable answer; these messages are checked again next poll', isRateLimited: false };
-    const admitted = core.admitSourceItems(state, 'discord', items, nowIso, (key) => questionKeys.has(key)).state;
-    state = core.withWatermarkAtLeast(admitted, 'discord', newestRowAt);
-    return null;
+    return failures;
   }
 
   function replaceEntry(entry: CommunityStateEntry): void {
@@ -147,32 +148,21 @@ function createCommunityPoller({
     for (const key of core.selectRuns(state, maxConcurrentRuns - runAborts.size)) startRun(key);
   }
 
-  function isWatcherKeepingWatch(): boolean {
-    return lastPollOutcome === 'ok' && handledPollCount === requestedPollCount && isCoveredByWatcher();
-  }
-
   function pollSoon(): void {
-    requestedPollCount += 1;
     loop.tickSoon();
   }
 
   async function runTick(): Promise<TickOutcome> {
-    if (isWatcherKeepingWatch()) return {};
-    const pollCountAtStart = requestedPollCount;
     fullPageCount = 0;
-    const forumFailure = await pollForum();
-    const shouldPollDiscord = discord !== null && discord.channels.length > 0 && !forumFailure?.isRateLimited;
-    const discordFailure = shouldPollDiscord ? await pollDiscord(discord) : null;
-    const pollFailure = forumFailure ?? discordFailure;
-    const pollError = pollFailure?.error ?? null;
-    const retryAfterWaits = [forumFailure?.retryAfterMs, discordFailure?.retryAfterMs].filter((waitMs) => waitMs !== undefined);
+    const failures = await pollEverySource();
+    const polledCount = sources().length - waitingBySource.size;
+    const pollError = failures.length > 0 && failures.length === polledCount ? (failures[0]?.error ?? null) : null;
+    const retryAfterWaits = failures.map((failure) => failure.retryAfterMs).filter((waitMs) => waitMs !== undefined);
     const longestRetryAfterMs = retryAfterWaits.length > 0 ? Math.max(...retryAfterWaits) : undefined;
     state = core.prunedState(state, now());
     dispatchRuns();
     await loop.persist();
     publishStatus(pollError);
-    lastPollOutcome = pollError ? 'failed' : 'ok';
-    if (!pollError) handledPollCount = pollCountAtStart;
     if (!pollError && fullPageCount > 0) pollSoon();
     if (pollError && longestRetryAfterMs !== undefined) return { failed: true, error: pollError, retryAfterMs: longestRetryAfterMs };
     if (pollError) return { failed: true, error: pollError };
@@ -212,4 +202,4 @@ function createCommunityPoller({
 }
 
 export { createCommunityPoller };
-export type { DiscordSource, SourceRows };
+export type { PollSource, SourceFetch };

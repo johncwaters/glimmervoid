@@ -1,4 +1,4 @@
-import { COMMUNITY_SOURCES, CommunityVerdict } from '#shared/contracts/community.ts';
+import { CommunityVerdict } from '#shared/contracts/community.ts';
 import type { CommunitySource, CommunityStateEntry, CommunityStatus } from '#shared/contracts/community.ts';
 import type { StateTone } from '../state-tone-core.ts';
 import type { CommunityQueueGroup, CommunityQueueItem } from '../github/review-queue-core.ts';
@@ -53,6 +53,15 @@ export function communityEmptyText(status: CommunityStatus | null, hiddenByFilte
   return 'No community questions yet. New ones asked after you turned this on show up here.';
 }
 
+export function communitySetupState(status: CommunityStatus | null): { title: string; text: string; packName: string | null } | null {
+  if (status === null || status.configured === false || status.entries.length > 0) return null;
+  if (status.sources.length === 0) return { title: 'No community source yet', text: 'Community reads questions from source packs. Enable posthog-community in Packs, or add a pack for your own forum.', packName: null };
+  const waiting = status.sources.find((source) => source.waitingFor.length > 0);
+  if (waiting === undefined) return null;
+  const packName = waiting.id.split(':')[0] ?? null;
+  return { title: `${packName ?? waiting.label} needs settings`, text: `${waiting.label} waits for ${waiting.waitingFor.join(', ')}.`, packName };
+}
+
 export function startSessionChoices(candidates: readonly StartSessionCandidate[]): { id: string; name: string }[] {
   return candidates
     .filter((candidate) => !candidate.isWorkspace && !candidate.isEphemeral)
@@ -81,8 +90,6 @@ export interface CommunityFilterPrefs { sources: readonly string[]; verdicts: re
 
 interface CommunityFilter { sources: ReadonlySet<CommunitySource>; verdicts: ReadonlySet<CommunityVerdict>; channels: ReadonlySet<string> }
 
-export const SOURCE_NAMES: Readonly<Record<CommunitySource, string>> = { forum: 'PostHog forum', discord: 'Discord' };
-
 export const VERDICT_FILTER_CHOICES: readonly { value: CommunityVerdict; label: string; filledPips: number; tone: CommunityTone }[] = CommunityVerdict.options.map((verdict) => ({
   value: verdict, label: VERDICT_SHORT_TEXT[verdict], filledPips: VERDICT_FILLED_PIPS[verdict], tone: VERDICT_TONES[verdict],
 }));
@@ -91,7 +98,7 @@ const SORT_RANK_BY_VERDICT: Readonly<Record<CommunityVerdict, number>> = { HIGH:
 
 export function parseCommunityFilter(prefs: CommunityFilterPrefs): CommunityFilter {
   return {
-    sources: new Set(COMMUNITY_SOURCES.filter((source) => prefs.sources.includes(source))),
+    sources: new Set(prefs.sources.filter((source) => source.includes(':'))),
     verdicts: new Set(CommunityVerdict.options.filter((verdict) => prefs.verdicts.includes(verdict))),
     channels: new Set(prefs.channels),
   };
@@ -121,7 +128,7 @@ const COMPARE_BY_SORT: Readonly<Record<CommunitySort, (first: CommunityStateEntr
   oldest: (first, second) => askedAtMsOf(first) - askedAtMsOf(second),
   newest: (first, second) => askedAtMsOf(second) - askedAtMsOf(first),
   confidence: (first, second) => verdictRank(first) - verdictRank(second) || askedAtMsOf(first) - askedAtMsOf(second),
-  source: (first, second) => COMMUNITY_SOURCES.indexOf(first.item.source) - COMMUNITY_SOURCES.indexOf(second.item.source) || askedAtMsOf(first) - askedAtMsOf(second),
+  source: (first, second) => first.item.source.localeCompare(second.item.source) || askedAtMsOf(first) - askedAtMsOf(second),
 };
 
 export function arrangeCommunityGroups(groups: readonly CommunityQueueGroup[], sort: CommunitySort, filter: CommunityFilter): CommunityQueueGroup[] {
@@ -151,8 +158,10 @@ export function communityFilterCounts(groups: readonly CommunityQueueGroup[], fi
   const entries = groups.flatMap((group) => group.items.map((item) => item.entry));
   const channelCounts = countBy(entries.map((entry) => entry.item.channel));
   const channelOrder = [...new Set([...channelCounts.keys(), ...filter.channels])].toSorted((first, second) => first.localeCompare(second));
+  const sourceCounts = countBy(entries.map((entry) => entry.item.source));
+  const sourceOrder = [...new Set([...sourceCounts.keys(), ...filter.sources])].toSorted((first, second) => first.localeCompare(second));
   return {
-    sources: withSavedChoices(countBy(entries.map((entry) => entry.item.source)), COMMUNITY_SOURCES, filter.sources),
+    sources: withSavedChoices(sourceCounts, sourceOrder, filter.sources),
     verdicts: withSavedChoices(countBy(entries.map((entry) => entry.verdict)), CommunityVerdict.options, filter.verdicts),
     channels: withSavedChoices(channelCounts, channelOrder, filter.channels),
   };
@@ -163,12 +172,12 @@ function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
-export function communityStatusText(sort: CommunitySort, filter: CommunityFilter): string {
+export function communityStatusText(sort: CommunitySort, filter: CommunityFilter, sourceLabel: (sourceId: CommunitySource) => string): string {
   const sortText = SORT_STATUS_TEXT[sort];
   if (!isCommunityFilterActive(filter)) return sortText;
   const verdictNames = VERDICT_FILTER_CHOICES.filter((choice) => filter.verdicts.has(choice.value)).map((choice) => choice.label.toLowerCase());
   const parts = [
-    ...COMMUNITY_SOURCES.filter((source) => filter.sources.has(source)).map((source) => SOURCE_NAMES[source]),
+    ...[...filter.sources].toSorted().map(sourceLabel),
     ...[...filter.channels].toSorted().map((channel) => `#${channel}`),
     ...(verdictNames.length > 0 ? [`${joinNames(verdictNames)} confidence`] : []),
   ];

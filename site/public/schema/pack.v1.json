@@ -907,7 +907,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^(pr-source|pr-item-action|pr-action|job):[a-z0-9][a-z0-9-]{0,39}$"
+              "pattern": "^(pr-source|pr-item-action|pr-action|job|community-source):[a-z0-9][a-z0-9-]{0,39}$"
             }
           }
         },
@@ -973,6 +973,125 @@
         ],
         "additionalProperties": false
       }
+    },
+    "community": {
+      "description": "Question sources the Community tab polls once the pack is approved, and what the questions are about. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it",
+      "type": "object",
+      "properties": {
+        "product": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60,
+              "description": "What the questions are about; the judge and the research prompt name it"
+            },
+            "docsDomains": {
+              "default": [],
+              "description": "Hosts a research run may fetch pages from besides GitHub, listed to the operator before approving",
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,}$"
+              }
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "sources": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                "description": "Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "description": "The source name the Community tab shows beside each question, such as Example forum"
+              },
+              "icon": {
+                "type": "string",
+                "allOf": [
+                  {
+                    "pattern": "^(?!\\/)(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))[A-Za-z0-9._/-]{1,200}$"
+                  },
+                  {
+                    "pattern": "\\.svg$"
+                  }
+                ],
+                "description": "An .svg file in the pack, drawn as a one-color mark in the source color"
+              },
+              "color": {
+                "type": "object",
+                "properties": {
+                  "dark": {
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
+                  },
+                  "light": {
+                    "type": "string",
+                    "pattern": "^#[0-9a-fA-F]{6}$"
+                  }
+                },
+                "required": [
+                  "dark",
+                  "light"
+                ],
+                "additionalProperties": false,
+                "description": "The mark color on dark and on light themes"
+              },
+              "command": {
+                "minItems": 1,
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                },
+                "description": "The program and its arguments, run without a shell from the Glimmervoid home folder on every Community poll; an argument may hold {packDir}. Its environment has GLIMMERVOID_SINCE, the time of the newest question it already gave, the pack settings and the secrets that list community-source:<id>. It prints {\"items\":[{\"id\",\"title\",\"body\",\"url\",\"author\",\"channel\",\"tags\",\"createdAt\",\"resolved\"}]} on stdout, at most 200 items. Glimmervoid cuts a title to 300 characters, a body to 20000, an author to 100 and tags to 20, and skips an item it cannot read without stopping the rest; printing an item it gave before updates its title and resolved"
+              },
+              "timeoutSeconds": {
+                "default": 60,
+                "description": "Seconds before a poll is stopped and counts as failed",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300
+              },
+              "judge": {
+                "default": false,
+                "description": "Run the question judge on new items first, for a chat source where most messages are not questions",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "icon",
+              "color",
+              "command"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "product",
+        "sources"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

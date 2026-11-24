@@ -1,5 +1,3 @@
-import { communityProbes } from './community-probes.ts';
-import type { Probe } from '../../shared/contracts/watcher-link.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { GlimmervoidConfig } from '../config-store.ts';
@@ -11,19 +9,23 @@ import { emptyLaneStatus } from '../lanes/lane-status.ts';
 import { bootStaggerDelay } from '../boot-stagger.ts';
 import { stableConfigKey } from '../core/config-secrets-core.ts';
 import type { GithubAppGrants, LaneAccessConfig } from '../lanes/core/lane-permissions-core.ts';
-import { createPosthogApi, extractRows } from '../radar/posthog-api.ts';
-import type { PosthogApi } from '../radar/posthog-api.ts';
 import * as core from './core/community-core.ts';
 import { createCommunityPoller } from './community-poller.ts';
-import type { DiscordSource, SourceRows } from './community-poller.ts';
+import type { PollSource, SourceFetch } from './community-poller.ts';
 import { COMMUNITY_JUDGE_TOOLS, createCommunityJudge } from './community-judge.ts';
 import { createLaneSpawn } from '../lanes/lane-spawn.ts';
 import type { SessionAccountHome } from '../../session/core/agent-account-core.ts';
 import { writeUntrustedPayload } from '../lanes/untrusted-payload.ts';
 import { sendTelegramMessage } from '../telegram-transport.ts';
 import { decideTelegramNotification } from '../../notifications/channels/telegram.ts';
-import { CommunityState } from '../../shared/contracts/community.ts';
-import type { CommunityActionRequest, CommunityActionResult, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import { CommunitySourceOutput, CommunityState } from '../../shared/contracts/community.ts';
+import type { CommunityActionRequest, CommunityActionResult, CommunitySourceView, CommunityStateEntry } from '../../shared/contracts/community.ts';
+import { PACK_DIR_PLACEHOLDER } from '../../shared/contracts/pack.ts';
+import type { PackOnDisk } from '../../shared/contracts/pack.ts';
+import { createPackCommandRunner } from '../packs/pack-command.ts';
+import type { PackCommandSettings } from '../packs/pack-settings.ts';
+import { maskSecretsInJson, packCommandRef, packCommunityOf, packIconDataUrl } from '../packs/core/pack-core.ts';
+import { parseJsonOrNull } from '../core/json-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { TEAM_REVIEW_SESSION_DENY_RULES, createTeamReviewSpawn } from '../github/team-review-spawn.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
@@ -57,13 +59,6 @@ function createCommunityStateIo(statePath: string, log: Pick<Console, 'warn'>) {
       loaded = parsed;
     },
   };
-}
-
-function hogQLRows(api: PosthogApi, projectId: number, query: string, values: Record<string, unknown>): Promise<SourceRows> {
-  return api.runHogQL(projectId, query, values).then((response) => {
-    if (!response.ok) return { ok: false, error: response.error, isRateLimited: 'status' in response && response.status === 429, retryAfterMs: 'retryAfterMs' in response ? response.retryAfterMs : undefined };
-    return { ok: true, rows: extractRows(response.body) };
-  });
 }
 
 function communityClaudeArgs(workDir: string): string[] {
@@ -104,9 +99,10 @@ interface CommunitySpawnDependencies {
   accountHomeFor?: ((agentId: string) => SessionAccountHome) | null;
 }
 
-function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookToolConfig, getLaneAccessConfig }: {
+function createCommunityRunner({ spawnDependencies, homeDir, getSettings, productOf, hookToolConfig, getLaneAccessConfig }: {
   spawnDependencies: CommunitySpawnDependencies;
   homeDir: string;
+  productOf: (sourceId: string) => core.CommunityProduct;
   hookToolConfig: HookToolConfig;
   getLaneAccessConfig: (repositoryFullName: string | null) => LaneAccessConfig;
   getSettings: () => core.CommunitySettings;
@@ -134,7 +130,7 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
     const postingPath = path.join(workDir, core.COMMUNITY_POSTING_FILENAME);
     const failed = (error: string): core.CommunityRunResult => ({ report: null, posting: null, error });
     try {
-      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, reportPath, postingPath });
+      const { prompt, untrustedItems } = core.buildCommunityRequest({ item: entry.item, skill: settings.skill, product: productOf(entry.item.source), reportPath, postingPath });
       await writeUntrustedPayload(workDir, { trust: 'untrusted', source: core.COMMUNITY_UNTRUSTED_SOURCE, fetchedAt: clock.now().toISOString(), items: untrustedItems }, core.MAX_BODY_CHARS);
       await fs.writeFile(path.join(workDir, core.COMMUNITY_PROMPT_FILENAME), prompt);
       return await raceWithAbort<core.CommunityRunResult>({
@@ -165,33 +161,55 @@ function createCommunityRunner({ spawnDependencies, homeDir, getSettings, hookTo
   };
 }
 
-function createDiscordSource(api: PosthogApi, settings: core.CommunitySettings, spawnDependencies: CommunitySpawnDependencies | null, getSaneYoloUnreadablePaths: () => readonly string[]): DiscordSource | null {
-  if (!spawnDependencies || settings.discordChannels.length === 0) return null;
-  const judgeSpawn = createLaneSpawn({
-    laneName: core.COMMUNITY_LANE_ID,
-    getSaneYoloUnreadablePaths,
-    sessions: spawnDependencies.investigationSessions,
-    closeSessionDataClients: spawnDependencies.closeSessionDataClients,
-    hookRouter: spawnDependencies.hookRouter,
-    getHookPort: spawnDependencies.getHookPort,
-    spawnGate: spawnDependencies.spawnGate,
-    recordLane: spawnDependencies.recordLane ?? null,
-    replayBufferKB: spawnDependencies.replayBufferKB,
-    allowTools: COMMUNITY_JUDGE_TOOLS,
-    accountHomeFor: spawnDependencies.accountHomeFor ?? null,
+const SOURCE_OUTPUT_MAX_BYTES = 1024 * 1024;
+
+type CommunityPackSource = PollSource & { label: string; docsDomains: readonly string[]; iconDataUrl: string | null; color: CommunitySourceView['color'] };
+
+interface CommunityPacks {
+  packsInUse: () => readonly PackOnDisk[];
+  commandSettings: (pack: PackOnDisk, commandRef: string) => Promise<PackCommandSettings>;
+}
+
+function createPackCommunitySources({ homeDir, packs }: { homeDir: string; packs: CommunityPacks }): () => CommunityPackSource[] {
+  const runner = createPackCommandRunner({ homeDir });
+
+  async function fetchFrom(pack: PackOnDisk, source: NonNullable<ReturnType<typeof packCommunityOf>>['sources'][number], sourceId: string, sinceIso: string): Promise<SourceFetch> {
+    const settings = await packs.commandSettings(pack, packCommandRef('community-source', source.id));
+    if (settings.unreadable !== null) return { ok: false, error: settings.unreadable };
+    const argv = source.command.map((word) => word.replaceAll(PACK_DIR_PLACEHOLDER, pack.dir));
+    const outcome = await runner.run(argv, { settings, extraEnv: { GLIMMERVOID_SINCE: sinceIso }, timeoutMs: source.timeoutSeconds * 1000, maxBufferBytes: SOURCE_OUTPUT_MAX_BYTES });
+    if ('emptyCommand' in outcome) return { ok: false, error: `${source.label}: the command is empty` };
+    if (outcome.timedOut) return { ok: false, error: `${source.label} timed out after ${source.timeoutSeconds}s` };
+    if (!outcome.run.ok) return { ok: false, error: `${source.label} failed: ${outcome.errorText(outcome.run.stderr) || 'no error output'}` };
+    const printed = CommunitySourceOutput.safeParse(maskSecretsInJson(parseJsonOrNull(outcome.run.stdout), settings.secretValues));
+    if (!printed.success) return { ok: false, error: `${source.label} printed no valid items JSON: ${printed.error.issues[0]?.message ?? 'unreadable output'}` };
+    return { ok: true, ...core.itemsFromSourceOutput(sourceId, printed.data) };
+  }
+
+  return () => packs.packsInUse().flatMap((pack) => {
+    const community = packCommunityOf(pack);
+    if (community === null) return [];
+    return community.sources.map((source): CommunityPackSource => {
+      const sourceId = `${pack.header.name}:${source.id}`;
+      const iconBytes = pack.filesByPath.get(source.icon);
+      return {
+        id: sourceId, label: source.label, productName: community.product.name, docsDomains: community.product.docsDomains, isJudged: source.judge,
+        iconDataUrl: iconBytes === undefined ? null : packIconDataUrl(iconBytes), color: source.color,
+        waitingFor: async () => {
+          const settings = await packs.commandSettings(pack, packCommandRef('community-source', source.id));
+          return settings.unreadable === null ? settings.missingKeys : [];
+        },
+        fetch: (sinceIso) => fetchFrom(pack, source, sourceId, sinceIso),
+      };
+    });
   });
-  return {
-    channels: settings.discordChannels,
-    query: (sinceIso) => hogQLRows(api, settings.projectId, core.discordQuery(), { since: sinceIso, channels: settings.discordChannels }),
-    judgeQuestions: createCommunityJudge(judgeSpawn),
-  };
 }
 
 interface CommunityWiringOptions {
   config: GlimmervoidConfig;
   broadcast?: (status: Record<string, unknown>) => void;
   homeDir?: string;
-  createApi?: (connection: core.PosthogConnection) => PosthogApi;
+  packs?: CommunityPacks | null;
   spawnDependencies?: CommunitySpawnDependencies | null;
   controlClientCount?: () => number;
   sendTelegram?: typeof sendTelegramMessage;
@@ -201,13 +219,38 @@ interface CommunityWiringOptions {
 
 function createCommunityWiring({
   config, broadcast = () => {}, homeDir = glimmervoidHomeDir(),
-  createApi = (connection) => createPosthogApi(connection), spawnDependencies = null,
+  packs = null, spawnDependencies = null,
   controlClientCount = () => 0, sendTelegram = sendTelegramMessage, log = console, githubAppGrants = NO_GITHUB_APP_GRANTS,
 }: CommunityWiringOptions) {
   const stateIo = createCommunityStateIo(path.join(homeDir, core.COMMUNITY_STATE_FILENAME), log);
+  const packSources = packs === null ? () => [] : createPackCommunitySources({ homeDir, packs });
+  const productOf = (sourceId: string): core.CommunityProduct => {
+    const source = packSources().find((candidate) => candidate.id === sourceId);
+    return { name: source?.productName ?? 'the product', docsDomains: source?.docsDomains ?? [] };
+  };
+  const laneAccessWithDocs = (repositoryFullName: string | null) => {
+    const access = laneAccessConfigFor(config, githubAppGrants, repositoryFullName);
+    return { ...access, extraFetchDomains: [...new Set([...access.extraFetchDomains, ...packSources().flatMap((source) => source.docsDomains)])] };
+  };
   const runItem = spawnDependencies
-    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), hookToolConfig: config, getLaneAccessConfig: (repositoryFullName) => laneAccessConfigFor(config, githubAppGrants, repositoryFullName) })
+    ? createCommunityRunner({ spawnDependencies, homeDir, getSettings: () => core.readCommunitySettings(config), productOf, hookToolConfig: config, getLaneAccessConfig: laneAccessWithDocs })
     : undefined;
+  const judgeQuestions = spawnDependencies ? createCommunityJudge(createLaneSpawn({
+    laneName: core.COMMUNITY_LANE_ID,
+    getSaneYoloUnreadablePaths: () => config.saneYoloUnreadablePaths ?? [],
+    sessions: spawnDependencies.investigationSessions,
+    closeSessionDataClients: spawnDependencies.closeSessionDataClients,
+    hookRouter: spawnDependencies.hookRouter,
+    getHookPort: spawnDependencies.getHookPort,
+    spawnGate: spawnDependencies.spawnGate,
+    recordLane: spawnDependencies.recordLane ?? null,
+    replayBufferKB: spawnDependencies.replayBufferKB,
+    allowTools: COMMUNITY_JUDGE_TOOLS,
+    accountHomeFor: spawnDependencies.accountHomeFor ?? null,
+  })) : null;
+  const sourceViews = (errorBySource: ReadonlyMap<string, string>, waitingBySource: ReadonlyMap<string, string[]>): CommunitySourceView[] => packSources().map((source) => ({
+    id: source.id, label: source.label, iconUrl: source.iconDataUrl, color: source.color, error: errorBySource.get(source.id) ?? null, waitingFor: waitingBySource.get(source.id) ?? [],
+  }));
 
   function notifyDraftReady(entry: CommunityStateEntry): void {
     const message = core.draftNotificationText(entry);
@@ -223,18 +266,16 @@ function createCommunityWiring({
   const runner = createLaneRunner({
     tag: core.COMMUNITY_LANE_ID,
     gate: () => core.communityGate(config, process.env),
-    cfgKey: () => stableConfigKey({ community: config.community ?? null, posthog: core.readPosthogConnection(config), hasReadToken: Boolean(laneAccessConfigOf(config, null).readToken) }),
+    cfgKey: () => stableConfigKey({ community: config.community ?? null, hasReadToken: Boolean(laneAccessConfigOf(config, null).readToken) }),
     emptyStatus: () => ({ ...emptyLaneStatus('community-status', core.communityGate(config, process.env)), entries: [] }),
     broadcast,
     createPoller: ({ onTickComplete }) => {
-      const connection = core.readPosthogConnection(config);
-      if (!connection) throw new Error('Community poller started without a PostHog apiKey');
       const settings = core.readCommunitySettings(config);
-      const api = createApi(connection);
       return createCommunityPoller({
         intervalMinutes: settings.intervalMinutes,
-        queryForum: (sinceIso) => hogQLRows(api, settings.projectId, core.forumQuery(), { since: sinceIso }),
-        discord: createDiscordSource(api, settings, spawnDependencies, () => config.saneYoloUnreadablePaths ?? []),
+        sources: packSources,
+        judgeQuestions,
+        sourceViews,
         readState: stateIo.readState,
         writeState: stateIo.writeState,
         runItem,
@@ -242,53 +283,20 @@ function createCommunityWiring({
         onDraftReady: notifyDraftReady,
         firstTickDelayMs: bootStaggerDelay,
         log,
-        isCoveredByWatcher,
       });
     },
   });
 
-  const probesChangedListeners = new Set<() => void>();
-  const announceProbesMayHaveChanged = () => { for (const listener of probesChangedListeners) listener(); };
-  let coveredProbeIds: ReadonlySet<string> = new Set();
-
-  function probes(): Probe[] {
-    const connection = core.readPosthogReadConnection(config);
-    if (runner.getPoller() === null || connection === null) return [];
-    const settings = core.readCommunitySettings(config);
-    return communityProbes({ host: connection.host, settings, hasDiscordSource: spawnDependencies !== null && settings.discordChannels.length > 0 });
-  }
-
-  function isCoveredByWatcher(): boolean {
-    const currentProbes = probes();
-    return currentProbes.length > 0 && currentProbes.every((probe) => coveredProbeIds.has(probe.id));
-  }
-
-  function coverWithWatcher(coveredProbes: readonly Probe[]): void {
-    const wasCovered = isCoveredByWatcher();
-    coveredProbeIds = new Set(coveredProbes.map((probe) => probe.id));
-    if (!wasCovered && isCoveredByWatcher()) runner.getPoller()?.pollSoon();
-  }
-
-  const probeSource = {
-    laneId: core.COMMUNITY_LANE_ID, credential: 'posthog' as const, probes,
-    onNudge: () => { runner.getPoller()?.pollSoon(); },
-    onCoverageChange: coverWithWatcher,
-    onWatcherProblem: runner.setWatcherProblem,
-  };
-
   function startPoller(): void {
     runner.startPoller();
-    announceProbesMayHaveChanged();
   }
 
-  async function stopPoller(): Promise<void> {
-    await runner.stopPoller();
-    announceProbesMayHaveChanged();
+  function stopPoller(): Promise<void> {
+    return runner.stopPoller();
   }
 
   function restartIfConfigChanged(): void {
     runner.restartIfConfigChanged();
-    announceProbesMayHaveChanged();
   }
 
   const notRunning = 'The community lane is not running';
@@ -315,8 +323,6 @@ function createCommunityWiring({
     restartIfConfigChanged,
     getStatus: runner.getStatus,
     getPoller: runner.getPoller,
-    probeSource,
-    onProbesMayHaveChanged: (listener: () => void) => { probesChangedListeners.add(listener); },
   };
 }
 

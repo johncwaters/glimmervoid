@@ -5,7 +5,7 @@ import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
 import { PackAgent, PackHooks, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
-import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackJob, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
+import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackCommunity, PackJob, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
 import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
@@ -215,9 +215,10 @@ export function packSecretNamesOf(servers: readonly PackMcpServer[]): string[] {
   return [...new Set(servers.flatMap((server) => (server.secret === undefined ? [] : [server.secret])))];
 }
 
-export function packCommandRefsOf(prFlows: PackPrFlowsSection | null, jobs: readonly PackJob[]): string[] {
+export function packCommandRefsOf(prFlows: PackPrFlowsSection | null, jobs: readonly PackJob[], communitySourceIds: readonly string[]): string[] {
   return [
     ...jobs.map((job) => packCommandRef('job', job.id)),
+    ...communitySourceIds.map((id) => packCommandRef('community-source', id)),
     ...packPrFlowCommandRefs(prFlows),
   ];
 }
@@ -268,6 +269,16 @@ export function maskSecretsInJson(value: unknown, secretValues: readonly string[
   return JSON.parse(JSON.stringify(value), (_key, field: unknown) => (typeof field === 'string' ? maskSecrets(field, secretValues) : field));
 }
 
+export function packCommunityOf(pack: PackOnDisk): PackCommunity | null {
+  return pack.community?.ok === true ? pack.community.value : null;
+}
+
+function communityRow(pack: PackOnDisk): PackRow['community'] {
+  const community = packCommunityOf(pack);
+  if (community === null) return null;
+  return { product: community.product.name, docsDomains: community.product.docsDomains, sources: community.sources.map((source) => ({ id: source.id, label: source.label, command: source.command, isJudged: source.judge })) };
+}
+
 function settingRows(pack: PackOnDisk): PackRow['settings'] {
   return packSettingsOf(pack).map((setting) => ({ key: setting.key, label: setting.label, kind: setting.kind, hint: setting.hint ?? null, commands: setting.commands }));
 }
@@ -292,7 +303,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
     sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack),
     mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })),
-    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), settings: settingRows(pack), jobs: packJobsOf(pack).map((job) => ({ id: job.id, label: job.label, schedule: job.schedule, command: job.command })), errors: sectionErrors,
+    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), settings: settingRows(pack), community: communityRow(pack), jobs: packJobsOf(pack).map((job) => ({ id: job.id, label: job.label, schedule: job.schedule, command: job.command })), errors: sectionErrors,
   };
 }
 
@@ -300,7 +311,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints, operatorNames), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], settings: [], jobs: [], errors: read.errors, isPlacedByHand,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], settings: [], community: null, jobs: [], errors: read.errors, isPlacedByHand,
   };
 }
 
