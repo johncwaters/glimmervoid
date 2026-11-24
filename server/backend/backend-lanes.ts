@@ -63,7 +63,7 @@ import { packPathsOf } from '../github/core/pr-flows-core.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
 import { createPackSettings } from '../packs/pack-settings.ts';
 import type { PackVault } from '../packs/pack-settings.ts';
-import { NO_COMMAND_SETTINGS } from '../packs/pack-command.ts';
+import { NO_COMMAND_SETTINGS, createPackJobRunner } from '../packs/pack-command.ts';
 import { packCommandRef } from '../packs/core/pack-core.ts';
 import { packEntryOwner } from '../github/core/pr-flows-core.ts';
 import type { PackCommandKind } from '../../shared/contracts/pack.ts';
@@ -299,7 +299,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     const pack = owner === null ? null : packStore.packInUse(owner.packName);
     return owner === null || pack === null ? NO_COMMAND_SETTINGS : packSettings.commandSettings(pack, packCommandRef(kind, owner.localId));
   };
-  const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
+  const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName), packDirInUse: (packName) => packStore.packDirInUse(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {
     const frame = packStore.statusFrame();
@@ -308,6 +308,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     lastPacksFrameText = frameText;
     broadcastControl(frame);
   };
+  const packJobs = createPackJobRunner({
+    homeDir: glimmervoidHome, packInUse: (packName) => packStore.packInUse(packName), commandSettings: (pack, commandRef) => packSettings.commandSettings(pack, commandRef),
+    saveOutput: async (packName, jobId, value) => { const saved = await packData.setFromJob(packName, jobId, value); return saved.ok ? { ok: true } : saved; }, log: logger,
+  });
   const packLaunchers = createPackLaunchers({
     packStore, projectPaths: () => configStore.config.projects.map((project) => project.path || '').filter(Boolean),
     originUrl: (projectPath) => gitWorkspace.originUrl({ projectPath }), operatorSaneYolo: () => configStore.config.saneYolo !== false,
@@ -317,6 +321,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     liveSessionNames: () => [...sessions.values(), ...agentSessions.values()].map((session) => session.name),
     maxScheduledSessions: () => configStore.config.packScheduledSessionsMax ?? PACK_SCHEDULED_SESSIONS_DEFAULT,
     timezone: () => timeClock.timezone(),
+    runJob: packJobs.runJob,
     budgetHoldReason: () => usage.readBudgetHoldReason(),
   });
   const prFlows = createPrFlowsWiring({

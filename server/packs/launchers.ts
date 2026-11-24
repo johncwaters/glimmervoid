@@ -13,7 +13,7 @@ import { loadJsonStateFile, loadedJsonValue, writeTextAtomic } from '../json-fil
 import { decideScheduledFire, isRepositoryProject, launcherAddSession, missedFireAt, resolveLauncherProject } from './core/launcher-core.ts';
 import type { LauncherProjectResolution } from './core/pack-core.ts';
 import type { ProjectOrigin } from './core/launcher-core.ts';
-import type { ScheduledPackLauncher } from './core/pack-core.ts';
+import type { ScheduledPackEntry, ScheduledPackJob, ScheduledPackLauncher } from './core/pack-core.ts';
 import type { createPackStore } from './pack-store.ts';
 
 type PackStore = ReturnType<typeof createPackStore>;
@@ -24,6 +24,14 @@ type SessionStarter = (request: LaunchRequest) => Promise<{ ok: true; sessionId:
 const LONGEST_SCHEDULE_TIMER_MS = 24 * 60 * 60 * 1000;
 const RUNS_READ_RETRY_MS = 60 * 1000;
 
+function scheduledIdOf(scheduled: ScheduledPackEntry): string {
+  return scheduled.kind === 'job' ? `job:${scheduled.job.id}` : scheduled.launcher.id;
+}
+
+function isCatchingUp(scheduled: ScheduledPackEntry): boolean {
+  return (scheduled.kind === 'job' ? scheduled.job.catchUp : scheduled.launcher.catchUp) === true;
+}
+
 function runKeyOf(scheduled: ScheduledPackLauncher): string {
   return JSON.stringify([scheduled.pack, scheduled.launcher.id]);
 }
@@ -32,13 +40,13 @@ function alarmIdOf(fireKey: string): string {
   return `pack:${crypto.createHash('sha256').update(fireKey).digest('hex').slice(0, 24)}`;
 }
 
-function fireKeyOf(scheduled: ScheduledPackLauncher, timezone: string): string {
-  return JSON.stringify([scheduled.pack, scheduled.launcher.id, scheduled.schedule, timezone]);
+function fireKeyOf(scheduled: ScheduledPackEntry, timezone: string): string {
+  return JSON.stringify([scheduled.pack, scheduledIdOf(scheduled), scheduled.schedule, timezone]);
 }
 
 export function createPackLaunchers({
   packStore, projectPaths, originUrl, operatorSaneYolo, onResolved, log,
-  runsPath, isSessionLive, liveSessionNames, maxScheduledSessions, timezone, budgetHoldReason = () => null, now = clock.nowMs, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
+  runsPath, isSessionLive, liveSessionNames, maxScheduledSessions, timezone, runJob = async () => {}, budgetHoldReason = () => null, now = clock.nowMs, setTimeoutFn = DEFAULT_TIMER_FNS.setTimeoutFn, clearTimeoutFn = DEFAULT_TIMER_FNS.clearTimeoutFn,
 }: {
   packStore: PackStore;
   projectPaths: () => readonly string[];
@@ -51,6 +59,7 @@ export function createPackLaunchers({
   liveSessionNames: () => readonly string[];
   maxScheduledSessions: () => number;
   timezone: () => string;
+  runJob?: (job: ScheduledPackJob) => Promise<void>;
   budgetHoldReason?: () => string | null | Promise<string | null>;
   now?: () => number;
   setTimeoutFn?: SetTimeoutFn;
@@ -65,6 +74,7 @@ export function createPackLaunchers({
   const sessionIdByRunKey = new Map<string, string>();
   const lastFiredAtByFireKey = new Map<string, number>();
   const firingKeys = new Set<string>();
+  const runningJobKeys = new Set<string>();
   let areRunsLoaded = false;
   let runsLoad: Promise<boolean> | null = null;
   let runWrites: Promise<void> = Promise.resolve();
@@ -172,7 +182,7 @@ export function createPackLaunchers({
     if (runsPath === null) return Promise.resolve(true);
     const sessionIdByRun = Object.fromEntries([...sessionIdByRunKey].filter(([runKey, sessionId]) => runKey === startedRunKey || isSessionLive(sessionId)));
     const zone = timezone();
-    const scheduledFireKeys = new Set(packStore.scheduledLaunchersInUse().map((entry) => fireKeyOf(entry, zone)));
+    const scheduledFireKeys = new Set(packStore.scheduledEntriesInUse().map((entry) => fireKeyOf(entry, zone)));
     const lastFiredAtByRun = Object.fromEntries([...lastFiredAtByFireKey].filter(([fireKey]) => scheduledFireKeys.has(fireKey)));
     const write = runWrites
       .then(() => writeTextAtomic(runsPath, `${JSON.stringify({ sessionIdByRun, lastFiredAtByRun }, null, 2)}\n`, { mkdir: true }))
@@ -234,11 +244,44 @@ export function createPackLaunchers({
     await saveRuns(runKey);
   }
 
+  async function fireJob(scheduled: ScheduledPackJob, zone: string, lateByMs: number): Promise<void> {
+    if (!await loadRuns()) return;
+    lastFiredAtByFireKey.set(fireKeyOf(scheduled, zone), now());
+    const isFireTimeSaved = await saveRuns(null);
+    if (!isFireTimeSaved && scheduled.job.catchUp === true) {
+      log.warn(`[packs] skipped the scheduled run of job ${scheduled.job.label} in pack ${scheduled.pack}: its fire time could not be saved, so a restart would run it again`);
+      return;
+    }
+    const decision = decideScheduledFire({
+      lateByMs, missedGraceMs: DEFAULT_WAKE_LIMITS.missedGraceMs, isCatchUp: scheduled.job.catchUp === true,
+      isProjectResolved: true, isPreviousRunLive: false, liveScheduledCount: 0, maxScheduledSessions: 1,
+    });
+    if (decision === 'skip-missed') log.warn(`[packs] skipped the scheduled run of job ${scheduled.job.label} in pack ${scheduled.pack}: it came due ${Math.round(lateByMs / 60000)} minutes late, as after the host slept, so it is skipped as missed`);
+    if (decision !== 'start') return;
+    const runKey = JSON.stringify([scheduled.pack, scheduledIdOf(scheduled)]);
+    if (runningJobKeys.has(runKey)) {
+      log.warn(`[packs] skipped the scheduled run of job ${scheduled.job.label} in pack ${scheduled.pack}: its last run is still going`);
+      return;
+    }
+    runningJobKeys.add(runKey);
+    void runJob(scheduled)
+      .catch((error: unknown) => log.warn(`[packs] the scheduled run of job ${scheduled.job.label} failed: ${errorMessage(error)}`))
+      .finally(() => runningJobKeys.delete(runKey));
+  }
+
+  function fireDue(scheduled: ScheduledPackEntry, zone: string, lateByMs: number): Promise<void> {
+    return scheduled.kind === 'job' ? fireJob(scheduled, zone, lateByMs) : fireScheduled(scheduled, zone, lateByMs);
+  }
+
+  function scheduledLabelOf(scheduled: ScheduledPackEntry): string {
+    return scheduled.kind === 'job' ? `job ${scheduled.job.label}` : scheduled.launcher.label;
+  }
+
   async function fireDueLaunchers(): Promise<void> {
     scheduleTimer = null;
     const firedAt = now();
     const zone = timezone();
-    const due = packStore.scheduledLaunchersInUse().flatMap((scheduled) => {
+    const due = packStore.scheduledEntriesInUse().flatMap((scheduled) => {
       const fireAt = nextFireAtByKey.get(fireKeyOf(scheduled, zone));
       return fireAt !== undefined && fireAt <= firedAt ? [{ scheduled, lateByMs: firedAt - fireAt }] : [];
     });
@@ -247,7 +290,7 @@ export function createPackLaunchers({
       firingKeys.add(fireKeyOf(scheduled, zone));
     }
     for (const { scheduled, lateByMs } of due) {
-      await fireScheduled(scheduled, zone, lateByMs).catch((error: unknown) => log.warn(`[packs] the scheduled run of ${scheduled.launcher.label} failed: ${errorMessage(error)}`));
+      await fireDue(scheduled, zone, lateByMs).catch((error: unknown) => log.warn(`[packs] the scheduled run of ${scheduledLabelOf(scheduled)} failed: ${errorMessage(error)}`));
       firingKeys.delete(fireKeyOf(scheduled, zone));
     }
     armSchedule();
@@ -258,7 +301,7 @@ export function createPackLaunchers({
     scheduleTimer = null;
     if (!startSession) return;
     const zone = timezone();
-    const scheduled = packStore.scheduledLaunchersInUse();
+    const scheduled = packStore.scheduledEntriesInUse();
     const currentKeys = new Set(scheduled.map((entry) => fireKeyOf(entry, zone)));
     for (const key of nextFireAtByKey.keys()) {
       if (!currentKeys.has(key)) nextFireAtByKey.delete(key);
@@ -267,8 +310,8 @@ export function createPackLaunchers({
     for (const entry of scheduled) {
       const key = fireKeyOf(entry, zone);
       if (nextFireAtByKey.has(key) || firingKeys.has(key)) continue;
-      if (entry.launcher.catchUp === true && !areRunsLoaded) continue;
-      const missedAt = entry.launcher.catchUp === true ? missedRunOf(entry, zone, armedAt) : null;
+      if (isCatchingUp(entry) && !areRunsLoaded) continue;
+      const missedAt = isCatchingUp(entry) ? missedRunOf(entry, zone, armedAt) : null;
       const fireAt = missedAt ?? nextCronFireAt(entry.schedule, zone, armedAt);
       if (fireAt !== null) nextFireAtByKey.set(key, fireAt);
     }
@@ -278,7 +321,7 @@ export function createPackLaunchers({
     scheduleTimer = unrefTimer(setTimeoutFn(() => void fireDueLaunchers(), delayMs));
   }
 
-  function missedRunOf(entry: ScheduledPackLauncher, zone: string, armedAt: number): number | null {
+  function missedRunOf(entry: ScheduledPackEntry, zone: string, armedAt: number): number | null {
     const fireKey = fireKeyOf(entry, zone);
     const lastFiredAtMs = lastFiredAtByFireKey.get(fireKey);
     if (lastFiredAtMs === undefined) {

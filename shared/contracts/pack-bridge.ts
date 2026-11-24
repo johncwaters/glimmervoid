@@ -82,7 +82,7 @@ function isShallowJsonValue(root: unknown): boolean {
   return true;
 }
 
-export const PackStoreKey = z.string().min(1).max(128).describe('Any key the pack picks');
+export const PackStoreKey = z.string().min(1).max(128).describe('Any key the pack picks; job:<id> keys hold job output, which panels read but cannot write');
 export const PackStoreValue = z.unknown().refine(isShallowJsonValue, { error: `a JSON value nested at most ${PACK_STORE_MAX_DEPTH} levels deep` });
 export const PackStoreData = z.record(PackStoreKey, z.unknown().describe('A JSON value a panel saved')).describe(`The pack's saved keys and values, shared by all its panels and kept across reloads, browsers and pack updates; at most ${PACK_DATA_MAX_BYTES} bytes as JSON, deleted when the pack folder is removed`);
 export type PackStoreData = z.infer<typeof PackStoreData>;

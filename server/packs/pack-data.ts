@@ -9,13 +9,14 @@ import { createKeyedSerialQueue } from '../spawn-gate.ts';
 
 const PACK_DATA_DIR_NAME = 'pack-data';
 const DATA_FILE_SUFFIX = '.json';
+const JOB_OUTPUT_KEY_PREFIX = 'job:';
 
 const PackDataFile = z.strictObject({ packDir: z.string().min(1), data: PackStoreData });
 type PackDataFile = z.infer<typeof PackDataFile>;
 type PackDataRead = { ok: true; data: PackStoreData } | { ok: false; error: string };
 type DataFileRead = { ok: true; file: PackDataFile | null } | { ok: false; error: string };
 
-export function createPackData({ homeDir, panelPackDir }: { homeDir: string; panelPackDir: (packName: string) => string | null }) {
+export function createPackData({ homeDir, panelPackDir, packDirInUse = () => null }: { homeDir: string; panelPackDir: (packName: string) => string | null; packDirInUse?: (packName: string) => string | null }) {
   const writes = createKeyedSerialQueue();
   const dataDir = path.join(homeDir, PACK_DATA_DIR_NAME);
   const dataPathOf = (packName: string) => path.join(dataDir, `${packName}${DATA_FILE_SUFFIX}`);
@@ -40,8 +41,8 @@ export function createPackData({ homeDir, panelPackDir }: { homeDir: string; pan
     return readOwnedData(packName, packDir);
   }
 
-  async function setNow(packName: string, key: string, value: unknown): Promise<PackDataRead> {
-    const packDir = panelPackDir(packName);
+  async function setNow(packName: string, key: string, value: unknown, packDirOf: (packName: string) => string | null = panelPackDir): Promise<PackDataRead> {
+    const packDir = packDirOf(packName);
     if (packDir === null) return { ok: false, error: `${packName} is not an approved pack with panels` };
     const current = await readOwnedData(packName, packDir);
     if (!current.ok) return current;
@@ -57,7 +58,12 @@ export function createPackData({ homeDir, panelPackDir }: { homeDir: string; pan
   }
 
   function set(packName: string, key: string, value: unknown): Promise<PackDataRead> {
+    if (key.startsWith(JOB_OUTPUT_KEY_PREFIX)) return Promise.resolve({ ok: false, error: `a ${JOB_OUTPUT_KEY_PREFIX} key holds a job's output, which only that job writes` });
     return writes.run(packName, () => setNow(packName, key, value));
+  }
+
+  function setFromJob(packName: string, jobId: string, value: unknown): Promise<PackDataRead> {
+    return writes.run(packName, () => setNow(packName, `${JOB_OUTPUT_KEY_PREFIX}${jobId}`, value, packDirInUse));
   }
 
   async function forgetIfPackRemoved(packName: string): Promise<void> {
@@ -73,7 +79,7 @@ export function createPackData({ homeDir, panelPackDir }: { homeDir: string; pan
     await Promise.all(packNames.map((packName) => writes.run(packName, () => forgetIfPackRemoved(packName))));
   }
 
-  return { get, set, forgetRemovedPacks };
+  return { get, set, setFromJob, forgetRemovedPacks };
 }
 
 export type PackData = ReturnType<typeof createPackData>;
