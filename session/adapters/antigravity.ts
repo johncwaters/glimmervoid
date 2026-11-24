@@ -74,7 +74,7 @@ function mapHookToSignal(event: string, payload?: HookPayload): string | null {
   if (isSubagentEvent(payload)) return SIGNAL_BY_SUBAGENT_EVENT[normalizedEvent] ?? null;
   if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && (payload?.hasRunningSubagent === true || hasRunningSubagent(payload?.subagents) || hasRunningTask(payload?.task_count))) return "working";
   if (normalizedEvent === "agentstate" && payload?.agent_state === "idle" && payload?.isTurnOpen !== true) return null;
-  if (normalizedEvent === "agentstate" && payload?.agent_state === "working" && payload?.isTurnOpen !== true && !hasRunningSubagent(payload?.subagents)) return null;
+  if (normalizedEvent === "agentstate" && payload?.agent_state === "working" && payload?.isTurnOpen !== true && payload?.hasRunningSubagent !== true && !hasRunningSubagent(payload?.subagents)) return null;
   if (normalizedEvent === "preinvocation") return payload?.invocationNum === 0 ? "resume" : "working";
   if (normalizedEvent === "stop") return payload?.fullyIdle === true ? "ready" : null;
   if (normalizedEvent === "agentstate") return SIGNAL_BY_AGENT_STATE[String(payload?.agent_state)] ?? null;

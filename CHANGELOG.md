@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An Antigravity session with a subagent still running stays working after the parent stops.** A working update after the parent agent stopped was dropped even while a subagent ran, so the session could show Complete mid-work.
 - **A Studio folder stack stays open when clicked twice.** Clicking a collapsed folder on the Studio map again before it had opened, or clicking it from two dashboards at once, shut it again. Opening a folder now always opens it, and gathering it always closes it.
 - **Studio agent cards stay off the welcome card.** An agent card could sit on the welcome card in the corner of the map, covering its steps. Cards now keep clear of it, as they already did of the message bar.
 - **Every open dashboard hears about a restart or shutdown before the server goes away.** Restart and Shut down from the dashboard now wait until the restarting or shutting-down notice has been sent to every connected dashboard (at most one second for a dashboard that has stopped reading) instead of a fixed 200 ms.
