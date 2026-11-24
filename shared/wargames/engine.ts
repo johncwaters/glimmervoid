@@ -48,7 +48,7 @@ import {
   transitionTick,
   transitionVillage,
 } from './machines.ts';
-import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateSparseSites, generateTerrain, isPassable, marchCostOf, tileKey } from './terrain.ts';
+import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateClusteredTerrain, generateTerrain, isPassable, marchCostOf, pickBeaconKeys, pickVillageKeys, tileKey } from './terrain.ts';
 import type { TerrainKind } from './terrain.ts';
 
 export interface ReportSigner {
@@ -211,7 +211,7 @@ const SEAT_INDEX_BY_ID: Readonly<Record<SeatId, number>> = Object.freeze({
 });
 
 const RULES_VERSION_RANK: Readonly<Record<WargamesMatchSpec['rulesVersion'], number>> = Object.freeze({
-  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5, v6: 6, v7: 7,
+  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5, v6: 6, v7: 7, v8: 8,
 });
 
 function isRulesAtLeast(
@@ -584,7 +584,7 @@ function barbarianHexCoords(radius: number, rulesVersion: WargamesMatchSpec['rul
   return coords;
 }
 
-function terrainForSpec(spec: WargamesMatchSpec): TerrainKind[] {
+function terrainForSpec(spec: WargamesMatchSpec, balance: WargamesBalance): TerrainKind[] {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const tiles = hexGridForRadius(mapRadius);
   if (!isRulesAtLeast(spec.rulesVersion, 'v6')) return tiles.map(() => 'plain');
@@ -594,7 +594,35 @@ function terrainForSpec(spec: WargamesMatchSpec): TerrainKind[] {
     protectedKeys.add(tileKey(homeTile));
     for (const direction of AXIAL_DIRECTIONS) protectedKeys.add(tileKey({ q: homeTile.q + direction.q, r: homeTile.r + direction.r }));
   }
-  return generateTerrain({ tiles, radius: mapRadius, seatCount: spec.seats.length, seed: spec.seed, protectedKeys });
+  const request = { tiles, radius: mapRadius, seatCount: spec.seats.length, seed: spec.seed, protectedKeys };
+  if (balance.clusteredTerrain === null) return generateTerrain(request);
+  const passableKeys = new Set<string>();
+  for (const beaconKey of beaconKeysFor(spec, balance, seatLayout, tiles.map(() => 'plain'))) {
+    const [q, r] = beaconKey.split(',').map(Number);
+    protectedKeys.add(beaconKey);
+    for (const direction of AXIAL_DIRECTIONS) passableKeys.add(tileKey({ q: q + direction.q, r: r + direction.r }));
+  }
+  return generateClusteredTerrain({ ...request, passableKeys, rule: balance.clusteredTerrain });
+}
+
+function sparseProtectedKeysFor(seatLayout: SeatLayout, mapRadius: number): Set<string> {
+  const protectedKeys = new Set<string>(seatLayout.openLandKeys(mapRadius));
+  for (const homeTile of seatLayout.homeHexCoords(mapRadius).flat()) protectedKeys.add(tileKey(homeTile));
+  return protectedKeys;
+}
+
+function beaconKeysFor(spec: WargamesMatchSpec, balance: WargamesBalance, seatLayout: SeatLayout, kinds: readonly TerrainKind[]): Set<string> {
+  const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
+  if (balance.sparseSites === null) return new Set();
+  const tiles = hexGridForRadius(mapRadius);
+  return pickBeaconKeys({
+    tiles,
+    seatCount: spec.seats.length,
+    seed: spec.seed,
+    protectedKeys: sparseProtectedKeysFor(seatLayout, mapRadius),
+    kinds: balance.clusteredTerrain === null ? kinds : tiles.map(() => 'plain'),
+    beaconRings: valueForRadius(balance.sparseSites.beaconRingsByRadius, mapRadius),
+  });
 }
 
 interface MapSites {
@@ -606,16 +634,16 @@ function sitesForSpec(spec: WargamesMatchSpec, balance: WargamesBalance, terrain
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const sparseSites = balance.sparseSites;
   if (sparseSites === null) return { villageCoords: barbarianHexCoords(mapRadius, spec.rulesVersion, seatLayout), beaconCoords: [] };
-  const protectedKeys = new Set<string>(seatLayout.openLandKeys(mapRadius));
-  for (const homeTile of seatLayout.homeHexCoords(mapRadius).flat()) protectedKeys.add(tileKey(homeTile));
-  const { villageKeys, beaconKeys } = generateSparseSites({
+  const beaconKeys = beaconKeysFor(spec, balance, seatLayout, terrain);
+  const villageKeys = pickVillageKeys({
     tiles: hexGridForRadius(mapRadius),
     seatCount: spec.seats.length,
     seed: spec.seed,
-    protectedKeys,
+    protectedKeys: sparseProtectedKeysFor(seatLayout, mapRadius),
     kinds: terrain,
+    beaconKeys,
     villageShare: valueForRadius(sparseSites.villageShareByRadius, mapRadius),
-    beaconRings: valueForRadius(sparseSites.beaconRingsByRadius, mapRadius),
+    villageSpacing: sparseSites.villageSpacing,
   });
   const coordOf = (key: string): HexCoord => {
     const [q, r] = key.split(',').map(Number);
@@ -641,7 +669,7 @@ function victoryVillagesOf(state: Pick<MatchState, 'villages' | 'balance'>): num
 }
 
 export function terrainOf(spec: WargamesMatchSpec): readonly TerrainKind[] {
-  return terrainForSpec(spec);
+  return terrainForSpec(spec, wargamesBalanceFor(spec.rulesVersion));
 }
 
 export function createInitialMatchState(
@@ -655,7 +683,7 @@ export function createInitialMatchState(
   const villages: (VillageState | null)[] = Array.from({ length: hexes.length }, () => null);
   const seatIds = WARGAMES_SEAT_IDS.slice(0, spec.seats.length);
   const seatLayout = seatLayoutFor(seatIds.length);
-  const terrain = terrainForSpec(spec);
+  const terrain = terrainForSpec(spec, balance);
   const homeCoords = seatLayout.homeHexCoords(mapRadius);
   for (let seatIdx = 0; seatIdx < seatIds.length; seatIdx += 1) {
     const seatId = seatIds[seatIdx];

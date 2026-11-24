@@ -26,7 +26,7 @@ const BYTES_PER_MB = 2 ** 20;
 
 interface Candidate {
   name: string;
-  rulesVersion: 'v5' | 'v6';
+  rulesVersion: 'v5' | 'v6' | 'v7' | 'v8';
   balance: WargamesBalance;
 }
 
@@ -387,6 +387,13 @@ function searchGrid(): Candidate[] {
   return candidates;
 }
 
+function v8Candidates(): Candidate[] {
+  return [
+    { name: 'v7 VP', rulesVersion: 'v7', balance: wargamesBalanceFor('v7') },
+    { name: 'v8 VP', rulesVersion: 'v8', balance: wargamesBalanceFor('v8') },
+  ];
+}
+
 function runSearch(seedCount: number): void {
   const seeds = SEEDS.slice(0, seedCount);
   console.log('candidate | worst top-strategy win | worst rusher win | min goal-win share | goal turn share by size | min leader-lost | worst churn | min payback');
@@ -419,7 +426,7 @@ function main(): void {
     return;
   }
   const onlyCandidate = process.argv.find((argument) => argument.startsWith('--only='))?.slice('--only='.length);
-  const candidates = candidatesToRun().filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
+  const candidates = (process.argv.includes('--v8') ? v8Candidates() : candidatesToRun()).filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
   console.log('| Rules | Size | Win rate by strategy | Goal win | Alive mid-game | Churn | Comeback | Mid-game leader lost | Build payback |');
   console.log('|---|---|---|---|---|---|---|---|---|');
   for (const candidate of candidates) {
