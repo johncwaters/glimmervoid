@@ -1,0 +1,2 @@
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "prompt", "ts": 1795000000000, "text": "Where did the PR land?"}
+{"uuid": null, "parentUuid": null, "vendorSessionId": "harness", "kind": "assistant", "ts": 1795000005000, "text": "Opened it at https://example.com/pull/812 and the review lives at [github.com/acme/app/pull/812](https://login.example.net/pull/812)."}

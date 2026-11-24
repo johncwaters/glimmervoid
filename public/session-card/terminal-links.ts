@@ -11,7 +11,7 @@ function activateLink(linkPopup: TerminalLinkPopup, url: string, linkText: strin
     openExternalUrl(url);
     return;
   }
-  linkPopup.pinLink({ url, linkText, range });
+  linkPopup.pinLink({ url, linkText, anchor: range });
 }
 
 function readSingleRowText(term: Terminal, range: IBufferRange) {
@@ -26,7 +26,7 @@ export function osc8LinkHandler(term: Terminal, linkPopup: TerminalLinkPopup): I
       activateLink(linkPopup, uri, readSingleRowText(term, range), range);
     },
     hover(_event: MouseEvent, uri: string, range: IBufferRange) {
-      linkPopup.enterLink({ url: uri, linkText: readSingleRowText(term, range), range });
+      linkPopup.enterLink({ url: uri, linkText: readSingleRowText(term, range), anchor: range });
     },
     leave() {
       linkPopup.leaveLink();
@@ -83,7 +83,7 @@ export function registerUrlLinkProvider(term: Terminal, linkPopup: TerminalLinkP
             activateLink(linkPopup, matched, null, range);
           },
           hover() {
-            linkPopup.enterLink({ url, linkText: null, range });
+            linkPopup.enterLink({ url, linkText: null, anchor: range });
           },
           leave() {
             linkPopup.leaveLink();

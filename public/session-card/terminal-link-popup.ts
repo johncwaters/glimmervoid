@@ -9,8 +9,8 @@ import { subscribePacks } from '../packs/packs-store.ts';
 import { button } from '../ui/button.ts';
 import type { SessionUi } from './card-registry.ts';
 import { copyTextToClipboard } from './terminal-notices.ts';
-import { decideHostMismatch, decidePopupPlacement, HIDDEN_POPUP, nextPopupState, splitUrlForDisplay } from './terminal-link-popup-core.ts';
-import type { PopupEffect, PopupEvent, PopupState } from './terminal-link-popup-core.ts';
+import { decideHostMismatch, decidePopupPlacement, HIDDEN_POPUP, nextPopupState, roomBesideAnchorPx, splitUrlForDisplay } from './terminal-link-popup-core.ts';
+import type { AnchorBox, PopupEffect, PopupEvent, PopupState } from './terminal-link-popup-core.ts';
 import './terminal-link-popup.css';
 
 const SHOW_DELAY_MS = 100;
@@ -19,12 +19,24 @@ const PREVIEW_DWELL_MS = 600;
 const PREVIEW_ICON_SIZE_PX = 16;
 const SWALLOWED_POINTER_EVENTS = ['mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu', 'wheel'] as const;
 
-type HoveredLink = { url: string; linkText: string | null; range: IBufferRange };
+type HoveredLink<Anchor> = { url: string; linkText: string | null; anchor: Anchor };
 
-export type TerminalLinkPopup = {
-  enterLink(link: HoveredLink): void;
+type LinkPopup<Anchor> = {
+  enterLink(link: HoveredLink<Anchor>): void;
   leaveLink(): void;
-  pinLink(link: HoveredLink): void;
+  pinLink(link: HoveredLink<Anchor>): void;
+  close(): void;
+};
+
+export type TerminalLinkPopup = LinkPopup<IBufferRange>;
+
+type LinkPopupHost<Anchor> = {
+  host: HTMLElement;
+  boundsBoxOf(): DOMRect;
+  anchorBoxOf(anchor: Anchor): AnchorBox | null;
+  copyControlOf(url: string): HTMLElement;
+  extraClassName?: string;
+  signal?: AbortSignal;
 };
 
 type LoadedPreview = { url: string; preview: LinkPreview };
@@ -46,7 +58,7 @@ function buildUrlRow(url: string) {
   return row;
 }
 
-function buildMismatchRow(link: HoveredLink) {
+function buildMismatchRow(link: HoveredLink<unknown>) {
   if (link.linkText === null) return null;
   const mismatch = decideHostMismatch(link.linkText, link.url);
   if (!mismatch) return null;
@@ -72,25 +84,21 @@ function buildPreviewRow(loadedPreview: LoadedPreview | null, url: string) {
   return row;
 }
 
-export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): TerminalLinkPopup {
-  const terminalElement = term.element;
-  const screenElement = terminalElement?.querySelector<HTMLElement>('.xterm-screen');
-  if (!terminalElement || !screenElement) return { enterLink() {}, leaveLink() {}, pinLink() {} };
-  const host: HTMLElement = terminalElement;
-  const screen: HTMLElement = screenElement;
-  const signal = ui.abortController.signal;
+export function createLinkPopup<Anchor>(popupHost: LinkPopupHost<Anchor>): LinkPopup<Anchor> {
+  const { host, boundsBoxOf, anchorBoxOf, copyControlOf } = popupHost;
+  const { signal } = popupHost;
 
-  const popup = el('div', 'xterm-hover terminal-link-popup');
+  const popup = el('div', `${popupHost.extraClassName ?? ''} terminal-link-popup`.trim());
   popup.hidden = true;
   host.append(popup);
 
   let state: PopupState = HIDDEN_POPUP;
-  let hoveredLink: HoveredLink | null = null;
+  let hoveredLink: HoveredLink<Anchor> | null = null;
   let showTimerId: ReturnType<typeof setTimeout> | null = null;
   let hideTimerId: ReturnType<typeof setTimeout> | null = null;
   let dwellTimerId: ReturnType<typeof setTimeout> | null = null;
   let loadedPreview: LoadedPreview | null = null;
-  let viewportTopAtRender = 0;
+  let stopRepaintingOnPacksChange: (() => void) | null = null;
 
   function clearShowTimer() {
     if (showTimerId === null) return;
@@ -124,27 +132,30 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
     if (event.key === 'Escape') dispatch('escape');
   }
 
-  function place(link: HoveredLink) {
-    const screenBounds = screen.getBoundingClientRect();
-    const hostBounds = host.getBoundingClientRect();
-    const viewportTop = term.buffer.active.viewportY;
-    viewportTopAtRender = viewportTop;
+  function anchorWithinBounds(link: HoveredLink<Anchor>) {
+    const anchorBox = anchorBoxOf(link.anchor);
+    if (!anchorBox) return null;
+    const boundsBox = boundsBoxOf();
+    return {
+      boundsBox,
+      anchor: { topPx: anchorBox.topPx - boundsBox.top, bottomPx: anchorBox.bottomPx - boundsBox.top, leftPx: anchorBox.leftPx - boundsBox.left },
+    };
+  }
+
+  function place(link: HoveredLink<Anchor>) {
+    const measured = anchorWithinBounds(link);
+    if (!measured) return;
+    const hostBox = host.getBoundingClientRect();
     const placement = decidePopupPlacement({
-      linkRange: {
-        startRow: link.range.start.y - 1 - viewportTop,
-        startCol: link.range.start.x - 1,
-        endRow: link.range.end.y - 1 - viewportTop,
-      },
-      rows: term.rows,
-      cellWidthPx: screenBounds.width / term.cols,
-      cellHeightPx: screenBounds.height / term.rows,
+      anchor: measured.anchor,
+      boundsHeightPx: measured.boundsBox.height,
+      boundsWidthPx: measured.boundsBox.width,
       popupHeightPx: popup.offsetHeight,
       popupWidthPx: popup.offsetWidth,
-      screenWidthPx: screenBounds.width,
     });
     popup.dataset.side = placement.side;
-    popup.style.left = `${screenBounds.left - hostBounds.left + placement.leftPx}px`;
-    popup.style.top = `${screenBounds.top - hostBounds.top + placement.topPx}px`;
+    popup.style.left = `${measured.boundsBox.left - hostBox.left + placement.leftPx}px`;
+    popup.style.top = `${measured.boundsBox.top - hostBox.top + placement.topPx}px`;
   }
 
   function hoveredPackName() {
@@ -155,15 +166,13 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
     if (state.phase === 'shown') render();
   }
 
-  function capHeightToRoomBesideLink(link: HoveredLink) {
-    const cellHeightPx = screen.getBoundingClientRect().height / term.rows;
-    const viewportTop = term.buffer.active.viewportY;
-    const rowsAboveLink = link.range.start.y - 1 - viewportTop;
-    const rowsBelowLink = term.rows - (link.range.end.y - viewportTop);
-    popup.style.maxHeight = `${Math.max(rowsAboveLink, rowsBelowLink) * cellHeightPx}px`;
+  function capHeightToRoomBesideLink(link: HoveredLink<Anchor>) {
+    const measured = anchorWithinBounds(link);
+    if (!measured) return;
+    popup.style.maxHeight = `${roomBesideAnchorPx(measured.anchor, measured.boundsBox.height)}px`;
   }
 
-  function renderPackApproval(link: HoveredLink, packName: string) {
+  function renderPackApproval(link: HoveredLink<Anchor>, packName: string) {
     popup.dataset.kind = 'pack';
     popup.replaceChildren(buildPackApprovalContent(packName, { close: () => dispatch('escape'), repaint: repaintWhileShown }));
     popup.hidden = false;
@@ -178,9 +187,14 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
     dispatch('escape');
   }
 
+  function repaintPackApprovalOnPacksChange() {
+    if (state.phase === 'shown' && hoveredPackName() !== null) render();
+  }
+
   function render() {
     const link = hoveredLink;
     if (!link) return;
+    stopRepaintingOnPacksChange ??= subscribePacks(repaintPackApprovalOnPacksChange);
     const packName = hoveredPackName();
     if (packName !== null) {
       renderPackApproval(link, packName);
@@ -189,10 +203,7 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
     delete popup.dataset.kind;
     popup.style.removeProperty('max-height');
     const footer = el('div', 'terminal-link-popup-footer');
-    footer.append(
-      el('span', 'terminal-link-popup-hint', 'Click to open'),
-      button({ variant: 'secondary', size: 'small', label: 'Copy link', onClick: () => copyTextToClipboard(ui, link.url, 'link copy', 'Copied the link.') }),
-    );
+    footer.append(el('span', 'terminal-link-popup-hint', 'Click to open'), copyControlOf(link.url));
     const mismatchRow = buildMismatchRow(link);
     popup.replaceChildren(...[buildUrlRow(link.url), mismatchRow, buildPreviewRow(isLinkPreviewEnabled ? loadedPreview : null, link.url), footer].filter((row) => row !== null));
     popup.hidden = false;
@@ -201,6 +212,8 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
   }
 
   function remove() {
+    stopRepaintingOnPacksChange?.();
+    stopRepaintingOnPacksChange = null;
     popup.hidden = true;
     popup.replaceChildren();
     document.removeEventListener('keydown', closeOnEscape, { capture: true });
@@ -239,20 +252,11 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
   }
   popup.addEventListener('mouseenter', () => dispatch('enter-popup'), { signal });
   popup.addEventListener('mouseleave', () => dispatch('leave-popup'), { signal });
-  const scrollSubscription = term.onScroll(() => {
-    if (term.buffer.active.viewportY !== viewportTopAtRender) dispatch('escape');
-  });
-  const resizeSubscription = term.onResize(() => dispatch('escape'));
-  const stopRepaintingOnPacksChange = subscribePacks(() => {
-    if (state.phase === 'shown' && hoveredPackName() !== null) render();
-  });
-  signal.addEventListener('abort', () => {
+  signal?.addEventListener('abort', () => {
     clearShowTimer();
     clearHideTimer();
     clearDwellTimer();
-    scrollSubscription.dispose();
-    resizeSubscription.dispose();
-    stopRepaintingOnPacksChange();
+    stopRepaintingOnPacksChange?.();
     popup.remove();
   }, { once: true });
 
@@ -269,5 +273,48 @@ export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): Terminal
     leaveLink() {
       dispatch('leave-link');
     },
+    close() {
+      dispatch('escape');
+    },
   };
+}
+
+function terminalAnchorBoxOf(term: Terminal, screen: HTMLElement, range: IBufferRange): AnchorBox {
+  const screenBox = screen.getBoundingClientRect();
+  const cellWidthPx = screenBox.width / term.cols;
+  const cellHeightPx = screenBox.height / term.rows;
+  const viewportTop = term.buffer.active.viewportY;
+  return {
+    topPx: screenBox.top + (range.start.y - 1 - viewportTop) * cellHeightPx,
+    bottomPx: screenBox.top + (range.end.y - viewportTop) * cellHeightPx,
+    leftPx: screenBox.left + (range.start.x - 1) * cellWidthPx,
+  };
+}
+
+export function createTerminalLinkPopup(term: Terminal, ui: SessionUi): TerminalLinkPopup {
+  const terminalElement = term.element;
+  const screenElement = terminalElement?.querySelector<HTMLElement>('.xterm-screen');
+  if (!terminalElement || !screenElement) return { enterLink() {}, leaveLink() {}, pinLink() {}, close() {} };
+  const screen: HTMLElement = screenElement;
+  const linkPopup = createLinkPopup<IBufferRange>({
+    host: terminalElement,
+    boundsBoxOf: () => screen.getBoundingClientRect(),
+    anchorBoxOf: (range) => terminalAnchorBoxOf(term, screen, range),
+    copyControlOf: (url) => button({ variant: 'secondary', size: 'small', label: 'Copy link', onClick: () => copyTextToClipboard(ui, url, 'link copy', 'Copied the link.') }),
+    extraClassName: 'xterm-hover',
+    signal: ui.abortController.signal,
+  });
+  let viewportTopSeen = term.buffer.active.viewportY;
+  const scrollSubscription = term.onScroll(() => {
+    const viewportTop = term.buffer.active.viewportY;
+    if (viewportTop === viewportTopSeen) return;
+    viewportTopSeen = viewportTop;
+    linkPopup.close();
+  });
+  const resizeSubscription = term.onResize(() => linkPopup.close());
+  ui.abortController.signal.addEventListener('abort', () => {
+    scrollSubscription.dispose();
+    resizeSubscription.dispose();
+  }, { once: true });
+  return linkPopup;
 }

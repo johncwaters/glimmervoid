@@ -9,18 +9,16 @@ export type PopupEffect = 'schedule-show' | 'cancel-show' | 'schedule-hide' | 'c
 
 type PopupTransition = { state: PopupState; effects: PopupEffect[] };
 
-type ViewportCellRange = { startRow: number; startCol: number; endRow: number };
-
 type PopupPlacement = { side: 'below' | 'above'; leftPx: number; topPx: number };
 
+export type AnchorBox = { topPx: number; bottomPx: number; leftPx: number };
+
 type PopupPlacementInput = {
-  linkRange: ViewportCellRange;
-  rows: number;
-  cellWidthPx: number;
-  cellHeightPx: number;
+  anchor: AnchorBox;
+  boundsHeightPx: number;
+  boundsWidthPx: number;
   popupHeightPx: number;
   popupWidthPx: number;
-  screenWidthPx: number;
 };
 
 type DisplayUrl = { scheme: string; host: string; rest: string };
@@ -89,18 +87,22 @@ export function nextPopupState(state: PopupState, event: PopupEvent): PopupTrans
 }
 
 export function decidePopupPlacement(input: PopupPlacementInput): PopupPlacement {
-  const { linkRange, rows, cellWidthPx, cellHeightPx, popupHeightPx, popupWidthPx, screenWidthPx } = input;
-  const belowTopPx = (linkRange.endRow + 1) * cellHeightPx;
-  const aboveTopPx = linkRange.startRow * cellHeightPx - popupHeightPx;
-  const roomBelowPx = rows * cellHeightPx - belowTopPx;
-  const roomAbovePx = linkRange.startRow * cellHeightPx;
-  const maxLeftPx = Math.max(0, screenWidthPx - popupWidthPx);
-  const leftPx = Math.min(Math.max(0, linkRange.startCol * cellWidthPx), maxLeftPx);
+  const { anchor, boundsHeightPx, boundsWidthPx, popupHeightPx, popupWidthPx } = input;
+  const belowTopPx = anchor.bottomPx;
+  const aboveTopPx = anchor.topPx - popupHeightPx;
+  const roomBelowPx = boundsHeightPx - belowTopPx;
+  const roomAbovePx = anchor.topPx;
+  const maxLeftPx = Math.max(0, boundsWidthPx - popupWidthPx);
+  const leftPx = Math.min(Math.max(0, anchor.leftPx), maxLeftPx);
   const fitsBelow = roomBelowPx >= popupHeightPx;
   const fitsAbove = roomAbovePx >= popupHeightPx;
   const isAbove = !fitsBelow && (fitsAbove || roomAbovePx > roomBelowPx);
   if (isAbove) return { side: 'above', leftPx, topPx: Math.max(0, aboveTopPx) };
   return { side: 'below', leftPx, topPx: belowTopPx };
+}
+
+export function roomBesideAnchorPx(anchor: AnchorBox, boundsHeightPx: number): number {
+  return Math.max(anchor.topPx, boundsHeightPx - anchor.bottomPx);
 }
 
 function parseHttpUrl(text: string): URL | null {

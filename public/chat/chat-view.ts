@@ -5,6 +5,7 @@ import { keycap } from '../ui/keycap.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
+import { attachChatLinkPopup } from './chat-link-popup.ts';
 import type { ChatPart, TurnPart } from './chat-part.ts';
 import { createChatLog, renderPromptBubble } from './chat-parts.ts';
 import type { TurnEnd } from './chat-parts.ts';
@@ -245,6 +246,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   const dock = el('div', 'chat-dock');
   dock.append(jumpBar, composer.element);
   element.append(scroller, dock);
+  attachChatLinkPopup(element, scroller, dock);
   new ResizeObserver(() => {
     scrollContent.style.paddingBottom = `${dock.offsetHeight + DOCK_CLEARANCE_PX}px`;
   }).observe(dock, { box: 'border-box' });

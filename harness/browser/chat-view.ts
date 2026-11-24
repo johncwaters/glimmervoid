@@ -8,7 +8,7 @@ import { browserTypeOf } from '../support/browser-engines.ts';
 
 const REPO_ROOT = path.join(import.meta.dirname, '../..');
 const PAGE_ROOT = path.join(import.meta.dirname, 'chat-view');
-const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--moved] [--fingerprint <out.json>] [--fingerprint-compare <baseline.json>] [--perf <runs>] [--screenshot <out.png>] [--executable <chrome path>]';
+const USAGE = 'usage: node harness/browser/chat-view.ts <trace.jsonl> [--from <record index>] [--count <records>] [--port <port>] [--cards] [--live] [--working] [--earlier] [--moved] [--links] [--fingerprint <out.json>] [--fingerprint-compare <baseline.json>] [--perf <runs>] [--screenshot <out.png>] [--executable <chrome path>]';
 
 interface ChatViewOptions {
   tracePath: string;
@@ -20,6 +20,7 @@ interface ChatViewOptions {
   staysWorking: boolean;
   checksEarlier: boolean;
   checksMoved: boolean;
+  checksLinks: boolean;
   fingerprintPath: string | null;
   fingerprintComparePath: string | null;
   perfRuns: number | null;
@@ -58,6 +59,7 @@ function parseOptions(argumentList: readonly string[]): ChatViewOptions | null {
     staysWorking: argumentList.includes('--working'),
     checksEarlier: argumentList.includes('--earlier'),
     checksMoved: argumentList.includes('--moved'),
+    checksLinks: argumentList.includes('--links'),
     fingerprintPath: fingerprintPath === null ? null : path.resolve(fingerprintPath),
     fingerprintComparePath: fingerprintComparePath === null ? null : path.resolve(fingerprintComparePath),
     perfRuns,
@@ -214,6 +216,83 @@ async function checkMovedChatKeepsPlace(url: string, executablePath: string | nu
   }
 }
 
+const LINK_POPUP_TIMEOUT_MS = 2000;
+
+type ChatLinkPopupReading = { isVisible: boolean; host: string; mismatch: string; hasCopyLink: boolean; topPx: number; overlapsDockPx: number };
+
+async function readChatLinkPopup(page: Page): Promise<ChatLinkPopupReading> {
+  return page.evaluate(() => {
+    const popup = document.querySelector('.chat-view .terminal-link-popup');
+    if (!(popup instanceof HTMLElement)) return { isVisible: false, host: '', mismatch: '', hasCopyLink: false, topPx: 0, overlapsDockPx: 0 };
+    const popupBox = popup.getBoundingClientRect();
+    return {
+      isVisible: !popup.hidden && popupBox.height > 0,
+      host: popup.querySelector('.terminal-link-popup-host')?.textContent ?? '',
+      mismatch: popup.querySelector('.terminal-link-popup-mismatch')?.textContent ?? '',
+      hasCopyLink: [...popup.querySelectorAll('button')].some((control) => control.textContent === 'Copy link'),
+      topPx: popupBox.top,
+      overlapsDockPx: Math.max(0, popupBox.bottom - (document.querySelector('.chat-dock')?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY)),
+    };
+  });
+}
+
+async function waitForChatLinkPopup(page: Page, label: string, isWanted: (reading: ChatLinkPopupReading) => boolean): Promise<ChatLinkPopupReading> {
+  const deadline = Date.now() + LINK_POPUP_TIMEOUT_MS;
+  let reading = await readChatLinkPopup(page);
+  while (!isWanted(reading)) {
+    if (Date.now() > deadline) throw new Error(`${label}: ${JSON.stringify(reading)}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    reading = await readChatLinkPopup(page);
+  }
+  return reading;
+}
+
+async function checkChatLinkPopup(url: string, executablePath: string | null): Promise<string> {
+  const chromium = await browserTypeOf('chromium');
+  const browser = await chromium.launch(executablePath ? { executablePath } : {});
+  const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(String(error)));
+  try {
+    await page.goto(url);
+    await page.waitForSelector('a.plan-link');
+    const links = page.locator('.chat-view a.plan-link');
+    await page.waitForSelector('body[data-rendered="true"]');
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const plainLinkBox = await links.nth(0).boundingBox();
+    if (!plainLinkBox) throw new Error('the bare link has no box');
+    await page.mouse.move(plainLinkBox.x + 4, plainLinkBox.y + plainLinkBox.height / 2);
+    const shown = await waitForChatLinkPopup(page, 'hovering a bare chat link shows its host', (reading) => reading.isVisible && reading.host === 'example.com');
+    if (shown.mismatch !== '') throw new Error(`a bare link showed a mismatch: ${shown.mismatch}`);
+    if (!shown.hasCopyLink) throw new Error('the chat link popup has no Copy link control');
+    if (shown.topPx < plainLinkBox.y + plainLinkBox.height - 1) throw new Error(`the popup top ${shown.topPx} covers the link ending at ${plainLinkBox.y + plainLinkBox.height}`);
+    await page.mouse.move(plainLinkBox.x + 4, shown.topPx + 8);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    if (!(await readChatLinkPopup(page)).isVisible) throw new Error('the popup closed while the pointer rested on it');
+    await page.keyboard.press('Escape');
+    await waitForChatLinkPopup(page, 'Esc closes the chat link popup', (reading) => !reading.isVisible);
+    await page.mouse.move(plainLinkBox.x + 4, plainLinkBox.y + plainLinkBox.height / 2);
+    await waitForChatLinkPopup(page, 'returning to the link shows the popup again', (reading) => reading.isVisible);
+    await page.evaluate(() => document.querySelector('.chat-scroller')?.dispatchEvent(new Event('scroll')));
+    await waitForChatLinkPopup(page, 'scrolling the chat closes the popup', (reading) => !reading.isVisible);
+    await page.mouse.move(plainLinkBox.x + 12, plainLinkBox.y + plainLinkBox.height / 2);
+    await waitForChatLinkPopup(page, 'moving on the same link after a scroll shows the popup again', (reading) => reading.isVisible);
+    await page.mouse.move(2, 2);
+    await waitForChatLinkPopup(page, 'leaving the bare link closes the popup', (reading) => !reading.isVisible);
+    const deceptiveLinkBox = await links.nth(1).boundingBox();
+    if (!deceptiveLinkBox) throw new Error('the markdown link has no box');
+    await page.mouse.move(deceptiveLinkBox.x + 4, deceptiveLinkBox.y + deceptiveLinkBox.height / 2);
+    const warned = await waitForChatLinkPopup(page, 'a markdown link naming another host shows the mismatch', (reading) => reading.isVisible && reading.mismatch.includes('github.com') && reading.mismatch.includes('login.example.net'));
+    if (shown.overlapsDockPx > 0 || warned.overlapsDockPx > 0) throw new Error(`the popup covers the message box by ${Math.max(shown.overlapsDockPx, warned.overlapsDockPx)}px`);
+    await page.mouse.move(2, 2);
+    await waitForChatLinkPopup(page, 'leaving the link closes the popup', (reading) => !reading.isVisible);
+    if (pageErrors.length > 0) throw new Error(`the chat view threw: ${pageErrors.join('; ')}`);
+    return `chat link popup: bare link shows host ${shown.host} below the link with Copy link, stays under the pointer, Esc and a chat scroll close it and it shows again on the same link; markdown link warns ${JSON.stringify(warned.mismatch)}; leaving closes it`;
+  } finally {
+    await browser.close();
+  }
+}
+
 async function captureScreenshot(url: string, screenshotPath: string, executablePath: string | null): Promise<void> {
   const chromium = await browserTypeOf('chromium');
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
@@ -338,6 +417,10 @@ async function main(): Promise<void> {
   if (options.perfRuns !== null) {
     const perfJson = await measurePerf(baseUrl, options.perfRuns, options.executablePath).finally(() => server.close());
     console.log(perfJson);
+    return;
+  }
+  if (options.checksLinks) {
+    console.log(await checkChatLinkPopup(url, options.executablePath).finally(() => server.close()));
     return;
   }
   if (options.checksMoved) {
