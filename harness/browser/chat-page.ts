@@ -298,11 +298,20 @@ async function verifyQuestionTakesRecommendedOnEnter(page: Page): Promise<void> 
   await page.locator('.session-chat').getByRole('button', { name: 'Stop', exact: true }).click();
   await waitForTurnRunning(page, false);
   await composer.fill('');
+  await page.evaluate(() => {
+    const chat = document.querySelector('.session-chat');
+    const composerInput = chat?.querySelector('.chat-composer-input');
+    if (!chat || !composerInput) throw new Error('the chat composer is not shown');
+    const pressEnterAsCardArrives = new MutationObserver(() => {
+      if (!chat.querySelector('.chat-card[data-card-type="question"][data-resolved="false"]')) return;
+      pressEnterAsCardArrives.disconnect();
+      composerInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+    });
+    pressEnterAsCardArrives.observe(chat, { childList: true, subtree: true });
+  });
   await sendFromComposer(page, 'ask-question-chat');
   const openQuestion = page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="false"]');
-  await openQuestion.waitFor({ timeout: CARD_TIMEOUT_MS });
-  await composer.focus();
-  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.querySelectorAll('.session-chat .chat-card[data-card-type="question"]').length === 2, undefined, { timeout: CARD_TIMEOUT_MS });
   assert.equal(await page.locator('.session-chat .chat-card[data-card-type="question"][data-resolved="true"]').count(), 1, 'a key pressed as the card appears answers nothing');
   await openQuestion.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
   const optionTexts = await openQuestion.locator('.chat-card-option').allInnerTexts();
