@@ -584,7 +584,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await root.getByRole('menuitem', { name: 'Restart Orchestrator', exact: true }).click();
   const restartDialog = page.locator('.resume-dialog');
   await restartDialog.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
-  await restartDialog.getByText('Fresh conversation', { exact: true }).click();
+  await restartDialog.getByRole('option', { name: /^Fresh start/ }).click();
   await restartDialog.getByRole('button', { name: 'Restart', exact: true }).click();
   await restartDialog.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await mainCard.evaluate((card) => {

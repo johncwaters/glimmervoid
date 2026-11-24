@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A clearer Restart dialog.** Continue and Fresh start are now two big choices side by side, and Fresh start says plainly that the current conversation ends. Earlier conversations from the repo list below them with their branch, worktree and age, and the selected one is clearly marked. Up and Down move the selection and Enter restarts. The dialog keeps the same height while the list loads, so nothing jumps.
+
 - **Glimmervoid Cloud usage data counts as your account.** Once you open your Glimmervoid Cloud server after signing in, its usage data is tagged with your Glimmervoid Cloud account id in the maintainers' analytics, so usage can be counted per account. Each install keeps its own profile, so Delete my data still erases only that install. Turning off Send usage data on that server stops it. A Glimmervoid on your own machine is tagged only if you choose **Link to my Glimmervoid account** in Settings > Privacy and confirm on the account page; Delete my data removes it with a new install id. On glimmervoid.dev, the Sign in and Join the waitlist links carry your visitor id only if you accepted analytics. The privacy page says what is linked and that it is never sold or used for marketing.
 - **Delete your Glimmervoid Cloud account yourself.** The account page has a **Delete my account** button. It deletes your sign-in, email, payment customer and every usage data profile tagged with your account at once; your server stops at once and is deleted 30 days later, so you can still ask to copy your work off. The privacy page and terms say so.
 
