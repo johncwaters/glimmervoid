@@ -1158,11 +1158,13 @@ const focusPageHost: SessionPageHost = {
     return centeredCard;
   },
   didShow: () => {},
-  didHide: () => {
-    const centeredId = getFocusedSessionId();
-    if (centeredId) focusSessionInputAfterSettle(sessionUIs.get(centeredId), centeredId);
-  },
+  didHide: focusCenteredSessionInput,
 };
+
+export function focusCenteredSessionInput() {
+  const centeredId = getFocusedSessionId();
+  if (centeredId) focusSessionInputAfterSettle(sessionUIs.get(centeredId), centeredId);
+}
 
 export function openChangesInFocus(path: string | null = null) {
   const centeredId = getFocusedSessionId();

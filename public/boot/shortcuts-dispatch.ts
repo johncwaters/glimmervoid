@@ -1,11 +1,9 @@
 import { isRealInputOwningKey } from '../dom-helpers.ts';
-import { activateFocusOnNextAttention, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive, showFocusedBoardChange, toggleShellFocus } from '../focus-view/focus-view.ts';
+import { activateFocusOnNextAttention, focusAdjacentInRail, focusCenteredSessionInput, focusNextAttention, focusNthInRail, isFocusActive, showFocusedBoardChange, toggleShellFocus } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
-import { focusOpenSessionPageInput } from '../page-registry.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
 import { showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
-import { requestSessionRemoval, selectSession, setAddedSessionRevealer, setArmedSessionRowRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
-import { sessionUIs } from '../session-card/card-registry.ts';
+import { requestSessionRemoval, setAddedSessionRevealer, setArmedSessionRowRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
 import { isModalOpen } from '../session-card/modal.ts';
 import { currentNextAttentionKeyCode, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { resolveDashboardShortcut } from '../shortcuts-core.ts';
@@ -22,11 +20,7 @@ function focusedTerminalSessionId() {
 function revealSpawnedSession(id: string) {
   if (showPhoneSession(id)) return;
   centerSessionInFocus(id);
-  selectSession(id);
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (focusOpenSessionPageInput(id)) return;
-    sessionUIs.get(id)?.term?.focus();
-  }));
+  focusCenteredSessionInput();
 }
 
 function revealArmedSessionRow(id: string) {
