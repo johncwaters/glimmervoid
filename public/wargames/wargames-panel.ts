@@ -6,6 +6,7 @@ import {
   WARGAMES_SEAT_IDS,
   seatIdsForCount,
   victoryHoldTurnsFor,
+  wargamesBalanceFor,
 } from '#shared/contracts/wargames.ts';
 import type {
   MessageChannel,
@@ -18,7 +19,7 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageCountOf } from '#shared/wargames/engine.ts';
+import { matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageCountOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
 import type { MatchState, SeatStanding } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -1074,12 +1075,38 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
   const right = el('div', 'wg-hex-intel-group');
   right.append(
     buildGlyphChips(UNIT_GLYPH_PATHS, village.troops, { hideZero: true }),
-    buildGlyphChips(BUILDING_GLYPH_PATHS, village.buildings, { hideZero: true, countPrefix: 'Lv ' }),
+    ...village.guests.map((guest) => buildGuestChips(state, guest)),
+    ...buildingAndLoadChips(state, village),
     buildResourceReadout(village.resources.grain, village.resources.ore),
   );
 
   bar.append(left, right);
   return bar;
+}
+
+function buildGuestChips(state: MatchState, guest: NonNullable<MatchState['villages'][number]>['guests'][number]): HTMLElement {
+  const group = el('span', 'wg-hex-intel-guests');
+  group.style.setProperty('--wg-seat-color', SEAT_COLORS[guest.owner]);
+  group.append(el('span', 'wg-hex-intel-guest-owner', seatLabelOf(state, guest.owner)));
+  for (const unit of UNIT_GLYPH_PATHS) {
+    if (guest.troops[unit.key] <= 0) continue;
+    const chip = el('span', 'wg-legend-item');
+    chip.append(createWargamesGlyph(unit.path, 13, SEAT_COLORS[guest.owner], `${unit.label} lent by ${seatLabelOf(state, guest.owner)}`), el('span', '', String(guest.troops[unit.key])));
+    group.append(chip);
+  }
+  return group;
+}
+
+function buildingAndLoadChips(state: MatchState, village: NonNullable<MatchState['villages'][number]>): HTMLElement[] {
+  const load = villageTroopLoadOf(state, village);
+  if (load === null) return [buildGlyphChips(BUILDING_GLYPH_PATHS, village.buildings, { hideZero: true, countPrefix: 'Lv ' })];
+  const wallChip = el('span', 'wg-legend-item');
+  wallChip.append(createWargamesGlyph(WALL_GLYPH.path, 13, WALL_GLYPH.color, WALL_GLYPH.label), el('span', '', `${village.buildings.wall}/${WALL_MAX_LEVEL}`));
+  return [
+    buildGlyphChips(BUILDING_GLYPH_PATHS.filter((building) => building.key !== 'wall'), village.buildings, { hideZero: true, countPrefix: 'Lv ' }),
+    wallChip,
+    el('span', 'wg-card-meta', `Troops ${load.counted}/${load.cap}`),
+  ];
 }
 
 function legendItem(icon: SVGSVGElement, label: string): HTMLElement {
@@ -1124,10 +1151,42 @@ function arrowSwatchIcon(dasharray: string): SVGSVGElement {
   return icon;
 }
 
-function buildMapLegend(): HTMLElement {
+const WALL_MAX_LEVEL = 10;
+const WALL_GLYPH = BUILDING_GLYPH_PATHS.find((building) => building.key === 'wall') ?? BUILDING_GLYPH_PATHS[0];
+
+interface LegendRow {
+  readonly glyphPath: string;
+  readonly color: string;
+  readonly label: string;
+}
+
+function unitLegendRows(rulesVersion: WargamesMatchSpec['rulesVersion']): { title: string; rows: LegendRow[] } {
+  const roles = wargamesBalanceFor(rulesVersion).roles;
+  const unitRows = UNIT_GLYPH_PATHS.map((unit) => ({
+    glyphPath: unit.path,
+    color: unit.color,
+    label: roles === null ? unit.label : `${unit.label} ${roles.units[unit.key].attack}/${roles.units[unit.key].defense}`,
+  }));
+  if (roles === null) return { title: 'Units', rows: unitRows };
+  return {
+    title: 'Units attack/defense',
+    rows: [
+      ...unitRows,
+      { glyphPath: UNIT_GLYPH_PATHS[1].path, color: SEAT_COLORS.s2, label: 'Ally guests' },
+      { glyphPath: WALL_GLYPH.path, color: WALL_GLYPH.color, label: `Wall up to ${WALL_MAX_LEVEL}` },
+    ],
+  };
+}
+
+function unitLegendGroup(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement {
+  const { title, rows } = unitLegendRows(rulesVersion);
+  return legendGroup(title, rows.map((row) => legendItem(createWargamesGlyph(row.glyphPath, 14, row.color), row.label)));
+}
+
+function buildMapLegend(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement {
   const legend = el('div', 'wg-map-legend');
   legend.append(
-    legendGroup('Units', UNIT_GLYPH_PATHS.map((unit) => legendItem(createWargamesGlyph(unit.path, 14, unit.color), unit.label))),
+    unitLegendGroup(rulesVersion),
     legendGroup('Buildings', BUILDING_GLYPH_PATHS.map((building) => legendItem(createWargamesGlyph(building.path, 14, building.color), building.label))),
     legendGroup('Board', [
       legendItem(hexSwatchIcon(`color-mix(in srgb, ${SEAT_COLORS.s1} 28%, var(--bg-card))`, SEAT_COLORS.s1, null), 'Faction village'),
@@ -1331,7 +1390,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
   }
 
   mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
-  shell.mapKeyPopover.replaceChildren(...buildMapLegend().children);
+  shell.mapKeyPopover.replaceChildren(...buildMapLegend(state.spec.rulesVersion).children);
   diplomacyLog?.update(state, snap.pov);
   economyView?.update(state, snap.events);
   economyLens?.update(state, snap.pov, selectedHexIndex);
