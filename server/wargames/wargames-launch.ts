@@ -6,9 +6,9 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, WARGAMES_TRAVEL_HEXES_PER_TICK, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
-import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER } from '../../shared/wargames/terrain.ts';
+import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, marchCostOf } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
@@ -129,7 +129,7 @@ function objectiveLine(spec: WargamesMatchSpecType): string {
   return `${clock} A seat wins by holding at least ${winVillages} of the ${matchVillageCount(spec)} villages at the end of ${holdTurns} ticks in a row; ${fallback}`;
 }
 
-const MOVEMENT_LINE = '- Movement & Battles: Armies travel 2 hexes per tick. March to your own village to reinforce it. Combat is simultaneous with +/-10% attack variance; the losing side is wiped and the winner takes proportional casualties. When you win a battle and capture a village, your surviving army stays there as its new garrison. If you win a battle without capturing (Loyalty still above 0), survivors return home.';
+const MOVEMENT_LINE = `- Movement & Battles: Armies travel ${WARGAMES_TRAVEL_HEXES_PER_TICK} hexes per tick along the cheapest path; a forest hex costs ${marchCostOf('forest')} of that, and mountains and lakes are walked around. A far target takes several ticks, so plan marches that many ticks ahead. March to your own village to reinforce it. Combat is simultaneous with +/-10% attack variance; the losing side is wiped and the winner takes proportional casualties. When you win a battle and capture a village, your surviving army stays there as its new garrison. If you win a battle without capturing (Loyalty still above 0), survivors return home.`;
 
 function unitLines(spec: WargamesMatchSpecType): string[] {
   const balance = wargamesBalanceFor(spec.rulesVersion);
@@ -158,7 +158,7 @@ function unitLines(spec: WargamesMatchSpecType): string[] {
     MOVEMENT_LINE,
     `- Morale: when you attack a seat with fewer VP than you, your troops fight at the square root of (their VP / your VP), never below ${floorPercent}%. Morale is full while you have under ${roles.moraleMinAttackerPoints} VP and against Barbarians.`,
     `- Troop cap: a village holds at most ${roles.troopCapBase} + ${roles.troopCapPerFarmLevel} per Farm level troops, counting its own troops, allied guests and its troops out on the march. Training stops at the cap; troops arriving past it march back home.`,
-    `- Joint attacks: per grain and ore spent, a Guard buys about ${defensePerAttack(roles, costs)}x the defense that a Raider buys in attack, and the Wall adds more, so one seat alone cannot break a guarded village it matched in spending. Two allies can: in the same tick both march on the same hex, one with a plain march and the other with support: <that seat>. To lend Guards to an ally, march them to the ally\'s village with support: <ally>.`,
+    `- Joint attacks: per grain and ore spent, a Guard buys about ${defensePerAttack(roles, costs)}x the defense that a Raider buys in attack, and the Wall adds more, so one seat alone cannot break a guarded village it matched in spending. Two allies can: in the same tick both march on the same hex, one with a plain march and the other with support: <that seat>. To lend Guards to an ally, march them to the ally's village with support: <ally>.`,
   ];
 }
 
@@ -284,7 +284,7 @@ function diplomacyLines(spec: WargamesMatchSpecType): string[] {
     `- Alliance VP: at the end of every turn an alliance is in force, each partner scores ${diplomacy.allianceVpPerTurn} VP. If one partner breaks it, the victim also scores the breaker's alliance VP for every turn the alliance stood (${diplomacy.allianceVpPerTurn} VP per turn).`,
     '- Alliance: two seats may hold one alliance at a time (one proposed or active). Both seats lock the stated collateral for N ticks. While it is active neither may attack the other, and each may support the other. When it runs its full term both get their collateral back. If one attacks the other, the alliance breaks: the victim takes the attacker\'s collateral and its own back, and the breach goes on the public ledger.',
     supportLine(spec),
-    `- Reputation: get_state shows every seat\'s record of deals kept (pacts that ran their term, settled escrows) and deals broken (breaches). A seat with B broken deals locks ${diplomacy.breachCollateralStep === 1 ? '(1 + B)' : `(1 + ${diplomacy.breachCollateralStep} x B)`} times the stated collateral to enter any new alliance.`,
+    `- Reputation: get_state shows every seat's record of deals kept (pacts that ran their term, settled escrows) and deals broken (breaches). A seat with B broken deals locks ${diplomacy.breachCollateralStep === 1 ? '(1 + B)' : `(1 + ${diplomacy.breachCollateralStep} x B)`} times the stated collateral to enter any new alliance.`,
     ...shared,
   ];
 }

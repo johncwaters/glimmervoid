@@ -331,8 +331,10 @@ function stepTowardHex(radius: number, fromIndex: number, toIndex: number, maxSt
   return current;
 }
 
-function marchStepsAlongTerrain(state: MatchState, fromIndex: number, toIndex: number, travelBudget: number): number {
-  if (fromIndex === toIndex || !isPassable(state.terrain[toIndex] ?? 'plain')) return fromIndex;
+type MarchTerrain = Pick<MatchState, 'hexes' | 'terrain' | 'spec'>;
+
+function leastCostPathOf(state: MarchTerrain, fromIndex: number, toIndex: number): number[] {
+  if (fromIndex === toIndex || !isPassable(state.terrain[toIndex] ?? 'plain')) return [];
   const grid = state.hexes;
   const costByIndex = new Array<number>(grid.length).fill(Number.POSITIVE_INFINITY);
   const previousByIndex = new Array<number>(grid.length).fill(-1);
@@ -355,27 +357,61 @@ function marchStepsAlongTerrain(state: MatchState, fromIndex: number, toIndex: n
       previousByIndex[neighbor] = current;
     }
   }
-  if (previousByIndex[toIndex] === -1) return fromIndex;
+  if (previousByIndex[toIndex] === -1) return [];
   const path: number[] = [];
   for (let cursor = toIndex; cursor !== fromIndex; cursor = previousByIndex[cursor]) path.unshift(cursor);
-  let position = fromIndex;
-  let remainingBudget = travelBudget;
-  for (const nextIndex of path) {
-    const stepCost = marchCostOf(state.terrain[nextIndex]);
-    if (stepCost > remainingBudget) break;
-    remainingBudget -= stepCost;
-    position = nextIndex;
-  }
-  return position;
+  return path;
 }
 
-function hasTerrain(state: MatchState): boolean {
+function hasTerrain(state: Pick<MatchState, 'terrain'>): boolean {
   return state.terrain.some((kind) => kind !== 'plain');
 }
 
+function marchLegOf(state: MarchTerrain, fromIndex: number, toIndex: number): number[] {
+  if (!hasTerrain(state)) {
+    const leg: number[] = [];
+    let position = fromIndex;
+    for (let step = 0; step < WARGAMES_TRAVEL_HEXES_PER_TICK; step += 1) {
+      const next = stepTowardHex(state.spec.mapRadius, position, toIndex, 1);
+      if (next === position) break;
+      leg.push(next);
+      position = next;
+    }
+    return leg;
+  }
+  const leg: number[] = [];
+  let remainingBudget = WARGAMES_TRAVEL_HEXES_PER_TICK;
+  for (const nextIndex of leastCostPathOf(state, fromIndex, toIndex)) {
+    const stepCost = marchCostOf(state.terrain[nextIndex]);
+    if (stepCost > remainingBudget) break;
+    remainingBudget -= stepCost;
+    leg.push(nextIndex);
+  }
+  return leg;
+}
+
 function marchStep(state: MatchState, fromIndex: number, toIndex: number): number {
-  if (!hasTerrain(state)) return stepTowardHex(state.spec.mapRadius, fromIndex, toIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
-  return marchStepsAlongTerrain(state, fromIndex, toIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+  return marchLegOf(state, fromIndex, toIndex).at(-1) ?? fromIndex;
+}
+
+interface MarchRoute {
+  hexIndices: number[];
+  turnEndHexIndices: number[];
+  reachesTarget: boolean;
+}
+
+export function marchRouteOf(state: MarchTerrain, fromIndex: number, toIndex: number): MarchRoute {
+  const route: MarchRoute = { hexIndices: [fromIndex], turnEndHexIndices: [], reachesTarget: fromIndex === toIndex };
+  let position = fromIndex;
+  while (position !== toIndex) {
+    const leg = marchLegOf(state, position, toIndex);
+    if (leg.length === 0) return route;
+    route.hexIndices.push(...leg);
+    position = leg[leg.length - 1];
+    route.turnEndHexIndices.push(position);
+  }
+  route.reachesTarget = true;
+  return route;
 }
 
 function nextMulberry32(rngState: number): { value: number; nextState: number } {

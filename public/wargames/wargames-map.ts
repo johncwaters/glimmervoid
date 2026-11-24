@@ -1,6 +1,6 @@
 import { ImprovementKind, WARGAMES_MAX_HEX_RADIUS, WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
-import { ALL_HEXES, hexIndexAt, projectSeatState } from '#shared/wargames/engine.ts';
+import { ALL_HEXES, hexIndexAt, marchRouteOf, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { TERRAIN_MIN_RADIUS, isPassable } from '#shared/wargames/terrain.ts';
 import type { TerrainKind } from '#shared/wargames/terrain.ts';
@@ -1009,6 +1009,7 @@ function renderMarchVector(
     lateralOffset?: number;
     midIconPath?: string;
     placeMarker?: MarkerPlacer;
+    route?: MarchRoutePoints;
   },
 ): void {
   const deltaX = toSlot.centerX - fromSlot.centerX;
@@ -1021,36 +1022,51 @@ function renderMarchVector(
   const lateral = options.lateralOffset ?? 0;
   const offsetX = -unitY * lateral;
   const offsetY = unitX * lateral;
-  const { startTrim, endTrim } = arrowEndpointTrims(distance);
-  const startX = fromSlot.centerX + unitX * startTrim + offsetX;
-  const startY = fromSlot.centerY + unitY * startTrim + offsetY;
-  const endX = toSlot.centerX - unitX * endTrim + offsetX;
-  const endY = toSlot.centerY - unitY * endTrim + offsetY;
+  const routeCorners = (options.route?.corners ?? []).map((corner) => ({ x: corner.x + offsetX, y: corner.y + offsetY }));
+  const firstAim = routeCorners[0] ?? { x: toSlot.centerX + offsetX, y: toSlot.centerY + offsetY };
+  const lastFrom = routeCorners.at(-1) ?? { x: fromSlot.centerX + offsetX, y: fromSlot.centerY + offsetY };
+  const startLeg = unitVectorBetween(fromSlot.centerX + offsetX, fromSlot.centerY + offsetY, firstAim.x, firstAim.y);
+  const endLeg = unitVectorBetween(lastFrom.x, lastFrom.y, toSlot.centerX + offsetX, toSlot.centerY + offsetY);
+  const startTrim = arrowEndpointTrims(startLeg.length).startTrim;
+  const endTrim = arrowEndpointTrims(endLeg.length).endTrim;
+  const startX = fromSlot.centerX + startLeg.x * startTrim + offsetX;
+  const startY = fromSlot.centerY + startLeg.y * startTrim + offsetY;
+  const endX = toSlot.centerX - endLeg.x * endTrim + offsetX;
+  const endY = toSlot.centerY - endLeg.y * endTrim + offsetY;
   const showsPill = options.showPill !== false;
   const markerWidth = showsPill ? armyCounterWidth(troops) : 14;
   const markerHeight = showsPill ? 15 : 14;
   const hasMarker = showsPill || options.midIconPath !== undefined;
+  const firstLegEnd = routeCorners[0] ?? { x: endX, y: endY };
   const markerCenter = hasMarker && options.placeMarker
-    ? options.placeMarker({ startX, startY, endX, endY }, markerWidth, markerHeight)
-    : { x: (startX + endX) / 2, y: (startY + endY) / 2 };
+    ? options.placeMarker({ startX, startY, endX: firstLegEnd.x, endY: firstLegEnd.y }, markerWidth, markerHeight)
+    : { x: (startX + firstLegEnd.x) / 2, y: (startY + firstLegEnd.y) / 2 };
   const midX = markerCenter.x;
   const midY = markerCenter.y;
 
   const color = SEAT_COLORS[owner];
   const vectorGroup = createSvgShape('g', { class: options.groupClass });
+  const pathPoints = [{ x: startX, y: startY }, ...routeCorners, { x: endX, y: endY }];
   vectorGroup.append(
-    createSvgShape('line', {
-      x1: startX.toFixed(1),
-      y1: startY.toFixed(1),
-      x2: endX.toFixed(1),
-      y2: endY.toFixed(1),
+    createSvgShape('path', {
+      d: pathPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
+      fill: 'none',
       stroke: color,
       'stroke-width': options.strokeWidth,
       'stroke-dasharray': options.strokeDasharray,
+      'stroke-linejoin': 'round',
       'marker-end': `url(#wg-arrow-${owner})`,
       class: options.lineClass,
     }),
   );
+  for (const mark of options.route?.turnMarks ?? []) {
+    vectorGroup.append(createSvgShape('circle', { cx: (mark.x + offsetX).toFixed(1), cy: (mark.y + offsetY).toFixed(1), r: '2.6', fill: color, stroke: 'var(--bg)', 'stroke-width': '0.8', class: 'wg-turn-mark' }));
+  }
+  if (options.route?.arrivalLabel) {
+    const label = createSvgShape('text', { x: (toSlot.centerX + offsetX).toFixed(1), y: (toSlot.centerY + offsetY - 20).toFixed(1), fill: color, 'font-size': '9', 'font-weight': '700', 'text-anchor': 'middle', 'paint-order': 'stroke', stroke: 'var(--bg)', 'stroke-width': '2.5', class: 'wg-arrival-label' });
+    label.textContent = options.route.arrivalLabel;
+    vectorGroup.append(label);
+  }
   if (showsPill) {
     renderArmyCounter(vectorGroup, midX, midY, troops, color);
   }
@@ -1068,6 +1084,25 @@ function renderMarchVector(
     vectorGroup.append(createMapStrokeGlyph(options.midIconPath, midX, midY, 9, color));
   }
   layer.append(vectorGroup);
+}
+
+function unitVectorBetween(fromX: number, fromY: number, toX: number, toY: number): { x: number; y: number; length: number } {
+  const length = Math.hypot(toX - fromX, toY - fromY);
+  if (length < 1) return { x: 0, y: 0, length: 0 };
+  return { x: (toX - fromX) / length, y: (toY - fromY) / length, length };
+}
+
+function distanceInHexes(state: MatchState, fromHexIndex: number, toHexIndex: number): number {
+  const from = state.hexes[fromHexIndex];
+  const to = state.hexes[toHexIndex];
+  if (!from || !to) return 0;
+  return Math.max(Math.abs(from.q - to.q), Math.abs(from.r - to.r), Math.abs(from.q + from.r - to.q - to.r));
+}
+
+interface MarchRoutePoints {
+  corners: { x: number; y: number }[];
+  turnMarks: { x: number; y: number }[];
+  arrivalLabel: string | null;
 }
 
 interface PreviewGlyphToken {
@@ -1576,8 +1611,7 @@ export function createWargamesMap(
 
   function visibleActiveArmies(state: MatchState, pov: WargamesPov) {
     if (pov === 'god') {
-      const hasLand = state.balance.territory !== null;
-      return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning' || (hasLand && army.status === 'standing'));
+      return [...state.armies.values()].filter((army) => army.status === 'marching' || army.status === 'returning' || army.status === 'standing');
     }
     return projectSeatState(state, pov).visibleArmies;
   }
@@ -1587,6 +1621,23 @@ export function createWargamesMap(
       fromHexIndex: army.currentHexIndex,
       toHexIndex: army.status === 'returning' ? army.originHexIndex : army.targetHexIndex,
     };
+  }
+
+  function routePointsFor(state: MatchState, fromHexIndex: number, toHexIndex: number, labeledTargets: Set<number>): MarchRoutePoints {
+    const route = marchRouteOf(state, fromHexIndex, toHexIndex);
+    const centerOf = (hexIndex: number) => ({ x: slots[hexIndex]?.centerX ?? 0, y: slots[hexIndex]?.centerY ?? 0 });
+    const showsTurnMarks = state.villages[toHexIndex] !== null || (latestSelectedHexIndex !== null && (latestSelectedHexIndex === fromHexIndex || latestSelectedHexIndex === toHexIndex));
+    return {
+      corners: route.hexIndices.slice(1, -1).map(centerOf),
+      turnMarks: showsTurnMarks ? route.turnEndHexIndices.slice(0, -1).map(centerOf) : [],
+      arrivalLabel: arrivalLabelFor(route, showsTurnMarks, toHexIndex, labeledTargets),
+    };
+  }
+
+  function arrivalLabelFor(route: { reachesTarget: boolean; turnEndHexIndices: number[] }, showsTurnMarks: boolean, toHexIndex: number, labeledTargets: Set<number>): string | null {
+    if (!showsTurnMarks || !route.reachesTarget || route.turnEndHexIndices.length === 0 || labeledTargets.has(toHexIndex)) return null;
+    labeledTargets.add(toHexIndex);
+    return `${route.turnEndHexIndices.length}T`;
   }
 
   function lateralOffsetFor(totalOnEdge: number, indexOnEdge: number, fromHexIndex: number, toHexIndex: number, spacing: number): number {
@@ -1659,8 +1710,7 @@ export function createWargamesMap(
     const seenByEdge = new Map<string, number>();
     const tokenTroopsByTile = new Map<string, { hexIndex: number; owner: SeatId; troops: TroopCounts }>();
     for (const army of armies) {
-      const isOnOpenTile = state.balance.territory !== null && state.villages[army.currentHexIndex] === null;
-      if (!isOnOpenTile) continue;
+      if (state.villages[army.currentHexIndex] !== null) continue;
       const tileKeyOfArmy = `${army.currentHexIndex}:${army.owner}`;
       const entry = tokenTroopsByTile.get(tileKeyOfArmy) ?? { hexIndex: army.currentHexIndex, owner: army.owner, troops: { raider: 0, guard: 0, envoy: 0 } };
       addTroopCounts(entry.troops, army.troops);
@@ -1684,7 +1734,8 @@ export function createWargamesMap(
       renderStandingToken(armyLayer, slot.centerX, slot.centerY + 10 + stackIndex * 17, token.owner, token.troops, state.spec.mapRadius >= WARGAMES_MAX_HEX_RADIUS, weight === 'strong');
       occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 10 + stackIndex * 17, STANDING_TOKEN_MAX_WIDTH, 15));
     }
-    for (const army of armies) {
+    const labeledArmyTargets = new Set<number>();
+    for (const army of [...armies].sort((left, right) => distanceInHexes(state, left.currentHexIndex, left.targetHexIndex) - distanceInHexes(state, right.currentHexIndex, right.targetHexIndex))) {
       if (army.status === 'standing') continue;
       const leg = armyLegOf(army);
       const fromSlot = slots[leg.fromHexIndex];
@@ -1704,6 +1755,7 @@ export function createWargamesMap(
         lateralOffset: lateralOffsetFor(countsByEdge.get(edgeKey) ?? 1, indexOnEdge, leg.fromHexIndex, leg.toHexIndex, 18),
         midIconPath: isSupportMarch ? PACT_SCROLL_PATH : undefined,
         placeMarker: placeMarkerClear,
+        route: routePointsFor(state, leg.fromHexIndex, leg.toHexIndex, labeledArmyTargets),
       });
     }
   }
@@ -1863,6 +1915,7 @@ export function createWargamesMap(
     );
     let renderedCount = 0;
     const seenByEdge = new Map<string, number>();
+    const labeledPreviewTargets = new Set<number>();
     for (const entry of previewVectors) {
       if (!isPlanShown(entry.seatId, [entry.fromHexIndex, entry.toHexIndex])) continue;
       const fromSlot = slots[entry.fromHexIndex];
@@ -1883,6 +1936,7 @@ export function createWargamesMap(
         lateralOffset: lateralOffsetFor(totalOnEdge, indexOnEdge, entry.fromHexIndex, entry.toHexIndex, 18),
         midIconPath: PREVIEW_MID_ICONS[entry.kind],
         placeMarker: placeMarkerClear,
+        route: routePointsFor(latestState, entry.fromHexIndex, entry.toHexIndex, labeledPreviewTargets),
       });
       renderedCount += 1;
     }
