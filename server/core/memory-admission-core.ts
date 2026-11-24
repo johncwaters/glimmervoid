@@ -13,6 +13,7 @@ export type MemoryReading =
 export interface MemoryReservation {
   bytes: number;
   admittedAtMs: number;
+  measuredBytes: number | null;
 }
 
 export interface CgroupLevel {
@@ -76,8 +77,13 @@ export function headroomFromReadings({ cgroupLevels, hostAvailableBytes }: {
   return candidates.length === 0 ? null : Math.min(...candidates);
 }
 
+export function outstandingBytes(reservation: MemoryReservation, nowMs: number): number {
+  if (reservation.measuredBytes !== null) return Math.max(0, reservation.bytes - reservation.measuredBytes);
+  return nowMs - reservation.admittedAtMs < MEMORY_RESERVATION_SETTLE_MS ? reservation.bytes : 0;
+}
+
 export function liveReservations(reservations: readonly MemoryReservation[], nowMs: number): MemoryReservation[] {
-  return reservations.filter((reservation) => nowMs - reservation.admittedAtMs < MEMORY_RESERVATION_SETTLE_MS);
+  return reservations.filter((reservation) => outstandingBytes(reservation, nowMs) > 0);
 }
 
 export function shouldAdmitStart({ reading, reserveBytes, reservations, nowMs }: {
@@ -87,6 +93,6 @@ export function shouldAdmitStart({ reading, reserveBytes, reservations, nowMs }:
   nowMs: number;
 }): boolean {
   if (!reading.ok) return true;
-  const reservedBytes = liveReservations(reservations, nowMs).reduce((total, reservation) => total + reservation.bytes, 0);
+  const reservedBytes = reservations.reduce((total, reservation) => total + outstandingBytes(reservation, nowMs), 0);
   return reading.headroomBytes - reservedBytes >= reserveBytes;
 }

@@ -143,7 +143,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
           ...projectSessionCard(spawned, { id, name }),
         });
         return spawned.start();
-      });
+      }, { claimant: spawned });
       await startAttempt;
       if (!spawned.hasLivePty) return abandonChild('the child never reached a live terminal');
       worktreeAtStart = spawned.getWorktreeCarry();

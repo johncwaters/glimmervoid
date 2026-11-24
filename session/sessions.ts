@@ -34,6 +34,7 @@ import { scopedLaunch, sessionScopeUnitName } from "./core/session-scope-core.ts
 import { randomBytes } from "node:crypto";
 import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
+import { readProcessTreeResidentBytes } from "./process-tree-memory.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
 import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND, SIGNED_IN_SIGNAL, LOGIN_COMMAND_BY_AGENT } from "../shared/states.ts";
@@ -1322,6 +1323,11 @@ class Session extends EventEmitter {
 
   get pid(): number | null {
     return this.ptyProcess ? this.ptyProcess.pid : null;
+  }
+
+  measureResidentBytes(): Promise<number | null> {
+    const processId = this.pid;
+    return processId === null ? Promise.resolve(null) : readProcessTreeResidentBytes(processId);
   }
 
   get _killPollTimer(): NodeJS.Timeout | null {

@@ -336,6 +336,43 @@ test('runAutoResume holds each start until memory headroom covers its reserve pl
   }
 });
 
+test('a start reservation shrinks by what its session measurably uses and ends when its session exits, so the next start waits on neither', async () => {
+  const calls: SpawnCall[] = [];
+  const resumeSessionId = '4a3d4462-4cf7-4a23-8f00-ccec89a48ba5';
+  writeClaudeTranscript(process.cwd(), resumeSessionId);
+  const first = fakeSession('first', resumeSessionId, calls);
+  const second = fakeSession('second', resumeSessionId, calls);
+  const third = fakeSession('third', null, calls);
+  const megabyte = 1024 * 1024;
+  let measuredBytes: number | null = 550 * megabyte;
+  let clockMs = 0;
+  let recheckCount = 0;
+  const memoryAdmission = createMemoryAdmission({
+    readHeadroom: async () => ({ ok: true, headroomBytes: 700 * megabyte }),
+    reserveBytesFor: () => 600 * megabyte,
+    nowMs: () => clockMs,
+    sleep: async (ms) => { clockMs += ms; recheckCount += 1; },
+  });
+  const cfg = autoResumeConfig([
+    { id: 'first', wasActive: true, resumeSessionId },
+    { id: 'second', wasActive: true, resumeSessionId },
+  ], true);
+  for (const session of [first, second, third]) session.measureResidentBytes = async () => measuredBytes;
+  const gate = createSpawnGate({ memoryAdmission });
+  try {
+    await runAutoResume(new Map([['first', first], ['second', second]]), cfg, gate);
+    assert.deepEqual(calls.map((call) => call.id), ['first', 'second']);
+    assert.equal(recheckCount, 0, 'the second start counts only the 50 MB the first has yet to use');
+    measuredBytes = null;
+    first.emit('exit');
+    second.emit('exit');
+    await gate.run(() => third.start(), { claimant: third });
+    assert.equal(recheckCount, 0, 'reservations of exited sessions hold nothing back');
+  } finally {
+    first.destroy(); second.destroy(); third.destroy();
+  }
+});
+
 test('createBackend defers boot auto-resume until the HTTP listener has a hook port, and hands a mid-turn session its continue note once through the resumenote hook instead of its launch prompt', async () => {
   const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-cfg-'));
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-autoresume-proj-'));

@@ -14,7 +14,7 @@ import type { AgentRefusalReply, AgentReplyOf } from '../core/agent-api-core.ts'
 import type { ChildChannels } from '../agent-api/child-channels.ts';
 
 interface WakeSpawnGate {
-  run: (task: () => unknown, options?: { isStillWanted?: () => boolean }) => Promise<unknown>;
+  run: (task: () => unknown, options?: { isStillWanted?: () => boolean; claimant?: Session }) => Promise<unknown>;
 }
 
 type ResumeOutcome = 'started' | 'start-failed' | 'not-wanted';
@@ -192,7 +192,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     const isStillWanted = () => !session._destroyed && session.state === STATES.DORMANT && pendingWakeById(wake.id) !== undefined && now() - wake.nextFireAt <= limits.missedGraceMs;
     const startTask = () => startDormantSession(wake, session, isStillWanted);
     try {
-      const outcome = await (spawnGate ? spawnGate.run(startTask, { isStillWanted }) : startTask());
+      const outcome = await (spawnGate ? spawnGate.run(startTask, { isStillWanted, claimant: session }) : startTask());
       return outcome === 'started' || outcome === 'start-failed' ? outcome : 'not-wanted';
     } catch (error) {
       logger.warn(`[wakes] resuming ${session.id} for wake ${wake.id} failed: ${error instanceof Error ? error.message : String(error)}`);

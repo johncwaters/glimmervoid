@@ -31,7 +31,7 @@ interface RegistryGitWorkspace {
 }
 
 interface RegistrySpawnGate {
-  run: (callback: () => unknown, options?: { isStillWanted?: () => boolean }) => Promise<unknown>;
+  run: (callback: () => unknown, options?: { isStillWanted?: () => boolean; claimant?: Session }) => Promise<unknown>;
 }
 
 interface SessionRegistryDependencies {
@@ -94,6 +94,7 @@ function runAutoResume(
         return session.start();
       }, {
         isStillWanted: () => session.state === STATES.DORMANT,
+        claimant: session,
       }).catch((error: unknown) => {
         logger.warn(`[boot] auto-resume failed for ${session.name}: ${errorMessage(error)}`);
       }),

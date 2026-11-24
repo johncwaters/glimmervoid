@@ -70,7 +70,7 @@ function createRemoteSetupWiring({
         if (startedSession._destroyed) return undefined;
         broadcastControl({ type: 'session-added', ...projectSessionCard(startedSession, { id, name: REMOTE_SETUP_SESSION_NAME }) });
         return startedSession.start();
-      });
+      }, { claimant: startedSession });
       if (!startedSession.hasLivePty) throw new Error('the session never reached a live terminal');
       return { ok: true, sessionId: id, sessionName: REMOTE_SETUP_SESSION_NAME };
     } catch (error) {

@@ -15,7 +15,7 @@ const JOB_RESULT_FILENAME = 'result.json';
 const ABORT_REAP_CAP_MS = 3000;
 
 interface SpawnGate {
-  run: (task: () => unknown) => Promise<unknown>;
+  run: (task: () => unknown, options?: { claimant?: Session }) => Promise<unknown>;
 }
 
 async function awaitSessionExit(sess: Session, { signal = null, spawnGate = null, reapCapMs = ABORT_REAP_CAP_MS }: {
@@ -42,7 +42,7 @@ async function awaitSessionExit(sess: Session, { signal = null, spawnGate = null
       }
       const run = () => (signal?.aborted ? undefined : sess.start());
       const activeSpawnGate = spawnGate;
-      const started = activeSpawnGate ? activeSpawnGate.run(run) : Promise.resolve().then(run);
+      const started = activeSpawnGate ? activeSpawnGate.run(run, { claimant: sess }) : Promise.resolve().then(run);
       started.catch(fail);
     });
   } finally {

@@ -24,4 +24,4 @@ async function signalWindowChangeBelow(rootProcessId: number): Promise<void> {
   }
 }
 
-export { signalWindowChangeBelow };
+export { listChildProcessIds, signalWindowChangeBelow };

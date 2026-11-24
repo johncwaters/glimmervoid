@@ -1,4 +1,4 @@
-import { MEMORY_RECHECK_MS, shouldAdmitStart, liveReservations } from './core/memory-admission-core.ts';
+import { MEMORY_RECHECK_MS, liveReservations, outstandingBytes, shouldAdmitStart } from './core/memory-admission-core.ts';
 import type { MemoryReading, MemoryReservation, MemoryStartKind } from './core/memory-admission-core.ts';
 import { clock } from '../shared/clock.ts';
 
@@ -6,10 +6,18 @@ const BYTES_PER_MEGABYTE = 1024 * 1024;
 const QUEUE_ADMISSION_TIMED_OUT = 'serial-queue-admission-timed-out';
 const QUEUE_ADMISSION_ABANDONED = 'serial-queue-admission-abandoned';
 
+interface MemoryClaimant {
+  readonly hasLivePty: boolean;
+  measureResidentBytes(): Promise<number | null>;
+  on(event: 'exit' | 'teardown', listener: () => void): unknown;
+  off(event: 'exit' | 'teardown', listener: () => void): unknown;
+}
+
 interface SerialQueueRunOptions {
   admissionTimeoutMs?: number;
   isStillWanted?: () => boolean;
   signal?: AbortSignal;
+  claimant?: MemoryClaimant;
 }
 
 interface SerialQueue {
@@ -100,7 +108,8 @@ interface MemoryGateStatus {
 }
 
 interface MemoryAdmission {
-  waitForHeadroom(kind: MemoryStartKind, options?: MemoryWaitOptions): Promise<void>;
+  waitForHeadroom(kind: MemoryStartKind, options?: MemoryWaitOptions): Promise<MemoryReservation | null>;
+  claim(reservation: MemoryReservation | null, claimant: MemoryClaimant | undefined): void;
   noteStartHeld(isHeld: boolean): void;
   gateStatus(): MemoryGateStatus;
   describeShortfallNow(kind: MemoryStartKind): Promise<HeadroomShortfall | null>;
@@ -131,6 +140,7 @@ function createMemoryAdmission({
   warn = (message) => console.warn(message),
 }: MemoryAdmissionOptions): MemoryAdmission {
   let reservations: MemoryReservation[] = [];
+  const claimantByReservation = new Map<MemoryReservation, MemoryClaimant>();
   let isInProbeFailureStreak = false;
   let heldStartCount = 0;
   let latestHeadroomBytes: number | null = null;
@@ -148,48 +158,81 @@ function createMemoryAdmission({
     warn(`[memory] could not read memory headroom, so starts go ahead unchecked: ${reading.reason}`);
   }
 
-  async function admitOrDescribeShortfall(kind: MemoryStartKind, { isDryRun = false }: { isDryRun?: boolean } = {}): Promise<HeadroomShortfall | null> {
+  async function measureClaimedReservations(): Promise<void> {
+    await Promise.all([...claimantByReservation].map(async ([reservation, claimant]) => {
+      reservation.measuredBytes = await claimant.measureResidentBytes() ?? reservation.measuredBytes;
+    }));
+  }
+
+  async function admitOrDescribeShortfall(kind: MemoryStartKind, { isDryRun = false }: { isDryRun?: boolean } = {}): Promise<{ admitted: MemoryReservation | null; shortfall: HeadroomShortfall | null }> {
     const reserveBytes = reserveBytesFor(kind);
-    if (reserveBytes <= 0) return null;
-    const reading = await readHeadroom();
+    if (reserveBytes <= 0) return { admitted: null, shortfall: null };
+    const [reading] = await Promise.all([readHeadroom(), measureClaimedReservations()]);
     const admittedAtMs = nowMs();
-    reservations = liveReservations(reservations, admittedAtMs);
+    const liveUnclaimed = liveReservations(reservations.filter((reservation) => !claimantByReservation.has(reservation)), admittedAtMs);
+    reservations = [...claimantByReservation.keys(), ...liveUnclaimed];
     noteReading(reading, admittedAtMs);
     const isQueuedBehindHeldStart = isDryRun && reading.ok && heldStartCount > 0;
     if (!isQueuedBehindHeldStart && shouldAdmitStart({ reading, reserveBytes, reservations, nowMs: admittedAtMs })) {
-      if (!isDryRun) reservations.push({ bytes: reserveBytes, admittedAtMs });
-      return null;
+      if (isDryRun) return { admitted: null, shortfall: null };
+      const admitted: MemoryReservation = { bytes: reserveBytes, admittedAtMs, measuredBytes: null };
+      reservations.push(admitted);
+      return { admitted, shortfall: null };
     }
-    const heldBytes = reservations.reduce((total, reservation) => total + reservation.bytes, 0);
-    return { headroomBytes: reading.ok ? reading.headroomBytes : 0, heldBytes, reserveBytes, waitingStartCount: heldStartCount };
+    const heldBytes = reservations.reduce((total, reservation) => total + outstandingBytes(reservation, admittedAtMs), 0);
+    return { admitted: null, shortfall: { headroomBytes: reading.ok ? reading.headroomBytes : 0, heldBytes, reserveBytes, waitingStartCount: heldStartCount } };
   }
 
-  async function recheckUntilAdmitted(kind: MemoryStartKind, isStillWanted: () => boolean): Promise<boolean> {
-    do {
+  function releaseReservation(reservation: MemoryReservation): void {
+    claimantByReservation.delete(reservation);
+    reservations = reservations.filter((candidate) => candidate !== reservation);
+  }
+
+  function claim(reservation: MemoryReservation | null, claimant: MemoryClaimant | undefined): void {
+    if (reservation === null || claimant === undefined) return;
+    if (!claimant.hasLivePty) {
+      releaseReservation(reservation);
+      return;
+    }
+    claimantByReservation.set(reservation, claimant);
+    const release = () => {
+      claimant.off('exit', release);
+      claimant.off('teardown', release);
+      releaseReservation(reservation);
+    };
+    claimant.on('exit', release);
+    claimant.on('teardown', release);
+  }
+
+  async function recheckUntilAdmitted(kind: MemoryStartKind, isStillWanted: () => boolean): Promise<{ isAdmitted: boolean; admitted: MemoryReservation | null }> {
+    for (;;) {
       await sleep(MEMORY_RECHECK_MS);
-      if (!isStillWanted()) return false;
-    } while ((await admitOrDescribeShortfall(kind)) !== null);
-    return true;
+      if (!isStillWanted()) return { isAdmitted: false, admitted: null };
+      const { admitted, shortfall } = await admitOrDescribeShortfall(kind);
+      if (shortfall === null) return { isAdmitted: true, admitted };
+    }
   }
 
-  async function waitForHeadroom(kind: MemoryStartKind, { isStillWanted = () => true, onMemoryWait = () => {} }: MemoryWaitOptions = {}): Promise<void> {
-    if (!isStillWanted()) return;
-    const shortfall = await admitOrDescribeShortfall(kind);
-    if (shortfall === null) return;
-    if (!isStillWanted()) return;
+  async function waitForHeadroom(kind: MemoryStartKind, { isStillWanted = () => true, onMemoryWait = () => {} }: MemoryWaitOptions = {}): Promise<MemoryReservation | null> {
+    if (!isStillWanted()) return null;
+    const { admitted, shortfall } = await admitOrDescribeShortfall(kind);
+    if (shortfall === null) return admitted;
+    if (!isStillWanted()) return null;
     const waitStartedAtMs = nowMs();
     warn(`[memory] holding a ${kind} start: ${toMegabytes(shortfall.headroomBytes)} MB headroom, ${toMegabytes(shortfall.heldBytes)} MB held for recent starts, ${toMegabytes(shortfall.reserveBytes)} MB reserve needed`);
     onMemoryWait(true);
-    const isAdmitted = await recheckUntilAdmitted(kind, isStillWanted).finally(() => onMemoryWait(false));
-    if (!isAdmitted) return;
+    const recheck = await recheckUntilAdmitted(kind, isStillWanted).finally(() => onMemoryWait(false));
+    if (!recheck.isAdmitted) return null;
     warn(`[memory] admitted a ${kind} start after waiting ${Math.round((nowMs() - waitStartedAtMs) / 1000)} s`);
+    return recheck.admitted;
   }
 
   return {
     waitForHeadroom,
+    claim,
     noteStartHeld: (isHeld) => { heldStartCount += isHeld ? 1 : -1; },
     gateStatus: () => ({ headroomBytes: latestHeadroomBytes, headroomReadAtMs: latestHeadroomReadAtMs, heldStartCount }),
-    describeShortfallNow: (kind) => admitOrDescribeShortfall(kind, { isDryRun: true }),
+    describeShortfallNow: async (kind) => (await admitOrDescribeShortfall(kind, { isDryRun: true })).shortfall,
   };
 }
 
@@ -224,12 +267,20 @@ function createSpawnGate({ memoryAdmission = null, kind = 'session' }: { memoryA
   }
 
   function run<T>(fn: () => T | Promise<T>, options: SerialQueueRunOptions = {}): Promise<T> {
-    const { isStillWanted = () => true } = options;
+    const { isStillWanted = () => true, claimant } = options;
     const queuedStart: QueuedStart = { isStillWanted };
     queuedStarts.add(queuedStart);
     if (isHeadStartHeld) flagWaitingForMemory(queuedStart);
     const release = () => leaveQueue(queuedStart);
-    const result = queue.run(() => admission.waitForHeadroom(kind, { isStillWanted, onMemoryWait: noteHeadStartHeld }).finally(release).then(fn), options);
+    const startClaimingMemory = async (): Promise<T> => {
+      const reservation = await admission.waitForHeadroom(kind, { isStillWanted, onMemoryWait: noteHeadStartHeld }).finally(release);
+      try {
+        return await fn();
+      } finally {
+        admission.claim(reservation, claimant);
+      }
+    };
+    const result = queue.run(startClaimingMemory, options);
     result.then(release, release);
     return result;
   }
