@@ -587,8 +587,14 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await restartDialog.getByText('Fresh conversation', { exact: true }).click();
   await restartDialog.getByRole('button', { name: 'Restart', exact: true }).click();
   await restartDialog.waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await mainCard.evaluate((card) => {
+    if (!(card instanceof HTMLElement)) return;
+    card.dataset.seenPhases = '';
+    new MutationObserver(() => { card.dataset.seenPhases += ` ${card.dataset.phase ?? ''}`; }).observe(card, { attributes: true, attributeFilter: ['data-phase'] });
+  });
   await page.getByRole('button', { name: 'Restart fresh', exact: true }).click();
   await page.getByRole('button', { name: 'Restart fresh', exact: true }).waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
+  await pollFor('the Orchestrator card to show Starting while it restarts', BOARD_SESSION_TIMEOUT_MS, async () => /\bstarting\b/.test(await mainCard.getAttribute('data-seen-phases') ?? '') ? true : null);
   await root.locator('.bs-pill-address').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
   await verifyShownPageOnMap(page);
   await verifyPrCardOnMap(page);

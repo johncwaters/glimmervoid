@@ -833,7 +833,9 @@ function mountBoardSessionView(panel: HTMLElement): void {
     if (isActive && (sessionId === shownSessionId || watchBySessionId.has(sessionId))) requestDigests();
   });
   onBoardSessionStatusChanged((sessionId) => {
-    if (!isActive || (sessionId !== shownSessionId && !shownBranchIds().includes(sessionId))) return;
+    if (!isActive) return;
+    if (watchBySessionId.has(sessionId)) paintPresence();
+    if (sessionId !== shownSessionId && !shownBranchIds().includes(sessionId)) return;
     dock?.refresh();
   });
   onBoardSessionTraceChanged((sessionId) => {

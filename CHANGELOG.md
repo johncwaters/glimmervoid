@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Studio shows when an agent restarts.** After **Restart Orchestrator**, the orchestrator card on the Studio map kept its old status, so a restart looked like nothing happened. Agent cards in Studio now follow every status change, showing `Starting` and then `Ready` as the agent comes back. Restarting into the same conversation still keeps its messages in the chat.
 - **Opening the Community tab marks the question it shows as read.** The tab opens on a question straight away, but that question kept its unread dot until you clicked it. It now counts as read as soon as it is on screen. On the phone it still waits until you open the question.
 
 - **Focus rail rows no longer all show Undo.** Every session and board row in the left rail showed an UNDO button, crowding the rows and hiding which one, if any, you had just closed. Undo now shows only on a row you are removing, and other dashboard controls hidden the same way stay hidden.
