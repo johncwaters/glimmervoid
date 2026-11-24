@@ -346,6 +346,18 @@ test('commit signing registers the host key on GitHub with the connected user to
     process.env.PATH = `${failingKeygenFolder}${path.delimiter}${pathBefore}`;
     const failedSetup = await signingOfHostAt(path.join(root, 'failed-setup')).act('setup').finally(() => { process.env.PATH = pathBefore; });
     assert.notEqual(failedSetup.problem, null);
+    const failedPrepareSigning = signingOfHostAt(path.join(root, 'failed-prepare'));
+    process.env.PATH = `${failingKeygenFolder}${path.delimiter}${pathBefore}`;
+    const readAfterFailedPrepare = await followingGithubConnection(async () => linkConnection, failedPrepareSigning)('read').then(() => failedPrepareSigning.act('read')).finally(() => { process.env.PATH = pathBefore; });
+    assert.notEqual(readAfterFailedPrepare.problem, null);
+    assert.notEqual((await failedPrepareSigning.act('read')).problem, null, 'a setup that failed after connecting stays reported on every read until an action replaces it');
+    assert.equal((await failedPrepareSigning.act('setup')).problem, null, 'a setup that works clears the earlier failure');
+    const disconnectAfterFailedPrepareSigning = signingOfHostAt(path.join(root, 'failed-prepare-then-disconnect'));
+    process.env.PATH = `${failingKeygenFolder}${path.delimiter}${pathBefore}`;
+    const disconnectAfterFailedPrepare = followingGithubConnection(async () => linkConnection, disconnectAfterFailedPrepareSigning);
+    await disconnectAfterFailedPrepare('read').then(() => disconnectAfterFailedPrepareSigning.act('read')).finally(() => { process.env.PATH = pathBefore; });
+    await disconnectAfterFailedPrepare('disconnect');
+    assert.equal((await disconnectAfterFailedPrepareSigning.act('read')).problem, null, 'disconnecting GitHub drops a setup failure from that connection');
     assert.equal((await createHostSigningKeyStore({ folder: path.join(root, 'failed-setup') }).readRecord()).isSwitchedOff, false, 'a Set up that failed is not read after a restart as a Remove');
     assert.ok(!warnings.join('\n').includes(userToken), 'no warning carries the token');
     assert.ok(github.calls.every((call) => !call.includes(userToken)), 'the token never rides in a URL');

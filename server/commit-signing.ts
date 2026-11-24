@@ -259,6 +259,7 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
 }): CommitSigning {
   let actionChain: Promise<unknown> = Promise.resolve();
   let pendingProblem: string | null = null;
+  let setupProblemAfterConnect: string | null = null;
 
   function serialized<T>(work: () => Promise<T>): Promise<T> {
     const next = actionChain.then(work, work);
@@ -302,10 +303,10 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
   }
 
   async function statusWith(problem: string | null): Promise<CommitSigningStatus> {
-    const [hostKey, readable, grant] = await Promise.all([store.read(), readableRecord(), connectedGrant()]);
-    const shownProblem = [problem, readable.problem, pendingProblem].filter((line) => line !== null).join(' ') || null;
+    const [hostKey, readable, grant, connection] = await Promise.all([store.read(), readableRecord(), connectedGrant(), githubConnectionState().catch(() => null)]);
+    const shownProblem = [problem, readable.problem, pendingProblem, setupProblemAfterConnect].filter((line) => line !== null).join(' ') || null;
     pendingProblem = null;
-    return commitSigningStatusOf({ hostKey, record: readable.record, connectedLogin: grant?.login ?? null, problem: shownProblem });
+    return commitSigningStatusOf({ hostKey, record: readable.record, connectedLogin: grant?.login ?? null, githubState: connection?.state ?? null, problem: shownProblem });
   }
 
   async function githubKeyIdsMatching(grant: GithubUserGrant, held: HostSigningKey): Promise<number[]> {
@@ -372,6 +373,7 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
   async function act(action: CommitSigningAction): Promise<CommitSigningStatus> {
     const run = action === 'read' ? serialized : serializedChange;
     return run(async () => {
+      if (action !== 'read') setupProblemAfterConnect = null;
       try {
         return await statusWith(await problemOfAction[action]());
       } catch (error) {
@@ -415,10 +417,11 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
       if (!grant) return false;
       const identityProblem = await rememberGithubIdentity(grant).then(() => null, (error: unknown) => `Glimmervoid could not read the git identity from GitHub: ${errorMessage(error)}`);
       const signingProblem = await signingProblemAfterConnect().catch((error: unknown) => errorMessage(error));
+      setupProblemAfterConnect = signingProblem;
+      if (identityProblem !== null) pendingProblem = identityProblem;
       const problems = [identityProblem, signingProblem].filter((line) => line !== null);
       if (problems.length === 0) return true;
-      pendingProblem = problems.join(' ');
-      log.warn(`[commit-signing] ${pendingProblem}`);
+      log.warn(`[commit-signing] ${problems.join(' ')}`);
       return identityProblem === null;
     });
   }
@@ -430,6 +433,7 @@ function createCommitSigning({ store, githubUserCredential, githubConnectionStat
 
   function disconnectGithub<T>(disconnect: () => Promise<T>): Promise<T> {
     return serializedChange(async () => {
+      setupProblemAfterConnect = null;
       await forgetGithubKey().catch((error: unknown) => {
         pendingProblem = `Disconnect left the signing key on GitHub: ${errorMessage(error)}`;
         log.warn(`[commit-signing] ${pendingProblem}`);

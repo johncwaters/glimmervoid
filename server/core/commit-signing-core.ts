@@ -67,15 +67,17 @@ function hostSigningGitEnv({ systemConfigPath, baseSystemConfigPath, usesHostCon
   return baseSystemConfigPath === null ? { GIT_CONFIG_NOSYSTEM: '1' } : { GIT_CONFIG_SYSTEM: baseSystemConfigPath, GIT_CONFIG_NOSYSTEM: '0' };
 }
 
-function commitSigningStatusOf({ hostKey, record, connectedLogin, problem }: {
+function commitSigningStatusOf({ hostKey, record, connectedLogin, githubState, problem }: {
   hostKey: { publicKeyText: string; fingerprint: string } | null;
   record: CommitSigningRecord;
   connectedLogin: string | null;
+  githubState: CommitSigningStatus['githubState'];
   problem: string | null;
 }): CommitSigningStatus {
   const canRegister = connectedLogin !== null;
   const identity = record.identity;
-  if (!hostKey) return { state: 'off', fingerprint: null, publicKey: null, login: null, canRegister, problem, identity };
+  const isSwitchedOff = record.isSwitchedOff;
+  if (!hostKey) return { state: 'off', fingerprint: null, publicKey: null, login: null, canRegister, isSwitchedOff, githubState, problem, identity };
   const registration = record.github;
   return {
     state: registration ? 'registered' : 'unregistered',
@@ -83,6 +85,8 @@ function commitSigningStatusOf({ hostKey, record, connectedLogin, problem }: {
     publicKey: hostKey.publicKeyText,
     login: registration?.login ?? connectedLogin,
     canRegister,
+    isSwitchedOff,
+    githubState,
     problem,
     identity,
   };

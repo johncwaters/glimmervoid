@@ -6,8 +6,9 @@ import { el, writeClipboardText } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
-import { COMMIT_SIGNING_CONTROLS, commitSigningViewOf, GITHUB_SIGNING_KEY_PAGE } from './commit-signing-core.ts';
-import type { CommitSigningControl } from './commit-signing-core.ts';
+import { disclosure } from '../ui/disclosure.ts';
+import { COMMIT_SIGNING_CONTROLS, commitSigningViewOf, GITHUB_SIGNING_KEY_PAGE, KEY_WITHOUT_GITHUB_CONTROLS } from './commit-signing-core.ts';
+import type { CommitSigningControl, KeyWithoutGithubControl } from './commit-signing-core.ts';
 
 const SIGNING_REQUEST_TIMEOUT_MS = 45_000;
 const BUSY_TEXT = { read: '', setup: 'Setting up commit signing.', register: 'Registering the key on GitHub.', remove: 'Removing the key.' } as const;
@@ -22,7 +23,17 @@ function buildCommitSigningSection(): HTMLElement {
   const description = el('p', 'settings-view-setting-description');
   const identityLine = el('p', 'settings-view-setting-description');
   const publicKeyText = el('pre', 'settings-vault-test-details-text');
-  text.append(heading, description, identityLine, publicKeyText);
+  const keyWithoutGithubPublicKeyText = el('pre', 'settings-vault-test-details-text');
+  const keyWithoutGithubButtons: Record<KeyWithoutGithubControl, HTMLButtonElement> = {
+    setup: button({ variant: 'secondary', label: 'Set up', action: 'commit-signing-setup-without-github', onClick: () => { void request('setup'); } }),
+    'open-github': button({ variant: 'secondary', label: 'Open GitHub', action: 'commit-signing-open-github', onClick: () => { openExternalUrl(GITHUB_SIGNING_KEY_PAGE); } }),
+    copy: button({ variant: 'secondary', label: 'Copy public key', action: 'commit-signing-copy', onClick: () => { void copyPublicKey(); } }),
+  };
+  const keyWithoutGithubRow = el('div', 'commit-signing-without-github-actions');
+  keyWithoutGithubRow.append(...KEY_WITHOUT_GITHUB_CONTROLS.map((controlName) => keyWithoutGithubButtons[controlName]));
+  const keyWithoutGithubDescription = el('p', 'settings-view-setting-description');
+  const keyWithoutGithub = disclosure({ summary: 'Use a key without GitHub', body: [keyWithoutGithubDescription, keyWithoutGithubPublicKeyText, keyWithoutGithubRow] });
+  text.append(heading, description, identityLine, publicKeyText, keyWithoutGithub.element);
   const requestStatus = createActionStatus('settings-vault-test-status');
   const buttonsByControl: Record<CommitSigningControl, HTMLButtonElement> = {
     setup: button({ variant: 'primary', label: 'Set up', action: 'commit-signing-setup', onClick: () => { void request('setup'); } }),
@@ -42,11 +53,19 @@ function buildCommitSigningSection(): HTMLElement {
     description.textContent = view.text;
     identityLine.hidden = view.identityText === null;
     identityLine.textContent = view.identityText ?? '';
-    publicKeyText.hidden = view.publicKey === null;
+    publicKeyText.hidden = view.publicKey === null || view.isPublicKeyWithoutGithub;
     publicKeyText.textContent = view.publicKey ?? '';
+    keyWithoutGithubPublicKeyText.hidden = view.publicKey === null || !view.isPublicKeyWithoutGithub;
+    keyWithoutGithubPublicKeyText.textContent = view.publicKey ?? '';
+    keyWithoutGithub.element.hidden = view.keyWithoutGithubControls.length === 0;
+    keyWithoutGithubDescription.textContent = view.isPublicKeyWithoutGithub ? 'Add this public key on GitHub yourself, as a Signing Key.' : 'Make a signing key on this host and add it on GitHub yourself, as a Signing Key.';
     for (const controlName of COMMIT_SIGNING_CONTROLS) {
       buttonsByControl[controlName].hidden = !view.controls.includes(controlName);
       buttonsByControl[controlName].disabled = isRequesting;
+    }
+    for (const controlName of KEY_WITHOUT_GITHUB_CONTROLS) {
+      keyWithoutGithubButtons[controlName].hidden = !view.keyWithoutGithubControls.includes(controlName);
+      keyWithoutGithubButtons[controlName].disabled = isRequesting;
     }
     if (!isRequesting && view.problem !== null) requestStatus.show('error', view.problem);
   }

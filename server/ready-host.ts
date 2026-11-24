@@ -40,7 +40,7 @@ function createHostReady({ githubConnection, commitSigningStatus, ghShimDir }: {
     const connection = await githubConnection().catch(() => null);
     const connectedLogin = connection?.state === 'connected' ? connection.login : null;
     const [signing, ownIdentity, gh] = await Promise.all([commitSigningStatus().catch(() => null), ownGitIdentity(), ghStateOf(ghShimDir, connectedLogin)]);
-    return hostReadyOf({ connectedLogin, signing, ownIdentity, gh });
+    return hostReadyOf({ connectedLogin, githubState: connection?.state ?? null, signing, ownIdentity, gh });
   }
 
   return { read };

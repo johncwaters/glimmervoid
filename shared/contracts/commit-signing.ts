@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { GithubLogin } from './watcher-link.ts';
+import { GithubConnection, GithubLogin } from './watcher-link.ts';
 
 const GithubKeyId = z.number().int().positive();
 
@@ -22,6 +22,8 @@ export const CommitSigningStatus = z.strictObject({
   publicKey: z.string().nullable(),
   login: GithubLogin.nullable(),
   canRegister: z.boolean(),
+  isSwitchedOff: z.boolean(),
+  githubState: z.enum(GithubConnection.options.map((option) => option.shape.state.value)).nullable(),
   problem: z.string().nullable(),
   identity: GitIdentity.nullable(),
 });
