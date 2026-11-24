@@ -171,6 +171,8 @@ test('public/tailwind.css stacks primitive look above components and primitive l
   const localImports = [...entry.matchAll(/@import\s+"(\.\/[^"]+)"\s*([^;]*);/g)];
   const misplaced = localImports.filter(([, importPath, layer]) => (importPath.startsWith('./ui/') ? layer.trim() !== '' : layer.trim() !== 'layer(components)')).map(([statement]) => statement);
   assert.deepEqual(misplaced, [], 'A public/ui/ import declares its own layers; every other local import goes into layer(components)');
+  const firstPageStyle = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+  assert.ok(withoutCssComments(firstPageStyle).trim().startsWith(LAYER_ORDER), `public/index.html must open its first style element with ${LAYER_ORDER}, or a split component stylesheet linked before the entry CSS reorders the layers`);
 });
 
 test('every public/ui/ stylesheet keeps layout declarations in primitive-layout and the rest in primitive-look', () => {
