@@ -9,8 +9,8 @@ import { errorMessage } from '../../shared/text.ts';
 import { loadJsonStateFile, writeTextAtomic } from '../json-file.ts';
 import { keyedFramePath } from '../core/frame-capability-core.ts';
 import type { ProviderStatus } from '../../shared/contracts/pack-bridge.ts';
-import { NO_OPERATOR_MCP_SERVER_NAMES, packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote, scheduledLaunchers, withinPreviewBudget } from './core/pack-core.ts';
-import type { LauncherProjectResolution, OperatorMcpServerNames, ScheduledPackLauncher } from './core/pack-core.ts';
+import { NO_OPERATOR_MCP_SERVER_NAMES, packAgentContributions, statusUrlsOf, approvedLauncher, approvedPackLaunchers, approvedPanel, approvedPackPanels, approvedPackThemes, launcherProjects, packMcpServers, packMcpServersForAgent, packRow, pendingPackNote, scheduledEntries, withinPreviewBudget } from './core/pack-core.ts';
+import type { LauncherProjectResolution, OperatorMcpServerNames, ScheduledPackEntry } from './core/pack-core.ts';
 import { readCodexOperatorServerNames, readOperatorMcpServerNames } from './operator-mcp-servers.ts';
 import { servedPackFile } from './core/pack-page-core.ts';
 import { PACKS_DIR_NAME, packDirsUnder, readPackDir } from './pack-files.ts';
@@ -37,6 +37,7 @@ type PackStore = EventEmitter & {
   isRequestDismissed(packName: string): boolean;
   panelPackDir(packName: string): string | null;
   packInUse(packName: string): PackOnDisk | null;
+  packDirInUse(packName: string): string | null;
   setLauncherResolver(resolve: (project: string) => LauncherProjectResolution): void;
   setProviderStatuses(statusesOf: (urls: readonly string[]) => ProviderStatus[]): void;
   setSourceRows(sourceRows: () => readonly PackSourceRow[]): void;
@@ -44,7 +45,7 @@ type PackStore = EventEmitter & {
   launcherProjectsInUse(): string[];
   launcherInUse(packName: string, launcherId: string): ReturnType<typeof approvedLauncher>;
   panelInUse(packName: string, panelId: string): ReturnType<typeof approvedPanel>;
-  scheduledLaunchersInUse(): ScheduledPackLauncher[];
+  scheduledEntriesInUse(): ScheduledPackEntry[];
   agentContributionsInUse(): ReturnType<typeof packAgentContributions>;
   mcpServersForSession(agentId: string, cwd: string): Promise<PackMcpServer[]>;
   sharedMcpServers(agentId: string): PackMcpServer[];
@@ -354,7 +355,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
   }
 
   return Object.assign(emitter, {
-    start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, packInUse: (packName: string) => packsInUse().find((pack) => pack.header.name === packName) ?? null, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
+    start, stop, setListedPaths, statusFrame, servableFile, approvedPacks, approve, panelPackDir, packInUse: (packName: string) => packsInUse().find((pack) => pack.header.name === packName) ?? null, packDirInUse: (packName: string) => packEntriesInUse().find(({ pack }) => pack.header.name === packName)?.packDir ?? null, isApproved: (fingerprint: string) => approvedFingerprints.has(fingerprint),
     dismissRequest, reopenRequest: (packName: string) => { dismissedFingerprintByPackName.delete(packName); }, isRequestDismissed,
     setLauncherResolver: (resolve: (project: string) => LauncherProjectResolution) => { resolveLauncherProject = resolve; },
     setProviderStatuses: (statusesOf: (urls: readonly string[]) => ProviderStatus[]) => { providerStatusesOf = statusesOf; },
@@ -363,7 +364,7 @@ export function createPackStore({ homeDir, statePath, env, log, frameSecret, rel
     launcherProjectsInUse: () => launcherProjects(packsInUse()),
     launcherInUse: (packName: string, launcherId: string) => approvedLauncher(packsInUse(), packName, launcherId),
     panelInUse: (packName: string, panelId: string) => approvedPanel(packsInUse(), packName, panelId),
-    scheduledLaunchersInUse: () => scheduledLaunchers(packsInUse()),
+    scheduledEntriesInUse: () => scheduledEntries(packsInUse()),
     agentContributionsInUse: () => packAgentContributions(packsInUse()),
     mcpServersForSession,
     sharedMcpServers,

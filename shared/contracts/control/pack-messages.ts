@@ -47,6 +47,7 @@ export const PackRow = z.strictObject({
   mcpServers: z.array(z.strictObject({ name: z.string(), url: z.string(), notes: z.array(z.string()) })).default([]),
   hooks: z.array(z.strictObject({ id: z.string(), description: z.string(), tools: z.array(z.string()), command: z.array(z.string()) })).default([]),
   settings: z.array(z.strictObject({ key: z.string(), label: z.string(), kind: z.enum(['text', 'secret']), hint: z.string().nullable(), commands: z.array(z.string()) })).default([]),
+  jobs: z.array(z.strictObject({ id: z.string(), label: z.string(), schedule: z.string(), command: z.array(z.string()) })).default([]),
   errors: z.array(z.string()),
   isPlacedByHand: z.boolean().default(false).describe('The folder sits directly in ~/.glimmervoid/packs and packs install did not place it, so only the operator can remove it, from the Packs tab'),
 });

@@ -27,6 +27,7 @@ Published as the JSON Schema `https://glimmervoid.dev/schema/pack.v1.json`; poin
 | `mcp` | object |  |  | MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it See below. |
 | `hooks` | array of objects |  |  | Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it See below. |
 | `settings` | array of objects |  |  | Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
+| `jobs` | array of objects |  |  | Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
 
 ### `prFlows`
 
@@ -189,7 +190,22 @@ A list, min items 1, max items 16, of:
 | `settings[].label` | string, min length 1, max length 60 | yes |  | The field name shown to the operator in the pack Settings |
 | `settings[].kind` | one of `"text"`, `"secret"` |  | `"text"` | text: a plain value saved in Glimmervoid's pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands |
 | `settings[].hint` | string, max length 200 |  |  | One line under the field, such as where to find the value |
-| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command |
+| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action\|job):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command |
+
+### `jobs`
+
+Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it
+
+A list, min items 1, max items 8, of:
+
+| Field | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `jobs[].id` | string, matches `^[a-z0-9][a-z0-9-]{0,39}$` | yes |  | Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack |
+| `jobs[].label` | string, min length 1, max length 40 | yes |  | The name shown to the operator before approving and in a failure warning |
+| `jobs[].schedule` | string, max length 100 | yes |  | A cron pattern of five fields in the operator timezone; a run still going when the next one comes due skips that one, and runs never hold up other launchers or jobs |
+| `jobs[].catchUp` | boolean |  |  | Run once at once when a scheduled run fell while Glimmervoid was down or the host slept; off skips missed runs |
+| `jobs[].command` | array of string, min length 1, max length 1000, min items 1, max items 32 | yes |  | The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold {packDir}, the pack's folder. Its environment has the pack settings and the secrets that list job:<id>. It prints one JSON value on stdout, which Glimmervoid saves in the pack store under the key job:<id>, where the pack's panels read it and which panels cannot write |
+| `jobs[].timeoutSeconds` | integer, min 1, max 600 |  | `60` | Seconds before the run is stopped and counts as failed |
 
 ## Panel bridge
 
@@ -225,7 +241,7 @@ Save one key of the pack store; the host answers with a store message
 |---|---|---|---|---|
 | `v` | `1` | yes |  | The bridge protocol version; a message with any other v is ignored |
 | `kind` | `"store-set"` | yes |  |  |
-| `key` | string, min length 1, max length 128 | yes |  | Any key the pack picks |
+| `key` | string, min length 1, max length 128 | yes |  | Any key the pack picks; job:<id> keys hold job output, which panels read but cannot write |
 | `value` | any JSON value | yes |  | Any JSON value nested at most 32 levels deep; null deletes the key |
 
 #### `log`

@@ -5,7 +5,7 @@ import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
 import { PackAgent, PackHooks, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
-import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
+import type { PackCommandKind, PackHeader, PackHook, PackLauncher, PackMcpLaunch, PackMcpServer, PackOnDisk, PackJob, PackPrFlows as PackPrFlowsSection, PackSessions, PackSetting } from '../../../shared/contracts/pack.ts';
 import { packSecretEnvName, rendersPackServers } from '../../../mcp/core/agent-config.ts';
 import type { PackAgentContribution, PackAgentSkill } from '../../../session/core/pack-session-core.ts';
 import { packApproval, prFlowsPacksOf } from '../../github/core/pr-flows-core.ts';
@@ -112,10 +112,19 @@ export function approvedPanel(packs: readonly PackOnDisk[], packName: string, pa
   return { panel, sessions: packSessionSettings(pack) };
 }
 
-export type ScheduledPackLauncher = { pack: string; launcher: PackLauncher; schedule: string };
+export type ScheduledPackLauncher = { kind: 'launcher'; pack: string; launcher: PackLauncher; schedule: string };
+export type ScheduledPackJob = { kind: 'job'; pack: string; job: PackJob; schedule: string; packDir: string };
+export type ScheduledPackEntry = ScheduledPackLauncher | ScheduledPackJob;
 
-export function scheduledLaunchers(packs: readonly PackOnDisk[]): ScheduledPackLauncher[] {
-  return packs.flatMap((pack) => packLaunchers(pack).flatMap((launcher) => (launcher.schedule ? [{ pack: pack.header.name, launcher, schedule: launcher.schedule }] : [])));
+function packJobsOf(pack: PackOnDisk): PackJob[] {
+  return pack.jobs?.ok === true ? pack.jobs.value : [];
+}
+
+export function scheduledEntries(packs: readonly PackOnDisk[]): ScheduledPackEntry[] {
+  return packs.flatMap((pack) => [
+    ...packLaunchers(pack).flatMap((launcher): ScheduledPackEntry[] => (launcher.schedule ? [{ kind: 'launcher', pack: pack.header.name, launcher, schedule: launcher.schedule }] : [])),
+    ...packJobsOf(pack).map((job): ScheduledPackEntry => ({ kind: 'job', pack: pack.header.name, job, schedule: job.schedule, packDir: pack.dir })),
+  ]);
 }
 
 function packStatusUrls(pack: PackOnDisk): string[] {
@@ -206,7 +215,14 @@ export function packSecretNamesOf(servers: readonly PackMcpServer[]): string[] {
   return [...new Set(servers.flatMap((server) => (server.secret === undefined ? [] : [server.secret])))];
 }
 
-export function packCommandRefsOf(prFlows: PackPrFlowsSection | null): string[] {
+export function packCommandRefsOf(prFlows: PackPrFlowsSection | null, jobs: readonly PackJob[]): string[] {
+  return [
+    ...jobs.map((job) => packCommandRef('job', job.id)),
+    ...packPrFlowCommandRefs(prFlows),
+  ];
+}
+
+function packPrFlowCommandRefs(prFlows: PackPrFlowsSection | null): string[] {
   if (prFlows === null) return [];
   return [
     ...prFlows.sources.map((command) => packCommandRef('pr-source', command.id)),
@@ -276,7 +292,7 @@ function validPackRow(pack: PackOnDisk, approvedFingerprints: ReadonlySet<string
     launchers: packLaunchers(pack).map((launcher) => ({ id: launcher.id, label: launcher.label, project: launcher.project, agent: launcher.agent, model: launcher.model ?? null, effort: launcher.effort ?? null, prompt: launcher.prompt, schedule: launcher.schedule ?? null })),
     sessions: packSessionSettings(pack), statusUrls: packStatusUrls(pack), agent: packAgentRow(pack),
     mcpServers: packMcpServers(pack).map((server) => ({ name: server.name, url: server.url, notes: [...serverSecretNotes(server), ...serverClashNotes(server.name, operatorNames)] })),
-    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), settings: settingRows(pack), errors: sectionErrors,
+    hooks: packHooksOf(pack).map((hook) => ({ id: hook.id, description: hook.description, tools: hook.tools, command: hook.command })), settings: settingRows(pack), jobs: packJobsOf(pack).map((job) => ({ id: job.id, label: job.label, schedule: job.schedule, command: job.command })), errors: sectionErrors,
   };
 }
 
@@ -284,7 +300,7 @@ export function packRow(packDir: string, read: PackRead, approvedFingerprints: R
   if (read.ok) return { ...validPackRow(read.pack, approvedFingerprints, operatorNames), isPlacedByHand };
   return {
     name: path.basename(packDir), version: null, description: null, dir: packDir, state: 'invalid', fingerprint: null,
-    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], settings: [], errors: read.errors, isPlacedByHand,
+    files: [], needs: [], missingRequires: [], prFlows: null, themes: [], previewDataUrl: null, panels: [], launchers: [], sessions: null, statusUrls: [], agent: null, mcpServers: [], hooks: [], settings: [], jobs: [], errors: read.errors, isPlacedByHand,
   };
 }
 
