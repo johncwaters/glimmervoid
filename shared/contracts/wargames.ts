@@ -428,6 +428,11 @@ export const WargamesEvent = z.discriminatedUnion('type', [
   }),
   z.strictObject({
     seq: z.number().int().min(1),
+    type: z.literal('seat_ready'),
+    seatId: SeatId,
+  }),
+  z.strictObject({
+    seq: z.number().int().min(1),
     type: z.literal('orders_submitted'),
     seatId: SeatId,
     orders: z.array(OrderItem).max(64),
@@ -458,6 +463,12 @@ export const WargamesEvent = z.discriminatedUnion('type', [
   }),
 ]);
 export type WargamesEvent = z.infer<typeof WargamesEvent>;
+
+export const WargamesPhaseClock = z.strictObject({
+  remainingMs: z.number().int().min(0),
+  lengthMs: z.number().int().min(1),
+});
+export type WargamesPhaseClock = z.infer<typeof WargamesPhaseClock>;
 
 const DramaKind = z.enum(['contract_breach', 'ally_attack', 'forged_report']);
 

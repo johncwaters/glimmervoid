@@ -66,16 +66,6 @@
   letter-spacing: 0.08em;
 }
 
-.wg-badge[data-tone="live"] {
-  border-color: var(--state-running);
-  color: var(--state-running);
-}
-
-.wg-badge[data-tone="done"] {
-  border-color: var(--border-hover);
-  color: var(--text-dim);
-}
-
 .wg-badge[data-tone="breach"] {
   border-color: var(--state-failed);
   color: var(--state-failed);

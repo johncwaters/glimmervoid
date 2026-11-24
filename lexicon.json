@@ -1557,6 +1557,10 @@
     {
       "name": "large",
       "definition": "A size name with two senses: the Wargames map size between Standard and Huge (radius 6), and the board box title size between the default and XL"
+    },
+    {
+      "name": "clock",
+      "definition": "The time source code reads the current time from (shared/clock.ts), which a pure core never reads; a Wargames phase clock is the time left in the current phase that the runner sends on the wargames-events frame"
     }
   ],
   "retired": [

@@ -1,3 +1,4 @@
+import { clock } from '#shared/clock.ts';
 import { WARGAMES_RULES_VERSION } from '#shared/contracts/wargames.ts';
 import type {
   MatchAnalytics,
@@ -5,10 +6,12 @@ import type {
   WargamesEvent,
   WargamesHistory,
   WargamesMatchSummary,
+  WargamesPhaseClock,
 } from '#shared/contracts/wargames.ts';
 import { analyzeMatch } from '#shared/wargames/analytics.ts';
 import { applyEvent, createInitialMatchState, replayMatch } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
+import type { PhaseDeadline } from './turn-track-core.ts';
 
 export type WargamesPov = 'god' | SeatId;
 
@@ -18,6 +21,7 @@ interface WargamesStoreSnapshot {
   watchedMatchId: string | null;
   events: readonly WargamesEvent[];
   headState: MatchState | null;
+  phaseDeadline: PhaseDeadline | null;
   pov: WargamesPov;
 }
 
@@ -30,6 +34,7 @@ let history: WargamesHistory = { currentRulesVersion: WARGAMES_RULES_VERSION, el
 let watchedMatchId: string | null = null;
 let events: WargamesEvent[] = [];
 let headState: MatchState | null = null;
+let phaseDeadline: PhaseDeadline | null = null;
 let pov: WargamesPov = 'god';
 
 function notify(): void {
@@ -42,7 +47,7 @@ export function subscribeWargames(listener: Listener): () => void {
 }
 
 export function wargamesSnapshot(): WargamesStoreSnapshot {
-  return { matches, history, watchedMatchId, events, headState, pov };
+  return { matches, history, watchedMatchId, events, headState, phaseDeadline, pov };
 }
 
 export function displayedMatchState(): MatchState | null {
@@ -65,6 +70,7 @@ export function selectWatchedMatch(matchId: string | null): void {
   watchedMatchId = matchId;
   events = [];
   headState = null;
+  phaseDeadline = null;
   notify();
 }
 
@@ -78,8 +84,14 @@ export function applyWargamesHistory(frame: { history: WargamesHistory }): void 
   notify();
 }
 
-export function applyWargamesEvents(frame: { matchId: string; events: WargamesEvent[]; reset: boolean }): void {
+function deadlineFromClock(phaseClock: WargamesPhaseClock | null): PhaseDeadline | null {
+  if (phaseClock === null) return null;
+  return { deadlineAtMs: clock.nowMs() + phaseClock.remainingMs, lengthMs: phaseClock.lengthMs };
+}
+
+export function applyWargamesEvents(frame: { matchId: string; events: WargamesEvent[]; reset: boolean; phaseClock: WargamesPhaseClock | null }): void {
   if (watchedMatchId === null || frame.matchId !== watchedMatchId) return;
+  phaseDeadline = deadlineFromClock(frame.phaseClock);
   if (frame.reset) {
     if (frame.events.length === 0 || frame.events[0].type !== 'match_created') {
       events = [];

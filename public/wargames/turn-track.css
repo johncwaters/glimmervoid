@@ -1,0 +1,188 @@
+@layer components {
+
+.wg-track {
+  display: inline-flex;
+  align-items: center;
+}
+
+.wg-track-visual {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wg-track-pips {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  width: 160px;
+  height: 10px;
+}
+
+.wg-track-pips:has(> :nth-child(41)) {
+  gap: 1px;
+}
+
+.wg-track-pip {
+  flex: 1 1 0;
+  min-width: 1px;
+  height: 100%;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--border-hover);
+}
+
+.wg-track-pip[data-state="played"] {
+  box-shadow: none;
+  background: var(--text-dim);
+}
+
+.wg-track-pip[data-state="current"] {
+  box-shadow: none;
+  background: var(--accent);
+}
+
+.wg-track-turn {
+  min-width: 5ch;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.wg-track-phases {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wg-track-phase {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.wg-track-phase[data-state="active"] {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.wg-track[data-mode="seating"] .wg-track-phase {
+  opacity: 0.25;
+}
+
+.wg-track-clock {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+}
+
+.wg-track-clock > * {
+  grid-area: 1 / 1;
+}
+
+.wg-track-ring {
+  transform: rotate(-90deg);
+}
+
+.wg-track-ring-track {
+  stroke: var(--border-dim);
+  stroke-width: 2.5;
+}
+
+.wg-track-ring-arc {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: butt;
+}
+
+.wg-track-clock[data-state="low"] .wg-track-ring-arc {
+  stroke: var(--state-waiting);
+}
+
+.wg-track-clock[data-state="idle"] .wg-track-ring-arc,
+.wg-track-clock[data-state="ended"] .wg-track-ring {
+  visibility: hidden;
+}
+
+.wg-track[data-mode="seating"] .wg-track-ring {
+  visibility: hidden;
+}
+
+.wg-track-clock-text {
+  color: var(--text-head);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.wg-track-clock[data-state="low"] .wg-track-clock-text {
+  color: var(--state-waiting);
+}
+
+.wg-track-end {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.wg-track-end svg {
+  width: 18px;
+  height: 18px;
+}
+
+.wg-track-seats {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wg-track-seat {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--seat-color) 55%, transparent);
+}
+
+.wg-track-seat[data-state="lit"] {
+  border-color: var(--seat-color);
+  background: var(--seat-color);
+}
+
+.wg-track-seat[data-state="late"] {
+  border-color: var(--state-waiting);
+  border-style: dashed;
+}
+
+.wg-track-seat[data-state="out"] {
+  border-color: var(--text-muted);
+  opacity: 0.35;
+}
+
+.wg-track-seat[data-state="dim"] {
+  opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wg-track-pip[data-state="current"] {
+    animation: wg-track-pip-pulse 1.6s ease-out 3;
+  }
+
+  .wg-track-ring-arc {
+    transition: stroke-dashoffset 1s linear;
+  }
+}
+
+@keyframes wg-track-pip-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
+  }
+}
+
+}

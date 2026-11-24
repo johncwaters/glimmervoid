@@ -326,7 +326,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'race-mine-cases-result', requestId: 'r11', ok: true, error: null, mined: 3, refused: 27 },
   { type: 'wargames-status', matches: [{ matchId: 'wg-1', rulesVersion: 'v1', hasCustomStrategy: false, title: 'Test Match', seed: 4242, createdAtMs: 1761740000000, finishedAtMs: null, status: 'running', tick: 1, maxTicks: 40, phase: 'talk', winnerSeatId: null, winnerModelDisplay: null, breachCount: 0, eventCount: 2, seats: [{ seatId: 's1', label: 'Seat 1', modelDisplay: 'codex', status: 'acting', villagesHeld: 3, breaches: 0 }] }] },
   { type: 'wargames-history', history: { currentRulesVersion: 'v1', eloByModel: [{ modelDisplay: 'codex', elo: 1512, matchesPlayed: 1, wins: 1, avgVillages: 12, breaches: 0 }], eloByVersion: { v1: [{ modelDisplay: 'codex', elo: 1512, matchesPlayed: 1, wins: 1, avgVillages: 12, breaches: 0 }] }, matches: [] } },
-  { type: 'wargames-events', matchId: 'wg-1', events: [{ seq: 1, type: 'seating_started' }], reset: false },
+  { type: 'wargames-events', matchId: 'wg-1', events: [{ seq: 1, type: 'seating_started' }], reset: false, phaseClock: { remainingMs: 12_000, lengthMs: 20_000 } },
   { type: 'wargames-start-result', requestId: 'w1', ok: true, error: null, matchId: 'wg-1' },
   { type: 'wargames-abort-result', requestId: 'w2', ok: true, error: null },
   { type: 'wargames-watch-result', requestId: 'w3', ok: true, error: null, matchId: 'wg-1' },

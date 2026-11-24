@@ -113,6 +113,7 @@ export interface MatchState {
   hexes: HexTile[];
   villages: (VillageState | null)[];
   seats: SeatRuntimeState[];
+  readySeatIds: SeatId[];
   armies: Map<string, ArmyState>;
   contracts: Map<string, ContractRecord>;
   messages: MessageRecord[];
@@ -359,6 +360,7 @@ function cloneState(state: MatchState): MatchState {
     ...state,
     villages: state.villages.map(cloneVillage),
     seats: state.seats.map((seat) => ({ ...seat, sealedOrders: [...seat.sealedOrders] })),
+    readySeatIds: [...state.readySeatIds],
     armies,
     contracts,
     messages: [...state.messages],
@@ -583,6 +585,7 @@ export function createInitialMatchState(
     hexes: [...hexes],
     villages,
     seats: orderedSeats,
+    readySeatIds: [],
     armies: new Map(),
     contracts: new Map(),
     messages: [],
@@ -760,6 +763,7 @@ function makeSignedReport(
 }
 
 function startActiveSeatsForPhase(state: MatchState): void {
+  state.readySeatIds = [];
   for (const seat of state.seats) {
     if (seat.status === 'eliminated' || seat.status === 'disconnected') continue;
     const transitioned = transitionSeat(seat.status, 'phase_start');
@@ -1639,6 +1643,15 @@ export function applyEvent(
     const rejected = transitionContract(contract.status, 'contract_reject');
     if (!rejected.ok) return rejected;
     contract.status = rejected.state;
+    state.lastSeq = event.seq;
+    return { ok: true, state, effects };
+  }
+
+  if (event.type === 'seat_ready') {
+    if (state.phase !== 'talk' && state.phase !== 'contracts') return reject('invalid_phase', `ready allowed only in talk or contracts, got ${state.phase}`);
+    const seat = state.seats[seatIndexOf(event.seatId)];
+    if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
+    if (!state.readySeatIds.includes(event.seatId)) state.readySeatIds.push(event.seatId);
     state.lastSeq = event.seq;
     return { ok: true, state, effects };
   }

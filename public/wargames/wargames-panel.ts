@@ -42,24 +42,24 @@ import type { ViewModule } from '../view-registry-core.ts';
 import { GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
 import { createWargamesEconomy } from './wargames-economy.ts';
 import { createEconomyLens } from './wargames-economy-lens.ts';
+import { createTurnTrack } from './turn-track.ts';
+import type { TurnTrack } from './turn-track.ts';
+import type { TurnTrackInput } from './turn-track-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
+import { ACTING_PHASE_GLYPHS, WARGAMES_GLYPH_PATHS } from './wargames-glyphs.ts';
 import {
   BREACH_WARNING_PATH,
   BUILDING_GLYPH_PATHS,
   CONTROL_FLAG_PATH,
   controlToneColor,
   createWargamesMap,
-  GRAIN_GLYPH_PATH,
   isMatchOver,
-  MARCH_ARROW_PATH,
-  ORE_GLYPH_PATH,
   PACT_SCROLL_PATH,
   SCOUT_EYE_PATH,
   SEAT_COLORS,
   seatLabelOf,
   THOUGHT_CLOUD_PATH,
   UNIT_GLYPH_PATHS,
-  VILLAGE_GLYPH_PATH,
 } from './wargames-map.ts';
 import './wargames-panel.css';
 import {
@@ -124,6 +124,7 @@ let unsubscribe: (() => void) | null = null;
 const failedAutoWatchIds = new Set<string>();
 
 let mapView: ReturnType<typeof createWargamesMap> | null = null;
+let turnTrack: TurnTrack | null = null;
 let inspectorView: ReturnType<typeof createWargamesInspector> | null = null;
 let economyView: ReturnType<typeof createWargamesEconomy> | null = null;
 let economyLens: ReturnType<typeof createEconomyLens> | null = null;
@@ -183,40 +184,9 @@ const SEAT_STATUS_LABELS: Readonly<Record<SeatStatus, string>> = Object.freeze({
   eliminated: 'Eliminated',
 });
 
-const WARGAMES_GLYPH_PATHS = Object.freeze({
-  skull: 'M 4 7 A 4 4 0 1 1 12 7 V 10 H 10 V 13 H 6 V 10 H 4 Z M 6.5 7.5 H 6.6 M 9.5 7.5 H 9.6',
-  scroll: PACT_SCROLL_PATH,
-  crosshair: 'M 8 2 V 5 M 8 11 V 14 M 2 8 H 5 M 11 8 H 14 M 5 8 A 3 3 0 1 0 11 8 A 3 3 0 1 0 5 8',
-  swords: 'M 3 13 L 12 4 M 10 3 L 13 3 L 13 6 M 13 13 L 4 4 M 6 3 L 3 3 L 3 6',
-  clock: 'M 3 8 A 5 5 0 1 0 13 8 A 5 5 0 1 0 3 8 M 8 5 V 8 L 10 9.5',
-  ready: 'M 5 8 A 3 3 0 1 0 11 8 A 3 3 0 1 0 5 8',
-  offline: 'M 4 8 A 4 4 0 1 0 12 8 A 4 4 0 1 0 4 8 M 5 11 L 11 5',
-  breach: BREACH_WARNING_PATH,
-  territory: VILLAGE_GLYPH_PATH,
-  arrow: MARCH_ARROW_PATH,
-  grain: GRAIN_GLYPH_PATH,
-  ore: ORE_GLYPH_PATH,
-});
-
 const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap', string>> = Object.freeze({
   escrow: 'Escrow deal',
   nap: 'Non-aggression pact',
-});
-
-const PHASE_BADGE_LABELS: Readonly<Record<TickPhase, string>> = Object.freeze({
-  talk: 'Talk',
-  contracts: 'Negotiate',
-  orders: 'Orders',
-  resolving: 'Resolving',
-  reported: 'Resolved',
-});
-
-const ACTING_PHASE_GLYPHS: Readonly<Record<TickPhase, string>> = Object.freeze({
-  talk: CHAT_ICON_PATH,
-  contracts: WARGAMES_GLYPH_PATHS.scroll,
-  orders: WARGAMES_GLYPH_PATHS.crosshair,
-  resolving: WARGAMES_GLYPH_PATHS.swords,
-  reported: WARGAMES_GLYPH_PATHS.swords,
 });
 
 const SEAT_STATUS_GLYPHS: Readonly<Record<SeatStatus, string>> = Object.freeze({
@@ -279,6 +249,10 @@ function pluralized(count: number, singular: string): string {
   return count === 1 ? `${count} ${singular}` : `${count} ${singular}s`;
 }
 
+function displayedSeatStatus(state: MatchState, seat: MatchState['seats'][number]): SeatStatus {
+  return state.readySeatIds.includes(seat.config.seatId) ? 'submitted' : seat.status;
+}
+
 function formatSeatStatusLabel(status: SeatStatus, phase: TickPhase, matchStatus: MatchState['status']): string {
   if (status === 'acting') return ACTING_PHASE_LABELS[phase];
   if (status === 'disconnected' && matchStatus !== 'seating' && matchStatus !== 'lobby') return 'Offline';
@@ -288,6 +262,27 @@ function formatSeatStatusLabel(status: SeatStatus, phase: TickPhase, matchStatus
 function seatStatusGlyphPath(status: SeatStatus, phase: TickPhase): string {
   if (status === 'acting') return ACTING_PHASE_GLYPHS[phase];
   return SEAT_STATUS_GLYPHS[status];
+}
+
+function ensureTurnTrack(): TurnTrack {
+  turnTrack ??= createTurnTrack();
+  return turnTrack;
+}
+
+function turnTrackInputOf(state: MatchState): TurnTrackInput {
+  return {
+    status: state.status,
+    tick: state.tick,
+    maxTicks: state.spec.maxTicks,
+    phase: state.phase,
+    winnerSeatId: state.winnerSeatId,
+    seats: state.seats.map((seat) => ({
+      seatId: seat.config.seatId,
+      label: seatLabelOf(state, seat.config.seatId),
+      status: seat.status,
+      isLockedIn: displayedSeatStatus(state, seat) === 'submitted',
+    })),
+  };
 }
 
 function formatError(reason: unknown): string {
@@ -574,11 +569,11 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     banner.setAttribute('aria-pressed', String(isSelected));
     banner.addEventListener('click', () => handleFactionBannerClick(seatId));
 
-    const statusLabel = formatSeatStatusLabel(seat.status, state.phase, state.status);
+    const statusLabel = formatSeatStatusLabel(displayedSeatStatus(state, seat), state.phase, state.status);
     const statusIcon = createWargamesGlyph(
-      seatStatusGlyphPath(seat.status, state.phase),
+      seatStatusGlyphPath(displayedSeatStatus(state, seat), state.phase),
       13,
-      SEAT_STATUS_TONES[seat.status],
+      SEAT_STATUS_TONES[displayedSeatStatus(state, seat)],
       statusLabel,
     );
 
@@ -682,7 +677,7 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
   titleWrap.append(
     swatch,
     el('span', 'wg-card-title', seat.config.label),
-    el('span', 'wg-card-meta', `${agentAndModel} · ${formatSeatStatusLabel(seat.status, state.phase, state.status)}${tribeTag}`),
+    el('span', 'wg-card-meta', `${agentAndModel} · ${formatSeatStatusLabel(displayedSeatStatus(state, seat), state.phase, state.status)}${tribeTag}`),
   );
   head.append(
     titleWrap,
@@ -1324,12 +1319,10 @@ function render(): void {
 
   const meta = el('div', 'wg-match-meta');
   if (state) {
-    const isLive = isActiveMatchStatus(state.status);
-    const statusLabel = isLive ? 'LIVE' : state.status.toUpperCase();
-    const statusBadge = el('span', 'wg-badge', `${statusLabel} · Turn ${state.tick}/${state.spec.maxTicks} · ${PHASE_BADGE_LABELS[state.phase]}`);
-    statusBadge.dataset.tone = isLive ? 'live' : 'done';
+    const track = ensureTurnTrack();
+    track.update(turnTrackInputOf(state), snap.phaseDeadline);
     meta.append(
-      statusBadge,
+      track.element,
       el('span', 'wg-match-title', state.spec.title),
     );
     if (state.status === 'running' || state.status === 'seating') {

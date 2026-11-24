@@ -151,7 +151,7 @@ test('wargames runner drives seating, 10 MCP tools, JSONL log, summary index, HM
   }
 });
 
-test('wargames runner fast-advances talk and contracts when all seats pass ready, wakes wait_for_change, and invokes lifecycle hooks', async () => {
+test('wargames runner fast-advances talk and contracts when all seats pass ready, logs each lock-in, lets a ready seat keep talking, sends the phase clock, and invokes lifecycle hooks', async () => {
   const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-runner-ready-'));
   try {
     const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
@@ -181,6 +181,9 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
       await runner.callTool(matchId, seatId, 'get_state', {});
     }
     assert.deepEqual(phaseEvents, ['1:talk']);
+    const watched = await runner.watchMatch(matchId, 'watcher-1');
+    assert.equal(watched.ok, true);
+    if (watched.ok) assert.deepEqual(watched.phaseClock, { remainingMs: 20_000, lengthMs: 20_000 });
 
     const waitingSeat = runner.callTool(matchId, 's1', 'get_state', { ready: true, wait_for_change: true });
     for (const seatId of ['s2', 's3', 's4', 's5', 's6'] as const) {
@@ -195,10 +198,16 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
     }
     assert.deepEqual(phaseEvents, ['1:talk', '1:contracts']);
 
+    await runner.callTool(matchId, 's1', 'get_state', { ready: true });
+    const readySeatProposal = await runner.callTool(matchId, 's1', 'propose_contract', { terms: { kind: 'nap', counterparty: 's2', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
+    assert.equal(readySeatProposal.ok, true);
     for (const seatId of WARGAMES_SEAT_IDS) {
       await runner.callTool(matchId, seatId, 'get_state', { ready: true });
     }
     assert.deepEqual(phaseEvents, ['1:talk', '1:contracts', '1:orders']);
+    const loggedEvents = await store.readEvents(matchId);
+    assert.equal(loggedEvents.filter((event) => event.type === 'seat_ready').length, 12);
+    assert.equal(replayMatch(loggedEvents).phase, 'orders');
 
     await runner.abortMatch(matchId, 'finished check');
     assert.equal(endedSessions.length, 6);

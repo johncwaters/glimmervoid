@@ -63,7 +63,7 @@ export function createWargamesHandlers(
       replyTo(ws, msg, 'wargames-watch-result', { ok: false, error: watched.error });
       return;
     }
-    ws.send(JSON.stringify({ type: 'wargames-events', matchId: msg.matchId, events: watched.events, reset: true }));
+    ws.send(JSON.stringify({ type: 'wargames-events', matchId: msg.matchId, events: watched.events, reset: true, phaseClock: watched.phaseClock }));
     replyTo(ws, msg, 'wargames-watch-result', { ok: true, error: null, matchId: msg.matchId });
   }
 

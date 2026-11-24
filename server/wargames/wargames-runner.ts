@@ -20,6 +20,7 @@ import type {
   WargamesHistory,
   WargamesMatchSpec,
   WargamesMatchSummary,
+  WargamesPhaseClock,
   WargamesRejection,
 } from '../../shared/contracts/wargames.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
@@ -41,7 +42,7 @@ import type { WargamesStore } from './wargames-store.ts';
 type WargamesBroadcastFrame =
   | { type: 'wargames-status'; matches: WargamesMatchSummary[] }
   | { type: 'wargames-history'; history: WargamesHistory }
-  | { type: 'wargames-events'; matchId: string; events: WargamesEvent[]; reset: boolean };
+  | { type: 'wargames-events'; matchId: string; events: WargamesEvent[]; reset: boolean; phaseClock: WargamesPhaseClock | null };
 
 type SeatLaunchFn = (
   matchId: string,
@@ -65,10 +66,10 @@ interface LiveMatch {
   eventCount: number;
   nextContractNumber: number;
   deadlineTimer: NodeJS.Timeout | null;
+  phaseDeadline: { deadlineAtMs: number; lengthMs: number } | null;
   sessionIds: string[];
   serialQueue: Promise<void>;
   tickToolCounts: Map<string, number>;
-  readySeats: Set<SeatId>;
   phaseWaiters: Set<() => void>;
   hooks?: WargamesMatchHooks;
 }
@@ -78,7 +79,7 @@ export interface WargamesRunner extends WargamesSeatPort {
   startMatch(spec: WargamesMatchSpec, launchSeat?: SeatLaunchFn, hooks?: WargamesMatchHooks): Promise<{ ok: true; matchId: string; error: string | null } | { ok: false; error: string }>;
   abortMatch(matchId: string, reason: string): Promise<{ ok: true } | { ok: false; error: string }>;
   seatSessionEnded(sessionId: string, reason: string): void;
-  watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[] } | { ok: false; error: string }>;
+  watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[]; phaseClock: WargamesPhaseClock | null } | { ok: false; error: string }>;
   unwatchMatch(matchId: string, watcherId: string): void;
   removeWatcher(watcherId: string): void;
   statusFrame(): { type: 'wargames-status'; matches: WargamesMatchSummary[] };
@@ -183,7 +184,23 @@ export function createWargamesRunner({
     };
   }
 
+  function phaseClockOf(live: LiveMatch | undefined): WargamesPhaseClock | null {
+    if (!live?.phaseDeadline) return null;
+    return {
+      remainingMs: Math.max(0, live.phaseDeadline.deadlineAtMs - now()),
+      lengthMs: live.phaseDeadline.lengthMs,
+    };
+  }
+
+  function everySeatDone(live: LiveMatch): boolean {
+    return matchSeatIds(live.state).every((id) => {
+      const seat = live.state.seats[seatIndexOf(id)];
+      return live.state.readySeatIds.includes(id) || seat.status === 'submitted' || seat.status === 'eliminated' || seat.status === 'timedOut';
+    });
+  }
+
   function clearDeadline(live: LiveMatch): void {
+    live.phaseDeadline = null;
     if (!live.deadlineTimer) return;
     clearTimeoutFn(live.deadlineTimer);
     live.deadlineTimer = null;
@@ -195,6 +212,10 @@ export function createWargamesRunner({
     const expectedTick = live.state.tick;
     const expectedPhase: TickPhase = live.state.phase;
     const phaseMs = Math.max(1000, Math.floor((live.state.spec.tickDeadlineSeconds * 1000) / 3));
+    live.phaseDeadline = { deadlineAtMs: now() + phaseMs, lengthMs: phaseMs };
+    if (hasWatchers(live.state.matchId)) {
+      broadcast({ type: 'wargames-events', matchId: live.state.matchId, events: [], reset: false, phaseClock: phaseClockOf(live) });
+    }
     live.deadlineTimer = setTimeoutFn(() => {
       live.deadlineTimer = null;
       void enqueueMatch(live, async () => {
@@ -234,7 +255,7 @@ export function createWargamesRunner({
     const summary = summarizeMatch(live.state, finishedAtMs, live.eventCount);
     await store.saveSummary(summary);
     if (hasWatchers(live.state.matchId)) {
-      broadcast({ type: 'wargames-events', matchId: live.state.matchId, events: [persistedEvent], reset: false });
+      broadcast({ type: 'wargames-events', matchId: live.state.matchId, events: [persistedEvent], reset: false, phaseClock: phaseClockOf(live) });
     }
     if (live.state.status === 'finished') {
       clearDeadline(live);
@@ -292,7 +313,6 @@ export function createWargamesRunner({
       });
       live.tickToolCounts.clear();
     }
-    live.readySeats.clear();
     wakePhaseWaiters(live);
     if (live.state.status === 'running') {
       schedulePhaseDeadline(live);
@@ -324,10 +344,10 @@ export function createWargamesRunner({
       eventCount: 1,
       nextContractNumber: 1,
       deadlineTimer: null,
+      phaseDeadline: null,
       sessionIds: [],
       serialQueue: Promise.resolve(),
       tickToolCounts: new Map(),
-      readySeats: new Set(),
       phaseWaiters: new Set(),
       hooks,
     };
@@ -400,13 +420,13 @@ export function createWargamesRunner({
     });
   }
 
-  async function watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[] } | { ok: false; error: string }> {
+  async function watchMatch(matchId: string, watcherId: string): Promise<{ ok: true; events: WargamesEvent[]; phaseClock: WargamesPhaseClock | null } | { ok: false; error: string }> {
     const events = await store.readEvents(matchId);
     if (events.length === 0) return { ok: false, error: `No log found for match ${matchId}` };
     const watchers = watchersByMatchId.get(matchId) ?? new Set<string>();
     watchers.add(watcherId);
     watchersByMatchId.set(matchId, watchers);
-    return { ok: true, events };
+    return { ok: true, events, phaseClock: phaseClockOf(liveByMatchId.get(matchId)) };
   }
 
   function unwatchMatch(matchId: string, watcherId: string): void {
@@ -437,7 +457,6 @@ export function createWargamesRunner({
     const wasSeating = live.state.status === 'seating';
     await commitEventSerialized(live, { seq: live.state.lastSeq + 1, type: 'seat_connected', seatId });
     if (wasSeating && live.state.status === 'running') {
-      live.readySeats.clear();
       wakePhaseWaiters(live);
       schedulePhaseDeadline(live);
       live.hooks?.onPhaseChanged?.(live.state.matchId, live.state.tick, live.state.phase, live.state.status, activeSessionIds(live));
@@ -486,13 +505,13 @@ export function createWargamesRunner({
         const startPhase = live.state.phase;
         const startStatus = live.state.status;
         await ensureSeatConnectedSerialized(live, seatId);
-        if (readyFlag && live.state.status === 'running' && (live.state.phase === 'talk' || live.state.phase === 'contracts')) {
-          live.readySeats.add(seatId);
-          const allReady = matchSeatIds(live.state).every((id) => {
-            const seatStatus = live.state.seats[seatIndexOf(id)].status;
-            return seatStatus === 'eliminated' || seatStatus === 'timedOut' || live.readySeats.has(id);
-          });
-          if (allReady) await advancePhaseSerialized(live, 'all_submitted');
+        const canReady = live.state.status === 'running'
+          && (live.state.phase === 'talk' || live.state.phase === 'contracts')
+          && live.state.seats[seatIndexOf(seatId)].status === 'acting'
+          && !live.state.readySeatIds.includes(seatId);
+        if (readyFlag && canReady) {
+          await commitEventSerialized(live, { seq: live.state.lastSeq + 1, type: 'seat_ready', seatId });
+          if (everySeatDone(live)) await advancePhaseSerialized(live, 'all_submitted');
         }
         const changed = live.state.tick !== startTick || live.state.phase !== startPhase || live.state.status !== startStatus;
         return { ended: false as const, status: live.state.status, tick: live.state.tick, phase: live.state.phase, changed };
@@ -612,11 +631,7 @@ export function createWargamesRunner({
           orders: parsedOrders.data,
         });
         if (!committed.ok) return committed;
-        const allSubmitted = matchSeatIds(live.state).every((id) => {
-          const seatStatus = live.state.seats[seatIndexOf(id)].status;
-          return seatStatus === 'submitted' || seatStatus === 'eliminated' || seatStatus === 'timedOut';
-        });
-        if (allSubmitted) await advancePhaseSerialized(live, 'all_submitted');
+        if (everySeatDone(live)) await advancePhaseSerialized(live, 'all_submitted');
         return { ok: true, payload: { submitted: true, tick: live.state.tick, phase: live.state.phase } };
       }
       return rejectionReply('invalid_order', `unknown tool ${toolName}`);
