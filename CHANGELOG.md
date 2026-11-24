@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Usage data now records dashboard reconnects.** When usage data is on, the dashboard sends a `dashboard_reconnected` event each time it gets its connection back. The event says what started the reconnect, how long it took, how many tries the connection needed, how long the tab was hidden, and whether the dashboard runs on this machine, on a tailnet or on another host. It never includes the host name or URL. The event is listed with the others in the configuration docs. Board graphics reports, and other dashboard reports made while the connection is down, are now held and sent once it is back instead of being dropped. At most 50 are kept.
+- **Usage data now records slow board opens.** When usage data is on, the server sends a `board_opened` event each time it loads a whiteboard to show it. The event says how long the open took, how many tiles it sent, whether a saved layout was reused, which step was slowest and how much memory the server was using. It never includes the board, its id or its contents.
 
 ### Changed
 

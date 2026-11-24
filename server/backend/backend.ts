@@ -353,6 +353,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   const whiteboards = createWhiteboardWiring({
     boardsRoot: configSiblingPath(configStore.configPath, WHITEBOARDS_FOLDER_NAME),
     broadcastControl: broadcastControlFromWebSockets,
+    reportBoardOpened: (report) => telemetry.capture('board_opened', report),
     codeContextOf: (sessionId) => {
       const session = getSessionAny(sessionId);
       return session ? { root: session.effectiveCwd(), buildChangeMap: () => changeMaps.build(session) } : null;

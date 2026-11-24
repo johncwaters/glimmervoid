@@ -6,6 +6,7 @@ import { BOARD_WORKBOOK_MIME, BoardAttachments, BoardRecord, BoxInput, NOTE_TONE
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import type { Board, BoardRegion, BoardReview, BoardSummary, BoxMedia, Element, MediaLink, Near, LinkStateOfBox, Op, ReadElement, WhiteboardAgentRequest } from '../../shared/contracts/whiteboard.ts';
 import type { OpenBoardAsk } from '../../shared/contracts/control/board-session-messages.ts';
+import type { TelemetryEventProperties } from '../../shared/contracts/telemetry.ts';
 import type { AgentReplyBodyOf } from '../../shared/contracts/session.ts';
 import type { ServerMessageOf } from '../../shared/contracts/control-messages.ts';
 import type { DiffBefore, SlideChain, WhiteboardPatch } from '../../shared/contracts/control/whiteboard-messages.ts';
@@ -160,6 +161,7 @@ interface WhiteboardWiringOptions {
   onBoardNamedProvisionally?: (naming: ProvisionalBoardNaming) => void;
   codemapNoticeOf?: (project: string) => string | null;
   studioBoardIdOf?: (sessionId: string) => Promise<string | null>;
+  reportBoardOpened?: (report: TelemetryEventProperties<'board_opened'>) => void;
 }
 
 interface ProvisionalBoardNaming {
@@ -315,7 +317,7 @@ function operatorReplyOf(reply: WhiteboardReply): OperatorReply {
 }
 
 function createWhiteboardWiring({
-  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null, studioBoardIdOf = () => Promise.resolve(null),
+  boardsRoot, broadcastControl = () => {}, now = clock.nowMs, newBoardId = () => crypto.randomUUID(), logger = console, codeContextOf = () => null, projectOf = () => null, parentIdOf = () => null, onBoardNamedProvisionally = () => {}, codemapNoticeOf = () => null, studioBoardIdOf = () => Promise.resolve(null), reportBoardOpened = () => {},
 }: WhiteboardWiringOptions): WhiteboardPort {
   const recordsByBoardId = new Map<string, BoardRecord>();
   const linkedFolderKeeperIdByKey = new Map<string, string>();
@@ -339,7 +341,7 @@ function createWhiteboardWiring({
   const store = createBoardStore(boardsRoot);
   const unloadedBoardIds = new Set<string>();
   const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
-  const openStepLogs = createOpenStepLogs(logger);
+  const openStepLogs = createOpenStepLogs(logger, reportBoardOpened);
   const linkedBoards = createLinkedBoards({ boardsRoot, assets, logger });
   const linkStateByBoardId = new Map<string, Pick<LinkSync, 'state' | 'text'>>();
   const linkAutosaveByBoardId = new Map<string, ReturnType<typeof createCoalescedTimer>>();
