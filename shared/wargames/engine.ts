@@ -1,6 +1,7 @@
 import {
   BuildingKind,
   WARGAMES_HEX_RADIUS,
+  WARGAMES_OPEN_HEX_COUNT,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_MAX_HEX_RADIUS,
   WARGAMES_MAX_MESSAGES_PER_TICK,
@@ -46,6 +47,8 @@ import {
   transitionTick,
   transitionVillage,
 } from './machines.ts';
+import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateTerrain, isPassable, marchCostOf, tileKey } from './terrain.ts';
+import type { TerrainKind } from './terrain.ts';
 
 export interface ReportSigner {
   sign(canonicalPayload: string): string;
@@ -129,6 +132,7 @@ export interface MatchState {
   lastSeq: number;
   balance: WargamesBalance;
   goalStreak: GoalStreak;
+  terrain: TerrainKind[];
 }
 
 interface GoalStreak {
@@ -167,6 +171,7 @@ interface SeatStateView {
   contracts: ContractRecord[];
   ledger: LedgerBreachEntry[];
   winnerSeatId: SeatId | null;
+  terrain: { hexIndex: number; kind: TerrainKind }[];
 }
 
 const STARTING_GRAIN = 200;
@@ -287,6 +292,53 @@ function stepTowardHex(radius: number, fromIndex: number, toIndex: number, maxSt
     current = bestIndex;
   }
   return current;
+}
+
+function marchStepsAlongTerrain(state: MatchState, fromIndex: number, toIndex: number, travelBudget: number): number {
+  if (fromIndex === toIndex || !isPassable(state.terrain[toIndex] ?? 'plain')) return fromIndex;
+  const grid = state.hexes;
+  const costByIndex = new Array<number>(grid.length).fill(Number.POSITIVE_INFINITY);
+  const previousByIndex = new Array<number>(grid.length).fill(-1);
+  const settled = new Array<boolean>(grid.length).fill(false);
+  costByIndex[fromIndex] = 0;
+  for (let round = 0; round < grid.length; round += 1) {
+    let current = -1;
+    for (let index = 0; index < grid.length; index += 1) {
+      if (settled[index] || costByIndex[index] === Number.POSITIVE_INFINITY) continue;
+      if (current === -1 || costByIndex[index] < costByIndex[current]) current = index;
+    }
+    if (current === -1 || current === toIndex) break;
+    settled[current] = true;
+    for (const direction of AXIAL_DIRECTIONS) {
+      const neighbor = hexIndexAt(grid[current].q + direction.q, grid[current].r + direction.r, state.spec.mapRadius);
+      if (neighbor < 0 || settled[neighbor] || !isPassable(state.terrain[neighbor])) continue;
+      const candidateCost = costByIndex[current] + marchCostOf(state.terrain[neighbor]);
+      if (candidateCost >= costByIndex[neighbor]) continue;
+      costByIndex[neighbor] = candidateCost;
+      previousByIndex[neighbor] = current;
+    }
+  }
+  if (previousByIndex[toIndex] === -1) return fromIndex;
+  const path: number[] = [];
+  for (let cursor = toIndex; cursor !== fromIndex; cursor = previousByIndex[cursor]) path.unshift(cursor);
+  let position = fromIndex;
+  let remainingBudget = travelBudget;
+  for (const nextIndex of path) {
+    const stepCost = marchCostOf(state.terrain[nextIndex]);
+    if (stepCost > remainingBudget) break;
+    remainingBudget -= stepCost;
+    position = nextIndex;
+  }
+  return position;
+}
+
+function hasTerrain(state: MatchState): boolean {
+  return state.terrain.some((kind) => kind !== 'plain');
+}
+
+function marchStep(state: MatchState, fromIndex: number, toIndex: number): number {
+  if (!hasTerrain(state)) return stepTowardHex(state.spec.mapRadius, fromIndex, toIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+  return marchStepsAlongTerrain(state, fromIndex, toIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
 }
 
 function nextMulberry32(rngState: number): { value: number; nextState: number } {
@@ -515,6 +567,41 @@ function barbarianHexCoords(radius: number, rulesVersion: WargamesMatchSpec['rul
   return coords;
 }
 
+function terrainForSpec(spec: WargamesMatchSpec): TerrainKind[] {
+  const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
+  const tiles = hexGridForRadius(mapRadius);
+  if (!isRulesAtLeast(spec.rulesVersion, 'v6')) return tiles.map(() => 'plain');
+  const seatLayout = seatLayoutFor(spec.seats.length);
+  const protectedKeys = new Set<string>(seatLayout.openLandKeys(mapRadius));
+  for (const homeTile of seatLayout.homeHexCoords(mapRadius).flat()) {
+    protectedKeys.add(tileKey(homeTile));
+    for (const direction of AXIAL_DIRECTIONS) protectedKeys.add(tileKey({ q: homeTile.q + direction.q, r: homeTile.r + direction.r }));
+  }
+  return generateTerrain({ tiles, radius: mapRadius, seatCount: spec.seats.length, seed: spec.seed, protectedKeys });
+}
+
+export function matchVillageCount(spec: WargamesMatchSpec): number {
+  const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
+  const blockedTiles = terrainForSpec(spec).filter((kind) => !isPassable(kind)).length;
+  return 3 * mapRadius * (mapRadius + 1) + 1 - WARGAMES_OPEN_HEX_COUNT - blockedTiles;
+}
+
+export function victoryVillagesFor(spec: WargamesMatchSpec): number {
+  return victoryVillagesForBalance(wargamesBalanceFor(spec.rulesVersion), matchVillageCount(spec));
+}
+
+export function villageCountOf(state: Pick<MatchState, 'villages'>): number {
+  return state.villages.filter((village) => village !== null).length;
+}
+
+export function victoryVillagesOf(state: Pick<MatchState, 'villages' | 'balance'>): number {
+  return victoryVillagesForBalance(state.balance, villageCountOf(state));
+}
+
+export function terrainOf(spec: WargamesMatchSpec): readonly TerrainKind[] {
+  return terrainForSpec(spec);
+}
+
 export function createInitialMatchState(
   matchId: string,
   createdAtMs: number,
@@ -525,6 +612,7 @@ export function createInitialMatchState(
   const villages: (VillageState | null)[] = Array.from({ length: hexes.length }, () => null);
   const seatIds = WARGAMES_SEAT_IDS.slice(0, spec.seats.length);
   const seatLayout = seatLayoutFor(seatIds.length);
+  const terrain = terrainForSpec(spec);
   const homeCoords = seatLayout.homeHexCoords(mapRadius);
   for (let seatIdx = 0; seatIdx < seatIds.length; seatIdx += 1) {
     const seatId = seatIds[seatIdx];
@@ -544,7 +632,7 @@ export function createInitialMatchState(
   }
   for (const coord of barbarianHexCoords(mapRadius, spec.rulesVersion, seatLayout)) {
     const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
-    if (hexIdx < 0 || villages[hexIdx] !== null) continue;
+    if (hexIdx < 0 || villages[hexIdx] !== null || !isPassable(terrain[hexIdx])) continue;
     villages[hexIdx] = {
       hexIndex: hexIdx,
       owner: null,
@@ -601,6 +689,7 @@ export function createInitialMatchState(
     lastSeq: 0,
     balance: wargamesBalanceFor(spec.rulesVersion),
     goalStreak: { seatId: null, turns: 0 },
+    terrain,
   };
 }
 
@@ -693,7 +782,8 @@ function isLastVillage(state: MatchState, village: VillageState): boolean {
 }
 
 function defenseMultiplierOf(state: MatchState, village: VillageState): number {
-  return isLastVillage(state, village) ? state.balance.lastVillageDefenseMultiplier : 1;
+  const forestMultiplier = state.terrain[village.hexIndex] === 'forest' ? FOREST_DEFENSE_MULTIPLIER : 1;
+  return (isLastVillage(state, village) ? state.balance.lastVillageDefenseMultiplier : 1) * forestMultiplier;
 }
 
 function captureVillage(state: MatchState, village: VillageState, newOwner: SeatId): void {
@@ -1117,8 +1207,10 @@ function resolveTick(
     const cap = warehouseCapOf(village);
     const gain = villageYieldOf(village);
     const productionMultiplier = isLastVillage(state, village) ? state.balance.lastVillageProductionMultiplier : 1;
-    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + gain.grain * productionMultiplier);
-    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + gain.ore * productionMultiplier);
+    const grainBonus = state.terrain[village.hexIndex] === 'fertile' ? BONUS_TILE_YIELD : 0;
+    const oreBonus = state.terrain[village.hexIndex] === 'ore' ? BONUS_TILE_YIELD : 0;
+    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + gain.grain * productionMultiplier + grainBonus);
+    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + gain.ore * productionMultiplier + oreBonus);
   }
 
   for (const village of state.villages) {
@@ -1199,6 +1291,7 @@ function resolveTick(
       const village = state.villages[order.fromHexIndex];
       if (!village || village.owner !== seat.config.seatId) continue;
       if (order.toHexIndex < 0 || order.toHexIndex >= state.hexes.length) continue;
+      if (!isPassable(state.terrain[order.toHexIndex])) continue;
       if (totalTroops(order.troops) <= 0) continue;
       if (village.troops.raider < order.troops.raider || village.troops.guard < order.troops.guard || village.troops.envoy < order.troops.envoy) continue;
       village.troops.raider -= order.troops.raider;
@@ -1272,7 +1365,7 @@ function resolveTick(
   if (state.spec.rulesVersion === 'v1') {
     for (const army of state.armies.values()) {
       if (army.status === 'marching') {
-        army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+        army.currentHexIndex = marchStep(state, army.currentHexIndex, army.targetHexIndex);
         if (army.currentHexIndex !== army.targetHexIndex) continue;
         const arrived = transitionArmy(army.status, 'army_arrive');
         if (!arrived.ok) continue;
@@ -1281,7 +1374,7 @@ function resolveTick(
         continue;
       }
       if (army.status === 'returning') {
-        army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+        army.currentHexIndex = marchStep(state, army.currentHexIndex, army.originHexIndex);
         if (army.currentHexIndex !== army.originHexIndex) continue;
         const homeVillage = state.villages[army.originHexIndex];
         if (homeVillage && homeVillage.owner === army.owner) {
@@ -1303,7 +1396,7 @@ function resolveTick(
     const hostileByHex = new Map<number, ArmyState[]>();
     for (const army of state.armies.values()) {
       if (army.status !== 'marching') continue;
-      army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.targetHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+      army.currentHexIndex = marchStep(state, army.currentHexIndex, army.targetHexIndex);
       if (army.currentHexIndex !== army.targetHexIndex) continue;
       const arrived = transitionArmy(army.status, 'army_arrive');
       if (!arrived.ok) continue;
@@ -1336,7 +1429,7 @@ function resolveTick(
     for (const armyId of returningBeforeCombat) {
       const army = state.armies.get(armyId);
       if (!army || army.status !== 'returning') continue;
-      army.currentHexIndex = stepTowardHex(state.spec.mapRadius, army.currentHexIndex, army.originHexIndex, WARGAMES_TRAVEL_HEXES_PER_TICK);
+      army.currentHexIndex = marchStep(state, army.currentHexIndex, army.originHexIndex);
       if (army.currentHexIndex !== army.originHexIndex) continue;
       const homeVillage = state.villages[army.originHexIndex];
       if (homeVillage && homeVillage.owner === army.owner) {
@@ -1375,7 +1468,7 @@ function resolveTick(
 }
 
 function goalWinnerAfterTurn(state: MatchState): SeatId | null {
-  const winVillages = victoryVillagesForBalance(state.balance, state.spec.mapRadius);
+  const winVillages = victoryVillagesOf(state);
   const seatsAtGoal = matchSeatIds(state).filter((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
   const holdTurns = state.balance.victory.kind === 'heldShare' ? state.balance.victory.holdTurns : 1;
   if (holdTurns <= 1) return seatsAtGoal.length > 0 ? determineWinnerAtLimit(state) : null;
@@ -1821,5 +1914,6 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     contracts: visibleContracts,
     ledger: [...state.ledger],
     winnerSeatId: state.winnerSeatId,
+    terrain: state.terrain.flatMap((kind, hexIndex) => (kind === 'plain' ? [] : [{ hexIndex, kind }])),
   };
 }

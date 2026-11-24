@@ -421,6 +421,7 @@
   width: 100%;
   max-width: 860px;
   height: auto;
+  max-height: max(360px, calc(100dvh - 400px));
   display: block;
 }
 

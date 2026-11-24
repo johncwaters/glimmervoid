@@ -11,7 +11,6 @@ import {
   WARGAMES_SQUEEZE_TICK,
   WargamesMatchSpec,
   WargamesMatchSummary,
-  victoryVillagesFor,
 } from '../shared/contracts/wargames.ts';
 import type { WargamesEvent } from '../shared/contracts/wargames.ts';
 import {
@@ -22,6 +21,7 @@ import {
   projectSeatState,
   replayMatch,
   replayMatchAtTick,
+  victoryVillagesFor,
 } from '../shared/wargames/engine.ts';
 import type { ReportSigner } from '../shared/wargames/engine.ts';
 import {
@@ -668,7 +668,7 @@ test('v5 populates dense maps, scales victory goal with mapRadius, and projects 
     assert.equal(victoryVillagesFor(spec), goal);
   }
 
-  assert.equal(victoryVillagesFor({ rulesVersion: 'v4', mapRadius: 4 }), 12);
+  assert.equal(victoryVillagesFor(WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v4', mapRadius: 4 })), 12);
 
   const r4Spec = WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v5', mapRadius: 4 });
   const r4State = createInitialMatchState('wg-v5-vision', 1000, r4Spec);
@@ -799,4 +799,25 @@ test('v6 wins only when a seat holds the majority goal at two turn ends in a row
 
   assert.deepEqual(playTurnsHoldingGoal('v5'), { statusAtTurnEnd: ['finished'], winner: 's1' });
   assert.deepEqual(playTurnsHoldingGoal('v6'), { statusAtTurnEnd: ['running', 'finished'], winner: 's1' });
+});
+
+test('v6 terrain on Large and Huge is seeded, the same around every seat, never under a village and in seat vision, while Standard stays plain', () => {
+  for (const seatCount of [4, 6] as const) {
+    for (const mapRadius of [6, 8]) {
+      const spec = WargamesMatchSpec.parse({ ...buildTestSpec(777001), rulesVersion: 'v6', mapRadius, seats: buildTestSpec().seats.slice(0, seatCount) });
+      const state = createInitialMatchState(`wg-terrain-${seatCount}-${mapRadius}`, 1000, spec);
+      assert.deepEqual(createInitialMatchState('again', 0, spec).terrain, state.terrain);
+      assert.ok(state.terrain.some((kind) => kind === 'mountain' || kind === 'lake'));
+      const isBlocked = (hexIndex: number) => state.terrain[hexIndex] === 'mountain' || state.terrain[hexIndex] === 'lake';
+      assert.equal(state.villages.some((village) => village !== null && isBlocked(village.hexIndex)), false);
+      const blockedNearSeat = state.seats.map((seat) => {
+        const homes = state.villages.flatMap((village) => (village?.owner === seat.config.seatId ? [state.hexes[village.hexIndex]] : []));
+        return state.hexes.filter((tile) => isBlocked(tile.index) && homes.some((home) => Math.max(Math.abs(home.q - tile.q), Math.abs(home.r - tile.r), Math.abs(home.q + home.r - tile.q - tile.r)) <= 4)).length;
+      });
+      assert.equal(new Set(blockedNearSeat).size, 1);
+      assert.equal(projectSeatState(state, 's1').terrain.length, state.terrain.filter((kind) => kind !== 'plain').length);
+    }
+  }
+  const standard = createInitialMatchState('wg-standard', 0, WargamesMatchSpec.parse({ ...buildTestSpec(), rulesVersion: 'v6', mapRadius: 4 }));
+  assert.equal(standard.terrain.every((kind) => kind === 'plain'), true);
 });

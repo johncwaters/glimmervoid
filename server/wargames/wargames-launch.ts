@@ -6,7 +6,9 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { WargamesMatchSpec, mapVillageCount, victoryHoldTurnsFor, victoryVillagesFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { WargamesMatchSpec, victoryHoldTurnsFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
+import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
@@ -108,7 +110,7 @@ function objectiveLine(spec: WargamesMatchSpecType): string {
   const clock = `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`;
   const fallback = `otherwise the seat with the most villages after tick ${spec.maxTicks} wins.`;
   if (holdTurns <= 1) return `${clock} First seat to hold ${winVillages} villages wins; ${fallback}`;
-  return `${clock} A seat wins by holding at least ${winVillages} of the ${mapVillageCount(spec.mapRadius)} villages at the end of ${holdTurns} ticks in a row; ${fallback}`;
+  return `${clock} A seat wins by holding at least ${winVillages} of the ${matchVillageCount(spec)} villages at the end of ${holdTurns} ticks in a row; ${fallback}`;
 }
 
 function loyaltyLines(spec: WargamesMatchSpecType): string[] {
@@ -126,6 +128,19 @@ function loyaltyLines(spec: WargamesMatchSpecType): string[] {
     lines.push(`- A seat down to its last village produces ${balance.lastVillageProductionMultiplier}x and defends it at ${balance.lastVillageDefenseMultiplier}x power.`);
   }
   return lines;
+}
+
+function terrainLines(spec: WargamesMatchSpecType): string[] {
+  const hasTerrain = terrainOf(spec).some((kind) => kind !== 'plain');
+  if (!hasTerrain) return [];
+  return [
+    '',
+    'Terrain (get_state lists every non-plain hex in terrain):',
+    '- Mountain and Lake hexes are impassable and hold no village; armies march around them, so they make fronts and chokepoints.',
+    `- Forest costs 2 of an army's 2 hexes of movement per tick to enter, and a village on Forest defends at ${FOREST_DEFENSE_MULTIPLIER}x power.`,
+    `- A village on Fertile land makes +${BONUS_TILE_YIELD} grain per tick; a village on an Ore deposit makes +${BONUS_TILE_YIELD} ore per tick.`,
+    '- Terrain is symmetric: every seat faces the same terrain around its home.',
+  ];
 }
 
 function buildingLines(spec: WargamesMatchSpecType): string[] {
@@ -157,6 +172,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     '',
     'Economy & Buildings (max level 10, 1 build per village per tick):',
     ...buildingLines(spec),
+    ...terrainLines(spec),
     '',
     'Diplomacy, Contracts & Tribes:',
     '- Messages: Send direct or tribe messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',

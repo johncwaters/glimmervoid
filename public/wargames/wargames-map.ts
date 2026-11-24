@@ -2,6 +2,8 @@ import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
+import { TERRAIN_MIN_RADIUS } from '#shared/wargames/terrain.ts';
+import type { TerrainKind } from '#shared/wargames/terrain.ts';
 import { CHAT_ICON_PATH, createSvgShape } from '../svg-dom.ts';
 import {
   createBoardAnimationQueue,
@@ -95,6 +97,38 @@ export const VILLAGE_GLYPH_PATH = 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z';
 export const MARCH_ARROW_PATH = 'M 3 8 H 13 M 9 4 L 13 8 L 9 12';
 export const GRAIN_GLYPH_PATH = 'M 8 13 V 3 M 8 6 L 5 4 M 8 6 L 11 4 M 8 9 L 5 7 M 8 9 L 11 7';
 export const ORE_GLYPH_PATH = 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z';
+const MOUNTAIN_GLYPH_PATH = 'M 2 13 L 6 5 L 9 10 L 11 7 L 14 13 Z';
+const LAKE_GLYPH_PATH = 'M 2 6 Q 4 4 6 6 T 10 6 T 14 6 M 2 10 Q 4 8 6 10 T 10 10 T 14 10';
+const FOREST_GLYPH_PATH = 'M 8 2 L 13 10 H 3 Z M 8 10 V 14';
+const TERRAIN_GLYPHS: Readonly<Record<Exclude<TerrainKind, 'plain'>, { path: string; color: string; label: string }>> = Object.freeze({
+  mountain: { path: MOUNTAIN_GLYPH_PATH, color: 'var(--text-dim)', label: 'Mountain' },
+  lake: { path: LAKE_GLYPH_PATH, color: 'var(--text-muted)', label: 'Lake' },
+  forest: { path: FOREST_GLYPH_PATH, color: 'var(--state-done)', label: 'Forest' },
+  fertile: { path: GRAIN_GLYPH_PATH, color: 'var(--state-waiting)', label: 'Fertile land' },
+  ore: { path: ORE_GLYPH_PATH, color: 'var(--state-monitoring)', label: 'Ore deposit' },
+});
+
+function emptyHexFill(isBlockedTerrain: boolean, isFogged: boolean): string {
+  if (isBlockedTerrain) return 'var(--bg-header)';
+  return isFogged ? 'var(--bg)' : 'var(--bg-surface)';
+}
+
+const TERRAIN_TINT_OPACITY = '0.14';
+
+function renderTerrainGlyph(container: SVGElement, centerX: number, centerY: number, kind: TerrainKind, isGlyphCentered: boolean): void {
+  container.replaceChildren();
+  if (kind === 'plain') return;
+  const glyph = TERRAIN_GLYPHS[kind];
+  const isBlocked = kind === 'mountain' || kind === 'lake';
+  if (!isBlocked) {
+    container.append(createSvgShape('polygon', { points: hexPolygonPoints(centerX, centerY), fill: glyph.color, 'fill-opacity': TERRAIN_TINT_OPACITY, stroke: 'none' }));
+  }
+  const glyphElement = isGlyphCentered
+    ? createMapStrokeGlyph(glyph.path, centerX, centerY, 18, glyph.color, '2')
+    : createMapStrokeGlyph(glyph.path, centerX - 13, centerY - 15, 13, glyph.color, '2');
+  glyphElement.setAttribute('aria-label', glyph.label);
+  container.append(glyphElement);
+}
 export const BUILD_HAMMER_PATH = 'M 8 7 V 14 M 3 3 H 11.5 L 13 5 L 11.5 7 H 3 Z';
 
 export function controlToneColor(loyalty: number, owner: SeatId | null): string {
@@ -344,6 +378,7 @@ interface HexNodeSlot {
   polygon: SVGElement;
   indexLabel: SVGElement;
   detailLabel: SVGElement;
+  terrainGroup: SVGElement;
   unitGroup: SVGElement;
   controlGroup: SVGElement;
   centerX: number;
@@ -1242,6 +1277,11 @@ export function createWargamesMap(
     const isSelected = selectedHexIndex === index;
     const isFogged = pov !== 'god' && state.villages[index] !== null && village === null;
     const isSpotlightActive = pov === 'god' && spotlightSeatId !== null;
+    const isDenseMap = state.spec.mapRadius >= TERRAIN_MIN_RADIUS;
+    const terrainKind = state.terrain[index] ?? 'plain';
+    slot.indexLabel.setAttribute('visibility', isDenseMap && !isSelected ? 'hidden' : 'visible');
+    const isQuietHex = village === null || (isDenseMap && village.owner === null && !isSelected);
+    renderTerrainGlyph(slot.terrainGroup, slot.centerX, slot.centerY, terrainKind, isQuietHex);
 
     if (village) {
       const isBarren = village.productionState === 'barren';
@@ -1261,11 +1301,13 @@ export function createWargamesMap(
       if (!isBarren) renderHexUnitTokens(slot.unitGroup, slot.centerX, slot.centerY, village.troops);
       renderControlBadge(slot.controlGroup, slot.centerX, slot.centerY, village.loyalty, village.owner);
 
-      setHexDetailShown(slot, !isSpotlightActive || isSelected || village.owner === spotlightSeatId);
+      const isQuietBarbarian = isDenseMap && village.owner === null && !isSelected;
+      setHexDetailShown(slot, !isQuietBarbarian && (!isSpotlightActive || isSelected || village.owner === spotlightSeatId));
       return;
     }
 
-    slot.polygon.setAttribute('fill', isFogged ? 'var(--bg)' : 'var(--bg-surface)');
+    const isBlockedTerrain = terrainKind === 'mountain' || terrainKind === 'lake';
+    slot.polygon.setAttribute('fill', emptyHexFill(isBlockedTerrain, isFogged));
     slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : 'var(--border)');
     slot.polygon.setAttribute('stroke-width', isSelected ? '2.5' : '1');
     slot.polygon.removeAttribute('stroke-dasharray');
@@ -1460,13 +1502,14 @@ export function createWargamesMap(
         'font-size': '8.5',
         class: 'wg-hex-detail',
       });
+      const terrainGroup = createSvgShape('g', { class: 'wg-hex-terrain' });
       const unitGroup = createSvgShape('g', { class: 'wg-hex-units' });
       const controlGroup = createSvgShape('g', { class: 'wg-hex-control' });
 
-      group.append(polygon, indexLabel, detailLabel, unitGroup, controlGroup);
+      group.append(polygon, terrainGroup, indexLabel, detailLabel, unitGroup, controlGroup);
       group.addEventListener('click', () => onSelectHex(tile.index));
       hexLayer.append(group);
-      return { group, polygon, indexLabel, detailLabel, unitGroup, controlGroup, centerX: x, centerY: y };
+      return { group, polygon, indexLabel, detailLabel, terrainGroup, unitGroup, controlGroup, centerX: x, centerY: y };
     });
     const padX = HEX_SIZE + 14;
     const padY = HEX_SIZE + 14;

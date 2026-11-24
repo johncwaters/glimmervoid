@@ -17,9 +17,9 @@ const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_R
 const WARGAMES_MAX_TICKS = 40;
 const WARGAMES_TICK_DEADLINE_SECONDS = 60;
 export const WARGAMES_SQUEEZE_TICK = 25;
-const WARGAMES_OPEN_HEXES = 6;
+export const WARGAMES_OPEN_HEX_COUNT = 6;
 export const WARGAMES_MAP_SIZES = [
-  { name: 'Standard', mapRadius: 4, maxTicks: 20 },
+  { name: 'Standard', mapRadius: 4, maxTicks: 25 },
   { name: 'Large', mapRadius: 6, maxTicks: 40 },
   { name: 'Huge', mapRadius: 8, maxTicks: 70 },
 ] as const;
@@ -195,19 +195,11 @@ export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): Wargames
   return WARGAMES_BALANCE_BY_VERSION[rulesVersion];
 }
 
-export function mapVillageCount(mapRadius: number): number {
-  return 3 * mapRadius * (mapRadius + 1) + 1 - WARGAMES_OPEN_HEXES;
-}
-
-export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victory'>, mapRadius: number): number {
+export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victory'>, villageCount: number): number {
   const victory = balance.victory;
   if (victory.kind === 'flat') return victory.villages;
-  if (victory.kind === 'share') return Math.max(victory.minimumVillages, Math.round(mapVillageCount(mapRadius) * victory.share));
-  return Math.ceil(mapVillageCount(mapRadius) * victory.share);
-}
-
-export function victoryVillagesFor(spec: Pick<WargamesMatchSpec, 'rulesVersion' | 'mapRadius'>): number {
-  return victoryVillagesForBalance(wargamesBalanceFor(spec.rulesVersion), spec.mapRadius ?? WARGAMES_HEX_RADIUS);
+  if (victory.kind === 'share') return Math.max(victory.minimumVillages, Math.round(villageCount * victory.share));
+  return Math.ceil(villageCount * victory.share);
 }
 
 export function victoryHoldTurnsFor(spec: Pick<WargamesMatchSpec, 'rulesVersion'>): number {

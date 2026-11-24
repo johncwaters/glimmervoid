@@ -4,10 +4,8 @@ import {
   WARGAMES_RULES_VERSION,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_SEAT_IDS,
-  mapVillageCount,
   seatIdsForCount,
   victoryHoldTurnsFor,
-  victoryVillagesFor,
 } from '#shared/contracts/wargames.ts';
 import type {
   OrderItem,
@@ -19,7 +17,7 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { matchSeatIds, projectSeatState } from '#shared/wargames/engine.ts';
+import { matchSeatIds, projectSeatState, victoryVillagesOf, villageCountOf } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -577,7 +575,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
       statusLabel,
     );
 
-    const winVillages = victoryVillagesFor(state.spec);
+    const winVillages = victoryVillagesOf(state);
     const head = el('div', 'wg-faction-head');
     const nameWrap = el('span', 'wg-faction-name');
     const swatch = el('span', 'wg-faction-swatch');
@@ -828,7 +826,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
     slot.style.setProperty('--wg-seat-color', SEAT_COLORS[seatId]);
     slot.dataset.rank = String(rankIndex + 1);
 
-    const winVillages = victoryVillagesFor(state.spec);
+    const winVillages = victoryVillagesOf(state);
     const topRow = el('div', 'wg-faction-head');
     const rankLabel = el('span', 'wg-faction-name');
     if (rankIndex === 0) {
@@ -927,7 +925,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
 
     const modelCell = el('td', 'wg-card-meta', formatSeatAgentModel(seat.config.setup.agent, seat.config.setup.model, seat.config.modelDisplay));
 
-    const winVillages = victoryVillagesFor(state.spec);
+    const winVillages = victoryVillagesOf(state);
     const territoryCell = el('td');
     const territoryWrap = el('div', 'wg-leaderboard-bar');
     const track = el('div', 'wg-win-track');
@@ -1278,18 +1276,18 @@ function updateLiveShell(state: MatchState): HTMLElement {
     : `${state.status} · Rules ${state.spec.rulesVersion}`;
   shell.boardBarSlot.replaceChildren(
     el('span', 'wg-board-hint', modeHint),
-    el('span', 'wg-board-hint', goalText(state.spec)),
+    el('span', 'wg-board-hint', goalText(state)),
     el('span', 'wg-board-hint', followStatus),
   );
   shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
   return shell.wrap;
 }
 
-function goalText(spec: WargamesMatchSpec): string {
-  const winVillages = victoryVillagesFor(spec);
-  const holdTurns = victoryHoldTurnsFor(spec);
+function goalText(state: MatchState): string {
+  const winVillages = victoryVillagesOf(state);
+  const holdTurns = victoryHoldTurnsFor(state.spec);
   if (holdTurns <= 1) return `Goal ${winVillages} villages`;
-  return `Goal ${winVillages} of ${mapVillageCount(spec.mapRadius)} villages, hold ${holdTurns} turns`;
+  return `Goal ${winVillages} of ${villageCountOf(state)} villages, hold ${holdTurns} turns`;
 }
 
 function render(): void {

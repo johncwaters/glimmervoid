@@ -236,7 +236,7 @@ function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius:
     if (state.status !== 'running') break;
     state = step(state, advance);
   }
-  const winVillages = victoryVillagesForBalance(candidate.balance, mapRadius);
+  const winVillages = victoryVillagesForBalance(candidate.balance, state.villages.filter((village) => village !== null).length);
   const winnerVillages = state.winnerSeatId ? ownedVillagesOf(state, state.winnerSeatId).length : 0;
   return {
     winnerStrategy: state.winnerSeatId ? strategyBySeat.get(state.winnerSeatId) ?? null : null,
