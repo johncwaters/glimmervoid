@@ -6,6 +6,7 @@ import { meter } from '../ui/meter.ts';
 import { tag } from '../ui/tag.ts';
 import {
   EMPTY_ECONOMY_TIMELINE,
+  economyTurnsAt,
   extendEconomyTimeline,
   growthModeOf,
   totalIncomeOf,
@@ -226,12 +227,13 @@ export function createWargamesEconomy(): { element: HTMLElement; update(state: M
     element,
     update(state, events) {
       timeline = extendEconomyTimeline(timeline, events);
-      element.hidden = timeline.turns.length === 0;
-      if (timeline.turns.length === 0) {
+      const turns = economyTurnsAt(timeline, state);
+      element.hidden = turns.length === 0;
+      if (turns.length === 0) {
         element.replaceChildren();
         return;
       }
-      element.replaceChildren(buildTable(state, timeline.turns));
+      element.replaceChildren(buildTable(state, turns));
     },
   };
 }

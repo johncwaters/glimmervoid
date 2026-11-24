@@ -24,3 +24,10 @@ export const ACTING_PHASE_GLYPHS: Readonly<Record<TickPhase, string>> = Object.f
   resolving: WARGAMES_GLYPH_PATHS.swords,
   reported: WARGAMES_GLYPH_PATHS.swords,
 });
+
+export const REPLAY_GLYPH_PATHS = Object.freeze({
+  play: 'M 5 3 L 13 8 L 5 13 Z',
+  stepBack: 'M 4 3 V 13 M 13 3 L 6.5 8 L 13 13 Z',
+  stepForward: 'M 12 3 V 13 M 3 3 L 9.5 8 L 3 13 Z',
+  end: 'M 2 3 L 7 8 L 2 13 M 7 3 L 12 8 L 7 13 M 14 3 V 13',
+});

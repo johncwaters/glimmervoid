@@ -30,6 +30,7 @@ import {
   createLineIcon,
   createSvgIcon,
   createSvgShape,
+  KEY_ICON_PATH,
   TROPHY_ICON_PATH,
 } from '../svg-dom.ts';
 import { button } from '../ui/button.ts';
@@ -41,6 +42,7 @@ import type { ViewModule } from '../view-registry-core.ts';
 import { GRAIN_COLOR, ORE_COLOR } from './wargames-econ-glyphs.ts';
 import { createWargamesEconomy } from './wargames-economy.ts';
 import { createEconomyLens } from './wargames-economy-lens.ts';
+import { createDiplomacyLog } from './wargames-diplomacy-log.ts';
 import { createTurnTrack } from './turn-track.ts';
 import type { TurnTrack } from './turn-track.ts';
 import type { TurnTrackInput } from './turn-track-core.ts';
@@ -67,9 +69,17 @@ import './wargames-panel.css';
 import {
   displayedMatchAnalytics,
   displayedMatchState,
+  displayedNotes,
+  jumpReplayToEnd,
+  replayView,
+  seekReplayPhase,
+  seekReplayTurn,
   selectWatchedMatch,
+  setReplaySpeed,
   setWargamesPov,
+  stepReplayTurn,
   subscribeWargames,
+  toggleReplayPlay,
   wargamesSnapshot,
 } from './wargames-store.ts';
 
@@ -85,6 +95,7 @@ interface PersistentLiveShell {
   readonly endgameSlot: HTMLElement;
   readonly boardBarSlot: HTMLElement;
   readonly hexIntelSlot: HTMLElement;
+  readonly mapKeyPopover: HTMLElement;
 }
 
 interface PersistentPanelShell {
@@ -130,6 +141,7 @@ let turnTrack: TurnTrack | null = null;
 let inspectorView: ReturnType<typeof createWargamesInspector> | null = null;
 let economyView: ReturnType<typeof createWargamesEconomy> | null = null;
 let economyLens: ReturnType<typeof createEconomyLens> | null = null;
+let diplomacyLog: ReturnType<typeof createDiplomacyLog> | null = null;
 let persistentNewMatchSection: HTMLElement | null = null;
 let panelShell: PersistentPanelShell | null = null;
 let liveShell: PersistentLiveShell | null = null;
@@ -274,15 +286,31 @@ function seatStatusGlyphPath(status: SeatStatus, phase: TickPhase): string {
 }
 
 function ensureTurnTrack(): TurnTrack {
-  turnTrack ??= createTurnTrack();
+  turnTrack ??= createTurnTrack({
+    seekTurn: seekReplayTurn,
+    seekPhase: seekReplayPhase,
+    stepTurn: stepReplayTurn,
+    togglePlay: toggleReplayPlay,
+    setSpeed: setReplaySpeed,
+    jumpToEnd: jumpReplayToEnd,
+  });
   return turnTrack;
 }
 
+function isReplayableStatus(status: MatchState['status']): boolean {
+  return status === 'running' || status === 'finished' || status === 'aborted';
+}
+
+function trackLengthOf(state: MatchState, headState: MatchState): number {
+  return headState.status === 'running' ? state.spec.maxTicks : Math.max(1, headState.tick);
+}
+
 function turnTrackInputOf(state: MatchState): TurnTrackInput {
+  const headState = wargamesSnapshot().headState ?? state;
   return {
     status: state.status,
     tick: state.tick,
-    maxTicks: state.spec.maxTicks,
+    maxTicks: trackLengthOf(state, headState),
     phase: state.phase,
     winnerSeatId: state.winnerSeatId,
     seats: state.seats.map((seat) => ({
@@ -291,6 +319,7 @@ function turnTrackInputOf(state: MatchState): TurnTrackInput {
       status: seat.status,
       isLockedIn: displayedSeatStatus(state, seat) === 'submitted',
     })),
+    replay: isReplayableStatus(headState.status) ? replayView() : null,
   };
 }
 
@@ -338,7 +367,7 @@ function subscribeMatchStream(matchId: string): void {
     });
 }
 
-function watchMatchById(matchId: string, switchToLive = true, selectionMode: 'auto' | 'manual' = 'auto'): void {
+function watchMatchById(matchId: string, switchToLive = true, selectionMode: 'auto' | 'manual' = 'auto', start: 'turn-one' | 'head' = 'head'): void {
   const current = wargamesSnapshot().watchedMatchId;
   if (current && current !== matchId) sendControlMsg({ type: 'wargames-unwatch', matchId: current });
   watchSelectionMode = selectionMode;
@@ -348,7 +377,7 @@ function watchMatchById(matchId: string, switchToLive = true, selectionMode: 'au
   spotlightSeatId = null;
   postgameReportMode = 'collapsed';
   setWargamesPov('god');
-  selectWatchedMatch(matchId);
+  selectWatchedMatch(matchId, start);
   if (switchToLive) activeSubTab = 'live';
   subscribeMatchStream(matchId);
   render();
@@ -1124,6 +1153,23 @@ function buildMapLegend(): HTMLElement {
   return legend;
 }
 
+function buildMapKey(): { keySlot: HTMLElement; legend: HTMLElement } {
+  const legend = el('div', 'wg-map-legend');
+  legend.popover = 'auto';
+  legend.id = 'wg-map-key';
+  const keyButton = button({ variant: 'icon', size: 'small', label: 'Key', icon: createLineIcon(KEY_ICON_PATH, '1.5') });
+  keyButton.popoverTargetElement = legend;
+  legend.addEventListener('beforetoggle', (event) => {
+    if (!(event instanceof ToggleEvent) || event.newState !== 'open') return;
+    const buttonBox = keyButton.getBoundingClientRect();
+    legend.style.left = `${buttonBox.left}px`;
+    legend.style.bottom = `${window.innerHeight - buttonBox.top + 6}px`;
+  });
+  const keySlot = el('div', 'wg-map-key');
+  keySlot.append(keyButton, legend);
+  return { keySlot, legend };
+}
+
 function buildHistorySection(): HTMLElement {
   const { history, matches } = wargamesSnapshot();
   const wrapper = el('section', 'wg-history-grid');
@@ -1201,7 +1247,10 @@ function buildHistorySection(): HTMLElement {
       variant: 'secondary',
       size: 'small',
       label: 'Watch',
-      onClick: () => watchMatchById(match.matchId, true, isActiveMatchStatus(match.status) ? 'auto' : 'manual'),
+      onClick: () => {
+        const isActiveMatch = isActiveMatchStatus(match.status);
+        watchMatchById(match.matchId, true, isActiveMatch ? 'auto' : 'manual', isActiveMatch ? 'head' : 'turn-one');
+      },
     });
     row.append(matchMeta, watchBtn);
     listBox.append(row);
@@ -1239,6 +1288,7 @@ function ensureLiveShell(): PersistentLiveShell {
   if (!inspectorView) inspectorView = createWargamesInspector();
   if (!economyView) economyView = createWargamesEconomy();
   if (!economyLens) economyLens = createEconomyLens(selectHexOnBoard, () => mapView?.isBoardSettled() ?? true);
+  if (!diplomacyLog) diplomacyLog = createDiplomacyLog(displayedNotes);
   economyLens.attach(mapView.element);
 
   const wrap = el('div', 'wg-live-wrap');
@@ -1252,10 +1302,11 @@ function ensureLiveShell(): PersistentLiveShell {
   const boardBarSlot = el('div', 'wg-board-bar');
   const hexIntelSlot = el('div');
 
-  stage.append(boardBarSlot, economyLens.controls, mapView.element, mapView.caption, hexIntelSlot, buildMapLegend());
+  const mapKey = buildMapKey();
+  stage.append(boardBarSlot, economyLens.controls, mapView.element, mapView.caption, hexIntelSlot, mapKey.keySlot);
   mapPane.append(stage);
-  wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane, economyView.element);
-  liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot };
+  wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane, diplomacyLog.element, economyView.element);
+  liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot, mapKeyPopover: mapKey.legend };
   return liveShell;
 }
 
@@ -1280,6 +1331,8 @@ function updateLiveShell(state: MatchState): HTMLElement {
   }
 
   mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
+  shell.mapKeyPopover.replaceChildren(...buildMapLegend().children);
+  diplomacyLog?.update(state, snap.pov);
   economyView?.update(state, snap.events);
   economyLens?.update(state, snap.pov, selectedHexIndex);
   const isEndgameShown = isMatchOver(state) && (mapView?.isBoardSettled() ?? true);
@@ -1299,9 +1352,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
 
   const selectedSeat = spotlightSeatId ? state.seats.find((seat) => seat.config.seatId === spotlightSeatId) : null;
   const modeHint = selectedSeat ? `Fog of war · ${selectedSeat.config.label} view` : 'Full map';
-  const followStatus = isActiveMatchStatus(state.status)
-    ? `Live · Rules ${state.spec.rulesVersion}`
-    : `${state.status} · Rules ${state.spec.rulesVersion}`;
+  const followStatus = followStatusOf(state, snap.headState ?? state);
   shell.boardBarSlot.replaceChildren(
     el('span', 'wg-board-hint', modeHint),
     el('span', 'wg-board-hint', goalText(state)),
@@ -1309,6 +1360,12 @@ function updateLiveShell(state: MatchState): HTMLElement {
   );
   shell.hexIntelSlot.replaceChildren(buildHexIntelBar(state, snap.pov));
   return shell.wrap;
+}
+
+function followStatusOf(state: MatchState, headState: MatchState): string {
+  if (state !== headState) return `Replay · Rules ${state.spec.rulesVersion}`;
+  if (isActiveMatchStatus(state.status)) return `Live · Rules ${state.spec.rulesVersion}`;
+  return `${state.status} · Rules ${state.spec.rulesVersion}`;
 }
 
 function standingGlyph(standing: SeatStanding, color: string): SVGSVGElement {
@@ -1353,12 +1410,13 @@ function render(): void {
   const meta = el('div', 'wg-match-meta');
   if (state) {
     const track = ensureTurnTrack();
-    track.update(turnTrackInputOf(state), snap.phaseDeadline);
+    track.update(turnTrackInputOf(state), state === snap.headState ? snap.phaseDeadline : null);
     meta.append(
       track.element,
       el('span', 'wg-match-title', state.spec.title),
     );
-    if (state.status === 'running' || state.status === 'seating') {
+    const headStatus = snap.headState?.status ?? state.status;
+    if (headStatus === 'running' || headStatus === 'seating') {
       meta.append(button({
         variant: 'danger',
         size: 'small',

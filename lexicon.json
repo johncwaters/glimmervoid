@@ -1585,6 +1585,18 @@
     {
       "name": "tailnet",
       "definition": "The private Tailscale network a dashboard host is reached through, named by its *.ts.net MagicDNS domain; the offline page picks its tailnet copy from that domain"
+    },
+    {
+      "name": "replay",
+      "definition": "Running recorded events again in order: a Wargames match replay rebuilds a finished or live match from its event log at a cursor the operator scrubs, steps or plays (the Replay tag marks the turn track while the cursor is behind the latest event); a session's terminal replay buffer is re-sent on attach; the doorman replays a held request once its tenant wakes"
+    },
+    {
+      "name": "jump",
+      "definition": "To move a view straight to a point instead of scrolling or stepping there: a terminal's Jump to latest returns to the newest output; the Wargames turn track's Jump to end moves the replay cursor to the latest event"
+    },
+    {
+      "name": "key",
+      "definition": "A legend that names what a view's glyphs, colors and lines mean: the dashboard's Status key, and the Wargames map key that opens from the Key button at the map's corner"
     }
   ],
   "retired": [

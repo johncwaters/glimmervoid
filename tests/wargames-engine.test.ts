@@ -33,7 +33,8 @@ import {
   transitionTick,
   transitionVillage,
 } from '../shared/wargames/machines.ts';
-import { EMPTY_ECONOMY_TIMELINE, extendEconomyTimeline } from '../public/wargames/wargames-economy-core.ts';
+import { EMPTY_ECONOMY_TIMELINE, economyTurnsAt, extendEconomyTimeline } from '../public/wargames/wargames-economy-core.ts';
+import { applyWargamesEvents, displayedMatchState, seekReplayTurn, selectWatchedMatch } from '../public/wargames/wargames-store.ts';
 import { analyzeMatch, computeEloByVersion, computeEloFromSummaries, summarizeMatch } from '../shared/wargames/analytics.ts';
 
 function createTestSigner(seed: number): ReportSigner {
@@ -223,6 +224,27 @@ test('full recorded match replays byte-identically and enforces ruleset, NAP bre
   }
   const economyFromFullLog = extendEconomyTimeline(EMPTY_ECONOMY_TIMELINE, log);
   assert.deepEqual(economyFedEventByEvent.turns, economyFromFullLog.turns);
+
+  const turnEndEventCountByTick: number[] = [];
+  let walkedState = replayMatch(log.slice(0, 1));
+  for (let index = 1; index < log.length; index += 1) {
+    const walked = applyEvent(walkedState, log[index]);
+    assert.ok(walked.ok);
+    if (walked.state.tick > walkedState.tick) turnEndEventCountByTick[walkedState.tick] = index;
+    walkedState = walked.state;
+  }
+  selectWatchedMatch(state.matchId, 'turn-one');
+  applyWargamesEvents({ matchId: state.matchId, events: log, reset: true, phaseClock: null });
+  assert.deepEqual(displayedMatchState(), state);
+  for (let tick = 1; tick <= state.tick; tick += 1) {
+    seekReplayTurn(tick);
+    const seekedState = displayedMatchState();
+    const loggedState = replayMatchAtTick(log, tick);
+    assert.deepEqual(seekedState, loggedState);
+    const economyAtTurnEnd = extendEconomyTimeline(EMPTY_ECONOMY_TIMELINE, log.slice(0, turnEndEventCountByTick[tick] ?? log.length));
+    assert.deepEqual(economyTurnsAt(economyFromFullLog, loggedState), economyAtTurnEnd.turns);
+  }
+  selectWatchedMatch(null);
 
   const finishedSummary = {
     ...summarizeMatch(state, 1_700_000_060_000, log.length),

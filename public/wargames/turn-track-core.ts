@@ -1,7 +1,8 @@
 import type { MatchStatus, SeatId, SeatStatus, TickPhase } from '#shared/contracts/wargames.ts';
+import type { ReplaySpeed } from './replay-core.ts';
 
-type TurnTrackMode = 'seating' | 'live' | 'finished' | 'aborted';
-type TurnPipState = 'played' | 'current' | 'ahead';
+type TurnTrackMode = 'seating' | 'live' | 'finished' | 'aborted' | 'replay';
+type TurnPipState = 'played' | 'current' | 'recorded' | 'ahead';
 type SeatDotState = 'lit' | 'waiting' | 'late' | 'out' | 'dim';
 export type TrackPhase = 'talk' | 'contracts' | 'orders' | 'resolving';
 type ClockTone = 'calm' | 'low';
@@ -24,6 +25,13 @@ interface TurnTrackSeat {
   isLockedIn: boolean;
 }
 
+interface TrackReplay {
+  headTick: number;
+  isAtHead: boolean;
+  isPlaying: boolean;
+  speed: ReplaySpeed;
+}
+
 export interface TurnTrackInput {
   status: MatchStatus;
   tick: number;
@@ -31,6 +39,7 @@ export interface TurnTrackInput {
   phase: TickPhase;
   winnerSeatId: SeatId | null;
   seats: readonly TurnTrackSeat[];
+  replay: TrackReplay | null;
 }
 
 export interface PhaseDeadline {
@@ -53,9 +62,11 @@ export interface TurnTrackView {
   seatDots: readonly { seatId: SeatId; state: SeatDotState }[];
   winnerSeatId: SeatId | null;
   spokenSummary: string;
+  replay: TrackReplay | null;
 }
 
-function trackModeOf(status: MatchStatus): TurnTrackMode {
+function trackModeOf(status: MatchStatus, replay: TrackReplay | null): TurnTrackMode {
+  if (replay !== null && !replay.isAtHead) return 'replay';
   if (status === 'running') return 'live';
   if (status === 'finished') return 'finished';
   if (status === 'aborted') return 'aborted';
@@ -66,8 +77,13 @@ function trackPhaseOf(phase: TickPhase): TrackPhase {
   return phase === 'reported' ? 'resolving' : phase;
 }
 
-function pipStateOf(turnIndex: number, mode: TurnTrackMode, tick: number): TurnPipState {
+function pipStateOf(turnIndex: number, mode: TurnTrackMode, tick: number, headTick: number): TurnPipState {
   const turnNumber = turnIndex + 1;
+  if (mode === 'replay') {
+    if (turnNumber === tick) return 'current';
+    if (turnNumber < tick) return 'played';
+    return turnNumber <= headTick ? 'recorded' : 'ahead';
+  }
   if (mode !== 'live') return turnNumber <= tick ? 'played' : 'ahead';
   if (turnNumber < tick) return 'played';
   return turnNumber === tick ? 'current' : 'ahead';
@@ -86,6 +102,7 @@ function seatDotStateOf(seat: TurnTrackSeat, mode: TurnTrackMode, winnerSeatId: 
   if (mode === 'seating') return seat.status === 'disconnected' ? 'waiting' : 'lit';
   if (mode === 'finished') return seat.seatId === winnerSeatId ? 'lit' : 'dim';
   if (mode === 'aborted') return 'dim';
+  if (mode === 'replay') return seat.status === 'eliminated' ? 'out' : 'lit';
   return seat.isLockedIn ? 'lit' : LIVE_DOT_BY_STATUS[seat.status];
 }
 
@@ -116,6 +133,7 @@ function spokenSummaryOf(input: TurnTrackInput, mode: TurnTrackMode, clock: Turn
     return `Finished after turn ${input.tick} of ${input.maxTicks}.${winnerText}`;
   }
   if (mode === 'aborted') return `Aborted on turn ${input.tick} of ${input.maxTicks}.`;
+  if (mode === 'replay') return `Replay. Turn ${input.tick} of ${input.replay?.headTick ?? input.maxTicks}. ${SPOKEN_PHASE_NAMES[trackPhaseOf(input.phase)]} phase.`;
   const phaseName = SPOKEN_PHASE_NAMES[trackPhaseOf(input.phase)];
   const clockText = clock ? ` ${clock.secondsLeft} seconds left.` : '';
   const lockedCount = input.seats.filter((seat) => seat.isLockedIn).length;
@@ -123,17 +141,19 @@ function spokenSummaryOf(input: TurnTrackInput, mode: TurnTrackMode, clock: Turn
 }
 
 export function deriveTurnTrack(input: TurnTrackInput, deadline: PhaseDeadline | null, nowMs: number): TurnTrackView {
-  const mode = trackModeOf(input.status);
+  const mode = trackModeOf(input.status, input.replay);
   const clock = mode === 'live' ? clockOf(deadline, nowMs) : null;
-  const pips = Array.from({ length: input.maxTicks }, (_unused, turnIndex) => pipStateOf(turnIndex, mode, input.tick));
+  const headTick = input.replay?.headTick ?? input.tick;
+  const pips = Array.from({ length: input.maxTicks }, (_unused, turnIndex) => pipStateOf(turnIndex, mode, input.tick, headTick));
   return {
     mode,
     pips,
     turnText: `${input.tick}/${input.maxTicks}`,
-    activePhase: mode === 'live' ? trackPhaseOf(input.phase) : null,
+    activePhase: mode === 'live' || mode === 'replay' ? trackPhaseOf(input.phase) : null,
     clock,
     seatDots: input.seats.map((seat) => ({ seatId: seat.seatId, state: seatDotStateOf(seat, mode, input.winnerSeatId) })),
     winnerSeatId: mode === 'finished' ? input.winnerSeatId : null,
     spokenSummary: spokenSummaryOf(input, mode, clock),
+    replay: input.replay,
   };
 }

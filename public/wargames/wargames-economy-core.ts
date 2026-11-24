@@ -32,11 +32,18 @@ interface VillageHolding {
   readonly levels: number;
 }
 
+interface TurnClose {
+  readonly holdings: readonly (VillageHolding | null)[];
+  readonly growth: ReadonlyMap<SeatId, { built: number; taken: number }>;
+}
+
 export interface EconomyTimeline {
   readonly firstEvent: WargamesEvent | null;
   readonly appliedEventCount: number;
   readonly cursorState: MatchState | null;
+  readonly initialHoldings: readonly (VillageHolding | null)[];
   readonly closedTurns: readonly EconomyTurn[];
+  readonly turnCloses: readonly TurnClose[];
   readonly holdingsAtLastClose: readonly (VillageHolding | null)[];
   readonly growthAtLastClose: ReadonlyMap<SeatId, { built: number; taken: number }>;
   readonly turns: readonly EconomyTurn[];
@@ -46,7 +53,9 @@ export const EMPTY_ECONOMY_TIMELINE: EconomyTimeline = {
   firstEvent: null,
   appliedEventCount: 0,
   cursorState: null,
+  initialHoldings: [],
   closedTurns: [],
+  turnCloses: [],
   holdingsAtLastClose: [],
   growthAtLastClose: new Map(),
   turns: [],
@@ -124,12 +133,15 @@ function summarizeTurn(state: MatchState, growthBySeat: ReadonlyMap<SeatId, { bu
 function startTimeline(firstEvent: WargamesEvent): EconomyTimeline | null {
   if (firstEvent.type !== 'match_created') return null;
   const initialState = createInitialMatchState(firstEvent.matchId, firstEvent.createdAtMs, firstEvent.spec);
+  const initialHoldings = holdingsOf(initialState);
   return {
     firstEvent,
     appliedEventCount: 1,
     cursorState: initialState,
+    initialHoldings,
     closedTurns: [],
-    holdingsAtLastClose: holdingsOf(initialState),
+    turnCloses: [],
+    holdingsAtLastClose: initialHoldings,
     growthAtLastClose: new Map(),
     turns: [],
   };
@@ -144,6 +156,7 @@ export function extendEconomyTimeline(previous: EconomyTimeline, events: readonl
 
   let cursorState = started.cursorState;
   const closedTurns = [...started.closedTurns];
+  const turnCloses = [...started.turnCloses];
   let holdingsAtLastClose = started.holdingsAtLastClose;
   let growthAtLastClose = started.growthAtLastClose;
   for (let index = started.appliedEventCount; index < events.length; index += 1) {
@@ -154,6 +167,7 @@ export function extendEconomyTimeline(previous: EconomyTimeline, events: readonl
       growthAtLastClose = growthSince(cursorState, holdingsAtLastClose, growthAtLastClose);
       holdingsAtLastClose = holdingsOf(cursorState);
       closedTurns.push(summarizeTurn(cursorState, growthAtLastClose));
+      turnCloses.push({ holdings: holdingsAtLastClose, growth: growthAtLastClose });
     }
     cursorState = outcome.state;
   }
@@ -165,7 +179,9 @@ export function extendEconomyTimeline(previous: EconomyTimeline, events: readonl
     firstEvent: events[0],
     appliedEventCount: events.length,
     cursorState,
+    initialHoldings: started.initialHoldings,
     closedTurns,
+    turnCloses,
     holdingsAtLastClose,
     growthAtLastClose,
     turns,
@@ -181,4 +197,13 @@ export function growthModeOf(seat: Pick<SeatEconomy, 'levelsBuilt' | 'levelsTake
 
 export function totalIncomeOf(seat: Pick<SeatEconomy, 'grainIncome' | 'oreIncome'>): number {
   return seat.grainIncome + seat.oreIncome;
+}
+
+export function economyTurnsAt(timeline: EconomyTimeline, state: MatchState): readonly EconomyTurn[] {
+  if (state === timeline.cursorState) return timeline.turns;
+  const closedBefore = timeline.closedTurns.slice(0, Math.max(0, state.tick - 1));
+  if (state.tick < 1) return closedBefore;
+  const lastClose = timeline.turnCloses[closedBefore.length - 1];
+  const growth = growthSince(state, lastClose?.holdings ?? timeline.initialHoldings, lastClose?.growth ?? new Map());
+  return [...closedBefore, summarizeTurn(state, growth)];
 }
