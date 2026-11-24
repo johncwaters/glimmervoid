@@ -2274,6 +2274,7 @@ class Session extends EventEmitter {
     this._ptyLifecycle = "exited";
     this.ptyProcess = null;
     this._ptyScopeUnit = null;
+    this._lastClaudeSessionReport = null;
     this._promptNotes.dropResumeNote();
 
     if (pid) {

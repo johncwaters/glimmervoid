@@ -255,6 +255,7 @@ const FIXTURES_PINNED_ELSEWHERE: ReadonlySet<string> = new Set([
   'v2-mid-turn-compaction-interrupt.jsonl',
   'v2-mid-turn-compaction-then-interrupt.jsonl',
   'v2-sessionstart-clear.jsonl',
+  'v2-late-stop-permission-answered.jsonl',
 ]);
 
 interface FixtureHeader {

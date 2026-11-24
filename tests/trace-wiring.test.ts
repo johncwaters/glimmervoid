@@ -13,7 +13,7 @@ import {
   MAX_TRANSCRIPT_READ_BYTES,
 } from '../server/core/trace-tail-core.ts';
 import { Session } from '../session/sessions.ts';
-import { fakePty } from './helpers/fake-pty.ts';
+import { exitablePty, fakePty } from './helpers/fake-pty.ts';
 
 const claudeHome = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-trace-home-')));
 process.env.CLAUDE_CONFIG_DIR = claudeHome;
@@ -1319,6 +1319,37 @@ test('a background shell launched by a tool call appends start and stop backgrou
   assert.deepEqual(backgroundTaskRecords, [['start', 'b1', 'shell'], ['start', 'm2', 'monitor'], ['stop', 'b1', 'shell'], ['stop', 'm2', 'monitor'], ['start', 'b3', 'shell'], ['stop', 'b3', 'shell']]);
   const bashResult = records.find((record) => record.kind === 'tool_result');
   assert.equal(bashResult?.kind === 'tool_result' ? bashResult.backgroundTaskId : null, 'b1');
+
+  session.destroy();
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
+test('a session restarted onto the same conversation keeps tracing its transcript', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('restart-same-conversation');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, mainPrompt('before restart', 'prompt-one'), 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+  const firstPty = exitablePty();
+  const ptys = [firstPty, exitablePty()];
+  const session = new Session({ id: 'restarted-session', name: 'restarted-session', path: process.cwd(), ptySpawn: () => ptys.shift() ?? fakePty() });
+  harness.wiring.attachSession(session);
+  const reportConversation = () => session.ingestHookSignal({ signal: 'session-start', source: 'hook', ts: Date.now(), event: 'SessionStart', payload: { session_id: 'vendor-session', transcript_path: transcriptPath, source: 'resume' } });
+
+  await session.start();
+  reportConversation();
+  await harness.poll();
+  firstPty.fireExit(0);
+  await harness.wiring.whenIdle();
+  await session.start();
+  reportConversation();
+  await harness.wiring.whenIdle();
+  fs.appendFileSync(transcriptPath, mainPrompt('after restart', 'prompt-two'), 'utf8');
+  await harness.poll();
+
+  const prompts = readTrace(harness.tracePath('restarted-session')).flatMap((record) => record.kind === 'prompt' ? [record.text] : []);
+  assert.deepEqual(prompts, ['before restart', 'after restart']);
 
   session.destroy();
   await harness.wiring.stop();

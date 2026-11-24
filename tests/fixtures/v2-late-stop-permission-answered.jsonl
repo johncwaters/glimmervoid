@@ -1,0 +1,16 @@
+{"type":"header","version":2,"agent":"claude-code","session":"late-stop-permission","startedAt":0,"config":{},"cols":80,"rows":24}
+{"type":"data","ts":43,"data":"\u001b]0;⠂ Claude Code\u0007"}
+{"type":"hook","ts":53,"event":"UserPromptSubmit","payload":{"hook_event_name":"UserPromptSubmit","prompt":"read the thread and add the testers"}}
+{"type":"hook","ts":27093,"event":"Stop","payload":{"hook_event_name":"Stop","stop_hook_active":false}}
+{"type":"data","ts":27922,"data":"\u001b]0;⠂ Claude Code\u0007"}
+{"type":"hook","ts":27995,"event":"SubagentStop","payload":{"agent_id":"a975d2d964d02c684","agent_type":"","hook_event_name":"SubagentStop","stop_hook_active":false}}
+{"type":"hook","ts":28148,"event":"UserPromptSubmit","payload":{"hook_event_name":"UserPromptSubmit","prompt":"also add three more from my team"}}
+{"type":"hook","ts":31419,"event":"Stop","payload":{"hook_event_name":"Stop","stop_hook_active":true}}
+{"type":"data","ts":31530,"data":"\u001b]0;⠂ Claude Code\u0007"}
+{"type":"hook","ts":32054,"event":"SubagentStop","payload":{"agent_id":"a5545c4dcfab72258","agent_type":"","hook_event_name":"SubagentStop","stop_hook_active":false}}
+{"type":"hook","ts":50777,"event":"PermissionRequest","payload":{"hook_event_name":"PermissionRequest","tool_name":"mcp__posthog__exec"}}
+{"type":"data","ts":53022,"data":"\u001b]0;✳ Claude Code\u0007"}
+{"type":"data","ts":55917,"data":"\u001b]0;⠂ Claude Code\u0007"}
+{"type":"hook","ts":61910,"event":"Stop","payload":{"hook_event_name":"Stop","stop_hook_active":false}}
+{"type":"data","ts":62000,"data":"\u001b]0;✳ Claude Code\u0007"}
+{"type":"data","ts":66000,"data":"\u001b]0;✳ Claude Code\u0007"}

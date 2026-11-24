@@ -1,6 +1,7 @@
 import { STATES } from "../../shared/states.ts";
 import type { SessionState } from "../../shared/states.ts";
 import { COMPACTION_RESTORE_EVENTS } from "../../shared/compaction-restore-events.ts";
+import { isWaitingOnHookRaisedPrompt } from "./waiting-input-core.ts";
 
 type SettledState = typeof STATES.IDLE | typeof STATES.COMPLETE | typeof STATES.WAITING;
 
@@ -41,7 +42,10 @@ function observeCompaction(tracking: CompactionTracking, observation: Compaction
   if (signal === "resume") return { ...tracking, isCompacting: false, hasPromptInFlight: true, idleTitleState: null, returnState: null };
   if (signal === "stop") return { ...tracking, isCompacting: false, hasPromptInFlight: false };
   if (signal === "settled") return { ...tracking, hasPromptInFlight: observation.state === STATES.COMPLETE ? false : tracking.hasPromptInFlight, idleTitleState: null, returnState: null };
-  if (signal === "awaiting-input") return { ...tracking, isCompacting: false, idleTitleState: null, returnState: null };
+  if (signal === "awaiting-input") {
+    const isPromptRaisedInsideTurn = isWaitingOnHookRaisedPrompt(source === "hook", observation.pendingPromptKind ?? null);
+    return { ...tracking, isCompacting: false, hasPromptInFlight: tracking.hasPromptInFlight || isPromptRaisedInsideTurn, idleTitleState: null, returnState: null };
+  }
   if (signal === "working" && source === "title" && !tracking.hasPromptInFlight) {
     return { ...tracking, idleTitleState: tracking.idleTitleState ?? settledStateOf(observation) };
   }

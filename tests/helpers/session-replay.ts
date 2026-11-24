@@ -26,9 +26,10 @@ interface SessionReplayOutcome {
 
 interface SessionReplayOptions {
   minimumGapMs?: number;
+  hooksReportPrompts?: boolean;
 }
 
-function replayThroughSession(fixtureFile: string, t: TestContext, { minimumGapMs = 0 }: SessionReplayOptions = {}): SessionReplayOutcome {
+function replayThroughSession(fixtureFile: string, t: TestContext, { minimumGapMs = 0, hooksReportPrompts = false }: SessionReplayOptions = {}): SessionReplayOutcome {
   const { agent, records } = parseRecording(fs.readFileSync(path.join(FIXTURE_DIRECTORY, fixtureFile), 'utf8'));
   const adapter = resolveAdapter(agent);
   const hookProfile = adapter ? hookProfileOf(adapter) : null;
@@ -37,6 +38,7 @@ function replayThroughSession(fixtureFile: string, t: TestContext, { minimumGapM
   const session = new Session({ id: fixtureFile, name: fixtureFile, path: process.cwd(), agent: agent ?? undefined, statusConflictMs: 20, statusDedupMs: 10 });
   t.after(() => session.destroy());
   session.state = STATES.IDLE;
+  session._hooksReportPrompts = hooksReportPrompts;
   const enrichPayload = hookProfile.createPayloadEnricher?.() ?? null;
   const router = new HookRouter();
   const hookSignals: string[] = [];

@@ -5,9 +5,13 @@ import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
 import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME, STACKED_ANSWERS_PREFIX } from './cases-core.ts';
 import { PANEL_MIN_CHANGED_LINES } from '../../shared/contracts/verification.ts';
+import { DataClientMessage } from '../../shared/contracts/data-messages.ts';
+import { parseJsonOrNull } from '../../shared/coerce.ts';
 
 const CARD_TIMEOUT_MS = 20000;
 const MIN_INLINE_TERMINAL_HEIGHT_PX = 200;
+const INLINE_TERMINAL_STEADY_WATCH_MS = 2000;
+const MAX_GRID_CLAIMS_FOR_INLINE_TERMINAL = 2;
 
 async function openChat(page: Page): Promise<void> {
   const isChatOpen = (await page.locator('.session-chat').count()) > 0;
@@ -593,9 +597,26 @@ async function verifyBoardChangeCard(page: Page): Promise<void> {
 export async function verifyChatTerminal(page: Page): Promise<void> {
   await openChat(page);
   await verifyComposerHeightSteady(page);
+  await page.evaluate(() => {
+    const sentTexts: string[] = [];
+    Object.assign(window, { harnessSentSocketTexts: sentTexts });
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function recordingSend(this: WebSocket, payload: Parameters<WebSocket['send']>[0]) {
+      if (typeof payload === 'string') sentTexts.push(payload);
+      return originalSend.call(this, payload);
+    };
+  });
   await sendFromComposer(page, 'ask');
   const terminalInCard = page.locator('.session-chat .chat-card[data-card-type="live-terminal"] .terminal-wrap');
   await terminalInCard.waitFor({ timeout: CARD_TIMEOUT_MS });
+  await page.waitForTimeout(INLINE_TERMINAL_STEADY_WATCH_MS);
+  const sentSocketTexts = await page.evaluate(() => (window as unknown as { harnessSentSocketTexts: string[] }).harnessSentSocketTexts);
+  const gridClaims = sentSocketTexts.flatMap((text) => {
+    const parsedMessage = DataClientMessage.safeParse(parseJsonOrNull(text));
+    return parsedMessage.success && parsedMessage.data.type === 'claim' ? [parsedMessage.data] : [];
+  });
+  assert.ok(gridClaims.length >= 1, 'the inline terminal claims a grid that fits the card');
+  assert.ok(gridClaims.length <= MAX_GRID_CLAIMS_FOR_INLINE_TERMINAL, `the inline terminal settles on one grid instead of resizing the agent over and over (${gridClaims.map((claim) => `${claim.cols}x${claim.rows}`).join(', ')})`);
   const terminalBox = await terminalInCard.boundingBox();
   assert.ok(terminalBox && terminalBox.height >= MIN_INLINE_TERMINAL_HEIGHT_PX, `the inline terminal is tall enough to answer a menu (${terminalBox?.height ?? 0}px)`);
   const focusedElementClass = await page.evaluate(() => document.activeElement?.className ?? '');

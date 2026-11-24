@@ -319,3 +319,8 @@ for (const [hooksReportPrompts, ptyInput, expectedTransitions] of [
     assert.notEqual(session.refinedTaskTitle, 'quiz-shorts-assets-KG...');
   });
 }
+
+test('v2-late-stop-permission-answered.jsonl: a permission prompt answered after a late Stop ends the turn complete, never waiting', (t) => {
+  const outcome = replayThroughSession('v2-late-stop-permission-answered.jsonl', t, { hooksReportPrompts: true });
+  assert.equal(outcome.finalState, STATES.COMPLETE);
+});
