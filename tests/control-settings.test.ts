@@ -13,6 +13,7 @@ import { settingsBlockSpecFor, validateSettingsBlock } from '../server/core/sett
 import { configSecretsPath } from '../server/secrets/core/secret-files-core.ts';
 import { buildSettingsPayload } from '../server/settings-payload.ts';
 import { TeamReviewEnvironment } from '../shared/contracts/team-review-environment.ts';
+import { currentTeamReviewEnvironment, onTeamReviewEnvironmentChanged, teamReviewScanSettled } from '../server/github/team-review-environment.ts';
 import { cachedAgentResolvability, commandFor, resetCommandCache, setCustomAgents } from '../session/adapters/index.ts';
 import { CustomAgentDeclaration } from '../shared/contracts/index.ts';
 import { connectControl, controlDeps, createControlServer, testConfigStore } from './helpers/control-harness.ts';
@@ -484,5 +485,25 @@ test('a repo root scan lists a link to a directory once at its real path, skips 
     ]);
   } finally {
     fs.rmSync(workArea, { recursive: true, force: true });
+  }
+});
+
+test('the team review environment announces its skill scan once it lands, so the dashboard need not poll for it', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-review-scan-'));
+  try {
+    const claudeHome = path.join(homeDir, '.claude');
+    fs.mkdirSync(path.join(claudeHome, 'skills', 'reviewing'), { recursive: true });
+    fs.writeFileSync(path.join(claudeHome, 'skills', 'reviewing', 'SKILL.md'), '---\nname: reviewing\ndescription: Reviews a pull request.\n---\nBody.\n');
+    await teamReviewScanSettled();
+    const scanLanded = new Promise<void>((resolve) => {
+      const stopListening = onTeamReviewEnvironmentChanged(() => { stopListening(); resolve(); });
+    });
+    const scanStartedAtMs = Date.now() + 3_600_000;
+    currentTeamReviewEnvironment({ nowMs: scanStartedAtMs, homeDir, env: { CLAUDE_CONFIG_DIR: claudeHome } });
+    await scanLanded;
+    const environment = currentTeamReviewEnvironment({ nowMs: scanStartedAtMs, homeDir, env: { CLAUDE_CONFIG_DIR: claudeHome } });
+    assert.deepEqual(environment.agents[0]?.skills.map((skill) => skill.name), ['reviewing']);
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
   }
 });

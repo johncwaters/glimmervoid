@@ -17,6 +17,16 @@ interface AgentScan { id: ReviewAgentOffer['id']; skills: ReviewSkillOffer[] }
 let lastScan: AgentScan[] = [];
 let lastScanStartedAtMs = Number.NEGATIVE_INFINITY;
 let scanInFlight: Promise<void> | null = null;
+const changeListeners = new Set<() => void>();
+
+function teamReviewScanSettled(): Promise<void> {
+  return scanInFlight ?? Promise.resolve();
+}
+
+function onTeamReviewEnvironmentChanged(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => { changeListeners.delete(listener); };
+}
 
 async function readTextOrNull(filePath: string): Promise<string | null> {
   try {
@@ -60,7 +70,10 @@ async function scanClaude(homeDir: string, env: NodeJS.ProcessEnv): Promise<Agen
 }
 
 async function scanReviewAgents(homeDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const previousScan = JSON.stringify(lastScan);
   lastScan = [await scanClaude(homeDir, env)];
+  if (JSON.stringify(lastScan) === previousScan) return;
+  for (const listener of changeListeners) listener();
 }
 
 function refreshWhenStale(nowMs: number, homeDir: string, env: NodeJS.ProcessEnv): void {
@@ -84,4 +97,4 @@ function currentTeamReviewEnvironment(
   };
 }
 
-export { currentTeamReviewEnvironment };
+export { currentTeamReviewEnvironment, onTeamReviewEnvironmentChanged, teamReviewScanSettled };

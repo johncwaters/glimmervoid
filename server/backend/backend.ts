@@ -101,6 +101,7 @@ import { createSessionDocsWiring } from '../session/session-docs-wiring.ts';
 import { configSiblingPath } from '../pairings-store.ts';
 import { COMMIT_SESSIONS_FOLDER_NAME, PROVENANCE_WRITER_FILE_NAME, createCommitSessions, createProvenanceWriterId } from '../commit-sessions.ts';
 import { buildSettingsPayload, startLiveSettingsSources } from '../settings-payload.ts';
+import { onTeamReviewEnvironmentChanged } from '../github/team-review-environment.ts';
 import { glimmervoidHomeDir as resolveGlimmervoidHomeDir, isOperatorHomeUnderTest } from '../core/config-path-core.ts';
 import { buildSetupSnapshot, decideIsDevInstall, parsePosthogReleaseId } from '../core/telemetry-core.ts';
 import { promptContextReplyOf } from '../../session/core/refocus-core.ts';
@@ -1051,8 +1052,9 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   updateApply.startAfterListening(httpServer);
   httpServer.once('listening', startPostTurnLeftoverCleanup);
 
-  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore }) });
+  broadcastSettings = () => broadcastControl?.({ type: 'settings-updated', settings: buildSettingsPayload({ configStore, telegramDelivery: notifications.telegramDelivery.status() }) });
   const agentModelCatalog = startLiveSettingsSources({ onChange: () => broadcastSettings?.(), log: console });
+  const stopFollowingTeamReviewEnvironment = onTeamReviewEnvironmentChanged(() => broadcastSettings?.());
   const stopConfigFileWatch = configStore.watchForChanges((newConfig) => {
     applyConfigReload(newConfig);
     broadcastSettings?.();
@@ -1062,6 +1064,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   stopConfigWatch = () => {
     stopConfigFileWatch();
     agentModelCatalog.stop();
+    stopFollowingTeamReviewEnvironment();
   };
   updateCheck.start();
 

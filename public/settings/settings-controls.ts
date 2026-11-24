@@ -12,7 +12,6 @@ import type { SettingsSetting } from '#shared/settings/registry.ts';
 import { choicePresentation, displayRange, draftCommitOf, listValue, needsDangerConfirmation, numberDraftOf, secretEnvironmentSource } from './settings-view-core.ts';
 import { buildShortcutKeys, SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import { recordNextAttentionKey, shortcutChord } from '../shortcuts-core.ts';
-import { requestTeamReviewEnvironmentOnce } from './settings-store.ts';
 import { draftByControl, settingsPayload, storedValue, storedValues, viewMap } from './settings-panel-state.ts';
 import { renderReadout } from './settings-readouts.ts';
 import { commitSetting, setFieldError } from './settings-save.ts';
@@ -55,7 +54,6 @@ function renderToggle(setting: SettingsSetting) {
 function attachSuggestions(setting: SettingsSetting, input: HTMLInputElement) {
   if (!setting.suggestionsFrom) return;
   const environment = readTeamReviewEnvironment(settingsPayload.teamReviewEnvironment);
-  if (environment?.agents.length === 0) requestTeamReviewEnvironmentOnce();
   const suggestions = teamReviewSuggestions(setting.suggestionsFrom, environment, storedValues);
   const listId = `${setting.id}-suggestions`;
   document.getElementById(listId)?.remove();
