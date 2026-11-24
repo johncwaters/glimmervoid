@@ -198,7 +198,10 @@ function watchTreeByFolder(walk: TreeWalk): StopWatching {
       forgetSubtree(changedPath);
       return;
     }
-    if (!watchByFolder.has(changedPath)) await addFolder(changedPath);
+    const watched = watchByFolder.get(changedPath);
+    if (watched !== undefined && watched.realFolder === await realFolderOrSame(changedPath)) return;
+    forgetSubtree(changedPath);
+    await addFolder(changedPath);
   }
 
   async function startFolder(folder: string): Promise<boolean> {
@@ -232,7 +235,7 @@ function watchTreeByFolder(walk: TreeWalk): StopWatching {
 }
 
 function watchLinkedFolders(walk: TreeWalk): { followEntry: (relativePath: string) => Promise<void>; stop: StopWatching } {
-  const stopByLink = new Map<string, StopWatching>();
+  const followedLinks = new Map<string, { stop: StopWatching; realFolder: string }>();
 
   function linkedWalkOf(link: string): TreeWalk {
     const linkRelativePath = toSlashPath(path.relative(walk.root, link));
@@ -240,8 +243,8 @@ function watchLinkedFolders(walk: TreeWalk): { followEntry: (relativePath: strin
   }
 
   function stopFollowingLink(link: string): void {
-    stopByLink.get(link)?.();
-    stopByLink.delete(link);
+    followedLinks.get(link)?.stop();
+    followedLinks.delete(link);
   }
 
   async function followEntry(relativePath: string): Promise<void> {
@@ -252,12 +255,17 @@ function watchLinkedFolders(walk: TreeWalk): { followEntry: (relativePath: strin
       stopFollowingLink(entry);
       return;
     }
-    if (stopByLink.has(entry) || await isIgnoredUnder(walk, entry)) return;
+    const realFolder = await realFolderOrSame(entry);
+    if (followedLinks.get(entry)?.realFolder === realFolder || await isIgnoredUnder(walk, entry)) return;
+    stopFollowingLink(entry);
     const linkStopping = new AbortController();
     const stopLinkedWalk = watchTreeByFolder({ ...linkedWalkOf(entry), stopped: AbortSignal.any([walk.stopped, linkStopping.signal]) });
-    stopByLink.set(entry, () => {
-      linkStopping.abort();
-      stopLinkedWalk();
+    followedLinks.set(entry, {
+      realFolder,
+      stop: () => {
+        linkStopping.abort();
+        stopLinkedWalk();
+      },
     });
   }
 
@@ -275,7 +283,7 @@ function watchLinkedFolders(walk: TreeWalk): { followEntry: (relativePath: strin
   return {
     followEntry,
     stop: () => {
-      for (const link of [...stopByLink.keys()]) stopFollowingLink(link);
+      for (const link of [...followedLinks.keys()]) stopFollowingLink(link);
     },
   };
 }
@@ -328,13 +336,8 @@ function watchTree(root: string, onChange: () => void, { debounceMs = DEFAULT_DE
   let watchedRootIdentity: string | null = null;
   let followCount = 0;
   const changeTimer = createCoalescedTimer({ mode: 'leading', delayMs: debounceMs, run: () => { if (!watchStopping.signal.aborted) onChange(); } });
-  const isIgnoredByFolder = new Map<string, Promise<boolean>>();
   function isIgnoredFolder(relativePath: string): Promise<boolean> {
-    const known = isIgnoredByFolder.get(relativePath);
-    if (known) return known;
-    const decided = Promise.resolve(isIgnored(relativePath)).catch(() => false);
-    isIgnoredByFolder.set(relativePath, decided);
-    return decided;
+    return Promise.resolve(isIgnored(relativePath)).catch(() => false);
   }
   function stopFollowingTree(): void {
     stopTreeWatch?.();
@@ -349,7 +352,6 @@ function watchTree(root: string, onChange: () => void, { debounceMs = DEFAULT_DE
     if (stopTreeWatch !== null && rootIdentity === watchedRootIdentity) return;
     stopFollowingTree();
     if (rootIdentity === null) return;
-    isIgnoredByFolder.clear();
     watchedRootIdentity = rootIdentity;
     const treeStopping = new AbortController();
     const walk: TreeWalk = { root: watchedRoot, notify: () => changeTimer.schedule(), isIgnoredFolder, maxFolders, onUnwatchable, watchedRealFolders: new Set(), stopped: treeStopping.signal };
