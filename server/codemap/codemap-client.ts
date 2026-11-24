@@ -24,7 +24,12 @@ const ScanFilesReply = z.union([z.strictObject({ ok: z.literal(true), scans: z.a
 interface CodemapClient {
   extract(repoDir: string, sha: string, base?: CodemapExtractBase | null): Promise<CodemapExtract>;
   scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, FileImports>>;
-  symbolGraph(indexPaths: readonly string[], treeSha: string): Promise<SymbolGraph>;
+  symbolGraph(indexes: readonly ScipIndexFile[], treeSha: string): Promise<SymbolGraph>;
+}
+
+interface ScipIndexFile {
+  indexPath: string;
+  pathPrefix: string;
 }
 
 function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: ExtractPhase) => void } = {}): CodemapClient {
@@ -81,8 +86,8 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
     return new Map(reply.scans.map(({ repoPath, specifiers, declaredNames }) => [repoPath, { specifiers, declaredNames }]));
   }
 
-  async function symbolGraph(indexPaths: readonly string[], treeSha: string): Promise<SymbolGraph> {
-    const reply = await runWorker({ kind: 'symbolGraph', indexPaths, treeSha }, SymbolGraphReply);
+  async function symbolGraph(indexes: readonly ScipIndexFile[], treeSha: string): Promise<SymbolGraph> {
+    const reply = await runWorker({ kind: 'symbolGraph', indexes, treeSha }, SymbolGraphReply);
     return reply.graph;
   }
 
@@ -90,4 +95,4 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
 }
 
 export { createCodemapClient };
-export type { CodemapClient };
+export type { CodemapClient, ScipIndexFile };

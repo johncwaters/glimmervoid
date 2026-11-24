@@ -20,7 +20,7 @@ import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 
 const ExtractRequest = z.strictObject({ repoDir: z.string().min(1), sha: z.string().regex(/^[0-9a-f]{40}$/), base: CodemapExtractBase.nullable() });
 const ScanFilesRequest = z.strictObject({ kind: z.literal('scanFiles'), root: z.string().min(1), repoPaths: z.array(z.string().min(1)) });
-const SymbolGraphRequest = z.strictObject({ kind: z.literal('symbolGraph'), indexPaths: z.array(z.string().min(1)).min(1), treeSha: z.string().regex(/^[0-9a-f]{40}$/) });
+const SymbolGraphRequest = z.strictObject({ kind: z.literal('symbolGraph'), indexes: z.array(z.strictObject({ indexPath: z.string().min(1), pathPrefix: z.string() })).min(1), treeSha: z.string().regex(/^[0-9a-f]{40}$/) });
 
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1' };
@@ -336,8 +336,10 @@ async function extract(repoDir: string, sha: string, base: CodemapExtractBase | 
   return { sha, paths, importerIndexes: Int32Array.from(importers), importedIndexes: Int32Array.from(imported), typeOnlyEdges: Uint8Array.from(typeOnlyEdges), specifiersByIndex, typeOnlySpecifiersByIndex, outsideGraphImportsByIndex, exportedNamesByIndex, declaredNamesByIndex, skippedPaths };
 }
 
-function* documentsOfIndexes(indexPaths: readonly string[]) {
-  for (const indexPath of indexPaths) yield* scipDocumentsOf(fs.readFileSync(indexPath));
+function* documentsOfIndexes(indexes: readonly { indexPath: string; pathPrefix: string }[]) {
+  for (const { indexPath, pathPrefix } of indexes) {
+    for (const document of scipDocumentsOf(fs.readFileSync(indexPath))) yield { ...document, relativePath: `${pathPrefix}${document.relativePath}` };
+  }
 }
 
 function serve(): void {
@@ -355,7 +357,7 @@ function serve(): void {
     const graphRequest = SymbolGraphRequest.safeParse(message);
     if (graphRequest.success) {
       try {
-        const graph = symbolGraphOfIndex(graphRequest.data.treeSha, documentsOfIndexes(graphRequest.data.indexPaths), isTestPath);
+        const graph = symbolGraphOfIndex(graphRequest.data.treeSha, documentsOfIndexes(graphRequest.data.indexes), isTestPath);
         port.postMessage({ ok: true, graph });
       } catch (error) {
         port.postMessage({ ok: false, error: errorMessage(error) });

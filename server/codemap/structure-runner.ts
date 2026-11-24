@@ -7,9 +7,9 @@ import type { SymbolGraph, UnjudgedLanguage } from '../core/codemap-structure-co
 import { isTestPath } from '../core/import-graph-core.ts';
 import { runCommand, runGit } from '../git/git-exec.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
-import type { CodemapClient } from './codemap-client.ts';
-import { createIndexerProvisioner, indexedLanguagesOf, sweepStaleFolders } from './scip-indexers.ts';
-import type { IndexerLanguage, IndexerProvisioner } from './scip-indexers.ts';
+import type { CodemapClient, ScipIndexFile } from './codemap-client.ts';
+import { createIndexerProvisioner, indexCommandsOf, indexedLanguagesOf, languageOfPath, sweepStaleFolders, tarCommand } from './scip-indexers.ts';
+import type { IndexedTree, IndexerLanguage, IndexerProvisioner } from './scip-indexers.ts';
 
 const TREE_LISTING_MAX_BYTES = 256 * 1024 * 1024;
 const INDEXER_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
@@ -19,11 +19,6 @@ interface StructureRunnerOptions {
   homeDir: string;
   client: CodemapClient;
   provisioner?: IndexerProvisioner;
-}
-
-function tarCommand(): string {
-  if (process.platform !== 'win32') return 'tar';
-  return path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
 }
 
 function lastLineOf(text: string): string {
@@ -51,31 +46,40 @@ function createStructureRunner({ homeDir, client, provisioner = createIndexerPro
   const workRoot = path.join(homeDir, WORK_FOLDER);
   const leftoverWorkSwept = sweepStaleFolders(workRoot, CODEMAP_TUNABLES.indexDeadlineMs * 2);
 
-  async function indexLanguage(language: IndexerLanguage, treeDir: string, indexPath: string): Promise<string | null> {
+  async function indexLanguage(language: IndexerLanguage, tree: IndexedTree): Promise<{ indexes: ScipIndexFile[] } | { reason: string }> {
     const indexer = await provisioner.ensureIndexer(language);
-    if (!indexer.ok) return indexer.reason;
-    const indexed = await runCommand('node', [indexer.launch.entryPath, 'index', '--infer-tsconfig', '--no-progress-bar', '--output', indexPath], { cwd: treeDir, timeoutMs: CODEMAP_TUNABLES.indexDeadlineMs, maxBuffer: INDEXER_OUTPUT_MAX_BYTES, replaceEnv: indexer.launch.env, preferStderr: true });
-    if (indexed.timedOut) return `its indexer ran past the ${CODEMAP_TUNABLES.indexDeadlineMs} ms deadline`;
-    if (!indexed.ok) return `its indexer failed: ${lastLineOf(indexed.err)}`;
-    return null;
+    if (!indexer.ok) return { reason: indexer.reason };
+    const commands = await indexCommandsOf(language, indexer.launch, tree);
+    if ('reason' in commands) return commands;
+    for (const command of commands) {
+      const indexed = await runCommand(command.file, command.args, { cwd: command.cwd, timeoutMs: CODEMAP_TUNABLES.indexDeadlineMs, maxBuffer: INDEXER_OUTPUT_MAX_BYTES, replaceEnv: command.env, preferStderr: true });
+      if (indexed.timedOut) return { reason: `its indexer ran past the ${CODEMAP_TUNABLES.indexDeadlineMs} ms deadline` };
+      if (!indexed.ok) return { reason: `its indexer failed: ${lastLineOf(indexed.err)}` };
+    }
+    return { indexes: commands.map((command) => ({ indexPath: command.indexPath, pathPrefix: command.pathPrefix })) };
   }
 
-  async function indexTree(repoDir: string, treeSha: string, languages: readonly IndexerLanguage[]): Promise<SymbolGraph> {
+  async function indexTree(repoDir: string, treeSha: string, languages: readonly IndexerLanguage[], repoPaths: readonly string[]): Promise<SymbolGraph> {
     await leftoverWorkSwept;
     await fsp.mkdir(workRoot, { recursive: true });
     const workDir = await fsp.mkdtemp(path.join(workRoot, 'tree-'));
     try {
-      const treeDir = await exportTree(repoDir, treeSha, workDir);
+      const tree = { treeDir: await exportTree(repoDir, treeSha, workDir), workDir, repoPaths, isTestPath };
       const unjudgedLanguages: UnjudgedLanguage[] = [];
-      const indexPaths: string[] = [];
+      const indexes: ScipIndexFile[] = [];
+      const judgedLanguages: IndexerLanguage[] = [];
       for (const language of languages) {
-        const indexPath = path.join(workDir, `${language}.scip`);
-        const failure = await indexLanguage(language, treeDir, indexPath).catch((error: unknown) => errorMessage(error));
-        if (failure === null) indexPaths.push(indexPath);
-        if (failure !== null) unjudgedLanguages.push({ language, reason: failure });
+        const outcome = await indexLanguage(language, tree).catch((error: unknown) => ({ reason: errorMessage(error) }));
+        if ('reason' in outcome) unjudgedLanguages.push({ language, reason: outcome.reason });
+        if ('reason' in outcome) continue;
+        indexes.push(...outcome.indexes);
+        judgedLanguages.push(language);
       }
-      if (indexPaths.length === 0) return emptyGraphOf(treeSha, unjudgedLanguages);
-      return { ...(await client.symbolGraph(indexPaths, treeSha)), unjudgedLanguages };
+      if (indexes.length === 0) return emptyGraphOf(treeSha, unjudgedLanguages);
+      const graph = await client.symbolGraph(indexes, treeSha);
+      const languagesWithSymbols = new Set(Array.from(graph.fileOfSymbol, (fileIndex) => languageOfPath(graph.files[fileIndex])));
+      const emptyLanguages = judgedLanguages.filter((language) => !languagesWithSymbols.has(language)).map((language) => ({ language, reason: 'its indexer reported no symbols for its files, so nothing there could be judged' }));
+      return { ...graph, unjudgedLanguages: [...unjudgedLanguages, ...emptyLanguages] };
     } finally {
       await fsp.rm(workDir, { recursive: true, force: true });
     }
@@ -84,9 +88,10 @@ function createStructureRunner({ homeDir, client, provisioner = createIndexerPro
   async function symbolGraphOf(repoDir: string, treeSha: string): Promise<SymbolGraph> {
     const listed = await runGit(['ls-tree', '-r', '--name-only', '-z', treeSha], { cwd: repoDir, maxBuffer: TREE_LISTING_MAX_BYTES, trim: false });
     if (!listed.ok) throw new Error(`git ls-tree of ${treeSha.slice(0, 7)} failed: ${listed.err}`);
-    const languages = indexedLanguagesOf(listed.out.split(String.fromCharCode(0)).filter(Boolean), isTestPath);
+    const repoPaths = listed.out.split(String.fromCharCode(0)).filter(Boolean);
+    const languages = indexedLanguagesOf(repoPaths, isTestPath);
     if (languages.length === 0) return emptyGraphOf(treeSha, []);
-    return indexQueue.run(() => indexTree(repoDir, treeSha, languages));
+    return indexQueue.run(() => indexTree(repoDir, treeSha, languages, repoPaths));
   }
 
   return { symbolGraphOf };

@@ -3,15 +3,43 @@
     "kind": "npm",
     "package": "@sourcegraph/scip-typescript",
     "entry": "dist/src/main.js",
-    "extensions": [
-      ".ts",
-      ".tsx",
-      ".mts",
-      ".cts",
-      ".js",
-      ".jsx",
-      ".mjs",
-      ".cjs"
-    ]
+    "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
+  },
+  "python": {
+    "kind": "npm",
+    "package": "@sourcegraph/scip-python",
+    "entry": "index.js",
+    "extensions": [".py"]
+  },
+  "go": {
+    "kind": "archive",
+    "name": "scip-go",
+    "version": "v0.2.10",
+    "urlPrefix": "https://github.com/scip-code/scip-go/releases/download/v0.2.10/",
+    "executable": "scip-go",
+    "toolchain": "go",
+    "extensions": [".go"],
+    "assetByHost": {
+      "darwin-arm64": { "asset": "scip-go-darwin-arm64.tar.gz", "sha256": "ea57a0a7bcd593aa4a520ddd3eff9503a9dc9c29ae890f503885b4650d976ecd" },
+      "linux-x64": { "asset": "scip-go-linux-amd64.tar.gz", "sha256": "880cc963e16bdf0e38fe624b8ed278eeddce32efd81056375a00dc1b6a0cfc93" },
+      "linux-arm64": { "asset": "scip-go-linux-arm64.tar.gz", "sha256": "ad2d37f19062441ba73ed5192e74d3410b0ee870cfcb5650e92e338f2aef1327" }
+    }
+  },
+  "rust": {
+    "kind": "archive",
+    "name": "rust-analyzer",
+    "version": "2026-11-16",
+    "urlPrefix": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-16/",
+    "executable": "rust-analyzer",
+    "toolchain": "cargo",
+    "extensions": [".rs"],
+    "assetByHost": {
+      "darwin-arm64": { "asset": "rust-analyzer-aarch64-apple-darwin.gz", "sha256": "608b7c7d6bec1fcd6c964578b1f8234888afe6d6c0e7915284f1e2fd36ef1343" },
+      "darwin-x64": { "asset": "rust-analyzer-x86_64-apple-darwin.gz", "sha256": "6901d956b4f2b091343eaf3570944098488f3ffec018987145285ed8253c07d2" },
+      "linux-arm64": { "asset": "rust-analyzer-aarch64-unknown-linux-gnu.gz", "sha256": "73d8b9b87384b3115a183a8a51db9f7c205ce4c89ea511f3c8c8fea863038a50" },
+      "linux-x64": { "asset": "rust-analyzer-x86_64-unknown-linux-gnu.gz", "sha256": "4a08727a03094e5114db4438e4bd1d6182cc26eff37d6962115ea1ec1a491ca3" },
+      "win32-arm64": { "asset": "rust-analyzer-aarch64-pc-windows-msvc.zip", "sha256": "2e8fd876300eeee87afd6de18c79eb17bab425a9b755043c63d5023d58de37b7" },
+      "win32-x64": { "asset": "rust-analyzer-x86_64-pc-windows-msvc.zip", "sha256": "dbf0c36ec54cf727d34cc40c9994fe71b7d52e3c28a3112c3deca1aba46fbc8f" }
+    }
   }
 }

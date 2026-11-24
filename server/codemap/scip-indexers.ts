@@ -2,26 +2,44 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 import { z } from 'zod';
 
 import { clock } from '../../shared/clock.ts';
+import { errorMessage } from '../../shared/text.ts';
 import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
 import { commandCandidatesOnPath } from '../core/node-launch-core.ts';
 import { installEnvFrom } from '../git/core/dependency-clone-core.ts';
 import { runCommand } from '../git/git-exec.ts';
 import { resolveInstallPath } from '../install-path.ts';
 import indexerManifestJson from './scip-indexers.json' with { type: 'json' };
+import scipPythonLockfile from './scip-python.package-lock.json' with { type: 'json' };
 import scipTypescriptLockfile from './scip-typescript.package-lock.json' with { type: 'json' };
+
+const Extensions = z.array(z.string().startsWith('.')).min(1);
 
 const NpmIndexer = z.strictObject({
   kind: z.literal('npm'),
   package: z.string().min(1),
   entry: z.string().min(1),
-  extensions: z.array(z.string().startsWith('.')).min(1),
+  extensions: Extensions,
 });
 type NpmIndexer = z.infer<typeof NpmIndexer>;
 
-const IndexerManifest = z.strictObject({ typescript: NpmIndexer });
+const ArchiveIndexer = z.strictObject({
+  kind: z.literal('archive'),
+  name: z.string().regex(/^[a-z][a-z-]*$/),
+  version: z.string().min(1),
+  urlPrefix: z.url().startsWith('https://github.com/'),
+  executable: z.string().min(1),
+  toolchain: z.string().min(1),
+  extensions: Extensions,
+  assetByHost: z.record(z.string(), z.strictObject({ asset: z.string().regex(/\.(tar\.gz|gz|zip)$/), sha256: z.string().regex(/^[0-9a-f]{64}$/) })),
+});
+type ArchiveIndexer = z.infer<typeof ArchiveIndexer>;
+
+const IndexerManifest = z.strictObject({ typescript: NpmIndexer, python: NpmIndexer, go: ArchiveIndexer, rust: ArchiveIndexer });
 type IndexerLanguage = keyof z.infer<typeof IndexerManifest>;
 
 const NpmLockfile = z.object({
@@ -33,17 +51,27 @@ const NpmLockfile = z.object({
 interface PinnedNpmIndexer extends NpmIndexer {
   version: string;
   lockfileText: string;
-  lockfileHash: string;
+  installKey: string;
   packageJsonText: string;
 }
 
-const LOCKFILE_HASH_LENGTH = 12;
+type PinnedIndexer = PinnedNpmIndexer | (ArchiveIndexer & { installKey: string });
+
+const PIN_HASH_LENGTH = 12;
 const READY_MARKER = '.glimmervoid-ready';
 const STAGING_FOLDER = '.staging';
 const INSTALL_OUTPUT_MAX_BYTES = 4 * 1024 * 1024;
 const WINDOWS_ENV_NAMES = ['SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'PATHEXT', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'TEMP', 'TMP', 'ProgramData'];
+const TOOLCHAIN_ENV_NAMES = ['GOROOT', 'GOPATH', 'GOMODCACHE', 'GOPROXY', 'GOPRIVATE', 'GONOSUMDB', 'CARGO_HOME', 'RUSTUP_HOME', 'RUSTUP_TOOLCHAIN'];
+const INDEXED_PROJECT_NAME = 'repo';
+const RUST_ANALYZER_CONFIG = { cargo: { buildScripts: { enable: false, overrideCommand: ['cargo', '--version'] } }, procMacro: { enable: false } };
+const gunzip = promisify(zlib.gunzip);
 
-function pinnedIndexerOf(indexer: NpmIndexer, lockfileJson: unknown): PinnedNpmIndexer {
+function shortHashOf(text: string): string {
+  return crypto.createHash('sha256').update(text).digest('hex').slice(0, PIN_HASH_LENGTH);
+}
+
+function pinnedNpmIndexerOf(indexer: NpmIndexer, lockfileJson: unknown): PinnedNpmIndexer {
   const lockfile = NpmLockfile.parse(lockfileJson);
   const rootDependencies = lockfile.packages['']?.dependencies ?? {};
   const version = lockfile.packages[`node_modules/${indexer.package}`]?.version;
@@ -53,17 +81,42 @@ function pinnedIndexerOf(indexer: NpmIndexer, lockfileJson: unknown): PinnedNpmI
     ...indexer,
     version,
     lockfileText,
-    lockfileHash: crypto.createHash('sha256').update(lockfileText).digest('hex').slice(0, LOCKFILE_HASH_LENGTH),
+    installKey: path.join(indexer.package.replace(/[@/]/g, '_'), `${version}-${shortHashOf(lockfileText)}`),
     packageJsonText: `${JSON.stringify({ name: lockfile.name, private: true, dependencies: rootDependencies }, null, 2)}\n`,
   };
 }
 
+function pinnedArchiveIndexerOf(indexer: ArchiveIndexer): PinnedIndexer {
+  return { ...indexer, installKey: path.join(indexer.name, `${indexer.version}-${shortHashOf(JSON.stringify(indexer.assetByHost))}`) };
+}
+
 const MANIFEST = IndexerManifest.parse(indexerManifestJson);
-const INDEXERS: Record<IndexerLanguage, PinnedNpmIndexer> = { typescript: pinnedIndexerOf(MANIFEST.typescript, scipTypescriptLockfile) };
+const INDEXERS: Record<IndexerLanguage, PinnedIndexer> = {
+  typescript: pinnedNpmIndexerOf(MANIFEST.typescript, scipTypescriptLockfile),
+  python: pinnedNpmIndexerOf(MANIFEST.python, scipPythonLockfile),
+  go: pinnedArchiveIndexerOf(MANIFEST.go),
+  rust: pinnedArchiveIndexerOf(MANIFEST.rust),
+};
 
 interface IndexerLaunch {
-  entryPath: string;
+  programPath: string;
   env: NodeJS.ProcessEnv;
+}
+
+interface IndexCommand {
+  file: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  cwd: string;
+  indexPath: string;
+  pathPrefix: string;
+}
+
+interface IndexedTree {
+  treeDir: string;
+  workDir: string;
+  repoPaths: readonly string[];
+  isTestPath: (repoPath: string) => boolean;
 }
 
 type IndexerOutcome = { ok: true; launch: IndexerLaunch } | { ok: false; reason: string };
@@ -79,22 +132,35 @@ function indexersDirOf(homeDir: string): string {
   return path.join(homeDir, 'indexers');
 }
 
-function installDirOf(homeDir: string, indexer: PinnedNpmIndexer): string {
-  return path.join(indexersDirOf(homeDir), indexer.package.replace(/[@/]/g, '_'), `${indexer.version}-${indexer.lockfileHash}`);
+function installDirOf(homeDir: string, indexer: PinnedIndexer): string {
+  return path.join(indexersDirOf(homeDir), indexer.installKey);
 }
 
-function entryPathOf(installDir: string, indexer: PinnedNpmIndexer): string {
-  return path.join(installDir, 'node_modules', indexer.package, indexer.entry);
+function hostKey(): string {
+  return `${process.platform}-${process.arch}`;
 }
 
-async function indexerEnv(): Promise<NodeJS.ProcessEnv> {
-  const installPath = await resolveInstallPath(['npm', 'node']);
+function executableNameOf(indexer: ArchiveIndexer): string {
+  return process.platform === 'win32' ? `${indexer.executable}.exe` : indexer.executable;
+}
+
+function programPathOf(installDir: string, indexer: PinnedIndexer): string {
+  if (indexer.kind === 'npm') return path.join(installDir, 'node_modules', indexer.package, indexer.entry);
+  return path.join(installDir, executableNameOf(indexer));
+}
+
+async function indexerEnv(toolNames: readonly string[]): Promise<NodeJS.ProcessEnv> {
+  const installPath = await resolveInstallPath(toolNames);
   const env = installEnvFrom(process.env, installPath.extraPathEntries);
-  if (process.platform !== 'win32') return env;
-  for (const name of WINDOWS_ENV_NAMES) {
+  const keptNames = process.platform === 'win32' ? [...TOOLCHAIN_ENV_NAMES, ...WINDOWS_ENV_NAMES] : TOOLCHAIN_ENV_NAMES;
+  for (const name of keptNames) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }
   return env;
+}
+
+function toolNamesOf(indexer: PinnedIndexer): string[] {
+  return indexer.kind === 'npm' ? ['npm', 'node'] : [indexer.toolchain];
 }
 
 function npmLaunchOf(env: NodeJS.ProcessEnv): { file: string; leadingArgs: string[] } | null {
@@ -104,35 +170,114 @@ function npmLaunchOf(env: NodeJS.ProcessEnv): { file: string; leadingArgs: strin
   return npmCliPath ? { file: 'node', leadingArgs: [npmCliPath] } : null;
 }
 
+function isToolchainOnPath(toolchain: string, env: NodeJS.ProcessEnv): boolean {
+  return commandCandidatesOnPath(toolchain, env, process.platform).some((candidate) => fs.existsSync(candidate));
+}
+
 async function installedLaunchOf(homeDir: string, language: IndexerLanguage): Promise<IndexerLaunch | null> {
   const indexer = INDEXERS[language];
   const installDir = installDirOf(homeDir, indexer);
   const isReady = await fsp.access(path.join(installDir, READY_MARKER)).then(() => true, () => false);
   if (!isReady) return null;
-  return { entryPath: entryPathOf(installDir, indexer), env: await indexerEnv() };
+  return { programPath: programPathOf(installDir, indexer), env: await indexerEnv(toolNamesOf(indexer)) };
+}
+
+async function stageNpmIndexer(indexer: PinnedNpmIndexer, stagingDir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  const npm = npmLaunchOf(env);
+  if (!npm) return 'npm-cli.js was not found beside any node on PATH, so the indexer cannot be installed';
+  await fsp.writeFile(path.join(stagingDir, 'package.json'), indexer.packageJsonText);
+  await fsp.writeFile(path.join(stagingDir, 'package-lock.json'), indexer.lockfileText);
+  const installed = await runCommand(npm.file, [...npm.leadingArgs, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stagingDir, timeoutMs: CODEMAP_TUNABLES.indexerInstallDeadlineMs, maxBuffer: INSTALL_OUTPUT_MAX_BYTES, replaceEnv: env, preferStderr: true });
+  if (!installed.ok) return `npm ci of ${indexer.package} ${indexer.version} failed: ${installed.err.trim().split('\n').slice(-3).join(' ')}`;
+  return null;
+}
+
+function tarCommand(): string {
+  if (process.platform !== 'win32') return 'tar';
+  return path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+}
+
+async function stageArchiveIndexer(indexer: ArchiveIndexer, stagingDir: string): Promise<string | null> {
+  const pinned = indexer.assetByHost[hostKey()];
+  if (!pinned) return `${indexer.name} ships no build for ${hostKey()}`;
+  const assetUrl = `${indexer.urlPrefix}${pinned.asset}`;
+  const response = await fetch(assetUrl, { signal: AbortSignal.timeout(CODEMAP_TUNABLES.indexerInstallDeadlineMs) }).catch((error: unknown) => errorMessage(error));
+  if (typeof response === 'string') return `${assetUrl} could not be fetched: ${response}`;
+  if (!response.ok) return `${assetUrl} answered ${response.status}`;
+  const assetBytes = Buffer.from(await response.arrayBuffer());
+  const actualSha256 = crypto.createHash('sha256').update(assetBytes).digest('hex');
+  if (actualSha256 !== pinned.sha256) return `${pinned.asset} has sha256 ${actualSha256}, pinned ${pinned.sha256}`;
+  const programPath = path.join(stagingDir, executableNameOf(indexer));
+  if (pinned.asset.endsWith('.tar.gz') || pinned.asset.endsWith('.zip')) {
+    const archivePath = path.join(stagingDir, pinned.asset);
+    await fsp.writeFile(archivePath, assetBytes);
+    const unpacked = await runCommand(tarCommand(), ['-xf', archivePath, '-C', stagingDir], { timeoutMs: CODEMAP_TUNABLES.indexerInstallDeadlineMs });
+    await fsp.rm(archivePath, { force: true });
+    if (!unpacked.ok) return `unpacking ${pinned.asset} failed: ${unpacked.err}`;
+  }
+  if (!pinned.asset.endsWith('.tar.gz') && !pinned.asset.endsWith('.zip')) await fsp.writeFile(programPath, await gunzip(assetBytes));
+  const isUnpacked = await fsp.access(programPath).then(() => true, () => false);
+  if (!isUnpacked) return `${pinned.asset} holds no ${executableNameOf(indexer)}`;
+  await fsp.chmod(programPath, 0o755);
+  return null;
 }
 
 async function installIndexer(homeDir: string, language: IndexerLanguage): Promise<IndexerOutcome> {
   const indexer = INDEXERS[language];
   const installDir = installDirOf(homeDir, indexer);
-  const env = await indexerEnv();
-  const npm = npmLaunchOf(env);
-  if (!npm) return { ok: false, reason: 'npm-cli.js was not found beside any node on PATH, so the indexer cannot be installed' };
+  const env = await indexerEnv(toolNamesOf(indexer));
   const stagingDir = path.join(indexersDirOf(homeDir), STAGING_FOLDER, crypto.randomUUID());
   await fsp.mkdir(stagingDir, { recursive: true });
   try {
-    await fsp.writeFile(path.join(stagingDir, 'package.json'), indexer.packageJsonText);
-    await fsp.writeFile(path.join(stagingDir, 'package-lock.json'), indexer.lockfileText);
-    const installed = await runCommand(npm.file, [...npm.leadingArgs, 'ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stagingDir, timeoutMs: CODEMAP_TUNABLES.indexerInstallDeadlineMs, maxBuffer: INSTALL_OUTPUT_MAX_BYTES, replaceEnv: env, preferStderr: true });
-    if (!installed.ok) return { ok: false, reason: `npm ci of ${indexer.package} ${indexer.version} failed: ${installed.err.trim().split('\n').slice(-3).join(' ')}` };
+    const failure = indexer.kind === 'npm' ? await stageNpmIndexer(indexer, stagingDir, env) : await stageArchiveIndexer(indexer, stagingDir);
+    if (failure) return { ok: false, reason: failure };
     await fsp.writeFile(path.join(stagingDir, READY_MARKER), '');
     await fsp.rm(installDir, { recursive: true, force: true });
     await fsp.mkdir(path.dirname(installDir), { recursive: true });
     await fsp.rename(stagingDir, installDir);
-    return { ok: true, launch: { entryPath: entryPathOf(installDir, indexer), env } };
+    return { ok: true, launch: { programPath: programPathOf(installDir, indexer), env } };
   } finally {
     await fsp.rm(stagingDir, { recursive: true, force: true });
   }
+}
+
+function goModuleDirsOf(repoPaths: readonly string[], isTestPath: (repoPath: string) => boolean): string[] {
+  return repoPaths.filter((repoPath) => path.posix.basename(repoPath) === 'go.mod' && !isTestPath(repoPath) && !/(^|\/)(vendor|testdata)\//.test(repoPath)).map((repoPath) => path.posix.dirname(repoPath));
+}
+
+async function indexCommandsOf(language: IndexerLanguage, launch: IndexerLaunch, tree: IndexedTree): Promise<IndexCommand[] | { reason: string }> {
+  const indexer = INDEXERS[language];
+  const { treeDir, workDir } = tree;
+  const indexPath = path.join(workDir, `${language}.scip`);
+  if (indexer.kind === 'archive' && !isToolchainOnPath(indexer.toolchain, launch.env)) return { reason: `${indexer.name} needs ${indexer.toolchain} on PATH, and none was found` };
+  if (language === 'typescript') return [{ file: 'node', args: [launch.programPath, 'index', '--infer-tsconfig', '--no-progress-bar', '--output', indexPath], env: launch.env, cwd: treeDir, indexPath, pathPrefix: '' }];
+  if (language === 'python') {
+    const environmentPath = path.join(workDir, 'python-environment.json');
+    await fsp.writeFile(environmentPath, '[]\n');
+    return [{ file: 'node', args: [launch.programPath, 'index', '--quiet', '--project-name', INDEXED_PROJECT_NAME, '--project-version', '0', '--environment', environmentPath, '--output', indexPath], env: launch.env, cwd: treeDir, indexPath, pathPrefix: '' }];
+  }
+  if (language === 'go') {
+    const moduleDirs = goModuleDirsOf(tree.repoPaths, tree.isTestPath);
+    if (moduleDirs.length === 0) return { reason: 'the tree holds Go files but no go.mod' };
+    const goEnv = { ...launch.env, CGO_ENABLED: '0', GOTOOLCHAIN: 'local', GOFLAGS: '-mod=mod' };
+    return moduleDirs.map((moduleDir, moduleIndex) => {
+      const moduleIndexPath = path.join(workDir, `go-${moduleIndex}.scip`);
+      return { file: launch.programPath, args: ['index', '--quiet', '--skip-tests', '--repository-remote', INDEXED_PROJECT_NAME, '--module-version', '0', '--output', moduleIndexPath], env: goEnv, cwd: path.join(treeDir, moduleDir), indexPath: moduleIndexPath, pathPrefix: moduleDir === '.' ? '' : `${moduleDir}/` };
+    });
+  }
+  const configPath = path.join(workDir, 'rust-analyzer.json');
+  await fsp.writeFile(configPath, `${JSON.stringify(RUST_ANALYZER_CONFIG)}\n`);
+  return [{ file: launch.programPath, args: ['scip', treeDir, '--config-path', configPath, '--output', indexPath], env: launch.env, cwd: treeDir, indexPath, pathPrefix: '' }];
+}
+
+function languageOfPath(repoPath: string): IndexerLanguage | null {
+  const extension = path.posix.extname(repoPath);
+  return (Object.keys(INDEXERS) as IndexerLanguage[]).find((language) => INDEXERS[language].extensions.includes(extension)) ?? null;
+}
+
+function indexerPinOf(language: IndexerLanguage): string {
+  const indexer = INDEXERS[language];
+  return indexer.kind === 'npm' ? `${indexer.package}@${indexer.version}` : `${indexer.name}@${indexer.version}`;
 }
 
 async function sweepStaleFolders(parentDir: string, olderThanMs: number): Promise<void> {
@@ -153,7 +298,7 @@ function createIndexerProvisioner(homeDir: string) {
     const fetching = leftoverStagingSwept
       .then(() => installedLaunchOf(homeDir, language))
       .then((installed) => (installed ? { ok: true as const, launch: installed } : installIndexer(homeDir, language)))
-      .catch((error: unknown) => ({ ok: false as const, reason: error instanceof Error ? error.message : String(error) }))
+      .catch((error: unknown) => ({ ok: false as const, reason: errorMessage(error) }))
       .then((outcome) => {
         stateByLanguage.set(language, outcome.ok ? { state: 'ready', launch: outcome.launch } : { state: 'failed', reason: outcome.reason, retryAtMs: clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs });
         return outcome;
@@ -175,5 +320,5 @@ function createIndexerProvisioner(homeDir: string) {
 
 type IndexerProvisioner = ReturnType<typeof createIndexerProvisioner>;
 
-export { createIndexerProvisioner, indexedLanguagesOf, sweepStaleFolders };
-export type { IndexerLanguage, IndexerProvisioner };
+export { createIndexerProvisioner, indexCommandsOf, indexedLanguagesOf, indexerPinOf, languageOfPath, sweepStaleFolders, tarCommand };
+export type { IndexedTree, IndexerLanguage, IndexerProvisioner };

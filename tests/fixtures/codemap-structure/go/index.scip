@@ -1,0 +1,25 @@
+Ž
+ring/ring.goI?scip-go gomod example.com/fixture 0 `example.com/fixture/ring`/BYEscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/One().BZ local 0B	local 0B	QEscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Two().Blocal 0BYEscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Two().B	Z	 local 1B		local 1B
+	SGscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Three().Blocal 1B[Gscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Three().B
+Z local 2Blocal 2B	RFscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Four().Blocal 2BZFscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Four().B	Z local 3B
+local 3B	RFscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Five().Blocal 3BZFscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Five().B	Z# local 4B
+local 4B	QEscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Six().B"local 4B"YEscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Six().B%Z%* local 5B%	local 5B&	SGscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Seven().B)local 5B)[Gscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Seven().B,
+Z,1 local 6B,local 6B-	SGscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Eight().B0local 6B0[Gscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Eight().B3
+Z38 local 7B3local 7B4	QEscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/One().B7local 7B7m
+Escip-go gomod example.com/fixture 0 `example.com/fixture/ring`/One().(2One:"go*func One(depth int) intm
+Escip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Two().(2Two:"go*func Two(depth int) ints
+Gscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Three().(2Three:"go*func Three(depth int) intp
+Fscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Four().(2Four:"go*func Four(depth int) intp
+Fscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Five().(2Five:"go*func Five(depth int) intm
+Escip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Six().(2Six:"go*func Six(depth int) ints
+Gscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Eight().(2Eight:"go*func Eight(depth int) int]
+?scip-go gomod example.com/fixture 0 `example.com/fixture/ring`/(#2ring:"go*package rings
+Gscip-go gomod example.com/fixture 0 `example.com/fixture/ring`/Seven().(2Seven:"go*func Seven(depth int) int'
+local 4(=2depth:"go*var depth int'
+local 5(=2depth:"go*var depth int'
+local 6(=2depth:"go*var depth int'
+local 7(=2depth:"go*var depth int'
+local 0(=2depth:"go*var depth int'
+local 1(=2depth:"go*var depth int'
+local 2(=2depth:"go*var depth int'
+local 3(=2depth:"go*var depth int"go0
