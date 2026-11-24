@@ -1621,6 +1621,10 @@
     {
       "name": "elo",
       "definition": "The Wargames rating of each model from finished matches, kept separately per rules version"
+    },
+    {
+      "name": "cost",
+      "definition": "In Wargames, the grain and ore a unit takes to train or a building level takes to build, read from the balance table of the match's rules version"
     }
   ],
   "retired": [
