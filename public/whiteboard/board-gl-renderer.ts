@@ -10,12 +10,11 @@ import { DEVICE_CATALOG } from '#shared/whiteboard-devices.ts';
 import { rotatedAbout, rotatedBoundsOf, wireHandlesOf } from '#shared/whiteboard-route-core.ts';
 import type { WireHandle } from '#shared/whiteboard-route-core.ts';
 import type { LinkedIds } from '#shared/whiteboard-board-index.ts';
-import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
-import type { BoardFlowLayer, FlowWire } from './board-flow-layer.ts';
+import type { FlowWire } from './board-flow-layer.ts';
 import type { BlockTile } from './board-tile-store.ts';
 import {
-  BOX_LAYER, LAYER_COUNT,
+  BOX_LAYER,
   boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
 } from './board-gl-scene.ts';
 import type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
@@ -24,8 +23,7 @@ import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import { rectAround } from './board-snap-core.ts';
 import type { StackMove } from './stack-motion-core.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
-import { forgetMeasuredFonts, paintImage, paintRects, paintSegments, paintTexts, paintTriangles, setWorldTransform } from './board-canvas-painter.ts';
-import type { PaintView } from './board-canvas-painter.ts';
+import type { DrawnMedia, PaintCommand, PaintedGeometry, PaintReport, PreviewEntry } from './board-paint-protocol.ts';
 
 interface Camera {
   x: number;
@@ -81,7 +79,7 @@ interface RendererOptions {
   viewport: HTMLElement;
   fontSource: Element;
   mediaLayer: BoardMediaLayer;
-  flowLayer: BoardFlowLayer;
+  flowCanvas: HTMLCanvasElement;
   onViewChange?: (view: Rect, scale: number) => void;
 }
 
@@ -89,23 +87,10 @@ interface MediaImage {
   href: string;
   width: number;
   height: number;
-  image: HTMLImageElement;
+  image: HTMLImageElement | null;
   state: 'loading' | 'ready' | 'failed';
   imageBytes: number;
   lastGatherNumber: number;
-}
-
-interface PaintEntry {
-  parts: GeometryPart[];
-  depth: number;
-  bounds: Rect | null;
-  media: DrawnMedia | null;
-}
-
-interface TintedBlock {
-  raster: Uint8Array;
-  tintKey: string;
-  surface: HTMLCanvasElement;
 }
 
 interface GlScene {
@@ -134,35 +119,10 @@ const HIT_TOLERANCE_PX = 7;
 const FRAME_EDGE_TOLERANCE_PX = 6;
 const PORT_HIT_SLOP_PX = 3;
 const ROTATE_HANDLE_GAP = 28;
-const BLOCK_ALPHA = 0.85;
 
 const UNSIZED_MEDIA_EDGE_PX = 1024;
 const MEDIA_IMAGE_BUDGET_BYTES = 128 * 1024 * 1024;
 const BYTES_PER_PIXEL = 4;
-
-interface DrawnMedia {
-  href: string;
-  rect: Rect;
-  fit: DeviceFit;
-  clipRadius: number;
-  turn: { pivot: Point; radians: number };
-}
-
-function placedMediaOf(drawn: DrawnMedia, image: { width: number; height: number }): { rect: Rect; uv: Rect } {
-  const fullUv = { x: 0, y: 0, width: 1, height: 1 };
-  const widthRatio = drawn.rect.width / image.width;
-  const heightRatio = drawn.rect.height / image.height;
-  if (drawn.fit === 'fill') {
-    const cover = Math.max(widthRatio, heightRatio);
-    const uvWidth = drawn.rect.width / (image.width * cover);
-    const uvHeight = drawn.rect.height / (image.height * cover);
-    return { rect: drawn.rect, uv: { x: (1 - uvWidth) / 2, y: (1 - uvHeight) / 2, width: uvWidth, height: uvHeight } };
-  }
-  const contain = Math.min(widthRatio, heightRatio);
-  const width = image.width * contain;
-  const height = image.height * contain;
-  return { rect: { x: drawn.rect.x + (drawn.rect.width - width) / 2, y: drawn.rect.y + (drawn.rect.height - height) / 2, width, height }, uv: fullUv };
-}
 
 function servedAssetHref(media: LaidOutMedia): string | null {
   const drawnFilename = boardMediaDrawnFilename(media);
@@ -252,37 +212,77 @@ function paletteKey(host: HTMLElement): string {
   return [root.className, root.dataset.theme ?? '', root.getAttribute('style') ?? '', host.className, host.isConnected].join('|');
 }
 
-function emptyLayers(): PaintEntry[][] {
-  return Array.from({ length: LAYER_COUNT }, () => []);
+function partsByLayerOf(parts: readonly { layer: number; part: GeometryPart }[]): [number, GeometryPart[]][] {
+  const byLayer = new Map<number, GeometryPart[]>();
+  for (const layered of parts) byLayer.set(layered.layer, [...(byLayer.get(layered.layer) ?? []), layered.part]);
+  return [...byLayer];
 }
 
-function isTouching(bounds: Rect, area: Rect): boolean {
-  return bounds.x <= area.x + area.width && bounds.x + bounds.width >= area.x && bounds.y <= area.y + area.height && bounds.y + bounds.height >= area.y;
+function unquotedFamilyNames(fontFamilyStack: string): Set<string> {
+  return new Set(fontFamilyStack.split(',').map((name) => name.trim().replace(/^['"]|['"]$/g, '')));
 }
 
-function context2dOf(surface: HTMLCanvasElement): CanvasRenderingContext2D {
-  const context = surface.getContext('2d');
-  if (!context) throw new Error('this browser cannot draw the whiteboard');
-  return context;
+function fontRulesIn(rules: CSSRuleList, found: CSSFontFaceRule[]): void {
+  for (const rule of rules) {
+    if (rule instanceof CSSFontFaceRule) found.push(rule);
+    if (rule instanceof CSSGroupingRule) fontRulesIn(rule.cssRules, found);
+    if (rule instanceof CSSImportRule && rule.styleSheet) fontRulesIn(rule.styleSheet.cssRules, found);
+  }
+}
+
+function boardFontFacesOf(fontFamilyStack: string): Extract<PaintCommand, { kind: 'fonts' }>['faces'] {
+  const families = unquotedFamilyNames(fontFamilyStack);
+  const faces: Extract<PaintCommand, { kind: 'fonts' }>['faces'] = [];
+  for (const sheet of document.styleSheets) {
+    const sheetBase = sheet.href ?? document.baseURI;
+    if (new URL(sheetBase).origin !== location.origin) continue;
+    const rules: CSSFontFaceRule[] = [];
+    fontRulesIn(sheet.cssRules, rules);
+    for (const rule of rules) {
+      const family = rule.style.getPropertyValue('font-family').trim().replace(/^['"]|['"]$/g, '');
+      const sourceUrl = /url\(\s*['"]?([^'")]+)['"]?\s*\)/.exec(rule.style.getPropertyValue('src'))?.[1];
+      if (!families.has(family) || !sourceUrl) continue;
+      faces.push({
+        family,
+        source: new URL(sourceUrl, sheetBase).href,
+        weight: rule.style.getPropertyValue('font-weight') || '400',
+        style: rule.style.getPropertyValue('font-style') || 'normal',
+        unicodeRange: rule.style.getPropertyValue('unicode-range') || 'U+0-10FFFF',
+      });
+    }
+  }
+  return faces;
+}
+
+function rasterizedBitmapOf(image: HTMLImageElement, fallbackSize: { width: number; height: number }): ImageBitmap {
+  const raster = new OffscreenCanvas(image.naturalWidth || fallbackSize.width, image.naturalHeight || fallbackSize.height);
+  raster.getContext('2d')?.drawImage(image, 0, 0, raster.width, raster.height);
+  return raster.transferToImageBitmap();
 }
 
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { canvas, viewport, mediaLayer, flowLayer, onViewChange } = options;
-  const boardContext = context2dOf(canvas);
+  const { canvas, viewport, mediaLayer, flowCanvas, onViewChange } = options;
   const decorationCanvas = Object.assign(document.createElement('canvas'), { className: 'wb-gl-decorations' });
   decorationCanvas.setAttribute('aria-hidden', 'true');
   canvas.after(decorationCanvas);
-  const decorationContext = context2dOf(decorationCanvas);
-  let decorationFrameRequest: number | null = null;
+  const paintWorker = new Worker(new URL('./board-paint-worker.ts', import.meta.url), { type: 'module', name: 'board-paint' });
+  const boardSurface = canvas.transferControlToOffscreen();
+  const decorationSurface = decorationCanvas.transferControlToOffscreen();
+  const flowSurface = flowCanvas.transferControlToOffscreen();
+  postPaint({ kind: 'canvases', board: boardSurface, decorations: decorationSurface, flow: flowSurface }, [boardSurface, decorationSurface, flowSurface]);
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const geometryIdOf = new WeakMap<ElementGeometry, number>();
+  let nextGeometryId = 1;
+  let geometryIdsInWorker = new Set<number>();
   let blocks: readonly BlockTile[] = [];
-  const tintedBlocks = new Map<string, TintedBlock>();
+  let postedBlocks: readonly BlockTile[] | null = null;
+  let postedBlockTint = '';
   let lastViewKey = '';
   let lastRendered: { source: Board | BoardLayout; layout: BoardLayout; blocks: readonly BlockTile[] } | null = null;
   const signatureOfElement = new WeakMap<LaidOutElement, string>();
   let palette: BoardPalette | null = null;
   let resolvedPaletteKey = '';
   let boardFontFamily = '';
-  let pendingFontLoad: Promise<void> | null = null;
   let scene: GlScene | null = null;
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let selectedIds: ReadonlySet<string> = new Set();
@@ -298,31 +298,58 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let gatheredFlows: FlowWire[] = [];
   let stackMotion: { moves: readonly StackMove[]; startMs: number; frameRequest: number } | null = null;
   let stackFan: { frameId: string; fromSpread: number; toSpread: number; spread: number; startMs: number; frameRequest: number | null } | null = null;
-  let baseLayers: PaintEntry[][] = emptyLayers();
-  let previewLayers: PaintEntry[][] = emptyLayers();
-  let decorationPartNow: GeometryPart | null = null;
   const geometryBySignature = new Map<string, ElementGeometry>();
-  let isBoardContextLost = false;
   const mediaImages = new Map<string, MediaImage>();
   let gatherNumber = 0;
   let sceneBuildCount = 0;
 
-  function boardFont(): string {
-    const fontFamily = getComputedStyle(options.fontSource).fontFamily || 'monospace';
-    if (fontFamily === boardFontFamily) return boardFontFamily;
-    boardFontFamily = fontFamily;
-    loadBoardFont(fontFamily);
-    return boardFontFamily;
+  function postPaint(command: PaintCommand, transfer: Transferable[] = []): void {
+    paintWorker.postMessage(command, transfer);
   }
 
-  function loadBoardFont(fontFamily: string): void {
-    const fontLoad = Promise.all([document.fonts.load(`400 16px ${fontFamily}`), document.fonts.load(`700 16px ${fontFamily}`)]).then(() => {
-      forgetMeasuredFonts();
-      requestDraw();
-    }, () => {}).finally(() => {
-      if (pendingFontLoad === fontLoad) pendingFontLoad = null;
-    });
-    pendingFontLoad = fontLoad;
+  function postBoardFont(): void {
+    const fontFamily = getComputedStyle(options.fontSource).fontFamily || 'monospace';
+    if (fontFamily === boardFontFamily) return;
+    boardFontFamily = fontFamily;
+    postPaint({ kind: 'fonts', fontFamily, faces: boardFontFacesOf(fontFamily) });
+  }
+
+  function postView(): void {
+    postPaint({ kind: 'view', camera, pixelRatio: window.devicePixelRatio || 1, cssWidth: canvas.clientWidth, cssHeight: canvas.clientHeight });
+  }
+
+  function postBlocks(tint: Rgba): void {
+    const tintKey = tint.join(',');
+    if (postedBlocks === blocks && postedBlockTint === tintKey) return;
+    postedBlocks = blocks;
+    postedBlockTint = tintKey;
+    postPaint({ kind: 'blocks', blocks: blocks.map((block) => ({ id: block.id, rect: block.rect, raster: block.raster })), tint, rasterPx: BLOCK_RASTER_PX });
+  }
+
+  function geometryIdFor(geometry: ElementGeometry): number {
+    const known = geometryIdOf.get(geometry);
+    if (known !== undefined) return known;
+    const assigned = nextGeometryId;
+    nextGeometryId += 1;
+    geometryIdOf.set(geometry, assigned);
+    return assigned;
+  }
+
+  function postScene(current: GlScene): void {
+    const count = current.geometries.length;
+    const geometryIdByIndex = new Uint32Array(count);
+    const depthByIndex = new Float32Array(count);
+    const boundsByIndex = new Float32Array(count * 4);
+    const newGeometries: PaintedGeometry[] = [];
+    for (const [index, geometry] of current.geometries.entries()) {
+      const geometryId = geometryIdFor(geometry);
+      geometryIdByIndex[index] = geometryId;
+      depthByIndex[index] = depthOf(geometry.paintRank, current);
+      boundsByIndex.set([geometry.bounds.x, geometry.bounds.y, geometry.bounds.width, geometry.bounds.height], index * 4);
+      if (!geometryIdsInWorker.has(geometryId)) newGeometries.push({ geometryId, partsByLayer: partsByLayerOf(geometry.parts) });
+    }
+    geometryIdsInWorker = new Set(geometryIdByIndex);
+    postPaint({ kind: 'scene', geometryIdByIndex, depthByIndex, boundsByIndex, newGeometries, chrome: partsByLayerOf(current.chrome.parts) }, [geometryIdByIndex.buffer, depthByIndex.buffer, boundsByIndex.buffer]);
   }
 
   function ensurePalette(): BoardPalette {
@@ -347,16 +374,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function depthOf(paintRank: number, current: GlScene): number {
     return (paintRank + 1) / (current.geometries.length + 1);
-  }
-
-  function entriesOf(geometry: ElementGeometry, current: GlScene, target: PaintEntry[][]): void {
-    const depth = depthOf(geometry.paintRank, current);
-    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
-      const parts = geometry.parts.flatMap((layered) => (layered.layer === layer ? [layered.part] : []));
-      const media = layer === BOX_LAYER ? drawnMediaOf(current, geometry) : null;
-      if (parts.length === 0 && !media) continue;
-      target[layer]?.push({ parts, depth, bounds: geometry.bounds, media });
-    }
   }
 
   function visibleGeometryIndexes(current: GlScene, area: Rect): number[] {
@@ -479,13 +496,20 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   }
 
   function writePreview(current: GlScene, currentPalette: BoardPalette): void {
-    previewLayers = emptyLayers();
-    for (const geometry of preview?.geometries ?? []) entriesOf(geometry, current, previewLayers);
+    const entries: PreviewEntry[] = [];
+    for (const geometry of preview?.geometries ?? []) {
+      const depth = depthOf(geometry.paintRank, current);
+      const media = drawnMediaOf(current, geometry);
+      const byLayer = new Map(partsByLayerOf(geometry.parts));
+      if (media && !byLayer.has(BOX_LAYER)) byLayer.set(BOX_LAYER, []);
+      for (const [layer, parts] of byLayer) entries.push({ layer, parts, depth, media: layer === BOX_LAYER ? media : null });
+    }
+    postPaint({ kind: 'preview', entries });
     writeDecorations(current, currentPalette);
   }
 
   function writeDecorations(current: GlScene, currentPalette: BoardPalette): void {
-    decorationPartNow = decorationPart(decorations(current), { palette: currentPalette, hasDrawnMedia: () => false });
+    postPaint({ kind: 'decorations', part: decorationPart(decorations(current), { palette: currentPalette, hasDrawnMedia: () => false }) });
   }
 
   function gather(current: GlScene, currentPalette: BoardPalette): void {
@@ -500,13 +524,18 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       if (geometry?.flow && !preview?.hiddenIds.has(geometry.id)) gatheredFlows.push(geometry.flow);
     }
     syncFlowLayer();
-    baseLayers = emptyLayers();
-    for (const layered of current.chrome.parts) baseLayers[layered.layer]?.push({ parts: [layered.part], depth: 0, bounds: null, media: null });
+    const mediaByIndex: [number, DrawnMedia][] = [];
     for (const index of visible) {
       const geometry = current.geometries[index];
-      if (!geometry || preview?.hiddenIds.has(geometry.id)) continue;
-      entriesOf(geometry, current, baseLayers);
+      const media = geometry && !preview?.hiddenIds.has(geometry.id) ? drawnMediaOf(current, geometry) : null;
+      if (media) mediaByIndex.push([index, media]);
     }
+    const hiddenIndexes = Uint32Array.from([...(preview?.hiddenIds ?? [])].flatMap((elementId) => {
+      const index = current.geometryIndexById.get(elementId);
+      return index === undefined ? [] : [index];
+    }));
+    const sceneIndexes = Uint32Array.from(visible);
+    postPaint({ kind: 'gather', sceneIndexes, mediaByIndex, hiddenIndexes }, [sceneIndexes.buffer, hiddenIndexes.buffer]);
     gatheredArea = area;
     gatheredLodStep = lodStep;
     isGatherDirty = false;
@@ -538,14 +567,18 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     mediaImages.set(href, entry);
     image.decoding = 'async';
     image.src = href;
-    void image.decode().then(() => {
-      if (mediaImages.get(href) !== entry) return;
-      entry.width = image.naturalWidth || entry.width;
-      entry.height = image.naturalHeight || entry.height;
+    void image.decode().then(() => createImageBitmap(image).catch(() => rasterizedBitmapOf(image, entry))).then((bitmap) => {
+      if (mediaImages.get(href) !== entry) {
+        bitmap.close();
+        return;
+      }
+      entry.width = bitmap.width || entry.width;
+      entry.height = bitmap.height || entry.height;
       entry.state = 'ready';
+      entry.image = null;
       entry.imageBytes = entry.width * entry.height * BYTES_PER_PIXEL;
+      postPaint({ kind: 'media', href, bitmap }, [bitmap]);
       evictMediaImagesOverBudget();
-      requestDraw();
     }, () => {
       markMediaFailed(entry);
     });
@@ -565,11 +598,14 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     for (const entry of mediaImages.values()) heldBytes += entry.imageBytes;
     if (heldBytes <= MEDIA_IMAGE_BUDGET_BYTES) return;
     const leastRecentlyDrawnFirst = [...mediaImages].filter(([, entry]) => entry.lastGatherNumber !== gatherNumber).sort(([, first], [, second]) => first.lastGatherNumber - second.lastGatherNumber);
+    const droppedHrefs: string[] = [];
     for (const [href, entry] of leastRecentlyDrawnFirst) {
-      if (heldBytes <= MEDIA_IMAGE_BUDGET_BYTES) return;
+      if (heldBytes <= MEDIA_IMAGE_BUDGET_BYTES) break;
       heldBytes -= entry.imageBytes;
       mediaImages.delete(href);
+      droppedHrefs.push(href);
     }
+    if (droppedHrefs.length > 0) postPaint({ kind: 'media-dropped', hrefs: droppedHrefs });
   }
 
   function forgetMediaNotIn(layout: BoardLayout): void {
@@ -578,60 +614,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       const href = servedAssetHref(element.media);
       return href ? [href] : [];
     }));
-    for (const href of mediaImages.keys()) {
-      if (!hrefsInUse.has(href)) mediaImages.delete(href);
-    }
-  }
-
-  function paintDrawnMedia(drawn: DrawnMedia): void {
-    const entry = mediaImages.get(drawn.href);
-    if (entry?.state !== 'ready') return;
-    paintImage(boardContext, entry.image, entry.width, entry.height, placedMediaOf(drawn, entry), drawn.clipRadius, drawn.turn);
-  }
-
-  function createBlockSurface(blockId: string): HTMLCanvasElement {
-    const surface = Object.assign(document.createElement('canvas'), { width: BLOCK_RASTER_PX, height: BLOCK_RASTER_PX });
-    surface.addEventListener('contextlost', () => {
-      tintedBlocks.delete(blockId);
-      requestDraw();
-    });
-    return surface;
-  }
-
-  function tintedBlockOf(block: BlockTile, tint: Rgba): HTMLCanvasElement | null {
-    const tintKey = tint.join(',');
-    const known = tintedBlocks.get(block.id);
-    if (known?.raster === block.raster && known.tintKey === tintKey) return known.surface;
-    if (block.raster.length !== BLOCK_RASTER_PX * BLOCK_RASTER_PX * 4) return null;
-    const surface = known?.surface ?? createBlockSurface(block.id);
-    const surfaceContext = surface.getContext('2d');
-    if (!surfaceContext) return null;
-    surfaceContext.globalCompositeOperation = 'source-over';
-    surfaceContext.clearRect(0, 0, BLOCK_RASTER_PX, BLOCK_RASTER_PX);
-    surfaceContext.putImageData(new ImageData(new Uint8ClampedArray(block.raster), BLOCK_RASTER_PX, BLOCK_RASTER_PX), 0, 0);
-    surfaceContext.globalCompositeOperation = 'source-in';
-    surfaceContext.fillStyle = `rgba(${Math.round(tint[0] * 255)},${Math.round(tint[1] * 255)},${Math.round(tint[2] * 255)},${BLOCK_ALPHA})`;
-    surfaceContext.fillRect(0, 0, BLOCK_RASTER_PX, BLOCK_RASTER_PX);
-    surfaceContext.globalCompositeOperation = 'source-over';
-    tintedBlocks.set(block.id, { raster: block.raster, tintKey, surface });
-    return surface;
-  }
-
-  function forgetTintedBlocksNotIn(nextBlocks: readonly BlockTile[]): void {
-    const keptIds = new Set(nextBlocks.map((block) => block.id));
-    for (const id of tintedBlocks.keys()) {
-      if (!keptIds.has(id)) tintedBlocks.delete(id);
-    }
-  }
-
-  function paintBlocks(tint: Rgba): void {
-    if (blocks.length === 0) return;
-    boardContext.imageSmoothingEnabled = false;
-    for (const block of blocks) {
-      const surface = tintedBlockOf(block, tint);
-      if (surface) boardContext.drawImage(surface, block.rect.x, block.rect.y, block.rect.width, block.rect.height);
-    }
-    boardContext.imageSmoothingEnabled = true;
+    const droppedHrefs = [...mediaImages.keys()].filter((href) => !hrefsInUse.has(href));
+    for (const href of droppedHrefs) mediaImages.delete(href);
+    if (droppedHrefs.length > 0) postPaint({ kind: 'media-dropped', hrefs: droppedHrefs });
   }
 
   function placeGrid(): void {
@@ -652,94 +637,23 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     onViewChange(view, camera.scale);
   }
 
-  function paintEntry(target: CanvasRenderingContext2D, entry: PaintEntry, fontFamily: string, view: PaintView): void {
-    for (const part of entry.parts) paintTriangles(target, part.triangles, view);
-    for (const part of entry.parts) paintRects(target, part.rects, view);
-    for (const part of entry.parts) paintSegments(target, part.segments, view);
-    if (entry.media) paintDrawnMedia(entry.media);
-    for (const part of entry.parts) {
-      if (part.texts.length === 0 || part.textMinScale > view.lodScale) continue;
-      paintTexts(target, part.texts, fontFamily, view);
-    }
-  }
-
-  function entriesInPaintOrder(layer: number): PaintEntry[] {
-    const base = baseLayers[layer] ?? [];
-    const previewEntries = previewLayers[layer] ?? [];
-    if (previewEntries.length === 0) return base;
-    return [...base, ...previewEntries].sort((first, second) => first.depth - second.depth);
-  }
-
   function isGatherStale(): boolean {
     if (isGatherDirty || !gatheredArea) return true;
     if (lodStepOf(camera.scale) !== gatheredLodStep) return true;
     return !isRectInside(viewArea(), gatheredArea);
   }
 
-  function resizeCanvas(): void {
-    const pixelRatio = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(canvas.clientWidth * pixelRatio));
-    const height = Math.max(1, Math.round(canvas.clientHeight * pixelRatio));
-    if (canvas.width === width && canvas.height === height) return;
-    canvas.width = width;
-    canvas.height = height;
-  }
-
   function draw(): void {
     frameRequest = null;
-    if (isBoardContextLost) return;
-    resizeCanvas();
-    boardContext.setTransform(1, 0, 0, 1, 0, 0);
-    boardContext.clearRect(0, 0, canvas.width, canvas.height);
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) buildScene(scene.layout);
+    postBoardFont();
     const current = scene;
-    if (!current) {
-      paintDecorations();
-      return;
+    if (current) {
+      const currentPalette = ensurePalette();
+      postBlocks(currentPalette.inkDim);
+      if (isGatherStale()) gather(current, currentPalette);
     }
-    const currentPalette = ensurePalette();
-    const view = cameraView();
-    setWorldTransform(boardContext, view);
-    paintBlocks(currentPalette.inkDim);
-    const fontFamily = boardFont();
-    if (isGatherStale()) gather(current, currentPalette);
-    const visibleArea = viewArea();
-    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
-      for (const entry of entriesInPaintOrder(layer)) {
-        if (entry.bounds && !isTouching(entry.bounds, visibleArea)) continue;
-        paintEntry(boardContext, entry, fontFamily, view);
-      }
-    }
-    canvas.dataset.drawnElements = String(current.geometries.length);
-    canvas.dataset.drawnBlocks = String(blocks.length);
-    canvas.dataset.mediaTextures = String(mediaImages.size);
-    if (decorationFrameRequest !== null) cancelAnimationFrame(decorationFrameRequest);
-    paintDecorations();
-  }
-
-  function cameraView(): PaintView {
-    return { cameraX: camera.x, cameraY: camera.y, deviceScale: camera.scale * (window.devicePixelRatio || 1), lodScale: camera.scale };
-  }
-
-  function paintDecorations(): void {
-    decorationFrameRequest = null;
-    const width = canvas.width;
-    const height = canvas.height;
-    if (decorationCanvas.width !== width || decorationCanvas.height !== height) {
-      decorationCanvas.width = width;
-      decorationCanvas.height = height;
-    }
-    decorationContext.setTransform(1, 0, 0, 1, 0, 0);
-    decorationContext.clearRect(0, 0, width, height);
-    if (!scene || !decorationPartNow) return;
-    const view = cameraView();
-    setWorldTransform(decorationContext, view);
-    paintEntry(decorationContext, { parts: [decorationPartNow], depth: 1, bounds: null, media: null }, boardFont(), view);
-  }
-
-  function requestDecorationPaint(): void {
-    if (decorationFrameRequest !== null) return;
-    decorationFrameRequest = requestAnimationFrame(paintDecorations);
+    postView();
   }
 
   function requestDraw(): void {
@@ -754,7 +668,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       return;
     }
     writeDecorations(current, ensurePalette());
-    requestDecorationPaint();
   }
 
   function isMediaDrawable(box: LaidOutBox): boolean {
@@ -883,7 +796,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function syncFlowLayer(): void {
     const previewFlows = preview?.geometries.flatMap((geometry) => (geometry.flow ? [geometry.flow] : [])) ?? [];
-    flowLayer.sync([...gatheredFlows, ...previewFlows]);
+    postPaint({ kind: 'flows', wires: [...gatheredFlows, ...previewFlows], isMotionReduced: reducedMotion.matches });
   }
 
   function paintElements(elements: readonly LaidOutElement[], stackSpreadOf?: (frameId: string) => number): void {
@@ -909,7 +822,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
     stackFan = null;
     preview = null;
-    forgetTintedBlocksNotIn(nextBlocks);
+    postPaint({ kind: 'preview', entries: [] });
     blocks = nextBlocks;
     buildScene(layout);
     requestDraw();
@@ -937,7 +850,8 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     };
     forgetMediaNotIn(layout);
     mediaLayer.sync(layout, built.elements.map((geometry) => geometry.id));
-    isGatherDirty = true;
+    postScene(scene);
+    gather(scene, currentPalette);
     sceneBuildCount += 1;
     canvas.dataset.sceneBuilds = String(sceneBuildCount);
   }
@@ -1056,28 +970,23 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function clear(): void {
     stopStackMotion();
-    decorationPartNow = null;
     if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
     stackFan = null;
     scene = null;
     preview = null;
     lastRendered = null;
-    forgetTintedBlocksNotIn([]);
     blocks = [];
+    postedBlocks = null;
+    geometryIdsInWorker = new Set();
+    postPaint({ kind: 'clear' });
     lastViewKey = '';
     reportView();
     geometryBySignature.clear();
     mediaImages.clear();
     mediaLayer.clear();
-    flowLayer.clear();
     hoveredBoxId = null;
     wireTargetId = null;
     isGatherDirty = true;
-    requestDraw();
-  }
-
-  function redrawAfterContextRestore(): void {
-    tintedBlocks.clear();
     requestDraw();
   }
 
@@ -1087,14 +996,12 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   });
 
-  canvas.addEventListener('contextlost', () => {
-    isBoardContextLost = true;
+  paintWorker.addEventListener('message', (event: MessageEvent<PaintReport>) => {
+    canvas.dataset.drawnElements = String(event.data.drawnElements);
+    canvas.dataset.drawnBlocks = String(event.data.drawnBlocks);
+    canvas.dataset.mediaTextures = String(event.data.mediaTextures);
   });
-  canvas.addEventListener('contextrestored', () => {
-    isBoardContextLost = false;
-    redrawAfterContextRestore();
-  });
-  decorationCanvas.addEventListener('contextrestored', redrawAfterContextRestore);
+  reducedMotion.addEventListener('change', syncFlowLayer);
   canvasResizeObserver.observe(canvas);
   const requestDrawOnThemeChange = (): void => {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) requestDraw();
@@ -1114,7 +1021,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     },
     setCamera: (nextCamera) => {
       camera = nextCamera;
-      flowLayer.showCamera(nextCamera);
       placeGrid();
       reportView();
       requestDraw();

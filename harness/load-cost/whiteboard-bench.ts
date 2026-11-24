@@ -64,6 +64,7 @@ const OPEN_VIEW = { x: 0, y: 0, width: DESKTOP_VIEWPORT.width, height: DESKTOP_V
 const PANNED_VIEW = { ...OPEN_VIEW, x: DESKTOP_VIEWPORT.width * 4 };
 const PAN_FRAMES = 120;
 const ZOOM_FRAMES = 40;
+const ZOOM_OUT_NOTCHES = 60;
 const DRAG_STEPS = 60;
 const BOX_SEARCH_STEP_PX = 40;
 const READABLE_BOARD_SCALE = 10 / 12;
@@ -390,6 +391,32 @@ function frameMetrics(prefix: string, label: string, sample: FrameSample): White
   ];
 }
 
+async function zoomFullyOut(page: Page): Promise<void> {
+  const viewport = await page.locator('.wb-viewport').boundingBox();
+  if (!viewport) throw new Error('the board viewport has no bounds');
+  await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
+  await page.keyboard.down('Control');
+  for (let notch = 0; notch < ZOOM_OUT_NOTCHES; notch += 1) await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Control');
+}
+
+async function sampleMainThreadPan(page: Page): Promise<WhiteboardMetric[]> {
+  const devtools = await page.context().newCDPSession(page);
+  await devtools.send('Performance.enable');
+  const taskSecondsNow = async (): Promise<number> => (await devtools.send('Performance.getMetrics')).metrics.find((metric) => metric.name === 'TaskDuration')?.value ?? 0;
+  const startedTaskSeconds = await taskSecondsNow();
+  await startFrameSampler(page);
+  await wheelEveryFrame(page, PAN_FRAMES / 2, { deltaX: 14, deltaY: 9, ctrlKey: false });
+  await wheelEveryFrame(page, PAN_FRAMES / 2, { deltaX: -14, deltaY: -9, ctrlKey: false });
+  const sample = await stopFrameSampler(page);
+  const mainThreadMsPerFrame = sample.framesMs.length > 0 ? (((await taskSecondsNow()) - startedTaskSeconds) * 1000) / sample.framesMs.length : null;
+  await devtools.detach();
+  return [
+    ...frameMetrics('pan-out', 'Pan zoomed fully out', sample),
+    metricOf('pan-out-main-thread', 'Pan zoomed fully out, main thread per frame', 'ms', mainThreadMsPerFrame),
+  ];
+}
+
 async function sampleFrames(page: Page, prefix: string, label: string, drive: () => Promise<void>): Promise<WhiteboardMetric[]> {
   await startFrameSampler(page);
   await drive();
@@ -464,6 +491,10 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
     if (!boxCenter) throw new Error('no box body is in view to drag');
     const drag = await sampleFrames(page, 'drag', 'Drag a box', () => dragOneBox(page, boxCenter));
     logStep('browser: drag sampled');
+    await zoomFullyOut(page);
+    await sleep(1500);
+    const panZoomedOut = await sampleMainThreadPan(page);
+    logStep('browser: zoomed-out pan sampled');
     const pageFacts = await page.evaluate(() => ({
       mediaTextures: Number(document.querySelector<HTMLCanvasElement>('.wb-viewport .wb-gl')?.dataset.mediaTextures ?? 0),
       livePages: document.querySelectorAll('.wb-media-layer iframe').length,
@@ -472,7 +503,7 @@ async function measureBrowser(browser: Browser, port: number): Promise<Whiteboar
     }));
     return [
       metricOf('open', 'Open the board, first draw', 'ms', openMs),
-      ...pan, ...zoom, ...drag,
+      ...pan, ...zoom, ...drag, ...panZoomedOut,
       metricOf('media-textures', 'Picture textures held after the run', 'count', pageFacts.mediaTextures),
       metricOf('live-pages', 'Live page frames after the run', 'count', pageFacts.livePages),
       metricOf('dom-nodes', 'DOM nodes after the run', 'count', pageFacts.domNodes),

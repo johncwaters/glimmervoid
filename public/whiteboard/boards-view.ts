@@ -41,7 +41,6 @@ import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer, Camera } from './board-gl-renderer.ts';
 import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
-import { createBoardFlowLayer } from './board-flow-layer.ts';
 import { followBoardSessionFeed } from './board-session-feed.ts';
 import { createBoardMediaLayer, fetchBoardDocText, fetchBoardSheetText, tunePageOnLoad } from './board-media-layer.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
@@ -1722,8 +1721,9 @@ export function mountBoardHost(): HTMLElement {
   world.append(svg, mediaLayer.element);
   const glCanvas = el('canvas', 'wb-gl');
   glCanvas.setAttribute('aria-hidden', 'true');
-  const flowLayer = createBoardFlowLayer();
-  viewport.append(mediaLayer.backdrop, glCanvas, flowLayer.element, world);
+  const flowCanvas = el('canvas', 'wb-flow');
+  flowCanvas.setAttribute('aria-hidden', 'true');
+  viewport.append(mediaLayer.backdrop, glCanvas, flowCanvas, world);
   const inspectPanel = el('aside', 'wb-inspect');
   const queuedForSession = el('span', 'wb-session-queued');
   const pairedDisconnect = disconnectControl('session', disconnectPairedSession);
@@ -1766,7 +1766,7 @@ export function mountBoardHost(): HTMLElement {
     viewport,
     fontSource: svg,
     mediaLayer,
-    flowLayer,
+    flowCanvas,
     onViewChange: (view, scale) => {
       if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);
       paintAgentChange();

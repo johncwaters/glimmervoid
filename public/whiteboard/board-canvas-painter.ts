@@ -3,6 +3,8 @@ import { RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS } from './board-gl-
 import type { Point, TextRun } from './board-gl-scene.ts';
 
 
+type PaintTarget = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 interface PaintView {
   cameraX: number;
   cameraY: number;
@@ -42,17 +44,17 @@ function colorText(red: number, green: number, blue: number, alpha: number): str
   return text;
 }
 
-function setWorldTransform(target: CanvasRenderingContext2D, view: PaintView): void {
+function setWorldTransform(target: PaintTarget, view: PaintView): void {
   target.setTransform(view.deviceScale, 0, 0, view.deviceScale, -view.cameraX * view.deviceScale, -view.cameraY * view.deviceScale);
 }
 
-function applyTurn(target: CanvasRenderingContext2D, pivotX: number, pivotY: number, radians: number): void {
+function applyTurn(target: PaintTarget, pivotX: number, pivotY: number, radians: number): void {
   target.translate(pivotX, pivotY);
   target.rotate(radians);
   target.translate(-pivotX, -pivotY);
 }
 
-function paintRects(target: CanvasRenderingContext2D, rects: Float32Array, view: PaintView): void {
+function paintRects(target: PaintTarget, rects: Float32Array, view: PaintView): void {
   for (let at = 0; at < rects.length; at += RECT_FLOATS) {
     if (view.lodScale < (rects[at + 17] ?? 0)) continue;
     const left = rects[at] ?? 0;
@@ -96,7 +98,7 @@ function continuesPrevious(segments: Float32Array, previousAt: number, at: numbe
   return segments[previousAt + 2] === segments[at] && segments[previousAt + 3] === segments[at + 1];
 }
 
-function strokeSegmentRun(target: CanvasRenderingContext2D, segments: Float32Array, firstAt: number, endAt: number, view: PaintView): void {
+function strokeSegmentRun(target: PaintTarget, segments: Float32Array, firstAt: number, endAt: number, view: PaintView): void {
   const width = segments[firstAt + 4] ?? 0;
   const dashOn = segments[firstAt + 5] ?? 0;
   const dashOff = segments[firstAt + 6] ?? 0;
@@ -124,7 +126,7 @@ function strokeSegmentRun(target: CanvasRenderingContext2D, segments: Float32Arr
   target.stroke();
 }
 
-function paintSegments(target: CanvasRenderingContext2D, segments: Float32Array, view: PaintView): void {
+function paintSegments(target: PaintTarget, segments: Float32Array, view: PaintView): void {
   if (segments.length === 0) return;
   target.lineJoin = 'miter';
   let firstAt = 0;
@@ -143,7 +145,7 @@ function isSameTriangleColor(triangles: Float32Array, firstAt: number, at: numbe
   return true;
 }
 
-function paintTriangles(target: CanvasRenderingContext2D, triangles: Float32Array, view: PaintView): void {
+function paintTriangles(target: PaintTarget, triangles: Float32Array, view: PaintView): void {
   const triangleFloats = TRIANGLE_VERTEX_FLOATS * 3;
   let runAt = 0;
   while (runAt < triangles.length) {
@@ -164,7 +166,7 @@ function paintTriangles(target: CanvasRenderingContext2D, triangles: Float32Arra
 
 const naturalAdvanceByFont = new Map<string, number>();
 
-function naturalAdvanceOf(target: CanvasRenderingContext2D, font: string): number {
+function naturalAdvanceOf(target: PaintTarget, font: string): number {
   const known = naturalAdvanceByFont.get(font);
   if (known !== undefined) return known;
   target.letterSpacing = '0px';
@@ -177,7 +179,7 @@ function forgetMeasuredFonts(): void {
   naturalAdvanceByFont.clear();
 }
 
-function textFillOf(target: CanvasRenderingContext2D, run: TextRun): string | CanvasGradient {
+function textFillOf(target: PaintTarget, run: TextRun): string | CanvasGradient {
   if (!run.gradient || run.gradient.length < 2) return colorText(run.color[0], run.color[1], run.color[2], run.color[3]);
   const width = [...run.text].length * run.advance;
   const gradient = target.createLinearGradient(run.left, 0, run.left + width, 0);
@@ -186,7 +188,7 @@ function textFillOf(target: CanvasRenderingContext2D, run: TextRun): string | Ca
   return gradient;
 }
 
-function paintTexts(target: CanvasRenderingContext2D, texts: readonly TextRun[], fontFamily: string, view: PaintView): void {
+function paintTexts(target: PaintTarget, texts: readonly TextRun[], fontFamily: string, view: PaintView): void {
   if (texts.length === 0) return;
   target.textBaseline = 'alphabetic';
   target.textAlign = 'left';
@@ -206,7 +208,7 @@ function paintTexts(target: CanvasRenderingContext2D, texts: readonly TextRun[],
   target.letterSpacing = '0px';
 }
 
-function paintImage(target: CanvasRenderingContext2D, image: CanvasImageSource, imageWidth: number, imageHeight: number, placed: PlacedImage, clipRadius: number, turn: Turn): void {
+function paintImage(target: PaintTarget, image: CanvasImageSource, imageWidth: number, imageHeight: number, placed: PlacedImage, clipRadius: number, turn: Turn): void {
   target.save();
   if (turn.radians !== 0) applyTurn(target, turn.pivot.x, turn.pivot.y, turn.radians);
   const { rect, uv } = placed;

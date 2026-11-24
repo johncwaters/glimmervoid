@@ -12,16 +12,21 @@ interface Camera {
   scale: number;
 }
 
+interface FlowView {
+  camera: Camera;
+  pixelRatio: number;
+  cssWidth: number;
+  cssHeight: number;
+}
+
 interface MeasuredWire extends FlowWire {
   lengthsAlong: number[];
   totalLength: number;
 }
 
-interface BoardFlowLayer {
-  element: HTMLCanvasElement;
-  sync(wires: readonly FlowWire[]): void;
-  showCamera(camera: Camera): void;
-  clear(): void;
+interface FlowPainter {
+  sync(wires: readonly FlowWire[], isMotionReduced: boolean): void;
+  paint(view: FlowView, timeMs: number): boolean;
 }
 
 const PARTICLE_SPACING_WORLD = 56;
@@ -67,36 +72,25 @@ function particleSpacingFor(scale: number): number {
   return spacing;
 }
 
-function createBoardFlowLayer(): BoardFlowLayer {
-  const canvas = document.createElement('canvas');
-  canvas.className = 'wb-flow';
-  canvas.setAttribute('aria-hidden', 'true');
+function createFlowPainter(canvas: OffscreenCanvas): FlowPainter {
   const context = canvas.getContext('2d');
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let wires: MeasuredWire[] = [];
-  let camera: Camera = { x: 0, y: 0, scale: 1 };
-  let frameRequest: number | null = null;
+  let isMotionReduced = false;
 
-  function isFlowing(): boolean {
-    const isOnScreen = canvas.isConnected && canvas.clientWidth > 0 && canvas.clientHeight > 0;
-    return wires.length > 0 && isOnScreen && !document.hidden && !reducedMotion.matches;
-  }
-
-  function screenPointOf(point: Point): Point {
+  function screenPointOf(point: Point, camera: Camera): Point {
     return { x: (point.x - camera.x) * camera.scale, y: (point.y - camera.y) * camera.scale };
   }
 
-  function fitCanvas(drawing: CanvasRenderingContext2D): void {
-    const pixelRatio = window.devicePixelRatio || 1;
-    const width = Math.round(canvas.clientWidth * pixelRatio);
-    const height = Math.round(canvas.clientHeight * pixelRatio);
+  function fitCanvas(drawing: OffscreenCanvasRenderingContext2D, view: FlowView): void {
+    const width = Math.max(1, Math.round(view.cssWidth * view.pixelRatio));
+    const height = Math.max(1, Math.round(view.cssHeight * view.pixelRatio));
     if (canvas.width !== width || canvas.height !== height) Object.assign(canvas, { width, height });
-    drawing.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    drawing.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    drawing.setTransform(view.pixelRatio, 0, 0, view.pixelRatio, 0, 0);
+    drawing.clearRect(0, 0, view.cssWidth, view.cssHeight);
   }
 
-  function drawGlow(drawing: CanvasRenderingContext2D, wire: MeasuredWire): void {
-    const [first, ...rest] = wire.points.map(screenPointOf);
+  function drawGlow(drawing: OffscreenCanvasRenderingContext2D, wire: MeasuredWire, camera: Camera): void {
+    const [first, ...rest] = wire.points.map((point) => screenPointOf(point, camera));
     if (!first) return;
     drawing.beginPath();
     drawing.moveTo(first.x, first.y);
@@ -108,7 +102,7 @@ function createBoardFlowLayer(): BoardFlowLayer {
     drawing.stroke();
   }
 
-  function drawParticles(drawing: CanvasRenderingContext2D, wire: MeasuredWire, timeMs: number): void {
+  function drawParticles(drawing: OffscreenCanvasRenderingContext2D, wire: MeasuredWire, camera: Camera, timeMs: number): void {
     const spacing = particleSpacingFor(camera.scale);
     const offset = ((timeMs / 1000) * PARTICLE_SPEED_WORLD_PER_SECOND) % spacing;
     drawing.fillStyle = cssColorOf([1, 1, 1, 1], 0.95);
@@ -117,48 +111,29 @@ function createBoardFlowLayer(): BoardFlowLayer {
     for (let distance = offset; distance <= wire.totalLength; distance += spacing) {
       const worldPoint = pointAlong(wire, distance);
       if (!worldPoint) continue;
-      const point = screenPointOf(worldPoint);
+      const point = screenPointOf(worldPoint, camera);
       drawing.beginPath();
       drawing.arc(point.x, point.y, PARTICLE_RADIUS_PX, 0, Math.PI * 2);
       drawing.fill();
     }
   }
 
-  function drawFrame(timeMs: number): void {
-    frameRequest = null;
-    if (!context) return;
-    fitCanvas(context);
-    for (const wire of wires) drawGlow(context, wire);
-    if (!isFlowing()) return;
-    for (const wire of wires) drawParticles(context, wire, timeMs);
-    frameRequest = requestAnimationFrame(drawFrame);
-  }
-
-  function requestFrame(): void {
-    if (frameRequest !== null) return;
-    frameRequest = requestAnimationFrame(drawFrame);
-  }
-
-  document.addEventListener('visibilitychange', requestFrame);
-  reducedMotion.addEventListener('change', requestFrame);
-  new ResizeObserver(requestFrame).observe(canvas);
-
   return {
-    element: canvas,
-    sync: (nextWires) => {
+    sync: (nextWires, nextIsMotionReduced) => {
       wires = nextWires.map(measuredWireOf);
-      requestFrame();
+      isMotionReduced = nextIsMotionReduced;
     },
-    showCamera: (nextCamera) => {
-      camera = nextCamera;
-      if (wires.length > 0) requestFrame();
-    },
-    clear: () => {
-      wires = [];
-      requestFrame();
+    paint: (view, timeMs) => {
+      if (!context) return false;
+      fitCanvas(context, view);
+      for (const wire of wires) drawGlow(context, wire, view.camera);
+      const isFlowing = wires.length > 0 && view.cssWidth > 0 && view.cssHeight > 0 && !isMotionReduced;
+      if (!isFlowing) return false;
+      for (const wire of wires) drawParticles(context, wire, view.camera, timeMs);
+      return true;
     },
   };
 }
 
-export { createBoardFlowLayer };
-export type { BoardFlowLayer, FlowWire };
+export { createFlowPainter };
+export type { FlowPainter, FlowWire };
