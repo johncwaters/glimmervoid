@@ -1,9 +1,15 @@
+import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import { runGit } from '../server/git/git-exec.ts';
+import { runCommand, runGit } from '../server/git/git-exec.ts';
 import { createCodemapClient } from '../server/codemap/codemap-client.ts';
-import { buildCodemapModel, impactOf, mapTextOf, whereOf } from '../server/core/codemap-graph-core.ts';
+import type { CodemapClient } from '../server/codemap/codemap-client.ts';
+import { createStructureRunner } from '../server/codemap/structure-runner.ts';
+import { buildCodemapModel, CODEMAP_TUNABLES, impactOf, mapTextOf, moduleOfPath, whereOf } from '../server/core/codemap-graph-core.ts';
+import type { CodemapModel } from '../server/core/codemap-graph-core.ts';
+import { glimmervoidHomeDir } from '../server/core/config-path-core.ts';
+import { shallowModulesOf, tanglesOf } from '../server/core/codemap-structure-core.ts';
 
 const BYTES_PER_MB = 2 ** 20;
 
@@ -21,6 +27,31 @@ async function timed<Value>(step: string, run: () => Promise<Value> | Value): Pr
   const { heapUsed, rss } = process.memoryUsage();
   logStep(`server: ${step}`, performance.now() - startedAt, heapUsed, rss);
   return value;
+}
+
+const CHILD_MEMORY_SAMPLE_MS = 250;
+const KILOBYTE = 1024;
+
+async function childRssBytes(): Promise<number | null> {
+  const listed = await runCommand('ps', ['-o', 'rss=', '--ppid', String(process.pid)]);
+  if (!listed.ok) return null;
+  return listed.out.split('\n').map((line) => Number(line.trim())).filter(Number.isFinite).reduce((total, kilobytes) => total + kilobytes * KILOBYTE, 0);
+}
+
+async function benchStructure(repoDir: string, sha: string, client: CodemapClient, model: CodemapModel): Promise<void> {
+  const runner = createStructureRunner({ homeDir: glimmervoidHomeDir(os.homedir(), process.env), client });
+  let peakChildRssBytes: number | null = 0;
+  const sampler = setInterval(() => {
+    void childRssBytes().then((rssBytes) => {
+      peakChildRssBytes = rssBytes === null || peakChildRssBytes === null ? null : Math.max(peakChildRssBytes, rssBytes);
+    });
+  }, CHILD_MEMORY_SAMPLE_MS);
+  const graph = await timed('index structure', () => runner.symbolGraphOf(repoDir, sha)).finally(() => clearInterval(sampler));
+  const moduleOfRepoPath = (repoPath: string) => moduleOfPath(model, repoPath);
+  const tangles = await timed('find tangles', () => tanglesOf(graph, moduleOfRepoPath));
+  const shallowModules = await timed('find shallow modules', () => shallowModulesOf(graph, moduleOfRepoPath));
+  const unjudged = graph.unjudgedLanguages.map((entry) => `${entry.language} (${entry.reason})`).join(', ') || 'none';
+  console.log(`indexer peak rss ${peakChildRssBytes === null ? 'not measured on this platform' : megabytes(peakChildRssBytes)}, ${graph.symbols.length} symbols, ${graph.edgesFrom.length} symbol edges, ${tangles.length} tangles (largest ${tangles[0]?.symbols.length ?? 0} symbols, ceiling ${CODEMAP_TUNABLES.maxTangleSymbols}), ${shallowModules.length} shallow modules (ceiling ${CODEMAP_TUNABLES.maxShownSymbols} shown), unjudged ${unjudged}`);
 }
 
 async function main(): Promise<void> {
@@ -41,6 +72,7 @@ async function main(): Promise<void> {
     await timed('where', () => whereOf(model, firstPath));
     await timed('impact', () => impactOf(model, [firstPath]));
   }
+  await benchStructure(repoDir, sha, client, model);
   console.log(`${model.paths.length} source files, ${model.modules.length} modules, ${model.moduleEdgeCount} module edges, ${extract.importerIndexes.length} file imports, ${extract.skippedPaths.length} skipped, map text ${mapText.length} chars`);
 }
 
