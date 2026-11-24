@@ -73,6 +73,13 @@ interface VillageState {
   buildings: BuildingLevels;
   troops: TroopCounts;
   isBeacon: boolean;
+  guests: StationedGuest[];
+}
+
+interface StationedGuest {
+  owner: SeatId;
+  originHexIndex: number;
+  troops: TroopCounts;
 }
 
 interface ArmyState {
@@ -395,6 +402,7 @@ function cloneVillage(village: VillageState | null): VillageState | null {
     buildings: { ...village.buildings },
     troops: { ...village.troops },
     isBeacon: village.isBeacon,
+    guests: village.guests.map((guest) => ({ ...guest, troops: { ...guest.troops } })),
   };
 }
 
@@ -666,6 +674,7 @@ export function createInitialMatchState(
         buildings: { farm: 1, mine: 1, barracks: 1, wall: 0 },
         troops: { raider: 6, guard: 6, envoy: 1 },
         isBeacon: false,
+        guests: [],
       };
     }
   }
@@ -682,6 +691,7 @@ export function createInitialMatchState(
       buildings: { farm: 0, mine: 0, barracks: 0, wall: 0 },
       troops: { raider: 0, guard: BEACON_GUARDS, envoy: 0 },
       isBeacon: true,
+      guests: [],
     };
   }
   for (const coord of sites.villageCoords) {
@@ -696,6 +706,7 @@ export function createInitialMatchState(
       buildings: { farm: 1, mine: 1, barracks: 0, wall: 1 },
       troops: { raider: 3, guard: 4, envoy: 0 },
       isBeacon: false,
+      guests: [],
     };
   }
   const orderedSeats = seatIds.map((seatId) => {
@@ -823,7 +834,7 @@ function villagesOwnedBy(state: MatchState, seatId: SeatId): number {
 function beaconsHeldBy(state: MatchState, seatId: SeatId): number {
   let count = 0;
   for (const village of state.villages) {
-    if (village && village.isBeacon && village.owner === seatId && totalTroops(village.troops) > 0) count += 1;
+    if (village && village.isBeacon && village.owner === seatId && totalTroops(defendingTroopsOf(village)) > 0) count += 1;
   }
   return count;
 }
@@ -871,6 +882,113 @@ function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wall
   return { attackPower, defensePower };
 }
 
+export function guestTroopsOwnedBy(village: Pick<VillageState, 'guests'>, seatId: SeatId): TroopCounts {
+  return sumTroopCounts(village.guests.filter((guest) => guest.owner === seatId).map((guest) => guest.troops));
+}
+
+function defendingTroopsOf(village: VillageState): TroopCounts {
+  return sumTroopCounts([village.troops, ...village.guests.map((guest) => guest.troops)]);
+}
+
+function applyDefenderCasualties(village: VillageState, lossFraction: number): TroopCounts {
+  const hostOutcome = applyCasualties(village.troops, lossFraction);
+  village.troops = hostOutcome.surviving;
+  const guestOutcomes = village.guests.map((guest) => ({ guest, outcome: applyCasualties(guest.troops, lossFraction) }));
+  village.guests = guestOutcomes
+    .filter(({ outcome }) => totalTroops(outcome.surviving) > 0)
+    .map(({ guest, outcome }) => ({ ...guest, troops: outcome.surviving }));
+  return sumTroopCounts([hostOutcome.lost, ...guestOutcomes.map(({ outcome }) => outcome.lost)]);
+}
+
+function troopCapOf(roles: WargamesRolesRule, village: VillageState): number {
+  return roles.troopCapBase + roles.troopCapPerFarmLevel * village.buildings.farm;
+}
+
+function troopsCountedAt(state: MatchState, village: VillageState): number {
+  let counted = totalTroops(defendingTroopsOf(village));
+  for (const army of state.armies.values()) {
+    if (army.owner !== village.owner || army.originHexIndex !== village.hexIndex) continue;
+    if (army.status === 'marching' || army.status === 'arrived' || army.status === 'returning') counted += totalTroops(army.troops);
+  }
+  return counted;
+}
+
+export function villageTroopLoadOf(state: MatchState, village: VillageState): { counted: number; cap: number } | null {
+  const roles = state.balance.roles;
+  if (roles === null || village.owner === null) return null;
+  return { counted: troopsCountedAt(state, village), cap: troopCapOf(roles, village) };
+}
+
+function troopRoomAt(state: MatchState, village: VillageState): number {
+  const roles = state.balance.roles;
+  if (roles === null || village.owner === null) return Number.POSITIVE_INFINITY;
+  return Math.max(0, troopCapOf(roles, village) - troopsCountedAt(state, village));
+}
+
+function takeTroopsUpTo(troops: TroopCounts, room: number): TroopCounts {
+  const guard = Math.min(troops.guard, room);
+  const raider = Math.min(troops.raider, room - guard);
+  const envoy = Math.min(troops.envoy, room - guard - raider);
+  return { raider, guard, envoy };
+}
+
+function subtractTroops(from: TroopCounts, amount: TroopCounts): TroopCounts {
+  return { raider: from.raider - amount.raider, guard: from.guard - amount.guard, envoy: from.envoy - amount.envoy };
+}
+
+function addTroopsInto(into: TroopCounts, amount: TroopCounts): void {
+  into.raider += amount.raider;
+  into.guard += amount.guard;
+  into.envoy += amount.envoy;
+}
+
+function stationGuests(village: VillageState, army: ArmyState, troops: TroopCounts): void {
+  const existing = village.guests.find((guest) => guest.owner === army.owner && guest.originHexIndex === army.originHexIndex);
+  if (existing) {
+    addTroopsInto(existing.troops, troops);
+    return;
+  }
+  village.guests.push({ owner: army.owner, originHexIndex: army.originHexIndex, troops: { ...troops } });
+}
+
+function settleArmyAfterEntry(army: ArmyState, leftover: TroopCounts): void {
+  army.troops = leftover;
+  const returning = transitionArmy(army.status, 'army_return');
+  if (!returning.ok) return;
+  army.status = returning.state;
+  if (totalTroops(leftover) > 0) return;
+  const home = transitionArmy(army.status, 'army_reach_home');
+  if (home.ok) army.status = home.state;
+}
+
+function sendGuestsHome(state: MatchState): void {
+  for (const village of state.villages) {
+    if (!village || village.guests.length === 0) continue;
+    const staying: StationedGuest[] = [];
+    for (const guest of village.guests) {
+      if (village.owner !== null && hasActiveAlliance(state, guest.owner, village.owner)) {
+        staying.push(guest);
+        continue;
+      }
+      const armyId = `army-${state.nextArmyNumber}`;
+      state.nextArmyNumber += 1;
+      state.armies.set(armyId, {
+        id: armyId,
+        owner: guest.owner,
+        status: 'returning',
+        originHexIndex: guest.originHexIndex,
+        currentHexIndex: village.hexIndex,
+        targetHexIndex: village.hexIndex,
+        troops: { ...guest.troops },
+        departedTick: state.tick,
+        intendedTargetOwner: null,
+        scoutedBy: [],
+      });
+    }
+    village.guests = staying;
+  }
+}
+
 function rolesAttackOf(roles: WargamesRolesRule, troops: TroopCounts): number {
   return troops.raider * roles.units.raider.attack + troops.guard * roles.units.guard.attack + troops.envoy * roles.units.envoy.attack;
 }
@@ -901,7 +1019,7 @@ function seatAttackPowerOf(state: MatchState, armies: readonly ArmyState[], comb
 function villageDefensePowerOf(state: MatchState, village: VillageState, allAttackers: TroopCounts): number {
   const roles = state.balance.roles;
   if (roles === null) return resolveCombatPower(allAttackers, village.troops, village.buildings.wall, defenseMultiplierOf(state, village)).defensePower;
-  const troopDefense = rolesDefenseOf(roles, village.troops);
+  const troopDefense = rolesDefenseOf(roles, defendingTroopsOf(village));
   const wall = village.buildings.wall;
   return (troopDefense + wall * roles.wallDefensePerLevel) * (1 + wall * roles.wallBonusPerLevel) * defenseMultiplierOf(state, village);
 }
@@ -1062,19 +1180,14 @@ function finalizeArmyAfterCombat(army: ArmyState, surviving: TroopCounts): void 
   if (returning.ok) army.status = returning.state;
 }
 
-function garrisonArmyInVillage(army: ArmyState, village: VillageState, surviving: TroopCounts): void {
+function garrisonArmyInVillage(state: MatchState, army: ArmyState, village: VillageState, surviving: TroopCounts): void {
   if (totalTroops(surviving) <= 0) {
     finalizeArmyAfterCombat(army, surviving);
     return;
   }
-  village.troops.raider += surviving.raider;
-  village.troops.guard += surviving.guard;
-  village.troops.envoy += surviving.envoy;
-  army.troops = emptyTroops();
-  const reached = transitionArmy(army.status, 'army_return');
-  if (!reached.ok) return;
-  const home = transitionArmy(reached.state, 'army_reach_home');
-  if (home.ok) army.status = home.state;
+  const accepted = takeTroopsUpTo(surviving, troopRoomAt(state, village));
+  addTroopsInto(village.troops, accepted);
+  settleArmyAfterEntry(army, subtractTroops(surviving, accepted));
 }
 
 function resolveV1MarchArrival(
@@ -1336,7 +1449,8 @@ function resolveV2SimultaneousBattles(
     }
     if (activeAttackerSeats.length === 0) continue;
 
-    const defenderBefore = { ...targetVillage.troops };
+    const defenderBefore = defendingTroopsOf(targetVillage);
+    const guestOwnersBefore = new Set(targetVillage.guests.map((guest) => guest.owner));
     const loyaltyBefore = targetVillage.loyalty;
     const allCombinedTroops = sumTroopCounts(activeAttackerSeats.map((entry) => entry.combinedTroops));
     const totalAttackPower = activeAttackerSeats.reduce((sum, entry) => sum + entry.attackPower, 0);
@@ -1347,8 +1461,7 @@ function resolveV2SimultaneousBattles(
     const defenderFalls = jitteredTotalAttack >= defensePower;
 
     const defenderLossFraction = defenderFalls ? 1 : (jitteredTotalAttack / Math.max(1, defensePower)) * 0.65;
-    const defenderOutcome = applyCasualties(targetVillage.troops, defenderLossFraction);
-    targetVillage.troops = defenderOutcome.surviving;
+    const defenderLost = applyDefenderCasualties(targetVillage, defenderLossFraction);
     const wallBefore = targetVillage.buildings.wall;
     if (defenderFalls && state.balance.roles !== null) knockDownWall(targetVillage, jitteredTotalAttack, defensePower);
 
@@ -1411,7 +1524,7 @@ function resolveV2SimultaneousBattles(
         attackerSent: resolved.entry.combinedTroops,
         attackerLost: resolved.totalLost,
         defenderBefore,
-        defenderLost: defenderOutcome.lost,
+        defenderLost,
         loyaltyBefore,
         loyaltyAfter: finalLoyaltyAfter,
         captured: resolved.captured,
@@ -1421,6 +1534,9 @@ function resolveV2SimultaneousBattles(
       if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
       const supporterSeats = new Set(resolved.entry.armies.map((army) => army.owner).filter((owner) => owner !== resolved.entry.seatId));
       for (const supporterSeat of supporterSeats) state.reportsBySeat[supporterSeat].push(report);
+      for (const guestOwner of guestOwnersBefore) {
+        if (guestOwner !== previousOwner && guestOwner !== resolved.entry.seatId && !supporterSeats.has(guestOwner)) state.reportsBySeat[guestOwner].push(report);
+      }
       effects.push({ kind: 'report_signed', detail: { reportId, seatId: resolved.entry.seatId, signature: report.signature } });
 
       const shouldGarrisonCapturedVillage = isRulesAtLeast(state.spec.rulesVersion, 'v4') && resolved.captured;
@@ -1428,7 +1544,7 @@ function resolveV2SimultaneousBattles(
         const army = resolved.entry.armies[index];
         const surviving = resolved.survivingByArmy[index].surviving;
         if (shouldGarrisonCapturedVillage && army.owner === resolved.entry.seatId) {
-          garrisonArmyInVillage(army, targetVillage, surviving);
+          garrisonArmyInVillage(state, army, targetVillage, surviving);
           continue;
         }
         finalizeArmyAfterCombat(army, surviving);
@@ -1529,13 +1645,15 @@ function resolveTick(
       if (order.kind === 'train') {
         const village = state.villages[order.hexIndex];
         if (!village || village.owner !== seat.config.seatId) continue;
+        const count = Math.min(order.count, troopRoomAt(state, village));
+        if (count <= 0) continue;
         const unitCost = troopCostsFor(state.balance)[order.troop];
-        const totalGrain = unitCost.grain * order.count;
-        const totalOre = unitCost.ore * order.count;
+        const totalGrain = unitCost.grain * count;
+        const totalOre = unitCost.ore * count;
         if (village.resources.grain < totalGrain || village.resources.ore < totalOre) continue;
         village.resources.grain -= totalGrain;
         village.resources.ore -= totalOre;
-        village.troops[order.troop] += order.count;
+        village.troops[order.troop] += count;
       }
     }
   }
@@ -1603,7 +1721,7 @@ function resolveTick(
         productionState: target.productionState,
         loyalty: target.loyalty,
         resources: { ...target.resources },
-        troops: { ...target.troops },
+        troops: defendingTroopsOf(target),
         buildings: { ...target.buildings },
         spottedArmyIds,
       }, signatures, signer);
@@ -1666,15 +1784,10 @@ function resolveTick(
       }
       const isAlliedGarrison = army.supporting !== undefined && targetVillage.owner === army.supporting && hasActiveAlliance(state, army.owner, army.supporting);
       if (targetVillage.owner === army.owner || isAlliedGarrison) {
-        targetVillage.troops.raider += army.troops.raider;
-        targetVillage.troops.guard += army.troops.guard;
-        targetVillage.troops.envoy += army.troops.envoy;
-        army.troops = emptyTroops();
-        const reached = transitionArmy(army.status, 'army_return');
-        if (reached.ok) {
-          const home = transitionArmy(reached.state, 'army_reach_home');
-          if (home.ok) army.status = home.state;
-        }
+        const accepted = takeTroopsUpTo(army.troops, troopRoomAt(state, targetVillage));
+        if (isAlliedGarrison && state.balance.roles !== null && totalTroops(accepted) > 0) stationGuests(targetVillage, army, accepted);
+        if (!isAlliedGarrison || state.balance.roles === null) addTroopsInto(targetVillage.troops, accepted);
+        settleArmyAfterEntry(army, subtractTroops(army.troops, accepted));
         continue;
       }
       if (army.supporting !== undefined) {
@@ -1726,6 +1839,8 @@ function resolveTick(
     }
   }
 
+  sendGuestsHome(state);
+
   for (const seat of state.seats) {
     if (seat.status === 'eliminated') continue;
     if (villagesOwnedBy(state, seat.config.seatId) > 0) continue;
@@ -1738,7 +1853,7 @@ function settleBeaconsAndVictoryPoints(state: MatchState): void {
   const victory = state.balance.victory;
   if (victory.kind !== 'points') return;
   for (const village of state.villages) {
-    if (!village || !village.isBeacon || village.owner === null || totalTroops(village.troops) > 0) continue;
+    if (!village || !village.isBeacon || village.owner === null || totalTroops(defendingTroopsOf(village)) > 0) continue;
     village.owner = null;
     village.loyalty = INITIAL_LOYALTY;
   }
@@ -1817,7 +1932,9 @@ function determineWinnerAtLimit(state: MatchState): SeatId {
     let troops = 0;
     let resources = 0;
     for (const village of state.villages) {
-      if (!village || village.owner !== seatId) continue;
+      if (!village) continue;
+      troops += totalTroops(guestTroopsOwnedBy(village, seatId));
+      if (village.owner !== seatId) continue;
       troops += totalTroops(village.troops);
       resources += village.resources.grain + village.resources.ore;
     }
@@ -2206,7 +2323,10 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     .filter((village): village is VillageState => village !== null && village.owner === seatId)
     .map((village) => village.hexIndex);
   const scoutedSet = new Set(state.scoutedHexesBySeat[seatId]);
-  const fullIntelHexes = new Set<number>([...ownedHexIndices, ...scoutedSet]);
+  const hostedHexIndices = state.villages
+    .filter((village): village is VillageState => village !== null && village.guests.some((guest) => guest.owner === seatId))
+    .map((village) => village.hexIndex);
+  const fullIntelHexes = new Set<number>([...ownedHexIndices, ...scoutedSet, ...hostedHexIndices]);
   const nearbyHexIndices = new Set<number>();
   for (const ownedIdx of ownedHexIndices) {
     const ownedTile = state.hexes[ownedIdx];
