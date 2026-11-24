@@ -1053,6 +1053,45 @@ test('v8 makes a lone raid fail where an allied pair clears the wall and its env
   assert.equal(envoysAtEmptyWall.resolved.armies.get('army-0')?.status, 'destroyed');
 });
 
+test('v8 keeps lent guards the sender\'s, caps them by the host farm, and sends them home when the alliance ends', () => {
+  const lendGuards = (allianceEndTick: number, hostGuards?: number) => {
+    const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v8' };
+    const state = createInitialMatchState('wg-v8-guests', 1000, spec);
+    const s1Home = state.villages.find((village) => village?.owner === 's1');
+    const s2Home = state.villages.find((village) => village?.owner === 's2');
+    assert.ok(s1Home && s2Home);
+    if (hostGuards !== undefined) s1Home.troops.guard = hostGuards;
+    state.contracts.set('ctr-ally', {
+      id: 'ctr-ally', proposer: 's2', counterparty: 's1',
+      terms: { kind: 'alliance', counterparty: 's1', durationTicks: 5, collateral: { grain: 0, ore: 0 } },
+      status: 'active', proposedTick: 0, activatedTick: 0, endTick: allianceEndTick, breachedBy: null, breachedTick: null,
+    });
+    state.armies.set('army-lend', {
+      id: 'army-lend', owner: 's2', status: 'marching', originHexIndex: s2Home.hexIndex,
+      currentHexIndex: s1Home.hexIndex, targetHexIndex: s1Home.hexIndex,
+      troops: { raider: 0, guard: 50, envoy: 0 }, departedTick: 0, intendedTargetOwner: 's1', scoutedBy: [], supporting: 's1',
+    });
+    const resolved = advanceToResolution(state);
+    return { resolved, host: resolved.villages[s1Home.hexIndex], hostTroopsBefore: { ...s1Home.troops } };
+  };
+
+  const standing = lendGuards(10);
+  assert.deepEqual(standing.host?.troops, standing.hostTroopsBefore);
+  assert.deepEqual(standing.host?.guests.map((guest) => [guest.owner, guest.troops.guard]), [['s2', 47]]);
+  assert.equal(standing.resolved.armies.get('army-lend')?.status, 'returning');
+  assert.equal(standing.resolved.armies.get('army-lend')?.troops.guard, 3);
+
+  const full = lendGuards(10, 60);
+  assert.deepEqual(full.host?.guests, []);
+  assert.equal(full.resolved.armies.get('army-lend')?.troops.guard, 50);
+  assert.deepEqual(projectSeatState(full.resolved, 's2').visibleVillages.map((village) => village.hexIndex).includes(full.host?.hexIndex ?? -1), false);
+
+  const ended = lendGuards(1);
+  assert.deepEqual(ended.host?.guests, []);
+  const guestsGoingHome = [...ended.resolved.armies.values()].filter((army) => army.owner === 's2' && army.status === 'returning');
+  assert.equal(guestsGoingHome.reduce((sum, army) => sum + army.troops.guard, 0), 50);
+});
+
 test('v7 breaches an alliance on attack, opens the public channel, and swaps the NAP for the alliance', () => {
   const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v7' };
   const resolveBetrayal = (isAllied: boolean, isBetrayal: boolean) => {
