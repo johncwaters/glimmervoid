@@ -41,3 +41,4 @@ literalSizesAllowedIn:
   - public/index.html
   - server/remote-auth.ts
   - cloud/doorman/host-page.ts
+  - public/service-worker.ts

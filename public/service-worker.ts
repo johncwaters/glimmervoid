@@ -11,17 +11,13 @@ const START_LINK = 'glimmervoid://start';
 const TAILSCALE_APP_LINK = 'intent://navigate#Intent;scheme=tailscale;package=com.tailscale.ipn;end';
 
 const OFFLINE_PAGE_STYLE = `
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f0d15; color: #cfcbd9; font: 15px/1.5 system-ui, sans-serif; }
-  main { max-width: 26rem; padding: 0 16px; text-align: center; }
-  h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; color: #efedf6; }
-  p { margin: 0 0 20px; color: #b0aabf; }
-  strong { color: #efedf6; font-weight: 600; overflow-wrap: anywhere; }
-  .action { display: inline-block; padding: 10px 18px; border-radius: 8px; background: #b688fe; color: #0f0d15; font-weight: 600; text-decoration: none; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f0d15; color: #b0aabf; font-family: 'CommitMono', 'Cascadia Code', 'Fira Code', 'Consolas', 'Menlo', monospace; }
+  main { max-width: 22rem; padding: 0 16px; text-align: center; }
+  h1 { font-size: 16px; line-height: 1.3; font-weight: 700; margin: 0 0 8px; color: #efedf6; }
+  p { font-size: 14px; line-height: 1.5; margin: 0 0 24px; text-wrap: balance; }
+  .action { display: inline-block; padding: 10px 18px; border-radius: 8px; background: #b688fe; color: #0f0d15; font-weight: 700; text-decoration: none; }
   .action:focus-visible { outline: 2px solid #efedf6; outline-offset: 2px; }
   .action[hidden] { display: none; }
-  #status { min-height: 1.5em; margin-top: 16px; }
-  .hint { margin-top: 24px; font-size: 13px; }
-  code { font-size: 12px; }
 `;
 
 const RELOAD_WHEN_SERVER_ANSWERS_SCRIPT = `
@@ -32,60 +28,44 @@ const RELOAD_WHEN_SERVER_ANSWERS_SCRIPT = `
 
 const LOCAL_PAGE_BODY = `
   <h1>Glimmervoid is not running</h1>
-  <p>Start it here, and this window opens the dashboard as soon as it is ready.</p>
+  <p id="status" role="status">Start it, and the dashboard opens when it is ready.</p>
   <a class="action" id="start" href="${START_LINK}">Start Glimmervoid</a>
-  <div id="status" role="status"></div>
-  <p class="hint">Nothing happening? Double-click the Glimmervoid icon on your desktop, or run <code>glimmervoid open</code> in a terminal.</p>
-  <p class="hint">Start Glimmervoid runs it on this machine. If this window reaches Glimmervoid on another machine through an SSH tunnel, reconnect the tunnel instead.</p>
 `;
 
 const LOCAL_PAGE_SCRIPT = `
   document.getElementById('start').addEventListener('click', () => {
-    document.getElementById('status').textContent = 'Starting Glimmervoid. The dashboard opens when it is ready.';
+    document.getElementById('status').textContent = 'Starting. The dashboard opens when it is ready.';
   });
+`;
+
+const TAILNET_PAGE_BODY = `
+  <h1>Can't reach Glimmervoid</h1>
+  <p>Turn on Tailscale. The dashboard opens when it connects.</p>
+  <a class="action" id="open-tailscale" href="${TAILSCALE_APP_LINK}" hidden>Open Tailscale</a>
 `;
 
 const SHOW_TAILSCALE_LINK_ON_ANDROID_SCRIPT = `
   if (/Android/.test(navigator.userAgent)) document.getElementById('open-tailscale').hidden = false;
 `;
 
-const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-
-function escapeHtml(text: string): string {
-  return text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character);
-}
-
-function tailnetPageBody(host: string): string {
-  return `
+const REMOTE_PAGE_BODY = `
   <h1>Can't reach Glimmervoid</h1>
-  <p><strong>${escapeHtml(host)}</strong> is on your tailnet. Turn on Tailscale on this device, and this page opens the dashboard as soon as it answers.</p>
-  <a class="action" id="open-tailscale" href="${TAILSCALE_APP_LINK}" hidden>Open Tailscale</a>
-  <div id="status" role="status">Checking every few seconds.</div>
-  <p class="hint">Tailscale already on? The machine running Glimmervoid may be asleep or stopped.</p>
+  <p>Check your connection. The dashboard opens when it is back.</p>
 `;
-}
 
-function remotePageBody(host: string): string {
-  return `
-  <h1>Can't reach Glimmervoid</h1>
-  <p><strong>${escapeHtml(host)}</strong> is not answering. Check this device's network, VPN or tunnel, and this page opens the dashboard as soon as it answers.</p>
-  <div id="status" role="status">Checking every few seconds.</div>
-`;
-}
-
-function offlinePageContent(kind: OfflinePageKind, host: string): { body: string; script: string } {
+function offlinePageContent(kind: OfflinePageKind): { body: string; script: string } {
   switch (kind) {
     case 'local':
       return { body: LOCAL_PAGE_BODY, script: LOCAL_PAGE_SCRIPT };
     case 'tailnet':
-      return { body: tailnetPageBody(host), script: SHOW_TAILSCALE_LINK_ON_ANDROID_SCRIPT };
+      return { body: TAILNET_PAGE_BODY, script: SHOW_TAILSCALE_LINK_ON_ANDROID_SCRIPT };
     case 'remote':
-      return { body: remotePageBody(host), script: '' };
+      return { body: REMOTE_PAGE_BODY, script: '' };
   }
 }
 
-function offlinePageHtml(kind: OfflinePageKind, host: string): string {
-  const { body, script } = offlinePageContent(kind, host);
+function offlinePageHtml(kind: OfflinePageKind): string {
+  const { body, script } = offlinePageContent(kind);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -122,13 +102,12 @@ function isServiceWorkerScope(scope: object): scope is ServiceWorkerScopeLike {
   return 'skipWaiting' in scope && 'clients' in scope;
 }
 
-function offlinePageResponse(request: Request): Response {
-  const html = offlinePageHtml(offlinePageKindForThisHost, new URL(request.url).host);
-  return new Response(html, { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+function offlinePageResponse(): Response {
+  return new Response(offlinePageHtml(offlinePageKindForThisHost), { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 }
 
 function navigateOrOfflinePage(request: Request): Promise<Response> {
-  return fetch(request).catch(() => offlinePageResponse(request));
+  return fetch(request).catch(() => offlinePageResponse());
 }
 
 const workerScope: object = self;
