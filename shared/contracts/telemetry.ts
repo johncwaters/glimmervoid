@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BUILTIN_AGENT_IDS } from './config.ts';
-import { BoardGraphicsResetProperties, DASHBOARD_VIEWS, InstallFailureKind, NoticeId, NoticeTone, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
+import { DASHBOARD_VIEWS, InstallFailureKind, NoticeId, NoticeTone, ONBOARDING_STEP_STATES, ONBOARDING_STEPS, OPERATOR_ACTIONS_BY_SURFACE, OPERATOR_SURFACES, TELEMETRY_TEXT_MAX_CHARS } from './control-messages.ts';
 import type { OperatorAction, OperatorSurface } from './control-messages.ts';
 import { DashboardReconnectedProperties } from './control/control-fields.ts';
 import { SESSION_COMMANDS } from './session.ts';
@@ -202,7 +202,6 @@ const RadarFixHandoffFailedProperties = z.object({
 
 
 export const DashboardTelemetryReport = z.discriminatedUnion('event', [
-  z.object({ event: z.literal('board_graphics_reset'), properties: BoardGraphicsResetProperties }),
   z.object({ event: z.literal('dashboard_reconnected'), properties: DashboardReconnectedProperties }),
   z.object({ event: z.literal('view_shown'), properties: ViewShownProperties }),
   z.object({ event: z.literal('operator_action'), properties: OperatorActionProperties }),
@@ -262,7 +261,6 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   operator_action: OperatorActionProperties,
   onboarding_step: OnboardingStepProperties,
   notice_shown: NoticeShownProperties,
-  board_graphics_reset: BoardGraphicsResetProperties,
   dashboard_reconnected: DashboardReconnectedProperties,
   board_opened: BoardOpenedProperties,
   team_review_drafted: TeamReviewDraftedProperties,
@@ -296,7 +294,6 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'operator_action', description: 'An action taken in the Usage, Radar or Reviews tab, the first-run checklist or the GitHub star card: which surface and which action, from a fixed list. Never which repository, pull request, issue or session it was taken on.' },
   { name: 'onboarding_step', description: 'The first-run checklist moved a step to current or done, with which step. Sent once per change while the page is open.' },
   { name: 'notice_shown', description: 'A notice the dashboard showed under its header: which notice (an error or warning, an available update, old reports left in a repository, or the telemetry notice), whether it was an error or a warning, which part of the dashboard raised it and, for a dependency install warning, the failure kind: tool-missing, failed or timed-out. Never the notice text. Each distinct notice is sent once per page load.' },
-  { name: 'board_graphics_reset', description: 'A whiteboard lost its graphics context, got it back, or found the browser blocking graphics: which of those, how many losses this page has had, the time since the last one and how long the board stayed blank, how many terminal and media textures were on the graphics card, the board canvas size, whether the page was visible, the browser\'s GPU name and its context error text. Never the board or its contents.' },
   { name: 'dashboard_reconnected', description: 'The dashboard got its connection back after losing or replacing it: what started it (a long hide, a resume, a frozen page, a late or missed heartbeat, a slow handshake, a closed connection or a cloud machine waking), how long until connected, how long the handshake that won took and how many it took, whether the dashboard is on this machine, a tailnet or another host, how long the tab was hidden, and whether a cloud machine was waking. Never the host name or URL.' },
   { name: 'board_opened', description: 'The server opened a whiteboard for the dashboard: how long it took in all, how many tiles it sent, whether a saved layout let it skip laying the board out, which step was slowest and how long that took, and the server memory in use. Never the board, its id or its contents.' },
   { name: 'team_review_drafted', description: 'A team review draft became ready, with how many inline comments it drafted.' },

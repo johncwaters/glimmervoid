@@ -196,25 +196,6 @@ export const ClientLogReport = z.object({
   text: z.string().min(1).max(CLIENT_LOG_TEXT_MAX_CHARS),
 }).strict();
 
-export const BoardGraphicsResetProperties = z.object({
-  reset: z.enum(['lost', 'restored', 'recreated', 'blocked']),
-  loss_count: z.number().int().nonnegative(),
-  ms_since_last_loss: z.number().int().nonnegative().nullable(),
-  blank_ms: z.number().int().nonnegative().nullable(),
-  retries: z.number().int().nonnegative(),
-  creation_error: z.string().max(TELEMETRY_TEXT_MAX_CHARS).nullable(),
-  terminal_webgl_contexts: z.number().int().nonnegative(),
-  same_origin_dashboard_tabs: z.number().int().nonnegative().nullable(),
-  media_texture_count: z.number().int().nonnegative(),
-  media_texture_mib: z.number().finite().nonnegative(),
-  canvas_width_px: z.number().int().nonnegative(),
-  canvas_height_px: z.number().int().nonnegative(),
-  device_pixel_ratio: z.number().finite().positive(),
-  is_page_visible: z.boolean(),
-  gpu_renderer: z.string().max(TELEMETRY_TEXT_MAX_CHARS).nullable(),
-}).strict();
-export type BoardGraphicsResetProperties = z.infer<typeof BoardGraphicsResetProperties>;
-
 const RECONNECT_TRIGGERS = Object.freeze(['long-hide', 'resumed', 'frozen', 'late-heartbeat', 'pong-missed', 'handshake-overdue', 'control-closed', 'tenant-woke'] as const);
 export type ReconnectTrigger = (typeof RECONNECT_TRIGGERS)[number];
 const DASHBOARD_ORIGIN_KINDS = Object.freeze(['local', 'tailnet', 'remote'] as const);
@@ -250,7 +231,7 @@ export const InstallDetail = z.object({
 });
 export type InstallDetail = z.infer<typeof InstallDetail>;
 
-export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'board_graphics_reset', 'dashboard_reconnected'] as const);
+export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'dashboard_reconnected'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'board-session', 'trace', 'benchmarks', 'wargames', 'packs', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],

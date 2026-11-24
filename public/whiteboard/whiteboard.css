@@ -489,7 +489,8 @@
   pointer-events: auto;
 }
 
-.wb-gl {
+.wb-gl,
+.wb-gl-decorations {
   position: absolute;
   inset: 0;
   display: block;
@@ -497,22 +498,7 @@
   height: 100%;
 }
 
-.wb-gl-notice {
-  position: absolute;
-  inset: auto 0 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: fit-content;
-  margin: 0 auto;
-  padding: 6px 12px;
-  border-radius: var(--radius);
-  background: var(--bg-card);
-  color: var(--text-dim);
-  font-size: var(--type-meta);
-}
-
-.wb-gl-notice[hidden] { display: none; }
+.wb-gl-decorations { pointer-events: none; }
 
 .wb-media-doc {
   box-sizing: border-box;

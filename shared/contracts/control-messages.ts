@@ -44,7 +44,6 @@ export {
   CLIENT_LOG_SCOPE_MAX_CHARS,
   CLIENT_LOG_TEXT_MAX_CHARS,
   TELEMETRY_TEXT_MAX_CHARS,
-  BoardGraphicsResetProperties,
   InstallFailureKind,
   HeaderNoticeTone,
   NoticeId,

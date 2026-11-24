@@ -14,10 +14,8 @@ import type { DeviceFit } from '#shared/whiteboard-devices.ts';
 import type { BoardMediaLayer } from './board-media-layer.ts';
 import type { BoardFlowLayer, FlowWire } from './board-flow-layer.ts';
 import type { BlockTile } from './board-tile-store.ts';
-import { createGlyphAtlas, RASTER_PX } from './board-gl-glyphs.ts';
-import type { GlyphAtlas } from './board-gl-glyphs.ts';
 import {
-  BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
+  BOX_LAYER, LAYER_COUNT,
   boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
 } from './board-gl-scene.ts';
 import type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext } from './board-gl-scene.ts';
@@ -26,7 +24,8 @@ import { STACK_SPREAD } from '#shared/whiteboard-layout-core.ts';
 import { rectAround } from './board-snap-core.ts';
 import type { StackMove } from './stack-motion-core.ts';
 import { prefersReducedMotion } from '../attention-banner.ts';
-import type { BoardGraphicsEvent, BoardGraphicsEventKind } from './board-graphics-report-core.ts';
+import { forgetMeasuredFonts, paintImage, paintRects, paintSegments, paintTexts, paintTriangles, setWorldTransform } from './board-canvas-painter.ts';
+import type { PaintView } from './board-canvas-painter.ts';
 
 interface Camera {
   x: number;
@@ -83,53 +82,30 @@ interface RendererOptions {
   fontSource: Element;
   mediaLayer: BoardMediaLayer;
   flowLayer: BoardFlowLayer;
-  notice: HTMLElement;
   onViewChange?: (view: Rect, scale: number) => void;
-  onGraphicsEvent?: (event: BoardGraphicsEvent) => void;
 }
 
-interface AttributeSpec {
-  location: number;
-  size: number;
-  offset: number;
-}
-
-interface PrimitiveProgram {
-  program: WebGLProgram;
-  vao: WebGLVertexArrayObject;
-  buffer: WebGLBuffer;
-  bufferFloats: number;
-  strideFloats: number;
-  attributes: readonly AttributeSpec[];
-  isInstanced: boolean;
-  uniforms: Map<string, WebGLUniformLocation | null>;
-}
-
-interface GrowableFloats {
-  data: Float32Array;
-  length: number;
-}
-
-interface LayerRange {
-  rectStart: number;
-  rectCount: number;
-  segmentStart: number;
-  segmentCount: number;
-  triangleStart: number;
-  triangleCount: number;
-  glyphStart: number;
-  glyphCount: number;
-}
-
-interface MediaTexture {
+interface MediaImage {
   href: string;
-  texture: WebGLTexture | null;
   width: number;
   height: number;
-  image: HTMLImageElement | null;
-  isFailed: boolean;
-  textureBytes: number;
+  image: HTMLImageElement;
+  state: 'loading' | 'ready' | 'failed';
+  imageBytes: number;
   lastGatherNumber: number;
+}
+
+interface PaintEntry {
+  parts: GeometryPart[];
+  depth: number;
+  bounds: Rect | null;
+  media: DrawnMedia | null;
+}
+
+interface TintedBlock {
+  raster: Uint8Array;
+  tintKey: string;
+  surface: HTMLCanvasElement;
 }
 
 interface GlScene {
@@ -152,256 +128,23 @@ const NO_REVIEW_MARKS: ReviewMarks = { worthALookIds: new Set(), flaggedStepIds:
 const CULL_CELL_SIZE = 512;
 const GRID_HIDDEN_PITCH_PX = 8;
 const GRID_FULL_PITCH_PX = 16;
-const CONTEXT_RETRY_MS = 5000;
-const REFUSAL_MAX_RETRIES = 30;
-const NOTICES = {
-  redrawing: 'The board is redrawing after the graphics card reset.',
-  paused: 'The browser paused graphics for this site, often after graphics card resets. The board keeps trying and draws again as soon as the browser allows it.',
-  blocked: 'The browser refused graphics for this site. Turn on graphics acceleration in the browser settings, or restart the browser, to draw boards again.',
-  unsupported: 'This browser cannot draw boards: WebGL2 is turned off or unavailable.',
-} as const;
-type NoticeKind = keyof typeof NOTICES;
 const GATHER_MARGIN_FACTOR = 0.75;
 const LOD_STEPS_PER_OCTAVE = 4;
 const HIT_TOLERANCE_PX = 7;
 const FRAME_EDGE_TOLERANCE_PX = 6;
 const PORT_HIT_SLOP_PX = 3;
 const ROTATE_HANDLE_GAP = 28;
-const DECORATION_LAYER = LAYER_COUNT;
-const INITIAL_FLOATS = 4096;
-
-const VERTEX_HEADER = `#version 300 es
-precision highp float;
-uniform vec2 uCamera;
-uniform float uScale;
-uniform vec2 uResolution;
-uniform float uLodScale;
-vec4 clipOf(vec2 world, float depth) {
-  vec2 device = (world - uCamera) * uScale;
-  return vec4(device.x / uResolution.x * 2.0 - 1.0, 1.0 - device.y / uResolution.y * 2.0, depth * 2.0 - 1.0, 1.0);
-}
-const vec4 HIDDEN = vec4(2.0, 2.0, 2.0, 1.0);
-vec2 turnedAbout(vec2 world, vec3 turn) {
-  if (turn.z == 0.0) return world;
-  vec2 offset = world - turn.xy;
-  float cosine = cos(turn.z);
-  float sine = sin(turn.z);
-  return turn.xy + vec2(offset.x * cosine - offset.y * sine, offset.x * sine + offset.y * cosine);
-}
-`;
-
-const RECT_VERTEX = `${VERTEX_HEADER}
-layout(location = 0) in vec2 aCorner;
-layout(location = 1) in vec4 aRect;
-layout(location = 2) in vec2 aShape;
-layout(location = 3) in vec4 aFill;
-layout(location = 4) in vec4 aStroke;
-layout(location = 5) in float aMinScale;
-layout(location = 6) in float aDepth;
-layout(location = 7) in vec3 aTurn;
-out vec2 vLocal;
-out vec2 vHalf;
-out vec2 vShape;
-out vec4 vFill;
-out vec4 vStroke;
-void main() {
-  if (uLodScale < aMinScale) { gl_Position = HIDDEN; return; }
-  vec2 halfSize = aRect.zw * 0.5;
-  float pad = aShape.y * 0.5 + 2.0 / uScale;
-  vec2 local = (aCorner * 2.0 - 1.0) * (halfSize + pad);
-  vLocal = local * uScale;
-  vHalf = halfSize * uScale;
-  vShape = aShape * uScale;
-  vFill = aFill;
-  vStroke = aStroke;
-  gl_Position = clipOf(turnedAbout(aRect.xy + halfSize + local, aTurn), aDepth);
-}`;
-
-const RECT_FRAGMENT = `#version 300 es
-precision highp float;
-in vec2 vLocal;
-in vec2 vHalf;
-in vec2 vShape;
-in vec4 vFill;
-in vec4 vStroke;
-out vec4 outColor;
-void main() {
-  float radius = min(vShape.x, min(vHalf.x, vHalf.y));
-  vec2 corner = abs(vLocal) - vHalf + radius;
-  float distance = length(max(corner, 0.0)) + min(max(corner.x, corner.y), 0.0) - radius;
-  float strokePx = vShape.y > 0.0 ? max(vShape.y, 1.0) : 0.0;
-  float strokeFade = min(vShape.y, 1.0);
-  float fillAlpha = clamp(0.5 - distance, 0.0, 1.0);
-  float strokeAlpha = strokePx > 0.0 ? clamp(strokePx * 0.5 + 0.5 - abs(distance), 0.0, 1.0) * strokeFade : 0.0;
-  vec4 stroke = vec4(vStroke.rgb * vStroke.a, vStroke.a) * strokeAlpha;
-  vec4 fill = vec4(vFill.rgb * vFill.a, vFill.a) * fillAlpha;
-  outColor = stroke + fill * (1.0 - stroke.a);
-  if (outColor.a <= 0.0) discard;
-}`;
-
-const SEGMENT_VERTEX = `${VERTEX_HEADER}
-layout(location = 0) in vec2 aCorner;
-layout(location = 1) in vec4 aEnds;
-layout(location = 2) in vec4 aStyle;
-layout(location = 3) in vec4 aColor;
-layout(location = 4) in float aMinScale;
-layout(location = 5) in float aDepth;
-out float vAlong;
-out float vAcross;
-out float vWidthPx;
-out float vFade;
-out vec2 vDash;
-out vec4 vColor;
-void main() {
-  if (uLodScale < aMinScale) { gl_Position = HIDDEN; return; }
-  vec2 delta = aEnds.zw - aEnds.xy;
-  float segmentLength = length(delta);
-  vec2 direction = segmentLength > 0.0 ? delta / segmentLength : vec2(1.0, 0.0);
-  vec2 normal = vec2(-direction.y, direction.x);
-  float widthPx = max(aStyle.x * uScale, 1.0);
-  float halfWorld = (widthPx * 0.5 + 1.0) / uScale;
-  float cap = aStyle.x * 0.5;
-  float along = mix(-cap, segmentLength + cap, aCorner.x);
-  float across = (aCorner.y * 2.0 - 1.0) * halfWorld;
-  vAlong = along + aStyle.w;
-  vAcross = across * uScale;
-  vWidthPx = widthPx;
-  vFade = min(aStyle.x * uScale, 1.0);
-  vDash = aStyle.yz;
-  vColor = aColor;
-  gl_Position = clipOf(aEnds.xy + direction * along + normal * across, aDepth);
-}`;
-
-const SEGMENT_FRAGMENT = `#version 300 es
-precision highp float;
-in float vAlong;
-in float vAcross;
-in float vWidthPx;
-in float vFade;
-in vec2 vDash;
-in vec4 vColor;
-out vec4 outColor;
-void main() {
-  if (vDash.x > 0.0 && mod(vAlong, vDash.x + vDash.y) > vDash.x) discard;
-  float alpha = clamp(vWidthPx * 0.5 + 0.5 - abs(vAcross), 0.0, 1.0) * vFade * vColor.a;
-  if (alpha <= 0.0) discard;
-  outColor = vec4(vColor.rgb * alpha, alpha);
-}`;
-
-const TRIANGLE_VERTEX = `${VERTEX_HEADER}
-layout(location = 0) in vec2 aPosition;
-layout(location = 1) in vec4 aColor;
-layout(location = 2) in float aMinScale;
-layout(location = 3) in float aDepth;
-out vec4 vColor;
-void main() {
-  if (uLodScale < aMinScale) { gl_Position = HIDDEN; return; }
-  vColor = aColor;
-  gl_Position = clipOf(aPosition, aDepth);
-}`;
-
-const TRIANGLE_FRAGMENT = `#version 300 es
-precision highp float;
-in vec4 vColor;
-out vec4 outColor;
-void main() {
-  outColor = vec4(vColor.rgb * vColor.a, vColor.a);
-}`;
-
-const GLYPH_VERTEX = `${VERTEX_HEADER}
-layout(location = 0) in vec2 aCorner;
-layout(location = 1) in vec4 aQuad;
-layout(location = 2) in vec4 aUv;
-layout(location = 3) in float aPage;
-layout(location = 4) in vec4 aColor;
-layout(location = 5) in float aMinScale;
-layout(location = 6) in float aDepth;
-layout(location = 7) in vec3 aTurn;
-out vec3 vUv;
-out vec4 vColor;
-void main() {
-  if (uLodScale < aMinScale) { gl_Position = HIDDEN; return; }
-  vUv = vec3(mix(aUv.xy, aUv.zw, aCorner), aPage);
-  vColor = aColor;
-  gl_Position = clipOf(turnedAbout(aQuad.xy + aCorner * aQuad.zw, aTurn), aDepth);
-}`;
-
-const GLYPH_FRAGMENT = `#version 300 es
-precision highp float;
-precision highp sampler2DArray;
-uniform sampler2DArray uAtlas;
-in vec3 vUv;
-in vec4 vColor;
-out vec4 outColor;
-void main() {
-  float coverage = texture(uAtlas, vUv).r * vColor.a;
-  if (coverage <= 0.0) discard;
-  outColor = vec4(vColor.rgb * coverage, coverage);
-}`;
-
-const IMAGE_VERTEX = `${VERTEX_HEADER}
-layout(location = 0) in vec2 aCorner;
-uniform vec4 uRect;
-uniform vec4 uUvRect;
-uniform float uDepth;
-uniform vec3 uTurn;
-out vec2 vUv;
-out vec2 vCorner;
-void main() {
-  vUv = uUvRect.xy + aCorner * uUvRect.zw;
-  vCorner = aCorner;
-  gl_Position = clipOf(turnedAbout(uRect.xy + aCorner * uRect.zw, uTurn), uDepth);
-}`;
-
-const IMAGE_FRAGMENT = `#version 300 es
-precision highp float;
-uniform sampler2D uImage;
-uniform vec4 uRect;
-uniform float uScale;
-uniform float uClipRadius;
-in vec2 vUv;
-in vec2 vCorner;
-out vec4 outColor;
-void main() {
-  vec2 halfSize = uRect.zw * 0.5;
-  float radius = min(uClipRadius, min(halfSize.x, halfSize.y));
-  vec2 corner = abs((vCorner - 0.5) * uRect.zw) - halfSize + radius;
-  float distance = (length(max(corner, 0.0)) + min(max(corner.x, corner.y), 0.0) - radius) * uScale;
-  float clipAlpha = clamp(0.5 - distance, 0.0, 1.0);
-  vec4 color = texture(uImage, vUv) * clipAlpha;
-  if (color.a <= 0.0) discard;
-  outColor = vec4(color.rgb * color.a, color.a);
-}`;
-
-const BLOCK_FRAGMENT = `#version 300 es
-precision highp float;
-uniform sampler2D uImage;
-uniform vec4 uTint;
-in vec2 vUv;
-out vec4 outColor;
-void main() {
-  float alpha = texture(uImage, vUv).a * uTint.a;
-  outColor = vec4(uTint.rgb * alpha, alpha);
-}`;
-
 const BLOCK_ALPHA = 0.85;
 
-const RECT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 2, offset: 4 }, { location: 3, size: 4, offset: 6 }, { location: 4, size: 4, offset: 10 }, { location: 7, size: 3, offset: 14 }, { location: 5, size: 1, offset: 17 }, { location: 6, size: 1, offset: 18 }];
-const SEGMENT_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 4, offset: 8 }, { location: 4, size: 1, offset: 12 }, { location: 5, size: 1, offset: 13 }];
-const TRIANGLE_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 0, size: 2, offset: 0 }, { location: 1, size: 4, offset: 2 }, { location: 2, size: 1, offset: 6 }, { location: 3, size: 1, offset: 7 }];
-const GLYPH_ATTRIBUTES: readonly AttributeSpec[] = [{ location: 1, size: 4, offset: 0 }, { location: 2, size: 4, offset: 4 }, { location: 3, size: 1, offset: 8 }, { location: 4, size: 4, offset: 9 }, { location: 7, size: 3, offset: 13 }, { location: 5, size: 1, offset: 16 }, { location: 6, size: 1, offset: 17 }];
-const UNIFORM_NAMES = ['uCamera', 'uScale', 'uResolution', 'uLodScale', 'uAtlas', 'uRect', 'uImage', 'uDepth', 'uTint', 'uUvRect', 'uClipRadius', 'uTurn'] as const;
-
 const UNSIZED_MEDIA_EDGE_PX = 1024;
-const MEDIA_TEXTURE_BUDGET_BYTES = 128 * 1024 * 1024;
-const MIPMAPPED_BYTES_PER_PIXEL = 4 * (4 / 3);
+const MEDIA_IMAGE_BUDGET_BYTES = 128 * 1024 * 1024;
+const BYTES_PER_PIXEL = 4;
 
 interface DrawnMedia {
   href: string;
   rect: Rect;
   fit: DeviceFit;
   clipRadius: number;
-  depth: number;
   turn: { pivot: Point; radians: number };
 }
 
@@ -424,61 +167,6 @@ function placedMediaOf(drawn: DrawnMedia, image: { width: number; height: number
 function servedAssetHref(media: LaidOutMedia): string | null {
   const drawnFilename = boardMediaDrawnFilename(media);
   return drawnFilename ? `${WHITEBOARD_ASSET_ROUTE}/${drawnFilename}` : null;
-}
-
-function growableFloats(): GrowableFloats {
-  return { data: new Float32Array(INITIAL_FLOATS), length: 0 };
-}
-
-function appendFloats(target: GrowableFloats, values: Float32Array, strideFloats: number, depth: number): void {
-  const start = target.length;
-  const needed = start + values.length;
-  if (needed > target.data.length) {
-    const grown = new Float32Array(Math.max(needed, target.data.length * 2));
-    grown.set(target.data.subarray(0, start));
-    target.data = grown;
-  }
-  target.data.set(values, start);
-  for (let depthIndex = start + strideFloats - 1; depthIndex < needed; depthIndex += strideFloats) target.data[depthIndex] = depth;
-  target.length = needed;
-}
-
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type);
-  if (!shader) throw new Error('the GPU refused a whiteboard shader');
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (gl.getShaderParameter(shader, gl.COMPILE_STATUS) || gl.isContextLost()) return shader;
-  throw new Error(`a whiteboard shader did not compile: ${gl.getShaderInfoLog(shader) ?? ''}`);
-}
-
-function linkProgram(gl: WebGL2RenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram {
-  const program = gl.createProgram();
-  gl.attachShader(program, compileShader(gl, gl.VERTEX_SHADER, vertexSource));
-  gl.attachShader(program, compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource));
-  gl.linkProgram(program);
-  if (gl.getProgramParameter(program, gl.LINK_STATUS) || gl.isContextLost()) return program;
-  throw new Error(`a whiteboard shader did not link: ${gl.getProgramInfoLog(program) ?? ''}`);
-}
-
-function createPrimitive(gl: WebGL2RenderingContext, corners: WebGLBuffer, sources: readonly [string, string], strideFloats: number, attributes: readonly AttributeSpec[], isInstanced: boolean): PrimitiveProgram {
-  const program = linkProgram(gl, sources[0], sources[1]);
-  const vao = gl.createVertexArray();
-  const buffer = gl.createBuffer();
-  gl.bindVertexArray(vao);
-  if (isInstanced) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, corners);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  }
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  for (const attribute of attributes) {
-    gl.enableVertexAttribArray(attribute.location);
-    if (isInstanced) gl.vertexAttribDivisor(attribute.location, 1);
-  }
-  gl.bindVertexArray(null);
-  const uniforms = new Map(UNIFORM_NAMES.map((name) => [name, gl.getUniformLocation(program, name)] as const));
-  return { program, vao, buffer, bufferFloats: 0, strideFloats, attributes, isInstanced, uniforms };
 }
 
 function pointToSegmentDistance(point: Point, from: Point, to: Point): number {
@@ -564,46 +252,37 @@ function paletteKey(host: HTMLElement): string {
   return [root.className, root.dataset.theme ?? '', root.getAttribute('style') ?? '', host.className, host.isConnected].join('|');
 }
 
-function glyphMinScaleOf(part: GeometryPart): number {
-  let lowest = Infinity;
-  for (let offset = GLYPH_FLOATS - 2; offset < part.glyphs.length; offset += GLYPH_FLOATS) lowest = Math.min(lowest, part.glyphs[offset] ?? Infinity);
-  return lowest;
+function emptyLayers(): PaintEntry[][] {
+  return Array.from({ length: LAYER_COUNT }, () => []);
 }
 
-function emptyRange(): LayerRange {
-  return { rectStart: 0, rectCount: 0, segmentStart: 0, segmentCount: 0, triangleStart: 0, triangleCount: 0, glyphStart: 0, glyphCount: 0 };
+function isTouching(bounds: Rect, area: Rect): boolean {
+  return bounds.x <= area.x + area.width && bounds.x + bounds.width >= area.x && bounds.y <= area.y + area.height && bounds.y + bounds.height >= area.y;
 }
 
-function createWebgl2Context(target: HTMLCanvasElement, attributes: WebGLContextAttributes): { context: WebGL2RenderingContext | null; creationError: string | null } {
-  let creationError: string | null = null;
-  target.addEventListener('webglcontextcreationerror', (event) => {
-    if (event instanceof WebGLContextEvent && event.statusMessage) creationError = event.statusMessage;
-  }, { once: true });
-  const context = target.getContext('webgl2', attributes);
-  return { context, creationError };
-}
-
-function isWebgl2Missing(): boolean {
-  return typeof WebGL2RenderingContext === 'undefined';
+function context2dOf(surface: HTMLCanvasElement): CanvasRenderingContext2D {
+  const context = surface.getContext('2d');
+  if (!context) throw new Error('this browser cannot draw the whiteboard');
+  return context;
 }
 
 export function createBoardRenderer(options: RendererOptions): BoardRenderer {
-  const { viewport, mediaLayer, flowLayer, notice, onViewChange, onGraphicsEvent } = options;
-  let canvas = options.canvas;
-  const contextAttributes: WebGLContextAttributes = { alpha: true, antialias: false, depth: true, premultipliedAlpha: true, preserveDrawingBuffer: false };
-  const initialContext = createWebgl2Context(canvas, contextAttributes);
-  let gl: WebGL2RenderingContext | null = initialContext.context;
-  let primitives: { rect: PrimitiveProgram; segment: PrimitiveProgram; triangle: PrimitiveProgram; glyph: PrimitiveProgram; image: PrimitiveProgram; block: PrimitiveProgram } | null = null;
+  const { canvas, viewport, mediaLayer, flowLayer, onViewChange } = options;
+  const boardContext = context2dOf(canvas);
+  const decorationCanvas = Object.assign(document.createElement('canvas'), { className: 'wb-gl-decorations' });
+  decorationCanvas.setAttribute('aria-hidden', 'true');
+  canvas.after(decorationCanvas);
+  const decorationContext = context2dOf(decorationCanvas);
+  let decorationFrameRequest: number | null = null;
   let blocks: readonly BlockTile[] = [];
-  const blockTextures = new Map<string, { raster: Uint8Array; texture: WebGLTexture }>();
+  const tintedBlocks = new Map<string, TintedBlock>();
   let lastViewKey = '';
   let lastRendered: { source: Board | BoardLayout; layout: BoardLayout; blocks: readonly BlockTile[] } | null = null;
   const signatureOfElement = new WeakMap<LaidOutElement, string>();
   let palette: BoardPalette | null = null;
   let resolvedPaletteKey = '';
-  let atlas: GlyphAtlas | null = null;
-  let atlasFontFamily = '';
-  let pendingAtlasFontLoad: Promise<void> | null = null;
+  let boardFontFamily = '';
+  let pendingFontLoad: Promise<void> | null = null;
   let scene: GlScene | null = null;
   let camera: Camera = { x: 0, y: 0, scale: 1 };
   let selectedIds: ReadonlySet<string> = new Set();
@@ -615,119 +294,35 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
   let isGatherDirty = true;
   let gatheredArea: Rect | null = null;
   let gatheredLodStep = Number.NaN;
-  let decorationStart: LayerRange = emptyRange();
-  let previewStart: LayerRange = emptyRange();
   let preview: ScenePreview | null = null;
   let gatheredFlows: FlowWire[] = [];
   let stackMotion: { moves: readonly StackMove[]; startMs: number; frameRequest: number } | null = null;
   let stackFan: { frameId: string; fromSpread: number; toSpread: number; spread: number; startMs: number; frameRequest: number | null } | null = null;
-  let baseDrawnMediaCount = 0;
-  const previewRanges: LayerRange[] = Array.from({ length: LAYER_COUNT }, emptyRange);
-  let visibleDrawnMedia: DrawnMedia[] = [];
+  let baseLayers: PaintEntry[][] = emptyLayers();
+  let previewLayers: PaintEntry[][] = emptyLayers();
+  let decorationPartNow: GeometryPart | null = null;
   const geometryBySignature = new Map<string, ElementGeometry>();
-  const glyphMinScaleByPart = new WeakMap<GeometryPart, number>();
-  const rects = growableFloats();
-  const segments = growableFloats();
-  const triangles = growableFloats();
-  const glyphs = growableFloats();
-  const layerRanges: LayerRange[] = Array.from({ length: LAYER_COUNT + 1 }, emptyRange);
-  const mediaTextures = new Map<string, MediaTexture>();
+  let isBoardContextLost = false;
+  const mediaImages = new Map<string, MediaImage>();
   let gatherNumber = 0;
   let sceneBuildCount = 0;
-  let contextRetryTimer: number | null = null;
-  let contextState: 'live' | 'lost' | 'blocked' = 'live';
-  let lossCount = 0;
-  let lastLossAtMs: number | null = null;
-  let contextRetries = 0;
-  let gpuRenderer: string | null = null;
 
-  function showNotice(kind: NoticeKind | null): void {
-    notice.hidden = kind === null;
-    if (!kind) return;
-    notice.textContent = NOTICES[kind];
-  }
-
-  function showRefusal(): void {
-    if (isWebgl2Missing()) {
-      showNotice('unsupported');
-      return;
-    }
-    if (contextRetries >= REFUSAL_MAX_RETRIES) {
-      showNotice('blocked');
-      return;
-    }
-    showNotice('paused');
-    scheduleContextRetry();
-  }
-
-  function rememberGpuRenderer(context: WebGL2RenderingContext): void {
-    const debugRendererInfo = context.getExtension('WEBGL_debug_renderer_info');
-    const rendererName: unknown = context.getParameter(debugRendererInfo ? debugRendererInfo.UNMASKED_RENDERER_WEBGL : context.RENDERER);
-    if (typeof rendererName === 'string' && rendererName) gpuRenderer = rendererName;
-  }
-
-  function reportGraphics(kind: BoardGraphicsEventKind, details: { msSinceLastLoss: number | null; blankMs: number | null; creationError: string | null }): void {
-    if (!onGraphicsEvent) return;
-    let mediaTextureBytes = 0;
-    for (const entry of mediaTextures.values()) mediaTextureBytes += entry.textureBytes;
-    onGraphicsEvent({
-      kind,
-      lossCount,
-      ...details,
-      retries: contextRetries,
-      mediaTextureCount: mediaTextures.size,
-      mediaTextureBytes,
-      canvasWidthPx: canvas.width,
-      canvasHeightPx: canvas.height,
-      devicePixelRatio: window.devicePixelRatio || 1,
-      isPageVisible: document.visibilityState === 'visible',
-      gpuRenderer,
-    });
-  }
-
-  function settleContextLive(kind: 'restored' | 'recreated'): void {
-    const blankMs = lastLossAtMs === null ? null : performance.now() - lastLossAtMs;
-    contextState = 'live';
-    reportGraphics(kind, { msSinceLastLoss: null, blankMs, creationError: null });
-    contextRetries = 0;
-  }
-
-  function ensureAtlas(): GlyphAtlas {
-    if (atlas) return atlas;
-    return createAtlas(getComputedStyle(options.fontSource).fontFamily || 'monospace');
-  }
-
-  function ensureAtlasInBoardFont(): GlyphAtlas {
+  function boardFont(): string {
     const fontFamily = getComputedStyle(options.fontSource).fontFamily || 'monospace';
-    if (atlas && (atlasFontFamily === fontFamily || !options.fontSource.isConnected)) {
-      if (!pendingAtlasFontLoad && !isFontLoaded(atlasFontFamily)) loadAtlasFont(atlas, atlasFontFamily);
-      return atlas;
-    }
-    if (atlas && gl) atlas.release(gl);
-    geometryBySignature.clear();
-    return createAtlas(fontFamily);
+    if (fontFamily === boardFontFamily) return boardFontFamily;
+    boardFontFamily = fontFamily;
+    loadBoardFont(fontFamily);
+    return boardFontFamily;
   }
 
-  function createAtlas(fontFamily: string): GlyphAtlas {
-    const created = createGlyphAtlas(fontFamily);
-    atlas = created;
-    atlasFontFamily = fontFamily;
-    loadAtlasFont(created, fontFamily);
-    return created;
-  }
-
-  function isFontLoaded(fontFamily: string): boolean {
-    return document.fonts.check(`400 ${RASTER_PX}px ${fontFamily}`) && document.fonts.check(`700 ${RASTER_PX}px ${fontFamily}`);
-  }
-
-  function loadAtlasFont(target: GlyphAtlas, fontFamily: string): void {
-    const fontLoad = Promise.all([document.fonts.load(`400 ${RASTER_PX}px ${fontFamily}`), document.fonts.load(`700 ${RASTER_PX}px ${fontFamily}`)]).then(() => {
-      target.rasterizeAgain();
+  function loadBoardFont(fontFamily: string): void {
+    const fontLoad = Promise.all([document.fonts.load(`400 16px ${fontFamily}`), document.fonts.load(`700 16px ${fontFamily}`)]).then(() => {
+      forgetMeasuredFonts();
       requestDraw();
     }, () => {}).finally(() => {
-      if (pendingAtlasFontLoad === fontLoad) pendingAtlasFontLoad = null;
+      if (pendingFontLoad === fontLoad) pendingFontLoad = null;
     });
-    pendingAtlasFontLoad = fontLoad;
+    pendingFontLoad = fontLoad;
   }
 
   function ensurePalette(): BoardPalette {
@@ -737,39 +332,6 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     resolvedPaletteKey = key;
     geometryBySignature.clear();
     return palette;
-  }
-
-  function setUpGl(context: WebGL2RenderingContext): void {
-    const corners = context.createBuffer();
-    context.bindBuffer(context.ARRAY_BUFFER, corners);
-    context.bufferData(context.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), context.STATIC_DRAW);
-    primitives = {
-      rect: createPrimitive(context, corners, [RECT_VERTEX, RECT_FRAGMENT], RECT_FLOATS, RECT_ATTRIBUTES, true),
-      segment: createPrimitive(context, corners, [SEGMENT_VERTEX, SEGMENT_FRAGMENT], SEGMENT_FLOATS, SEGMENT_ATTRIBUTES, true),
-      triangle: createPrimitive(context, corners, [TRIANGLE_VERTEX, TRIANGLE_FRAGMENT], TRIANGLE_VERTEX_FLOATS, TRIANGLE_ATTRIBUTES, false),
-      glyph: createPrimitive(context, corners, [GLYPH_VERTEX, GLYPH_FRAGMENT], GLYPH_FLOATS, GLYPH_ATTRIBUTES, true),
-      image: createPrimitive(context, corners, [IMAGE_VERTEX, IMAGE_FRAGMENT], 2, [], true),
-      block: createPrimitive(context, corners, [IMAGE_VERTEX, BLOCK_FRAGMENT], 2, [], true),
-    };
-    for (const quad of [primitives.image, primitives.block]) {
-      context.bindVertexArray(quad.vao);
-      context.bindBuffer(context.ARRAY_BUFFER, corners);
-      context.enableVertexAttribArray(0);
-      context.vertexAttribPointer(0, 2, context.FLOAT, false, 0, 0);
-    }
-    context.bindVertexArray(null);
-    context.enable(context.BLEND);
-    context.blendFunc(context.ONE, context.ONE_MINUS_SRC_ALPHA);
-    isGatherDirty = true;
-  }
-
-  function createGlOrNotice(): void {
-    if (!gl) {
-      showRefusal();
-      return;
-    }
-    rememberGpuRenderer(gl);
-    setUpGl(gl);
   }
 
   function viewArea(): Rect {
@@ -782,50 +344,19 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return Math.floor(Math.log2(scale) * LOD_STEPS_PER_OCTAVE);
   }
 
-  function lodUpperScale(step: number): number {
-    return 2 ** ((step + 1) / LOD_STEPS_PER_OCTAVE);
-  }
-
-  function shouldIncludeGlyphs(part: GeometryPart, upperScale: number): boolean {
-    if (part.glyphs.length === 0) return false;
-    let lowest = glyphMinScaleByPart.get(part);
-    if (lowest === undefined) {
-      lowest = glyphMinScaleOf(part);
-      glyphMinScaleByPart.set(part, lowest);
-    }
-    return lowest <= upperScale;
-  }
-
-  function appendPart(part: GeometryPart, upperScale: number, depth: number): void {
-    appendFloats(rects, part.rects, RECT_FLOATS, depth);
-    appendFloats(segments, part.segments, SEGMENT_FLOATS, depth);
-    appendFloats(triangles, part.triangles, TRIANGLE_VERTEX_FLOATS, depth);
-    if (shouldIncludeGlyphs(part, upperScale)) appendFloats(glyphs, part.glyphs, GLYPH_FLOATS, depth);
-  }
 
   function depthOf(paintRank: number, current: GlScene): number {
     return (paintRank + 1) / (current.geometries.length + 1);
   }
 
-  function startRange(range: LayerRange): void {
-    range.rectStart = rects.length / RECT_FLOATS;
-    range.segmentStart = segments.length / SEGMENT_FLOATS;
-    range.triangleStart = triangles.length / TRIANGLE_VERTEX_FLOATS;
-    range.glyphStart = glyphs.length / GLYPH_FLOATS;
-  }
-
-  function endRange(range: LayerRange): void {
-    range.rectCount = rects.length / RECT_FLOATS - range.rectStart;
-    range.segmentCount = segments.length / SEGMENT_FLOATS - range.segmentStart;
-    range.triangleCount = triangles.length / TRIANGLE_VERTEX_FLOATS - range.triangleStart;
-    range.glyphCount = glyphs.length / GLYPH_FLOATS - range.glyphStart;
-  }
-
-  function truncateTo(range: LayerRange): void {
-    rects.length = range.rectStart * RECT_FLOATS;
-    segments.length = range.segmentStart * SEGMENT_FLOATS;
-    triangles.length = range.triangleStart * TRIANGLE_VERTEX_FLOATS;
-    glyphs.length = range.glyphStart * GLYPH_FLOATS;
+  function entriesOf(geometry: ElementGeometry, current: GlScene, target: PaintEntry[][]): void {
+    const depth = depthOf(geometry.paintRank, current);
+    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
+      const parts = geometry.parts.flatMap((layered) => (layered.layer === layer ? [layered.part] : []));
+      const media = layer === BOX_LAYER ? drawnMediaOf(current, geometry) : null;
+      if (parts.length === 0 && !media) continue;
+      target[layer]?.push({ parts, depth, bounds: geometry.bounds, media });
+    }
   }
 
   function visibleGeometryIndexes(current: GlScene, area: Rect): number[] {
@@ -947,49 +478,21 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     return listed;
   }
 
-  function writePreview(current: GlScene, currentPalette: BoardPalette, glyphSource: GlyphAtlas): void {
-    truncateTo(previewStart);
-    visibleDrawnMedia.length = baseDrawnMediaCount;
-    const upperScale = lodUpperScale(gatheredLodStep);
-    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
-      const range = previewRanges[layer] ?? emptyRange();
-      startRange(range);
-      for (const geometry of preview?.geometries ?? []) {
-        for (const layered of geometry.parts) {
-          if (layered.layer === layer) appendPart(layered.part, upperScale, depthOf(geometry.paintRank, current));
-        }
-        if (layer === BOX_LAYER) collectDrawnMedia(current, geometry);
-      }
-      endRange(range);
-    }
-    decorationStart = rangeMarkHere();
-    writeDecorations(current, currentPalette, glyphSource);
+  function writePreview(current: GlScene, currentPalette: BoardPalette): void {
+    previewLayers = emptyLayers();
+    for (const geometry of preview?.geometries ?? []) entriesOf(geometry, current, previewLayers);
+    writeDecorations(current, currentPalette);
   }
 
-  function rangeMarkHere(): LayerRange {
-    return { ...emptyRange(), rectStart: rects.length / RECT_FLOATS, segmentStart: segments.length / SEGMENT_FLOATS, triangleStart: triangles.length / TRIANGLE_VERTEX_FLOATS, glyphStart: glyphs.length / GLYPH_FLOATS };
+  function writeDecorations(current: GlScene, currentPalette: BoardPalette): void {
+    decorationPartNow = decorationPart(decorations(current), { palette: currentPalette, hasDrawnMedia: () => false });
   }
 
-  function writeDecorations(current: GlScene, currentPalette: BoardPalette, glyphSource: GlyphAtlas): void {
-    truncateTo(decorationStart);
-    const range = layerRanges[DECORATION_LAYER] ?? emptyRange();
-    startRange(range);
-    const part = decorationPart(decorations(current), { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: () => false });
-    appendPart(part, Infinity, 1);
-    endRange(range);
-  }
-
-  function gather(current: GlScene, currentPalette: BoardPalette, glyphSource: GlyphAtlas): void {
+  function gather(current: GlScene, currentPalette: BoardPalette): void {
     const view = viewArea();
     const lodStep = lodStepOf(camera.scale);
-    const upperScale = lodUpperScale(lodStep);
     const area = { x: view.x - view.width * GATHER_MARGIN_FACTOR, y: view.y - view.height * GATHER_MARGIN_FACTOR, width: view.width * (1 + GATHER_MARGIN_FACTOR * 2), height: view.height * (1 + GATHER_MARGIN_FACTOR * 2) };
     const visible = visibleGeometryIndexes(current, area);
-    rects.length = 0;
-    segments.length = 0;
-    triangles.length = 0;
-    glyphs.length = 0;
-    visibleDrawnMedia = [];
     gatherNumber += 1;
     gatheredFlows = [];
     for (const index of visible) {
@@ -997,69 +500,59 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       if (geometry?.flow && !preview?.hiddenIds.has(geometry.id)) gatheredFlows.push(geometry.flow);
     }
     syncFlowLayer();
-    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
-      const range = layerRanges[layer] ?? emptyRange();
-      startRange(range);
-      for (const layered of current.chrome.parts) {
-        if (layered.layer === layer) appendPart(layered.part, upperScale, 0);
-      }
-      for (const index of visible) {
-        const geometry = current.geometries[index];
-        if (!geometry || preview?.hiddenIds.has(geometry.id)) continue;
-        for (const layered of geometry.parts) {
-          if (layered.layer === layer) appendPart(layered.part, upperScale, depthOf(geometry.paintRank, current));
-        }
-        if (layer === BOX_LAYER) collectDrawnMedia(current, geometry);
-      }
-      endRange(range);
+    baseLayers = emptyLayers();
+    for (const layered of current.chrome.parts) baseLayers[layered.layer]?.push({ parts: [layered.part], depth: 0, bounds: null, media: null });
+    for (const index of visible) {
+      const geometry = current.geometries[index];
+      if (!geometry || preview?.hiddenIds.has(geometry.id)) continue;
+      entriesOf(geometry, current, baseLayers);
     }
-    previewStart = rangeMarkHere();
-    baseDrawnMediaCount = visibleDrawnMedia.length;
     gatheredArea = area;
     gatheredLodStep = lodStep;
     isGatherDirty = false;
-    writePreview(current, currentPalette, glyphSource);
-    evictMediaTexturesOverBudget();
+    writePreview(current, currentPalette);
+    evictMediaImagesOverBudget();
     mediaLayer.showArea(area);
   }
 
-  function collectDrawnMedia(current: GlScene, geometry: ElementGeometry): void {
-    if (geometry.hitShape.kind !== 'rect' || !geometry.hitShape.hasDrawnMedia) return;
+  function drawnMediaOf(current: GlScene, geometry: ElementGeometry): DrawnMedia | null {
+    if (geometry.hitShape.kind !== 'rect' || !geometry.hitShape.hasDrawnMedia) return null;
     const box = elementOf(current, geometry.id);
-    if (box?.kind !== 'box' || !box.media) return;
+    if (box?.kind !== 'box' || !box.media) return null;
     const href = servedAssetHref(box.media);
-    if (!href) return;
+    if (!href) return null;
+    ensureMediaImage(href, box.media);
     const clipRadius = box.device ? DEVICE_CATALOG[box.device.name].bezel.screenRadius * box.device.scale : 0;
-    visibleDrawnMedia.push({ href, rect: box.media, fit: box.media.fit, clipRadius, depth: depthOf(geometry.paintRank, current), turn: { pivot: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, radians: (box.angle * Math.PI) / 180 } });
-    ensureMediaTexture(href, box.media);
+    return { href, rect: box.media, fit: box.media.fit, clipRadius, turn: { pivot: { x: box.x + box.width / 2, y: box.y + box.height / 2 }, radians: (box.angle * Math.PI) / 180 } };
   }
 
-  function ensureMediaTexture(href: string, mediaRect: Rect): void {
-    const known = mediaTextures.get(href);
+  function ensureMediaImage(href: string, mediaRect: Rect): void {
+    const known = mediaImages.get(href);
     if (known) {
       known.lastGatherNumber = gatherNumber;
       return;
     }
     const fallbackFit = UNSIZED_MEDIA_EDGE_PX / Math.max(mediaRect.width, mediaRect.height, 1);
-    const entry: MediaTexture = { href, texture: null, width: Math.round(mediaRect.width * fallbackFit), height: Math.round(mediaRect.height * fallbackFit), image: new Image(), isFailed: false, textureBytes: 0, lastGatherNumber: gatherNumber };
-    mediaTextures.set(href, entry);
-    const image = entry.image;
-    if (!image) return;
+    const image = new Image();
+    const entry: MediaImage = { href, width: Math.round(mediaRect.width * fallbackFit), height: Math.round(mediaRect.height * fallbackFit), image, state: 'loading', imageBytes: 0, lastGatherNumber: gatherNumber };
+    mediaImages.set(href, entry);
     image.decoding = 'async';
     image.src = href;
     void image.decode().then(() => {
-      if (mediaTextures.get(href) !== entry) return;
+      if (mediaImages.get(href) !== entry) return;
       entry.width = image.naturalWidth || entry.width;
       entry.height = image.naturalHeight || entry.height;
-      uploadMediaTexture(entry);
+      entry.state = 'ready';
+      entry.imageBytes = entry.width * entry.height * BYTES_PER_PIXEL;
+      evictMediaImagesOverBudget();
       requestDraw();
     }, () => {
       markMediaFailed(entry);
     });
   }
 
-  function markMediaFailed(entry: MediaTexture): void {
-    entry.isFailed = true;
+  function markMediaFailed(entry: MediaImage): void {
+    entry.state = 'failed';
     const current = scene;
     if (!current) return;
     geometryBySignature.clear();
@@ -1067,59 +560,15 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   }
 
-  function rasterOf(image: HTMLImageElement, width: number, height: number, maxEdge: number): HTMLCanvasElement | null {
-    const fit = Math.min(1, maxEdge / Math.max(width, height));
-    const raster = document.createElement('canvas');
-    raster.width = Math.max(1, Math.floor(width * fit));
-    raster.height = Math.max(1, Math.floor(height * fit));
-    const context = raster.getContext('2d');
-    if (!context) return null;
-    context.drawImage(image, 0, 0, raster.width, raster.height);
-    return raster;
-  }
-
-  function uploadMediaTexture(entry: MediaTexture): void {
-    if (!gl || !entry.image || entry.isFailed) return;
-    const maxEdge = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE));
-    const raster = rasterOf(entry.image, entry.width, entry.height, maxEdge);
-    if (!raster) {
-      markMediaFailed(entry);
-      return;
-    }
-    while (gl.getError() !== gl.NO_ERROR);
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, raster);
-    if (gl.getError() !== gl.NO_ERROR) {
-      gl.deleteTexture(texture);
-      markMediaFailed(entry);
-      return;
-    }
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    entry.texture = texture;
-    entry.textureBytes = Math.round(raster.width * raster.height * MIPMAPPED_BYTES_PER_PIXEL);
-    evictMediaTexturesOverBudget();
-  }
-
-  function forgetMediaTexture(href: string, entry: MediaTexture): void {
-    if (gl && entry.texture) gl.deleteTexture(entry.texture);
-    mediaTextures.delete(href);
-  }
-
-  function evictMediaTexturesOverBudget(): void {
+  function evictMediaImagesOverBudget(): void {
     let heldBytes = 0;
-    for (const entry of mediaTextures.values()) heldBytes += entry.textureBytes;
-    if (heldBytes <= MEDIA_TEXTURE_BUDGET_BYTES) return;
-    const leastRecentlyDrawnFirst = [...mediaTextures].filter(([, entry]) => entry.lastGatherNumber !== gatherNumber).sort(([, first], [, second]) => first.lastGatherNumber - second.lastGatherNumber);
+    for (const entry of mediaImages.values()) heldBytes += entry.imageBytes;
+    if (heldBytes <= MEDIA_IMAGE_BUDGET_BYTES) return;
+    const leastRecentlyDrawnFirst = [...mediaImages].filter(([, entry]) => entry.lastGatherNumber !== gatherNumber).sort(([, first], [, second]) => first.lastGatherNumber - second.lastGatherNumber);
     for (const [href, entry] of leastRecentlyDrawnFirst) {
-      if (heldBytes <= MEDIA_TEXTURE_BUDGET_BYTES) return;
-      heldBytes -= entry.textureBytes;
-      forgetMediaTexture(href, entry);
+      if (heldBytes <= MEDIA_IMAGE_BUDGET_BYTES) return;
+      heldBytes -= entry.imageBytes;
+      mediaImages.delete(href);
     }
   }
 
@@ -1129,120 +578,60 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       const href = servedAssetHref(element.media);
       return href ? [href] : [];
     }));
-    for (const [href, entry] of mediaTextures) {
-      if (!hrefsInUse.has(href)) forgetMediaTexture(href, entry);
+    for (const href of mediaImages.keys()) {
+      if (!hrefsInUse.has(href)) mediaImages.delete(href);
     }
   }
 
-  function forgetAllMediaTextures(): void {
-    for (const [href, entry] of mediaTextures) forgetMediaTexture(href, entry);
+  function paintDrawnMedia(drawn: DrawnMedia): void {
+    const entry = mediaImages.get(drawn.href);
+    if (entry?.state !== 'ready') return;
+    paintImage(boardContext, entry.image, entry.width, entry.height, placedMediaOf(drawn, entry), drawn.clipRadius, drawn.turn);
   }
 
-  function upload(program: PrimitiveProgram, values: GrowableFloats): void {
-    if (!gl || values.length === 0) return;
-    gl.bindBuffer(gl.ARRAY_BUFFER, program.buffer);
-    if (values.length > program.bufferFloats) {
-      program.bufferFloats = values.data.length;
-      gl.bufferData(gl.ARRAY_BUFFER, values.data.byteLength, gl.DYNAMIC_DRAW);
-    }
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, values.data, 0, values.length);
-  }
-
-  function pointAttributesAt(context: WebGL2RenderingContext, program: PrimitiveProgram, first: number): void {
-    context.bindBuffer(context.ARRAY_BUFFER, program.buffer);
-    const strideBytes = program.strideFloats * 4;
-    for (const attribute of program.attributes) {
-      context.vertexAttribPointer(attribute.location, attribute.size, context.FLOAT, false, strideBytes, (first * program.strideFloats + attribute.offset) * 4);
-    }
-  }
-
-  function setSharedUniforms(context: WebGL2RenderingContext, program: PrimitiveProgram): void {
-    const pixelRatio = window.devicePixelRatio || 1;
-    context.useProgram(program.program);
-    context.uniform2f(program.uniforms.get('uCamera') ?? null, camera.x, camera.y);
-    context.uniform1f(program.uniforms.get('uScale') ?? null, camera.scale * pixelRatio);
-    context.uniform2f(program.uniforms.get('uResolution') ?? null, canvas.width, canvas.height);
-    context.uniform1f(program.uniforms.get('uLodScale') ?? null, camera.scale);
-  }
-
-  function drawInstances(context: WebGL2RenderingContext, program: PrimitiveProgram, first: number, count: number): void {
-    if (count === 0) return;
-    setSharedUniforms(context, program);
-    context.bindVertexArray(program.vao);
-    pointAttributesAt(context, program, first);
-    context.drawArraysInstanced(context.TRIANGLE_STRIP, 0, 4, count);
-  }
-
-  function drawTriangles(context: WebGL2RenderingContext, program: PrimitiveProgram, first: number, count: number): void {
-    if (count === 0) return;
-    setSharedUniforms(context, program);
-    context.bindVertexArray(program.vao);
-    pointAttributesAt(context, program, 0);
-    context.drawArrays(context.TRIANGLES, first, count);
-  }
-
-  function drawMedia(context: WebGL2RenderingContext, program: PrimitiveProgram): void {
-    const ready = visibleDrawnMedia.flatMap((drawn) => {
-      const entry = mediaTextures.get(drawn.href);
-      return entry?.texture ? [{ drawn, entry }] : [];
+  function createBlockSurface(blockId: string): HTMLCanvasElement {
+    const surface = Object.assign(document.createElement('canvas'), { width: BLOCK_RASTER_PX, height: BLOCK_RASTER_PX });
+    surface.addEventListener('contextlost', () => {
+      tintedBlocks.delete(blockId);
+      requestDraw();
     });
-    if (ready.length === 0) return;
-    setSharedUniforms(context, program);
-    context.bindVertexArray(program.vao);
-    context.uniform1i(program.uniforms.get('uImage') ?? null, 1);
-    context.activeTexture(context.TEXTURE1);
-    for (const { drawn, entry } of ready) {
-      const placed = placedMediaOf(drawn, entry);
-      context.bindTexture(context.TEXTURE_2D, entry.texture);
-      context.uniform1f(program.uniforms.get('uDepth') ?? null, drawn.depth);
-      context.uniform1f(program.uniforms.get('uClipRadius') ?? null, drawn.clipRadius);
-      context.uniform3f(program.uniforms.get('uTurn') ?? null, drawn.turn.pivot.x, drawn.turn.pivot.y, drawn.turn.radians);
-      context.uniform4f(program.uniforms.get('uRect') ?? null, placed.rect.x, placed.rect.y, placed.rect.width, placed.rect.height);
-      context.uniform4f(program.uniforms.get('uUvRect') ?? null, placed.uv.x, placed.uv.y, placed.uv.width, placed.uv.height);
-      context.drawArrays(context.TRIANGLE_STRIP, 0, 4);
-    }
+    return surface;
   }
 
-  function blockTextureOf(context: WebGL2RenderingContext, block: BlockTile): WebGLTexture | null {
-    const known = blockTextures.get(block.id);
-    if (known?.raster === block.raster) return known.texture;
-    const texture = known?.texture ?? context.createTexture();
-    context.bindTexture(context.TEXTURE_2D, texture);
-    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MIN_FILTER, context.NEAREST);
-    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MAG_FILTER, context.NEAREST);
-    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE);
-    context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_T, context.CLAMP_TO_EDGE);
-    context.texImage2D(context.TEXTURE_2D, 0, context.RGBA, BLOCK_RASTER_PX, BLOCK_RASTER_PX, 0, context.RGBA, context.UNSIGNED_BYTE, block.raster);
-    blockTextures.set(block.id, { raster: block.raster, texture });
-    return texture;
+  function tintedBlockOf(block: BlockTile, tint: Rgba): HTMLCanvasElement | null {
+    const tintKey = tint.join(',');
+    const known = tintedBlocks.get(block.id);
+    if (known?.raster === block.raster && known.tintKey === tintKey) return known.surface;
+    if (block.raster.length !== BLOCK_RASTER_PX * BLOCK_RASTER_PX * 4) return null;
+    const surface = known?.surface ?? createBlockSurface(block.id);
+    const surfaceContext = surface.getContext('2d');
+    if (!surfaceContext) return null;
+    surfaceContext.globalCompositeOperation = 'source-over';
+    surfaceContext.clearRect(0, 0, BLOCK_RASTER_PX, BLOCK_RASTER_PX);
+    surfaceContext.putImageData(new ImageData(new Uint8ClampedArray(block.raster), BLOCK_RASTER_PX, BLOCK_RASTER_PX), 0, 0);
+    surfaceContext.globalCompositeOperation = 'source-in';
+    surfaceContext.fillStyle = `rgba(${Math.round(tint[0] * 255)},${Math.round(tint[1] * 255)},${Math.round(tint[2] * 255)},${BLOCK_ALPHA})`;
+    surfaceContext.fillRect(0, 0, BLOCK_RASTER_PX, BLOCK_RASTER_PX);
+    surfaceContext.globalCompositeOperation = 'source-over';
+    tintedBlocks.set(block.id, { raster: block.raster, tintKey, surface });
+    return surface;
   }
 
-  function forgetBlockTexturesNotIn(nextBlocks: readonly BlockTile[]): void {
+  function forgetTintedBlocksNotIn(nextBlocks: readonly BlockTile[]): void {
     const keptIds = new Set(nextBlocks.map((block) => block.id));
-    for (const [id, entry] of blockTextures) {
-      if (keptIds.has(id)) continue;
-      gl?.deleteTexture(entry.texture);
-      blockTextures.delete(id);
+    for (const id of tintedBlocks.keys()) {
+      if (!keptIds.has(id)) tintedBlocks.delete(id);
     }
   }
 
-  function drawBlocks(context: WebGL2RenderingContext, program: PrimitiveProgram, tint: Rgba): void {
+  function paintBlocks(tint: Rgba): void {
     if (blocks.length === 0) return;
-    context.disable(context.DEPTH_TEST);
-    context.depthMask(false);
-    setSharedUniforms(context, program);
-    context.bindVertexArray(program.vao);
-    context.uniform1i(program.uniforms.get('uImage') ?? null, 1);
-    context.uniform1f(program.uniforms.get('uDepth') ?? null, 0);
-    context.uniform4f(program.uniforms.get('uTint') ?? null, tint[0], tint[1], tint[2], BLOCK_ALPHA);
-    context.uniform4f(program.uniforms.get('uUvRect') ?? null, 0, 0, 1, 1);
-    context.activeTexture(context.TEXTURE1);
+    boardContext.imageSmoothingEnabled = false;
     for (const block of blocks) {
-      context.bindTexture(context.TEXTURE_2D, blockTextureOf(context, block));
-      context.uniform4f(program.uniforms.get('uRect') ?? null, block.rect.x, block.rect.y, block.rect.width, block.rect.height);
-      context.drawArrays(context.TRIANGLE_STRIP, 0, 4);
+      const surface = tintedBlockOf(block, tint);
+      if (surface) boardContext.drawImage(surface, block.rect.x, block.rect.y, block.rect.width, block.rect.height);
     }
-    context.enable(context.DEPTH_TEST);
+    boardContext.imageSmoothingEnabled = true;
   }
 
   function placeGrid(): void {
@@ -1263,27 +652,22 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     onViewChange(view, camera.scale);
   }
 
-  function drawLayer(context: WebGL2RenderingContext, programs: NonNullable<typeof primitives>, glyphSource: GlyphAtlas, layer: number): void {
-    const baseRange = layerRanges[layer];
-    if (!baseRange) return;
-    const ranges = [baseRange, ...(previewRanges[layer] ? [previewRanges[layer]] : [])];
-    if (layer === DECORATION_LAYER) context.disable(context.DEPTH_TEST);
-    context.depthMask(true);
-    for (const range of ranges) drawTriangles(context, programs.triangle, range.triangleStart, range.triangleCount);
-    for (const range of ranges) drawInstances(context, programs.rect, range.rectStart, range.rectCount);
-    context.depthMask(false);
-    for (const range of ranges) drawInstances(context, programs.segment, range.segmentStart, range.segmentCount);
-    if (layer === BOX_LAYER) drawMedia(context, programs.image);
-    const glyphRanges = ranges.filter((range) => range.glyphCount > 0);
-    if (glyphRanges.length === 0) return;
-    glyphSource.bind(context, 0);
-    setSharedUniforms(context, programs.glyph);
-    context.uniform1i(programs.glyph.uniforms.get('uAtlas') ?? null, 0);
-    context.bindVertexArray(programs.glyph.vao);
-    for (const range of glyphRanges) {
-      pointAttributesAt(context, programs.glyph, range.glyphStart);
-      context.drawArraysInstanced(context.TRIANGLE_STRIP, 0, 4, range.glyphCount);
+  function paintEntry(target: CanvasRenderingContext2D, entry: PaintEntry, fontFamily: string, view: PaintView): void {
+    for (const part of entry.parts) paintTriangles(target, part.triangles, view);
+    for (const part of entry.parts) paintRects(target, part.rects, view);
+    for (const part of entry.parts) paintSegments(target, part.segments, view);
+    if (entry.media) paintDrawnMedia(entry.media);
+    for (const part of entry.parts) {
+      if (part.texts.length === 0 || part.textMinScale > view.lodScale) continue;
+      paintTexts(target, part.texts, fontFamily, view);
     }
+  }
+
+  function entriesInPaintOrder(layer: number): PaintEntry[] {
+    const base = baseLayers[layer] ?? [];
+    const previewEntries = previewLayers[layer] ?? [];
+    if (previewEntries.length === 0) return base;
+    return [...base, ...previewEntries].sort((first, second) => first.depth - second.depth);
   }
 
   function isGatherStale(): boolean {
@@ -1303,32 +687,59 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function draw(): void {
     frameRequest = null;
-    const context = gl;
-    const programs = primitives;
-    if (!context || !programs || context.isContextLost()) return;
+    if (isBoardContextLost) return;
     resizeCanvas();
-    context.viewport(0, 0, canvas.width, canvas.height);
-    context.clearColor(0, 0, 0, 0);
-    context.clearDepth(0);
-    context.depthMask(true);
-    context.clear(context.COLOR_BUFFER_BIT | context.DEPTH_BUFFER_BIT);
-    context.enable(context.DEPTH_TEST);
-    context.depthFunc(context.GEQUAL);
+    boardContext.setTransform(1, 0, 0, 1, 0, 0);
+    boardContext.clearRect(0, 0, canvas.width, canvas.height);
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) buildScene(scene.layout);
     const current = scene;
-    if (!current) return;
+    if (!current) {
+      paintDecorations();
+      return;
+    }
     const currentPalette = ensurePalette();
-    drawBlocks(context, programs.block, currentPalette.inkDim);
-    const glyphSource = ensureAtlas();
-    if (isGatherStale()) gather(current, currentPalette, glyphSource);
-    upload(programs.rect, rects);
-    upload(programs.segment, segments);
-    upload(programs.triangle, triangles);
-    upload(programs.glyph, glyphs);
-    for (let layer = 0; layer <= LAYER_COUNT; layer += 1) drawLayer(context, programs, glyphSource, layer);
+    const view = cameraView();
+    setWorldTransform(boardContext, view);
+    paintBlocks(currentPalette.inkDim);
+    const fontFamily = boardFont();
+    if (isGatherStale()) gather(current, currentPalette);
+    const visibleArea = viewArea();
+    for (let layer = 0; layer < LAYER_COUNT; layer += 1) {
+      for (const entry of entriesInPaintOrder(layer)) {
+        if (entry.bounds && !isTouching(entry.bounds, visibleArea)) continue;
+        paintEntry(boardContext, entry, fontFamily, view);
+      }
+    }
     canvas.dataset.drawnElements = String(current.geometries.length);
     canvas.dataset.drawnBlocks = String(blocks.length);
-    canvas.dataset.mediaTextures = String(mediaTextures.size);
+    canvas.dataset.mediaTextures = String(mediaImages.size);
+    if (decorationFrameRequest !== null) cancelAnimationFrame(decorationFrameRequest);
+    paintDecorations();
+  }
+
+  function cameraView(): PaintView {
+    return { cameraX: camera.x, cameraY: camera.y, deviceScale: camera.scale * (window.devicePixelRatio || 1), lodScale: camera.scale };
+  }
+
+  function paintDecorations(): void {
+    decorationFrameRequest = null;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (decorationCanvas.width !== width || decorationCanvas.height !== height) {
+      decorationCanvas.width = width;
+      decorationCanvas.height = height;
+    }
+    decorationContext.setTransform(1, 0, 0, 1, 0, 0);
+    decorationContext.clearRect(0, 0, width, height);
+    if (!scene || !decorationPartNow) return;
+    const view = cameraView();
+    setWorldTransform(decorationContext, view);
+    paintEntry(decorationContext, { parts: [decorationPartNow], depth: 1, bounds: null, media: null }, boardFont(), view);
+  }
+
+  function requestDecorationPaint(): void {
+    if (decorationFrameRequest !== null) return;
+    decorationFrameRequest = requestAnimationFrame(paintDecorations);
   }
 
   function requestDraw(): void {
@@ -1342,14 +753,14 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
       requestDraw();
       return;
     }
-    writeDecorations(current, ensurePalette(), ensureAtlas());
-    requestDraw();
+    writeDecorations(current, ensurePalette());
+    requestDecorationPaint();
   }
 
   function isMediaDrawable(box: LaidOutBox): boolean {
     if (!box.media) return false;
     const href = servedAssetHref(box.media);
-    return href !== null && mediaTextures.get(href)?.isFailed !== true;
+    return href !== null && mediaImages.get(href)?.state !== 'failed';
   }
 
   function signatureOf(element: LaidOutElement): string {
@@ -1480,8 +891,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     const current = scene;
     if (!current) return;
     const currentPalette = ensurePalette();
-    const glyphSource = ensureAtlasInBoardFont();
-    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable, ...(stackSpreadOf ? { stackSpreadOf } : {}) };
+    const context: SceneContext = { palette: currentPalette, hasDrawnMedia: isMediaDrawable, ...(stackSpreadOf ? { stackSpreadOf } : {}) };
     const built = sceneOf({ ...current.layout, elements: [...elements], legend: [], caption: null, plan: null }, context, () => null);
     const geometries = built.elements.map((geometry) => ({ ...geometry, paintRank: current.geometries[current.geometryIndexById.get(geometry.id) ?? -1]?.paintRank ?? 0 }));
     const hiddenIds = new Set(elements.map((element) => element.id));
@@ -1490,7 +900,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (!isSameHidden) isGatherDirty = true;
     syncFlowLayer();
     if (current.hasPageMedia) mediaLayer.sync({ ...current.layout, elements: current.layout.elements.map((element) => preview?.elementById.get(element.id) ?? element) }, current.geometries.map((geometry) => geometry.id));
-    if (!isGatherDirty && gatheredArea) writePreview(current, currentPalette, glyphSource);
+    if (!isGatherDirty && gatheredArea) writePreview(current, currentPalette);
     requestDraw();
   }
 
@@ -1499,11 +909,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
     stackFan = null;
     preview = null;
-    if (atlas?.isFull()) {
-      atlas.forgetUnusedGlyphs();
-      geometryBySignature.clear();
-    }
-    forgetBlockTexturesNotIn(nextBlocks);
+    forgetTintedBlocksNotIn(nextBlocks);
     blocks = nextBlocks;
     buildScene(layout);
     requestDraw();
@@ -1511,8 +917,7 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function buildScene(layout: BoardLayout): void {
     const currentPalette = ensurePalette();
-    const glyphSource = ensureAtlasInBoardFont();
-    const context: SceneContext = { palette: currentPalette, glyphs: glyphSource, hasDrawnMedia: isMediaDrawable };
+    const context: SceneContext = { palette: currentPalette, hasDrawnMedia: isMediaDrawable };
     const signatureByElement = new Map(layout.elements.map((element) => [element, signatureOf(element)]));
     const built = sceneOf(layout, context, (element) => geometryBySignature.get(signatureByElement.get(element) ?? '') ?? null);
     geometryBySignature.clear();
@@ -1651,17 +1056,18 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
 
   function clear(): void {
     stopStackMotion();
+    decorationPartNow = null;
     if (stackFan?.frameRequest != null) cancelAnimationFrame(stackFan.frameRequest);
     stackFan = null;
     scene = null;
     preview = null;
     lastRendered = null;
-    forgetBlockTexturesNotIn([]);
+    forgetTintedBlocksNotIn([]);
     blocks = [];
     lastViewKey = '';
     reportView();
     geometryBySignature.clear();
-    forgetAllMediaTextures();
+    mediaImages.clear();
     mediaLayer.clear();
     flowLayer.clear();
     hoveredBoxId = null;
@@ -1670,66 +1076,9 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   }
 
-  function adoptContext(context: WebGL2RenderingContext | null): void {
-    gl = context;
-    createGlOrNotice();
-    if (!gl) return;
-    for (const entry of mediaTextures.values()) uploadMediaTexture(entry);
-    showNotice(null);
+  function redrawAfterContextRestore(): void {
+    tintedBlocks.clear();
     requestDraw();
-  }
-
-  function scheduleContextRetry(): void {
-    if (contextRetryTimer !== null) clearTimeout(contextRetryTimer);
-    contextRetryTimer = window.setTimeout(retryWithFreshCanvas, CONTEXT_RETRY_MS);
-  }
-
-  function cancelContextRetry(): void {
-    if (contextRetryTimer === null) return;
-    clearTimeout(contextRetryTimer);
-    contextRetryTimer = null;
-  }
-
-  function retryWithFreshCanvas(): void {
-    contextRetryTimer = null;
-    contextRetries += 1;
-    const freshCanvas = canvas.cloneNode(false);
-    if (!(freshCanvas instanceof HTMLCanvasElement)) return;
-    const { context: freshContext, creationError } = createWebgl2Context(freshCanvas, contextAttributes);
-    if (!freshContext) {
-      if (contextState === 'lost') reportGraphics('blocked', { msSinceLastLoss: null, blankMs: null, creationError });
-      contextState = 'blocked';
-      showRefusal();
-      return;
-    }
-    unwatchCanvas(canvas);
-    canvas.replaceWith(freshCanvas);
-    canvas = freshCanvas;
-    watchCanvas(freshCanvas);
-    adoptContext(freshContext);
-    settleContextLive('recreated');
-  }
-
-  function onContextLost(event: Event): void {
-    event.preventDefault();
-    const lostAtMs = performance.now();
-    lossCount += 1;
-    reportGraphics('lost', { msSinceLastLoss: lastLossAtMs === null ? null : lostAtMs - lastLossAtMs, blankMs: null, creationError: null });
-    lastLossAtMs = lostAtMs;
-    contextState = 'lost';
-    contextRetries = 0;
-    primitives = null;
-    atlas?.forgetTexture();
-    for (const entry of mediaTextures.values()) entry.texture = null;
-    blockTextures.clear();
-    showNotice('redrawing');
-    scheduleContextRetry();
-  }
-
-  function onContextRestored(): void {
-    cancelContextRetry();
-    adoptContext(canvas.getContext('webgl2', contextAttributes));
-    if (gl) settleContextLive('restored');
   }
 
   const canvasResizeObserver = new ResizeObserver(() => {
@@ -1738,29 +1087,20 @@ export function createBoardRenderer(options: RendererOptions): BoardRenderer {
     requestDraw();
   });
 
-  function watchCanvas(target: HTMLCanvasElement): void {
-    target.addEventListener('webglcontextlost', onContextLost);
-    target.addEventListener('webglcontextrestored', onContextRestored);
-    canvasResizeObserver.observe(target);
-  }
-
-  function unwatchCanvas(target: HTMLCanvasElement): void {
-    target.removeEventListener('webglcontextlost', onContextLost);
-    target.removeEventListener('webglcontextrestored', onContextRestored);
-    canvasResizeObserver.unobserve(target);
-  }
-
-  watchCanvas(canvas);
+  canvas.addEventListener('contextlost', () => {
+    isBoardContextLost = true;
+  });
+  canvas.addEventListener('contextrestored', () => {
+    isBoardContextLost = false;
+    redrawAfterContextRestore();
+  });
+  decorationCanvas.addEventListener('contextrestored', redrawAfterContextRestore);
+  canvasResizeObserver.observe(canvas);
   const requestDrawOnThemeChange = (): void => {
     if (scene && paletteKey(viewport) !== resolvedPaletteKey) requestDraw();
   };
   new MutationObserver(requestDrawOnThemeChange).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
   new MutationObserver(requestDrawOnThemeChange).observe(viewport, { attributes: true, attributeFilter: ['class'] });
-  createGlOrNotice();
-  if (!gl && !isWebgl2Missing()) {
-    contextState = 'blocked';
-    reportGraphics('blocked', { msSinceLastLoss: null, blankMs: null, creationError: initialContext.creationError });
-  }
 
   return {
     render,

@@ -2,7 +2,6 @@ import './whiteboard.css';
 import type { Board, BoardReview, BoardSummary, BoxMedia, DialValue, Element, Frame, LinkStateOfBox, Op, WorthALookPath } from '#shared/contracts/whiteboard.ts';
 import { refPathOf, refsOfElement } from '#shared/whiteboard-anchor-core.ts';
 import { ElementInput } from '#shared/contracts/whiteboard.ts';
-import { CLIENT_LOG_TEXT_MAX_CHARS } from '#shared/contracts/control/control-fields.ts';
 import { noteBoxTextOf } from '#shared/contracts/whiteboard-ops-core.ts';
 import { SHAPE_TRAITS } from '#shared/whiteboard-shapes.ts';
 import { BoardPageArrow, BOARD_PAGE_ESCAPE_MESSAGE, BOARD_PAGE_TUNED_QUERY, BoardPageContentWidth, BOARD_PAGE_ZOOMED_MESSAGE, BoardPageGesture, BOARD_MEDIA_EXTENSION_BY_MIME, BOARD_MEDIA_MAX_EDGE_PX, boardMediaNamedPath, boardMediaSavedName, BOARD_PAGE_SAVED_NAME_QUERY, boardPagePath, dialValuesOfBox, BOARD_FILE_DOWNLOAD_NAME, BOARD_FILE_EXTENSION, BOARD_LINK_PATH_MAX_LENGTH, WHITEBOARD_FILE_ROUTE, WHITEBOARD_LIMITS, WHITEBOARD_PICTURE_ROUTE } from '#shared/contracts/whiteboard.ts';
@@ -41,11 +40,6 @@ import { SHORTCUT_PLATFORM } from '../shortcuts.ts';
 import type { BoardInspector } from './board-inspect.ts';
 import { createBoardRenderer } from './board-gl-renderer.ts';
 import type { BoardRenderer, Camera } from './board-gl-renderer.ts';
-import { boardGraphicsLogText, boardGraphicsTelemetryProperties } from './board-graphics-report-core.ts';
-import type { BoardGraphicsEvent } from './board-graphics-report-core.ts';
-import { countDashboardTabs } from '../dashboard-tab-lock.ts';
-import { reportDashboardTelemetry, sendControlMsg } from '../control-ws.ts';
-import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
 import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardFlowLayer } from './board-flow-layer.ts';
 import { followBoardSessionFeed } from './board-session-feed.ts';
@@ -1728,9 +1722,6 @@ export function mountBoardHost(): HTMLElement {
   world.append(svg, mediaLayer.element);
   const glCanvas = el('canvas', 'wb-gl');
   glCanvas.setAttribute('aria-hidden', 'true');
-  const glNotice = el('p', 'wb-gl-notice');
-  glNotice.setAttribute('role', 'status');
-  glNotice.hidden = true;
   const flowLayer = createBoardFlowLayer();
   viewport.append(mediaLayer.backdrop, glCanvas, flowLayer.element, world);
   const inspectPanel = el('aside', 'wb-inspect');
@@ -1762,7 +1753,7 @@ export function mountBoardHost(): HTMLElement {
     ],
     variant: 'centered',
   }));
-  canvas.append(viewport, emptyBoardHint, topChrome, bottomLeftStack, glNotice);
+  canvas.append(viewport, emptyBoardHint, topChrome, bottomLeftStack);
   const emptyText = el('span', null, EMPTY_TEXT);
   const empty = emptyState({ text: emptyText, actions: [button({ variant: 'secondary', label: 'new board', action: 'new-board', onClick: newBoardFromDialog }), button({ variant: 'secondary', label: 'import board', action: 'import-board', onClick: pickBoardFileToImport }), emptyStatus.element], variant: 'boxed' });
   empty.classList.add('wb-empty');
@@ -1776,14 +1767,12 @@ export function mountBoardHost(): HTMLElement {
     fontSource: svg,
     mediaLayer,
     flowLayer,
-    notice: glNotice,
     onViewChange: (view, scale) => {
       if (selectedBoardId) showTilesFor(selectedBoardId, view, scale);
       paintAgentChange();
       hostCamera = { x: view.x, y: view.y, scale };
       guest?.onPainted(hostCamera);
     },
-    onGraphicsEvent: (event) => { void reportBoardGraphics(event); },
   });
   renderer = boardRenderer;
   const styleRows = createBoardStyleRows({ currentBoard: selectedBoard, sendOps });
@@ -1899,21 +1888,6 @@ export function reopenSelectedBoard(): void {
 }
 
 let boardsScreen: HTMLElement | null = null;
-
-const MAX_BOARD_GRAPHICS_LOG_LINES_PER_PAGE = 200;
-let boardGraphicsLogLinesSent = 0;
-
-function logBoardGraphicsToServer(text: string): void {
-  console.warn(`[board-graphics] ${text}`);
-  if (boardGraphicsLogLinesSent >= MAX_BOARD_GRAPHICS_LOG_LINES_PER_PAGE) return;
-  if (sendControlMsg({ type: 'client-log', scope: 'board-graphics', text: text.slice(0, CLIENT_LOG_TEXT_MAX_CHARS) })) boardGraphicsLogLinesSent += 1;
-}
-
-async function reportBoardGraphics(event: BoardGraphicsEvent): Promise<void> {
-  const page = { boardId: selectedBoardId, terminalWebglContexts: liveTerminalWebglContextCount(), sameOriginDashboardTabs: await countDashboardTabs() };
-  logBoardGraphicsToServer(boardGraphicsLogText(event, page));
-  reportDashboardTelemetry('board_graphics_reset', boardGraphicsTelemetryProperties(event, page));
-}
 
 function mountBoardsScreen(panel: HTMLElement): void {
   boardsScreen = panel;

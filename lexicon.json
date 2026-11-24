@@ -762,7 +762,7 @@
     },
     {
       "name": "reset",
-      "definition": "A graphics card reset: the browser takes a board's WebGL context away (lost) and the board gets one back (restored or recreated); after repeated resets Chrome blocks graphics for the site until the browser restarts, and each one is logged as a board-graphics line and a board_graphics_reset event"
+      "definition": "A graphics card reset: the browser's GPU process dies and every WebGL context is lost; after two within two minutes Chrome blocks WebGL for the site for about two minutes, so the board draws with Canvas 2D and terminals fall back to their DOM renderer"
     },
     {
       "name": "account",

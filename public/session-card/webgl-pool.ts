@@ -20,10 +20,6 @@ function disposeWebglAddon(ui: SessionUi) {
   for (const canvas of canvases) canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
 }
 
-export function liveTerminalWebglContextCount(): number {
-  return _webglLru.size;
-}
-
 export function releaseWebgl(ui: SessionUi) {
   _webglLru.delete(ui);
   ui.needsWebGLReload = false;

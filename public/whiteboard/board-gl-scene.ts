@@ -48,34 +48,32 @@ interface BoardPalette {
   titleSize: number;
 }
 
-interface GlyphCell {
-  u0: number;
-  v0: number;
-  u1: number;
-  v1: number;
-  page: number;
-}
-
-interface GlyphSource {
-  cellOf: (character: string, isBold: boolean) => GlyphCell;
-  cellWidthEm: number;
-  cellHeightEm: number;
-  padLeftEm: number;
-  ascentEm: number;
+interface TextRun {
+  text: string;
+  left: number;
+  baseline: number;
+  size: number;
+  advance: number;
+  isBold: boolean;
+  color: Rgba;
+  gradient: readonly Rgba[] | null;
+  minScale: number;
+  turn: { pivot: Point; radians: number } | null;
 }
 
 interface PartBuilder {
   rects: number[];
   segments: number[];
   triangles: number[];
-  glyphs: number[];
+  texts: TextRun[];
 }
 
 interface GeometryPart {
   rects: Float32Array;
   segments: Float32Array;
   triangles: Float32Array;
-  glyphs: Float32Array;
+  texts: readonly TextRun[];
+  textMinScale: number;
 }
 
 interface LayeredPart {
@@ -108,8 +106,6 @@ const RECT_FLOATS = 19;
 const RECT_PIVOT_OFFSET = 14;
 const SEGMENT_FLOATS = 14;
 const TRIANGLE_VERTEX_FLOATS = 8;
-const GLYPH_FLOATS = 18;
-const GLYPH_PIVOT_OFFSET = 13;
 const UNSET_DEPTH = 0;
 const LAYER_COUNT = 6;
 const CHROME_LAYER = 0;
@@ -151,11 +147,12 @@ function faded(color: Rgba, opacity: number): Rgba {
 }
 
 function createPart(): PartBuilder {
-  return { rects: [], segments: [], triangles: [], glyphs: [] };
+  return { rects: [], segments: [], triangles: [], texts: [] };
 }
 
 function sealPart(part: PartBuilder): GeometryPart {
-  return { rects: Float32Array.from(part.rects), segments: Float32Array.from(part.segments), triangles: Float32Array.from(part.triangles), glyphs: Float32Array.from(part.glyphs) };
+  const textMinScale = part.texts.reduce((lowest, run) => Math.min(lowest, run.minScale), Infinity);
+  return { rects: Float32Array.from(part.rects), segments: Float32Array.from(part.segments), triangles: Float32Array.from(part.triangles), texts: part.texts, textMinScale };
 }
 
 interface Dash {
@@ -209,7 +206,7 @@ function rotatePart(part: PartBuilder, pivot: Point, degrees: number): void {
     }
   };
   pin(part.rects, RECT_FLOATS, RECT_PIVOT_OFFSET);
-  pin(part.glyphs, GLYPH_FLOATS, GLYPH_PIVOT_OFFSET);
+  for (const run of part.texts) run.turn = { pivot, radians };
 }
 
 function pushConvexFill(part: PartBuilder, polygon: readonly Point[], color: Rgba, minScale: number): void {
@@ -282,47 +279,15 @@ function textMinScale(style: TextStyle): number {
   return (style.minPixels ?? MIN_TEXT_PX) / style.size;
 }
 
-function pushText(part: PartBuilder, glyphs: GlyphSource, content: string, x: number, baseline: number, style: TextStyle): void {
+function pushText(part: PartBuilder, content: string, x: number, baseline: number, style: TextStyle, gradient: readonly Rgba[] | null = null): void {
   const shown = style.isUppercase ? content.toUpperCase() : content;
-  const advance = textAdvance(style);
   const width = textWidth(shown, style);
   const anchorShift = style.anchor === 'middle' ? width / 2 : style.anchor === 'end' ? width : 0;
   const left = x - anchorShift;
   const minScale = textMinScale(style);
-  const quadWidth = glyphs.cellWidthEm * style.size;
-  const quadHeight = glyphs.cellHeightEm * style.size;
-  const top = baseline - glyphs.ascentEm * style.size;
   const { color } = style;
-  let column = 0;
-  for (const character of shown) {
-    if (character !== ' ') {
-      const cell = glyphs.cellOf(character, style.isBold === true);
-      part.glyphs.push(left + column * advance - glyphs.padLeftEm * style.size, top, quadWidth, quadHeight, cell.u0, cell.v0, cell.u1, cell.v1, cell.page, color[0], color[1], color[2], color[3], 0, 0, 0, minScale, UNSET_DEPTH);
-    }
-    column += 1;
-  }
+  if (shown.trim()) part.texts.push({ text: shown, left, baseline, size: style.size, advance: textAdvance(style), isBold: style.isBold === true, color, gradient, minScale, turn: null });
   if (style.isStruckThrough) pushPolyline(part, [{ x: left, y: baseline - style.size * 0.3 }, { x: left + width, y: baseline - style.size * 0.3 }], 1, color, SOLID, minScale);
-}
-
-function gradientColorAt(stops: readonly Rgba[], share: number): Rgba {
-  const scaled = Math.min(1, Math.max(0, share)) * (stops.length - 1);
-  const lowerIndex = Math.min(stops.length - 2, Math.floor(scaled));
-  const lower = stops[lowerIndex] ?? TRANSPARENT;
-  const upper = stops[lowerIndex + 1] ?? lower;
-  return mixed(upper, lower, scaled - lowerIndex);
-}
-
-function pushGradientText(part: PartBuilder, glyphs: GlyphSource, content: string, x: number, baseline: number, style: TextStyle, stops: readonly Rgba[]): void {
-  const characters = [...(style.isUppercase ? content.toUpperCase() : content)];
-  const advance = textAdvance(style);
-  const width = characters.length * advance;
-  const anchorShift = style.anchor === 'middle' ? width / 2 : style.anchor === 'end' ? width : 0;
-  const left = x - anchorShift;
-  const lastIndex = Math.max(1, characters.length - 1);
-  characters.forEach((character, index) => {
-    pushText(part, glyphs, character, left + index * advance, baseline, { ...style, anchor: 'start', isStruckThrough: false, color: faded(gradientColorAt(stops, index / lastIndex), style.color[3]) });
-  });
-  if (style.isStruckThrough) pushPolyline(part, [{ x: left, y: baseline - style.size * 0.3 }, { x: left + width, y: baseline - style.size * 0.3 }], 1, style.color, SOLID, textMinScale(style));
 }
 
 function pushIcon(part: PartBuilder, name: IconName, x: number, y: number, size: number, color: Rgba, minScale: number): void {
@@ -349,7 +314,6 @@ function unionRect(first: Rect, second: Rect): Rect {
 
 interface SceneContext {
   palette: BoardPalette;
-  glyphs: GlyphSource;
   hasDrawnMedia: (box: LaidOutBox) => boolean;
   stackSpreadOf?: (frameId: string) => number;
 }
@@ -360,15 +324,15 @@ function lineTextColor(line: LaidOutLine, palette: BoardPalette): Rgba {
 }
 
 function pushBodyLines(part: PartBuilder, context: SceneContext, lines: readonly LaidOutLine[], left: number, top: number, opacity: number, detailMinScale: number): void {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const meta = palette.metaSize;
   lines.forEach((line, index) => {
     const baseline = top + index * BODY_LINE_HEIGHT;
     const rowLeft = left + BOX_TEXT_INSET + (line.muted ? MUTED_INDENT : 0);
     if (line.style === 'code') pushRect(part, codeBandRectOf(line, rowLeft, baseline), 3, faded(palette.codeBand, opacity), faded(palette.codeBand, opacity), 0, detailMinScale);
     if (line.style === 'item' && line.isFirstRow) pushCircle(part, { x: rowLeft + 4, y: baseline - 4 }, ITEM_DOT_RADIUS, faded(palette.inkDim, opacity), faded(palette.inkDim, opacity), 0, detailMinScale);
-    if (line.marker !== null) pushText(part, glyphs, line.marker, rowLeft, baseline, { size: meta, color: faded(palette.inkDim, opacity), isBold: line.style === 'kv' });
-    if (line.text) pushText(part, glyphs, line.text, rowLeft + line.indentChars * MONO_CHAR_WIDTH, baseline, { size: meta, color: faded(lineTextColor(line, palette), opacity) });
+    if (line.marker !== null) pushText(part, line.marker, rowLeft, baseline, { size: meta, color: faded(palette.inkDim, opacity), isBold: line.style === 'kv' });
+    if (line.text) pushText(part, line.text, rowLeft + line.indentChars * MONO_CHAR_WIDTH, baseline, { size: meta, color: faded(lineTextColor(line, palette), opacity) });
   });
 }
 
@@ -425,7 +389,7 @@ function stepStatusColor(status: LaidOutStep['status'], palette: BoardPalette): 
 }
 
 function pushStepChip(part: PartBuilder, context: SceneContext, box: Rect, status: LaidOutStep['status'], opacity: number, minScale: number): void {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const textSize = palette.metaSize - 1;
   const chip = stepChipOf(box, status, textSize);
   const labelStyle: TextStyle = { size: textSize, color: faded(palette.inkDim, opacity) };
@@ -435,7 +399,7 @@ function pushStepChip(part: PartBuilder, context: SceneContext, box: Rect, statu
   pushCircle(part, zoomedOutDotCenter, STEP_CHIP_HEIGHT / 2, dotColor, dotColor, 0, minScale);
   pushRect(part, chip.rect, STEP_CHIP_HEIGHT / 2, palette.board, faded(palette.line, opacity), 1, labelMinScale);
   pushCircle(part, chip.dotCenter, STEP_CHIP_DOT_RADIUS, dotColor, dotColor, 0, labelMinScale);
-  pushText(part, glyphs, status, chip.textX, chip.baseline, labelStyle);
+  pushText(part, status, chip.textX, chip.baseline, labelStyle);
 }
 
 function pushDeviceBase(part: PartBuilder, device: LaidOutDevice, bodyBottom: number, color: Rgba, edge: Rgba, minScale: number): void {
@@ -455,7 +419,7 @@ function pushDeviceBase(part: PartBuilder, device: LaidOutDevice, bodyBottom: nu
 }
 
 function pushDevice(part: PartBuilder, context: SceneContext, box: LaidOutBox, device: LaidOutDevice, opacity: number, minScale: number): void {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const spec = DEVICE_CATALOG[device.name];
   const bodyColor = faded(mixed(palette.ink, palette.board, 0.12), opacity);
   const edge = faded(palette.inkDim, opacity);
@@ -479,11 +443,11 @@ function pushDevice(part: PartBuilder, context: SceneContext, box: LaidOutBox, d
   }
   pushRect(part, device.screen, spec.bezel.screenRadius * device.scale, screenColor, screenColor, 0, minScale);
   if (box.media) return;
-  pushText(part, glyphs, box.titleLines.join(' '), device.screen.x + device.screen.width / 2, device.screen.y + device.screen.height / 2 + 4, { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' });
+  pushText(part, box.titleLines.join(' '), device.screen.x + device.screen.width / 2, device.screen.y + device.screen.height / 2 + 4, { size: palette.metaSize, color: faded(palette.inkDim, opacity), anchor: 'middle' });
 }
 
 function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const part = createPart();
   const opacity = box.change === 'removed' ? 0.6 : 1;
   const detailMinScale = MIN_DETAIL_BOX_PX / Math.max(1, box.height);
@@ -499,7 +463,7 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   if (!outlinePolygon) pushOutlinedRect(part, box, 8, fill, stroke, outline.width, outline.dash, ALWAYS);
   const stepHeaderHeight = box.step ? STEP_HEADER_HEIGHT : 0;
   if (box.step) {
-    pushText(part, glyphs, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.inkDim, opacity), isBold: true });
+    pushText(part, box.step.label, box.x + BOX_TEXT_INSET, box.y + STEP_LABEL_BASELINE, { size: palette.metaSize, color: faded(palette.inkDim, opacity), isBold: true });
     pushStepChip(part, context, box, box.step.status, opacity, detailMinScale);
   }
   const isIconBox = box.shape === 'icon';
@@ -512,7 +476,7 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   const titleSize = palette.titleSize * TITLE_SCALE_BY_TEXT_SIZE[box.textSize];
   const firstTitleBaseline = box.y + TITLE_BASELINE + titleLineHeight - TITLE_LINE_HEIGHT + stepHeaderHeight + glyphRoom;
   box.wasLines.forEach((line, index) => {
-    pushText(part, glyphs, line, textLeft, firstTitleBaseline + index * titleLineHeight, { size: titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true, anchor: textAnchor });
+    pushText(part, line, textLeft, firstTitleBaseline + index * titleLineHeight, { size: titleSize, color: faded(palette.inkDim, opacity), isStruckThrough: true, anchor: textAnchor });
   });
   const titleTop = firstTitleBaseline + box.wasLines.length * titleLineHeight;
   const titleIcon = isIconBox || box.isFullBleed ? null : box.icon;
@@ -522,10 +486,10 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
   box.titleLines.forEach((line, index) => {
     const baseline = titleTop + index * titleLineHeight;
     if (box.hasTitleGradient) {
-      pushGradientText(part, glyphs, line, titleLeft, baseline, titleStyle, palette.titleGradient);
+      pushText(part, line, titleLeft, baseline, titleStyle, palette.titleGradient.map((stop) => faded(stop, titleStyle.color[3])));
       return;
     }
-    pushText(part, glyphs, line, titleLeft, baseline, titleStyle);
+    pushText(part, line, titleLeft, baseline, titleStyle);
   });
   if (box.device) pushDevice(part, context, box, box.device, opacity, detailMinScale);
   const bodyTop = titleTop + box.titleLines.length * titleLineHeight;
@@ -537,13 +501,13 @@ function boxGeometry(box: LaidOutBox, context: SceneContext): { part: PartBuilde
     const placeholderMaxChars = Math.max(0, Math.floor((box.media.width - BOX_TEXT_INSET * 2) / textAdvance(placeholderStyle)));
     const placeholderText = firstCodePoints(box.media.alt || box.media.kind, placeholderMaxChars);
     pushOutlinedRect(part, box.media, 6, faded(palette.placeholderFill, opacity), faded(palette.inkDim, opacity), 1, { on: 4, off: 4 }, detailMinScale);
-    pushText(part, glyphs, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, placeholderStyle);
+    pushText(part, placeholderText, box.media.x + box.media.width / 2, box.media.y + box.media.height / 2 + 4, placeholderStyle);
   }
   return { part, hitShape: { kind: 'rect', rect: box, mediaRect: box.media, hasDrawnMedia, text: boxTextRectsOf(box, titleTop, bodyTop) } };
 }
 
 function stackGeometry(frame: LaidOutFrame, stackedBoxCount: number, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const part = createPart();
   const card = { x: frame.x, y: frame.y + FRAME_TITLE_HEIGHT, width: frame.width - STACK_SPREAD * 2, height: frame.height - FRAME_TITLE_HEIGHT - STACK_SPREAD * 2 };
   const ghostSpread = context.stackSpreadOf?.(frame.id) ?? STACK_SPREAD;
@@ -553,18 +517,18 @@ function stackGeometry(frame: LaidOutFrame, stackedBoxCount: number, context: Sc
   }
   const titleStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true };
   const titleText = `${frame.title} (${stackedBoxCount})`;
-  pushText(part, glyphs, titleText, frame.x + 4, frame.y + 18, titleStyle);
+  pushText(part, titleText, frame.x + 4, frame.y + 18, titleStyle);
   const titleRect = { x: frame.x, y: frame.y, width: 8 + textWidth(titleText, titleStyle), height: FRAME_TITLE_HEIGHT };
   return { part, hitShape: { kind: 'outline', rect: frame, titleRect } };
 }
 
 function frameGeometry(frame: LaidOutFrame, context: SceneContext): { part: PartBuilder; hitShape: HitShape } {
   if (frame.stackedBoxCount !== null) return stackGeometry(frame, frame.stackedBoxCount, context);
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const part = createPart();
   pushOutlinedRect(part, frame, 12, palette.frameFill, palette.line, 1.4, { on: 10, off: 6 }, ALWAYS);
   const titleStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true };
-  pushText(part, glyphs, frame.title, frame.x + 14, frame.y + 18, titleStyle);
+  pushText(part, frame.title, frame.x + 14, frame.y + 18, titleStyle);
   const titleRect = { x: frame.x, y: frame.y, width: 28 + textWidth(frame.title, titleStyle), height: 26 };
   return { part, hitShape: { kind: 'outline', rect: frame, titleRect } };
 }
@@ -591,7 +555,7 @@ function flowColorOf(wire: Pick<LaidOutWire, 'tone'>, palette: BoardPalette): Rg
 }
 
 function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: LayeredPart[]; hitShape: HitShape; bounds: Rect; flow: FlowWire | null } {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const part = createPart();
   const labelPart = createPart();
   const points = pointsOfPath(wire.path);
@@ -609,7 +573,7 @@ function wireGeometry(wire: LaidOutWire, context: SceneContext): { parts: Layere
     const width = textWidth(wire.label, labelStyle);
     const halo = { x: wire.labelAt.x - width / 2 - LABEL_HALO_PAD, y: wire.labelAt.y - palette.metaSize, width: width + LABEL_HALO_PAD * 2, height: palette.metaSize + LABEL_HALO_PAD + 2 };
     pushRect(labelPart, halo, 3, palette.canvas, palette.canvas, 0, textMinScale(labelStyle));
-    pushText(labelPart, glyphs, wire.label, wire.labelAt.x, wire.labelAt.y, labelStyle);
+    pushText(labelPart, wire.label, wire.labelAt.x, wire.labelAt.y, labelStyle);
     bounds = unionRect(bounds, halo);
   }
   const flow = wire.isFlowing ? { points: drawnPoints, color: flowColorOf(wire, palette), width: wire.isBold ? BOLD_WIRE_WIDTH : WIRE_WIDTH } : null;
@@ -689,16 +653,16 @@ function legendSwatch(part: PartBuilder, entry: BoardLayout['legend'][number], p
 }
 
 function chromeGeometry(layout: BoardLayout, context: SceneContext): ElementGeometry {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const part = createPart();
   const headingStyle: TextStyle = { size: palette.metaSize, color: palette.inkDim, isBold: true, isUppercase: true };
-  if (layout.plan) pushText(part, glyphs, PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, headingStyle);
+  if (layout.plan) pushText(part, PLAN_TITLE, layout.plan.titleAt.x, layout.plan.titleAt.y, headingStyle);
   for (const entry of layout.legend) {
     legendSwatch(part, entry, palette);
     const labelX = entry.x + (entry.swatch.kind === 'status' ? 22 : LEGEND_SAMPLE_WIDTH + 12);
-    pushText(part, glyphs, entry.label, labelX, entry.y + 12, { size: palette.metaSize, color: palette.inkDim });
+    pushText(part, entry.label, labelX, entry.y + 12, { size: palette.metaSize, color: palette.inkDim });
   }
-  if (layout.caption) pushText(part, glyphs, layout.caption.text, layout.caption.x, layout.caption.y + 16, { size: palette.bodySize, color: palette.inkDim });
+  if (layout.caption) pushText(part, layout.caption.text, layout.caption.x, layout.caption.y + 16, { size: palette.bodySize, color: palette.inkDim });
   return { id: '', kind: 'frame', paintRank: -1, bounds: layout.bounds, parts: [{ layer: CHROME_LAYER, part: sealPart(part) }], hitShape: { kind: 'path', points: [] }, flow: null };
 }
 
@@ -719,7 +683,7 @@ function pushTurned(part: PartBuilder, pivot: Point, degrees: number, draw: (tur
   part.rects.push(...turned.rects);
   part.segments.push(...turned.segments);
   part.triangles.push(...turned.triangles);
-  part.glyphs.push(...turned.glyphs);
+  part.texts.push(...turned.texts);
 }
 
 function outlineUnturned(part: PartBuilder, element: LaidOutElement, color: Rgba, width: number): void {
@@ -767,7 +731,7 @@ const LOOK_LABEL_GAP = 4;
 const LOOK_BADGE_LABEL = 'worth a look';
 
 function decorationPart(decorations: readonly Decoration[], context: SceneContext): GeometryPart {
-  const { palette, glyphs } = context;
+  const { palette } = context;
   const part = createPart();
   for (const decoration of decorations) {
     if (decoration.kind === 'linked-wire') {
@@ -814,8 +778,8 @@ function decorationPart(decorations: readonly Decoration[], context: SceneContex
     }
     const center = { x: decoration.element.x + decoration.element.width, y: decoration.element.y };
     pushCircle(part, center, LOOK_BADGE_RADIUS, palette.waiting, palette.cardBackground, 2, ALWAYS);
-    pushText(part, glyphs, '!', center.x, center.y + 4, { size: palette.metaSize, color: palette.cardBackground, isBold: true, anchor: 'middle', minPixels: 0 });
-    pushText(part, glyphs, LOOK_BADGE_LABEL, center.x - LOOK_BADGE_RADIUS - LOOK_LABEL_GAP, center.y - LOOK_LABEL_GAP, { size: palette.metaSize, color: palette.waiting, isBold: true, anchor: 'end', minPixels: 0 });
+    pushText(part, '!', center.x, center.y + 4, { size: palette.metaSize, color: palette.cardBackground, isBold: true, anchor: 'middle', minPixels: 0 });
+    pushText(part, LOOK_BADGE_LABEL, center.x - LOOK_BADGE_RADIUS - LOOK_LABEL_GAP, center.y - LOOK_LABEL_GAP, { size: palette.metaSize, color: palette.waiting, isBold: true, anchor: 'end', minPixels: 0 });
   }
   return sealPart(part);
 }
@@ -831,7 +795,7 @@ function sceneOf(layout: BoardLayout, context: SceneContext, reuse: (element: La
 }
 
 export {
-  BOX_LAYER, GLYPH_FLOATS, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
+  BOX_LAYER, LAYER_COUNT, RECT_FLOATS, SEGMENT_FLOATS, TRIANGLE_VERTEX_FLOATS,
   boxPortCenters, decorationPart, resizeHandleRectsOf, sceneOf,
 };
-export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, GlyphCell, GlyphSource, Point, Rgba, SceneContext };
+export type { BoardPalette, BoxTextRects, Decoration, ElementGeometry, GeometryPart, Point, Rgba, SceneContext, TextRun };
