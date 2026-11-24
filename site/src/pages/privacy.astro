@@ -23,7 +23,7 @@ const privacyStructuredData = {
     <h2>Before you choose, or if you decline</h2>
     <p>Visits are counted without a cookie. PostHog groups events into a visit with an anonymous hash that changes every day. Nothing is recorded as a replay. Before you choose, nothing is stored in your browser; if you decline, your browser keeps one small entry that remembers the choice.</p>
     <h2>If you accept</h2>
-    <p>A PostHog cookie, with a copy in your browser storage, keeps one random id across visits, so a return visit counts as the same visitor. Your visit is also recorded as a session replay, with everything typed into a field masked. Replays are kept for 30 days.</p>
+    <p>A PostHog cookie, with a copy in your browser storage, keeps one random id across visits, so a return visit counts as the same visitor. Your visit is also recorded as a session replay, with everything typed into a field masked. Replays are kept for 30 days. If you then sign in to Glimmervoid Cloud from this site, that visitor profile is tagged with your Cloud account id.</p>
     <h2>Your choice</h2>
     <p class="consent-status" data-consent-status></p>
     <div class="consent-actions" data-consent-controls hidden>
@@ -40,25 +40,26 @@ const privacyStructuredData = {
       <li>Whether and when you were invited, and the address of your server.</li>
       <li>Metering: when your server wakes and sleeps, and how long it is awake.</li>
       <li>Logs: the IP address and time of connections to your server's address and to the account page, and errors from the systems that run the service.</li>
+      <li>Product analytics: when you sign in, your WorkOS sign-in id, GitHub login and email go to PostHog as your account profile. Your server's usage data is tagged with your account id once you open your server, and a Glimmervoid on your own machine only if you choose Link to my Glimmervoid account in its Settings and confirm. Each keeps its own profile.</li>
       <li>Emails you send to support.</li>
       <li>Once paid plans start, and only then: your Stripe customer id, subscription state and payments. Your card details go to Stripe and Link, never to us. Nothing is charged during the alpha.</li>
     </ul>
     <p>What you put on your server stays on your server. We do not read it, except as the <a href={sitePath('terms/')}>terms</a> allow.</p>
     <h3>Why</h3>
-    <p>To run the service you asked for, and to bill it once paid plans start (performance of a contract), and to keep it secure and stop abuse (legitimate interests). The account page keeps your sign-in in your browser's storage; that is needed for sign-in and is not used for tracking. Neither the account page nor your server's sign-in uses PostHog.</p>
+    <p>To run the service you asked for, and to bill it once paid plans start (performance of a contract), and to keep it secure and stop abuse (legitimate interests). The account page keeps your sign-in in your browser's storage; that is needed for sign-in and is not used for tracking. The account page loads no analytics script and sets no analytics cookie: our server tells PostHog about your sign-in, to understand and improve Glimmervoid Cloud (legitimate interests). The data is never sold and never used for marketing or sales. Turning off Send usage data on your server stops its usage being tagged with your account.</p>
     <h3>Who handles it</h3>
     <ul>
-      <li>On our behalf: WorkOS runs sign-in, Convex holds the account database and serves the account page, and Google Cloud runs the servers, the system that routes to them, and their logs.</li>
+      <li>On our behalf: WorkOS runs sign-in, Convex holds the account database and serves the account page, PostHog holds product analytics, and Google Cloud runs the servers, the system that routes to them, and their logs.</li>
       <li>On their own account: GitHub, when you sign in with it, and Stripe and Link, as seller of record once paid plans start.</li>
-      <li>The Glimmervoid app on your server sends anonymous usage and error data, as described under The Glimmervoid app below, and you can turn it off.</li>
+      <li>The Glimmervoid app on your server sends usage and error data, as described under The Glimmervoid app below, and you can turn it off.</li>
     </ul>
     <p>We do not sell or share personal information. These providers store data in the United States; transfers from the EU and UK rely on the EU-US Data Privacy Framework where a provider is certified, and on standard contractual clauses otherwise.</p>
     <h3>How long</h3>
-    <p>Account data is kept while your account exists and deleted within 30 days of your asking. A server and its disk are deleted 30 days after your access ends. Logs are kept for up to 30 days. The exception is a server or account suspended for abuse: its data and logs are kept for as long as the law or an investigation requires, as the terms say. Support emails are kept as long as needed to answer them and keep a record.</p>
+    <p>Account data, your PostHog account profile included, is kept while your account exists and deleted within 30 days of your asking. Usage data from a server or install keeps its own profile until it is deleted with Delete my data or with the server. A server and its disk are deleted 30 days after your access ends. Logs are kept for up to 30 days. The exception is a server or account suspended for abuse: its data and logs are kept for as long as the law or an investigation requires, as the terms say. Support emails are kept as long as needed to answer them and keep a record.</p>
     <h3>Your rights</h3>
     <p>You can ask to see, correct, export or delete your data, or object to how it is used, by emailing <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, and you can complain to the data protection authority where you live. Glimmervoid Cloud is for people aged 18 or over.</p>
     <h2>The Glimmervoid app</h2>
-    <p>The app sends usage and error data under a random install id, never account ids or anything read from another tool's login, paths on your machine, repository names, notice text, prompts or terminal output. It is used only to improve Glimmervoid: never sold, never used for marketing or sales. Turn it off in Settings &gt; Privacy or with <code>DO_NOT_TRACK=1</code>. <a href={`${REPOSITORY_URL}/blob/main/docs/configuration.md#telemetry`}>What it sends and how to turn it off</a>.</p>
+    <p>The app sends usage and error data under a random install id. On a Glimmervoid Cloud server it is tagged with the owner's Cloud account id; a Glimmervoid on your own machine only if you choose Link to my Glimmervoid account in Settings &gt; Privacy. Delete my data erases only that install's data. It never sends anything read from another tool's login, paths on your machine, repository names, notice text, prompts or terminal output. It is used only to improve Glimmervoid: never sold, never used for marketing or sales. Turn it off in Settings &gt; Privacy or with <code>DO_NOT_TRACK=1</code>. <a href={`${REPOSITORY_URL}/blob/main/docs/configuration.md#telemetry`}>What it sends and how to turn it off</a>.</p>
   </section>
   <Footer />
 </Base>

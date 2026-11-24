@@ -18,7 +18,7 @@ import { isMissingFileError } from '../../shared/text.ts';
 import { loadFileLocks } from '../../server/session-temp/session-temp-locks.ts';
 import { stampProcessOutputLines } from '../../server/log-stamp.ts';
 import type { DoormanGithubApp, DoormanTenant, DoormanTenantOwner, DoormanTenantTableInput, DoormanWakeStatus, WakeStartedBy } from '../../shared/contracts/doorman.ts';
-import { DEVICE_PAIRING_PATH, DevicePairingAnswer } from '../../shared/contracts/watcher-link.ts';
+import { DEVICE_PAIRING_PATH, DevicePairingAnswer, OWNER_LINK_PATH } from '../../shared/contracts/watcher-link.ts';
 import { parseCookieHeader, serializeSetCookie } from '../../server/core/cookie.ts';
 import type { AwakeUsage, GithubTokenAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome } from '../../shared/contracts/watcher-link.ts';
 import { createAwakeMeter } from './awake-meter.ts';
@@ -503,6 +503,21 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     answerWhileWaking(entry, request, response, () => answerWakingPage(request, response, wakePageStateOf(entry)));
   }
 
+  async function tellTenantItsOwner(entry: TenantEntry, owner: DoormanTenantOwner): Promise<void> {
+    const secretHex = await tenantState.linkSecretHex(entry.tenant).catch(() => null);
+    if (secretHex === null) return;
+    const ownerLinkUrl = new URL(OWNER_LINK_PATH, entry.tenant.serverUrl);
+    const body = JSON.stringify({ workosUserId: owner.workosUserId });
+    const signingKey = directionKey(Buffer.from(secretHex, 'hex'), 'watcher-to-server');
+    try {
+      const response = await fetch(ownerLinkUrl, { method: 'POST', headers: { 'content-type': 'application/json', ...signedHeaders(signingKey, { method: 'POST', path: ownerLinkUrl.pathname, body }, now()) }, body, signal: AbortSignal.timeout(DEVICE_PAIRING_TIMEOUT_MS) });
+      await response.body?.cancel();
+      if (!response.ok && response.status !== 404) log.warn(`[doorman] tenant ${entry.tenant.slug} answered its owner link with ${response.status}`);
+    } catch (ownerLinkError) {
+      log.warn(`[doorman] telling tenant ${entry.tenant.slug} its owner failed: ${errorMessage(ownerLinkError)}`);
+    }
+  }
+
   async function openAtEdge(entry: TenantEntry, owner: DoormanTenantOwner, request: http.IncomingMessage, response: http.ServerResponse): Promise<void> {
     if (request.method !== 'GET') return answerStatus(response, 405, { allow: 'GET' });
     if (!await hasEdgeSession(entry, owner, request)) return answerSignInRequired(request, response, owner, 401);
@@ -516,6 +531,7 @@ function createDoorman({ table: initialTable, tenantState = createFileTenantStat
     if (pairing === 'unsupported') return answerSeeOther(response, '/');
     if (pairing === null || pairing === 'unreachable') return answerStatus(response, 502);
     if (pairing.state === 'minted') log.log(`[doorman] tenant ${entry.tenant.slug} minted a pairing link for a device signed in at the edge`);
+    void tellTenantItsOwner(entry, owner);
     answerSeeOther(response, pairing.state === 'minted' ? pairing.path : '/');
   }
 

@@ -838,7 +838,10 @@
     },
     {
       "name": "glimmervoid cloud",
-      "definition": "The hosted service that runs a Glimmervoid per paying account on its own VM behind the doorman, with sign-in and billing on the account page"
+      "definition": "The hosted service that runs a Glimmervoid per paying account on its own VM behind the doorman, with sign-in and billing on the account page",
+      "aliases": [
+        "cloud"
+      ]
     },
     {
       "name": "board file",

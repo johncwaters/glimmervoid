@@ -97,4 +97,4 @@ Each entry is a rule, its why, and where it is pinned. Mechanism lives in the co
 
 ### Telemetry
 
-- Never copy a T3 Code (pingdotgg/t3code) design choice. Telemetry sends no account id, hash of one, value read from another tool's login, or free notice text: a hash under a public salt still links an install to its account. The strict schemas in `shared/contracts/telemetry.ts` refuse those fields.
+- Never copy a T3 Code (pingdotgg/t3code) design choice. Telemetry sends no hash of an account id, value read from another tool's login, or free notice text: a hash under a public salt still links an install to its account. The one account id it sends is the Glimmervoid Cloud owner's WorkOS id, as the `cloud_account` property of its own profile and only once the doorman verified that owner over the signed link; a self-hosted install is tagged only from the account page on the carbon unit's click. Never merge profiles (`$merge_dangerously`): Delete my data deletes a whole profile, so a merge would let one install's deletion erase the account. The strict schemas in `shared/contracts/telemetry.ts` refuse those fields.

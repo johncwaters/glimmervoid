@@ -3,6 +3,7 @@ import 'posthog-js/dist/posthog-recorder';
 import 'posthog-js/dist/exception-autocapture';
 import 'posthog-js/dist/dead-clicks-autocapture';
 import type { InstallPlatform } from './install-platform.ts';
+import { ACCOUNT_PAGE_URL, SITE_DISTINCT_ID_PARAM } from '../../../shared/cloud-account.ts';
 
 export type ConsentChoice = 'pending' | 'accepted' | 'declined';
 export type InstallLocation = 'hero' | 'install';
@@ -40,7 +41,24 @@ export function initAnalytics(): void {
     disable_surveys: true,
   });
   identifyInstallIfConsented();
+  carryVisitorIdToAccountLinks();
   captureSectionViews();
+}
+
+function anonymousVisitorIdOrNull(): string | null {
+  if (consentChoice() !== 'accepted') return null;
+  if (posthog.get_property('$user_state') !== 'anonymous') return null;
+  return posthog.get_distinct_id();
+}
+
+function carryVisitorIdToAccountLinks(): void {
+  const visitorDistinctId = anonymousVisitorIdOrNull();
+  for (const accountLink of document.querySelectorAll<HTMLAnchorElement>(`a[href^="${ACCOUNT_PAGE_URL}"]`)) {
+    const accountLinkUrl = new URL(accountLink.href);
+    accountLinkUrl.searchParams.delete(SITE_DISTINCT_ID_PARAM);
+    if (visitorDistinctId !== null) accountLinkUrl.searchParams.set(SITE_DISTINCT_ID_PARAM, visitorDistinctId);
+    accountLink.href = accountLinkUrl.href;
+  }
 }
 
 function keepInstallIdFromUrl(): void {
@@ -85,11 +103,13 @@ export function acceptAnalytics(): void {
   if (!isAnalyticsEnabled) return;
   posthog.opt_in_capturing();
   identifyInstallIfConsented();
+  carryVisitorIdToAccountLinks();
   window.dispatchEvent(new Event(CONSENT_CHANGE_EVENT));
 }
 
 export function declineAnalytics(): void {
   if (!isAnalyticsEnabled) return;
   posthog.opt_out_capturing();
+  carryVisitorIdToAccountLinks();
   window.dispatchEvent(new Event(CONSENT_CHANGE_EVENT));
 }

@@ -3,6 +3,7 @@ import { isLoopbackHostname, loopbackOverrideOrigin } from '../loopback-hosts.ts
 
 export const NUDGES_PATH = '/link/nudges';
 export const DEVICE_PAIRING_PATH = '/link/device-pairing';
+export const OWNER_LINK_PATH = '/link/owner';
 export const WATCHER_PATH_PREFIX = '/link/watcher/';
 export const WATCHER_FEATURES_HEADER = 'x-glimmervoid-watcher-features';
 export const ALARMS_FEATURE = 'alarms';
@@ -18,6 +19,10 @@ export const GITHUB_CONNECTION_PATH = `${WATCHER_PATH_PREFIX}github-connection`;
 export const GITHUB_DISCONNECT_PATH = `${WATCHER_PATH_PREFIX}github-disconnect`;
 const MIN_PROBE_INTERVAL_MS = 60_000;
 const MAX_COOKIE_HEADER_CHARS = 16 * 1024;
+
+const WORKOS_USER_ID_PATTERN = /^user_[A-Za-z0-9]{1,64}$/;
+export const OwnerLinkRequest = z.strictObject({ workosUserId: z.string().regex(WORKOS_USER_ID_PATTERN) });
+export type OwnerLinkRequest = z.infer<typeof OwnerLinkRequest>;
 
 export const DevicePairingRequest = z.strictObject({ presentedCookieHeader: z.string().max(MAX_COOKIE_HEADER_CHARS).nullable() });
 export type DevicePairingRequest = z.infer<typeof DevicePairingRequest>;

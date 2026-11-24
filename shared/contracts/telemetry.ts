@@ -73,6 +73,8 @@ const AppActiveProperties = z.object({
 
 const DataDeletionRequestedProperties = z.object({}).strict();
 
+const CloudAccountLinkProperties = z.object({ $set: z.object({ cloud_account: z.string().regex(/^user_[A-Za-z0-9]{1,64}$/) }).strict() }).strict();
+
 export const BOARD_OPEN_STEPS = Object.freeze(['heads ready', 'saved layout tried', 'saved layout read', 'saved layout missed', 'saved layout queued', 'saved routes and warnings read', 'tiles built from saved layout', 'layout world built', 'tile index built', 'store pages read', 'board record built', 'tiles answered', 'tiles sent'] as const);
 export type BoardOpenStep = (typeof BOARD_OPEN_STEPS)[number];
 
@@ -269,6 +271,7 @@ export const TELEMETRY_EVENT_SCHEMAS = Object.freeze({
   radar_investigation_finished: RadarInvestigationFinishedProperties,
   radar_fix_handoff_failed: RadarFixHandoffFailedProperties,
   data_deletion_requested: DataDeletionRequestedProperties,
+  $set: CloudAccountLinkProperties,
   watcher_probe_failing: WatcherProbeFailingProperties,
   watcher_probe_recovered: WatcherProbeRecoveredProperties,
   watcher_nudge_received: WatcherNudgeReceivedProperties,
@@ -301,6 +304,7 @@ export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description:
   { name: 'team_review_post_refused', description: 'Posting a team review was refused, with a reason from a fixed list and the total action duration in milliseconds. Never the error text.' },
   { name: 'radar_investigation_finished', description: 'A Radar investigation or fix run finished, with its verdict and mode, plus a reason from a fixed list when it ended in ERROR. Never the summary text.' },
   { name: 'radar_fix_handoff_failed', description: 'Committing or checking a Radar fix branch failed, with which step failed. Never the branch or the error text.' },
+  { name: '$set', description: 'Only on a Glimmervoid Cloud server, each time its owner signs in at the doorman: sets cloud_account, the owner\'s Glimmervoid Cloud account id (the WorkOS user id the doorman verified), on this install\'s profile, so usage can be counted per account. The install keeps its own profile, so Delete my data still erases only this install. A self-hosted install never sends it; it is tagged only from the account page after you choose Link to my Glimmervoid account and confirm.' },
   { name: 'data_deletion_requested', description: 'Delete my data was confirmed in Settings > Privacy, with no properties. Sent under the old install id even when telemetry is off, unless the maintainers stopped all sending, and then the install id is replaced. PostHog deletes the person and every event under that id on receipt.' },
   { name: 'watcher_probe_failing', description: 'A watcher probe started failing: which lane and which kind of read credential it uses, and a failure kind from a fixed list. Never the URL, repository, token or error text.' },
   { name: 'watcher_probe_recovered', description: 'A failing watcher probe answered again: which lane and kind of read credential, and how long it was failing, in whole seconds.' },

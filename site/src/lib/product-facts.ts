@@ -58,7 +58,7 @@ export const PRODUCT_VERSION = rootPackage.version;
 
 export const REPOSITORY_URL = 'https://github.com/johncwaters/glimmervoid';
 
-export const ACCOUNT_PAGE_URL = 'https://small-wombat-359.convex.site/';
+export { ACCOUNT_PAGE_URL } from '../../../shared/cloud-account.ts';
 
 export const SUPPORT_EMAIL = 'support@glimmervoid.dev';
 

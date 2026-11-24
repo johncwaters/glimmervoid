@@ -89,6 +89,7 @@ interface Telemetry {
   isEnabled(): boolean;
   currentInstallId(): string | null;
   requestDataDeletion(): Promise<boolean>;
+  linkOwner(workosUserId: string): void;
 }
 
 function createTelemetry(options: TelemetryOptions): Telemetry {
@@ -440,6 +441,10 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
     return true;
   }
 
+  function linkOwner(workosUserId: string): void {
+    capture('$set', { $set: { cloud_account: workosUserId } });
+  }
+
   async function requestDataDeletion(): Promise<boolean> {
     await stateStore.load();
     while (inFlightFlush) await inFlightFlush;
@@ -473,7 +478,7 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
 
   return {
     capture, captureException, captureClientError, captureAiGenerations, recordFatalCrash, watchForCrashes, sendPendingCrash,
-    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled, currentInstallId, requestDataDeletion,
+    checkRemoteSwitch, startRemoteSwitchChecks, flush, stop, consumeFirstRunNotice, applyConfig, isEnabled, currentInstallId, requestDataDeletion, linkOwner,
   };
 }
 

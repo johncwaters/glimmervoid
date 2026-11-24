@@ -33,7 +33,7 @@ import { awakeUsageAlertText, newlyCrossedAlert, notifiedAfter } from '../server
 import { STATES } from '../shared/states.ts';
 import type { SessionState } from '../shared/states.ts';
 import { DoormanFailureKind, DoormanWakeStatus } from '../shared/contracts/doorman.ts';
-import { AWAKE_USAGE_PATH, AwakeUsageAnswer, DEVICE_PAIRING_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
+import { AWAKE_USAGE_PATH, AwakeUsageAnswer, DEVICE_PAIRING_PATH, OWNER_LINK_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_TOKEN_PATH, GithubConnectionAnswer, GithubTokenAnswer, githubApiOrigin, HEALTH_PATH, HOST_STOP_PATH, NUDGES_PATH, Probe as ProbeSchema, STATUS_PATH } from '../shared/contracts/watcher-link.ts';
 import type { GithubConnection, Nudge, Probe } from '../shared/contracts/watcher-link.ts';
 
 const QUIET_LOG = { log: () => {}, warn: () => {} };
@@ -1125,6 +1125,7 @@ test('a hosted doorman keeps a tenant with an owner asleep for every request and
   const owner = { workosUserId: 'user_01OWNER', authkitClientId: 'client_01ACCOUNTS', accountPageUrl: 'https://accounts.example/' };
   const workos = fakeWorkos(owner.authkitClientId);
   const presentedCookieHeaders: (string | null)[] = [];
+  const linkedOwners: string[] = [];
   const mintedPath = `/pair/${'m'.repeat(43)}`;
   const tenantServer = http.createServer();
   const tenantPort = await listenOnLoopback(tenantServer);
@@ -1132,6 +1133,10 @@ test('a hosted doorman keeps a tenant with an owner asleep for every request and
   const { linkSecret, tenant } = await doormanTenant(t, 'ownedtenant00001', `http://127.0.0.1:${tenantPort}`);
   const link = createWatcherLink({ linkSecret, log: QUIET_LOG, credentials: () => ({ github: null, posthog: null }), startWatcher: createRemoteWatcherStarter({ resolveWatcherUrl: async () => 'http://127.0.0.1:9' }) });
   tenantServer.on('request', (request: http.IncomingMessage, response: http.ServerResponse) => {
+    if (request.url === OWNER_LINK_PATH) {
+      link.answerOwnerLinkRequest(request, response, (workosUserId) => linkedOwners.push(workosUserId));
+      return;
+    }
     if (request.url !== DEVICE_PAIRING_PATH) {
       response.end('dashboard');
       return;
@@ -1196,6 +1201,9 @@ test('a hosted doorman keeps a tenant with an owner asleep for every request and
   const openedPairedDevice = await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/doorman/open', headers: { cookie: `${edgeCookie}; glimmervoid_device=paired.device`, ...browserHeaders } });
   assert.deepEqual([openedPairedDevice.status, openedPairedDevice.headers.location], [303, '/']);
   assert.deepEqual(presentedCookieHeaders, [edgeCookie, `${edgeCookie}; glimmervoid_device=paired.device`]);
+  await eventually(() => linkedOwners.length === 2 || undefined);
+  assert.deepEqual(linkedOwners, [owner.workosUserId, owner.workosUserId], 'each open tells the woken tenant its edge-verified owner over the signed link');
+  assert.equal((await requestThroughDoorman(doormanPort, { host: tenantHost, method: 'POST', path: OWNER_LINK_PATH, headers: { cookie: edgeCookie }, body: JSON.stringify({ workosUserId: 'user_01STRANGER' }) })).status, 404, 'the public side never reaches the owner link');
   assert.deepEqual((await requestThroughDoorman(doormanPort, { host: tenantHost, path: '/', headers: { cookie: edgeCookie } })).body, 'dashboard');
   assert.deepEqual(wakeCalls, ['ownedtenant00001']);
 });

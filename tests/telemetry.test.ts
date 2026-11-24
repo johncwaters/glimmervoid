@@ -104,6 +104,25 @@ test('telemetry never links an install to an agent account and never sends notic
   assert.equal(TELEMETRY_EVENT_SCHEMAS.notice_shown.safeParse({ notice: 'header-error-notice', message: 'Could not open ~/work/repo' }).success, false);
 });
 
+test('a hosted server told its owner tags its own install profile with that account, never merging profiles, and sends nothing with usage data off', async () => {
+  const { sent, fetchFn } = recordingFetch();
+  const { telemetry } = buildTelemetry({ fetchFn });
+  telemetry.capture('app_started', { is_first_start: true });
+  telemetry.linkOwner('user_01OWNER');
+  await telemetry.flush();
+  await telemetry.stop();
+  const [appStarted, accountLink] = sent[0].body.batch;
+  assert.deepEqual([accountLink.event, accountLink.distinct_id, accountLink.properties.$set], ['$set', appStarted.distinct_id, { cloud_account: 'user_01OWNER' }]);
+  assert.equal(TELEMETRY_EVENT_SCHEMAS.$set.safeParse({ $set: { cloud_account: 'user_01OWNER', email: 'a@b.c' } }).success, false);
+
+  const disabled = recordingFetch();
+  const { telemetry: optedOut } = buildTelemetry({ fetchFn: disabled.fetchFn, env: { GLIMMERVOID_TELEMETRY: '0' } });
+  optedOut.linkOwner('user_01OWNER');
+  await optedOut.flush();
+  await optedOut.stop();
+  assert.equal(disabled.sent.length, 0);
+});
+
 test('deleting data sends one request under the old id even with telemetry off, then rotates the id', async () => {
   const { sent, fetchFn } = recordingFetch();
   const stateFilePath = path.join(makeStateDir(), 'telemetry.json');

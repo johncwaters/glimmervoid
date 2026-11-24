@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { nextBackoffMs } from '../../shared/backoff.ts';
-import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, DEVICE_PAIRING_PATH, DevicePairingRequest, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_ALARMS, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
+import { ALARMS_FEATURE, AWAKE_USAGE_PATH, AwakeUsageAnswer, CREDENTIALS_PATH, GITHUB_CONNECT_PATH, GITHUB_CONNECTION_PATH, GITHUB_DISCONNECT_PATH, GITHUB_TOKEN_PATH, DEVICE_PAIRING_PATH, DevicePairingRequest, GithubConnectionAnswer, GithubTokenAnswer, HOST_STOP_PATH, HostStopAnswer, isGraphqlProbe, MAX_ALARMS, MAX_LINK_BODY_BYTES, Nudge, NUDGES_PATH, OWNER_LINK_PATH, OwnerLinkRequest, PROBE_SET_PATH, STATUS_PATH, WATCHER_FEATURES_HEADER, WatcherStatus } from '../../shared/contracts/watcher-link.ts';
 import type { Alarm, DevicePairingAnswer, GithubTokenGrant, GithubUserGrant, HostStopOutcome, Probe, ProbeFailure, ProbeSet, WatcherCredentials } from '../../shared/contracts/watcher-link.ts';
 import type { Telemetry } from '../../server/telemetry.ts';
 import type { WatcherRollup } from '../../shared/contracts/telemetry.ts';
@@ -668,6 +668,19 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     return replyJson(response, 200, answer);
   }
 
+  async function replyToOwnerLink(request: http.IncomingMessage, response: http.ServerResponse, linkOwner: (workosUserId: string) => void): Promise<void> {
+    const signed = await signedBodyOf(request, OWNER_LINK_PATH);
+    if ('refusedWith' in signed) return replyJson(response, signed.refusedWith);
+    const ownerLinkRequest = OwnerLinkRequest.safeParse(jsonOrNull(signed.body));
+    if (!ownerLinkRequest.success) return replyJson(response, 400);
+    linkOwner(ownerLinkRequest.data.workosUserId);
+    return replyJson(response, 200);
+  }
+
+  function answerOwnerLinkRequest(request: http.IncomingMessage, response: http.ServerResponse, linkOwner: (workosUserId: string) => void): void {
+    answerSignedRequest(replyToOwnerLink(request, response, linkOwner), response);
+  }
+
   function answerSignedRequest(reply: Promise<void>, response: http.ServerResponse): void {
     reply.catch((answerError: unknown) => {
       log.warn(`[watcher] signed link request failed: ${(answerError as Error).message}`);
@@ -742,7 +755,7 @@ function createWatcherLink({ credentials, linkSecret, fetchFn = fetch, now = clo
     probesMayHaveChanged();
   }
 
-  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, answerDevicePairingRequest, requestHostStop, nextAlarmDueAt, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
+  return { start, stop, registerProbeSource, registerAlarmSource, probesMayHaveChanged, credentialsMayHaveChanged: probesMayHaveChanged, takeRollup, answerNudgeRequest, answerDevicePairingRequest, answerOwnerLinkRequest, requestHostStop, nextAlarmDueAt, githubAppTokenFor, githubAppTokens, hasGithubAppGrants, githubUserCredential, githubConnection, readAwakeUsage, whenLinked, hostWoke };
 }
 
 type WatcherLink = ReturnType<typeof createWatcherLink>;

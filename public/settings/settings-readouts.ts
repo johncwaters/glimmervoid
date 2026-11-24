@@ -3,7 +3,8 @@ import { TelegramDeliveryStatus } from '#shared/contracts/control-messages.ts';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText, requestWithStatus } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { button } from '../ui/button.ts';
+import { button, linkButton } from '../ui/button.ts';
+import { LINK_INSTALL_PARAM, STABLE_ACCOUNT_PAGE_URL } from '#shared/cloud-account.ts';
 import { tag } from '../ui/tag.ts';
 import { disclosure } from '../ui/disclosure.ts';
 import { checkbox } from '../ui/checkbox.ts';
@@ -253,12 +254,41 @@ const telemetryDeletionButton = button({
 
 const telemetryDeletionStatus = createActionStatus('settings-telemetry-deletion-status');
 
+const ACCOUNT_LINK_LABEL = 'Link to my Glimmervoid account';
+
 const TELEMETRY_SENT_DETAIL = [
   'Sent: version, platform, app starts, daily activity, session starts and ends with agent kind, exit kind and duration, errors as their type, error code and scrubbed stack frames, and per session token counts, models and estimated costs from the usage scan.',
-  'Never sent: prompts, project information, error messages from Glimmervoid or an agent, notice text, paths on your machine, repository or branch names, objectives, terminal output, account ids or hashes of them, emails, names, or anything read from another tool\'s login.',
+  'Never sent: prompts, project information, error messages from Glimmervoid or an agent, notice text, paths on your machine, repository or branch names, objectives, terminal output, hashes of account ids, emails, names, or anything read from another tool\'s login.',
   'Used only to improve Glimmervoid: never sold, never used for marketing or sales.',
+  'A Glimmervoid Cloud server tags its usage with its owner\'s Glimmervoid Cloud account id once the owner signs in. A self-hosted install is tagged only after you choose Link to my Glimmervoid account and confirm.',
   'Delete my data asks for everything sent under this install to be erased and starts a new install id.',
 ];
+
+function accountLinkControl(telemetryInstallId: string | null) {
+  if (telemetryInstallId === null) {
+    const unavailableControl = button({ variant: 'secondary', label: ACCOUNT_LINK_LABEL, action: 'link-glimmervoid-account' });
+    unavailableControl.disabled = true;
+    return unavailableControl;
+  }
+  const accountLinkUrl = new URL(STABLE_ACCOUNT_PAGE_URL);
+  accountLinkUrl.searchParams.set(LINK_INSTALL_PARAM, telemetryInstallId);
+  const linkControl = linkButton({ variant: 'secondary', label: ACCOUNT_LINK_LABEL, href: accountLinkUrl.href });
+  linkControl.target = '_blank';
+  linkControl.rel = 'noopener';
+  return linkControl;
+}
+
+function buildAccountLinkLine() {
+  const { telemetryInstallId } = settingsPayload;
+  const linkableInstallId = typeof telemetryInstallId === 'string' && telemetryInstallId !== '' ? telemetryInstallId : null;
+  const linkLine = el('div', 'settings-telegram-test');
+  const linkControl = accountLinkControl(linkableInstallId);
+  const explanation = linkableInstallId === null
+    ? 'Turn on Send usage data to link this install.'
+    : 'Opens your Glimmervoid account page. Sign in there to count this install as yours. Optional; Delete my data removes it with a new install id.';
+  linkLine.append(el('span', 'settings-view-setting-description', explanation), linkControl);
+  return linkLine;
+}
 
 function buildTelemetryDataSlot() {
   const slot = el('div', 'settings-view-status-slot settings-telemetry-data');
@@ -269,7 +299,7 @@ function buildTelemetryDataSlot() {
   sentDetail.element.classList.add('settings-telemetry-sent');
   const deletionLine = el('div', 'settings-telegram-test');
   deletionLine.append(telemetryDeletionButton, telemetryDeletionStatus.element);
-  slot.append(sentDetail.element, externalLink('Privacy details', websiteUrl('/privacy')), deletionLine);
+  slot.append(sentDetail.element, externalLink('Privacy details', websiteUrl('/privacy')), buildAccountLinkLine(), deletionLine);
   return slot;
 }
 

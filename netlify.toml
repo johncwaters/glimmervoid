@@ -11,3 +11,8 @@
   from = "/next"
   to = "/"
   status = 301
+
+[[redirects]]
+  from = "/account"
+  to = "https://small-wombat-359.convex.site/"
+  status = 302
