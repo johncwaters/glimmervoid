@@ -1,6 +1,13 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { parseJsonRecord } from "../server/core/json-core.ts";
-import { isRecord } from "../shared/coerce.ts";
+import { configDirOverride, resolveHomeDir } from "../server/core/claude-config-paths-core.ts";
+import { AUTO_COMPACT_WINDOW_FIELD } from "../shared/contracts/statusline-relay.ts";
+import { isRecord, textOr } from "../shared/coerce.ts";
 import type { ChildProcess } from "node:child_process";
+
+import { configuredAutoCompactWindow } from "./core/auto-compact-window-core.ts";
 
 import { postPayload } from "./loopback-post.ts";
 import { readStdin } from "./relay-stdin.ts";
@@ -35,6 +42,40 @@ function fallbackLine(payload: Record<string, unknown> | null): string {
   return parts.join("  ");
 }
 
+function readSettingsFile(filePath: string): unknown {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function projectDirOf(payload: Record<string, unknown>): string {
+  const workspace = isRecord(payload.workspace) ? payload.workspace : {};
+  return textOr(workspace.project_dir, null) ?? textOr(payload.cwd, null) ?? process.cwd();
+}
+
+function claudeHomeOf(env: NodeJS.ProcessEnv): string {
+  return configDirOverride(env) || path.join(resolveHomeDir(env, os.homedir()) ?? os.homedir(), ".claude");
+}
+
+function postBodyOf(raw: Buffer, payload: Record<string, unknown> | null, env: NodeJS.ProcessEnv): Buffer {
+  if (payload === null) return raw;
+  const projectSettingsDir = path.join(projectDirOf(payload), ".claude");
+  const model = isRecord(payload.model) ? payload.model : {};
+  const autoCompactWindow = configuredAutoCompactWindow({
+    envWindow: env.CLAUDE_CODE_AUTO_COMPACT_WINDOW,
+    settingsByPrecedence: [
+      path.join(projectSettingsDir, "settings.local.json"),
+      path.join(projectSettingsDir, "settings.json"),
+      path.join(claudeHomeOf(env), "settings.json"),
+    ].map(readSettingsFile),
+    modelId: textOr(model.id, null),
+  });
+  if (autoCompactWindow === null) return raw;
+  return Buffer.from(JSON.stringify({ ...payload, [AUTO_COMPACT_WINDOW_FIELD]: autoCompactWindow }), "utf8");
+}
+
 function runChain(command: string, stdinBody: Buffer): Promise<number> {
   return new Promise((resolve) => {
     let child: ChildProcess;
@@ -64,14 +105,16 @@ async function main(
   argv: (string | undefined)[] = process.argv.slice(2),
   stdin: StdinLike = process.stdin,
   stdout: StdoutLike = process.stdout,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<number> {
   const [postUrl, chainEncoded] = argv;
   const raw = await readStdin(stdin);
   const chainCommand = decodeChainCommand(chainEncoded);
+  const payload = parseJsonRecord(raw);
 
-  const post = postUrl ? postPayload(postUrl, raw) : Promise.resolve();
+  const post = postUrl ? postPayload(postUrl, postBodyOf(raw, payload, env)) : Promise.resolve();
   if (!chainCommand) {
-    const line = fallbackLine(parseJsonRecord(raw));
+    const line = fallbackLine(payload);
     if (line) stdout.write(`${line}\n`);
     await post;
     return 0;

@@ -3,8 +3,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { main, NO_CHAIN } from '../session/statusline-relay.ts';
+import { AUTO_COMPACT_WINDOW_FIELD } from '../shared/contracts/statusline-relay.ts';
 function fakeStdin(text: string) {
   return Readable.from([Buffer.from(text, 'utf8')]);
 }
@@ -67,4 +71,24 @@ test('the POST reaches a listening local server with the raw body intact', async
   assert.equal(received[0].url, '/hook/sess/statusline?t=tok');
 
   assert.equal(received[0].body, raw);
+});
+
+test('the POST carries the per-model auto-compact window from the Claude settings of the session', async () => {
+  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'statusline-relay-'));
+  fs.writeFileSync(path.join(claudeHome, 'settings.json'), JSON.stringify({ autoCompactWindow: 400_000, modelSettings: { 'claude-opus-4-5': { autoCompactWindow: 600_000 } } }));
+  const bodies: string[] = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => { bodies.push(body); res.end('{}'); });
+  });
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/hook/sess/statusline?t=tok`;
+  const raw = JSON.stringify({ ...PAYLOAD, model: { id: 'claude-opus-4-5[1m]', display_name: 'Opus 4.5' }, cwd: claudeHome });
+  const chain = Buffer.from(`node -e "process.stdin.pipe(process.stdout)"`, 'utf8').toString('base64');
+  await main([url, chain], fakeStdin(raw), fakeStdout(), { CLAUDE_CONFIG_DIR: claudeHome });
+  await new Promise<void>((resolve) => { server.close(() => resolve()); });
+  fs.rmSync(claudeHome, { recursive: true, force: true });
+
+  assert.equal(JSON.parse(bodies[0])[AUTO_COMPACT_WINDOW_FIELD], 600_000);
 });

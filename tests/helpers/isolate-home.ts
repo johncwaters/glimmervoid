@@ -45,6 +45,7 @@ function resolveIsolatedTestHome(): string {
 }
 
 for (const binding of ENV_SECRET_BINDINGS) delete process.env[binding.environmentVariable];
+delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW;
 
 process.env.GLIMMERVOID_HOME = resolveIsolatedTestHome();
 process.env.CLAUDE_CONFIG_DIR = path.join(process.env.GLIMMERVOID_HOME, 'claude-config');

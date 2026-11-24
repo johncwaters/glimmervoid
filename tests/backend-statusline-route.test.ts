@@ -14,6 +14,7 @@ import { boundPort, closeServer, listenOnLoopback } from './helpers/http-server.
 import { closeSocket, dashboardClient, openRecordingSocket, waitForMessage } from './helpers/dashboard-ws.ts';
 import { agentIngressBase, settleBackendShutdown, usageLane } from './helpers/lanes.ts';
 import type { Backend } from './helpers/lanes.ts';
+import { AUTO_COMPACT_WINDOW_FIELD } from '../shared/contracts/statusline-relay.ts';
 
 const SESSION_ID = 'statusline-session';
 
@@ -222,6 +223,7 @@ test('a status line refresh broadcasts the session meter only when a field chang
     effort: { level: 'medium' },
     output_style: { name: 'Explanatory' },
     context_window: { context_window_size: 1_000_000, current_usage: { input_tokens: 2, output_tokens: 6, cache_creation_input_tokens: 11_128, cache_read_input_tokens: 27_580 } },
+    [AUTO_COMPACT_WINDOW_FIELD]: 600_000,
   };
   await postStatusline({ ...refresh, effort: { level: 'low' } });
   await waitForMessage(control.received, (frame) => frame.type === 'session-meter' && frame.effort === 'low', 'the first meter');
@@ -238,7 +240,7 @@ test('a status line refresh broadcasts the session meter only when a field chang
   const replayed = await waitForMessage(reconnected.received, (frame) => frame.type === 'session-meter', 'the replayed meter');
   await closeSocket(reconnected.ws);
   const { ts: _ts, callCostUSD: _callCostUSD, ...meter } = replayed as Record<string, unknown>;
-  assert.deepEqual(meter, { type: 'session-meter', id: SESSION_ID, model: 'Opus 4.5', effort: 'high', contextTokens: 38_710, contextWindow: 1_000_000, outputStyle: 'Explanatory' });
+  assert.deepEqual(meter, { type: 'session-meter', id: SESSION_ID, model: 'Opus 4.5', effort: 'high', contextTokens: 38_710, contextWindow: 600_000, outputStyle: 'Explanatory' });
 });
 
 test('a startup payload (no rate_limits) is accepted and changes no snapshot', async () => {

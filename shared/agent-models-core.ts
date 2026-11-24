@@ -130,7 +130,7 @@ function parseKimiModels(configToml: string): CatalogModel[] | null {
 }
 
 const NO_CONFIGURED_DEFAULT: ConfiguredDefault = { model: null, effort: null };
-const CONTEXT_WINDOW_SUFFIX = /\[[^\]]+\]$/;
+export const CONTEXT_WINDOW_SUFFIX = /\[[^\]]+\]$/;
 
 function namesOf(model: CatalogModel): string[] {
   return [model.id, ...model.aliases];

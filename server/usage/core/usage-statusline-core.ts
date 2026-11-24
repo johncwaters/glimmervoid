@@ -1,5 +1,6 @@
 import { isRecord, numberOr, positiveNumberOr, textOr } from '../../../shared/coerce.ts';
 import type { PlanLimitsVendor } from '../../../shared/contracts/control-messages.ts';
+import { AUTO_COMPACT_WINDOW_FIELD } from '../../../shared/contracts/statusline-relay.ts';
 import type { SessionMeterReading } from '../../../shared/contracts/control/lane-messages.ts';
 
 const PCT_DECIMALS = 1;
@@ -165,6 +166,11 @@ interface MeteredStatusline {
   pricingModelId: string | null;
 }
 
+function contextWindowOf(modelWindow: number | null, autoCompactWindow: number | null): number | null {
+  if (modelWindow === null || autoCompactWindow === null) return modelWindow;
+  return Math.min(modelWindow, autoCompactWindow);
+}
+
 function sessionMeterInputsOf(payload: unknown): SessionMeterInputs | null {
   if (!isRecord(payload)) return null;
   const model = isRecord(payload.model) ? payload.model : null;
@@ -175,7 +181,7 @@ function sessionMeterInputsOf(payload: unknown): SessionMeterInputs | null {
     pricingModelId,
     effort: effortOf(payload.effort) ?? effortOf(model?.effort),
     contextTokens: contextTokensOf(context),
-    contextWindow: positiveNumberOr(context?.context_window_size, null),
+    contextWindow: contextWindowOf(positiveNumberOr(context?.context_window_size, null), positiveNumberOr(payload[AUTO_COMPACT_WINDOW_FIELD], null)),
     outputStyle: isRecord(payload.output_style) ? cappedMeterText(payload.output_style.name, null) : null,
   };
   if (inputs.model === null && inputs.effort === null && inputs.contextTokens === null && inputs.contextWindow === null && inputs.outputStyle === null) return null;
