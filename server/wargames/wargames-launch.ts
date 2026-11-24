@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { WargamesMatchSpec, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
+import { WargamesMatchSpec, troopCostsFor, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
 import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
 import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER } from '../../shared/wargames/terrain.ts';
 import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType } from '../../shared/contracts/wargames.ts';
@@ -128,12 +128,65 @@ function objectiveLine(spec: WargamesMatchSpecType): string {
   return `${clock} A seat wins by holding at least ${winVillages} of the ${matchVillageCount(spec)} villages at the end of ${holdTurns} ticks in a row; ${fallback}`;
 }
 
+const MOVEMENT_LINE = '- Movement & Battles: Armies travel 2 hexes per tick. March to your own village to reinforce it. Combat is simultaneous with +/-10% attack variance; the losing side is wiped and the winner takes proportional casualties. When you win a battle and capture a village, your surviving army stays there as its new garrison. If you win a battle without capturing (Loyalty still above 0), survivors return home.';
+
+function unitLines(spec: WargamesMatchSpecType): string[] {
+  const balance = wargamesBalanceFor(spec.rulesVersion);
+  const roles = balance.roles;
+  if (roles === null) {
+    return [
+      'Units & Combat (1.5x Counter Bonus):',
+      '- Raider (12 grain / 8 ore, base power 10): deals 1.5x power (15) if the opposing force has any Envoys.',
+      '- Guard (8 grain / 12 ore, base power 10): deals 1.5x power (15) if the opposing force has any Raiders.',
+      '- Envoy (25 grain / 20 ore, base power 8): deals 1.5x power (12) if the opposing force has any Guards. Required to capture villages.',
+      MOVEMENT_LINE,
+    ];
+  }
+  const costs = troopCostsFor(balance);
+  const unitLine = (label: string, troop: 'raider' | 'guard' | 'envoy', role: string) => {
+    const unit = roles.units[troop];
+    return `- ${label} (${costs[troop].grain} grain / ${costs[troop].ore} ore): attack ${unit.attack}, defense ${unit.defense}. ${role}`;
+  };
+  const floorPercent = Math.round(roles.moraleFloor * 100);
+  return [
+    'Units & Combat (attack and defense are separate; defending is cheaper than attacking):',
+    unitLine('Raider', 'raider', 'Attacks; weak when it has to defend.'),
+    unitLine('Guard', 'guard', 'Defends; weak in an attack.'),
+    unitLine('Envoy', 'envoy', 'Never attacks; adds its defense in a garrison; captures villages (see Loyalty).'),
+    '- Attack power is the attack of every troop you send. Defense power is (the defense of every troop in the village, allied guests included, plus the Wall) times the Wall bonus and any terrain or last-village multiplier. The stronger side wins.',
+    MOVEMENT_LINE,
+    `- Morale: when you attack a seat with fewer VP than you, your troops fight at the square root of (their VP / your VP), never below ${floorPercent}%. Morale is full while you have under ${roles.moraleMinAttackerPoints} VP and against Barbarians.`,
+    `- Troop cap: a village holds at most ${roles.troopCapBase} + ${roles.troopCapPerFarmLevel} per Farm level troops, counting its own troops, allied guests and its troops out on the march. Training stops at the cap; troops arriving past it march back home.`,
+    `- Joint attacks: per grain and ore spent, a Guard buys about ${defensePerAttack(roles, costs)}x the defense that a Raider buys in attack, and the Wall adds more, so one seat alone cannot break a guarded village it matched in spending. Two allies can: in the same tick both march on the same hex, one with a plain march and the other with support: <that seat>. To lend Guards to an ally, march them to the ally\'s village with support: <ally>.`,
+  ];
+}
+
+function defensePerAttack(roles: NonNullable<ReturnType<typeof wargamesBalanceFor>['roles']>, costs: ReturnType<typeof troopCostsFor>): string {
+  const totalCost = (troop: 'raider' | 'guard') => costs[troop].grain + costs[troop].ore;
+  const ratio = (roles.units.guard.defense / totalCost('guard')) / (roles.units.raider.attack / totalCost('raider'));
+  return ratio.toFixed(1);
+}
+
+function captureLines(spec: WargamesMatchSpecType): string[] {
+  const balance = wargamesBalanceFor(spec.rulesVersion);
+  const roles = balance.roles;
+  if (roles === null) {
+    const envoysForFullVillage = Math.ceil(100 / balance.envoyLoyaltyDrain);
+    return [
+      '- Every village starts at 100 Loyalty. Winning a battle without surviving Envoys wipes the defenders but does not capture the village.',
+      `- Each surviving Envoy drains ${balance.envoyLoyaltyDrain} Loyalty (${envoysForFullVillage} surviving Envoys drop a 100-Loyalty village to 0 in one battle).`,
+    ];
+  }
+  return [
+    '- Every village starts at 100 Loyalty. Capture is a separate wave: an army of only Envoys never fights, and Envoys drain Loyalty only once the village\'s defense is beaten this tick (your attack, or an ally supporting it, beat its troops and Wall), or it has no troops and no Wall.',
+    `- Each surviving Envoy drains a random ${roles.captureDrainMin} to ${roles.captureDrainMax} Loyalty. Envoys marching with Raiders die with them in proportion; an Envoy-only army arriving at a defended village, or with a side that lost, is wiped.`,
+  ];
+}
+
 function loyaltyLines(spec: WargamesMatchSpecType): string[] {
   const balance = wargamesBalanceFor(spec.rulesVersion);
-  const envoysForFullVillage = Math.ceil(100 / balance.envoyLoyaltyDrain);
   const lines = [
-    '- Every village starts at 100 Loyalty. Winning a battle without surviving Envoys wipes the defenders but does not capture the village.',
-    `- Each surviving Envoy drains ${balance.envoyLoyaltyDrain} Loyalty (${envoysForFullVillage} surviving Envoys drop a 100-Loyalty village to 0 in one battle).`,
+    ...captureLines(spec),
     `- When Loyalty hits 0, the village flips to you at ${balance.capturedLoyalty} Loyalty with your surviving attackers as its garrison.`,
   ];
   if (balance.loyaltyRegenPerTurn > 0) lines.push(`- Every village you own regains ${balance.loyaltyRegenPerTurn} Loyalty per tick, up to 100, so a fresh capture hardens over a few ticks.`);
@@ -158,15 +211,32 @@ function terrainLines(spec: WargamesMatchSpecType): string[] {
   ];
 }
 
+function wallLine(spec: WargamesMatchSpecType): string {
+  const balance = wargamesBalanceFor(spec.rulesVersion);
+  const cost = balance.buildingCosts.wall;
+  const roles = balance.roles;
+  if (roles === null) return `- Wall (${cost.grain} grain / ${cost.ore} ore): +15% defender combat power per level.`;
+  return `- Wall (${cost.grain} grain / ${cost.ore} ore): each level adds ${roles.wallDefensePerLevel} defense and +${Math.round(roles.wallBonusPerLevel * 100)}% defense power, up to level 10. An attack that clears the defenders knocks the Wall down by at least 1 level, more the larger its margin.`;
+}
+
 function buildingLines(spec: WargamesMatchSpecType): string[] {
   const costs = wargamesBalanceFor(spec.rulesVersion).buildingCosts;
   return [
     '- Base village: produces 25 grain and 25 ore per tick (500 base storage cap).',
     `- Farm (${costs.farm.grain} grain / ${costs.farm.ore} ore): +20 grain/tick and +200 storage cap per level.`,
     `- Mine (${costs.mine.grain} grain / ${costs.mine.ore} ore): +20 ore/tick and +200 storage cap per level.`,
-    `- Wall (${costs.wall.grain} grain / ${costs.wall.ore} ore): +15% defender combat power per level.`,
+    wallLine(spec),
     `- Barracks (${costs.barracks.grain} grain / ${costs.barracks.ore} ore): military infrastructure upgrade (training is instant and bounded by grain and ore).`,
   ];
+}
+
+function supportLine(spec: WargamesMatchSpecType): string {
+  const attackSupport = '- Support: a march order may name support: <seat>. If that seat is your active ally and attacks the same target hex that tick, your troops fight on its side: one combined attack power against the defender, the ally takes the village if it captures, losses are shared in proportion, and your survivors march home.';
+  const unsupported = 'With no active alliance, or no ally attack there, the support march turns back without fighting. Two seats that attack one hex without support fight each other too: only the strongest can take it, and the others are wiped.';
+  const garrison = wargamesBalanceFor(spec.rulesVersion).roles === null
+    ? 'Sent to the ally\'s own village, your troops join its garrison and become the ally\'s.'
+    : 'Sent to the ally\'s own village, your troops stay yours as guests: they defend it with its Wall, count against its troop cap, share its losses, and march home on their own when the alliance ends or breaks.';
+  return `${attackSupport} ${garrison} ${unsupported}`;
 }
 
 function diplomacyLines(spec: WargamesMatchSpecType): string[] {
@@ -187,7 +257,7 @@ function diplomacyLines(spec: WargamesMatchSpecType): string[] {
     '- Escrow: an atomic grain/ore swap that settles the moment it is accepted.',
     `- Alliance VP: at the end of every turn an alliance is in force, each partner scores ${diplomacy.allianceVpPerTurn} VP. If one partner breaks it, the victim also scores the breaker's alliance VP for every turn the alliance stood (${diplomacy.allianceVpPerTurn} VP per turn).`,
     '- Alliance: two seats may hold one alliance at a time (one proposed or active). Both seats lock the stated collateral for N ticks. While it is active neither may attack the other, and each may support the other. When it runs its full term both get their collateral back. If one attacks the other, the alliance breaks: the victim takes the attacker\'s collateral and its own back, and the breach goes on the public ledger.',
-    '- Support: a march order may name support: <seat>. If that seat is your active ally and attacks the same target hex that tick, your troops fight on its side: one combined attack power against the defender, the ally takes the village if it captures, losses are shared in proportion, and your survivors march home. Sent to the ally\'s own village, your troops join its garrison and become the ally\'s. With no active alliance, or no ally attack there, the support march turns back without fighting. Two seats that attack one hex without support fight each other too: only the strongest can take it, and the others are wiped.',
+    supportLine(spec),
     `- Reputation: get_state shows every seat\'s record of deals kept (pacts that ran their term, settled escrows) and deals broken (breaches). A seat with B broken deals locks ${diplomacy.breachCollateralStep === 1 ? '(1 + B)' : `(1 + ${diplomacy.breachCollateralStep} x B)`} times the stated collateral to enter any new alliance.`,
     ...shared,
   ];
@@ -200,11 +270,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     '=== WARGAMES RULEBOOK ===',
     objectiveLine(spec),
     '',
-    'Units & Combat (1.5x Counter Bonus):',
-    '- Raider (12 grain / 8 ore, base power 10): deals 1.5x power (15) if the opposing force has any Envoys.',
-    '- Guard (8 grain / 12 ore, base power 10): deals 1.5x power (15) if the opposing force has any Raiders.',
-    '- Envoy (25 grain / 20 ore, base power 8): deals 1.5x power (12) if the opposing force has any Guards. Required to capture villages.',
-    '- Movement & Battles: Armies travel 2 hexes per tick. March to your own village to reinforce it. Combat is simultaneous with +/-10% attack variance; the losing side is wiped and the winner takes proportional casualties. When you win a battle and capture a village, your surviving army stays there as its new garrison. If you win a battle without capturing (Loyalty still above 0), survivors return home.',
+    ...unitLines(spec),
     '',
     'Loyalty & Capturing Villages:',
     ...loyaltyLines(spec),

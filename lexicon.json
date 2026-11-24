@@ -1581,6 +1581,26 @@
     {
       "name": "live match",
       "definition": "The Wargames tab view of the running or watched match: seat banners, the board, the economy table and the spotlight"
+    },
+    {
+      "name": "guest",
+      "definition": "Wargames v8 troops a seat lent to an active ally's village by a support march; they stay the lender's, defend with the host's wall, count against the host's troop cap, and march home when the alliance ends"
+    },
+    {
+      "name": "capture wave",
+      "definition": "Wargames v8 envoy-only army that never fights and drains loyalty only after the village's troops and wall are beaten that turn"
+    },
+    {
+      "name": "troop cap",
+      "definition": "Wargames v8 limit on troops per village: a base plus a per farm level amount, counting home troops, guests and the village's troops out on the march"
+    },
+    {
+      "name": "morale",
+      "definition": "Wargames v8 attack multiplier for a seat attacking one with fewer victory points: the square root of their VP over the attacker's, never below 0.5"
+    },
+    {
+      "name": "elo",
+      "definition": "The Wargames rating of each model from finished matches, kept separately per rules version"
     }
   ],
   "retired": [
