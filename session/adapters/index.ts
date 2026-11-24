@@ -38,6 +38,7 @@ interface AgentCapabilities {
   skipPermissionsFlag: boolean;
   headless: boolean;
   subagentTurnStops?: boolean;
+  announcesFinishedBackgroundWork?: boolean;
   ptyInitialPrompt?: boolean;
   toolHookContext?: boolean;
   resumeNoteByHook?: boolean;

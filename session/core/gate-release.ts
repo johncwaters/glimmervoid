@@ -1,5 +1,7 @@
 const DEFAULT_GATE_RELEASE_SETTLE_MS = 10 * 1000;
 
+type WorkExpiredWhileHeld = "none" | "subagent" | "shell";
+
 interface GateReleaseInputs {
   heldState?: string;
   currentState?: string;
@@ -10,10 +12,13 @@ interface GateReleaseInputs {
   quietSince?: number;
   now?: number;
   settleMs?: number;
+  hadWorkAtHold?: boolean;
+  announcesFinishedWork?: boolean;
+  workExpiredWhileHeld?: WorkExpiredWhileHeld;
 }
 
 interface GateReleaseVerdict {
-  decision: "cancel" | "gated" | "wait" | "release";
+  decision: "cancel" | "gated" | "await-turn-start" | "check-terminal" | "wait" | "release";
   waitMs: number;
 }
 
@@ -27,14 +32,21 @@ function decideGateRelease({
   quietSince = 0,
   now = 0,
   settleMs = DEFAULT_GATE_RELEASE_SETTLE_MS,
+  hadWorkAtHold = false,
+  announcesFinishedWork = false,
+  workExpiredWhileHeld = "none",
 }: GateReleaseInputs = {}): GateReleaseVerdict {
   if (currentState !== heldState) return { decision: "cancel", waitMs: 0 };
 
   if (lastActivitySeq > stashSeq) return { decision: "cancel", waitMs: 0 };
   if (activeAgents > 0) return { decision: "gated", waitMs: 0 };
+  if (workExpiredWhileHeld === "subagent") return { decision: "check-terminal", waitMs: 0 };
+  if (workExpiredWhileHeld === "shell") return { decision: "release", waitMs: 0 };
+  if (hadWorkAtHold && announcesFinishedWork) return { decision: "await-turn-start", waitMs: 0 };
   const quietFor = now - Math.max(quietSince, stashTs);
   if (quietFor < settleMs) return { decision: "wait", waitMs: settleMs - quietFor };
   return { decision: "release", waitMs: 0 };
 }
 
 export { decideGateRelease, DEFAULT_GATE_RELEASE_SETTLE_MS };
+export type { WorkExpiredWhileHeld };

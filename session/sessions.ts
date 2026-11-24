@@ -640,6 +640,7 @@ class Session extends EventEmitter {
       shellTaskTtlMs,
       teammateTaskTtlMs,
       gateReleaseSettleMs,
+      announcesFinishedBackgroundWork: this._can("announcesFinishedBackgroundWork"),
       detectScheduledWakeups: hasScheduledWakeups,
       port: {
         state: () => this.state,

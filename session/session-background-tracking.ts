@@ -1,11 +1,13 @@
 import { isRecord } from "../shared/coerce.ts";
 import * as agentTracker from "./core/agent-tracker.ts";
 import { decideGateRelease } from "./core/gate-release.ts";
+import type { WorkExpiredWhileHeld } from "./core/gate-release.ts";
 import { mapSignalToEvent } from "./core/status-mapper.ts";
 import { extractNotifiedTaskIds } from "./core/task-title-core.ts";
 import * as wakeupTracker from "./core/wakeup-tracker.ts";
 import type { WakeupMap } from "./core/wakeup-tracker.ts";
 import type { ExpiredOpenWork, TaskRegistryBreakdown } from "./core/agent-tracker.ts";
+import { STATES } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import type { HookSignal } from "../detection/hook-source.ts";
 import type { ResolvedStatusSignal } from "../detection/status-source.ts";
@@ -30,6 +32,7 @@ interface BackgroundTrackingOptions {
   shellTaskTtlMs: number;
   teammateTaskTtlMs: number;
   gateReleaseSettleMs: number;
+  announcesFinishedBackgroundWork: boolean;
   detectScheduledWakeups: boolean;
   port: SessionPort;
 }
@@ -42,6 +45,8 @@ interface GateHeldReady {
   ts: number;
   seq: number;
   agentWorkExpiriesAtHold: number;
+  shellWorkExpiriesAtHold: number;
+  hadWorkAtHold: boolean;
 }
 
 const SCHEDULED_WAKEUP_KEY = "scheduled-wakeup";
@@ -95,6 +100,7 @@ function createSessionBackgroundTracking({
   shellTaskTtlMs,
   teammateTaskTtlMs,
   gateReleaseSettleMs,
+  announcesFinishedBackgroundWork,
   detectScheduledWakeups,
   port,
 }: BackgroundTrackingOptions): SessionBackgroundTracking {
@@ -199,6 +205,9 @@ function createSessionBackgroundTracking({
       quietSince: gateQuietSince || 0,
       now,
       settleMs: gateReleaseSettleMs,
+      hadWorkAtHold: held.hadWorkAtHold,
+      announcesFinishedWork: announcesFinishedBackgroundWork,
+      workExpiredWhileHeld: workExpiredWhileHeld(held),
     });
 
     port.recordDecision({
@@ -224,14 +233,23 @@ function createSessionBackgroundTracking({
       armGateTimer(waitMs);
       return;
     }
-    const hasAgentWorkExpiredWhileHeld = tasks.agentWorkExpiryCount() > held.agentWorkExpiriesAtHold;
+    if (decision === "await-turn-start") {
+      clearGateTimer();
+      return;
+    }
     clearGateHeldReady();
-    if (hasAgentWorkExpiredWhileHeld) {
+    if (decision === "check-terminal") {
       port.enterCheckTerminal();
       return;
     }
     const event = mapSignalToEvent(held.signal, port.state(), held.confidence, 0);
     if (event) port.transition(event, { source: held.source, signal: held.signal, deferred: true });
+  }
+
+  function workExpiredWhileHeld(held: GateHeldReady): WorkExpiredWhileHeld {
+    if (tasks.agentWorkExpiryCount() > held.agentWorkExpiriesAtHold) return "subagent";
+    if (tasks.shellWorkExpiryCount() > held.shellWorkExpiriesAtHold) return "shell";
+    return "none";
   }
 
   function emitAgentsChange(): void {
@@ -281,7 +299,8 @@ function createSessionBackgroundTracking({
     if (!detectBackgroundAgents) return;
     const entries = agentTracker.extractBackgroundTasks(payload);
     if (entries === null) return;
-    withAgentCount(() => tasks.reconcileDeclared(entries));
+    const isBetweenTurns = gateHeldReady !== null || port.state() !== STATES.RUNNING;
+    withAgentCount(() => tasks.reconcileDeclared(entries, isBetweenTurns));
     announceBackgroundTasksRunning(entries);
   }
 
@@ -367,6 +386,8 @@ function createSessionBackgroundTracking({
       ts: now,
       seq: signalSeq,
       agentWorkExpiriesAtHold: tasks.agentWorkExpiryCount(),
+      shellWorkExpiriesAtHold: tasks.shellWorkExpiryCount(),
+      hadWorkAtHold: activeAgentCount() > 0,
     };
 
     gateQuietSince = null;

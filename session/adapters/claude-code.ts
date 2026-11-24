@@ -199,6 +199,7 @@ const claudeCode = {
     hooks: true,
     awaitingInput: true,
     backgroundAgents: true,
+    announcesFinishedBackgroundWork: true,
     resume: true,
     planLimits: true,
     saneYolo: true,
