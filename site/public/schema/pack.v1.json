@@ -865,6 +865,58 @@
         ],
         "additionalProperties": false
       }
+    },
+    "settings": {
+      "description": "Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it",
+      "minItems": 1,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$",
+            "description": "The environment variable the value reaches the pack commands under; a secret is kept in the vault as GLIMMERVOID_PACK_<PACK>__<KEY>, so it never meets another pack's or a session's secret"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "The field name shown to the operator in the pack Settings"
+          },
+          "kind": {
+            "default": "text",
+            "description": "text: a plain value saved in Glimmervoid's pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands",
+            "type": "string",
+            "enum": [
+              "text",
+              "secret"
+            ]
+          },
+          "hint": {
+            "description": "One line under the field, such as where to find the value",
+            "type": "string",
+            "maxLength": 200
+          },
+          "commands": {
+            "default": [],
+            "description": "For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command",
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(pr-source|pr-item-action|pr-action):[a-z0-9][a-z0-9-]{0,39}$"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [

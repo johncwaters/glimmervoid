@@ -265,6 +265,12 @@ function packEntryId(packName: string, id: string): string {
   return `${packName}/${id}`;
 }
 
+export function packEntryOwner(entryId: string): { packName: string; localId: string } | null {
+  const [packName, localId, ...rest] = entryId.split('/');
+  if (packName === undefined || localId === undefined || rest.length > 0) return null;
+  return { packName, localId };
+}
+
 function packCommand<Command extends PrFlowCommand>(command: Command, loaded: PackOnDisk): Command {
   return { ...command, id: packEntryId(loaded.header.name, command.id), command: command.command.map((element) => element.replaceAll(PACK_DIR_PLACEHOLDER, loaded.dir)) };
 }

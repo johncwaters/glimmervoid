@@ -549,6 +549,18 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     replyTo(ws, msg, 'pack-data-result', await deps.packData.set(msg.pack, msg.key, msg.value));
   }
 
+  async function handlePackSettingsGet(msg: ClientMessageOf<'pack-settings-get'>, ws: ControlSocket): Promise<void> {
+    if (!deps.packSettings) { replyTo(ws, msg, 'pack-settings-result', { ok: false, error: 'Packs are not running' }); return; }
+    replyTo(ws, msg, 'pack-settings-result', await deps.packSettings.view(msg.pack));
+  }
+
+  async function handlePackSettingsSave(msg: ClientMessageOf<'pack-settings-save'>, ws: ControlSocket): Promise<void> {
+    if (!deps.packSettings) { replyTo(ws, msg, 'pack-settings-result', { ok: false, error: 'Packs are not running' }); return; }
+    const saved = await deps.packSettings.save(msg.pack, msg.valuesByKey);
+    if (!saved.ok) { replyTo(ws, msg, 'pack-settings-result', saved); return; }
+    replyTo(ws, msg, 'pack-settings-result', await deps.packSettings.view(msg.pack));
+  }
+
   async function replySourceChange(ws: ControlSocket, msg: { requestId?: string | null }, change: (sources: NonNullable<typeof deps.packSources>) => Promise<{ ok: true; text: string } | { ok: false; error: string }>): Promise<void> {
     if (!deps.packSources) { replyTo(ws, msg, 'pack-source-result', { ok: false, error: 'Packs are not running' }); return; }
     const outcome = await change(deps.packSources);
@@ -588,6 +600,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'pack-approve': handlePackApprove,
     'pack-request-dismiss': handlePackRequestDismiss,
     'pack-data-get': handlePackDataGet,
+    'pack-settings-get': handlePackSettingsGet,
+    'pack-settings-save': handlePackSettingsSave,
     'pack-data-set': handlePackDataSet,
     'pack-source-add': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.add(msg.url)),
     'pack-source-update': (msg, ws) => replySourceChange(ws, msg, (sources) => sources.update(msg.slug)),
@@ -623,6 +637,8 @@ function createSettingsHandlers(_context: ControlContext, deps: ControlHandlerDe
     'pack-approve': (_msg, requestId, message) => ({ type: 'pack-approve-result', requestId, ok: false, error: message }),
     'pack-request-dismiss': (_msg, requestId, message) => ({ type: 'pack-request-dismiss-result', requestId, ok: false, error: message }),
     'pack-data-get': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
+    'pack-settings-get': (_msg, requestId, message) => ({ type: 'pack-settings-result', requestId, ok: false, error: message }),
+    'pack-settings-save': (_msg, requestId, message) => ({ type: 'pack-settings-result', requestId, ok: false, error: message }),
     'pack-data-set': (_msg, requestId, message) => ({ type: 'pack-data-result', requestId, ok: false, error: message }),
     'pack-source-add': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),
     'pack-source-update': (_msg, requestId, message) => ({ type: 'pack-source-result', requestId, ok: false, error: message }),

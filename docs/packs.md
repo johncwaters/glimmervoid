@@ -18,6 +18,10 @@ The approval screen shows what each section grants before the operator decides: 
 - **Agent context and skills** reach sessions as a copy of the approved files, so an unapproved edit never reaches a running agent.
 - **MCP secrets** come from the vault, only once the operator allows that secret for the project, and travel by environment variable, never argv.
 
+## Settings and secrets
+
+A pack asks for its values in `settings` instead of `requires.env`, because the server environment is shared by every pack and every session. Plain values live in `~/.glimmervoid/pack-settings.json`, outside the pack folder, so changing one never changes the fingerprint and never asks for approval again. A secret lives in the vault as `GLIMMERVOID_PACK_<PACK>__<KEY>`, a name only that pack owns: a session can never ask for it and a pack can never read another pack's or the operator's own secrets by picking a familiar key. It reaches only the commands its `commands` list names; the approval screen shows that list, so approving the pack is approving exactly those grants. Glimmervoid writes a secret only to the age file and never to 1Password, and masks every secret value it handed a command in that command's error text, since stderr can echo a key.
+
 ## What a pack may not do
 
 - Approve itself, or change after approval without asking again.

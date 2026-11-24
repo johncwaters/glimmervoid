@@ -148,3 +148,6 @@ export const HostToPanel = z.union([
 export function packBridgeJsonSchemaText(): string {
   return `${JSON.stringify({ panelToHost: z.toJSONSchema(PanelToHost), hostToPanel: z.toJSONSchema(HostToPanel) }, null, 2)}\n`;
 }
+
+const PACK_SETTING_VALUE_MAX = 2000;
+export const PackSettingValue = z.string().max(PACK_SETTING_VALUE_MAX).regex(/^\P{Cc}*$/u, { error: 'a setting value is one line with no control characters' });

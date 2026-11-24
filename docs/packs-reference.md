@@ -26,6 +26,7 @@ Published as the JSON Schema `https://glimmervoid.dev/schema/pack.v1.json`; poin
 | `agent` | object |  |  | Context and skills every session's agent gets once the operator approves the pack See below. |
 | `mcp` | object |  |  | MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it See below. |
 | `hooks` | array of objects |  |  | Checks every session's agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it See below. |
+| `settings` | array of objects |  |  | Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it See below. |
 
 ### `prFlows`
 
@@ -175,6 +176,20 @@ A list, min items 1, max items 16, of:
 | `hooks[].tools` | array of one of `"edit"`, `"shell"`, min items 1, max items 2 |  | `["edit","shell"]` | The tool kinds the hook watches |
 | `hooks[].command` | array of string, min length 1, max length 1000, min items 1, max items 32 | yes |  | The program and its arguments, run without a shell in the session folder; an argument after the program may hold {packDir}, the folder of the approved pack copy the session reads, whose files are not executable. It reads one JSON object on stdin: {"version":1,"event":"beforeTool","agent":"claude\|codex\|kimi\|antigravity\|opencode\|pi","sessionId","cwd","tool":{"kind":"edit\|shell\|other","name","command","filePaths","input"}}. Exit 2 blocks the tool call, and the agent reads stderr as the reason; any other exit, a crash or a timeout lets the call run |
 | `hooks[].timeoutSeconds` | integer, min 1, max 60 |  | `10` | A hook still running after this many seconds is stopped and the call runs |
+
+### `settings`
+
+Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it
+
+A list, min items 1, max items 16, of:
+
+| Field | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `settings[].key` | string, max length 64, matches `^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$` | yes |  | The environment variable the value reaches the pack commands under; a secret is kept in the vault as GLIMMERVOID_PACK_<PACK>__<KEY>, so it never meets another pack's or a session's secret |
+| `settings[].label` | string, min length 1, max length 60 | yes |  | The field name shown to the operator in the pack Settings |
+| `settings[].kind` | one of `"text"`, `"secret"` |  | `"text"` | text: a plain value saved in Glimmervoid's pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands |
+| `settings[].hint` | string, max length 200 |  |  | One line under the field, such as where to find the value |
+| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command |
 
 ## Panel bridge
 

@@ -1,12 +1,12 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackSessions, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
-import type { PackHook, PackOnDisk, PackSection } from '../../shared/contracts/pack.ts';
+import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackSessions, PackSettings, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import type { PackHook, PackOnDisk, PackSection, PackSetting } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { parseJsonOrNull } from '../core/json-core.ts';
-import { packPreviewDataUrl } from './core/pack-core.ts';
+import { packCommandRefsOf, packPreviewDataUrl } from './core/pack-core.ts';
 import type { z } from 'zod';
 import { firstCommandOnPath } from '../stable-node-path.ts';
 
@@ -146,6 +146,15 @@ function withHookFilesPresent(hooks: PackSection<PackHook[]> | null, filesByPath
   return errors.length === 0 ? hooks : { ok: false, errors };
 }
 
+function withSettingCommandsDeclared(settings: PackSection<PackSetting[]> | null, prFlows: PackSection<PackPrFlows> | null): PackSection<PackSetting[]> | null {
+  if (settings === null || !settings.ok) return settings;
+  const declaredRefs = new Set(packCommandRefsOf(prFlows?.ok === true ? prFlows.value : null));
+  const errors = settings.value.flatMap((setting, index) => setting.commands
+    .filter((commandRef) => !declaredRefs.has(commandRef))
+    .map((commandRef) => `${PACK_FILE_NAME} settings.${index}.commands: ${commandRef} names no command in this pack`));
+  return errors.length === 0 ? settings : { ok: false, errors };
+}
+
 function manifestJson(manifest: Buffer): { ok: true; value: unknown } | { ok: false; error: string } {
   try {
     return { ok: true, value: JSON.parse(manifest.toString('utf8')) };
@@ -190,13 +199,14 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const agent = withAgentFilesPresent(parseSection(PackAgent, header.data.agent, 'agent'), read.filesByPath);
   const mcp = parseSection(PackMcp, header.data.mcp, 'mcp');
   const hooks = withHookFilesPresent(parseSection(PackHooks, header.data.hooks, 'hooks'), read.filesByPath);
+  const settings = withSettingCommandsDeclared(parseSection(PackSettings, header.data.settings, 'settings'), prFlows);
   if (header.data.preview !== undefined && !read.filesByPath.has(header.data.preview)) read.errors.push(`${PACK_FILE_NAME} preview: ${header.data.preview} is not a file in the pack`);
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp, hooks].flatMap(sectionErrors)], filesByPath, header: header.data };
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings].flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, status, agent, mcp, hooks, missingRequires: await missingRequires(header.data.requires, env),
+      prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, missingRequires: await missingRequires(header.data.requires, env),
       previewDataUrl: previewDataUrlOf(header.data.preview, read.filesByPath),
     },
   };
