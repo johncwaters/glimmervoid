@@ -179,7 +179,7 @@ async function makeInstallableRepoWithWorktree(): Promise<{ mainCheckout: string
   return { mainCheckout, worktreeDir };
 }
 
-test('each lockfile dir of a session worktree gets its own install without running package scripts', { skip: !CAN_INSTALL }, async () => {
+test('each lockfile dir of a session worktree gets its own install without running package scripts, except a nested dir the main checkout has but leaves uninstalled beside its root install', { skip: !CAN_INSTALL }, async () => {
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
 
   const { install } = await seedToCompletion(mainCheckout, worktreeDir);
@@ -195,6 +195,20 @@ test('each lockfile dir of a session worktree gets its own install without runni
   const rerun = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.deepEqual(rerun.install.results, []);
+
+  const mainRootInstall = await runCommand('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: mainCheckout, timeoutMs: 120_000 });
+  assert.ok(mainRootInstall.ok, mainRootInstall.err);
+  fs.rmSync(path.join(worktreeDir, 'site', 'node_modules'), { recursive: true });
+  writeJson(path.join(worktreeDir, 'tools', 'package.json'), { name: 'tools', version: '1.0.0', dependencies: { 'left-pad': 'file:../vendor/left-pad' } });
+  await writeLockfileFor(path.join(worktreeDir, 'tools'));
+  git(['add', '-A'], worktreeDir);
+  git(['commit', '-m', 'tools'], worktreeDir);
+
+  const rerunBesideMainInstall = await seedToCompletion(mainCheckout, worktreeDir);
+
+  assert.deepEqual(rerunBesideMainInstall.install.results.map(({ dir, ok }) => [dir, ok]), [['tools', true]]);
+  assert.deepEqual(rerunBesideMainInstall.install.unsupportedDirs, []);
+  assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
 });
 
 async function packInstallScriptPackage(mainCheckout: string, name: string): Promise<string> {

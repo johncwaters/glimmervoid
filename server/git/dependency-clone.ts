@@ -161,7 +161,8 @@ async function hookConfigsNeedUnseededPackages(worktreeDir: string, hookConfigRe
 
 async function installDependencies(mainCheckout: string, worktreeDir: string, signal: AbortSignal, isRootSeeded: boolean): Promise<DependencyInstallOutcome> {
   const startedAt = performance.now();
-  const packageDirFacts = (await listPackageDirFacts(worktreeDir)).map((facts) => (isRootSeeded && facts.dir === '.' ? { ...facts, hasNodeModules: false } : facts));
+  const worktreePackageDirFacts = (await listPackageDirFacts(worktreeDir)).map((facts) => (isRootSeeded && facts.dir === '.' ? { ...facts, hasNodeModules: false } : facts));
+  const packageDirFacts = await packageDirsTheMainCheckoutInstalls(mainCheckout, worktreePackageDirFacts);
   const plan = planDependencyInstall(process.platform, packageDirFacts);
   const results: InstallResult[] = [];
   if (!plan.installs.length) return { results, unsupportedDirs: plan.unsupportedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
@@ -181,6 +182,23 @@ async function installDependencies(mainCheckout: string, worktreeDir: string, si
     results.push(await withUnbuiltPackagesRebuilt(path.join(worktreeDir, install.dir), install, result, runEnv, signal));
   }
   return { results, unsupportedDirs: plan.unsupportedDirs, elapsedMs: Math.round(performance.now() - startedAt) };
+}
+
+async function packageDirsTheMainCheckoutInstalls(mainCheckout: string, packageDirs: readonly PackageDirFacts[]): Promise<PackageDirFacts[]> {
+  if (!(await pathExists(path.join(mainCheckout, NODE_MODULES)))) return [...packageDirs];
+  const installedPackageDirs: PackageDirFacts[] = [];
+  for (const packageDir of packageDirs) {
+    if (await isLeftUninstalledInMainCheckout(mainCheckout, packageDir.dir)) continue;
+    installedPackageDirs.push(packageDir);
+  }
+  return installedPackageDirs;
+}
+
+async function isLeftUninstalledInMainCheckout(mainCheckout: string, relativeDir: string): Promise<boolean> {
+  if (relativeDir === '.') return false;
+  const mainPackageDir = path.join(mainCheckout, relativeDir);
+  if (!(await pathExists(path.join(mainPackageDir, 'package.json')))) return false;
+  return !(await pathExists(path.join(mainPackageDir, NODE_MODULES)));
 }
 
 async function listTrackedPackageDirs(worktreeDir: string): Promise<string[]> {
