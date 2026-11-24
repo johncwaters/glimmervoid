@@ -102,7 +102,9 @@ export function createPackSettings({ homeDir, vault, approvedPack, now = clock.n
 
   async function saveSecret(packName: string, key: SecretName, value: string): Promise<string | null> {
     const vaultName = packVaultName(packName, key);
-    if (vault.source()?.manager !== 'age') return `${vaultName} is read from 1Password, which Glimmervoid never writes; create it there`;
+    const manager = vault.source()?.manager ?? null;
+    if (manager === null) return `no vault is set up in Settings, so ${vaultName} has nowhere to go`;
+    if (manager !== 'age') return `${vaultName} is read from 1Password, which Glimmervoid never writes; create it there`;
     const failure = await vault.saveToAgeFile(vaultName, value);
     if (failure !== null) return `${vaultName} could not be saved to the vault: ${failure.message}`;
     cachedSecrets.delete(vaultName);
@@ -132,13 +134,15 @@ export function createPackSettings({ homeDir, vault, approvedPack, now = clock.n
     const settings = packSettingsOf(pack);
     const undeclaredKey = Object.keys(valuesByKey).find((key) => !settings.some((setting) => setting.key === key));
     if (undeclaredKey !== undefined) return { ok: false, error: `${packName} declares no setting ${undeclaredKey}` };
+    const plainSaved = await savePlainValues(packName, settings, valuesByKey);
+    if (!plainSaved.ok) return plainSaved;
     for (const key of secretKeysOf(settings)) {
       const value = valuesByKey[key] ?? '';
       if (value === '') continue;
       const failure = await saveSecret(packName, key, value);
-      if (failure !== null) return { ok: false, error: failure };
+      if (failure !== null) return { ok: false, error: `The text settings were saved, but ${failure}` };
     }
-    return savePlainValues(packName, settings, valuesByKey);
+    return { ok: true };
   }
 
   function unreadableText(plainError: string | null, readsByKey: ReadonlyMap<string, SecretRead>): string | null {
