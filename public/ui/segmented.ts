@@ -1,7 +1,7 @@
 import { el } from '../dom-helpers.ts';
 import { createPressable } from './pressable.ts';
 
-type SegmentedChoice<V extends string> = { readonly value: V; readonly label: string };
+type SegmentedChoice<V extends string> = { readonly value: V; readonly label: string; readonly icon?: SVGElement };
 
 type SegmentedName = { label: string; labelledBy?: never } | { labelledBy: string; label?: never };
 
@@ -32,6 +32,10 @@ export function segmented<const V extends string>(options: SegmentedOptions<V>):
   const segments = choices.map((choice) => {
     const segment = createPressable('ui-segmented-option', choice.label);
     segment.dataset.value = choice.value;
+    if (choice.icon) {
+      choice.icon.setAttribute('aria-hidden', 'true');
+      segment.prepend(choice.icon);
+    }
     segment.setAttribute('role', 'radio');
     segment.addEventListener('click', () => choose(choice.value));
     return segment;

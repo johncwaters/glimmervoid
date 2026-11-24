@@ -14,6 +14,15 @@
     margin: 0;
   }
 
+  .ui-segmented-option:has(> svg) {
+    display: inline-flex;
+  }
+
+  .ui-segmented-option > svg {
+    flex: none;
+    width: 14px;
+  }
+
   .ui-segmented[data-width="fill"] > .ui-segmented-option {
     flex: 1 1 auto;
     min-width: 0;
@@ -25,6 +34,15 @@
 }
 
 @layer primitive-look {
+  .ui-segmented-option:has(> svg) {
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ui-segmented-option > svg {
+    height: 14px;
+  }
+
   .ui-segmented {
     --segmented-height: var(--control-height);
     --segmented-padding-inline: var(--control-padding-inline);

@@ -305,16 +305,12 @@ function isReplayableStatus(status: MatchState['status']): boolean {
   return status === 'running' || status === 'finished' || status === 'aborted';
 }
 
-function trackLengthOf(state: MatchState, headState: MatchState): number {
-  return headState.status === 'running' ? state.spec.maxTicks : Math.max(1, headState.tick);
-}
-
 function turnTrackInputOf(state: MatchState): TurnTrackInput {
   const headState = wargamesSnapshot().headState ?? state;
   return {
     status: state.status,
     tick: state.tick,
-    maxTicks: trackLengthOf(state, headState),
+    maxTicks: state.spec.maxTicks,
     phase: state.phase,
     winnerSeatId: state.winnerSeatId,
     seats: state.seats.map((seat) => ({
@@ -1554,34 +1550,36 @@ function render(): void {
       el('span', 'wg-match-title', state.spec.title),
     );
     const headStatus = snap.headState?.status ?? state.status;
-    if (headStatus === 'running' || headStatus === 'seating') {
-      meta.append(button({
-        variant: 'danger',
-        size: 'small',
-        label: 'Abort match',
-        onClick: () => {
-          openConfirmDialog({
-            title: 'Abort Wargames match',
-            message: `Stop match ${state.matchId} now?`,
-            confirmLabel: 'Abort match',
-            danger: true,
-            onConfirm: () => {
-              void sendControlRequest('wargames-abort', { matchId: state.matchId }, { timeoutMs: 15_000 })
-                .then((reply) => {
-                  if (reply.type === 'wargames-abort-result' && !reply.ok) {
-                    bannerMessage = reply.error ?? 'Could not abort match.';
-                    render();
-                  }
-                })
-                .catch((reason: unknown) => {
-                  bannerMessage = `Could not abort match: ${formatError(reason)}`;
+    const abortButton = button({
+      variant: 'danger',
+      size: 'small',
+      label: 'Abort match',
+      onClick: () => {
+        openConfirmDialog({
+          title: 'Abort Wargames match',
+          message: `Stop match ${state.matchId} now?`,
+          confirmLabel: 'Abort match',
+          danger: true,
+          onConfirm: () => {
+            void sendControlRequest('wargames-abort', { matchId: state.matchId }, { timeoutMs: 15_000 })
+              .then((reply) => {
+                if (reply.type === 'wargames-abort-result' && !reply.ok) {
+                  bannerMessage = reply.error ?? 'Could not abort match.';
                   render();
-                });
-            },
-          });
-        },
-      }));
-    }
+                }
+              })
+              .catch((reason: unknown) => {
+                bannerMessage = `Could not abort match: ${formatError(reason)}`;
+                render();
+              });
+          },
+        });
+      },
+    });
+    const canAbort = headStatus === 'running' || headStatus === 'seating';
+    abortButton.disabled = !canAbort;
+    abortButton.classList.toggle('wg-slot-reserved', !canAbort);
+    meta.append(abortButton);
   }
   shell.header.replaceChildren(subTabs, meta);
 

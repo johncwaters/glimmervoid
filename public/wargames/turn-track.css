@@ -2,13 +2,25 @@
 
 .wg-track {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px 12px;
 }
 
-.wg-track-visual {
+.wg-track-turn {
+  width: 5ch;
+  color: var(--text-head);
+  font-family: var(--font-mono);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.wg-track-scrub {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
 }
 
 .wg-track-pips {
@@ -42,34 +54,34 @@
   background: var(--accent);
 }
 
-.wg-track-turn {
-  min-width: 5ch;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--type-meta);
-  font-variant-numeric: tabular-nums;
+.wg-track-pip[data-state="recorded"] {
+  box-shadow: none;
+  background: color-mix(in oklab, var(--text-dim) 45%, transparent);
 }
 
-.wg-track-phases {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.wg-track-scrubber {
+  position: absolute;
+  inset: 50% auto auto 0;
+  width: 160px;
+  height: 20px;
+  margin: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+  cursor: pointer;
 }
 
-.wg-track-phase {
-  width: 16px;
-  height: 16px;
-  color: var(--text-muted);
-  opacity: 0.45;
+.wg-track-scrubber:disabled {
+  cursor: default;
 }
 
-.wg-track-phase[data-state="active"] {
-  color: var(--accent);
-  opacity: 1;
+.wg-track-scrub:has(.wg-track-scrubber:focus-visible) .wg-track-pips {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
-.wg-track[data-mode="seating"] .wg-track-phase {
-  opacity: 0.25;
+.wg-track[data-mode="seating"] .wg-track-phases {
+  visibility: hidden;
 }
 
 .wg-track-clock {
@@ -103,11 +115,9 @@
 }
 
 .wg-track-clock[data-state="idle"] .wg-track-ring-arc,
-.wg-track-clock[data-state="ended"] .wg-track-ring {
-  visibility: hidden;
-}
-
-.wg-track[data-mode="seating"] .wg-track-ring {
+.wg-track-clock[data-state="ended"] .wg-track-ring,
+.wg-track[data-mode="seating"] .wg-track-ring,
+.wg-track[data-mode="replay"] .wg-track-ring {
   visibility: hidden;
 }
 
@@ -131,6 +141,11 @@
 .wg-track-end svg {
   width: 18px;
   height: 18px;
+}
+
+.wg-track-tag {
+  display: inline-flex;
+  width: 9ch;
 }
 
 .wg-track-seats {
@@ -165,62 +180,34 @@
   opacity: 0.3;
 }
 
-.wg-track {
-  gap: 12px;
-}
-
-.wg-track-scrub {
-  position: relative;
-  display: inline-flex;
+.wg-track-transport {
+  display: inline-grid;
   align-items: center;
+  justify-items: start;
 }
 
-.wg-track-scrubber {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 160px;
-  height: 20px;
-  margin: 0;
-  transform: translateY(-50%);
-  opacity: 0;
-  cursor: pointer;
+.wg-track-transport > * {
+  grid-area: 1 / 1;
 }
 
-.wg-track-scrub:has(.wg-track-scrubber:focus-visible) .wg-track-pips {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: 2px;
-}
-
-.wg-track-pip[data-state="recorded"] {
-  box-shadow: none;
-  background: color-mix(in oklab, var(--text-dim) 45%, transparent);
-}
-
-.wg-track[data-replay="on"] .wg-track-phases {
-  display: none;
-}
-
-.wg-track[data-mode="replay"] .wg-track-clock {
-  visibility: hidden;
-}
-
-.wg-track-replay {
+.wg-track-replay-controls {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.wg-track-phase-buttons {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-right: 6px;
+.wg-track-replay-controls > .ui-segmented {
+  margin-left: 6px;
 }
 
-.wg-track-replay > .ui-segmented {
-  margin-left: 6px;
+.wg-track[data-transport="none"] .wg-track-transport,
+.wg-track:not([data-transport="rewind"]) .wg-track-rewind,
+.wg-track[data-transport="rewind"] .wg-track-replay-controls {
+  visibility: hidden;
+}
+
+.wg-track-phases[inert] {
+  --border-dim: transparent;
 }
 
 @media (prefers-reduced-motion: no-preference) {

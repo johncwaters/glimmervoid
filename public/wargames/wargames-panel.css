@@ -49,6 +49,10 @@
   font-size: var(--type-meta);
 }
 
+.wg-slot-reserved {
+  visibility: hidden;
+}
+
 .wg-match-title {
   color: var(--text-head);
   font-size: var(--type-body);

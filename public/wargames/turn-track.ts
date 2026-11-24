@@ -9,7 +9,7 @@ import { tag } from '../ui/tag.ts';
 import { REPLAY_SPEEDS } from './replay-core.ts';
 import type { ReplaySpeed } from './replay-core.ts';
 import { ACTING_PHASE_GLYPHS, REPLAY_GLYPH_PATHS, WARGAMES_GLYPH_PATHS } from './wargames-glyphs.ts';
-import { deriveTurnTrack, TRACK_PHASES } from './turn-track-core.ts';
+import { deriveTurnTrack, PHASE_NAMES, TRACK_PHASES } from './turn-track-core.ts';
 import type { PhaseDeadline, TrackPhase, TurnTrackInput, TurnTrackView } from './turn-track-core.ts';
 import { SEAT_COLORS } from './wargames-map.ts';
 import './turn-track.css';
@@ -17,13 +17,6 @@ import './turn-track.css';
 const CLOCK_TICK_MS = 1000;
 const RING_SIZE = 32;
 const RING_RADIUS = 14;
-
-const PHASE_BUTTON_NAMES: Readonly<Record<TrackPhase, string>> = Object.freeze({
-  talk: 'Talk phase',
-  contracts: 'Negotiate phase',
-  orders: 'Orders phase',
-  resolving: 'Resolved turn',
-});
 
 interface TurnTrackReplayActions {
   seekTurn(tick: number): void;
@@ -34,29 +27,29 @@ interface TurnTrackReplayActions {
   jumpToEnd(): void;
 }
 
-interface ReplayParts {
+interface TransportParts {
   group: HTMLElement;
-  scrubber: HTMLInputElement;
-  phaseButtons: ReadonlyMap<TrackPhase, OutlineIconButton<'pressed'>>;
+  rewind: HTMLButtonElement;
   stepBack: HTMLButtonElement;
   play: OutlineIconButton<'pressed'>;
   stepForward: HTMLButtonElement;
   jumpToEnd: HTMLButtonElement;
   speed: Segmented<`${ReplaySpeed}`>;
-  replayTag: HTMLElement;
-  endTag: HTMLElement;
 }
 
 interface TurnTrackParts {
   summary: HTMLElement;
-  pipStrip: HTMLElement;
   turnCount: HTMLElement;
-  phaseGlyphs: ReadonlyMap<TrackPhase, SVGSVGElement>;
+  pipStrip: HTMLElement;
+  scrubber: HTMLInputElement | null;
+  phases: Segmented<TrackPhase>;
   ringSlot: HTMLElement;
   ringArc: SVGElement;
   ringText: HTMLElement;
   endGlyphSlot: HTMLElement;
+  modeTag: HTMLElement;
   seatStrip: HTMLElement;
+  transport: TransportParts | null;
 }
 
 export interface TurnTrack {
@@ -75,12 +68,11 @@ function buildRing(): { ring: SVGSVGElement; arc: SVGElement } {
   return { ring, arc };
 }
 
-function replayIcon(pathData: string): SVGSVGElement {
+function trackIcon(pathData: string): SVGSVGElement {
   return createLineIcon(pathData, '1.5');
 }
 
-function buildReplayParts(actions: TurnTrackReplayActions): ReplayParts {
-  const group = el('span', 'wg-track-replay');
+function buildScrubber(actions: TurnTrackReplayActions): HTMLInputElement {
   const scrubber = el('input', 'wg-track-scrubber') as HTMLInputElement;
   scrubber.type = 'range';
   scrubber.min = '1';
@@ -92,23 +84,29 @@ function buildReplayParts(actions: TurnTrackReplayActions): ReplayParts {
     if (String(tick) !== scrubber.value) scrubber.value = String(tick);
     actions.seekTurn(tick);
   });
-  const phaseStrip = el('span', 'wg-track-phase-buttons');
-  const phaseButtons = new Map<TrackPhase, OutlineIconButton<'pressed'>>();
-  for (const phase of TRACK_PHASES) {
-    const phaseButton = outlineIconButton({
-      label: PHASE_BUTTON_NAMES[phase],
-      icon: replayIcon(ACTING_PHASE_GLYPHS[phase]),
-      size: 'small',
-      states: ['idle', 'pressed'],
-      onClick: () => actions.seekPhase(phase),
-    });
-    phaseButtons.set(phase, phaseButton);
-    phaseStrip.append(phaseButton.element);
-  }
-  const stepBack = button({ variant: 'icon', size: 'small', label: 'Step back', icon: replayIcon(REPLAY_GLYPH_PATHS.stepBack), onClick: () => actions.stepTurn(-1) });
-  const play = outlineIconButton({ label: 'Play', icon: replayIcon(REPLAY_GLYPH_PATHS.play), size: 'small', states: ['idle', 'pressed'], onClick: () => actions.togglePlay() });
-  const stepForward = button({ variant: 'icon', size: 'small', label: 'Step forward', icon: replayIcon(REPLAY_GLYPH_PATHS.stepForward), onClick: () => actions.stepTurn(1) });
-  const jumpToEnd = button({ variant: 'icon', size: 'small', label: 'Jump to end', icon: replayIcon(REPLAY_GLYPH_PATHS.end), onClick: () => actions.jumpToEnd() });
+  return scrubber;
+}
+
+function buildPhaseControl(actions: TurnTrackReplayActions | null): Segmented<TrackPhase> {
+  const phases = segmented<TrackPhase>({
+    label: 'Phase',
+    size: 'small',
+    options: TRACK_PHASES.map((phase) => ({ value: phase, label: PHASE_NAMES[phase], icon: trackIcon(ACTING_PHASE_GLYPHS[phase]) })),
+    value: 'talk',
+    onChange: (phase) => actions?.seekPhase(phase),
+  });
+  phases.element.classList.add('wg-track-phases');
+  return phases;
+}
+
+function buildTransport(actions: TurnTrackReplayActions): TransportParts {
+  const group = el('span', 'wg-track-transport');
+  const rewind = button({ variant: 'quiet', size: 'small', label: 'Rewind', icon: trackIcon(REPLAY_GLYPH_PATHS.stepBack), onClick: () => actions.stepTurn(-1) });
+  rewind.classList.add('wg-track-rewind');
+  const stepBack = button({ variant: 'icon', size: 'small', label: 'Step back', icon: trackIcon(REPLAY_GLYPH_PATHS.stepBack), onClick: () => actions.stepTurn(-1) });
+  const play = outlineIconButton({ label: 'Play', icon: trackIcon(REPLAY_GLYPH_PATHS.play), size: 'small', states: ['idle', 'pressed'], onClick: () => actions.togglePlay() });
+  const stepForward = button({ variant: 'icon', size: 'small', label: 'Step forward', icon: trackIcon(REPLAY_GLYPH_PATHS.stepForward), onClick: () => actions.stepTurn(1) });
+  const jumpToEnd = button({ variant: 'icon', size: 'small', label: 'Jump to latest', icon: trackIcon(REPLAY_GLYPH_PATHS.end), onClick: () => actions.jumpToEnd() });
   const speed = segmented<`${ReplaySpeed}`>({
     label: 'Speed',
     size: 'small',
@@ -116,60 +114,38 @@ function buildReplayParts(actions: TurnTrackReplayActions): ReplayParts {
     value: '1',
     onChange: (value) => actions.setSpeed(Number(value) as ReplaySpeed),
   });
-  const replayTag = tag({ text: 'Replay', tone: 'muted' });
-  const endTag = tag({ text: 'End', tone: 'neutral' });
-  group.append(phaseStrip, stepBack, play.element, stepForward, jumpToEnd, speed.element, replayTag, endTag);
-  return { group, scrubber, phaseButtons, stepBack, play, stepForward, jumpToEnd, speed, replayTag, endTag };
+  const replayControls = el('span', 'wg-track-replay-controls');
+  replayControls.append(stepBack, play.element, stepForward, jumpToEnd, speed.element);
+  group.append(rewind, replayControls);
+  return { group, rewind, stepBack, play, stepForward, jumpToEnd, speed };
 }
 
-function syncReplay(parts: ReplayParts, view: TurnTrackView, maxTicks: number, tick: number): void {
-  const replay = view.replay;
-  parts.group.hidden = replay === null;
-  parts.scrubber.hidden = replay === null;
-  if (replay === null) return;
-  parts.scrubber.max = String(maxTicks);
-  parts.scrubber.dataset.headTick = String(replay.headTick);
-  parts.scrubber.value = String(Math.max(1, tick));
-  parts.scrubber.setAttribute('aria-valuetext', `Turn ${tick} of ${replay.headTick}`);
-  for (const [phase, phaseButton] of parts.phaseButtons) {
-    phaseButton.setState(phase === view.activePhase ? 'pressed' : 'idle');
-  }
-  parts.play.setState(replay.isPlaying ? 'pressed' : 'idle');
-  parts.stepBack.disabled = tick <= 1 && view.activePhase === 'talk';
-  parts.stepForward.disabled = replay.isAtHead;
-  parts.jumpToEnd.disabled = replay.isAtHead;
-  parts.speed.setValue(`${replay.speed}`);
-  parts.replayTag.hidden = replay.isAtHead;
-  parts.endTag.hidden = !(replay.isAtHead && (view.mode === 'finished' || view.mode === 'aborted'));
-}
-
-function buildParts(element: HTMLElement, replayParts: ReplayParts | null): TurnTrackParts {
+function buildParts(element: HTMLElement, actions: TurnTrackReplayActions | null): TurnTrackParts {
   const summary = el('span', 'sr-only');
-  const visual = el('span', 'wg-track-visual');
-  visual.setAttribute('aria-hidden', 'true');
-  const pipStrip = el('span', 'wg-track-pips');
   const turnCount = el('span', 'wg-track-turn');
-  const phaseStrip = el('span', 'wg-track-phases');
-  const phaseGlyphs = new Map<TrackPhase, SVGSVGElement>();
-  for (const phase of TRACK_PHASES) {
-    const glyph = createLineIcon(ACTING_PHASE_GLYPHS[phase], '1.5');
-    glyph.classList.add('wg-track-phase');
-    phaseGlyphs.set(phase, glyph);
-    phaseStrip.append(glyph);
-  }
+  turnCount.setAttribute('aria-hidden', 'true');
+  const pipStrip = el('span', 'wg-track-pips');
+  pipStrip.setAttribute('aria-hidden', 'true');
+  const scrub = el('span', 'wg-track-scrub');
+  const scrubber = actions ? buildScrubber(actions) : null;
+  scrub.append(pipStrip);
+  if (scrubber) scrub.append(scrubber);
+  const phases = buildPhaseControl(actions);
   const ringSlot = el('span', 'wg-track-clock');
+  ringSlot.setAttribute('aria-hidden', 'true');
   const { ring, arc } = buildRing();
   const ringText = el('span', 'wg-track-clock-text');
   const endGlyphSlot = el('span', 'wg-track-end');
   ringSlot.append(ring, ringText, endGlyphSlot);
+  const tagSlot = el('span', 'wg-track-tag');
+  const modeTag = tag({ text: '', tone: 'muted' });
+  tagSlot.append(modeTag);
   const seatStrip = el('span', 'wg-track-seats');
-  const scrub = el('span', 'wg-track-scrub');
-  scrub.append(visual);
-  if (replayParts) scrub.append(replayParts.scrubber);
-  visual.append(pipStrip, turnCount, phaseStrip, ringSlot, seatStrip);
-  element.append(summary, scrub);
-  if (replayParts) element.append(replayParts.group);
-  return { summary, pipStrip, turnCount, phaseGlyphs, ringSlot, ringArc: arc, ringText, endGlyphSlot, seatStrip };
+  seatStrip.setAttribute('aria-hidden', 'true');
+  const transport = actions ? buildTransport(actions) : null;
+  element.append(summary, turnCount, scrub, phases.element, ringSlot, tagSlot, seatStrip);
+  if (transport) element.append(transport.group);
+  return { summary, turnCount, pipStrip, scrubber, phases, ringSlot, ringArc: arc, ringText, endGlyphSlot, modeTag, seatStrip, transport };
 }
 
 function syncPips(pipStrip: HTMLElement, view: TurnTrackView): void {
@@ -200,11 +176,11 @@ function syncSeatDots(seatStrip: HTMLElement, view: TurnTrackView): void {
 
 function endGlyphOf(view: TurnTrackView): SVGSVGElement | null {
   if (view.mode === 'finished') {
-    const trophy = createLineIcon(TROPHY_ICON_PATH, '1.5');
+    const trophy = trackIcon(TROPHY_ICON_PATH);
     if (view.winnerSeatId) trophy.style.color = SEAT_COLORS[view.winnerSeatId];
     return trophy;
   }
-  if (view.mode === 'aborted') return createLineIcon(WARGAMES_GLYPH_PATHS.offline, '1.5');
+  if (view.mode === 'aborted') return trackIcon(WARGAMES_GLYPH_PATHS.offline);
   return null;
 }
 
@@ -223,24 +199,43 @@ function syncClock(parts: TurnTrackParts, view: TurnTrackView): void {
   parts.ringText.textContent = view.clock ? String(view.clock.secondsLeft) : '';
 }
 
-function render(element: HTMLElement, parts: TurnTrackParts, view: TurnTrackView, input: TurnTrackInput, replayParts: ReplayParts | null): void {
+function syncScrubber(scrubber: HTMLInputElement, view: TurnTrackView, input: TurnTrackInput): void {
+  scrubber.disabled = view.transport !== 'full';
+  scrubber.max = String(input.maxTicks);
+  scrubber.dataset.headTick = String(view.replay?.headTick ?? input.tick);
+  scrubber.value = String(Math.max(1, input.tick));
+  scrubber.setAttribute('aria-valuetext', `Turn ${input.tick} of ${view.replay?.headTick ?? input.maxTicks}`);
+}
+
+function syncTransport(transport: TransportParts, view: TurnTrackView, tick: number): void {
+  const replay = view.replay;
+  transport.rewind.disabled = view.transport !== 'rewind' || (tick <= 1 && view.activePhase === 'talk');
+  transport.stepBack.disabled = replay === null || (tick <= 1 && view.activePhase === 'talk');
+  transport.play.setState(replay?.isPlaying ? 'pressed' : 'idle');
+  transport.stepForward.disabled = replay === null || replay.isAtHead;
+  transport.jumpToEnd.disabled = replay === null || replay.isAtHead;
+  transport.speed.setValue(`${replay?.speed ?? 1}`);
+}
+
+function render(element: HTMLElement, parts: TurnTrackParts, view: TurnTrackView, input: TurnTrackInput): void {
   element.dataset.mode = view.mode;
+  element.dataset.transport = view.transport;
   parts.summary.textContent = view.spokenSummary;
-  syncPips(parts.pipStrip, view);
   parts.turnCount.textContent = view.turnText;
-  for (const [phase, glyph] of parts.phaseGlyphs) {
-    glyph.dataset.state = phase === view.activePhase ? 'active' : 'idle';
-  }
+  syncPips(parts.pipStrip, view);
+  if (parts.scrubber) syncScrubber(parts.scrubber, view, input);
+  if (view.activePhase) parts.phases.setValue(view.activePhase);
+  parts.phases.element.inert = view.transport !== 'full';
   syncClock(parts, view);
+  parts.modeTag.textContent = view.tag.text;
+  parts.modeTag.dataset.tone = view.tag.tone;
   syncSeatDots(parts.seatStrip, view);
-  element.dataset.replay = view.replay === null ? 'off' : 'on';
-  if (replayParts) syncReplay(replayParts, view, input.maxTicks, input.tick);
+  if (parts.transport) syncTransport(parts.transport, view, input.tick);
 }
 
 export function createTurnTrack(replayActions: TurnTrackReplayActions | null = null): TurnTrack {
   const element = el('div', 'wg-track');
-  const replayParts = replayActions ? buildReplayParts(replayActions) : null;
-  const parts = buildParts(element, replayParts);
+  const parts = buildParts(element, replayActions);
   let latestInput: TurnTrackInput | null = null;
   let latestDeadline: PhaseDeadline | null = null;
   let clockTimer: ReturnType<typeof setInterval> | null = null;
@@ -254,7 +249,7 @@ export function createTurnTrack(replayActions: TurnTrackReplayActions | null = n
   function redraw(): TurnTrackView | null {
     if (latestInput === null) return null;
     const view = deriveTurnTrack(latestInput, latestDeadline, clock.nowMs());
-    render(element, parts, view, latestInput, replayParts);
+    render(element, parts, view, latestInput);
     return view;
   }
 
