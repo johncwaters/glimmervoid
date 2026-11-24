@@ -85,14 +85,14 @@ async function playLive(): Promise<void> {
 }
 
 const EARLIER_PAGE_RECORDS = 40;
-const EARLIER_PAGE_REPLY_MS = 100;
+const EARLIER_PAGE_REPLY_MS = Number(new URLSearchParams(location.search).get('reply') ?? '100');
 
 function playEarlier(): void {
   const feed = createChatFeed({
     sessionId: 'harness',
     workingDirectory: null,
     requestPage: async (payload) => {
-      await new Promise((resolve) => setTimeout(resolve, EARLIER_PAGE_REPLY_MS));
+      if (EARLIER_PAGE_REPLY_MS > 0) await new Promise((resolve) => setTimeout(resolve, EARLIER_PAGE_REPLY_MS));
       const pageEnd = 'endingAt' in payload && typeof payload.endingAt === 'number' ? payload.endingAt : traceRecords.length;
       const pageStart = Math.max(0, pageEnd - EARLIER_PAGE_RECORDS);
       document.body.dataset.earliestOffset = String(pageStart);

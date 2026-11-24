@@ -21,6 +21,7 @@ interface StickToBottom {
   jumpButton: HTMLButtonElement;
   followLatest(): void;
   keepInPlace(anchor: HTMLElement, change: () => void): void;
+  keepPlaceWhileLoading(anchor: HTMLElement, change: () => void): void;
 }
 
 function distanceFromBottom(scroller: HTMLElement): number {
@@ -91,12 +92,25 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
     scrollToBottom();
   };
   jumpButton.addEventListener('click', followLatest);
-  const keepInPlace = (anchor: HTMLElement, change: () => void) => {
+  const holdAnchor = (anchor: HTMLElement, change: () => void) => {
     const anchorTopBefore = anchor.getBoundingClientRect().top;
     change();
     scroller.scrollTop += anchor.getBoundingClientRect().top - anchorTopBefore;
     lastScrollTop = scroller.scrollTop;
+  };
+  const keepInPlace = (anchor: HTMLElement, change: () => void) => {
+    holdAnchor(anchor, change);
     receive(distanceFromBottom(scroller) <= 1 ? 'reach-bottom' : 'scroll-up');
+  };
+  const hasScrolledUpUnseen = () => scroller.scrollTop < lastScrollTop - 1 && distanceFromBottom(scroller) > BOTTOM_THRESHOLD_PX;
+  const keepPlaceWhileLoading = (anchor: HTMLElement, change: () => void) => {
+    if (hasScrolledUpUnseen()) receive('scroll-up');
+    if (mode === 'escaped') {
+      holdAnchor(anchor, change);
+      return;
+    }
+    change();
+    scrollToBottom();
   };
   const restorePlace = () => {
     if (mode === 'following') {
@@ -109,5 +123,5 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   followObserver.observe(content, { box: 'border-box' });
   followObserver.observe(scroller);
   watchReconnects(scroller, restorePlace);
-  return { jumpButton, followLatest, keepInPlace };
+  return { jumpButton, followLatest, keepInPlace, keepPlaceWhileLoading };
 }

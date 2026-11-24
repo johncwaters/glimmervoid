@@ -133,18 +133,27 @@ async function checkTurnKeys(page: Page): Promise<string> {
 async function checkEarlierFills(url: string, executablePath: string | null): Promise<string> {
   const chromium = await browserTypeOf('chromium');
   const browser = await chromium.launch(executablePath ? { executablePath } : {});
-  const page = await browser.newPage({ viewport: { width: 900, height: 1100 } });
-  await page.goto(`${url}${url.includes('?') ? '&' : '?'}earlier`);
-  const isFilled = await page.waitForFunction(() => {
-    const scroller = document.querySelector('.chat-scroller');
-    return scroller !== null && scroller.scrollHeight > scroller.clientHeight;
-  }, null, { timeout: 10000 }).then(() => true, () => false);
-  const shownPartCount = await page.locator('[data-part-id]').count();
-  const earliestRecord = await page.evaluate(() => document.body.dataset.earliestOffset ?? 'none');
-  await browser.close();
-  if (!isFilled) throw new Error(`earlier history stopped loading with ${shownPartCount} parts shown, earliest record ${earliestRecord}`);
-  return `earlier history filled the Chat: ${shownPartCount} parts shown, earliest record ${earliestRecord}`;
+  try {
+    const page = await browser.newPage({ viewport: { width: 900, height: EARLIER_VIEWPORT_HEIGHT_PX } });
+    await page.goto(`${url}${url.includes('?') ? '&' : '?'}earlier&reply=0`);
+    const isFilled = await page.waitForFunction(() => {
+      const scroller = document.querySelector('.chat-scroller');
+      return scroller !== null && scroller.scrollHeight > scroller.clientHeight;
+    }, null, { timeout: 10000 }).then(() => true, () => false);
+    await page.waitForTimeout(EARLIER_SETTLE_MS);
+    const shownPartCount = await page.locator('[data-part-id]').count();
+    const earliestRecord = await page.evaluate(() => document.body.dataset.earliestOffset ?? 'none');
+    if (!isFilled) throw new Error(`earlier history stopped loading with ${shownPartCount} parts shown, earliest record ${earliestRecord}`);
+    const opened = await readScrollPlace(page);
+    if (opened.distanceFromBottomPx > 1 || opened.isJumpShown) throw new Error(`earlier history pulled the Chat ${opened.distanceFromBottomPx}px above the latest message, Jump to latest ${opened.isJumpShown ? 'shown' : 'hidden'}`);
+    return `earlier history filled the Chat at the latest message: ${shownPartCount} parts shown, earliest record ${earliestRecord}`;
+  } finally {
+    await browser.close();
+  }
 }
+
+const EARLIER_SETTLE_MS = 1000;
+const EARLIER_VIEWPORT_HEIGHT_PX = 300;
 
 interface ChatScrollPlace {
   scrollTopPx: number;

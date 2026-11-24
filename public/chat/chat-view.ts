@@ -221,7 +221,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   const queuedList = el('div', 'chat-queued-list');
   const turnEndRow = el('div', 'chat-turn-end-row');
   const scrollContent = el('div', 'chat-scroll-content');
-  const { jumpButton, followLatest, keepInPlace } = stickToBottom(scroller, scrollContent);
+  const { jumpButton, followLatest, keepInPlace, keepPlaceWhileLoading } = stickToBottom(scroller, scrollContent);
   const chatLog = createChatLog(uploadUrlOf, keepInPlace);
   element.toggleAttribute('data-loading', true);
   element.setAttribute('aria-busy', 'true');
@@ -256,7 +256,7 @@ export function createChatView(uploadUrlOf: (fileName: string) => string): ChatV
   scroller.addEventListener('scroll', announceNearTop, { passive: true });
   new ResizeObserver(announceNearTop).observe(scrollContent);
   const replaceLogParts = (replacedPartIds: readonly string[], parts: readonly ChatPart[]) => {
-    keepInPlace(activity.element, () => chatLog.replaceParts(replacedPartIds, parts));
+    keepPlaceWhileLoading(activity.element, () => chatLog.replaceParts(replacedPartIds, parts));
     announceNearTop();
   };
   const upsert = (parts: readonly ChatPart[], arrivingPartIds: ReadonlySet<string>) => {
