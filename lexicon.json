@@ -1561,6 +1561,14 @@
     {
       "name": "clock",
       "definition": "The time source code reads the current time from (shared/clock.ts), which a pure core never reads; a Wargames phase clock is the time left in the current phase that the runner sends on the wargames-events frame"
+    },
+    {
+      "name": "tangle",
+      "definition": "A set of top-level symbols (functions, types, terms) that reference each other in a circle, read from a SCIP index, spanning more than one code map module or more than the maxTangleSymbols tunable; codemap check refuses a new one"
+    },
+    {
+      "name": "shallow module",
+      "definition": "A code map module whose top-level symbols referenced from other modules number more than the maxShownSymbols tunable and at least as many as it keeps to itself, read from a SCIP index; codemap check refuses a branch that makes one"
     }
   ],
   "retired": [

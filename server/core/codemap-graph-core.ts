@@ -23,6 +23,8 @@ export const CODEMAP_TUNABLES = Object.freeze({
   failureRetryMs: 60_000,
   listedPathsPerSection: 30,
   listedModules: 300,
+  maxTangleSymbols: 7,
+  maxShownSymbols: 7,
 });
 
 const ROOT_MODULE = '.';
