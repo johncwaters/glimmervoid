@@ -7,7 +7,13 @@ import { claudeProjectsDir } from '../../session/core/conversation-history.ts';
 import type { TailState } from '../core/transcript-tail-core.ts';
 import type { JsonStateWriter } from '../json-file.ts';
 import type { LaneLog } from '../lanes/lane-log.ts';
+import type { StopWatching } from '../path-watch.ts';
 import type { TranscriptConversationSource } from './conversation-sources.ts';
+
+function stopFollowingBinding(binding: TraceBinding): void {
+  binding.stopFollowingTranscript();
+  binding.bindingBeforeFirstOpen?.stopFollowingTranscript();
+}
 
 const MAX_REMEMBERED_FILE_REFUSALS = 64;
 const MAX_REMEMBERED_CLOSED_SESSIONS = 512;
@@ -33,6 +39,7 @@ interface TraceBinding {
   hasOpenedTranscript: boolean;
   hasWarnedUnreadable: boolean;
   isClosing: boolean;
+  stopFollowingTranscript: StopWatching;
 }
 
 interface TraceResumeState {
@@ -92,6 +99,7 @@ export {
   MAX_REMEMBERED_FILE_REFUSALS,
   TRACE_SUFFIX,
   realProjectsRoot,
+  stopFollowingBinding,
   trimOldest,
 };
 export type { LineContext, TraceBinding, TraceResumeState, TraceWiringContext };

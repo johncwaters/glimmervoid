@@ -342,7 +342,18 @@ function createUsageWiring({
     return startPromise;
   }
 
-  async function runPassAndPush({ force, scopeDirs = null }: { force: boolean; scopeDirs?: string[] | null }) {
+  let passSettled: Promise<void> | null = null;
+
+  function runPassAndPush(request: { force: boolean; scopeDirs?: string[] | null }) {
+    const pass = runPassAndPushOnce(request);
+    const settled = pass.then(() => {}, () => {}).finally(() => {
+      if (passSettled === settled) passSettled = null;
+    });
+    passSettled = settled;
+    return pass;
+  }
+
+  async function runPassAndPushOnce({ force, scopeDirs = null }: { force: boolean; scopeDirs?: string[] | null }) {
     if (stopped || !scanner) return null;
     passInFlight = true;
     let result: PassResult | null = null;
@@ -767,7 +778,7 @@ function createUsageWiring({
   }
 
   function releaseHold(): void {
-    const wasHeld = isHeld();
+    const wasHeld = isHeld() || budgetHoldReason() !== null;
     budgetHold = { kind: 'read', holdReason: null };
     if (wasHeld) onBudgetHold('end');
   }
@@ -797,7 +808,15 @@ function createUsageWiring({
     return `the ${scopes.join(' and ')} budget was reached earlier this period, so sessions stay paused until it rolls over`;
   }
 
+  async function flushNudgedSpend(): Promise<void> {
+    while (passSettled !== null) await passSettled;
+    if (!nudge.isArmed || stopped || !scanner) return;
+    nudge.cancel();
+    await runPassAndPush({ force: false, scopeDirs: takeNudgedTranscriptDirs() });
+  }
+
   async function readBudgetHoldReason(): Promise<string | null> {
+    if (cfg.budget.pauseAtLimit) await flushNudgedSpend();
     if (budgetStatePath && cfg.budget.pauseAtLimit) await loadBudgetState();
     return budgetHoldReason();
   }

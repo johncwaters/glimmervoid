@@ -558,6 +558,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     spawnGate,
     memoryAdmission: laneAssembly.memoryAdmission,
     budgetHoldReason: laneAssembly.budgetHoldReason,
+    readBudgetHoldReason: laneAssembly.readBudgetHoldReason,
     recordLane,
     sessionDocs,
     operatorState: {
@@ -951,6 +952,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
   if (agentApi) {
     watcherLink.registerAlarmSource(agentApi.sessionWakes);
     agentApi.sessionWakes.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);
+    laneAssembly.onBudgetHoldReleased(agentApi.sessionWakes.noteBudgetHoldReleased);
   }
   watcherLink.registerAlarmSource(laneAssembly.packLaunchers);
   laneAssembly.packLaunchers.onAlarmsMayHaveChanged(watcherLink.probesMayHaveChanged);

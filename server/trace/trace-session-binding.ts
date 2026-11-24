@@ -3,10 +3,11 @@ import path from 'node:path';
 import { openContainedFile } from '../contained-file.ts';
 import { createTailState } from '../core/transcript-tail-core.ts';
 import { createJsonStateWriter } from '../json-file.ts';
+import { watchPath } from '../path-watch.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { MANAGER_DECISION_EVENT, ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { BACKGROUND_TASK_SIGNAL_EVENT, BackgroundTaskSignal, MAX_RAW_LINE_CHARS, SUBAGENT_SIGNAL_EVENT, SubagentSignal } from '../../shared/contracts/trace.ts';
-import { MAX_REMEMBERED_CLOSED_SESSIONS, trimOldest } from './trace-wiring-context.ts';
+import { MAX_REMEMBERED_CLOSED_SESSIONS, stopFollowingBinding, trimOldest } from './trace-wiring-context.ts';
 import { containmentRootFor, relaySourceOf, transcriptSourceOf } from './conversation-sources.ts';
 import type { TranscriptConversationSource } from './conversation-sources.ts';
 import type { TraceBinding, TraceWiringContext } from './trace-wiring-context.ts';
@@ -29,6 +30,8 @@ interface TraceSessionBindingDeps {
   drain: TraceTranscriptDrain;
   subagentCapture: TraceSubagentCapture;
 }
+
+const TRANSCRIPT_WATCH_DEBOUNCE_MS = 50;
 
 function predecessorAwaitingDrain(previous: TraceBinding | undefined): TraceBinding | null {
   if (!previous) return null;
@@ -119,10 +122,39 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       hasOpenedTranscript: transcriptStat !== null,
       hasWarnedUnreadable: false,
       isClosing: false,
+      stopFollowingTranscript: () => {},
     };
     if (resumed) noteResumeOutcome(binding, resumed);
+    for (const replaced of [previous, previous?.bindingBeforeFirstOpen]) {
+      if (replaced && replaced !== binding.bindingBeforeFirstOpen) replaced.stopFollowingTranscript();
+    }
     bindingByGlimmervoidSessionId.set(glimmervoidSessionId, binding);
+    binding.stopFollowingTranscript = watchPath(transcriptPath, () => drainWhileBound(binding), {
+      debounceMs: TRANSCRIPT_WATCH_DEBOUNCE_MS,
+      onUnwatchable: (target, reason) => laneLog.warnOnce(`watch:${glimmervoidSessionId}`, 'transcript unwatchable; trace fills at turn end', { session: glimmervoidSessionId, path: target, reason }),
+    });
     await drainBinding(binding);
+  }
+
+  function drainAtTurnEnd(glimmervoidSessionId: string): void {
+    chain(async () => {
+      const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
+      if (isStopped() || !binding || binding.isClosing) return;
+      await drainBinding(binding);
+    }, 'turn-end drain failed');
+  }
+
+  function drainWhileBound(binding: TraceBinding): void {
+    chain(async () => {
+      const current = bindingByGlimmervoidSessionId.get(binding.glimmervoidSessionId);
+      const drainTarget = current === binding || current?.bindingBeforeFirstOpen === binding ? current : null;
+      if (drainTarget === null) {
+        binding.stopFollowingTranscript();
+        return;
+      }
+      if (isStopped() || drainTarget.isClosing) return;
+      await drainBinding(drainTarget);
+    }, 'drain failed');
   }
 
   function locateAndBind(glimmervoidSessionId: string, vendorSessionId: string, vendor: string, source: TranscriptConversationSource, bound: TraceBinding | undefined): void {
@@ -191,6 +223,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
       if (!binding) return;
       bindingByGlimmervoidSessionId.delete(glimmervoidSessionId);
+      stopFollowingBinding(binding);
       await drainBinding(binding);
     }, 'final drain failed');
   }
@@ -199,6 +232,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     const binding = bindingByGlimmervoidSessionId.get(glimmervoidSessionId);
     if (!binding) return;
     binding.isClosing = closedSessionIds.has(glimmervoidSessionId);
+    if (binding.isClosing) stopFollowingBinding(binding);
     await drainBinding(binding);
   }
 
@@ -300,6 +334,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     session.on('chat-board-answer-sent', (payload) => { appendSentBoardAnswer(session.id, payload); });
     session.on(SUBAGENT_SIGNAL_EVENT, (payload) => { appendSubagentSignal(session.id, payload); });
     session.on(BACKGROUND_TASK_SIGNAL_EVENT, (payload) => { appendBackgroundTaskSignal(session.id, payload); });
+    session.on('post-turn-check', () => { drainAtTurnEnd(session.id); });
     session.on('exit', () => { detachSession(session.id); });
     session.on('teardown', () => { closeSession(session.id); });
   }

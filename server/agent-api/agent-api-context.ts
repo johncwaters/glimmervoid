@@ -76,6 +76,7 @@ interface AgentApiWiringOptions {
   codemap?: Pick<CodemapService, 'handle'> | null;
   boardAsks?: Pick<BoardAsks, 'ask'> | null;
   budgetHoldReason?: () => string | null;
+  readBudgetHoldReason?: () => Promise<string | null>;
   logger?: Pick<Console, 'warn'>;
   setTimeoutFn?: SetTimeoutFn;
   clearTimeoutFn?: ClearTimeoutFn;

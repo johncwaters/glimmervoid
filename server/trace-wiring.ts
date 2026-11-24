@@ -9,7 +9,7 @@ import { errorMessage } from '../shared/text.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../shared/timer-deps.ts';
 import type { ClearIntervalFn, SetIntervalFn } from '../shared/timer-deps.ts';
 import { createSerialQueue } from './spawn-gate.ts';
-import { CHECKPOINT_SUFFIX, TRACE_SUFFIX } from './trace/trace-wiring-context.ts';
+import { CHECKPOINT_SUFFIX, TRACE_SUFFIX, stopFollowingBinding } from './trace/trace-wiring-context.ts';
 import type { TraceBinding, TraceWiringContext } from './trace/trace-wiring-context.ts';
 import { createTraceRecordStore } from './trace/trace-record-store.ts';
 import type { TraceAppended, TracePage, TracePageRequest } from './trace/trace-record-store.ts';
@@ -21,7 +21,6 @@ import { clock } from '../shared/clock.ts';
 
 const TRACE_RETAIN_DAYS = 7;
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
-const POLL_INTERVAL_MS = 2000;
 
 interface TraceWiringOptions {
   configPath?: string | null;
@@ -68,7 +67,6 @@ function createTraceWiring({
   const pendingRecordsBySessionId = new Map<string, TraceRecord[]>();
   const closedSessionIds = new Set<string>();
   let pruneTimer: NodeJS.Timeout | null = null;
-  let pollTimer: NodeJS.Timeout | null = null;
   let hasStarted = false;
   let hasStopped = false;
   let stopPromise: Promise<void> | null = null;
@@ -102,14 +100,6 @@ function createTraceWiring({
   const { readTracePage, flushEverySession } = recordStore;
   const { drainBinding } = drain;
 
-  async function pollBoundTranscripts(): Promise<void> {
-    if (hasStopped) return;
-    for (const binding of [...bindingByGlimmervoidSessionId.values()]) {
-      if (binding.isClosing) continue;
-      await drainBinding(binding);
-    }
-  }
-
   async function prune(): Promise<void> {
     await pruneTraceFiles({
       traceDirectory,
@@ -124,11 +114,6 @@ function createTraceWiring({
     await prune();
     pruneTimer = setIntervalFn(() => { chain(prune, 'prune failed'); }, PRUNE_INTERVAL_MS);
     unrefTimer(pruneTimer);
-    pollTimer = setIntervalFn(() => {
-      if (bindingByGlimmervoidSessionId.size === 0) return;
-      chain(pollBoundTranscripts, 'poll failed');
-    }, POLL_INTERVAL_MS);
-    unrefTimer(pollTimer);
   }
 
   async function drainSession(glimmervoidSessionId: string): Promise<void> {
@@ -148,12 +133,11 @@ function createTraceWiring({
 
   async function stopOnce(): Promise<void> {
     if (pruneTimer) clearIntervalFn(pruneTimer);
-    if (pollTimer) clearIntervalFn(pollTimer);
     pruneTimer = null;
-    pollTimer = null;
     await operationQueue.idle();
     for (const binding of [...bindingByGlimmervoidSessionId.values()]) {
       bindingByGlimmervoidSessionId.delete(binding.glimmervoidSessionId);
+      stopFollowingBinding(binding);
       try {
         await drainBinding(binding);
       } catch (error) {

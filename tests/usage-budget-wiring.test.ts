@@ -253,6 +253,19 @@ test('a budget hold saved before a restart is read before any dashboard connects
   assert.match(String(await restarted.wiring.readBudgetHoldReason()), /daily budget was reached earlier this period/);
 });
 
+test('a spawn-time budget read counts spend a live transcript just nudged in, without waiting for the nudge debounce', async () => {
+  const root = await makeTempRoot();
+  const usage = { budget: { dailyUsd: 16, pauseAtLimit: true } };
+  const live = harness({ root, usage, spend: { todayUsd: 12, monthUsd: 12 } });
+  await live.wiring.start();
+  assert.equal(await live.wiring.readBudgetHoldReason(), null);
+
+  live.state.spend = { todayUsd: 16.5, monthUsd: 16.5 };
+  live.wiring.nudgeSession(path.join(root, 'projects', 'transcript.jsonl'));
+  assert.match(String(await live.wiring.readBudgetHoldReason()), /daily spend \$16\.50 reached its \$16\.00 budget/);
+  live.wiring.stop();
+});
+
 test('an unreadable budget state warns, keeps its bytes, and never rewrites them', async () => {
   const root = await makeTempRoot();
   const statePath = path.join(root, '.glimmervoid', 'usage-budget-state.json');

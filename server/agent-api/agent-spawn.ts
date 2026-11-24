@@ -31,7 +31,7 @@ function spawnAgentSetup(agentId: string, request: AgentSpawnRequest): AgentSetu
 }
 
 function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
-  const { config, agentSessions, listAllSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane, memoryAdmission, budgetHoldReason, logger } = runtime;
+  const { config, agentSessions, listAllSessions, makeSession, wireSessionEvents, closeSessionDataClients, broadcastControl, spawnGate, recordLane, memoryAdmission, readBudgetHoldReason, logger } = runtime;
   const { noteEndCause, forgetLink, openChildChannel, settleChildWorktree } = channels;
 
   async function describeMemoryShortfall(): Promise<string | null> {
@@ -46,8 +46,8 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
     return `memory is low: ${toMegabytes(shortfall.headroomBytes)} MB free${heldClause}, and a new session needs ${toMegabytes(shortfall.reserveBytes)} MB. Try again once other work finishes`;
   }
 
-  function refuseByBudget(parent: Session): SpawnOutcome | null {
-    const holdReason = budgetHoldReason();
+  async function refuseByBudget(parent: Session): Promise<SpawnOutcome | null> {
+    const holdReason = await readBudgetHoldReason();
     if (holdReason !== null) return { ok: false, status: 429, error: `no new sessions: ${holdReason}` };
     const allowance = decideSpawnAllowance({ ...parent.agentSpawnBudget(), maxLiveChildren: config.spawnedSessionsMax ?? SPAWNED_SESSIONS_DEFAULT });
     if (allowance.ok) return null;
@@ -69,7 +69,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
   }
 
   async function spawn(parent: Session, request: AgentSpawnRequest): Promise<SpawnOutcome> {
-    const budgetRefusal = refuseByBudget(parent);
+    const budgetRefusal = await refuseByBudget(parent);
     if (budgetRefusal) return budgetRefusal;
     if (request.agent && !isKnownAgentId(request.agent)) {
       return { ok: false, status: 400, error: `unknown agent ${request.agent}` };
@@ -78,7 +78,7 @@ function createAgentSpawner(runtime: AgentApiRuntime, channels: ChildChannels) {
     const { hasParentEnded, memoryShortfall } = await describeMemoryShortfallWhileParentLives(parent);
     if (hasParentEnded) return { ok: false, status: 409, error: PARENT_ENDED_MESSAGE };
     if (memoryShortfall) return { ok: false, status: 503, error: memoryShortfall };
-    const budgetRefusalAfterMemoryRead = refuseByBudget(parent);
+    const budgetRefusalAfterMemoryRead = await refuseByBudget(parent);
     if (budgetRefusalAfterMemoryRead) return budgetRefusalAfterMemoryRead;
     const budget = parent.agentSpawnBudget();
 

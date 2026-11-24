@@ -415,7 +415,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     liveSessionIds: () => new Set(allLiveSessions().map((session) => session.id)),
   });
   const traceChangeBroadcast = createTraceChangeBroadcast({ source: traceWiring, broadcast: broadcastControl });
-  traceWiring.on('trace-appended', ({ id, opensOperatorTurn, usageLimit }) => {
+  traceWiring.on('trace-appended', ({ id, opensOperatorTurn, usageLimit, transcriptPath }) => {
+    if (transcriptPath !== null && allLiveSessions().some((session) => session.id === id && session.agentId === 'claude-code')) usage.nudgeSession(transcriptPath);
     if (opensOperatorTurn) sessions.get(id)?.noteChatPromptRecorded();
     if (usageLimit !== null) sessions.get(id)?.noteUsageLimit(usageLimit);
   });
@@ -447,6 +448,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     accountHomeFor: laneAccountHomeFor(() => configStore.config, 'question-manager'),
   }));
 
+  const budgetHoldReleaseListeners = new Set<() => void>();
+  const pauseSessionsForBudget = createBudgetSessionPauser(allLiveSessions, timeClock.nowMs);
   const usage = createUsageWiring({
     config,
     sessions,
@@ -458,7 +461,10 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     laneMap: () => laneLedger.laneMap(),
     telemetry,
     budgetStatePath: configSiblingPath(configStore.configPath, 'usage-budget-state.json'),
-    onBudgetHold: createBudgetSessionPauser(allLiveSessions, timeClock.nowMs),
+    onBudgetHold: (phase) => {
+      if (phase === 'end') for (const listener of budgetHoldReleaseListeners) listener();
+      return pauseSessionsForBudget(phase);
+    },
     logger,
     debug: () => configStore.getSettings().debugMode === true,
     ...(options.usageWiringOptions || {}),
@@ -552,6 +558,8 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     current,
     starHint,
     budgetHoldReason: () => usage.budgetHoldReason(),
+    readBudgetHoldReason: () => usage.readBudgetHoldReason(),
+    onBudgetHoldReleased: (listener: () => void) => { budgetHoldReleaseListeners.add(listener); },
     readGithubIssue: createGithubIssueReader(githubStore.laneStore),
     gitWorkspace,
     gitWorkspaceSync,

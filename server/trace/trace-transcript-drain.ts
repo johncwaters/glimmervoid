@@ -177,6 +177,7 @@ function createTraceTranscriptDrain(
     try {
       if (!binding.hasOpenedTranscript) {
         if (binding.bindingBeforeFirstOpen) await drainBinding(binding.bindingBeforeFirstOpen);
+        binding.bindingBeforeFirstOpen?.stopFollowingTranscript();
         binding.bindingBeforeFirstOpen = null;
         binding.transcriptPath = opened.file.realPath;
         const stat = await opened.file.handle.stat();

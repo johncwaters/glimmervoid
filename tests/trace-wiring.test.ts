@@ -20,7 +20,7 @@ process.env.CLAUDE_CONFIG_DIR = claudeHome;
 const projectsRoot = path.join(claudeHome, 'projects');
 fs.mkdirSync(projectsRoot, { recursive: true });
 
-const POLL_MS = 2000;
+const TRANSCRIPT_WATCH_SETTLE_MS = 250;
 const PRUNE_MS = 24 * 60 * 60 * 1000;
 
 class TestTraceSession extends EventEmitter {
@@ -83,7 +83,10 @@ function createHarness(
   return {
     wiring,
     timers,
-    poll: () => fire(POLL_MS),
+    poll: async () => {
+      await new Promise((resolve) => setTimeout(resolve, TRANSCRIPT_WATCH_SETTLE_MS));
+      await wiring.whenIdle();
+    },
     firePrune: () => fire(PRUNE_MS),
     tracePath: (glimmervoidSessionId: string) => path.join(configDirectory, 'traces', `${glimmervoidSessionId}.jsonl`),
     checkpointPath: (glimmervoidSessionId: string) => path.join(configDirectory, 'traces', `${glimmervoidSessionId}.checkpoint.json`),

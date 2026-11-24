@@ -54,6 +54,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   let isLoaded = false;
   const recheckAtById = new Map<string, number>();
   let lastBudgetHeldAtMs = Number.NEGATIVE_INFINITY;
+  const budgetHeldWakeIds = new Set<string>();
   const lastRateLimitedAtMsBySessionId = new Map<string, number>();
   const resumingWakeIds = new Set<string>();
   const watchedSessions = new WeakSet<Session>();
@@ -149,9 +150,17 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     armTimer();
   }
 
+  function noteBudgetHoldReleased(): void {
+    for (const wakeId of budgetHeldWakeIds) recheckAtById.delete(wakeId);
+    evaluateSoon();
+  }
+
   function watchSession(session: Session): void {
     if (watchedSessions.has(session)) return;
     watchedSessions.add(session);
+    const waitingWakes = pendingWakesOf(session.id);
+    for (const wake of waitingWakes) recheckAtById.delete(wake.id);
+    if (waitingWakes.length > 0) evaluateSoon();
     budget.watchOperatorInput(session);
     session.on('state-change', evaluateSoon);
     session.on('turn-end-held', evaluateSoon);
@@ -219,9 +228,11 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
   }
 
   function evaluateWake(wake: Wake, nowMs: number): void {
+    if (budgetHeldWakeIds.delete(wake.id)) lastBudgetHeldAtMs = nowMs;
     if (budgetHoldReason() !== null) {
       lastBudgetHeldAtMs = nowMs;
-      recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
+      recheckAtById.set(wake.id, clock.startOfDay(nowMs, -1));
+      budgetHeldWakeIds.add(wake.id);
       return;
     }
     const graceAnchoredWake = wake.nextFireAt < lastBudgetHeldAtMs ? { ...wake, nextFireAt: lastBudgetHeldAtMs } : wake;
@@ -231,7 +242,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
       return;
     }
     if (!session) {
-      recheckAtById.set(wake.id, nowMs + WAKE_RECHECK_MS);
+      recheckAtById.set(wake.id, graceAnchoredWake.nextFireAt + limits.missedGraceMs + 1);
       return;
     }
     watchSession(session);
@@ -353,7 +364,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     if (!isLoaded && filePath !== null) unrefTimer(setTimeoutFn(() => void start(), WAKE_RECHECK_MS));
   }
 
-  return { alarms, cancelForOperator, handleAgent, scheduleAtLimitReset, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, pendingWakesBySession, start, watchSession };
+  return { alarms, cancelForOperator, handleAgent, scheduleAtLimitReset, onAlarm: evaluateSoon, onAlarmsMayHaveChanged, noteBudgetHoldReleased, pendingWakesBySession, start, watchSession };
 }
 
 type WakeWiring = ReturnType<typeof createWakeWiring>;

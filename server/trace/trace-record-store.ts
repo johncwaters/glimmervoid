@@ -12,6 +12,7 @@ export interface TraceAppended {
   id: string;
   opensOperatorTurn: boolean;
   usageLimit: UsageLimit | null;
+  transcriptPath: string | null;
 }
 import { containmentRefusalReason } from '../core/trace-tail-core.ts';
 import { readSessionTracePage } from '../session/core/session-trace-core.ts';
@@ -151,7 +152,7 @@ function createTraceRecordStore(context: TraceWiringContext) {
     try {
       await appendJsonLines(filePath, records, { mkdir: !hasEnsuredDirectory, mode: 0o600 });
       hasEnsuredDirectory = true;
-      const appended: TraceAppended = { id: glimmervoidSessionId, opensOperatorTurn: records.some(opensOperatorTurn), usageLimit: latestUsageLimitOf(records) };
+      const appended: TraceAppended = { id: glimmervoidSessionId, opensOperatorTurn: records.some(opensOperatorTurn), usageLimit: latestUsageLimitOf(records), transcriptPath: context.bindingByGlimmervoidSessionId.get(glimmervoidSessionId)?.requestedTranscriptPath ?? null };
       emitter.emit('trace-appended', appended);
       return true;
     } catch (error) {

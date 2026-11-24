@@ -89,7 +89,7 @@ function repoRelativeCodemapRequest(rootDir: string, request: AgentCodemapReques
 
 
 function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChannels, { spawn, describeMemoryShortfall }: AgentSpawner, wakes: WakeWiring, memory: MemoryStore) {
-  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, reviewComments, repoClones, budgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
+  const { config, agentSessions, listAllSessions, listBoardSessions, sessionDocs, operatorState, whiteboards, lookupWhy, channelsByChildId, childIdsToDiscard, secrets, races, startRace, wargames: wargamesRunner, startWargames, reviewComments, repoClones, readBudgetHoldReason, fileClaims, sessionPreviews, verification, codemap, boardAsks } = runtime;
   const clonesByFolder = createKeyedSerialQueue();
   const planRuns = createPlanRuns({ warn: (message) => runtime.logger?.warn(message) });
   const { noteEndCause, post, drain, ownedChannels, findChildOf, findSiblingOf, liveSessionOf, tellParent } = channels;
@@ -456,7 +456,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const unsafeLaunchArgument = unsafeLaunchArgumentOf(raceSpec);
     if (unsafeLaunchArgument !== null) return refusal(400, `an agent cannot race the model or option value "${unsafeLaunchArgument}", because it reaches the agent's command line; use letters, digits and . _ : / [ ] -`);
     if (!startRace) return refusal(503, 'Arena is not running in this Glimmervoid');
-    const holdReason = budgetHoldReason();
+    const holdReason = await readBudgetHoldReason();
     if (holdReason !== null) return refusal(429, `no new sessions: ${holdReason}`);
     const unfinishedRefusal = refuseUnfinishedRace();
     if (unfinishedRefusal) return unfinishedRefusal;
@@ -510,7 +510,7 @@ function createAgentVerbHandlers(runtime: AgentApiRuntime, channels: ChildChanne
     const unsafeLaunchArgument = unsafeWargamesLaunchArgumentOf(matchSpec);
     if (unsafeLaunchArgument !== null) return refusal(400, `an agent cannot launch a Wargames seat with the model or option value "${unsafeLaunchArgument}", because it reaches the agent's command line; use letters, digits and . _ : / [ ] -`);
     if (!startWargames) return refusal(503, 'Wargames is not running in this Glimmervoid');
-    const holdReason = budgetHoldReason();
+    const holdReason = await readBudgetHoldReason();
     if (holdReason !== null) return refusal(429, `no new sessions: ${holdReason}`);
     const activeRefusal = refuseActiveWargamesMatch();
     if (activeRefusal) return activeRefusal;
