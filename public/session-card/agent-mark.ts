@@ -10,7 +10,7 @@ import kimiIcon from '../agent-icons/kimi.svg?raw';
 import opencodeIcon from '../agent-icons/opencode.svg?raw';
 import piIcon from '../agent-icons/pi.svg?raw';
 import qwenIcon from '../agent-icons/qwen.svg?raw';
-import { agentBrandColorReference } from '../agent-brand-colors.ts';
+import { agentBrandColorReference } from '../brand-colors.ts';
 import { monogramFor } from '../avatar-core.ts';
 import { SHELL_AGENT_ID } from './agent-core.ts';
 import { createLineIcon, TERMINAL_ICON_PATH } from '../svg-dom.ts';

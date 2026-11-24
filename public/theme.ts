@@ -1,7 +1,7 @@
 import type { ThemePalette } from '#shared/contracts/theme-palette.ts';
 import { themeCssColors } from '#shared/theme-colors-core.ts';
 import { BUILT_IN_THEME_PALETTES } from '#shared/theme-palettes.ts';
-import { agentBrandCssColors } from './agent-brand-colors.ts';
+import { brandCssColors } from './brand-colors.ts';
 import { setThemeColors } from './ui-prefs.ts';
 
 type ThemeMode = ThemePalette['mode'];
@@ -78,7 +78,7 @@ function buildAccentAnsi(palette: ThemePalette): Record<string, string> {
 function defineTheme(palette: ThemePalette): ThemeDefinition {
   return {
     label: palette.label,
-    colors: { ...themeCssColors(palette), ...agentBrandCssColors(palette.mode) },
+    colors: { ...themeCssColors(palette), ...brandCssColors(palette.mode) },
     terminal: {
       background:   '--bg-card',
       foreground:   '--text',

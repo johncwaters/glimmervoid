@@ -7,6 +7,8 @@ import { parseFocusLayout } from './focus-view/pane-layout-core.ts';
 import type { SplitBoardBySession } from './focus-view/roster-groups-core.ts';
 import { parseSplitBoardBySession } from './focus-view/roster-groups-core.ts';
 import { DEFAULT_NEXT_ATTENTION_KEY_CODE, isNextAttentionKeyCode } from './shortcuts-core.ts';
+import { DEFAULT_COMMUNITY_SORT, isCommunitySort } from './community/community-view-core.ts';
+import type { CommunityFilterPrefs, CommunitySort } from './community/community-view-core.ts';
 
 const STORAGE_KEY = 'glimmervoid-ui-prefs';
 
@@ -49,6 +51,10 @@ interface UiPrefs {
   prsUnseenRows: string;
   communityAttentionAck: string;
   communityUnseenRows: string;
+  communitySort: CommunitySort;
+  communityFilterSources: string[];
+  communityFilterVerdicts: string[];
+  communityFilterChannels: string[];
   usageAttentionAck: string;
 }
 
@@ -104,6 +110,10 @@ const PREFS: { [Key in keyof UiPrefs]: (value: unknown) => UiPrefs[Key] } = {
   prsUnseenRows: asString(''),
   communityAttentionAck: asString(''),
   communityUnseenRows: asString(''),
+  communitySort: (value: unknown): CommunitySort => (isCommunitySort(value) ? value : DEFAULT_COMMUNITY_SORT),
+  communityFilterSources: asStringList,
+  communityFilterVerdicts: asStringList,
+  communityFilterChannels: asStringList,
   usageAttentionAck: asString(''),
 };
 
@@ -227,6 +237,16 @@ export const setCommunityAttentionAck = (signature: string) => write('communityA
 
 export const getCommunityUnseenRows = () => read('communityUnseenRows');
 export const setCommunityUnseenRows = (signature: string) => write('communityUnseenRows', signature);
+
+export const getCommunitySort = () => read('communitySort');
+export const setCommunitySort = (sort: CommunitySort) => write('communitySort', sort);
+
+export const getCommunityFilter = (): CommunityFilterPrefs => ({ sources: read('communityFilterSources'), verdicts: read('communityFilterVerdicts'), channels: read('communityFilterChannels') });
+export const setCommunityFilter = (filter: CommunityFilterPrefs) => {
+  write('communityFilterSources', [...filter.sources]);
+  write('communityFilterVerdicts', [...filter.verdicts]);
+  write('communityFilterChannels', [...filter.channels]);
+};
 
 export const getUsageAttentionAck = () => read('usageAttentionAck');
 export const setUsageAttentionAck = (signature: string) => write('usageAttentionAck', signature);

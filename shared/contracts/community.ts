@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-const CommunitySource = z.enum(['forum', 'discord']);
+export const CommunitySource = z.enum(['forum', 'discord']);
+export type CommunitySource = z.infer<typeof CommunitySource>;
+export const COMMUNITY_SOURCES = CommunitySource.options;
 
 export const CommunityVerdict = z.enum(['HIGH', 'MEDIUM', 'LOW']);
 export type CommunityVerdict = z.infer<typeof CommunityVerdict>;
