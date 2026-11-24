@@ -893,7 +893,7 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 
 .chat-prompt-with-attachments > .chat-prompt { max-width: 100%; margin-top: 0; }
 
-.chat-prompt-thumbnails { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.chat-prompt-thumbnails { display: flex; flex-wrap: wrap; justify-content: flex-end; align-self: stretch; gap: 6px; }
 
 .chat-prompt-thumbnail {
   position: relative;
@@ -909,6 +909,10 @@ html[data-layout="phone"] .chat-composer-input { font-size: var(--type-field); }
 }
 
 .chat-prompt-thumbnail-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--bg-surface); }
+
+.chat-prompt-thumbnails > .chat-prompt-thumbnail { width: 384px; max-width: 100%; height: auto; aspect-ratio: 16 / 10; }
+
+.chat-prompt-thumbnails .chat-prompt-thumbnail-image { object-fit: contain; }
 
 .chat-prompt-thumbnail-name { padding: 0 6px; overflow: hidden; color: var(--text-muted); font-size: var(--type-meta); white-space: nowrap; text-overflow: ellipsis; }
 
