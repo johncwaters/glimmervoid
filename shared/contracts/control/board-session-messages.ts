@@ -27,7 +27,7 @@ export const boardSessionClientVariants = [
   loose('board-ask-answer', { requestId, boardId: z.string().min(1).max(200), askBoxId: z.string().min(1).max(40), answer: z.string().trim().min(1).max(ASK_ANSWER_MAX_CHARS) }),
   loose('branch-spawn', { id: sessionId, requestId, aboutBoxId: z.string().min(1).max(40), prompt: z.string().trim().min(1).max(BRANCH_PROMPT_MAX_CHARS) }),
   loose('studio-main-ensure', { id: sessionId, requestId }),
-  loose('codemap-folder-toggle', { id: sessionId, requestId, boxId: z.string().min(1).max(40) }),
+  loose('codemap-folder-set', { id: sessionId, requestId, boxId: z.string().min(1).max(40), isOpen: z.boolean() }),
   loose('director-digests', { id: sessionId, requestId, sessionIds: z.array(z.string().min(1).max(200)).max(DIRECTOR_DIGEST_SESSIONS_MAX).default([]) }),
   loose('studio-progress-ask', { id: sessionId, requestId, text: z.string().trim().min(1).max(PROGRESS_QUESTION_MAX_CHARS) }),
   loose('studio-guide', { requestId, step: StudioGuideStep.nullable().default(null) }),
@@ -50,7 +50,7 @@ export const boardSessionServerVariants = [
   loose('board-ask-answer-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('branch-spawn-result', { id: sessionId, requestId, ok: z.boolean(), branchId: z.string().nullable().default(null), error: optionalError }),
   loose('studio-main-ensure-result', { id: sessionId, requestId, ok: z.boolean(), mainId: z.string().nullable().default(null), error: optionalError }),
-  loose('codemap-folder-toggle-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
+  loose('codemap-folder-set-result', { id: sessionId, requestId, ok: z.boolean(), isOpen: z.boolean().default(false), error: optionalError }),
   loose('director-digest-kept', { id: sessionId }),
   loose('director-digests-result', {
     id: sessionId,

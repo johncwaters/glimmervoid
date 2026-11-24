@@ -456,11 +456,16 @@ function agentCardModelOf(sessionId: string, watch: SessionWatch): AgentCardMode
   };
 }
 
-function dockAreaIn(overlay: HTMLElement): Rect | null {
-  if (!parts || parts.dockSlot.offsetHeight === 0) return null;
-  const dockRect = parts.dockSlot.getBoundingClientRect();
+function shownAreaIn(overlay: HTMLElement, shown: HTMLElement): Rect[] {
+  if (shown.hidden || shown.offsetHeight === 0) return [];
+  const shownRect = shown.getBoundingClientRect();
   const overlayRect = overlay.getBoundingClientRect();
-  return { x: dockRect.left - overlayRect.left, y: dockRect.top - overlayRect.top, width: dockRect.width, height: dockRect.height };
+  return [{ x: shownRect.left - overlayRect.left, y: shownRect.top - overlayRect.top, width: shownRect.width, height: shownRect.height }];
+}
+
+function fixedAreasIn(overlay: HTMLElement): Rect[] {
+  if (!parts) return [];
+  return [...shownAreaIn(overlay, parts.dockSlot), ...shownAreaIn(overlay, parts.guide.element)];
 }
 
 function paintPresence(): void {
@@ -481,7 +486,7 @@ function paintPresence(): void {
   const board = boardId === null ? null : tiledBoardOf(boardId)?.board ?? null;
   parts.presenceLayer.paint({ glows }, board);
   const models = [...watchBySessionId].flatMap(([sessionId, watch]) => agentCardModelOf(sessionId, watch) ?? []);
-  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, dockAreaIn(parts.agentCards.element));
+  parts.agentCards.paint(models, shownBoundsOfBoard(board, boundsOfHostBox), shownMapBoundsOfBoard(board, boundsOfHostBox), hostCamera, fixedAreasIn(parts.agentCards.element));
   paintAsks();
 }
 
@@ -509,11 +514,11 @@ function requestDigests(): void {
     .catch(() => {});
 }
 
-async function toggleFolder(folderBoardId: string, frameId: string): Promise<boolean> {
+async function setFolderOpen(folderBoardId: string, frameId: string, isOpen: boolean): Promise<boolean> {
   const mapSessionId = sessionIdByBoardId.get(folderBoardId);
   if (mapSessionId === undefined) return false;
-  const reply = await sendControlRequest('codemap-folder-toggle', { id: mapSessionId, boxId: frameId }, { timeoutMs: BOXES_TIMEOUT_MS }).catch(() => null);
-  if (reply?.type !== 'codemap-folder-toggle-result') {
+  const reply = await sendControlRequest('codemap-folder-set', { id: mapSessionId, boxId: frameId, isOpen }, { timeoutMs: BOXES_TIMEOUT_MS }).catch(() => null);
+  if (reply?.type !== 'codemap-folder-set-result') {
     showNotice(NO_MAP_TEXT);
     return false;
   }
@@ -809,7 +814,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
     firstViewArea,
-    toggleStack: toggleFolder,
+    setStackOpen: setFolderOpen,
     onBoxClicked: addressBox,
     onPainted: (camera) => {
       hostCamera = camera;

@@ -10,6 +10,8 @@ import type { Element as BoardElement } from '../../shared/contracts/whiteboard.
 import { pollFor } from './review-changes.ts';
 
 const BOARD_SESSION_TIMEOUT_MS = 20000;
+const ADDRESS_SETTLE_MS = 1500;
+const MESSAGE_BAR_SELECTOR = '.bs-pill textarea.chat-composer-input';
 const LAYOUT_TOLERANCE_PX = 0.5;
 const MERGE_POLL_MS = 250;
 const DIRECTOR_TIMEOUT_MS = 60000;
@@ -125,7 +127,7 @@ function clearMapPointIn(page: Page, bounds: Box): Promise<{ x: number; y: numbe
 
 async function verifyShownPageOnMap(page: Page): Promise<void> {
   const root = page.locator('.board-session-view');
-  const pillInput = root.locator('.bs-pill textarea.chat-composer-input');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   const scaleBefore = await mapScaleOf(page);
   await pillInput.fill('show-page');
   await pillInput.press('Enter');
@@ -186,7 +188,7 @@ async function verifyPrCardOnMap(page: Page): Promise<void> {
   fs.writeFileSync(statePath, JSON.stringify(DRAFT_PR_STATE));
   const boardId = await studioMapBoardIdOf(page, root);
   assert.ok(boardId, 'the Studio map board is known');
-  const pillInput = root.locator('.bs-pill textarea.chat-composer-input');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   await pillInput.fill('open-pr');
   await pillInput.press('Enter');
   const draftCard = await prCardWith(page, root, boardId, { State: 'Draft', Checks: 'Running', Review: 'Needs review' });
@@ -232,7 +234,7 @@ async function verifyPrCardOnMap(page: Page): Promise<void> {
 
 async function verifyBranch(page: Page, projectDirectory: string, pillBefore: Box): Promise<void> {
   const root = page.locator('.board-session-view');
-  const pillInput = root.getByRole('textbox');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   const addressText = root.locator('.bs-pill-address-text');
   await pillInput.fill('@card');
   const mention = root.getByRole('option').first();
@@ -305,7 +307,7 @@ async function verifyStudioChatOpensAtNewest(page: Page): Promise<void> {
 
 async function verifyStudioRailShowsNoSubagents(page: Page, studioMainId: string): Promise<void> {
   const root = page.locator('.board-session-view');
-  const pillInput = root.getByRole('textbox');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   await typeIntoAgent(page, studioMainId, 'stop');
   await root.locator('.bs-card[data-main][data-phase="working"]').waitFor({ state: 'detached', timeout: BOARD_SESSION_TIMEOUT_MS });
   await pillInput.fill('');
@@ -322,7 +324,7 @@ async function verifyStudioRailShowsNoSubagents(page: Page, studioMainId: string
 
 async function verifyQueuedMessagesDeliveredOnceInOrder(page: Page, studioMainId: string): Promise<void> {
   const root = page.locator('.board-session-view');
-  const pillInput = root.getByRole('textbox');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   const sentRowsOf = (text: string) => root.locator('.bs-row-you:not(.bs-row-queued)', { hasText: text });
   const queuedRowOf = (text: string) => root.locator('.bs-row-queued', { hasText: text });
   const editSentBefore = await sentRowsOf('edit-shop').count();
@@ -381,7 +383,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   assert.equal(await root.locator('.bs-top-left > :not(.bs-chip, .bs-menu)').count(), 0, 'the top left holds only the repo chip');
   await page.locator('.session-name', { hasText: / main$/ }).first().waitFor({ state: 'attached', timeout: BOARD_SESSION_TIMEOUT_MS });
 
-  await root.getByRole('textbox').click();
+  await root.locator(MESSAGE_BAR_SELECTOR).click();
   await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await repoButton.click();
   await root.locator('.bs-log').waitFor({ state: 'hidden', timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -395,7 +397,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   const pillBefore = await boxOf(page, '.board-session-view .bs-pill');
   assert.equal(await root.locator('.bs-pill.chat-composer textarea.chat-composer-input').count(), 1, 'the message bar is Chat\'s composer');
   const repoButtonBefore = await boxOf(page, '.board-session-view .bs-card[data-main] .bs-card-repo');
-  const pillInput = root.getByRole('textbox');
+  const pillInput = root.locator(MESSAGE_BAR_SELECTOR);
   await page.waitForFunction(() => document.querySelector<HTMLElement>('.board-session-view .bs-notice')?.hidden === true, undefined, { timeout: BOARD_SESSION_TIMEOUT_MS });
   assert.equal(await root.locator('.bs-guide-step[data-done]').count(), 0, 'a new carbon unit starts with no guide step done');
   await pillInput.fill('edit-shop');
@@ -527,12 +529,15 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
 
   await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title.startsWith('Map at'));
   assert.equal(await root.locator('.bs-pill-address').isHidden(), true, 'a box that is not a folder or file on the map takes no address');
-  const barInput = root.locator('.bs-pill textarea.chat-composer-input');
+  const barInput = root.locator(MESSAGE_BAR_SELECTOR);
   const barAddress = root.locator('.bs-pill-address-text');
+  const repoRootAddress = root.locator('.bs-pill-address-text', { hasText: /^New branch on repo root$/ });
   const addressRepoRoot = async () => {
-    for (let clickCount = 0; clickCount < 3; clickCount += 1) {
+    const deadline = Date.now() + BOARD_SESSION_TIMEOUT_MS;
+    while (Date.now() < deadline) {
       await clickBoardBoxWhere(page, root, mapReply, (element) => element.kind === 'box' && element.title === 'repo root');
-      if ((await root.locator('.bs-pill-address').isVisible()) && (await barAddress.textContent()) === 'New branch on repo root') return;
+      const isAddressed = await repoRootAddress.waitFor({ timeout: ADDRESS_SETTLE_MS }).then(() => true, () => false);
+      if (isAddressed) return;
     }
     assert.fail('clicking the repo root box, after its stack opens, puts its address in the message bar');
   };

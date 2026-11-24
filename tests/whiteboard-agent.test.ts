@@ -2745,16 +2745,18 @@ test('the code map board puts a moved box back at its generated place and keeps 
   };
   const stackedFrame = await toolsFrameOf();
   assert.equal(stackedFrame?.collapsed, true);
-  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.contains[0] ?? ''), { ok: true, isOpen: true });
+  assert.deepEqual(await codemap.setFolderOpen(repoDir, stackedFrame?.contains[0] ?? '', true), { ok: true, isOpen: true });
   assert.equal((await toolsFrameOf())?.collapsed, false);
-  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.id ?? ''), { ok: true, isOpen: false });
+  assert.deepEqual(await codemap.setFolderOpen(repoDir, stackedFrame?.id ?? '', true), { ok: true, isOpen: true });
+  assert.equal((await toolsFrameOf())?.collapsed, false, 'a second open request leaves the folder open');
+  assert.deepEqual(await codemap.setFolderOpen(repoDir, stackedFrame?.id ?? '', false), { ok: true, isOpen: false });
   assert.equal((await toolsFrameOf())?.collapsed, true);
-  assert.equal((await codemap.toggleFolder(repoDir, libBoxId)).ok, false);
+  assert.equal((await codemap.setFolderOpen(repoDir, libBoxId, true)).ok, false);
   overlaidPaths = ['tools/build.ts'];
   await codemap.handle({ repoDir, sessionId: 'worker' }, { sub: 'overlay', layer: 'session' });
-  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.id ?? ''), { ok: true, isOpen: true });
+  assert.deepEqual(await codemap.setFolderOpen(repoDir, stackedFrame?.id ?? '', true), { ok: true, isOpen: true });
   assert.equal((await toolsFrameOf())?.collapsed, false);
-  assert.deepEqual(await codemap.toggleFolder(repoDir, stackedFrame?.id ?? ''), { ok: true, isOpen: false });
+  assert.deepEqual(await codemap.setFolderOpen(repoDir, stackedFrame?.id ?? '', false), { ok: true, isOpen: false });
   assert.equal((await toolsFrameOf())?.collapsed, true);
 });
 

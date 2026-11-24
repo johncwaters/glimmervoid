@@ -147,9 +147,14 @@ async function clickElement(open: OpenBoard, elementId: string): Promise<void> {
 
 async function boardBoxCenterWhere(page: Page, panel: Locator, boardId: string, isMatch: (element: BoardElement) => boolean): Promise<{ found: BoardElement; center: { x: number; y: number } }> {
   const open: OpenBoard = { page, panel, boardId };
-  const found = await pollFor('a matching board box', BOARD_TIMEOUT_MS, async () => [...(await boardOf(open)).elements.values()].find(isMatch) ?? null);
-  const laidOut = layoutBoard(await boardOf(open)).elements.find((element) => element.id === found.id);
-  assert.ok(laidOut && laidOut.kind !== 'wire', `the board lays out ${found.id} as a rect`);
+  const { found, laidOut } = await pollFor('a matching board box laid out as a rect', BOARD_TIMEOUT_MS, async () => {
+    const board = await boardOf(open);
+    const matched = [...board.elements.values()].find(isMatch);
+    if (matched === undefined) return null;
+    const matchedLayout = layoutBoard(board).elements.find((element) => element.id === matched.id);
+    if (matchedLayout === undefined || matchedLayout.kind === 'wire') return null;
+    return { found: matched, laidOut: matchedLayout };
+  });
   return { found, center: centerOf(screenRectOn(await cameraOf(open), laidOut)) };
 }
 

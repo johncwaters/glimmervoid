@@ -90,13 +90,13 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       const outcome = ensureMainAgent(anchor);
       ws.send(JSON.stringify({ ...reply, ...outcome }));
     },
-    'codemap-folder-toggle': async (message: ClientMessageOf<'codemap-folder-toggle'>, ws: ControlSocket) => {
-      const reply = { type: 'codemap-folder-toggle-result', id: message.id, requestId: message.requestId ?? null };
+    'codemap-folder-set': async (message: ClientMessageOf<'codemap-folder-set'>, ws: ControlSocket) => {
+      const reply = { type: 'codemap-folder-set-result', id: message.id, requestId: message.requestId ?? null };
       const session = findSession(message);
       if (!session) return ws.send(JSON.stringify({ ...reply, ok: false, error: SESSION_GONE_TEXT }));
       if (!codemap) return ws.send(JSON.stringify({ ...reply, ok: false, error: CODE_MAP_OFF_TEXT }));
       try {
-        ws.send(JSON.stringify({ ...reply, ...await codemap.toggleFolder(session.path, message.boxId) }));
+        ws.send(JSON.stringify({ ...reply, ...await codemap.setFolderOpen(session.path, message.boxId, message.isOpen) }));
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `The folder did not open: ${errorMessage(error)}` }));
       }
@@ -149,7 +149,7 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
     'board-ask-answer': (_msg, requestId, message) => ({ type: 'board-ask-answer-result', requestId, ok: false, error: message }),
     'branch-spawn': (msg, requestId, message) => ({ type: 'branch-spawn-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'studio-main-ensure': (msg, requestId, message) => ({ type: 'studio-main-ensure-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
-    'codemap-folder-toggle': (msg, requestId, message) => ({ type: 'codemap-folder-toggle-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
+    'codemap-folder-set': (msg, requestId, message) => ({ type: 'codemap-folder-set-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'director-digests': (msg, requestId, message) => ({ type: 'director-digests-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'studio-progress-ask': (msg, requestId, message) => ({ type: 'studio-progress-ask-result', requestId, id: typeof msg?.id === 'string' ? msg.id : '', ok: false, error: message }),
     'studio-guide': (_msg, requestId, message) => ({ type: 'studio-guide-result', requestId, ok: false, error: message }),

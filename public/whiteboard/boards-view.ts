@@ -155,7 +155,7 @@ export interface BoardHostGuest {
   worldLayer: HTMLElement;
   markedBoxIds: () => ReadonlySet<string>;
   firstViewArea: (boardBounds: Rect, viewWidthPx: number, viewHeightPx: number) => Rect | null;
-  toggleStack: (boardId: string, frameId: string) => Promise<boolean>;
+  setStackOpen: (boardId: string, frameId: string, isOpen: boolean) => Promise<boolean>;
   onBoxClicked: (boardId: string, boxId: string) => void;
   onPainted: (camera: Camera) => void;
 }
@@ -1304,7 +1304,7 @@ function openStack(frameId: string): void {
   const frame = selectedBoard()?.elements.get(frameId);
   if (!selectedBoardId || frame?.kind !== 'frame') return;
   clickOpenedStacksByFrameId.set(frameId, { boardId: selectedBoardId, boxIds: frame.contains, phase: 'opening' });
-  void (guest ? guest.toggleStack(selectedBoardId, frameId) : sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }])).then((isSent) => {
+  void (guest ? guest.setStackOpen(selectedBoardId, frameId, true) : sendOps([{ op: 'set', id: frameId, fields: { collapsed: false } }])).then((isSent) => {
     if (!isSent) clickOpenedStacksByFrameId.delete(frameId);
   });
 }
@@ -1314,7 +1314,7 @@ function gatherClickOpenedStacksOfSelectedBoard(): void {
     if (clickOpenedStack.boardId !== selectedBoardId) continue;
     clickOpenedStacksByFrameId.delete(frameId);
     if (guest) {
-      void guest.toggleStack(clickOpenedStack.boardId, frameId);
+      void guest.setStackOpen(clickOpenedStack.boardId, frameId, false);
       continue;
     }
     void sendRecordedOps(clickOpenedStack.boardId, [{ op: 'set', id: frameId, fields: { collapsed: true } }]);
@@ -1354,7 +1354,7 @@ function settleClickOpenedStacks(hasSelectionChanged: boolean): void {
 
 function gatherStack(boardId: string, frameId: string, gatherOps: Op[]): void {
   if (guest) {
-    void guest.toggleStack(boardId, frameId);
+    void guest.setStackOpen(boardId, frameId, false);
     return;
   }
   gatherOps.push({ op: 'set', id: frameId, fields: { collapsed: true } });

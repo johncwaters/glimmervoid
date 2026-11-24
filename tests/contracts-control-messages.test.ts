@@ -336,7 +336,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'board-asks-of-result', requestId: 'b3', ok: true, asks: [{ askBoxId: 'ask-1a2b3c4d', ask: { sessionId: 's1', question: 'Reuse the card module?', options: ['Yes', 'No'] }, rect: { x: 900, y: 40, width: 360, height: 240 } }] },
   { type: 'branch-spawn-result', id: 's1', requestId: 'b3', ok: true, branchId: 's2', error: null },
   { type: 'studio-main-ensure-result', id: 's1', requestId: 'b4', ok: true, mainId: 's3', error: null },
-  { type: 'codemap-folder-toggle-result', id: 's1', requestId: 'b5', ok: true, isOpen: true, error: null },
+  { type: 'codemap-folder-set-result', id: 's1', requestId: 'b5', ok: true, isOpen: true, error: null },
   { type: 'director-digest-kept', id: 's1' },
   { type: 'director-digests-result', id: 's1', requestId: 'b6', ok: true, verdictByKey: { 'dir-0pc501t-334': { chatLine: null, digest: 'Checkout totals now add tax' } }, progressAnswers: [{ sessionId: 's1', askedAt: 334, question: 'How is it going?', answer: 'Checkout totals are in.' }], error: null },
   { type: 'studio-progress-ask-result', id: 's1', requestId: 'b7', ok: true, isAnswered: true, error: null },

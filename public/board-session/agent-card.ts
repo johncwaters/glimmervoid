@@ -47,7 +47,7 @@ interface AgentCardActions {
 
 export interface AgentCards {
   element: HTMLElement;
-  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, mapBounds: readonly Rect[], camera: Camera, keepClearOf: Rect | null): void;
+  paint(models: readonly AgentCardModel[], boundsOf: (boxId: string) => Rect | null, mapBounds: readonly Rect[], camera: Camera, fixedAreas: readonly Rect[]): void;
 }
 
 interface ShownCard {
@@ -232,8 +232,8 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
 
   return {
     element,
-    paint: (models, boundsOf, mapBounds, camera, keepClearOf) => {
-      const placedCardRects: Rect[] = keepClearOf === null ? [] : [keepClearOf];
+    paint: (models, boundsOf, mapBounds, camera, fixedAreas) => {
+      const placedCardRects: Rect[] = [...fixedAreas];
       const view: Rect = { x: 0, y: UNPLACED_MAIN_TOP_PX, width: element.clientWidth, height: Math.max(0, element.clientHeight - UNPLACED_MAIN_TOP_PX) };
       const placementArea = cardPlacementAreaOf(mapBounds.map((rect) => screenRectOf(rect, camera)), view);
       const paintedIds = new Set<string>();
