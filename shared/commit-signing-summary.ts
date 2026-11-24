@@ -44,4 +44,4 @@ function commitSigningSummaryOf(status: CommitSigningStatus): CommitSigningSumma
 }
 
 export { commitSigningSummaryOf };
-export type { CommitSigningSituation, CommitSigningSummary };
+export type { CommitSigningSituation };
