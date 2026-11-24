@@ -1267,7 +1267,7 @@ export async function runCase({
     }
     if (step.kind === 'assert-chat-default') {
       await verifyChatStaysDefault(viewer.page);
-      return passedOutcome('chat-default', 'Chat opened last opens first after a reload, and closing it brings the terminal back first');
+      return passedOutcome('chat-default', 'Chat opened last opens first after a reload, a session started from Settings opens with the chat message box focused, and closing Chat brings the terminal back first');
     }
     if (step.kind === 'assert-chat-terminal') {
       await verifyChatTerminal(viewer.page);

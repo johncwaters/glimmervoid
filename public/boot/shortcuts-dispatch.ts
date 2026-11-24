@@ -1,6 +1,7 @@
 import { isRealInputOwningKey } from '../dom-helpers.ts';
 import { activateFocusOnNextAttention, focusAdjacentInRail, focusNextAttention, focusNthInRail, isFocusActive, showFocusedBoardChange, toggleShellFocus } from '../focus-view/focus-view.ts';
 import { isPhoneLayout } from '../form-factor.ts';
+import { focusOpenSessionPageInput } from '../page-registry.ts';
 import { jumpToNextReview } from '../github/review-queue-store.ts';
 import { showPhoneScreen, showPhoneSession } from '../phone/phone-shell-gate.ts';
 import { requestSessionRemoval, selectSession, setAddedSessionRevealer, setArmedSessionRowRevealer, spawnQuickSession, undoNewestPendingClose } from '../session-actions.ts';
@@ -22,7 +23,10 @@ function revealSpawnedSession(id: string) {
   if (showPhoneSession(id)) return;
   centerSessionInFocus(id);
   selectSession(id);
-  requestAnimationFrame(() => requestAnimationFrame(() => sessionUIs.get(id)?.term?.focus()));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (focusOpenSessionPageInput(id)) return;
+    sessionUIs.get(id)?.term?.focus();
+  }));
 }
 
 function revealArmedSessionRow(id: string) {

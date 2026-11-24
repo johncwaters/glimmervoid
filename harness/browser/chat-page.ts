@@ -706,9 +706,24 @@ async function verifyComposerPassesDashboardShortcuts(page: Page): Promise<void>
   assert.equal(await isShortcutHandled, true, 'the next-session shortcut runs while the Chat message box has focus');
 }
 
+const FOCUS_SETTLE_MS = 500;
+
+async function verifyQuickSessionFocusesComposer(page: Page): Promise<void> {
+  const shownSessionIdBeforeAdd = await page.evaluate(() => document.querySelector<HTMLElement>('#focus-pane-terminal .session-card')?.dataset.id ?? null);
+  await page.locator('#tab-settings').click();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Alt+Digit0' : 'Alt+Shift+Digit0');
+  await page.waitForFunction((previousSessionId) => {
+    const shownSessionId = document.querySelector<HTMLElement>('#focus-pane-terminal .session-card')?.dataset.id;
+    return shownSessionId !== undefined && shownSessionId !== previousSessionId && document.querySelector('.session-chat .chat-composer-input') !== null;
+  }, shownSessionIdBeforeAdd, { timeout: CARD_TIMEOUT_MS });
+  await page.waitForTimeout(FOCUS_SETTLE_MS);
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('chat-composer-input') ?? false), true, 'a session started from Settings opens with the chat message box focused');
+}
+
 export async function verifyChatStaysDefault(page: Page): Promise<void> {
   await openChat(page);
   await verifyComposerPassesDashboardShortcuts(page);
+  await verifyQuickSessionFocusesComposer(page);
   await page.reload();
   await page.locator('.session-chat .chat-composer').waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.waitForFunction(() => document.activeElement?.classList.contains('chat-composer-input') === true, undefined, { timeout: CARD_TIMEOUT_MS });

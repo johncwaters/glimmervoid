@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Glimmervoid Cloud usage data counts as your account.** Once you open your Glimmervoid Cloud server after signing in, its usage data is tagged with your Glimmervoid Cloud account id in the maintainers' analytics, so usage can be counted per account. Each install keeps its own profile, so Delete my data still erases only that install. Turning off Send usage data on that server stops it. A Glimmervoid on your own machine is tagged only if you choose **Link to my Glimmervoid account** in Settings > Privacy and confirm on the account page; Delete my data removes it with a new install id. On glimmervoid.dev, the Sign in and Join the waitlist links carry your visitor id only if you accepted analytics. The privacy page says what is linked and that it is never sold or used for marketing.
 - **Delete your Glimmervoid Cloud account yourself.** The account page has a **Delete my account** button. It deletes your sign-in, email, payment customer and every usage data profile tagged with your account at once; your server stops at once and is deleted 30 days later, so you can still ask to copy your work off. The privacy page and terms say so.
 
+### Fixed
+
+- **A new session opens with the chat message box ready to type in.** Starting a session from the add-session dialog, a folder shortcut or the quick-session key put the cursor in the terminal hidden behind the chat, so you had to click the message box before typing. The message box now has the cursor. A session shown as a terminal still gets the terminal.
+
 ### Removed
 
 - **An empty chat no longer lists keyboard keys.** Under `No messages yet`, the chat showed `[ ]` turns, `{ }` prompts and `B` brief. It now shows only `No messages yet`; the keys still work.
