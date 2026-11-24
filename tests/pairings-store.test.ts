@@ -6,18 +6,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  createPairingsStore, createSeenStore, pairingsSignature, SNAPSHOT_RELOAD_MS,
+  createPairingsStore, createSeenStore, pairingsSignature,
 } from '../server/pairings-store.ts';
 import type { PairedDevice, PairingsStore } from '../server/pairings-store.ts';
 import { hashSecret } from '../server/core/pairing-token.ts';
-
-interface InstalledInterval {
-  ms: number | undefined;
-  handle: NodeJS.Timeout;
-  callback: () => void;
-  unrefCalled: boolean;
-  cleared: boolean;
-}
 
 interface StoreScope {
   store: PairingsStore;
@@ -149,44 +141,19 @@ test('save re-reads before writing, so a concurrent revocation is not clobbered 
   });
 });
 
-test('watch installs one reload interval at SNAPSHOT_RELOAD_MS, unref-ed and cleared by the closer', () => {
+test('watch installs no reload interval while the file watch works', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-pairings-timers-'));
   const filePath = path.join(dir, 'pairings.json');
-  const intervals: InstalledInterval[] = [];
+  let installedIntervals = 0;
   const setIntervalFn = (callback: () => void, ms: number): NodeJS.Timeout => {
-    const handle = setInterval(callback, ms);
-    const entry: InstalledInterval = { ms, handle, callback, unrefCalled: false, cleared: false };
-    const realUnref = handle.unref.bind(handle);
-    handle.unref = () => {
-      entry.unrefCalled = true;
-      return realUnref();
-    };
-    intervals.push(entry);
-    return handle;
-  };
-  const clearIntervalFn = (handle: NodeJS.Timeout): void => {
-    const entry = intervals.find((candidate) => candidate.handle === handle);
-    if (entry) entry.cleared = true;
-    clearInterval(handle);
+    installedIntervals += 1;
+    return setInterval(callback, ms);
   };
   try {
-    const writer = createPairingsStore({ filePath });
-    const paired = redeemedDevice(writer, mintedToken(writer, 'phone').token);
-
-    const reader = createPairingsStore({ filePath, setIntervalFn, clearIntervalFn });
+    const reader = createPairingsStore({ filePath, setIntervalFn });
     const stop = reader.watch(() => {});
-    assert.equal(intervals.length, 1, 'exactly one reload interval');
-    const installed = intervals[0];
-    assert.ok(installed, 'the reload interval was captured');
-    assert.equal(installed.ms, SNAPSHOT_RELOAD_MS);
-    assert.equal(installed.unrefCalled, true, 'unref-ed so it never holds the process open');
-
-    writer.revokeDevice(paired.id);
-    installed.callback();
-    assert.equal(typeof device(reader, paired.id).revokedAt, 'number', 'the interval refreshes the snapshot');
-
     stop();
-    assert.equal(installed.cleared, true);
+    assert.equal(installedIntervals, 0);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

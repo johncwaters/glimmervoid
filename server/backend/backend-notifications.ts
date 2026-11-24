@@ -157,6 +157,7 @@ function createBackendNotifications(dependencies: BackendNotificationDependencie
 
   function applySettings(): void {
     notificationManager.updateSettings(notificationTimings());
+    telegramInbound.noteConfigChanged();
   }
 
   return {

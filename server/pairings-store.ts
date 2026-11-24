@@ -1,9 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { canonicalizePath } from '../shared/canonical-paths.ts';
-import { equalsIgnoringCaseOnWindows } from '../shared/paths.ts';
 import { glimmervoidHomeDir } from './config-store.ts';
+import { watchPath } from './path-watch.ts';
 import {
   decideRedemption, hashSecret, mintDeviceCredential, mintPairingToken,
 } from './core/pairing-token.ts';
@@ -303,10 +302,7 @@ function createPairingsStore({
   }
 
   function watch(onChange?: ((snapshot: PairingsDocument) => void) | null): () => void {
-    let timer: NodeJS.Timeout | null = null;
-    let watcher: fs.FSWatcher | null = null;
-    const dir = path.dirname(pairingsPath);
-
+    let fallbackReload: NodeJS.Timeout | null = null;
     let lastSignature = pairingsSignature(snapshot);
 
     function refresh(): void {
@@ -317,26 +313,18 @@ function createPairingsStore({
       if (onChange) onChange(snapshot);
     }
 
-    const reloadInterval = setIntervalFn(refresh, SNAPSHOT_RELOAD_MS);
-    unrefTimer(reloadInterval);
-
-    try {
-      ensureDir();
-
-      watcher = fs.watch(canonicalizePath(dir), (_event, filename) => {
-        if (filename && !equalsIgnoringCaseOnWindows(path.basename(String(filename)), path.basename(pairingsPath))) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(refresh, 200);
-        unrefTimer(timer);
-      });
-    } catch (err) {
-      warn(`[pairings] Failed to watch ${dir}: ${errorMessage(err)} - falling back to the ${REVOCATION_PROPAGATION_SECONDS}s reload interval`);
+    function reloadOnInterval(target: string, reason: string): void {
+      if (fallbackReload) return;
+      warn(`[pairings] Failed to watch ${target}: ${reason} - falling back to the ${REVOCATION_PROPAGATION_SECONDS}s reload interval`);
+      fallbackReload = setIntervalFn(refresh, SNAPSHOT_RELOAD_MS);
+      unrefTimer(fallbackReload);
     }
+
+    const stopWatching = watchPath(pairingsPath, refresh, { debounceMs: 200, onUnwatchable: reloadOnInterval });
     return function stop() {
-      if (timer) clearTimeout(timer);
-      clearIntervalFn(reloadInterval);
-      if (watcher) { try { watcher.close(); } catch {  } }
-      watcher = null;
+      stopWatching();
+      if (fallbackReload) clearIntervalFn(fallbackReload);
+      fallbackReload = null;
     };
   }
 
@@ -386,7 +374,6 @@ function createSeenStore({
 
 export {
   REVOCATION_PROPAGATION_SECONDS,
-  SNAPSHOT_RELOAD_MS,
   configSiblingPath,
   createPairingsStore,
   createSeenStore,

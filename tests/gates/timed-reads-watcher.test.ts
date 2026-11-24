@@ -26,7 +26,7 @@ const TIMER_CLASS_BY_FILE: Record<string, TimerClass> = {
   'server/github-connection-alerts.ts': { awakeOnly: 'reads the GitHub connection from its doorman; asleep, no session pushes, and the check runs again on wake' },
   'server/telemetry.ts': { awakeOnly: 'flushes usage data out; reads nothing to act on' },
   'server/outcomes-wiring.ts': { awakeOnly: 'summarizes local event loop and outcome counters' },
-  'server/pairings-store.ts': { awakeOnly: 'reloads a local file' },
+  'server/pairings-store.ts': { awakeOnly: 'reloads a local file only while its file watch has failed' },
   'server/trace-wiring.ts': { awakeOnly: 'prunes local trace files' },
   'server/uploads-wiring.ts': { awakeOnly: 'prunes local uploads' },
   'server/race/race-wiring.ts': { awakeOnly: 'judges local races that only run while awake' },

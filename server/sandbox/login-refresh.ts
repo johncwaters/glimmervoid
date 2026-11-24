@@ -10,6 +10,8 @@ import { choiceSelection, selectionArgs } from '../../shared/agent-models-core.t
 import { clock } from '../../shared/clock.ts';
 import { DEFAULT_MODELS } from '../../shared/contracts/agent-models.ts';
 import { errorMessage } from '../../shared/text.ts';
+import { watchPath } from '../path-watch.ts';
+import type { StopWatching } from '../path-watch.ts';
 import { isKeyringLoginAgent, withoutInheritedCredentials } from './core/credential-decider-core.ts';
 import { kimiLoginFileText, kimiRefreshRequest, kimiRefreshTokenOf, loginExpiryAtMs, nextRefreshAtMs } from './core/login-refresh-core.ts';
 import { kimiLoginSource } from '../../shared/kimi-login-core.ts';
@@ -47,6 +49,8 @@ interface WatchedLogin {
   failureCount: number;
   lastingFailureMtimeMs: number | null;
   lastWarning: string | null;
+  stopFollowingFile: StopWatching;
+  loginChangeWaitMs: number;
 }
 
 interface LoginState {
@@ -215,6 +219,10 @@ function loginReaderFor(readKeyringLogin: ReadKeyringLogin): (login: ModelLogin)
   };
 }
 
+function loginFileFollowedOf(login: ModelLogin): string | null {
+  return isKeyringLoginAgent(login.agent) ? null : login.loginFile;
+}
+
 function loginLabelOf(login: ModelLogin): string {
   return login.loginFile ?? 'the keyring';
 }
@@ -258,7 +266,7 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>, readKeyringLogin: R
     if (!outcome.ok && outcome.isLasting) {
       watched.lastingFailureMtimeMs = after?.mtimeMs ?? before.mtimeMs;
       warnOnce(watched, `[login-refresh] ${login.agent} login at ${loginLabelOf(login)} needs signing in again: ${outcome.reason}; waiting for the login to change`);
-      return RETRY_DELAY_MS;
+      return watched.loginChangeWaitMs;
     }
     if (!outcome.ok) return afterFailure(watched, login, outcome.reason);
     if (after === null || after.expiresAtMs <= before.expiresAtMs) return afterFailure(watched, login, 'the login kept its old expiry');
@@ -270,10 +278,10 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>, readKeyringLogin: R
   const nextDelayMs = async (watched: WatchedLogin, login: ModelLogin): Promise<number> => {
     const state = await readLoginState(login);
     if (state === null) {
-      warnOnce(watched, `[login-refresh] ${login.agent} login at ${loginLabelOf(login)} is missing or unreadable; checking again in ${RETRY_DELAY_MS / 1000} s`);
-      return RETRY_DELAY_MS;
+      warnOnce(watched, `[login-refresh] ${login.agent} login at ${loginLabelOf(login)} is missing or unreadable; waiting for it to change`);
+      return watched.loginChangeWaitMs;
     }
-    if (watched.lastingFailureMtimeMs === state.mtimeMs) return RETRY_DELAY_MS;
+    if (watched.lastingFailureMtimeMs === state.mtimeMs) return watched.loginChangeWaitMs;
     watched.lastingFailureMtimeMs = null;
     if (clock.nowMs() < state.dueAtMs) return state.dueAtMs - clock.nowMs();
     return refreshOnce(watched, login, state);
@@ -292,8 +300,20 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>, readKeyringLogin: R
     const isWatchable = login.loginFile !== null || isKeyringLoginAgent(login.agent);
     if (!isWatchable || REFRESH_BY_AGENT[login.agent] === undefined) return { ready: Promise.resolve(), unwatch: () => {} };
     const key = watchKeyOf(login);
-    const watched = watchedByKey.get(key) ?? { login: { agent: login.agent, loginFile: login.loginFile }, holders: 0, timer: null, inFlight: null, isStopped: false, failureCount: 0, lastingFailureMtimeMs: null, lastWarning: null };
+    const existing = watchedByKey.get(key);
+    const watched = existing ?? { login: { agent: login.agent, loginFile: login.loginFile }, holders: 0, timer: null, inFlight: null, isStopped: false, failureCount: 0, lastingFailureMtimeMs: null, lastWarning: null, stopFollowingFile: () => {}, loginChangeWaitMs: RETRY_DELAY_MS };
     watchedByKey.set(key, watched);
+    const followedFile = loginFileFollowedOf(watched.login);
+    if (existing === undefined && followedFile !== null) {
+      watched.loginChangeWaitMs = Number.POSITIVE_INFINITY;
+      watched.stopFollowingFile = watchPath(followedFile, () => { void keepFresh(watched, watched.login); }, {
+        onUnwatchable: (target, reason) => {
+          logger.warn(`[login-refresh] cannot watch ${target}: ${reason}; checking ${followedFile} every ${RETRY_DELAY_MS / 1000} s instead`);
+          watched.loginChangeWaitMs = RETRY_DELAY_MS;
+          void (watched.inFlight ?? Promise.resolve()).then(() => keepFresh(watched, watched.login));
+        },
+      });
+    }
     watched.holders += 1;
     const ready = watched.inFlight ?? (watched.timer === null ? keepFresh(watched, watched.login) : Promise.resolve());
     let isUnwatched = false;
@@ -303,6 +323,7 @@ function createLoginRefresher(logger: Pick<Console, 'warn'>, readKeyringLogin: R
       watched.holders -= 1;
       if (watched.holders > 0) return;
       watched.isStopped = true;
+      watched.stopFollowingFile();
       if (watched.timer !== null) clearTimeout(watched.timer);
       if (watchedByKey.get(key) === watched) watchedByKey.delete(key);
     };

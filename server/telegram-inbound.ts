@@ -7,7 +7,6 @@ import type { Session } from '../session/sessions.ts';
 
 const LONG_POLL_SECONDS = 25;
 const REQUEST_TIMEOUT_MS = (LONG_POLL_SECONDS + 10) * 1000;
-const IDLE_RECHECK_MS = 15_000;
 const ERROR_BACKOFF_MS = 10_000;
 const LASTING_REFUSAL_STATUS_CODES = new Set([401, 404, 409]);
 
@@ -89,6 +88,18 @@ function createTelegramInbound({ readConfig, liveSessions, replyInChat, onLastin
   let nextOffset: number | null = null;
   let pollingToken = '';
   let refusedToken: string | null = null;
+  let wakeIdleLoop: (() => void) | null = null;
+  stopping.signal.addEventListener('abort', () => noteConfigChanged(), { once: true });
+
+  function noteConfigChanged(): void {
+    const wake = wakeIdleLoop;
+    wakeIdleLoop = null;
+    wake?.();
+  }
+
+  function untilConfigChanges(): Promise<void> {
+    return new Promise((resolve) => { wakeIdleLoop = resolve; });
+  }
 
   function pause(delayMs: number): Promise<void> {
     return sleep(delayMs, undefined, { signal: stopping.signal, ref: false }).catch(() => {});
@@ -138,7 +149,7 @@ function createTelegramInbound({ readConfig, liveSessions, replyInChat, onLastin
     if (botToken !== refusedToken) refusedToken = null;
     if (!isAcceptingReplies || botToken.length === 0 || chatId.length === 0 || botToken === refusedToken) {
       nextOffset = null;
-      await pause(IDLE_RECHECK_MS);
+      await untilConfigChanges();
       return;
     }
     if (botToken !== pollingToken) {
@@ -176,6 +187,7 @@ function createTelegramInbound({ readConfig, liveSessions, replyInChat, onLastin
   return {
     start: () => { void run(); },
     stop: () => { stopping.abort(); },
+    noteConfigChanged,
   };
 }
 
