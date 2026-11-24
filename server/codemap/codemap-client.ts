@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { CodemapExtract, FileImports } from '../../shared/contracts/codemap.ts';
 import type { CodemapExtractBase } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_TUNABLES } from '../core/codemap-graph-core.ts';
+import type { SymbolGraph } from '../core/codemap-structure-core.ts';
 import { codemapWorkerPath } from '../runtime-paths.ts';
 
 const ExtractPhase = z.strictObject({ phase: z.string(), elapsedMs: z.number(), heapBytes: z.number(), rssBytes: z.number() });
@@ -11,11 +12,19 @@ type ExtractPhase = z.infer<typeof ExtractPhase>;
 
 const WorkerFailure = z.strictObject({ ok: z.literal(false), error: z.string() });
 const ExtractReply = z.union([z.strictObject({ ok: z.literal(true), extract: CodemapExtract }), WorkerFailure]);
+const SymbolGraphReply = z.union([
+  z.strictObject({
+    ok: z.literal(true),
+    graph: z.strictObject({ treeSha: z.string(), symbols: z.array(z.string()), fileOfSymbol: z.instanceof(Int32Array), files: z.array(z.string()), edgesFrom: z.instanceof(Int32Array), edgesTo: z.instanceof(Int32Array), unjudgedLanguages: z.array(z.strictObject({ language: z.string(), reason: z.string() })) }),
+  }),
+  WorkerFailure,
+]);
 const ScanFilesReply = z.union([z.strictObject({ ok: z.literal(true), scans: z.array(FileImports.extend({ repoPath: z.string() })) }), WorkerFailure]);
 
 interface CodemapClient {
   extract(repoDir: string, sha: string, base?: CodemapExtractBase | null): Promise<CodemapExtract>;
   scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, FileImports>>;
+  symbolGraph(indexPaths: readonly string[], treeSha: string): Promise<SymbolGraph>;
 }
 
 function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: ExtractPhase) => void } = {}): CodemapClient {
@@ -72,7 +81,12 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
     return new Map(reply.scans.map(({ repoPath, specifiers, declaredNames }) => [repoPath, { specifiers, declaredNames }]));
   }
 
-  return { extract, scanFiles };
+  async function symbolGraph(indexPaths: readonly string[], treeSha: string): Promise<SymbolGraph> {
+    const reply = await runWorker({ kind: 'symbolGraph', indexPaths, treeSha }, SymbolGraphReply);
+    return reply.graph;
+  }
+
+  return { extract, scanFiles, symbolGraph };
 }
 
 export { createCodemapClient };

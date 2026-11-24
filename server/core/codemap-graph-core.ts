@@ -9,6 +9,7 @@ import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 import { IMPORT_LANGUAGE_IDS, importLanguageOf } from './import-language-core.ts';
+import type { ShallowModule, Tangle, UnjudgedLanguage } from './codemap-structure-core.ts';
 
 export const CODEMAP_TUNABLES = Object.freeze({
   maxFilesPerModule: 40,
@@ -25,6 +26,8 @@ export const CODEMAP_TUNABLES = Object.freeze({
   listedModules: 300,
   maxTangleSymbols: 7,
   maxShownSymbols: 7,
+  indexDeadlineMs: 600_000,
+  indexerInstallDeadlineMs: 300_000,
 });
 
 const ROOT_MODULE = '.';
@@ -998,15 +1001,22 @@ interface CheckFindings {
   staleExports: readonly string[];
   exportNotes: readonly string[];
   staleAllowedEdges: readonly CodemapModuleEdge[];
+  newTangles: readonly Tangle[];
+  newShallowModules: readonly ShallowModule[];
+  unjudgedLanguages: readonly UnjudgedLanguage[];
+}
+
+function readableSymbolOf(symbol: string): string {
+  return symbol.slice(symbol.indexOf(' ') + 1).replaceAll('`', '');
 }
 
 function isCheckRefusing(findings: CheckFindings): boolean {
-  return findings.unallowedEdges.length > 0 || findings.ceilingBreaches.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0 || findings.staleExports.length > 0;
+  return findings.unallowedEdges.length > 0 || findings.ceilingBreaches.length > 0 || findings.unjudgedPaths.length > 0 || findings.unresolvedImports.length > 0 || findings.newCycles.length > 0 || findings.staleExports.length > 0 || findings.newTangles.length > 0 || findings.newShallowModules.length > 0;
 }
 
 function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string | null): string {
-  const { unallowedEdges, ceilingBreaches, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges } = findings;
-  const noteLines = exportNotes.map((note) => `  ${note}`);
+  const { unallowedEdges, ceilingBreaches, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges, newTangles, newShallowModules, unjudgedLanguages } = findings;
+  const noteLines = [...exportNotes.map((note) => `  ${note}`), ...unjudgedLanguages.map((unjudged) => `  the structure of ${unjudged.language} code was not judged, so no tangle or shallow module there refuses: ${unjudged.reason}`)];
   const staleLines = staleAllowedEdges.length > 0 ? [`  allowed module imports this branch no longer has, which codemap shrink drops once mainline lacks them too: ${cappedList(staleAllowedEdges.map((edge) => `${edge.from} -> ${edge.to}`))}`] : [];
   if (!isCheckRefusing(findings)) return [...noteLines, ...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
   const edgeLines = unallowedEdges.flatMap((edge) => [
@@ -1020,6 +1030,8 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
   const unjudgedLine = unjudgedPaths.length > 0 ? [`  changed files over the size, count or parse time caps, so their imports cannot be judged: ${cappedList(unjudgedPaths)}`] : [];
   const unresolvedLine = unresolvedImports.length > 0 ? [`  relative imports that resolve to no file in the repo, so they cannot be judged: ${cappedList(unresolvedImports)}`] : [];
   const cycleLines = newCycles.map((cycle) => `  module cycle ${cycle.modules.join(', ')} holds module imports mainline does not have, which no allow excuses; break the cycle: ${cycle.newEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ')}`);
+  const tangleLines = newTangles.map((tangle) => `  tangle ${tangle.key} across ${tangle.modules.join(', ')}: ${tangle.symbols.length} symbols reference each other in a circle mainline does not have; break the circle by moving what they share below them, not by moving the symbols around (glimmervoid codemap allow <repo> --tangle ${tangle.key} --reason <why> is the operator's alone): ${cappedList(tangle.symbols.map(readableSymbolOf))}`);
+  const shallowLines = newShallowModules.map((shallow) => `  shallow module ${shallow.module} shows ${shallow.shown.length} symbols to other modules and keeps ${shallow.hiddenCount} to itself; give it a smaller face that hides more, or merge it into its callers: ${cappedList(shallow.shown.map(readableSymbolOf))}`);
   const edgeNames = unallowedEdges.map((edge) => `${edge.from} -> ${edge.to}`).join(', ');
   const summaryParts = [
     edgeNames ? `adds module imports the operator has not allowed: ${edgeNames}` : '',
@@ -1028,9 +1040,11 @@ function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string
     unresolvedImports.length > 0 ? `has ${unresolvedImports.length} relative imports that resolve to no file` : '',
     newCycles.length > 0 ? `has ${newCycles.length} module cycles mainline does not have` : '',
     staleExports.length > 0 ? `has ${staleExports.length} out of date exports` : '',
+    newTangles.length > 0 ? `adds ${newTangles.length} tangles` : '',
+    newShallowModules.length > 0 ? `makes ${newShallowModules.length} modules shallow` : '',
   ].filter(Boolean);
   const exportLines = staleExports.map((refusal) => `  ${refusal}`);
-  return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
+  return [...edgeLines, ...breachLines, ...unjudgedLine, ...unresolvedLine, ...cycleLines, ...tangleLines, ...shallowLines, ...exportLines, ...noteLines, ...staleLines, ...(gateNote ? [gateNote] : []), `codemap check: ${repoName} ${summaryParts.join('; ')}`].join('\n');
 }
 
 export { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, isFolderOpenOf, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, seededSetupOf, settledSetupOf, checkTextOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, shrunkAllowListOf, staleAllowedEdgesOf, isCheckRefusing, newCyclesOf, unjudgedPathsOf, unresolvedImportsOf, codemapNoticeOf, unallowedEdgesOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf };

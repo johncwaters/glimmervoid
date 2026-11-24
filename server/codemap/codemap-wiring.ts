@@ -23,6 +23,10 @@ import { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, fol
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
+import { newShallowModulesOf, newTanglesOf, shallowModulesOf, tanglesOf } from '../core/codemap-structure-core.ts';
+import type { ShallowModule, SymbolGraph, Tangle, UnjudgedLanguage } from '../core/codemap-structure-core.ts';
+import { createStructureRunner } from './structure-runner.ts';
+import type { StructureRunner } from './structure-runner.ts';
 
 interface CodemapRepo {
   repoDir: string;
@@ -45,8 +49,35 @@ interface MainlineView {
   base: CodemapExtractBase;
 }
 
+interface StructureCheck {
+  runner: StructureRunner;
+  mainlineGraph: () => Promise<SymbolGraph>;
+}
+
+interface StructureFindings {
+  newTangles: Tangle[];
+  newShallowModules: ShallowModule[];
+  unjudgedLanguages: readonly UnjudgedLanguage[];
+}
+
+const NO_STRUCTURE_FINDINGS: StructureFindings = { newTangles: [], newShallowModules: [], unjudgedLanguages: [] };
+
+async function structureFindingsOf(structure: StructureCheck, worktreeDir: string, treeSha: string, model: CodemapModel, mainlineModel: CodemapModel): Promise<StructureFindings> {
+  const [headGraph, mainlineGraph] = await Promise.all([structure.runner.symbolGraphOf(worktreeDir, treeSha), structure.mainlineGraph()]);
+  const unjudgedOnMainline = mainlineGraph.unjudgedLanguages.map((unjudged) => ({ language: unjudged.language, reason: `mainline was not indexed, so nothing on this branch is judged against it: ${unjudged.reason}` }));
+  if (unjudgedOnMainline.length > 0) return { ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [...headGraph.unjudgedLanguages, ...unjudgedOnMainline] };
+  const moduleOfHeadPath = (repoPath: string) => moduleOfPath(model, repoPath);
+  const moduleOfMainlinePath = (repoPath: string) => moduleOfPath(mainlineModel, repoPath);
+  return {
+    newTangles: newTanglesOf(tanglesOf(headGraph, moduleOfHeadPath), tanglesOf(mainlineGraph, moduleOfMainlinePath), []),
+    newShallowModules: newShallowModulesOf(shallowModulesOf(headGraph, moduleOfHeadPath), shallowModulesOf(mainlineGraph, moduleOfMainlinePath), []),
+    unjudgedLanguages: headGraph.unjudgedLanguages,
+  };
+}
+
 interface WorktreeCheck {
   client: CodemapClient;
+  structure?: StructureCheck | null;
   homeDir: string;
   worktreeDir: string;
   mainlineSha: string;
@@ -61,7 +92,7 @@ async function mainlineViewOf(client: CodemapClient, worktreeDir: string, mainli
   return { model: buildCodemapModel(extract, moduleLayout), base: extractBaseOf(extract) };
 }
 
-async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha, mainline = null, commitSha = null }: WorktreeCheck): Promise<WorktreeCheckOutcome> {
+async function checkWorktree({ client, structure = null, homeDir, worktreeDir, mainlineSha, mainline = null, commitSha = null }: WorktreeCheck): Promise<WorktreeCheckOutcome> {
   const repoKey = await repoKeyOf(worktreeDir);
   if (!repoKey) return { ok: false, error: `${worktreeDir} is not inside a git repository` };
   const repoName = path.basename(repoKey);
@@ -77,7 +108,8 @@ async function checkWorktree({ client, homeDir, worktreeDir, mainlineSha, mainli
   const exportVerdicts = await Promise.all(setup.exports.map(async (kind) => exportVerdictOf(kind, await fileTextAtCommit(worktreeDir, tree.treeSha, CODEMAP_EXPORT_FILE_BY_KIND[kind]), kind === 'lint' ? lintConfigTextOf(setup) : exportedMapTextOf(model))));
   const staleExports = exportVerdicts.flatMap((verdict) => (verdict.refusal ? [verdict.refusal] : []));
   const exportNotes = exportVerdicts.flatMap((verdict) => (verdict.note ? [verdict.note] : []));
-  const findings = { staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, mainlineView.model, changedPaths, setup.allow), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, setup.allow), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, setup.allow) };
+  const structureFindings = structure ? await structureFindingsOf(structure, worktreeDir, tree.treeSha, model, mainlineView.model).catch((error: unknown) => ({ ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [{ language: 'every language', reason: errorMessage(error) }] })) : NO_STRUCTURE_FINDINGS;
+  const findings = { ...structureFindings, staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, mainlineView.model, changedPaths, setup.allow), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, setup.allow), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, setup.allow) };
   const gateNote = setup.gate ? null : 'The import gate is off for this repo, so these never refuse a merge.';
   return { ok: true, isGateOn: setup.gate, isRefusing: setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
 }
@@ -114,6 +146,7 @@ interface RepoMapState {
   modelLayoutKey: string | null;
   extractBase: CodemapExtractBase | null;
   failure: { sha: string; reason: string; retryAtMs: number } | null;
+  mainlineStructure: { sha: string; graph: Promise<SymbolGraph> } | null;
   latestStatus: CodemapStatus | null;
   churnByModule: ReadonlyMap<string, number> | null;
   drawnModel: CodemapModel | null;
@@ -190,6 +223,7 @@ interface CodemapServiceOptions {
   mapBoardIdsFilePath?: string | null;
   configuredMainlineBranch?: () => string | null;
   homeDir?: string | null;
+  structureRunner?: StructureRunner | null;
   changesOfSession?: ((sessionId: string) => Promise<SessionChanges | null>) | null;
   specsRoot?: string;
   logger?: Pick<Console, 'warn'>;
@@ -216,7 +250,7 @@ function chunkedBySize(ops: readonly Op[]): Op[][] {
 
 const OpList = z.array(Op);
 
-function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, homeDir = null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
+function createCodemapService({ client = createCodemapClient(), detectDefaultBranch = noDefaultBranch, whiteboards = null, mapBoardIdsFilePath = null, configuredMainlineBranch = () => null, homeDir = null, structureRunner = homeDir ? createStructureRunner({ homeDir, client }) : null, changesOfSession = null, specsRoot = path.join(os.homedir(), '.agents', 'specs'), logger = console }: CodemapServiceOptions = {}) {
   const overlayByRepoDir = new Map<string, SessionOverlay>();
   const folderChoicesByRepoDir = new Map<string, Map<string, boolean>>();
   const specPlanByRepoDir = new Map<string, SpecPlan>();
@@ -335,6 +369,13 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return mainlineShaOf(repoDir, configuredMainlineBranch() ?? await detectDefaultBranch({ projectPath: repoDir }));
   }
 
+  async function isRepoGated(repoDir: string): Promise<boolean> {
+    if (!homeDir) return false;
+    const repoKey = await repoKeyOf(repoDir);
+    const lookup = repoKey ? await readCodemapSetup(homeDir, repoKey) : { kind: 'none' as const };
+    return lookup.kind === 'ok' && lookup.setup.gate;
+  }
+
   async function moduleLayoutOf(repoDir: string): Promise<readonly string[] | null> {
     if (!homeDir) return null;
     const repoKey = await repoKeyOf(repoDir);
@@ -347,7 +388,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
   function stateOf(repoDir: string): RepoMapState {
     const known = stateByRepoDir.get(repoDir);
     if (known) return known;
-    const created: RepoMapState = { model: null, modelLayoutKey: null, extractBase: null, failure: null, latestStatus: null, churnByModule: null, drawnModel: null, drawnStatusKey: null, drawnOverlayKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
+    const created: RepoMapState = { model: null, modelLayoutKey: null, extractBase: null, failure: null, mainlineStructure: null, latestStatus: null, churnByModule: null, drawnModel: null, drawnStatusKey: null, drawnOverlayKey: null, drawRetryAtMs: 0, startedCheckCount: 0, appliedCheckNumber: 0, refreshesInFlight: 0 };
     stateByRepoDir.set(repoDir, created);
     return created;
   }
@@ -392,12 +433,34 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
       await settleSetup(repoDir, state.model).catch((error: unknown) => {
         logger.warn(`[codemap] the code map setup of ${repoDir} was not seeded or ratcheted: ${errorMessage(error)}`);
       });
+      if (await isRepoGated(repoDir)) mainlineGraphOf(repoDir, mainlineSha).catch((error: unknown) => logger.warn(`[codemap] the structure of ${repoDir} at ${mainlineSha.slice(0, 7)} was not indexed: ${errorMessage(error)}`));
     } catch (error) {
       if (checkNumber < state.appliedCheckNumber) return;
       state.appliedCheckNumber = checkNumber;
       state.failure = { sha: mainlineSha, reason: errorMessage(error), retryAtMs: clock.nowMs() + CODEMAP_TUNABLES.failureRetryMs };
       state.drawRetryAtMs = 0;
     }
+  }
+
+  function mainlineGraphOf(repoDir: string, mainlineSha: string): Promise<SymbolGraph> {
+    if (!structureRunner) return Promise.reject(new Error('structure indexing is not available in this Glimmervoid'));
+    const state = stateOf(repoDir);
+    if (state.mainlineStructure?.sha === mainlineSha) return state.mainlineStructure.graph;
+    const graph = structureRunner.symbolGraphOf(repoDir, mainlineSha);
+    const cached = { sha: mainlineSha, graph };
+    state.mainlineStructure = cached;
+    const forget = () => {
+      if (state.mainlineStructure === cached) state.mainlineStructure = null;
+    };
+    graph.then((resolved) => {
+      if (resolved.unjudgedLanguages.length > 0) forget();
+    }, forget);
+    return graph;
+  }
+
+  function structureCheckOf(repoDir: string, mainlineSha: string): StructureCheck | null {
+    if (!structureRunner) return null;
+    return { runner: structureRunner, mainlineGraph: () => mainlineGraphOf(repoDir, mainlineSha) };
   }
 
   async function settleSetup(repoDir: string, model: CodemapModel): Promise<void> {
@@ -429,7 +492,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     }
     const state = stateOf(session.path);
     const mainline = state.model?.sha === mainlineSha && state.extractBase ? { model: state.model, base: state.extractBase } : null;
-    const checked = await checkWorktree({ client, homeDir, worktreeDir: session.worktreeDir, mainlineSha, mainline, commitSha }).catch((error: unknown) => ({ ok: false as const, error: errorMessage(error) }));
+    const checked = await checkWorktree({ client, structure: structureCheckOf(session.path, mainlineSha), homeDir, worktreeDir: session.worktreeDir, mainlineSha, mainline, commitSha }).catch((error: unknown) => ({ ok: false as const, error: errorMessage(error) }));
     const isRefusing = !checked.ok || checked.isRefusing;
     const text = checked.ok ? checked.text : `codemap check could not judge this tree: ${checked.error}`;
     return [{ id: CODEMAP_CHECK_ID, command: CODEMAP_BUILT_IN_COMMAND, status: isRefusing ? 'fail' : 'pass', exitCode: null, outputTail: text.slice(-VERIFICATION_OUTPUT_TAIL_BYTES) }];
@@ -687,7 +750,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     const mainlineSha = await repoMainlineShaOf(repo.repoDir);
     if (!mainlineSha) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: `${repo.repoDir} has no commit to check against` };
     if (!homeDir) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: 'the code map setup store is not available in this Glimmervoid' };
-    const checked = await checkWorktree({ client, homeDir, worktreeDir: repo.worktreeDir ?? repo.repoDir, mainlineSha });
+    const checked = await checkWorktree({ client, structure: structureCheckOf(repo.repoDir, mainlineSha), homeDir, worktreeDir: repo.worktreeDir ?? repo.repoDir, mainlineSha });
     if (!checked.ok) return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: checked.error };
     const map = await currentMap(repo);
     const status = 'error' in map ? { sha: null, mainlineSha, state: 'failed' as const, reason: map.error } : map.status;

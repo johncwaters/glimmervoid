@@ -4,7 +4,7 @@ export const SCIP_SYMBOL_ROLES = Object.freeze({
   test: 0x20,
 });
 
-export interface ScipOccurrence {
+interface ScipOccurrence {
   startLine: number;
   startCharacter: number;
   symbol: string;
@@ -12,7 +12,7 @@ export interface ScipOccurrence {
   enclosingRange: ScipSpan | null;
 }
 
-export interface ScipSpan {
+interface ScipSpan {
   startLine: number;
   startCharacter: number;
   endLine: number;
