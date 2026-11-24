@@ -1,5 +1,5 @@
 import './helpers/isolate-home.ts';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -855,6 +855,22 @@ test('v5 still ends on its village goal, while v6 scores victory points each tur
   const thirdTurn = playEmptyTurn(secondTurn.state, v6.signer, secondTurn.seq);
   assert.equal(thirdTurn.state.status, 'finished');
   assert.equal(thirdTurn.state.winnerSeatId, 's2');
+});
+
+test('v6 and v7 terrain and villages stay byte-identical so stored logs replay on the same map', () => {
+  const fingerprint = createHash('sha256');
+  for (const rulesVersion of ['v6', 'v7'] as const) {
+    for (const mapRadius of [6, 8]) {
+      for (const seatCount of [4, 6]) {
+        for (let index = 0; index < 8; index += 1) {
+          const spec = WargamesMatchSpec.parse({ ...buildTestSpec(20261124 + index * 7919), rulesVersion, mapRadius, seats: buildTestSpec().seats.slice(0, seatCount) });
+          const state = createInitialMatchState('fingerprint', 0, spec);
+          fingerprint.update(JSON.stringify([state.terrain, state.villages]));
+        }
+      }
+    }
+  }
+  assert.equal(fingerprint.digest('hex').slice(0, 16), 'c947a15cd320a444');
 });
 
 test('v6 and v8 terrain on Large and Huge is seeded, the same around every seat, never under a village and in seat vision, while Standard stays plain', () => {

@@ -2,7 +2,7 @@ import { WARGAMES_SEAT_IDS } from '#shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, SignedReportPayload, TroopCounts } from '#shared/contracts/wargames.ts';
 import { ALL_HEXES, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
-import { TERRAIN_MIN_RADIUS } from '#shared/wargames/terrain.ts';
+import { TERRAIN_MIN_RADIUS, isPassable } from '#shared/wargames/terrain.ts';
 import type { TerrainKind } from '#shared/wargames/terrain.ts';
 import { CHAT_ICON_PATH, createSvgShape } from '../svg-dom.ts';
 import {
@@ -129,10 +129,16 @@ export const TERRAIN_GLYPHS: Readonly<Record<Exclude<TerrainKind, 'plain'>, { pa
   ore: { path: ORE_GLYPH_PATH, color: 'var(--state-monitoring)', label: 'Ore deposit' },
 });
 
+const MOUNTAIN_BARRIER_FILL = 'color-mix(in srgb, var(--text-dim) 42%, var(--bg))';
 const BARRIER_FILLS: Readonly<Partial<Record<TerrainKind, string>>> = Object.freeze({
-  mountain: 'color-mix(in srgb, var(--text-dim) 42%, var(--bg))',
+  mountain: MOUNTAIN_BARRIER_FILL,
   lake: 'color-mix(in srgb, var(--state-monitoring) 34%, var(--bg))',
 });
+
+function barrierFillFor(kind: TerrainKind): string | undefined {
+  if (isPassable(kind)) return undefined;
+  return BARRIER_FILLS[kind] ?? MOUNTAIN_BARRIER_FILL;
+}
 const BARRIER_SCALE = HEX_SIZE / HEX_INNER_RADIUS;
 
 function emptyHexFill(isFogged: boolean): string {
@@ -174,7 +180,7 @@ function renderTerrainGlyph(container: SVGElement, centerX: number, centerY: num
   container.replaceChildren();
   if (kind === 'plain') return;
   const glyph = TERRAIN_GLYPHS[kind];
-  const isBlocked = BARRIER_FILLS[kind] !== undefined;
+  const isBlocked = !isPassable(kind);
   if (!isBlocked) {
     container.append(createSvgShape('polygon', { points: hexPolygonPoints(centerX, centerY), fill: 'var(--text-muted)', 'fill-opacity': TERRAIN_TINT_OPACITY, stroke: 'none' }));
   }
@@ -1364,7 +1370,7 @@ export function createWargamesMap(
       return;
     }
 
-    const barrierFill = BARRIER_FILLS[terrainKind];
+    const barrierFill = barrierFillFor(terrainKind);
     slot.polygon.setAttribute('points', hexPolygonPoints(slot.centerX, slot.centerY, barrierFill === undefined ? 1 : BARRIER_SCALE));
     slot.polygon.setAttribute('fill', barrierFill ?? emptyHexFill(isFogged));
     slot.polygon.setAttribute('stroke', isSelected ? 'var(--text-head)' : barrierFill ?? 'var(--border)');
