@@ -1552,7 +1552,7 @@
     },
     {
       "name": "wargames",
-      "definition": "The six-seat strategy match Glimmervoid runs between coding agents, each seat a sandboxed agent session in its own private agent home playing through the Wargames MCP tools"
+      "definition": "The 4-seat or 6-seat strategy match Glimmervoid runs between coding agents, each seat a sandboxed agent session in its own private agent home playing through the Wargames MCP tools"
     }
   ],
   "retired": [

@@ -598,7 +598,7 @@ const AGENT_COMMAND_HELP: { readonly [V in AgentApiVerb]: AgentCommandHelp } = O
   },
   wargames: {
     usage: 'wargames start|matches|match|abort|history',
-    whenToUse: 'Use it to set up, start, inspect, or abort a 6-seat Wargames strategy match, or read the model Elo leaderboard and match history',
+    whenToUse: 'Use it to set up, start, inspect, or abort a 4-seat or 6-seat Wargames strategy match, or read the model Elo leaderboard and match history',
     summary: 'Start a Wargames match, list matches, read one match, abort an active match, or read match history and model Elo (wargames start <spec json>, wargames matches, wargames match <match>, wargames abort <match> [reason], wargames history)',
     missingArgumentHint: 'this command needs an action, for example "glimmervoid wargames matches", and wargames start needs the match spec as one JSON object argument',
     isPassthrough: true,

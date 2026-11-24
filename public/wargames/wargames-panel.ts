@@ -1,14 +1,23 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import {
-  WARGAMES_HEX_RADIUS,
-  WARGAMES_MAX_HEX_RADIUS,
-  WARGAMES_MIN_HEX_RADIUS,
+  WARGAMES_MAP_SIZES,
   WARGAMES_RULES_VERSION,
+  WARGAMES_SEAT_COUNTS,
   WARGAMES_SEAT_IDS,
+  seatIdsForCount,
   victoryVillagesFor,
 } from '#shared/contracts/wargames.ts';
-import type { OrderItem, SeatId, SeatStatus, TickPhase, WargamesMatchSpec, WargamesMatchSummary } from '#shared/contracts/wargames.ts';
-import { projectSeatState } from '#shared/wargames/engine.ts';
+import type {
+  OrderItem,
+  SeatId,
+  SeatStatus,
+  TickPhase,
+  WargamesMapSize,
+  WargamesMatchSpec,
+  WargamesMatchSummary,
+  WargamesSeatCount,
+} from '#shared/contracts/wargames.ts';
+import { matchSeatIds, projectSeatState } from '#shared/wargames/engine.ts';
 import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -373,7 +382,7 @@ function ensureNewMatchSection(): HTMLElement {
   if (persistentNewMatchSection) return persistentNewMatchSection;
   const section = el('section', 'wg-form-section');
   section.append(
-    el('h2', 'wg-section-title', 'New 6-Seat Wargames Match'),
+    el('h2', 'wg-section-title', 'New match'),
     el('p', 'wg-form-status', 'Fixed system rules are always injected first and cannot be edited. Optional strategy below is pre-game only.'),
   );
   const titleInput = el('input', 'wg-input') as HTMLInputElement;
@@ -381,23 +390,33 @@ function ensureNewMatchSection(): HTMLElement {
   const seedInput = el('input', 'wg-input') as HTMLInputElement;
   seedInput.type = 'number';
   seedInput.value = String(Math.floor(Math.random() * 900_000) + 100_000);
-  const mapRadiusInput = el('input', 'wg-input') as HTMLInputElement;
-  mapRadiusInput.type = 'number';
-  mapRadiusInput.min = String(WARGAMES_MIN_HEX_RADIUS);
-  mapRadiusInput.max = String(WARGAMES_MAX_HEX_RADIUS);
-  mapRadiusInput.value = String(WARGAMES_HEX_RADIUS + 1);
-  mapRadiusInput.placeholder = 'Map radius (3-8)';
-  mapRadiusInput.setAttribute('aria-label', 'Map radius (3 to 8)');
-
-  const mapRadiusLabel = el('label', 'wg-card-meta', 'Map radius (3-8) ');
-  mapRadiusLabel.append(mapRadiusInput);
+  const seatCountSelect = select({
+    label: 'Seats',
+    options: WARGAMES_SEAT_COUNTS.map((seatCount) => ({ value: String(seatCount), label: String(seatCount) })),
+    value: String(WARGAMES_SEAT_IDS.length),
+    onChange: () => showSeatRowsForCount(chosenSeatCount()),
+  });
+  const mapSizeSelect = select({
+    label: 'Map',
+    options: WARGAMES_MAP_SIZES.map((mapSize) => ({ value: mapSize.name, label: mapSize.name })),
+    value: WARGAMES_MAP_SIZES[0].name,
+  });
+  const seatCountLabel = el('label', 'wg-card-meta', 'Seats ');
+  seatCountLabel.append(seatCountSelect.element);
+  const mapSizeLabel = el('label', 'wg-card-meta', 'Map ');
+  mapSizeLabel.append(mapSizeSelect.element);
+  const chosenSeatCount = (): WargamesSeatCount =>
+    WARGAMES_SEAT_COUNTS.find((seatCount) => String(seatCount) === seatCountSelect.element.value) ?? WARGAMES_SEAT_COUNTS[1];
+  const chosenMapSize = (): WargamesMapSize =>
+    WARGAMES_MAP_SIZES.find((mapSize) => mapSize.name === mapSizeSelect.element.value) ?? WARGAMES_MAP_SIZES[0];
 
   const metaRow = el('div', 'wg-meta-inputs');
-  metaRow.append(titleInput, seedInput, mapRadiusLabel);
+  metaRow.append(titleInput, seedInput, seatCountLabel, mapSizeLabel);
   section.append(metaRow);
 
   const seatInputs: {
     seatId: SeatId;
+    row: HTMLElement;
     agentSelect: ReturnType<typeof select<string>>;
     modelInput: HTMLInputElement;
     instructionsInput: HTMLTextAreaElement;
@@ -422,8 +441,12 @@ function ensureNewMatchSection(): HTMLElement {
     instructionsInput.classList.add('wg-seat-strategy');
     row.append(el('span', 'wg-seat-label', `Seat ${index + 1}`), agentSelect.element, modelInput, instructionsInput);
     section.append(row);
-    seatInputs.push({ seatId, agentSelect, modelInput, instructionsInput });
+    seatInputs.push({ seatId, row, agentSelect, modelInput, instructionsInput });
   }
+  const showSeatRowsForCount = (seatCount: WargamesSeatCount) => {
+    const seatedIds = new Set(seatIdsForCount(seatCount));
+    for (const entry of seatInputs) entry.row.hidden = !seatedIds.has(entry.seatId);
+  };
 
   const formStatus = el('div', 'wg-form-status', '');
   const startButton = button({
@@ -431,18 +454,18 @@ function ensureNewMatchSection(): HTMLElement {
     label: 'Start match',
     onClick: () => {
       startButton.disabled = true;
-      formStatus.textContent = 'Starting 6-seat match...';
-      const parsedRadius = Math.round(Number(mapRadiusInput.value) || WARGAMES_HEX_RADIUS);
-      const mapRadius = Math.max(WARGAMES_MIN_HEX_RADIUS, Math.min(WARGAMES_MAX_HEX_RADIUS, parsedRadius));
+      formStatus.textContent = 'Starting match...';
+      const mapSize = chosenMapSize();
+      const seatedIds = new Set(seatIdsForCount(chosenSeatCount()));
       const spec: WargamesMatchSpec = {
         version: 1,
         rulesVersion: WARGAMES_RULES_VERSION,
         title: titleInput.value.trim() || 'Wargames Match',
         seed: Math.max(1, Number(seedInput.value) || 424242),
-        mapRadius,
+        mapRadius: mapSize.mapRadius,
         tickDeadlineSeconds: 60,
-        maxTicks: 40,
-        seats: seatInputs.map((entry, index) => ({
+        maxTicks: mapSize.maxTicks,
+        seats: seatInputs.filter((entry) => seatedIds.has(entry.seatId)).map((entry, index) => ({
           seatId: entry.seatId,
           label: `Seat ${index + 1}`,
           controllerKind: 'local-agent',
@@ -491,7 +514,7 @@ interface SeatTally {
 
 function tallySeats(state: MatchState): Map<SeatId, SeatTally> {
   const counts = new Map<SeatId, { villages: number; raider: number; guard: number; envoy: number; grain: number; ore: number }>();
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     counts.set(seatId, { villages: 0, raider: 0, guard: 0, envoy: 0, grain: 0, ore: 0 });
   }
   for (const village of state.villages) {
@@ -727,7 +750,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
 
   const breachesBySeat = new Map<SeatId, number>();
   const messagesBySeat = new Map<SeatId, number>();
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     breachesBySeat.set(seatId, 0);
     messagesBySeat.set(seatId, 0);
   }
@@ -1374,7 +1397,7 @@ function render(): void {
   const wrapper = el('section', 'wg-form-section');
   wrapper.append(emptyState({
     title: 'No Wargames matches yet',
-    text: 'Start a new 6-seat match to spectate live.',
+    text: 'Start a match to watch it live.',
     variant: 'boxed',
     actions: [
       button({

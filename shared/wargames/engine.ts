@@ -1,5 +1,6 @@
 import {
   WARGAMES_HEX_RADIUS,
+  WARGAMES_SEAT_COUNTS,
   WARGAMES_MAX_HEX_RADIUS,
   WARGAMES_MAX_MESSAGES_PER_TICK,
   WARGAMES_MAX_TRIBE_SIZE,
@@ -23,6 +24,7 @@ import type {
   ResourceBundle,
   SeatConfig,
   SeatId,
+  WargamesSeatCount,
   SeatStatus,
   SignedReport,
   SignedReportPayload,
@@ -213,6 +215,14 @@ export function seatIndexOf(seatId: SeatId): number {
   return SEAT_INDEX_BY_ID[seatId];
 }
 
+export function matchSeatIds(state: Pick<MatchState, 'seats'>): SeatId[] {
+  return state.seats.map((seat) => seat.config.seatId);
+}
+
+function isSeatInMatch(state: Pick<MatchState, 'seats'>, seatId: SeatId): boolean {
+  return seatIndexOf(seatId) < state.seats.length;
+}
+
 function hexRing(axialQ: number, axialR: number): number {
   const cubeS = -axialQ - axialR;
   return Math.max(Math.abs(axialQ), Math.abs(axialR), Math.abs(cubeS));
@@ -327,7 +337,7 @@ function cloneVillage(village: VillageState | null): VillageState | null {
 function cloneState(state: MatchState): MatchState {
   const reportsBySeat = {} as Record<SeatId, SignedReport[]>;
   const scoutedHexesBySeat = {} as Record<SeatId, number[]>;
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     reportsBySeat[seatId] = [...state.reportsBySeat[seatId]];
     scoutedHexesBySeat[seatId] = [...state.scoutedHexesBySeat[seatId]];
   }
@@ -342,7 +352,7 @@ function cloneState(state: MatchState): MatchState {
   const ordersByTick: Record<number, Record<SeatId, OrderItem[]>> = {};
   for (const [tickKey, seatOrders] of Object.entries(state.ordersByTick)) {
     const copied = {} as Record<SeatId, OrderItem[]>;
-    for (const seatId of WARGAMES_SEAT_IDS) copied[seatId] = [...(seatOrders[seatId] ?? [])];
+    for (const seatId of matchSeatIds(state)) copied[seatId] = [...(seatOrders[seatId] ?? [])];
     ordersByTick[Number(tickKey)] = copied;
   }
   return {
@@ -361,17 +371,7 @@ function cloneState(state: MatchState): MatchState {
   };
 }
 
-function seatHomeHexCoords(radius: number): HexCoord[][] {
-  if (radius === WARGAMES_HEX_RADIUS) {
-    return [
-      [{ q: 2, r: 0 }, { q: 2, r: -1 }, { q: 3, r: -1 }],
-      [{ q: 0, r: -2 }, { q: 1, r: -2 }, { q: 1, r: -3 }],
-      [{ q: -2, r: 0 }, { q: -1, r: -1 }, { q: -2, r: -1 }],
-      [{ q: -2, r: 2 }, { q: -2, r: 1 }, { q: -3, r: 1 }],
-      [{ q: 0, r: 2 }, { q: -1, r: 2 }, { q: -1, r: 3 }],
-      [{ q: 1, r: 2 }, { q: 1, r: 1 }, { q: 2, r: 1 }],
-    ];
-  }
+function cornerHomeClusters(radius: number): HexCoord[][] {
   return AXIAL_DIRECTIONS.map((primaryAxis, directionIndex) => {
     const nextAxis = AXIAL_DIRECTIONS[(directionIndex + 1) % AXIAL_DIRECTIONS.length];
     return [
@@ -380,6 +380,49 @@ function seatHomeHexCoords(radius: number): HexCoord[][] {
       { q: primaryAxis.q * (radius - 1) + nextAxis.q, r: primaryAxis.r * (radius - 1) + nextAxis.r },
     ];
   });
+}
+
+function sixSeatHomeHexCoords(radius: number): HexCoord[][] {
+  if (radius !== WARGAMES_HEX_RADIUS) return cornerHomeClusters(radius);
+  return [
+    [{ q: 2, r: 0 }, { q: 2, r: -1 }, { q: 3, r: -1 }],
+    [{ q: 0, r: -2 }, { q: 1, r: -2 }, { q: 1, r: -3 }],
+    [{ q: -2, r: 0 }, { q: -1, r: -1 }, { q: -2, r: -1 }],
+    [{ q: -2, r: 2 }, { q: -2, r: 1 }, { q: -3, r: 1 }],
+    [{ q: 0, r: 2 }, { q: -1, r: 2 }, { q: -1, r: 3 }],
+    [{ q: 1, r: 2 }, { q: 1, r: 1 }, { q: 2, r: 1 }],
+  ];
+}
+
+const FOUR_SEAT_HOME_DIRECTIONS = [0, 1, 3, 4] as const;
+const FOUR_SEAT_EMPTY_DIRECTIONS = [2, 5] as const;
+
+function axialAt(directionIndex: number, steps: number): HexCoord {
+  const axis = AXIAL_DIRECTIONS[directionIndex];
+  return { q: axis.q * steps, r: axis.r * steps };
+}
+
+function stepFrom(coord: HexCoord, directionIndex: number): HexCoord {
+  const axis = AXIAL_DIRECTIONS[directionIndex];
+  return { q: coord.q + axis.q, r: coord.r + axis.r };
+}
+
+function fourSeatHomeHexCoords(radius: number): HexCoord[][] {
+  return FOUR_SEAT_HOME_DIRECTIONS.map((directionIndex) => [
+    axialAt(directionIndex, radius),
+    axialAt(directionIndex, radius - 1),
+    axialAt(directionIndex, radius - 2),
+  ]);
+}
+
+function fourSeatOpenLandKeys(radius: number): Set<string> {
+  const openCoords = FOUR_SEAT_EMPTY_DIRECTIONS.map((directionIndex) => axialAt(directionIndex, radius));
+  for (const directionIndex of FOUR_SEAT_HOME_DIRECTIONS) {
+    const isEmptyCornerNext = FOUR_SEAT_EMPTY_DIRECTIONS.some((emptyIndex) => emptyIndex === (directionIndex + 1) % AXIAL_DIRECTIONS.length);
+    const ringStepTowardEmptyCorner = isEmptyCornerNext ? (directionIndex + 2) % AXIAL_DIRECTIONS.length : (directionIndex + 4) % AXIAL_DIRECTIONS.length;
+    openCoords.push(stepFrom(axialAt(directionIndex, radius), ringStepTowardEmptyCorner));
+  }
+  return new Set(openCoords.map((coord) => `${coord.q},${coord.r}`));
 }
 
 function denseOpenLandKeys(radius: number): Set<string> {
@@ -398,9 +441,25 @@ function denseOpenLandKeys(radius: number): Set<string> {
   return keys;
 }
 
-function barbarianHexCoords(radius: number, rulesVersion: WargamesMatchSpec['rulesVersion']): HexCoord[] {
+interface SeatLayout {
+  homeHexCoords(radius: number): HexCoord[][];
+  openLandKeys(radius: number): Set<string>;
+}
+
+const SEAT_LAYOUT_BY_COUNT: Readonly<Record<WargamesSeatCount, SeatLayout>> = Object.freeze({
+  4: { homeHexCoords: fourSeatHomeHexCoords, openLandKeys: fourSeatOpenLandKeys },
+  6: { homeHexCoords: sixSeatHomeHexCoords, openLandKeys: denseOpenLandKeys },
+});
+
+function seatLayoutFor(seatCount: number): SeatLayout {
+  const declaredCount = WARGAMES_SEAT_COUNTS.find((allowedCount) => allowedCount === seatCount);
+  if (declaredCount === undefined) throw new Error(`a match takes ${WARGAMES_SEAT_COUNTS.join(' or ')} seats, not ${seatCount}`);
+  return SEAT_LAYOUT_BY_COUNT[declaredCount];
+}
+
+function barbarianHexCoords(radius: number, rulesVersion: WargamesMatchSpec['rulesVersion'], seatLayout: SeatLayout): HexCoord[] {
   if (isRulesAtLeast(rulesVersion, 'v5')) {
-    const openKeys = denseOpenLandKeys(radius);
+    const openKeys = seatLayout.openLandKeys(radius);
     return hexGridForRadius(radius)
       .filter((tile) => !openKeys.has(`${tile.q},${tile.r}`))
       .map((tile) => ({ q: tile.q, r: tile.r }));
@@ -461,9 +520,11 @@ export function createInitialMatchState(
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const hexes = hexGridForRadius(mapRadius);
   const villages: (VillageState | null)[] = Array.from({ length: hexes.length }, () => null);
-  const homeCoords = seatHomeHexCoords(mapRadius);
-  for (let seatIdx = 0; seatIdx < WARGAMES_SEAT_IDS.length; seatIdx += 1) {
-    const seatId = WARGAMES_SEAT_IDS[seatIdx];
+  const seatIds = WARGAMES_SEAT_IDS.slice(0, spec.seats.length);
+  const seatLayout = seatLayoutFor(seatIds.length);
+  const homeCoords = seatLayout.homeHexCoords(mapRadius);
+  for (let seatIdx = 0; seatIdx < seatIds.length; seatIdx += 1) {
+    const seatId = seatIds[seatIdx];
     for (const coord of homeCoords[seatIdx]) {
       const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
       if (hexIdx < 0) continue;
@@ -478,7 +539,7 @@ export function createInitialMatchState(
       };
     }
   }
-  for (const coord of barbarianHexCoords(mapRadius, spec.rulesVersion)) {
+  for (const coord of barbarianHexCoords(mapRadius, spec.rulesVersion, seatLayout)) {
     const hexIdx = hexIndexAt(coord.q, coord.r, mapRadius);
     if (hexIdx < 0 || villages[hexIdx] !== null) continue;
     villages[hexIdx] = {
@@ -491,7 +552,7 @@ export function createInitialMatchState(
       troops: { raider: 3, guard: 4, envoy: 0 },
     };
   }
-  const orderedSeats = WARGAMES_SEAT_IDS.map((seatId) => {
+  const orderedSeats = seatIds.map((seatId) => {
     const config = spec.seats.find((entry) => entry.seatId === seatId) ?? spec.seats[0];
     return {
       config,
@@ -504,7 +565,7 @@ export function createInitialMatchState(
   });
   const reportsBySeat = {} as Record<SeatId, SignedReport[]>;
   const scoutedHexesBySeat = {} as Record<SeatId, number[]>;
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of seatIds) {
     reportsBySeat[seatId] = [];
     scoutedHexesBySeat[seatId] = [];
   }
@@ -1016,7 +1077,7 @@ function resolveTick(
   effects: EngineEffect[],
   signer?: ReportSigner,
 ): void {
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     state.scoutedHexesBySeat[seatId] = [];
   }
 
@@ -1281,11 +1342,11 @@ function resolveTick(
 }
 
 function determineWinnerAtLimit(state: MatchState): SeatId {
-  let bestSeat: SeatId = WARGAMES_SEAT_IDS[0];
+  let bestSeat: SeatId = state.seats[0].config.seatId;
   let bestVillages = -1;
   let bestTroops = -1;
   let bestResources = -1;
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     const owned = villagesOwnedBy(state, seatId);
     let troops = 0;
     let resources = 0;
@@ -1306,6 +1367,24 @@ function determineWinnerAtLimit(state: MatchState): SeatId {
   return bestSeat;
 }
 
+function seatsNamedAsTargets(event: WargamesEvent): SeatId[] {
+  if (event.type === 'message_sent') return event.to === null ? [] : [event.to];
+  if (event.type === 'contract_proposed') return [event.terms.counterparty];
+  if (event.type === 'orders_submitted') {
+    return event.orders.flatMap((order) => (order.kind === 'tribe_join' ? [order.partner] : []));
+  }
+  return [];
+}
+
+function rejectSeatsOutsideMatch(state: MatchState, event: WargamesEvent): TransitionOutcome | null {
+  if ('seatId' in event && !isSeatInMatch(state, event.seatId)) {
+    return reject('unauthorized_seat', `seat ${event.seatId} is not in this match`);
+  }
+  const outsideTarget = seatsNamedAsTargets(event).find((seatId) => !isSeatInMatch(state, seatId));
+  if (outsideTarget === undefined) return null;
+  return reject('invalid_target', `seat ${outsideTarget} is not in this match`);
+}
+
 export function applyEvent(
   currentState: MatchState,
   event: WargamesEvent,
@@ -1314,6 +1393,9 @@ export function applyEvent(
   if (event.type === 'match_created') {
     return reject('invalid_match_state', 'match_created initializes a match via createInitialMatchState only');
   }
+
+  const outsideSeatRejection = rejectSeatsOutsideMatch(currentState, event);
+  if (outsideSeatRejection) return outsideSeatRejection;
 
   const state = cloneState(currentState);
   const effects: EngineEffect[] = [];
@@ -1547,7 +1629,7 @@ export function applyEvent(
       if (!reported.ok) return reported;
       state.phase = reported.state;
       const winVillages = victoryVillagesFor(state.spec);
-      const hasThresholdWinner = WARGAMES_SEAT_IDS.some((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
+      const hasThresholdWinner = matchSeatIds(state).some((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
       if (hasThresholdWinner) {
         const winSeat = determineWinnerAtLimit(state);
         const finished = transitionMatch(state.status, 'match_won');

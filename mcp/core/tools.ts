@@ -9,7 +9,7 @@ import { BoardRegion, Near, Op, WHITEBOARD_LIMITS } from '../../shared/contracts
 import { BOX_SHAPES } from '../../shared/whiteboard-shapes.ts';
 import { BUILTIN_AGENT_IDS, SHELL_AGENT_ID } from '../../shared/contracts/config.ts';
 import { RaceId } from '../../shared/contracts/race.ts';
-import { WargamesMatchId } from '../../shared/contracts/wargames.ts';
+import { WARGAMES_MAP_SIZES, WARGAMES_MAX_HEX_RADIUS, WARGAMES_MIN_HEX_RADIUS, WargamesMatchId } from '../../shared/contracts/wargames.ts';
 import { MAX_WAKE_TEXT_CHARS, MAX_WAKE_WHEN_CHARS, WakeId } from '../../shared/contracts/wakes.ts';
 import { MEMORY_KEY_MAX_CHARS, MEMORY_TEXT_MAX_CHARS } from '../../shared/contracts/memory.ts';
 import { CODEMAP_EXPORT_KINDS, CODEMAP_IMPACT_MAX_PATHS, CODEMAP_OVERLAY_LAYERS, CODEMAP_TARGET_MAX_CHARS } from '../../shared/contracts/codemap.ts';
@@ -340,10 +340,10 @@ const ARENA_TOOL: GroupedTool = {
 const WARGAMES_TOOL: GroupedTool = {
   name: 'wargames',
   title: 'Glimmervoid Wargames',
-  description: 'Set up, start, inspect, and abort 6-seat Wargames strategy matches across mixed AI models, or read cross-match history and model Elo ratings. start launches a 6-seat match from a WargamesMatchSpec (version 1 is filled in automatically) and returns the matchId; matches lists loaded and recent match summaries; match reads one match summary by id; abort ends an active match with an optional reason; history returns the model Elo leaderboard and past matches.',
+  description: 'Set up, start, inspect, and abort 4-seat or 6-seat Wargames strategy matches across mixed AI models, or read cross-match history and model Elo ratings. start launches a 4-seat or 6-seat match from a WargamesMatchSpec (version 1 is filled in automatically) and returns the matchId; matches lists loaded and recent match summaries; match reads one match summary by id; abort ends an active match with an optional reason; history returns the model Elo leaderboard and past matches.',
   loadsUpfront: false,
   fields: {
-    spec: z.record(z.string(), z.unknown()).optional().describe('start: the match spec as {title, seed, tickDeadlineSeconds?, maxTicks?, seats: [{seatId: s1..s6, label, setup: {agent, model (null for default), options: [], instructions: \'\' (optional pre-game strategy brief appended after immutable rules)}, modelDisplay}]} (6 seats)'),
+    spec: z.record(z.string(), z.unknown()).optional().describe(`start: the match spec as {title, seed, mapRadius? (${WARGAMES_MIN_HEX_RADIUS} to ${WARGAMES_MAX_HEX_RADIUS}; the dashboard sizes are ${WARGAMES_MAP_SIZES.map((mapSize) => `${mapSize.name} mapRadius ${mapSize.mapRadius} with maxTicks ${mapSize.maxTicks}`).join(', ')}), tickDeadlineSeconds?, maxTicks?, seats: [{seatId, label, setup: {agent, model (null for default), options: [], instructions: \'\' (optional pre-game strategy brief appended after immutable rules)}, modelDisplay}]} (4 seats s1..s4 or 6 seats s1..s6)`),
     match: WargamesMatchId.optional().describe('match, abort: the Wargames match id'),
     reason: z.string().trim().min(1).max(400).optional().describe('abort: optional reason for ending the match'),
   },

@@ -10,7 +10,6 @@ import {
   SeatId,
   SignedReport,
   WARGAMES_RULES_VERSION,
-  WARGAMES_SEAT_IDS,
 } from '../../shared/contracts/wargames.ts';
 import type {
   MatchStatus,
@@ -31,6 +30,7 @@ import {
   canonicalReportString,
   createInitialMatchState,
   projectSeatState,
+  matchSeatIds,
   seatIndexOf,
 } from '../../shared/wargames/engine.ts';
 import type { MatchState, ReportSigner } from '../../shared/wargames/engine.ts';
@@ -488,7 +488,7 @@ export function createWargamesRunner({
         await ensureSeatConnectedSerialized(live, seatId);
         if (readyFlag && live.state.status === 'running' && (live.state.phase === 'talk' || live.state.phase === 'contracts')) {
           live.readySeats.add(seatId);
-          const allReady = WARGAMES_SEAT_IDS.every((id) => {
+          const allReady = matchSeatIds(live.state).every((id) => {
             const seatStatus = live.state.seats[seatIndexOf(id)].status;
             return seatStatus === 'eliminated' || seatStatus === 'timedOut' || live.readySeats.has(id);
           });
@@ -612,7 +612,7 @@ export function createWargamesRunner({
           orders: parsedOrders.data,
         });
         if (!committed.ok) return committed;
-        const allSubmitted = WARGAMES_SEAT_IDS.every((id) => {
+        const allSubmitted = matchSeatIds(live.state).every((id) => {
           const seatStatus = live.state.seats[seatIndexOf(id)].status;
           return seatStatus === 'submitted' || seatStatus === 'eliminated' || seatStatus === 'timedOut';
         });

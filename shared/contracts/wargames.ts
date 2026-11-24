@@ -6,7 +6,8 @@ const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
 const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5']);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
-const WARGAMES_SEAT_COUNT = 6;
+export const WARGAMES_SEAT_COUNTS = [4, 6] as const;
+export type WargamesSeatCount = (typeof WARGAMES_SEAT_COUNTS)[number];
 export const WARGAMES_HEX_RADIUS = 3;
 export const WARGAMES_MIN_HEX_RADIUS = 3;
 export const WARGAMES_MAX_HEX_RADIUS = 8;
@@ -18,6 +19,12 @@ export const WARGAMES_SQUEEZE_TICK = 25;
 const WARGAMES_WIN_VILLAGES = 12;
 const WARGAMES_V5_OPEN_HEXES = 6;
 const WARGAMES_V5_VICTORY_SHARE = 0.4;
+export const WARGAMES_MAP_SIZES = [
+  { name: 'Standard', mapRadius: 4, maxTicks: 20 },
+  { name: 'Large', mapRadius: 6, maxTicks: 40 },
+  { name: 'Huge', mapRadius: 8, maxTicks: 70 },
+] as const;
+export type WargamesMapSize = (typeof WARGAMES_MAP_SIZES)[number];
 export const WARGAMES_NOTE_MAX_BYTES = 4096;
 export const WARGAMES_MAX_MESSAGES_PER_TICK = 2;
 export const WARGAMES_MAX_TRIBE_SIZE = 2;
@@ -25,6 +32,21 @@ export const WARGAMES_TRAVEL_HEXES_PER_TICK = 2;
 
 export const SeatId = z.enum(WARGAMES_SEAT_IDS);
 export type SeatId = z.infer<typeof SeatId>;
+
+export function seatIdsForCount(seatCount: WargamesSeatCount): SeatId[] {
+  return WARGAMES_SEAT_IDS.slice(0, seatCount);
+}
+
+function isAllowedSeatCount(seatCount: number): seatCount is WargamesSeatCount {
+  return WARGAMES_SEAT_COUNTS.some((allowedCount) => allowedCount === seatCount);
+}
+
+function hasExactSeatIds(seats: readonly { seatId: SeatId }[]): boolean {
+  if (!isAllowedSeatCount(seats.length)) return false;
+  const expectedSeatIds = new Set<SeatId>(seatIdsForCount(seats.length));
+  const givenSeatIds = new Set(seats.map((seat) => seat.seatId));
+  return givenSeatIds.size === expectedSeatIds.size && [...givenSeatIds].every((seatId) => expectedSeatIds.has(seatId));
+}
 
 export const MatchStatus = z.enum(['lobby', 'seating', 'running', 'finished', 'aborted']);
 export type MatchStatus = z.infer<typeof MatchStatus>;
@@ -101,9 +123,9 @@ export const WargamesMatchSpec = z.strictObject({
   mapRadius: z.number().int().min(WARGAMES_MIN_HEX_RADIUS).max(WARGAMES_MAX_HEX_RADIUS).default(WARGAMES_HEX_RADIUS),
   tickDeadlineSeconds: z.number().int().min(5).max(300).default(WARGAMES_TICK_DEADLINE_SECONDS),
   maxTicks: z.number().int().min(5).max(80).default(WARGAMES_MAX_TICKS),
-  seats: z.array(SeatConfig).length(WARGAMES_SEAT_COUNT),
-}).refine((spec) => new Set(spec.seats.map((seat) => seat.seatId)).size === WARGAMES_SEAT_COUNT, {
-  error: 'all 6 seat ids must be distinct',
+  seats: z.array(SeatConfig),
+}).refine((spec) => hasExactSeatIds(spec.seats), {
+  error: 'a match takes 4 seats (s1 to s4) or 6 seats (s1 to s6)',
   path: ['seats'],
 });
 export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;

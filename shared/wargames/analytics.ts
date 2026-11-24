@@ -1,4 +1,3 @@
-import { WARGAMES_SEAT_IDS } from '../contracts/wargames.ts';
 import type {
   DramaHighlight,
   MatchAnalytics,
@@ -10,7 +9,7 @@ import type {
   WargamesMatchSummary,
 } from '../contracts/wargames.ts';
 import type { MatchState } from './engine.ts';
-import { canonicalReportString, createInitialMatchState, seatIndexOf } from './engine.ts';
+import { canonicalReportString, createInitialMatchState, matchSeatIds, seatIndexOf } from './engine.ts';
 
 const PEACEFUL_DM_PATTERN = /\b(ally|alliance|peace|truce|nap|friend|partner|agree|deal|non-aggression|won't attack|not attack)\b/i;
 const ELO_DEFAULT = 1500;
@@ -30,7 +29,7 @@ function summarizeOrder(order: OrderItem): string {
 export function summarizeMatch(state: MatchState, finishedAtMs: number | null, eventCount: number): WargamesMatchSummary {
   const villageCounts = new Map<SeatId, number>();
   const breachCounts = new Map<SeatId, number>();
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     villageCounts.set(seatId, 0);
     breachCounts.set(seatId, 0);
   }
@@ -115,7 +114,7 @@ export function analyzeMatch(
   const verifiedInvalidReportIds = new Set<string>();
   const ownerBeforeTick = buildOwnershipTimeline(state);
 
-  for (const seatId of WARGAMES_SEAT_IDS) {
+  for (const seatId of matchSeatIds(state)) {
     talkPromisesBySeat.set(seatId, { made: 0, kept: 0 });
     contractPromisesBySeat.set(seatId, { made: 0, kept: 0 });
     forgedSentBySeat.set(seatId, 0);
@@ -203,7 +202,7 @@ export function analyzeMatch(
   for (const tick of orderedTicks) {
     const seatOrders = state.ordersByTick[tick];
     const ownerAtTick = ownerBeforeTick.get(tick);
-    for (const seatId of WARGAMES_SEAT_IDS) {
+    for (const seatId of matchSeatIds(state)) {
       for (const order of seatOrders[seatId] ?? []) {
         if (order.kind !== 'march') continue;
         const targetOwner = ownerAtTick?.get(order.toHexIndex) ?? null;
@@ -264,7 +263,7 @@ export function analyzeMatch(
   }
 
   const villageCounts = new Map<SeatId, number>();
-  for (const seatId of WARGAMES_SEAT_IDS) villageCounts.set(seatId, 0);
+  for (const seatId of matchSeatIds(state)) villageCounts.set(seatId, 0);
   for (const village of state.villages) {
     if (village && village.owner !== null) {
       villageCounts.set(village.owner, (villageCounts.get(village.owner) ?? 0) + 1);

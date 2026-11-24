@@ -692,3 +692,70 @@ test('v5 populates dense maps, scales victory goal with mapRadius, and projects 
     assert.ok(minDist >= 1 && minDist <= 2);
   }
 });
+
+test('4-seat matches seat s1 to s4 on an even dense map, refuse other seat sets, and refuse seats outside the match', () => {
+  const sixSeatSpec = buildTestSpec();
+  const fourSeatInput = { ...sixSeatSpec, rulesVersion: 'v5', seats: sixSeatSpec.seats.slice(0, 4) };
+  assert.equal(WargamesMatchSpec.safeParse({ ...fourSeatInput, seats: sixSeatSpec.seats.slice(0, 5) }).success, false);
+  assert.equal(WargamesMatchSpec.safeParse({ ...fourSeatInput, seats: [...sixSeatSpec.seats.slice(0, 3), sixSeatSpec.seats[4]] }).success, false);
+
+  for (const mapRadius of [4, 6, 8]) {
+    const spec = WargamesMatchSpec.parse({ ...fourSeatInput, mapRadius });
+    const state = createInitialMatchState(`wg-four-r${mapRadius}`, 1000, spec);
+    assert.deepEqual(state.seats.map((seat) => seat.config.seatId), ['s1', 's2', 's3', 's4']);
+    const hexCount = 3 * mapRadius * (mapRadius + 1) + 1;
+    assert.equal(state.villages.filter((village) => village !== null).length, hexCount - 6);
+    const nearbyBarbariansBySeat = state.seats.map((seat) => {
+      const homeTiles = state.villages.flatMap((village) => (village?.owner === seat.config.seatId ? [state.hexes[village.hexIndex]] : []));
+      assert.equal(homeTiles.length, 3);
+      return state.villages.filter((village) => village !== null && village.owner === null && homeTiles.some((home) => {
+        const tile = state.hexes[village.hexIndex];
+        return Math.max(Math.abs(home.q - tile.q), Math.abs(home.r - tile.r), Math.abs(home.q + home.r - tile.q - tile.r)) <= 2;
+      })).length;
+    });
+    assert.equal(new Set(nearbyBarbariansBySeat).size, 1);
+  }
+
+  const signer = createTestSigner(4);
+  const log: WargamesEvent[] = [];
+  let state = createInitialMatchState('wg-four-play', 1000, WargamesMatchSpec.parse({ ...fourSeatInput, mapRadius: 6 }));
+  let seq = 0;
+  const nextSeq = () => { seq += 1; return seq; };
+  const advance = (): WargamesEvent => ({ seq: nextSeq(), type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  state = appendAndApply(log, state, { seq: nextSeq(), type: 'seating_started' }, signer);
+  for (const seatId of ['s1', 's2', 's3', 's4'] as const) {
+    state = appendAndApply(log, state, { seq: nextSeq(), type: 'seat_connected', seatId }, signer);
+  }
+  assert.equal(state.status, 'running');
+
+  const outsideSender = applyEvent(state, { seq: seq + 1, type: 'note_written', seatId: 's5', text: 'hi' }, signer);
+  assert.equal(outsideSender.ok ? null : outsideSender.rejection.code, 'unauthorized_seat');
+  const outsideRecipient = applyEvent(state, { seq: seq + 1, type: 'message_sent', seatId: 's1', to: 's6', channel: 'dm', text: 'hi', attachedReport: null }, signer);
+  assert.equal(outsideRecipient.ok ? null : outsideRecipient.rejection.code, 'invalid_target');
+
+  state = appendAndApply(log, state, advance(), signer);
+  state = appendAndApply(log, state, advance(), signer);
+  const outsidePartner = applyEvent(state, { seq: seq + 1, type: 'orders_submitted', seatId: 's1', orders: [{ kind: 'tribe_join', partner: 's5' }] }, signer);
+  assert.equal(outsidePartner.ok ? null : outsidePartner.rejection.code, 'invalid_target');
+
+  const s1Home = state.villages.find((village) => village?.owner === 's1');
+  const s1Target = state.villages.find((village) => village !== null && village.owner === null);
+  assert.ok(s1Home && s1Target);
+  state = appendAndApply(log, state, {
+    seq: nextSeq(),
+    type: 'orders_submitted',
+    seatId: 's1',
+    orders: [{ kind: 'march', fromHexIndex: s1Home.hexIndex, toHexIndex: s1Target.hexIndex, troops: { raider: 3, guard: 0, envoy: 0 } }],
+  }, signer);
+  for (const seatId of ['s2', 's3', 's4'] as const) {
+    state = appendAndApply(log, state, { seq: nextSeq(), type: 'orders_submitted', seatId, orders: [] }, signer);
+  }
+  state = appendAndApply(log, state, advance(), signer);
+  state = appendAndApply(log, state, advance(), signer);
+  assert.equal(state.tick, 2);
+  assert.equal([...state.armies.values()].filter((army) => army.owner === 's1').length, 1);
+
+  const summary = summarizeMatch(state, null, log.length + 1);
+  assert.deepEqual(summary.seats.map((seat) => seat.seatId), ['s1', 's2', 's3', 's4']);
+  assert.equal(analyzeMatch(log, state).seats.length, 4);
+});
