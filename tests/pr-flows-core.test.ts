@@ -15,6 +15,7 @@ import { PR_ACTION_REPORT_URL_ENV, PR_ACTION_TOKEN_ENV, prActionReportPath, PrFl
 import type { PrFlowsStatus } from '../shared/contracts/pr-flows.ts';
 import { createPrFlowsWiring } from '../server/github/pr-flows-wiring.ts';
 import { createPrFlowsExternal } from '../server/github/pr-flows-external.ts';
+import { createPackSettings } from '../server/packs/pack-settings.ts';
 import { readConfigFile, runPrActionReport, runPrFlowsCheck } from '../server/pr-flows-cli.ts';
 import { checkPack, packCheckHasProblem, packReportText } from '../server/packs/pack-check.ts';
 import { once } from 'node:events';
@@ -270,6 +271,43 @@ test('a source that fails or prints no findings JSON shows its error on the PR a
   assert.equal(chatty.ok, false);
   const unknown = await external.runSource({ id: 'typo', label: 'typo', command: ['echo', '{pr_url}'], timeoutSeconds: 30 }, pr);
   assert.deepEqual(unknown, { ok: false, error: '{pr_url} is not a placeholder of a source; use {prUrl}, {repo}, {number}, {head}' });
+});
+
+test('a pack secret reaches only the commands it lists under its pack vault name, a text setting reaches every command, editing a setting keeps approval, and output and failure text mask the secret', async () => {
+  const homeDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gv-pack-settings-'));
+  const packDir = path.join(homeDir, 'packs', 'keyed');
+  await fs.promises.mkdir(packDir, { recursive: true });
+  const printEnv = "process.stdout.write(JSON.stringify({ findings: [], status: [{ label: [process.env.FORUM_HOST, process.env.FORUM_TOKEN ?? 'none'].join(' '), state: 'ok' }] }))";
+  await fs.promises.writeFile(path.join(packDir, 'pack.json'), JSON.stringify({
+    name: 'keyed', version: 1,
+    settings: [{ key: 'FORUM_HOST', label: 'Forum host' }, { key: 'FORUM_TOKEN', label: 'Forum token', kind: 'secret', commands: ['pr-source:scan', 'pr-action:leak'] }],
+    prFlows: {
+      sources: [{ id: 'scan', label: 'Scan', command: [process.execPath, '-e', printEnv] }, { id: 'other', label: 'Other', command: [process.execPath, '-e', printEnv] }],
+      prActions: [{ id: 'leak', label: 'Leak', command: [process.execPath, '-e', "process.stderr.write('denied for ' + process.env.FORUM_TOKEN); process.exit(1)"] }],
+    },
+  }));
+  const read = await readPackDir(packDir, process.env);
+  assert.ok(read.ok);
+  const fingerprintBefore = read.pack.fingerprint;
+  const savedSecrets = new Map<string, string>();
+  const settings = createPackSettings({
+    homeDir, approvedPack: () => read.pack,
+    vault: { source: () => ({ manager: 'age' }), read: async (_source, name) => (savedSecrets.has(name) ? { value: savedSecrets.get(name) ?? '' } : { failure: { kind: 'not-found', message: 'missing', detail: '' } }), saveToAgeFile: async (name, value) => { savedSecrets.set(name, value); return null; } },
+  });
+  assert.deepEqual(await settings.save('keyed', { FORUM_HOST: 'forum.example', FORUM_TOKEN: 'tok-123456' }), { ok: true });
+  assert.equal(await fs.promises.readFile(path.join(homeDir, 'pack-settings.json'), 'utf8').then((text) => text.includes('tok-123456')), false);
+  const reread = await readPackDir(packDir, process.env);
+  assert.equal(reread.ok ? reread.pack.fingerprint : null, fingerprintBefore);
+  assert.deepEqual([...savedSecrets.keys()], ['GLIMMERVOID_PACK_KEYED__FORUM_TOKEN']);
+  const external = createPrFlowsExternal({ homeDir, commandSettings: (kind, commandId) => settings.commandSettings(read.pack, `${kind}:${commandId}`) });
+  const pr = { url: 'https://github.com/acme/app/pull/1', repo: 'acme/app', number: 1, headRefOid: 'b'.repeat(40), headRefName: 'feature', baseRefName: 'main' };
+  const scanned = await external.runSource({ id: 'scan', label: 'Scan', command: [process.execPath, '-e', printEnv], timeoutSeconds: 30 }, pr);
+  const other = await external.runSource({ id: 'other', label: 'Other', command: [process.execPath, '-e', printEnv], timeoutSeconds: 30 }, pr);
+  assert.deepEqual([scanned.ok && scanned.output.status[0]?.label, other.ok && other.output.status[0]?.label], ['forum.example [secret]', 'forum.example none']);
+  const leaked = await external.runAction({ id: 'leak', label: 'Leak', command: [process.execPath, '-e', "process.stderr.write('denied for ' + process.env.FORUM_TOKEN); process.exit(1)"], timeoutSeconds: 30 }, pr);
+  assert.deepEqual(leaked, { outcome: 'failed', message: 'denied for [secret]' });
+  const viewed = await settings.view('keyed');
+  assert.deepEqual(viewed.ok ? viewed.settings.secretStateByKey : null, { FORUM_TOKEN: 'found' });
 });
 
 test('a scanner rule never dismisses a carbon unit thread merged into the same item, and scanner output stays inert', () => {

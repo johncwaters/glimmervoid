@@ -1,9 +1,19 @@
 import { z } from 'zod';
 import { PrFlowPendingApproval } from '../pr-flows.ts';
 import { ThemePalette } from '../theme-palette.ts';
-import { PackBridgeTopic, PackName, PackPanelAct, PackSourceSlug, PackStoreData, PackStoreKey, PackStoreValue, ProviderStatus } from '../pack-bridge.ts';
+import { PackBridgeTopic, PackName, PackPanelAct, PackSettingValue, PackSourceSlug, PackStoreData, PackStoreKey, PackStoreValue, ProviderStatus } from '../pack-bridge.ts';
 import { PackSessionStart } from '../pack-launch.ts';
 import { loose, optionalError, requestId, sessionId } from './control-fields.ts';
+import { SecretName } from '../secrets.ts';
+
+export const PackSettingsView = z.strictObject({
+  manager: z.enum(['1password', 'age']).nullable(),
+  valuesByKey: z.record(z.string(), z.string()),
+  secretStateByKey: z.record(z.string(), z.enum(['found', 'missing', 'unreadable'])),
+  vaultNameByKey: z.record(z.string(), z.string()),
+  missingKeys: z.array(z.string()),
+});
+export type PackSettingsView = z.infer<typeof PackSettingsView>;
 
 const PackRowState = z.enum(['pending', 'approved', 'invalid']);
 
@@ -36,6 +46,7 @@ export const PackRow = z.strictObject({
   }).nullable(),
   mcpServers: z.array(z.strictObject({ name: z.string(), url: z.string(), notes: z.array(z.string()) })).default([]),
   hooks: z.array(z.strictObject({ id: z.string(), description: z.string(), tools: z.array(z.string()), command: z.array(z.string()) })).default([]),
+  settings: z.array(z.strictObject({ key: z.string(), label: z.string(), kind: z.enum(['text', 'secret']), hint: z.string().nullable(), commands: z.array(z.string()) })).default([]),
   errors: z.array(z.string()),
   isPlacedByHand: z.boolean().default(false).describe('The folder sits directly in ~/.glimmervoid/packs and packs install did not place it, so only the operator can remove it, from the Packs tab'),
 });
@@ -83,6 +94,8 @@ export const packClientVariants = [
   loose('pack-request-dismiss', { requestId, pack: PackName }).describe('The operator dismissed an agent request to approve this pack; it stays pending and packs status tells the agent'),
   loose('pack-data-get', PackDataRequest),
   loose('pack-data-set', { ...PackDataRequest, key: PackStoreKey, value: PackStoreValue }),
+  loose('pack-settings-get', PackDataRequest).describe('Read an approved pack\'s plain setting values and whether each secret is found in the vault; secret values never leave the server'),
+  loose('pack-settings-save', { ...PackDataRequest, valuesByKey: z.record(SecretName, PackSettingValue) }).describe('Save an approved pack\'s settings: text values to the pack settings file, a non-empty secret to the age vault file; an empty secret keeps the saved one'),
   loose('pack-launch', { requestId, pack: PackName, launcherId: z.string().min(1).max(40) }),
   loose('pack-session-start', { ...PackPanelRequest, ...PackSessionStart.shape }).describe('Start a session from a panel that lists sessions under acts; the reply is add-session-result'),
   loose('pack-session-send', { ...PackPanelRequest, id: sessionId.describe('The live session to type into, from the sessions topic'), text: z.string().trim().min(1).max(4000).describe('Typed into the session and submitted') })
@@ -99,6 +112,7 @@ export const packServerVariants = [
   loose('pack-approve-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-request-dismiss-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-data-result', { requestId, ok: z.boolean(), data: PackStoreData.optional(), error: optionalError }),
+  loose('pack-settings-result', { requestId, ok: z.boolean(), settings: PackSettingsView.optional(), error: optionalError }),
   loose('pack-session-send-result', { requestId, ok: z.boolean(), error: optionalError }),
   loose('pack-source-result', { requestId, ok: z.boolean(), text: z.string().optional(), error: optionalError }),
 ] as const;

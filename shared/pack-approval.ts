@@ -46,6 +46,8 @@ export function packGrants(row: PackRow): string[] {
     ...(row.mcpServers.length === 0 ? [] : [`MCP servers ${row.mcpServers.map((server) => server.name).join(', ')} for every session`]),
     ...row.hooks.map((hook) => `hook ${hook.id} running ${JSON.stringify(hook.command)} before ${hook.tools.join(' and ')} tool calls in every session`),
     ...(prFlowCommandCount === 0 ? [] : [plural(prFlowCommandCount, 'My PRs command')]),
+    ...row.settings.filter((setting) => setting.kind === 'secret').map((setting) => `secret ${setting.key} from your vault, handed to ${setting.commands.length === 0 ? 'no command' : setting.commands.join(', ')}`),
+    ...(row.settings.some((setting) => setting.kind === 'text') ? [`settings ${row.settings.filter((setting) => setting.kind === 'text').map((setting) => setting.key).join(', ')} for every command of the pack`] : []),
   ];
 }
 

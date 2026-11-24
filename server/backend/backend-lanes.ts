@@ -61,6 +61,12 @@ import { createPackLaunchers } from '../packs/launchers.ts';
 import { createPackStore } from '../packs/pack-store.ts';
 import { packPathsOf } from '../github/core/pr-flows-core.ts';
 import { createPrFlowsExternal } from '../github/pr-flows-external.ts';
+import { createPackSettings } from '../packs/pack-settings.ts';
+import type { PackVault } from '../packs/pack-settings.ts';
+import { NO_COMMAND_SETTINGS } from '../packs/pack-command.ts';
+import { packCommandRef } from '../packs/core/pack-core.ts';
+import { packEntryOwner } from '../github/core/pr-flows-core.ts';
+import type { PackCommandKind } from '../../shared/contracts/pack.ts';
 import { createMyPrMergeabilityFix, createMyPrsWiring, createGuardedPrStaging, sweepKeepMergeableLeftovers } from '../github/my-prs-wiring.ts';
 import { keepMergeableTimeoutSeconds } from '../github/core/my-prs-core.ts';
 import { createSessionPrLinkWiring } from '../github/session-pr-link-wiring.ts';
@@ -93,6 +99,7 @@ interface BackendLaneOptions {
 }
 
 interface BackendLaneDependencies {
+  packVault: PackVault;
   config: GlimmervoidConfig;
   rebaseSigningArgs: (worktreePath: string) => Promise<string[]>;
   frameSecret: Buffer;
@@ -126,6 +133,7 @@ interface BackendLaneDependencies {
 
 function createBackendLanes(dependencies: BackendLaneDependencies) {
   const {
+    packVault,
     config,
     rebaseSigningArgs,
     frameSecret,
@@ -285,6 +293,12 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
     onChange: () => broadcastPacksIfChanged(),
   });
   packStore.setSourceRows(packSources.rows);
+  const packSettings = createPackSettings({ homeDir: glimmervoidHome, vault: packVault, approvedPack: (packName) => packStore.packInUse(packName) });
+  const packCommandSettings = async (kind: PackCommandKind, commandId: string) => {
+    const owner = packEntryOwner(commandId);
+    const pack = owner === null ? null : packStore.packInUse(owner.packName);
+    return owner === null || pack === null ? NO_COMMAND_SETTINGS : packSettings.commandSettings(pack, packCommandRef(kind, owner.localId));
+  };
   const packData = createPackData({ homeDir: glimmervoidHome, panelPackDir: (packName) => packStore.panelPackDir(packName) });
   let lastPacksFrameText = '';
   const broadcastPacksIfChanged = () => {
@@ -315,7 +329,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
       savedConfig.prFlows = { ...current.data, rules: [...(current.data.rules ?? []), rule] };
       return undefined;
     })),
-    github, external: createPrFlowsExternal({ homeDir: glimmervoidHome }), broadcast: broadcastControl, log: logger,
+    github, external: createPrFlowsExternal({ homeDir: glimmervoidHome, commandSettings: packCommandSettings }), broadcast: broadcastControl, log: logger,
     reportUrlFor: (runId) => `http://127.0.0.1:${dashboardPort()}${prActionReportPath(runId)}`,
     loadPacks: async (configFile) => {
       packStore.setListedPaths(packPathsOf(configFile));
@@ -542,6 +556,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   }
 
   return {
+    packSettings,
     allLiveSessions,
     liveWorktreePaths,
     findLiveSession,

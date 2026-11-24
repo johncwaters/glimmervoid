@@ -2,11 +2,11 @@ import { Cron } from 'croner';
 import { z } from 'zod';
 import { ThemePalette } from './theme-palette.ts';
 import { LaunchAgent, LaunchEffort, LaunchModel, LaunchPrompt, LauncherLabel, LauncherProject } from './pack-launch.ts';
-import { PackBridgeTopic, PackName, PackPanelAct, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
+import { PackBridgeTopic, PackName, PackPanelAct, PackSettingValue, PackSourceSlug, SESSIONS_ACT_GRANT_TEXT } from './pack-bridge.ts';
 import { REVIEW_ACTIONS_GRANT_TEXT } from './reviews.ts';
 import { SKILL_NAME_PATTERN } from '../skill-frontmatter-core.ts';
 import { isLoopbackHostname } from '../loopback-hosts.ts';
-import { SecretName } from './secrets.ts';
+import { SecretName, isPackVaultName } from './secrets.ts';
 import { PackPrFlowRule, PrFlowItemAction, PrFlowPackRequires, PrFlowPrAction, PrFlowSourceCommand, RepoScope, prFlowRulesJsonSchema } from './pr-flows.ts';
 
 const PACK_SCHEMA_URL = 'https://glimmervoid.dev/schema/pack.v1.json';
@@ -29,6 +29,7 @@ export const PackHeader = z.strictObject({
   agent: z.unknown().optional(),
   mcp: z.unknown().optional(),
   hooks: z.unknown().optional(),
+  settings: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -163,7 +164,7 @@ export const PackMcpServer = z.strictObject({
   url: z.url().refine(isHttpsOrLoopbackHttp, { error: 'a server url is https, or http on 127.0.0.1, ::1 or localhost' })
     .refine((url) => !/[${}]/.test(url), { error: 'a server url holds no $, { or }, since agents expand ${VAR} and {env:VAR} in it' })
     .meta({ pattern: PACK_MCP_URL_PATTERN, description: 'The streamable HTTP MCP endpoint; with no secret the agent signs in through its own MCP OAuth login' }),
-  secret: SecretName.optional()
+  secret: SecretName.refine((name) => !isPackVaultName(name), { error: 'a GLIMMERVOID_PACK_ secret belongs to pack settings' }).optional()
     .describe('A bearer token sent to this server: glimmervoid reads the name from the vault at session start once the operator allows it for the project, and passes it by environment variable, never argv; while it is denied or cannot be read, a Gemini CLI or Kimi Code session fails its sign-in and any other session leaves the server out'),
 });
 export type PackMcpServer = z.infer<typeof PackMcpServer>;
@@ -220,6 +221,34 @@ export const PackHooks = z.array(PackHook).min(1).max(PACK_HOOKS_MAX).superRefin
   });
 });
 
+const PACK_COMMAND_KINDS = ['pr-source', 'pr-item-action', 'pr-action'] as const;
+export type PackCommandKind = (typeof PACK_COMMAND_KINDS)[number];
+const PACK_SETTINGS_MAX = 16;
+const PackCommandRef = z.string().regex(new RegExp(`^(${PACK_COMMAND_KINDS.join('|')}):[a-z0-9][a-z0-9-]{0,39}$`), { error: `a command reference is <kind>:<id>, where kind is one of ${PACK_COMMAND_KINDS.join(', ')}` });
+
+export const PackSetting = z.strictObject({
+  key: z.string().max(64).regex(/^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/, { error: 'a setting key is an environment variable name in capitals with single underscores between words, at most 64 characters, for example FORUM_API_KEY' })
+    .refine((key) => !key.startsWith('GLIMMERVOID_'), { error: 'a setting key cannot start with GLIMMERVOID_, which names the values glimmervoid passes itself' })
+    .describe('The environment variable the value reaches the pack commands under; a secret is kept in the vault as GLIMMERVOID_PACK_<PACK>__<KEY>, so it never meets another pack\'s or a session\'s secret'),
+  label: z.string().trim().min(1).max(60).describe('The field name shown to the operator in the pack Settings'),
+  kind: z.enum(['text', 'secret']).default('text').describe('text: a plain value saved in Glimmervoid\'s pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands'),
+  hint: z.string().trim().max(200).optional().describe('One line under the field, such as where to find the value'),
+  commands: z.array(PackCommandRef).max(32).default([]).describe('For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command'),
+});
+export type PackSetting = z.infer<typeof PackSetting>;
+
+export const PackSettings = z.array(PackSetting).min(1).max(PACK_SETTINGS_MAX).superRefine((settings, context) => {
+  const seenKeys = new Set<string>();
+  settings.forEach((setting, index) => {
+    if (seenKeys.has(setting.key)) context.addIssue({ code: 'custom', path: [index, 'key'], message: `the key '${setting.key}' is already used in settings` });
+    seenKeys.add(setting.key);
+    if (setting.kind === 'text' && setting.commands.length > 0) context.addIssue({ code: 'custom', path: [index, 'commands'], message: 'only a secret lists commands; a text setting reaches every command of the pack' });
+  });
+});
+
+export const PackSettingsFile = z.strictObject({ version: z.literal(1), valuesByPack: z.record(z.string().min(1), z.record(SecretName, PackSettingValue)).default({}) });
+export type PackSettingsFile = z.infer<typeof PackSettingsFile>;
+
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
 
@@ -249,6 +278,7 @@ export type PackOnDisk = {
   agent: PackSection<PackAgent> | null;
   mcp: PackSection<PackMcp> | null;
   hooks: PackSection<PackHook[]> | null;
+  settings: PackSection<PackSetting[]> | null;
   missingRequires: string[];
   previewDataUrl: string | null;
 };
@@ -261,6 +291,7 @@ const PackManifestForSchema = PackHeader.extend({
   agent: PackAgent.optional().describe('Context and skills every session\'s agent gets once the operator approves the pack'),
   mcp: PackMcp.optional().describe('MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it'),
   hooks: PackHooks.optional().describe('Checks every session\'s agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it'),
+  settings: PackSettings.optional().describe('Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
 });
 
 export function packJsonSchemaText(): string {
