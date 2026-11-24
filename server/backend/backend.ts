@@ -195,6 +195,7 @@ function createBackend(httpServer: Server, options: CreateBackendOptions = {}) {
     releaseId: parsePosthogReleaseId(packageJson.glimmervoid?.posthogReleaseId),
     getActiveSessionCount: () => sessions.size + agentSessions.size,
     takeWatcherRollup: () => watcherLink.takeRollup(),
+    takeWorstLoopLagP99Ms: () => outcomes.takeWorstLoopLagP99Ms(),
     readAccountIds: createAccountIdReader({ env: process.env, homeDir: os.homedir() }),
     readSetupSnapshot: async () => buildSetupSnapshot(configStore.config, (await githubSource.current()).kind),
     onInstallIdChange: () => broadcastSettings?.(),

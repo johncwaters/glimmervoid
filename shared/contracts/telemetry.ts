@@ -65,6 +65,7 @@ const AppActiveProperties = z.object({
   watcher_probe_count: nonNegativeInteger.optional(),
   watcher_covered_probe_count: nonNegativeInteger.optional(),
   watcher_nudge_count: nonNegativeInteger.optional(),
+  max_loop_lag_p99_ms: nonNegativeInteger.optional(),
   ...PersonProperties.partial().shape,
   ...SetupSnapshot.partial().shape,
 }).strict();
@@ -277,7 +278,7 @@ export type TelemetryEventProperties<EventName extends TelemetryEventName> = z.i
 
 export const TELEMETRY_EVENTS: readonly { name: TelemetryEventName; description: string }[] = Object.freeze([
   { name: 'app_started', description: 'The server started listening, and whether this is the first start, with no Glimmervoid config file yet. Also sets the person properties: a one-way hash of the Claude Code account id and the Codex user id when logged in, and the first version, platform and install flavor seen. Also carries the setup: how GitHub is reached (gh, a connection made in Settings, or neither), how many agent accounts were added beyond the login each agent already has and for which kinds of agent, whether Telegram is set up, how many packs are listed and whether the session sandbox is on. Never a login, account name or path.' },
-  { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live, how many probes the watcher was handed and how many of them it covers, and how many watcher nudges arrived since the last one, and the same person properties and setup as app_started.' },
+  { name: 'app_active', description: 'Once a day while the server runs, with how many sessions are live, how many probes the watcher was handed and how many of them it covers, how many watcher nudges arrived since the last one, and the worst one-minute event loop delay (99th percentile, in milliseconds) the server saw since the last one, and the same person properties and setup as app_started.' },
   { name: 'session_started', description: 'A session spawned, with which kind of agent (any custom agent counts as `custom`).' },
   { name: 'session_ended', description: 'A session ended: how it exited, or that it was removed, replaced by a settings change or stopped with the server, and how long it ran, in whole seconds.' },
   { name: '$exception', description: 'An error in the server or the dashboard: its type, an error code when it has one, and stack frames with file paths cut to the package or URL path. Never the error message. Each distinct error is sent once per run, and a crash is sent on the next start.' },

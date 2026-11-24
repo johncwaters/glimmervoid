@@ -68,6 +68,7 @@ interface TelemetryOptions {
   nodeVersion?: string;
   getActiveSessionCount?: () => number;
   takeWatcherRollup?: () => WatcherRollup;
+  takeWorstLoopLagP99Ms?: () => number | null;
   readAccountIds?: () => Promise<AccountIds>;
   readSetupSnapshot?: () => Promise<SetupSnapshot>;
   onInstallIdChange?: () => void;
@@ -141,7 +142,9 @@ function createTelemetry(options: TelemetryOptions): Telemetry {
   const heartbeatTimer = setInterval(() => {
     const activeSessionCount = options.getActiveSessionCount?.() ?? 0;
     const watcherRollup = options.takeWatcherRollup?.();
-    capture('app_active', { active_session_count: activeSessionCount, ...watcherRollupProperties(watcherRollup) });
+    const worstLoopLagP99Ms = options.takeWorstLoopLagP99Ms?.() ?? null;
+    const loopLagProperties = worstLoopLagP99Ms === null ? {} : { max_loop_lag_p99_ms: Math.round(worstLoopLagP99Ms) };
+    capture('app_active', { active_session_count: activeSessionCount, ...watcherRollupProperties(watcherRollup), ...loopLagProperties });
   }, ACTIVE_HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref();
 

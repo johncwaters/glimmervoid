@@ -40,6 +40,7 @@ function createOutcomesLane({
   const { note } = createLaneLog({ prefix: '[outcomes]', logger });
   let counts: OutcomeCounts = emptyOutcomeCounts();
   let stopped = false;
+  let worstLoopLagP99Ms: number | null = null;
 
   const histogram = createLoopLagHistogram();
   histogram?.enable();
@@ -58,8 +59,16 @@ function createOutcomesLane({
     return nanoseconds / NANOSECONDS_PER_MILLISECOND;
   }
 
+  function takeWorstLoopLagP99Ms(): number | null {
+    const worst = worstLoopLagP99Ms;
+    worstLoopLagP99Ms = null;
+    return worst;
+  }
+
   function drain(): void {
-    const drained = drainOutcomeSummary(counts, readLoopLagP99Ms());
+    const loopLagP99Ms = readLoopLagP99Ms();
+    if (loopLagP99Ms !== null) worstLoopLagP99Ms = Math.max(worstLoopLagP99Ms ?? 0, loopLagP99Ms);
+    const drained = drainOutcomeSummary(counts, loopLagP99Ms);
     counts = drained.next;
     if (!drained.fields) return;
     note('summary', drained.fields);
@@ -80,6 +89,7 @@ function createOutcomesLane({
   return {
     record,
     drain,
+    takeWorstLoopLagP99Ms,
     stop,
     get isStopped() { return stopped; },
   };
