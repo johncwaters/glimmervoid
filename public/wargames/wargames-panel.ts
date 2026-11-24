@@ -80,6 +80,7 @@ import {
   selectWatchedMatch,
   setReplaySpeed,
   setWargamesPov,
+  setWargamesResyncRequester,
   stepReplayTurn,
   subscribeWargames,
   toggleReplayPlay,
@@ -343,10 +344,10 @@ function pickAutoWatchMatchId(): string | null {
   return activeMatch ? activeMatch.matchId : candidates[0].matchId;
 }
 
-function subscribeMatchStream(matchId: string): void {
+function subscribeMatchStream(matchId: string): Promise<void> {
   watchStreamState = 'loading';
   bannerMessage = '';
-  void sendControlRequest('wargames-watch', { matchId }, { timeoutMs: 15_000 })
+  return sendControlRequest('wargames-watch', { matchId }, { timeoutMs: 15_000 })
     .then((reply) => {
       if (wargamesSnapshot().watchedMatchId !== matchId) return;
       if (reply.type !== 'wargames-watch-result') return;
@@ -382,7 +383,7 @@ function watchMatchById(matchId: string, switchToLive = true, selectionMode: 'au
   setWargamesPov('god');
   selectWatchedMatch(matchId, start);
   if (switchToLive) activeSubTab = 'live';
-  subscribeMatchStream(matchId);
+  void subscribeMatchStream(matchId);
   render();
 }
 
@@ -1667,6 +1668,8 @@ function handleStoreUpdate(): void {
   render();
 }
 
+setWargamesResyncRequester(subscribeMatchStream);
+
 subscribeSettings((change) => {
   if (change.kind === 'broadcast') render();
 });
@@ -1691,7 +1694,7 @@ export const view: ViewModule<HTMLElement> = {
   refresh() {
     const watchedId = wargamesSnapshot().watchedMatchId;
     if (watchedId) {
-      subscribeMatchStream(watchedId);
+      void subscribeMatchStream(watchedId);
       render();
       return;
     }

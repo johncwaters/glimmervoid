@@ -12,18 +12,19 @@ import { hexIndexAt, replayMatch } from '../shared/wargames/engine.ts';
 import { createWargamesRunner } from '../server/wargames/wargames-runner.ts';
 import { createWargamesLauncher, isWargamesSeatProject, pruneOrphanedWargamesProjects } from '../server/wargames/wargames-launch.ts';
 import { createWargamesStore } from '../server/wargames/wargames-store.ts';
+import { applyWargamesEvents, applyWargamesStatus, selectWatchedMatch, setWargamesResyncRequester, wargamesSnapshot } from '../public/wargames/wargames-store.ts';
 import { DEFAULT_CONFIG } from '../server/config-store.ts';
 import { Session } from '../session/sessions.ts';
 import { fakePty } from './helpers/fake-pty.ts';
 
-function buildSpec(): WargamesMatchSpec {
+function buildSpec(maxTicks = 5): WargamesMatchSpec {
   const models = ['claude-opus-4-6', 'gpt-5.3-codex', 'kimi-k2.5', 'gemini-2.5-pro', 'claude-sonnet-4-6', 'o3'];
   return WargamesMatchSpec.parse({
     version: 1,
     title: 'Runner Integration Match',
     seed: 7777,
     tickDeadlineSeconds: 60,
-    maxTicks: 5,
+    maxTicks,
     seats: WARGAMES_SEAT_IDS.map((seatId, index) => ({
       seatId,
       label: `Seat ${index + 1}`,
@@ -457,6 +458,62 @@ test('a seat session that ends before its seat connects aborts the match with th
     assert.deepEqual(events.at(-1), { seq: events.length - 1, type: 'match_aborted', reason: 'Seat s4 could not start: its agent exited with code 1' });
     runner.dispose();
   } finally {
+    await fsp.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('a dashboard whose watch dropped catches up to the live head instead of freezing on a gapped event stream', async () => {
+  const tempDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'wargames-runner-resync-'));
+  try {
+    const store = createWargamesStore({ directory: tempDir, log: { warn: () => {} } });
+    await store.load();
+    let isDashboardSocketOpen = true;
+    const runner = createWargamesRunner({
+      store,
+      broadcast: (frame) => {
+        if (!isDashboardSocketOpen) return;
+        if (frame.type === 'wargames-events') applyWargamesEvents(frame);
+        if (frame.type === 'wargames-status') applyWargamesStatus(frame);
+      },
+      log: { log: () => {}, warn: () => {} },
+      readAgentModels: () => ({ agents: [], openrouter: { models: [], error: null, checkedAt: null } }),
+    });
+    const started = await runner.startMatch(buildSpec(20), async (_matchId, seat) => ({ ok: true, sessionId: `sess-${seat.seatId}` }));
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const { matchId } = started;
+    for (const seatId of WARGAMES_SEAT_IDS) await runner.callTool(matchId, seatId, 'get_state', {});
+    async function playTurns(turnCount: number): Promise<void> {
+      for (let turn = 0; turn < turnCount; turn += 1) {
+        for (const seatId of WARGAMES_SEAT_IDS) await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+        for (const seatId of WARGAMES_SEAT_IDS) await runner.callTool(matchId, seatId, 'get_state', { ready: true });
+        for (const seatId of WARGAMES_SEAT_IDS) await runner.callTool(matchId, seatId, 'submit_orders', { orders: [] });
+      }
+    }
+    async function watchFromDashboard(watcherId: string): Promise<void> {
+      const watched = await runner.watchMatch(matchId, watcherId);
+      if (watched.ok) applyWargamesEvents({ matchId, events: watched.events, reset: true, phaseClock: watched.phaseClock });
+    }
+    selectWatchedMatch(matchId);
+    setWargamesResyncRequester(() => watchFromDashboard('dashboard-after-reconnect'));
+    await watchFromDashboard('dashboard');
+    await playTurns(3);
+
+    isDashboardSocketOpen = false;
+    runner.removeWatcher('dashboard');
+    await playTurns(4);
+    isDashboardSocketOpen = true;
+    await runner.watchMatch(matchId, 'second-tab');
+    await playTurns(3);
+
+    const serverSummary = runner.statusFrame().matches.find((summary) => summary.matchId === matchId);
+    assert.equal(wargamesSnapshot().headState?.tick, serverSummary?.tick);
+    assert.equal(wargamesSnapshot().events.length, serverSummary?.eventCount);
+    await runner.abortMatch(matchId, 'resync check');
+    runner.dispose();
+  } finally {
+    setWargamesResyncRequester(null);
+    selectWatchedMatch(null);
     await fsp.rm(tempDir, { recursive: true, force: true });
   }
 });

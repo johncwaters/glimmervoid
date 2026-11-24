@@ -50,6 +50,8 @@ interface WargamesStoreSnapshot {
 
 type Listener = () => void;
 
+type ResyncRequester = (matchId: string) => Promise<void>;
+
 const listeners = new Set<Listener>();
 
 let matches: WargamesMatchSummary[] = [];
@@ -67,6 +69,21 @@ let pendingReplayStart: ReplayStart = 'head';
 let cursorState: MatchState | null = null;
 let recordedNotes: (SeatNote & { eventCount: number })[] = [];
 let playTimer: ReturnType<typeof setTimeout> | null = null;
+let requestResync: ResyncRequester | null = null;
+let isResyncPending = false;
+
+export function setWargamesResyncRequester(requester: ResyncRequester | null): void {
+  requestResync = requester;
+}
+
+function resyncWatchedMatch(): void {
+  if (watchedMatchId === null || requestResync === null || isResyncPending) return;
+  isResyncPending = true;
+  const matchId = watchedMatchId;
+  void requestResync(matchId).finally(() => {
+    if (watchedMatchId === matchId) isResyncPending = false;
+  });
+}
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -213,6 +230,7 @@ export function selectWatchedMatch(matchId: string | null, start: ReplayStart = 
   events = [];
   headState = null;
   phaseDeadline = null;
+  isResyncPending = false;
   resetReplay(start);
   notify();
 }
@@ -245,8 +263,15 @@ function placeCursorAfterReset(): void {
   schedulePlayStep();
 }
 
+function isServerLogAhead(): boolean {
+  if (headState === null) return false;
+  const watchedSummary = matches.find((summary) => summary.matchId === watchedMatchId);
+  return watchedSummary !== undefined && watchedSummary.eventCount > events.length;
+}
+
 export function applyWargamesStatus(frame: { matches: WargamesMatchSummary[] }): void {
   matches = frame.matches;
+  if (isServerLogAhead()) resyncWatchedMatch();
   notify();
 }
 
@@ -264,6 +289,8 @@ export function applyWargamesEvents(frame: { matchId: string; events: WargamesEv
   if (watchedMatchId === null || frame.matchId !== watchedMatchId) return;
   phaseDeadline = deadlineFromClock(frame.phaseClock);
   if (frame.reset) {
+    isResyncPending = false;
+    const eventCountBeforeReset = events.length;
     if (frame.events.length === 0 || frame.events[0].type !== 'match_created') {
       events = [];
       headState = null;
@@ -283,22 +310,21 @@ export function applyWargamesEvents(frame: { matchId: string; events: WargamesEv
       recordedNotes = [];
     }
     placeCursorAfterReset();
+    if (events.length > eventCountBeforeReset && isServerLogAhead()) resyncWatchedMatch();
     notify();
     return;
   }
-  if (headState === null) return;
+  if (headState === null || isResyncPending) return;
   let current = headState;
   for (const incoming of frame.events) {
-    if (incoming.seq <= current.lastSeq && incoming.type !== 'match_created') continue;
-    if (incoming.type === 'match_created') {
-      current = createInitialMatchState(incoming.matchId, incoming.createdAtMs, incoming.spec);
-      events = [incoming];
-      resetReplay('head');
-      recordReplayState(timeline, 1, current);
-      continue;
+    if (incoming.seq <= current.lastSeq) continue;
+    const outcome = incoming.seq === current.lastSeq + 1 ? applyEvent(current, incoming) : null;
+    if (outcome === null || !outcome.ok) {
+      headState = current;
+      resyncWatchedMatch();
+      notify();
+      return;
     }
-    const outcome = applyEvent(current, incoming);
-    if (!outcome.ok) continue;
     current = outcome.state;
     events.push(incoming);
     recordReplayState(timeline, events.length, current);
