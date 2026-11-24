@@ -11,6 +11,7 @@ import {
   WARGAMES_SQUEEZE_TICK,
   WARGAMES_TRAVEL_HEXES_PER_TICK,
   valueForRadius,
+  troopCostsFor,
   victoryPointTargetFor,
   victoryVillagesForBalance,
   wargamesBalanceFor,
@@ -34,11 +35,11 @@ import type {
   SignedReportPayload,
   TickPhase,
   TroopCounts,
-  TroopKind,
   VillageProductionState,
   WargamesEvent,
   WargamesMatchSpec,
   WargamesRejection,
+  WargamesRolesRule,
 } from '../contracts/wargames.ts';
 import {
   transitionArmy,
@@ -199,12 +200,6 @@ const PRODUCTION_PER_LEVEL = 20;
 const INITIAL_LOYALTY = 100;
 const BEACON_GUARDS = 6;
 const MAX_SCOUTS_PER_TICK = 2;
-
-const TROOP_COSTS: Readonly<Record<TroopKind, ResourceBundle>> = Object.freeze({
-  raider: { grain: 12, ore: 8 },
-  guard: { grain: 8, ore: 12 },
-  envoy: { grain: 25, ore: 20 },
-});
 
 const SEAT_INDEX_BY_ID: Readonly<Record<SeatId, number>> = Object.freeze({
   s1: 0, s2: 1, s3: 2, s4: 3, s5: 4, s6: 5,
@@ -904,6 +899,81 @@ function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wall
   return { attackPower, defensePower };
 }
 
+function rolesAttackOf(roles: WargamesRolesRule, troops: TroopCounts): number {
+  return troops.raider * roles.units.raider.attack + troops.guard * roles.units.guard.attack + troops.envoy * roles.units.envoy.attack;
+}
+
+function rolesDefenseOf(roles: WargamesRolesRule, troops: TroopCounts): number {
+  return troops.raider * roles.units.raider.defense + troops.guard * roles.units.guard.defense + troops.envoy * roles.units.envoy.defense;
+}
+
+function isCaptureWave(roles: WargamesRolesRule, army: ArmyState): boolean {
+  return rolesAttackOf(roles, army.troops) === 0;
+}
+
+function moraleOf(state: MatchState, attacker: SeatId, defender: SeatId | null): number {
+  const roles = state.balance.roles;
+  if (roles === null || defender === null) return 1;
+  const attackerPoints = state.victoryPointsBySeat[attacker] ?? 0;
+  if (attackerPoints < roles.moraleMinAttackerPoints) return 1;
+  const pointsRatio = (state.victoryPointsBySeat[defender] ?? 0) / attackerPoints;
+  return Math.min(1, Math.max(roles.moraleFloor, Math.sqrt(pointsRatio)));
+}
+
+function seatAttackPowerOf(state: MatchState, armies: readonly ArmyState[], combinedTroops: TroopCounts, village: VillageState): number {
+  const roles = state.balance.roles;
+  if (roles === null) return resolveCombatPower(combinedTroops, village.troops, village.buildings.wall, defenseMultiplierOf(state, village)).attackPower;
+  return armies.reduce((sum, army) => sum + rolesAttackOf(roles, army.troops) * moraleOf(state, army.owner, village.owner), 0);
+}
+
+function villageDefensePowerOf(state: MatchState, village: VillageState, allAttackers: TroopCounts): number {
+  const roles = state.balance.roles;
+  if (roles === null) return resolveCombatPower(allAttackers, village.troops, village.buildings.wall, defenseMultiplierOf(state, village)).defensePower;
+  const troopDefense = rolesDefenseOf(roles, village.troops);
+  const wall = village.buildings.wall;
+  return (troopDefense + wall * roles.wallDefensePerLevel) * (1 + wall * roles.wallBonusPerLevel) * defenseMultiplierOf(state, village);
+}
+
+function knockDownWall(village: VillageState, attackPower: number, defensePower: number): void {
+  const wall = village.buildings.wall;
+  if (wall === 0 || attackPower <= 0) return;
+  const margin = 1 - defensePower / attackPower;
+  village.buildings.wall = Math.max(0, wall - Math.max(1, Math.round(wall * margin)));
+}
+
+function drainedLoyaltyOf(state: MatchState, loyalty: number, envoys: number): number {
+  const roles = state.balance.roles;
+  if (roles === null) return Math.max(0, loyalty - envoys * state.balance.envoyLoyaltyDrain);
+  let remaining = loyalty;
+  const rollSpan = roles.captureDrainMax - roles.captureDrainMin + 1;
+  for (let envoy = 0; envoy < envoys && remaining > 0; envoy += 1) {
+    const { value, nextState } = nextMulberry32(state.rngState);
+    state.rngState = nextState;
+    remaining = Math.max(0, remaining - (roles.captureDrainMin + Math.floor(value * rollSpan)));
+  }
+  return remaining;
+}
+
+function casualtiesByArmy(
+  state: MatchState,
+  armies: readonly ArmyState[],
+  combinedTroops: TroopCounts,
+  lossFraction: number,
+): { surviving: TroopCounts; lost: TroopCounts }[] {
+  if (state.spec.rulesVersion === 'v2') return armies.map((army) => applyCasualties(army.troops, lossFraction));
+  const roles = state.balance.roles;
+  if (roles === null) return spreadSeatLossesAcrossArmies(armies, applyCasualties(combinedTroops, lossFraction).lost);
+  const fighting = armies.filter((army) => !isCaptureWave(roles, army));
+  const fightingTroops = sumTroopCounts(fighting.map((army) => army.troops));
+  const fightingOutcomes = spreadSeatLossesAcrossArmies(fighting, applyCasualties(fightingTroops, lossFraction).lost);
+  return armies.map((army) => {
+    const fightingIndex = fighting.indexOf(army);
+    if (fightingIndex >= 0) return fightingOutcomes[fightingIndex];
+    if (lossFraction >= 1) return { surviving: emptyTroops(), lost: { ...army.troops } };
+    return { surviving: { ...army.troops }, lost: emptyTroops() };
+  });
+}
+
 function isLastVillage(state: MatchState, village: VillageState): boolean {
   return village.owner !== null && villagesOwnedBy(state, village.owner) === 1;
 }
@@ -1289,7 +1359,7 @@ function resolveV2SimultaneousBattles(
         seatArmies.push(supportArmy);
       }
       const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
-      const { attackPower } = resolveCombatPower(combinedTroops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
+      const attackPower = seatAttackPowerOf(state, seatArmies, combinedTroops, targetVillage);
       activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower });
     }
     if (activeAttackerSeats.length === 0) continue;
@@ -1297,8 +1367,8 @@ function resolveV2SimultaneousBattles(
     const defenderBefore = { ...targetVillage.troops };
     const loyaltyBefore = targetVillage.loyalty;
     const allCombinedTroops = sumTroopCounts(activeAttackerSeats.map((entry) => entry.combinedTroops));
-    const { defensePower } = resolveCombatPower(allCombinedTroops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
     const totalAttackPower = activeAttackerSeats.reduce((sum, entry) => sum + entry.attackPower, 0);
+    const defensePower = villageDefensePowerOf(state, targetVillage, allCombinedTroops);
     const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
     state.rngState = nextRng;
     const jitteredTotalAttack = totalAttackPower * (0.9 + rngRoll * 0.2);
@@ -1307,6 +1377,8 @@ function resolveV2SimultaneousBattles(
     const defenderLossFraction = defenderFalls ? 1 : (jitteredTotalAttack / Math.max(1, defensePower)) * 0.65;
     const defenderOutcome = applyCasualties(targetVillage.troops, defenderLossFraction);
     targetVillage.troops = defenderOutcome.surviving;
+    const wallBefore = targetVillage.buildings.wall;
+    if (defenderFalls && state.balance.roles !== null) knockDownWall(targetVillage, jitteredTotalAttack, defensePower);
 
     type HexContestOutcome =
       | { kind: 'held' }
@@ -1339,15 +1411,11 @@ function resolveV2SimultaneousBattles(
         lossFraction = 1;
       }
 
-      const survivingByArmy = state.spec.rulesVersion === 'v2'
-        ? entry.armies.map((army) => applyCasualties(army.troops, lossFraction))
-        : spreadSeatLossesAcrossArmies(entry.armies, applyCasualties(entry.combinedTroops, lossFraction).lost);
+      const survivingByArmy = casualtiesByArmy(state, entry.armies, entry.combinedTroops, lossFraction);
       const totalSurviving = sumTroopCounts(survivingByArmy.map((outcome) => outcome.surviving));
       const totalLost = sumTroopCounts(survivingByArmy.map((outcome) => outcome.lost));
       const canDrainLoyalty = contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && totalSurviving.envoy > 0;
-      const drainedLoyalty = canDrainLoyalty
-        ? Math.max(0, targetVillage.loyalty - totalSurviving.envoy * state.balance.envoyLoyaltyDrain)
-        : targetVillage.loyalty;
+      const drainedLoyalty = canDrainLoyalty ? drainedLoyaltyOf(state, targetVillage.loyalty, totalSurviving.envoy) : targetVillage.loyalty;
       const captured = canDrainLoyalty && drainedLoyalty === 0;
       if (canDrainLoyalty) targetVillage.loyalty = drainedLoyalty;
       if (captured) {
@@ -1375,6 +1443,7 @@ function resolveV2SimultaneousBattles(
         loyaltyBefore,
         loyaltyAfter: finalLoyaltyAfter,
         captured: resolved.captured,
+        ...(state.balance.roles === null ? {} : { wallBefore, wallAfter: targetVillage.buildings.wall }),
       }, signatures, signer);
       state.reportsBySeat[resolved.entry.seatId].push(report);
       if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
@@ -1488,7 +1557,7 @@ function resolveTick(
       if (order.kind === 'train') {
         const village = state.villages[order.hexIndex];
         if (!village || village.owner !== seat.config.seatId) continue;
-        const unitCost = TROOP_COSTS[order.troop];
+        const unitCost = troopCostsFor(state.balance)[order.troop];
         const totalGrain = unitCost.grain * order.count;
         const totalOre = unitCost.ore * order.count;
         if (village.resources.grain < totalGrain || village.resources.ore < totalOre) continue;

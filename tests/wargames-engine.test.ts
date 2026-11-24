@@ -551,7 +551,7 @@ test('v3 charges an attack split into one-troop armies the same losses as one ar
   const oneArmy = [raidersSent];
   const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v7');
+  assert.equal(WARGAMES_RULES_VERSION, 'v8');
   const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
   assert.ok(lostAsOneArmy > 0);
   assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
@@ -1001,6 +1001,56 @@ test('v7 folds an allied support march into the ally attack, garrisons an ally v
   assert.equal(garrisoned.villages[s1Home.hexIndex]?.troops.guard, guardsBefore + 12);
   assert.equal(garrisoned.ledger.length, 0);
   assert.equal(garrisoned.contracts.get('ctr-ally')?.status, 'active');
+});
+
+test('v8 makes a lone raid fail where an allied pair clears the wall and its envoy-only wave captures', () => {
+  type Troops = { raider: number; guard: number; envoy: number };
+  const runRaid = (marches: readonly { owner: 's1' | 's2'; troops: Troops; supporting?: 's1' }[], defenders: Troops = { raider: 0, guard: 20, envoy: 0 }, owner: 's3' | null = null) => {
+    const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v8' };
+    const state = createInitialMatchState('wg-v8-raid', 1000, spec);
+    const target = state.villages.find((village) => village && village.owner === null && !village.isBeacon);
+    assert.ok(target);
+    target.troops = defenders;
+    target.owner = owner;
+    target.buildings.wall = 3;
+    state.contracts.set('ctr-ally', {
+      id: 'ctr-ally', proposer: 's1', counterparty: 's2',
+      terms: { kind: 'alliance', counterparty: 's2', durationTicks: 5, collateral: { grain: 0, ore: 0 } },
+      status: 'active', proposedTick: 1, activatedTick: 1, endTick: 10, breachedBy: null, breachedTick: null,
+    });
+    marches.forEach((march, index) => {
+      state.armies.set(`army-${index}`, {
+        id: `army-${index}`, owner: march.owner, status: 'marching', originHexIndex: target.hexIndex,
+        currentHexIndex: target.hexIndex, targetHexIndex: target.hexIndex, troops: march.troops,
+        departedTick: 0, intendedTargetOwner: null, scoutedBy: [], ...(march.supporting ? { supporting: march.supporting } : {}),
+      });
+    });
+    const resolved = advanceToResolution(state);
+    const report = resolved.reportsBySeat.s1.find((entry) => entry.payload.kind === 'battle')?.payload;
+    assert.ok(report && report.kind === 'battle');
+    return { resolved, report, village: resolved.villages[target.hexIndex] };
+  };
+
+  const lone = runRaid([{ owner: 's1', troops: { raider: 20, guard: 0, envoy: 0 } }, { owner: 's1', troops: { raider: 0, guard: 0, envoy: 6 } }]);
+  assert.equal(lone.village?.owner, null);
+  assert.equal(lone.village?.loyalty, 100);
+  assert.equal(lone.report.wallAfter, 3);
+  assert.equal(lone.resolved.armies.get('army-1')?.status, 'destroyed');
+
+  const pair = runRaid([
+    { owner: 's1', troops: { raider: 20, guard: 0, envoy: 0 } },
+    { owner: 's1', troops: { raider: 0, guard: 0, envoy: 6 } },
+    { owner: 's2', troops: { raider: 20, guard: 0, envoy: 0 }, supporting: 's1' },
+  ]);
+  assert.equal(pair.village?.owner, 's1');
+  assert.equal(pair.report.wallBefore, 3);
+  assert.ok((pair.report.wallAfter ?? 3) < 3);
+  assert.equal(pair.report.attackerLost.envoy, 0);
+  assert.equal(pair.resolved.armies.get('army-2')?.status, 'returning');
+
+  const envoysAtEmptyWall = runRaid([{ owner: 's1', troops: { raider: 0, guard: 0, envoy: 6 } }], { raider: 0, guard: 0, envoy: 0 }, 's3');
+  assert.equal(envoysAtEmptyWall.village?.owner, 's3');
+  assert.equal(envoysAtEmptyWall.resolved.armies.get('army-0')?.status, 'destroyed');
 });
 
 test('v7 breaches an alliance on attack, opens the public channel, and swaps the NAP for the alliance', () => {
