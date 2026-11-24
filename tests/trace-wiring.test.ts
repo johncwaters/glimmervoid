@@ -916,6 +916,90 @@ test('a trace holding only the first prompt attachments still traces that first 
   fs.rmSync(configDirectory, { recursive: true, force: true });
 });
 
+test('attachments and board-answer emitted before vendor session binding flush ahead of the first prompt for transcript and relay agents', async () => {
+  const { configDirectory, projectDirectory } = makeWorkspace('attachments-pre-bind-live');
+  const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');
+  fs.writeFileSync(transcriptPath, mainPrompt('/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png first prompt with a screenshot', 'prompt-one'), 'utf8');
+  const harness = createHarness(configDirectory);
+  await harness.wiring.start();
+
+  const transcriptSession = new TestTraceSession('transcript-pre-bind');
+  harness.wiring.attachSession(transcriptSession);
+  transcriptSession.emit('chat-attachments-sent', {
+    files: ['2026-11-19T23-02-41-516Z-f8f5932a-chat.png'],
+    pastedPrefix: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png',
+    ts: 5,
+  });
+  transcriptSession.emit('claude-session-id', { id: 'vendor-transcript', vendor: 'claude', transcriptPath });
+  await harness.wiring.whenIdle();
+  const transcriptRecords = readTrace(harness.tracePath('transcript-pre-bind'));
+  assert.deepEqual(transcriptRecords.map((record) => record.kind), ['session', 'attachments', 'prompt']);
+  assert.equal(transcriptRecords[1]?.vendorSessionId, 'vendor-transcript');
+
+  const midBindSession = new TestTraceSession('transcript-mid-bind');
+  harness.wiring.attachSession(midBindSession);
+  midBindSession.emit('claude-session-id', { id: 'vendor-mid-bind', vendor: 'claude', transcriptPath });
+  midBindSession.emit('chat-attachments-sent', {
+    files: ['2026-11-19T23-02-41-516Z-f8f5932a-chat.png'],
+    pastedPrefix: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png',
+    ts: 5,
+  });
+  await harness.wiring.whenIdle();
+  assert.deepEqual(readTrace(harness.tracePath('transcript-mid-bind')).map((record) => record.kind), ['session', 'attachments', 'prompt']);
+
+  const refusedSession = new TestTraceSession('transcript-refused-pre-bind');
+  harness.wiring.attachSession(refusedSession);
+  refusedSession.emit('chat-attachments-sent', {
+    files: ['2026-11-19T23-02-41-516Z-f8f5932a-chat.png'],
+    pastedPrefix: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png',
+    ts: 5,
+  });
+  refusedSession.emit('claude-session-id', { id: 'vendor-refused', vendor: 'claude', transcriptPath: path.join(configDirectory, 'outside.jsonl') });
+  await harness.wiring.whenIdle();
+  assert.equal(fs.existsSync(harness.tracePath('transcript-refused-pre-bind')), false);
+
+  const relaySession = new TestTraceSession('relay-pre-bind', 'opencode');
+  harness.wiring.attachSession(relaySession);
+  relaySession.emit('chat-attachments-sent', {
+    files: ['2026-11-19T23-02-41-516Z-f8f5932a-chat.png'],
+    pastedPrefix: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png',
+    ts: 6,
+  });
+  relaySession.emit('chat-board-answer-sent', { ts: 7 });
+  relaySession.emit('hook-event', {
+    event: 'ConversationEvents',
+    payload: {
+      session_id: 'vendor-relay',
+      events: [{
+        type: 'session.inbox.enqueued',
+        properties: {
+          inboxID: 'inbox-1',
+          item: { type: 'user', payload: { text: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png relay prompt' } },
+        },
+      }],
+    },
+  });
+  await harness.wiring.whenIdle();
+  const relayRecords = readTrace(harness.tracePath('relay-pre-bind'));
+  assert.deepEqual(relayRecords.map((record) => record.kind), ['attachments', 'board-answer', 'prompt']);
+  assert.equal(relayRecords[0]?.vendorSessionId, 'vendor-relay');
+  assert.equal(relayRecords[1]?.vendorSessionId, 'vendor-relay');
+
+  const customSession = new TestTraceSession('custom-pre-bind', 'custom-agent');
+  harness.wiring.attachSession(customSession);
+  customSession.emit('chat-attachments-sent', {
+    files: ['2026-11-19T23-02-41-516Z-f8f5932a-chat.png'],
+    pastedPrefix: '/uploads/2026-11-19T23-02-41-516Z-f8f5932a-chat.png',
+    ts: 9,
+  });
+  customSession.emit('teardown', {});
+  await harness.wiring.whenIdle();
+  assert.equal(fs.existsSync(harness.tracePath('custom-pre-bind')), false);
+
+  await harness.wiring.stop();
+  fs.rmSync(configDirectory, { recursive: true, force: true });
+});
+
 test('a rebind to a path nested under an existing transcript keeps the working binding', async () => {
   const { configDirectory, projectDirectory } = makeWorkspace('nested-rebind');
   const transcriptPath = path.join(projectDirectory, 'vendor-session.jsonl');

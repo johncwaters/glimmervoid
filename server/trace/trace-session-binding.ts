@@ -32,6 +32,7 @@ interface TraceSessionBindingDeps {
 }
 
 const TRANSCRIPT_WATCH_DEBOUNCE_MS = 50;
+const MAX_PENDING_PRE_BIND_RECORDS = 64;
 
 function predecessorAwaitingDrain(previous: TraceBinding | undefined): TraceBinding | null {
   if (!previous) return null;
@@ -59,6 +60,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
   const { readSubagentTranscript } = deps.subagentCapture;
   const attachedSessions = new WeakSet<object>();
   const conversationVendorSessionIdByGlimmervoidSessionId = new Map<string, string>();
+  const pendingRecordsByGlimmervoidSessionId = new Map<string, Record<string, unknown>[]>();
   const launchEnvByGlimmervoidSessionId = new Map<string, () => Record<string, string | undefined>>();
 
   async function bindSession(
@@ -129,6 +131,11 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       if (replaced && replaced !== binding.bindingBeforeFirstOpen) replaced.stopFollowingTranscript();
     }
     bindingByGlimmervoidSessionId.set(glimmervoidSessionId, binding);
+    const pendingRecords = takePendingRecords(glimmervoidSessionId, vendorSessionId);
+    if (pendingRecords.length > 0) {
+      for (const pendingRecord of pendingRecords) queueRecord(glimmervoidSessionId, pendingRecord);
+      await flushSession(glimmervoidSessionId);
+    }
     binding.stopFollowingTranscript = watchPath(transcriptPath, () => drainWhileBound(binding), {
       debounceMs: TRANSCRIPT_WATCH_DEBOUNCE_MS,
       onUnwatchable: (target, reason) => laneLog.warnOnce(`watch:${glimmervoidSessionId}`, 'transcript unwatchable; trace fills at turn end', { session: glimmervoidSessionId, path: target, reason }),
@@ -240,6 +247,7 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     closedSessionIds.add(glimmervoidSessionId);
     awaitingTranscriptByGlimmervoidSessionId.delete(glimmervoidSessionId);
     conversationVendorSessionIdByGlimmervoidSessionId.delete(glimmervoidSessionId);
+    pendingRecordsByGlimmervoidSessionId.delete(glimmervoidSessionId);
     trimOldest(closedSessionIds, MAX_REMEMBERED_CLOSED_SESSIONS);
     chain(async () => {
       try {
@@ -256,8 +264,21 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
     launchEnvByGlimmervoidSessionId.delete(glimmervoidSessionId);
   }
 
+  function takePendingRecords(glimmervoidSessionId: string, vendorSessionId: string): Record<string, unknown>[] {
+    const pending = pendingRecordsByGlimmervoidSessionId.get(glimmervoidSessionId);
+    if (!pending || pending.length === 0) return [];
+    pendingRecordsByGlimmervoidSessionId.delete(glimmervoidSessionId);
+    return pending.map((record) => ({ ...record, vendorSessionId }));
+  }
+
   function appendConversationRecords(glimmervoidSessionId: string, records: unknown): void {
     if (isStopped() || !Array.isArray(records) || records.length === 0) return;
+    const firstVendorSessionId = records.find(
+      (record): record is { vendorSessionId: string } => typeof record?.vendorSessionId === 'string' && record.vendorSessionId.length > 0,
+    )?.vendorSessionId;
+    if (firstVendorSessionId) {
+      for (const pendingRecord of takePendingRecords(glimmervoidSessionId, firstVendorSessionId)) queueRecord(glimmervoidSessionId, pendingRecord);
+    }
     for (const record of records) queueRecord(glimmervoidSessionId, record);
     const lastVendorSessionId: unknown = records.at(-1)?.vendorSessionId;
     if (typeof lastVendorSessionId === 'string' && lastVendorSessionId.length > 0) conversationVendorSessionIdByGlimmervoidSessionId.set(glimmervoidSessionId, lastVendorSessionId);
@@ -276,47 +297,55 @@ function createTraceSessionBinding(context: TraceWiringContext, deps: TraceSessi
       ?? conversationVendorSessionIdByGlimmervoidSessionId.get(glimmervoidSessionId);
   }
 
-  function appendSentAttachments(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
+  function hasConversationSource(glimmervoidSessionId: string): boolean {
+    const agentId = agentIdBySessionId.get(glimmervoidSessionId) ?? '';
+    return transcriptSourceOf(agentId) !== null || relaySourceOf(agentId) !== null;
+  }
+
+  function appendSessionRecord(glimmervoidSessionId: string, record: Record<string, unknown>): void {
+    if (isStopped() || closedSessionIds.has(glimmervoidSessionId)) return;
     const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
-    if (!vendorSessionId) return;
-    appendConversationRecords(glimmervoidSessionId, [{ ts: payload.ts, uuid: null, parentUuid: null, vendorSessionId, kind: 'attachments', files: payload.files, pastedPrefix: payload.pastedPrefix }]);
+    if (typeof vendorSessionId === 'string' && vendorSessionId.length > 0) {
+      appendConversationRecords(glimmervoidSessionId, [{ ...record, vendorSessionId }]);
+      return;
+    }
+    if (!hasConversationSource(glimmervoidSessionId)) return;
+    const pending = pendingRecordsByGlimmervoidSessionId.get(glimmervoidSessionId) ?? [];
+    if (pending.length >= MAX_PENDING_PRE_BIND_RECORDS) return;
+    pending.push(record);
+    pendingRecordsByGlimmervoidSessionId.set(glimmervoidSessionId, pending);
+  }
+
+  function appendSentAttachments(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
+    appendSessionRecord(glimmervoidSessionId, { ts: payload.ts, uuid: null, parentUuid: null, kind: 'attachments', files: payload.files, pastedPrefix: payload.pastedPrefix });
   }
 
   function appendSentBoardAnswer(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
-    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
-    if (!vendorSessionId) return;
-    appendConversationRecords(glimmervoidSessionId, [{ ts: payload.ts, uuid: null, parentUuid: null, vendorSessionId, kind: 'board-answer' }]);
+    appendSessionRecord(glimmervoidSessionId, { ts: payload.ts, uuid: null, parentUuid: null, kind: 'board-answer' });
   }
 
   function appendSubagentSignal(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = SubagentSignal.safeParse(payload);
     if (!parsed.success) return;
-    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
-    if (!vendorSessionId) return;
-    appendConversationRecords(glimmervoidSessionId, [{ uuid: null, parentUuid: null, vendorSessionId, kind: 'subagent', ...parsed.data }]);
+    appendSessionRecord(glimmervoidSessionId, { uuid: null, parentUuid: null, kind: 'subagent', ...parsed.data });
   }
 
   function appendBackgroundTaskSignal(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = BackgroundTaskSignal.safeParse(payload);
     if (!parsed.success) return;
-    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
-    if (!vendorSessionId) return;
-    appendConversationRecords(glimmervoidSessionId, [{ uuid: null, parentUuid: null, vendorSessionId, kind: 'background-task', ...parsed.data }]);
+    appendSessionRecord(glimmervoidSessionId, { uuid: null, parentUuid: null, kind: 'background-task', ...parsed.data });
   }
 
   function appendManagerDecisionNotice(glimmervoidSessionId: string, payload: Record<string, unknown>): void {
     const parsed = ManagerDecision.safeParse(payload.decision);
     if (!parsed.success) return;
-    const vendorSessionId = knownVendorSessionId(glimmervoidSessionId);
-    if (!vendorSessionId) return;
-    appendConversationRecords(glimmervoidSessionId, [{
+    appendSessionRecord(glimmervoidSessionId, {
       ts: parsed.data.ts,
       uuid: null,
       parentUuid: null,
-      vendorSessionId,
       kind: 'notice',
       text: managerDecisionText(parsed.data).slice(0, MAX_RAW_LINE_CHARS),
-    }]);
+    });
   }
 
   function attachSession(session: TraceSession): void {
