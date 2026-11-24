@@ -275,6 +275,7 @@ export async function verifyChatApprovals(page: Page): Promise<void> {
   await verifyInterimRepliesRideActivityLine(page);
   await verifyQuestionTakesRecommendedOnEnter(page);
   await verifyStackedAnswerChanges(page);
+  await verifyMultiSelectAnswer(page);
   await verifyComposerAttachesImage(page);
 }
 
@@ -346,6 +347,19 @@ async function verifyStackedAnswerChanges(page: Page): Promise<void> {
   const answersText = await answersLine.innerText();
   assert.match(answersText, /"answers":\{"Which store\?":"SQLite \(Recommended\)","Which cache\?":"Memory"\}/, 'the changed answer is the one sent, beside the later answer');
   assert.equal(await page.locator('.session-chat .chat-card[data-card-type="question"]').getByRole('button', { name: 'Change', exact: true }).count(), 0, 'once the set is sent no answer offers Change');
+}
+
+async function verifyMultiSelectAnswer(page: Page): Promise<void> {
+  await sendFromComposer(page, 'ask-questions-multi');
+  const storesCard = page.locator('.session-chat .chat-card[data-card-type="question"]', { hasText: 'Which stores?' });
+  await storesCard.and(page.locator('[data-keys-ready]')).waitFor({ timeout: CARD_TIMEOUT_MS });
+  await storesCard.getByRole('checkbox', { name: /Postgres/ }).click();
+  await page.keyboard.press('3');
+  assert.equal(await storesCard.getByRole('checkbox', { checked: true }).count(), 2, 'a click and a digit key each check an option of a multi-select question');
+  await page.keyboard.press('Enter');
+  const answersLine = page.locator('.session-chat .chat-log', { hasText: '"answers":{"Which stores?"' });
+  await answersLine.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await answersLine.innerText(), /"answers":\{"Which stores\?":"Postgres, Redis"\}/, 'Enter sends every checked option, joined, even with a clicked option focused');
 }
 
 async function answerOpenCardFromComposer(page: Page, openCard: Locator): Promise<void> {

@@ -1,10 +1,9 @@
 import type { ConversationAnswers, ConversationQuestion } from '../../../shared/contracts/session.ts';
-import { DEFAULT_QUESTION_RULES, ManagerLaneResult, RECOMMENDED_PICK, isRecommendedOptionLabel } from '../../../shared/contracts/question-manager.ts';
+import { DEFAULT_QUESTION_RULES, MULTI_SELECT_SEPARATOR, ManagerLaneResult, RECOMMENDED_PICK, isRecommendedOptionLabel } from '../../../shared/contracts/question-manager.ts';
 import type { ManagerAnswer, ManagerVerdict, QuestionManagerSettings, QuestionMatchRule, QuestionRecommendedRule, QuestionRule } from '../../../shared/contracts/question-manager.ts';
 import { UNTRUSTED_PAYLOAD_FILENAME, UNTRUSTED_PREAMBLE } from '../../../shared/contracts/untrusted-payload.ts';
 import type { UntrustedItem } from '../../../shared/contracts/untrusted-payload.ts';
 
-const MULTI_SELECT_SEPARATOR = ', ';
 const MANAGER_PROMPT_FILENAME = 'manager-prompt.txt';
 const MANAGER_RESULT_FILENAME = 'manager-result.json';
 const MANAGER_BOOTSTRAP_PROMPT = `Read ${MANAGER_PROMPT_FILENAME} and follow its instructions`;

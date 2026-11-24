@@ -12,8 +12,10 @@ import { reviewOf } from '../review/review-store.ts';
 import { getSelectedId } from '../review/selection.ts';
 import { sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
-import { createLineIcon } from '../svg-dom.ts';
+import { createLineIcon, createSvgShape } from '../svg-dom.ts';
+import { BRAND_MARK_BRACKETS, BRAND_MARK_LIGHT, BRAND_MARK_VIEWBOX } from '#shared/brand-mark.ts';
 import { button } from '../ui/button.ts';
+import { createPressable } from '../ui/pressable.ts';
 import { copyButton } from '../ui/copy-button.ts';
 import { digestTurn, isInterimReply } from './turn-digest-core.ts';
 import type { FilePatch, ToolCallEntry, ToolCallState, TurnSegment } from './turn-digest-core.ts';
@@ -69,7 +71,6 @@ type WorkEntry = { kind: 'calls'; block: CallsBlock } | { kind: 'text'; element:
 export type TurnEnd = { pill: HTMLButtonElement; list: HTMLElement };
 
 const CHEVRON_ICON_PATH = 'M6 4l4 4-4 4';
-const DIFF_ICON_PATH = 'M4 5h4M6 3v4M4 12h4';
 const STATUS_ICON_BY_CALL_STATE: Readonly<Record<ToolCallState, StatusIcon>> = { running: 'working', stopped: 'exited', done: 'complete', failed: 'failed' };
 
 export function renderAttachmentThumbnail(fileName: string, uploadUrlOf: UploadUrlOf): HTMLElement {
@@ -359,8 +360,7 @@ function createTurnView(): TurnView {
   const toolWord = el('span', 'chat-turn-tool-word');
   const toolCount = el('span', 'chat-turn-tool-count');
   toolCount.append(toolNumber, toolWord);
-  const diffToggle = button({ variant: 'icon', size: 'small', label: 'Diff', icon: createLineIcon(DIFF_ICON_PATH, '1.6') });
-  diffToggle.classList.add('chat-turn-diff-toggle');
+  const diffToggle = createPressable('chat-turn-diff-toggle', 'Diff');
   diffToggle.setAttribute('aria-expanded', 'false');
   const diff = el('div', 'chat-turn-diff');
   diff.hidden = true;
@@ -446,6 +446,18 @@ function updateTurnView(view: TurnView, part: TurnPart, areNewSegmentsArriving: 
   showWork(view);
 }
 
+function renderSystemLine(part: Extract<ChatPart, { kind: 'system-line' }>): HTMLElement {
+  const line = el('div', 'chat-system-line');
+  line.setAttribute('role', 'note');
+  const mark = createSvgShape('svg', { class: 'chat-system-mark', viewBox: BRAND_MARK_VIEWBOX, 'aria-hidden': 'true' });
+  for (const { d } of BRAND_MARK_BRACKETS) mark.append(createSvgShape('path', { d }));
+  mark.append(createSvgShape('path', { class: 'chat-system-mark-light', d: BRAND_MARK_LIGHT }));
+  const text = el('span', 'chat-system-text');
+  text.append(mark, el('span', 'chat-system-label', part.label));
+  line.append(text);
+  return line;
+}
+
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
   const skillLine = el('div', 'chat-skill');
   skillLine.append('Loaded skill ', el('code', null, part.skillName));
@@ -482,6 +494,7 @@ function startedAtOfRunning(part: FlatPart): number | null {
 const RENDERER_BY_PART_KIND = {
   prompt: renderPrompt,
   skill: renderSkill,
+  'system-line': renderSystemLine,
   'background-task': renderBackgroundTask,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;

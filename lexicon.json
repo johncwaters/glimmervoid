@@ -1625,6 +1625,10 @@
     {
       "name": "cost",
       "definition": "In Wargames, the grain and ore a unit takes to train or a building level takes to build, read from the balance table of the match's rules version"
+    },
+    {
+      "name": "system line",
+      "definition": "A quiet centered line in Chat with the Glimmervoid mark that shows what started a turn the operator did not send: a spawned session's news, a parent or sibling message, a scheduled wake, or a finished background task"
     }
   ],
   "retired": [

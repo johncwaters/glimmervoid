@@ -1,6 +1,7 @@
 import type { ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { SessionMeterReading } from '#shared/contracts/control/lane-messages.ts';
 import { formatTokens, formatUsd, planWindowOf } from '../usage/usage-store-core.ts';
+import { agentLabel } from '../arena/lineup-core.ts';
 import type { PlanLimits, PlanLimitsVendor } from '../usage/usage-store-core.ts';
 
 export interface RunningSubagent {
@@ -41,7 +42,7 @@ export function planVendorOfAgent(agent: string | null | undefined): PlanLimitsV
 }
 
 function modelFieldOf(meter: SessionMeterReading | null, selection: ModelSelection | null, canChange: boolean, agent: string | null): RailField | null {
-  const name = meter?.model ?? selection?.model ?? null;
+  const name = meter?.model ?? selection?.model ?? (agent === null ? null : agentLabel(agent));
   if (name === null) return null;
   return { kind: 'model', name, effort: meter?.effort ?? null, canChange, agent };
 }

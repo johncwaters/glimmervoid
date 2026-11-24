@@ -123,7 +123,7 @@ function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
   return questions.map((question, index) => ({
     cardType: 'question',
     cardId: `${requestKey}-${index}`,
-    data: { question: question.question, detail: question.header, ...(isStacked ? { step: `${index + 1} of ${questions.length}` } : {}), options: question.options.map((option) => ({ label: option.label, note: option.description, ...(option.preview ? { preview: option.preview } : {}) })) },
+    data: { question: question.question, detail: question.header, ...(isStacked ? { step: `${index + 1} of ${questions.length}` } : {}), ...(question.multiSelect ? { multiSelect: true as const } : {}), options: question.options.map((option) => ({ label: option.label, note: option.description, ...(option.preview ? { preview: option.preview } : {}) })) },
     resolution: null,
   }));
 }
@@ -137,6 +137,7 @@ function isFocusOnOtherControl(): boolean {
   const focused = document.activeElement;
   if (!(focused instanceof HTMLElement)) return false;
   if (focused.classList.contains('chat-composer-input')) return false;
+  if (focused.dataset.toggle === 'true') return false;
   return focused.closest(FOCUSABLE_CONTROL_SELECTOR) !== null;
 }
 
@@ -392,6 +393,7 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
       return;
     }
     keyTarget.click();
+    if (keyTarget.dataset.toggle === 'true') return;
     root.querySelectorAll<HTMLElement>(OPEN_ANSWERABLE_CARD_SELECTOR).forEach(holdCardKeys);
   };
 

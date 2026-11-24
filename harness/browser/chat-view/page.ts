@@ -7,6 +7,16 @@ import type { RunningSubagent } from '../../../public/chat/status-rail-core.ts';
 import { CHAT_NEAR_TOP_EVENT, createChatView, NO_ARRIVING_PARTS } from '../../../public/chat/chat-view.ts';
 
 const EXAMPLE_CARD_PARTS: ChatPart[] = [
+  {
+    kind: 'card',
+    id: 'example-question-multi',
+    card: {
+      cardType: 'question',
+      cardId: 'example-question-multi',
+      data: { question: 'Which audit gaps should this round fix?', detail: 'Scope', multiSelect: true, options: [{ label: 'Rail never empty (Recommended)', note: 'Status rail shows the agent name until a meter arrives.' }, { label: 'Labeled Diff', note: 'The turn meta gets a Diff button.' }, { label: 'Static pulses', note: 'No looping animations.' }] },
+      resolution: null,
+    },
+  },
   { kind: 'card', id: 'example-notice', card: { cardType: 'notice', cardId: 'example-notice', data: { text: 'Context compacted' }, resolution: null } },
   { kind: 'card', id: 'example-permission', card: { cardType: 'permission', cardId: 'example-permission', data: { title: 'Run Bash', detail: 'npm run typecheck' }, resolution: null } },
   { kind: 'card', id: 'example-permission-allowed', card: { cardType: 'permission', cardId: 'example-permission-allowed', data: { title: 'Edit public/chat/chat.css', detail: '' }, resolution: { decision: 'allow' } } },

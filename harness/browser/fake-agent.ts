@@ -159,6 +159,14 @@ const STACKED_QUESTION_REQUEST = {
   },
 };
 
+const MULTI_SELECT_QUESTION_REQUEST = {
+  hook_event_name: 'PermissionRequest',
+  tool_name: 'AskUserQuestion',
+  tool_input: {
+    questions: [{ question: 'Which stores?', header: 'Storage', multiSelect: true, options: [{ label: 'SQLite (Recommended)', description: 'One file' }, { label: 'Postgres', description: 'A server' }, { label: 'Redis', description: 'A cache' }] }],
+  },
+};
+
 const ROLLOUT_QUESTION_REQUEST = {
   hook_event_name: 'PermissionRequest',
   tool_name: 'AskUserQuestion',
@@ -360,10 +368,11 @@ function dispatch(command: string): void {
     postHook('permissionrequest-conversation', ROLLOUT_QUESTION_REQUEST);
     return;
   }
-  if (command === 'ask-questions-stacked') {
+  if (command === 'ask-questions-stacked' || command === 'ask-questions-multi') {
+    const questionRequest = command === 'ask-questions-multi' ? MULTI_SELECT_QUESTION_REQUEST : STACKED_QUESTION_REQUEST;
     appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
-    postHook('permissionrequest', STACKED_QUESTION_REQUEST);
-    void postHookAwaitingReply('permissionrequest-conversation', STACKED_QUESTION_REQUEST).then((replyText) => {
+    postHook('permissionrequest', questionRequest);
+    void postHookAwaitingReply('permissionrequest-conversation', questionRequest).then((replyText) => {
       appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${STACKED_ANSWERS_PREFIX}${replyText}` }] } });
       postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
       setTitle(IDLE_GLYPH, 'idle');

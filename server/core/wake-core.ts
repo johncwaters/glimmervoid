@@ -5,6 +5,7 @@ import { RESTARTABLE_STATES, STATES } from '../../shared/states.ts';
 import type { SessionState } from '../../shared/states.ts';
 import type { Wake, WakeKind, WakeSchedule, WakeView } from '../../shared/contracts/wakes.ts';
 import type { Alarm } from '../../shared/contracts/watcher-link.ts';
+import { wakeLine } from '../../shared/glimmervoid-lines.ts';
 
 interface WakeLimits {
   maxPendingPerSession: number;
@@ -208,9 +209,9 @@ function viewOfWake(wake: Wake, nowMs: number, format: FireTimeFormat): WakeView
 }
 
 function describeWakeLine(wake: Wake, formatTime: (ms: number) => string): string {
-  if (wake.origin === 'limit-reset') return `Glimmervoid wake ${wake.id} (the operator chose Continue at reset): ${wake.text}`;
+  if (wake.origin === 'limit-reset') return wakeLine(wake.id, 'the operator chose Continue at reset', wake.text);
   const cronPart = wake.schedule.kind === 'cron' ? `, cron ${wake.schedule.pattern}` : '';
-  return `Glimmervoid wake ${wake.id} (you set it at ${formatTime(wake.setAt)}${cronPart}): ${wake.text}`;
+  return wakeLine(wake.id, `you set it at ${formatTime(wake.setAt)}${cronPart}`, wake.text);
 }
 
 function alarmsOf(wakes: readonly Wake[], maxAlarms: number): Alarm[] {

@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Chat shows what started each turn.** News from a session you spawned, a message from a parent or sibling session, a scheduled wake and a finished background task now show as one quiet centered line with the Glimmervoid mark, instead of looking like a message you sent or leaving an unexplained gap before the reply.
+- **A cleaner bottom edge while you read back.** When you scroll up, the conversation fades out just above the message box and Jump to latest becomes a small Latest button in that faded band, instead of a round icon sitting on top of the text.
+- **Chat's status rail is never blank.** Before a session reports its model, the rail under the message box shows the agent's name instead of an empty row.
+- **A labeled Diff button on each turn.** The turn's file changes open from a Diff button next to the line counts, replacing an unlabeled icon.
+- **No looping animations in Chat.** A running subagent's dot and the history loading lines no longer pulse; the running time beside the dot already shows the subagent is still working.
+
 ### Fixed
+
+- **Chat answers questions that allow several picks.** An agent question that allows more than one answer used to send only the first option you clicked. Its options are now checkboxes you can toggle with a click or their number key, and Send (or Enter) sends every option you checked.
 
 - **Chat opens an old session at the latest message.** Opening the Chat of a session with a long history could land partway up the conversation with Jump to latest shown, because loading earlier history right after the first page counted as you scrolling up. Earlier history now fills in above the latest message without moving the view, and if you have scrolled up, the message you are reading stays in place.
 - **Team review offers a new or edited skill at once.** Adding, editing or removing a Claude Code skill, enabling a plugin, or editing `settings.json` now updates the skills team review offers within a moment, instead of up to a minute later. Glimmervoid follows those files instead of rescanning them every minute.

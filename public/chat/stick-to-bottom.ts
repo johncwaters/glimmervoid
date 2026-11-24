@@ -55,7 +55,8 @@ export function stickToBottom(scroller: HTMLElement, content: HTMLElement): Stic
   let mode: FollowMode = 'following';
   let lastScrollTop = scroller.scrollTop;
   let lastClientHeight = scroller.clientHeight;
-  const jumpButton = button({ variant: 'floating-icon', label: 'Jump to latest', icon: createLineIcon(JUMP_ICON_PATH, '1.8'), hidden: true });
+  const jumpButton = button({ variant: 'secondary', size: 'small', textCase: 'sentence', label: 'Latest', icon: createLineIcon(JUMP_ICON_PATH, '1.8'), hidden: true });
+  jumpButton.setAttribute('aria-label', 'Jump to latest');
 
   const scrollToBottom = () => {
     scroller.scrollTop = scroller.scrollHeight;

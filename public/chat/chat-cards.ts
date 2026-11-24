@@ -1,5 +1,5 @@
 import { CHAT_SEND_MAX_CHARS } from '#shared/contracts/control/session-messages.ts';
-import { isRecommendedOptionLabel, withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
+import { MULTI_SELECT_SEPARATOR, isRecommendedOptionLabel, withoutRecommendedSuffix } from '#shared/contracts/question-manager.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { clock } from '#shared/clock.ts';
 import { el } from '../dom-helpers.ts';
@@ -18,6 +18,7 @@ type ChatCardRendererTable = { [Type in ChatCardType]: ChatCardRenderer<Type> };
 
 const DECISION_RECEIPT_BY_DECISION = { allow: 'Allowed', deny: 'Denied' } as const;
 const ENTER_KEY = 'Enter';
+const CHECK_ICON_PATH = 'M3.5 8.5l3 3 6-7';
 const MAX_DIGIT_KEY = 9;
 
 type ShownOption = { label: string; note: string; preview?: string; isRecommended: boolean };
@@ -126,6 +127,7 @@ export interface QuestionCardModel {
   readonly answer: string | null;
   readonly canChangeAnswer: boolean;
   readonly isDismissed: boolean;
+  readonly isMultiSelect?: boolean;
 }
 
 interface QuestionCardActions {
@@ -171,12 +173,73 @@ export function questionCardOf(question: QuestionCardModel, actions: QuestionCar
     shell.appendChild(answerReceiptOf(question.answer, question.canChangeAnswer, actions.onChange));
     return shell;
   }
+  if (question.isMultiSelect === true) {
+    shell.append(...multiSelectPartsOf(question, actions.onAnswer, foot));
+    return shell;
+  }
   const options = el('div', 'chat-card-options');
   for (const [index, option] of shownOptionsOf(question.options).entries()) {
     options.appendChild(optionRowOf(option, digitKeyOf(index + 1), actions.onAnswer));
   }
   shell.append(options, foot);
   return shell;
+}
+
+function pickedCountText(pickedCount: number): string {
+  return pickedCount === 1 ? '1 picked' : `${pickedCount} picked`;
+}
+
+function multiSelectPartsOf(question: QuestionCardModel, onAnswer: (label: string) => void, foot: HTMLElement): HTMLElement[] {
+  const shownOptions = shownOptionsOf(question.options);
+  const pickedLabels = new Set<string>();
+  const pickedCount = el('span', 'chat-card-picked-count', pickedCountText(0));
+  const sendButton = button({ variant: 'primary', size: 'small', textCase: 'sentence', label: 'Send', shortcutKey: ENTER_KEY, disabled: true, onClick: () => {
+    const labels = shownOptions.map((option) => option.label).filter((label) => pickedLabels.has(label));
+    if (labels.length > 0) onAnswer(labels.join(MULTI_SELECT_SEPARATOR));
+  } });
+  sendButton.setAttribute('aria-keyshortcuts', ENTER_KEY);
+  markCardKeys(sendButton, [ENTER_KEY]);
+  const options = el('div', 'chat-card-options');
+  options.setAttribute('role', 'group');
+  options.setAttribute('aria-label', question.heading);
+  for (const [index, option] of shownOptions.entries()) {
+    options.appendChild(toggleRowOf(option, digitKeyOf(index + 1), (isPicked) => {
+      if (isPicked) pickedLabels.add(option.label);
+      if (!isPicked) pickedLabels.delete(option.label);
+      sendButton.disabled = pickedLabels.size === 0;
+      pickedCount.textContent = pickedCountText(pickedLabels.size);
+    }));
+  }
+  foot.prepend(sendButton, pickedCount);
+  return [el('div', 'chat-card-hint', 'Pick any, then send.'), options, foot];
+}
+
+function toggleRowOf(option: ShownOption, digitKey: string | null, onToggle: (isPicked: boolean) => void): HTMLElement {
+  const toggleRow = createPressable('chat-card-option');
+  toggleRow.dataset.toggle = 'true';
+  toggleRow.dataset.recommended = String(option.isRecommended);
+  toggleRow.setAttribute('role', 'checkbox');
+  toggleRow.setAttribute('aria-checked', 'false');
+  const keys = el('span', 'chat-card-option-keys');
+  if (option.isRecommended) keys.appendChild(el('span', 'chat-card-recommended', 'Recommended'));
+  if (digitKey !== null) keys.appendChild(keycap(digitKey, { tone: 'neutral' }));
+  const labelLine = el('span', 'chat-card-option-label');
+  const check = el('span', 'chat-card-check');
+  check.append(createLineIcon(CHECK_ICON_PATH, '2'));
+  labelLine.append(check, option.isRecommended ? withoutRecommendedSuffix(option.label) : option.label);
+  toggleRow.append(labelLine, keys);
+  if (option.note) toggleRow.appendChild(el('span', 'chat-card-option-note', option.note));
+  if (option.preview) toggleRow.appendChild(el('pre', 'chat-card-option-preview', option.preview));
+  if (digitKey !== null) {
+    toggleRow.setAttribute('aria-keyshortcuts', digitKey);
+    markCardKeys(toggleRow, [digitKey]);
+  }
+  toggleRow.addEventListener('click', () => {
+    const isPicked = toggleRow.getAttribute('aria-checked') !== 'true';
+    toggleRow.setAttribute('aria-checked', String(isPicked));
+    onToggle(isPicked);
+  });
+  return toggleRow;
 }
 
 function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
@@ -190,6 +253,7 @@ function renderQuestionCard(card: ChatCardByType['question']): HTMLElement {
     answer: resolution !== null && 'answer' in resolution ? resolution.answer : null,
     canChangeAnswer: resolution !== null && 'canChange' in resolution,
     isDismissed: resolution !== null && 'isDismissed' in resolution,
+    isMultiSelect: card.data.multiSelect === true,
   };
   const shell: HTMLElement = questionCardOf(question, {
     onAnswer: (label) => dispatchCardAction(shell, card, 'answer', label),

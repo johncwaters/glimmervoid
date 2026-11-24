@@ -5,6 +5,7 @@ import type { BackgroundTaskPart, ChatCard, ChatPart, TurnPart } from './chat-pa
 import type { RunningSubagent } from './status-rail-core.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
+import { glimmervoidLineLabelOf, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
 import { unwrapPastedContent } from '#shared/pasted-content.ts';
 import { fileEditsOf } from '#shared/file-edits-core.ts';
 import type { FileEdit } from '#shared/file-edits-core.ts';
@@ -297,7 +298,7 @@ function chatPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null
   if (record.kind === 'board-answer') return answeredPromptOf(state, record);
   const part = nonPromptPartOf(state, record);
   if (part !== null || record.kind === 'assistant') state.latestPrompt = null;
-  if (record.kind !== 'prompt') return part;
+  if (record.kind !== 'prompt' || part !== null) return part;
   const isBoardAnswer = state.pendingBoardAnswer !== null && isPromptAtOrAfterBoardAnswer(record.ts, state.pendingBoardAnswer);
   const prompt = promptWithAttachments({ kind: 'prompt', id: nextPartId(state, 'prompt'), text: unwrapPastedContent(record.text), at: record.ts, attachments: [], isBoardAnswer }, state.pendingAttachments);
   state.pendingAttachments = null;
@@ -321,7 +322,21 @@ function passedUsageLimitPartOf(state: ChatPartsState, record: TraceRecord): Cha
   return { kind: 'card', id: openCard.cardId, card: { ...openCard, resolution: { isPassed: true } } };
 }
 
+function systemLineLabelOf(record: TraceRecord): string | null {
+  if (record.kind === 'prompt') return glimmervoidLineLabelOf(record.text);
+  if (record.kind === 'expansion') return taskNotificationLabelOf(record.text);
+  return null;
+}
+
+function systemLinePartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
+  const label = systemLineLabelOf(record);
+  if (label === null) return null;
+  return { kind: 'system-line', id: nextPartId(state, 'system-line'), label, at: record.ts };
+}
+
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
+  const systemLinePart = systemLinePartOf(state, record);
+  if (systemLinePart !== null) return systemLinePart;
   if (record.kind === 'notice') return noticeCardPartOf(nextPartId(state, 'notice'), record.text);
   if (record.kind === 'usage_limit') return usageLimitCardPartOf(state, record);
   const skillName = loadedSkillOf(record);
