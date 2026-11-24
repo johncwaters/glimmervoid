@@ -10,6 +10,7 @@ import { createPressable } from '../ui/pressable.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { cardPlacementAreaOf, cardSpotOf } from './agent-card-place-core.ts';
 import type { CardSide } from './agent-card-place-core.ts';
+import { rectsOverlap } from '#shared/whiteboard-route-core.ts';
 
 const FACE_SIZE_PX = 28;
 const UNPLACED_MAIN_LEFT_PX = 16;
@@ -54,7 +55,16 @@ interface ShownCard {
   card: HTMLElement;
   shrunkFace: HTMLElement;
   wire: SVGElement;
+  placement: CardPlacement | null;
   setModel(model: AgentCardModel): void;
+}
+
+interface CardPlacement {
+  key: string;
+  offsetX: number;
+  offsetY: number;
+  side: CardSide;
+  isClearWhenPlaced: boolean;
 }
 
 export function isBusyPhase(phase: ChatPhase): boolean {
@@ -156,6 +166,7 @@ function createShownCard(sessionId: string, actions: AgentCardActions, wires: SV
     card,
     shrunkFace,
     wire,
+    placement: null,
     setModel: (model) => {
       const previous = shownModel;
       shownModel = model;
@@ -236,6 +247,7 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
       const placedCardRects: Rect[] = [...fixedAreas];
       const view: Rect = { x: 0, y: UNPLACED_MAIN_TOP_PX, width: element.clientWidth, height: Math.max(0, element.clientHeight - UNPLACED_MAIN_TOP_PX) };
       const placementArea = cardPlacementAreaOf(mapBounds.map((rect) => screenRectOf(rect, camera)), view);
+      const placementSignature = [view.width, view.height, camera.scale, ...mapBounds.flatMap((rect) => [rect.x, rect.y, rect.width, rect.height])].join(' ');
       const paintedIds = new Set<string>();
       for (const model of models) {
         const boxId = model.boxIds.find((candidate) => boundsOf(candidate) !== null);
@@ -261,11 +273,19 @@ export function createAgentCards(actions: AgentCardActions): AgentCards {
           continue;
         }
         const cardSize = { width: shown.card.offsetWidth, height: shown.card.offsetHeight };
-        const spot = cardSpotOf(boxOnScreen, cardSize, placementArea, placedCardRects);
-        const cardRect = { x: spot.x, y: spot.y, ...cardSize };
+        const placementKey = [rect.x, rect.y, rect.width, rect.height, cardSize.width, cardSize.height, placementSignature].join(' ');
+        const cachedRect = shown.placement === null ? null : { x: boxOnScreen.x + shown.placement.offsetX, y: boxOnScreen.y + shown.placement.offsetY, ...cardSize };
+        const isCachedSpotNewlyBlocked = cachedRect !== null && shown.placement?.isClearWhenPlaced === true && placedCardRects.some((placedRect) => rectsOverlap(cachedRect, placedRect));
+        if (shown.placement?.key !== placementKey || isCachedSpotNewlyBlocked) {
+          const spot = cardSpotOf(boxOnScreen, cardSize, placementArea, placedCardRects);
+          const spotRect = { x: spot.x, y: spot.y, ...cardSize };
+          const isClearWhenPlaced = !placedCardRects.some((placedRect) => rectsOverlap(spotRect, placedRect));
+          shown.placement = { key: placementKey, offsetX: spot.x - boxOnScreen.x, offsetY: spot.y - boxOnScreen.y, side: spot.side, isClearWhenPlaced };
+        }
+        const cardRect = { x: boxOnScreen.x + shown.placement.offsetX, y: boxOnScreen.y + shown.placement.offsetY, ...cardSize };
         placedCardRects.push(cardRect);
-        shown.card.style.transform = `translate(${spot.x}px, ${spot.y}px)`;
-        shown.wire.setAttribute('d', wirePathOf(boxOnScreen, cardRect, spot.side));
+        shown.card.style.transform = `translate(${cardRect.x}px, ${cardRect.y}px)`;
+        shown.wire.setAttribute('d', wirePathOf(boxOnScreen, cardRect, shown.placement.side));
       }
       for (const [sessionId, shown] of shownBySessionId) {
         if (paintedIds.has(sessionId)) continue;

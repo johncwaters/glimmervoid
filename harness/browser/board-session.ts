@@ -27,6 +27,9 @@ interface Box {
 }
 
 const MAP_PAN_STEPS = 10;
+const STEADY_PAN_STEPS = 6;
+const STEADY_PAN_STEP_PX = 50;
+const STEADY_PAN_SETTLE_MS = 1500;
 const MAP_PAN_STEP_PX = 1500;
 const MAP_GLIDE_SETTLE_MS = 800;
 
@@ -416,6 +419,24 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   const mapViewport = root.locator('.wb-viewport');
   const panAwayFrom = await mapViewport.boundingBox();
   assert.ok(panAwayFrom, 'the Studio map is on screen');
+  const steadyBoardId = await studioMapBoardIdOf(page, root);
+  assert.ok(steadyBoardId, 'the Studio map has a board');
+  const mainCardOffsetFromMap = async () => {
+    const [firstBoxRect] = (await boxScreenRectsOf(page, root, steadyBoardId)).values();
+    const mainCardRect = await root.locator('.bs-card[data-main]').first().boundingBox();
+    assert.ok(firstBoxRect && mainCardRect, 'the main card and a map box are laid out');
+    return { x: Math.round(mainCardRect.x - firstBoxRect.x), y: Math.round(mainCardRect.y - firstBoxRect.y) };
+  };
+  const offsetBeforePan = await mainCardOffsetFromMap();
+  await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) {
+    await page.mouse.wheel(STEADY_PAN_STEP_PX, STEADY_PAN_STEP_PX);
+    await pollFor(`the main card to move with the map while it pans (step ${step + 1})`, STEADY_PAN_SETTLE_MS, async () => {
+      const offset = await mainCardOffsetFromMap();
+      return offset.x === offsetBeforePan.x && offset.y === offsetBeforePan.y ? offset : null;
+    });
+  }
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX, -STEADY_PAN_STEP_PX);
   const panMap = async (deltaY: number) => {
     await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
     for (let step = 0; step < MAP_PAN_STEPS; step += 1) await page.mouse.wheel(0, deltaY);
