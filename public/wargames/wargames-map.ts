@@ -1010,6 +1010,7 @@ function renderMarchVector(
     midIconPath?: string;
     placeMarker?: MarkerPlacer;
     route?: MarchRoutePoints;
+    drawsPath?: boolean;
   },
 ): void {
   const deltaX = toSlot.centerX - fromSlot.centerX;
@@ -1047,7 +1048,7 @@ function renderMarchVector(
   const color = SEAT_COLORS[owner];
   const vectorGroup = createSvgShape('g', { class: options.groupClass });
   const pathPoints = [{ x: startX, y: startY }, ...routeCorners, { x: endX, y: endY }];
-  vectorGroup.append(
+  if (options.drawsPath !== false) vectorGroup.append(
     createSvgShape('path', {
       d: pathPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '),
       fill: 'none',
@@ -1097,6 +1098,25 @@ function distanceInHexes(state: MatchState, fromHexIndex: number, toHexIndex: nu
   const to = state.hexes[toHexIndex];
   if (!from || !to) return 0;
   return Math.max(Math.abs(from.q - to.q), Math.abs(from.r - to.r), Math.abs(from.q + from.r - to.q - to.r));
+}
+
+interface RouteStroke {
+  owner: SeatId;
+  troopTotal: number;
+  hexIndices: number[];
+  dash: string;
+  lineClass: string;
+  isSupport: boolean;
+}
+
+function troopTotalOf(troops: TroopCounts): number {
+  return troops.raider + troops.guard + troops.envoy;
+}
+
+function routeWidthFor(troopTotal: number): string {
+  if (troopTotal >= 30) return '3.8';
+  if (troopTotal >= 10) return '2.6';
+  return '1.6';
 }
 
 interface MarchRoutePoints {
@@ -1640,6 +1660,63 @@ export function createWargamesMap(
     return `${route.turnEndHexIndices.length}T`;
   }
 
+  function renderRouteNetwork(strokes: readonly RouteStroke[]): SVGElement {
+    const network = createSvgShape('g', { class: 'wg-route-network' });
+    const segmentsByStyle = new Map<string, { stroke: RouteStroke; troopsBySegment: Map<string, number>; finalSegments: Set<string>; firstSegments: Set<string> }>();
+    for (const stroke of strokes) {
+      const styleKey = `${stroke.owner}|${stroke.dash}|${stroke.lineClass}`;
+      const style = segmentsByStyle.get(styleKey) ?? { stroke, troopsBySegment: new Map<string, number>(), finalSegments: new Set<string>(), firstSegments: new Set<string>() };
+      segmentsByStyle.set(styleKey, style);
+      const hexCount = stroke.hexIndices.length;
+      if (hexCount < 2) continue;
+      style.firstSegments.add(`${stroke.hexIndices[0]}>${stroke.hexIndices[1]}`);
+      style.finalSegments.add(`${stroke.hexIndices[hexCount - 2]}>${stroke.hexIndices[hexCount - 1]}`);
+      for (let index = 1; index < stroke.hexIndices.length; index += 1) {
+        const segmentKey = `${stroke.hexIndices[index - 1]}>${stroke.hexIndices[index]}`;
+        style.troopsBySegment.set(segmentKey, (style.troopsBySegment.get(segmentKey) ?? 0) + stroke.troopTotal);
+      }
+    }
+    const seatsBySegmentPair = new Map<string, SeatId[]>();
+    for (const style of segmentsByStyle.values()) {
+      for (const segmentKey of style.troopsBySegment.keys()) {
+        const [fromHex, toHex] = segmentKey.split('>').map(Number);
+        const seats = seatsBySegmentPair.get(pairKeyOf(fromHex, toHex)) ?? [];
+        if (!seats.includes(style.stroke.owner)) seats.push(style.stroke.owner);
+        seatsBySegmentPair.set(pairKeyOf(fromHex, toHex), seats);
+      }
+    }
+    for (const style of segmentsByStyle.values()) {
+      for (const [segmentKey, troopTotal] of style.troopsBySegment) {
+        const [fromHex, toHex] = segmentKey.split('>').map(Number);
+        const fromSlot = slots[fromHex];
+        const toSlot = slots[toHex];
+        if (!fromSlot || !toSlot) continue;
+        const seats = seatsBySegmentPair.get(pairKeyOf(fromHex, toHex)) ?? [style.stroke.owner];
+        const lateral = lateralOffsetFor(seats.length, seats.indexOf(style.stroke.owner), fromHex, toHex, 10);
+        const direction = unitVectorBetween(fromSlot.centerX, fromSlot.centerY, toSlot.centerX, toSlot.centerY);
+        const offsetX = -direction.y * lateral;
+        const offsetY = direction.x * lateral;
+        const trims = arrowEndpointTrims(direction.length);
+        const startTrim = style.firstSegments.has(segmentKey) ? trims.startTrim : 0;
+        const endsAtTarget = style.finalSegments.has(segmentKey);
+        const endTrim = endsAtTarget ? trims.endTrim : 0;
+        network.append(createSvgShape('line', {
+          x1: (fromSlot.centerX + direction.x * startTrim + offsetX).toFixed(1),
+          y1: (fromSlot.centerY + direction.y * startTrim + offsetY).toFixed(1),
+          x2: (toSlot.centerX - direction.x * endTrim + offsetX).toFixed(1),
+          y2: (toSlot.centerY - direction.y * endTrim + offsetY).toFixed(1),
+          stroke: SEAT_COLORS[style.stroke.owner],
+          'stroke-width': style.stroke.isSupport ? SUPPORT_STROKE_WIDTH : routeWidthFor(troopTotal),
+          'stroke-dasharray': style.stroke.dash,
+          'stroke-linecap': 'round',
+          ...(endsAtTarget ? { 'marker-end': `url(#wg-arrow-${style.stroke.owner})` } : {}),
+          class: style.stroke.lineClass,
+        }));
+      }
+    }
+    return network;
+  }
+
   function lateralOffsetFor(totalOnEdge: number, indexOnEdge: number, fromHexIndex: number, toHexIndex: number, spacing: number): number {
     if (totalOnEdge <= 1) return 0;
     const directionSign = fromHexIndex < toHexIndex ? 1 : -1;
@@ -1701,13 +1778,6 @@ export function createWargamesMap(
     armyLayer.replaceChildren();
     resetOccupiedBoardBoxes();
     const armies = restingArmiesOf(state, pov, spotlightSeatId);
-    const countsByEdge = new Map<string, number>();
-    for (const army of armies) {
-      const leg = armyLegOf(army);
-      const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
-      countsByEdge.set(edgeKey, (countsByEdge.get(edgeKey) ?? 0) + 1);
-    }
-    const seenByEdge = new Map<string, number>();
     const tokenTroopsByTile = new Map<string, { hexIndex: number; owner: SeatId; troops: TroopCounts }>();
     for (const army of armies) {
       if (state.villages[army.currentHexIndex] !== null) continue;
@@ -1735,29 +1805,29 @@ export function createWargamesMap(
       occupiedBoardBoxes.push(boxAround(slot.centerX, slot.centerY + 10 + stackIndex * 17, STANDING_TOKEN_MAX_WIDTH, 15));
     }
     const labeledArmyTargets = new Set<number>();
+    const routeStrokes: RouteStroke[] = [];
     for (const army of [...armies].sort((left, right) => distanceInHexes(state, left.currentHexIndex, left.targetHexIndex) - distanceInHexes(state, right.currentHexIndex, right.targetHexIndex))) {
       if (army.status === 'standing') continue;
       const leg = armyLegOf(army);
       const fromSlot = slots[leg.fromHexIndex];
       const toSlot = slots[leg.toHexIndex];
       if (!fromSlot || !toSlot) continue;
-      const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
-      const indexOnEdge = seenByEdge.get(edgeKey) ?? 0;
-      seenByEdge.set(edgeKey, indexOnEdge + 1);
       const isSupportMarch = army.supporting !== undefined;
+      routeStrokes.push({ owner: army.owner, troopTotal: troopTotalOf(army.troops), hexIndices: marchRouteOf(state, leg.fromHexIndex, leg.toHexIndex).hexIndices, dash: isSupportMarch ? SUPPORT_DASH : '6 3', lineClass: 'wg-army-line', isSupport: isSupportMarch });
       const hasTileToken = tokenTroopsByTile.has(`${army.currentHexIndex}:${army.owner}`);
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
+        drawsPath: false,
         showPill: !hasTileToken,
         strokeDasharray: isSupportMarch ? SUPPORT_DASH : '6 3',
         strokeWidth: isSupportMarch ? SUPPORT_STROKE_WIDTH : '2.4',
         groupClass: 'wg-army-arrow',
         lineClass: 'wg-army-line',
-        lateralOffset: lateralOffsetFor(countsByEdge.get(edgeKey) ?? 1, indexOnEdge, leg.fromHexIndex, leg.toHexIndex, 18),
         midIconPath: isSupportMarch ? PACT_SCROLL_PATH : undefined,
         placeMarker: placeMarkerClear,
         route: routePointsFor(state, leg.fromHexIndex, leg.toHexIndex, labeledArmyTargets),
       });
     }
+    armyLayer.prepend(renderRouteNetwork(routeStrokes));
   }
 
   const animQueue = createBoardAnimationQueue({
@@ -1896,17 +1966,6 @@ export function createWargamesMap(
       }
     }
 
-    const armyCountsByEdge = new Map<string, number>();
-    for (const army of restingArmiesOf(latestState, latestPov, latestSpotlightSeatId)) {
-      const leg = armyLegOf(army);
-      const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
-      armyCountsByEdge.set(edgeKey, (armyCountsByEdge.get(edgeKey) ?? 0) + 1);
-    }
-    const previewCountsByEdge = new Map<string, number>();
-    for (const entry of previewVectors) {
-      const edgeKey = pairKeyOf(entry.fromHexIndex, entry.toHexIndex);
-      previewCountsByEdge.set(edgeKey, (previewCountsByEdge.get(edgeKey) ?? 0) + 1);
-    }
 
     const showsEveryPlan = latestPov !== 'god';
     const isPlanShown = (seatId: SeatId, hexIndices: readonly number[]) => (
@@ -1914,32 +1973,29 @@ export function createWargamesMap(
       && (showsEveryPlan || (latestSelectedHexIndex !== null && hexIndices.includes(latestSelectedHexIndex)))
     );
     let renderedCount = 0;
-    const seenByEdge = new Map<string, number>();
     const labeledPreviewTargets = new Set<number>();
+    const previewStrokes: RouteStroke[] = [];
     for (const entry of previewVectors) {
       if (!isPlanShown(entry.seatId, [entry.fromHexIndex, entry.toHexIndex])) continue;
       const fromSlot = slots[entry.fromHexIndex];
       const toSlot = slots[entry.toHexIndex];
       if (!fromSlot || !toSlot) continue;
-      const edgeKey = pairKeyOf(entry.fromHexIndex, entry.toHexIndex);
-      const armiesOnEdge = armyCountsByEdge.get(edgeKey) ?? 0;
-      const indexOnEdge = armiesOnEdge + (seenByEdge.get(edgeKey) ?? 0);
-      seenByEdge.set(edgeKey, (seenByEdge.get(edgeKey) ?? 0) + 1);
-      const totalOnEdge = armiesOnEdge + (previewCountsByEdge.get(edgeKey) ?? 1);
       const isFriendlyReinforce = entry.kind === 'march' && latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
+      previewStrokes.push({ owner: entry.seatId, troopTotal: troopTotalOf(entry.troops), hexIndices: marchRouteOf(latestState, entry.fromHexIndex, entry.toHexIndex).hexIndices, dash: previewDashOf(entry.kind, isFriendlyReinforce), lineClass: 'wg-preview-line', isSupport: entry.kind === 'support' });
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
+        drawsPath: false,
         strokeDasharray: previewDashOf(entry.kind, isFriendlyReinforce),
         strokeWidth: PREVIEW_STROKE_WIDTHS[entry.kind],
         groupClass: 'wg-preview-arrow',
         lineClass: 'wg-preview-line',
         showPill: false,
-        lateralOffset: lateralOffsetFor(totalOnEdge, indexOnEdge, entry.fromHexIndex, entry.toHexIndex, 18),
         midIconPath: PREVIEW_MID_ICONS[entry.kind],
         placeMarker: placeMarkerClear,
         route: routePointsFor(latestState, entry.fromHexIndex, entry.toHexIndex, labeledPreviewTargets),
       });
       renderedCount += 1;
     }
+    previewLayer.prepend(renderRouteNetwork(previewStrokes));
 
     for (const [hexIndex, entry] of hexBadges) {
       if (!isPlanShown(entry.seatId, [hexIndex])) continue;
