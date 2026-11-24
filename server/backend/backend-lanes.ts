@@ -14,7 +14,7 @@ import { REMOVED_CONTESTANT } from '../../shared/race-core.ts';
 import { selectionArgs } from '../../shared/agent-models-core.ts';
 import { absolutePathReadRule } from '../github/core/team-review-core.ts';
 import { createRaceStore } from '../race/race-store.ts';
-import { createWargamesStore } from '../wargames/wargames-store.ts';
+import { createWargamesStore, wargamesDirectoryOf } from '../wargames/wargames-store.ts';
 import { createWargamesRunner } from '../wargames/wargames-runner.ts';
 import { createReviewCaseLibrary } from '../race/review-cases.ts';
 import { checkOutcomeOf, raceIdsOf } from '../race/core/race-core.ts';
@@ -386,7 +386,7 @@ function createBackendLanes(dependencies: BackendLaneDependencies) {
   });
 
   const wargames = createWargamesRunner({
-    store: createWargamesStore({ directory: path.join(glimmervoidHome, 'wargames'), log: logger }),
+    store: createWargamesStore({ directory: wargamesDirectoryOf(glimmervoidHome), log: logger }),
     broadcast: broadcastControl,
     log: logger,
   });

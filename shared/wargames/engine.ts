@@ -85,6 +85,7 @@ interface ArmyState {
   departedTick: number;
   intendedTargetOwner: SeatId | null;
   scoutedBy: SeatId[];
+  supporting?: SeatId;
 }
 
 interface ProjectedArmyView extends Omit<ArmyState, 'scoutedBy' | 'intendedTargetOwner'> {}
@@ -173,11 +174,18 @@ interface SeatStateView {
   visibleArmies: ProjectedArmyView[];
   contracts: ContractRecord[];
   ledger: LedgerBreachEntry[];
+  reputation: SeatReputation[];
   winnerSeatId: SeatId | null;
   terrain: { hexIndex: number; kind: TerrainKind }[];
   sites: { hexIndex: number; isBeacon: boolean }[];
   victoryPointsBySeat: Record<SeatId, number>;
   victoryPointTarget: number | null;
+}
+
+interface SeatReputation {
+  seatId: SeatId;
+  kept: number;
+  broken: number;
 }
 
 const STARTING_GRAIN = 200;
@@ -203,7 +211,7 @@ const SEAT_INDEX_BY_ID: Readonly<Record<SeatId, number>> = Object.freeze({
 });
 
 const RULES_VERSION_RANK: Readonly<Record<WargamesMatchSpec['rulesVersion'], number>> = Object.freeze({
-  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5, v6: 6,
+  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5, v6: 6, v7: 7,
 });
 
 function isRulesAtLeast(
@@ -1104,9 +1112,112 @@ function resolveV1MarchArrival(
   finalizeArmyAfterCombat(army, attackerOutcome.surviving);
 }
 
+export function isPactTerms(terms: ContractRecord['terms']): terms is Extract<ContractRecord['terms'], { kind: 'nap' | 'alliance' }> {
+  return terms.kind === 'nap' || terms.kind === 'alliance';
+}
+
+function isPairedWith(contract: ContractRecord, first: SeatId, second: SeatId): boolean {
+  return (contract.proposer === first && contract.counterparty === second)
+    || (contract.counterparty === first && contract.proposer === second);
+}
+
+function activePactsBetween(state: MatchState, first: SeatId, second: SeatId): ContractRecord[] {
+  return [...state.contracts.values()].filter((contract) => contract.status === 'active' && isPactTerms(contract.terms) && isPairedWith(contract, first, second));
+}
+
+function hasOpenAlliance(state: MatchState, first: SeatId, second: SeatId): boolean {
+  return [...state.contracts.values()].some((contract) => contract.terms.kind === 'alliance'
+    && (contract.status === 'proposed' || contract.status === 'active')
+    && isPairedWith(contract, first, second));
+}
+
+function hasActiveAlliance(state: MatchState, first: SeatId, second: SeatId): boolean {
+  return activePactsBetween(state, first, second).some((contract) => contract.terms.kind === 'alliance');
+}
+
+function breachPacts(state: MatchState, pacts: readonly ContractRecord[], breacher: SeatId, victim: SeatId, effects: EngineEffect[]): void {
+  for (const contract of pacts) {
+    if (!isPactTerms(contract.terms)) continue;
+    const breached = transitionContract(contract.status, 'contract_breach');
+    if (!breached.ok) continue;
+    contract.status = breached.state;
+    contract.breachedBy = breacher;
+    contract.breachedTick = state.tick;
+    const breacherStake = pactStakeOf(contract, breacher);
+    const victimStake = pactStakeOf(contract, victim);
+    creditSeatResources(state, victim, { grain: victimStake.grain + breacherStake.grain, ore: victimStake.ore + breacherStake.ore });
+    state.ledger.push({
+      tick: state.tick,
+      contractId: contract.id,
+      breacher,
+      victim,
+      collateralTransferred: { ...breacherStake },
+    });
+    state.victoryPointsBySeat[victim] += allianceVpEarnedBy(state, contract);
+    effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher, victim } });
+  }
+}
+
+function allianceVpEarnedBy(state: MatchState, contract: ContractRecord): number {
+  const diplomacy = state.balance.diplomacy;
+  if (!diplomacy || contract.terms.kind !== 'alliance' || contract.activatedTick === null) return 0;
+  return Math.max(0, state.tick - contract.activatedTick) * diplomacy.allianceVpPerTurn;
+}
+
+function settleAllianceVictoryPoints(state: MatchState): void {
+  const diplomacy = state.balance.diplomacy;
+  if (!diplomacy) return;
+  for (const contract of state.contracts.values()) {
+    if (contract.terms.kind !== 'alliance' || contract.status !== 'active') continue;
+    state.victoryPointsBySeat[contract.proposer] += diplomacy.allianceVpPerTurn;
+    state.victoryPointsBySeat[contract.counterparty] += diplomacy.allianceVpPerTurn;
+  }
+}
+
+function pactStakeOf(contract: ContractRecord, seatId: SeatId): ResourceBundle {
+  const stated = isPactTerms(contract.terms) ? contract.terms.collateral : { grain: 0, ore: 0 };
+  if (!contract.lockedCollateral) return stated;
+  return seatId === contract.proposer ? contract.lockedCollateral.proposer : contract.lockedCollateral.counterparty;
+}
+
+export function seatReputationOf(state: MatchState, seatId: SeatId): SeatReputation {
+  return { seatId, kept: keptDealsOf(state, seatId), broken: brokenDealsOf(state, seatId) };
+}
+
+function brokenDealsOf(state: MatchState, seatId: SeatId): number {
+  return state.ledger.filter((entry) => entry.breacher === seatId).length;
+}
+
+function keptDealsOf(state: MatchState, seatId: SeatId): number {
+  return [...state.contracts.values()].filter((contract) => contract.status === 'fulfilled' && (contract.proposer === seatId || contract.counterparty === seatId)).length;
+}
+
+function requiredPactStake(state: MatchState, seatId: SeatId, stated: ResourceBundle): ResourceBundle {
+  const diplomacy = state.balance.diplomacy;
+  if (!diplomacy) return stated;
+  const multiplier = 1 + brokenDealsOf(state, seatId) * diplomacy.breachCollateralStep;
+  return { grain: Math.ceil(stated.grain * multiplier), ore: Math.ceil(stated.ore * multiplier) };
+}
+
+function hasResources(available: ResourceBundle, needed: ResourceBundle): boolean {
+  return available.grain >= needed.grain && available.ore >= needed.ore;
+}
+
+function supportArmiesFor(state: MatchState, waitingSupport: ArmyState[], supportedSeat: SeatId): ArmyState[] {
+  const joining = waitingSupport.filter((army) => army.supporting === supportedSeat && hasActiveAlliance(state, army.owner, supportedSeat));
+  for (const army of joining) waitingSupport.splice(waitingSupport.indexOf(army), 1);
+  return joining;
+}
+
+function returnArmyHome(army: ArmyState): void {
+  const returning = transitionArmy(army.status, 'army_return');
+  if (returning.ok) army.status = returning.state;
+}
+
 function resolveV2SimultaneousBattles(
   state: MatchState,
   hostileByHex: Map<number, ArmyState[]>,
+  supportByHex: Map<number, ArmyState[]>,
   effects: EngineEffect[],
   signatures: Readonly<Record<string, string>>,
   signer?: ReportSigner,
@@ -1133,40 +1244,21 @@ function resolveV2SimultaneousBattles(
     for (const attackerSeat of orderedAttackerSeats) {
       const seatArmies = armiesBySeat.get(attackerSeat) ?? [];
       if (previousOwner !== null) {
-        const activeNaps = [...state.contracts.values()].filter((contract) => {
-          if (contract.status !== 'active' || contract.terms.kind !== 'nap') return false;
-          return (contract.proposer === attackerSeat && contract.counterparty === previousOwner)
-            || (contract.counterparty === attackerSeat && contract.proposer === previousOwner);
-        });
+        const activePacts = activePactsBetween(state, attackerSeat, previousOwner);
         const allUnintended = seatArmies.every((army) => army.intendedTargetOwner !== previousOwner);
-        if (allUnintended && activeNaps.length > 0) {
+        if (allUnintended && activePacts.length > 0) {
           for (const army of seatArmies) {
             const returning = transitionArmy(army.status, 'army_return');
             if (returning.ok) army.status = returning.state;
           }
           continue;
         }
-        for (const contract of activeNaps) {
-          if (contract.terms.kind !== 'nap') continue;
-          const breached = transitionContract(contract.status, 'contract_breach');
-          if (!breached.ok) continue;
-          contract.status = breached.state;
-          contract.breachedBy = attackerSeat;
-          contract.breachedTick = state.tick;
-          const collateral = contract.terms.collateral;
-          creditSeatResources(state, previousOwner, {
-            grain: collateral.grain * 2,
-            ore: collateral.ore * 2,
-          });
-          state.ledger.push({
-            tick: state.tick,
-            contractId: contract.id,
-            breacher: attackerSeat,
-            victim: previousOwner,
-            collateralTransferred: { ...collateral },
-          });
-          effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher: attackerSeat, victim: previousOwner } });
-        }
+        breachPacts(state, activePacts, attackerSeat, previousOwner, effects);
+      }
+      const supportingArmies = supportArmiesFor(state, supportByHex.get(hexIndex) ?? [], attackerSeat);
+      for (const supportArmy of supportingArmies) {
+        if (previousOwner !== null) breachPacts(state, activePactsBetween(state, supportArmy.owner, previousOwner), supportArmy.owner, previousOwner, effects);
+        seatArmies.push(supportArmy);
       }
       const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
       const { attackPower } = resolveCombatPower(combinedTroops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
@@ -1258,19 +1350,24 @@ function resolveV2SimultaneousBattles(
       }, signatures, signer);
       state.reportsBySeat[resolved.entry.seatId].push(report);
       if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
+      const supporterSeats = new Set(resolved.entry.armies.map((army) => army.owner).filter((owner) => owner !== resolved.entry.seatId));
+      for (const supporterSeat of supporterSeats) state.reportsBySeat[supporterSeat].push(report);
       effects.push({ kind: 'report_signed', detail: { reportId, seatId: resolved.entry.seatId, signature: report.signature } });
 
       const shouldGarrisonCapturedVillage = isRulesAtLeast(state.spec.rulesVersion, 'v4') && resolved.captured;
       for (let index = 0; index < resolved.entry.armies.length; index += 1) {
         const army = resolved.entry.armies[index];
         const surviving = resolved.survivingByArmy[index].surviving;
-        if (shouldGarrisonCapturedVillage) {
+        if (shouldGarrisonCapturedVillage && army.owner === resolved.entry.seatId) {
           garrisonArmyInVillage(army, targetVillage, surviving);
           continue;
         }
         finalizeArmyAfterCombat(army, surviving);
       }
     }
+  }
+  for (const waitingSupport of supportByHex.values()) {
+    for (const army of waitingSupport) returnArmyHome(army);
   }
 }
 
@@ -1401,6 +1498,7 @@ function resolveTick(
         departedTick: state.tick,
         intendedTargetOwner: state.villages[order.toHexIndex]?.owner ?? null,
         scoutedBy: [],
+        ...supportFieldOf(state, seat.config.seatId, order.support),
       });
     }
   }
@@ -1483,6 +1581,7 @@ function resolveTick(
       if (army.status === 'returning') returningBeforeCombat.add(army.id);
     }
     const hostileByHex = new Map<number, ArmyState[]>();
+    const supportByHex = new Map<number, ArmyState[]>();
     for (const army of state.armies.values()) {
       if (army.status !== 'marching') continue;
       army.currentHexIndex = marchStep(state, army.currentHexIndex, army.targetHexIndex);
@@ -1496,7 +1595,8 @@ function resolveTick(
         if (returning.ok) army.status = returning.state;
         continue;
       }
-      if (targetVillage.owner === army.owner) {
+      const isAlliedGarrison = army.supporting !== undefined && targetVillage.owner === army.supporting && hasActiveAlliance(state, army.owner, army.supporting);
+      if (targetVillage.owner === army.owner || isAlliedGarrison) {
         targetVillage.troops.raider += army.troops.raider;
         targetVillage.troops.guard += army.troops.guard;
         targetVillage.troops.envoy += army.troops.envoy;
@@ -1506,6 +1606,15 @@ function resolveTick(
           const home = transitionArmy(reached.state, 'army_reach_home');
           if (home.ok) army.status = home.state;
         }
+        continue;
+      }
+      if (army.supporting !== undefined) {
+        const waitingSupport = supportByHex.get(army.targetHexIndex);
+        if (waitingSupport) {
+          waitingSupport.push(army);
+          continue;
+        }
+        supportByHex.set(army.targetHexIndex, [army]);
         continue;
       }
       const list = hostileByHex.get(army.targetHexIndex);
@@ -1530,7 +1639,7 @@ function resolveTick(
       const home = transitionArmy(army.status, 'army_reach_home');
       if (home.ok) army.status = home.state;
     }
-    resolveV2SimultaneousBattles(state, hostileByHex, effects, signatures, signer);
+    resolveV2SimultaneousBattles(state, hostileByHex, supportByHex, effects, signatures, signer);
   }
 
   for (const contract of state.contracts.values()) {
@@ -1539,12 +1648,12 @@ function resolveTick(
       if (expired.ok) contract.status = expired.state;
       continue;
     }
-    if (contract.status === 'active' && contract.terms.kind === 'nap' && contract.endTick !== null && state.tick >= contract.endTick) {
+    if (contract.status === 'active' && isPactTerms(contract.terms) && contract.endTick !== null && state.tick >= contract.endTick) {
       const fulfilled = transitionContract(contract.status, 'contract_fulfill');
       if (!fulfilled.ok) continue;
       contract.status = fulfilled.state;
-      creditSeatResources(state, contract.proposer, contract.terms.collateral);
-      creditSeatResources(state, contract.counterparty, contract.terms.collateral);
+      creditSeatResources(state, contract.proposer, pactStakeOf(contract, contract.proposer));
+      creditSeatResources(state, contract.counterparty, pactStakeOf(contract, contract.counterparty));
     }
   }
 
@@ -1655,11 +1764,27 @@ function determineWinnerAtLimit(state: MatchState): SeatId {
   return bestSeat;
 }
 
+function supportFieldOf(state: MatchState, owner: SeatId, support: SeatId | undefined): { supporting?: SeatId } {
+  if (support === undefined || support === owner || !isRulesAtLeast(state.spec.rulesVersion, 'v7')) return {};
+  return { supporting: support };
+}
+
+function pactKindRejectionFor(state: MatchState, kind: ContractRecord['terms']['kind']): TransitionOutcome | null {
+  const hasAlliances = isRulesAtLeast(state.spec.rulesVersion, 'v7');
+  if (kind === 'alliance' && !hasAlliances) return reject('invalid_order', 'alliance contracts open in rules v7');
+  if (kind === 'nap' && hasAlliances) return reject('invalid_order', 'rules v7 replace the NAP with the alliance contract');
+  return null;
+}
+
 function seatsNamedAsTargets(event: WargamesEvent): SeatId[] {
   if (event.type === 'message_sent') return event.to === null ? [] : [event.to];
   if (event.type === 'contract_proposed') return [event.terms.counterparty];
   if (event.type === 'orders_submitted') {
-    return event.orders.flatMap((order) => (order.kind === 'tribe_join' ? [order.partner] : []));
+    return event.orders.flatMap((order) => {
+      if (order.kind === 'tribe_join') return [order.partner];
+      if (order.kind === 'march' && order.support !== undefined) return [order.support];
+      return [];
+    });
   }
   return [];
 }
@@ -1781,6 +1906,9 @@ export function applyEvent(
     if (event.channel === 'dm' && (event.to === null || event.to === event.seatId)) {
       return reject('invalid_target', 'dm requires another seat as recipient');
     }
+    if (event.channel === 'public' && !isRulesAtLeast(state.spec.rulesVersion, 'v7')) {
+      return reject('invalid_target', 'the public channel opens in rules v7');
+    }
     if (event.channel === 'tribe' && seat.tribeId === null) {
       return reject('invalid_target', 'seat is not in a tribe');
     }
@@ -1806,6 +1934,11 @@ export function applyEvent(
     const seat = state.seats[seatIndexOf(event.seatId)];
     if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
     if (event.terms.counterparty === event.seatId) return reject('invalid_target', 'cannot propose contract to self');
+    const pactKindRejection = pactKindRejectionFor(state, event.terms.kind);
+    if (pactKindRejection) return pactKindRejection;
+    if (event.terms.kind === 'alliance' && hasOpenAlliance(state, event.seatId, event.terms.counterparty)) {
+      return reject('invalid_contract_state', `an alliance between ${event.seatId} and ${event.terms.counterparty} is already proposed or active`);
+    }
     if (state.contracts.has(event.contractId)) return reject('invalid_contract_state', `duplicate contract id ${event.contractId}`);
     state.contracts.set(event.contractId, {
       id: event.contractId,
@@ -1856,16 +1989,17 @@ export function applyEvent(
       state.lastSeq = event.seq;
       return { ok: true, state, effects };
     }
-    const proposerFunds = seatTotalResources(state, contract.proposer);
-    const counterFunds = seatTotalResources(state, contract.counterparty);
-    if (proposerFunds.grain < contract.terms.collateral.grain || proposerFunds.ore < contract.terms.collateral.ore) {
-      return reject('insufficient_resources', 'proposer lacks NAP collateral');
+    const proposerStake = requiredPactStake(state, contract.proposer, contract.terms.collateral);
+    const counterpartyStake = requiredPactStake(state, contract.counterparty, contract.terms.collateral);
+    if (!hasResources(seatTotalResources(state, contract.proposer), proposerStake)) {
+      return reject('insufficient_resources', 'proposer lacks pact collateral');
     }
-    if (counterFunds.grain < contract.terms.collateral.grain || counterFunds.ore < contract.terms.collateral.ore) {
-      return reject('insufficient_resources', 'counterparty lacks NAP collateral');
+    if (!hasResources(seatTotalResources(state, contract.counterparty), counterpartyStake)) {
+      return reject('insufficient_resources', 'counterparty lacks pact collateral');
     }
-    deductSeatResources(state, contract.proposer, contract.terms.collateral);
-    deductSeatResources(state, contract.counterparty, contract.terms.collateral);
+    deductSeatResources(state, contract.proposer, proposerStake);
+    deductSeatResources(state, contract.counterparty, counterpartyStake);
+    if (state.balance.diplomacy) contract.lockedCollateral = { proposer: proposerStake, counterparty: counterpartyStake };
     contract.status = activated.state;
     contract.activatedTick = state.tick;
     contract.endTick = state.tick + contract.terms.durationTicks;
@@ -1926,6 +2060,7 @@ export function applyEvent(
       if (!reported.ok) return reported;
       state.phase = reported.state;
       settleBeaconsAndVictoryPoints(state);
+      settleAllianceVictoryPoints(state);
       const winSeat = goalWinnerAfterTurn(state);
       if (winSeat !== null) {
         const finished = transitionMatch(state.status, 'match_won');
@@ -2035,6 +2170,7 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
       targetHexIndex: army.targetHexIndex,
       troops: { ...army.troops },
       departedTick: army.departedTick,
+      ...(army.supporting === undefined ? {} : { supporting: army.supporting }),
     });
   }
   const seatStatuses = {} as Record<SeatId, SeatStatus>;
@@ -2061,6 +2197,7 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     visibleArmies,
     contracts: visibleContracts,
     ledger: [...state.ledger],
+    reputation: matchSeatIds(state).map((entrySeatId) => seatReputationOf(state, entrySeatId)),
     winnerSeatId: state.winnerSeatId,
     terrain: state.terrain.flatMap((kind, hexIndex) => (kind === 'plain' ? [] : [{ hexIndex, kind }])),
     sites: state.villages.flatMap((village) => (village === null ? [] : [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon }])),

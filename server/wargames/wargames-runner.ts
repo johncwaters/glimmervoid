@@ -555,6 +555,7 @@ export function createWargamesRunner({
         const seat = live.state.seats[seatIndexOf(seatId)];
         const messages = live.state.messages.filter((message) => {
           if (message.tick < sinceTick) return false;
+          if (message.channel === 'public') return true;
           if (message.channel === 'dm') return message.from === seatId || message.to === seatId;
           return seat.tribeId !== null && message.tribeId === seat.tribeId;
         });

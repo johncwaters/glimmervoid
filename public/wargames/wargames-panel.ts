@@ -8,6 +8,7 @@ import {
   victoryHoldTurnsFor,
 } from '#shared/contracts/wargames.ts';
 import type {
+  MessageChannel,
   OrderItem,
   SeatId,
   SeatStatus,
@@ -17,7 +18,7 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { matchSeatIds, projectSeatState, seatStandingOf, victoryPointTargetOf, villageCountOf } from '#shared/wargames/engine.ts';
+import { matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageCountOf } from '#shared/wargames/engine.ts';
 import type { MatchState, SeatStanding } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
@@ -46,6 +47,7 @@ import type { TurnTrackInput } from './turn-track-core.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
 import { ACTING_PHASE_GLYPHS, WARGAMES_GLYPH_PATHS } from './wargames-glyphs.ts';
 import {
+  BEACON_GLYPH_PATH,
   BREACH_WARNING_PATH,
   BUILDING_GLYPH_PATHS,
   CONTROL_FLAG_PATH,
@@ -56,6 +58,8 @@ import {
   SCOUT_EYE_PATH,
   SEAT_COLORS,
   seatLabelOf,
+  SUPPORT_DASH,
+  TERRAIN_GLYPHS,
   THOUGHT_CLOUD_PATH,
   UNIT_GLYPH_PATHS,
 } from './wargames-map.ts';
@@ -182,9 +186,16 @@ const SEAT_STATUS_LABELS: Readonly<Record<SeatStatus, string>> = Object.freeze({
   eliminated: 'Eliminated',
 });
 
-const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap', string>> = Object.freeze({
+const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap' | 'alliance', string>> = Object.freeze({
   escrow: 'Escrow deal',
   nap: 'Non-aggression pact',
+  alliance: 'Alliance',
+});
+
+const MESSAGE_AUDIENCE_LABELS: Readonly<Record<MessageChannel, string>> = Object.freeze({
+  dm: '',
+  tribe: ' to tribe',
+  public: ' to everyone',
 });
 
 const SEAT_STATUS_GLYPHS: Readonly<Record<SeatStatus, string>> = Object.freeze({
@@ -601,9 +612,21 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops), buildResourceReadout(tally.grain, tally.ore));
 
     banner.append(head, modelLine, track, stats);
+    if (state.balance.diplomacy) banner.append(buildReputationReadout(seatReputationOf(state, seatId)));
     strip.append(banner);
   }
   return strip;
+}
+
+function buildReputationReadout(reputation: { kept: number; broken: number }): HTMLElement {
+  const readout = el('div', 'wg-faction-sub wg-legend-item');
+  readout.append(
+    createWargamesGlyph(PACT_SCROLL_PATH, 12, 'var(--state-running)', 'Deals kept'),
+    el('span', '', String(reputation.kept)),
+    createWargamesGlyph(BREACH_WARNING_PATH, 12, 'var(--state-failed)', 'Deals broken'),
+    el('span', '', String(reputation.broken)),
+  );
+  return readout;
 }
 
 function hexRouteElements(fromHexIndex: number, toHexIndex: number): HTMLElement[] {
@@ -632,7 +655,7 @@ function buildOrderElement(order: OrderItem, labelOf: (seatId: SeatId) => string
       return item;
     }
     case 'march': {
-      item.append(el('span', '', 'March'), ...hexRouteElements(order.fromHexIndex, order.toHexIndex));
+      item.append(el('span', '', order.support === undefined ? 'March' : `Support ${labelOf(order.support)}`), ...hexRouteElements(order.fromHexIndex, order.toHexIndex));
       for (const unit of UNIT_GLYPH_PATHS) {
         if (order.troops[unit.key] <= 0) continue;
         item.append(createWargamesGlyph(unit.path, 13, unit.color, unit.label), el('span', '', String(order.troops[unit.key])));
@@ -699,7 +722,7 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
   const saidCol = el('div', 'wg-dm-box');
   saidCol.append(el('div', 'wg-dm-label', 'Messages'));
   for (const message of recentMessages) {
-    const audience = message.to ? ` to ${labelOf(message.to)}` : message.channel === 'tribe' ? ' to tribe' : '';
+    const audience = message.to ? ` to ${labelOf(message.to)}` : MESSAGE_AUDIENCE_LABELS[message.channel];
     saidCol.append(el('div', 'wg-dm-text', `Turn ${message.tick}${audience}: ${message.text}`));
   }
   if (recentMessages.length === 0) {
@@ -712,7 +735,8 @@ function buildSpotlightBar(state: MatchState, seatId: SeatId): HTMLElement {
     .filter((contract) => contract.status === 'active' && (contract.proposer === seatId || contract.counterparty === seatId))
     .map((contract) => {
       const other = contract.proposer === seatId ? contract.counterparty : contract.proposer;
-      return `${CONTRACT_KIND_LABELS[contract.terms.kind]} with ${labelOf(other)}`;
+      const turnsLeft = contract.endTick === null ? '' : ` (${Math.max(0, contract.endTick - state.tick)} turns left)`;
+      return `${CONTRACT_KIND_LABELS[contract.terms.kind]} with ${labelOf(other)}${turnsLeft}`;
     });
   const ordersList = el('div', 'wg-dm-text wg-hex-intel-group');
   for (const order of orders) {
@@ -1081,10 +1105,13 @@ function buildMapLegend(): HTMLElement {
       legendItem(hexSwatchIcon('color-mix(in srgb, var(--text-dim) 10%, var(--bg-card))', 'var(--border-hover)', null), 'Barbarian village'),
       legendItem(hexSwatchIcon('var(--bg)', 'var(--border-hover)', '2 2'), 'Barren'),
       legendItem(createWargamesGlyph(CONTROL_FLAG_PATH, 14, 'var(--state-waiting)'), 'Control under 100%, lower falls sooner'),
+      legendItem(createWargamesGlyph(BEACON_GLYPH_PATH, 14, 'var(--text-head)'), 'Beacon'),
+      ...Object.values(TERRAIN_GLYPHS).map((terrain) => legendItem(createWargamesGlyph(terrain.path, 14, terrain.color), terrain.label)),
     ]),
     legendGroup('Moves', [
       legendItem(arrowSwatchIcon('4 2'), 'Army marching'),
       legendItem(arrowSwatchIcon('2 3'), 'Planned order (seat view or selected hex)'),
+      legendItem(arrowSwatchIcon(SUPPORT_DASH), 'Support'),
       legendItem(createWargamesGlyph(SCOUT_EYE_PATH, 14, 'var(--text-head)'), 'Scout'),
     ]),
     legendGroup('Diplomacy', [

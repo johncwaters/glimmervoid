@@ -1577,6 +1577,10 @@
     {
       "name": "victory points",
       "definition": "The Wargames v6 score (VP) each seat gains at every turn end from villages, held beacons and income, never lost; the first seat to its target wins"
+    },
+    {
+      "name": "live match",
+      "definition": "The Wargames tab view of the running or watched match: seat banners, the board, the economy table and the spotlight"
     }
   ],
   "retired": [

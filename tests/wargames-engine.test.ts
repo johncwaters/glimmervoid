@@ -528,7 +528,7 @@ test('v3 charges an attack split into one-troop armies the same losses as one ar
   const oneArmy = [raidersSent];
   const oneTroopArmies = Array.from({ length: raidersSent }, () => 1);
 
-  assert.equal(WARGAMES_RULES_VERSION, 'v6');
+  assert.equal(WARGAMES_RULES_VERSION, 'v7');
   const lostAsOneArmy = attackerLossesOf('v3', oneArmy);
   assert.ok(lostAsOneArmy > 0);
   assert.equal(attackerLossesOf('v3', oneTroopArmies), lostAsOneArmy);
@@ -878,4 +878,160 @@ test('v6 trade credit never lands in a beacon, so a beacon reverting to unowned 
   });
   apply({ type: 'contract_accepted', seatId: 's1', contractId: 'escrow-to-beacon-holder' });
   assert.equal(state.villages[beacon.hexIndex]?.resources.grain, 0);
+});
+
+test('v7 folds an allied support march into the ally attack, garrisons an ally village, and leaves unallied joint attackers competing', () => {
+  const runSupportedAttack = ({ isAllied, isSupport }: { isAllied: boolean; isSupport: boolean }) => {
+    const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v7' };
+    const state = createInitialMatchState('wg-v7-support', 1000, spec);
+    const s1Capital = state.villages.find((village) => village?.owner === 's1');
+    const s2Capital = state.villages.find((village) => village?.owner === 's2');
+    const neutralVillage = state.villages.find((village) => village && village.owner === null);
+    assert.ok(s1Capital && s2Capital && neutralVillage);
+    neutralVillage.troops = { raider: 0, guard: 30, envoy: 0 };
+    neutralVillage.loyalty = 40;
+    if (isAllied) {
+      state.contracts.set('ctr-ally', {
+        id: 'ctr-ally',
+        proposer: 's1',
+        counterparty: 's2',
+        terms: { kind: 'alliance', counterparty: 's2', durationTicks: 5, collateral: { grain: 0, ore: 0 } },
+        status: 'active',
+        proposedTick: 1,
+        activatedTick: 1,
+        endTick: 10,
+        breachedBy: null,
+        breachedTick: null,
+      });
+    }
+    const marchingArmy = (owner: 's1' | 's2', originHexIndex: number, troops: { raider: number; guard: number; envoy: number }) => ({
+      id: `army-${owner}`,
+      owner,
+      status: 'marching' as const,
+      originHexIndex,
+      currentHexIndex: neutralVillage.hexIndex,
+      targetHexIndex: neutralVillage.hexIndex,
+      troops,
+      departedTick: 0,
+      intendedTargetOwner: null,
+      scoutedBy: [],
+    });
+    state.armies.set('army-s1', marchingArmy('s1', s1Capital.hexIndex, { raider: 16, guard: 0, envoy: 4 }));
+    state.armies.set('army-s2', { ...marchingArmy('s2', s2Capital.hexIndex, { raider: 40, guard: 0, envoy: 0 }), ...(isSupport ? { supporting: 's1' as const } : {}) });
+    const resolved = advanceToResolution(state);
+    return {
+      owner: resolved.villages[neutralVillage.hexIndex]?.owner ?? null,
+      s1Status: resolved.armies.get('army-s1')?.status,
+      s2Status: resolved.armies.get('army-s2')?.status,
+      s2Reports: resolved.reportsBySeat.s2.length,
+    };
+  };
+
+  const allied = runSupportedAttack({ isAllied: true, isSupport: true });
+  assert.equal(allied.owner, 's1');
+  assert.equal(allied.s2Status, 'returning');
+  assert.equal(allied.s2Reports, 1);
+
+  const supportWithoutAlliance = runSupportedAttack({ isAllied: false, isSupport: true });
+  assert.equal(supportWithoutAlliance.owner, null);
+  assert.equal(supportWithoutAlliance.s1Status, 'destroyed');
+  assert.equal(supportWithoutAlliance.s2Reports, 0);
+
+  const unalliedJointAttack = runSupportedAttack({ isAllied: false, isSupport: false });
+  assert.equal(unalliedJointAttack.s1Status, 'destroyed');
+  assert.equal(unalliedJointAttack.owner, null);
+
+  const garrisonSpec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v7' };
+  const garrisonState = createInitialMatchState('wg-v7-garrison', 2000, garrisonSpec);
+  const s1Home = garrisonState.villages.find((village) => village?.owner === 's1');
+  const s2Home = garrisonState.villages.find((village) => village?.owner === 's2');
+  assert.ok(s1Home && s2Home);
+  const guardsBefore = s1Home.troops.guard;
+  garrisonState.contracts.set('ctr-ally', {
+    id: 'ctr-ally', proposer: 's2', counterparty: 's1',
+    terms: { kind: 'alliance', counterparty: 's1', durationTicks: 5, collateral: { grain: 0, ore: 0 } },
+    status: 'active', proposedTick: 1, activatedTick: 1, endTick: 10, breachedBy: null, breachedTick: null,
+  });
+  garrisonState.armies.set('army-guard', {
+    id: 'army-guard', owner: 's2', status: 'marching', originHexIndex: s2Home.hexIndex,
+    currentHexIndex: s1Home.hexIndex, targetHexIndex: s1Home.hexIndex,
+    troops: { raider: 0, guard: 12, envoy: 0 }, departedTick: 0, intendedTargetOwner: 's1', scoutedBy: [], supporting: 's1',
+  });
+  const garrisoned = advanceToResolution(garrisonState);
+  assert.equal(garrisoned.villages[s1Home.hexIndex]?.troops.guard, guardsBefore + 12);
+  assert.equal(garrisoned.ledger.length, 0);
+  assert.equal(garrisoned.contracts.get('ctr-ally')?.status, 'active');
+});
+
+test('v7 breaches an alliance on attack, opens the public channel, and swaps the NAP for the alliance', () => {
+  const spec: WargamesMatchSpec = { ...buildTestSpec(), rulesVersion: 'v7' };
+  const resolveBetrayal = (isAllied: boolean, isBetrayal: boolean) => {
+    const state = createInitialMatchState('wg-v7-breach', 3000, spec);
+    const s1Home = state.villages.find((village) => village?.owner === 's1');
+    const s2Home = state.villages.find((village) => village?.owner === 's2');
+    assert.ok(s1Home && s2Home);
+    if (isAllied) {
+      state.contracts.set('ctr-ally', {
+        id: 'ctr-ally', proposer: 's1', counterparty: 's2',
+        terms: { kind: 'alliance', counterparty: 's2', durationTicks: 5, collateral: { grain: 10, ore: 10 } },
+        status: 'active', proposedTick: 1, activatedTick: 1, endTick: 10, breachedBy: null, breachedTick: null,
+      });
+    }
+    if (!isBetrayal) return advanceToResolution(state, 6);
+    state.armies.set('army-betray', {
+      id: 'army-betray', owner: 's2', status: 'marching', originHexIndex: s2Home.hexIndex,
+      currentHexIndex: s1Home.hexIndex, targetHexIndex: s1Home.hexIndex,
+      troops: { raider: 5, guard: 0, envoy: 0 }, departedTick: 0, intendedTargetOwner: 's1', scoutedBy: [],
+    });
+    return advanceToResolution(state, 6);
+  };
+  const resolved = resolveBetrayal(true, true);
+  const unallied = resolveBetrayal(false, true);
+  assert.equal(resolved.victoryPointsBySeat.s1 - unallied.victoryPointsBySeat.s1, 10);
+  assert.equal(resolved.victoryPointsBySeat.s2, unallied.victoryPointsBySeat.s2);
+  const keptTurn = resolveBetrayal(true, false);
+  const unalliedTurn = resolveBetrayal(false, false);
+  assert.equal(keptTurn.victoryPointsBySeat.s1 - unalliedTurn.victoryPointsBySeat.s1, 2);
+  assert.equal(keptTurn.victoryPointsBySeat.s2 - unalliedTurn.victoryPointsBySeat.s2, 2);
+  assert.equal(resolved.contracts.get('ctr-ally')?.status, 'breached');
+  assert.deepEqual(resolved.ledger.map((entry) => [entry.breacher, entry.victim]), [['s2', 's1']]);
+  const reputationSeenByS3 = projectSeatState(resolved, 's3').reputation;
+  assert.deepEqual(reputationSeenByS3.find((entry) => entry.seatId === 's2'), { seatId: 's2', kept: 0, broken: 1 });
+  let afterBreach = resolved;
+  const applyAfterBreach = (event: EventWithoutSeq<WargamesEvent>) => {
+    const applied = applyEvent(afterBreach, { ...event, seq: afterBreach.lastSeq + 1 } as WargamesEvent, lengthSigner);
+    assert.equal(applied.ok, true, applied.ok ? '' : applied.rejection.message);
+    if (applied.ok) afterBreach = applied.state;
+  };
+  applyAfterBreach({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  applyAfterBreach({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  applyAfterBreach({ type: 'contract_proposed', seatId: 's2', contractId: 'ctr-next', terms: { kind: 'alliance', counterparty: 's3', durationTicks: 2, collateral: { grain: 10, ore: 10 } } });
+  applyAfterBreach({ type: 'contract_accepted', seatId: 's3', contractId: 'ctr-next' });
+  assert.deepEqual(afterBreach.contracts.get('ctr-next')?.lockedCollateral, { proposer: { grain: 20, ore: 20 }, counterparty: { grain: 10, ore: 10 } });
+
+  const talkState = createInitialMatchState('wg-v7-talk', 4000, spec);
+  let running = talkState;
+  const applyNext = (event: EventWithoutSeq<WargamesEvent>) => applyEvent(running, { ...event, seq: running.lastSeq + 1 } as WargamesEvent, lengthSigner);
+  for (const event of [{ type: 'seating_started' as const }, ...WARGAMES_SEAT_IDS.map((seatId) => ({ type: 'seat_connected' as const, seatId }))]) {
+    const applied = applyNext(event);
+    assert.equal(applied.ok, true);
+    if (applied.ok) running = applied.state;
+  }
+  const publicMessage = applyNext({ type: 'message_sent', seatId: 's1', to: null, channel: 'public', text: 'Who holds the center?', attachedReport: null });
+  assert.equal(publicMessage.ok, true);
+  const v6Public = applyEvent({ ...running, spec: { ...running.spec, rulesVersion: 'v6' } }, { seq: running.lastSeq + 1, type: 'message_sent', seatId: 's1', to: null, channel: 'public', text: 'hello', attachedReport: null }, lengthSigner);
+  assert.equal(v6Public.ok, false);
+
+  const toContracts = applyNext({ type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  assert.ok(toContracts.ok);
+  if (!toContracts.ok) return;
+  running = toContracts.state;
+  const napProposal = applyNext({ type: 'contract_proposed', seatId: 's1', contractId: 'ctr-nap', terms: { kind: 'nap', counterparty: 's2', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
+  assert.equal(napProposal.ok, false);
+  const allianceProposal = applyNext({ type: 'contract_proposed', seatId: 's1', contractId: 'ctr-alliance', terms: { kind: 'alliance', counterparty: 's2', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
+  assert.equal(allianceProposal.ok, true);
+  if (!allianceProposal.ok) return;
+  running = allianceProposal.state;
+  const stackedAlliance = applyNext({ type: 'contract_proposed', seatId: 's2', contractId: 'ctr-stacked', terms: { kind: 'alliance', counterparty: 's1', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
+  assert.equal(stackedAlliance.ok, false);
 });

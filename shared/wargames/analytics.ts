@@ -1,4 +1,5 @@
 import type {
+  ContractRecord,
   DramaHighlight,
   MatchAnalytics,
   ModelEloRow,
@@ -10,7 +11,7 @@ import type {
 } from '../contracts/wargames.ts';
 import { wargamesBalanceFor } from '../contracts/wargames.ts';
 import type { MatchState } from './engine.ts';
-import { canonicalReportString, createInitialMatchState, matchSeatIds, seatIndexOf } from './engine.ts';
+import { canonicalReportString, createInitialMatchState, isPactTerms, matchSeatIds, seatIndexOf, seatStandingOf } from './engine.ts';
 
 const PEACEFUL_DM_PATTERN = /\b(ally|alliance|peace|truce|nap|friend|partner|agree|deal|non-aggression|won't attack|not attack)\b/i;
 const ELO_DEFAULT = 1500;
@@ -248,7 +249,7 @@ export function analyzeMatch(
   let sameModelTreaties = 0;
   let totalTreaties = 0;
   for (const contract of state.contracts.values()) {
-    if (contract.terms.kind !== 'nap' || contract.activatedTick === null) continue;
+    if (!isPactTerms(contract.terms) || contract.activatedTick === null) continue;
     totalTreaties += 1;
     const proposerModel = state.seats[seatIndexOf(contract.proposer)].config.modelDisplay;
     const counterModel = state.seats[seatIndexOf(contract.counterparty)].config.modelDisplay;
@@ -300,6 +301,107 @@ export function analyzeMatch(
     avgCoalitionLifetimeTicks: coalitionCount > 0 ? coalitionLifetimeSum / coalitionCount : null,
     forgedReportDetectionRate: forgedTotal > 0 ? forgedDetectedTotal / forgedTotal : null,
     sameModelCollusionRate: totalTreaties > 0 ? sameModelTreaties / totalTreaties : null,
+  };
+}
+
+interface DiplomacySeatRow {
+  seatId: SeatId;
+  modelDisplay: string;
+  messagesSent: number;
+  standing: number;
+  isCoalitionMember: boolean;
+  breaches: number;
+}
+
+export interface DiplomacyMetrics {
+  matchId: string;
+  rulesVersion: string;
+  ticksPlayed: number;
+  winnerSeatId: SeatId | null;
+  messagesPerSeatPerTick: number;
+  publicMessages: number;
+  contractsProposed: number;
+  contractsAccepted: number;
+  contractsKept: number;
+  contractsBroken: number;
+  supportMarches: number;
+  coalitions: string[];
+  coalitionMeanStanding: number | null;
+  soloMeanStanding: number | null;
+  betrayalSwings: number;
+  seats: DiplomacySeatRow[];
+}
+
+const COALITION_MIN_TICKS = 2;
+
+function meanOf(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function isLastingPact(contract: ContractRecord, finalTick: number): boolean {
+  if (!isPactTerms(contract.terms) || contract.activatedTick === null) return false;
+  const lastTick = contract.breachedTick ?? contract.endTick ?? finalTick;
+  return Math.min(lastTick, finalTick) - contract.activatedTick >= COALITION_MIN_TICKS;
+}
+
+function villagesCapturedByBreach(state: MatchState, breacher: SeatId, victim: SeatId, tick: number): number {
+  let captured = 0;
+  for (const report of state.reportsById.values()) {
+    const payload = report.payload;
+    if (payload.kind !== 'battle' || !payload.captured || payload.tick !== tick) continue;
+    if (payload.attacker === breacher && payload.defender === victim) captured += 1;
+  }
+  return captured;
+}
+
+export function diplomacyMetrics(state: MatchState): DiplomacyMetrics {
+  const seatIds = matchSeatIds(state);
+  const ticksPlayed = Math.max(1, state.tick);
+  const contracts = [...state.contracts.values()];
+  const coalitionPairs = new Set<string>();
+  const coalitionMembers = new Set<SeatId>();
+  for (const contract of contracts) {
+    if (!isLastingPact(contract, state.tick)) continue;
+    coalitionPairs.add([contract.proposer, contract.counterparty].sort().join('+'));
+    coalitionMembers.add(contract.proposer);
+    coalitionMembers.add(contract.counterparty);
+  }
+  const standingBySeat = new Map(seatIds.map((seatId) => [seatId, seatStandingOf(state, seatId).score]));
+  const rankedVillageCounts = seatIds.map((seatId) => state.villages.filter((village) => village?.owner === seatId).length).sort((left, right) => right - left);
+  const winnerVillageMargin = (rankedVillageCounts[0] ?? 0) - (rankedVillageCounts[1] ?? 0);
+  const betrayalSwings = state.ledger.filter((breach) => {
+    if (breach.breacher === state.winnerSeatId) return true;
+    return villagesCapturedByBreach(state, breach.breacher, breach.victim, breach.tick) >= Math.max(1, winnerVillageMargin);
+  }).length;
+  const supportMarches = Object.values(state.ordersByTick)
+    .flatMap((seatOrders) => Object.values(seatOrders).flat())
+    .filter((order) => order.kind === 'march' && 'support' in order && order.support !== undefined).length;
+  const seats: DiplomacySeatRow[] = state.seats.map((seat) => ({
+    seatId: seat.config.seatId,
+    modelDisplay: seat.config.modelDisplay,
+    messagesSent: state.messages.filter((message) => message.from === seat.config.seatId).length,
+    standing: standingBySeat.get(seat.config.seatId) ?? 0,
+    isCoalitionMember: coalitionMembers.has(seat.config.seatId),
+    breaches: state.ledger.filter((breach) => breach.breacher === seat.config.seatId).length,
+  }));
+  return {
+    matchId: state.matchId,
+    rulesVersion: state.spec.rulesVersion,
+    ticksPlayed,
+    winnerSeatId: state.winnerSeatId,
+    messagesPerSeatPerTick: state.messages.length / (seatIds.length * ticksPlayed),
+    publicMessages: state.messages.filter((message) => message.channel === 'public').length,
+    contractsProposed: contracts.length,
+    contractsAccepted: contracts.filter((contract) => contract.activatedTick !== null).length,
+    contractsKept: contracts.filter((contract) => contract.status === 'fulfilled').length,
+    contractsBroken: state.ledger.length,
+    supportMarches,
+    coalitions: [...coalitionPairs].sort(),
+    coalitionMeanStanding: meanOf(seats.filter((seat) => seat.isCoalitionMember).map((seat) => seat.standing)),
+    soloMeanStanding: meanOf(seats.filter((seat) => !seat.isCoalitionMember).map((seat) => seat.standing)),
+    betrayalSwings,
+    seats,
   };
 }
 

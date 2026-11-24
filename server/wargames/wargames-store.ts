@@ -20,6 +20,10 @@ export interface WargamesStore {
   idle(): Promise<void>;
 }
 
+export function wargamesDirectoryOf(glimmervoidHome: string): string {
+  return path.join(glimmervoidHome, 'wargames');
+}
+
 export function createWargamesStore({ directory, log }: { directory: string; log: Pick<Console, 'warn'> }): WargamesStore {
   const summariesById = new Map<string, WargamesMatchSummary>();
   const indexPath = path.join(directory, 'index.json');

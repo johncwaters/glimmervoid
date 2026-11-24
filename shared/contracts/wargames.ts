@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v6' as const;
+export const WARGAMES_RULES_VERSION = 'v7' as const;
 const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6']);
+const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7']);
 type WargamesRulesVersion = z.infer<typeof WargamesRulesVersion>;
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
@@ -156,6 +156,12 @@ export interface WargamesBalance {
   readonly lastVillageDefenseMultiplier: number;
   readonly victory: WargamesVictoryRule;
   readonly sparseSites: WargamesSparseSites | null;
+  readonly diplomacy: WargamesDiplomacyRule | null;
+}
+
+interface WargamesDiplomacyRule {
+  readonly breachCollateralStep: number;
+  readonly allianceVpPerTurn: number;
 }
 
 const V1_BUILDING_COSTS = Object.freeze({
@@ -177,6 +183,7 @@ const V1_BALANCE: WargamesBalance = Object.freeze({
   lastVillageDefenseMultiplier: 1,
   victory: Object.freeze({ kind: 'flat', villages: 12 }),
   sparseSites: null,
+  diplomacy: null,
 });
 
 const V5_BALANCE: WargamesBalance = Object.freeze({
@@ -207,6 +214,11 @@ const V6_BALANCE: WargamesBalance = Object.freeze({
   }),
 });
 
+const V7_BALANCE: WargamesBalance = Object.freeze({
+  ...V6_BALANCE,
+  diplomacy: Object.freeze({ breachCollateralStep: 1, allianceVpPerTurn: 2 }),
+});
+
 const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
   v1: V1_BALANCE,
   v2: V1_BALANCE,
@@ -214,6 +226,7 @@ const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, Wargame
   v4: V1_BALANCE,
   v5: V5_BALANCE,
   v6: V6_BALANCE,
+  v7: V7_BALANCE,
 });
 
 export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): WargamesBalance {
@@ -260,7 +273,14 @@ const NapTerms = z.strictObject({
   collateral: ResourceBundle,
 });
 
-export const ContractTerms = z.discriminatedUnion('kind', [EscrowTerms, NapTerms]);
+const AllianceTerms = z.strictObject({
+  kind: z.literal('alliance'),
+  counterparty: SeatId,
+  durationTicks: z.number().int().min(1).max(40),
+  collateral: ResourceBundle,
+});
+
+export const ContractTerms = z.discriminatedUnion('kind', [EscrowTerms, NapTerms, AllianceTerms]);
 export type ContractTerms = z.infer<typeof ContractTerms>;
 
 export const ContractRecord = z.strictObject({
@@ -274,6 +294,7 @@ export const ContractRecord = z.strictObject({
   endTick: z.number().int().min(0).nullable(),
   breachedBy: SeatId.nullable(),
   breachedTick: z.number().int().min(0).nullable(),
+  lockedCollateral: z.strictObject({ proposer: ResourceBundle, counterparty: ResourceBundle }).optional(),
 });
 export type ContractRecord = z.infer<typeof ContractRecord>;
 
@@ -295,6 +316,7 @@ const MarchOrder = z.strictObject({
   fromHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   toHexIndex: z.number().int().min(0).max(WARGAMES_MAX_HEX_COUNT - 1),
   troops: TroopCounts,
+  support: SeatId.optional(),
 });
 
 const ScoutOrder = z.strictObject({
@@ -361,7 +383,7 @@ export const SignedReport = z.strictObject({
 });
 export type SignedReport = z.infer<typeof SignedReport>;
 
-export const MessageChannel = z.enum(['dm', 'tribe']);
+export const MessageChannel = z.enum(['dm', 'tribe', 'public']);
 export type MessageChannel = z.infer<typeof MessageChannel>;
 
 export const MessageRecord = z.strictObject({

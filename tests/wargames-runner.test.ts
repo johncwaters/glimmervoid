@@ -199,7 +199,7 @@ test('wargames runner fast-advances talk and contracts when all seats pass ready
     assert.deepEqual(phaseEvents, ['1:talk', '1:contracts']);
 
     await runner.callTool(matchId, 's1', 'get_state', { ready: true });
-    const readySeatProposal = await runner.callTool(matchId, 's1', 'propose_contract', { terms: { kind: 'nap', counterparty: 's2', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
+    const readySeatProposal = await runner.callTool(matchId, 's1', 'propose_contract', { terms: { kind: 'alliance', counterparty: 's2', durationTicks: 3, collateral: { grain: 0, ore: 0 } } });
     assert.equal(readySeatProposal.ok, true);
     for (const seatId of WARGAMES_SEAT_IDS) {
       await runner.callTool(matchId, seatId, 'get_state', { ready: true });

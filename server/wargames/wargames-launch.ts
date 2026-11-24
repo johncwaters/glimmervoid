@@ -169,6 +169,30 @@ function buildingLines(spec: WargamesMatchSpecType): string[] {
   ];
 }
 
+function diplomacyLines(spec: WargamesMatchSpecType): string[] {
+  const shared = [
+    '- Scouting: Up to 2 scouts per tick to reveal enemy garrisons, buildings, and marching armies. Orders are sealed and resolve simultaneously, so no seat sees another seat\'s orders before they resolve.',
+    '- Tribes: Up to 2 seats may form a tribe via tribe_join / tribe_leave orders to share a private tribe channel.',
+  ];
+  const diplomacy = wargamesBalanceFor(spec.rulesVersion).diplomacy;
+  if (!diplomacy) {
+    return [
+      '- Messages: Send direct or tribe messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
+      '- Contracts: Propose a Resource Escrow (atomic grain/ore swap) or a Non-Aggression Pact (NAP), where both seats lock collateral resources for N ticks. Attacking your NAP partner breaches the pact, forfeits your collateral to the victim, and records the breach on the public ledger.',
+      ...shared,
+    ];
+  }
+  return [
+    '- Messages: Send direct, tribe, or public messages during Talk; every seat reads the public channel. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report. Talk binds nothing; only contracts are enforced.',
+    '- Escrow: an atomic grain/ore swap that settles the moment it is accepted.',
+    `- Alliance VP: at the end of every turn an alliance is in force, each partner scores ${diplomacy.allianceVpPerTurn} VP. If one partner breaks it, the victim also scores the breaker's alliance VP for every turn the alliance stood (${diplomacy.allianceVpPerTurn} VP per turn).`,
+    '- Alliance: two seats may hold one alliance at a time (one proposed or active). Both seats lock the stated collateral for N ticks. While it is active neither may attack the other, and each may support the other. When it runs its full term both get their collateral back. If one attacks the other, the alliance breaks: the victim takes the attacker\'s collateral and its own back, and the breach goes on the public ledger.',
+    '- Support: a march order may name support: <seat>. If that seat is your active ally and attacks the same target hex that tick, your troops fight on its side: one combined attack power against the defender, the ally takes the village if it captures, losses are shared in proportion, and your survivors march home. Sent to the ally\'s own village, your troops join its garrison and become the ally\'s. With no active alliance, or no ally attack there, the support march turns back without fighting. Two seats that attack one hex without support fight each other too: only the strongest can take it, and the others are wiped.',
+    `- Reputation: get_state shows every seat\'s record of deals kept (pacts that ran their term, settled escrows) and deals broken (breaches). A seat with B broken deals locks ${diplomacy.breachCollateralStep === 1 ? '(1 + B)' : `(1 + ${diplomacy.breachCollateralStep} x B)`} times the stated collateral to enter any new alliance.`,
+    ...shared,
+  ];
+}
+
 function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchSpecType): string {
   const lines = [
     `You are playing Wargames match "${spec.title}" (${matchId}) as seat ${seat.seatId} (${seat.label}).`,
@@ -190,10 +214,7 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     ...terrainLines(spec),
     '',
     'Diplomacy, Contracts & Tribes:',
-    '- Messages: Send direct or tribe messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
-    '- Scouting: Up to 2 scouts per tick to reveal enemy garrisons, buildings, and marching armies.',
-    '- Contracts: Propose a Resource Escrow (atomic grain/ore swap) or a Non-Aggression Pact (NAP), where both seats lock collateral resources for N ticks. Attacking your NAP partner breaches the pact, forfeits your collateral to the victim, and records the breach on the public ledger.',
-    '- Tribes: Up to 2 seats may form a tribe via tribe_join / tribe_leave orders to share a private tribe channel.',
+    ...diplomacyLines(spec),
     '',
     'Private Notes:',
     '- Every tick, record your private thoughts, threat read, and alliance or betrayal plans with write_note (private to your seat; never visible to other seats).',

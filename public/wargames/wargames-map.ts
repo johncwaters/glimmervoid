@@ -91,6 +91,26 @@ export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; c
 export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
 export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8.5 H 4';
 export const PACT_SCROLL_PATH = 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9';
+export const SUPPORT_DASH = '8 3 1.5 3';
+const SUPPORT_STROKE_WIDTH = '2.8';
+const PREVIEW_MID_ICONS: Readonly<Record<'march' | 'support' | 'scout', string | undefined>> = Object.freeze({
+  march: undefined,
+  support: PACT_SCROLL_PATH,
+  scout: SCOUT_EYE_PATH,
+});
+
+const PREVIEW_STROKE_WIDTHS: Readonly<Record<'march' | 'support' | 'scout', string>> = Object.freeze({
+  march: '1.8',
+  support: SUPPORT_STROKE_WIDTH,
+  scout: '1.4',
+});
+
+function previewDashOf(kind: 'march' | 'support' | 'scout', isFriendlyReinforce: boolean): string {
+  if (kind === 'scout') return '1 3';
+  if (kind === 'support') return SUPPORT_DASH;
+  if (isFriendlyReinforce) return '2 4';
+  return '5 4';
+}
 export const BREACH_WARNING_PATH = 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5';
 export const THOUGHT_CLOUD_PATH = 'M 5 10.5 A 2.5 2.5 0 0 1 4.2 5.6 A 3 3 0 0 1 9.8 4.2 A 2.6 2.6 0 0 1 12.2 10 Z M 4.5 13 L 4.6 13 M 2.6 14.8 L 2.7 14.8';
 export const VILLAGE_GLYPH_PATH = 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z';
@@ -100,8 +120,8 @@ export const ORE_GLYPH_PATH = 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z';
 const MOUNTAIN_GLYPH_PATH = 'M 2 13 L 6 5 L 9 10 L 11 7 L 14 13 Z';
 const LAKE_GLYPH_PATH = 'M 2 6 Q 4 4 6 6 T 10 6 T 14 6 M 2 10 Q 4 8 6 10 T 10 10 T 14 10';
 const FOREST_GLYPH_PATH = 'M 8 2 L 13 10 H 3 Z M 8 10 V 14';
-const BEACON_GLYPH_PATH = 'M 6 14 L 7 7 H 9 L 10 14 Z M 8 2 V 4.5 M 3.5 4 L 5.5 5.5 M 12.5 4 L 10.5 5.5';
-const TERRAIN_GLYPHS: Readonly<Record<Exclude<TerrainKind, 'plain'>, { path: string; color: string; label: string }>> = Object.freeze({
+export const BEACON_GLYPH_PATH = 'M 6 14 L 7 7 H 9 L 10 14 Z M 8 2 V 4.5 M 3.5 4 L 5.5 5.5 M 12.5 4 L 10.5 5.5';
+export const TERRAIN_GLYPHS: Readonly<Record<Exclude<TerrainKind, 'plain'>, { path: string; color: string; label: string }>> = Object.freeze({
   mountain: { path: MOUNTAIN_GLYPH_PATH, color: 'var(--text-dim)', label: 'Mountain' },
   lake: { path: LAKE_GLYPH_PATH, color: 'var(--text-muted)', label: 'Lake' },
   forest: { path: FOREST_GLYPH_PATH, color: 'var(--text-dim)', label: 'Forest' },
@@ -1143,6 +1163,7 @@ export function createWargamesMap(
     const speakerLabel = seatLabelOf(state, message.from);
     if (message.channel === 'dm' && message.to !== null) return `${speakerLabel} to ${seatLabelOf(state, message.to)}`;
     if (message.channel === 'tribe') return `${speakerLabel} to tribe`;
+    if (message.channel === 'public') return `${speakerLabel} to everyone`;
     return speakerLabel;
   }
 
@@ -1170,6 +1191,7 @@ export function createWargamesMap(
       const isVisible = pov === 'god'
         || message.from === pov
         || message.to === pov
+        || message.channel === 'public'
         || (message.channel === 'tribe' && povSeat !== null && povSeat.tribeId !== null && povSeat.tribeId === message.tribeId);
       if (!isVisible) continue;
       const speakerSlot = seatAnchorSlot(state, pov, message.from);
@@ -1466,12 +1488,14 @@ export function createWargamesMap(
       const edgeKey = pairKeyOf(leg.fromHexIndex, leg.toHexIndex);
       const indexOnEdge = seenByEdge.get(edgeKey) ?? 0;
       seenByEdge.set(edgeKey, indexOnEdge + 1);
+      const isSupportMarch = army.supporting !== undefined;
       renderMarchVector(armyLayer, fromSlot, toSlot, army.owner, army.troops, {
-        strokeDasharray: '6 3',
-        strokeWidth: '2.4',
+        strokeDasharray: isSupportMarch ? SUPPORT_DASH : '6 3',
+        strokeWidth: isSupportMarch ? SUPPORT_STROKE_WIDTH : '2.4',
         groupClass: 'wg-army-arrow',
         lineClass: 'wg-army-line',
         lateralOffset: lateralOffsetFor(countsByEdge.get(edgeKey) ?? 1, indexOnEdge, leg.fromHexIndex, leg.toHexIndex, 18),
+        midIconPath: isSupportMarch ? PACT_SCROLL_PATH : undefined,
         placeMarker: placeMarkerClear,
       });
     }
@@ -1570,7 +1594,7 @@ export function createWargamesMap(
       fromHexIndex: number;
       toHexIndex: number;
       troops: TroopCounts;
-      kind: 'march' | 'scout';
+      kind: 'march' | 'support' | 'scout';
     }[] = [];
     const hexBadges = new Map<number, { seatId: SeatId; tokens: PreviewGlyphToken[] }>();
 
@@ -1588,7 +1612,7 @@ export function createWargamesMap(
       if (latestPov !== 'god' && seatId !== latestPov) continue;
       for (const order of seat.sealedOrders) {
         if (order.kind === 'march') {
-          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops, kind: 'march' });
+          previewVectors.push({ seatId, fromHexIndex: order.fromHexIndex, toHexIndex: order.toHexIndex, troops: order.troops, kind: order.support === undefined ? 'march' : 'support' });
           continue;
         }
         if (order.kind === 'scout') {
@@ -1644,13 +1668,13 @@ export function createWargamesMap(
       const totalOnEdge = armiesOnEdge + (previewCountsByEdge.get(edgeKey) ?? 1);
       const isFriendlyReinforce = entry.kind === 'march' && latestState.villages[entry.toHexIndex]?.owner === entry.seatId;
       renderMarchVector(previewLayer, fromSlot, toSlot, entry.seatId, entry.troops, {
-        strokeDasharray: entry.kind === 'scout' ? '1 3' : isFriendlyReinforce ? '2 4' : '5 4',
-        strokeWidth: entry.kind === 'scout' ? '1.4' : '1.8',
+        strokeDasharray: previewDashOf(entry.kind, isFriendlyReinforce),
+        strokeWidth: PREVIEW_STROKE_WIDTHS[entry.kind],
         groupClass: 'wg-preview-arrow',
         lineClass: 'wg-preview-line',
         showPill: false,
         lateralOffset: lateralOffsetFor(totalOnEdge, indexOnEdge, entry.fromHexIndex, entry.toHexIndex, 18),
-        midIconPath: entry.kind === 'scout' ? SCOUT_EYE_PATH : undefined,
+        midIconPath: PREVIEW_MID_ICONS[entry.kind],
         placeMarker: placeMarkerClear,
       });
       renderedCount += 1;

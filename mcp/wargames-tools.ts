@@ -97,7 +97,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('read_messages', {
     title: 'Read Messages',
-    description: 'Read DMs addressed to you or sent by you and your tribe channel messages since a given tick.',
+    description: 'Read DMs addressed to you or sent by you, your tribe channel, and public channel messages every seat sees, since a given tick.',
     inputSchema: z.strictObject({ since_tick: z.number().int().min(0).default(0) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'read_messages', args)));
 
@@ -109,7 +109,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('send_message', {
     title: 'Send Message',
-    description: 'Send a direct or tribe message during the talk phase. Optionally attach a signed or modified report.',
+    description: 'Send a direct, tribe, or public (every seat reads it) message during the talk phase. Optionally attach a signed or modified report.',
     inputSchema: z.strictObject({
       channel: MessageChannel.default('dm'),
       to: SeatId.nullable().default(null),
@@ -120,7 +120,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('propose_contract', {
     title: 'Propose Contract',
-    description: 'Propose an engine-enforced resource escrow or collateral-backed Non-Aggression Pact (NAP) contract during the contracts phase.',
+    description: 'Propose an engine-enforced contract during the contracts phase: a resource escrow, or a collateral-backed pact (an alliance from rules v7, a Non-Aggression Pact before it).',
     inputSchema: z.strictObject({ terms: ContractTerms }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'propose_contract', args)));
 
@@ -132,7 +132,7 @@ export function buildWargamesSeatServer(
 
   server.registerTool('submit_orders', {
     title: 'Submit Sealed Orders',
-    description: 'Seal your orders (build, train, march, scout, tribe_join, tribe_leave) for simultaneous resolution during the orders phase.',
+    description: 'Seal your orders (build, train, march, scout, tribe_join, tribe_leave) for simultaneous resolution during the orders phase. A march may name support: an allied seat, to join that seat\'s attack on the target or its garrison there.',
     inputSchema: z.strictObject({ orders: z.array(OrderItem).max(64) }),
   }, async (args) => formatToolReply(await port.callTool(matchId, seatId, 'submit_orders', args)));
 
