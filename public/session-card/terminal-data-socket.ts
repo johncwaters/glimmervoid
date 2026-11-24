@@ -449,12 +449,7 @@ function connectDataWs(sessionId: string, ui: SessionUi, term: Terminal) {
 
     ui._syncGrid?.({ isActivationEdge: true });
     ui._retryOwedGridClaim?.();
-
-    if (!ui._inputQueue?.length) return;
-    setTimeout(() => {
-      if (ui.dataWs !== ws) return;
-      sendQueuedInput(ui);
-    }, 50);
+    sendQueuedInput(ui);
   };
   ws.addEventListener('open', handleOpen);
 
