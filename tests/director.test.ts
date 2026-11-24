@@ -24,7 +24,7 @@ function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord[]) => { opensOperatorTurn: boolean }) {
+async function runDirector(settleMs: number, finalReply: string | null, afterTurnEnd: (records: TraceRecord[]) => { opensOperatorTurn: boolean }) {
   const openedAt = Date.now() - 1000;
   const records: TraceRecord[] = [recordOf('prompt', 'add tax to checkout', openedAt)];
   const repliesSeenByLane: string[] = [];
@@ -43,10 +43,10 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
     logger: { warn: () => {} },
   });
   const session = { id: 'main-1', name: 'repo main', ephemeral: false, isStudioMain: true, parent: null, _destroyed: false };
-  director.onTurnEnd(session);
+  director.onTurnEnd(session, finalReply);
   await waitMs(LATER_RECORD_DELAY_MS);
   director.onTraceAppended({ id: session.id, ...afterTurnEnd(records) });
-  await waitMs(settleMs + 200);
+  await waitMs(Math.min(settleMs, SETTLE_MS) + 200);
   const digests = await director.verdictsOf([session.id]);
   await director.stop();
   await fs.rm(home, { recursive: true, force: true });
@@ -54,7 +54,7 @@ async function runDirector(settleMs: number, afterTurnEnd: (records: TraceRecord
 }
 
 test('a reply that reaches the trace after the turn-end hook is still digested', async () => {
-  const { digests, repliesSeenByLane, key } = await runDirector(SETTLE_MS, (records) => {
+  const { digests, repliesSeenByLane, key } = await runDirector(SETTLE_MS, null, (records) => {
     records.push(recordOf('assistant', LONG_REPLY));
     return { opensOperatorTurn: false };
   });
@@ -64,11 +64,18 @@ test('a reply that reaches the trace after the turn-end hook is still digested',
 });
 
 test('the next prompt arriving inside the settle window still digests the turn that ended', async () => {
-  const { digests, repliesSeenByLane, key } = await runDirector(SETTLE_MS, (records) => {
+  const { digests, repliesSeenByLane, key } = await runDirector(SETTLE_MS, null, (records) => {
     records.splice(1, 0, recordOf('assistant', LONG_REPLY, Date.now() - 500));
     records.push(recordOf('prompt', 'now ship it'));
     return { opensOperatorTurn: true };
   });
+  assert.match(repliesSeenByLane[0] ?? '', /Checkout totals now add tax/);
+  assert.deepEqual(digests, { [key]: { chatLine: null, digest: DIGEST } });
+});
+
+test('a turn end carrying its final reply is digested at once with that reply, before the trace holds it and with no settle wait', async () => {
+  const { digests, repliesSeenByLane, key } = await runDirector(60_000, LONG_REPLY, () => ({ opensOperatorTurn: false }));
+  assert.equal(repliesSeenByLane.length, 1);
   assert.match(repliesSeenByLane[0] ?? '', /Checkout totals now add tax/);
   assert.deepEqual(digests, { [key]: { chatLine: null, digest: DIGEST } });
 });

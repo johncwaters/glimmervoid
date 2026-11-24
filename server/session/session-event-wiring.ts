@@ -25,6 +25,7 @@ import { MANAGER_DECISION_EVENT, QUESTION_ANSWERED_NOTIFY_CATEGORY } from '../..
 import type { ManagerDecision } from '../../shared/contracts/question-manager.ts';
 import { answeredSummary } from '../question-manager/core/question-manager-core.ts';
 import { clock } from '../../shared/clock.ts';
+import { readLastAssistantMessage } from '../core/child-channel-core.ts';
 
 const IDLE_COMPACTION_CONFIRM_MS = 10000;
 
@@ -54,7 +55,7 @@ interface SessionEventDependencies {
   closeSessionDataClients: (id: string) => void;
   removeExitedSession?: (id: string) => void;
   taskTitleRefiner?: { attachSession: (session: Session) => void; onTurnEnd: (session: Session) => void } | null;
-  director?: { onTurnEnd: (session: Session) => void } | null;
+  director?: { onTurnEnd: (session: Session, finalReply: string | null) => void } | null;
   traceWiring?: { attachSession: (session: Session) => void } | null;
   verification?: { attachSession: (session: Session) => void } | null;
   loopGuard?: { attachSession: (session: Session) => void } | null;
@@ -136,6 +137,7 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       dependencies.notificationManager.acknowledge(session.id);
     };
     const armCompactionConfirm = () => {
+      if (session._hooksReportPrompts) return;
       compactionConfirmTimer = setTimeout(() => {
         compactionConfirmTimer = null;
         if (isCompacting) return;
@@ -188,7 +190,9 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
       isTurnWorking = true;
       persistWasWorking();
     };
-    session.on('hook-event', ({ event }: { event: string }) => {
+    let turnFinalReply: string | null = null;
+    session.on('hook-event', ({ event, payload }: { event: string; payload?: Record<string, unknown> }) => {
+      if (event.toLowerCase() === 'stop' && payload) turnFinalReply = readLastAssistantMessage(payload);
       const nextIsTurnWorking = decideTurnWorkingFromHook(event);
       if (nextIsTurnWorking === null) return;
       isTurnWorking = nextIsTurnWorking;
@@ -261,7 +265,8 @@ function createSessionEventWiring(dependencies: SessionEventDependencies): (sess
     }) => {
       if (to === STATES.IDLE || to === STATES.COMPLETE) {
         dependencies.taskTitleRefiner?.onTurnEnd(session);
-        dependencies.director?.onTurnEnd(session);
+        dependencies.director?.onTurnEnd(session, turnFinalReply);
+        turnFinalReply = null;
       }
       if (event === 'spawn_success') {
         spawnedAtMs = clock.nowMs();

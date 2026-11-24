@@ -57,6 +57,12 @@ export function directorTurnOf(records: readonly TraceRecord[], endedAtMs: numbe
   return { openedAt: opening.ts, replyText: replyTexts.join('\n\n') };
 }
 
+export function withFinalReply(turn: DirectorTurn, finalReply: string | null): DirectorTurn {
+  if (finalReply === null || turn.replyText.trimEnd().endsWith(finalReply.trim())) return turn;
+  const tracedReply = turn.replyText.trimEnd();
+  return { ...turn, replyText: tracedReply.length === 0 ? finalReply : `${tracedReply}\n\n${finalReply}` };
+}
+
 export function hasReply(turn: DirectorTurn): boolean {
   return turn.replyText.trim().length > 0;
 }

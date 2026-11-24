@@ -12,7 +12,7 @@ import { errorMessage } from '../../shared/text.ts';
 import {
   DIRECTOR_PROMPT_FILE, DIRECTOR_REPLY_MAX_CHARS, DIRECTOR_RESULT_FILE, buildDirectorPrompt, directorPayloadOf, directorTurnOf,
   buildProgressPrompt, directorVerdictsOf, fallbackVerdictOf, hasReply, isProgressShaped, latestNotesOf, leftoverDirectorCardOps, parseDirectorVerdict,
-  parseProgressAnswer, planStepsOf, progressAnswersOf, progressPayloadOf, withDirectorDigest, withProgressAnswer,
+  parseProgressAnswer, planStepsOf, progressAnswersOf, progressPayloadOf, withDirectorDigest, withFinalReply, withProgressAnswer,
 } from '../core/director-core.ts';
 import type { DirectorTurn } from '../core/director-core.ts';
 import type { UntrustedPayload } from '../../shared/contracts/untrusted-payload.ts';
@@ -48,6 +48,7 @@ type DirectedSession = Pick<Session, 'id' | 'name' | 'ephemeral' | 'isStudioMain
 interface QueuedTurn {
   session: DirectedSession;
   endedAtMs: number;
+  finalReply: string | null;
 }
 
 function isStudioSession(session: DirectedSession): boolean {
@@ -152,8 +153,9 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     return progressAnswersOf(digestState, sessionIds);
   }
 
-  async function direct({ session, endedAtMs }: QueuedTurn): Promise<void> {
-    const turn = await readTurn(session, endedAtMs);
+  async function direct({ session, endedAtMs, finalReply }: QueuedTurn): Promise<void> {
+    const tracedTurn = await readTurn(session, endedAtMs);
+    const turn = tracedTurn === null ? null : withFinalReply(tracedTurn, finalReply);
     if (turn === null || !hasReply(turn) || directedOpenedAtBySessionId.get(session.id) === turn.openedAt) return;
     directedOpenedAtBySessionId.set(session.id, turn.openedAt);
     const signal = AbortSignal.any([shutdownController.signal, AbortSignal.timeout(DIRECTOR_TIMEOUT_MS)]);
@@ -182,14 +184,18 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
       });
   }
 
+  function queueTurn(turn: QueuedTurn): void {
+    queuedBySessionId.set(turn.session.id, turn);
+    startNext();
+  }
+
   function queueSettled(sessionId: string): void {
     const settling = settlingBySessionId.get(sessionId);
     if (settling === undefined) return;
     clearTimeout(settling.timer);
     settlingBySessionId.delete(sessionId);
     if (settling.session._destroyed) return;
-    queuedBySessionId.set(sessionId, { session: settling.session, endedAtMs: settling.endedAtMs });
-    startNext();
+    queueTurn({ session: settling.session, endedAtMs: settling.endedAtMs, finalReply: null });
   }
 
   function armSettle(session: DirectedSession, endedAtMs: number, settleDeadlineMs: number): void {
@@ -200,9 +206,15 @@ function createDirector({ spawnLane, drainTrace, readTracePage, digestsPath, ann
     settlingBySessionId.set(session.id, { session, endedAtMs, settleDeadlineMs, timer });
   }
 
-  function onTurnEnd(session: DirectedSession): void {
+  function onTurnEnd(session: DirectedSession, finalReply: string | null): void {
     if (shutdownController.signal.aborted || !isStudioSession(session) || session._destroyed) return;
     const endedAtMs = clock.nowMs();
+    clearTimeout(settlingBySessionId.get(session.id)?.timer);
+    settlingBySessionId.delete(session.id);
+    if (finalReply !== null) {
+      queueTurn({ session, endedAtMs, finalReply });
+      return;
+    }
     armSettle(session, endedAtMs, endedAtMs + settleMs * SETTLE_REARMS_MAX);
   }
 
