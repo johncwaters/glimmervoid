@@ -145,7 +145,7 @@ interface WargamesSparseSites {
   readonly beaconRingsByRadius: Readonly<Record<number, readonly number[]>>;
 }
 
-export interface WargamesTerrainRule {
+interface WargamesTerrainRule {
   readonly minBlockedShare: number;
   readonly maxBlockedShare: number;
   readonly lakeFeatureChance: number;
