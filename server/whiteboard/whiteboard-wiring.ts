@@ -340,7 +340,7 @@ function createWhiteboardWiring({
   const unloadedBoardIds = new Set<string>();
   const loadingByBoardId = new Map<string, Promise<RecordLoad>>();
   const openStepLogs = createOpenStepLogs(logger);
-  const linkedBoards = createLinkedBoards({ boardsRoot, assets });
+  const linkedBoards = createLinkedBoards({ boardsRoot, assets, logger });
   const linkStateByBoardId = new Map<string, Pick<LinkSync, 'state' | 'text'>>();
   const linkAutosaveByBoardId = new Map<string, ReturnType<typeof createCoalescedTimer>>();
   const linkWatchByBoardId = new Map<string, WatchedFolder & { watcher: WatchDebounce }>();

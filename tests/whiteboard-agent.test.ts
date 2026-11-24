@@ -1082,6 +1082,15 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
   fs.writeFileSync(documentPath, conflicted.split('\n').slice(1, -3).join('\n').concat('\n'));
   await eventually(async () => (await listedBoard())?.link?.state === 'in-sync', 'a resolved file brings the link back in step');
 
+  const mediaFolder = path.join(worktree, 'boards', 'plan', 'media');
+  const pictureFile = path.join(mediaFolder, `${picture.asset}.png`);
+  const pulledAheadOfItsBoard = path.join(mediaFolder, `${'a'.repeat(64)}.png`);
+  fs.writeFileSync(pulledAheadOfItsBoard, 'x');
+  await put([{ op: 'set', id: 'a', fields: { media: null } }]);
+  await eventually(() => !fs.existsSync(pictureFile), 'media of a removed card leaves the folder');
+  assert.equal(fs.existsSync(pulledAheadOfItsBoard), true, 'media the board never synced stays, as a pull lands it before its board.jsonl');
+  fs.rmSync(pulledAheadOfItsBoard);
+
   await put([{ op: 'board', link: null }]);
   assert.equal((await listedBoard())?.link, null);
   await put([box('c', 'Made while unlinked', 800)]);

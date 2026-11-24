@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
@@ -6,6 +7,7 @@ import { z } from 'zod';
 
 import { BOARD_FILE_CAP_BYTES, BOARD_PAGE_MEMBERS_MAX, boardMediaOriginalFilename, boardMediaSavedName } from '../../shared/contracts/whiteboard.ts';
 import type { Board, BoxMedia, Element, LinkState } from '../../shared/contracts/whiteboard.ts';
+import { parseJsonOrNull } from '../../shared/coerce.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { linkPathProblem } from '../../shared/contracts/whiteboard-link-core.ts';
@@ -121,7 +123,43 @@ async function writeContainedIfChanged(root: string, candidate: string, bytes: B
   }
 }
 
-function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets: WhiteboardAssetStore }) {
+type UnlinkFailure = { name: string; error: unknown };
+
+async function unlinkIfRegularFile(filePath: string): Promise<void> {
+  const stat = await fsp.lstat(filePath).catch(() => null);
+  if (stat?.isFile()) await fsp.unlink(filePath);
+}
+
+async function unlinkThroughHandle(directoryPath: string, realRoot: string, names: readonly string[]): Promise<UnlinkFailure[]> {
+  const handle = await fsp.open(directoryPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW).catch(() => null);
+  if (handle === null) return [];
+  try {
+    const kernelPath = await fsp.readlink(`/proc/self/fd/${handle.fd}`).catch(() => null);
+    if (kernelPath === null || !isPathInside(realRoot, kernelPath)) return [];
+    const failures: UnlinkFailure[] = [];
+    for (const name of names) await unlinkIfRegularFile(`/proc/self/fd/${handle.fd}/${name}`).catch((error: unknown) => failures.push({ name, error }));
+    return failures;
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+async function unlinkContainedNames(root: string, directoryPath: string, names: readonly string[]): Promise<UnlinkFailure[]> {
+  if (names.length === 0) return [];
+  const realRoot = await fsp.realpath(root).catch(() => null);
+  const realDirectory = await fsp.realpath(directoryPath).catch(() => null);
+  if (realRoot === null || realDirectory === null || !isPathInside(realRoot, realDirectory) || await isReachedThroughSymlink(root, directoryPath, realDirectory)) return [];
+  if (process.platform === 'linux') return unlinkThroughHandle(realDirectory, realRoot, names);
+  const failures: UnlinkFailure[] = [];
+  for (const name of names) {
+    const isStillContained = await fsp.realpath(directoryPath).then((current) => current === realDirectory, () => false);
+    if (!isStillContained) return failures;
+    await unlinkIfRegularFile(path.join(realDirectory, name)).catch((error: unknown) => failures.push({ name, error }));
+  }
+  return failures;
+}
+
+function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string; assets: WhiteboardAssetStore; logger: Pick<Console, 'warn'> }) {
   const linksRoot = path.join(boardsRoot, LINKS_FOLDER_NAME);
 
   function basePathOf(board: Pick<Board, 'id'>, folder: string): string {
@@ -173,6 +211,47 @@ function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets
     }
     await writeContainedIfChanged(root, path.join(mediaFolder, `${media.asset}${MEMBERS_SUFFIX}`), Buffer.from(`${JSON.stringify(memberHashByPath, null, 1)}\n`), undefined);
     return { ok: true };
+  }
+
+  async function memberHashesInFolder(root: string, folder: string, assetId: string): Promise<string[]> {
+    const membersRead = await readContained(root, path.join(folder, MEDIA_FOLDER_NAME, `${assetId}${MEMBERS_SUFFIX}`), ASSET_INPUT_CAP_BYTES);
+    if (!membersRead.ok || membersRead.bytes === null) return [];
+    const members = MemberHashByPath.safeParse(parseJsonOrNull(membersRead.bytes.toString('utf8')));
+    return members.success ? Object.values(members.data) : [];
+  }
+
+  function storedMediaNamesOf(content: BoardContent): Set<string> {
+    const names = new Set<string>();
+    for (const media of mediaOfDocument(content)) {
+      names.add(boardMediaOriginalFilename(media));
+      names.add(`${media.asset}${MEMBERS_SUFFIX}`);
+      for (const memberPath of assets.memberPathsOf(media.asset)) {
+        const member = assets.servableMemberOf(media.asset, memberPath);
+        if (member) names.add(path.basename(member.path));
+      }
+    }
+    return names;
+  }
+
+  async function folderMediaNamesOf(root: string, folder: string, mediaList: readonly BoxMedia[]): Promise<string[]> {
+    const names: string[] = [];
+    for (const media of mediaList) names.push(boardMediaOriginalFilename(media), `${media.asset}${MEMBERS_SUFFIX}`, ...await memberHashesInFolder(root, folder, media.asset));
+    return names;
+  }
+
+  function warnUnlinkFailures(folder: string, failures: readonly UnlinkFailure[]): void {
+    for (const { name, error } of failures) logger.warn(`[whiteboard] ${path.join(folder, MEDIA_FOLDER_NAME, name)} could not be deleted: ${errorMessage(error)}`);
+  }
+
+  async function pruneDroppedMedia(board: Board, root: string, folder: string, targetContent: BoardContent): Promise<void> {
+    const lastSyncedText = await readBase(board, folder);
+    const lastSynced = lastSyncedText === null ? null : decodeBoardDocument(lastSyncedText);
+    if (!lastSynced?.ok) return;
+    const keptNames = storedMediaNamesOf(targetContent);
+    const keptAssetIds = new Set(mediaOfDocument(targetContent).map((media) => media.asset));
+    const droppedMedia = mediaOfDocument(lastSynced.content).filter((media) => !keptAssetIds.has(media.asset));
+    const droppedNames = [...new Set(await folderMediaNamesOf(root, folder, droppedMedia))].filter((name) => !keptNames.has(name));
+    warnUnlinkFailures(folder, await unlinkContainedNames(root, path.join(folder, MEDIA_FOLDER_NAME), droppedNames));
   }
 
   async function adoptMediaFrom(root: string, folder: string, media: BoxMedia, boxTitle: string): Promise<{ ok: true; media: BoxMedia } | Problem> {
@@ -286,6 +365,7 @@ function createLinkedBoards({ boardsRoot, assets }: { boardsRoot: string; assets
     const written = await writeFolder(root, folder, targetText, targetContent, theirsBytes);
     if (!written.ok) return brokenSync(written.problem);
     if (written.isChangedMeanwhile) return { state: 'file-ahead', text: 'The folder changed while the board was saving; it syncs again', content: null, isFolderChangedMeanwhile: true, settle: null };
+    await pruneDroppedMedia(board, root, folder, targetContent);
     await writeBase(board, folder, targetText);
     return { state: 'in-sync', text: IN_SYNC_TEXT, content: null, isFolderChangedMeanwhile: false, settle: null };
   }
