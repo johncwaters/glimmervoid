@@ -2349,10 +2349,14 @@ class Session extends EventEmitter {
     if (sendNextEntryId !== undefined) {
       const isTurnRunning = this.state === STATES.RUNNING || isTurnEndHeldForBackgroundWork;
       if (!isTurnRunning || !this._chatOutbox.sendNext(sendNextEntryId)) return;
+      if (isTurnEndHeldForBackgroundWork) {
+        this._chatOutbox.drain();
+        return;
+      }
     }
     if (isTurnEndHeldForBackgroundWork) {
-      const isStopAlreadyAsked = this._chatOutbox.entries().some((entry) => entry.text === STOP_BACKGROUND_WORK_TEXT && entry.state !== "failed");
-      if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, [], "operator");
+      const isStopAlreadyAsked = this._chatOutbox.entries().some((entry) => entry.origin === "stop-background" && entry.state !== "failed");
+      if (!isStopAlreadyAsked) this._chatOutbox.queue(STOP_BACKGROUND_WORK_TEXT, [], "stop-background");
       return;
     }
     this.write(LONE_ESCAPE);

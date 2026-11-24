@@ -253,7 +253,12 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
 
   function handleChatCancel(msg: ClientMessageOf<'chat-cancel'>, ws: ControlSocket): void {
     const cancelledEntries = findSession(msg)?.cancelChatMessage(msg.entryId) ?? [];
-    replyTo(ws, msg, 'chat-cancel-result', { id: msg.id, cancelledTexts: cancelledEntries.map((entry) => entry.text), cancelledAttachments: cancelledEntries.flatMap((entry) => entry.attachments) });
+    const operatorEntries = cancelledEntries.filter((entry) => entry.origin === 'operator');
+    replyTo(ws, msg, 'chat-cancel-result', {
+      id: msg.id,
+      cancelledTexts: operatorEntries.map((entry) => entry.text),
+      cancelledAttachments: operatorEntries.flatMap((entry) => entry.attachments),
+    });
   }
 
   function handleAnswerApproval(msg: ClientMessageOf<'answer-approval'>, ws: ControlSocket): void {

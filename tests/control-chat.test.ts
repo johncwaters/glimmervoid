@@ -119,10 +119,25 @@ test('Chat reads a held question from the session status and answers it and send
     await settle();
     assert.match(session.toSnapshot().chatOutbox[0]?.failure ?? '', /typed in the terminal/);
     connection.send({ type: 'chat-send', id: session.id, text: 'Waits behind the failure' });
+    const queuedStopBackground = session.queueChatMessage('Stop every background task and subagent you started, then end your turn.', [], 'stop-background');
+    assert.equal(queuedStopBackground.ok, true);
+    const queuedBoardAnswer = session.queueChatMessage('Board question answer', [], 'board-answer');
+    assert.equal(queuedBoardAnswer.ok, true);
     await settle();
-    assert.deepEqual(outboxOf(), ['Typed over:failed', 'Waits behind the failure:held']);
+    assert.deepEqual(outboxOf(), [
+      'Typed over:failed',
+      'Waits behind the failure:held',
+      'Stop every background task and subagent you started, then end your turn.:held',
+      'Board question answer:held',
+    ]);
+    if (queuedBoardAnswer.ok) {
+      connection.send({ type: 'chat-cancel', id: session.id, entryId: queuedBoardAnswer.entryId, requestId: 'cancel-board-answer' });
+      assert.deepEqual((connection.sent.at(-1) as { cancelledTexts?: string[] }).cancelledTexts, []);
+      assert.deepEqual((connection.sent.at(-1) as { cancelledAttachments?: string[] }).cancelledAttachments, []);
+    }
     connection.send({ type: 'chat-cancel', id: session.id, entryId: session.toSnapshot().chatOutbox[0]?.entryId, requestId: 'cancel-failed' });
     assert.deepEqual((connection.sent.at(-1) as { cancelledTexts?: string[] }).cancelledTexts, ['Typed over', 'Waits behind the failure']);
+    assert.deepEqual(outboxOf(), []);
 
     connection.send({ type: 'chat-send', id: session.id, text: 'Lands in a held input box' });
     await settle();
@@ -305,6 +320,14 @@ test('a Chat message reaches Claude once its turn ends with a background shell s
   assert.ok(writes.join('').includes('Is it stuck?'));
   assert.deepEqual(outboxOf(), ['Is it stuck?:submitted']);
 
+  const heldWhileMonitoring = session.queueChatMessage('Send while monitoring');
+  assert.ok(heldWhileMonitoring.ok);
+  if (!heldWhileMonitoring.ok) return;
+  session.stopFromChat(heldWhileMonitoring.entryId);
+  assert.deepEqual(outboxOf(), ['Is it stuck?:submitted', 'Send while monitoring:next']);
+  session.cancelChatMessage(heldWhileMonitoring.entryId);
+  assert.deepEqual(outboxOf(), ['Is it stuck?:submitted']);
+
   session.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 4, payload: { prompt: 'Is it stuck?' } });
   await advance(20_000);
   assert.deepEqual(outboxOf(), []);
@@ -331,6 +354,7 @@ test('a Chat message reaches Claude once its turn ends with a background shell s
   assert.ok(writes.slice(writesBeforeStop).join('').includes('Stop every background task and subagent you started, then end your turn.'));
   assert.ok(!writes.slice(writesBeforeStop).includes(String.fromCharCode(27)));
   assert.deepEqual(outboxOf(), ['Stop every background task and subagent you started, then end your turn.:submitted']);
+  assert.equal(session.toSnapshot().chatOutbox[0]?.origin, 'stop-background');
 });
 
 test('a Claude session whose startup hook never arrives becomes ready at the degraded-detection deadline', async (t) => {

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Projects kept as a bare repository get worktrees.** When a project's folder is a bare git repository with its worktrees beside it, `glimmervoid checkout` refused it as not a git repository, and sessions started on it ran inside the bare folder. Both now get their own worktree on the default branch, the same as a normal clone. A mirror clone (`git clone --mirror`) is refused with a reason, since its fetch would prune the session branch.
+- **Chat no longer puts its internal stop-background prompt into the message box.** Clicking Send now while an agent was monitoring background work queued Glimmervoid's stop-background request behind your message, and cancelling a queued or failed system prompt restored that text into the message box as if you had typed it. Send now now sends your chosen message without queuing the stop prompt behind it, and cancelling a non-operator outbox entry never restores its text into the message box.
 - **A new session opens with the chat message box ready to type in.** Starting a session from the add-session dialog, a folder shortcut or the quick-session key put the cursor in the terminal hidden behind the chat, so you had to click the message box before typing. The message box now has the cursor. A session shown as a terminal still gets the terminal.
 
 ### Removed
