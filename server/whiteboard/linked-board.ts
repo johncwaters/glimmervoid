@@ -9,7 +9,7 @@ import { BOARD_FILE_CAP_BYTES, BOARD_PAGE_MEMBERS_MAX, boardMediaOriginalFilenam
 import type { Board, BoxMedia, Element, LinkState } from '../../shared/contracts/whiteboard.ts';
 import { parseJsonOrNull } from '../../shared/coerce.ts';
 import { isPathInside } from '../../shared/paths.ts';
-import { errorMessage } from '../../shared/text.ts';
+import { errorCode, errorMessage } from '../../shared/text.ts';
 import { linkPathProblem } from '../../shared/contracts/whiteboard-link-core.ts';
 import { openContainedFile } from '../contained-file.ts';
 import { writeTextAtomic } from '../json-file.ts';
@@ -126,6 +126,8 @@ async function writeContainedIfChanged(root: string, candidate: string, bytes: B
 type RemovalFailure = { name: string; error: unknown };
 type RemoveEntry = (entryPath: string) => Promise<void>;
 
+const ABSENT_OR_NOT_EMPTY_CODES: ReadonlySet<string> = new Set(['ENOTEMPTY', 'EEXIST', 'ENOENT']);
+
 async function unlinkIfRegularFile(filePath: string): Promise<void> {
   const stat = await fsp.lstat(filePath).catch(() => null);
   if (stat?.isFile()) await fsp.unlink(filePath);
@@ -135,9 +137,7 @@ async function removeIfEmptyDirectory(directoryPath: string): Promise<void> {
   const stat = await fsp.lstat(directoryPath).catch(() => null);
   if (!stat?.isDirectory()) return;
   await fsp.rmdir(directoryPath).catch((error: unknown) => {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOENT') return;
-    throw error;
+    if (!ABSENT_OR_NOT_EMPTY_CODES.has(errorCode(error) ?? '')) throw error;
   });
 }
 
@@ -231,23 +231,28 @@ function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string
     return members.success ? Object.values(members.data) : [];
   }
 
-  function storedMediaNamesOf(content: BoardContent): Set<string> {
-    const names = new Set<string>();
-    for (const media of mediaOfDocument(content)) {
-      names.add(boardMediaOriginalFilename(media));
-      names.add(`${media.asset}${MEMBERS_SUFFIX}`);
-      for (const memberPath of assets.memberPathsOf(media.asset)) {
-        const member = assets.servableMemberOf(media.asset, memberPath);
-        if (member) names.add(path.basename(member.path));
-      }
-    }
-    return names;
+  function mediaFileNamesOf(media: BoxMedia, memberHashes: readonly string[]): string[] {
+    return [boardMediaOriginalFilename(media), `${media.asset}${MEMBERS_SUFFIX}`, ...memberHashes];
+  }
+
+  function storedMemberHashesOf(assetId: string): string[] {
+    return assets.memberPathsOf(assetId).flatMap((memberPath) => {
+      const member = assets.servableMemberOf(assetId, memberPath);
+      return member ? [path.basename(member.path)] : [];
+    });
   }
 
   async function folderMediaNamesOf(root: string, folder: string, mediaList: readonly BoxMedia[]): Promise<string[]> {
     const names: string[] = [];
-    for (const media of mediaList) names.push(boardMediaOriginalFilename(media), `${media.asset}${MEMBERS_SUFFIX}`, ...await memberHashesInFolder(root, folder, media.asset));
+    for (const media of mediaList) names.push(...mediaFileNamesOf(media, await memberHashesInFolder(root, folder, media.asset)));
     return names;
+  }
+
+  async function lastSyncedMediaOf(board: Board, folder: string): Promise<{ text: string; media: BoxMedia[] } | null> {
+    const text = await readBase(board, folder);
+    if (text === null) return null;
+    const decoded = decodeBoardDocument(text);
+    return { text, media: decoded.ok ? mediaOfDocument(decoded.content) : [] };
   }
 
   async function removeOrWarn(root: string, directoryPath: string, names: readonly string[], removeEntry: RemoveEntry): Promise<void> {
@@ -255,13 +260,13 @@ function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string
   }
 
   async function pruneDroppedMedia(board: Board, root: string, folder: string, targetContent: BoardContent): Promise<void> {
-    const lastSyncedText = await readBase(board, folder);
-    const lastSynced = lastSyncedText === null ? null : decodeBoardDocument(lastSyncedText);
-    if (!lastSynced?.ok) return;
-    const keptNames = storedMediaNamesOf(targetContent);
-    const keptAssetIds = new Set(mediaOfDocument(targetContent).map((media) => media.asset));
-    const droppedMedia = mediaOfDocument(lastSynced.content).filter((media) => !keptAssetIds.has(media.asset));
-    const droppedNames = [...new Set(await folderMediaNamesOf(root, folder, droppedMedia))].filter((name) => !keptNames.has(name));
+    const lastSynced = await lastSyncedMediaOf(board, folder);
+    if (lastSynced === null) return;
+    const keptMedia = mediaOfDocument(targetContent);
+    const keptNames = new Set(keptMedia.flatMap((media) => mediaFileNamesOf(media, storedMemberHashesOf(media.asset))));
+    const keptAssetIds = new Set(keptMedia.map((media) => media.asset));
+    const droppedMedia = lastSynced.media.filter((media) => !keptAssetIds.has(media.asset));
+    const droppedNames = (await folderMediaNamesOf(root, folder, droppedMedia)).filter((name) => !keptNames.has(name));
     await removeOrWarn(root, path.join(folder, MEDIA_FOLDER_NAME), droppedNames, unlinkIfRegularFile);
   }
 
@@ -269,12 +274,10 @@ function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string
     const linkPath = board.link;
     if (linkPath === null || root === null || linkPathProblem(linkPath)) return;
     const folder = path.resolve(root, linkPath);
-    const lastSyncedText = await readBase(board, folder);
+    const lastSynced = await lastSyncedMediaOf(board, folder);
     const folderRead = await readFolderDocument(root, folder);
-    if (lastSyncedText === null || !folderRead.ok || folderRead.text !== lastSyncedText) return;
-    const lastSynced = decodeBoardDocument(lastSyncedText);
-    const syncedMedia = lastSynced.ok ? mediaOfDocument(lastSynced.content) : [];
-    const mediaNames = [...new Set(await folderMediaNamesOf(root, folder, syncedMedia))];
+    if (lastSynced === null || !folderRead.ok || folderRead.text !== lastSynced.text) return;
+    const mediaNames = await folderMediaNamesOf(root, folder, lastSynced.media);
     await removeOrWarn(root, path.join(folder, MEDIA_FOLDER_NAME), mediaNames, unlinkIfRegularFile);
     await removeOrWarn(root, folder, [DOCUMENT_FILENAME], unlinkIfRegularFile);
     await removeOrWarn(root, folder, [MEDIA_FOLDER_NAME], removeIfEmptyDirectory);

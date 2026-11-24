@@ -51,9 +51,12 @@ async function makeDirectoriesWritable(folder: string): Promise<void> {
 }
 
 async function removeFolderTree(folder: string): Promise<void> {
-  const firstAttempt = await rm(folder, { recursive: true, force: true }).then(() => null, (error: unknown) => error);
-  if (firstAttempt === null) return;
-  if (!PERMISSION_ERROR_CODES.has(errorCode(firstAttempt) ?? '')) throw firstAttempt;
+  try {
+    await rm(folder, { recursive: true, force: true });
+    return;
+  } catch (error) {
+    if (!PERMISSION_ERROR_CODES.has(errorCode(error) ?? '')) throw error;
+  }
   await makeDirectoriesWritable(folder);
   await rm(folder, { recursive: true, force: true });
 }
