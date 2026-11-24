@@ -907,13 +907,69 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^(pr-source|pr-item-action|pr-action):[a-z0-9][a-z0-9-]{0,39}$"
+              "pattern": "^(pr-source|pr-item-action|pr-action|job):[a-z0-9][a-z0-9-]{0,39}$"
             }
           }
         },
         "required": [
           "key",
           "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "jobs": {
+      "description": "Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it",
+      "minItems": 1,
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "description": "Unique within its list in this pack, and scoped to the pack name so it never clashes with another pack"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "The name shown to the operator before approving and in a failure warning"
+          },
+          "schedule": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "A cron pattern of five fields in the operator timezone; a run still going when the next one comes due skips that one, and runs never hold up other launchers or jobs"
+          },
+          "catchUp": {
+            "description": "Run once at once when a scheduled run fell while Glimmervoid was down or the host slept; off skips missed runs",
+            "type": "boolean"
+          },
+          "command": {
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            },
+            "description": "The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold {packDir}, the pack's folder. Its environment has the pack settings and the secrets that list job:<id>. It prints one JSON value on stdout, which Glimmervoid saves in the pack store under the key job:<id>, where the pack's panels read it and which panels cannot write"
+          },
+          "timeoutSeconds": {
+            "default": 60,
+            "description": "Seconds before the run is stopped and counts as failed",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 600
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "schedule",
+          "command"
         ],
         "additionalProperties": false
       }

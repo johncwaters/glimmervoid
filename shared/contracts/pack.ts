@@ -30,6 +30,7 @@ export const PackHeader = z.strictObject({
   mcp: z.unknown().optional(),
   hooks: z.unknown().optional(),
   settings: z.unknown().optional(),
+  jobs: z.unknown().optional(),
 });
 export type PackHeader = z.infer<typeof PackHeader>;
 
@@ -221,7 +222,7 @@ export const PackHooks = z.array(PackHook).min(1).max(PACK_HOOKS_MAX).superRefin
   });
 });
 
-const PACK_COMMAND_KINDS = ['pr-source', 'pr-item-action', 'pr-action'] as const;
+const PACK_COMMAND_KINDS = ['pr-source', 'pr-item-action', 'pr-action', 'job'] as const;
 export type PackCommandKind = (typeof PACK_COMMAND_KINDS)[number];
 const PACK_SETTINGS_MAX = 16;
 const PackCommandRef = z.string().regex(new RegExp(`^(${PACK_COMMAND_KINDS.join('|')}):[a-z0-9][a-z0-9-]{0,39}$`), { error: `a command reference is <kind>:<id>, where kind is one of ${PACK_COMMAND_KINDS.join(', ')}` });
@@ -248,6 +249,29 @@ export const PackSettings = z.array(PackSetting).min(1).max(PACK_SETTINGS_MAX).s
 
 export const PackSettingsFile = z.strictObject({ version: z.literal(1), valuesByPack: z.record(z.string().min(1), z.record(SecretName, PackSettingValue)).default({}) });
 export type PackSettingsFile = z.infer<typeof PackSettingsFile>;
+
+const PACK_JOBS_MAX = 8;
+const PACK_JOB_TIMEOUT_SECONDS_MAX = 600;
+
+export const PackJob = z.strictObject({
+  id: PackItemId,
+  label: z.string().trim().min(1).max(40).describe('The name shown to the operator before approving and in a failure warning'),
+  schedule: z.string().trim().max(100).refine(isFiveFieldCron, { error: 'a job schedule is a cron pattern of five fields such as "*/15 * * * *"' })
+    .describe('A cron pattern of five fields in the operator timezone; a run still going when the next one comes due skips that one, and runs never hold up other launchers or jobs'),
+  catchUp: z.boolean().optional().describe('Run once at once when a scheduled run fell while Glimmervoid was down or the host slept; off skips missed runs'),
+  command: z.array(z.string().min(1).max(1000)).min(1, { error: 'a job command needs at least the program to run' }).max(32)
+    .describe(`The program and its arguments, run without a shell from the Glimmervoid home folder; an argument may hold ${PACK_DIR_PLACEHOLDER}, the pack's folder. Its environment has the pack settings and the secrets that list job:<id>. It prints one JSON value on stdout, which Glimmervoid saves in the pack store under the key job:<id>, where the pack's panels read it and which panels cannot write`),
+  timeoutSeconds: z.number().int().min(1).max(PACK_JOB_TIMEOUT_SECONDS_MAX).default(60).describe('Seconds before the run is stopped and counts as failed'),
+});
+export type PackJob = z.infer<typeof PackJob>;
+
+export const PackJobs = z.array(PackJob).min(1).max(PACK_JOBS_MAX).superRefine((jobs, context) => {
+  const seenIds = new Set<string>();
+  jobs.forEach((job, index) => {
+    if (seenIds.has(job.id)) context.addIssue({ code: 'custom', path: [index, 'id'], message: `the id '${job.id}' is already used in jobs` });
+    seenIds.add(job.id);
+  });
+});
 
 export const PacksState = z.strictObject({ approvedFingerprints: z.array(z.string().min(1)).default([]) });
 export type PacksState = z.infer<typeof PacksState>;
@@ -279,6 +303,7 @@ export type PackOnDisk = {
   mcp: PackSection<PackMcp> | null;
   hooks: PackSection<PackHook[]> | null;
   settings: PackSection<PackSetting[]> | null;
+  jobs: PackSection<PackJob[]> | null;
   missingRequires: string[];
   previewDataUrl: string | null;
 };
@@ -292,6 +317,7 @@ const PackManifestForSchema = PackHeader.extend({
   mcp: PackMcp.optional().describe('MCP servers every session gets once the pack is approved. Glimmervoid releases after 0.62.8 read it; older ones refuse a manifest that sets it'),
   hooks: PackHooks.optional().describe('Checks every session\'s agent runs before a tool call once the operator approves the pack, on every first-class agent; one invalid hook skips the whole section. Glimmervoid releases after 0.62.10 read it; older ones refuse a manifest that sets it'),
   settings: PackSettings.optional().describe('Values the operator fills in the pack Settings once the pack is approved, plain text or vault secrets, each reaching pack commands as an environment variable. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
+  jobs: PackJobs.optional().describe('Commands run on a schedule once the pack is approved, each saving the JSON it prints in the pack store for its panels. Glimmervoid releases after 0.64.0 read it; older ones refuse a manifest that sets it'),
 });
 
 export function packJsonSchemaText(): string {

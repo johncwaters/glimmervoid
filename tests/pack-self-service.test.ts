@@ -12,6 +12,9 @@ import type { GlimmervoidConfig } from '../server/config-store.ts';
 import { readPacksForAgent } from '../server/packs/pack-agent.ts';
 import { PACKS_DIR_NAME, packLauncherRunsPath, packsStatePath } from '../server/packs/pack-files.ts';
 import { createPackLaunchers } from '../server/packs/launchers.ts';
+import { createPackSettings } from '../server/packs/pack-settings.ts';
+import { createPackData } from '../server/packs/pack-data.ts';
+import { createPackJobRunner } from '../server/packs/pack-command.ts';
 import { createPackStore } from '../server/packs/pack-store.ts';
 import express from 'express';
 import http from 'node:http';
@@ -445,6 +448,73 @@ test('a scheduled pack launcher starts a session on its cron in the operator tim
   } finally {
     packStore.stop();
     fs.rmSync(homeDir, { recursive: true, force: true });
+  }
+});
+
+test('a scheduled pack job runs on its cron with its pack secret, saves the JSON it prints under job:<id>, waits while a setting it needs is unset, never holds up the scheduler, and skips its next run while one is still going', async () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-jobs-'));
+  const packDir = path.join(homeDir, PACKS_DIR_NAME, 'poller');
+  fs.mkdirSync(packDir, { recursive: true });
+  fs.writeFileSync(path.join(packDir, 'poll.mjs'), "process.stdout.write(JSON.stringify({ host: process.env.FEED_HOST, token: process.env.FEED_TOKEN }))");
+  fs.writeFileSync(path.join(packDir, 'pack.json'), JSON.stringify({
+    name: 'poller', version: 1,
+    settings: [{ key: 'FEED_HOST', label: 'Feed host' }, { key: 'FEED_TOKEN', label: 'Feed token', kind: 'secret', commands: ['job:feed'] }],
+    jobs: [
+      { id: 'slow', label: 'Slow', schedule: '*/15 * * * *', command: [process.execPath, '-e', 'setTimeout(() => process.stdout.write("1"), 4000)'], timeoutSeconds: 30 },
+      { id: 'feed', label: 'Feed', schedule: '*/15 * * * *', command: [process.execPath, '{packDir}/poll.mjs'] },
+    ],
+  }));
+  const fireAt = Date.parse('2026-11-13T03:15:00Z');
+  let nowMs = fireAt - 60_000;
+  const armedTimers: { fire: () => void; delayMs: number }[] = [];
+  const warnings: string[] = [];
+  const packStore = createPackStore({ homeDir, frameSecret: crypto.randomBytes(32), statePath: packsStatePath(homeDir), env: process.env, log: { warn: () => {} }, reloadDebounceMs: 10 });
+  const vaultValues = new Map<string, string>();
+  const packSettings = createPackSettings({
+    homeDir, approvedPack: (packName) => packStore.packInUse(packName),
+    vault: { source: () => ({ manager: 'age' }), read: async (_source, name) => (vaultValues.has(name) ? { value: vaultValues.get(name) ?? '' } : { failure: { kind: 'not-found', message: 'missing', detail: '' } }), saveToAgeFile: async (name, value) => { vaultValues.set(name, value); return null; } },
+  });
+  const packData = createPackData({ homeDir, panelPackDir: () => null, packDirInUse: (packName) => packStore.packDirInUse(packName) });
+  const packJobs = createPackJobRunner({
+    homeDir, packInUse: (packName) => packStore.packInUse(packName), commandSettings: (pack, commandRef) => packSettings.commandSettings(pack, commandRef),
+    saveOutput: async (packName, jobId, value) => { const saved = await packData.setFromJob(packName, jobId, value); return saved.ok ? { ok: true } : saved; }, log: { warn: (message) => warnings.push(message) },
+  });
+  const packLaunchers = createPackLaunchers({
+    packStore, projectPaths: () => [], originUrl: async () => null, operatorSaneYolo: () => true, onResolved: () => {}, log: { warn: (message) => warnings.push(message) },
+    runsPath: packLauncherRunsPath(homeDir), isSessionLive: () => false, liveSessionNames: () => [], maxScheduledSessions: () => 3, timezone: () => 'UTC', runJob: packJobs.runJob,
+    now: () => nowMs, setTimeoutFn: (fire: () => void, delayMs: number) => { armedTimers.push({ fire, delayMs }); return setTimeout(() => {}, 0); },
+  });
+  packLaunchers.attachSessionStarter(async () => ({ ok: false, error: 'no sessions in this test' }));
+  const fireArmedTimer = async (atMs: number) => {
+    nowMs = atMs;
+    const timersBefore = armedTimers.length;
+    armedTimers.at(-1)?.fire();
+    await waitFor(() => armedTimers.length > timersBefore);
+  };
+  try {
+    await packStore.start();
+    await waitFor(() => packStore.statusFrame().packs.some((row) => row.name === 'poller'));
+    const pendingRow = packStore.statusFrame().packs.find((row) => row.name === 'poller');
+    assert.deepEqual(pendingRow?.jobs.map((job) => job.schedule), ['*/15 * * * *', '*/15 * * * *'], 'the approval screen gets each job schedule word for word');
+    assert.deepEqual(await packStore.approve(pendingRow?.fingerprint ?? ''), { ok: true });
+    await packLaunchers.refresh();
+    await waitFor(() => armedTimers.at(-1)?.delayMs === 60_000);
+
+    await fireArmedTimer(fireAt);
+    assert.match(warnings.join('\n'), /waits for its settings FEED_HOST, FEED_TOKEN/);
+
+    assert.deepEqual(await packSettings.save('poller', { FEED_HOST: 'feed.example', FEED_TOKEN: 'tok-abcdef' }), { ok: true });
+    await fireArmedTimer(fireAt + 15 * 60_000);
+    await waitFor(() => fs.existsSync(path.join(homeDir, 'pack-data', 'poller.json')));
+    const stored = await fs.promises.readFile(path.join(homeDir, 'pack-data', 'poller.json'), 'utf8');
+    assert.deepEqual(JSON.parse(stored).data, { 'job:feed': { host: 'feed.example', token: '[secret]' } });
+    assert.equal((await packData.set('poller', 'job:feed', 'panel write')).ok, false, 'a panel cannot overwrite a job output key');
+    await fireArmedTimer(fireAt + 30 * 60_000);
+    assert.match(warnings.join('\n'), /job Slow in pack poller: its last run is still going/);
+    assert.doesNotMatch(warnings.join('\n'), /job Feed in pack poller: its last run is still going/);
+  } finally {
+    await packLaunchers.stop();
+    packStore.stop();
   }
 });
 
