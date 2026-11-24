@@ -294,7 +294,8 @@ export function createDock(session: DockSession): Dock {
   input.setAttribute('aria-autocomplete', 'list');
   input.before(addressChip);
   const activity = createChatActivity();
-  element.append(logFrame, failure, mentions, activity.element, pill);
+  logContent.append(activity.element);
+  element.append(logFrame, failure, mentions, pill);
 
   const rowByKey = new Map<string, HTMLElement>();
   const expandedRowKeys = new Set<string>();

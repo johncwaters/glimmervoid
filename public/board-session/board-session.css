@@ -144,7 +144,8 @@
   }
 
   .bs-dock:not([data-log-open='true']) .bs-log-frame { display: none; }
-  .bs-dock > .chat-activity { max-width: none; height: 24px; margin: 0; padding: 0 12px; pointer-events: none; }
+  .bs-log-content > .chat-activity { max-width: none; height: 24px; margin: 0; padding: 0 4px; }
+  .bs-log-content > .chat-activity[data-idle] { display: none; }
 
   .bs-row { display: flex; align-items: flex-end; gap: 8px; margin: 0; }
   .bs-row-you { justify-content: flex-end; }

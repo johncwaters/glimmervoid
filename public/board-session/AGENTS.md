@@ -11,7 +11,7 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 |------|-------------|
 | `board-session-view.ts` | The Studio tab: repo chip, trace watches per repo session, seated as a guest on the shared Boards host |
 | `presence-layer.ts` / `presence-core.ts` | Glows on the boxes sessions read, name and edit |
-| `agent-card.ts` | One card per Studio agent beside its box (screen space, never on the board), with Chat's activity line (the Orchestrator's sits above the message bar instead), its digest and its menu; an idle branch folds to its face |
+| `agent-card.ts` | One card per Studio agent beside its box (screen space, never on the board), with Chat's activity line (the Orchestrator's is the last line of the chat log instead), its digest and its menu; an idle branch folds to its face |
 | `agent-waits.ts` | Chat's waits (questions, permissions, sign-in, limits) run per agent card |
 | `dock.ts` | The message bar (Chat's composer) and the folded log of prompts and replies |
 
@@ -24,7 +24,7 @@ Studio: the board-first way to work with agents on a repo's code map. Chat is a 
 - The browser names a repo by its main's session id, and a new repo only through `add-session` with `studio`, never by a bare path, because the server must resolve every path it acts on (trust boundary).
 - Studio's repos are exactly the repos with a main; `add-session` with `studio` wakes or creates it (use, start, restart or create, decided in `server/core/studio-main-core.ts`), so a repo never gets two mains.
 - Studio agent behavior lives in `mcp/core/studio-playbook.ts`, one entry per behavior and role, so changing how Studio agents work is editing an entry there, never adding prose to other instructions.
-- The log keeps prompts and replies only; tool, skill, subagent and workflow activity shows on branch cards, box glows and the Orchestrator's one activity line above the message bar, never as log rows.
+- The log keeps prompts and replies only; tool, skill, subagent and workflow activity shows on branch cards, box glows and the Orchestrator's one activity line closing the log, never as log rows.
 - The log keeps its compact height: answers belong on the board (the board-first playbook entry) and the director trims what reaches chat, because a log that grows covers the map the operator works on.
 - Codemap elements are generated, so folder stacking changes only through `codemap-folder-set`, never by setting a frame's `collapsed`.
 - Studio draws its map through the shared Boards host (`mountBoardHost`, `showBoardBeside` with a `BoardHostGuest`), never a canvas of its own, so every board behavior reaches Studio and Boards alike; new board behavior goes in `public/whiteboard/`.
