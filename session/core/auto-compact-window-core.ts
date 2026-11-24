@@ -7,7 +7,6 @@ interface AutoCompactSources {
   modelId: string | null;
 }
 
-const NOT_SET = Symbol("not set");
 const MIN_WINDOW_TOKENS = 100_000;
 const SUFFIX_MULTIPLIERS: Readonly<Record<string, number>> = { k: 1_000, m: 1_000_000 };
 
@@ -32,12 +31,10 @@ function modelKeysOf(modelId: string | null): string[] {
 }
 
 function settingsWindowOf(settings: unknown, modelKeys: readonly string[]): unknown {
-  if (!isRecord(settings)) return NOT_SET;
+  if (!isRecord(settings)) return undefined;
   const settingsByModel = isRecord(settings.modelSettings) ? settings.modelSettings : {};
   const modelSettings = modelKeys.map((key) => settingsByModel[key]).find(isRecord);
-  if (modelSettings !== undefined && modelSettings.autoCompactWindow !== undefined) return modelSettings.autoCompactWindow;
-  if (settings.autoCompactWindow !== undefined) return settings.autoCompactWindow;
-  return NOT_SET;
+  return modelSettings?.autoCompactWindow ?? settings.autoCompactWindow;
 }
 
 function configuredAutoCompactWindow({ envWindow, settingsByPrecedence, modelId }: AutoCompactSources): number | null {
@@ -46,7 +43,7 @@ function configuredAutoCompactWindow({ envWindow, settingsByPrecedence, modelId 
   const modelKeys = modelKeysOf(modelId);
   for (const settings of settingsByPrecedence) {
     const window = settingsWindowOf(settings, modelKeys);
-    if (window !== NOT_SET) return settingsTokensOf(window);
+    if (window !== undefined) return settingsTokensOf(window);
   }
   return null;
 }

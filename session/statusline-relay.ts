@@ -3,8 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseJsonRecord } from "../server/core/json-core.ts";
 import { configDirOverride, resolveHomeDir } from "../server/core/claude-config-paths-core.ts";
-import { AUTO_COMPACT_WINDOW_FIELD } from "../shared/contracts/statusline-relay.ts";
-import { isRecord, textOr } from "../shared/coerce.ts";
+import { isRecord, positiveNumberOr, textOr } from "../shared/coerce.ts";
 import type { ChildProcess } from "node:child_process";
 
 import { configuredAutoCompactWindow } from "./core/auto-compact-window-core.ts";
@@ -60,7 +59,9 @@ function claudeHomeOf(env: NodeJS.ProcessEnv): string {
 }
 
 function postBodyOf(raw: Buffer, payload: Record<string, unknown> | null, env: NodeJS.ProcessEnv): Buffer {
-  if (payload === null) return raw;
+  const context = isRecord(payload?.context_window) ? payload.context_window : null;
+  const modelWindow = positiveNumberOr(context?.context_window_size, null);
+  if (payload === null || context === null || modelWindow === null) return raw;
   const projectSettingsDir = path.join(projectDirOf(payload), ".claude");
   const model = isRecord(payload.model) ? payload.model : {};
   const autoCompactWindow = configuredAutoCompactWindow({
@@ -72,8 +73,8 @@ function postBodyOf(raw: Buffer, payload: Record<string, unknown> | null, env: N
     ].map(readSettingsFile),
     modelId: textOr(model.id, null),
   });
-  if (autoCompactWindow === null) return raw;
-  return Buffer.from(JSON.stringify({ ...payload, [AUTO_COMPACT_WINDOW_FIELD]: autoCompactWindow }), "utf8");
+  if (autoCompactWindow === null || autoCompactWindow >= modelWindow) return raw;
+  return Buffer.from(JSON.stringify({ ...payload, context_window: { ...context, context_window_size: autoCompactWindow } }), "utf8");
 }
 
 function runChain(command: string, stdinBody: Buffer): Promise<number> {

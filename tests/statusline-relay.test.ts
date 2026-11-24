@@ -8,7 +8,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { main, NO_CHAIN } from '../session/statusline-relay.ts';
-import { AUTO_COMPACT_WINDOW_FIELD } from '../shared/contracts/statusline-relay.ts';
 function fakeStdin(text: string) {
   return Readable.from([Buffer.from(text, 'utf8')]);
 }
@@ -84,11 +83,11 @@ test('the POST carries the per-model auto-compact window from the Claude setting
   });
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', () => resolve()); });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/hook/sess/statusline?t=tok`;
-  const raw = JSON.stringify({ ...PAYLOAD, model: { id: 'claude-opus-4-5[1m]', display_name: 'Opus 4.5' }, cwd: claudeHome });
+  const raw = JSON.stringify({ ...PAYLOAD, model: { id: 'claude-opus-4-5[1m]', display_name: 'Opus 4.5' }, cwd: claudeHome, context_window: { context_window_size: 1_000_000 } });
   const chain = Buffer.from(`node -e "process.stdin.pipe(process.stdout)"`, 'utf8').toString('base64');
   await main([url, chain], fakeStdin(raw), fakeStdout(), { CLAUDE_CONFIG_DIR: claudeHome });
   await new Promise<void>((resolve) => { server.close(() => resolve()); });
   fs.rmSync(claudeHome, { recursive: true, force: true });
 
-  assert.equal(JSON.parse(bodies[0])[AUTO_COMPACT_WINDOW_FIELD], 600_000);
+  assert.equal(JSON.parse(bodies[0]).context_window.context_window_size, 600_000);
 });
