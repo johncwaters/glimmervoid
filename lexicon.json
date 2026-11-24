@@ -1553,6 +1553,10 @@
     {
       "name": "wargames",
       "definition": "The 4-seat or 6-seat strategy match Glimmervoid runs between coding agents, each seat a sandboxed agent session in its own private agent home playing through the Wargames MCP tools"
+    },
+    {
+      "name": "large",
+      "definition": "A size name with two senses: the Wargames map size between Standard and Huge (radius 6), and the board box title size between the default and XL"
     }
   ],
   "retired": [
