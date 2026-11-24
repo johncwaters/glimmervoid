@@ -91,7 +91,9 @@ export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8
 export const PACT_SCROLL_PATH = 'M 4 3 H 12 V 13 H 4 Z M 6 6 H 10 M 6 9 H 9';
 export const BREACH_WARNING_PATH = 'M 8 2 L 14 13 H 2 Z M 8 6 V 9 M 8 11 V 11.5';
 export const THOUGHT_CLOUD_PATH = 'M 5 10.5 A 2.5 2.5 0 0 1 4.2 5.6 A 3 3 0 0 1 9.8 4.2 A 2.6 2.6 0 0 1 12.2 10 Z M 4.5 13 L 4.6 13 M 2.6 14.8 L 2.7 14.8';
-const BUILD_HAMMER_PATH = 'M 3 13 L 9.5 6.5 M 7.5 3.5 L 12.5 8.5 L 10.8 10.2 L 5.8 5.2 Z';
+export const GRAIN_GLYPH_PATH = 'M 8 13 V 3 M 8 6 L 5 4 M 8 6 L 11 4 M 8 9 L 5 7 M 8 9 L 11 7';
+export const ORE_GLYPH_PATH = 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z';
+export const BUILD_HAMMER_PATH = 'M 3 13 L 9.5 6.5 M 7.5 3.5 L 12.5 8.5 L 10.8 10.2 L 5.8 5.2 Z';
 
 export function controlToneColor(loyalty: number, owner: SeatId | null): string {
   if (loyalty <= 35) return 'var(--state-failed)';

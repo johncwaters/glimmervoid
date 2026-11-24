@@ -1,0 +1,107 @@
+@layer components {
+
+.wg-econ {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 8px 12px 4px;
+  overflow-x: auto;
+}
+
+.wg-econ-caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 6px 6px;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.wg-econ-table th,
+.wg-econ-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.wg-econ-table tbody th {
+  border-bottom: 1px solid var(--border-dim);
+  padding: 6px;
+  text-align: left;
+  font-weight: 400;
+}
+
+.wg-econ-table tr[data-eliminated="true"] > * {
+  opacity: 0.55;
+}
+
+.wg-econ-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wg-econ-table th.wg-num {
+  text-align: right;
+}
+
+.wg-econ-villages {
+  color: var(--text-head);
+  font-weight: 700;
+}
+
+.wg-econ-muted {
+  color: var(--text-dim);
+}
+
+.wg-econ-stock {
+  width: 200px;
+  min-width: 200px;
+}
+
+.wg-econ-stock-numbers {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wg-econ-stock > .ui-meter {
+  display: block;
+  width: 100%;
+}
+
+.wg-econ-income-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wg-econ-income-wrap > .wg-num {
+  min-width: 4ch;
+}
+
+.wg-econ-trend {
+  display: block;
+  overflow: visible;
+}
+
+.wg-econ-trend-base {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.wg-econ-growth {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wg-econ-growth-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+}

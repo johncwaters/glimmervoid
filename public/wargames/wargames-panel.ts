@@ -28,6 +28,7 @@ import { createPressable } from '../ui/pressable.ts';
 import { select } from '../ui/select.ts';
 import { textArea } from '../ui/text-input.ts';
 import type { ViewModule } from '../view-registry-core.ts';
+import { createWargamesEconomy } from './wargames-economy.ts';
 import { createWargamesInspector } from './wargames-inspector.ts';
 import {
   BREACH_WARNING_PATH,
@@ -35,7 +36,9 @@ import {
   CONTROL_FLAG_PATH,
   controlToneColor,
   createWargamesMap,
+  GRAIN_GLYPH_PATH,
   isMatchOver,
+  ORE_GLYPH_PATH,
   PACT_SCROLL_PATH,
   SCOUT_EYE_PATH,
   SEAT_COLORS,
@@ -107,6 +110,7 @@ const failedAutoWatchIds = new Set<string>();
 
 let mapView: ReturnType<typeof createWargamesMap> | null = null;
 let inspectorView: ReturnType<typeof createWargamesInspector> | null = null;
+let economyView: ReturnType<typeof createWargamesEconomy> | null = null;
 let persistentNewMatchSection: HTMLElement | null = null;
 let panelShell: PersistentPanelShell | null = null;
 let liveShell: PersistentLiveShell | null = null;
@@ -174,8 +178,8 @@ const WARGAMES_GLYPH_PATHS = Object.freeze({
   breach: BREACH_WARNING_PATH,
   territory: 'M 8 2 L 13.2 5 V 11 L 8 14 L 2.8 11 V 5 Z',
   arrow: 'M 3 8 H 13 M 9 4 L 13 8 L 9 12',
-  grain: 'M 8 13 V 3 M 8 6 L 5 4 M 8 6 L 11 4 M 8 9 L 5 7 M 8 9 L 11 7',
-  ore: 'M 8 2 L 13 6 L 11 13 H 5 L 3 6 Z',
+  grain: GRAIN_GLYPH_PATH,
+  ore: ORE_GLYPH_PATH,
 });
 
 const CONTRACT_KIND_LABELS: Readonly<Record<'escrow' | 'nap', string>> = Object.freeze({
@@ -1180,6 +1184,7 @@ function ensureLiveShell(): PersistentLiveShell {
     );
   }
   if (!inspectorView) inspectorView = createWargamesInspector();
+  if (!economyView) economyView = createWargamesEconomy();
 
   const wrap = el('div', 'wg-live-wrap');
   const factionStripSlot = el('div');
@@ -1194,7 +1199,7 @@ function ensureLiveShell(): PersistentLiveShell {
 
   stage.append(boardBarSlot, mapView.element, mapView.caption, hexIntelSlot, buildMapLegend());
   mapPane.append(stage);
-  wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane);
+  wrap.append(factionStripSlot, spotlightSlot, endgameSlot, mapPane, economyView.element);
   liveShell = { wrap, factionStripSlot, spotlightSlot, endgameSlot, boardBarSlot, hexIntelSlot };
   return liveShell;
 }
@@ -1220,6 +1225,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
   }
 
   mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
+  economyView?.update(state, snap.events);
   const isEndgameShown = isMatchOver(state) && (mapView?.isBoardSettled() ?? true);
   shell.endgameSlot.hidden = !isEndgameShown;
   if (isEndgameShown) {

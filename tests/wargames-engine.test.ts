@@ -32,6 +32,7 @@ import {
   transitionTick,
   transitionVillage,
 } from '../shared/wargames/machines.ts';
+import { EMPTY_ECONOMY_TIMELINE, extendEconomyTimeline } from '../public/wargames/wargames-economy-core.ts';
 import { analyzeMatch, computeEloByVersion, computeEloFromSummaries, summarizeMatch } from '../shared/wargames/analytics.ts';
 
 function createTestSigner(seed: number): ReportSigner {
@@ -214,6 +215,13 @@ test('full recorded match replays byte-identically and enforces ruleset, NAP bre
   assert.ok(analytics.highlights.some((item) => item.kind === 'contract_breach'));
   assert.ok(analytics.highlights.some((item) => item.kind === 'forged_report' && item.detected === true));
   assert.equal(analytics.forgedReportDetectionRate, 1);
+
+  let economyFedEventByEvent = EMPTY_ECONOMY_TIMELINE;
+  for (let eventCount = 1; eventCount <= log.length; eventCount += 1) {
+    economyFedEventByEvent = extendEconomyTimeline(economyFedEventByEvent, log.slice(0, eventCount));
+  }
+  const economyFromFullLog = extendEconomyTimeline(EMPTY_ECONOMY_TIMELINE, log);
+  assert.deepEqual(economyFedEventByEvent.turns, economyFromFullLog.turns);
 
   const finishedSummary = {
     ...summarizeMatch(state, 1_700_000_060_000, log.length),

@@ -589,8 +589,15 @@ function creditSeatResources(state: MatchState, seatId: SeatId, amount: Resource
   if (remainingOre > 0) owned[0].resources.ore += remainingOre;
 }
 
-function warehouseCapOf(village: VillageState): number {
+export function warehouseCapOf(village: Pick<VillageState, 'buildings'>): number {
   return BASE_WAREHOUSE_CAP + (village.buildings.farm + village.buildings.mine) * WAREHOUSE_PER_LEVEL;
+}
+
+export function villageYieldOf(village: Pick<VillageState, 'buildings'>): ResourceBundle {
+  return {
+    grain: BASE_PRODUCTION_PER_TICK + village.buildings.farm * PRODUCTION_PER_LEVEL,
+    ore: BASE_PRODUCTION_PER_TICK + village.buildings.mine * PRODUCTION_PER_LEVEL,
+  };
 }
 
 function villagesOwnedBy(state: MatchState, seatId: SeatId): number {
@@ -1025,10 +1032,9 @@ function resolveTick(
   for (const village of state.villages) {
     if (!village || village.productionState !== 'producing') continue;
     const cap = warehouseCapOf(village);
-    const grainGain = BASE_PRODUCTION_PER_TICK + village.buildings.farm * PRODUCTION_PER_LEVEL;
-    const oreGain = BASE_PRODUCTION_PER_TICK + village.buildings.mine * PRODUCTION_PER_LEVEL;
-    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + grainGain);
-    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + oreGain);
+    const gain = villageYieldOf(village);
+    if (village.resources.grain < cap) village.resources.grain = Math.min(cap, village.resources.grain + gain.grain);
+    if (village.resources.ore < cap) village.resources.ore = Math.min(cap, village.resources.ore + gain.ore);
   }
 
   const tickOrdersRecord = {} as Record<SeatId, OrderItem[]>;
