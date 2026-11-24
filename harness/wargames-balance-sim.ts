@@ -4,6 +4,7 @@ import {
   WARGAMES_MAP_SIZES,
   WargamesMatchSpec,
   seatIdsForCount,
+  troopCostsFor,
   victoryPointTargetFor,
   victoryVillagesForBalance,
   wargamesBalanceFor,
@@ -21,7 +22,6 @@ const SEAT_COUNTS: readonly WargamesSeatCount[] = [4, 6];
 const ATTACK_MARGIN = 2;
 const BUILD_PAYBACK_TURNS = 4;
 const FLIP_BACK_WINDOW_TURNS = 3;
-const TROOP_COSTS = { raider: { grain: 12, ore: 8 }, guard: { grain: 8, ore: 12 }, envoy: { grain: 25, ore: 20 } } as const;
 const BYTES_PER_MB = 2 ** 20;
 
 interface Candidate {
@@ -58,23 +58,36 @@ function step(state: MatchState, event: Record<string, unknown>): MatchState {
   return outcome.state;
 }
 
+function lastVillageMultiplierOf(state: MatchState, village: VillageState): number {
+  const ownerVillages = village.owner === null ? 0 : state.villages.filter((candidate) => candidate?.owner === village.owner).length;
+  return ownerVillages === 1 ? state.balance.lastVillageDefenseMultiplier : 1;
+}
+
 function defensePowerOf(state: MatchState, village: VillageState, sendingRaiders: boolean): number {
+  const roles = state.balance.roles;
+  if (roles !== null) {
+    const troopDefense = village.troops.raider * roles.units.raider.defense + village.troops.guard * roles.units.guard.defense + village.troops.envoy * roles.units.envoy.defense;
+    const wall = village.buildings.wall;
+    return (troopDefense + wall * roles.wallDefensePerLevel) * (1 + wall * roles.wallBonusPerLevel) * lastVillageMultiplierOf(state, village);
+  }
   const raiderPower = village.troops.raider * 10 * 1.5;
   const guardPower = village.troops.guard * 10 * (sendingRaiders ? 1.5 : 1);
   const envoyPower = village.troops.envoy * 8 * 1.5;
-  const ownerVillages = village.owner === null ? 0 : state.villages.filter((candidate) => candidate?.owner === village.owner).length;
-  const lastVillageMultiplier = ownerVillages === 1 ? state.balance.lastVillageDefenseMultiplier : 1;
-  return (raiderPower + guardPower + envoyPower) * (1 + village.buildings.wall * 0.15) * lastVillageMultiplier;
+  return (raiderPower + guardPower + envoyPower) * (1 + village.buildings.wall * 0.15) * lastVillageMultiplierOf(state, village);
 }
 
 function raidersNeeded(state: MatchState, target: VillageState, envoys: number): number {
+  const roles = state.balance.roles;
+  if (roles !== null) return Math.max(0, Math.ceil((defensePowerOf(state, target, true) * ATTACK_MARGIN) / roles.units.raider.attack));
   const envoyPower = envoys * 8 * (target.troops.guard > 0 ? 1.5 : 1);
   const raiderPower = 10 * (target.troops.envoy > 0 ? 1.5 : 1);
   return Math.max(0, Math.ceil((defensePowerOf(state, target, true) * ATTACK_MARGIN - envoyPower) / raiderPower));
 }
 
 function envoysNeeded(state: MatchState, target: VillageState): number {
-  return Math.ceil(target.loyalty / state.balance.envoyLoyaltyDrain / 0.6);
+  const roles = state.balance.roles;
+  const meanDrain = roles === null ? state.balance.envoyLoyaltyDrain : (roles.captureDrainMin + roles.captureDrainMax) / 2;
+  return Math.ceil(target.loyalty / meanDrain / 0.6);
 }
 
 function ownedVillagesOf(state: MatchState, seatId: SeatId): VillageState[] {
@@ -108,8 +121,8 @@ function spend(purse: Purse, cost: { grain: number; ore: number }, count = 1): v
   purse.ore -= cost.ore * count;
 }
 
-function trainAffordable(orders: OrderItem[], village: VillageState, purse: Purse, troop: keyof TroopCounts, wanted: number): number {
-  const cost = TROOP_COSTS[troop];
+function trainAffordable(state: MatchState, orders: OrderItem[], village: VillageState, purse: Purse, troop: keyof TroopCounts, wanted: number): number {
+  const cost = troopCostsFor(state.balance)[troop];
   const affordable = Math.min(wanted, Math.floor(purse.grain / cost.grain), Math.floor(purse.ore / cost.ore), 200);
   if (affordable <= 0) return 0;
   spend(purse, cost, affordable);
@@ -128,8 +141,8 @@ function buildIfAffordable(state: MatchState, orders: OrderItem[], village: Vill
 function planAttack(state: MatchState, orders: OrderItem[], village: VillageState, purse: Purse, target: VillageState, targeted: Set<number>): void {
   const envoysWanted = envoysNeeded(state, target);
   const raidersWanted = raidersNeeded(state, target, envoysWanted);
-  const envoys = village.troops.envoy + trainAffordable(orders, village, purse, 'envoy', Math.max(0, envoysWanted - village.troops.envoy));
-  const raiders = village.troops.raider + trainAffordable(orders, village, purse, 'raider', Math.max(0, raidersWanted - village.troops.raider));
+  const envoys = village.troops.envoy + trainAffordable(state, orders, village, purse, 'envoy', Math.max(0, envoysWanted - village.troops.envoy));
+  const raiders = village.troops.raider + trainAffordable(state, orders, village, purse, 'raider', Math.max(0, raidersWanted - village.troops.raider));
   if (envoys < envoysWanted || raiders < raidersWanted) return;
   targeted.add(target.hexIndex);
   orders.push({ kind: 'march', fromHexIndex: village.hexIndex, toHexIndex: target.hexIndex, troops: { raider: raiders, guard: 0, envoy: envoys } });
@@ -153,7 +166,7 @@ function ordersFor(state: MatchState, seatId: SeatId, strategy: StrategyName): O
     if (strategy === 'turtle') {
       buildIfAffordable(state, orders, village, purse, 'wall');
       buildIfAffordable(state, orders, village, purse, village.buildings.farm <= village.buildings.mine ? 'farm' : 'mine');
-      trainAffordable(orders, village, purse, 'guard', Math.max(0, 12 - village.troops.guard));
+      trainAffordable(state, orders, village, purse, 'guard', Math.max(0, 12 - village.troops.guard));
       const isRich = purse.grain > 300 && purse.ore > 300;
       const target = isRich ? firstUntargeted(nearestTargets(state, village, seatId, true), targeted) : undefined;
       if (target && hexDistance(state.hexes[village.hexIndex], state.hexes[target.hexIndex]) <= 2) planAttack(state, orders, village, purse, target, targeted);
@@ -161,7 +174,7 @@ function ordersFor(state: MatchState, seatId: SeatId, strategy: StrategyName): O
     }
     if (strategy === 'builder') {
       buildIfAffordable(state, orders, village, purse, village.buildings.farm <= village.buildings.mine ? 'farm' : 'mine');
-      trainAffordable(orders, village, purse, 'guard', Math.max(0, 8 - village.troops.guard));
+      trainAffordable(state, orders, village, purse, 'guard', Math.max(0, 8 - village.troops.guard));
       const isEconomyBuilt = village.buildings.farm + village.buildings.mine >= 6;
       const target = isEconomyBuilt ? firstUntargeted(nearestTargets(state, village, seatId, false), targeted) : undefined;
       if (target) planAttack(state, orders, village, purse, target, targeted);
@@ -169,7 +182,7 @@ function ordersFor(state: MatchState, seatId: SeatId, strategy: StrategyName): O
     }
     const isEarly = state.tick <= 3;
     if (isEarly) buildIfAffordable(state, orders, village, purse, village.buildings.farm <= village.buildings.mine ? 'farm' : 'mine');
-    trainAffordable(orders, village, purse, 'guard', Math.max(0, 6 - village.troops.guard));
+    trainAffordable(state, orders, village, purse, 'guard', Math.max(0, 6 - village.troops.guard));
     const barbarian = firstUntargeted(nearestTargets(state, village, seatId, true), targeted);
     const anyone = firstUntargeted(nearestTargets(state, village, seatId, false), targeted);
     const target = barbarian && hexDistance(state.hexes[village.hexIndex], state.hexes[barbarian.hexIndex]) <= 3 ? barbarian : anyone;
@@ -316,6 +329,7 @@ function candidatesToRun(): Candidate[] {
     { name: 'v6 51% dense', rulesVersion: 'v6', balance: denseHeldMajority },
     { name: 'v6 VP without economy', rulesVersion: 'v6', balance: withoutEconomyPoints },
     { name: 'v6 VP', rulesVersion: 'v6', balance: v6 },
+    { name: 'v8 roles', rulesVersion: 'v8', balance: wargamesBalanceFor('v8') },
   ];
 }
 
@@ -419,7 +433,131 @@ function runSearch(seedCount: number): void {
   }
 }
 
+const COALITION_SEEDS = Array.from({ length: 400 }, (_, index) => 7919 * (index + 1));
+const COALITION_BUDGET_MIN = 600;
+const COALITION_BUDGET_MAX = 1200;
+const COALITION_WALL_SHARE_MAX = 0.45;
+const COALITION_ENVOYS_MIN = 4;
+const COALITION_ENVOYS_MAX = 6;
+const SOLO_CAPTURE_CEILING = 0.2;
+const PAIR_CAPTURE_FLOOR = 0.6;
+
+interface CoalitionRow {
+  name: string;
+  allyBudgetShare: number | null;
+}
+
+const COALITION_ROWS: readonly CoalitionRow[] = [
+  { name: 'one seat alone (B)', allyBudgetShare: null },
+  { name: 'two allies (B + B)', allyBudgetShare: 1 },
+  { name: 'two allies (B + B/2)', allyBudgetShare: 0.5 },
+];
+
+function seededRandom(seed: number): () => number {
+  let rngState = seed | 0;
+  return () => {
+    rngState = (rngState + 0x6d2b79f5) | 0;
+    let mixed = Math.imul(rngState ^ (rngState >>> 15), 1 | rngState);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function totalCostOf(cost: { grain: number; ore: number }): number {
+  return cost.grain + cost.ore;
+}
+
+function unitsWithin(budget: number, cost: { grain: number; ore: number }): number {
+  return Math.max(0, Math.floor(budget / totalCostOf(cost)));
+}
+
+function marchingArmyAt(id: string, owner: SeatId, hexIndex: number, troops: TroopCounts, supporting?: SeatId): Parameters<MatchState['armies']['set']>[1] {
+  return {
+    id, owner, status: 'marching', originHexIndex: hexIndex, currentHexIndex: hexIndex, targetHexIndex: hexIndex,
+    troops, departedTick: 0, intendedTargetOwner: 's3', scoutedBy: [], ...(supporting === undefined ? {} : { supporting }),
+  };
+}
+
+function garrisonWithinFarmRoom(state: MatchState, village: VillageState, budget: number): void {
+  const roles = state.balance.roles;
+  if (roles === null) throw new Error('the coalition scenario needs v8 roles');
+  const guardCost = totalCostOf(roles.units.guard.cost);
+  const farmCost = totalCostOf(state.balance.buildingCosts.farm);
+  let best = { farm: village.buildings.farm, guards: 0 };
+  for (let extraFarmLevels = 0; village.buildings.farm + extraFarmLevels <= 10; extraFarmLevels += 1) {
+    const farm = village.buildings.farm + extraFarmLevels;
+    const affordable = unitsWithin(budget - extraFarmLevels * farmCost, roles.units.guard.cost);
+    const guards = Math.min(affordable, roles.troopCapBase + roles.troopCapPerFarmLevel * farm);
+    if (guards > best.guards) best = { farm, guards };
+    if (affordable * guardCost < farmCost) break;
+  }
+  village.buildings.farm = best.farm;
+  village.troops.guard = best.guards;
+}
+
+function playCoalitionRaid(row: CoalitionRow, seed: number): boolean {
+  const random = seededRandom(seed);
+  const spec = WargamesMatchSpec.parse({
+    version: 1, rulesVersion: 'v8', title: 'coalition', seed, mapRadius: 6, maxTicks: 40,
+    seats: seatIdsForCount(4).map((seatId) => ({ seatId, label: seatId, setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'bot' })),
+  });
+  let state = createInitialMatchState(`coalition-${seed}`, 0, spec);
+  const costs = troopCostsFor(state.balance);
+  const wallCost = totalCostOf(state.balance.buildingCosts.wall);
+  const budget = COALITION_BUDGET_MIN + Math.floor(random() * (COALITION_BUDGET_MAX - COALITION_BUDGET_MIN + 1));
+  const target = state.villages.find((village): village is VillageState => village !== null && village.owner === null && !village.isBeacon && state.terrain[village.hexIndex] === 'plain');
+  if (!target) throw new Error(`seed ${seed}: no plain barbarian village to defend`);
+  const wallLevels = Math.min(10, Math.floor(random() * (Math.floor((budget * COALITION_WALL_SHARE_MAX) / wallCost) + 1)));
+  target.owner = 's3';
+  target.loyalty = 100;
+  target.buildings.wall = wallLevels;
+  target.troops = { raider: 0, guard: 0, envoy: 0 };
+  garrisonWithinFarmRoom(state, target, budget - wallLevels * wallCost);
+  const envoys = COALITION_ENVOYS_MIN + Math.floor(random() * (COALITION_ENVOYS_MAX - COALITION_ENVOYS_MIN + 1));
+  const leadRaiders = unitsWithin(budget - envoys * totalCostOf(costs.envoy), costs.raider);
+  state.armies.set('lead-clear', marchingArmyAt('lead-clear', 's1', target.hexIndex, { raider: leadRaiders, guard: 0, envoy: 0 }));
+  state.armies.set('lead-wave', marchingArmyAt('lead-wave', 's1', target.hexIndex, { raider: 0, guard: 0, envoy: envoys }));
+  if (row.allyBudgetShare !== null) {
+    state.contracts.set('ally', {
+      id: 'ally', proposer: 's1', counterparty: 's2',
+      terms: { kind: 'alliance', counterparty: 's2', durationTicks: 10, collateral: { grain: 0, ore: 0 } },
+      status: 'active', proposedTick: 0, activatedTick: 0, endTick: 10, breachedBy: null, breachedTick: null,
+    });
+    const allyRaiders = unitsWithin(budget * row.allyBudgetShare, costs.raider);
+    state.armies.set('ally-clear', marchingArmyAt('ally-clear', 's2', target.hexIndex, { raider: allyRaiders, guard: 0, envoy: 0 }, 's1'));
+  }
+  state = step(state, { type: 'seating_started' });
+  for (const seat of state.seats) state = step(state, { type: 'seat_connected', seatId: seat.config.seatId });
+  state = step(state, { type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  state = step(state, { type: 'phase_advanced', reason: 'deadline', signatures: {} });
+  state = step(state, { type: 'phase_advanced', reason: 'all_submitted', signatures: {} });
+  return state.villages[target.hexIndex]?.owner === 's1';
+}
+
+function runCoalition(shouldAssert: boolean): void {
+  console.log(`Equal budget B per seat (${COALITION_BUDGET_MIN} to ${COALITION_BUDGET_MAX} grain+ore, ${COALITION_SEEDS.length} seeds): defender B in wall, farm room and guards, attackers B each in raiders, lead adds ${COALITION_ENVOYS_MIN} to ${COALITION_ENVOYS_MAX} envoys as a capture wave`);
+  console.log('| Attack | Captured |');
+  console.log('|---|---|');
+  const captureRateByRow = new Map<string, number>();
+  for (const row of COALITION_ROWS) {
+    const captures = COALITION_SEEDS.filter((seed) => playCoalitionRaid(row, seed)).length;
+    const captureRate = captures / COALITION_SEEDS.length;
+    captureRateByRow.set(row.name, captureRate);
+    console.log(`| ${row.name} | ${percent(captures, COALITION_SEEDS.length)} |`);
+  }
+  if (!shouldAssert) return;
+  const soloRate = captureRateByRow.get(COALITION_ROWS[0].name) ?? 1;
+  const pairRate = captureRateByRow.get(COALITION_ROWS[1].name) ?? 0;
+  if (soloRate < SOLO_CAPTURE_CEILING && pairRate > PAIR_CAPTURE_FLOOR) return;
+  console.error(`coalition targets missed: solo ${soloRate} (needs under ${SOLO_CAPTURE_CEILING}), pair ${pairRate} (needs over ${PAIR_CAPTURE_FLOOR})`);
+  process.exitCode = 1;
+}
+
 function main(): void {
+  if (process.argv.includes('--coalition')) {
+    runCoalition(process.argv.includes('--assert'));
+    return;
+  }
   const searchSeeds = process.argv.find((argument) => argument.startsWith('--search='))?.slice('--search='.length);
   if (searchSeeds !== undefined) {
     runSearch(Number(searchSeeds));
