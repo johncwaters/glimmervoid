@@ -11,6 +11,7 @@ import { createCustomAdapter } from '../session/adapters/custom.ts';
 import { HookRouter } from '../detection/hook-source.ts';
 import { createSessionEventWiring } from '../server/session/session-event-wiring.ts';
 import type { GlimmervoidConfig } from '../server/config-store.ts';
+import { SUBMIT_DELAY_MS } from '../session/core/input-delivery-core.ts';
 import { capturingPty, exitablePty } from './helpers/fake-pty.ts';
 import { permissionRequestDecisionOf } from './helpers/permission-reply.ts';
 import { connectControl, controlDeps, createControlServer } from './helpers/control-harness.ts';
@@ -381,4 +382,24 @@ test('a Chat message to an agent with no turn signal clears after the wait inste
   }
 
   assert.deepEqual(session.toSnapshot().chatOutbox, []);
+});
+
+test('Sign in on the sign-in card has the server submit /login on its own, after a paste still waiting on its Enter', async (t) => {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-sign-in-'));
+  const writes: string[] = [];
+  const session = new Session({ id: 'signed-out', name: 'signed-out', path: projectPath, ptySpawn: () => capturingPty(writes) });
+  const connection = connectControl<{ type: string; ok?: boolean; error?: string }>(createControlServer(controlDeps({ projects: [] }, { sessions: new Map([[session.id, session]]) })));
+  t.after(() => {
+    session.destroy();
+    fs.rmSync(projectPath, { recursive: true, force: true });
+  });
+  await session.start();
+  session.transition('first_output');
+  const writesBeforeSignIn = writes.length;
+
+  session.deliverOperatorText('hello');
+  connection.send({ type: 'sign-in-start', id: session.id, requestId: 'sign-in' });
+  await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS * 2 + 200));
+  assert.deepEqual(writes.slice(writesBeforeSignIn), ['\x1b[200~hello\x1b[201~', '\r', '\x1b[200~/login\x1b[201~', '\r']);
+  assert.deepEqual(connection.sent.at(-1), { type: 'sign-in-start-result', requestId: 'sign-in', id: session.id, ok: true });
 });

@@ -1,12 +1,11 @@
 import { UsageLimit, type ConversationApproval } from '#shared/contracts/session.ts';
-import { API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
+import { API_KEY_PROMPT_KIND, LOGIN_COMMAND_BY_AGENT, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
 import { agentLabel } from '../arena/lineup-core.ts';
 import { type sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { adoptElement, el, isRealInputOwningKey, releaseElement } from '../dom-helpers.ts';
 import { openSwitchAccountDialog } from '../session-card/card-account.ts';
 import { sessionUIs } from '../session-card/card-registry.ts';
-import { sendTerminalInput } from '../session-card/terminal-input.ts';
 import { closeSessionPage } from '../page-registry.ts';
 import { setSessionView } from '../ui-prefs.ts';
 import { holdCardKeys, keyTargetOf } from './chat-cards.ts';
@@ -51,8 +50,7 @@ interface ChatWaits {
 
 const NOT_SENT_TEXT = 'Not connected to the server, so the message was not sent.';
 const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
-const LOGIN_COMMAND_BY_AGENT: Readonly<Record<string, string>> = { 'claude-code': '/login' };
-const LOGIN_SUBMIT_DELAY_MS = 300;
+const SIGN_IN_REQUEST_TIMEOUT_MS = 10000;
 const SIGNED_IN_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
 
 const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'sign-in', 'usage-limit', 'live-terminal'] as const;
@@ -170,6 +168,7 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
   let strayChildWatcher: MutationObserver | null = null;
   let signInCard: SignInCard | null = null;
   let signInCardSerial = 0;
+  let isSignInRequestPending = false;
   const cardIdsSettingLimitWake = new Set<string>();
 
   const releaseTerminal = () => {
@@ -256,13 +255,24 @@ export function createChatWaits(options: ChatWaitsOptions): ChatWaits {
   const startSignIn = () => {
     const ui = sessionUIs.get(sessionId);
     const loginCommand = LOGIN_COMMAND_BY_AGENT[ui?.agent ?? ''];
-    if (!signInCard || signInCard.data.stage !== 'offered' || !ui || !loginCommand) return;
-    if (!sendTerminalInput(ui, loginCommand)) {
-      showFailure(NOT_SENT_TEXT);
-      return;
-    }
-    window.setTimeout(() => sendTerminalInput(ui, '\r'), LOGIN_SUBMIT_DELAY_MS);
-    const signingInCard: SignInCard = { ...signInCard, data: { ...signInCard.data, stage: 'signing-in' } };
+    if (!signInCard || signInCard.data.stage !== 'offered' || !ui || !loginCommand || isSignInRequestPending) return;
+    const offeredCard = signInCard;
+    isSignInRequestPending = true;
+    sendControlRequest('sign-in-start', { id: sessionId }, { timeoutMs: SIGN_IN_REQUEST_TIMEOUT_MS })
+      .finally(() => { isSignInRequestPending = false; })
+      .then((reply) => {
+        if (reply.type !== 'sign-in-start-result' || !reply.ok) {
+          showFailure(reply.type === 'sign-in-start-result' ? reply.error ?? NOT_SENT_TEXT : NOT_SENT_TEXT);
+          return;
+        }
+        if (signInCard !== offeredCard) return;
+        showSigningInCard(offeredCard);
+      })
+      .catch(() => showFailure(NOT_SENT_TEXT));
+  };
+
+  const showSigningInCard = (offeredCard: SignInCard) => {
+    const signingInCard: SignInCard = { ...offeredCard, data: { ...offeredCard.data, stage: 'signing-in' } };
     view().keepLogInPlace(() => {
       showSignInCard(signingInCard);
       lendTerminalToCard(signingInCard.cardId);

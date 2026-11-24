@@ -53,6 +53,7 @@ export const sessionClientVariants = [
   loose('decide-approval', { id: sessionId, requestId: z.union([z.string().min(1).max(128), z.number().int()]), decision: PermissionDecision, message: z.string().trim().min(1).max(CHAT_SEND_MAX_CHARS).optional() }),
   loose('chat-send', { id: sessionId, text: z.string().trim().max(CHAT_SEND_MAX_CHARS), attachments: z.array(UploadFileName).max(CHAT_SEND_MAX_ATTACHMENTS).default([]), requestId })
     .refine((send) => send.text.length > 0 || send.attachments.length > 0, { message: 'chat-send needs text or an attachment' }),
+  loose('sign-in-start', { id: sessionId, requestId }),
   loose('chat-cancel', { id: sessionId, entryId: z.string().min(1).max(64), requestId }),
   loose('chat-stop', { id: sessionId, entryId: z.string().min(1).max(64).optional(), requestId }),
   loose('switch-session-account', { id: sessionId, accountId: AgentAccountId.nullable(), requestId }),
@@ -74,6 +75,7 @@ export const sessionServerVariants = [
   loose('wake-at-limit-reset-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
   loose('switch-session-model-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
   loose('chat-send-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError, acceptedAt: z.number().finite() }),
+  loose('sign-in-start-result', { requestId, id: sessionId, ok: z.boolean(), error: optionalError }),
   loose('chat-cancel-result', { requestId, id: sessionId, cancelledTexts: z.array(z.string().max(CHAT_SEND_MAX_CHARS)), cancelledAttachments: z.array(UploadFileName).default([]) }),
   loose('remove-session-result', { requestId, ok: z.boolean(), error: optionalError, canDiscardWork: z.boolean().optional(), keptPaths: z.array(KeptWorkPath).optional() }),
   loose('workspace-repos', { requestId, id: sessionId, ok: z.boolean(), repos: z.array(z.string()), error: optionalError }),

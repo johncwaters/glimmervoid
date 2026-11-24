@@ -36,7 +36,7 @@ import { DETACHED_DESKTOP_BUS_ADDRESS } from "./core/spawn-env.ts";
 import { signalWindowChangeBelow } from "./window-change-signal.ts";
 import type { SessionAccountHome } from "./core/agent-account-core.ts";
 import type { GraphicalSessionState, SpawnEnv } from "./core/spawn-env.ts";
-import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND, SIGNED_IN_SIGNAL } from "../shared/states.ts";
+import { STATES, KILLABLE_STATES, RESTARTABLE_STATES, SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, CHECK_TERMINAL_PROMPT_KIND, SIGNED_IN_SIGNAL, LOGIN_COMMAND_BY_AGENT } from "../shared/states.ts";
 import type { SessionState } from "../shared/states.ts";
 import { unrefTimer } from "../shared/timer-deps.ts";
 import { permitsHelpCommand } from "./core/session-routes.ts";
@@ -2390,6 +2390,13 @@ class Session extends EventEmitter {
     return this.deliver(text, { when: "ready", submit: true, onSettled });
   }
 
+  startSignIn(onSettled: NonNullable<DeliverOptions["onSettled"]>): ReturnType<Session["deliver"]> | null {
+    const loginCommand = LOGIN_COMMAND_BY_AGENT[this.agentId];
+    if (!loginCommand) return null;
+    this._applyWaitingInputDecision(loginCommand);
+    return this.deliverOperatorText(loginCommand, onSettled);
+  }
+
   noteOperatorDraft(): void {
     this._lastOperatorInputAt = clock.nowMs();
     this._approvals.yieldManagerDecisions();
@@ -2402,6 +2409,10 @@ class Session extends EventEmitter {
       this._approvals.yieldManagerDecisions();
       this.emit("operator-input");
     }
+    this._applyWaitingInputDecision(input);
+  }
+
+  _applyWaitingInputDecision(input: string): void {
     const decision = decideWaitingInput({
       state: this.state,
       hasHookAwaitingInput: this._can("hooks") && this._can("awaitingInput"),

@@ -44,3 +44,4 @@ export const RATE_LIMIT_PROMPT_KIND = 'rate-limit';
 export const CHECK_TERMINAL_PROMPT_KIND = 'check-terminal';
 export const SIGNED_IN_SIGNAL = 'signed-in';
 export const LOGIN_PROMPT_KINDS: ReadonlySet<string> = new Set([SIGN_IN_PROMPT_KIND, API_KEY_PROMPT_KIND]);
+export const LOGIN_COMMAND_BY_AGENT: Readonly<Record<string, string>> = Object.freeze({ 'claude-code': '/login' });

@@ -20,6 +20,7 @@ import { emptyStartPicks } from '../../../shared/start-picks-core.ts';
 import { currentAgentModelCatalog } from '../../agent-models/agent-models.ts';
 import { manualPrLink } from '../../../session/core/session-pr-links-core.ts';
 import { listDroppedRepoPaths, planWorkspaceMembers } from '../../../session/core/workspace-core.ts';
+import type { DeliverySettlement } from '../../../session/core/input-delivery-core.ts';
 import type { Session, SnoozeRefusal } from '../../../session/sessions.ts';
 import type { ControlSocket } from '../../backend/backend-websockets.ts';
 import { ABORT_CONFIG_SAVE } from '../../config-store.ts';
@@ -51,6 +52,12 @@ type DiscardSession = (id: string) => Promise<SessionRemoval>;
 
 const CONVERSATION_HISTORY_GIT_TIMEOUT_MS = 20000;
 const LIMIT_RESET_WAKE_TEXT = 'continue';
+const SIGN_IN_NOT_SUBMITTED_TEXT_BY_SETTLEMENT: Readonly<Record<Exclude<DeliverySettlement, 'submitted'>, string>> = {
+  pasted: 'The sign-in command is in the agent input box but was not sent, because text typed in the terminal is still waiting there. Open Terminal to send or clear it.',
+  withheld: 'The sign-in command is in the agent input box but was not sent, because you typed in the terminal meanwhile. Open Terminal to send or clear it.',
+  expired: 'The session did not get ready for the sign-in command in time.',
+  dropped: 'The session stopped before the sign-in command was sent.',
+};
 const NO_LIMIT_TO_WAIT_ON_TEXT = 'This session has no usage limit waiting to reset.';
 
 
@@ -209,6 +216,27 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     }
     const queued = session.queueChatMessage(msg.text, msg.attachments);
     replyTo(ws, msg, 'chat-send-result', { id: msg.id, ok: queued.ok, acceptedAt, ...(queued.ok ? {} : { error: queued.error }) });
+  }
+
+  function handleSignInStart(msg: ClientMessageOf<'sign-in-start'>, ws: ControlSocket): void {
+    const session = findSession(msg);
+    if (!session) {
+      replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: SESSION_GONE_TEXT });
+      return;
+    }
+    const delivery = session.startSignIn((settlement) => {
+      if (settlement === 'submitted') {
+        replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: true });
+        return;
+      }
+      replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: SIGN_IN_NOT_SUBMITTED_TEXT_BY_SETTLEMENT[settlement] });
+    });
+    if (delivery === null) {
+      replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: 'This agent signs in from its terminal.' });
+      return;
+    }
+    if (delivery.ok) return;
+    replyTo(ws, msg, 'sign-in-start-result', { id: msg.id, ok: false, error: `The sign-in command could not be typed into the session: ${delivery.reason}.` });
   }
 
   function handleChatCancel(msg: ClientMessageOf<'chat-cancel'>, ws: ControlSocket): void {
@@ -927,6 +955,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     'answer-approval': handleAnswerApproval,
     'decide-approval': handleDecideApproval,
     'chat-send': handleChatSend,
+    'sign-in-start': handleSignInStart,
     'chat-cancel': handleChatCancel,
     'chat-stop': (msg: ClientMessageOf<'chat-stop'>) => { findSession(msg)?.stopFromChat(msg.entryId); },
     'switch-session-account': handleSwitchSessionAccount,
