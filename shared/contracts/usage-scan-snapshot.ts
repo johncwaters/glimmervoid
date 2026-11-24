@@ -89,7 +89,16 @@ export const UsageScanSnapshot = z.object({
   activity: z.array(UsageScanSnapshotActivity),
   codexRateLimits: z.object({
     ts: z.number(),
-    rateLimits: z.object({ fiveHour: RateLimitWindowSnapshot, sevenDay: RateLimitWindowSnapshot }),
+    rateLimits: z.object({
+      fiveHour: RateLimitWindowSnapshot,
+      sevenDay: RateLimitWindowSnapshot,
+      buckets: z.array(z.object({
+        id: z.string(),
+        label: z.string(),
+        fiveHour: RateLimitWindowSnapshot,
+        sevenDay: RateLimitWindowSnapshot,
+      })).optional(),
+    }),
   }).nullable(),
 });
 export type UsageScanSnapshot = z.infer<typeof UsageScanSnapshot>;

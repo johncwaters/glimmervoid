@@ -823,7 +823,8 @@ test('Antigravity AgentState populates session meter with model.effort, deduplic
     quota: {
       'gemini-5h': { remaining_fraction: 0.75, reset_time: '2026-11-22T16:00:00Z' },
       'gemini-weekly': { remaining_fraction: 0.4, reset_in_seconds: 86_400 },
-      '3p-5h': { remaining_fraction: 0.9, reset_in_seconds: 1e14 },
+      '3p-5h': { remaining_fraction: 1, reset_in_seconds: 18_000, disabled: true },
+      '3p-weekly': { remaining_fraction: 0, reset_time: '2026-11-29T14:20:17Z' },
     },
   };
   wiring.ingestStatusline(agentStatePayload, 'agy-card');
@@ -844,10 +845,91 @@ test('Antigravity AgentState populates session meter with model.effort, deduplic
     ts: nowMs,
     fiveHour: { pct: 25, resetsAtMs: Date.parse('2026-11-22T16:00:00Z') },
     sevenDay: { pct: 60, resetsAtMs: nowMs + 86_400 * 1000 },
+    buckets: [
+      {
+        id: 'gemini',
+        label: 'Gemini',
+        fiveHour: { pct: 25, resetsAtMs: Date.parse('2026-11-22T16:00:00Z') },
+        sevenDay: { pct: 60, resetsAtMs: nowMs + 86_400 * 1000 },
+      },
+      {
+        id: '3p',
+        label: '3rd-party',
+        fiveHour: null,
+        sevenDay: { pct: 100, resetsAtMs: Date.parse('2026-11-29T14:20:17Z') },
+      },
+    ],
     source: 'agentstate',
     vendor: 'antigravity',
   });
   assert.equal(ServerMessage.safeParse(antigravityLimits).success, true);
   assert.equal(planLimits.length, 1);
   await wiring.stop();
+});
+
+test('parseCodexRateLimitsLine and mergeCodexRateLimitBuckets preserve non-default Codex limit_id buckets', async () => {
+  const { mergeCodexRateLimitBuckets, parseCodexRateLimitsLine } = await import('../server/usage/core/usage-codex-core.ts');
+  const defaultLine = JSON.stringify({
+    timestamp: '2026-11-24T22:00:00Z',
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      rate_limits: {
+        limit_id: 'codex',
+        limit_name: null,
+        primary: { used_percent: 12, window_minutes: 300, resets_at: 1_900_003_600 },
+        secondary: { used_percent: 25, window_minutes: 10080, resets_at: 1_900_400_000 },
+      },
+    },
+  });
+  const sparkLine = JSON.stringify({
+    timestamp: '2026-11-24T22:05:00Z',
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      rate_limits: {
+        limit_id: 'codex_bengalfox',
+        limit_name: 'GPT-5.3-Codex-Spark',
+        primary: { used_percent: 80, window_minutes: 300, resets_at: 1_900_007_200 },
+        secondary: null,
+      },
+    },
+  });
+  const defaultSnap = parseCodexRateLimitsLine(defaultLine);
+  const sparkSnap = parseCodexRateLimitsLine(sparkLine);
+  assert.ok(defaultSnap);
+  assert.ok(sparkSnap);
+  assert.equal(defaultSnap.limitId, 'codex');
+  assert.equal(sparkSnap.limitId, 'codex_bengalfox');
+  assert.equal(sparkSnap.limitName, 'GPT-5.3-Codex-Spark');
+
+  const merged = mergeCodexRateLimitBuckets(new Map([
+    [defaultSnap.limitId ?? 'codex', defaultSnap],
+    [sparkSnap.limitId ?? 'codex_bengalfox', sparkSnap],
+  ]));
+  assert.ok(merged);
+  assert.equal(merged.rateLimits.fiveHour?.pct, 12);
+  assert.equal(merged.rateLimits.sevenDay?.pct, 25);
+  assert.deepEqual(merged.rateLimits.buckets?.map((bucket) => ({ id: bucket.id, label: bucket.label, fiveHourPct: bucket.fiveHour?.pct })), [
+    { id: 'codex', label: 'Codex', fiveHourPct: 12 },
+    { id: 'codex_bengalfox', label: 'GPT-5.3-Codex-Spark', fiveHourPct: 80 },
+  ]);
+
+  const { decodeScanSnapshot, SCAN_SNAPSHOT_VERSION } = await import('../server/usage/core/usage-scan-core.ts');
+  const decoded = decodeScanSnapshot(
+    {
+      version: SCAN_SNAPSHOT_VERSION,
+      configKey: 'test-key',
+      savedAt: '2026-11-24T22:05:00Z',
+      files: {},
+      entries: [],
+      activity: [],
+      codexRateLimits: merged,
+    },
+    'test-key',
+  );
+  assert.deepEqual(
+    decoded?.codexRateLimits?.rateLimits.buckets?.map((bucket) => bucket.id),
+    ['codex', 'codex_bengalfox'],
+  );
 });

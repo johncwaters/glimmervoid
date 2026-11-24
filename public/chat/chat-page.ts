@@ -18,7 +18,7 @@ import { type ChatPhase, chatPhaseOf, shownChatPhaseOf } from './chat-activity-c
 import { storeFilesForChat } from '../session-upload.ts';
 import { canSwitchSessionModel, sessionAccountIdOf, switchableSetupOf, switchSessionModel, sessionModelSelectionOf, sessionWorkingDirectoryOf } from '../session-card/card-model.ts';
 import { clock } from '#shared/clock.ts';
-import { planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
+import { accountPlanLimitsOf, planLimitsOf, sessionCostOf, sessionMeterOf, subscribeUsage } from '../usage/usage-store.ts';
 import { planVendorOfAgent, railFieldsOf } from './status-rail-core.ts';
 import type { RailField } from './status-rail-core.ts';
 import { openChatModelPicker } from './model-picker.ts';
@@ -623,13 +623,16 @@ function dropAllKeptChats(): void {
 }
 
 export function sessionRailFieldsOf(sessionId: string, canChangeModel: boolean): RailField[] {
-  const isMachineLogin = sessionAccountIdOf(sessionId) === null;
+  const accountId = sessionAccountIdOf(sessionId);
   const agent = sessionUIs.get(sessionId)?.agent ?? null;
-  const vendor = isMachineLogin ? planVendorOfAgent(agent) : null;
+  const vendor = planVendorOfAgent(agent);
+  const planLimits = vendor === null
+    ? null
+    : (accountId !== null ? accountPlanLimitsOf(vendor, accountId) : (accountPlanLimitsOf(vendor, null) ?? planLimitsOf(vendor)));
   return railFieldsOf({
     meter: sessionMeterOf(sessionId),
     selection: sessionModelSelectionOf(sessionId),
-    planLimits: vendor === null ? null : planLimitsOf(vendor),
+    planLimits,
     sessionCostUSD: sessionCostOf(sessionId),
     nowMs: clock.nowMs(),
     canChangeModel,

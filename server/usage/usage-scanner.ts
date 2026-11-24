@@ -7,7 +7,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { buildRangeRollups, buildUsageReport, pruneEntries } from './core/usage-aggregate-core.ts';
 import { clock } from '../../shared/clock.ts';
 import { budgetStanding, normalizeBudgetConfig } from './core/usage-budget-core.ts';
-import { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine } from './core/usage-codex-core.ts';
+import { CODEX_PLAN_LIMIT_ID, codexDedupIdentity, createCodexUsageState, mergeCodexRateLimitBuckets, parseCodexRateLimitsLine, parseCodexUsageLine } from './core/usage-codex-core.ts';
 import type { CodexRateLimitSnapshot, CodexUsageState } from './core/usage-codex-core.ts';
 import {
   dedupKeys,
@@ -577,8 +577,8 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
   let lastPartial = false;
   let lastOutcome: PassOutcome | null = null;
   let lastIoFailures = 0;
-  let latestCodexRateLimitSnapshot: CodexRateLimitSnapshot | null = null;
-  const undrainedCodexRateLimitsBySessionId = new Map<string, CodexRateLimitSnapshot>();
+  const codexRateLimitsByLimitId = new Map<string, CodexRateLimitSnapshot>();
+  const undrainedCodexRateLimitsByKey = new Map<string, { agentSessionId: string; snapshot: CodexRateLimitSnapshot }>();
   let activePass: Promise<PassResult> | null = null;
   let pendingForce = false;
   let pendingScopeDirs: string[] | null = null;
@@ -766,26 +766,43 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
     return false;
   }
 
+  function noteCodexBucket(limitId: string, snapshot: CodexRateLimitSnapshot): void {
+    const previous = codexRateLimitsByLimitId.get(limitId);
+    if (previous && snapshot.ts < previous.ts) return;
+    codexRateLimitsByLimitId.set(limitId, snapshot);
+  }
+
   function noteCodexRateLimits(snapshot: CodexRateLimitSnapshot | null): void {
     if (!snapshot) return;
-    if (latestCodexRateLimitSnapshot && snapshot.ts < latestCodexRateLimitSnapshot.ts) return;
-    latestCodexRateLimitSnapshot = snapshot;
+    if (snapshot.rateLimits.buckets && snapshot.rateLimits.buckets.length > 0) {
+      for (const bucket of snapshot.rateLimits.buckets) {
+        noteCodexBucket(bucket.id, {
+          rateLimits: { fiveHour: bucket.fiveHour, sevenDay: bucket.sevenDay },
+          ts: snapshot.ts,
+          limitId: bucket.id,
+          limitName: bucket.label,
+        });
+      }
+      return;
+    }
+    noteCodexBucket(snapshot.limitId ?? CODEX_PLAN_LIMIT_ID, snapshot);
   }
 
   function latestCodexRateLimits(): CodexRateLimitSnapshot | null {
-    return latestCodexRateLimitSnapshot;
+    return mergeCodexRateLimitBuckets(codexRateLimitsByLimitId);
   }
 
   function noteCodexSessionRateLimits(snapshot: CodexRateLimitSnapshot | null, agentSessionId: string | null): void {
     if (!snapshot || !agentSessionId) return;
-    const previous = undrainedCodexRateLimitsBySessionId.get(agentSessionId);
-    if (previous && snapshot.ts < previous.ts) return;
-    undrainedCodexRateLimitsBySessionId.set(agentSessionId, snapshot);
+    const key = `${agentSessionId}\0${snapshot.limitId ?? CODEX_PLAN_LIMIT_ID}`;
+    const previous = undrainedCodexRateLimitsByKey.get(key);
+    if (previous && snapshot.ts < previous.snapshot.ts) return;
+    undrainedCodexRateLimitsByKey.set(key, { agentSessionId, snapshot });
   }
 
   function drainCodexRateLimits(): { agentSessionId: string; snapshot: CodexRateLimitSnapshot }[] {
-    const drained = [...undrainedCodexRateLimitsBySessionId].map(([agentSessionId, snapshot]) => ({ agentSessionId, snapshot }));
-    undrainedCodexRateLimitsBySessionId.clear();
+    const drained = [...undrainedCodexRateLimitsByKey.values()];
+    undrainedCodexRateLimitsByKey.clear();
     return drained;
   }
 
@@ -1015,7 +1032,7 @@ function createUsageScanner(deps: UsageScannerOptions = {}) {
       openCodeCursors: serializedOpenCodeCursors,
       entries: entries.map(snapshotEntryOf),
       activity: [...activityByKey.values()],
-      codexRateLimits: latestCodexRateLimitSnapshot,
+      codexRateLimits: latestCodexRateLimits(),
     };
   }
 

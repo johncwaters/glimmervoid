@@ -15,9 +15,17 @@ export interface RateLimitWindow {
   resetsAtMs: number | null;
 }
 
+export interface PlanLimitBucket {
+  id: string;
+  label: string;
+  fiveHour: RateLimitWindow | null;
+  sevenDay: RateLimitWindow | null;
+}
+
 export interface RateLimitWindows {
   fiveHour: RateLimitWindow | null;
   sevenDay: RateLimitWindow | null;
+  buckets?: PlanLimitBucket[];
 }
 
 export interface StatuslineSnapshot {
@@ -83,10 +91,16 @@ function windowSignature(win: RateLimitWindow | null): string {
   return `${win.pct}:${win.resetsAtMs}`;
 }
 
+function bucketSignature(bucket: PlanLimitBucket): string {
+  return `${bucket.id}:${bucket.label}:${windowSignature(bucket.fiveHour)}|${windowSignature(bucket.sevenDay)}`;
+}
+
 function planLimitsSignature(snapshot: { rateLimits?: RateLimitWindows | null } | null | undefined): string | null {
   const limits = snapshot?.rateLimits;
   if (!limits) return null;
-  return `${windowSignature(limits.fiveHour)}|${windowSignature(limits.sevenDay)}`;
+  const baseSignature = `${windowSignature(limits.fiveHour)}|${windowSignature(limits.sevenDay)}`;
+  if (!limits.buckets || limits.buckets.length === 0) return baseSignature;
+  return `${baseSignature}#${limits.buckets.map(bucketSignature).join(',')}`;
 }
 
 function shouldBroadcastPlanLimits(
@@ -111,7 +125,7 @@ function buildPlanLimitsMessage(
   vendor: PlanLimitsVendor = 'claude',
 ) {
   if (!snapshot?.rateLimits) return null;
-  return {
+  const baseMessage = {
     type: 'plan-limits',
     ts: snapshot.ts,
     fiveHour: snapshot.rateLimits.fiveHour,
@@ -119,6 +133,8 @@ function buildPlanLimitsMessage(
     source: PLAN_LIMITS_SOURCE_BY_VENDOR[vendor],
     vendor,
   };
+  if (!snapshot.rateLimits.buckets || snapshot.rateLimits.buckets.length === 0) return baseMessage;
+  return { ...baseMessage, buckets: snapshot.rateLimits.buckets };
 }
 
 function buildAccountPlanLimitsMessage(
@@ -209,36 +225,36 @@ function antigravityResetAtMs(bucket: Record<string, unknown>, nowMs: number): n
 }
 
 function antigravityQuotaWindow(bucket: unknown, nowMs: number): RateLimitWindow | null {
-  if (!isRecord(bucket)) return null;
+  if (!isRecord(bucket) || bucket.disabled === true) return null;
   const remainingFraction = numberOr(bucket.remaining_fraction, null);
   const usedPct = remainingFraction === null ? null : (1 - Math.min(1, Math.max(0, remainingFraction))) * 100;
   return rateLimitWindow(usedPct, antigravityResetAtMs(bucket, nowMs));
 }
 
-function tightestQuotaWindow(first: RateLimitWindow | null, second: RateLimitWindow | null): RateLimitWindow | null {
-  if (!first) return second;
-  if (!second) return first;
-  if (first.pct === null) return second;
-  if (second.pct === null) return first;
-  if (second.pct !== first.pct) return second.pct > first.pct ? second : first;
-  if (first.resetsAtMs === null) return second;
-  if (second.resetsAtMs === null) return first;
-  return second.resetsAtMs < first.resetsAtMs ? second : first;
+function buildAntigravityBucket(
+  quota: Record<string, unknown>,
+  id: string,
+  label: string,
+  fiveHourKey: string,
+  weeklyKey: string,
+  nowMs: number,
+): PlanLimitBucket | null {
+  const fiveHour = antigravityQuotaWindow(quota[fiveHourKey], nowMs);
+  const sevenDay = antigravityQuotaWindow(quota[weeklyKey], nowMs);
+  if (!fiveHour && !sevenDay) return null;
+  return { id, label, fiveHour, sevenDay };
 }
 
 function normalizeAntigravityQuota(payload: unknown, nowMs: unknown): RateLimitWindows | null {
   if (!isRecord(payload) || !isRecord(payload.quota)) return null;
   const nowMsValue = numberOr(nowMs, null) ?? 0;
-  const fiveHour = tightestQuotaWindow(
-    antigravityQuotaWindow(payload.quota['gemini-5h'], nowMsValue),
-    antigravityQuotaWindow(payload.quota['3p-5h'], nowMsValue),
-  );
-  const sevenDay = tightestQuotaWindow(
-    antigravityQuotaWindow(payload.quota['gemini-weekly'], nowMsValue),
-    antigravityQuotaWindow(payload.quota['3p-weekly'], nowMsValue),
-  );
-  if (!fiveHour && !sevenDay) return null;
-  return { fiveHour, sevenDay };
+  const buckets = [
+    buildAntigravityBucket(payload.quota, 'gemini', 'Gemini', 'gemini-5h', 'gemini-weekly', nowMsValue),
+    buildAntigravityBucket(payload.quota, '3p', '3rd-party', '3p-5h', '3p-weekly', nowMsValue),
+  ].filter((bucket): bucket is PlanLimitBucket => bucket !== null);
+  if (buckets.length === 0) return null;
+  const primary = buckets[0];
+  return { fiveHour: primary.fiveHour, sevenDay: primary.sevenDay, buckets };
 }
 
 function selectOfficialSessionCost(costMode: string, recordedCostUSD: number | null | undefined): number | null {

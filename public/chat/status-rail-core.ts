@@ -1,6 +1,6 @@
 import type { ModelSelection } from '#shared/contracts/agent-models.ts';
 import type { SessionMeterReading } from '#shared/contracts/control/lane-messages.ts';
-import { formatTokens, formatUsd, planWindowOf } from '../usage/usage-store-core.ts';
+import { formatTokens, formatUsd, planLimitsForModel, planWindowOf } from '../usage/usage-store-core.ts';
 import { agentLabel } from '../arena/lineup-core.ts';
 import type { PlanLimits, PlanLimitsVendor } from '../usage/usage-store-core.ts';
 
@@ -74,7 +74,9 @@ function modeFieldOf(meter: SessionMeterReading | null): RailField | null {
 }
 
 export function railFieldsOf({ meter, selection, planLimits, sessionCostUSD, nowMs, canChangeModel = false, agent = null }: RailInput): RailField[] {
-  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(planLimits, nowMs), contextFieldOf(meter), ...costFieldsOf(meter, sessionCostUSD), modeFieldOf(meter)];
+  const activeModel = meter?.model ?? selection?.model ?? null;
+  const scopedPlanLimits = planLimitsForModel(planLimits, activeModel, agent);
+  const fields = [modelFieldOf(meter, selection, canChangeModel, agent), tightestPlanFieldOf(scopedPlanLimits, nowMs), contextFieldOf(meter), ...costFieldsOf(meter, sessionCostUSD), modeFieldOf(meter)];
   return fields.filter((field): field is RailField => field !== null);
 }
 

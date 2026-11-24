@@ -9,6 +9,7 @@ import {
   formatCount,
   formatTokens,
   formatUsd,
+  planLimitsBucketsOf,
   planLimitsVendorOf,
   planWindowOf,
   usageErrorLine,
@@ -202,7 +203,11 @@ function cardPressure(card: LimitCardView): number {
   return windowPressure(card.binding);
 }
 
-function buildLimitCardFromReading(reading: PlanLimits, now: number): LimitCardView | null {
+function buildLimitCardFromReading(
+  reading: PlanLimits,
+  now: number,
+  bucket?: { id: string; label: string; isSoleDefault: boolean },
+): LimitCardView | null {
   const vendor = planLimitsVendorOf(reading);
   const fiveHour = buildLimitWindow('fiveHour', reading, now);
   const sevenDay = buildLimitWindow('sevenDay', reading, now);
@@ -213,10 +218,15 @@ function buildLimitCardFromReading(reading: PlanLimits, now: number): LimitCardV
   const reportedAtMs = numberOr(reading.ts, null);
   const isStale = reportedAtMs !== null && now - reportedAtMs >= PLAN_LIMIT_STALE_MS;
   const accountId = textOr(reading.accountId, null);
+  const baseVendorLabel = vendorLabelOf(vendor);
+  const showBucketKey = bucket !== undefined && !bucket.isSoleDefault;
+  const key = showBucketKey ? `${vendor}:${accountId ?? 'default'}:${bucket.id}` : `${vendor}:${accountId ?? 'default'}`;
+  const showBucketLabel = showBucketKey && bucket.label.toLowerCase() !== baseVendorLabel.toLowerCase();
+  const vendorLabel = showBucketLabel ? `${baseVendorLabel} / ${bucket.label}` : baseVendorLabel;
   return {
-    key: `${vendor}:${accountId ?? 'default'}`,
+    key,
     vendor,
-    vendorLabel: vendorLabelOf(vendor),
+    vendorLabel,
     accountId,
     reportedAtMs,
     isStale,
@@ -224,6 +234,26 @@ function buildLimitCardFromReading(reading: PlanLimits, now: number): LimitCardV
     binding,
     other,
   };
+}
+
+function buildLimitCardsFromReading(reading: PlanLimits, now: number): LimitCardView[] {
+  const buckets = planLimitsBucketsOf(reading);
+  if (buckets.length === 0) {
+    const singleCard = buildLimitCardFromReading(reading, now);
+    return singleCard ? [singleCard] : [];
+  }
+  const vendor = planLimitsVendorOf(reading);
+  const cards: LimitCardView[] = [];
+  for (const bucket of buckets) {
+    const isSoleDefault = buckets.length === 1 && bucket.id === vendor;
+    const card = buildLimitCardFromReading(
+      { ...reading, fiveHour: bucket.fiveHour ?? null, sevenDay: bucket.sevenDay ?? null },
+      now,
+      { id: bucket.id, label: bucket.label, isSoleDefault },
+    );
+    if (card) cards.push(card);
+  }
+  return cards;
 }
 
 export function limitCards(
@@ -241,15 +271,13 @@ export function limitCards(
   const cards: LimitCardView[] = [];
   for (const vendor of ['claude', 'codex', 'kimi', 'antigravity'] as const) {
     const accountCards = (accountsByVendor.get(vendor) ?? [])
-      .map((reading) => buildLimitCardFromReading(reading, now))
-      .filter((card): card is LimitCardView => card !== null);
+      .flatMap((reading) => buildLimitCardsFromReading(reading, now));
     if (accountCards.length > 0) {
       cards.push(...accountCards);
       continue;
     }
     const globalReading = planLimitsByVendor[vendor];
-    const globalCard = globalReading ? buildLimitCardFromReading(globalReading, now) : null;
-    if (globalCard) cards.push(globalCard);
+    if (globalReading) cards.push(...buildLimitCardsFromReading(globalReading, now));
   }
   return cards.sort((left, right) => cardPressure(right) - cardPressure(left) || left.vendorLabel.localeCompare(right.vendorLabel));
 }

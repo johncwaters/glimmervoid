@@ -18,6 +18,13 @@ export const laneClientVariants = [
   loose('request-usage-report', { requestId, days: z.unknown().optional(), force: z.unknown().optional() }),
 ] as const;
 
+const PlanLimitBucket = z.object({
+  id: z.string(),
+  label: z.string(),
+  fiveHour: z.unknown().nullable(),
+  sevenDay: z.unknown().nullable(),
+});
+
 export const laneServerVariants = [
   loose('usage-sessions', {
     ts: timestamp,
@@ -51,6 +58,7 @@ export const laneServerVariants = [
     ts: timestamp,
     fiveHour: z.unknown().nullable(),
     sevenDay: z.unknown().nullable(),
+    buckets: z.array(PlanLimitBucket).optional(),
     source: z.string(),
     vendor: PlanLimitsVendor.optional(),
   }),
@@ -58,6 +66,7 @@ export const laneServerVariants = [
     ts: timestamp,
     fiveHour: z.unknown().nullable(),
     sevenDay: z.unknown().nullable(),
+    buckets: z.array(PlanLimitBucket).optional(),
     source: z.string(),
     vendor: PlanLimitsVendor,
     accountId: AgentAccountId.nullable(),

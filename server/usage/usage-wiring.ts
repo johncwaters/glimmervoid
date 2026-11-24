@@ -18,6 +18,7 @@ import {
   shouldBroadcastPlanLimits,
 } from './core/usage-statusline-core.ts';
 import type { PlanLimitsVendor, RateLimitWindows, StatuslineSnapshot } from './core/usage-statusline-core.ts';
+import { CODEX_PLAN_LIMIT_ID, mergeCodexRateLimitBuckets } from './core/usage-codex-core.ts';
 import type { CodexRateLimitSnapshot } from './core/usage-codex-core.ts';
 import { createKimiPlanLimitsReader } from './usage-kimi-limits.ts';
 import type { KimiPlanLimitsSnapshot } from './core/usage-kimi-limits-core.ts';
@@ -253,6 +254,7 @@ function createUsageWiring({
   let ioFailureStreakId = 0;
 
   const planLimitsByVendor: Record<PlanLimitsVendor, PlanLimitsSnapshot | null> = { claude: null, codex: null, kimi: null, antigravity: null };
+  const codexAccountBucketsByKey = new Map<string, Map<string, CodexRateLimitSnapshot>>();
   const accountPlanLimitsByKey = new Map<string, { vendor: PlanLimitsVendor; accountId: string | null; snapshot: PlanLimitsSnapshot }>();
   let lastKimiPollMs: number | null = null;
   let kimiPollInFlight: Promise<void> | null = null;
@@ -647,7 +649,16 @@ function createUsageWiring({
       const liveSession = liveCodexSessionOf(agentSessionId);
       if (!liveSession) continue;
       if (snapshot.ts < (liveSession.accountInUseSinceMs ?? Number.POSITIVE_INFINITY)) continue;
-      adoptAccountPlanLimits('codex', liveSession.accountIdInUse ?? null, snapshot);
+      const accountId = liveSession.accountIdInUse ?? null;
+      const accountKey = `codex:${accountId ?? ''}`;
+      const bucketsById = codexAccountBucketsByKey.get(accountKey) ?? new Map<string, CodexRateLimitSnapshot>();
+      const limitId = snapshot.limitId ?? CODEX_PLAN_LIMIT_ID;
+      const previousBucket = bucketsById.get(limitId);
+      if (previousBucket && snapshot.ts < previousBucket.ts) continue;
+      bucketsById.set(limitId, snapshot);
+      codexAccountBucketsByKey.set(accountKey, bucketsById);
+      const merged = mergeCodexRateLimitBuckets(bucketsById);
+      if (merged) adoptAccountPlanLimits('codex', accountId, merged);
     }
   }
 

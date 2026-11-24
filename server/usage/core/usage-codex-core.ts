@@ -2,7 +2,7 @@ import { parseJsonLine, vendorUsageEntry } from './usage-entry-core.ts';
 import type { DedupIdentityEntry, UsageEntry } from './usage-entry-core.ts';
 import { isRecord, numberOr, rawTextOr } from '../../../shared/coerce.ts';
 import { rateLimitWindow } from './usage-statusline-core.ts';
-import type { RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
+import type { PlanLimitBucket, RateLimitWindow, RateLimitWindows } from './usage-statusline-core.ts';
 
 interface CodexTokenUsage {
   input_tokens?: unknown;
@@ -87,6 +87,8 @@ const SEVEN_DAY_WINDOW_MINUTES = 10080;
 interface CodexRateLimitSnapshot {
   rateLimits: RateLimitWindows;
   ts: number;
+  limitId?: string;
+  limitName?: string | null;
 }
 
 function codexPlanWindows(rawWindows: readonly unknown[]): RateLimitWindows {
@@ -109,12 +111,49 @@ function parseCodexRateLimitsLine(line: unknown): CodexRateLimitSnapshot | null 
   if (parsed.payload?.type !== 'token_count') return null;
   const rateLimits = parsed.payload.rate_limits;
   if (!isRecord(rateLimits)) return null;
-  if (rateLimits.limit_id != null && rateLimits.limit_id !== CODEX_PLAN_LIMIT_ID) return null;
   const ts = Date.parse(String(parsed.timestamp));
   if (!Number.isFinite(ts)) return null;
   const windows = codexPlanWindows([rateLimits.primary, rateLimits.secondary]);
   if (!windows.fiveHour && !windows.sevenDay) return null;
-  return { rateLimits: windows, ts };
+  const limitId = rawTextOr(rateLimits.limit_id, CODEX_PLAN_LIMIT_ID) ?? CODEX_PLAN_LIMIT_ID;
+  const limitName = rawTextOr(rateLimits.limit_name, null);
+  return { rateLimits: windows, ts, limitId, limitName };
+}
+
+function codexBucketLabel(limitId: string, limitName: string | null | undefined): string {
+  if (limitName) return limitName;
+  if (limitId === CODEX_PLAN_LIMIT_ID) return 'Codex';
+  return limitId;
+}
+
+function compareCodexBucketIds(leftId: string, rightId: string): number {
+  if (leftId === CODEX_PLAN_LIMIT_ID) return -1;
+  if (rightId === CODEX_PLAN_LIMIT_ID) return 1;
+  return leftId.localeCompare(rightId);
+}
+
+function mergeCodexRateLimitBuckets(
+  bucketsById: ReadonlyMap<string, CodexRateLimitSnapshot>,
+): CodexRateLimitSnapshot | null {
+  if (bucketsById.size === 0) return null;
+  const orderedEntries = [...bucketsById.entries()].sort(([leftId], [rightId]) => compareCodexBucketIds(leftId, rightId));
+  let latestTs = 0;
+  const buckets: PlanLimitBucket[] = [];
+  for (const [id, snapshot] of orderedEntries) {
+    if (snapshot.ts > latestTs) latestTs = snapshot.ts;
+    buckets.push({
+      id,
+      label: codexBucketLabel(id, snapshot.limitName),
+      fiveHour: snapshot.rateLimits.fiveHour,
+      sevenDay: snapshot.rateLimits.sevenDay,
+    });
+  }
+  const primary = buckets[0];
+  const isSingleDefaultBucket = buckets.length === 1 && primary.id === CODEX_PLAN_LIMIT_ID && !orderedEntries[0][1].limitName;
+  const rateLimits: RateLimitWindows = isSingleDefaultBucket
+    ? { fiveHour: primary.fiveHour, sevenDay: primary.sevenDay }
+    : { fiveHour: primary.fiveHour, sevenDay: primary.sevenDay, buckets };
+  return { rateLimits, ts: latestTs };
 }
 
 function codexDedupIdentity(entry: DedupIdentityEntry | null | undefined): string | null {
@@ -171,5 +210,5 @@ function deltaFromTotal(totalUsage: CodexTokenUsage | null, previousTotalUsage: 
   };
 }
 
-export { codexDedupIdentity, createCodexUsageState, parseCodexRateLimitsLine, parseCodexUsageLine };
+export { CODEX_PLAN_LIMIT_ID, codexDedupIdentity, createCodexUsageState, mergeCodexRateLimitBuckets, parseCodexRateLimitsLine, parseCodexUsageLine };
 export type { CodexRateLimitSnapshot };

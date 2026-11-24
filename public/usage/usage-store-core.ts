@@ -82,6 +82,13 @@ interface PlanWindow {
   resetsAtMs?: unknown;
 }
 
+export interface PlanLimitBucket {
+  id: string;
+  label: string;
+  fiveHour?: PlanWindow | null;
+  sevenDay?: PlanWindow | null;
+}
+
 export interface PlanLimits {
   ts?: unknown;
   vendor?: unknown;
@@ -89,6 +96,71 @@ export interface PlanLimits {
   source?: unknown;
   fiveHour?: PlanWindow | null;
   sevenDay?: PlanWindow | null;
+  buckets?: readonly PlanLimitBucket[] | null;
+}
+
+export function planLimitsBucketsOf(planLimits: PlanLimits | null | undefined): PlanLimitBucket[] {
+  const rawBuckets = planLimits?.buckets;
+  if (!Array.isArray(rawBuckets)) return [];
+  const buckets: PlanLimitBucket[] = [];
+  for (const candidate of rawBuckets) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const id = textOr(candidate.id, null);
+    const label = textOr(candidate.label, id);
+    if (!id || !label) continue;
+    buckets.push({
+      id,
+      label,
+      fiveHour: candidate.fiveHour ?? null,
+      sevenDay: candidate.sevenDay ?? null,
+    });
+  }
+  return buckets;
+}
+
+function normalizedQuotaToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function applyBucketToPlanLimits(planLimits: PlanLimits, bucket: PlanLimitBucket): PlanLimits {
+  return {
+    ...planLimits,
+    fiveHour: bucket.fiveHour ?? null,
+    sevenDay: bucket.sevenDay ?? null,
+  };
+}
+
+export function planLimitsForModel(
+  planLimits: PlanLimits | null | undefined,
+  modelName: string | null | undefined,
+  agent: string | null | undefined,
+): PlanLimits | null {
+  if (!planLimits) return null;
+  const buckets = planLimitsBucketsOf(planLimits);
+  if (buckets.length === 0) return planLimits;
+  const vendor = planLimitsVendorOf(planLimits);
+  const trimmedModel = textOr(modelName, null);
+  if (agent === 'antigravity' || vendor === 'antigravity') {
+    if (!trimmedModel) return planLimits;
+    const targetId = /gemini/i.test(trimmedModel) ? 'gemini' : '3p';
+    const matched = buckets.find((bucket) => bucket.id === targetId);
+    return matched ? applyBucketToPlanLimits(planLimits, matched) : null;
+  }
+  if (trimmedModel) {
+    const modelToken = normalizedQuotaToken(trimmedModel);
+    if (modelToken.length > 0) {
+      const nonDefaultMatch = buckets.find((bucket) => {
+        if (bucket.id === vendor) return false;
+        const labelToken = normalizedQuotaToken(bucket.label);
+        const idToken = normalizedQuotaToken(bucket.id);
+        return (labelToken.length > 0 && modelToken.includes(labelToken))
+          || (idToken.length > 0 && modelToken.includes(idToken));
+      });
+      if (nonDefaultMatch) return applyBucketToPlanLimits(planLimits, nonDefaultMatch);
+    }
+  }
+  const defaultBucket = buckets.find((bucket) => bucket.id === vendor);
+  return defaultBucket ? applyBucketToPlanLimits(planLimits, defaultBucket) : null;
 }
 
 export function planWindowOf(planLimits: PlanLimits | null | undefined, key: 'fiveHour' | 'sevenDay') {
