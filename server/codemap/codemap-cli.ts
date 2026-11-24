@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS } from '../../shared/contracts/codemap.ts';
-import type { CodemapExportKind, CodemapSetup } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_ALLOW_REASON_MAX_CHARS, CODEMAP_EXPORT_KINDS, CODEMAP_STRUCTURE_LINTS, moduleImportAllowsOf, structureAllowsOf } from '../../shared/contracts/codemap.ts';
+import type { CodemapExportKind, CodemapSetup, CodemapStructureLint } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { loadConfigFile } from '../config-store.ts';
@@ -14,9 +14,10 @@ import { buildCodemapModel, seededSetupOf } from '../core/codemap-graph-core.ts'
 import { createCodemapClient } from './codemap-client.ts';
 import { guessedDefaultBranchOf, mainlineShaOf, readCodemapSetup, repoKeyOf, setupPathOf, updateCodemapSetup, worktreeRootOf } from './codemap-store.ts';
 import { checkWorktree, shrinkSetup } from './codemap-wiring.ts';
+import { createStructureRunner } from './structure-runner.ts';
 
 const OPERATOR_CODEMAP_ACTIONS = new Set(['setup', 'allow', 'shrink', 'check']);
-const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] [--exports lint,map|none] | codemap allow <repo> <from module> <to module> --reason <why> | codemap shrink <repo> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
+const USAGE = 'usage: glimmervoid codemap setup <repo> [--gate on|off] [--exports lint,map|none] | codemap allow <repo> <from module> <to module> --reason <why> | codemap allow <repo> --tangle <key> | --shallow <module> --reason <why> | codemap shrink <repo> | codemap check [--home <glimmervoid home>] [--config <config.json>]';
 
 type CliOutcome = { ok: true; text: string; exitCode?: number } | { ok: false; error: string };
 
@@ -80,10 +81,41 @@ async function runSetup(args: readonly string[]): Promise<CliOutcome> {
   });
   if (updated.kind !== 'ok') return { ok: false, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup to gate` };
   const { setup } = updated;
-  return { ok: true, text: `code map setup for ${repoKey} at ${setupPathOf(homeDir, repoKey)}: ${setup.modules.length} modules, ${setup.allow.length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}, exports ${setup.exports.length > 0 ? setup.exports.join(', ') : 'none'}. The repo itself is unchanged.` };
+  return { ok: true, text: `code map setup for ${repoKey} at ${setupPathOf(homeDir, repoKey)}: ${setup.modules.length} modules, ${moduleImportAllowsOf(setup.allow).length} allowed module imports, import gate ${setup.gate ? 'on' : 'off'}, exports ${setup.exports.length > 0 ? setup.exports.join(', ') : 'none'}. The repo itself is unchanged.` };
+}
+
+function structureLintOf(args: readonly string[]): { lint: CodemapStructureLint; key: string } | null {
+  for (const lint of CODEMAP_STRUCTURE_LINTS) {
+    const key = optionValue(args, `--${lint}`)?.trim();
+    if (key) return { lint, key };
+  }
+  return null;
+}
+
+async function runStructureAllow(args: readonly string[], structureLint: { lint: CodemapStructureLint; key: string }): Promise<CliOutcome> {
+  const [, repoArgument] = positionalsOf(args);
+  const reason = optionValue(args, '--reason')?.trim() ?? '';
+  if (!repoArgument || !reason) return { ok: false, error: USAGE };
+  if (reason.length > CODEMAP_ALLOW_REASON_MAX_CHARS) return { ok: false, error: `the reason must be at most ${CODEMAP_ALLOW_REASON_MAX_CHARS} characters` };
+  const repoKey = await repoKeyOf(path.resolve(repoArgument));
+  if (!repoKey) return { ok: false, error: `${repoArgument} is not inside a git repository` };
+  const homeDir = glimmervoidHomeDir(os.homedir(), process.env);
+  const { lint, key } = structureLint;
+  const allowedEntry = { lint, key, origin: 'allowed' as const, reason, date: clock.dayKeyOf(clock.nowMs()) };
+  const allowOutcome = { wasAllowed: false };
+  const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
+    allowOutcome.wasAllowed = current ? structureAllowsOf(current.allow).some((entry) => entry.lint === lint && entry.key === key) : false;
+    return current && !allowOutcome.wasAllowed ? { ...current, allow: [...current.allow, allowedEntry] } : null;
+  });
+  if (updated.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; run glimmervoid codemap setup ${repoKey} first` };
+  if (updated.kind === 'invalid') return { ok: false, error: updated.message };
+  const finding = lint === 'tangle' ? `tangle ${key}` : `shallow module ${key}`;
+  return { ok: true, text: `${finding} is allowed for ${repoKey}${allowOutcome.wasAllowed ? ' already' : ''} (${setupPathOf(homeDir, repoKey)}).` };
 }
 
 async function runAllow(args: readonly string[]): Promise<CliOutcome> {
+  const structureLint = structureLintOf(args);
+  if (structureLint) return runStructureAllow(args, structureLint);
   const [, repoArgument, from, to] = positionalsOf(args);
   const reason = optionValue(args, '--reason')?.trim() ?? '';
   if (!repoArgument || !from || !to || !reason) return { ok: false, error: USAGE };
@@ -94,7 +126,7 @@ async function runAllow(args: readonly string[]): Promise<CliOutcome> {
   const allowedEntry = { from, to, origin: 'allowed' as const, reason, date: clock.dayKeyOf(clock.nowMs()), landed: false, fileImportCeiling: null };
   const allowOutcome = { wasAllowed: false };
   const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
-    allowOutcome.wasAllowed = current?.allow.some((edge) => edge.from === from && edge.to === to) ?? false;
+    allowOutcome.wasAllowed = current ? moduleImportAllowsOf(current.allow).some((edge) => edge.from === from && edge.to === to) : false;
     return current && !allowOutcome.wasAllowed ? { ...current, allow: [...current.allow, allowedEntry] } : null;
   });
   if (updated.kind === 'none') return { ok: false, error: `${repoKey} has no code map setup; run glimmervoid codemap setup ${repoKey} first` };
@@ -123,7 +155,10 @@ async function runCheck(args: readonly string[]): Promise<CliOutcome> {
   const config = configPathOrError(optionValue(args, '--config'));
   const mainlineSha = await mainlineShaForCli(repoKey, config.ok ? config.configPath : null);
   if (!mainlineSha) return { ok: false, error: `${repoKey} has no mainline commit to check against` };
-  const checked = await checkWorktree({ client: createCodemapClient(), homeDir, worktreeDir, mainlineSha });
+  const client = createCodemapClient();
+  const runner = createStructureRunner({ homeDir, client });
+  const structure = { runner, mainlineGraph: () => runner.symbolGraphOf(repoKey, mainlineSha) };
+  const checked = await checkWorktree({ client, structure, homeDir, worktreeDir, mainlineSha });
   if (!checked.ok) return { ok: false, error: checked.error };
   return { ok: true, text: checked.text, exitCode: checked.isRefusing ? 1 : 0 };
 }

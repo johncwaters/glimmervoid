@@ -8,7 +8,7 @@ import { isTestPath } from '../core/import-graph-core.ts';
 import { runCommand, runGit } from '../git/git-exec.ts';
 import { createSerialQueue } from '../spawn-gate.ts';
 import type { CodemapClient } from './codemap-client.ts';
-import { createIndexerProvisioner, indexedLanguagesOf } from './scip-indexers.ts';
+import { createIndexerProvisioner, indexedLanguagesOf, sweepStaleFolders } from './scip-indexers.ts';
 import type { IndexerLanguage, IndexerProvisioner } from './scip-indexers.ts';
 
 const TREE_LISTING_MAX_BYTES = 256 * 1024 * 1024;
@@ -49,7 +49,7 @@ async function exportTree(repoDir: string, treeSha: string, workDir: string): Pr
 function createStructureRunner({ homeDir, client, provisioner = createIndexerProvisioner(homeDir) }: StructureRunnerOptions) {
   const indexQueue = createSerialQueue();
   const workRoot = path.join(homeDir, WORK_FOLDER);
-  const leftoverWorkSwept = fsp.rm(workRoot, { recursive: true, force: true }).catch(() => {});
+  const leftoverWorkSwept = sweepStaleFolders(workRoot, CODEMAP_TUNABLES.indexDeadlineMs * 2);
 
   async function indexLanguage(language: IndexerLanguage, treeDir: string, indexPath: string): Promise<string | null> {
     const indexer = await provisioner.ensureIndexer(language);

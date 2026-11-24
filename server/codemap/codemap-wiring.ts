@@ -6,11 +6,11 @@ import { z } from 'zod';
 
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import type { BranchAbout, BranchTarget } from '../../shared/board-branch-core.ts';
-import { CODEMAP_CHECK_ID, CODEMAP_SPEC_SLUG } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_CHECK_ID, CODEMAP_SPEC_SLUG, moduleImportAllowsOf, structureAllowsOf } from '../../shared/contracts/codemap.ts';
 import { CODEMAP_BOX_CHOICES_MAX } from '../../shared/contracts/control/board-session-messages.ts';
 import { VERIFICATION_OUTPUT_TAIL_BYTES } from '../../shared/contracts/verification.ts';
 import type { CheckOutcome } from '../../shared/contracts/verification.ts';
-import type { AgentCodemapReply, AgentCodemapRequest, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
+import type { AgentCodemapReply, AgentCodemapRequest, CodemapStructureAllowEntry, CodemapStructureLint, CodemapExportKind, CodemapExtract, CodemapExtractBase, CodemapModuleEdge, CodemapSetup, CodemapStatus } from '../../shared/contracts/codemap.ts';
 import { clock } from '../../shared/clock.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createKeyedSerialQueue } from '../spawn-gate.ts';
@@ -60,17 +60,21 @@ interface StructureFindings {
   unjudgedLanguages: readonly UnjudgedLanguage[];
 }
 
+function allowedKeysOf(structureAllows: readonly CodemapStructureAllowEntry[], lint: CodemapStructureLint): string[] {
+  return structureAllows.filter((entry) => entry.lint === lint).map((entry) => entry.key);
+}
+
 const NO_STRUCTURE_FINDINGS: StructureFindings = { newTangles: [], newShallowModules: [], unjudgedLanguages: [] };
 
-async function structureFindingsOf(structure: StructureCheck, worktreeDir: string, treeSha: string, model: CodemapModel, mainlineModel: CodemapModel): Promise<StructureFindings> {
+async function structureFindingsOf(structure: StructureCheck, worktreeDir: string, treeSha: string, model: CodemapModel, mainlineModel: CodemapModel, structureAllows: readonly CodemapStructureAllowEntry[]): Promise<StructureFindings> {
   const [headGraph, mainlineGraph] = await Promise.all([structure.runner.symbolGraphOf(worktreeDir, treeSha), structure.mainlineGraph()]);
   const unjudgedOnMainline = mainlineGraph.unjudgedLanguages.map((unjudged) => ({ language: unjudged.language, reason: `mainline was not indexed, so nothing on this branch is judged against it: ${unjudged.reason}` }));
   if (unjudgedOnMainline.length > 0) return { ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [...headGraph.unjudgedLanguages, ...unjudgedOnMainline] };
   const moduleOfHeadPath = (repoPath: string) => moduleOfPath(model, repoPath);
   const moduleOfMainlinePath = (repoPath: string) => moduleOfPath(mainlineModel, repoPath);
   return {
-    newTangles: newTanglesOf(tanglesOf(headGraph, moduleOfHeadPath), tanglesOf(mainlineGraph, moduleOfMainlinePath), []),
-    newShallowModules: newShallowModulesOf(shallowModulesOf(headGraph, moduleOfHeadPath), shallowModulesOf(mainlineGraph, moduleOfMainlinePath), []),
+    newTangles: newTanglesOf(tanglesOf(headGraph, moduleOfHeadPath), tanglesOf(mainlineGraph, moduleOfMainlinePath), allowedKeysOf(structureAllows, 'tangle')),
+    newShallowModules: newShallowModulesOf(shallowModulesOf(headGraph, moduleOfHeadPath), shallowModulesOf(mainlineGraph, moduleOfMainlinePath), allowedKeysOf(structureAllows, 'shallow')),
     unjudgedLanguages: headGraph.unjudgedLanguages,
   };
 }
@@ -108,8 +112,9 @@ async function checkWorktree({ client, structure = null, homeDir, worktreeDir, m
   const exportVerdicts = await Promise.all(setup.exports.map(async (kind) => exportVerdictOf(kind, await fileTextAtCommit(worktreeDir, tree.treeSha, CODEMAP_EXPORT_FILE_BY_KIND[kind]), kind === 'lint' ? lintConfigTextOf(setup) : exportedMapTextOf(model))));
   const staleExports = exportVerdicts.flatMap((verdict) => (verdict.refusal ? [verdict.refusal] : []));
   const exportNotes = exportVerdicts.flatMap((verdict) => (verdict.note ? [verdict.note] : []));
-  const structureFindings = structure ? await structureFindingsOf(structure, worktreeDir, tree.treeSha, model, mainlineView.model).catch((error: unknown) => ({ ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [{ language: 'every language', reason: errorMessage(error) }] })) : NO_STRUCTURE_FINDINGS;
-  const findings = { ...structureFindings, staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, mainlineView.model, changedPaths, setup.allow), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, setup.allow), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, setup.allow) };
+  const moduleImportAllows = moduleImportAllowsOf(setup.allow);
+  const structureFindings = structure ? await structureFindingsOf(structure, worktreeDir, tree.treeSha, model, mainlineView.model, structureAllowsOf(setup.allow)).catch((error: unknown) => ({ ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [{ language: 'every language', reason: errorMessage(error) }] })) : NO_STRUCTURE_FINDINGS;
+  const findings = { ...structureFindings, staleExports, exportNotes, unallowedEdges: unallowedEdgesOf(model, mainlineView.model, changedPaths, moduleImportAllows), ceilingBreaches: ceilingBreachesOf(model, mainlineView.model, changedPaths, moduleImportAllows), unjudgedPaths: unjudgedPathsOf(model, changedPaths), unresolvedImports: unresolvedImportsOf(model, changedPaths), newCycles: newCyclesOf(model, mainlineView.model), staleAllowedEdges: staleAllowedEdgesOf(model, moduleImportAllows) };
   const gateNote = setup.gate ? null : 'The import gate is off for this repo, so these never refuse a merge.';
   return { ok: true, isGateOn: setup.gate, isRefusing: setup.gate && isCheckRefusing(findings), text: checkTextOf(repoName, findings, gateNote) };
 }
@@ -129,9 +134,10 @@ async function shrinkSetup({ client, homeDir, repoKey, mainlineSha }: SetupShrin
   const shrinkOutcome: { dropped: readonly CodemapModuleEdge[] } = { dropped: [] };
   const updated = updateCodemapSetup(homeDir, repoKey, (current) => {
     if (!current) return null;
-    const shrunk = shrunkAllowListOf(model, current.allow);
+    const shrunk = shrunkAllowListOf(model, moduleImportAllowsOf(current.allow));
+    const allow = [...shrunk.allow, ...structureAllowsOf(current.allow)];
     shrinkOutcome.dropped = shrunk.dropped;
-    return JSON.stringify(shrunk.allow) === JSON.stringify(current.allow) ? null : { ...current, allow: shrunk.allow };
+    return JSON.stringify(allow) === JSON.stringify(current.allow) ? null : { ...current, allow };
   });
   const { dropped } = shrinkOutcome;
   if (updated.kind !== 'ok') return { ok: false, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup` };
@@ -721,9 +727,9 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     });
     if (updated.kind !== 'ok') return { ok: false, status: UNREADABLE_MAINLINE_STATUS, error: updated.kind === 'invalid' ? updated.message : `${repoKey} has no code map setup to gate` };
     const { setup } = updated;
-    const heldWireCount = setup.allow.filter((entry) => entry.fileImportCeiling !== null).length;
+    const heldWireCount = moduleImportAllowsOf(setup.allow).filter((entry) => entry.fileImportCeiling !== null).length;
     const wasGated = lookup.kind === 'ok' && lookup.setup.gate;
-    return { ok: true, reply: { ok: true, text: `the import gate of ${repoKey} is on${wasGated ? ' already' : ''}: ${setup.allow.length} allowed module imports, ${heldWireCount} crossed wires held to their file import ceilings. A merge from this repo is refused while codemap check names an import the setup does not allow; only the operator turns the gate off (glimmervoid codemap setup ${repoKey} --gate off) or allows an import.`, status: map.status } };
+    return { ok: true, reply: { ok: true, text: `the import gate of ${repoKey} is on${wasGated ? ' already' : ''}: ${moduleImportAllowsOf(setup.allow).length} allowed module imports, ${heldWireCount} crossed wires held to their file import ceilings. A merge from this repo is refused while codemap check names an import the setup does not allow; only the operator turns the gate off (glimmervoid codemap setup ${repoKey} --gate off) or allows an import.`, status: map.status } };
   }
 
   async function exportOutcomeOf(repo: CodemapRepo, kind: CodemapExportKind): Promise<CodemapOutcome> {

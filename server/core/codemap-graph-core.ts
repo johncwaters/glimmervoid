@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 
 import type { CodemapAllowEntry, CodemapExportKind, CodemapExtract, CodemapModuleEdge, CodemapSetup, CodemapStatus, DesignSpecUnit } from '../../shared/contracts/codemap.ts';
-import { CODEMAP_SETUP_VERSION } from '../../shared/contracts/codemap.ts';
+import { CODEMAP_SETUP_VERSION, moduleImportAllowsOf, structureAllowsOf } from '../../shared/contracts/codemap.ts';
 import { AnchorRef, Element, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import type { BoxMedia, Op } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.ts';
@@ -261,13 +261,14 @@ function modulePathRuleOf(moduleId: string, moduleIds: readonly string[]): { pat
 }
 
 function lintConfigTextOf(setup: CodemapSetup): string {
-  const moduleIds = [...new Set([ROOT_MODULE, ...setup.modules, ...setup.allow.flatMap((entry) => [entry.from, entry.to])])].sort(compareText);
+  const moduleImportAllows = moduleImportAllowsOf(setup.allow);
+  const moduleIds = [...new Set([ROOT_MODULE, ...setup.modules, ...moduleImportAllows.flatMap((entry) => [entry.from, entry.to])])].sort(compareText);
   const allowed = [
     { comment: 'packages and runtime built-ins', from: {}, to: { dependencyTypes: EXTERNAL_DEPENDENCY_TYPES } },
     { comment: 'type-only imports', from: {}, to: { dependencyTypes: ['type-only'] } },
     { comment: 'imports from tests', from: { path: TEST_PATH_PATTERN }, to: {} },
     ...moduleIds.map((moduleId) => ({ comment: `within ${moduleId}`, from: modulePathRuleOf(moduleId, moduleIds), to: modulePathRuleOf(moduleId, moduleIds) })),
-    ...setup.allow.map((entry) => ({
+    ...moduleImportAllows.map((entry) => ({
       comment: entry.origin === 'allowed' ? `${entry.from} -> ${entry.to}, allowed ${entry.date}: ${entry.reason}` : `${entry.from} -> ${entry.to}, on mainline when setup seeded it`,
       from: modulePathRuleOf(entry.from, moduleIds),
       to: modulePathRuleOf(entry.to, moduleIds),
@@ -925,7 +926,7 @@ function seededEntriesForNewLanguages(model: CodemapModel, current: CodemapSetup
     return language !== null && addedLanguages.has(language.id);
   });
   if (newLanguagePaths.length === 0) return [];
-  const existingKeys = new Set(current.allow.map((edge) => edgeKeyOf(edge.from, edge.to)));
+  const existingKeys = new Set(moduleImportAllowsOf(current.allow).map((edge) => edgeKeyOf(edge.from, edge.to)));
   return [...judgedModuleImportsOf(model, newLanguagePaths).values()]
     .filter((edge) => !existingKeys.has(edgeKeyOf(edge.from, edge.to)))
     .sort((left, right) => compareText(left.from, right.from) || compareText(left.to, right.to))
@@ -934,9 +935,9 @@ function seededEntriesForNewLanguages(model: CodemapModel, current: CodemapSetup
 
 function settledSetupOf(model: CodemapModel, current: CodemapSetup): CodemapSetup {
   const nextLanguages = uniqueSorted([...(current.languages ?? LEGACY_SEEDED_LANGUAGE_IDS), ...IMPORT_LANGUAGE_IDS]);
-  const mergedAllow = [...current.allow, ...seededEntriesForNewLanguages(model, current)];
+  const mergedAllow = [...moduleImportAllowsOf(current.allow), ...seededEntriesForNewLanguages(model, current)];
   const { allow } = shrunkAllowListOf(model, mergedAllow);
-  return { ...current, allow, languages: nextLanguages };
+  return { ...current, allow: [...allow, ...structureAllowsOf(current.allow)], languages: nextLanguages };
 }
 
 function ratchetedCeilingOf(entry: CodemapAllowEntry, mainlineCeiling: number | undefined): number | null {

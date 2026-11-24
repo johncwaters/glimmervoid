@@ -135,9 +135,19 @@ async function installIndexer(homeDir: string, language: IndexerLanguage): Promi
   }
 }
 
+async function sweepStaleFolders(parentDir: string, olderThanMs: number): Promise<void> {
+  const entries = await fsp.readdir(parentDir, { withFileTypes: true }).catch(() => []);
+  const cutoffMs = clock.nowMs() - olderThanMs;
+  for (const entry of entries) {
+    const entryPath = path.join(parentDir, entry.name);
+    const stats = await fsp.stat(entryPath).catch(() => null);
+    if (stats && stats.mtimeMs < cutoffMs) await fsp.rm(entryPath, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 function createIndexerProvisioner(homeDir: string) {
   const stateByLanguage = new Map<IndexerLanguage, ProvisionState>();
-  const leftoverStagingSwept = fsp.rm(path.join(indexersDirOf(homeDir), STAGING_FOLDER), { recursive: true, force: true }).catch(() => {});
+  const leftoverStagingSwept = sweepStaleFolders(path.join(indexersDirOf(homeDir), STAGING_FOLDER), CODEMAP_TUNABLES.indexerInstallDeadlineMs * 2);
 
   function fetchIndexer(language: IndexerLanguage): Promise<IndexerOutcome> {
     const fetching = leftoverStagingSwept
@@ -165,5 +175,5 @@ function createIndexerProvisioner(homeDir: string) {
 
 type IndexerProvisioner = ReturnType<typeof createIndexerProvisioner>;
 
-export { createIndexerProvisioner, indexedLanguagesOf };
-export type { IndexerLanguage, IndexerLaunch, IndexerProvisioner };
+export { createIndexerProvisioner, indexedLanguagesOf, sweepStaleFolders };
+export type { IndexerLanguage, IndexerProvisioner };

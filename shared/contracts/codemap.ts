@@ -58,7 +58,24 @@ const CodemapAllowEntry = z.discriminatedUnion('origin', [
 
 export type CodemapAllowEntry = z.infer<typeof CodemapAllowEntry>;
 
-export const CODEMAP_SETUP_VERSION = 2;
+export const CODEMAP_STRUCTURE_LINTS = ['tangle', 'shallow'] as const;
+export type CodemapStructureLint = (typeof CODEMAP_STRUCTURE_LINTS)[number];
+
+const CodemapStructureAllowEntry = z.strictObject({ lint: z.enum(CODEMAP_STRUCTURE_LINTS), key: CodemapModuleName, origin: z.literal('allowed'), reason: z.string().min(1).max(CODEMAP_ALLOW_REASON_MAX_CHARS), date: z.iso.date() });
+export type CodemapStructureAllowEntry = z.infer<typeof CodemapStructureAllowEntry>;
+
+const CodemapSetupAllowEntry = z.union([CodemapAllowEntry, CodemapStructureAllowEntry]);
+type CodemapSetupAllowEntry = z.infer<typeof CodemapSetupAllowEntry>;
+
+export function moduleImportAllowsOf(allow: readonly CodemapSetupAllowEntry[]): CodemapAllowEntry[] {
+  return allow.filter((entry): entry is CodemapAllowEntry => !('lint' in entry));
+}
+
+export function structureAllowsOf(allow: readonly CodemapSetupAllowEntry[]): CodemapStructureAllowEntry[] {
+  return allow.filter((entry): entry is CodemapStructureAllowEntry => 'lint' in entry);
+}
+
+export const CODEMAP_SETUP_VERSION = 3;
 export const CODEMAP_CHECK_ID = 'codemap';
 
 export const CodemapSetup = z.strictObject({
@@ -66,7 +83,7 @@ export const CodemapSetup = z.strictObject({
   repo: z.string().min(1),
   gate: z.boolean(),
   modules: z.array(CodemapModuleName),
-  allow: z.array(CodemapAllowEntry),
+  allow: z.array(CodemapSetupAllowEntry),
   exports: z.array(z.enum(CODEMAP_EXPORT_KINDS)),
   languages: z.array(z.string().min(1)).optional(),
 });
@@ -79,7 +96,14 @@ const CodemapSetupVersion1 = z.looseObject({ version: z.literal(1), allow: z.arr
   return z.NEVER;
 });
 
-export const StoredCodemapSetup = z.union([CodemapSetup, CodemapSetupVersion1]);
+const CodemapSetupVersion2 = z.looseObject({ version: z.literal(2) }).transform((setup, context) => {
+  const migrated = CodemapSetup.safeParse({ ...setup, version: CODEMAP_SETUP_VERSION });
+  if (migrated.success) return migrated.data;
+  for (const issue of migrated.error.issues) context.addIssue({ code: 'custom', message: issue.message, path: issue.path });
+  return z.NEVER;
+});
+
+export const StoredCodemapSetup = z.union([CodemapSetup, CodemapSetupVersion2, CodemapSetupVersion1]);
 
 const DesignSpecUnit = z.object({ kind: z.literal('unit'), id: z.string().min(1).max(40), title: z.string().min(1), changes: z.array(z.string()) });
 export type DesignSpecUnit = z.infer<typeof DesignSpecUnit>;
