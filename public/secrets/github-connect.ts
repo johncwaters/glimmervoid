@@ -1,13 +1,13 @@
 import type { GithubConnection, GithubConnectionAction } from '#shared/contracts/watcher-link.ts';
 import { createActionStatus, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
-import { el } from '../dom-helpers.ts';
+import { el, writeClipboardText } from '../dom-helpers.ts';
 import { openExternalUrl } from '../external-link.ts';
 import { refreshWhileShown } from '../host-ready/host-ready-changes.ts';
 import { button } from '../ui/button.ts';
 import { clock } from '#shared/clock.ts';
 import { GITHUB_CONNECT_CONTROLS, githubConnectViewOf } from './github-connect-core.ts';
-import type { GithubConnectControl } from './github-connect-core.ts';
+import type { GithubConnectControl, GithubDeviceCode } from './github-connect-core.ts';
 
 const CONNECTION_REQUEST_TIMEOUT_MS = 20_000;
 const HIDDEN_UNANSWERED_RECHECK_MAX_MS = 60_000;
@@ -16,12 +16,15 @@ const FAILED_ACTION_TEXT = {
   connect: 'GitHub did not start a sign-in. The server log names why.',
   disconnect: 'Disconnect did not reach this host. The server log names why.',
 } as const;
+const SETTING_DESCRIPTION_TEXT = 'Agents clone, push and open pull requests as the account you connect.';
+const COPY_DONE_TEXT = 'Copied. Paste it on the GitHub page.';
+const COPY_FAILED_TEXT = 'Copy did not work. Type the code on the GitHub page.';
 
-function settingColumnsOf(description: HTMLElement, controlRow: HTMLElement): HTMLElement[] {
+function settingColumnsOf(connectionState: HTMLElement, deviceCodeBlock: HTMLElement, controlRow: HTMLElement): HTMLElement[] {
   const text = el('div', 'settings-view-setting-text');
   const heading = el('div', 'settings-view-setting-heading');
   heading.append(el('h2', 'settings-view-setting-title', 'GitHub'));
-  text.append(heading, description);
+  text.append(heading, el('p', 'settings-view-setting-description', SETTING_DESCRIPTION_TEXT), connectionState, deviceCodeBlock);
   const control = el('div', 'settings-view-setting-control');
   control.append(controlRow);
   return [text, control];
@@ -33,28 +36,60 @@ function isConnectOffered(connection: GithubConnection | null | 'reading'): bool
 }
 
 type GithubConnectLayout = 'setting' | 'stacked';
-type GithubConnectOptions = { layout?: GithubConnectLayout; isHiddenWithoutConnect?: boolean; onConnectionChange?: (connection: GithubConnection | null) => void };
+type GithubConnectOpening = 'read' | 'connect-when-signed-out';
+const SIGNED_OUT_STATES: ReadonlySet<GithubConnection['state']> = new Set(['disconnected', 'reconnect-needed']);
+type GithubConnectOptions = { layout?: GithubConnectLayout; isHiddenWithoutConnect?: boolean; opening?: GithubConnectOpening; onConnectionChange?: (connection: GithubConnection | null) => void };
 
-function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect = false, onConnectionChange = () => {} }: GithubConnectOptions = {}): HTMLElement {
+type DeviceCodeBlock = { element: HTMLElement; paint: (deviceCode: GithubDeviceCode | null, isCodeComing: boolean) => void };
+const PENDING_CODE_TEXT = 'XXXX-XXXX';
+
+function buildDeviceCodeBlock(): DeviceCodeBlock {
+  let shownDeviceCode: GithubDeviceCode | null = null;
+  const element = el('div', 'github-device-code');
+  const codeText = el('span', 'github-device-code-value');
+  const copyStatus = createActionStatus('settings-vault-test-status');
+  const copyAndOpenButton = button({ variant: 'primary', label: 'Copy code and open GitHub', action: 'github-copy-code-open-device-page', onClick: copyCodeAndOpenGithub });
+  const copyStatusSlot = el('div', 'github-device-code-status');
+  copyStatusSlot.append(copyStatus.element);
+  element.append(el('span', 'github-device-code-step', 'Approve on GitHub'), codeText, copyAndOpenButton, copyStatusSlot);
+
+  function copyCodeAndOpenGithub(): void {
+    if (shownDeviceCode === null) return;
+    const clipboardWrite = writeClipboardText(shownDeviceCode.userCode) ?? Promise.reject(new Error('This browser has no clipboard access.'));
+    openExternalUrl(shownDeviceCode.verificationUri);
+    clipboardWrite.then(() => copyStatus.show('ok', COPY_DONE_TEXT), () => copyStatus.show('error', COPY_FAILED_TEXT));
+  }
+
+  function paint(deviceCode: GithubDeviceCode | null, isCodeComing: boolean): void {
+    element.hidden = deviceCode === null && !isCodeComing;
+    if (deviceCode?.userCode !== shownDeviceCode?.userCode) copyStatus.clear();
+    shownDeviceCode = deviceCode;
+    codeText.textContent = deviceCode?.userCode ?? PENDING_CODE_TEXT;
+    codeText.dataset.state = deviceCode === null ? 'pending' : 'ready';
+    copyAndOpenButton.disabled = deviceCode === null;
+  }
+
+  return { element, paint };
+}
+
+function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect = false, opening = 'read', onConnectionChange = () => {} }: GithubConnectOptions = {}): HTMLElement {
   let connection: GithubConnection | null | 'reading' = 'reading';
   let isRequesting = false;
   let recheckTimer: ReturnType<typeof setTimeout> | null = null;
   let hiddenUnansweredRecheckMs = 0;
   const article = layout === 'stacked' ? el('div', 'github-connect-stacked') : el('article', 'settings-view-setting');
-  const description = el('p', layout === 'stacked' ? 'github-connect-stacked-status' : 'settings-view-setting-description');
+  const connectionState = el('p', layout === 'stacked' ? 'github-connect-stacked-status' : 'settings-view-setting-description github-connect-state');
+  const deviceCodeBlock = buildDeviceCodeBlock();
   const requestStatus = createActionStatus('settings-vault-test-status');
   const buttonsByControl: Record<GithubConnectControl, HTMLButtonElement> = {
     connect: button({ variant: 'primary', label: 'Connect GitHub', action: 'github-connect', onClick: () => { void request('connect'); } }),
-    'open-github': button({ variant: 'secondary', label: 'Open GitHub', action: 'github-open-device-page', onClick: () => {
-      if (connection !== null && connection !== 'reading' && connection.state === 'awaiting-code') openExternalUrl(connection.verificationUri);
-    } }),
     install: button({ variant: 'secondary', label: 'Install the App', action: 'github-install-app', onClick: openInstallPage }),
     'add-accounts': button({ variant: 'quiet', label: 'Add accounts', action: 'github-install-app', onClick: openInstallPage }),
     disconnect: button({ variant: 'secondary', label: 'Disconnect', action: 'github-disconnect', onClick: () => { void request('disconnect'); } }),
   };
   const controlRow = el('div', layout === 'stacked' ? 'github-connect-stacked-actions' : 'settings-telegram-test');
   controlRow.append(...GITHUB_CONNECT_CONTROLS.map((controlName) => buttonsByControl[controlName]), requestStatus.element);
-  article.append(...(layout === 'stacked' ? [description, controlRow] : settingColumnsOf(description, controlRow)));
+  article.append(...(layout === 'stacked' ? [connectionState, deviceCodeBlock.element, controlRow] : settingColumnsOf(connectionState, deviceCodeBlock.element, controlRow)));
 
   function openInstallPage(): void {
     if (connection !== null && connection !== 'reading' && (connection.state === 'needs-install' || connection.state === 'connected')) openExternalUrl(connection.installUrl);
@@ -63,13 +98,19 @@ function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect 
   function paint(): void {
     const view = githubConnectViewOf(connection, clock.nowMs());
     article.hidden = isHiddenWithoutConnect && !isConnectOffered(connection);
-    description.textContent = view.text;
+    connectionState.textContent = view.text;
+    deviceCodeBlock.paint(view.deviceCode, isCodeComing());
     for (const controlName of GITHUB_CONNECT_CONTROLS) {
       buttonsByControl[controlName].hidden = !view.controls.includes(controlName);
       buttonsByControl[controlName].disabled = isRequesting || (controlName === 'connect' && view.isConnectWaiting);
     }
-    controlRow.hidden = view.controls.length === 0 && requestStatus.element.textContent === '';
+    controlRow.hidden = opening === 'read' && view.controls.length === 0 && requestStatus.element.textContent === '';
     scheduleRecheck(recheckDelayOf(view.recheckAfterMs));
+  }
+
+  function isCodeComing(): boolean {
+    if (opening !== 'connect-when-signed-out' || connection === null) return false;
+    return connection === 'reading' || SIGNED_OUT_STATES.has(connection.state);
   }
 
   function scheduleRecheck(recheckAfterMs: number | null): void {
@@ -128,8 +169,14 @@ function buildGithubConnectSection({ layout = 'setting', isHiddenWithoutConnect 
     scheduleRecheck(FAILED_READ_RETRY_MS);
   }
 
+  async function open(): Promise<void> {
+    await request('read');
+    if (opening !== 'connect-when-signed-out' || connection === null || connection === 'reading' || !SIGNED_OUT_STATES.has(connection.state)) return;
+    await request('connect');
+  }
+
   paint();
-  void request('read');
+  void open();
   refreshWhileShown(article, () => { if (!isRequesting) void request('read'); });
   document.addEventListener('visibilitychange', recheckOnceShown);
   return article;

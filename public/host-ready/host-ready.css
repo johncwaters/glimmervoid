@@ -66,6 +66,15 @@
 
 .host-ready-row[data-host-ready-state="needs-action"] .host-ready-text { color: var(--text); }
 
+.host-ready-row > .github-connect-stacked {
+  flex: 1 0 100%;
+  margin-bottom: 6px;
+}
+
+.host-ready-row > .github-connect-stacked > .github-connect-stacked-actions {
+  min-height: 28px;
+}
+
 .host-ready-controls {
   display: flex;
   align-items: center;

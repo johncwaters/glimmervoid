@@ -406,6 +406,61 @@ html:has(:is(.focus-empty, .phone-empty) > .first-run-checklist:not([hidden])) [
   margin: 0;
 }
 
+.github-connect-state {
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.github-device-code {
+  display: grid;
+  gap: 8px;
+  max-width: 56ch;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+}
+
+.github-device-code[hidden] {
+  display: none;
+}
+
+.github-device-code-step {
+  color: var(--text-dim);
+  font-size: var(--type-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.github-device-code-value {
+  color: var(--text-head);
+  font-size: var(--type-display);
+  font-weight: 700;
+  user-select: all;
+}
+
+.github-device-code-value[data-state="pending"] {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.github-device-code > button {
+  justify-self: start;
+}
+
+.github-device-code-status {
+  min-height: calc(var(--type-meta) * 1.55);
+  font-size: var(--type-meta);
+  line-height: 1.55;
+}
+
+.github-device-code-status .settings-vault-test-status {
+  margin: 0;
+}
+
 .repo-roots-adder-list {
   list-style: none;
   margin: 0;

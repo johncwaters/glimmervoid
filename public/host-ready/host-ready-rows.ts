@@ -1,12 +1,13 @@
 import './host-ready.css';
 
 import type { HostReady, HostReadyFix } from '#shared/contracts/host-ready.ts';
+import type { GithubConnection } from '#shared/contracts/watcher-link.ts';
 import type { CommitSigningAction } from '#shared/contracts/commit-signing.ts';
 import { createActionStatus, requestFailureText } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
-import { settingsHash } from '../settings-link.ts';
+import { buildGithubConnectSection } from '../secrets/github-connect.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import { button } from '../ui/button.ts';
 import { refreshWhileShown } from './host-ready-changes.ts';
@@ -15,25 +16,37 @@ import type { HostReadyRowView } from './host-ready-core.ts';
 
 const READ_TIMEOUT_MS = 20_000;
 const SIGNING_REQUEST_TIMEOUT_MS = 45_000;
-const GITHUB_CONNECTION_SECTION_ID = 'machine-github';
 const SIGNING_ACTION_BY_FIX: Readonly<Record<Exclude<HostReadyFix, 'connect-github'>, CommitSigningAction>> = Object.freeze({ 'set-up-signing': 'setup', 'register-signing': 'register' });
 const BUSY_TEXT_BY_FIX: Readonly<Record<Exclude<HostReadyFix, 'connect-github'>, string>> = Object.freeze({ 'set-up-signing': 'Setting up commit signing.', 'register-signing': 'Registering the key on GitHub.' });
 
 type HostReadyRows = { element: HTMLElement; refresh: () => Promise<void> };
 
-function openGithubConnectionInSettings(): void {
-  location.hash = settingsHash(GITHUB_CONNECTION_SECTION_ID);
-}
-
-export function buildHostReadyRows({ openGithubConnection = openGithubConnectionInSettings }: { openGithubConnection?: () => void } = {}): HostReadyRows {
+export function buildHostReadyRows({ openGithubConnection }: { openGithubConnection?: () => void } = {}): HostReadyRows {
   let hostReady: HostReady | null = null;
   let isRequesting = false;
+  let githubConnectInPlace: HTMLElement | null = null;
   const section = el('section', 'host-ready');
   const list = el('div', 'host-ready-rows');
   const readStatus = createActionStatus('host-ready-status');
   section.append(el('h2', 'host-ready-title', 'Ready to commit as you'), list, readStatus.element);
 
+  function startGithubConnectInPlace(): void {
+    githubConnectInPlace ??= buildGithubConnectSection({ layout: 'stacked', opening: 'connect-when-signed-out', onConnectionChange: followGithubConnection });
+    paint();
+  }
+
+  function followGithubConnection(connection: GithubConnection | null): void {
+    if (connection?.state !== 'connected') return;
+    githubConnectInPlace = null;
+    void refresh();
+  }
+
+  function isGithubConnectShownIn(view: HostReadyRowView): boolean {
+    return view.id === 'github' && view.state !== 'ready' && githubConnectInPlace !== null;
+  }
+
   function buildFixControls(view: HostReadyRowView, rowStatus: ActionStatus): readonly HTMLElement[] {
+    if (isGithubConnectShownIn(view)) return [];
     return HOST_READY_FIXES.filter((fix) => fix === view.fix).map((fix) => {
       const fixButton = button({ variant: 'secondary', label: FIX_LABELS[fix], action: `host-ready-${fix}`, onClick: () => { void runFix(fix, rowStatus); } });
       fixButton.disabled = isRequesting;
@@ -56,6 +69,7 @@ export function buildHostReadyRows({ openGithubConnection = openGithubConnection
     name.append(mark, view.title);
     body.append(name, el('p', 'host-ready-text', view.text));
     row.append(body, controls);
+    if (githubConnectInPlace !== null && isGithubConnectShownIn(view)) row.append(githubConnectInPlace);
     return row;
   }
 
@@ -82,7 +96,7 @@ export function buildHostReadyRows({ openGithubConnection = openGithubConnection
   }
 
   async function runFix(fix: HostReadyFix, rowStatus: ActionStatus): Promise<void> {
-    if (fix === 'connect-github') return openGithubConnection();
+    if (fix === 'connect-github') return (openGithubConnection ?? startGithubConnectInPlace)();
     setRequesting(true);
     rowStatus.show('busy', BUSY_TEXT_BY_FIX[fix]);
     try {
