@@ -200,7 +200,7 @@ test('a restart lists stored boards without reading their elements, answers a vi
 
   const restarted = createWhiteboardWiring({ boardsRoot, logger: { warn: () => {} } });
   const sentTypes: unknown[] = [];
-  await restarted.tiles.view({ send: (message) => sentTypes.push(message.type) }, { boardId: healthyId, view: { x: -100, y: -100, width: 800, height: 600 }, lod: 'full', knownVersion: null });
+  await restarted.tiles.view({ send: (message) => sentTypes.push(message.type) }, { boardId: healthyId, view: { x: -100, y: -100, width: 800, height: 600 }, lod: 'full', scale: null, knownVersion: null });
   assert.deepEqual(sentTypes, ['whiteboard-tiles']);
   assert.deepEqual(restarted.snapshotMessage().boards.map((board) => board.title).sort(), ['Damaged rows', 'Healthy rows']);
   const damagedRead = await restarted.handleOperator.get(damagedId);
@@ -272,7 +272,7 @@ test('a session closing while its board loads after a restart keeps the loaded e
 test('a restart draws a viewed board from its saved layout and edits it without laying it out again, sends its backdrop once the board loads unless the viewer moved on, and a layout saved by other code, for a lost edit, or unreadable is laid out again', async () => {
   const boardsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'whiteboard-layout-cache-'));
   const cachePath = path.join(boardsRoot, 'layout-cache.sqlite');
-  const boardView = { view: { x: -200, y: -200, width: 4000, height: 3000 }, lod: 'full' as const, knownVersion: null };
+  const boardView = { view: { x: -200, y: -200, width: 4000, height: 3000 }, lod: 'full' as const, scale: null, knownVersion: null };
   const tilesSeenBy = async (wiring: ReturnType<typeof createWhiteboardWiring>, boardId: string): Promise<unknown[]> => {
     const sent: unknown[] = [];
     await wiring.loaded;

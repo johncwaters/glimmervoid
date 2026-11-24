@@ -1890,7 +1890,7 @@ function createWhiteboardWiring({
     const warmedBoard = await warmEditPathOf(request.boardId);
     if (!warmedBoard || !backdropOfBoard(warmedBoard) || !tiles.isViewing(viewer, request.boardId)) return;
     const latestView = tiles.operatorViewOf(request.boardId);
-    await tiles.view(viewer, latestView ? { ...request, view: latestView.view, lod: latestView.lod } : request, openSteps);
+    await tiles.view(viewer, latestView ? { ...request, view: latestView.view, lod: latestView.lod, scale: latestView.scale } : request, openSteps);
   }
 
   async function openAsksOf(boardId: string): Promise<OpenBoardAsk[]> {

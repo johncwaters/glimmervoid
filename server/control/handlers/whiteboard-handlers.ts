@@ -45,7 +45,7 @@ function createWhiteboardHandlers(context: ControlContext, deps: ControlHandlerD
     'whiteboard-linked-doc-save': (msg: ClientMessageOf<'whiteboard-linked-doc-save'>, ws: ControlSocket) => answerWhiteboard(ws, msg, (port) => port.saveLinkedDoc(msg.boardId, msg.boxId, msg.text, msg.baseAsset)),
     'whiteboard-view': (msg: ClientMessageOf<'whiteboard-view'>, ws: ControlSocket) => {
       if (!whiteboards) return;
-      void whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, knownVersion: msg.knownVersion });
+      void whiteboards.tiles.view(tileViewerOf(ws, whiteboards), { boardId: msg.boardId, view: msg.view, lod: msg.lod, scale: msg.scale, knownVersion: msg.knownVersion });
     },
   } satisfies ControlHandlerTable;
 

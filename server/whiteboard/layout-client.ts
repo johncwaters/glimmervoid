@@ -7,7 +7,7 @@ import type { TileKey } from '../../shared/contracts/whiteboard-tiles.ts';
 import { layoutWorkerPath } from '../runtime-paths.ts';
 import { ELEMENT_PAGE_SIZE } from './board-store-core.ts';
 import { LayoutReply, SavedLayoutWritten } from './layout-worker-core.ts';
-import type { LayoutAnswer, LayoutRequestBody, SavedLayoutWrite, ViewerTiles } from './layout-worker-core.ts';
+import type { LayoutAnswer, LayoutRequestBody, SavedLayoutWrite, TileSight, ViewerTiles } from './layout-worker-core.ts';
 import type { LayoutStamp } from './layout-cache.ts';
 
 const WORKER_HEAP_SHARE = 0.5;
@@ -36,7 +36,7 @@ interface LayoutClient {
   advance(board: Board, changes: readonly ChangedElement[], viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   refresh(board: Board, viewers: readonly ViewerTiles[]): Promise<LayoutAnswer>;
   ask(board: Board, body: LayoutRequestBody): Promise<LayoutAnswer>;
-  cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean): Promise<LayoutAnswer>;
+  cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean, sight: TileSight): Promise<LayoutAnswer>;
   forget(boardId: string): void;
 }
 
@@ -177,8 +177,8 @@ function createLayoutClient({ cachePath, onSavedLayoutWritten }: { cachePath: st
     void (held?.posted ?? Promise.resolve()).then(() => post({ kind: 'forget', boardId })).catch(() => {});
   }
 
-  function cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean): Promise<LayoutAnswer> {
-    return post({ kind: 'cached-tiles', boardId, version: stamp.version, updatedAt: stamp.updatedAt, keys: [...keys], withChrome });
+  function cachedTiles(boardId: string, stamp: LayoutStamp, keys: readonly TileKey[], withChrome: boolean, sight: TileSight): Promise<LayoutAnswer> {
+    return post({ kind: 'cached-tiles', boardId, version: stamp.version, updatedAt: stamp.updatedAt, keys: [...keys], withChrome, sight });
   }
 
   return { hold, advance, refresh, ask, cachedTiles, forget };

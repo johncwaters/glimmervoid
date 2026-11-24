@@ -13,10 +13,10 @@ test('a small board gets its tiles while a large board is still laying out in th
   const client = createLayoutClient({ cachePath: null, onSavedLayoutWritten: () => {} });
   const largeBoard = benchmarkBoard(3000);
   const smallBoard = { ...benchmarkBoard(40), id: '00000000-0000-4000-8000-0000000000aa' };
-  for (const board of [largeBoard, smallBoard]) await client.ask(board, { kind: 'cached-tiles', boardId: board.id, version: board.version, updatedAt: board.updatedAt, keys: [], withChrome: false });
+  for (const board of [largeBoard, smallBoard]) await client.ask(board, { kind: 'cached-tiles', boardId: board.id, version: board.version, updatedAt: board.updatedAt, keys: [], withChrome: false, sight: null });
   const settledBoards: string[] = [];
-  const largeTiles = client.ask(largeBoard, { kind: 'tiles', boardId: largeBoard.id, keys: [], withChrome: true }).then(() => settledBoards.push('large'));
-  const smallTiles = client.ask(smallBoard, { kind: 'tiles', boardId: smallBoard.id, keys: [], withChrome: true }).then(() => settledBoards.push('small'));
+  const largeTiles = client.ask(largeBoard, { kind: 'tiles', boardId: largeBoard.id, keys: [], withChrome: true, sight: null }).then(() => settledBoards.push('large'));
+  const smallTiles = client.ask(smallBoard, { kind: 'tiles', boardId: smallBoard.id, keys: [], withChrome: true, sight: null }).then(() => settledBoards.push('small'));
   await Promise.all([largeTiles, smallTiles]);
   assert.deepEqual(settledBoards, ['small', 'large']);
 });
@@ -32,7 +32,7 @@ test('an edit made while a large board is still saving its first layout keeps th
   const movedElements = elementTableOf();
   for (const element of board.elements.values()) movedElements.put(element.id === afterMove.id ? afterMove : element);
   const movedBoard = { ...board, version: board.version + 1, updatedAt: board.updatedAt + 1, elements: movedElements };
-  const tiles = client.ask(board, { kind: 'tiles', boardId: board.id, keys: [], withChrome: true });
+  const tiles = client.ask(board, { kind: 'tiles', boardId: board.id, keys: [], withChrome: true, sight: null });
   await Promise.all([tiles, client.advance(movedBoard, [{ id: afterMove.id, after: afterMove, isAppended: false }], [])]);
   for (let waitedMs = 0; wholeWriteCount === 0 && waitedMs < 20000; waitedMs += 100) await delay(100);
   assert.equal(wholeWriteCount, 1);

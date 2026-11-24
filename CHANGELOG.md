@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Signing in or out of `gh` is noticed at once.** Glimmervoid follows gh's `hosts.yml` instead of trusting its last answer for a minute, so GitHub features switch between your gh login and the GitHub connection in Settings as soon as you run `gh auth login` or `gh auth logout`.
 - **A revoked or newly paired device applies at once.** Glimmervoid now reloads paired devices only when the pairings file changes; the 30 second reload runs only if the file can't be watched.
 - **A sandboxed agent's login is refreshed as soon as you sign in again.** When a sandboxed session's login file was missing or needed signing in again, Glimmervoid checked it once a minute; it now follows the file and acts the moment it changes.
+- **Large boards show their boxes and images when zoomed out.** A board of more than 1000 elements turned into gray outlines once you zoomed out past about 12%, even when only a few dozen boxes were on screen. The board now picks its detail from how many elements are in view: up to 1000 show in full, up to 5000 show their titles and images, and only a view holding more than that shows outlines.
 
 ## [0.64.0] - 2026-11-24
 

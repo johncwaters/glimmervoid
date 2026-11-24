@@ -62,13 +62,13 @@ export const whiteboardClientVariants = [
   loose('whiteboard-disconnect', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-detach', { boardId: Board.shape.id, sessionId: z.string().min(1), requestId }),
   loose('whiteboard-linked-doc-save', { boardId: Board.shape.id, boxId: z.string().min(1), text: z.string().max(BOARD_DOC_CAP_BYTES), baseAsset: BoxMedia.shape.asset, requestId }),
-  loose('whiteboard-view', { boardId: Board.shape.id, view: LayoutRect, lod: z.enum(TILE_LODS), knownVersion: z.number().int().nullable(), requestId }),
+  loose('whiteboard-view', { boardId: Board.shape.id, view: LayoutRect, lod: z.enum(TILE_LODS), scale: z.number().positive().nullable().default(null), knownVersion: z.number().int().nullable(), requestId }),
 ] as const;
 
 export const whiteboardServerVariants = [
   loose('whiteboards-snapshot', { boards: z.array(BoardSummary) }),
   loose('whiteboard-removed', { boardId: z.string() }),
-  loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), chrome: BoardChrome.nullable(), tiles: z.array(Tile) }),
+  loose('whiteboard-tiles', { boardId: z.string(), version: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), chrome: BoardChrome.nullable(), elementsInView: z.number().int().nonnegative().nullable().default(null), tiles: z.array(Tile) }),
   loose('whiteboard-tile-diff', { boardId: z.string(), fromVersion: z.number().int(), toVersion: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative(), backdrop: BoardBackdrop.nullable().default(null), diff: TileDiff }),
   loose('whiteboard-agent-change', { boardId: z.string(), version: z.number().int(), at: z.number().finite(), change: AgentChange }),
   loose('whiteboard-result', { requestId, ok: z.boolean(), error: optionalError, board: Board.optional(), summary: BoardSummary.optional(), review: BoardReview.optional(), slides: SlideChain.optional(), patch: WhiteboardPatch.optional(), isConflict: z.boolean().optional(), savedMedia: BoxMedia.optional() }),

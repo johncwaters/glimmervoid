@@ -12,7 +12,7 @@ import { boardIndexOf } from '../../shared/whiteboard-board-index.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { createLayoutClient } from './layout-client.ts';
 import type { ChangedElement } from './layout-client.ts';
-import type { LayoutAnswer, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
+import type { LayoutAnswer, OpenStep, SavedLayoutWrite, TileSight, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 import { clock } from '../../shared/clock.ts';
 
 interface TileViewer {
@@ -30,6 +30,7 @@ interface ViewRequest {
   boardId: string;
   view: Rect;
   lod: TileLod;
+  scale: number | null;
   knownVersion: number | null;
 }
 
@@ -41,13 +42,14 @@ interface BoardFraming {
 
 interface TileSource {
   version: number;
-  fetch(keys: TileKey[], withChrome: boolean): Promise<LayoutAnswer>;
+  fetch(keys: TileKey[], withChrome: boolean, sight: TileSight): Promise<LayoutAnswer>;
   framing(answer: LayoutAnswer): BoardFraming;
 }
 
 interface BoardView {
   view: Rect;
   lod: TileLod;
+  scale: number | null;
 }
 
 interface LayoutSummary {
@@ -138,7 +140,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
         viewer.send({ type: 'whiteboard-tile-diff', boardId, fromVersion: message.fromVersion, toVersion: version, head, elementCount, backdrop, diff: message.diff });
         continue;
       }
-      viewer.send({ type: 'whiteboard-tiles', boardId, version, head, elementCount, backdrop, chrome: message.chrome, tiles: message.tiles });
+      viewer.send({ type: 'whiteboard-tiles', boardId, version, head, elementCount, backdrop, chrome: message.chrome, elementsInView: null, tiles: message.tiles });
     }
   }
 
@@ -159,15 +161,19 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     viewerById.set(viewerId, viewer);
     stateByViewer.set(viewer, { viewerId, boardId: request.boardId, version: source.version, heldKeys: wantedKeys });
     if (isInSync && missingKeys.length === 0) return true;
-    const answer = await source.fetch(missingKeys, !isInSync);
+    const sight = request.scale === null ? null : { view: request.view, scale: request.scale };
+    const answer = await source.fetch(missingKeys, !isInSync, sight);
     if (answer.openSteps) openSteps?.addWorkerSteps(answer.openSteps);
     if (answer.isCacheMiss) {
       forgetViewer(viewer);
       return false;
     }
     openSteps?.mark('tiles answered', { tiles: answer.tiles?.length ?? 0 });
-    if (stateByViewer.get(viewer)?.boardId !== request.boardId) return true;
-    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: source.version, ...source.framing(answer), chrome: answer.chrome ?? null, tiles: answer.tiles ?? [] });
+    const viewerState = stateByViewer.get(viewer);
+    if (viewerState?.boardId !== request.boardId) return true;
+    const tiles = answer.tiles ?? [];
+    if (tiles.length < missingKeys.length) viewerState.heldKeys = [];
+    viewer.send({ type: 'whiteboard-tiles', boardId: request.boardId, version: source.version, ...source.framing(answer), chrome: answer.chrome ?? null, elementsInView: answer.elementsInView ?? null, tiles });
     openSteps?.mark('tiles sent');
     return true;
   }
@@ -175,7 +181,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
   function loadedSource(board: Board): TileSource {
     return {
       version: board.version,
-      fetch: (keys, withChrome) => layouts.ask(board, { kind: 'tiles', boardId: board.id, keys, withChrome }),
+      fetch: (keys, withChrome, sight) => layouts.ask(board, { kind: 'tiles', boardId: board.id, keys, withChrome, sight }),
       framing: () => headOf(board),
     };
   }
@@ -184,7 +190,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     const { elements: _elements, ...head } = board;
     return {
       version: board.version,
-      fetch: (keys, withChrome) => layouts.cachedTiles(board.id, board, keys, withChrome),
+      fetch: (keys, withChrome, sight) => layouts.cachedTiles(board.id, board, keys, withChrome, sight),
       framing: (answer) => ({ head, elementCount: answer.elementCount ?? 0, backdrop: backdropOfBoard(board) }),
     };
   }
@@ -253,7 +259,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
 
   return {
     view: async (viewer, request, openSteps) => {
-      lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
+      lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod, scale: request.scale });
       const board = boardOf(request.boardId);
       if (!board) return;
       await sendView(viewer, request, loadedSource(board), openSteps).catch((error: unknown) => {
@@ -263,7 +269,7 @@ function createBoardTileService({ boardOf, unloadedBoardOf, layoutCachePath, log
     viewCached: async (viewer, request, openSteps) => {
       const board = unloadedBoardOf(request.boardId);
       if (!board) return false;
-      lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod });
+      lastViewByBoardId.set(request.boardId, { view: request.view, lod: request.lod, scale: request.scale });
       return sendView(viewer, request, cachedSource(board), openSteps).catch(() => false);
     },
     isViewing: (viewer, boardId) => stateByViewer.get(viewer)?.boardId === boardId,

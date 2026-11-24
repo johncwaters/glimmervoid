@@ -3,7 +3,7 @@ import type { AgentChange } from '#shared/contracts/control/whiteboard-messages.
 import type { Board, BoardHead } from '#shared/contracts/whiteboard.ts';
 import type { BoardBackdrop, BoardChrome, PaintedElement, TileKey, TileLod } from '#shared/contracts/whiteboard-tiles.ts';
 import type { BoardLayout, Rect } from '#shared/whiteboard-layout-core.ts';
-import { lodForScale, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/contracts/whiteboard-tile-core.ts';
+import { elementsInViewEstimate, lodForView, paintedBoundsOf, tileIdOf, tileKeysFor, tileRectOf } from '#shared/contracts/whiteboard-tile-core.ts';
 import { sendControlMsg } from '../control-ws.ts';
 import { elementTableOf } from '#shared/contracts/whiteboard-element-table.ts';
 
@@ -43,6 +43,8 @@ interface TileState {
   chrome: BoardChrome | null;
   lod: TileLod;
   view: Rect;
+  sentView: Rect;
+  counted: { view: Rect; elementsInView: number } | null;
   sentTileIds: Set<string>;
   tiles: Map<string, HeldTile>;
   elementById: Map<string, PaintedElement>;
@@ -88,9 +90,10 @@ function bytesOf(base64: string): Uint8Array {
 function sendView(current: TileState): void {
   if (sendTimer !== null) clearTimeout(sendTimer);
   sendTimer = null;
+  current.sentView = current.view;
   current.sentTileIds = new Set(tileKeysFor(current.view, current.lod).map(tileIdOf));
   if (evictUnsentTiles(current, (tile) => tile.key.lod === current.lod && !rectsTouch(tile.rect, current.view))) notifyTilesChanged();
-  sendControlMsg({ type: 'whiteboard-view', boardId: current.boardId, view: current.view, lod: current.lod, knownVersion: current.version });
+  sendControlMsg({ type: 'whiteboard-view', boardId: current.boardId, view: current.view, lod: current.lod, scale: current.scale, knownVersion: current.version });
 }
 
 function scheduleViewSend(current: TileState): void {
@@ -120,14 +123,14 @@ function isViewRequested(current: TileState): boolean {
 }
 
 function freshState(boardId: string, view: Rect, scale: number, lod: TileLod): TileState {
-  return { boardId, version: null, head: null, elementCount: null, backdrop: null, scale, chrome: null, lod, view, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
+  return { boardId, version: null, head: null, elementCount: null, backdrop: null, scale, chrome: null, lod, view, sentView: view, counted: null, sentTileIds: new Set(), tiles: new Map(), elementById: new Map(), assembled: null };
 }
 
 function showTilesFor(boardId: string, view: Rect, scale: number): void {
   const isNewBoard = state?.boardId !== boardId;
   if (isNewBoard) forgetAgentChange();
-  const knownElementCount = isNewBoard || !state ? null : state.elementCount;
-  const lod = lodForScale(scale, knownElementCount);
+  const known = isNewBoard || !state ? null : state;
+  const lod = lodForView(scale, known?.elementCount ?? null, elementsInViewEstimate(view, known?.counted ?? null));
   const current = isNewBoard || !state ? freshState(boardId, view, scale, lod) : state;
   const isLodChanged = current.lod !== lod;
   state = current;
@@ -174,6 +177,7 @@ function applyBoardTiles(message: ServerMessageOf<'whiteboard-tiles'>): void {
   if (!current.chrome) return;
   current.head = message.head;
   current.elementCount = message.elementCount;
+  if (message.elementsInView !== null) current.counted = { view: current.sentView, elementsInView: message.elementsInView };
   current.backdrop = message.backdrop;
   current.version = message.version;
   for (const tile of message.tiles) holdTile(current, tile);
@@ -184,7 +188,7 @@ function applyBoardTiles(message: ServerMessageOf<'whiteboard-tiles'>): void {
 }
 
 function followElementCountDetail(current: TileState): void {
-  if (state !== current || lodForScale(current.scale, current.elementCount) === current.lod) return;
+  if (state !== current || lodForView(current.scale, current.elementCount, elementsInViewEstimate(current.view, current.counted)) === current.lod) return;
   showTilesFor(current.boardId, current.view, current.scale);
 }
 

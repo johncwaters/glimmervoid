@@ -14,6 +14,7 @@ const CHUNK_SIZE = 2048;
 const FULL_MIN_SCALE = 0.3;
 const TITLES_MIN_SCALE = 0.12;
 const FULL_DETAIL_ELEMENT_MAX = 1000;
+const TITLES_ELEMENTS_IN_VIEW_MAX = 5000;
 const VIEW_MARGIN = 0.5;
 const MAX_BLOCK_TILES_ACROSS = 6;
 const MAX_TILES_PER_VIEW = 256;
@@ -47,11 +48,35 @@ interface TilePatch {
   recordChangedIds: readonly string[];
 }
 
-function lodForScale(scale: number, elementCount: number | null): TileLod {
+const DETAIL_RANK_BY_LOD: Record<TileLod, number> = { blocks: 0, titles: 1, full: 2 };
+
+function lodForView(scale: number, elementCount: number | null, elementsInView: number | null): TileLod {
   if (elementCount !== null && elementCount <= FULL_DETAIL_ELEMENT_MAX) return 'full';
   if (scale >= FULL_MIN_SCALE) return 'full';
-  if (scale >= TITLES_MIN_SCALE) return 'titles';
+  if (elementsInView === null) return scale >= TITLES_MIN_SCALE ? 'titles' : 'blocks';
+  if (elementsInView <= FULL_DETAIL_ELEMENT_MAX) return 'full';
+  if (elementsInView <= TITLES_ELEMENTS_IN_VIEW_MAX) return 'titles';
   return 'blocks';
+}
+
+function isLodWithinView(requested: TileLod, scale: number, elementCount: number, elementsInView: number): boolean {
+  return DETAIL_RANK_BY_LOD[requested] <= DETAIL_RANK_BY_LOD[lodForView(scale, elementCount, elementsInView)];
+}
+
+function elementsInViewOf(index: TileIndex, view: Rect): number {
+  let elementsInView = 0;
+  forEachSlotTouching(index.grid, view, () => {
+    elementsInView += 1;
+    return elementsInView > TITLES_ELEMENTS_IN_VIEW_MAX;
+  });
+  return elementsInView;
+}
+
+function elementsInViewEstimate(view: Rect, counted: { view: Rect; elementsInView: number } | null): number | null {
+  if (!counted) return null;
+  const countedArea = counted.view.width * counted.view.height;
+  if (countedArea <= 0) return null;
+  return counted.elementsInView * ((view.width * view.height) / countedArea);
 }
 
 function tileIdOf(key: TileKey): string {
@@ -414,5 +439,5 @@ function tileDiffOf(next: TileIndex, { changedSlots, removedIds, touchedRects, i
   return { changed, removedIds, rasters, chrome: isChromeChanged ? next.chrome : null };
 }
 
-export { backdropOfBoard, boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, fitsOnePage, lodForScale, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
+export { backdropOfBoard, boardOutlineOf, defaultFocusOf, elementIdsTouching, elementPageOf, elementsInViewEstimate, elementsInViewOf, fitsOnePage, isLodWithinView, lodForView, paintedBoundsOf, patchTileIndex, tileDiffOf, tileIdOf, tileIndexOf, tileIndexOfPainted, tileKeysFor, tileOf, tileRectOf };
 export type { TileIndex };

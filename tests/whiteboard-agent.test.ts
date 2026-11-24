@@ -2091,7 +2091,7 @@ test('show puts each file on a board the session is connected to, creating one n
   const planSteps = ['plan-a', 'plan-b', 'plan-c'].map((stepId) => ({ op: 'add', element: { kind: 'box', id: stepId, title: stepId, place: 'plan', step: { status: 'planned' } } }));
   assert.equal((await wiring.handleAgent(shower, { sub: 'put', board: boardId, ops: z.array(Op).parse([...planSteps, { op: 'add', element: { kind: 'box', id: 'in-view', title: 'Already here', place: { at: { x: 3100, y: 1700 } } } }]) })).status, 200);
   assert.equal((await wiring.handleOperator.put(boardId, z.array(Op).parse([{ op: 'add', element: { kind: 'stroke', id: 'operator-ink', points: [3500, 1700, 4000, 2000], width: 4 } }]))).ok, true);
-  await wiring.tiles.view({ send: () => {} }, { boardId, view: operatorView, lod: 'full', knownVersion: null });
+  await wiring.tiles.view({ send: () => {} }, { boardId, view: operatorView, lod: 'full', scale: null, knownVersion: null });
   fs.writeFileSync(path.join(showerDir, 'chart.png'), await sharp({ create: { width: 40, height: 30, channels: 3, background: '#a3e635' } }).png().toBuffer());
   const inView = await wiring.handleAgent(shower, { sub: 'show', path: 'chart.png' });
   assert.equal(inView.status, 200, JSON.stringify(inView.body));

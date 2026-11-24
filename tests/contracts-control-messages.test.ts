@@ -251,7 +251,7 @@ const REAL_SERVER_PAYLOADS: ServerPayload[] = [
   { type: 'whiteboards-snapshot', boards: [{ id: 'board-1', title: 'Ingest plan', version: 3, updatedAt: NOW, project: null, isArchived: false, connectedSessionIds: ['session-1'], queuedBySessionId: { 'session-1': 2 }, link: { path: 'boards/ingest', state: 'in-sync', text: 'In sync with the folder' } }] },
   { type: 'whiteboard-removed', boardId: 'board-1' },
   {
-    type: 'whiteboard-tiles', boardId: 'board-1', version: 4, elementCount: 1, backdrop: null,
+    type: 'whiteboard-tiles', boardId: 'board-1', version: 4, elementCount: 1, backdrop: null, elementsInView: null,
     head: { id: 'board-1', title: 'Ingest plan', version: 4, caption: null, legend: [], codeSessionId: null, project: null, link: null, createdAt: NOW, updatedAt: NOW },
     chrome: { legend: [], caption: null, plan: null, pinnedOffsetY: 0, bounds: { x: 0, y: 0, width: 400, height: 300 } },
     tiles: [{ key: { chunkX: 0, chunkY: 0, lod: 'full', level: 0 }, elements: [{ paintOrder: 0, element: { kind: 'frame', id: 'frame-1', title: 'Ingest', stackedBoxCount: null, x: 0, y: 0, width: 400, height: 300, titleObstacle: { x: 0, y: 0, width: 400, height: 26 } } }], raster: null }],

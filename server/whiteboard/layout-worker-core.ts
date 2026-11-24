@@ -11,7 +11,7 @@ import { drained } from '../../shared/generator-steps.ts';
 import type { SavedWorldOffer } from '../../shared/whiteboard-layout-cache.ts';
 import { INCREMENTAL_MIN_ELEMENTS } from '../../shared/whiteboard-layout-engine.ts';
 import type { ElementChange } from '../../shared/whiteboard-layout-engine.ts';
-import { boardOutlineOf, defaultFocusOf, elementIdsTouching, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/contracts/whiteboard-tile-core.ts';
+import { boardOutlineOf, defaultFocusOf, elementIdsTouching, elementsInViewOf, isLodWithinView, patchTileIndex, tileDiffOf, tileIndexOf, tileIndexOfPainted, tileOf } from '../../shared/contracts/whiteboard-tile-core.ts';
 import type { TileIndex } from '../../shared/contracts/whiteboard-tile-core.ts';
 import type { LayoutCache, LayoutStamp, SavedPaint, WholeSave } from './layout-cache.ts';
 import { elementTableOf, isElementTable } from '../../shared/contracts/whiteboard-element-table.ts';
@@ -26,6 +26,8 @@ const PictureOptions = z.strictObject({
   limits: z.strictObject({ maxScale: z.number().positive(), maxWidthPx: z.number().positive(), maxHeightPx: z.number().positive() }),
 });
 
+const TileSight = z.strictObject({ view: LayoutRect, scale: z.number().positive() }).nullable();
+
 const LayoutRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('sync-start'), requestId: RequestId, syncId: z.number().int(), head: BoardHead, elementCount: z.number().int().nonnegative() }),
   z.strictObject({ kind: z.literal('sync-elements'), requestId: RequestId, syncId: z.number().int(), boardId: z.string(), elements: z.array(Element) }),
@@ -33,8 +35,8 @@ const LayoutRequest = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('refresh'), requestId: RequestId, boardId: z.string(), viewers: z.array(ViewerTiles) }),
   z.strictObject({ kind: z.literal('picture-images'), requestId: RequestId, boardId: z.string(), options: PictureOptions }),
   z.strictObject({ kind: z.literal('picture'), requestId: RequestId, boardId: z.string(), dataUriByAssetId: z.record(z.string(), z.string()), options: PictureOptions }),
-  z.strictObject({ kind: z.literal('tiles'), requestId: RequestId, boardId: z.string(), keys: z.array(TileKey), withChrome: z.boolean() }),
-  z.strictObject({ kind: z.literal('cached-tiles'), requestId: RequestId, boardId: z.string(), version: z.number().int(), updatedAt: z.number(), keys: z.array(TileKey), withChrome: z.boolean() }),
+  z.strictObject({ kind: z.literal('tiles'), requestId: RequestId, boardId: z.string(), keys: z.array(TileKey), withChrome: z.boolean(), sight: TileSight }),
+  z.strictObject({ kind: z.literal('cached-tiles'), requestId: RequestId, boardId: z.string(), version: z.number().int(), updatedAt: z.number(), keys: z.array(TileKey), withChrome: z.boolean(), sight: TileSight }),
   z.strictObject({ kind: z.literal('pins'), requestId: RequestId, boardId: z.string(), ids: z.array(z.string()) }),
   z.strictObject({ kind: z.literal('region'), requestId: RequestId, boardId: z.string(), focus: LayoutRect.nullable(), withOutline: z.boolean() }),
   z.strictObject({ kind: z.literal('summary'), requestId: RequestId, boardId: z.string() }),
@@ -58,6 +60,7 @@ const LayoutAnswer = z.strictObject({
   viewerMessages: z.array(ViewerMessage).optional(),
   tiles: z.array(Tile).optional(),
   elementCount: z.number().int().nonnegative().optional(),
+  elementsInView: z.number().int().nonnegative().optional(),
   isCacheMiss: z.boolean().optional(),
   pinnedBoxes: z.array(PlacedBox).optional(),
   pinnedOffsetY: z.number().optional(),
@@ -81,6 +84,7 @@ type OpenStep = z.infer<typeof OpenStep>;
 type SavedLayoutWrite = z.infer<typeof SavedLayoutWritten>['savedLayoutWritten'];
 type ViewerMessage = z.infer<typeof ViewerMessage>;
 type ViewerTiles = z.infer<typeof ViewerTiles>;
+type TileSight = z.infer<typeof TileSight>;
 type DistributiveOmit<Value, Key extends PropertyKey> = Value extends unknown ? Omit<Value, Key> : never;
 type LayoutRequestBody = DistributiveOmit<LayoutRequest, 'requestId'>;
 type AnswerFields = Omit<LayoutAnswer, 'requestId' | 'ok'>;
@@ -178,6 +182,15 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
 
   function countOf(index: TileIndex): number {
     return index.slotById.size;
+  }
+
+  function tilesInSightOf(index: TileIndex, request: { keys: readonly TileKey[]; withChrome: boolean; sight: TileSight | null }): Pick<AnswerFields, 'tiles' | 'chrome' | 'elementsInView'> {
+    const chrome = request.withChrome ? { chrome: index.chrome } : {};
+    const [firstKey] = request.keys;
+    if (!request.sight || !firstKey) return { tiles: request.keys.map((key) => tileOf(index, key)), ...chrome };
+    const elementsInView = elementsInViewOf(index, request.sight.view);
+    if (!isLodWithinView(firstKey.lod, request.sight.scale, countOf(index), elementsInView)) return { tiles: [], elementsInView, ...chrome };
+    return { tiles: request.keys.map((key) => tileOf(index, key)), elementsInView, ...chrome };
   }
 
   function wholeTilesOf(viewer: ViewerTiles, index: TileIndex): ViewerMessage {
@@ -301,13 +314,13 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
       }
       case 'tiles': {
         const { index } = heldTilesOf(boardNamed(request.boardId));
-        return { version: index.version, tiles: request.keys.map((key) => tileOf(index, key)), ...(request.withChrome ? { chrome: index.chrome } : {}) };
+        return { version: index.version, ...tilesInSightOf(index, request) };
       }
       case 'cached-tiles': {
         const held = cachedTilesOf(request.boardId, request);
         if (!held) return { isCacheMiss: true };
         const { index } = held;
-        return { version: index.version, elementCount: countOf(index), tiles: request.keys.map((key) => tileOf(index, key)), ...(request.withChrome ? { chrome: index.chrome } : {}) };
+        return { version: index.version, elementCount: countOf(index), ...tilesInSightOf(index, request) };
       }
       case 'pins': return pinsFor(boardNamed(request.boardId), request.ids);
       case 'region': return regionOf(boardNamed(request.boardId), request.focus, request.withOutline);
@@ -330,4 +343,4 @@ function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, 
 }
 
 export { LayoutReply, LayoutRequest, SavedLayoutWritten, boardIdOfRequest, createLayoutHost };
-export type { AnswerFields, LayoutAnswer, LayoutRequestBody, OpenStep, SavedLayoutWrite, ViewerMessage, ViewerTiles };
+export type { AnswerFields, LayoutAnswer, LayoutRequestBody, OpenStep, SavedLayoutWrite, TileSight, ViewerMessage, ViewerTiles };
