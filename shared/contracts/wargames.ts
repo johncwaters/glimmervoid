@@ -413,6 +413,7 @@ export const SignedReportPayload = z.discriminatedUnion('kind', [
     captured: z.boolean(),
     wallBefore: z.number().int().min(0).max(10).optional(),
     wallAfter: z.number().int().min(0).max(10).optional(),
+    morale: z.number().min(0).max(1).optional(),
   }),
   z.strictObject({
     kind: z.literal('scout'),

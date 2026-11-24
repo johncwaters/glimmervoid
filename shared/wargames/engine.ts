@@ -1423,7 +1423,7 @@ function resolveV2SimultaneousBattles(
     }
 
     const orderedAttackerSeats = [...armiesBySeat.keys()].sort((left, right) => seatIndexOf(left) - seatIndexOf(right));
-    const activeAttackerSeats: { seatId: SeatId; armies: ArmyState[]; combinedTroops: TroopCounts; attackPower: number }[] = [];
+    const activeAttackerSeats: { seatId: SeatId; armies: ArmyState[]; combinedTroops: TroopCounts; attackPower: number; morale: number }[] = [];
     for (const attackerSeat of orderedAttackerSeats) {
       const seatArmies = armiesBySeat.get(attackerSeat) ?? [];
       if (previousOwner !== null) {
@@ -1445,7 +1445,7 @@ function resolveV2SimultaneousBattles(
       }
       const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
       const attackPower = seatAttackPowerOf(state, seatArmies, combinedTroops, targetVillage);
-      activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower });
+      activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower, morale: moraleOf(state, attackerSeat, previousOwner) });
     }
     if (activeAttackerSeats.length === 0) continue;
 
@@ -1529,6 +1529,7 @@ function resolveV2SimultaneousBattles(
         loyaltyAfter: finalLoyaltyAfter,
         captured: resolved.captured,
         ...(state.balance.roles === null ? {} : { wallBefore, wallAfter: targetVillage.buildings.wall }),
+        ...(resolved.entry.morale < 1 ? { morale: Math.round(resolved.entry.morale * 100) / 100 } : {}),
       }, signatures, signer);
       state.reportsBySeat[resolved.entry.seatId].push(report);
       if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);

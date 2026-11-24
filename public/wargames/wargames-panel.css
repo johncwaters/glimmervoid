@@ -485,6 +485,20 @@
   font-weight: 700;
 }
 
+.wg-hex-intel-guests {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--wg-seat-color) 55%, var(--border));
+  background: color-mix(in srgb, var(--wg-seat-color) 10%, var(--bg-surface));
+}
+
+.wg-hex-intel-guest-owner {
+  color: var(--wg-seat-color);
+  font-weight: 700;
+}
+
 .wg-map-legend {
   width: 100%;
   display: flex;

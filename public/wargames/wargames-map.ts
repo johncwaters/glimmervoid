@@ -31,6 +31,7 @@ function cloneVillage(village: VillageState | null): VillageState | null {
     resources: { ...village.resources },
     troops: { ...village.troops },
     buildings: { ...village.buildings },
+    guests: village.guests.map((guest) => ({ ...guest, troops: { ...guest.troops } })),
   };
 }
 
@@ -87,6 +88,8 @@ export const BUILDING_GLYPH_PATHS: readonly { key: BuildingKey; label: string; c
   { key: 'barracks', label: 'Barracks', color: '#f59e0b', path: 'M 2.5 13 L 8 3.5 L 13.5 13 Z M 6.5 13 L 8 9.5 L 9.5 13' },
   { key: 'wall', label: 'Wall', color: '#a8a29e', path: 'M 3 13.5 V 4.5 H 5.5 V 6.5 H 7 V 4.5 H 9 V 6.5 H 10.5 V 4.5 H 13 V 13.5 Z' },
 ];
+
+const WALL_GLYPH = BUILDING_GLYPH_PATHS.find((building) => building.key === 'wall') ?? BUILDING_GLYPH_PATHS[0];
 
 export const SCOUT_EYE_PATH = 'M 2 8 C 4.2 4.5 11.8 4.5 14 8 C 11.8 11.5 4.2 11.5 2 8 Z M 8 6.5 A 1.5 1.5 0 1 0 8 9.5 A 1.5 1.5 0 1 0 8 6.5';
 export const CONTROL_FLAG_PATH = 'M 4 14 V 2.5 M 4 3 H 12.5 L 10.5 5.75 L 12.5 8.5 H 4';
@@ -368,6 +371,26 @@ function renderHexUnitTokens(container: SVGElement, centerX: number, centerY: nu
   }
   renderHexUnitRow(container, centerX, centerY - 1, tokens.slice(0, 2));
   renderHexUnitRow(container, centerX, centerY + 11, tokens.slice(2));
+}
+
+const GUEST_PIP_SPACING = 15;
+
+function renderGuestPips(container: SVGElement, centerX: number, centerY: number, guests: VillageState['guests']): void {
+  const guardPath = UNIT_GLYPH_PATHS[1].path;
+  guests.forEach((guest, index) => {
+    const pipX = centerX + 10 + index * GUEST_PIP_SPACING;
+    const pipY = centerY - 15;
+    container.append(createMapStrokeGlyph(guardPath, pipX, pipY, 8, SEAT_COLORS[guest.owner], '2'));
+    if (guests.length > 2) return;
+    appendBoardText(container, String(troopCountOf(guest.troops)), {
+      x: pipX + 5,
+      y: pipY + 3,
+      anchor: 'start',
+      fontSize: '7',
+      fill: SEAT_COLORS[guest.owner],
+      className: 'wg-army-pill-text',
+    });
+  });
 }
 
 function renderControlBadge(container: SVGElement, centerX: number, centerY: number, loyalty: number, owner: SeatId | null): void {
@@ -753,6 +776,11 @@ function battleLossSegmentsOf(reports: readonly BattleReportPayload[]): BattleLo
   const finalLoyalty = capturedReport ? capturedReport.loyaltyAfter : first.loyaltyAfter;
   if (finalLoyalty < first.loyaltyBefore) {
     segments.push({ color: 'var(--state-waiting)', label: `${finalLoyalty}%`, glyphPath: CONTROL_FLAG_PATH });
+  }
+  const wallLevelsLost = (first.wallBefore ?? 0) - (first.wallAfter ?? first.wallBefore ?? 0);
+  if (wallLevelsLost > 0) segments.push({ color: WALL_GLYPH.color, label: `-${wallLevelsLost}`, glyphPath: WALL_GLYPH.path });
+  for (const report of reports) {
+    if (report.morale !== undefined) segments.push({ color: SEAT_COLORS[report.attacker], label: `morale x${report.morale}`, glyphPath: null });
   }
   return segments;
 }
@@ -1351,6 +1379,7 @@ export function createWargamesMap(
       slot.detailLabel.setAttribute('fill', 'var(--text-muted)');
       if (isBarren) slot.unitGroup.replaceChildren();
       if (!isBarren) renderHexUnitTokens(slot.unitGroup, slot.centerX, slot.centerY, village.troops);
+      if (!isBarren) renderGuestPips(slot.unitGroup, slot.centerX, slot.centerY, village.guests);
       renderControlBadge(slot.controlGroup, slot.centerX, slot.centerY, village.loyalty, village.owner);
 
       const isQuietBarbarian = isDenseMap && village.owner === null && !isSelected;
@@ -2009,6 +2038,7 @@ export function createWargamesMap(
                   loyalty: delta.targetVillage.loyalty,
                   resources: { ...delta.targetVillage.resources },
                   buildings: { ...delta.targetVillage.buildings },
+                  guests: delta.targetVillage.guests.map((guest) => ({ ...guest, troops: { ...guest.troops } })),
                 };
                 if (latestState) {
                   paintHexSlot(hexIndex, displayedVillages[hexIndex], latestState, latestPov, latestSelectedHexIndex, latestSpotlightSeatId);
