@@ -233,9 +233,9 @@ export const PackSetting = z.strictObject({
     .refine((key) => !key.startsWith('GLIMMERVOID_'), { error: 'a setting key cannot start with GLIMMERVOID_, which names the values glimmervoid passes itself' })
     .describe('The environment variable the value reaches the pack commands under; a secret is kept in the vault as GLIMMERVOID_PACK_<PACK>__<KEY>, so it never meets another pack\'s or a session\'s secret'),
   label: z.string().trim().min(1).max(60).describe('The field name shown to the operator in the pack Settings'),
-  kind: z.enum(['text', 'secret']).default('text').describe('text: a plain value saved in Glimmervoid\'s pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands'),
+  kind: z.enum(['text', 'secret']).default('text').describe('text: a plain value saved in Glimmervoid\'s pack settings file and passed to the commands listed in commands, or to every command of the pack when none is listed; secret: a value kept in the vault and passed only to the commands listed in commands'),
   hint: z.string().trim().max(200).optional().describe('One line under the field, such as where to find the value'),
-  commands: z.array(PackCommandRef).max(32).default([]).describe('For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command'),
+  commands: z.array(PackCommandRef).max(32).default([]).describe('The pack commands that receive the value, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command, a text value no command lists reaches every command, and a command waits only for the values that reach it'),
 });
 export type PackSetting = z.infer<typeof PackSetting>;
 
@@ -244,7 +244,6 @@ export const PackSettings = z.array(PackSetting).min(1).max(PACK_SETTINGS_MAX).s
   settings.forEach((setting, index) => {
     if (seenKeys.has(setting.key)) context.addIssue({ code: 'custom', path: [index, 'key'], message: `the key '${setting.key}' is already used in settings` });
     seenKeys.add(setting.key);
-    if (setting.kind === 'text' && setting.commands.length > 0) context.addIssue({ code: 'custom', path: [index, 'commands'], message: 'only a secret lists commands; a text setting reaches every command of the pack' });
   });
 });
 
@@ -319,6 +318,8 @@ export const PackSourcesFile = z.strictObject({
 export type PackSourcesFile = z.infer<typeof PackSourcesFile>;
 
 export type PackSection<Value> = { ok: true; value: Value } | { ok: false; errors: string[] };
+
+export const PACK_SECTION_NAMES = ['prFlows', 'ui', 'launchers', 'sessions', 'status', 'agent', 'mcp', 'hooks', 'settings', 'jobs', 'community'] as const;
 
 export type PackOnDisk = {
   dir: string;

@@ -84,4 +84,4 @@ function laneReadTokenStepBody({ laneWork, onSaved }: { laneWork: string; onSave
   return [advice, settingsList, field({ label: 'Read-only token', control: input }).element, actions];
 }
 
-export { hasConfiguredSecret, hasLaneReadToken, laneReadTokenStepBody };
+export { hasLaneReadToken, laneReadTokenStepBody };

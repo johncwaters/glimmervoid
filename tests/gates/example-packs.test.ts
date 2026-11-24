@@ -11,6 +11,7 @@ import { PREVIEW_FRAME_COUNT, previewSampleTopics, previewThemes } from '../../s
 import { checkPack, packCheckHasProblem, packReportText } from '../../server/packs/pack-check.ts';
 import { readPacksForAgent } from '../../server/packs/pack-agent.ts';
 import { PACKS_REFERENCE_PATH, renderPacksReference } from '../../scripts/generate-packs-docs.ts';
+import { BUILT_IN_SOURCE_NAMES, BUILT_IN_SOURCE_PACK } from '../../server/community/core/community-core.ts';
 
 const EXAMPLE_PACKS_DIR = path.join(import.meta.dirname, '..', '..', 'examples', 'packs');
 const PUBLISHED_SCHEMA_ID = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, '..', '..', 'site', 'public', 'schema', 'pack.v1.json'), 'utf8')).$id;
@@ -74,3 +75,9 @@ test('the sample data packs preview sends is valid for every bridge topic', () =
   }
   for (const theme of previewThemes(null)) assert.ok(HostToPanel.safeParse({ v: 1, kind: 'topic', topic: 'theme', data: { id: theme.id, colors: theme.colors } }).success, theme.id);
 });
+
+test('the example pack that takes over the built-in community sources carries the pack name and source ids saved state migrates to', () => {
+  const manifest = manifestOf(BUILT_IN_SOURCE_PACK);
+  assert.deepEqual(manifest.community.sources.map((source: { id: string }) => source.id).toSorted(), [...BUILT_IN_SOURCE_NAMES].toSorted());
+});
+

@@ -9,7 +9,7 @@ import { USAGE_BUDGET_KEYS } from '../usage-config.ts';
 import { WorkflowsSettings } from './workflows.ts';
 import { PrFlowsSettings } from './pr-flows.ts';
 import { repoParts } from './github-ids.ts';
-import { DISCORD_CHANNEL_NAME_RE, SKILL_NAME_RE } from './community.ts';
+import { SKILL_NAME_RE } from './community.ts';
 import { QuestionManagerSettings } from './question-manager.ts';
 import { isKnownTimezone } from '../clock.ts';
 import { SecretLookIn, SecretManager } from './secrets.ts';
@@ -97,11 +97,6 @@ const TeamReviewSettings = optionalObject('teamReview', {
 const CommunitySettings = optionalObject('community', {
   enabled: optionalBoolean('community.enabled'),
   skill: optionalString('community.skill', true).refine((value) => value == null || !value || SKILL_NAME_RE.test(value), { message: 'community.skill must be a skill name like answering-questions, made of letters, digits, colons, dots, underscores or dashes, with no leading /' }),
-  projectId: optionalInteger('community.projectId', ranges.POSTHOG_PROJECT_ID_RANGE),
-  discordChannels: z.array(
-    z.string({ error: 'community.discordChannels must be an array of channel names' }).trim().regex(DISCORD_CHANNEL_NAME_RE, { error: 'community.discordChannels entries must be Discord channel names like community-questions, lowercase with no #' }),
-    { error: 'community.discordChannels must be an array of channel names' },
-  ).optional(),
 });
 
 const posthogNumberRanges = {

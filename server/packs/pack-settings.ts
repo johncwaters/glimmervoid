@@ -2,6 +2,7 @@ import path from 'node:path';
 import { PackSettingsFile } from '../../shared/contracts/pack.ts';
 import type { PackOnDisk, PackSetting } from '../../shared/contracts/pack.ts';
 import { packVaultName } from '../../shared/contracts/secrets.ts';
+import { settingReachesCommand } from '../../shared/contracts/pack-bridge.ts';
 import type { SecretName, SecretSource } from '../../shared/contracts/secrets.ts';
 import type { PackSettingsView } from '../../shared/contracts/control/pack-messages.ts';
 import { clock } from '../../shared/clock.ts';
@@ -160,7 +161,7 @@ export function createPackSettings({ homeDir, vault, approvedPack, now = clock.n
     const commandSecretKeys = secretSettingKeysFor(settings, commandRef);
     const readsByKey = await secretsByKey(pack.header.name, commandSecretKeys);
     const secretValues = foundValues(readsByKey);
-    const relevantSettings = settings.filter((setting) => setting.kind === 'text' || commandSecretKeys.includes(setting.key));
+    const relevantSettings = settings.filter((setting) => settingReachesCommand(setting, commandRef));
     return {
       env: packCommandEnv(settings, commandRef, plainValues, secretValues),
       secretValues: Object.values(secretValues),

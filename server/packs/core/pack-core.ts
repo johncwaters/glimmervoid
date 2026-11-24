@@ -1,7 +1,8 @@
 import path from 'node:path';
 import type { PackRow, PackSourceRow, PacksStatus, PackThemeSwatch } from '../../../shared/contracts/control/pack-messages.ts';
 import type { ThemePalette } from '../../../shared/contracts/theme-palette.ts';
-import { packSkillNameOf } from '../../../shared/contracts/pack.ts';
+import { PACK_SECTION_NAMES, packSkillNameOf } from '../../../shared/contracts/pack.ts';
+import { settingReachesCommand } from '../../../shared/contracts/pack-bridge.ts';
 import { packKindLabels } from '../../../shared/pack-approval.ts';
 import type { z } from 'zod';
 import { PackAgent, PackHooks, PackLaunchers, PackMcp, PackPrFlows, PackUi } from '../../../shared/contracts/pack.ts';
@@ -75,7 +76,10 @@ export function packFileHeaders(filePath: string, requestOrigin: string | undefi
 }
 
 export function packSectionErrors(pack: PackOnDisk): string[] {
-  return [pack.ui, pack.launchers, pack.sessions, pack.status, pack.agent, pack.mcp, pack.hooks].flatMap((section) => (section && !section.ok ? section.errors : []));
+  return PACK_SECTION_NAMES.filter((name) => name !== 'prFlows').flatMap((name) => {
+    const section = pack[name];
+    return section && !section.ok ? section.errors : [];
+  });
 }
 
 function packLaunchers(pack: PackOnDisk): PackLauncher[] {
@@ -241,11 +245,11 @@ export function packSettingsOf(pack: PackOnDisk): PackSetting[] {
 }
 
 export function secretSettingKeysFor(settings: readonly PackSetting[], commandRef: string): string[] {
-  return settings.filter((setting) => setting.kind === 'secret' && setting.commands.includes(commandRef)).map((setting) => setting.key);
+  return settings.filter((setting) => setting.kind === 'secret' && settingReachesCommand(setting, commandRef)).map((setting) => setting.key);
 }
 
 export function packCommandEnv(settings: readonly PackSetting[], commandRef: string, plainValuesByKey: Readonly<Record<string, string>>, secretValuesByKey: Readonly<Record<string, string>>): Record<string, string> {
-  const plainEntries = settings.filter((setting) => setting.kind === 'text' && (plainValuesByKey[setting.key] ?? '') !== '').map((setting) => [setting.key, plainValuesByKey[setting.key] ?? '']);
+  const plainEntries = settings.filter((setting) => setting.kind === 'text' && settingReachesCommand(setting, commandRef) && (plainValuesByKey[setting.key] ?? '') !== '').map((setting) => [setting.key, plainValuesByKey[setting.key] ?? '']);
   const secretEntries = secretSettingKeysFor(settings, commandRef).filter((key) => (secretValuesByKey[key] ?? '') !== '').map((key) => [key, secretValuesByKey[key] ?? '']);
   return Object.fromEntries([...plainEntries, ...secretEntries]);
 }

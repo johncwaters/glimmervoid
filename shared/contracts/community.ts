@@ -10,7 +10,7 @@ export type CommunityVerdict = z.infer<typeof CommunityVerdict>;
 const COMMUNITY_ITEM_KEY_RE = new RegExp(`^${PACK_ID_PATTERN}:${PACK_ID_PATTERN}:[A-Za-z0-9_-]{1,128}$`);
 const COMMUNITY_SOURCE_ITEM_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
-export const DISCORD_CHANNEL_NAME_RE = /^[a-z0-9_-]{1,100}$/;
+const DISCORD_CHANNEL_NAME_RE = /^[a-z0-9_-]{1,100}$/;
 
 export const SKILL_NAME_RE = /^[A-Za-z0-9:._-]{1,100}$/;
 

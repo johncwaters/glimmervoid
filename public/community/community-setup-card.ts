@@ -8,11 +8,9 @@ import { button } from '../ui/button.ts';
 import { buildSetupStep } from '../onboarding/setup-step.ts';
 import { createSettingsLink } from '../settings-link.ts';
 import { applySettingsBroadcast, settingsPayloadSnapshot, subscribeSettings } from '../settings/settings-store.ts';
-import { communitySetupStepStates, discordChannelsFromText } from './community-setup-core.ts';
-import { hasConfiguredSecret, hasLaneReadToken, laneReadTokenStepBody } from '../github/lane-read-token-step.ts';
+import { communitySetupStepStates } from './community-setup-core.ts';
+import { hasLaneReadToken, laneReadTokenStepBody } from '../github/lane-read-token-step.ts';
 import type { CommunitySetupProgress } from './community-setup-core.ts';
-
-const DEFAULT_COMMUNITY_PROJECT_ID = 2;
 
 interface FieldStep {
   advice: string;
@@ -32,15 +30,10 @@ function reportCommunitySetupAction(action: OperatorActionOf<'onboarding'>): voi
   sendControlMsg({ type: 'dashboard-telemetry', event: 'operator_action', properties: { surface: 'onboarding', action } });
 }
 
-function savedCommunitySettings(): { projectId: number; skill: string; discordChannels: string[] } {
+function savedCommunitySkill(): string {
   const community = settingsPayloadSnapshot().community;
   const block = typeof community === 'object' && community !== null ? community as Record<string, unknown> : {};
-  const channels = Array.isArray(block.discordChannels) ? block.discordChannels.filter((channel) => typeof channel === 'string') : [];
-  return {
-    projectId: typeof block.projectId === 'number' ? block.projectId : DEFAULT_COMMUNITY_PROJECT_ID,
-    skill: typeof block.skill === 'string' ? block.skill : '',
-    discordChannels: channels,
-  };
+  return typeof block.skill === 'string' ? block.skill : '';
 }
 
 
@@ -50,7 +43,7 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
   const heading = el('h2', 'first-run-title', 'Answer community questions');
   heading.id = 'community-setup-title';
   const stepsList = el('ol', 'first-run-steps');
-  const foot = el('p', 'first-run-step-hint review-setup-foot', 'Each question gets a researched draft reply. Nothing posts until you post it yourself. ');
+  const foot = el('p', 'first-run-step-hint review-setup-foot', 'Each question gets a researched draft reply. Nothing posts until you post it yourself.');
   foot.append(createSettingsLink('lanes-community', 'community-enabled', 'All community settings'));
   const finishActions = el('div', 'first-run-step-actions');
   const finishButton = button({ variant: 'primary', label: 'Finish setup', action: 'finish-community-setup' });
@@ -67,13 +60,12 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
   });
 
   function firstUnmetStep(): CommunitySetupProgress | null {
-    if (!hasConfiguredSecret('posthog.apiKey')) return 'key';
     if (!hasLaneReadToken()) return 'readToken';
     return null;
   }
 
   function moveTo(nextProgress: CommunitySetupProgress): void {
-    progress = nextProgress === 'readToken' && hasLaneReadToken() ? 'project' : nextProgress;
+    progress = nextProgress === 'readToken' && hasLaneReadToken() ? 'skill' : nextProgress;
     render();
     (stepsList.querySelector<HTMLElement>('[aria-current="step"] input') ?? (finishActions.hidden ? null : finishButton))?.focus();
   }
@@ -131,62 +123,31 @@ export function createCommunitySetupCard({ onFinish }: { onFinish: () => void })
     return [el('p', 'first-run-step-text', field.advice), label, input, actions];
   }
 
-  const keyStepBody = () => fieldStepBody({
-    advice: 'Glimmervoid reads new forum and Discord questions through your PostHog personal API key. Create one in PostHog under Settings, Personal API keys. Community needs only the query:read scope on the project that holds the questions. PostHog error monitoring shares this key, so add error tracking read and write if you turn that on.',
-    label: 'PERSONAL API KEY', inputId: 'community-setup-key', inputType: 'password', initialValue: '', placeholder: 'phx_',
-    saveLabel: 'Save key', action: 'save-community-key', nextProgress: 'readToken', isSkippable: false,
-    settingsPatch: (typedText) => (typedText.trim() ? { posthog: { apiKey: typedText.trim() } } : 'Paste a PostHog personal API key.'),
-  });
-
-  const projectStepBody = () => fieldStepBody({
-    advice: "The PostHog project that holds the synced community forum table and the Discord bot events. PostHog's own community lives in project 2.",
-    label: 'PROJECT ID', inputId: 'community-setup-project', inputType: 'number', initialValue: String(savedCommunitySettings().projectId), placeholder: String(DEFAULT_COMMUNITY_PROJECT_ID),
-    saveLabel: 'Use project', action: 'save-community-project', nextProgress: 'skill', isSkippable: false,
-    settingsPatch: (typedText) => {
-      const projectId = Number(typedText.trim());
-      return Number.isInteger(projectId) && projectId > 0 ? { community: { projectId } } : 'Type the project id as a whole number, such as 2.';
-    },
-  });
-
   const skillStepBody = () => fieldStepBody({
     advice: 'The Claude Code skill the research agent follows for each question, typed by name. A skill that knows your docs and support playbook gives the best drafts. Skip to research with whatever skills the agent has.',
-    label: 'SKILL', inputId: 'community-setup-skill', inputType: 'text', initialValue: savedCommunitySettings().skill, placeholder: 'skill name',
-    saveLabel: 'Save skill', action: 'save-community-skill', nextProgress: 'discord', isSkippable: true,
+    label: 'SKILL', inputId: 'community-setup-skill', inputType: 'text', initialValue: savedCommunitySkill(), placeholder: 'skill name',
+    saveLabel: 'Save skill', action: 'save-community-skill', nextProgress: 'finished', isSkippable: true,
     settingsPatch: (typedText) => ({ community: { skill: typedText.trim().replace(/^\//, '') } }),
-  });
-
-  const discordStepBody = () => fieldStepBody({
-    advice: 'Discord questions come from a Discord bot that sends message_sent and thread_created events into the project above. With that bot in place, list the channels to watch by name, without the #. A cheap model picks out the real questions; only those are researched.',
-    label: 'CHANNELS', inputId: 'community-setup-discord', inputType: 'text', initialValue: savedCommunitySettings().discordChannels.join(', '), placeholder: 'community-questions, help',
-    saveLabel: 'Save channels', action: 'save-community-discord', nextProgress: 'finished', isSkippable: true,
-    settingsPatch: (typedText) => {
-      const discordChannels = discordChannelsFromText(typedText);
-      return discordChannels.length > 0 ? { community: { discordChannels } } : 'Type at least one channel, or skip.';
-    },
   });
 
   function render(): void {
     if (!progress) return;
     const states = communitySetupStepStates(progress);
     stepsList.replaceChildren(
-      buildSetupStep({ title: '1. PostHog personal API key', state: states.key, summary: 'Key saved', badge: 'NEEDED', body: keyStepBody }),
-      buildSetupStep({ title: '2. Read-only GitHub token', state: states.readToken, summary: 'Token saved', badge: 'REQUIRED', body: () => laneReadTokenStepBody({ laneWork: 'Community research reads the GitHub issues, code and pages a question links.', onSaved: () => moveTo('project') }) }),
-      buildSetupStep({ title: '3. PostHog project', state: states.project, summary: `Project ${savedCommunitySettings().projectId}`, badge: '', body: projectStepBody }),
-      buildSetupStep({ title: '4. Research skill (optional)', state: states.skill, summary: savedCommunitySettings().skill || 'No skill', badge: '', body: skillStepBody }),
-      buildSetupStep({ title: '5. Discord (optional)', state: states.discord, summary: savedCommunitySettings().discordChannels.map((channel) => `#${channel}`).join(' ') || 'Forum only', badge: '', body: discordStepBody }),
+      buildSetupStep({ title: '1. Read-only GitHub token', state: states.readToken, summary: 'Token saved', badge: 'REQUIRED', body: () => laneReadTokenStepBody({ laneWork: 'Community research reads the GitHub issues, code and pages a question links.', onSaved: () => moveTo('skill') }) }),
+      buildSetupStep({ title: '2. Research skill (optional)', state: states.skill, summary: savedCommunitySkill() || 'No skill', badge: '', body: skillStepBody }),
     );
     finishActions.hidden = progress !== 'finished';
   }
 
   function open(): void {
-    progress = firstUnmetStep() ?? 'key';
+    progress = firstUnmetStep() ?? 'skill';
     render();
   }
 
   subscribeSettings((change) => {
     if (change.kind !== 'broadcast') return;
-    if (progress === 'key' && hasConfiguredSecret('posthog.apiKey')) moveTo('readToken');
-    if (progress === 'readToken' && hasLaneReadToken()) moveTo('project');
+    if (progress === 'readToken' && hasLaneReadToken()) moveTo('skill');
   });
 
   return { element, open, isOpen: () => progress !== null, needsSetup: () => firstUnmetStep() !== null };

@@ -54,7 +54,8 @@ export function packGrants(row: PackRow): string[] {
     ...(row.community && row.community.docsDomains.length > 0 ? [`research runs fetching ${row.community.docsDomains.join(', ')} for ${row.community.product} questions`] : []),
     ...row.jobs.map((job) => `job ${job.label} running ${JSON.stringify(job.command)} on schedule ${job.schedule}`),
     ...row.settings.filter((setting) => setting.kind === 'secret').map((setting) => `secret ${setting.key} from your vault, handed to ${setting.commands.length === 0 ? 'no command' : setting.commands.join(', ')}`),
-    ...(row.settings.some((setting) => setting.kind === 'text') ? [`settings ${row.settings.filter((setting) => setting.kind === 'text').map((setting) => setting.key).join(', ')} for every command of the pack`] : []),
+    ...(row.settings.some((setting) => setting.kind === 'text' && setting.commands.length === 0) ? [`settings ${row.settings.filter((setting) => setting.kind === 'text' && setting.commands.length === 0).map((setting) => setting.key).join(', ')} for every command of the pack`] : []),
+    ...row.settings.filter((setting) => setting.kind === 'text' && setting.commands.length > 0).map((setting) => `setting ${setting.key} for ${setting.commands.join(', ')}`),
   ];
 }
 

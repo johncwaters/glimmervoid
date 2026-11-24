@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackCommunity, PackJobs, PackSessions, PackSettings, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
+import { PACK_DIR_PLACEHOLDER, PACK_FILE_NAME, PACK_SECTION_NAMES, PackAgent, PackHeader, PackHooks, PackLaunchers, PackMcp, PackPanel, PackPrFlows, PackCommunity, PackJobs, PackSessions, PackSettings, PackStatus, PackUi, PacksState } from '../../shared/contracts/pack.ts';
 import type { PackHook, PackJob, PackOnDisk, PackSection, PackSetting } from '../../shared/contracts/pack.ts';
 import { withoutGlimmervoidSecrets } from '../../session/core/spawn-env.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -210,12 +210,13 @@ async function readPackDirUnguarded(packDir: string, env: NodeJS.ProcessEnv): Pr
   const community = withSourceIconsPresent(parseSection(PackCommunity, header.data.community, 'community'), read.filesByPath);
   const settings = withSettingCommandsDeclared(parseSection(PackSettings, header.data.settings, 'settings'), prFlows, jobs, community);
   if (header.data.preview !== undefined && !read.filesByPath.has(header.data.preview)) read.errors.push(`${PACK_FILE_NAME} preview: ${header.data.preview} is not a file in the pack`);
-  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...[prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs, community].flatMap(sectionErrors)], filesByPath, header: header.data };
+  const sections = { prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs, community };
+  if (read.errors.length > 0) return { ok: false, errors: [...read.errors, ...PACK_SECTION_NAMES.map((name) => sections[name]).flatMap(sectionErrors)], filesByPath, header: header.data };
   return {
     ok: true,
     pack: {
       dir: packDir, header: header.data, fingerprint: packFingerprint(read.filesByPath), filesByPath: read.filesByPath,
-      prFlows, ui, launchers, sessions, status, agent, mcp, hooks, settings, jobs, community, missingRequires: await missingRequires(header.data.requires, env),
+      ...sections, missingRequires: await missingRequires(header.data.requires, env),
       previewDataUrl: previewDataUrlOf(header.data.preview, read.filesByPath),
     },
   };

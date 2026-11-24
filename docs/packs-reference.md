@@ -189,9 +189,9 @@ A list, min items 1, max items 16, of:
 |---|---|---|---|---|
 | `settings[].key` | string, max length 64, matches `^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$` | yes |  | The environment variable the value reaches the pack commands under; a secret is kept in the vault as GLIMMERVOID_PACK_<PACK>__<KEY>, so it never meets another pack's or a session's secret |
 | `settings[].label` | string, min length 1, max length 60 | yes |  | The field name shown to the operator in the pack Settings |
-| `settings[].kind` | one of `"text"`, `"secret"` |  | `"text"` | text: a plain value saved in Glimmervoid's pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands |
+| `settings[].kind` | one of `"text"`, `"secret"` |  | `"text"` | text: a plain value saved in Glimmervoid's pack settings file and passed to the commands listed in commands, or to every command of the pack when none is listed; secret: a value kept in the vault and passed only to the commands listed in commands |
 | `settings[].hint` | string, max length 200 |  |  | One line under the field, such as where to find the value |
-| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action\|job\|community-source):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command |
+| `settings[].commands` | array of string, matches `^(pr-source\|pr-item-action\|pr-action\|job\|community-source):[a-z0-9][a-z0-9-]{0,39}$`, max items 32 |  | `[]` | The pack commands that receive the value, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command, a text value no command lists reaches every command, and a command waits only for the values that reach it |
 
 ### `jobs`
 
@@ -998,6 +998,7 @@ The other examples, by the sections they use:
 - [`executor`](../examples/packs/executor/): `requires`, `mcp`
 - [`night-shift`](../examples/packs/night-shift/): `ui`
 - [`plan-usage`](../examples/packs/plan-usage/): `ui`
+- [`posthog-community`](../examples/packs/posthog-community/): `requires`, `settings`, `community`
 - [`pr-table`](../examples/packs/pr-table/): `ui`
 - [`session-board`](../examples/packs/session-board/): `ui`
 - [`ship`](../examples/packs/ship/): `requires`, `agent`, `hooks`
