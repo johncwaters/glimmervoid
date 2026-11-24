@@ -194,14 +194,12 @@ Keep your own pull requests rebased, mergeable and merged, and run workflow rule
 
 ### Community
 
-Research new posthog.com community questions and draft replies.
+Research new community questions from source packs and draft replies.
 
 | Key | Setting | Default | Notes |
 |-----|---------|---------|-------|
 | `community.enabled` | Show the Community tab | `false` | Research new community questions and draft a reply for each. |
 | `community.skill` | Research skill | `""` | Skill the research agent follows, or none when empty. |
-| `community.projectId` | PostHog project | `2` | PostHog project holding the community forum and Discord data. |
-| `community.discordChannels` | Discord channels | `[]` | Discord channels to watch for questions, without the #, or none to skip Discord. |
 
 ### Privacy
 

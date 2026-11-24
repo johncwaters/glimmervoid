@@ -1,4 +1,4 @@
-import { POSTHOG_PROJECT_ID_RANGE, REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
+import { REVIEWS_TURN_LIMIT_DEFAULT, REVIEWS_TURN_LIMIT_RANGE } from '../settings-ranges.ts';
 import { BROWSER_NOW, MACHINE_NOW, READOUT } from './registry-fields.ts';
 import type { SettingsSection } from './registry-fields.ts';
 
@@ -143,7 +143,7 @@ export const LANES_COMMUNITY: SettingsSection = {
   id: 'lanes-community',
   level: 'lanes',
   title: 'Community',
-  description: 'Research new posthog.com community questions and draft replies.',
+  description: 'Research new community questions from source packs and draft replies.',
   settings: [
     {
       id: 'community-enabled', path: 'community.enabled', title: 'Show the Community tab',
@@ -154,16 +154,6 @@ export const LANES_COMMUNITY: SettingsSection = {
       id: 'community-skill', path: 'community.skill', title: 'Research skill',
       description: 'Skill the research agent follows, or none when empty.',
       control: 'text', keywords: ['skill', 'answering', 'claude code'], defaultValue: '', visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
-    },
-    {
-      id: 'community-project-id', path: 'community.projectId', title: 'PostHog project',
-      description: 'PostHog project holding the community forum and Discord data.',
-      control: 'number', integer: true, range: POSTHOG_PROJECT_ID_RANGE, unit: { label: 'project id', storedPerDisplay: 1 }, keywords: ['project id', 'warehouse'], defaultValue: 2, visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
-    },
-    {
-      id: 'community-discord-channels', path: 'community.discordChannels', title: 'Discord channels',
-      description: 'Discord channels to watch for questions, without the #, or none to skip Discord.',
-      control: 'list', keywords: ['discord', 'channels', 'allowlist'], defaultValue: [], visibleWhen: COMMUNITY_ENABLED, ...MACHINE_NOW,
     },
   ],
 };

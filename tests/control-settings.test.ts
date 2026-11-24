@@ -197,10 +197,10 @@ test('a usage save carrying one nested leaf leaves every stored sibling and nest
 });
 
 test('a list value is one leaf: a saved list replaces the stored list whole and leaves its siblings alone', () => {
-  const h = harness({ projects: [], community: { discordChannels: ['general', 'help'], skill: 'answering' } });
-  h.send({ type: 'update-settings', settings: { community: { discordChannels: ['questions'] } } });
+  const h = harness({ projects: [], posthog: { projects: [1, 2], enabled: false } });
+  h.send({ type: 'update-settings', settings: { posthog: { projects: [3] } } });
   assert.equal(errorFrom(h), undefined);
-  assert.deepEqual(h.cfg.community, { discordChannels: ['questions'], skill: 'answering' });
+  assert.deepEqual(h.cfg.posthog, { projects: [3], enabled: false });
 });
 
 test('an agent hidden in Settings drops out of the Add Session picker while the default agent stays offered', () => {

@@ -93,6 +93,16 @@ function dropRetiredPlanReview(config: GlimmervoidConfig): string | null {
   return '[config] Removed planReview: the plan view is gone and plans go through boards.';
 }
 
+function dropRetiredCommunitySources(config: GlimmervoidConfig): string | null {
+  const community = config.community;
+  if (typeof community !== 'object' || community === null) return null;
+  const droppedKeys = ['projectId', 'discordChannels'].filter((key) => Object.hasOwn(community, key));
+  if (droppedKeys.length === 0) return null;
+  const droppedValues = droppedKeys.map((key) => `community.${key} was ${JSON.stringify(Reflect.get(community, key))}`).join(', ');
+  for (const key of droppedKeys) Reflect.deleteProperty(community, key);
+  return `[config] Removed ${droppedValues}: Community reads questions from source packs; enter them as POSTHOG_PROJECT_ID and DISCORD_CHANNELS in the posthog-community pack settings.`;
+}
+
 function dropRetiredCoherence(config: GlimmervoidConfig): string | null {
   if (!Object.hasOwn(config, 'coherence')) return null;
   delete config.coherence;
@@ -377,4 +387,4 @@ function dropLegacyCodemapChecks(config: GlimmervoidConfig): string | null {
   return `[config] Dropped the codemap check from verification.repos for ${legacyRepoKeys.join(', ')}: the import gate is now built in and follows the code map setup.`;
 }
 
-export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredSettings, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };
+export { dropLegacyCodemapChecks, dropRetiredBenchmarks, dropRetiredCoderSessions, dropRetiredCoherence, dropRetiredCommunitySources, dropRetiredHintCards, dropRetiredHosts, dropRetiredIssues, dropRetiredSecretReferences, dropRetiredSettings, migrateVaultSettings, dropRetiredPlanReview, dropRetiredUpdateChannel, resolveBranchGc, resolveBranchGcAndWarn, retiredGuardrailKeysWarning, migrateGuardrailsUnreadablePaths, migrateRemoteEnabled, moveRenamedKeys };

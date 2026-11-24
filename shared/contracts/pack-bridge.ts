@@ -56,6 +56,11 @@ const PACK_BRIDGE_TOPIC_DATA = {
 
 export type PackBridgeTopicData = { [Topic in PackBridgeTopic]: z.infer<(typeof PACK_BRIDGE_TOPIC_DATA)[Topic]> };
 
+export function settingReachesCommand(setting: { kind: 'text' | 'secret'; commands: readonly string[] }, commandRef: string): boolean {
+  if (setting.kind === 'text' && setting.commands.length === 0) return true;
+  return setting.commands.includes(commandRef);
+}
+
 export const PACK_ID_PATTERN = '[a-z0-9][a-z0-9-]{0,39}';
 
 export const PackName = z.string().regex(new RegExp(`^${PACK_ID_PATTERN}$`), { error: 'a pack name is lowercase letters, digits and dashes, at most 40 characters' });

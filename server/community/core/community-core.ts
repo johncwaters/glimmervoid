@@ -430,7 +430,7 @@ export {
   JUDGE_BOOTSTRAP_PROMPT, JUDGE_MODEL, JUDGE_PROMPT_FILENAME, JUDGE_RESULT_FILENAME, JUDGE_TIMEOUT_MS,
   COMMUNITY_UNTRUSTED_SOURCE, JUDGE_UNTRUSTED_SOURCE, JUDGE_MESSAGE_CHARS, MAX_BODY_CHARS,
   NOTIFICATION_CATEGORY, draftNotificationText, shouldNotifyDraft,
-  SOURCE_ROW_LIMIT, admitSourceItems, applyCommunityAction, buildJudgeRequest, freshItems, itemsFromSourceOutput, withWatermarkAtLeast, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, markRunning,
+  BUILT_IN_SOURCE_NAMES, BUILT_IN_SOURCE_PACK, SOURCE_ROW_LIMIT, admitSourceItems, applyCommunityAction, buildJudgeRequest, freshItems, itemsFromSourceOutput, withWatermarkAtLeast, parseJudgeResult, buildCommunityRequest, communityGate, communitySessionPrompt, emptyCommunityState, entryFromRun, markRunning,
   parseCommunityState, prunedState, readCommunitySettings, readTelegramTarget, requeueInterruptedRuns, selectRuns,
   shouldPruneEntry,
 };

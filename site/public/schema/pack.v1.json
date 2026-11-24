@@ -888,7 +888,7 @@
           },
           "kind": {
             "default": "text",
-            "description": "text: a plain value saved in Glimmervoid's pack settings file and passed to every command of the pack; secret: a value kept in the vault and passed only to the commands listed in commands",
+            "description": "text: a plain value saved in Glimmervoid's pack settings file and passed to the commands listed in commands, or to every command of the pack when none is listed; secret: a value kept in the vault and passed only to the commands listed in commands",
             "type": "string",
             "enum": [
               "text",
@@ -902,7 +902,7 @@
           },
           "commands": {
             "default": [],
-            "description": "For a secret, the pack commands that receive it, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command",
+            "description": "The pack commands that receive the value, each as <kind>:<id>, listed to the operator before approving; a secret no command lists reaches no command, a text value no command lists reaches every command, and a command waits only for the values that reach it",
             "maxItems": 32,
             "type": "array",
             "items": {

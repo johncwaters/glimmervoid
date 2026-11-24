@@ -1,0 +1,20 @@
+{
+  "$schema": "https://glimmervoid.dev/schema/pack.v1.json",
+  "name": "posthog-community",
+  "version": 1,
+  "description": "Community questions from the posthog.com forum and allowlisted PostHog Discord channels, read through a PostHog project, for the Community tab to research and draft replies to.",
+  "requires": { "programs": ["node"] },
+  "settings": [
+    { "key": "POSTHOG_HOST", "label": "PostHog host", "hint": "https://us.posthog.com, or your self-hosted URL" },
+    { "key": "POSTHOG_PROJECT_ID", "label": "PostHog project", "hint": "The project holding the forum table and Discord events; PostHog's own community is project 2" },
+    { "key": "POSTHOG_PERSONAL_API_KEY", "label": "Personal API key", "kind": "secret", "hint": "PostHog Settings, Personal API keys, with query:read on that project", "commands": ["community-source:forum", "community-source:discord"] },
+    { "key": "DISCORD_CHANNELS", "label": "Discord channels", "hint": "Channel names without the #, comma separated, such as help,feature-requests", "commands": ["community-source:discord"] }
+  ],
+  "community": {
+    "product": { "name": "PostHog", "docsDomains": ["posthog.com"] },
+    "sources": [
+      { "id": "forum", "label": "PostHog forum", "icon": "posthog.svg", "color": { "dark": "#f9bd2b", "light": "#b7791f" }, "command": ["node", "{packDir}/forum.mjs"], "timeoutSeconds": 60 },
+      { "id": "discord", "label": "Discord", "icon": "discord.svg", "color": { "dark": "#7983f5", "light": "#5865f2" }, "command": ["node", "{packDir}/discord.mjs"], "timeoutSeconds": 60, "judge": true }
+    ]
+  }
+}
