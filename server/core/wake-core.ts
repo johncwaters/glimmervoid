@@ -23,6 +23,7 @@ interface OperatorWakeFacts {
 interface DueWakeFacts extends OperatorWakeFacts {
   nowMs: number;
   sessionState: SessionState;
+  isBetweenTurns: boolean;
   isWaitingOnRateLimit: boolean;
   rateLimitResetsAtMs: number | null;
   hasConversationId: boolean;
@@ -141,7 +142,7 @@ function decideDueWake(wake: Wake, facts: DueWakeFacts, limits: WakeLimits): Due
   if (RESTARTABLE_STATES.includes(facts.sessionState)) return { kind: 'failed', cause: 'exited' };
   const recheckAt = facts.nowMs + WAKE_RECHECK_MS;
   const decision = decideWake({
-    recipientState: facts.isWaitingOnRateLimit ? STATES.IDLE : facts.sessionState,
+    isRecipientBetweenTurns: facts.isWaitingOnRateLimit || facts.isBetweenTurns,
     hasUnread: true,
     isWakePending: facts.isDelivering,
     isOperatorFlagged: wake.origin === 'agent' && facts.isOperatorFlagged,

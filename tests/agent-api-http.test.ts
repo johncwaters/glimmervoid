@@ -1445,6 +1445,39 @@ test('a spawned child that stops wakes its idle parent with one submitted line, 
   }
 });
 
+test('a child that stops while its parent works wakes the parent once the parent turn ends with a background shell still running', async () => {
+  const { clock, advanceBy } = manualClock();
+  const fixture = wiringFixture({ clock });
+  const written: string[] = [];
+  fixture.parent.write = (text) => { written.push(text); };
+  const wakeLines = () => written.filter((text) => text.includes('has news'));
+  const waitForSubmitDelay = () => new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS + 50));
+  try {
+    await fixture.spawn(fixture.parent, { prompt: 'build U2' });
+    const child = fixture.created[0];
+    await fixture.parent.start();
+    fixture.parent.transition('first_output');
+    fixture.parent.ingestHookSignal({ event: 'UserPromptSubmit', signal: 'resume', source: 'hook', ts: 1, payload: { prompt: 'watch the match in the background' } });
+    fixture.parent.transition('new_output');
+    assert.equal(fixture.parent.state, STATES.RUNNING);
+
+    child.emit('state-change', { from: STATES.RUNNING, to: STATES.IDLE });
+    advanceBy(1000);
+    await waitForSubmitDelay();
+    assert.equal(wakeLines().length, 0, 'no wake while the parent is mid-turn');
+
+    fixture.parent.ingestHookSignal({ event: 'Stop', signal: 'ready', source: 'hook', ts: 2, payload: { background_tasks: [{ id: 'match-watch', type: 'shell', status: 'running' }] } });
+    for (let waitedMs = 0; waitedMs < 3000 && !fixture.parent.isBetweenTurns(); waitedMs += 50) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fixture.parent.state, STATES.RUNNING);
+    assert.equal(fixture.parent.isBetweenTurns(), true);
+    advanceBy(1000);
+    await waitForSubmitDelay();
+    assert.deepEqual([wakeLines().length, written.filter((text) => text === '\r').length], [1, 1]);
+  } finally {
+    fixture.destroyAll();
+  }
+});
+
 test('a child resuming after the parent wake line was submitted, before the parent has started its turn, types no second wake line', async () => {
   const { clock, advanceBy } = manualClock();
   const fixture = wiringFixture({ clock });

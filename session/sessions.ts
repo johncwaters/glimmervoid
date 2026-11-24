@@ -560,6 +560,7 @@ class Session extends EventEmitter {
     this._output = createSessionOutput({
       maxBytes: replayBufferKB * 1024,
       getState: () => this.state,
+      isBetweenTurns: () => this.isBetweenTurns(),
       isDestroyed: () => this._destroyed,
       hasLivePty: () => this.hasLivePty,
       lastOperatorInputAt: () => this._lastOperatorInputAt,
@@ -572,7 +573,7 @@ class Session extends EventEmitter {
       onPasteExpired: (text) => { console.warn(`[session:${this.name}] dropped a queued paste of ${text.length} characters: the agent never became ready to take it (state ${this.state})`); },
     });
     this._chatOutbox = createChatOutbox({
-      canTakeMessage: () => this.hasLivePty && this._isBetweenTurns() && this._isAgentReadyForChat(),
+      canTakeMessage: () => this.hasLivePty && this.isBetweenTurns() && this._isAgentReadyForChat(),
       reportsTurnStarts: () => this._hooksReportPrompts,
       isDeliveryInFlight: () => this._output.isDeliveryInFlight(),
       deliver: (entry, onSettled) => this.deliverChatEntry(entry, onSettled),
@@ -1307,6 +1308,7 @@ class Session extends EventEmitter {
     if (gateHeld) {
       this.backgroundTracking.stashGateHeldReady(s);
       this._chatOutbox.drain();
+      this.emit("turn-end-held");
     }
 
     if (s.signal === "ready") this.worktreeLifecycle.scheduleCheck();
@@ -2033,7 +2035,7 @@ class Session extends EventEmitter {
     return condition;
   }
 
-  _isBetweenTurns(): boolean {
+  isBetweenTurns(): boolean {
     return BETWEEN_PROMPT_STATES.has(this.state) || this._isTurnEndHeldForBackgroundWork();
   }
 

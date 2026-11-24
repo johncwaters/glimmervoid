@@ -305,6 +305,7 @@ test('output pushed during a sliced serialize is held so the deep snapshot match
   const output = createSessionOutput({
     maxBytes: 4 * 1024 * 1024,
     getState: () => STATES.RUNNING,
+    isBetweenTurns: () => false,
     isDestroyed: () => false,
     hasLivePty: () => true,
     lastOperatorInputAt: () => Number.NEGATIVE_INFINITY,

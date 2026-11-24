@@ -154,6 +154,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     watchedSessions.add(session);
     budget.watchOperatorInput(session);
     session.on('state-change', evaluateSoon);
+    session.on('turn-end-held', evaluateSoon);
     session.once('teardown', ({ cause }: SessionEnd) => {
       if (cause === 'removed') cancelWakesOf(session.id);
     });
@@ -239,7 +240,7 @@ function createWakeWiring({ filePath, findLiveSession, budget, limits = DEFAULT_
     const lastRateLimitedAtMs = lastRateLimitedAtMsBySessionId.get(session.id) ?? Number.NEGATIVE_INFINITY;
     const limitAnchoredWake = graceAnchoredWake.nextFireAt < lastRateLimitedAtMs ? { ...graceAnchoredWake, nextFireAt: lastRateLimitedAtMs } : graceAnchoredWake;
     const decision = decideDueWake(limitAnchoredWake, {
-      nowMs, sessionState: session.state, isWaitingOnRateLimit: session.isWaitingOnRateLimit, rateLimitResetsAtMs, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
+      nowMs, sessionState: session.state, isBetweenTurns: session.isBetweenTurns(), isWaitingOnRateLimit: session.isWaitingOnRateLimit, rateLimitResetsAtMs, hasConversationId: Boolean(session._resumeSessionId), isDelivering: budget.isWakeLineInFlight(session), ...budget.operatorWakeFactsOf(session),
     }, limits);
     switch (decision.kind) {
       case 'wait':

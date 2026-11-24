@@ -1,7 +1,7 @@
 import { createOutputRing } from "./core/output-ring.ts";
 import type { OutputRingSlice, OutputRingStats } from "./core/output-ring.ts";
 import { QUEUED_DELIVERY_TIMEOUT_MS, SUBMIT_DELAY_MS, SUBMITTED_TURN_GRACE_MS, canLandNow, canSubmit, framePaste } from "./core/input-delivery-core.ts";
-import type { DeliverOptions, DeliveryOutcome, DeliverySettlement, DeliveryWhen } from "./core/input-delivery-core.ts";
+import type { DeliverOptions, DeliveryOutcome, DeliverySettlement, DeliveryWhen, LandingFacts } from "./core/input-delivery-core.ts";
 import { SCREEN_KEEPER_SEED_LIMIT, SCREEN_RESET } from "./core/screen-keeper-core.ts";
 import { createScreenKeeper } from "./screen-keeper.ts";
 import type { ScreenKeeperFactory } from "./screen-keeper.ts";
@@ -21,6 +21,7 @@ interface SessionEventBinder {
 interface SessionOutputOptions {
   maxBytes: number;
   getState: () => SessionState;
+  isBetweenTurns: () => boolean;
   isDestroyed: () => boolean;
   hasLivePty: () => boolean;
   lastOperatorInputAt: () => number;
@@ -120,9 +121,13 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
     return willSubmit;
   }
 
+  function landingFacts(): LandingFacts {
+    return { state: options.getState(), isBetweenTurns: options.isBetweenTurns() };
+  }
+
   function submitIfStillAllowed(when: DeliveryWhen, pastedAt: number): DeliverySettlement {
     if (options.isDestroyed() || !options.hasLivePty()) return "dropped";
-    if (!canSubmit({ when, state: options.getState(), pastedAt, lastOperatorInputAt: options.lastOperatorInputAt() })) {
+    if (!canSubmit({ when, landing: landingFacts(), pastedAt, lastOperatorInputAt: options.lastOperatorInputAt() })) {
       if (when === "ready") hasUnsubmittedPasteInComposer = true;
       return "withheld";
     }
@@ -177,7 +182,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
   }
 
   function onStateChangeWhilePasteQueued({ to }: StateChange): void {
-    if (!canLandNow("ready", to)) return;
+    if (!canLandNow("ready", { state: to, isBetweenTurns: options.isBetweenTurns() })) return;
     stopWatchingForReady();
     startDrainingQueue();
   }
@@ -221,7 +226,7 @@ function createSessionOutput(options: SessionOutputOptions): SessionOutput {
 
   function deliver(text: string, { when, submit, timeoutMs = QUEUED_DELIVERY_TIMEOUT_MS, onSettled }: DeliverOptions): DeliveryOutcome {
     if (options.isDestroyed()) return { ok: false, kind: "refused", reason: "destroyed" };
-    const isReadyToLand = !hasPastesAhead() && options.hasLivePty() && canLandNow(when, options.getState());
+    const isReadyToLand = !hasPastesAhead() && options.hasLivePty() && canLandNow(when, landingFacts());
     if (when === "ready" && !isReadyToLand) return queueUntilReady(text, submit, timeoutMs, onSettled);
     if (!options.hasLivePty()) return { ok: false, kind: "refused", reason: "no-pty" };
     if (when === "idle" && !isReadyToLand) return { ok: false, kind: "refused", reason: "not-idle" };

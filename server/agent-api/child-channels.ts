@@ -4,7 +4,7 @@ import type { AgentReadReply, ConversationApproval } from '../../shared/contract
 import type { WakeOrigin } from '../../shared/contracts/wakes.ts';
 import { describeChildEndNote, describeKeptChildAttention } from '../core/agent-api-core.ts';
 import type { ChildEndCause, ChildWorktree } from '../core/agent-api-core.ts';
-import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, isWakeableState, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
+import { decideWake, describeQuestionNote, describeStopNote, describeWakeCapNote, describeWakeLine, drainChannel, findOwnedChild, findSibling, hasWakingUnread, isWakeLineAwaitingTurnStart, openChannel, postToChannel, readLastAssistantMessage, shouldPostStopNote, shouldStopNoteWake, withdrawUnreadNote } from '../core/child-channel-core.ts';
 import type { AgentChannel, ChannelEntry, ChannelKind, ChannelSide } from '../core/child-channel-core.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { STATES } from '../../shared/states.ts';
@@ -73,7 +73,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
   }
 
   const wakeLineSubmittedAtBySession = new WeakMap<Session, number | null>();
-  const turnStartListenerBySession = new WeakMap<Session, (change: StateChange) => void>();
+  const turnStartListenerBySession = new WeakMap<Session, () => void>();
 
   function releaseWakeLine(session: Session): void {
     wakeLineSubmittedAtBySession.delete(session);
@@ -86,8 +86,8 @@ function createChildChannels(runtime: AgentApiRuntime) {
   function holdWakeLineUntilTurnStart(session: Session): void {
     releaseWakeLine(session);
     wakeLineSubmittedAtBySession.set(session, now());
-    const turnStartListener = ({ to }: StateChange) => {
-      if (isWakeableState(to)) return;
+    const turnStartListener = () => {
+      if (session.isBetweenTurns()) return;
       releaseWakeLine(session);
     };
     turnStartListenerBySession.set(session, turnStartListener);
@@ -116,7 +116,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
     const submittedAt = wakeLineSubmittedAtBySession.get(session);
     if (submittedAt === undefined) return false;
     if (submittedAt === null) return true;
-    if (isWakeLineAwaitingTurnStart(session.state, now() - submittedAt)) return true;
+    if (isWakeLineAwaitingTurnStart(session.isBetweenTurns(), now() - submittedAt)) return true;
     releaseWakeLine(session);
     return false;
   }
@@ -162,7 +162,7 @@ function createChildChannels(runtime: AgentApiRuntime) {
       return;
     }
     const decision = decideWake({
-      recipientState: recipient.state,
+      isRecipientBetweenTurns: recipient.isBetweenTurns(),
       hasUnread: hasWakingUnread(channel[side]),
       isWakePending: link.pendingWakeSides.has(side),
       ...operatorWakeFactsOf(recipient),
@@ -213,6 +213,10 @@ function createChildChannels(runtime: AgentApiRuntime) {
       if (event.toLowerCase() !== 'stop') return;
       link.lastChildMessage = readLastAssistantMessage(payload);
     };
+    const wakeBothSides = () => {
+      wakeRecipient(childId, 'toParent');
+      wakeRecipient(childId, 'toChild');
+    };
     const relayStateChange = ({ from, to }: StateChange) => {
       const isHeldQuestionWaiting = to === STATES.WAITING && link.child._conversationApproval?.kind === 'question';
       if (!isHeldQuestionWaiting && shouldPostStopNote(from, to)) {
@@ -221,16 +225,17 @@ function createChildChannels(runtime: AgentApiRuntime) {
         link.lastChildMessage = null;
         link.waitingStopNoteText = to === STATES.WAITING ? text : null;
       }
-      wakeRecipient(childId, 'toParent');
-      wakeRecipient(childId, 'toChild');
+      wakeBothSides();
     };
     link.child.on('conversation-change', relayQuestion);
     link.child.on('hook-event', keepLastMessage);
     link.child.on('state-change', relayStateChange);
+    link.child.on('turn-end-held', wakeBothSides);
     return () => {
       link.child.off('conversation-change', relayQuestion);
       link.child.off('hook-event', keepLastMessage);
       link.child.off('state-change', relayStateChange);
+      link.child.off('turn-end-held', wakeBothSides);
     };
   }
 
@@ -251,7 +256,12 @@ function createChildChannels(runtime: AgentApiRuntime) {
     }
     const wakeParent = () => wakeRecipient(child.id, 'toParent');
     parent.on('state-change', wakeParent);
-    if (kind === 'branch') return () => parent.off('state-change', wakeParent);
+    parent.on('turn-end-held', wakeParent);
+    const stopWakingParent = () => {
+      parent.off('state-change', wakeParent);
+      parent.off('turn-end-held', wakeParent);
+    };
+    if (kind === 'branch') return stopWakingParent;
     const closeChildWithParent = () => {
       noteEndCause(child.id, 'parent-ended');
       child.destroy();
