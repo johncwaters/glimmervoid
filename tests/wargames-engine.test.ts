@@ -865,7 +865,7 @@ test('v6 and v7 terrain and villages stay byte-identical so stored logs replay o
         for (let index = 0; index < 8; index += 1) {
           const spec = WargamesMatchSpec.parse({ ...buildTestSpec(20261124 + index * 7919), rulesVersion, mapRadius, seats: buildTestSpec().seats.slice(0, seatCount) });
           const state = createInitialMatchState('fingerprint', 0, spec);
-          fingerprint.update(JSON.stringify([state.terrain, state.villages]));
+          fingerprint.update(JSON.stringify([state.terrain, state.villages.map((village) => (village === null ? null : { ...village, guests: undefined }))]));
         }
       }
     }

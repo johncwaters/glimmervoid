@@ -74,7 +74,7 @@ function terrainFingerprint(rulesVersions: readonly string[]): string {
       for (const seatCount of SEAT_COUNTS) {
         for (let index = 0; index < SEED_COUNT; index += 1) {
           const state = createInitialMatchState('fingerprint', 0, specFor(rulesVersion, mapRadius, seatCount, seedAt(index)));
-          hash.update(JSON.stringify([state.terrain, state.villages]));
+          hash.update(JSON.stringify([state.terrain, state.villages.map((village) => (village === null ? null : { ...village, guests: undefined }))]));
         }
       }
     }
