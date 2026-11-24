@@ -23,8 +23,8 @@ import { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, fol
 import type { CodemapModel, MapDecorations, MapOverlay, SpecPlan } from '../core/codemap-graph-core.ts';
 import { createCodemapClient } from './codemap-client.ts';
 import type { CodemapClient } from './codemap-client.ts';
-import { newShallowModulesOf, newTanglesOf, shallowModulesOf, tanglesOf } from '../core/codemap-structure-core.ts';
-import type { ShallowModule, SymbolGraph, Tangle, UnjudgedLanguage } from '../core/codemap-structure-core.ts';
+import { grownShallowModulesOf, newShallowModulesOf, newTanglesOf, shallowModulesOf, tanglesOf } from '../core/codemap-structure-core.ts';
+import type { GrownShallowModule, ShallowModule, SymbolGraph, Tangle, UnjudgedLanguage } from '../core/codemap-structure-core.ts';
 import { createStructureRunner } from './structure-runner.ts';
 import type { StructureRunner } from './structure-runner.ts';
 
@@ -57,6 +57,7 @@ interface StructureCheck {
 interface StructureFindings {
   newTangles: Tangle[];
   newShallowModules: ShallowModule[];
+  grownShallowModules: GrownShallowModule[];
   unjudgedLanguages: readonly UnjudgedLanguage[];
 }
 
@@ -64,7 +65,7 @@ function allowedKeysOf(structureAllows: readonly CodemapStructureAllowEntry[], l
   return structureAllows.filter((entry) => entry.lint === lint).map((entry) => entry.key);
 }
 
-const NO_STRUCTURE_FINDINGS: StructureFindings = { newTangles: [], newShallowModules: [], unjudgedLanguages: [] };
+const NO_STRUCTURE_FINDINGS: StructureFindings = { newTangles: [], newShallowModules: [], grownShallowModules: [], unjudgedLanguages: [] };
 
 async function structureFindingsOf(structure: StructureCheck, worktreeDir: string, treeSha: string, model: CodemapModel, mainlineModel: CodemapModel, structureAllows: readonly CodemapStructureAllowEntry[]): Promise<StructureFindings> {
   const [headGraph, mainlineGraph] = await Promise.all([structure.runner.symbolGraphOf(worktreeDir, treeSha), structure.mainlineGraph()]);
@@ -72,9 +73,12 @@ async function structureFindingsOf(structure: StructureCheck, worktreeDir: strin
   if (unjudgedOnMainline.length > 0) return { ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [...headGraph.unjudgedLanguages, ...unjudgedOnMainline] };
   const moduleOfHeadPath = (repoPath: string) => moduleOfPath(model, repoPath);
   const moduleOfMainlinePath = (repoPath: string) => moduleOfPath(mainlineModel, repoPath);
+  const headShallowModules = shallowModulesOf(headGraph, moduleOfHeadPath);
+  const mainlineShallowModules = shallowModulesOf(mainlineGraph, moduleOfMainlinePath);
   return {
     newTangles: newTanglesOf(tanglesOf(headGraph, moduleOfHeadPath), tanglesOf(mainlineGraph, moduleOfMainlinePath), allowedKeysOf(structureAllows, 'tangle')),
-    newShallowModules: newShallowModulesOf(shallowModulesOf(headGraph, moduleOfHeadPath), shallowModulesOf(mainlineGraph, moduleOfMainlinePath), allowedKeysOf(structureAllows, 'shallow')),
+    newShallowModules: newShallowModulesOf(headShallowModules, mainlineShallowModules, allowedKeysOf(structureAllows, 'shallow')),
+    grownShallowModules: grownShallowModulesOf(headShallowModules, mainlineShallowModules),
     unjudgedLanguages: headGraph.unjudgedLanguages,
   };
 }

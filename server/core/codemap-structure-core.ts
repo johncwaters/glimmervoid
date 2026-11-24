@@ -323,7 +323,20 @@ export function newTanglesOf(head: readonly Tangle[], mainline: readonly Tangle[
 }
 
 export function newShallowModulesOf(head: readonly ShallowModule[], mainline: readonly ShallowModule[], allowed: readonly string[]): ShallowModule[] {
-  const mainlineShownCountByModule = new Map(mainline.map((shallow) => [shallow.module, shallow.shown.length]));
+  const mainlineShallowModules = new Set(mainline.map((shallow) => shallow.module));
   const allowedModules = new Set(allowed);
-  return head.filter((shallow) => !allowedModules.has(shallow.module) && shallow.shown.length > (mainlineShownCountByModule.get(shallow.module) ?? 0));
+  return head.filter((shallow) => !allowedModules.has(shallow.module) && !mainlineShallowModules.has(shallow.module));
+}
+
+export interface GrownShallowModule extends ShallowModule {
+  mainlineShownCount: number;
+}
+
+export function grownShallowModulesOf(head: readonly ShallowModule[], mainline: readonly ShallowModule[]): GrownShallowModule[] {
+  const mainlineShownCountByModule = new Map(mainline.map((shallow) => [shallow.module, shallow.shown.length]));
+  return head.flatMap((shallow) => {
+    const mainlineShownCount = mainlineShownCountByModule.get(shallow.module);
+    if (mainlineShownCount === undefined || shallow.shown.length <= mainlineShownCount) return [];
+    return [{ ...shallow, mainlineShownCount }];
+  });
 }

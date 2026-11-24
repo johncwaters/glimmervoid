@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { newShallowModulesOf, newTanglesOf, shallowModulesOf, symbolGraphOfIndex, tanglesOf } from '../server/core/codemap-structure-core.ts';
+import { grownShallowModulesOf, newShallowModulesOf, newTanglesOf, shallowModulesOf, symbolGraphOfIndex, tanglesOf } from '../server/core/codemap-structure-core.ts';
 import { isTestPath } from '../server/core/import-graph-core.ts';
 import { scipDocumentsOf } from '../server/core/scip-index-core.ts';
 import { indexerPinOf } from '../server/codemap/scip-indexers.ts';
@@ -48,4 +48,12 @@ test('each pinned indexer has a fixture index made by that pin, and each yields 
     const tangles = tanglesOf(graph, folderOf).map(({ modules, symbols }) => ({ modules, symbolCount: symbols.length }));
     assert.deepEqual(tangles, [expected], language);
   }
+});
+
+test('a module already shallow on mainline that shows two more symbols on the branch is not refused, only noted as grown', () => {
+  const mainlineShown = Array.from({ length: 9 }, (_, index) => `contracts symbol ${index}`);
+  const mainline = [{ module: 'shared/contracts', shown: mainlineShown, hiddenCount: 5 }];
+  const head = [{ module: 'shared/contracts', shown: [...mainlineShown, 'contracts symbol 9', 'contracts symbol 10'], hiddenCount: 5 }];
+  assert.deepEqual(newShallowModulesOf(head, mainline, []), []);
+  assert.deepEqual(grownShallowModulesOf(head, mainline), [{ ...head[0], mainlineShownCount: 9 }]);
 });

@@ -9,7 +9,7 @@ import { CODEMAP_ID_PREFIXES } from '../../shared/contracts/whiteboard-ops-core.
 import { REPO_ROOT_BRANCH_TITLE } from '../../shared/board-branch-core.ts';
 import { isTestPath, TEST_PATH_PATTERN } from './import-graph-core.ts';
 import { IMPORT_LANGUAGE_IDS, importLanguageOf } from './import-language-core.ts';
-import type { ShallowModule, Tangle, UnjudgedLanguage } from './codemap-structure-core.ts';
+import type { GrownShallowModule, ShallowModule, Tangle, UnjudgedLanguage } from './codemap-structure-core.ts';
 
 export const CODEMAP_TUNABLES = Object.freeze({
   maxFilesPerModule: 40,
@@ -1004,6 +1004,7 @@ interface CheckFindings {
   staleAllowedEdges: readonly CodemapModuleEdge[];
   newTangles: readonly Tangle[];
   newShallowModules: readonly ShallowModule[];
+  grownShallowModules: readonly GrownShallowModule[];
   unjudgedLanguages: readonly UnjudgedLanguage[];
 }
 
@@ -1016,8 +1017,12 @@ function isCheckRefusing(findings: CheckFindings): boolean {
 }
 
 function checkTextOf(repoName: string, findings: CheckFindings, gateNote: string | null): string {
-  const { unallowedEdges, ceilingBreaches, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges, newTangles, newShallowModules, unjudgedLanguages } = findings;
-  const noteLines = [...exportNotes.map((note) => `  ${note}`), ...unjudgedLanguages.map((unjudged) => `  the structure of ${unjudged.language} code was not judged, so no tangle or shallow module there refuses: ${unjudged.reason}`)];
+  const { unallowedEdges, ceilingBreaches, unjudgedPaths, unresolvedImports, newCycles, staleExports, exportNotes, staleAllowedEdges, newTangles, newShallowModules, grownShallowModules, unjudgedLanguages } = findings;
+  const noteLines = [
+    ...exportNotes.map((note) => `  ${note}`),
+    ...unjudgedLanguages.map((unjudged) => `  the structure of ${unjudged.language} code was not judged, so no tangle or shallow module there refuses: ${unjudged.reason}`),
+    ...grownShallowModules.map((grown) => `  shallow module ${grown.module} was already shallow on mainline and shows ${grown.shown.length} symbols to other modules here, ${grown.mainlineShownCount} on mainline, keeping ${grown.hiddenCount} to itself; this does not refuse, but a smaller face would help`),
+  ];
   const staleLines = staleAllowedEdges.length > 0 ? [`  allowed module imports this branch no longer has, which codemap shrink drops once mainline lacks them too: ${cappedList(staleAllowedEdges.map((edge) => `${edge.from} -> ${edge.to}`))}`] : [];
   if (!isCheckRefusing(findings)) return [...noteLines, ...staleLines, `codemap check: no new module import in ${repoName} needs allowing.`].join('\n');
   const edgeLines = unallowedEdges.flatMap((edge) => [
