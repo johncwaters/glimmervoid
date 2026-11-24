@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
@@ -599,10 +600,12 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   await verifyComposerHeightSteady(page);
   await page.evaluate(() => {
     const sentTexts: string[] = [];
-    Object.assign(window, { harnessSentSocketTexts: sentTexts });
     const originalSend = WebSocket.prototype.send;
     WebSocket.prototype.send = function recordingSend(this: WebSocket, payload: Parameters<WebSocket['send']>[0]) {
-      if (typeof payload === 'string') sentTexts.push(payload);
+      if (typeof payload === 'string') {
+        sentTexts.push(payload);
+        document.body.dataset.harnessSentSocketTexts = JSON.stringify(sentTexts);
+      }
       return originalSend.call(this, payload);
     };
   });
@@ -610,7 +613,8 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
   const terminalInCard = page.locator('.session-chat .chat-card[data-card-type="live-terminal"] .terminal-wrap');
   await terminalInCard.waitFor({ timeout: CARD_TIMEOUT_MS });
   await page.waitForTimeout(INLINE_TERMINAL_STEADY_WATCH_MS);
-  const sentSocketTexts = await page.evaluate(() => (window as unknown as { harnessSentSocketTexts: string[] }).harnessSentSocketTexts);
+  const sentSocketTextsJson = await page.evaluate(() => document.body.dataset.harnessSentSocketTexts ?? '[]');
+  const sentSocketTexts = z.array(z.string()).parse(parseJsonOrNull(sentSocketTextsJson));
   const gridClaims = sentSocketTexts.flatMap((text) => {
     const parsedMessage = DataClientMessage.safeParse(parseJsonOrNull(text));
     return parsedMessage.success && parsedMessage.data.type === 'claim' ? [parsedMessage.data] : [];
