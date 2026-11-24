@@ -391,55 +391,23 @@ export function describeInstallWarnings(outcome: DependencyInstallOutcome): stri
 type InstallFailure = Extract<InstallResult, { ok: false }>;
 type InstallNotice = { notice: string | null; failureKind: InstallFailureKind | null; installDetails: InstallDetail[] };
 
-const MAX_NAMED_FOLDERS = 3;
-const SHORT_REASON_MAX_CHARS = 120;
-const FAILURE_KIND_PRIORITY: readonly InstallFailureKind[] = ['tool-missing', 'timed-out', 'failed'];
-
 export function describeInstallNotice(outcome: DependencyInstallOutcome): InstallNotice {
-  const reportedFailures = outcome.results.filter((result): result is InstallFailure => !result.ok && result.kind !== 'folder-missing' && !isUnreadablePnpmLockfileFailure(result));
-  const missingToolNames = [...new Set(reportedFailures.filter((failure) => failure.kind === 'tool-missing').map((failure) => failure.command.split(' ')[0] ?? failure.command))];
-  const failedInstalls = reportedFailures.filter((failure) => failure.kind !== 'tool-missing');
-  const showsMissingTools = missingToolNames.length > 0;
-  const parts = [
-    ...(showsMissingTools ? [describeMissingTools(missingToolNames)] : []),
-    ...(failedInstalls.length ? [describeFailedInstalls(failedInstalls)] : []),
-    ...outcome.results.flatMap((result) => (result.ok && result.unbuiltPackages.length ? [`${describeUnbuiltPackages(result.dir, result.unbuiltPackages)}.`] : [])),
-    ...(outcome.unsupportedDirs.length ? [`Dependencies in ${namedFolders(outcome.unsupportedDirs)} were not installed because there is no package-lock.json or pnpm-lock.yaml there.`] : []),
-  ];
-  const shownKinds = new Set<InstallFailureKind>([...(showsMissingTools ? ['tool-missing' as const] : []), ...failedInstalls.map((failure) => failure.kind)]);
-  const failureKind = FAILURE_KIND_PRIORITY.find((kind) => shownKinds.has(kind)) ?? null;
-  const installDetails = reportedFailures.slice(0, INSTALL_DETAIL_MAX_FOLDERS).map((failure) => ({
+  const missingTools = outcome.results.filter((result): result is InstallFailure => !result.ok && result.kind === 'tool-missing');
+  const missingToolNames = [...new Set(missingTools.map((failure) => failure.command.split(' ')[0] ?? failure.command))];
+  if (!missingToolNames.length) return { notice: null, failureKind: null, installDetails: [] };
+  const installDetails = missingTools.slice(0, INSTALL_DETAIL_MAX_FOLDERS).map((failure) => ({
     folder: failure.dir === '.' ? 'the worktree root' : failure.dir,
     command: failure.command,
     kind: failure.kind,
     searchedPath: failure.searchedPath,
     outputTail: failure.outputTail,
   }));
-  return { notice: parts.length ? parts.join(' ') : null, failureKind, installDetails };
+  return { notice: describeMissingTools(missingToolNames), failureKind: 'tool-missing', installDetails };
 }
 
 function describeMissingTools(toolNames: readonly string[]): string {
   const pronoun = toolNames.length > 1 ? 'them' : 'it';
   return `Glimmervoid could not find ${joinedWithAnd(toolNames)}, so new worktrees start without their dependencies. Install ${pronoun}, then start a new session; \`glimmervoid doctor\` shows where Glimmervoid looks.`;
-}
-
-function describeFailedInstalls(failures: readonly InstallFailure[]): string {
-  return `Dependencies did not install in ${namedFolders(failures.map((failure) => failure.dir))} (${shortReasonOf(failures[0])}). The session works; Details has the full output.`;
-}
-
-function shortReasonOf(failure: InstallFailure | undefined): string {
-  if (!failure) return 'unknown error';
-  if (failure.kind === 'timed-out') return 'timed out after 10 minutes';
-  const reason = (failure.lastOutputLine || 'the command printed no output').replace(/[.:;]+$/, '');
-  if (reason.length <= SHORT_REASON_MAX_CHARS) return reason;
-  return `${reason.slice(0, SHORT_REASON_MAX_CHARS).trimEnd()}...`;
-}
-
-function namedFolders(dirs: readonly string[]): string {
-  const places = dirs.map((dir) => (dir === '.' ? 'the worktree root' : dir));
-  if (places.length <= MAX_NAMED_FOLDERS) return joinedWithAnd(places);
-  const otherCount = places.length - (MAX_NAMED_FOLDERS - 1);
-  return `${places.slice(0, MAX_NAMED_FOLDERS - 1).join(', ')} and ${otherCount} other folders`;
 }
 
 function joinedWithAnd(names: readonly string[]): string {

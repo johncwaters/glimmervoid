@@ -245,7 +245,7 @@ test('an install-script package arrives built from a matching main checkout inst
   assert.deepEqual(describeInstallWarnings(install), []);
 });
 
-test('a failed install leaves no node_modules and a yarn lockfile dir is named, not installed', { skip: !CAN_INSTALL }, async () => {
+test('a failed install leaves no node_modules, a yarn lockfile dir is logged but not installed, and neither raises a notice', { skip: !CAN_INSTALL }, async () => {
   const { mainCheckout, worktreeDir } = await makeInstallableRepoWithWorktree();
   writeJson(path.join(worktreeDir, 'package.json'), { name: 'fixture', version: '1.0.0', dependencies: { 'left-pad': 'file:vendor/left-pad', 'not-in-lockfile': 'file:missing' } });
   fs.rmSync(path.join(worktreeDir, 'site', 'package-lock.json'));
@@ -259,9 +259,7 @@ test('a failed install leaves no node_modules and a yarn lockfile dir is named, 
   assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
-  const { notice, failureKind } = describeInstallNotice(install);
-  assert.match(notice ?? '', /^Dependencies did not install in the worktree root \(.+\)\. The session works; Details has the full output\. Dependencies in site were not installed because there is no package-lock\.json or pnpm-lock\.yaml there\.$/);
-  assert.equal(failureKind, 'failed');
+  assert.deepEqual(describeInstallNotice(install), { notice: null, failureKind: null, installDetails: [] });
 });
 
 test('a pnpm lockfile the local pnpm cannot read is skipped quietly while another pnpm failure quotes its ERR_PNPM_ line', { skip: !CAN_INSTALL || !hasPnpm() }, async () => {
