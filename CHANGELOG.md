@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Session temp folders with a Go module cache get deleted.** A session that built Go code in its scratchpad left a module cache, whose folders Go makes read-only, and Glimmervoid could never delete that session's temp folder, so it stayed in `~/.glimmervoid/sane-yolo-temp` as a `.deleting-` folder taking up disk. Removing a session temp folder or a worktree now makes such folders writable first, and the startup cleanup of temp folders older than a week deletes the ones already left behind. When that cleanup cannot delete a folder, it now says so in the log.
 - **An Antigravity session with a subagent still running stays working after the parent stops.** A working update after the parent agent stopped was dropped even while a subagent ran, so the session could show Complete mid-work.
 - **A Studio folder stack stays open when clicked twice.** Clicking a collapsed folder on the Studio map again before it had opened, or clicking it from two dashboards at once, shut it again. Opening a folder now always opens it, and gathering it always closes it.
 - **Studio agent cards stay off the welcome card.** An agent card could sit on the welcome card in the corner of the map, covering its steps. Cards now keep clear of it, as they already did of the message bar.

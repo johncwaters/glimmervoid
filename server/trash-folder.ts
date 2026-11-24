@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { renameSync } from 'node:fs';
-import { readdir, rename, rm } from 'node:fs/promises';
+import { chmod, lstat, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { errorMessage, isMissingFileError } from '../shared/text.ts';
+import { errorCode, errorMessage, isMissingFileError } from '../shared/text.ts';
 
 const TRASH_FOLDER_PREFIX = '.deleting-';
+const PERMISSION_ERROR_CODES: ReadonlySet<string> = new Set(['EACCES', 'EPERM']);
+const OWNER_FULL_ACCESS = 0o700;
 
 function trashFolderPrefixFor(label: string): string {
   return `${TRASH_FOLDER_PREFIX}${label}-`;
@@ -36,8 +38,28 @@ async function moveFolderToTrash(folder: string, label: string): Promise<string 
   }
 }
 
+async function makeDirectoriesWritable(folder: string): Promise<void> {
+  const pendingDirectories = [folder];
+  for (let directory = pendingDirectories.pop(); directory !== undefined; directory = pendingDirectories.pop()) {
+    const directoryStat = await lstat(directory);
+    if (!directoryStat.isDirectory()) continue;
+    await chmod(directory, directoryStat.mode | OWNER_FULL_ACCESS);
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) pendingDirectories.push(path.join(directory, entry.name));
+    }
+  }
+}
+
+async function removeFolderTree(folder: string): Promise<void> {
+  const firstAttempt = await rm(folder, { recursive: true, force: true }).then(() => null, (error: unknown) => error);
+  if (firstAttempt === null) return;
+  if (!PERMISSION_ERROR_CODES.has(errorCode(firstAttempt) ?? '')) throw firstAttempt;
+  await makeDirectoriesWritable(folder);
+  await rm(folder, { recursive: true, force: true });
+}
+
 async function deleteTrashFolder(folder: string, log: Pick<Console, 'warn'>): Promise<void> {
-  await rm(folder, { recursive: true, force: true }).catch((error: unknown) => {
+  await removeFolderTree(folder).catch((error: unknown) => {
     log.warn(`[trash] could not delete ${folder}: ${errorMessage(error)}`);
   });
 }
@@ -51,4 +73,4 @@ async function deleteLeftoverTrash(parent: string, label: string, log: Pick<Cons
   }
 }
 
-export { deleteLeftoverTrash, moveFolderToTrash, moveFolderToTrashSync };
+export { deleteLeftoverTrash, moveFolderToTrash, moveFolderToTrashSync, removeFolderTree };

@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { recordSweptPath } from './removal-journal.ts';
+import { removeFolderTree } from './trash-folder.ts';
+import { errorMessage } from '../shared/text.ts';
 import { clock } from '../shared/clock.ts';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -12,7 +14,8 @@ interface PruneAgedFilesOptions {
   now?: number;
   isRetainedId?: (id: string) => boolean;
   entryMode?: 'file' | 'directory';
-  fsPromises?: Pick<typeof fs.promises, 'readdir' | 'stat' | 'unlink' | 'rm'>;
+  fsPromises?: Pick<typeof fs.promises, 'readdir' | 'stat' | 'unlink'>;
+  log?: Pick<Console, 'warn'>;
 }
 
 function idForEntry(entry: string, suffixes: string[]): string | null {
@@ -31,6 +34,7 @@ async function pruneAgedFiles({
   isRetainedId = () => false,
   entryMode = 'file',
   fsPromises = fs.promises,
+  log = console,
 }: PruneAgedFilesOptions): Promise<string[]> {
   let entries: string[];
   try {
@@ -49,10 +53,11 @@ async function pruneAgedFiles({
       if (stat.mtimeMs >= cutoff) continue;
       const removalKind = entryMode === 'directory' ? 'folder' : 'file';
       if (!(await recordSweptPath({ cause: 'aged-files', kind: removalKind, path: filePath, checksPassed: [`untouched-${retainDays}d`] }))) continue;
-      if (entryMode === 'directory') await fsPromises.rm(filePath, { recursive: true, force: true });
+      if (entryMode === 'directory') await removeFolderTree(filePath);
       if (entryMode === 'file') await fsPromises.unlink(filePath);
       removedIds.push(id);
-    } catch {
+    } catch (error) {
+      log.warn(`[prune] could not delete ${filePath}: ${errorMessage(error)}`);
     }
   }
   return removedIds;

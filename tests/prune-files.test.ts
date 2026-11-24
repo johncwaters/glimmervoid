@@ -56,3 +56,23 @@ test('directory mode removes an aged directory and preserves a live directory', 
   assert.equal(fs.existsSync(path.join(directory, 'old')), false);
   assert.equal(fs.existsSync(path.join(directory, 'live')), true);
 });
+
+test('directory mode removes an aged directory holding read-only directories, as a Go module cache leaves, without touching a symlinked folder outside it', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-prune-read-only-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-prune-outside-'));
+  directories.push(directory, outside);
+  fs.chmodSync(outside, 0o555);
+  const target = path.join(directory, 'session');
+  const module = path.join(target, 'gopath', 'pkg', 'mod', 'example.com', 'lib@v1.0.0');
+  fs.mkdirSync(module, { recursive: true });
+  fs.writeFileSync(path.join(module, 'lib.go'), 'package lib\n');
+  fs.symlinkSync(outside, path.join(target, 'linked-out'));
+  for (let folder = module; folder !== target; folder = path.dirname(folder)) fs.chmodSync(folder, 0o555);
+  fs.utimesSync(target, new Date(NOW - 90 * DAY_MS), new Date(NOW - 90 * DAY_MS));
+  const warnings: string[] = [];
+  const removed = await pruneAgedFiles({ directory, suffixes: [''], retainDays: 7, now: NOW, entryMode: 'directory', log: { warn: (line: string) => warnings.push(line) } });
+  assert.deepEqual([removed, warnings], [['session'], []]);
+  assert.equal(fs.existsSync(target), false);
+  assert.equal(fs.statSync(outside).mode & 0o777, 0o555, 'a folder reached through a symlink keeps its permissions');
+  fs.chmodSync(outside, 0o755);
+});

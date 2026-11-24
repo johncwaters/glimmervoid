@@ -1,4 +1,4 @@
-import { readdir, rename, rm, rmdir } from 'node:fs/promises';
+import { readdir, rename, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { errorCode, errorMessage, isMissingFileError } from '../../shared/text.ts';
 import { glimmervoidHomeDir } from '../config-store.ts';
@@ -6,6 +6,7 @@ import { folderSizeAtLeast } from '../build-cache-reclaim.ts';
 import type { SessionTempUse } from '../core/disk-headroom-core.ts';
 import { pruneAgedFiles } from '../prune-files.ts';
 import { recordSweptPath } from '../removal-journal.ts';
+import { removeFolderTree } from '../trash-folder.ts';
 import { createHeldSessionTempFolder, releaseSessionLock, sessionIdOfLockFile, trashSessionTempFoldersOnceUnheld } from './session-temp-locks.ts';
 
 const SESSION_TEMP_FOLDER = 'sane-yolo-temp';
@@ -43,7 +44,7 @@ async function deleteTrashedSessionTempFolder(sessionId: string, sessionTempFold
     });
     return;
   }
-  await rm(trashFolder, { recursive: true, force: true }).catch((error: unknown) => {
+  await removeFolderTree(trashFolder).catch((error: unknown) => {
     log.warn(`[session-temp] could not delete session temp folder ${trashFolder}: ${errorMessage(error)}`);
   });
 }
