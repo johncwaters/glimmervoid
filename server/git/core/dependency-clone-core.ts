@@ -195,7 +195,7 @@ export function coherenceSeedVersion(npmLockText: string | null, rootPackageJson
 }
 
 export function coherenceSeedArgs(version: string): readonly string[] {
-  return ['install', `@posthog/coherence@${version}`, '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--prefer-offline', ...REGISTRY_STALL_ARGS];
+  return ['install', `@posthog/coherence@${version}`, '--omit=optional', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--prefer-offline'];
 }
 
 const COHERENCE_NODE_MODULES_PATH = /node_modules\/(?:@posthog\/coherence|\.bin\/coherence)(?![\w.-])/g;
@@ -241,11 +241,16 @@ export type DependencyInstallOutcome = { results: InstallResult[]; unsupportedDi
 
 export const INSTALL_TIMEOUT_MS = 10 * 60_000;
 
-const REGISTRY_STALL_ARGS: readonly string[] = ['--fetch-timeout=30000', '--fetch-retries=1'];
+const REGISTRY_STALL_ENV: Readonly<Record<string, string>> = {
+  npm_config_fetch_timeout: '30000',
+  npm_config_fetch_retries: '1',
+  pnpm_config_fetch_timeout: '30000',
+  pnpm_config_fetch_retries: '1',
+};
 
 const INSTALL_COMMAND_BY_KIND: Readonly<Record<LockKind, { command: string; args: readonly string[] }>> = {
-  npm: { command: 'npm', args: ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline', ...REGISTRY_STALL_ARGS] },
-  pnpm: { command: 'pnpm', args: ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline', ...REGISTRY_STALL_ARGS] },
+  npm: { command: 'npm', args: ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'] },
+  pnpm: { command: 'pnpm', args: ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline'] },
 };
 
 const INSTALL_ENV_NAMES: ReadonlySet<string> = new Set([
@@ -277,7 +282,7 @@ function installableLockKind(lockfiles: readonly string[]): LockKind | null {
 }
 
 export function installEnvFrom(serverEnv: NodeJS.ProcessEnv, extraPathEntries: readonly string[] = []): NodeJS.ProcessEnv {
-  const installEnv: NodeJS.ProcessEnv = {};
+  const installEnv: NodeJS.ProcessEnv = { ...REGISTRY_STALL_ENV };
   for (const [name, value] of Object.entries(serverEnv)) {
     if (INSTALL_ENV_NAMES.has(name)) installEnv[name] = value;
   }
@@ -357,16 +362,26 @@ export function lastOutputLineOf(output: string): string {
 
 type InstallFailureOutput = { stdout: string; stderr: string; execError: string };
 
-const PNPM_ERROR_LINE = /^ERR_PNPM_[A-Z_]+/;
-const UNREADABLE_PNPM_LOCKFILE_CODE = 'ERR_PNPM_LOCKFILE_BREAKING_CHANGE';
+const PNPM_ERROR_LINE = /^(?:Error: )?(ERR_PNPM_[A-Z_]+.*)$/;
+const PNPM_ERROR_DETAIL_PREFIX = /^\u2570\u2500\u25B6\s*/;
+const UNREADABLE_PNPM_LOCKFILE = /ERR_PNPM_LOCKFILE_BREAKING_CHANGE|ERR_PNPM_BROKEN_LOCKFILE.*lockfileVersion of \S+ is incompatible/;
+
+function pnpmErrorOf(output: string): string {
+  const lines = output.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const codeLineIndex = lines.findLastIndex((line) => PNPM_ERROR_LINE.test(line));
+  const codeLine = PNPM_ERROR_LINE.exec(lines[codeLineIndex] ?? '')?.[1];
+  if (!codeLine) return '';
+  const detailLine = lines.slice(codeLineIndex + 1).find((line) => PNPM_ERROR_DETAIL_PREFIX.test(line));
+  if (!detailLine || codeLine.includes(' ')) return codeLine;
+  return `${codeLine} ${detailLine.replace(PNPM_ERROR_DETAIL_PREFIX, '')}`;
+}
 
 export function installFailureReasonOf({ stdout, stderr, execError }: InstallFailureOutput): string {
-  const pnpmErrorLine = stdout.split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).findLast((line) => PNPM_ERROR_LINE.test(line));
-  return pnpmErrorLine || lastOutputLineOf(stderr) || lastOutputLineOf(stdout) || lastOutputLineOf(execError);
+  return pnpmErrorOf(stdout) || pnpmErrorOf(stderr) || lastOutputLineOf(stderr) || lastOutputLineOf(stdout) || lastOutputLineOf(execError);
 }
 
 export function isUnreadablePnpmLockfileFailure(result: InstallResult): boolean {
-  return !result.ok && result.lastOutputLine.includes(UNREADABLE_PNPM_LOCKFILE_CODE);
+  return !result.ok && UNREADABLE_PNPM_LOCKFILE.test(result.lastOutputLine);
 }
 
 export function describeInstalledDirs(outcome: DependencyInstallOutcome): string | null {

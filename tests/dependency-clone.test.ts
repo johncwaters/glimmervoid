@@ -256,7 +256,7 @@ test('a failed install leaves no node_modules, a yarn lockfile dir is logged but
   assert.equal(fs.existsSync(path.join(worktreeDir, 'node_modules')), false);
   assert.equal(fs.existsSync(path.join(worktreeDir, 'site', 'node_modules')), false);
   const [failureWarning, unsupportedWarning, ...otherWarnings] = describeInstallWarnings(install);
-  assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline --fetch-timeout=30000 --fetch-retries=1` in the worktree root\.$/);
+  assert.match(failureWarning ?? '', /^Installing dependencies in the worktree root failed: .+\. To see the full output, run `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline` in the worktree root\.$/);
   assert.match(unsupportedWarning ?? '', /^node_modules in site was not installed because/);
   assert.deepEqual(otherWarnings, []);
   assert.deepEqual(describeInstallNotice(install), { notice: null, failureKind: null, installDetails: [] });
@@ -276,9 +276,9 @@ test('a pnpm lockfile the local pnpm cannot read is skipped quietly while anothe
   const { install } = await seedToCompletion(mainCheckout, worktreeDir);
 
   assert.equal(fs.existsSync(path.join(worktreeDir, 'legacy', 'node_modules')), false);
-  assert.deepEqual(describeInstallWarnings(install), [
-    'Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/package.json. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --prefer-offline --fetch-timeout=30000 --fetch-retries=1` in outdated.',
-  ]);
+  const [outdatedWarning, ...otherWarnings] = describeInstallWarnings(install);
+  assert.match(outdatedWarning ?? '', /^Installing dependencies in outdated failed: ERR_PNPM_OUTDATED_LOCKFILE Cannot install with "frozen-lockfile" because pnpm-lock\.yaml is not up to date with (?:<ROOT>\/)?package\.json\. To see the full output, run `pnpm install --frozen-lockfile --ignore-scripts --prefer-offline` in outdated\.$/);
+  assert.deepEqual(otherWarnings, []);
 });
 
 test('a server started with a PATH that lacks npm still installs a worktree with npm found in a usual folder', { skip: !CAN_INSTALL }, async () => {
