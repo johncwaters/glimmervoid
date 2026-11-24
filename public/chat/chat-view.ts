@@ -1,7 +1,6 @@
 import type { ChatOutboxEntry } from '#shared/contracts/session.ts';
 import { el } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
-import { keycap } from '../ui/keycap.ts';
 import { paintStatusIcon } from '../status-icon.ts';
 import type { ActivityBeat, ChatPhase } from './chat-activity-core.ts';
 import { createChatActivity } from './chat-activity.ts';
@@ -177,17 +176,9 @@ function queuedRowOf(entry: ChatOutboxEntry, uploadUrlOf: (fileName: string) => 
   return row;
 }
 
-function keyHintOf(keys: readonly string[], meaning: string): HTMLElement {
-  const hint = el('span', 'chat-empty-hint');
-  hint.append(...keys.map((key) => keycap(key)), el('span', 'chat-empty-hint-meaning', meaning));
-  return hint;
-}
-
 function renderEmptyState(): HTMLElement {
   const empty = el('div', 'chat-empty');
-  const hints = el('div', 'chat-empty-hints');
-  hints.append(keyHintOf(['[', ']'], 'turns'), keyHintOf(['{', '}'], 'prompts'), keyHintOf(['B'], 'brief'));
-  empty.append(el('p', 'chat-empty-title', 'No messages yet'), hints);
+  empty.append(el('p', 'chat-empty-title', 'No messages yet'));
   return empty;
 }
 

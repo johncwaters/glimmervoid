@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **An empty chat no longer lists keyboard keys.** Under `No messages yet`, the chat showed `[ ]` turns, `{ }` prompts and `B` brief. It now shows only `No messages yet`; the keys still work.
 - **The chat message box no longer lists running subagents.** The status line under the message box showed a count and the names of running subagents, such as `4 subagents: qa-code-reviewer, ...`, in place of the call and session cost. It now always shows the cost. Each subagent still has its own row in the chat while it runs.
 - **Usage data no longer reads your Claude Code or Codex login.** Glimmervoid used to read `~/.claude.json` and `~/.codex/auth.json` to send a hash of your account ids, so installs of one account counted together. Usage data no longer reads either file or sends any account hash, and clears the hashes it sent before from its PostHog profile. Dashboard notice reports also no longer send the notice text, which could name a session, folder or branch. The privacy page, Settings > Privacy and the README now say exactly what is sent, and promise the data is never sold or used for marketing.
 
