@@ -1581,6 +1581,10 @@
     {
       "name": "live match",
       "definition": "The Wargames tab view of the running or watched match: seat banners, the board, the economy table and the spotlight"
+    },
+    {
+      "name": "tailnet",
+      "definition": "The private Tailscale network a dashboard host is reached through, named by its *.ts.net MagicDNS domain; the offline page picks its tailnet copy from that domain"
     }
   ],
   "retired": [

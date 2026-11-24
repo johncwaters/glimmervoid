@@ -24,7 +24,6 @@ import { getLastFocusedSessionId, getThemeId, isFlyingAnimalsEnabled } from './u
 import { setUsageRequestSender } from './usage/usage-store.ts';
 import { sessionRowBoardSignals, setBoardsViewOpener } from './whiteboard/board-chips.ts';
 import { loadPageToken } from './ws-token.ts';
-import { isLoopbackHostname } from '#shared/loopback-hosts.ts';
 
 import { wireViewerFocus } from './boot/viewer-focus.ts';
 import { mountViewTabs, openBoardsSurface, openView } from './boot/view-tabs.ts';
@@ -37,6 +36,7 @@ import { mountLayoutSwitch } from './boot/layout-switch.ts';
 import { wireDashboardShortcuts } from './boot/shortcuts-dispatch.ts';
 import { wireClientErrorReporting } from './boot/client-errors.ts';
 import { holdDashboardTabLock } from './dashboard-tab-lock.ts';
+import { serviceWorkerUrl } from './offline-page-kind-core.ts';
 
 applyTheme(getThemeId());
 onUnicornThemeEntered(() => {
@@ -96,8 +96,8 @@ mountHealthMonitor(queryTag(document, '#health-footer-mount', 'div'));
 
 whenBundledMonoFontLoads(refreshTerminalFonts);
 
-if (isLoopbackHostname(location.hostname) && 'serviceWorker' in navigator) {
-  void navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+if ('serviceWorker' in navigator) {
+  void navigator.serviceWorker.register(serviceWorkerUrl(location.hostname)).catch(() => {});
 }
 
 scheduleServerUnreachableHint();
