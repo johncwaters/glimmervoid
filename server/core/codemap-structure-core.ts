@@ -16,6 +16,8 @@ export interface SymbolGraph {
   files: readonly string[];
   edgesFrom: Int32Array;
   edgesTo: Int32Array;
+  outsideEdgesFrom: Int32Array;
+  outsideEdgeTargets: readonly string[];
   unjudgedLanguages: readonly UnjudgedLanguage[];
 }
 
@@ -140,7 +142,7 @@ function addOwnedEdges(owners: Owner[], references: Reference[], edgeKeys: Set<n
   }
 }
 
-export function symbolGraphOfIndex(treeSha: string, documents: Iterable<ScipDocument>, isTestPath: (repoPath: string) => boolean): SymbolGraph {
+export function symbolGraphOfIndex(treeSha: string, documents: Iterable<ScipDocument>, isTestPath: (repoPath: string) => boolean, keepsOutsideEdges = false): SymbolGraph {
   const idBySymbol = new Map<string, number>();
   const internedSymbols: string[] = [];
   const definingFileById: number[] = [];
@@ -175,10 +177,10 @@ export function symbolGraphOfIndex(treeSha: string, documents: Iterable<ScipDocu
     }
     addOwnedEdges(owners, references, edgeKeys);
   }
-  return denseGraphOf(treeSha, internedSymbols, definingFileById, files, edgeKeys);
+  return denseGraphOf(treeSha, internedSymbols, definingFileById, files, edgeKeys, keepsOutsideEdges);
 }
 
-function denseGraphOf(treeSha: string, internedSymbols: readonly string[], definingFileById: readonly number[], files: readonly string[], edgeKeys: ReadonlySet<number>): SymbolGraph {
+function denseGraphOf(treeSha: string, internedSymbols: readonly string[], definingFileById: readonly number[], files: readonly string[], edgeKeys: ReadonlySet<number>, keepsOutsideEdges: boolean): SymbolGraph {
   const denseIdByInternedId = new Int32Array(internedSymbols.length).fill(-1);
   const definedIds = internedSymbols.map((_, internedId) => internedId).filter((internedId) => definingFileById[internedId] !== UNDEFINED_FILE);
   definedIds.sort((left, right) => (internedSymbols[left] < internedSymbols[right] ? -1 : 1));
@@ -186,10 +188,13 @@ function denseGraphOf(treeSha: string, internedSymbols: readonly string[], defin
     denseIdByInternedId[internedId] = denseId;
   });
   const definedEdges: [number, number][] = [];
+  const outsideEdges: [number, string][] = [];
   for (const edgeKey of edgeKeys) {
     const from = denseIdByInternedId[Math.floor(edgeKey / EDGE_KEY_FACTOR)];
-    const to = denseIdByInternedId[edgeKey % EDGE_KEY_FACTOR];
+    const internedTarget = edgeKey % EDGE_KEY_FACTOR;
+    const to = denseIdByInternedId[internedTarget];
     if (from >= 0 && to >= 0) definedEdges.push([from, to]);
+    if (keepsOutsideEdges && from >= 0 && to < 0) outsideEdges.push([from, internedSymbols[internedTarget]]);
   }
   definedEdges.sort((left, right) => left[0] - right[0] || left[1] - right[1]);
   return {
@@ -199,8 +204,88 @@ function denseGraphOf(treeSha: string, internedSymbols: readonly string[], defin
     files,
     edgesFrom: Int32Array.from(definedEdges, (edge) => edge[0]),
     edgesTo: Int32Array.from(definedEdges, (edge) => edge[1]),
+    outsideEdgesFrom: Int32Array.from(outsideEdges, (edge) => edge[0]),
+    outsideEdgeTargets: outsideEdges.map((edge) => edge[1]),
     unjudgedLanguages: [],
   };
+}
+
+function sortedIndexOf(sortedKeys: readonly string[], key: string): number {
+  let low = 0;
+  let high = sortedKeys.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1;
+    const order = keyOrderOf(sortedKeys[middle], key);
+    if (order === 0) return middle;
+    if (order < 0) low = middle + 1;
+    if (order > 0) high = middle - 1;
+  }
+  return -1;
+}
+
+function keyOrderOf(baseKey: string | undefined, freshKey: string | undefined): number {
+  if (baseKey === undefined) return 1;
+  if (freshKey === undefined) return -1;
+  if (baseKey === freshKey) return 0;
+  return baseKey < freshKey ? -1 : 1;
+}
+
+export function splicedGraphOf(base: SymbolGraph, fresh: SymbolGraph, replacedFiles: ReadonlySet<string>): { graph: SymbolGraph; staleOwnerFiles: string[] } {
+  const replaced = new Set([...replacedFiles, ...fresh.files]);
+  const keptFiles = base.files.filter((file) => !replaced.has(file));
+  const keptFileIndexByBaseFile = new Int32Array(base.files.length).fill(UNDEFINED_FILE);
+  let keptFileCount = 0;
+  base.files.forEach((file, baseFileIndex) => {
+    if (!replaced.has(file)) keptFileIndexByBaseFile[baseFileIndex] = keptFileCount++;
+  });
+  const symbols: string[] = [];
+  const fileOfSymbol: number[] = [];
+  const mergedIdByBaseId = new Int32Array(base.symbols.length).fill(-1);
+  const mergedIdByFreshId = new Int32Array(fresh.symbols.length).fill(-1);
+  let baseId = 0;
+  let freshId = 0;
+  while (baseId < base.symbols.length || freshId < fresh.symbols.length) {
+    const order = keyOrderOf(base.symbols[baseId], fresh.symbols[freshId]);
+    const keptFile = order <= 0 ? keptFileIndexByBaseFile[base.fileOfSymbol[baseId]] : UNDEFINED_FILE;
+    if (order < 0 && keptFile === UNDEFINED_FILE) {
+      baseId++;
+      continue;
+    }
+    const mergedId = symbols.push(order > 0 ? fresh.symbols[freshId] : base.symbols[baseId]) - 1;
+    fileOfSymbol.push(keptFile === UNDEFINED_FILE ? keptFiles.length + fresh.fileOfSymbol[freshId] : keptFile);
+    if (order <= 0) mergedIdByBaseId[baseId++] = mergedId;
+    if (order >= 0) mergedIdByFreshId[freshId++] = mergedId;
+  }
+  const edgeKeys = new Set<number>();
+  const staleOwnerFileIndexes = new Set<number>();
+  for (let edge = 0; edge < base.edgesFrom.length; edge++) {
+    const ownerFile = base.fileOfSymbol[base.edgesFrom[edge]];
+    if (keptFileIndexByBaseFile[ownerFile] === UNDEFINED_FILE) continue;
+    const mergedTarget = mergedIdByBaseId[base.edgesTo[edge]];
+    if (mergedTarget < 0) {
+      staleOwnerFileIndexes.add(ownerFile);
+      continue;
+    }
+    edgeKeys.add(mergedIdByBaseId[base.edgesFrom[edge]] * EDGE_KEY_FACTOR + mergedTarget);
+  }
+  for (let edge = 0; edge < fresh.edgesFrom.length; edge++) edgeKeys.add(mergedIdByFreshId[fresh.edgesFrom[edge]] * EDGE_KEY_FACTOR + mergedIdByFreshId[fresh.edgesTo[edge]]);
+  for (let edge = 0; edge < fresh.outsideEdgesFrom.length; edge++) {
+    const mergedTarget = sortedIndexOf(symbols, fresh.outsideEdgeTargets[edge]);
+    if (mergedTarget >= 0) edgeKeys.add(mergedIdByFreshId[fresh.outsideEdgesFrom[edge]] * EDGE_KEY_FACTOR + mergedTarget);
+  }
+  const sortedEdgeKeys = Float64Array.from(edgeKeys).sort();
+  const graph = {
+    treeSha: fresh.treeSha,
+    symbols,
+    fileOfSymbol: Int32Array.from(fileOfSymbol),
+    files: [...keptFiles, ...fresh.files],
+    edgesFrom: Int32Array.from(sortedEdgeKeys, (edgeKey) => Math.floor(edgeKey / EDGE_KEY_FACTOR)),
+    edgesTo: Int32Array.from(sortedEdgeKeys, (edgeKey) => edgeKey % EDGE_KEY_FACTOR),
+    outsideEdgesFrom: new Int32Array(0),
+    outsideEdgeTargets: [],
+    unjudgedLanguages: fresh.unjudgedLanguages,
+  };
+  return { graph, staleOwnerFiles: Array.from(staleOwnerFileIndexes, (fileIndex) => base.files[fileIndex]).sort() };
 }
 
 function edgeOffsetsOf(graph: SymbolGraph): Int32Array {

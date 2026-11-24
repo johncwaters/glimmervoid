@@ -67,10 +67,20 @@ function allowedKeysOf(structureAllows: readonly CodemapStructureAllowEntry[], l
 
 const NO_STRUCTURE_FINDINGS: StructureFindings = { newTangles: [], newShallowModules: [], grownShallowModules: [], unjudgedLanguages: [] };
 
+function directImportersOf(changedPaths: readonly string[], models: readonly CodemapModel[]): string[] {
+  return models.flatMap((codemapModel) => changedPaths.flatMap((repoPath) => {
+    const fileIndex = codemapModel.indexByPath.get(repoPath);
+    if (fileIndex === undefined) return [];
+    const { offsets, targets } = codemapModel.dependents;
+    return Array.from(targets.subarray(offsets[fileIndex], offsets[fileIndex + 1]), (importerIndex) => codemapModel.paths[importerIndex]);
+  }));
+}
+
 async function structureFindingsOf(structure: StructureCheck, worktreeDir: string, treeSha: string, model: CodemapModel, mainlineModel: CodemapModel, structureAllows: readonly CodemapStructureAllowEntry[]): Promise<StructureFindings> {
-  const [headGraph, mainlineGraph] = await Promise.all([structure.runner.symbolGraphOf(worktreeDir, treeSha), structure.mainlineGraph()]);
+  const mainlineGraph = await structure.mainlineGraph();
   const unjudgedOnMainline = mainlineGraph.unjudgedLanguages.map((unjudged) => ({ language: unjudged.language, reason: `mainline was not indexed, so nothing on this branch is judged against it: ${unjudged.reason}` }));
-  if (unjudgedOnMainline.length > 0) return { ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [...headGraph.unjudgedLanguages, ...unjudgedOnMainline] };
+  if (unjudgedOnMainline.length > 0) return { ...NO_STRUCTURE_FINDINGS, unjudgedLanguages: [...(await structure.runner.symbolGraphOf(worktreeDir, treeSha)).unjudgedLanguages, ...unjudgedOnMainline] };
+  const headGraph = await structure.runner.symbolGraphOf(worktreeDir, treeSha, { base: mainlineGraph, importersOf: (changedPaths) => directImportersOf(changedPaths, [model, mainlineModel]) });
   const moduleOfHeadPath = (repoPath: string) => moduleOfPath(model, repoPath);
   const moduleOfMainlinePath = (repoPath: string) => moduleOfPath(mainlineModel, repoPath);
   const headShallowModules = shallowModulesOf(headGraph, moduleOfHeadPath);
@@ -772,5 +782,5 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
 
 type CodemapService = ReturnType<typeof createCodemapService>;
 
-export { checkWorktree, shrinkSetup, createCodemapService };
+export { checkWorktree, directImportersOf, shrinkSetup, createCodemapService };
 export type { CodemapService };

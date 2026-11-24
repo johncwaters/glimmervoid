@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { grownShallowModulesOf, newShallowModulesOf, newTanglesOf, shallowModulesOf, symbolGraphOfIndex, tanglesOf } from '../server/core/codemap-structure-core.ts';
+import { grownShallowModulesOf, newShallowModulesOf, newTanglesOf, shallowModulesOf, splicedGraphOf, symbolGraphOfIndex, tanglesOf } from '../server/core/codemap-structure-core.ts';
+import type { SymbolGraph } from '../server/core/codemap-structure-core.ts';
 import { isTestPath } from '../server/core/import-graph-core.ts';
 import { scipDocumentsOf } from '../server/core/scip-index-core.ts';
 import { indexerPinOf } from '../server/codemap/scip-indexers.ts';
@@ -56,4 +57,24 @@ test('a module already shallow on mainline that shows two more symbols on the br
   const head = [{ module: 'shared/contracts', shown: [...mainlineShown, 'contracts symbol 9', 'contracts symbol 10'], hiddenCount: 5 }];
   assert.deepEqual(newShallowModulesOf(head, mainline, []), []);
   assert.deepEqual(grownShallowModulesOf(head, mainline), [{ ...head[0], mainlineShownCount: 9 }]);
+});
+
+const shapeOf = (graph: SymbolGraph) => ({
+  symbolFiles: graph.symbols.map((symbol, symbolId) => `${symbol} @ ${graph.files[graph.fileOfSymbol[symbolId]]}`),
+  edges: Array.from(graph.edgesFrom, (from, edge) => `${graph.symbols[from]} > ${graph.symbols[graph.edgesTo[edge]]}`).sort(),
+});
+
+test('splicing a re-indexed or deleted file into a full graph gives the graph a full index of that tree gives', () => {
+  const documents = [...scipDocumentsOf(fs.readFileSync(TYPESCRIPT_FIXTURE_INDEX))];
+  const full = symbolGraphOfIndex('fixture', documents, isTestPath);
+  const pongPath = 'src/beta/pong.ts';
+
+  const reindexed = splicedGraphOf(full, symbolGraphOfIndex('fixture', documents.filter((document) => document.relativePath === pongPath), isTestPath, true), new Set([pongPath]));
+  assert.deepEqual(shapeOf(reindexed.graph), shapeOf(full));
+  assert.deepEqual(reindexed.staleOwnerFiles, []);
+  assert.deepEqual(tanglesOf(reindexed.graph, folderOf), tanglesOf(full, folderOf));
+
+  const deleted = splicedGraphOf(full, symbolGraphOfIndex('fixture', [], isTestPath, true), new Set([pongPath]));
+  assert.deepEqual(shapeOf(deleted.graph), shapeOf(symbolGraphOfIndex('fixture', documents.filter((document) => document.relativePath !== pongPath), isTestPath)));
+  assert.deepEqual(deleted.staleOwnerFiles, ['src/alpha/ping.ts']);
 });

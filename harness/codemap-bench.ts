@@ -5,11 +5,14 @@ import { performance } from 'node:perf_hooks';
 import { runCommand, runGit } from '../server/git/git-exec.ts';
 import { createCodemapClient } from '../server/codemap/codemap-client.ts';
 import type { CodemapClient } from '../server/codemap/codemap-client.ts';
+import { directImportersOf } from '../server/codemap/codemap-wiring.ts';
 import { createStructureRunner } from '../server/codemap/structure-runner.ts';
+import type { StructureRunner } from '../server/codemap/structure-runner.ts';
 import { buildCodemapModel, CODEMAP_TUNABLES, impactOf, mapTextOf, moduleOfPath, whereOf } from '../server/core/codemap-graph-core.ts';
 import type { CodemapModel } from '../server/core/codemap-graph-core.ts';
 import { glimmervoidHomeDir } from '../server/core/config-path-core.ts';
 import { shallowModulesOf, tanglesOf } from '../server/core/codemap-structure-core.ts';
+import type { SymbolGraph } from '../server/core/codemap-structure-core.ts';
 
 const BYTES_PER_MB = 2 ** 20;
 
@@ -52,6 +55,37 @@ async function benchStructure(repoDir: string, sha: string, client: CodemapClien
   const shallowModules = await timed('find shallow modules', () => shallowModulesOf(graph, moduleOfRepoPath));
   const unjudged = graph.unjudgedLanguages.map((entry) => `${entry.language} (${entry.reason})`).join(', ') || 'none';
   console.log(`indexer peak rss ${peakChildRssBytes === null ? 'not measured on this platform' : megabytes(peakChildRssBytes)}, ${graph.symbols.length} symbols, ${graph.edgesFrom.length} symbol edges, ${tangles.length} tangles (largest ${tangles[0]?.symbols.length ?? 0} symbols, ceiling ${CODEMAP_TUNABLES.maxTangleSymbols}), ${shallowModules.length} shallow modules (ceiling ${CODEMAP_TUNABLES.maxShownSymbols} shown), unjudged ${unjudged}`);
+  await benchIncrementalStructure(repoDir, sha, client, model, runner, graph);
+}
+
+function edgeNamesOf(graph: SymbolGraph): Set<string> {
+  return new Set(Array.from(graph.edgesFrom, (from, edge) => `${graph.symbols[from]} > ${graph.symbols[graph.edgesTo[edge]]}`));
+}
+
+function findingsTextOf(graph: SymbolGraph, model: CodemapModel): string {
+  const moduleOfRepoPath = (repoPath: string) => moduleOfPath(model, repoPath);
+  return JSON.stringify({ tangles: tanglesOf(graph, moduleOfRepoPath), shallowModules: shallowModulesOf(graph, moduleOfRepoPath) });
+}
+
+async function benchIncrementalStructure(repoDir: string, sha: string, client: CodemapClient, model: CodemapModel, runner: StructureRunner, fullGraph: SymbolGraph): Promise<void> {
+  const baseRef = process.argv[3] ?? 'HEAD~10';
+  const baseRevision = await runGit(['rev-parse', baseRef], { cwd: repoDir });
+  if (!baseRevision.ok) throw new Error(`${baseRef} is not a commit of ${repoDir}`);
+  const baseSha = baseRevision.out.trim();
+  const baseModel = buildCodemapModel(await client.extract(repoDir, baseSha));
+  const base = await timed(`index base ${baseRef}`, () => runner.symbolGraphOf(repoDir, baseSha));
+  const replacedPaths = new Set<string>();
+  const importersOf = (changedPaths: readonly string[]) => {
+    const importers = directImportersOf(changedPaths, [model, baseModel]);
+    for (const repoPath of [...changedPaths, ...importers]) replacedPaths.add(repoPath);
+    return importers;
+  };
+  const spliced = await timed('index incremental', () => runner.symbolGraphOf(repoDir, sha, { base, importersOf }));
+  if (findingsTextOf(spliced, model) !== findingsTextOf(fullGraph, model)) throw new Error(`the incremental tangles or shallow modules against ${baseRef} differ from the full index at ${sha.slice(0, 7)}`);
+  const fullEdges = edgeNamesOf(fullGraph);
+  const splicedEdges = edgeNamesOf(spliced);
+  const differingEdgeCount = [...fullEdges].filter((edge) => !splicedEdges.has(edge)).length + [...splicedEdges].filter((edge) => !fullEdges.has(edge)).length;
+  console.log(`incremental against ${baseRef}: ${replacedPaths.size} paths changed or importing a changed path, same tangles and shallow modules as the full index, ${differingEdgeCount} of ${fullEdges.size} symbol edges differ`);
 }
 
 async function main(): Promise<void> {

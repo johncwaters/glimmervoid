@@ -20,7 +20,7 @@ import type { TsconfigPaths } from '../core/tsconfig-paths-core.ts';
 
 const ExtractRequest = z.strictObject({ repoDir: z.string().min(1), sha: z.string().regex(/^[0-9a-f]{40}$/), base: CodemapExtractBase.nullable() });
 const ScanFilesRequest = z.strictObject({ kind: z.literal('scanFiles'), root: z.string().min(1), repoPaths: z.array(z.string().min(1)) });
-const SymbolGraphRequest = z.strictObject({ kind: z.literal('symbolGraph'), indexes: z.array(z.strictObject({ indexPath: z.string().min(1), pathPrefix: z.string() })).min(1), treeSha: z.string().regex(/^[0-9a-f]{40}$/) });
+const SymbolGraphRequest = z.strictObject({ kind: z.literal('symbolGraph'), indexes: z.array(z.strictObject({ indexPath: z.string().min(1), pathPrefix: z.string() })).min(1), treeSha: z.string().regex(/^[0-9a-f]{40}$/), keepsOutsideEdges: z.boolean() });
 
 const GIT_MAX_BUFFER_BYTES = 256 * 1024 * 1024;
 const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1' };
@@ -357,7 +357,7 @@ function serve(): void {
     const graphRequest = SymbolGraphRequest.safeParse(message);
     if (graphRequest.success) {
       try {
-        const graph = symbolGraphOfIndex(graphRequest.data.treeSha, documentsOfIndexes(graphRequest.data.indexes), isTestPath);
+        const graph = symbolGraphOfIndex(graphRequest.data.treeSha, documentsOfIndexes(graphRequest.data.indexes), isTestPath, graphRequest.data.keepsOutsideEdges);
         port.postMessage({ ok: true, graph });
       } catch (error) {
         port.postMessage({ ok: false, error: errorMessage(error) });

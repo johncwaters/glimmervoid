@@ -15,7 +15,7 @@ const ExtractReply = z.union([z.strictObject({ ok: z.literal(true), extract: Cod
 const SymbolGraphReply = z.union([
   z.strictObject({
     ok: z.literal(true),
-    graph: z.strictObject({ treeSha: z.string(), symbols: z.array(z.string()), fileOfSymbol: z.instanceof(Int32Array), files: z.array(z.string()), edgesFrom: z.instanceof(Int32Array), edgesTo: z.instanceof(Int32Array), unjudgedLanguages: z.array(z.strictObject({ language: z.string(), reason: z.string() })) }),
+    graph: z.strictObject({ treeSha: z.string(), symbols: z.array(z.string()), fileOfSymbol: z.instanceof(Int32Array), files: z.array(z.string()), edgesFrom: z.instanceof(Int32Array), edgesTo: z.instanceof(Int32Array), outsideEdgesFrom: z.instanceof(Int32Array), outsideEdgeTargets: z.array(z.string()), unjudgedLanguages: z.array(z.strictObject({ language: z.string(), reason: z.string() })) }),
   }),
   WorkerFailure,
 ]);
@@ -24,7 +24,7 @@ const ScanFilesReply = z.union([z.strictObject({ ok: z.literal(true), scans: z.a
 interface CodemapClient {
   extract(repoDir: string, sha: string, base?: CodemapExtractBase | null): Promise<CodemapExtract>;
   scanFiles(root: string, repoPaths: readonly string[]): Promise<Map<string, FileImports>>;
-  symbolGraph(indexes: readonly ScipIndexFile[], treeSha: string): Promise<SymbolGraph>;
+  symbolGraph(indexes: readonly ScipIndexFile[], treeSha: string, keepsOutsideEdges: boolean): Promise<SymbolGraph>;
 }
 
 interface ScipIndexFile {
@@ -86,8 +86,8 @@ function createCodemapClient({ onPhase = () => {} }: { onPhase?: (phase: Extract
     return new Map(reply.scans.map(({ repoPath, specifiers, declaredNames }) => [repoPath, { specifiers, declaredNames }]));
   }
 
-  async function symbolGraph(indexes: readonly ScipIndexFile[], treeSha: string): Promise<SymbolGraph> {
-    const reply = await runWorker({ kind: 'symbolGraph', indexes, treeSha }, SymbolGraphReply);
+  async function symbolGraph(indexes: readonly ScipIndexFile[], treeSha: string, keepsOutsideEdges: boolean): Promise<SymbolGraph> {
+    const reply = await runWorker({ kind: 'symbolGraph', indexes, treeSha, keepsOutsideEdges }, SymbolGraphReply);
     return reply.graph;
   }
 

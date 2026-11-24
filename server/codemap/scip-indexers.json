@@ -3,7 +3,7 @@
     "kind": "npm",
     "package": "@sourcegraph/scip-typescript",
     "entry": "dist/src/main.js",
-    "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
+    "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".svelte"]
   },
   "python": {
     "kind": "npm",
