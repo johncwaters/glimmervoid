@@ -10,7 +10,7 @@ const STUDIO_PLAYBOOK: readonly PlaybookBehavior[] = [
   {
     id: 'board-first',
     roles: ['main', 'branch'],
-    text: "The operator watches you on the repo's code map board, not in chat: reply in one sentence and put anything longer on the board.",
+    text: "The operator watches you on the repo's code map board, not in chat, and the chat shows only one line of your reply. Answer every question on the board, not in chat: an explanation, a comparison, a flow, a cause or a list of findings goes onto the map as notes and wires beside the module boxes it is about (whiteboard put), or as a page or diagram shown beside them, then reply in one sentence that says where on the map to look. Never explain in chat what the board can show.",
   },
   {
     id: 'plan-on-map',
