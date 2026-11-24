@@ -13,8 +13,6 @@ export type RecentRow = {
   lastActivityMs: number | null;
   lastStartedAtMs: number | null;
 };
-type PermissionFields = { dangerouslySkipPermissions: true; saneYolo: true } | Record<string, never>;
-type PermissionChoice = { fields: PermissionFields; isUnprotectedHintShown: boolean };
 
 const MAX_SESSION_NAME_BASE_LENGTH = 58;
 const FALLBACK_SESSION_NAME_BASE = 'session';
@@ -67,13 +65,6 @@ export function orderWorkspaceRows<Row extends { name: string; path: string }>(r
   const picked = pickedPaths.flatMap((pickedPath) => rows.filter((row) => row.path === pickedPath));
   const others = filterRows(rows.filter((row) => !pickedPaths.includes(row.path)), query);
   return { picked, others };
-}
-
-export function decidePermissions(input: { isSaneYoloInstalled: boolean; isSaneYoloSettingOn: boolean; isShell: boolean }): PermissionChoice {
-  if (input.isShell) return { fields: {}, isUnprotectedHintShown: false };
-  const canProtect = input.isSaneYoloInstalled && input.isSaneYoloSettingOn;
-  if (!canProtect) return { fields: {}, isUnprotectedHintShown: true };
-  return { fields: { dangerouslySkipPermissions: true, saneYolo: true }, isUnprotectedHintShown: false };
 }
 
 export function lastPathSegment(path: string): string {

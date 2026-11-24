@@ -1,7 +1,8 @@
 import './helpers/isolate-home.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decidePermissions, orderWorkspaceRows } from '../public/add-session-core.ts';
+import { orderWorkspaceRows } from '../public/add-session-core.ts';
+import { decidePermissions } from '../shared/session-permissions.ts';
 
 const protectable = { isSaneYoloInstalled: true, isSaneYoloSettingOn: true, isShell: false };
 

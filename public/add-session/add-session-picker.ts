@@ -1,6 +1,7 @@
 import addSessionHTML from '../components/add-session-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from '../action-status.ts';
 import { sendControlRequest } from '../control-ws.ts';
+import { settingsPayloadSnapshot } from '../settings/settings-store.ts';
 import type { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { agentAccountSummary, agentAccountsOf, onAgentAccountsChanged, refreshAgentAccounts } from '../agent-logins.ts';
 import { el, markAsNotCredential, query, queryTag } from '../dom-helpers.ts';
@@ -16,7 +17,8 @@ import { sessionUIs } from '../session-card/card-registry.ts';
 import { needsAttention } from '../attention-core.ts';
 import { STATES } from '#shared/states.ts';
 import { elapsedText } from '#shared/display-text.ts';
-import { decidePermissions, filterRows, lastPathSegment, orderRecentRows, orderWorkspaceRows, sessionNameBase } from '../add-session-core.ts';
+import { decidePermissions } from '#shared/session-permissions.ts';
+import { filterRows, lastPathSegment, orderRecentRows, orderWorkspaceRows, sessionNameBase } from '../add-session-core.ts';
 import type { LiveSession, RecentRow, ScannedProject } from '../add-session-core.ts';
 import { addSessionRefusalText, revealAddedSession } from '../session-actions.ts';
 import { clock } from '#shared/clock.ts';
@@ -841,6 +843,23 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     settingsWarningEl = showWarning(warning);
   }
 
+  function applySettings(settings: unknown) {
+    isSaneYoloInstalled = isSaneYoloAvailable(settings);
+    isSaneYoloSettingOn = settingFlag(settings, 'saneYolo') !== false;
+    skipsPermissionsByDefault = settingFlag(settings, 'skipPermissionsByDefault') === true;
+    const catalog = AgentModelCatalog.safeParse(typeof settings === 'object' && settings !== null ? Reflect.get(settings, 'agentModels') : undefined);
+    if (catalog.success) agentModelCatalog = catalog.data;
+    renderList();
+    hasSettingsLoaded = true;
+    clearSettingsWarning();
+    renderPermissionHint();
+  }
+
+  function applyLiveSettings() {
+    settingsLoadCount += 1;
+    applySettings(settingsPayloadSnapshot());
+  }
+
   function loadSettings() {
     hasSettingsLoaded = false;
     renderPermissionHint();
@@ -856,15 +875,7 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
           return;
         }
         if (message.type !== 'settings') return;
-        isSaneYoloInstalled = isSaneYoloAvailable(message.settings);
-        isSaneYoloSettingOn = settingFlag(message.settings, 'saneYolo') !== false;
-        skipsPermissionsByDefault = settingFlag(message.settings, 'skipPermissionsByDefault') === true;
-        const catalog = AgentModelCatalog.safeParse(typeof message.settings === 'object' && message.settings !== null ? Reflect.get(message.settings, 'agentModels') : undefined);
-        if (catalog.success) agentModelCatalog = catalog.data;
-        renderList();
-        hasSettingsLoaded = true;
-        clearSettingsWarning();
-        renderPermissionHint();
+        applySettings(message.settings);
       }))
       .catch(whileLatestSettings((reason: unknown) => {
         failSettingsClosed(`Could not load your settings (${requestFailureText(reason, DEFAULT_REPLY_TIMEOUT_MS)}), so the session follows your machine permission setting.`);
@@ -1094,5 +1105,5 @@ export function mountAddSessionPicker(dialog: HTMLElement, { onStarted, onCancel
     void loadSettings();
   }
 
-  return { refresh };
+  return { refresh, applyLiveSettings };
 }

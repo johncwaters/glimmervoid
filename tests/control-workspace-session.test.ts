@@ -40,6 +40,20 @@ test('add-session persists the workspace folder and chosen repositories', () => 
   }
 });
 
+test('a dashboard add-session asking for Sane YOLO while Sane YOLO is off starts on the machine permission default', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-add-sane-yolo-off-'));
+  try {
+    const config: { projects: ProjectEntry[]; saneYolo: boolean; skipPermissionsByDefault: boolean } = { projects: [], saneYolo: false, skipPermissionsByDefault: false };
+    const server = createControlServer(controlDeps(config, { generateProjectId: () => 'cccccccc-added' }));
+    const connection = connectControl<{ type: string }>(server);
+    connection.send({ type: 'add-session', name: 'stale-dialog', path: root, dangerouslySkipPermissions: true, saneYolo: true });
+    assert.equal(config.projects[0]?.dangerouslySkipPermissions, false);
+    assert.equal(config.projects[0]?.saneYolo, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('add-session under a name a live session already holds adds it under the next free name', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-control-add-taken-'));
   try {

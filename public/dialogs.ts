@@ -1,6 +1,7 @@
 import agentConnectHTML from './components/agent-connect-dialog.html?raw';
 import { createActionStatus, DEFAULT_REPLY_TIMEOUT_MS, requestFailureText } from './action-status.ts';
 import { sendControlRequest } from './control-ws.ts';
+import { subscribeSettings } from './settings/settings-store.ts';
 import { ConnectableAgent } from '#shared/contracts/control-messages.ts';
 import type { AgentLoginStatus, InstallDetail } from '#shared/contracts/control-messages.ts';
 import { agentAccountOf, agentAccountSummary, applyAgentAccounts, CONNECTABLE_AGENT_NAMES, onAgentAccountsChanged, refreshAgentAccounts } from './agent-logins.ts';
@@ -214,13 +215,18 @@ export function openRemoteSetupDialog() {
 }
 
 
-let openAddSessionSheet: { dialog: HTMLElement; refresh: () => void } | null = null;
+let openAddSessionSheet: { dialog: HTMLElement; refresh: () => void; applyLiveSettings: () => void } | null = null;
+
+subscribeSettings((change) => {
+  if (change.kind !== 'broadcast' || !openAddSessionSheet?.dialog.isConnected) return;
+  openAddSessionSheet.applyLiveSettings();
+});
 
 export function createAddSessionDialog(onStudioStarted: ((mainId: string) => void) | null = null) {
   const { overlay, dialog, close } = createModalOverlay({ dialogClass: 'dialog add-session-dialog', closeOnBackdrop: false });
   overlay.classList.add('add-session-overlay');
   const picker = mountAddSessionPicker(dialog, { onStarted: close, onCancel: close, onStudioStarted });
-  openAddSessionSheet = { dialog, refresh: picker.refresh };
+  openAddSessionSheet = { dialog, refresh: picker.refresh, applyLiveSettings: picker.applyLiveSettings };
   applyDialogAria(dialog, 'add-session-title');
 }
 

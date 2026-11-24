@@ -29,6 +29,8 @@ import type { ControlHandlerDeps } from '../../control-handlers.ts';
 import { sanitizeOneLine } from '../../core/text-core.ts';
 import { runGit } from '../../git/git-exec.ts';
 import { machineSkipsPermissionsByDefault } from '../../session/core/session-registry-core.ts';
+import { decidePermissions } from '../../../shared/session-permissions.ts';
+import { resolvePackageBin } from '../../runtime-paths.ts';
 import { wakeStudioMain } from '../../board-session/studio-main.ts';
 import { mainAgentNameOf } from '../../core/studio-main-core.ts';
 import { projectDirCandidates } from '../../usage/core/usage-scan-core.ts';
@@ -116,14 +118,24 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     replyTo(ws, msg, 'secret-source-test-result', await testSecretSource(msg.lookIn));
   }
 
+  function dashboardPermissionFields(message: { agent?: string; dangerouslySkipPermissions?: boolean; saneYolo?: boolean }) {
+    if (message.dangerouslySkipPermissions === false) return { dangerouslySkipPermissions: false, saneYolo: undefined };
+    const cleared = { dangerouslySkipPermissions: undefined, saneYolo: undefined };
+    if (message.saneYolo !== true) return cleared;
+    const choice = decidePermissions({ isSaneYoloInstalled: !!resolvePackageBin('cc-safety-net', 'cc-safety-net'), isSaneYoloSettingOn: config.saneYolo !== false, isShell: isShellRequest(message) });
+    return { ...cleared, ...choice.fields };
+  }
+
   async function handleAddSession(request: AddSessionRequest, ws: ControlSocket): Promise<void> {
     if (!startPicks) {
-      addSession(request, socketReply(ws, request), {});
+      const decided: AddSessionRequest = { ...request, ...dashboardPermissionFields(request) };
+      addSession(decided, socketReply(ws, decided), {});
       return;
     }
     const picks = await startPicks.current();
     const catalog = currentAgentModelCatalog();
-    const filled = withRememberedStart(request, picks, catalog, { defaultAgentId: DEFAULT_AGENT_ID, isKnownAgentId });
+    const remembered = withRememberedStart(request, picks, catalog, { defaultAgentId: DEFAULT_AGENT_ID, isKnownAgentId });
+    const filled: AddSessionRequest = { ...remembered, ...dashboardPermissionFields(remembered) };
     const replyToSocket = socketReply(ws, filled);
     addSession(filled, (outcome) => {
       if (outcome.ok) void startPicks.record(startToRemember(filled, request.setup ?? null, DEFAULT_AGENT_ID, catalog));
@@ -295,7 +307,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
       refuse(read.error);
       return;
     }
-    const { issueNumber: _issueNumber, ...sessionFields } = msg;
+    const { issueNumber: _issueNumber, ...sessionFields } = { ...msg, ...dashboardPermissionFields(msg) };
     const request: AddSessionRequest = { ...sessionFields, type: 'add-session', name: deriveIssueSessionName(read.issue), path: folderPath };
     addSession(request, (outcome) => {
       if (outcome.ok) deliverIssuePrompt(outcome.sessionId, buildIssuePrompt(read.repo, read.issue));
@@ -394,7 +406,7 @@ function createSessionHandlers(context: ControlContext, deps: ControlHandlerDeps
     if (restart(sess, { fresh, conversationId })) persistResumeConversation(sess.id, conversationId);
   }
 
-  function isShellRequest(msg: AddSessionRequest): boolean {
+  function isShellRequest(msg: { agent?: string }): boolean {
     return typeof msg.agent === 'string' && msg.agent.trim() === SHELL_AGENT_ID;
   }
 
