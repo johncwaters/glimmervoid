@@ -119,6 +119,22 @@ test('a background shell the Stop payload reports running gets a row named by it
   ]);
 });
 
+test('a workflow row is named by its workflow and summary whether its hook start comes before or after the launch result', () => {
+  const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };
+  const workflowCall = toolCall('Workflow', { name: 'qa-swarm', args: { reviewCmd: 'git diff a..b' } }, 2_000);
+  const launchResult: TraceRecord = { kind: 'tool_result', toolUseId: 'call-2000', content: 'Workflow launched in background. Task ID: w1', isError: false, truncated: false, backgroundTaskId: 'w1', backgroundTaskName: 'qa-swarm', backgroundTaskSummary: 'Routes a pinned review through the lanes.', ts: 2_100, ...recordBase };
+  const hookStart: TraceRecord = { kind: 'background-task', phase: 'start', taskId: 'w1', taskType: 'workflow', ts: 2_200, ...recordBase };
+  const prompt: TraceRecord = { kind: 'prompt', text: 'Review the PR', ts: 1_000, ...recordBase };
+  const lastRowOf = (records: TraceRecord[]) => {
+    const rows = appendChatRecords(createChatPartsState(WORKING_DIRECTORY), records).parts.flatMap((part) => part.kind === 'background-task' ? [part] : []);
+    const lastRow = rows.at(-1);
+    return lastRow === undefined ? null : { rowCount: new Set(rows.map((row) => row.id)).size, label: lastRow.label, command: lastRow.command, startedAt: lastRow.startedAt };
+  };
+  const expectedRow = { rowCount: 1, label: 'qa-swarm', command: 'Routes a pinned review through the lanes.', startedAt: 2_100 };
+  assert.deepEqual(lastRowOf([prompt, workflowCall, launchResult, hookStart]), expectedRow);
+  assert.deepEqual(lastRowOf([prompt, hookStart, workflowCall, launchResult]), expectedRow);
+});
+
 test('a running subagent left open before a restart closes when a new session record arrives', () => {
   const state = createChatPartsState(WORKING_DIRECTORY);
   const recordBase = { uuid: null, parentUuid: null, vendorSessionId: 'vendor' };

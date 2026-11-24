@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A background workflow in Chat now says which workflow it is.** Its row used to show a random task id, or the word Workflow twice. It now shows the workflow's name, such as qa-swarm, and opening it shows the workflow's one-line summary, whichever order Claude Code reports the launch in.
 - **Studio cards stay put while you pan.** Agent cards, such as the Orchestrator's, used to jump between spots beside their box as the map moved. They now move with the map and only find a new spot when their box, their size or the zoom changes.
 - **Worktrees get their dependencies again with pnpm 11 and 12.** Newer pnpm refused the install command Glimmervoid ran in each new worktree (`unexpected argument '--fetch-retries'`), so every pnpm project's sessions started without `node_modules`. The fetch timeout and retry settings now reach npm and every pnpm version through the environment instead.
 - **No more dependency warnings you can't act on.** A new session no longer shows a warning in the header when a worktree's dependencies fail to install, when a folder uses a lockfile Glimmervoid does not install (such as bun or yarn), or when some packages' install scripts did not run. The session works without them, and each one is still written to the server log. The warning still appears when npm or pnpm cannot be found, since installing it fixes every later session.

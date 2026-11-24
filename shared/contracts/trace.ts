@@ -71,6 +71,8 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     truncated: z.boolean(),
     subagentId: z.string().min(1).optional(),
     backgroundTaskId: z.string().min(1).optional(),
+    backgroundTaskName: z.string().min(1).optional(),
+    backgroundTaskSummary: z.string().min(1).optional(),
   }),
   TraceRecordBase.extend({ kind: z.literal('subagent'), ...SubagentSignalFields }),
   TraceRecordBase.extend({ kind: z.literal('background-task'), ...BackgroundTaskSignalFields }),

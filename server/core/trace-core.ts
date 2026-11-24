@@ -289,14 +289,25 @@ function launchedSubagentField(toolUseResult: unknown): { subagentId?: string } 
   return { subagentId };
 }
 
-function launchedBackgroundTaskField(toolUseResult: unknown): { backgroundTaskId?: string } {
+function nonEmptyFieldOf(fields: object, key: string): string | null {
+  const value: unknown = Reflect.get(fields, key);
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function launchedBackgroundTaskField(toolUseResult: unknown): { backgroundTaskId?: string; backgroundTaskName?: string; backgroundTaskSummary?: string } {
   if (typeof toolUseResult !== 'object' || toolUseResult === null) return {};
-  const shellTaskId = 'backgroundTaskId' in toolUseResult ? toolUseResult.backgroundTaskId : null;
-  if (typeof shellTaskId === 'string' && shellTaskId !== '') return { backgroundTaskId: shellTaskId };
-  const isLaunchedTask = 'taskType' in toolUseResult && typeof toolUseResult.taskType === 'string';
-  const launchedTaskId = isLaunchedTask && 'taskId' in toolUseResult ? toolUseResult.taskId : null;
-  if (typeof launchedTaskId !== 'string' || launchedTaskId === '') return {};
-  return { backgroundTaskId: launchedTaskId };
+  const shellTaskId = nonEmptyFieldOf(toolUseResult, 'backgroundTaskId');
+  if (shellTaskId !== null) return { backgroundTaskId: shellTaskId };
+  const isLaunchedTask = typeof Reflect.get(toolUseResult, 'taskType') === 'string';
+  const launchedTaskId = isLaunchedTask ? nonEmptyFieldOf(toolUseResult, 'taskId') : null;
+  if (launchedTaskId === null) return {};
+  const taskName = nonEmptyFieldOf(toolUseResult, 'workflowName');
+  const taskSummary = nonEmptyFieldOf(toolUseResult, 'summary');
+  return {
+    backgroundTaskId: launchedTaskId,
+    ...(taskName === null ? {} : { backgroundTaskName: boundedText(taskName).text }),
+    ...(taskSummary === null ? {} : { backgroundTaskSummary: boundedText(taskSummary).text }),
+  };
 }
 
 function mapUserLine(

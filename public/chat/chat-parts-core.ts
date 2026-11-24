@@ -468,26 +468,38 @@ export function backgroundTaskKindText(taskType: string | null): string {
   return BACKGROUND_TASK_LABEL_BY_TYPE.get(taskType) ?? taskType;
 }
 
-function backgroundLaunchOf(state: ChatPartsState, call: Extract<TraceRecord, { kind: 'tool_call' }>, launchedAt: number): BackgroundTaskLaunch {
+function backgroundLaunchOf(state: ChatPartsState, call: Extract<TraceRecord, { kind: 'tool_call' }>, launched: Extract<TraceRecord, { kind: 'tool_result' }>): BackgroundTaskLaunch {
   return {
     taskType: BACKGROUND_TASK_TYPE_BY_TOOL_NAME.get(call.name) ?? null,
-    label: textFieldOf(call.input, 'description') ?? toolLabelOf(call.name, call.input, state.workingDirectory),
-    command: textFieldOf(call.input, 'command'),
-    startedAt: launchedAt,
+    label: launched.backgroundTaskName ?? textFieldOf(call.input, 'description') ?? toolLabelOf(call.name, call.input, state.workingDirectory),
+    command: textFieldOf(call.input, 'command') ?? launched.backgroundTaskSummary ?? null,
+    startedAt: launched.ts,
   };
 }
 
-function noteBackgroundLaunch(state: ChatPartsState, record: TraceRecord): void {
-  if (record.agentId !== undefined) return;
+function relabelStartedBackgroundTask(state: ChatPartsState, taskId: string, launch: BackgroundTaskLaunch): BackgroundTaskPart | null {
+  const startedPart = state.backgroundTaskById.get(taskId);
+  if (startedPart === undefined) return null;
+  const relabeled = { ...startedPart, taskType: startedPart.taskType ?? launch.taskType, label: launch.label, command: launch.command, startedAt: Math.min(startedPart.startedAt, launch.startedAt) };
+  state.backgroundTaskById.set(taskId, relabeled);
+  return relabeled;
+}
+
+function noteBackgroundLaunch(state: ChatPartsState, record: TraceRecord): BackgroundTaskPart | null {
+  if (record.agentId !== undefined) return null;
   if (record.kind === 'tool_call' && BACKGROUND_TASK_TYPE_BY_TOOL_NAME.has(record.name)) {
     rememberBounded(state.backgroundCallByToolUseId, record.toolUseId, record);
-    return;
+    return null;
   }
-  if (record.kind !== 'tool_result') return;
+  if (record.kind !== 'tool_result') return null;
   const call = state.backgroundCallByToolUseId.get(record.toolUseId);
   state.backgroundCallByToolUseId.delete(record.toolUseId);
-  if (call === undefined || record.backgroundTaskId === undefined) return;
-  rememberBounded(state.backgroundLaunchByTaskId, record.backgroundTaskId, backgroundLaunchOf(state, call, record.ts));
+  if (call === undefined || record.backgroundTaskId === undefined) return null;
+  const launch = backgroundLaunchOf(state, call, record);
+  const relabeled = relabelStartedBackgroundTask(state, record.backgroundTaskId, launch);
+  if (relabeled !== null) return relabeled;
+  rememberBounded(state.backgroundLaunchByTaskId, record.backgroundTaskId, launch);
+  return null;
 }
 
 function startBackgroundTask(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'background-task' }>): BackgroundTaskPart | null {
@@ -521,7 +533,8 @@ function stopEveryBackgroundTask(state: ChatPartsState, stoppedAt: number): Back
 }
 
 function changedBackgroundTasksOf(state: ChatPartsState, record: TraceRecord): BackgroundTaskPart[] {
-  noteBackgroundLaunch(state, record);
+  const relabeled = noteBackgroundLaunch(state, record);
+  if (relabeled !== null) return [relabeled];
   if (record.kind === 'session') return stopEveryBackgroundTask(state, record.ts);
   if (record.kind !== 'background-task') return [];
   if (record.phase === 'stop') return [stopBackgroundTask(state, record.taskId, record.ts)].filter((stopped) => stopped !== null);
