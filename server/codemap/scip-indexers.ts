@@ -65,6 +65,18 @@ const WINDOWS_ENV_NAMES = ['SystemRoot', 'SYSTEMROOT', 'windir', 'ComSpec', 'PAT
 const TOOLCHAIN_ENV_NAMES = ['GOROOT', 'GOPATH', 'GOMODCACHE', 'GOPROXY', 'GOPRIVATE', 'GONOSUMDB', 'CARGO_HOME', 'RUSTUP_HOME', 'RUSTUP_TOOLCHAIN'];
 const INDEXED_PROJECT_NAME = 'repo';
 const RUST_ANALYZER_CONFIG = { cargo: { buildScripts: { enable: false, overrideCommand: ['cargo', '--version'] } }, procMacro: { enable: false } };
+const TSCONFIG_NAME = 'tsconfig.json';
+const DERIVED_TSCONFIG_NAME = '.glimmervoid-index.tsconfig.json';
+const TSCONFIG_ROOTS_MAX_BYTES = 64 * 1024 * 1024;
+const TSCONFIG_ROOTS_SCRIPT = [
+  'const [programPath, configPath] = process.argv.slice(1);',
+  "const ts = require('node:module').createRequire(programPath)('typescript');",
+  "const svelteFileExtension = { extension: '.svelte', isMixedContent: true, scriptKind: ts.ScriptKind.Deferred };",
+  'const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => process.exit(2) }, undefined, undefined, [svelteFileExtension]);',
+  'if (!parsed || (parsed.projectReferences ?? []).length > 0) process.exit(3);',
+  'process.stdout.write(JSON.stringify(parsed.fileNames));',
+].join('\n');
+const TsconfigRoots = z.array(z.string());
 const gunzip = promisify(zlib.gunzip);
 
 function shortHashOf(text: string): string {
@@ -245,12 +257,32 @@ function goModuleDirsOf(repoPaths: readonly string[], isTestPath: (repoPath: str
   return repoPaths.filter((repoPath) => path.posix.basename(repoPath) === 'go.mod' && !isTestPath(repoPath) && !/(^|\/)(vendor|testdata)\//.test(repoPath)).map((repoPath) => path.posix.dirname(repoPath));
 }
 
+async function typescriptRootsOf(launch: IndexerLaunch, treeDir: string): Promise<string[] | null> {
+  const configPath = path.join(treeDir, TSCONFIG_NAME);
+  const hasConfig = await fsp.access(configPath).then(() => true, () => false);
+  if (!hasConfig) return null;
+  const listed = await runCommand('node', ['--input-type=commonjs', '-e', TSCONFIG_ROOTS_SCRIPT, launch.programPath, configPath], { cwd: treeDir, timeoutMs: CODEMAP_TUNABLES.indexDeadlineMs, maxBuffer: TSCONFIG_ROOTS_MAX_BYTES, replaceEnv: launch.env });
+  if (!listed.ok) return null;
+  const parsed = TsconfigRoots.safeParse(JSON.parse(listed.out));
+  if (!parsed.success) return null;
+  return parsed.data.map((rootPath) => path.relative(treeDir, rootPath).split(path.sep).join('/')).filter((repoPath) => !repoPath.startsWith('../'));
+}
+
+async function typescriptProjectArgsOf(launch: IndexerLaunch, tree: IndexedTree): Promise<string[]> {
+  const roots = await typescriptRootsOf(launch, tree.treeDir);
+  const keptRoots = roots?.filter((repoPath) => !tree.isTestPath(repoPath)) ?? [];
+  if (keptRoots.length === 0) return ['--infer-tsconfig'];
+  const derivedConfigPath = path.join(tree.treeDir, DERIVED_TSCONFIG_NAME);
+  await fsp.writeFile(derivedConfigPath, `${JSON.stringify({ extends: `./${TSCONFIG_NAME}`, include: [], files: keptRoots.map((repoPath) => `./${repoPath}`) })}\n`);
+  return [derivedConfigPath];
+}
+
 async function indexCommandsOf(language: IndexerLanguage, launch: IndexerLaunch, tree: IndexedTree): Promise<IndexCommand[] | { reason: string }> {
   const indexer = INDEXERS[language];
   const { treeDir, workDir } = tree;
   const indexPath = path.join(workDir, `${language}.scip`);
   if (indexer.kind === 'archive' && !isToolchainOnPath(indexer.toolchain, launch.env)) return { reason: `${indexer.name} needs ${indexer.toolchain} on PATH, and none was found` };
-  if (language === 'typescript') return [{ file: 'node', args: [launch.programPath, 'index', '--infer-tsconfig', '--no-progress-bar', '--output', indexPath], env: launch.env, cwd: treeDir, indexPath, pathPrefix: '' }];
+  if (language === 'typescript') return [{ file: 'node', args: [launch.programPath, 'index', ...await typescriptProjectArgsOf(launch, tree), '--no-progress-bar', '--output', indexPath], env: launch.env, cwd: treeDir, indexPath, pathPrefix: '' }];
   if (language === 'python') {
     const environmentPath = path.join(workDir, 'python-environment.json');
     await fsp.writeFile(environmentPath, '[]\n');
