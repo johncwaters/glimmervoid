@@ -8,6 +8,7 @@ import type { WakePageState } from './doorman-core.ts';
 const TYPICAL_WAKE_SECONDS = 15;
 const TYPICAL_COLD_START_SECONDS = 90;
 const WAKE_POLL_MS = 1000;
+const UNREACHABLE_STATUS_TEXT = 'Cannot reach Glimmervoid. Checking again.';
 
 const HOST_PAGE_STYLES = [
   ':root{--bg:#0f0d15;--border-dim:#2b2636;--text:#cfcbd9;--text-head:#efedf6;--text-muted:#9e97af;--accent:#b688fe;--state-failed:#f84d4c}',
@@ -24,11 +25,11 @@ const HOST_PAGE_STYLES = [
   '[data-light="failed"] .light{opacity:1}',
   'h1{margin:0;font-size:16px;line-height:1.3;font-weight:700;color:var(--text-head)}',
   'p{margin:0;font-size:14px;line-height:1.5;text-wrap:balance}',
-  'a{color:var(--accent)}',
-  '.meta{font-size:12px;line-height:1.55;color:var(--text-muted)}',
+  '.action{display:inline-block;padding:10px 18px;border-radius:8px;background:var(--accent);color:var(--bg);font-weight:700;text-decoration:none}',
+  '.action:focus-visible{outline:2px solid var(--text-head);outline-offset:2px}',
   '.bar{width:min(240px,100%);height:4px;border-radius:2px;background:var(--border-dim);overflow:hidden}',
   '.bar-fill{height:100%;background:var(--accent);transform-origin:left;transform:scaleX(var(--fraction,0))}',
-  '[data-phase="holding"] .bar,[data-phase="holding"] #wake-elapsed{visibility:hidden}',
+  '[data-phase="holding"] .bar{visibility:hidden}',
   '@media (prefers-reduced-motion:no-preference){[data-phase="waking"] .bracket{animation:mark-scan 1.3s cubic-bezier(0.2,0.8,0.2,1) infinite}.bar-fill{transition:transform 1s linear}}',
   '@keyframes mark-scan{0%,30%,100%{transform:none;stroke:var(--text-head)}12%{transform:translate(calc(var(--dx)*6px),calc(var(--dy)*6px));stroke:var(--accent)}}',
 ].join('');
@@ -46,17 +47,13 @@ const HOST_PAGE_SCRIPT = `(() => {
   paintSavedThemeColors();
   const wake = document.getElementById('wake');
   if (wake === null) return;
-  const unreachableLine = document.getElementById('wake-unreachable');
-  const slotIds = ['wake-status', 'wake-elapsed'];
+  const statusLine = document.getElementById('wake-status');
   const showRender = (render) => {
     wake.dataset.phase = render.dataset.phase;
     wake.dataset.light = render.dataset.light;
     wake.style.setProperty('--fraction', render.dataset.fraction);
-    for (const slotId of slotIds) {
-      const slot = document.getElementById(slotId);
-      const renderedText = render.querySelector('#' + slotId).textContent;
-      if (slot.textContent !== renderedText) slot.textContent = renderedText;
-    }
+    const renderedText = render.querySelector('#wake-status').textContent;
+    if (statusLine.textContent !== renderedText) statusLine.textContent = renderedText;
   };
   const readRender = async () => {
     const response = await fetch(location.href, { headers: { accept: 'text/html', '${DOORMAN_WAKE_POLL_HEADER}': '1' }, cache: 'no-store', redirect: 'manual' });
@@ -68,7 +65,7 @@ const HOST_PAGE_SCRIPT = `(() => {
     try {
       render = await readRender();
     } catch {
-      unreachableLine.hidden = false;
+      statusLine.textContent = '${UNREACHABLE_STATUS_TEXT}';
       setTimeout(poll, ${WAKE_POLL_MS});
       return;
     }
@@ -76,7 +73,6 @@ const HOST_PAGE_SCRIPT = `(() => {
       location.reload();
       return;
     }
-    unreachableLine.hidden = true;
     showRender(render);
     setTimeout(poll, ${WAKE_POLL_MS});
   };
@@ -99,22 +95,14 @@ function hostPage({ heading, headExtra, mainAttributes, body }: { heading: strin
 }
 
 function wakeStatusText(state: WakePageState): string {
-  if (state.phase === 'waking' && state.isColdStart) return 'Its zone has no room to resume it, so it is starting fresh. Open sessions restart; files on its disk are kept.';
-  if (state.phase === 'waking') return state.didLastWakeFail ? 'The last try got no answer. Waking the host again.' : 'Waking the host.';
-  if (state.retryInMs === null) return 'This Glimmervoid cannot be woken right now. Checking again on its own.';
+  if (state.phase === 'waking' && state.isColdStart) return 'Starting fresh. Open sessions restart; files are kept.';
+  if (state.phase === 'waking') return state.didLastWakeFail ? 'No answer yet. Trying again.' : 'The dashboard opens when it answers.';
+  if (state.retryInMs === null) return 'It cannot be woken right now. Checking again.';
   return `Not waking yet. Trying again in ${secondsText(Math.max(1, Math.ceil(state.retryInMs / 1000)))}.`;
 }
 
 function typicalSecondsOf(state: WakePageState & { phase: 'waking' }): number {
   return state.isColdStart ? TYPICAL_COLD_START_SECONDS : TYPICAL_WAKE_SECONDS;
-}
-
-function wakeElapsedText(state: WakePageState): string {
-  if (state.phase !== 'waking') return '';
-  const elapsedSeconds = Math.floor(state.elapsedMs / 1000);
-  const typicalSeconds = typicalSecondsOf(state);
-  if (elapsedSeconds > typicalSeconds) return `${elapsedSeconds}s, longer than the usual ${typicalSeconds}s`;
-  return `${elapsedSeconds}s of about ${typicalSeconds}s`;
 }
 
 function wakeFraction(state: WakePageState): number {
@@ -129,7 +117,7 @@ function wakingPage(state: WakePageState, refreshSeconds: number): string {
     heading: 'Waking your Glimmervoid',
     headExtra: `<noscript><meta http-equiv="refresh" content="${refreshSeconds}"></noscript>`,
     mainAttributes: ` id="wake" data-phase="${state.phase}" data-light="${light}" data-fraction="${fraction}" style="--fraction:${fraction}"`,
-    body: `<p id="wake-status" role="status" aria-live="polite">${wakeStatusText(state)}</p><div class="bar" aria-hidden="true"><div class="bar-fill"></div></div><p class="meta" id="wake-elapsed">${wakeElapsedText(state)}</p><p class="meta">It was asleep. The dashboard opens here on its own once it answers.</p><p class="meta" id="wake-unreachable" role="status" hidden>Cannot reach Glimmervoid. Checking again on its own.</p>`,
+    body: `<p id="wake-status" role="status" aria-live="polite">${wakeStatusText(state)}</p><div class="bar" aria-hidden="true"><div class="bar-fill"></div></div>`,
   });
 }
 
@@ -138,17 +126,17 @@ function wakeLimitedPage(minutesUntilWake: number): string {
     heading: 'Woken too often this hour',
     headExtra: '',
     mainAttributes: '',
-    body: `<p>This Glimmervoid was woken from outside too many times in the last hour, so it stays asleep for now.</p><p class="meta">It can be woken again in about ${minutesUntilWake} minute${minutesUntilWake === 1 ? '' : 's'}.</p>`,
+    body: `<p>It can be woken again in about ${minutesUntilWake} minute${minutesUntilWake === 1 ? '' : 's'}.</p>`,
   });
 }
 
-function overCapPage({ awakeHoursPerMonth, periodEndsAt }: { awakeHoursPerMonth: number | null; periodEndsAt: string }): string {
+function overCapPage(periodEndsAt: string): string {
   const wakeDay = clock.format(Date.parse(periodEndsAt), 'month-day', 'UTC');
   return hostPage({
     heading: `Asleep until ${wakeDay}`,
     headExtra: '',
     mainAttributes: '',
-    body: `<p>This Glimmervoid has been awake for its ${awakeHoursPerMonth} hour${awakeHoursPerMonth === 1 ? '' : 's'} this month, so it stays asleep.</p><p class="meta">It can wake again on ${wakeDay} at 00:00 UTC.</p>`,
+    body: '<p>It used this month\'s awake time and wakes at 00:00 UTC.</p>',
   });
 }
 
@@ -157,7 +145,7 @@ function signInPage(accountPageUrl: string): string {
     heading: 'Sign in to open this Glimmervoid',
     headExtra: '',
     mainAttributes: '',
-    body: `<p>This Glimmervoid opens for its owner after they sign in to Glimmervoid Cloud on this device.</p><p><a href="${escapeMarkup(accountPageUrl)}">Sign in</a></p><p class="meta">Then choose Open Glimmervoid on your account page.</p>`,
+    body: `<p>After you sign in, choose Open Glimmervoid on your account page.</p><a class="action" href="${escapeMarkup(accountPageUrl)}">Sign in</a>`,
   });
 }
 

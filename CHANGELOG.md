@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Glimmervoid Cloud's waking, sleeping and sign-in pages say one thing.** Each page now shows a heading, one line and at most one action. The waking page keeps its progress bar and drops the elapsed-time and "It was asleep" lines; if the host stops answering, the status line says so. The sign-in page has one Sign in button.
+
 - **Wargames shows the match as a turn track.** The LIVE, turn and phase text above the map is replaced by a row you read at a glance: one pip per turn (played, current, still to come) with the turn number, the four phase icons with the current one lit, a ring counting down the seconds left in the phase, and one dot per seat that fills as that seat locks in. Seats now lock in during Talk and Negotiate too, not only Orders, and the countdown stays right after a reload or when you start watching mid-phase. A finished match shows a trophy in the winner's color, and an aborted one a stop mark. Screen readers hear the same facts as one sentence.
 
 - **Studio agent cards stay off the code map.** An agent card used to sit right of its box whatever was there, often covering the map's folders and modules. It now picks the side of its box (right, left, below or above) that covers the fewest map boxes while staying on screen and clear of other agent cards and the message bar, and its line to the box follows it. Right of the box stays the first choice when nothing is there.

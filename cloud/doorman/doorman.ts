@@ -91,7 +91,7 @@ function answerHostPage(response: http.ServerResponse, page: string, { status, r
 function answerOverCap(response: http.ServerResponse, { usage, awakeHoursPerMonth, nowMs, isBrowser }: { usage: AwakeUsage; awakeHoursPerMonth: number | null; nowMs: number; isBrowser: boolean }): void {
   const secondsUntilReset = Math.max(1, Math.ceil((Date.parse(usage.periodEndsAt) - nowMs) / 1000));
   if (isBrowser) {
-    answerHostPage(response, overCapPage({ awakeHoursPerMonth, periodEndsAt: usage.periodEndsAt }), { status: 503, retryAfterSeconds: secondsUntilReset });
+    answerHostPage(response, overCapPage(usage.periodEndsAt), { status: 503, retryAfterSeconds: secondsUntilReset });
     return;
   }
   if (response.headersSent) {

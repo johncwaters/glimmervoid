@@ -57,4 +57,4 @@ principles:
     why: Restraint is the identity, and a second hue or a louder font competes with the terminal.
   - name: One message per screen
     rule: A full-screen state (offline, not running, asleep, sign-in, empty) shows one heading, one short line of body text and at most one action, in two text styles; no subtitles, hints, captions, status lines or second paragraphs under it.
-    why: Every extra line in another size or color competes with the one thing the operator must do next; tests/gates/one-message-per-screen.test.ts fails on an offline page that stacks more.
+    why: Every extra line in another size or color competes with the one thing the operator must do next; tests/gates/one-message-per-screen.test.ts fails on an offline or Cloud doorman page that stacks more.
