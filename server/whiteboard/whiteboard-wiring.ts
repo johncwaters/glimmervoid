@@ -522,7 +522,7 @@ function createWhiteboardWiring({
 
   async function watchLinkedFolder(board: Board): Promise<void> {
     const target = await linkedBoards.watchedFolderOf(board, linkRootOf(board));
-    if (linkFollowingStop.signal.aborted) return;
+    if (linkFollowingStop.signal.aborted || deletedBoardIds.has(board.id)) return;
     const current = linkWatchByBoardId.get(board.id);
     if (current?.watcher.active && current.folder === target?.folder && current.inode === target.inode) return;
     current?.watcher.stop();
@@ -681,6 +681,7 @@ function createWhiteboardWiring({
       return { ok: true, record: applied.record, reply: { status: 200, body: { ok: true, version: applied.record.board.version } }, patch: applied.patch, staged: applied.staged };
     });
     const settledState = settleFolder && reply.status === 200 ? await settledLinkState(boardId, settleFolder) : linkStateAfterReply(reply, syncedState);
+    if (deletedBoardIds.has(boardId)) return;
     if (syncedBoard) await watchLinkedFolder(syncedBoard);
     if (settledState) noteLinkState(boardId, settledState);
   }
@@ -691,15 +692,16 @@ function createWhiteboardWiring({
     return { state: 'broken', text: `The board could not take its folder: ${refusalText}` };
   }
 
-  async function settledLinkState(boardId: string, settle: () => Promise<LinkSync>): Promise<LinkSync> {
+  async function settledLinkState(boardId: string, settle: () => Promise<LinkSync>): Promise<LinkSync | null> {
     const settled = await writeQueue.run(boardId, async () => {
+      if (deletedBoardIds.has(boardId)) return null;
       try {
         return await settle();
       } catch (error) {
         return { state: 'broken' as const, text: `The linked folder could not be written: ${errorMessage(error)}`, content: null, isFolderChangedMeanwhile: false, settle: null };
       }
     });
-    if (settled.isFolderChangedMeanwhile) scheduleLinkSync(boardId);
+    if (settled?.isFolderChangedMeanwhile) scheduleLinkSync(boardId);
     return settled;
   }
 
@@ -1237,6 +1239,7 @@ function createWhiteboardWiring({
 
   async function deleteRecordInSlot(current: BoardRecord): Promise<WhiteboardReply> {
     const boardId = current.board.id;
+    const isLinkedFolderKeeper = boardKeepingLinkedFolderOf(current.board) === null;
     try {
       await fsp.rm(path.join(boardsRoot, `${boardId}${BOARD_FILE_EXTENSION}`), { force: true });
       await store.remove(boardId);
@@ -1248,6 +1251,7 @@ function createWhiteboardWiring({
     unloadedBoardIds.delete(boardId);
     deletedBoardIds.add(boardId);
     forgetBoardWriters(boardId);
+    if (isLinkedFolderKeeper) await linkedBoards.removeFolder(current.board, linkRootOf(current.board)).catch((error: unknown) => logger.warn(`[whiteboard] the linked folder of board ${boardId} could not be removed: ${errorMessage(error)}`));
     forgetLink(boardId);
     stopFollowingLinkedCardsOf(boardId);
     tiles.forgetBoard(boardId);

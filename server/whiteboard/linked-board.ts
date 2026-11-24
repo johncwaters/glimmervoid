@@ -123,38 +123,49 @@ async function writeContainedIfChanged(root: string, candidate: string, bytes: B
   }
 }
 
-type UnlinkFailure = { name: string; error: unknown };
+type RemovalFailure = { name: string; error: unknown };
+type RemoveEntry = (entryPath: string) => Promise<void>;
 
 async function unlinkIfRegularFile(filePath: string): Promise<void> {
   const stat = await fsp.lstat(filePath).catch(() => null);
   if (stat?.isFile()) await fsp.unlink(filePath);
 }
 
-async function unlinkThroughHandle(directoryPath: string, realRoot: string, names: readonly string[]): Promise<UnlinkFailure[]> {
+async function removeIfEmptyDirectory(directoryPath: string): Promise<void> {
+  const stat = await fsp.lstat(directoryPath).catch(() => null);
+  if (!stat?.isDirectory()) return;
+  await fsp.rmdir(directoryPath).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOTEMPTY' || code === 'EEXIST' || code === 'ENOENT') return;
+    throw error;
+  });
+}
+
+async function removeThroughHandle(directoryPath: string, realRoot: string, names: readonly string[], removeEntry: RemoveEntry): Promise<RemovalFailure[]> {
   const handle = await fsp.open(directoryPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW).catch(() => null);
   if (handle === null) return [];
   try {
     const kernelPath = await fsp.readlink(`/proc/self/fd/${handle.fd}`).catch(() => null);
-    if (kernelPath === null || !isPathInside(realRoot, kernelPath)) return [];
-    const failures: UnlinkFailure[] = [];
-    for (const name of names) await unlinkIfRegularFile(`/proc/self/fd/${handle.fd}/${name}`).catch((error: unknown) => failures.push({ name, error }));
+    if (kernelPath === null || !isPathInside(realRoot, kernelPath, { allowEqual: true })) return [];
+    const failures: RemovalFailure[] = [];
+    for (const name of names) await removeEntry(`/proc/self/fd/${handle.fd}/${name}`).catch((error: unknown) => failures.push({ name, error }));
     return failures;
   } finally {
     await handle.close().catch(() => {});
   }
 }
 
-async function unlinkContainedNames(root: string, directoryPath: string, names: readonly string[]): Promise<UnlinkFailure[]> {
+async function removeContainedNames(root: string, directoryPath: string, names: readonly string[], removeEntry: RemoveEntry): Promise<RemovalFailure[]> {
   if (names.length === 0) return [];
   const realRoot = await fsp.realpath(root).catch(() => null);
   const realDirectory = await fsp.realpath(directoryPath).catch(() => null);
-  if (realRoot === null || realDirectory === null || !isPathInside(realRoot, realDirectory) || await isReachedThroughSymlink(root, directoryPath, realDirectory)) return [];
-  if (process.platform === 'linux') return unlinkThroughHandle(realDirectory, realRoot, names);
-  const failures: UnlinkFailure[] = [];
+  if (realRoot === null || realDirectory === null || !isPathInside(realRoot, realDirectory, { allowEqual: true }) || await isReachedThroughSymlink(root, directoryPath, realDirectory)) return [];
+  if (process.platform === 'linux') return removeThroughHandle(realDirectory, realRoot, names, removeEntry);
+  const failures: RemovalFailure[] = [];
   for (const name of names) {
     const isStillContained = await fsp.realpath(directoryPath).then((current) => current === realDirectory, () => false);
     if (!isStillContained) return failures;
-    await unlinkIfRegularFile(path.join(realDirectory, name)).catch((error: unknown) => failures.push({ name, error }));
+    await removeEntry(path.join(realDirectory, name)).catch((error: unknown) => failures.push({ name, error }));
   }
   return failures;
 }
@@ -239,8 +250,8 @@ function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string
     return names;
   }
 
-  function warnUnlinkFailures(folder: string, failures: readonly UnlinkFailure[]): void {
-    for (const { name, error } of failures) logger.warn(`[whiteboard] ${path.join(folder, MEDIA_FOLDER_NAME, name)} could not be deleted: ${errorMessage(error)}`);
+  async function removeOrWarn(root: string, directoryPath: string, names: readonly string[], removeEntry: RemoveEntry): Promise<void> {
+    for (const { name, error } of await removeContainedNames(root, directoryPath, names, removeEntry)) logger.warn(`[whiteboard] ${path.join(directoryPath, name)} could not be deleted: ${errorMessage(error)}`);
   }
 
   async function pruneDroppedMedia(board: Board, root: string, folder: string, targetContent: BoardContent): Promise<void> {
@@ -251,7 +262,23 @@ function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string
     const keptAssetIds = new Set(mediaOfDocument(targetContent).map((media) => media.asset));
     const droppedMedia = mediaOfDocument(lastSynced.content).filter((media) => !keptAssetIds.has(media.asset));
     const droppedNames = [...new Set(await folderMediaNamesOf(root, folder, droppedMedia))].filter((name) => !keptNames.has(name));
-    warnUnlinkFailures(folder, await unlinkContainedNames(root, path.join(folder, MEDIA_FOLDER_NAME), droppedNames));
+    await removeOrWarn(root, path.join(folder, MEDIA_FOLDER_NAME), droppedNames, unlinkIfRegularFile);
+  }
+
+  async function removeFolder(board: Board, root: string | null): Promise<void> {
+    const linkPath = board.link;
+    if (linkPath === null || root === null || linkPathProblem(linkPath)) return;
+    const folder = path.resolve(root, linkPath);
+    const lastSyncedText = await readBase(board, folder);
+    const folderRead = await readFolderDocument(root, folder);
+    if (lastSyncedText === null || !folderRead.ok || folderRead.text !== lastSyncedText) return;
+    const lastSynced = decodeBoardDocument(lastSyncedText);
+    const syncedMedia = lastSynced.ok ? mediaOfDocument(lastSynced.content) : [];
+    const mediaNames = [...new Set(await folderMediaNamesOf(root, folder, syncedMedia))];
+    await removeOrWarn(root, path.join(folder, MEDIA_FOLDER_NAME), mediaNames, unlinkIfRegularFile);
+    await removeOrWarn(root, folder, [DOCUMENT_FILENAME], unlinkIfRegularFile);
+    await removeOrWarn(root, folder, [MEDIA_FOLDER_NAME], removeIfEmptyDirectory);
+    await removeOrWarn(root, path.dirname(folder), [path.basename(folder)], removeIfEmptyDirectory);
   }
 
   async function adoptMediaFrom(root: string, folder: string, media: BoxMedia, boxTitle: string): Promise<{ ok: true; media: BoxMedia } | Problem> {
@@ -383,7 +410,7 @@ function createLinkedBoards({ boardsRoot, assets, logger }: { boardsRoot: string
     return nearestFolderInside(path.resolve(root), path.resolve(root, board.link));
   }
 
-  return { syncBoard, forgetBase, watchedFolderOf };
+  return { syncBoard, forgetBase, removeFolder, watchedFolderOf };
 }
 
 export { createLinkedBoards };

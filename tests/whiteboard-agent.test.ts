@@ -1123,6 +1123,42 @@ test('a board linked to a folder in its worktree writes board.jsonl and its medi
   assert.equal((await listedBoard())?.link, null);
 });
 
+test('deleting a linked board takes its board.jsonl and media out of the worktree, removes the folder once empty, and leaves files it did not write', async () => {
+  const { default: sharp } = await import('sharp');
+  const worktree = path.join(fixture.tmpDir, PLANNER_ID);
+  fs.mkdirSync(path.join(worktree, 'pics'), { recursive: true });
+  fs.writeFileSync(path.join(worktree, 'pics', 'gone.png'), await sharp({ create: { width: 16, height: 16, channels: 3, background: '#4f8bd0' } }).png().toBuffer());
+  const picture = (await whiteboard(PLANNER_ID, { sub: 'attach', path: 'pics/gone.png' })).body.media as BoxMedia;
+  const linkedBoardIn = async (title: string, link: string) => {
+    const boardId = await newBoard(title);
+    const reply = await whiteboard(PLANNER_ID, { sub: 'put', board: boardId, ops: [{ op: 'add', element: { kind: 'box', id: 'shot', title: 'Shot', place: { at: { x: 40, y: 40 } }, media: picture } }, { op: 'board', link }] });
+    assert.equal(reply.status, 200, JSON.stringify(reply.body));
+    const folder = path.join(worktree, ...link.split('/'));
+    const linkStateOf = async () => ((await whiteboard(PLANNER_ID, { sub: 'list', all: true })).body.boards as { id: string; link: { state: string } | null }[]).find((board) => board.id === boardId)?.link?.state;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !(fs.existsSync(path.join(folder, 'media', `${picture.asset}.png`)) && await linkStateOf() === 'in-sync')) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fs.existsSync(path.join(folder, 'board.jsonl')), true, `${link} gets board.jsonl`);
+    return { boardId, folder };
+  };
+
+  const alone = await linkedBoardIn('Folder of its own', 'boards/gone');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'delete', board: alone.boardId })).status, 200);
+  assert.equal(fs.existsSync(alone.folder), false, 'a folder holding only what the board wrote leaves with it');
+
+  const shared = await linkedBoardIn('Folder with notes', 'boards/kept');
+  fs.writeFileSync(path.join(shared.folder, 'notes.md'), 'mine');
+  fs.writeFileSync(path.join(shared.folder, 'media', `${'d'.repeat(64)}.png`), 'not the board');
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'delete', board: shared.boardId })).status, 200);
+  assert.deepEqual(fs.readdirSync(shared.folder, { recursive: true }).map(String).sort(), ['media', path.join('media', `${'d'.repeat(64)}.png`), 'notes.md'], 'only what the board wrote leaves');
+
+  const refused = await linkedBoardIn('Folder it stopped writing to', 'boards/refused');
+  fs.writeFileSync(path.join(refused.folder, 'board.jsonl'), 'not a board, a teammate file\n');
+  await whiteboard(PLANNER_ID, { sub: 'get', board: refused.boardId });
+  assert.equal((await whiteboard(PLANNER_ID, { sub: 'delete', board: refused.boardId })).status, 200);
+  assert.equal(fs.readFileSync(path.join(refused.folder, 'board.jsonl'), 'utf8'), 'not a board, a teammate file\n', 'a board.jsonl the board did not write stays, with the folder');
+  assert.equal(fs.existsSync(path.join(refused.folder, 'media', `${picture.asset}.png`)), true, 'media stays while the folder holds a board.jsonl the board did not write');
+});
+
 test('a linked board takes a pulled stroke and a teammate note as written, never takes a session feed from the folder, and a pull it cannot apply leaves the folder untouched by later edits', async () => {
   const worktree = path.join(fixture.tmpDir, PLANNER_ID);
   const boardId = await newBoard('Pulled from a teammate');
