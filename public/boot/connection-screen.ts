@@ -7,6 +7,7 @@ import { sendControlRequest, setConnectionStateCallback } from '../control-ws.ts
 import { onTenantWakingChange } from '../connection-supervisor.ts';
 import { queryTag } from '../dom-helpers.ts';
 import { revealFlyingAnimals } from '../flying-animals.ts';
+import { focusShownSessionPageInput } from '../focus-view/focus-view.ts';
 import { refreshFirstRunChecklist, revealFirstRunChecklist } from '../onboarding/first-run-loader.ts';
 import { countShownConnectingTerminals, onTerminalLinkChange } from '../session-card/terminal-data-socket.ts';
 import { getActiveView } from '../ui-state-core.ts';
@@ -54,6 +55,7 @@ function revealApp() {
 
 function fadeOutLoadingScreen() {
   document.body.classList.add('app-revealed');
+  focusShownSessionPageInput();
   loadingScreen.classList.add('fade-out');
   const removeLoading = () => loadingScreen.remove();
   loadingScreen.addEventListener('transitionend', (event) => {

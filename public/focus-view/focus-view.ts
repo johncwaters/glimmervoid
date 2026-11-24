@@ -1166,6 +1166,11 @@ export function focusCenteredSessionInput() {
   if (centeredId) focusSessionInputAfterSettle(sessionUIs.get(centeredId), centeredId);
 }
 
+export function focusShownSessionPageInput() {
+  const centeredId = getFocusedSessionId();
+  if (active && centeredId) focusOpenSessionPageInput(centeredId);
+}
+
 export function openChangesInFocus(path: string | null = null) {
   const centeredId = getFocusedSessionId();
   if (centeredId) openSessionPage('changes', centeredId, path);
