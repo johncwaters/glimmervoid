@@ -4,8 +4,10 @@ import { buildWebSocketUrl } from './ws-url-core.ts';
 import { clearPageToken, loadPageToken, pageToken, withPageToken } from './ws-token.ts';
 import { ServerMessage } from '#shared/contracts/control-messages.ts';
 import { NOT_CONNECTED_TEXT, REQUEST_TIMED_OUT_TEXT } from './updates-view-core.ts';
-import { createClientLogReporter, createNoticeTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
+import { createClientLogReporter, createHoldingSender, createNoticeTelemetryReporter, describeSchemaIssues, frameTypeOf } from './client-error-core.ts';
 import type { NoticeShownReport } from './client-error-core.ts';
+import type { AdoptedHandshake } from './reconnect-report-core.ts';
+import type { DASHBOARD_TELEMETRY_EVENTS } from '#shared/contracts/control/control-fields.ts';
 
 type ControlMessageHandler = (message: ServerMessage) => void;
 type ConnectionStateCallback = (state: string, label: string) => void;
@@ -25,7 +27,7 @@ interface ControlClientOptions {
   onMessage(message: ServerMessage): void;
   onStateChange?(state: string, label: string): void;
   onSocketChange?(change: ControlSocketChange): void;
-  onOpened?(): void;
+  onOpened?(adopted: AdoptedHandshake): void;
   onUnreadableMessage?(): void;
 }
 
@@ -179,17 +181,19 @@ function createControlClient(options: ControlClientOptions): ControlClient {
     const since = lastSeq > 0 ? `?since=${lastSeq}` : '';
     const url = buildWebSocketUrl(location, withPageToken(`/control${since}`));
     const ws = new WebSocket(url);
+    const startedAtMs = performance.now();
     handshakeRace.start(ws);
     options.onSocketChange?.('connecting');
     let hasEverOpened = false;
 
     ws.addEventListener('open', () => {
-      if (handshakeRace.adopt(ws) === null) return;
+      const attempts = handshakeRace.adopt(ws);
+      if (attempts === null) return;
       controlWs = ws;
       hasEverOpened = true;
       controlRetryAttempt = 0;
       options.onStateChange?.('connected', 'Connected');
-      options.onOpened?.();
+      options.onOpened?.({ handshakeMs: performance.now() - startedAtMs, attempts });
       options.onSocketChange?.('opened');
     });
 
@@ -215,6 +219,7 @@ function createControlClient(options: ControlClientOptions): ControlClient {
 }
 
 let _messageHandler: ControlMessageHandler | null = null;
+let lastAdoptedHandshake: AdoptedHandshake | null = null;
 let _connectionStateCallback: ConnectionStateCallback | null = null;
 let _controlSocketChangeListener: ControlSocketChangeListener | null = null;
 let _unreadableServerMessageListener: UnreadableServerMessageListener | null = null;
@@ -224,9 +229,11 @@ const localClient = createControlClient({
   onStateChange: (state, label) => _connectionStateCallback?.(state, label),
   onSocketChange: (change) => _controlSocketChangeListener?.(change),
   onUnreadableMessage: () => _unreadableServerMessageListener?.(),
-  onOpened: () => {
+  onOpened: (adopted) => {
+    lastAdoptedHandshake = adopted;
     clientLogReporter.flushUnsent();
     noticeTelemetryReporter.flushUnsent();
+    dashboardTelemetrySender.flushUnsent();
   },
 });
 
@@ -252,6 +259,17 @@ export function sendControlMsg(msg: Record<string, unknown>): boolean {
 
 const clientLogReporter = createClientLogReporter(localClient.send);
 const noticeTelemetryReporter = createNoticeTelemetryReporter(localClient.send);
+const dashboardTelemetrySender = createHoldingSender(localClient.send);
+
+type DashboardTelemetryEvent = Exclude<(typeof DASHBOARD_TELEMETRY_EVENTS)[number], 'notice_shown'>;
+
+export function reportDashboardTelemetry(event: DashboardTelemetryEvent, properties: object): void {
+  dashboardTelemetrySender.sendOrHold({ type: 'dashboard-telemetry', event, properties });
+}
+
+export function readLastAdoptedHandshake(): AdoptedHandshake | null {
+  return lastAdoptedHandshake;
+}
 
 export function reportToServerLog(scope: string, text: string): void {
   console.warn(`[${scope}] ${text}`);

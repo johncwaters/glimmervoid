@@ -1,6 +1,9 @@
 import { HANDSHAKE_DEADLINE_MS, decideConnectionActions } from './connection-supervisor-core.ts';
 import type { ConnectionAction, ConnectionEvent, SupervisorState, TenantWakeStatus } from './connection-supervisor-core.ts';
-import { abandonControlSocket, onControlSocketChange, probeControl, raceControlHandshake, replaceControlSocket } from './control-ws.ts';
+import { abandonControlSocket, onControlSocketChange, probeControl, raceControlHandshake, readLastAdoptedHandshake, replaceControlSocket, reportDashboardTelemetry } from './control-ws.ts';
+import { noteOutageStart, reportRecovery } from './reconnect-report-core.ts';
+import type { Outage } from './reconnect-report-core.ts';
+import { offlinePageKind } from './offline-page-kind-core.ts';
 import { reportTerminalColors } from './terminal-color-report.ts';
 import { startWakeTimeline, noteWakeMark, noteNetworkMark } from './wake-timeline.ts';
 import { holdTerminalInputDuringWakeCheck, releaseHeldTerminalInput } from './session-card/terminal.ts';
@@ -14,6 +17,8 @@ let heartbeatTimer: number | null = null;
 let handshakeTimer: number | null = null;
 let wakeCheckTimer: number | null = null;
 let tenantWakingListener: (isWaking: boolean) => void = () => {};
+let currentOutage: Outage | null = null;
+let hasControlEverOpened = false;
 
 async function readTenantWakeStatus(): Promise<TenantWakeStatus> {
   const response = await fetch('/', { headers: { accept: 'application/json', [DOORMAN_WAKE_POLL_HEADER]: '1' }, credentials: 'same-origin', cache: 'no-store', redirect: 'manual', signal: AbortSignal.timeout(HANDSHAKE_DEADLINE_MS) });
@@ -98,9 +103,22 @@ function runConnectionAction(action: ConnectionAction) {
   }
 }
 
+function reportRecoveredOutage() {
+  const outage = currentOutage;
+  const adopted = readLastAdoptedHandshake();
+  currentOutage = null;
+  if (!outage || !adopted) return;
+  reportDashboardTelemetry('dashboard_reconnected', reportRecovery(outage, adopted, clock.nowMs(), offlinePageKind(location.hostname)));
+}
+
 function dispatchConnectionEvent(event: ConnectionEvent) {
   const decision = decideConnectionActions(supervisorState, event);
   supervisorState = decision.state;
+  if (hasControlEverOpened) currentOutage = noteOutageStart(currentOutage, event, decision.actions, clock.nowMs());
+  if (event.kind === 'control-opened') {
+    reportRecoveredOutage();
+    hasControlEverOpened = true;
+  }
   for (const action of decision.actions) runConnectionAction(action);
 }
 

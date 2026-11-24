@@ -61,11 +61,15 @@ function frameTypeOf(rawFrame: unknown): string {
   return String(rawFrame.type);
 }
 
+const MAX_HELD_MESSAGES = 50;
+
 function createHoldingSender(sendReport: SendReport): { sendOrHold: SendReport; flushUnsent: () => void } {
   const unsentMessages: Record<string, unknown>[] = [];
   return {
     sendOrHold(message) {
-      if (!sendReport(message)) unsentMessages.push(message);
+      if (sendReport(message)) return true;
+      unsentMessages.push(message);
+      if (unsentMessages.length > MAX_HELD_MESSAGES) unsentMessages.shift();
       return true;
     },
     flushUnsent() {
@@ -123,4 +127,4 @@ function createNoticeTelemetryReporter(sendReport: SendReport): { report: (repor
   };
 }
 
-export { createClientErrorReporter, createClientLogReporter, createNoticeTelemetryReporter, describeFailure, describeSchemaIssues, frameTypeOf };
+export { createClientErrorReporter, createClientLogReporter, createHoldingSender, createNoticeTelemetryReporter, describeFailure, describeSchemaIssues, frameTypeOf };

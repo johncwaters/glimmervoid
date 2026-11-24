@@ -14,5 +14,5 @@ function serviceWorkerUrl(hostname: string): string {
   return `/service-worker.js?page=${offlinePageKind(hostname)}`;
 }
 
-export { serviceWorkerUrl };
+export { offlinePageKind, serviceWorkerUrl };
 export type { OfflinePageKind };

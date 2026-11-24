@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Usage data now records dashboard reconnects.** When usage data is on, the dashboard sends a `dashboard_reconnected` event each time it gets its connection back. The event says what started the reconnect, how long it took, how many tries the connection needed, how long the tab was hidden, and whether the dashboard runs on this machine, on a tailnet or on another host. It never includes the host name or URL. The event is listed with the others in the configuration docs. Board graphics reports, and other dashboard reports made while the connection is down, are now held and sent once it is back instead of being dropped. At most 50 are kept.
+
 ### Changed
 
 - **Chat shows what started each turn.** News from a session you spawned, a message from a parent or sibling session, a scheduled wake and a finished background task now show as one quiet centered line with the Glimmervoid mark, instead of looking like a message you sent or leaving an unexplained gap before the reply.
@@ -18,7 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Chat answers questions that allow several picks.** An agent question that allows more than one answer used to send only the first option you clicked. Its options are now checkboxes you can toggle with a click or their number key, and Send (or Enter) sends every option you checked.
-
 - **A dashboard on a slow link reconnects instead of sitting on Reconnecting.** On a remote dashboard (a devbox, Glimmervoid Cloud, a tailnet), a connection that took more than 2 seconds to open was thrown away and started over, so a slow link could stay on Reconnecting for several seconds, or indefinitely. The dashboard now keeps a slow connection and opens one more beside it, then uses whichever answers first. A connection that never answers is still retried after 2 seconds, as before.
 - **Chat opens an old session at the latest message.** Opening the Chat of a session with a long history could land partway up the conversation with Jump to latest shown, because loading earlier history right after the first page counted as you scrolling up. Earlier history now fills in above the latest message without moving the view, and if you have scrolled up, the message you are reading stays in place.
 - **Team review offers a new or edited skill at once.** Adding, editing or removing a Claude Code skill, enabling a plugin, or editing `settings.json` now updates the skills team review offers within a moment, instead of up to a minute later. Glimmervoid follows those files instead of rescanning them every minute.

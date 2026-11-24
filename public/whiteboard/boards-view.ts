@@ -44,7 +44,7 @@ import type { BoardRenderer, Camera } from './board-gl-renderer.ts';
 import { boardGraphicsLogText, boardGraphicsTelemetryProperties } from './board-graphics-report-core.ts';
 import type { BoardGraphicsEvent } from './board-graphics-report-core.ts';
 import { countDashboardTabs } from '../dashboard-tab-lock.ts';
-import { sendControlMsg } from '../control-ws.ts';
+import { reportDashboardTelemetry, sendControlMsg } from '../control-ws.ts';
 import { liveTerminalWebglContextCount } from '../session-card/webgl-pool.ts';
 import { agentChangeSentence, dismissAgentChange, offViewAgentChangeOf, onTilesChanged, resendTilesView, ringAgentChange, ringedAgentBoxIdsOf, showTilesFor, tiledBoardOf } from './board-tile-store.ts';
 import { createBoardFlowLayer } from './board-flow-layer.ts';
@@ -1912,7 +1912,7 @@ function logBoardGraphicsToServer(text: string): void {
 async function reportBoardGraphics(event: BoardGraphicsEvent): Promise<void> {
   const page = { boardId: selectedBoardId, terminalWebglContexts: liveTerminalWebglContextCount(), sameOriginDashboardTabs: await countDashboardTabs() };
   logBoardGraphicsToServer(boardGraphicsLogText(event, page));
-  sendControlMsg({ type: 'dashboard-telemetry', event: 'board_graphics_reset', properties: boardGraphicsTelemetryProperties(event, page) });
+  reportDashboardTelemetry('board_graphics_reset', boardGraphicsTelemetryProperties(event, page));
 }
 
 function mountBoardsScreen(panel: HTMLElement): void {

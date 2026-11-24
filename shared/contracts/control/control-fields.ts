@@ -215,6 +215,20 @@ export const BoardGraphicsResetProperties = z.object({
 }).strict();
 export type BoardGraphicsResetProperties = z.infer<typeof BoardGraphicsResetProperties>;
 
+const RECONNECT_TRIGGERS = Object.freeze(['long-hide', 'resumed', 'frozen', 'late-heartbeat', 'pong-missed', 'handshake-overdue', 'control-closed', 'tenant-woke'] as const);
+export type ReconnectTrigger = (typeof RECONNECT_TRIGGERS)[number];
+const DASHBOARD_ORIGIN_KINDS = Object.freeze(['local', 'tailnet', 'remote'] as const);
+export const DashboardReconnectedProperties = z.object({
+  trigger: z.enum(RECONNECT_TRIGGERS),
+  ms_to_connected: z.number().int().nonnegative(),
+  handshake_ms: z.number().int().nonnegative(),
+  handshake_attempts: z.number().int().positive(),
+  origin_kind: z.enum(DASHBOARD_ORIGIN_KINDS),
+  hidden_ms: z.number().int().nonnegative().optional(),
+  was_tenant_waking: z.boolean(),
+}).strict();
+export type DashboardReconnectedProperties = z.infer<typeof DashboardReconnectedProperties>;
+
 const INSTALL_FAILURE_KINDS = Object.freeze(['tool-missing', 'folder-missing', 'failed', 'timed-out'] as const);
 export const InstallFailureKind = z.enum(INSTALL_FAILURE_KINDS);
 export type InstallFailureKind = z.infer<typeof InstallFailureKind>;
@@ -236,7 +250,7 @@ export const InstallDetail = z.object({
 });
 export type InstallDetail = z.infer<typeof InstallDetail>;
 
-export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'board_graphics_reset'] as const);
+export const DASHBOARD_TELEMETRY_EVENTS = Object.freeze(['view_shown', 'operator_action', 'onboarding_step', 'notice_shown', 'board_graphics_reset', 'dashboard_reconnected'] as const);
 export const DASHBOARD_VIEWS = Object.freeze(['focus', 'prs', 'usage', 'radar', 'community', 'boards', 'board-session', 'trace', 'benchmarks', 'wargames', 'packs', 'settings'] as const);
 export const OPERATOR_ACTIONS_BY_SURFACE = Object.freeze({
   usage: ['sort', 'range', 'period', 'expand', 'refresh'],
