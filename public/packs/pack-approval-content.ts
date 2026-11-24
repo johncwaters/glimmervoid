@@ -11,10 +11,12 @@ import { createModalOverlay } from '../session-card/modal.ts';
 import { button } from '../ui/button.ts';
 import { tag } from '../ui/tag.ts';
 import { openFirstPackPanel } from './pack-views.ts';
+import { createPackSettingsView } from './pack-settings-view.ts';
+import type { PackSettingsSection } from './pack-settings-view.ts';
 import { packsSnapshot, subscribePacks } from './packs-store.ts';
 import './pack-approval-content.css';
 
-type PackApprovalControls = { close: () => void; repaint: () => void };
+type PackApprovalControls = { close: () => void; repaint: () => void; settingsView?: (row: PackRow) => HTMLElement };
 
 const STATE_LABELS: Record<PackRow['state'], string> = { pending: 'Pending', approved: 'Approved', invalid: 'Not loaded' };
 const approvalStatusByPackName = new Map<string, { tone: ActionStatusTone; text: string }>();
@@ -162,11 +164,12 @@ function everythingItAdds(row: PackRow): HTMLElement {
   return details;
 }
 
-function approvedBody(row: PackRow): HTMLElement[] {
+function approvedBody(row: PackRow, controls: PackApprovalControls): HTMLElement[] {
   const hasPanel = packsSnapshot()?.panels.some((panel) => panel.pack === row.name) ?? false;
   const footer = el('div', 'pack-approval-actions');
   if (hasPanel) footer.append(button({ variant: 'secondary', size: 'small', label: 'Open panel', onClick: () => openFirstPackPanel(row.name) }));
-  return [el('p', 'pack-approval-note', `${row.name} is approved and in use.`), everythingItAdds(row), footer];
+  const settings = row.settings.length > 0 && controls.settingsView ? [controls.settingsView(row)] : [];
+  return [el('p', 'pack-approval-note', `${row.name} is approved and in use.`), ...settings, everythingItAdds(row), footer];
 }
 
 function pendingBody(row: PackRow, controls: PackApprovalControls): HTMLElement[] {
@@ -198,7 +201,7 @@ export function buildPackApprovalContent(packName: string, controls: PackApprova
   }
   content.append(packHeading(row));
   if (row.description) content.append(el('p', 'pack-approval-description', row.description));
-  content.append(...(row.state === 'approved' ? approvedBody(row) : pendingBody(row, controls)));
+  content.append(...(row.state === 'approved' ? approvedBody(row, controls) : pendingBody(row, controls)));
   return content;
 }
 
@@ -208,6 +211,15 @@ export function openPackDetail(packName: string): void {
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-label', `Pack ${packName}`);
   const unsubscribe = subscribePacks(() => repaint());
+  let keptSettings: { fingerprint: string | null; section: PackSettingsSection } | null = null;
+  const settingsView = (row: PackRow): HTMLElement => {
+    if (keptSettings !== null && keptSettings.fingerprint === row.fingerprint) {
+      keptSettings.section.readIfUnread();
+      return keptSettings.section.element;
+    }
+    keptSettings = { fingerprint: row.fingerprint, section: createPackSettingsView(row) };
+    return keptSettings.section.element;
+  };
   const closeDetail = () => {
     unsubscribe();
     close();
@@ -217,7 +229,7 @@ export function openPackDetail(packName: string): void {
       unsubscribe();
       return;
     }
-    dialog.replaceChildren(buildPackApprovalContent(packName, { close: closeDetail, repaint }));
+    dialog.replaceChildren(buildPackApprovalContent(packName, { close: closeDetail, repaint, settingsView }));
   }
   repaint();
 }
