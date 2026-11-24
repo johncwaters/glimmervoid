@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Buttons on a board page keep the page's own styles.** A page whose CSS sits in cascade layers, such as one built from the dashboard's own stylesheet, showed every native button on its board card as a solid lavender block. The board's base style for pages now sits below every style a page brings, so the card looks the same as the page in a browser.
 - **The board keeps drawing through graphics card resets.** The whiteboard now draws with Canvas 2D instead of WebGL. When Chrome's graphics process dies twice within two minutes, as it can across sleep and wake, Chrome blocks WebGL for the whole site for about two minutes. Until now the board went blank behind "The browser paused graphics for this site" until the block lifted. That notice and the `board_graphics_reset` usage event are gone.
 - **A background workflow in Chat now says which workflow it is.** Its row used to show a random task id, or the word Workflow twice. It now shows the workflow's name, such as qa-swarm, and opening it shows the workflow's one-line summary, whichever order Claude Code reports the launch in.
 - **Studio cards stay put while you pan.** Agent cards, such as the Orchestrator's, used to jump between spots beside their box as the map moved. They now move with the map and only find a new spot when their box, their size or the zoom changes.
