@@ -4,8 +4,10 @@ import './community-panel.css';
 import type { CommunityAction, CommunityStateEntry } from '#shared/contracts/community.ts';
 import { createActionStatus, requestWithStatus } from '../action-status.ts';
 import type { ActionStatus } from '../action-status.ts';
-import { el, isPanelHidden, isRealInputOwningKey, writeClipboardText } from '../dom-helpers.ts';
+import { el, externalLink, isPanelHidden, isRealInputOwningKey } from '../dom-helpers.ts';
 import { button } from '../ui/button.ts';
+import { copyButton } from '../ui/copy-button.ts';
+import { sectionHeading } from '../ui/section-heading.ts';
 import { createPressable } from '../ui/pressable.ts';
 import { select } from '../ui/select.ts';
 import { isExternalHttpUrl } from '../external-link-core.ts';
@@ -26,6 +28,8 @@ import {
   canRerunCommunityEntry, canSetAsideCommunityEntry, communityBadge, communityCaughtUpText, communityEmptyText, communityItemLabel, communitySourceText, startSessionChoices,
 } from './community-view-core.ts';
 import { createCommunitySetupCard } from './community-setup-card.ts';
+
+const CONFIDENCE_PIP_COUNT = 3;
 
 let root: HTMLElement | null = null;
 let queueElement: HTMLElement | null = null;
@@ -55,6 +59,24 @@ function createTextList(className: string, label: string, lines: readonly string
   return list;
 }
 
+function createConfidenceMark(entry: CommunityStateEntry, className: string): HTMLElement {
+  const badge = communityBadge(entry);
+  const mark = el('span', `community-badge ${className}`);
+  mark.dataset.tone = badge.tone;
+  if (badge.filledPips !== null) {
+    const meter = el('span', 'community-confidence-meter');
+    meter.setAttribute('aria-hidden', 'true');
+    for (let pipIndex = 0; pipIndex < CONFIDENCE_PIP_COUNT; pipIndex += 1) {
+      const pip = el('span', 'community-confidence-pip');
+      pip.dataset.filled = String(pipIndex < badge.filledPips);
+      meter.append(pip);
+    }
+    mark.append(meter);
+  }
+  mark.append(el('span', null, badge.text));
+  return mark;
+}
+
 function createHeading(entry: CommunityStateEntry): HTMLElement {
   const heading = el('div', 'pr-detail-heading');
   const title = el('div', 'pr-detail-title');
@@ -71,23 +93,19 @@ function createHeading(entry: CommunityStateEntry): HTMLElement {
 function createQuestionBlock(entry: CommunityStateEntry): HTMLElement {
   const question = el('section', 'community-question');
   question.setAttribute('aria-label', 'Question as asked');
-  question.append(el('h3', 'pr-section-heading', 'Question as asked'), el('p', 'community-question-body', entry.item.body));
+  const openThread = button({ variant: 'quiet', size: 'small', label: 'Open thread', action: 'open-thread', disabled: !isExternalHttpUrl(entry.item.url), onClick: () => openExternalUrl(entry.item.url) });
+  question.append(sectionHeading({ title: 'Question as asked', level: 3, actions: [openThread] }).element, el('p', 'community-question-body', entry.item.body));
   return question;
 }
 
 function createResearchBlock(entry: CommunityStateEntry): HTMLElement {
-  const research = el('section', 'pr-verdict-box');
+  const research = el('section', 'pr-verdict-box community-research');
   research.setAttribute('aria-label', 'Research');
-  const badge = communityBadge(entry);
-  const line = el('div', 'pr-verdict-line');
-  const badgeText = el('strong', 'community-badge', badge.text);
-  badgeText.dataset.tone = badge.tone;
-  line.append(badgeText);
-  research.append(line);
+  research.append(createConfidenceMark(entry, 'community-research-mark'));
   if (entry.error) research.append(el('p', 'pr-attention-detail', entry.error));
+  if (entry.goal) research.append(el('p', 'community-goal', entry.goal));
   if (entry.summary) research.append(el('p', 'pr-verdict-summary', entry.summary));
-  if (entry.goal) research.append(el('p', 'community-goal', `Goal: ${entry.goal}`));
-  if (entry.gaps.length > 0) research.append(createTextList('pr-verdict-gaps', 'Not covered', entry.gaps));
+  if (entry.gaps.length > 0) research.append(el('h4', 'ui-label community-research-label', 'Not covered'), createTextList('pr-verdict-gaps community-gaps', 'Not covered', entry.gaps));
   if (entry.checked.length === 0) return research;
   const checked = el('details', 'pr-verdict-checked');
   checked.append(el('summary', null, `What it checked (${entry.checked.length})`), createTextList('community-checked', 'What it checked', entry.checked));
@@ -95,30 +113,27 @@ function createResearchBlock(entry: CommunityStateEntry): HTMLElement {
   return research;
 }
 
-function createDraftBlock(entry: CommunityStateEntry): HTMLElement | null {
-  if (!entry.draft) return null;
-  const draft = el('section', 'community-draft');
-  draft.setAttribute('aria-label', 'Draft reply');
-  draft.append(el('h3', 'pr-section-heading', 'Draft reply'), el('p', 'community-draft-body', entry.draft.body));
-  const links = entry.draft.publicLinks.filter(isExternalHttpUrl);
-  if (links.length === 0) return draft;
+function createPublicLinks(urls: readonly string[]): HTMLElement {
   const list = el('ul', 'community-links');
-  for (const url of links) {
+  list.setAttribute('aria-label', 'Links in the draft');
+  for (const url of urls) {
     const item = el('li');
-    item.append(button({ variant: 'secondary', size: 'small', label: url, action: 'open-public-link', onClick: () => openExternalUrl(url) }));
+    item.append(externalLink('community-link', url, url));
     list.append(item);
   }
-  draft.append(list);
-  return draft;
+  return list;
 }
 
-function copyDraft(entry: CommunityStateEntry, status: ActionStatus): void {
-  const copied = entry.draft ? writeClipboardText(entry.draft.body) : null;
-  if (!copied) {
-    status.show('error', 'This browser does not allow copying here. Select the draft text instead.');
-    return;
-  }
-  copied.then(() => status.show('ok', 'Draft copied. Post it yourself where the question was asked.'), () => status.show('error', 'Copying failed. Select the draft text instead.'));
+function createDraftBlock(entry: CommunityStateEntry): HTMLElement | null {
+  if (!entry.draft) return null;
+  const draftBody = entry.draft.body;
+  const draft = el('section', 'community-draft');
+  draft.setAttribute('aria-label', 'Draft reply');
+  const copyDraft = copyButton({ text: () => draftBody, label: 'Copy draft', action: 'copy-draft', size: 'small' });
+  draft.append(sectionHeading({ title: 'Draft reply', level: 3, hint: 'Post it yourself in the thread', actions: [copyDraft.element] }).element, el('p', 'community-draft-body', draftBody));
+  const links = entry.draft.publicLinks.filter(isExternalHttpUrl);
+  if (links.length > 0) draft.append(createPublicLinks(links));
+  return draft;
 }
 
 async function startSession(entry: CommunityStateEntry, status: ActionStatus): Promise<void> {
@@ -153,30 +168,33 @@ function createSessionPicker(): HTMLSelectElement {
     disabled: choices.length === 0,
     onChange: (sessionId) => { chosenSessionId = sessionId; },
   });
-  element.classList.add('community-session-picker');
   return element;
 }
 
 function createActions(entry: CommunityStateEntry): HTMLElement {
-  const actions = el('div', 'community-actions');
+  const actions = el('section', 'community-actions');
+  actions.setAttribute('aria-label', 'Actions');
   const status = createActionStatus('pr-action-status');
-  const buttons = el('div', 'community-action-buttons');
-  buttons.append(
-    button({ variant: 'secondary', label: 'Copy draft', action: 'copy-draft', disabled: entry.draft === null, onClick: () => copyDraft(entry, status) }),
-    button({ variant: 'secondary', label: 'Open thread', action: 'open-thread', disabled: !isExternalHttpUrl(entry.item.url), onClick: () => openExternalUrl(entry.item.url) }),
-    createSessionPicker(),
-    button({ variant: 'primary', label: 'Start session', action: 'start-session', onClick: () => void startSession(entry, status) }),
-    button({ variant: 'secondary', label: 'Re-run', action: 'rerun-community-research', disabled: !canRerunCommunityEntry(entry), onClick: () => void runAction(entry, 'rerun', status) }),
-    button({ variant: 'secondary', label: 'Set aside', action: 'set-aside-community-question', disabled: !canSetAsideCommunityEntry(entry), onClick: () => void runAction(entry, 'set-aside', status) }),
+  const startRow = el('div', 'community-start-row');
+  startRow.append(createSessionPicker(), button({ variant: 'primary', label: 'Start session', action: 'start-session', onClick: () => void startSession(entry, status) }));
+  const laneButtons = el('div', 'community-lane-buttons');
+  laneButtons.append(
+    button({ variant: 'quiet', size: 'small', label: 'Re-run', action: 'rerun-community-research', disabled: !canRerunCommunityEntry(entry), onClick: () => void runAction(entry, 'rerun', status) }),
+    button({ variant: 'quiet', size: 'small', label: 'Set aside', action: 'set-aside-community-question', disabled: !canSetAsideCommunityEntry(entry), onClick: () => void runAction(entry, 'set-aside', status) }),
   );
-  actions.append(buttons, status.element);
+  actions.append(sectionHeading({ title: 'Start a session from', level: 3 }).element, startRow, laneButtons, status.element);
   return actions;
 }
 
 function createDetail(entry: CommunityStateEntry): HTMLElement {
-  const detail = el('article', 'pr-detail community-detail');
+  const detail = el('article', 'pr-detail pr-desk community-detail');
+  const column = el('div', 'pr-desk-column');
+  const rail = el('aside', 'pr-desk-rail');
+  rail.setAttribute('aria-label', 'Research and actions');
   const draft = createDraftBlock(entry);
-  detail.append(createHeading(entry), createActions(entry), ...(draft ? [draft] : []), createResearchBlock(entry), createQuestionBlock(entry));
+  column.append(createHeading(entry), ...(draft ? [draft] : []), createQuestionBlock(entry));
+  rail.append(createActions(entry), createResearchBlock(entry));
+  detail.append(column, rail);
   return detail;
 }
 
@@ -240,15 +258,14 @@ function onCommunityKey(event: KeyboardEvent): void {
 }
 
 function createRow(item: CommunityQueueItem, isTurn: boolean): HTMLButtonElement {
-  const row = createPressable('pr-queue-row pr-queue-row-quiet');
+  const row = createPressable('pr-queue-row pr-queue-row-quiet community-queue-row');
   row.dataset.queueKey = item.key;
   row.setAttribute('aria-current', String(item.key === selectedKey));
-  const badge = communityBadge(item.entry);
-  const badgeText = el('span', 'review-queue-action community-badge', badge.text);
-  badgeText.dataset.tone = badge.tone;
   const top = el('span', 'pr-queue-top');
-  top.append(badgeText, el('span', 'pr-queue-title', communityItemLabel(item)));
-  row.append(top, el('span', 'pr-queue-elapsed', communitySourceText(item.entry)));
+  top.append(el('span', 'pr-queue-title', communityItemLabel(item)));
+  const bottom = el('span', 'pr-queue-bottom');
+  bottom.append(createConfidenceMark(item.entry, 'community-row-mark'), el('span', 'community-row-source', communitySourceText(item.entry)));
+  row.append(top, bottom);
   if (isTurn && isCommunityEntryUnseen(communityActivityEntry(item))) {
     const activity = el('span', 'tab-activity active pr-queue-unseen');
     activity.setAttribute('aria-hidden', 'true');

@@ -4,7 +4,9 @@ import type { CommunityQueueGroup, CommunityQueueItem } from '../github/review-q
 
 const VERDICT_TEXT: Readonly<Record<CommunityVerdict, string>> = { HIGH: 'High confidence', MEDIUM: 'Medium confidence', LOW: 'Low confidence' };
 
-const VERDICT_TONES: Readonly<Record<CommunityVerdict, StateTone>> = { HIGH: 'ok', MEDIUM: 'warn', LOW: 'muted' };
+const VERDICT_TONES: Readonly<Record<CommunityVerdict, CommunityTone>> = { HIGH: 'ok', MEDIUM: 'neutral', LOW: 'muted' };
+
+const VERDICT_FILLED_PIPS: Readonly<Record<CommunityVerdict, number>> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
 
 const STATUS_TEXT: Readonly<Record<Exclude<CommunityStateEntry['status'], 'ready'>, string>> = {
   queued: 'Waiting to be researched', running: 'Researching', error: 'Research failed', aside: 'Set aside',
@@ -12,15 +14,17 @@ const STATUS_TEXT: Readonly<Record<Exclude<CommunityStateEntry['status'], 'ready
 
 const SOURCE_TEXT: Readonly<Record<CommunityStateEntry['item']['source'], string>> = { forum: 'Forum', discord: 'Discord' };
 
-interface CommunityBadge { text: string; tone: StateTone }
+type CommunityTone = StateTone | 'neutral';
+
+interface CommunityBadge { text: string; tone: CommunityTone; filledPips: number | null }
 
 interface StartSessionCandidate { id: string; name: string; isWorkspace: boolean; isEphemeral: boolean }
 
 export function communityBadge(entry: CommunityStateEntry): CommunityBadge {
-  if (entry.status === 'ready' && entry.verdict) return { text: VERDICT_TEXT[entry.verdict], tone: VERDICT_TONES[entry.verdict] };
-  if (entry.status === 'ready') return { text: 'Researched', tone: 'muted' };
-  if (entry.status === 'error') return { text: STATUS_TEXT.error, tone: 'danger' };
-  return { text: STATUS_TEXT[entry.status], tone: 'muted' };
+  if (entry.status === 'ready' && entry.verdict) return { text: VERDICT_TEXT[entry.verdict], tone: VERDICT_TONES[entry.verdict], filledPips: VERDICT_FILLED_PIPS[entry.verdict] };
+  if (entry.status === 'ready') return { text: 'Researched', tone: 'muted', filledPips: null };
+  if (entry.status === 'error') return { text: STATUS_TEXT.error, tone: 'danger', filledPips: null };
+  return { text: STATUS_TEXT[entry.status], tone: 'muted', filledPips: null };
 }
 
 export function communitySourceText(entry: CommunityStateEntry): string {
