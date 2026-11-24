@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { BoardOpenStep } from '../../shared/contracts/telemetry.ts';
 import { performance } from 'node:perf_hooks';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { Worker } from 'node:worker_threads';
@@ -22,7 +23,7 @@ interface PendingRequest {
 
 interface BoardStore {
   loadHeads(): Promise<{ records: BoardRecord[]; unreadableBoardIds: string[] }>;
-  loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null>;
+  loadElements(head: BoardRecord, markStep?: (step: BoardOpenStep, fields: Record<string, number>) => void): Promise<BoardRecord | null>;
   assetIds(): Promise<Set<string>>;
   boardIds(): Promise<Set<string>>;
   elementWriters(): Promise<ElementWriter[]>;
@@ -100,7 +101,7 @@ function createBoardStore(boardsRoot: string): BoardStore {
     }
   }
 
-  async function loadElements(head: BoardRecord, markStep?: (step: string, fields: Record<string, number>) => void): Promise<BoardRecord | null> {
+  async function loadElements(head: BoardRecord, markStep?: (step: BoardOpenStep, fields: Record<string, number>) => void): Promise<BoardRecord | null> {
     const storedRows: StoredElementRow[] = [];
     const startedAt = performance.now();
     let pageCount = 0;

@@ -72,7 +72,7 @@ const AppActiveProperties = z.object({
 
 const DataDeletionRequestedProperties = z.object({}).strict();
 
-export const BOARD_OPEN_STEPS = Object.freeze(['heads ready', 'saved layout tried', 'saved layout read', 'saved layout missed', 'saved layout queued', 'saved routes and warnings read', 'tiles built from saved layout', 'layout world built', 'tile index built', 'store pages read', 'board record built', 'tiles answered', 'tiles sent', 'other'] as const);
+export const BOARD_OPEN_STEPS = Object.freeze(['heads ready', 'saved layout tried', 'saved layout read', 'saved layout missed', 'saved layout queued', 'saved routes and warnings read', 'tiles built from saved layout', 'layout world built', 'tile index built', 'store pages read', 'board record built', 'tiles answered', 'tiles sent'] as const);
 export type BoardOpenStep = (typeof BOARD_OPEN_STEPS)[number];
 
 const BoardOpenedProperties = z.object({

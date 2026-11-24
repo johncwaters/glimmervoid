@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { BOARD_OPEN_STEPS } from '../../shared/contracts/telemetry.ts';
+import type { BoardOpenStep } from '../../shared/contracts/telemetry.ts';
 
 import { BoardHead, BoardOutline, BoardRegion, Element } from '../../shared/contracts/whiteboard.ts';
 import type { Board } from '../../shared/contracts/whiteboard.ts';
@@ -49,7 +51,7 @@ const ViewerMessage = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('tiles'), viewerId: z.number().int(), chrome: BoardChrome, tiles: z.array(Tile) }),
 ]);
 
-const OpenStep = z.strictObject({ step: z.string(), elapsedMs: z.number(), heapBytes: z.number() });
+const OpenStep = z.strictObject({ step: z.enum(BOARD_OPEN_STEPS), elapsedMs: z.number(), heapBytes: z.number() });
 
 const LayoutAnswer = z.strictObject({
   requestId: RequestId,
@@ -68,7 +70,7 @@ const LayoutAnswer = z.strictObject({
   elementIds: z.array(z.string()).optional(),
   outline: BoardOutline.optional(),
   pictureImages: z.array(z.strictObject({ media: LaidOutMedia, width: z.number(), height: z.number() })).optional(),
-  openSteps: z.array(OpenStep).optional(),
+  openSteps: z.array(OpenStep).optional().catch(undefined),
   picture: z.union([
     z.strictObject({ ok: z.literal(true), svgDocument: z.string(), svgDensity: z.number(), maxPixels: z.number(), frame: LayoutRect }),
     z.strictObject({ ok: z.literal(false), error: z.string() }),
@@ -115,7 +117,7 @@ function savedPaintOf(index: TileIndex, slot: number, painted: PlacedPaint | nul
   return kind && body !== undefined ? [{ slot, painted, record: { id, kind, body } }] : [];
 }
 
-function createLayoutHost(cache: LayoutCache, markStep: (step: string) => void, yieldToNextTurn: () => Promise<unknown>): LayoutHost {
+function createLayoutHost(cache: LayoutCache, markStep: (step: BoardOpenStep) => void, yieldToNextTurn: () => Promise<unknown>): LayoutHost {
   const boardById = new Map<string, Board>();
   const tilesByBoardId = new Map<string, HeldTiles>();
   const syncIdByBoardId = new Map<string, number>();

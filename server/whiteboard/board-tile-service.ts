@@ -14,6 +14,7 @@ import { createLayoutClient } from './layout-client.ts';
 import type { ChangedElement } from './layout-client.ts';
 import type { LayoutAnswer, OpenStep, SavedLayoutWrite, TileSight, ViewerMessage, ViewerTiles } from './layout-worker-core.ts';
 import { clock } from '../../shared/clock.ts';
+import type { BoardOpenStep } from '../../shared/contracts/telemetry.ts';
 
 interface TileViewer {
   send(message: ServerMessageOf<'whiteboard-tiles'> | ServerMessageOf<'whiteboard-tile-diff'>): void;
@@ -73,7 +74,7 @@ interface BoardRegionRead {
 }
 
 interface OpenStepLog {
-  mark(step: string, fields?: Record<string, number>): void;
+  mark(step: BoardOpenStep, fields?: Record<string, number>): void;
   addWorkerSteps(steps: readonly OpenStep[]): void;
 }
 

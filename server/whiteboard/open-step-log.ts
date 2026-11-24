@@ -4,10 +4,9 @@ import v8 from 'node:v8';
 import { createLaneLog } from '../lanes/lane-log.ts';
 import type { OpenStepLog } from './board-tile-service.ts';
 import type { SavedLayoutWrite } from './layout-worker-core.ts';
-import { BOARD_OPEN_STEPS } from '../../shared/contracts/telemetry.ts';
 import type { BoardOpenStep, TelemetryEventProperties } from '../../shared/contracts/telemetry.ts';
 
-const SAVED_LAYOUT_QUEUED_STEP = 'saved layout queued';
+const SAVED_LAYOUT_QUEUED_STEP: BoardOpenStep = 'saved layout queued';
 
 interface BoardOpenSteps extends OpenStepLog {
   logIfBoardLoaded(didLoadElements: boolean): void;
@@ -26,12 +25,8 @@ interface OpenStepLogs {
 type BoardOpenedReport = TelemetryEventProperties<'board_opened'>;
 
 interface StepLine {
-  step: string;
+  step: BoardOpenStep;
   fields: Record<string, string | number>;
-}
-
-function openStepOf(step: string): BoardOpenStep {
-  return BOARD_OPEN_STEPS.find((knownStep) => knownStep === step) ?? 'other';
 }
 
 function numberField(stepLine: StepLine | undefined, field: string): number {
@@ -39,14 +34,16 @@ function numberField(stepLine: StepLine | undefined, field: string): number {
   return typeof value === 'number' ? value : 0;
 }
 
-function boardOpenedReportOf(stepLines: readonly StepLine[], totalMs: number): BoardOpenedReport {
-  const slowest = stepLines.reduce<StepLine | undefined>((current, candidate) => (numberField(candidate, 'ms') > numberField(current, 'ms') ? candidate : current), undefined);
+function boardOpenedReportOf(stepLines: readonly StepLine[], totalMs: number): BoardOpenedReport | null {
+  const [firstStep, ...laterSteps] = stepLines;
+  if (!firstStep) return null;
+  const slowest = laterSteps.reduce((current, candidate) => (numberField(candidate, 'ms') > numberField(current, 'ms') ? candidate : current), firstStep);
   const lastMainStep = stepLines.findLast((stepLine) => stepLine.fields.thread === 'main');
   return {
     total_ms: Math.max(0, Math.round(totalMs)),
     tile_count: numberField(stepLines.find((stepLine) => stepLine.step === 'tiles answered'), 'tiles'),
     saved_layout_hit: stepLines.some((stepLine) => stepLine.step === 'saved layout read'),
-    slowest_step: openStepOf(slowest?.step ?? 'other'),
+    slowest_step: slowest.step,
     slowest_step_ms: numberField(slowest, 'ms'),
     heap_mb: numberField(lastMainStep, 'heapMb'),
   };
@@ -77,7 +74,7 @@ function createOpenStepLogs(logger: Partial<Pick<Console, 'log'>>, reportBoardOp
     let hasWorkerSteps = false;
     const stepLines: StepLine[] = [];
 
-    function record(step: string, thread: string, elapsedMs: number, heapBytes: number, fields: Record<string, number>): void {
+    function record(step: BoardOpenStep, thread: string, elapsedMs: number, heapBytes: number, fields: Record<string, number>): void {
       stepLines.push({ step, fields: { board: boardId, ms: Math.round(elapsedMs), heapMb: Math.round(heapBytes / 1_000_000), thread, ...fields } });
     }
 
@@ -97,7 +94,8 @@ function createOpenStepLogs(logger: Partial<Pick<Console, 'log'>>, reportBoardOp
         for (const stepLine of stepLines) openLog.note(`open ${stepLine.step}`, stepLine.fields);
         const totalMs = performance.now() - startedAt;
         openLog.note('open done', { board: boardId, ms: Math.round(totalMs) });
-        reportBoardOpened(boardOpenedReportOf(stepLines, totalMs));
+        const report = boardOpenedReportOf(stepLines, totalMs);
+        if (report) reportBoardOpened(report);
         const queued = queuedWriteByBoardId.get(boardId);
         if (!queued) return;
         queued.isOpenLogged = true;

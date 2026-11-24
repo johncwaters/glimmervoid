@@ -10,6 +10,7 @@ import { codeStampOf } from './code-stamp.ts';
 import { openLayoutCache } from './layout-cache.ts';
 import { LayoutRequest, boardIdOfRequest, createLayoutHost } from './layout-worker-core.ts';
 import type { AnswerFields, OpenStep } from './layout-worker-core.ts';
+import type { BoardOpenStep } from '../../shared/contracts/telemetry.ts';
 
 interface LayoutJob {
   requestId: number;
@@ -28,7 +29,7 @@ function serve(): void {
   const cachePath: unknown = workerData;
   const jobsByBoardId = new Map<string, LayoutJob[]>();
   let runningJob: LayoutJob | null = null;
-  function markStep(step: string): void {
+  function markStep(step: BoardOpenStep): void {
     if (!runningJob) return;
     const now = performance.now();
     runningJob.openSteps.push({ step, elapsedMs: now - runningJob.previousStepAt, heapBytes: v8.getHeapStatistics().used_heap_size });
