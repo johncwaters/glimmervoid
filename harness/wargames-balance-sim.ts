@@ -6,8 +6,7 @@ import {
   seatIdsForCount,
   troopCostsFor,
   victoryPointTargetFor,
-  victoryVillagesForBalance,
-  wargamesBalanceFor,
+  WARGAMES_BALANCE,
 } from '../shared/contracts/wargames.ts';
 import type { OrderItem, SeatId, TroopCounts, WargamesBalance, WargamesEvent, WargamesSeatCount } from '../shared/contracts/wargames.ts';
 import { applyEvent, createInitialMatchState } from '../shared/wargames/engine.ts';
@@ -27,7 +26,6 @@ const BYTES_PER_MB = 2 ** 20;
 
 interface Candidate {
   name: string;
-  rulesVersion: 'v5' | 'v6' | 'v7' | 'v8' | 'v9';
   balance: WargamesBalance;
 }
 
@@ -60,35 +58,20 @@ function step(state: MatchState, event: Record<string, unknown>): MatchState {
   return outcome.state;
 }
 
-function lastVillageMultiplierOf(state: MatchState, village: VillageState): number {
-  const ownerVillages = village.owner === null ? 0 : state.villages.filter((candidate) => candidate?.owner === village.owner).length;
-  return ownerVillages === 1 ? state.balance.lastVillageDefenseMultiplier : 1;
+function defensePowerOf(state: MatchState, village: VillageState): number {
+  const roles = state.balance.roles;
+  const troopDefense = village.troops.raider * roles.units.raider.defense + village.troops.guard * roles.units.guard.defense + village.troops.envoy * roles.units.envoy.defense;
+  const wall = village.buildings.wall;
+  return (troopDefense + wall * roles.wallDefensePerLevel) * (1 + wall * roles.wallBonusPerLevel);
 }
 
-function defensePowerOf(state: MatchState, village: VillageState, sendingRaiders: boolean): number {
-  const roles = state.balance.roles;
-  if (roles !== null) {
-    const troopDefense = village.troops.raider * roles.units.raider.defense + village.troops.guard * roles.units.guard.defense + village.troops.envoy * roles.units.envoy.defense;
-    const wall = village.buildings.wall;
-    return (troopDefense + wall * roles.wallDefensePerLevel) * (1 + wall * roles.wallBonusPerLevel) * lastVillageMultiplierOf(state, village);
-  }
-  const raiderPower = village.troops.raider * 10 * 1.5;
-  const guardPower = village.troops.guard * 10 * (sendingRaiders ? 1.5 : 1);
-  const envoyPower = village.troops.envoy * 8 * 1.5;
-  return (raiderPower + guardPower + envoyPower) * (1 + village.buildings.wall * 0.15) * lastVillageMultiplierOf(state, village);
-}
-
-function raidersNeeded(state: MatchState, target: VillageState, envoys: number): number {
-  const roles = state.balance.roles;
-  if (roles !== null) return Math.max(0, Math.ceil((defensePowerOf(state, target, true) * ATTACK_MARGIN) / roles.units.raider.attack));
-  const envoyPower = envoys * 8 * (target.troops.guard > 0 ? 1.5 : 1);
-  const raiderPower = 10 * (target.troops.envoy > 0 ? 1.5 : 1);
-  return Math.max(0, Math.ceil((defensePowerOf(state, target, true) * ATTACK_MARGIN - envoyPower) / raiderPower));
+function raidersNeeded(state: MatchState, target: VillageState): number {
+  return Math.max(0, Math.ceil((defensePowerOf(state, target) * ATTACK_MARGIN) / state.balance.roles.units.raider.attack));
 }
 
 function envoysNeeded(state: MatchState, target: VillageState): number {
   const roles = state.balance.roles;
-  const meanDrain = roles === null ? state.balance.envoyLoyaltyDrain : (roles.captureDrainMin + roles.captureDrainMax) / 2;
+  const meanDrain = (roles.captureDrainMin + roles.captureDrainMax) / 2;
   return Math.ceil(target.loyalty / meanDrain / 0.6);
 }
 
@@ -97,8 +80,7 @@ function ownedVillagesOf(state: MatchState, seatId: SeatId): VillageState[] {
 }
 
 function standingLeaderOf(state: MatchState): SeatId {
-  const usesPoints = state.balance.victory.kind === 'points';
-  const scoreOf = (seatId: SeatId) => (usesPoints ? state.victoryPointsBySeat[seatId] : ownedVillagesOf(state, seatId).length);
+  const scoreOf = (seatId: SeatId) => state.victoryPointsBySeat[seatId];
   return state.seats.map((seat) => seat.config.seatId).sort((left, right) => scoreOf(right) - scoreOf(left))[0];
 }
 
@@ -142,7 +124,7 @@ function buildIfAffordable(state: MatchState, orders: OrderItem[], village: Vill
 
 function planAttack(state: MatchState, orders: OrderItem[], village: VillageState, purse: Purse, target: VillageState, targeted: Set<number>): void {
   const envoysWanted = envoysNeeded(state, target);
-  const raidersWanted = raidersNeeded(state, target, envoysWanted);
+  const raidersWanted = raidersNeeded(state, target);
   const envoys = village.troops.envoy + trainAffordable(state, orders, village, purse, 'envoy', Math.max(0, envoysWanted - village.troops.envoy));
   const raiders = village.troops.raider + trainAffordable(state, orders, village, purse, 'raider', Math.max(0, raidersWanted - village.troops.raider));
   if (envoys < envoysWanted || raiders < raidersWanted) return;
@@ -291,7 +273,7 @@ function strategyOfSeat(seatIndex: number, seed: number): StrategyName {
 
 function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius: number, maxTicks: number, seed: number): GameRecord {
   const spec = WargamesMatchSpec.parse({
-    version: 1, rulesVersion: candidate.rulesVersion, title: 'sim', seed, mapRadius, maxTicks,
+    version: 1, title: 'sim', seed, mapRadius, maxTicks,
     seats: seatIdsForCount(seatCount).map((seatId) => ({ seatId, label: seatId, setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'bot' })),
   });
   let state = createInitialMatchState(`sim-${seed}`, 0, spec, candidate.balance);
@@ -377,9 +359,7 @@ function playGame(candidate: Candidate, seatCount: WargamesSeatCount, mapRadius:
 function isGoalWin(state: MatchState): boolean {
   if (state.winnerSeatId === null) return false;
   const pointTarget = victoryPointTargetFor(state.balance, state.spec.mapRadius, state.seats.length);
-  if (pointTarget !== null) return state.victoryPointsBySeat[state.winnerSeatId] >= pointTarget;
-  const winVillages = victoryVillagesForBalance(state.balance, state.villages.filter((village) => village !== null && !village.isBeacon).length);
-  return ownedVillagesOf(state, state.winnerSeatId).length >= winVillages;
+  return pointTarget !== null && state.victoryPointsBySeat[state.winnerSeatId] >= pointTarget;
 }
 
 function median(values: number[]): number {
@@ -420,155 +400,40 @@ function megabytes(bytes: number): string {
 }
 
 function candidatesToRun(): Candidate[] {
-  const v5 = wargamesBalanceFor('v5');
-  const v6 = wargamesBalanceFor('v6');
-  const denseHeldMajority: WargamesBalance = { ...v6, victory: { kind: 'heldShare', share: 0.51, holdTurns: 2 }, sparseSites: null };
-  const withoutEconomyPoints: WargamesBalance = v6.victory.kind === 'points' ? { ...v6, victory: { ...v6.victory, economyIncomePerPoint: 0 } } : v6;
-  return [
-    { name: 'v5 today', rulesVersion: 'v5', balance: v5 },
-    { name: 'v6 51% dense', rulesVersion: 'v6', balance: denseHeldMajority },
-    { name: 'v6 VP without economy', rulesVersion: 'v6', balance: withoutEconomyPoints },
-    { name: 'v6 VP', rulesVersion: 'v6', balance: v6 },
-    { name: 'v8 roles', rulesVersion: 'v8', balance: wargamesBalanceFor('v8') },
-  ];
+  return [{ name: 'current', balance: WARGAMES_BALANCE }];
 }
 
-interface SizeScore {
-  topStrategyWinShare: number;
-  rusherWinShare: number;
-  goalWinShare: number;
-  medianGoalTurnShare: number;
-  leaderLostShare: number;
-  flipBackShare: number;
-  buildPaybackShare: number;
+const GRID_TILES_PER_POINT = [5, 6, 8];
+const GRID_YIELDS = [12, 15, 20];
+const GRID_TARGET_SCALES = [0.9, 1, 1.1];
+
+function scaledTargets(targetScale: number, seatCounts: readonly WargamesSeatCount[]): WargamesBalance['victory']['targetByRadius'] {
+  const { targetByRadius } = WARGAMES_BALANCE.victory;
+  return Object.fromEntries(Object.entries(targetByRadius).map(([radius, bySeats]) => {
+    const scaled = { ...bySeats };
+    for (const seatCount of seatCounts) scaled[seatCount] = Math.round(bySeats[seatCount] * targetScale);
+    return [radius, scaled];
+  }));
 }
 
-function scoreSize(records: GameRecord[]): SizeScore {
-  const winShares = STRATEGIES.map((strategy) => records.filter((record) => record.winnerStrategy === strategy).length / records.length);
-  const goalWins = records.filter((record) => record.winKind === 'goal');
-  const captures = records.reduce((sum, record) => sum + record.captures, 0);
-  const judged = records.reduce((sum, record) => sum + record.buildsJudged, 0);
-  return {
-    topStrategyWinShare: Math.max(...winShares),
-    rusherWinShare: winShares[STRATEGIES.indexOf('rusher')],
-    goalWinShare: goalWins.length / records.length,
-    medianGoalTurnShare: goalWins.length === 0 ? 1 : median(goalWins.map((record) => record.endTurn)) / records[0].maxTicks,
-    leaderLostShare: records.filter((record) => record.midGameLeaderLost).length / records.length,
-    flipBackShare: captures === 0 ? 0 : records.reduce((sum, record) => sum + record.flipBacks, 0) / captures,
-    buildPaybackShare: judged === 0 ? 0 : records.reduce((sum, record) => sum + record.buildsPaidBack, 0) / judged,
-  };
-}
-
-const SEARCH_VILLAGE_SHARE_SCALES = [1, 1.5];
-const SEARCH_BEACON_POINTS = [2, 4];
-const SEARCH_TARGET_FACTORS = [0.5, 0.65, 0.8];
-
-function scaledTargets(balance: WargamesBalance, targetFactor: number): Record<number, Record<WargamesSeatCount, number>> {
-  const targets: Record<number, Record<WargamesSeatCount, number>> = {};
-  const beaconPoints = balance.victory.kind === 'points' ? balance.victory.beaconPoints : 0;
-  for (const mapSize of WARGAMES_MAP_SIZES) {
-    const targetBySeatCount = { 4: 0, 6: 0 };
-    for (const seatCount of SEAT_COUNTS) {
-      const sample = createInitialMatchState('sample', 0, WargamesMatchSpec.parse({
-        version: 1, rulesVersion: 'v6', title: 'sample', seed: SEEDS[0], mapRadius: mapSize.mapRadius, maxTicks: mapSize.maxTicks,
-        seats: seatIdsForCount(seatCount).map((seatId) => ({ seatId, label: seatId, setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'bot' })),
-      }), balance);
-      const villages = sample.villages.filter((village) => village !== null && !village.isBeacon).length;
-      const beacons = sample.villages.filter((village) => village?.isBeacon).length;
-      targetBySeatCount[seatCount] = Math.round((targetFactor * mapSize.maxTicks * (villages + beacons * beaconPoints)) / seatCount);
-    }
-    targets[mapSize.mapRadius] = targetBySeatCount;
-  }
-  return targets;
-}
-
-function searchGrid(): Candidate[] {
-  const v6 = wargamesBalanceFor('v6');
-  const candidates: Candidate[] = [];
-  if (v6.victory.kind !== 'points' || v6.sparseSites === null) return candidates;
-  for (const villageShareScale of SEARCH_VILLAGE_SHARE_SCALES) {
-    for (const beaconPoints of SEARCH_BEACON_POINTS) {
-      const villageShareByRadius = Object.fromEntries(Object.entries(v6.sparseSites.villageShareByRadius).map(([radius, share]) => [radius, share * villageShareScale]));
-      const mapBalance: WargamesBalance = { ...v6, sparseSites: { ...v6.sparseSites, villageShareByRadius }, victory: { ...v6.victory, beaconPoints } };
-      for (const targetFactor of SEARCH_TARGET_FACTORS) {
-        const targetByRadius = scaledTargets(mapBalance, targetFactor);
-        const balance: WargamesBalance = { ...mapBalance, victory: { ...v6.victory, beaconPoints, targetByRadius } };
-        const targetsText = Object.entries(targetByRadius).map(([radius, bySeats]) => `r${radius} ${bySeats[4]}/${bySeats[6]}`).join(' ');
-        candidates.push({ name: `villages x${villageShareScale} beacon ${beaconPoints} target ${targetFactor} (${targetsText})`, rulesVersion: 'v6', balance });
-      }
-    }
-  }
-  return candidates;
-}
-
-function v8Candidates(): Candidate[] {
-  return [
-    { name: 'v7 VP', rulesVersion: 'v7', balance: wargamesBalanceFor('v7') },
-    { name: 'v8 VP', rulesVersion: 'v8', balance: wargamesBalanceFor('v8') },
-  ];
-}
-
-function v9Candidates(): Candidate[] {
-  return [
-    { name: 'v8 VP', rulesVersion: 'v8', balance: wargamesBalanceFor('v8') },
-    { name: 'v9 land', rulesVersion: 'v9', balance: wargamesBalanceFor('v9') },
-  ];
-}
-
-const V9_GRID_TILES_PER_POINT = [5, 6, 8];
-const V9_GRID_YIELDS = [12, 15, 20];
-const V9_GRID_TARGET_SCALES = [0.9, 1, 1.1];
-
-function v9Grid(): Candidate[] {
-  const v9 = wargamesBalanceFor('v9');
-  const { territory, victory } = v9;
-  if (territory === null || victory.kind !== 'points') return [];
-  return V9_GRID_TILES_PER_POINT.flatMap((tilesPerPoint) => V9_GRID_YIELDS.flatMap((yieldPerLevel) => V9_GRID_TARGET_SCALES.map((targetScale) => {
-    const targetByRadius = Object.fromEntries(Object.entries(victory.targetByRadius).map(([radius, bySeats]) => [radius, { 4: Math.round(bySeats[4] * targetScale), 6: Math.round(bySeats[6] * targetScale) }]));
+function tuningGrid(): Candidate[] {
+  const { territory, victory } = WARGAMES_BALANCE;
+  return GRID_TILES_PER_POINT.flatMap((tilesPerPoint) => GRID_YIELDS.flatMap((yieldPerLevel) => GRID_TARGET_SCALES.map((targetScale) => {
     const improvements = { ...territory.improvements, field: { ...territory.improvements.field, yieldPerLevel }, quarry: { ...territory.improvements.quarry, yieldPerLevel } };
     return {
-      name: `v9 tiles/VP ${tilesPerPoint} yield ${yieldPerLevel} target x${targetScale}`,
-      rulesVersion: 'v9' as const,
-      balance: { ...v9, victory: { ...victory, targetByRadius }, territory: { ...territory, tilesPerPoint, improvements } },
+      name: `tiles/VP ${tilesPerPoint} yield ${yieldPerLevel} target x${targetScale}`,
+      balance: { ...WARGAMES_BALANCE, victory: { ...victory, targetByRadius: scaledTargets(targetScale, SEAT_COUNTS) }, territory: { ...territory, tilesPerPoint, improvements } },
     };
   })));
 }
 
-const V9_TARGET_SCALES = [0.6, 0.7, 0.8, 0.9, 1];
+const TARGET_SCALES = [0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2];
 
-function v9TargetCandidates(): Candidate[] {
-  const v9 = wargamesBalanceFor('v9');
-  const { victory } = v9;
-  if (victory.kind !== 'points') return [];
-  return V9_TARGET_SCALES.map((targetScale) => {
-    const targetByRadius = Object.fromEntries(Object.entries(victory.targetByRadius).map(([radius, bySeats]) => [radius, { ...bySeats, 4: Math.round(bySeats[4] * targetScale) }]));
-    return { name: `v9 4-seat target x${targetScale} (Large ${targetByRadius[6][4]})`, rulesVersion: 'v9' as const, balance: { ...v9, victory: { ...victory, targetByRadius } } };
+function targetCandidates(): Candidate[] {
+  return TARGET_SCALES.map((targetScale) => {
+    const targetByRadius = scaledTargets(targetScale, [4]);
+    return { name: `4-seat target x${targetScale} (Large ${targetByRadius[6][4]})`, balance: { ...WARGAMES_BALANCE, victory: { ...WARGAMES_BALANCE.victory, targetByRadius } } };
   });
-}
-
-function runSearch(seedCount: number): void {
-  const seeds = SEEDS.slice(0, seedCount);
-  console.log('candidate | worst top-strategy win | worst rusher win | min goal-win share | goal turn share by size | min leader-lost | worst churn | min payback');
-  for (const candidate of searchGrid()) {
-    const scores = WARGAMES_MAP_SIZES.map((mapSize) => {
-      const records: GameRecord[] = [];
-      for (const seatCount of SEAT_COUNTS) {
-        for (const seed of seeds) records.push(playGame(candidate, seatCount, mapSize.mapRadius, mapSize.maxTicks, seed));
-      }
-      return scoreSize(records);
-    });
-    const round = (value: number) => Math.round(value * 100);
-    console.log([
-      candidate.name,
-      round(Math.max(...scores.map((score) => score.topStrategyWinShare))),
-      round(Math.max(...scores.map((score) => score.rusherWinShare))),
-      round(Math.min(...scores.map((score) => score.goalWinShare))),
-      scores.map((score) => round(score.medianGoalTurnShare)).join('/'),
-      round(Math.min(...scores.map((score) => score.leaderLostShare))),
-      round(Math.max(...scores.map((score) => score.flipBackShare))),
-      round(Math.min(...scores.map((score) => score.buildPaybackShare))),
-    ].join(' | '));
-  }
 }
 
 const COALITION_SEEDS = Array.from({ length: 400 }, (_, index) => 7919 * (index + 1));
@@ -636,7 +501,7 @@ function garrisonWithinFarmRoom(state: MatchState, village: VillageState, budget
 function playCoalitionRaid(row: CoalitionRow, seed: number): boolean {
   const random = seededRandom(seed);
   const spec = WargamesMatchSpec.parse({
-    version: 1, rulesVersion: 'v9', title: 'coalition', seed, mapRadius: 6, maxTicks: 40,
+    version: 1, title: 'coalition', seed, mapRadius: 6, maxTicks: 40,
     seats: seatIdsForCount(4).map((seatId) => ({ seatId, label: seatId, setup: { agent: 'claude-code', model: null, options: [], instructions: '' }, modelDisplay: 'bot' })),
   });
   let state = createInitialMatchState(`coalition-${seed}`, 0, spec);
@@ -696,20 +561,15 @@ function main(): void {
     runCoalition(process.argv.includes('--assert'));
     return;
   }
-  const searchSeeds = process.argv.find((argument) => argument.startsWith('--search='))?.slice('--search='.length);
-  if (searchSeeds !== undefined) {
-    runSearch(Number(searchSeeds));
-    return;
-  }
   const onlyCandidate = process.argv.find((argument) => argument.startsWith('--only='))?.slice('--only='.length);
-  const versionCandidates = process.argv.includes('--v9-targets') ? v9TargetCandidates() : process.argv.includes('--v9-grid') ? v9Grid() : process.argv.includes('--v9') ? v9Candidates() : process.argv.includes('--v8') ? v8Candidates() : candidatesToRun();
-  const candidates = versionCandidates.filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
+  const sweepCandidates = process.argv.includes('--targets') ? targetCandidates() : process.argv.includes('--grid') ? tuningGrid() : candidatesToRun();
+  const candidates = sweepCandidates.filter((candidate) => onlyCandidate === undefined || candidate.name.startsWith(onlyCandidate));
   const onlySeats = process.argv.find((argument) => argument.startsWith('--seats='))?.slice('--seats='.length);
   const seedCount = Number(process.argv.find((argument) => argument.startsWith('--seeds='))?.slice('--seeds='.length) ?? SEEDS.length);
   const seedsToRun = Array.from({ length: seedCount }, (_, index) => 101 * (index + 1));
   const onlySize = process.argv.find((argument) => argument.startsWith('--size='))?.slice('--size='.length);
   const seatCountsToRun = SEAT_COUNTS.filter((seatCount) => onlySeats === undefined || String(seatCount) === onlySeats);
-  console.log('| Rules | Size | Win rate by strategy | Goal win | Alive mid-game | Churn | Comeback | Mid-game leader lost | Build payback |');
+  console.log('| Candidate | Size | Win rate by strategy | Goal win | Alive mid-game | Churn | Comeback | Mid-game leader lost | Build payback |');
   console.log('|---|---|---|---|---|---|---|---|---|');
   for (const candidate of candidates) {
     for (const mapSize of WARGAMES_MAP_SIZES.filter((size) => onlySize === undefined || size.name === onlySize)) {

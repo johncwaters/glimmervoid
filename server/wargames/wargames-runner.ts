@@ -9,7 +9,6 @@ import {
   OrderItem,
   SeatId,
   SignedReport,
-  WARGAMES_RULES_VERSION,
 } from '../../shared/contracts/wargames.ts';
 import type {
   MatchStatus,
@@ -25,7 +24,7 @@ import type {
 } from '../../shared/contracts/wargames.ts';
 import { DEFAULT_TIMER_FNS, unrefTimer } from '../../shared/timer-deps.ts';
 import type { ClearTimeoutFn, SetTimeoutFn } from '../../shared/timer-deps.ts';
-import { computeEloByVersion, summarizeMatch } from '../../shared/wargames/analytics.ts';
+import { computeEloFromSummaries, summarizeMatch } from '../../shared/wargames/analytics.ts';
 import {
   applyEvent,
   canonicalReportString,
@@ -151,7 +150,7 @@ export function createWargamesRunner({
   const seatBySessionId = new Map<string, WargamesSeatBinding>();
   const wargamesSessionIds = new Set<string>();
   const watchersByMatchId = new Map<string, Set<string>>();
-  let eloByVersion: Record<string, ModelEloRow[]> = {};
+  let eloByModel: ModelEloRow[] = [];
 
   function enqueueMatch<Result>(live: LiveMatch, task: () => Promise<Result>): Promise<Result> {
     const run = live.serialQueue.then(task, task);
@@ -165,7 +164,7 @@ export function createWargamesRunner({
       if (summary.status === 'finished' || summary.status === 'aborted') continue;
       await store.saveSummary({ ...summary, status: 'aborted', finishedAtMs: summary.finishedAtMs ?? now() });
     }
-    eloByVersion = computeEloByVersion(store.listSummaries());
+    eloByModel = computeEloFromSummaries(store.listSummaries());
   }
 
   function statusFrame(): { type: 'wargames-status'; matches: WargamesMatchSummary[] } {
@@ -176,9 +175,7 @@ export function createWargamesRunner({
     return {
       type: 'wargames-history',
       history: {
-        currentRulesVersion: WARGAMES_RULES_VERSION,
-        eloByModel: eloByVersion[WARGAMES_RULES_VERSION] ?? [],
-        eloByVersion,
+        eloByModel,
         matches: store.listSummaries(),
       },
     };
@@ -259,7 +256,7 @@ export function createWargamesRunner({
     }
     if (live.state.status === 'finished') {
       clearDeadline(live);
-      eloByVersion = computeEloByVersion(store.listSummaries());
+      eloByModel = computeEloFromSummaries(store.listSummaries());
       liveByMatchId.delete(live.state.matchId);
       wakePhaseWaiters(live);
       live.hooks?.onMatchEnded?.(live.state.matchId, [...live.sessionIds]);
@@ -329,7 +326,6 @@ export function createWargamesRunner({
     const catalog = readAgentModels();
     const pinnedSpec: WargamesMatchSpec = {
       ...spec,
-      rulesVersion: WARGAMES_RULES_VERSION,
       seats: spec.seats.map((seat) => ({
         ...seat,
         modelDisplay: resolveSeatModelDisplay(seat, catalog),

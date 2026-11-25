@@ -1,10 +1,8 @@
 import { z } from 'zod';
 import { AgentSetup } from './agent-models.ts';
 
-export const WARGAMES_RULES_VERSION = 'v9' as const;
-const LEGACY_WARGAMES_RULES_VERSION = 'v1' as const;
-const WargamesRulesVersion = z.enum(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9']);
-type WargamesRulesVersion = z.infer<typeof WargamesRulesVersion>;
+export const WARGAMES_RULES_ID = 'r1' as const;
+const WargamesRulesId = z.literal(WARGAMES_RULES_ID);
 
 export const WARGAMES_SEAT_IDS = ['s1', 's2', 's3', 's4', 's5', 's6'] as const;
 export const WARGAMES_SEAT_COUNTS = [4, 6] as const;
@@ -12,11 +10,9 @@ export type WargamesSeatCount = (typeof WARGAMES_SEAT_COUNTS)[number];
 export const WARGAMES_HEX_RADIUS = 3;
 export const WARGAMES_MIN_HEX_RADIUS = 3;
 export const WARGAMES_MAX_HEX_RADIUS = 8;
-export const WARGAMES_HEX_COUNT = 37;
 const WARGAMES_MAX_HEX_COUNT = 3 * WARGAMES_MAX_HEX_RADIUS * (WARGAMES_MAX_HEX_RADIUS + 1) + 1;
 const WARGAMES_MAX_TICKS = 40;
 const WARGAMES_TICK_DEADLINE_SECONDS = 60;
-export const WARGAMES_SQUEEZE_TICK = 25;
 export const WARGAMES_MAP_SIZES = [
   { name: 'Standard', mapRadius: 4, maxTicks: 25 },
   { name: 'Large', mapRadius: 6, maxTicks: 40 },
@@ -24,7 +20,6 @@ export const WARGAMES_MAP_SIZES = [
 ] as const;
 export type WargamesMapSize = (typeof WARGAMES_MAP_SIZES)[number];
 export const WARGAMES_NOTE_MAX_BYTES = 4096;
-export const WARGAMES_MAX_MESSAGES_PER_TICK = 2;
 export const WARGAMES_MAX_TRIBE_SIZE = 2;
 export const WARGAMES_TRAVEL_HEXES_PER_TICK = 2;
 
@@ -118,7 +113,7 @@ export type SeatConfig = z.infer<typeof SeatConfig>;
 
 export const WargamesMatchSpec = z.strictObject({
   version: z.literal(1),
-  rulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
+  rules: WargamesRulesId.default(WARGAMES_RULES_ID),
   title: z.string().trim().min(1).max(120).default('Wargames Match'),
   seed: z.number().int().min(1).max(2147483647),
   mapRadius: z.number().int().min(WARGAMES_MIN_HEX_RADIUS).max(WARGAMES_MAX_HEX_RADIUS).default(WARGAMES_HEX_RADIUS),
@@ -131,16 +126,11 @@ export const WargamesMatchSpec = z.strictObject({
 });
 export type WargamesMatchSpec = z.infer<typeof WargamesMatchSpec>;
 
-type WargamesVictoryRule =
-  | { readonly kind: 'flat'; readonly villages: number }
-  | { readonly kind: 'share'; readonly share: number; readonly minimumVillages: number }
-  | { readonly kind: 'heldShare'; readonly share: number; readonly holdTurns: number }
-  | {
-    readonly kind: 'points';
-    readonly beaconPoints: number;
-    readonly economyIncomePerPoint: number;
-    readonly targetByRadius: Readonly<Record<number, Readonly<Record<WargamesSeatCount, number>>>>;
-  };
+interface WargamesVictoryRule {
+  readonly beaconPoints: number;
+  readonly economyIncomePerPoint: number;
+  readonly targetByRadius: Readonly<Record<number, Readonly<Record<WargamesSeatCount, number>>>>;
+}
 
 interface WargamesSparseSites {
   readonly villageShareByRadius: Readonly<Record<number, number>>;
@@ -157,24 +147,6 @@ interface WargamesTerrainRule {
   readonly forestShare: number;
   readonly forestPatchSizes: readonly number[];
   readonly bonusChance: number;
-}
-
-export interface WargamesBalance {
-  readonly envoyLoyaltyDrain: number;
-  readonly capturedLoyalty: number;
-  readonly loyaltyRegenPerTurn: number;
-  readonly captureRazeFraction: number;
-  readonly buildingCosts: Readonly<Record<BuildingKind, ResourceBundle>>;
-  readonly barbarianGuardGrowthPerTurn: number;
-  readonly barbarianGuardCap: number;
-  readonly lastVillageProductionMultiplier: number;
-  readonly lastVillageDefenseMultiplier: number;
-  readonly victory: WargamesVictoryRule;
-  readonly sparseSites: WargamesSparseSites | null;
-  readonly clusteredTerrain: WargamesTerrainRule | null;
-  readonly diplomacy: WargamesDiplomacyRule | null;
-  readonly roles: WargamesRolesRule | null;
-  readonly territory: WargamesTerritoryRule | null;
 }
 
 interface WargamesImprovementRule {
@@ -220,73 +192,42 @@ interface WargamesDiplomacyRule {
   readonly allianceVpPerTurn: number;
 }
 
-const V1_BUILDING_COSTS = Object.freeze({
-  farm: Object.freeze({ grain: 40, ore: 30 }),
-  mine: Object.freeze({ grain: 30, ore: 40 }),
-  barracks: Object.freeze({ grain: 50, ore: 50 }),
-  wall: Object.freeze({ grain: 30, ore: 60 }),
-});
+export interface WargamesBalance {
+  readonly capturedLoyalty: number;
+  readonly loyaltyRegenPerTurn: number;
+  readonly captureRazeFraction: number;
+  readonly buildingCosts: Readonly<Record<BuildingKind, ResourceBundle>>;
+  readonly barbarianGuardGrowthPerTurn: number;
+  readonly barbarianGuardCap: number;
+  readonly victory: WargamesVictoryRule;
+  readonly sparseSites: WargamesSparseSites;
+  readonly clusteredTerrain: WargamesTerrainRule;
+  readonly diplomacy: WargamesDiplomacyRule;
+  readonly roles: WargamesRolesRule;
+  readonly territory: WargamesTerritoryRule;
+}
 
-const V1_BALANCE: WargamesBalance = Object.freeze({
-  envoyLoyaltyDrain: 35,
+export const WARGAMES_BALANCE: WargamesBalance = Object.freeze({
   capturedLoyalty: 25,
-  loyaltyRegenPerTurn: 0,
-  captureRazeFraction: 0,
-  buildingCosts: V1_BUILDING_COSTS,
-  barbarianGuardGrowthPerTurn: 0,
-  barbarianGuardCap: 0,
-  lastVillageProductionMultiplier: 1,
-  lastVillageDefenseMultiplier: 1,
-  victory: Object.freeze({ kind: 'flat', villages: 12 }),
-  sparseSites: null,
-  clusteredTerrain: null,
-  diplomacy: null,
-  roles: null,
-  territory: null,
-});
-
-const V5_BALANCE: WargamesBalance = Object.freeze({
-  ...V1_BALANCE,
-  victory: Object.freeze({ kind: 'share', share: 0.4, minimumVillages: 12 }),
-});
-
-const V6_BALANCE: WargamesBalance = Object.freeze({
-  ...V1_BALANCE,
-  envoyLoyaltyDrain: 25,
   loyaltyRegenPerTurn: 10,
   captureRazeFraction: 0.5,
+  buildingCosts: Object.freeze({
+    farm: Object.freeze({ grain: 40, ore: 30 }),
+    mine: Object.freeze({ grain: 30, ore: 40 }),
+    barracks: Object.freeze({ grain: 50, ore: 50 }),
+    wall: Object.freeze({ grain: 30, ore: 60 }),
+  }),
   barbarianGuardGrowthPerTurn: 1,
   barbarianGuardCap: 10,
   victory: Object.freeze({
-    kind: 'points',
     beaconPoints: 4,
     economyIncomePerPoint: 200,
     targetByRadius: Object.freeze({
-      4: Object.freeze({ 4: 150, 6: 130 }),
-      6: Object.freeze({ 4: 460, 6: 355 }),
-      8: Object.freeze({ 4: 1035, 6: 815 }),
+      4: Object.freeze({ 4: 174, 6: 189 }),
+      6: Object.freeze({ 4: 534, 6: 516 }),
+      8: Object.freeze({ 4: 1202, 6: 1184 }),
     }),
   }),
-  sparseSites: Object.freeze({
-    villageShareByRadius: Object.freeze({ 4: 0.25, 6: 0.2, 8: 0.18 }),
-    villageSpacing: 1,
-    beaconRingsByRadius: Object.freeze({ 4: Object.freeze([0]), 6: Object.freeze([0, 3]), 8: Object.freeze([0, 4]) }),
-  }),
-});
-
-const V7_BALANCE: WargamesBalance = Object.freeze({
-  ...V6_BALANCE,
-  diplomacy: Object.freeze({ breachCollateralStep: 1, allianceVpPerTurn: 2 }),
-});
-
-const LEGACY_TROOP_COSTS: Readonly<Record<TroopKind, ResourceBundle>> = Object.freeze({
-  raider: Object.freeze({ grain: 12, ore: 8 }),
-  guard: Object.freeze({ grain: 8, ore: 12 }),
-  envoy: Object.freeze({ grain: 25, ore: 20 }),
-});
-
-const V8_BALANCE: WargamesBalance = Object.freeze({
-  ...V7_BALANCE,
   sparseSites: Object.freeze({
     villageShareByRadius: Object.freeze({ 4: 0.125, 6: 0.1, 8: 0.09 }),
     villageSpacing: 2,
@@ -302,11 +243,12 @@ const V8_BALANCE: WargamesBalance = Object.freeze({
     forestPatchSizes: Object.freeze([3, 4, 4, 5]),
     bonusChance: 0.05,
   }),
+  diplomacy: Object.freeze({ breachCollateralStep: 1, allianceVpPerTurn: 2 }),
   roles: Object.freeze({
     units: Object.freeze({
-      raider: Object.freeze({ attack: 12, defense: 3, cost: LEGACY_TROOP_COSTS.raider }),
+      raider: Object.freeze({ attack: 12, defense: 3, cost: Object.freeze({ grain: 12, ore: 8 }) }),
       guard: Object.freeze({ attack: 3, defense: 12, cost: Object.freeze({ grain: 5, ore: 7 }) }),
-      envoy: Object.freeze({ attack: 0, defense: 1, cost: LEGACY_TROOP_COSTS.envoy }),
+      envoy: Object.freeze({ attack: 0, defense: 1, cost: Object.freeze({ grain: 25, ore: 20 }) }),
     }),
     wallDefensePerLevel: 15,
     wallBonusPerLevel: 0.04,
@@ -316,20 +258,6 @@ const V8_BALANCE: WargamesBalance = Object.freeze({
     troopCapPerFarmLevel: 20,
     moraleFloor: 0.5,
     moraleMinAttackerPoints: 20,
-  }),
-});
-
-const V9_BALANCE: WargamesBalance = Object.freeze({
-  ...V8_BALANCE,
-  victory: Object.freeze({
-    kind: 'points',
-    beaconPoints: 4,
-    economyIncomePerPoint: 200,
-    targetByRadius: Object.freeze({
-      4: Object.freeze({ 4: 174, 6: 189 }),
-      6: Object.freeze({ 4: 534, 6: 516 }),
-      8: Object.freeze({ 4: 1202, 6: 1184 }),
-    }),
   }),
   territory: Object.freeze({
     tilesPerPoint: 6,
@@ -351,24 +279,7 @@ const V9_BALANCE: WargamesBalance = Object.freeze({
   }),
 });
 
-const WARGAMES_BALANCE_BY_VERSION: Readonly<Record<WargamesRulesVersion, WargamesBalance>> = Object.freeze({
-  v1: V1_BALANCE,
-  v2: V1_BALANCE,
-  v3: V1_BALANCE,
-  v4: V1_BALANCE,
-  v5: V5_BALANCE,
-  v6: V6_BALANCE,
-  v7: V7_BALANCE,
-  v8: V8_BALANCE,
-  v9: V9_BALANCE,
-});
-
-export function wargamesBalanceFor(rulesVersion: WargamesRulesVersion): WargamesBalance {
-  return WARGAMES_BALANCE_BY_VERSION[rulesVersion];
-}
-
 export function troopCostsFor(balance: Pick<WargamesBalance, 'roles'>): Readonly<Record<TroopKind, ResourceBundle>> {
-  if (balance.roles === null) return LEGACY_TROOP_COSTS;
   const { units } = balance.roles;
   return { raider: units.raider.cost, guard: units.guard.cost, envoy: units.envoy.cost };
 }
@@ -377,30 +288,15 @@ export function foundCostFor(rule: Pick<WargamesTerritoryRule, 'foundCost'>, vil
   return { grain: rule.foundCost.grain * (villagesFounded + 1), ore: rule.foundCost.ore * (villagesFounded + 1) };
 }
 
-export function victoryVillagesForBalance(balance: Pick<WargamesBalance, 'victory'>, villageCount: number): number {
-  const victory = balance.victory;
-  if (victory.kind === 'flat') return victory.villages;
-  if (victory.kind === 'share') return Math.max(victory.minimumVillages, Math.round(villageCount * victory.share));
-  if (victory.kind === 'points') return villageCount;
-  return Math.ceil(villageCount * victory.share);
-}
-
 export function victoryPointTargetFor(balance: Pick<WargamesBalance, 'victory'>, mapRadius: number, seatCount: number): number | null {
-  const victory = balance.victory;
-  if (victory.kind !== 'points') return null;
   if (!isAllowedSeatCount(seatCount)) return null;
-  return valueForRadius(victory.targetByRadius, mapRadius)[seatCount];
+  return valueForRadius(balance.victory.targetByRadius, mapRadius)[seatCount];
 }
 
 export function valueForRadius<Value>(valueByRadius: Readonly<Record<number, Value>>, mapRadius: number): Value {
   const radii = Object.keys(valueByRadius).map(Number).sort((left, right) => left - right);
   const closestRadius = radii.filter((radius) => radius <= mapRadius).pop() ?? radii[0];
   return valueByRadius[closestRadius];
-}
-
-export function victoryHoldTurnsFor(spec: Pick<WargamesMatchSpec, 'rulesVersion'>): number {
-  const victory = wargamesBalanceFor(spec.rulesVersion).victory;
-  return victory.kind === 'heldShare' ? victory.holdTurns : 1;
 }
 
 const EscrowTerms = z.strictObject({
@@ -733,7 +629,7 @@ export type ModelEloRow = z.infer<typeof ModelEloRow>;
 
 export const WargamesMatchSummary = z.strictObject({
   matchId: WargamesMatchId,
-  rulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
+  rules: WargamesRulesId,
   hasCustomStrategy: z.boolean().default(false),
   title: z.string().min(1).max(120),
   seed: z.number().int().min(1),
@@ -760,9 +656,7 @@ export const WargamesMatchSummary = z.strictObject({
 export type WargamesMatchSummary = z.infer<typeof WargamesMatchSummary>;
 
 export const WargamesHistory = z.strictObject({
-  currentRulesVersion: WargamesRulesVersion.default(LEGACY_WARGAMES_RULES_VERSION),
   eloByModel: z.array(ModelEloRow),
-  eloByVersion: z.record(z.string(), z.array(ModelEloRow)).default({}),
   matches: z.array(WargamesMatchSummary),
 });
 export type WargamesHistory = z.infer<typeof WargamesHistory>;

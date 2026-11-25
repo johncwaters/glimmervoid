@@ -4,19 +4,16 @@ import {
   WARGAMES_HEX_RADIUS,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_MAX_HEX_RADIUS,
-  WARGAMES_MAX_MESSAGES_PER_TICK,
   WARGAMES_MAX_TRIBE_SIZE,
   WARGAMES_MIN_HEX_RADIUS,
   WARGAMES_NOTE_MAX_BYTES,
   WARGAMES_SEAT_IDS,
-  WARGAMES_SQUEEZE_TICK,
   WARGAMES_TRAVEL_HEXES_PER_TICK,
   valueForRadius,
   foundCostFor,
   troopCostsFor,
   victoryPointTargetFor,
-  victoryVillagesForBalance,
-  wargamesBalanceFor,
+  WARGAMES_BALANCE,
 } from '../contracts/wargames.ts';
 import type {
   ArmyStatus,
@@ -50,9 +47,8 @@ import {
   transitionMatch,
   transitionSeat,
   transitionTick,
-  transitionVillage,
 } from './machines.ts';
-import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateClusteredTerrain, generateTerrain, isPassable, marchCostOf, pickBeaconKeys, pickVillageKeys, tileKey } from './terrain.ts';
+import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, generateClusteredTerrain, isPassable, marchCostOf, pickBeaconKeys, pickVillageKeys, tileKey } from './terrain.ts';
 import type { TerrainKind } from './terrain.ts';
 
 export interface ReportSigner {
@@ -111,7 +107,6 @@ interface SeatRuntimeState {
   config: SeatConfig;
   status: SeatStatus;
   note: string;
-  messagesSentThisTick: number;
   sealedOrders: OrderItem[];
   tribeId: string | null;
 }
@@ -151,16 +146,10 @@ export interface MatchState {
   nextMessageNumber: number;
   lastSeq: number;
   balance: WargamesBalance;
-  goalStreak: GoalStreak;
   terrain: TerrainKind[];
   victoryPointsBySeat: Record<SeatId, number>;
   territory: Map<number, TerritoryTile>;
   villagesFoundedBySeat: Record<SeatId, number>;
-}
-
-interface GoalStreak {
-  seatId: SeatId | null;
-  turns: number;
 }
 
 interface EngineEffect {
@@ -199,9 +188,9 @@ interface SeatStateView {
   sites: { hexIndex: number; isBeacon: boolean }[];
   victoryPointsBySeat: Record<SeatId, number>;
   victoryPointTarget: number | null;
-  territory?: TerritoryTileView[];
-  yourVillagesFounded?: number;
-  yourLand?: LandSummaryView;
+  territory: TerritoryTileView[];
+  yourVillagesFounded: number;
+  yourLand: LandSummaryView;
 }
 
 interface ClaimableHexView {
@@ -249,17 +238,6 @@ const MAX_SCOUTS_PER_TICK = 2;
 const SEAT_INDEX_BY_ID: Readonly<Record<SeatId, number>> = Object.freeze({
   s1: 0, s2: 1, s3: 2, s4: 3, s5: 4, s6: 5,
 });
-
-const RULES_VERSION_RANK: Readonly<Record<WargamesMatchSpec['rulesVersion'], number>> = Object.freeze({
-  v1: 1, v2: 2, v3: 3, v4: 4, v5: 5, v6: 6, v7: 7, v8: 8, v9: 9,
-});
-
-function isRulesAtLeast(
-  version: WargamesMatchSpec['rulesVersion'],
-  minimumVersion: WargamesMatchSpec['rulesVersion'],
-): boolean {
-  return RULES_VERSION_RANK[version] >= RULES_VERSION_RANK[minimumVersion];
-}
 
 const AXIAL_DIRECTIONS: readonly HexCoord[] = Object.freeze([
   { q: 1, r: 0 },
@@ -517,7 +495,6 @@ function cloneState(state: MatchState): MatchState {
     scoutedHexesBySeat,
     ordersByTick,
     verifications: [...state.verifications],
-    goalStreak: { ...state.goalStreak },
     victoryPointsBySeat: { ...state.victoryPointsBySeat },
     territory,
     villagesFoundedBySeat: { ...state.villagesFoundedBySeat },
@@ -610,65 +587,9 @@ function seatLayoutFor(seatCount: number): SeatLayout {
   return SEAT_LAYOUT_BY_COUNT[declaredCount];
 }
 
-function barbarianHexCoords(radius: number, rulesVersion: WargamesMatchSpec['rulesVersion'], seatLayout: SeatLayout): HexCoord[] {
-  if (isRulesAtLeast(rulesVersion, 'v5')) {
-    const openKeys = seatLayout.openLandKeys(radius);
-    return hexGridForRadius(radius)
-      .filter((tile) => !openKeys.has(`${tile.q},${tile.r}`))
-      .map((tile) => ({ q: tile.q, r: tile.r }));
-  }
-  if (radius === WARGAMES_HEX_RADIUS) {
-    return [
-      { q: 0, r: 0 },
-      { q: 1, r: 0 },
-      { q: 0, r: -1 },
-      { q: -1, r: 0 },
-      { q: -1, r: 1 },
-      { q: 0, r: 1 },
-      { q: 1, r: -1 },
-      { q: 3, r: 0 },
-      { q: 0, r: -3 },
-      { q: -3, r: 0 },
-      { q: 0, r: 3 },
-      { q: 3, r: -3 },
-    ];
-  }
-  const coords: HexCoord[] = [{ q: 0, r: 0 }, ...AXIAL_DIRECTIONS];
-  for (let ring = 2; ring <= radius - 2; ring += 1) {
-    for (const axis of AXIAL_DIRECTIONS) {
-      coords.push({ q: axis.q * ring, r: axis.r * ring });
-    }
-  }
-  const outerFirstHalf = Math.floor(radius / 2);
-  const outerSecondHalf = radius - outerFirstHalf;
-  for (let directionIndex = 0; directionIndex < AXIAL_DIRECTIONS.length; directionIndex += 1) {
-    const primaryAxis = AXIAL_DIRECTIONS[directionIndex];
-    const nextAxis = AXIAL_DIRECTIONS[(directionIndex + 1) % AXIAL_DIRECTIONS.length];
-    coords.push({
-      q: primaryAxis.q * outerFirstHalf + nextAxis.q * outerSecondHalf,
-      r: primaryAxis.r * outerFirstHalf + nextAxis.r * outerSecondHalf,
-    });
-  }
-  if (radius >= 5) {
-    const innerRing = radius - 2;
-    const innerFirstHalf = Math.floor(innerRing / 2);
-    const innerSecondHalf = innerRing - innerFirstHalf;
-    for (let directionIndex = 0; directionIndex < AXIAL_DIRECTIONS.length; directionIndex += 1) {
-      const primaryAxis = AXIAL_DIRECTIONS[directionIndex];
-      const nextAxis = AXIAL_DIRECTIONS[(directionIndex + 1) % AXIAL_DIRECTIONS.length];
-      coords.push({
-        q: primaryAxis.q * innerFirstHalf + nextAxis.q * innerSecondHalf,
-        r: primaryAxis.r * innerFirstHalf + nextAxis.r * innerSecondHalf,
-      });
-    }
-  }
-  return coords;
-}
-
 function terrainForSpec(spec: WargamesMatchSpec, balance: WargamesBalance): TerrainKind[] {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const tiles = hexGridForRadius(mapRadius);
-  if (!isRulesAtLeast(spec.rulesVersion, 'v6')) return tiles.map(() => 'plain');
   const seatLayout = seatLayoutFor(spec.seats.length);
   const protectedKeys = new Set<string>(seatLayout.openLandKeys(mapRadius));
   for (const homeTile of seatLayout.homeHexCoords(mapRadius).flat()) {
@@ -676,9 +597,8 @@ function terrainForSpec(spec: WargamesMatchSpec, balance: WargamesBalance): Terr
     for (const direction of AXIAL_DIRECTIONS) protectedKeys.add(tileKey({ q: homeTile.q + direction.q, r: homeTile.r + direction.r }));
   }
   const request = { tiles, radius: mapRadius, seatCount: spec.seats.length, seed: spec.seed, protectedKeys };
-  if (balance.clusteredTerrain === null) return generateTerrain(request);
   const passableKeys = new Set<string>();
-  for (const beaconKey of beaconKeysFor(spec, balance, seatLayout, tiles.map(() => 'plain'))) {
+  for (const beaconKey of beaconKeysFor(spec, balance, seatLayout)) {
     const [q, r] = beaconKey.split(',').map(Number);
     protectedKeys.add(beaconKey);
     for (const direction of AXIAL_DIRECTIONS) passableKeys.add(tileKey({ q: q + direction.q, r: r + direction.r }));
@@ -692,16 +612,15 @@ function sparseProtectedKeysFor(seatLayout: SeatLayout, mapRadius: number): Set<
   return protectedKeys;
 }
 
-function beaconKeysFor(spec: WargamesMatchSpec, balance: WargamesBalance, seatLayout: SeatLayout, kinds: readonly TerrainKind[]): Set<string> {
+function beaconKeysFor(spec: WargamesMatchSpec, balance: WargamesBalance, seatLayout: SeatLayout): Set<string> {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
-  if (balance.sparseSites === null) return new Set();
   const tiles = hexGridForRadius(mapRadius);
   return pickBeaconKeys({
     tiles,
     seatCount: spec.seats.length,
     seed: spec.seed,
     protectedKeys: sparseProtectedKeysFor(seatLayout, mapRadius),
-    kinds: balance.clusteredTerrain === null ? kinds : tiles.map(() => 'plain'),
+    kinds: tiles.map(() => 'plain'),
     beaconRings: valueForRadius(balance.sparseSites.beaconRingsByRadius, mapRadius),
   });
 }
@@ -714,8 +633,7 @@ interface MapSites {
 function sitesForSpec(spec: WargamesMatchSpec, balance: WargamesBalance, terrain: readonly TerrainKind[], seatLayout: SeatLayout): MapSites {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const sparseSites = balance.sparseSites;
-  if (sparseSites === null) return { villageCoords: barbarianHexCoords(mapRadius, spec.rulesVersion, seatLayout), beaconCoords: [] };
-  const beaconKeys = beaconKeysFor(spec, balance, seatLayout, terrain);
+  const beaconKeys = beaconKeysFor(spec, balance, seatLayout);
   const villageKeys = pickVillageKeys({
     tiles: hexGridForRadius(mapRadius),
     seatCount: spec.seats.length,
@@ -733,31 +651,15 @@ function sitesForSpec(spec: WargamesMatchSpec, balance: WargamesBalance, terrain
   return { villageCoords: [...villageKeys].map(coordOf), beaconCoords: [...beaconKeys].map(coordOf) };
 }
 
-export function matchVillageCount(spec: WargamesMatchSpec): number {
-  return villageCountOf(createInitialMatchState('village-count', 0, spec));
-}
-
-export function victoryVillagesFor(spec: WargamesMatchSpec): number {
-  return victoryVillagesForBalance(wargamesBalanceFor(spec.rulesVersion), matchVillageCount(spec));
-}
-
-export function villageCountOf(state: Pick<MatchState, 'villages'>): number {
-  return state.villages.filter((village) => village !== null && !village.isBeacon).length;
-}
-
-function victoryVillagesOf(state: Pick<MatchState, 'villages' | 'balance'>): number {
-  return victoryVillagesForBalance(state.balance, villageCountOf(state));
-}
-
 export function terrainOf(spec: WargamesMatchSpec): readonly TerrainKind[] {
-  return terrainForSpec(spec, wargamesBalanceFor(spec.rulesVersion));
+  return terrainForSpec(spec, WARGAMES_BALANCE);
 }
 
 export function createInitialMatchState(
   matchId: string,
   createdAtMs: number,
   spec: WargamesMatchSpec,
-  balance: WargamesBalance = wargamesBalanceFor(spec.rulesVersion),
+  balance: WargamesBalance = WARGAMES_BALANCE,
 ): MatchState {
   const mapRadius = spec.mapRadius ?? WARGAMES_HEX_RADIUS;
   const hexes = hexGridForRadius(mapRadius);
@@ -821,7 +723,6 @@ export function createInitialMatchState(
       config,
       status: 'disconnected' as SeatStatus,
       note: '',
-      messagesSentThisTick: 0,
       sealedOrders: [] as OrderItem[],
       tribeId: null,
     };
@@ -860,7 +761,6 @@ export function createInitialMatchState(
     nextMessageNumber: 1,
     lastSeq: 0,
     balance,
-    goalStreak: { seatId: null, turns: 0 },
     terrain,
     victoryPointsBySeat: Object.fromEntries(seatIds.map((seatId) => [seatId, 0])) as Record<SeatId, number>,
     territory: new Map(),
@@ -964,11 +864,10 @@ function bonusTilesAround(state: MatchState, hexIndex: number, kind: TerrainKind
 export function villageIncomeOf(state: MatchState, village: VillageState): ResourceBundle {
   if (village.isBeacon) return { grain: 0, ore: 0 };
   const gain = villageYieldOf(village);
-  const productionMultiplier = isLastVillage(state, village) ? state.balance.lastVillageProductionMultiplier : 1;
   const improvementGain = improvementIncomeOf(state, village);
   return {
-    grain: gain.grain * productionMultiplier + bonusTilesAround(state, village.hexIndex, 'fertile') * BONUS_TILE_YIELD + improvementGain.grain,
-    ore: gain.ore * productionMultiplier + bonusTilesAround(state, village.hexIndex, 'ore') * BONUS_TILE_YIELD + improvementGain.ore,
+    grain: gain.grain + bonusTilesAround(state, village.hexIndex, 'fertile') * BONUS_TILE_YIELD + improvementGain.grain,
+    ore: gain.ore + bonusTilesAround(state, village.hexIndex, 'ore') * BONUS_TILE_YIELD + improvementGain.ore,
   };
 }
 
@@ -1006,7 +905,7 @@ function landPointsFor(rule: WargamesTerritoryRule, landHexes: number): number {
 function improvementIncomeOf(state: MatchState, village: VillageState): ResourceBundle {
   const rule = state.balance.territory;
   const income = { grain: 0, ore: 0 };
-  if (rule === null || village.owner === null) return income;
+  if (village.owner === null) return income;
   for (const [hexIndex, tile] of state.territory) {
     if (tile.owner !== village.owner || tile.level === 0) continue;
     if (nearestOwnedVillageOf(state, tile.owner, hexIndex) !== village) continue;
@@ -1051,19 +950,6 @@ function seatIncomeOf(state: MatchState, seatId: SeatId): number {
   return income;
 }
 
-function resolveCombatPower(attackers: TroopCounts, defenders: TroopCounts, wallLevel: number, defenseMultiplier: number): { attackPower: number; defensePower: number } {
-  const raiderBonus = defenders.envoy > 0 ? 1.5 : 1;
-  const envoyBonus = defenders.guard > 0 ? 1.5 : 1;
-  const guardBonus = defenders.raider > 0 ? 1.5 : 1;
-  const defRaiderBonus = attackers.envoy > 0 ? 1.5 : 1;
-  const defEnvoyBonus = attackers.guard > 0 ? 1.5 : 1;
-  const defGuardBonus = attackers.raider > 0 ? 1.5 : 1;
-  const attackPower = attackers.raider * 10 * raiderBonus + attackers.guard * 10 * guardBonus + attackers.envoy * 8 * envoyBonus;
-  const wallMultiplier = 1 + wallLevel * 0.15;
-  const defensePower = (defenders.raider * 10 * defRaiderBonus + defenders.guard * 10 * defGuardBonus + defenders.envoy * 8 * defEnvoyBonus) * wallMultiplier * defenseMultiplier;
-  return { attackPower, defensePower };
-}
-
 export function guestTroopsOwnedBy(village: Pick<VillageState, 'guests'>, seatId: SeatId): TroopCounts {
   return sumTroopCounts(village.guests.filter((guest) => guest.owner === seatId).map((guest) => guest.troops));
 }
@@ -1097,13 +983,13 @@ function troopsCountedAt(state: MatchState, village: VillageState): number {
 
 export function villageTroopLoadOf(state: MatchState, village: VillageState): { counted: number; cap: number } | null {
   const roles = state.balance.roles;
-  if (roles === null || village.owner === null) return null;
+  if (village.owner === null) return null;
   return { counted: troopsCountedAt(state, village), cap: troopCapOf(roles, village) };
 }
 
 function troopRoomAt(state: MatchState, village: VillageState): number {
   const roles = state.balance.roles;
-  if (roles === null || village.owner === null) return Number.POSITIVE_INFINITY;
+  if (village.owner === null) return Number.POSITIVE_INFINITY;
   return Math.max(0, troopCapOf(roles, village) - troopsCountedAt(state, village));
 }
 
@@ -1185,22 +1071,20 @@ function isCaptureWave(roles: WargamesRolesRule, army: ArmyState): boolean {
 
 function moraleOf(state: MatchState, attacker: SeatId, defender: SeatId | null): number {
   const roles = state.balance.roles;
-  if (roles === null || defender === null) return 1;
+  if (defender === null) return 1;
   const attackerPoints = state.victoryPointsBySeat[attacker] ?? 0;
   if (attackerPoints < roles.moraleMinAttackerPoints) return 1;
   const pointsRatio = (state.victoryPointsBySeat[defender] ?? 0) / attackerPoints;
   return Math.min(1, Math.max(roles.moraleFloor, Math.sqrt(pointsRatio)));
 }
 
-function seatAttackPowerOf(state: MatchState, armies: readonly ArmyState[], combinedTroops: TroopCounts, village: VillageState): number {
+function seatAttackPowerOf(state: MatchState, armies: readonly ArmyState[], village: VillageState): number {
   const roles = state.balance.roles;
-  if (roles === null) return resolveCombatPower(combinedTroops, village.troops, village.buildings.wall, defenseMultiplierOf(state, village)).attackPower;
   return armies.reduce((sum, army) => sum + rolesAttackOf(roles, army.troops) * moraleOf(state, army.owner, village.owner), 0);
 }
 
-function villageDefensePowerOf(state: MatchState, village: VillageState, allAttackers: TroopCounts): number {
+function villageDefensePowerOf(state: MatchState, village: VillageState): number {
   const roles = state.balance.roles;
-  if (roles === null) return resolveCombatPower(allAttackers, village.troops, village.buildings.wall, defenseMultiplierOf(state, village)).defensePower;
   const troopDefense = rolesDefenseOf(roles, defendingTroopsOf(village));
   const wall = village.buildings.wall;
   return (troopDefense + wall * roles.wallDefensePerLevel) * (1 + wall * roles.wallBonusPerLevel) * defenseMultiplierOf(state, village);
@@ -1215,7 +1099,6 @@ function knockDownWall(village: VillageState, attackPower: number, defensePower:
 
 function drainedLoyaltyOf(state: MatchState, loyalty: number, envoys: number): number {
   const roles = state.balance.roles;
-  if (roles === null) return Math.max(0, loyalty - envoys * state.balance.envoyLoyaltyDrain);
   let remaining = loyalty;
   const rollSpan = roles.captureDrainMax - roles.captureDrainMin + 1;
   for (let envoy = 0; envoy < envoys && remaining > 0; envoy += 1) {
@@ -1229,12 +1112,9 @@ function drainedLoyaltyOf(state: MatchState, loyalty: number, envoys: number): n
 function casualtiesByArmy(
   state: MatchState,
   armies: readonly ArmyState[],
-  combinedTroops: TroopCounts,
   lossFraction: number,
 ): { surviving: TroopCounts; lost: TroopCounts }[] {
-  if (state.spec.rulesVersion === 'v2') return armies.map((army) => applyCasualties(army.troops, lossFraction));
   const roles = state.balance.roles;
-  if (roles === null) return spreadSeatLossesAcrossArmies(armies, applyCasualties(combinedTroops, lossFraction).lost);
   const fighting = armies.filter((army) => !isCaptureWave(roles, army));
   const fightingTroops = sumTroopCounts(fighting.map((army) => army.troops));
   const fightingOutcomes = spreadSeatLossesAcrossArmies(fighting, applyCasualties(fightingTroops, lossFraction).lost);
@@ -1246,13 +1126,8 @@ function casualtiesByArmy(
   });
 }
 
-function isLastVillage(state: MatchState, village: VillageState): boolean {
-  return village.owner !== null && villagesOwnedBy(state, village.owner) === 1;
-}
-
 function defenseMultiplierOf(state: MatchState, village: VillageState): number {
-  const forestMultiplier = state.terrain[village.hexIndex] === 'forest' ? FOREST_DEFENSE_MULTIPLIER : 1;
-  return (isLastVillage(state, village) ? state.balance.lastVillageDefenseMultiplier : 1) * forestMultiplier;
+  return state.terrain[village.hexIndex] === 'forest' ? FOREST_DEFENSE_MULTIPLIER : 1;
 }
 
 function openRingOf(state: MatchState, hexIndex: number): number[] {
@@ -1264,7 +1139,7 @@ function openRingOf(state: MatchState, hexIndex: number): number[] {
 
 function grantUnownedRing(state: MatchState, village: VillageState): void {
   const owner = village.owner;
-  if (state.balance.territory === null || owner === null || village.isBeacon) return;
+  if (owner === null || village.isBeacon) return;
   for (const hexIndex of openRingOf(state, village.hexIndex)) {
     if (!state.territory.has(hexIndex)) state.territory.set(hexIndex, { owner, improvement: null, level: 0 });
   }
@@ -1388,111 +1263,6 @@ function garrisonArmyInVillage(state: MatchState, army: ArmyState, village: Vill
   settleArmyAfterEntry(army, subtractTroops(surviving, accepted));
 }
 
-function resolveV1MarchArrival(
-  state: MatchState,
-  army: ArmyState,
-  effects: EngineEffect[],
-  signatures: Readonly<Record<string, string>>,
-  signer?: ReportSigner,
-): void {
-  const targetVillage = state.villages[army.targetHexIndex];
-  if (!targetVillage) {
-    const returning = transitionArmy(army.status, 'army_return');
-    if (returning.ok) army.status = returning.state;
-    return;
-  }
-  if (targetVillage.owner === army.owner) {
-    targetVillage.troops.raider += army.troops.raider;
-    targetVillage.troops.guard += army.troops.guard;
-    targetVillage.troops.envoy += army.troops.envoy;
-    army.troops = emptyTroops();
-    const reached = transitionArmy(army.status, 'army_return');
-    if (reached.ok) {
-      const home = transitionArmy(reached.state, 'army_reach_home');
-      if (home.ok) army.status = home.state;
-    }
-    return;
-  }
-  if (targetVillage.owner !== null) {
-    const activeNaps = [...state.contracts.values()].filter((contract) => {
-      if (contract.status !== 'active' || contract.terms.kind !== 'nap') return false;
-      return (contract.proposer === army.owner && contract.counterparty === targetVillage.owner)
-        || (contract.counterparty === army.owner && contract.proposer === targetVillage.owner);
-    });
-    if (army.intendedTargetOwner !== targetVillage.owner && activeNaps.length > 0) {
-      const returning = transitionArmy(army.status, 'army_return');
-      if (returning.ok) army.status = returning.state;
-      return;
-    }
-    for (const contract of activeNaps) {
-      if (contract.terms.kind !== 'nap') continue;
-      const breached = transitionContract(contract.status, 'contract_breach');
-      if (!breached.ok) continue;
-      contract.status = breached.state;
-      contract.breachedBy = army.owner;
-      contract.breachedTick = state.tick;
-      const collateral = contract.terms.collateral;
-      creditSeatResources(state, targetVillage.owner, {
-        grain: collateral.grain * 2,
-        ore: collateral.ore * 2,
-      });
-      state.ledger.push({
-        tick: state.tick,
-        contractId: contract.id,
-        breacher: army.owner,
-        victim: targetVillage.owner,
-        collateralTransferred: { ...collateral },
-      });
-      effects.push({ kind: 'contract_breached', detail: { contractId: contract.id, breacher: army.owner, victim: targetVillage.owner } });
-    }
-  }
-  const defenderBefore = { ...targetVillage.troops };
-  const attackerSent = { ...army.troops };
-  const loyaltyBefore = targetVillage.loyalty;
-  const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
-  state.rngState = nextRng;
-  const { attackPower, defensePower } = resolveCombatPower(army.troops, targetVillage.troops, targetVillage.buildings.wall, defenseMultiplierOf(state, targetVillage));
-  const jitteredAttack = attackPower * (0.9 + rngRoll * 0.2);
-  const attackerWins = jitteredAttack >= defensePower;
-  const attackerLossFraction = attackerWins ? (defensePower / Math.max(1, jitteredAttack)) * 0.65 : 1;
-  const defenderLossFraction = attackerWins ? 1 : (jitteredAttack / Math.max(1, defensePower)) * 0.65;
-  const attackerOutcome = applyCasualties(army.troops, attackerLossFraction);
-  const defenderOutcome = applyCasualties(targetVillage.troops, defenderLossFraction);
-  targetVillage.troops = defenderOutcome.surviving;
-  let captured = false;
-  const previousOwner = targetVillage.owner;
-  if (attackerWins && attackerOutcome.surviving.envoy > 0) {
-    const drained = Math.max(0, targetVillage.loyalty - attackerOutcome.surviving.envoy * state.balance.envoyLoyaltyDrain);
-    targetVillage.loyalty = drained;
-    if (drained === 0) {
-      captureVillage(state, targetVillage, army.owner);
-      captured = true;
-      effects.push({ kind: 'village_captured', detail: { hexIndex: targetVillage.hexIndex, newOwner: army.owner, previousOwner } });
-    }
-  }
-  const reportId = `rep-${state.nextReportNumber}`;
-  state.nextReportNumber += 1;
-  const report = makeSignedReport(state, {
-    kind: 'battle',
-    reportId,
-    tick: state.tick,
-    hexIndex: targetVillage.hexIndex,
-    attacker: army.owner,
-    defender: previousOwner,
-    attackerSent,
-    attackerLost: attackerOutcome.lost,
-    defenderBefore,
-    defenderLost: defenderOutcome.lost,
-    loyaltyBefore,
-    loyaltyAfter: targetVillage.loyalty,
-    captured,
-  }, signatures, signer);
-  state.reportsBySeat[army.owner].push(report);
-  if (previousOwner !== null) state.reportsBySeat[previousOwner].push(report);
-  effects.push({ kind: 'report_signed', detail: { reportId, seatId: army.owner, signature: report.signature } });
-  finalizeArmyAfterCombat(army, attackerOutcome.surviving);
-}
-
 export function isPactTerms(terms: ContractRecord['terms']): terms is Extract<ContractRecord['terms'], { kind: 'nap' | 'alliance' }> {
   return terms.kind === 'nap' || terms.kind === 'alliance';
 }
@@ -1541,7 +1311,7 @@ function breachPacts(state: MatchState, pacts: readonly ContractRecord[], breach
 
 function allianceVpEarnedBy(state: MatchState, contract: ContractRecord): number {
   const diplomacy = state.balance.diplomacy;
-  if (!diplomacy || contract.terms.kind !== 'alliance' || contract.activatedTick === null) return 0;
+  if (contract.terms.kind !== 'alliance' || contract.activatedTick === null) return 0;
   return Math.max(0, state.tick - contract.activatedTick) * diplomacy.allianceVpPerTurn;
 }
 
@@ -1642,7 +1412,7 @@ function resolveV2SimultaneousBattles(
         seatArmies.push(supportArmy);
       }
       const combinedTroops = sumTroopCounts(seatArmies.map((army) => army.troops));
-      const attackPower = seatAttackPowerOf(state, seatArmies, combinedTroops, targetVillage);
+      const attackPower = seatAttackPowerOf(state, seatArmies, targetVillage);
       activeAttackerSeats.push({ seatId: attackerSeat, armies: seatArmies, combinedTroops, attackPower, morale: moraleOf(state, attackerSeat, previousOwner) });
     }
     if (activeAttackerSeats.length === 0) continue;
@@ -1650,9 +1420,8 @@ function resolveV2SimultaneousBattles(
     const defenderBefore = defendingTroopsOf(targetVillage);
     const guestOwnersBefore = new Set(targetVillage.guests.map((guest) => guest.owner));
     const loyaltyBefore = targetVillage.loyalty;
-    const allCombinedTroops = sumTroopCounts(activeAttackerSeats.map((entry) => entry.combinedTroops));
     const totalAttackPower = activeAttackerSeats.reduce((sum, entry) => sum + entry.attackPower, 0);
-    const defensePower = villageDefensePowerOf(state, targetVillage, allCombinedTroops);
+    const defensePower = villageDefensePowerOf(state, targetVillage);
     const { value: rngRoll, nextState: nextRng } = nextMulberry32(state.rngState);
     state.rngState = nextRng;
     const jitteredTotalAttack = totalAttackPower * (0.9 + rngRoll * 0.2);
@@ -1661,7 +1430,7 @@ function resolveV2SimultaneousBattles(
     const defenderLossFraction = defenderFalls ? 1 : (jitteredTotalAttack / Math.max(1, defensePower)) * 0.65;
     const defenderLost = applyDefenderCasualties(targetVillage, defenderLossFraction);
     const wallBefore = targetVillage.buildings.wall;
-    if (defenderFalls && state.balance.roles !== null) knockDownWall(targetVillage, jitteredTotalAttack, defensePower);
+    if (defenderFalls) knockDownWall(targetVillage, jitteredTotalAttack, defensePower);
 
     type HexContestOutcome =
       | { kind: 'held' }
@@ -1694,7 +1463,7 @@ function resolveV2SimultaneousBattles(
         lossFraction = 1;
       }
 
-      const survivingByArmy = casualtiesByArmy(state, entry.armies, entry.combinedTroops, lossFraction);
+      const survivingByArmy = casualtiesByArmy(state, entry.armies, lossFraction);
       const totalSurviving = sumTroopCounts(survivingByArmy.map((outcome) => outcome.surviving));
       const totalLost = sumTroopCounts(survivingByArmy.map((outcome) => outcome.lost));
       const canDrainLoyalty = contestOutcome.kind === 'won' && entry.seatId === contestOutcome.winnerSeatId && totalSurviving.envoy > 0;
@@ -1726,7 +1495,8 @@ function resolveV2SimultaneousBattles(
         loyaltyBefore,
         loyaltyAfter: finalLoyaltyAfter,
         captured: resolved.captured,
-        ...(state.balance.roles === null ? {} : { wallBefore, wallAfter: targetVillage.buildings.wall }),
+        wallBefore,
+        wallAfter: targetVillage.buildings.wall,
         ...(resolved.entry.morale < 1 ? { morale: Math.round(resolved.entry.morale * 100) / 100 } : {}),
       }, signatures, signer);
       state.reportsBySeat[resolved.entry.seatId].push(report);
@@ -1738,7 +1508,7 @@ function resolveV2SimultaneousBattles(
       }
       effects.push({ kind: 'report_signed', detail: { reportId, seatId: resolved.entry.seatId, signature: report.signature } });
 
-      const shouldGarrisonCapturedVillage = isRulesAtLeast(state.spec.rulesVersion, 'v4') && resolved.captured;
+      const shouldGarrisonCapturedVillage = resolved.captured;
       for (let index = 0; index < resolved.entry.armies.length; index += 1) {
         const army = resolved.entry.armies[index];
         const surviving = resolved.survivingByArmy[index].surviving;
@@ -1780,7 +1550,7 @@ function canImproveTile(rule: WargamesTerritoryRule, tile: TerritoryTile | undef
 function buildImprovement(state: MatchState, seatId: SeatId, hexIndex: number, kind: ImprovementKind): boolean {
   const rule = state.balance.territory;
   const tile = state.territory.get(hexIndex);
-  if (rule === null || state.villages[hexIndex] !== null || !canImproveTile(rule, tile, seatId, kind)) return false;
+  if (state.villages[hexIndex] !== null || !canImproveTile(rule, tile, seatId, kind)) return false;
   const improvementRule = rule.improvements[kind];
   const payer = nearestOwnedVillageOf(state, seatId, hexIndex);
   if (payer === null || !payFromVillage(payer, improvementRule.cost)) return false;
@@ -1808,7 +1578,7 @@ function garrisonNewVillage(state: MatchState, village: VillageState, army: Army
 function foundVillage(state: MatchState, seatId: SeatId, hexIndex: number): boolean {
   const rule = state.balance.territory;
   const tile = state.territory.get(hexIndex);
-  if (rule === null || !tile || tile.owner !== seatId || tile.improvement !== null) return false;
+  if (!tile || tile.owner !== seatId || tile.improvement !== null) return false;
   if (standingArmiesAt(state, hexIndex).some((army) => army.owner !== seatId)) return false;
   if (!isFarFromEveryVillage(state, hexIndex, rule.foundSpacing)) return false;
   const villagesFounded = state.villagesFoundedBySeat[seatId] ?? 0;
@@ -1858,7 +1628,7 @@ function redeployStandingTroops(state: MatchState, seatId: SeatId, order: Extrac
     moving.departedTick = state.tick;
     moving.intendedTargetOwner = intendedTargetOwnerAt(state, order.toHexIndex);
     delete moving.supporting;
-    Object.assign(moving, supportFieldOf(state, seatId, order.support));
+    Object.assign(moving, supportFieldOf(seatId, order.support));
   }
 }
 
@@ -1901,7 +1671,6 @@ interface TileBattle {
 
 function fightOnTile(state: MatchState, rule: WargamesTerritoryRule, battle: TileBattle, effects: EngineEffect[], signatures: Readonly<Record<string, string>>, signer?: ReportSigner): void {
   const roles = state.balance.roles;
-  if (roles === null) return;
   const attackPowerBySeat = new Map<SeatId, number>();
   for (const army of battle.attackers) {
     attackPowerBySeat.set(army.owner, (attackPowerBySeat.get(army.owner) ?? 0) + rolesAttackOf(roles, army.troops) * moraleOf(state, army.owner, battle.holder));
@@ -2066,14 +1835,6 @@ function resolveTick(
     state.scoutedHexesBySeat[seatId] = [];
   }
 
-  if (!isRulesAtLeast(state.spec.rulesVersion, 'v4') && state.tick >= WARGAMES_SQUEEZE_TICK) {
-    for (const village of state.villages) {
-      if (!village || state.hexes[village.hexIndex].ring !== state.spec.mapRadius) continue;
-      if (village.productionState !== 'producing') continue;
-      const squeezed = transitionVillage(village.productionState, 'outer_ring_squeeze');
-      if (squeezed.ok) village.productionState = squeezed.state;
-    }
-  }
 
   for (const village of state.villages) {
     if (!village || village.productionState !== 'producing') continue;
@@ -2171,7 +1932,7 @@ function resolveTick(
   for (const seat of state.seats) {
     for (const order of seat.sealedOrders) {
       if (order.kind !== 'march') continue;
-      if (state.balance.territory !== null && state.villages[order.fromHexIndex] === null) {
+      if (state.villages[order.fromHexIndex] === null) {
         if (order.toHexIndex >= 0 && order.toHexIndex < state.hexes.length && isPassable(state.terrain[order.toHexIndex])) redeployStandingTroops(state, seat.config.seatId, order);
         continue;
       }
@@ -2199,7 +1960,7 @@ function resolveTick(
         departedTick: state.tick,
         intendedTargetOwner: intendedTargetOwnerAt(state, order.toHexIndex),
         scoutedBy: [],
-        ...supportFieldOf(state, seat.config.seatId, order.support),
+        ...supportFieldOf(seat.config.seatId, order.support),
       });
     }
   }
@@ -2246,102 +2007,71 @@ function resolveTick(
 
   for (const seat of state.seats) {
     seat.sealedOrders = [];
-    seat.messagesSentThisTick = 0;
   }
   state.ordersByTick[state.tick] = tickOrdersRecord;
 
-  if (state.spec.rulesVersion === 'v1') {
-    for (const army of state.armies.values()) {
-      if (army.status === 'marching') {
-        army.currentHexIndex = marchStep(state, army.currentHexIndex, army.targetHexIndex);
-        if (army.currentHexIndex !== army.targetHexIndex) continue;
-        const arrived = transitionArmy(army.status, 'army_arrive');
-        if (!arrived.ok) continue;
-        army.status = arrived.state;
-        resolveV1MarchArrival(state, army, effects, signatures, signer);
-        continue;
-      }
-      if (army.status === 'returning') {
-        army.currentHexIndex = marchStep(state, army.currentHexIndex, army.originHexIndex);
-        if (army.currentHexIndex !== army.originHexIndex) continue;
-        const homeVillage = state.villages[army.originHexIndex];
-        if (homeVillage && homeVillage.owner === army.owner) {
-          homeVillage.troops.raider += army.troops.raider;
-          homeVillage.troops.guard += army.troops.guard;
-          homeVillage.troops.envoy += army.troops.envoy;
-        }
-        army.troops = emptyTroops();
-        const home = transitionArmy(army.status, 'army_reach_home');
-        if (home.ok) army.status = home.state;
-      }
-    }
+  const returningBeforeCombat = new Set<string>();
+  for (const army of state.armies.values()) {
+    if (army.status === 'returning') returningBeforeCombat.add(army.id);
   }
-  if (state.spec.rulesVersion !== 'v1') {
-    const returningBeforeCombat = new Set<string>();
-    for (const army of state.armies.values()) {
-      if (army.status === 'returning') returningBeforeCombat.add(army.id);
+  const hostileByHex = new Map<number, ArmyState[]>();
+  const supportByHex = new Map<number, ArmyState[]>();
+  const tileArrivalsByHex = new Map<number, ArmyState[]>();
+  for (const army of state.armies.values()) {
+    if (army.status !== 'marching') continue;
+    army.currentHexIndex = marchStep(state, army.currentHexIndex, army.targetHexIndex);
+    if (army.currentHexIndex !== army.targetHexIndex) continue;
+    const arrived = transitionArmy(army.status, 'army_arrive');
+    if (!arrived.ok) continue;
+    army.status = arrived.state;
+    const targetVillage = state.villages[army.targetHexIndex];
+    if (!targetVillage) {
+      addArrivalTo(tileArrivalsByHex, army);
+      continue;
     }
-    const hostileByHex = new Map<number, ArmyState[]>();
-    const supportByHex = new Map<number, ArmyState[]>();
-    const tileArrivalsByHex = new Map<number, ArmyState[]>();
-    for (const army of state.armies.values()) {
-      if (army.status !== 'marching') continue;
-      army.currentHexIndex = marchStep(state, army.currentHexIndex, army.targetHexIndex);
-      if (army.currentHexIndex !== army.targetHexIndex) continue;
-      const arrived = transitionArmy(army.status, 'army_arrive');
-      if (!arrived.ok) continue;
-      army.status = arrived.state;
-      const targetVillage = state.villages[army.targetHexIndex];
-      if (!targetVillage && state.balance.territory !== null) {
-        addArrivalTo(tileArrivalsByHex, army);
-        continue;
-      }
-      if (!targetVillage) {
-        const returning = transitionArmy(army.status, 'army_return');
-        if (returning.ok) army.status = returning.state;
-        continue;
-      }
-      const isAlliedGarrison = army.supporting !== undefined && targetVillage.owner === army.supporting && hasActiveAlliance(state, army.owner, army.supporting);
-      if (targetVillage.owner === army.owner || isAlliedGarrison) {
-        const accepted = takeTroopsUpTo(army.troops, troopRoomAt(state, targetVillage));
-        if (isAlliedGarrison && state.balance.roles !== null && totalTroops(accepted) > 0) stationGuests(targetVillage, army, accepted);
-        if (!isAlliedGarrison || state.balance.roles === null) addTroopsInto(targetVillage.troops, accepted);
-        settleArmyAfterEntry(army, subtractTroops(army.troops, accepted));
-        continue;
-      }
-      if (army.supporting !== undefined) {
-        const waitingSupport = supportByHex.get(army.targetHexIndex);
-        if (waitingSupport) {
-          waitingSupport.push(army);
-          continue;
-        }
-        supportByHex.set(army.targetHexIndex, [army]);
-        continue;
-      }
-      const list = hostileByHex.get(army.targetHexIndex);
-      if (list) {
-        list.push(army);
-        continue;
-      }
-      hostileByHex.set(army.targetHexIndex, [army]);
+    if (!targetVillage) {
+      const returning = transitionArmy(army.status, 'army_return');
+      if (returning.ok) army.status = returning.state;
+      continue;
     }
-    for (const armyId of returningBeforeCombat) {
-      const army = state.armies.get(armyId);
-      if (!army || army.status !== 'returning') continue;
-      army.currentHexIndex = marchStep(state, army.currentHexIndex, army.originHexIndex);
-      if (army.currentHexIndex !== army.originHexIndex) continue;
-      const homeGarrison = villageGarrisonOf(state, army.owner, army.originHexIndex);
-      if (homeGarrison !== null) addTroopsInto(homeGarrison, army.troops);
-      army.troops = emptyTroops();
-      const home = transitionArmy(army.status, 'army_reach_home');
-      if (home.ok) army.status = home.state;
+    const isAlliedGarrison = army.supporting !== undefined && targetVillage.owner === army.supporting && hasActiveAlliance(state, army.owner, army.supporting);
+    if (targetVillage.owner === army.owner || isAlliedGarrison) {
+      const accepted = takeTroopsUpTo(army.troops, troopRoomAt(state, targetVillage));
+      if (isAlliedGarrison && totalTroops(accepted) > 0) stationGuests(targetVillage, army, accepted);
+      if (!isAlliedGarrison) addTroopsInto(targetVillage.troops, accepted);
+      settleArmyAfterEntry(army, subtractTroops(army.troops, accepted));
+      continue;
     }
-    resolveV2SimultaneousBattles(state, hostileByHex, supportByHex, effects, signatures, signer);
-    if (state.balance.territory !== null) {
-      resolveTileArrivals(state, state.balance.territory, tileArrivalsByHex, effects, signatures, signer);
-      settleStandingClaims(state, state.balance.territory, new Set([...tileArrivalsByHex.values()].flat().map((army) => army.id)), { effects, signatures, signer });
+    if (army.supporting !== undefined) {
+      const waitingSupport = supportByHex.get(army.targetHexIndex);
+      if (waitingSupport) {
+        waitingSupport.push(army);
+        continue;
+      }
+      supportByHex.set(army.targetHexIndex, [army]);
+      continue;
     }
+    const list = hostileByHex.get(army.targetHexIndex);
+    if (list) {
+      list.push(army);
+      continue;
+    }
+    hostileByHex.set(army.targetHexIndex, [army]);
   }
+  for (const armyId of returningBeforeCombat) {
+    const army = state.armies.get(armyId);
+    if (!army || army.status !== 'returning') continue;
+    army.currentHexIndex = marchStep(state, army.currentHexIndex, army.originHexIndex);
+    if (army.currentHexIndex !== army.originHexIndex) continue;
+    const homeGarrison = villageGarrisonOf(state, army.owner, army.originHexIndex);
+    if (homeGarrison !== null) addTroopsInto(homeGarrison, army.troops);
+    army.troops = emptyTroops();
+    const home = transitionArmy(army.status, 'army_reach_home');
+    if (home.ok) army.status = home.state;
+  }
+  resolveV2SimultaneousBattles(state, hostileByHex, supportByHex, effects, signatures, signer);
+  resolveTileArrivals(state, state.balance.territory, tileArrivalsByHex, effects, signatures, signer);
+  settleStandingClaims(state, state.balance.territory, new Set([...tileArrivalsByHex.values()].flat().map((army) => army.id)), { effects, signatures, signer });
 
   for (const contract of state.contracts.values()) {
     if (contract.status === 'proposed' && contract.proposedTick < state.tick) {
@@ -2370,7 +2100,6 @@ function resolveTick(
 
 function settleBeaconsAndVictoryPoints(state: MatchState): void {
   const victory = state.balance.victory;
-  if (victory.kind !== 'points') return;
   for (const village of state.villages) {
     if (!village || !village.isBeacon || village.owner === null || totalTroops(defendingTroopsOf(village)) > 0) continue;
     village.owner = null;
@@ -2380,7 +2109,7 @@ function settleBeaconsAndVictoryPoints(state: MatchState): void {
     if (seat.status === 'eliminated') continue;
     const seatId = seat.config.seatId;
     const economyPoints = victory.economyIncomePerPoint > 0 ? Math.floor(seatIncomeOf(state, seatId) / victory.economyIncomePerPoint) : 0;
-    const territoryPoints = state.balance.territory === null ? 0 : landPointsFor(state.balance.territory, territoryCountOf(state, seatId));
+    const territoryPoints = landPointsFor(state.balance.territory, territoryCountOf(state, seatId));
     state.victoryPointsBySeat[seatId] += villagesOwnedBy(state, seatId) + beaconsHeldBy(state, seatId) * victory.beaconPoints + economyPoints + territoryPoints;
   }
 }
@@ -2389,16 +2118,13 @@ export function victoryPointTargetOf(state: Pick<MatchState, 'balance' | 'spec'>
   return victoryPointTargetFor(state.balance, state.spec.mapRadius, state.spec.seats.length);
 }
 
-export interface SeatStanding {
+interface SeatStanding {
   score: number;
   goal: number;
-  isPoints: boolean;
 }
 
 export function seatStandingOf(state: MatchState, seatId: SeatId): SeatStanding {
-  const pointTarget = victoryPointTargetOf(state);
-  if (pointTarget !== null) return { score: state.victoryPointsBySeat[seatId] ?? 0, goal: pointTarget, isPoints: true };
-  return { score: villagesOwnedBy(state, seatId), goal: victoryVillagesOf(state), isPoints: false };
+  return { score: state.victoryPointsBySeat[seatId] ?? 0, goal: victoryPointTargetOf(state) ?? 0 };
 }
 
 function standingSeats(state: MatchState): SeatId[] {
@@ -2416,69 +2142,25 @@ function bestSeatByPoints(state: MatchState, seatIds: readonly SeatId[]): SeatId
   return ranked[0].seatId;
 }
 
-function pointsWinnerAfterTurn(state: MatchState, target: number): SeatId | null {
+function goalWinnerAfterTurn(state: MatchState): SeatId | null {
+  const target = victoryPointTargetOf(state);
+  if (target === null) return null;
   const seatsAtTarget = standingSeats(state).filter((seatId) => state.victoryPointsBySeat[seatId] >= target);
   return seatsAtTarget.length > 0 ? bestSeatByPoints(state, seatsAtTarget) : null;
 }
 
-function goalWinnerAfterTurn(state: MatchState): SeatId | null {
-  const pointTarget = victoryPointTargetOf(state);
-  if (pointTarget !== null) return pointsWinnerAfterTurn(state, pointTarget);
-  const winVillages = victoryVillagesOf(state);
-  const seatsAtGoal = matchSeatIds(state).filter((seatId) => villagesOwnedBy(state, seatId) >= winVillages);
-  const holdTurns = state.balance.victory.kind === 'heldShare' ? state.balance.victory.holdTurns : 1;
-  if (holdTurns <= 1) return seatsAtGoal.length > 0 ? determineWinnerAtLimit(state) : null;
-  if (seatsAtGoal.length !== 1) {
-    state.goalStreak = { seatId: null, turns: 0 };
-    return null;
-  }
-  const holder = seatsAtGoal[0];
-  const turns = holder === state.goalStreak.seatId ? state.goalStreak.turns + 1 : 1;
-  state.goalStreak = { seatId: holder, turns };
-  return turns >= holdTurns ? holder : null;
-}
-
 function determineWinnerAtLimit(state: MatchState): SeatId {
-  if (state.balance.victory.kind === 'points') {
-    const standing = standingSeats(state);
-    return bestSeatByPoints(state, standing.length > 0 ? standing : matchSeatIds(state));
-  }
-  let bestSeat: SeatId = state.seats[0].config.seatId;
-  let bestVillages = -1;
-  let bestTroops = -1;
-  let bestResources = -1;
-  for (const seatId of matchSeatIds(state)) {
-    const owned = villagesOwnedBy(state, seatId);
-    let troops = 0;
-    let resources = 0;
-    for (const village of state.villages) {
-      if (!village) continue;
-      troops += totalTroops(guestTroopsOwnedBy(village, seatId));
-      if (village.owner !== seatId) continue;
-      troops += totalTroops(village.troops);
-      resources += village.resources.grain + village.resources.ore;
-    }
-    const isBetter = owned > bestVillages
-      || (owned === bestVillages && troops > bestTroops)
-      || (owned === bestVillages && troops === bestTroops && resources > bestResources);
-    if (!isBetter) continue;
-    bestSeat = seatId;
-    bestVillages = owned;
-    bestTroops = troops;
-    bestResources = resources;
-  }
-  return bestSeat;
+  const standing = standingSeats(state);
+  return bestSeatByPoints(state, standing.length > 0 ? standing : matchSeatIds(state));
 }
 
-function supportFieldOf(state: MatchState, owner: SeatId, support: SeatId | undefined): { supporting?: SeatId } {
-  if (support === undefined || support === owner || !isRulesAtLeast(state.spec.rulesVersion, 'v7')) return {};
+function supportFieldOf(owner: SeatId, support: SeatId | undefined): { supporting?: SeatId } {
+  if (support === undefined || support === owner) return {};
   return { supporting: support };
 }
 
-function pactKindRejectionFor(state: MatchState, kind: ContractRecord['terms']['kind']): TransitionOutcome | null {
-  const hasAlliances = isRulesAtLeast(state.spec.rulesVersion, 'v7');
-  if (kind === 'alliance' && !hasAlliances) return reject('invalid_order', 'alliance contracts open in rules v7');
-  if (kind === 'nap' && hasAlliances) return reject('invalid_order', 'rules v7 replace the NAP with the alliance contract');
+function pactKindRejectionFor(kind: ContractRecord['terms']['kind']): TransitionOutcome | null {
+  if (kind === 'nap') return reject('invalid_order', 'the alliance contract replaces the NAP');
   return null;
 }
 
@@ -2606,21 +2288,14 @@ export function applyEvent(
     if (state.phase !== 'talk') return reject('invalid_phase', `send_message allowed only in talk phase, got ${state.phase}`);
     const seat = state.seats[seatIndexOf(event.seatId)];
     if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
-    if (!isRulesAtLeast(state.spec.rulesVersion, 'v4') && seat.messagesSentThisTick >= WARGAMES_MAX_MESSAGES_PER_TICK) {
-      return reject('message_limit_exceeded', `at most ${WARGAMES_MAX_MESSAGES_PER_TICK} messages per tick`);
-    }
     if (event.channel === 'dm' && (event.to === null || event.to === event.seatId)) {
       return reject('invalid_target', 'dm requires another seat as recipient');
-    }
-    if (event.channel === 'public' && !isRulesAtLeast(state.spec.rulesVersion, 'v7')) {
-      return reject('invalid_target', 'the public channel opens in rules v7');
     }
     if (event.channel === 'tribe' && seat.tribeId === null) {
       return reject('invalid_target', 'seat is not in a tribe');
     }
     const id = `msg-${state.nextMessageNumber}`;
     state.nextMessageNumber += 1;
-    seat.messagesSentThisTick += 1;
     state.messages.push({
       id,
       tick: state.tick,
@@ -2640,7 +2315,7 @@ export function applyEvent(
     const seat = state.seats[seatIndexOf(event.seatId)];
     if (seat.status !== 'acting') return reject('invalid_seat_state', `seat ${event.seatId} is ${seat.status}`);
     if (event.terms.counterparty === event.seatId) return reject('invalid_target', 'cannot propose contract to self');
-    const pactKindRejection = pactKindRejectionFor(state, event.terms.kind);
+    const pactKindRejection = pactKindRejectionFor(event.terms.kind);
     if (pactKindRejection) return pactKindRejection;
     if (event.terms.kind === 'alliance' && hasOpenAlliance(state, event.seatId, event.terms.counterparty)) {
       return reject('invalid_contract_state', `an alliance between ${event.seatId} and ${event.terms.counterparty} is already proposed or active`);
@@ -2868,9 +2543,8 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     }));
   const visibleArmies: ProjectedArmyView[] = [];
   const watchedHexIndices = watchtowerSightOf(state, seatId);
-  const hasLand = state.balance.territory !== null;
   for (const army of state.armies.values()) {
-    const isStanding = hasLand && army.status === 'standing';
+    const isStanding = army.status === 'standing';
     if (army.status !== 'marching' && army.status !== 'returning' && !isStanding) continue;
     const isOnOwnLand = territoryOwnerAt(state, army.currentHexIndex) === seatId;
     if (army.owner !== seatId && !army.scoutedBy.includes(seatId) && !watchedHexIndices.has(army.currentHexIndex) && !isOnOwnLand) continue;
@@ -2902,7 +2576,7 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     phase: state.phase,
     yourSeatId: seatId,
     yourStatus: seat.status,
-    ...(state.balance.territory === null ? {} : { yourLand: landSummaryOf(state, state.balance.territory, seatId) }),
+    yourLand: landSummaryOf(state, state.balance.territory, seatId),
     yourTribeId: seat.tribeId,
     tribeMembers,
     seatStatuses,
@@ -2917,17 +2591,14 @@ export function projectSeatState(state: MatchState, seatId: SeatId): SeatStateVi
     sites: state.villages.flatMap((village) => (village === null ? [] : [{ hexIndex: village.hexIndex, isBeacon: village.isBeacon }])),
     victoryPointsBySeat: { ...state.victoryPointsBySeat },
     victoryPointTarget: victoryPointTargetOf(state),
-    ...(state.balance.territory === null ? {} : {
-      territory: territoryViewOf(state),
-      yourVillagesFounded: state.villagesFoundedBySeat[seatId] ?? 0,
-    }),
+    territory: territoryViewOf(state),
+    yourVillagesFounded: state.villagesFoundedBySeat[seatId] ?? 0,
   };
 }
 
 function watchtowerSightOf(state: MatchState, seatId: SeatId): Set<number> {
   const rule = state.balance.territory;
   const sight = new Set<number>();
-  if (rule === null) return sight;
   for (const [hexIndex, tile] of state.territory) {
     if (tile.owner !== seatId || tile.improvement !== 'watchtower' || tile.level === 0) continue;
     for (const candidate of state.hexes) {

@@ -79,7 +79,7 @@ function fillBeaconDetail(detail: HTMLElement, state: MatchState, village: Villa
   swatch.style.background = village.owner === null ? 'var(--text-dim)' : SEAT_COLORS[village.owner];
   head.append(swatch, el('span', 'wg-lens-detail-owner', village.owner === null ? 'Beacon, unheld' : `Beacon, ${seatLabelOf(state, village.owner)}`), el('span', 'wg-econ-muted', `#${village.hexIndex}`));
   const pointsRow = el('span', 'wg-lens-detail-group');
-  const beaconPoints = state.balance.victory.kind === 'points' ? state.balance.victory.beaconPoints : 0;
+  const beaconPoints = state.balance.victory.beaconPoints;
   pointsRow.append(el('span', 'wg-lens-detail-key', 'Worth'), chip('points', `+${beaconPoints} VP a turn while held`));
   const troopRow = el('span', 'wg-lens-detail-group');
   troopRow.append(

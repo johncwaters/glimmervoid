@@ -1,6 +1,6 @@
 import type { WargamesBalance } from '../contracts/wargames.ts';
 
-type WargamesTerrainRule = NonNullable<WargamesBalance['clusteredTerrain']>;
+type WargamesTerrainRule = WargamesBalance['clusteredTerrain'];
 
 export type TerrainKind = 'plain' | 'mountain' | 'lake' | 'forest' | 'fertile' | 'ore';
 
@@ -9,11 +9,6 @@ export const FOREST_DEFENSE_MULTIPLIER = 1.25;
 export const BONUS_TILE_YIELD = 20;
 const FOREST_MARCH_COST = 2;
 const MAX_GENERATION_ATTEMPTS = 64;
-const RIDGE_MOUNTAIN_CHANCE = 0.3;
-const SCATTERED_MOUNTAIN_CHANCE = 0.04;
-const LAKE_CHANCE = 0.04;
-const FOREST_CHANCE = 0.14;
-const BONUS_CHANCE = 0.05;
 
 interface AxialCoord {
   q: number;
@@ -89,25 +84,6 @@ export function marchCostOf(kind: TerrainKind): number {
   return kind === 'forest' ? FOREST_MARCH_COST : 1;
 }
 
-function isRidgeRing(ring: number, radius: number): boolean {
-  const ridgeRing = Math.floor(radius / 2);
-  return ring === ridgeRing || ring === ridgeRing + 1;
-}
-
-function kindFromRoll(roll: number, tile: TerrainTile, radius: number): TerrainKind {
-  const mountainChance = isRidgeRing(tile.ring, radius) ? RIDGE_MOUNTAIN_CHANCE : SCATTERED_MOUNTAIN_CHANCE;
-  if (roll < mountainChance) return 'mountain';
-  const isInnerLand = tile.ring >= 1 && tile.ring <= radius - 2;
-  const lakeLimit = mountainChance + (isInnerLand ? LAKE_CHANCE : 0);
-  if (roll < lakeLimit) return 'lake';
-  const forestLimit = lakeLimit + FOREST_CHANCE;
-  if (roll < forestLimit) return 'forest';
-  if (!isInnerLand) return 'plain';
-  if (roll < forestLimit + BONUS_CHANCE) return 'fertile';
-  if (roll < forestLimit + BONUS_CHANCE * 2) return 'ore';
-  return 'plain';
-}
-
 function reachesEveryPassableTile(tiles: readonly TerrainTile[], kinds: readonly TerrainKind[], startIndex: number): boolean {
   const indexByKey = new Map(tiles.map((tile, index) => [tileKey(tile), index]));
   const visited = new Set<number>([startIndex]);
@@ -126,20 +102,6 @@ function reachesEveryPassableTile(tiles: readonly TerrainTile[], kinds: readonly
 
 function plainTerrain(tileCount: number): TerrainKind[] {
   return Array.from({ length: tileCount }, () => 'plain' as const);
-}
-
-export function generateTerrain({ tiles, radius, seatCount, seed, protectedKeys }: TerrainRequest): TerrainKind[] {
-  if (radius < TERRAIN_MIN_RADIUS) return plainTerrain(tiles.length);
-  const group = symmetryGroupFor(seatCount);
-  const startIndex = Math.max(0, tiles.findIndex((tile) => protectedKeys.has(tileKey(tile))));
-  for (let salt = 0; salt < MAX_GENERATION_ATTEMPTS; salt += 1) {
-    const kinds = tiles.map((tile) => {
-      if (protectedKeys.has(tileKey(tile))) return 'plain' as const;
-      return kindFromRoll(hashToUnit(seed, salt, orbitRepresentative(tile, group)), tile, radius);
-    });
-    if (reachesEveryPassableTile(tiles, kinds, startIndex)) return kinds;
-  }
-  return plainTerrain(tiles.length);
 }
 
 const ANCHOR_SALT = 307;

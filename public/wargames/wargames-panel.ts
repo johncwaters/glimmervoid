@@ -1,12 +1,11 @@
 import { AgentModelCatalog } from '#shared/contracts/agent-models.ts';
 import {
   WARGAMES_MAP_SIZES,
-  WARGAMES_RULES_VERSION,
+  WARGAMES_RULES_ID,
   WARGAMES_SEAT_COUNTS,
   WARGAMES_SEAT_IDS,
   seatIdsForCount,
-  victoryHoldTurnsFor,
-  wargamesBalanceFor,
+  WARGAMES_BALANCE,
 } from '#shared/contracts/wargames.ts';
 import type {
   MessageChannel,
@@ -19,8 +18,8 @@ import type {
   WargamesMatchSummary,
   WargamesSeatCount,
 } from '#shared/contracts/wargames.ts';
-import { matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageCountOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
-import type { MatchState, SeatStanding } from '#shared/wargames/engine.ts';
+import { matchSeatIds, projectSeatState, seatReputationOf, seatStandingOf, victoryPointTargetOf, villageTroopLoadOf } from '#shared/wargames/engine.ts';
+import type { MatchState } from '#shared/wargames/engine.ts';
 import { sendControlMsg, sendControlRequest } from '../control-ws.ts';
 import { el } from '../dom-helpers.ts';
 import { openConfirmDialog } from '../session-card/modal.ts';
@@ -135,7 +134,6 @@ let spotlightSeatId: SeatId | null = null;
 let watchStreamState: WatchStreamState = 'idle';
 let bannerMessage = '';
 let watchSelectionMode: 'auto' | 'manual' = 'auto';
-let selectedHistoryVersion: string | null = null;
 let postgameReportMode: PostgameReportMode = 'collapsed';
 let unsubscribe: (() => void) | null = null;
 const failedAutoWatchIds = new Set<string>();
@@ -499,7 +497,7 @@ function ensureNewMatchSection(): HTMLElement {
       const seatedIds = new Set(seatIdsForCount(chosenSeatCount()));
       const spec: WargamesMatchSpec = {
         version: 1,
-        rulesVersion: WARGAMES_RULES_VERSION,
+        rules: WARGAMES_RULES_ID,
         title: titleInput.value.trim() || 'Wargames Match',
         seed: Math.max(1, Number(seedInput.value) || 424242),
         mapRadius: mapSize.mapRadius,
@@ -623,7 +621,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     const headRight = el('span', 'wg-faction-name');
     headRight.append(
       statusIcon,
-      standingGlyph(standing, SEAT_COLORS[seatId]),
+      standingGlyph(SEAT_COLORS[seatId]),
       el('span', 'wg-faction-villages', `${standing.score}/${standing.goal}`),
     );
     head.append(nameWrap, headRight);
@@ -641,7 +639,7 @@ function buildFactionBannerStrip(state: MatchState): HTMLElement {
     stats.append(buildGlyphChips(UNIT_GLYPH_PATHS, tally.troops), buildResourceReadout(tally.grain, tally.ore));
 
     banner.append(head, modelLine, track, stats);
-    if (state.balance.diplomacy) banner.append(buildReputationReadout(seatReputationOf(state, seatId)));
+    banner.append(buildReputationReadout(seatReputationOf(state, seatId)));
     strip.append(banner);
   }
   return strip;
@@ -848,7 +846,7 @@ function buildEndgameCard(state: MatchState): HTMLElement {
       ? 'MATCH ABORTED'
       : 'MATCH FINISHED';
   const heading = el('div', 'wg-endgame-title', headingText);
-  const sub = el('div', 'wg-card-meta', `Rules ${state.spec.rulesVersion} · Turn ${state.tick}/${state.spec.maxTicks}`);
+  const sub = el('div', 'wg-card-meta', `Turn ${state.tick}/${state.spec.maxTicks}`);
   titleGroup.append(heading, sub);
   winnerWrap.append(emblem, titleGroup);
 
@@ -1055,7 +1053,7 @@ function buildHexIntelBar(state: MatchState, pov: ReturnType<typeof wargamesSnap
   const land = village ? undefined : state.territory.get(tile.index);
   if (land) return buildLandIntel(bar, state, tile.index, land, armiesOnTile(state, pov, tile.index));
   if (!village) {
-    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', state.balance.territory === null ? 'Open land, no village' : 'Open land, unclaimed'));
+    bar.append(el('span', 'wg-hex-intel-lead', `#${tile.index}`), el('span', 'wg-card-meta', 'Open land, unclaimed'));
     const armies = armiesOnTile(state, pov, tile.index);
     if (armies.length > 0) bar.append(buildTileArmyGroup(state, armies));
     return bar;
@@ -1097,7 +1095,7 @@ type LandTile = NonNullable<ReturnType<MatchState['territory']['get']>>;
 
 function improvementEffectOf(state: MatchState, hexIndex: number, land: LandTile): string {
   const rule = state.balance.territory;
-  if (rule === null || land.improvement === null) return '';
+  if (land.improvement === null) return '';
   if (land.improvement === 'field') return `+${land.level * rule.improvements.field.yieldPerLevel} grain to the village beside it`;
   if (land.improvement === 'quarry') {
     const oreTileBonus = state.terrain[hexIndex] === 'ore' ? rule.quarryOreTileBonus : 0;
@@ -1136,7 +1134,7 @@ function buildLandIntel(bar: HTMLElement, state: MatchState, hexIndex: number, l
   swatch.style.background = SEAT_COLORS[land.owner];
   const ownerTag = el('span', 'wg-hex-intel-owner', seatLabelOf(state, land.owner));
   ownerTag.style.color = SEAT_COLORS[land.owner];
-  const tilesPerPoint = state.balance.territory?.tilesPerPoint ?? 0;
+  const tilesPerPoint = state.balance.territory.tilesPerPoint;
   left.append(el('span', 'wg-hex-intel-lead', `#${hexIndex}`), swatch, ownerTag, el('span', 'wg-card-meta', `Land, 1 VP per ${tilesPerPoint} tiles`));
   const right = el('div', 'wg-hex-intel-group');
   const improvement = IMPROVEMENT_GLYPH_PATHS.find((entry) => entry.key === land.improvement);
@@ -1226,14 +1224,13 @@ interface LegendRow {
   readonly label: string;
 }
 
-function unitLegendRows(rulesVersion: WargamesMatchSpec['rulesVersion']): { title: string; rows: LegendRow[] } {
-  const roles = wargamesBalanceFor(rulesVersion).roles;
+function unitLegendRows(): { title: string; rows: LegendRow[] } {
+  const roles = WARGAMES_BALANCE.roles;
   const unitRows = UNIT_GLYPH_PATHS.map((unit) => ({
     glyphPath: unit.path,
     color: unit.color,
-    label: roles === null ? unit.label : `${unit.label} ${roles.units[unit.key].attack}/${roles.units[unit.key].defense}`,
+    label: `${unit.label} ${roles.units[unit.key].attack}/${roles.units[unit.key].defense}`,
   }));
-  if (roles === null) return { title: 'Units', rows: unitRows };
   return {
     title: 'Units attack/defense',
     rows: [
@@ -1244,25 +1241,24 @@ function unitLegendRows(rulesVersion: WargamesMatchSpec['rulesVersion']): { titl
   };
 }
 
-function unitLegendGroup(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement {
-  const { title, rows } = unitLegendRows(rulesVersion);
+function unitLegendGroup(): HTMLElement {
+  const { title, rows } = unitLegendRows();
   return legendGroup(title, rows.map((row) => legendItem(createWargamesGlyph(row.glyphPath, 14, row.color), row.label)));
 }
 
-function landLegendGroups(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement[] {
-  if (wargamesBalanceFor(rulesVersion).territory === null) return [];
+function landLegendGroups(): HTMLElement[] {
   return [legendGroup('Land', [
     legendItem(hexSwatchIcon(`color-mix(in srgb, ${SEAT_COLORS.s1} 11%, var(--bg-surface))`, `color-mix(in srgb, ${SEAT_COLORS.s1} 45%, var(--border))`, null), 'Land'),
     ...IMPROVEMENT_GLYPH_PATHS.map((improvement) => legendItem(createWargamesGlyph(improvement.path, 14, improvement.color), improvement.label)),
   ])];
 }
 
-function buildMapLegend(rulesVersion: WargamesMatchSpec['rulesVersion']): HTMLElement {
+function buildMapLegend(): HTMLElement {
   const legend = el('div', 'wg-map-legend');
   legend.append(
-    unitLegendGroup(rulesVersion),
+    unitLegendGroup(),
     legendGroup('Buildings', BUILDING_GLYPH_PATHS.map((building) => legendItem(createWargamesGlyph(building.path, 14, building.color), building.label))),
-    ...landLegendGroups(rulesVersion),
+    ...landLegendGroups(),
     legendGroup('Board', [
       legendItem(hexSwatchIcon(`color-mix(in srgb, ${SEAT_COLORS.s1} 28%, var(--bg-card))`, SEAT_COLORS.s1, null), 'Faction village'),
       legendItem(hexSwatchIcon('color-mix(in srgb, var(--text-dim) 10%, var(--bg-card))', 'var(--border-hover)', null), 'Barbarian village'),
@@ -1307,40 +1303,14 @@ function buildMapKey(): { keySlot: HTMLElement; legend: HTMLElement } {
 function buildHistorySection(): HTMLElement {
   const { history, matches } = wargamesSnapshot();
   const wrapper = el('section', 'wg-history-grid');
-  const currentVersion = history.currentRulesVersion || WARGAMES_RULES_VERSION;
-  const availableVersions = [...new Set([
-    currentVersion,
-    ...Object.keys(history.eloByVersion),
-    ...history.matches.map((match) => match.rulesVersion),
-  ])].sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
-  const activeVersion = selectedHistoryVersion && availableVersions.includes(selectedHistoryVersion)
-    ? selectedHistoryVersion
-    : currentVersion;
-  const eloRows = history.eloByVersion[activeVersion]
-    ?? (activeVersion === currentVersion ? history.eloByModel : []);
+  const eloRows = history.eloByModel;
 
   const eloBox = el('div', 'wg-form-section');
   const eloHead = el('div', 'wg-history-head');
-  eloHead.append(el('h2', 'wg-section-title', `Model Elo Leaderboard (${activeVersion})`));
-  if (availableVersions.length > 1) {
-    const versionPicker = select({
-      label: 'Ruleset version',
-      size: 'small',
-      value: activeVersion,
-      options: availableVersions.map((ver) => ({
-        value: ver,
-        label: ver === currentVersion ? `${ver} (current)` : ver,
-      })),
-      onChange: (nextVersion) => {
-        selectedHistoryVersion = nextVersion;
-        render();
-      },
-    });
-    eloHead.append(versionPicker.element);
-  }
+  eloHead.append(el('h2', 'wg-section-title', 'Model Elo Leaderboard'));
   eloBox.append(eloHead);
   if (eloRows.length === 0) {
-    eloBox.append(el('p', 'wg-empty-copy', `Finish a ${activeVersion} match to populate model Elo ratings.`));
+    eloBox.append(el('p', 'wg-empty-copy', 'Finish a match to populate model Elo ratings.'));
   }
   if (eloRows.length > 0) {
     const table = el('table', 'wg-table');
@@ -1375,7 +1345,7 @@ function buildHistorySection(): HTMLElement {
     const strategyTag = match.hasCustomStrategy ? ' · Custom strategy' : '';
     matchMeta.append(
       el('div', 'wg-card-title', `${match.title} (${match.matchId})`),
-      el('div', 'wg-card-meta', `Rules ${match.rulesVersion} · ${match.status} · Turn ${match.tick}/${match.maxTicks} · Winner: ${match.winnerModelDisplay ?? '-'} · Breaches: ${match.breachCount}${strategyTag}`),
+      el('div', 'wg-card-meta', `${match.status} · Turn ${match.tick}/${match.maxTicks} · Winner: ${match.winnerModelDisplay ?? '-'} · Breaches: ${match.breachCount}${strategyTag}`),
     );
     const watchBtn = button({
       variant: 'secondary',
@@ -1465,7 +1435,7 @@ function updateLiveShell(state: MatchState): HTMLElement {
   }
 
   mapView?.update(state, snap.pov, selectedHexIndex, spotlightSeatId);
-  shell.mapKeyPopover.replaceChildren(...buildMapLegend(state.spec.rulesVersion).children);
+  shell.mapKeyPopover.replaceChildren(...buildMapLegend().children);
   diplomacyLog?.update(state, snap.pov);
   economyView?.update(state, snap.events);
   economyLens?.update(state, snap.pov, selectedHexIndex);
@@ -1497,23 +1467,17 @@ function updateLiveShell(state: MatchState): HTMLElement {
 }
 
 function followStatusOf(state: MatchState, headState: MatchState): string {
-  if (state !== headState) return `Replay · Rules ${state.spec.rulesVersion}`;
-  if (isActiveMatchStatus(state.status)) return `Live · Rules ${state.spec.rulesVersion}`;
-  return `${state.status} · Rules ${state.spec.rulesVersion}`;
+  if (state !== headState) return 'Replay';
+  if (isActiveMatchStatus(state.status)) return 'Live';
+  return state.status;
 }
 
-function standingGlyph(standing: SeatStanding, color: string): SVGSVGElement {
-  if (standing.isPoints) return createWargamesGlyph(TROPHY_ICON_PATH, 12, color, 'Victory points toward the target');
-  return createWargamesGlyph(WARGAMES_GLYPH_PATHS.territory, 12, color, 'Villages held toward victory');
+function standingGlyph(color: string): SVGSVGElement {
+  return createWargamesGlyph(TROPHY_ICON_PATH, 12, color, 'Victory points toward the target');
 }
 
 function goalText(state: MatchState): string {
-  const pointTarget = victoryPointTargetOf(state);
-  if (pointTarget !== null) return `VP ${Math.max(0, ...Object.values(state.victoryPointsBySeat))} of ${pointTarget}`;
-  const winVillages = seatStandingOf(state, state.seats[0].config.seatId).goal;
-  const holdTurns = victoryHoldTurnsFor(state.spec);
-  if (holdTurns <= 1) return `Goal ${winVillages} villages`;
-  return `Goal ${winVillages} of ${villageCountOf(state)} villages, hold ${holdTurns} turns`;
+  return `VP ${Math.max(0, ...Object.values(state.victoryPointsBySeat))} of ${victoryPointTargetOf(state) ?? 0}`;
 }
 
 function render(): void {

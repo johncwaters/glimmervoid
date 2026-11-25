@@ -174,14 +174,12 @@ function seatCell(label: string, seatId: SeatId): HTMLTableCellElement {
 function buildTable(state: MatchState, turns: readonly EconomyTurn[]): HTMLTableElement {
   const table = el('table', 'wg-table wg-econ-table');
   table.append(el('caption', 'wg-econ-caption', `Economy, turn ${state.tick}`));
-  const usesPoints = state.balance.victory.kind === 'points';
-  const hasLand = state.balance.territory !== null;
   const headRow = el('tr');
   headRow.append(
     wordHeaderCell('Seat'),
-    ...(usesPoints ? [glyphHeaderCell('points', 'wg-num')] : []),
+    glyphHeaderCell('points', 'wg-num'),
     glyphHeaderCell('village', 'wg-num'),
-    ...(hasLand ? [glyphHeaderCell('land', 'wg-num')] : []),
+    glyphHeaderCell('land', 'wg-num'),
     glyphHeaderCell('grain'),
     glyphHeaderCell('ore'),
     glyphHeaderCell('farm', 'wg-num'),
@@ -204,9 +202,9 @@ function buildTable(state: MatchState, turns: readonly EconomyTurn[]): HTMLTable
     if (seat.status === 'eliminated' || economy.villages === 0) row.dataset.eliminated = 'true';
     row.append(
       seatCell(seat.config.label, seatId),
-      ...(usesPoints ? [el('td', 'wg-num wg-econ-points', String(economy.victoryPoints))] : []),
+      el('td', 'wg-num wg-econ-points', String(economy.victoryPoints)),
       el('td', 'wg-num wg-econ-villages', String(economy.villages)),
-      ...(hasLand ? [el('td', 'wg-num wg-econ-land', String(economy.land))] : []),
+      el('td', 'wg-num wg-econ-land', String(economy.land)),
       stockCell('Grain', economy.grain, economy.grainIncome, economy.warehouseCap),
       stockCell('Ore', economy.ore, economy.oreIncome, economy.warehouseCap),
       levelCell(economy.farm),

@@ -6,10 +6,10 @@ import { DEFAULT_AGENT_ID, isKnownAgentId } from '../../session/adapters/index.t
 import { removeEveryPrivateAgentHome, removePrivateAgentHomes } from '../../session/agent-home.ts';
 import { providerRefusalOf } from '../../shared/agent-models-core.ts';
 import { configIssueMessage, SHELL_AGENT_ID } from '../../shared/contracts/index.ts';
-import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, WARGAMES_TRAVEL_HEXES_PER_TICK, victoryHoldTurnsFor, victoryPointTargetFor, wargamesBalanceFor } from '../../shared/contracts/wargames.ts';
-import { matchVillageCount, terrainOf, victoryVillagesFor } from '../../shared/wargames/engine.ts';
+import { ArmyStatus, ImprovementKind, WargamesMatchSpec, foundCostFor, troopCostsFor, valueForRadius, WARGAMES_TRAVEL_HEXES_PER_TICK, victoryPointTargetFor, WARGAMES_BALANCE } from '../../shared/contracts/wargames.ts';
+import { terrainOf } from '../../shared/wargames/engine.ts';
 import { BONUS_TILE_YIELD, FOREST_DEFENSE_MULTIPLIER, marchCostOf } from '../../shared/wargames/terrain.ts';
-import type { SeatConfig, WargamesMatchSpec as WargamesMatchSpecType, WargamesTerritoryRule } from '../../shared/contracts/wargames.ts';
+import type { SeatConfig, WargamesBalance, WargamesMatchSpec as WargamesMatchSpecType, WargamesTerritoryRule } from '../../shared/contracts/wargames.ts';
 import { isPathInside } from '../../shared/paths.ts';
 import { STATES } from '../../shared/states.ts';
 import { errorMessage } from '../../shared/text.ts';
@@ -104,13 +104,12 @@ interface WargamesLauncherDeps {
   seatRootDir?: string;
 }
 
-function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string | null {
-  const balance = wargamesBalanceFor(spec.rulesVersion);
+function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string {
+  const balance = WARGAMES_BALANCE;
   const victory = balance.victory;
   const target = victoryPointTargetFor(balance, spec.mapRadius, spec.seats.length);
-  if (victory.kind !== 'points' || target === null) return null;
   const economyRule = victory.economyIncomePerPoint > 0 ? ` plus 1 VP per ${victory.economyIncomePerPoint} income per tick,` : '';
-  const landRule = balance.territory === null ? '' : ` plus 1 VP per ${balance.territory.tilesPerPoint} land hexes it holds,`;
+  const landRule = ` plus 1 VP per ${balance.territory.tilesPerPoint} land hexes it holds,`;
   return [
     `${clock} Victory points (VP) decide the match. At the end of every tick each seat gains 1 VP per village it holds and ${victory.beaconPoints} VP per Beacon it holds with at least 1 troop inside,${economyRule}${landRule} and VP are never lost.`,
     ...landObjectiveLines(balance.territory, victory.economyIncomePerPoint),
@@ -119,8 +118,7 @@ function victoryPointLine(spec: WargamesMatchSpecType, clock: string): string | 
   ].join(' ');
 }
 
-function landObjectiveLines(territory: WargamesTerritoryRule | null, economyIncomePerPoint: number): string[] {
-  if (territory === null) return [];
+function landObjectiveLines(territory: WargamesTerritoryRule, economyIncomePerPoint: number): string[] {
   const { tilesPerPoint, quarryOreTileBonus } = territory;
   const { field, quarry } = territory.improvements;
   return [
@@ -132,30 +130,14 @@ function landObjectiveLines(territory: WargamesTerritoryRule | null, economyInco
 }
 
 function objectiveLine(spec: WargamesMatchSpecType): string {
-  const pointsLine = victoryPointLine(spec, `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`);
-  if (pointsLine !== null) return pointsLine;
-  const winVillages = victoryVillagesFor(spec);
-  const holdTurns = victoryHoldTurnsFor(spec);
-  const clock = `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`;
-  const fallback = `otherwise the seat with the most villages after tick ${spec.maxTicks} wins.`;
-  if (holdTurns <= 1) return `${clock} First seat to hold ${winVillages} villages wins; ${fallback}`;
-  return `${clock} A seat wins by holding at least ${winVillages} of the ${matchVillageCount(spec)} villages at the end of ${holdTurns} ticks in a row; ${fallback}`;
+  return victoryPointLine(spec, `Objective & Clock: ${spec.maxTicks} ticks (${spec.tickDeadlineSeconds}s per tick).`);
 }
 
 const MOVEMENT_LINE = `- Movement & Battles: Armies travel ${WARGAMES_TRAVEL_HEXES_PER_TICK} hexes per tick along the cheapest path; a forest hex costs ${marchCostOf('forest')} of that, and mountains and lakes are walked around. A far target takes several ticks, so plan marches that many ticks ahead. March to your own village to reinforce it. Combat is simultaneous with +/-10% attack variance; the losing side is wiped and the winner takes proportional casualties. When you win a battle and capture a village, your surviving army stays there as its new garrison. If you win a battle without capturing (Loyalty still above 0), survivors return home.`;
 
-function unitLines(spec: WargamesMatchSpecType): string[] {
-  const balance = wargamesBalanceFor(spec.rulesVersion);
+function unitLines(): string[] {
+  const balance = WARGAMES_BALANCE;
   const roles = balance.roles;
-  if (roles === null) {
-    return [
-      'Units & Combat (1.5x Counter Bonus):',
-      '- Raider (12 grain / 8 ore, base power 10): deals 1.5x power (15) if the opposing force has any Envoys.',
-      '- Guard (8 grain / 12 ore, base power 10): deals 1.5x power (15) if the opposing force has any Raiders.',
-      '- Envoy (25 grain / 20 ore, base power 8): deals 1.5x power (12) if the opposing force has any Guards. Required to capture villages.',
-      MOVEMENT_LINE,
-    ];
-  }
   const costs = troopCostsFor(balance);
   const unitLine = (label: string, troop: 'raider' | 'guard' | 'envoy', role: string) => {
     const unit = roles.units[troop];
@@ -175,40 +157,30 @@ function unitLines(spec: WargamesMatchSpecType): string[] {
   ];
 }
 
-function defensePerAttack(roles: NonNullable<ReturnType<typeof wargamesBalanceFor>['roles']>, costs: ReturnType<typeof troopCostsFor>): string {
+function defensePerAttack(roles: WargamesBalance['roles'], costs: ReturnType<typeof troopCostsFor>): string {
   const totalCost = (troop: 'raider' | 'guard') => costs[troop].grain + costs[troop].ore;
   const ratio = (roles.units.guard.defense / totalCost('guard')) / (roles.units.raider.attack / totalCost('raider'));
   return ratio.toFixed(1);
 }
 
-function captureLines(spec: WargamesMatchSpecType): string[] {
-  const balance = wargamesBalanceFor(spec.rulesVersion);
+function captureLines(): string[] {
+  const balance = WARGAMES_BALANCE;
   const roles = balance.roles;
-  if (roles === null) {
-    const envoysForFullVillage = Math.ceil(100 / balance.envoyLoyaltyDrain);
-    return [
-      '- Every village starts at 100 Loyalty. Winning a battle without surviving Envoys wipes the defenders but does not capture the village.',
-      `- Each surviving Envoy drains ${balance.envoyLoyaltyDrain} Loyalty (${envoysForFullVillage} surviving Envoys drop a 100-Loyalty village to 0 in one battle).`,
-    ];
-  }
   return [
     '- Every village starts at 100 Loyalty. Capture is a separate wave: an army of only Envoys never fights, and Envoys drain Loyalty only once the village\'s defense is beaten this tick (your attack, or an ally supporting it, beat its troops and Wall), or it has no troops and no Wall.',
     `- Each surviving Envoy drains a random ${roles.captureDrainMin} to ${roles.captureDrainMax} Loyalty. Envoys marching with Raiders die with them in proportion; an Envoy-only army arriving at a defended village, or with a side that lost, is wiped.`,
   ];
 }
 
-function loyaltyLines(spec: WargamesMatchSpecType): string[] {
-  const balance = wargamesBalanceFor(spec.rulesVersion);
+function loyaltyLines(): string[] {
+  const balance = WARGAMES_BALANCE;
   const lines = [
-    ...captureLines(spec),
+    ...captureLines(),
     `- When Loyalty hits 0, the village flips to you at ${balance.capturedLoyalty} Loyalty with your surviving attackers as its garrison.`,
   ];
   if (balance.loyaltyRegenPerTurn > 0) lines.push(`- Every village you own regains ${balance.loyaltyRegenPerTurn} Loyalty per tick, up to 100, so a fresh capture hardens over a few ticks.`);
   if (balance.captureRazeFraction > 0) lines.push(`- Capturing a village destroys ${Math.round(balance.captureRazeFraction * 100)}% of each building's levels (rounded up), so buildings are worth more to the seat that built them than to a raider.`);
   if (balance.barbarianGuardGrowthPerTurn > 0) lines.push(`- Unowned villages gain ${balance.barbarianGuardGrowthPerTurn} Guard per tick, up to ${balance.barbarianGuardCap}, so late expansion costs more.`);
-  if (balance.lastVillageDefenseMultiplier > 1 || balance.lastVillageProductionMultiplier > 1) {
-    lines.push(`- A seat down to its last village produces ${balance.lastVillageProductionMultiplier}x and defends it at ${balance.lastVillageDefenseMultiplier}x power.`);
-  }
   return lines;
 }
 
@@ -225,28 +197,26 @@ function terrainLines(spec: WargamesMatchSpecType): string[] {
   ];
 }
 
-function wallLine(spec: WargamesMatchSpecType): string {
-  const balance = wargamesBalanceFor(spec.rulesVersion);
+function wallLine(): string {
+  const balance = WARGAMES_BALANCE;
   const cost = balance.buildingCosts.wall;
   const roles = balance.roles;
-  if (roles === null) return `- Wall (${cost.grain} grain / ${cost.ore} ore): +15% defender combat power per level.`;
   return `- Wall (${cost.grain} grain / ${cost.ore} ore): each level adds ${roles.wallDefensePerLevel} defense and +${Math.round(roles.wallBonusPerLevel * 100)}% defense power, up to level 10. An attack that clears the defenders knocks the Wall down by at least 1 level, more the larger its margin.`;
 }
 
-function buildingLines(spec: WargamesMatchSpecType): string[] {
-  const costs = wargamesBalanceFor(spec.rulesVersion).buildingCosts;
+function buildingLines(): string[] {
+  const costs = WARGAMES_BALANCE.buildingCosts;
   return [
     '- Base village: produces 25 grain and 25 ore per tick (500 base storage cap).',
     `- Farm (${costs.farm.grain} grain / ${costs.farm.ore} ore): +20 grain/tick and +200 storage cap per level.`,
     `- Mine (${costs.mine.grain} grain / ${costs.mine.ore} ore): +20 ore/tick and +200 storage cap per level.`,
-    wallLine(spec),
+    wallLine(),
     `- Barracks (${costs.barracks.grain} grain / ${costs.barracks.ore} ore): military infrastructure upgrade (training is instant and bounded by grain and ore).`,
   ];
 }
 
 function landLines(spec: WargamesMatchSpecType): string[] {
-  const territory = wargamesBalanceFor(spec.rulesVersion).territory;
-  if (territory === null) return [];
+  const territory = WARGAMES_BALANCE.territory;
   const { field, quarry, watchtower, outpost } = territory.improvements;
   const costText = (cost: { grain: number; ore: number }) => `${cost.grain} grain / ${cost.ore} ore`;
   const firstFoundCost = foundCostFor(territory, 0);
@@ -265,25 +235,23 @@ function landLines(spec: WargamesMatchSpecType): string[] {
     `  - Watchtower (${costText(watchtower.cost)}): armies within ${territory.watchtowerRange} hexes of it show in your get_state visibleArmies.`,
     `  - Outpost (${costText(outpost.cost)}): your armies standing on it defend at +${Math.round(territory.outpostDefenseBonus * 100)}%.`,
     `- When your land is taken, its improvement loses half its levels (rounded up), so a level 1 improvement is destroyed.`,
-    `- Founding: a found order ({ kind: "found", hexIndex }) turns one of your land hexes with no improvement into a new village, if no village or Beacon is within ${territory.foundSpacing - 1} hex of it. Your nearest village pays ${territory.foundEnvoys} Envoys and ${costText(firstFoundCost)} for your first, ${costText(secondFoundCost)} for your second, and so on; at most ${foundLimit} per seat on this map. get_state yourVillagesFounded counts yours. A new village starts at ${wargamesBalanceFor(spec.rulesVersion).capturedLoyalty} Loyalty with no troops, buildings or stock.`,
+    `- Founding: a found order ({ kind: "found", hexIndex }) turns one of your land hexes with no improvement into a new village, if no village or Beacon is within ${territory.foundSpacing - 1} hex of it. Your nearest village pays ${territory.foundEnvoys} Envoys and ${costText(firstFoundCost)} for your first, ${costText(secondFoundCost)} for your second, and so on; at most ${foundLimit} per seat on this map. get_state yourVillagesFounded counts yours. A new village starts at ${WARGAMES_BALANCE.capturedLoyalty} Loyalty with no troops, buildings or stock.`,
   ];
 }
 
-function supportLine(spec: WargamesMatchSpecType): string {
+function supportLine(): string {
   const attackSupport = '- Support: a march order may name support: <seat>. If that seat is your active ally and attacks the same target hex that tick, your troops fight on its side: one combined attack power against the defender, the ally takes the village if it captures, losses are shared in proportion, and your survivors march home.';
   const unsupported = 'With no active alliance, or no ally attack there, the support march turns back without fighting. Two seats that attack one hex without support fight each other too: only the strongest can take it, and the others are wiped.';
-  const garrison = wargamesBalanceFor(spec.rulesVersion).roles === null
-    ? 'Sent to the ally\'s own village, your troops join its garrison and become the ally\'s.'
-    : 'Sent to the ally\'s own village, your troops stay yours as guests: they defend it with its Wall, count against its troop cap, share its losses, and march home on their own when the alliance ends or breaks.';
+  const garrison = 'Sent to the ally\'s own village, your troops stay yours as guests: they defend it with its Wall, count against its troop cap, share its losses, and march home on their own when the alliance ends or breaks.';
   return `${attackSupport} ${garrison} ${unsupported}`;
 }
 
-function diplomacyLines(spec: WargamesMatchSpecType): string[] {
+function diplomacyLines(): string[] {
   const shared = [
     '- Scouting: Up to 2 scouts per tick to reveal enemy garrisons, buildings, and marching armies. Orders are sealed and resolve simultaneously, so no seat sees another seat\'s orders before they resolve.',
     '- Tribes: Up to 2 seats may form a tribe via tribe_join / tribe_leave orders to share a private tribe channel.',
   ];
-  const diplomacy = wargamesBalanceFor(spec.rulesVersion).diplomacy;
+  const diplomacy = WARGAMES_BALANCE.diplomacy;
   if (!diplomacy) {
     return [
       '- Messages: Send direct or tribe messages during Talk. Attach signed battle or scout reports (or forged copies) via attachedReport on send_message, and check authenticity with verify_report.',
@@ -296,7 +264,7 @@ function diplomacyLines(spec: WargamesMatchSpecType): string[] {
     '- Escrow: an atomic grain/ore swap that settles the moment it is accepted.',
     `- Alliance VP: at the end of every turn an alliance is in force, each partner scores ${diplomacy.allianceVpPerTurn} VP. If one partner breaks it, the victim also scores the breaker's alliance VP for every turn the alliance stood (${diplomacy.allianceVpPerTurn} VP per turn).`,
     '- Alliance: two seats may hold one alliance at a time (one proposed or active). Both seats lock the stated collateral for N ticks. While it is active neither may attack the other, and each may support the other. When it runs its full term both get their collateral back. If one attacks the other, the alliance breaks: the victim takes the attacker\'s collateral and its own back, and the breach goes on the public ledger.',
-    supportLine(spec),
+    supportLine(),
     `- Reputation: get_state shows every seat's record of deals kept (pacts that ran their term, settled escrows) and deals broken (breaches). A seat with B broken deals locks ${diplomacy.breachCollateralStep === 1 ? '(1 + B)' : `(1 + ${diplomacy.breachCollateralStep} x B)`} times the stated collateral to enter any new alliance.`,
     ...shared,
   ];
@@ -309,18 +277,18 @@ function buildSeatPrompt(matchId: string, seat: SeatConfig, spec: WargamesMatchS
     '=== WARGAMES RULEBOOK ===',
     objectiveLine(spec),
     '',
-    ...unitLines(spec),
+    ...unitLines(),
     '',
     'Loyalty & Capturing Villages:',
-    ...loyaltyLines(spec),
+    ...loyaltyLines(),
     '',
     'Economy & Buildings (max level 10, 1 build per village per tick):',
-    ...buildingLines(spec),
+    ...buildingLines(),
     ...landLines(spec),
     ...terrainLines(spec),
     '',
     'Diplomacy, Contracts & Tribes:',
-    ...diplomacyLines(spec),
+    ...diplomacyLines(),
     '',
     'Private Notes:',
     '- Every tick, record your private thoughts, threat read, and alliance or betrayal plans with write_note (private to your seat; never visible to other seats).',
@@ -452,7 +420,7 @@ export function createWargamesLauncher({
       }
       return { ok: true as const, sessionId: session.id };
     }, {
-      onPhaseChanged: (_matchId, tick, phase, _status, sessionIds) => nudgeIdleSeats(tick, phase, sessionIds, wargamesBalanceFor(spec.rulesVersion).territory !== null),
+      onPhaseChanged: (_matchId, tick, phase, _status, sessionIds) => nudgeIdleSeats(tick, phase, sessionIds, true),
       onMatchEnded: (matchId, sessionIds) => { void cleanupMatchSessions(sessionIds, matchId); },
     });
   }

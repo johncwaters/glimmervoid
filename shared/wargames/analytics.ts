@@ -9,7 +9,6 @@ import type {
   WargamesEvent,
   WargamesMatchSummary,
 } from '../contracts/wargames.ts';
-import { wargamesBalanceFor } from '../contracts/wargames.ts';
 import type { MatchState } from './engine.ts';
 import { canonicalReportString, createInitialMatchState, isPactTerms, matchSeatIds, seatIndexOf, seatStandingOf } from './engine.ts';
 
@@ -47,7 +46,7 @@ export function summarizeMatch(state: MatchState, finishedAtMs: number | null, e
   const hasCustomStrategy = state.spec.seats.some((seat) => seat.setup.instructions.trim().length > 0);
   return {
     matchId: state.matchId,
-    rulesVersion: state.spec.rulesVersion,
+    rules: state.spec.rules,
     hasCustomStrategy,
     title: state.spec.title,
     seed: state.spec.seed,
@@ -315,7 +314,6 @@ interface DiplomacySeatRow {
 
 export interface DiplomacyMetrics {
   matchId: string;
-  rulesVersion: string;
   ticksPlayed: number;
   winnerSeatId: SeatId | null;
   messagesPerSeatPerTick: number;
@@ -387,7 +385,6 @@ export function diplomacyMetrics(state: MatchState): DiplomacyMetrics {
   }));
   return {
     matchId: state.matchId,
-    rulesVersion: state.spec.rulesVersion,
     ticksPlayed,
     winnerSeatId: state.winnerSeatId,
     messagesPerSeatPerTick: state.messages.length / (seatIds.length * ticksPlayed),
@@ -409,11 +406,10 @@ function pairwiseScore(
   seatA: WargamesMatchSummary['seats'][number],
   seatB: WargamesMatchSummary['seats'][number],
   winnerSeatId: SeatId | null,
-  isRankedByPoints: boolean,
 ): number {
   if (seatA.seatId === winnerSeatId) return 1;
   if (seatB.seatId === winnerSeatId) return 0;
-  if (isRankedByPoints && seatA.victoryPoints !== seatB.victoryPoints) return seatA.victoryPoints > seatB.victoryPoints ? 1 : 0;
+  if (seatA.victoryPoints !== seatB.victoryPoints) return seatA.victoryPoints > seatB.victoryPoints ? 1 : 0;
   if (seatA.villagesHeld > seatB.villagesHeld) return 1;
   if (seatB.villagesHeld > seatA.villagesHeld) return 0;
   return 0.5;
@@ -448,7 +444,7 @@ function updateModelElo(
       const ratingA = next.get(seatA.modelDisplay)?.elo ?? ELO_DEFAULT;
       const ratingB = next.get(seatB.modelDisplay)?.elo ?? ELO_DEFAULT;
       const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-      const scoreA = pairwiseScore(seatA, seatB, summary.winnerSeatId, wargamesBalanceFor(summary.rulesVersion).victory.kind === 'points');
+      const scoreA = pairwiseScore(seatA, seatB, summary.winnerSeatId);
       const deltaA = (ELO_K_FACTOR / (summary.seats.length - 1)) * (scoreA - expectedA);
       deltas.set(seatA.modelDisplay, (deltas.get(seatA.modelDisplay) ?? 0) + deltaA);
       deltas.set(seatB.modelDisplay, (deltas.get(seatB.modelDisplay) ?? 0) - deltaA);
@@ -481,21 +477,4 @@ export function computeEloFromSummaries(summaries: readonly WargamesMatchSummary
     table = updateModelElo(table, summary);
   }
   return [...table.values()].sort((left, right) => right.elo - left.elo);
-}
-
-export function computeEloByVersion(summaries: readonly WargamesMatchSummary[]): Record<string, ModelEloRow[]> {
-  const grouped = new Map<string, WargamesMatchSummary[]>();
-  for (const summary of summaries) {
-    const existing = grouped.get(summary.rulesVersion);
-    if (existing) {
-      existing.push(summary);
-      continue;
-    }
-    grouped.set(summary.rulesVersion, [summary]);
-  }
-  const eloByVersion: Record<string, ModelEloRow[]> = {};
-  for (const [rulesVersion, versionSummaries] of grouped) {
-    eloByVersion[rulesVersion] = computeEloFromSummaries(versionSummaries);
-  }
-  return eloByVersion;
 }

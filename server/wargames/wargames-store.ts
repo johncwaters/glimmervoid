@@ -2,14 +2,16 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 
-import { WargamesEvent, WargamesMatchSummary } from '../../shared/contracts/wargames.ts';
+import { WargamesEvent, WargamesMatchId, WargamesMatchSummary } from '../../shared/contracts/wargames.ts';
 import { errorMessage } from '../../shared/text.ts';
 import { appendJsonLine, createJsonStateStore } from '../json-file.ts';
 
 const IndexFile = z.strictObject({
   version: z.literal(1),
-  summaries: z.array(WargamesMatchSummary),
+  summaries: z.array(z.unknown()),
 });
+
+const ArchivedMatchId = z.object({ matchId: WargamesMatchId });
 
 export interface WargamesStore {
   load(): Promise<WargamesMatchSummary[]>;
@@ -24,8 +26,13 @@ export function wargamesDirectoryOf(glimmervoidHome: string): string {
   return path.join(glimmervoidHome, 'wargames');
 }
 
+function wargamesArchiveDirectoryOf(directory: string): string {
+  return path.join(path.dirname(directory), 'wargames-archive');
+}
+
 export function createWargamesStore({ directory, log }: { directory: string; log: Pick<Console, 'warn'> }): WargamesStore {
   const summariesById = new Map<string, WargamesMatchSummary>();
+  const staleEntriesById = new Map<string, unknown>();
   const indexPath = path.join(directory, 'index.json');
   const logFileOf = (matchId: string) => path.join(directory, `${matchId}.jsonl`);
 
@@ -34,7 +41,18 @@ export function createWargamesStore({ directory, log }: { directory: string; log
     filePath: indexPath,
     parse: (raw) => {
       const parsed = IndexFile.safeParse(raw);
-      return parsed.success ? parsed.data.summaries : null;
+      if (!parsed.success) return null;
+      const current: WargamesMatchSummary[] = [];
+      for (const entry of parsed.data.summaries) {
+        const summary = WargamesMatchSummary.safeParse(entry);
+        if (summary.success) {
+          current.push(summary.data);
+          continue;
+        }
+        const stale = ArchivedMatchId.safeParse(entry);
+        if (stale.success) staleEntriesById.set(stale.data.matchId, entry);
+      }
+      return current;
     },
     adopt: (loaded) => {
       summariesById.clear();
@@ -45,9 +63,29 @@ export function createWargamesStore({ directory, log }: { directory: string; log
     warn: (message, detail) => log.warn(`[wargames] ${message}: ${JSON.stringify(detail ?? {})}`),
   });
 
+  async function archiveStaleMatches(): Promise<void> {
+    if (staleEntriesById.size === 0) return;
+    const archiveDirectory = wargamesArchiveDirectoryOf(directory);
+    await fsp.mkdir(archiveDirectory, { recursive: true });
+    const unmovedEntries: unknown[] = [];
+    for (const [matchId, entry] of staleEntriesById) {
+      const moveError = await fsp.rename(logFileOf(matchId), path.join(archiveDirectory, `${matchId}.jsonl`)).then(() => null, (error: NodeJS.ErrnoException) => error);
+      if (moveError !== null && moveError.code !== 'ENOENT') {
+        unmovedEntries.push(entry);
+        log.warn(`[wargames] match ${matchId} is not on the current rules and its log could not move to ${archiveDirectory}: ${errorMessage(moveError)}`);
+        continue;
+      }
+      log.warn(`[wargames] match ${matchId} is not on the current rules; moved its log to ${archiveDirectory}`);
+    }
+    staleEntriesById.clear();
+    const snapshot = { version: 1 as const, summaries: [...listSummaries(), ...unmovedEntries] };
+    await indexStore.write(snapshot, () => JSON.stringify(snapshot, null, 2));
+  }
+
   async function load(): Promise<WargamesMatchSummary[]> {
     await fsp.mkdir(directory, { recursive: true });
     await indexStore.load();
+    await archiveStaleMatches();
     return listSummaries();
   }
 

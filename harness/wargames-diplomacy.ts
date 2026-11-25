@@ -40,12 +40,12 @@ function formatNumber(value: number | null): string {
 }
 
 function tableRows(metricsList: readonly DiplomacyMetrics[]): string[] {
-  const header = '| match | rules | ticks | msgs/seat/tick | public | proposed | accepted | kept | broken | support | coalitions | coalition mean | solo mean | betrayal swings | winner |';
-  const divider = `|${'---|'.repeat(15)}`;
+  const header = '| match | ticks | msgs/seat/tick | public | proposed | accepted | kept | broken | support | coalitions | coalition mean | solo mean | betrayal swings | winner |';
+  const divider = `|${'---|'.repeat(14)}`;
   const rows = metricsList.map((metrics) => {
     const winner = metrics.seats.find((seat) => seat.seatId === metrics.winnerSeatId);
     const winnerText = winner ? `${winner.seatId} ${winner.modelDisplay}${winner.isCoalitionMember ? ' (coalition)' : ''}` : '-';
-    return `| ${metrics.matchId} | ${metrics.rulesVersion} | ${metrics.ticksPlayed} | ${formatNumber(metrics.messagesPerSeatPerTick)} | ${metrics.publicMessages} | ${metrics.contractsProposed} | ${metrics.contractsAccepted} | ${metrics.contractsKept} | ${metrics.contractsBroken} | ${metrics.supportMarches} | ${metrics.coalitions.join(' ') || '-'} | ${formatNumber(metrics.coalitionMeanStanding)} | ${formatNumber(metrics.soloMeanStanding)} | ${metrics.betrayalSwings} | ${winnerText} |`;
+    return `| ${metrics.matchId} | ${metrics.ticksPlayed} | ${formatNumber(metrics.messagesPerSeatPerTick)} | ${metrics.publicMessages} | ${metrics.contractsProposed} | ${metrics.contractsAccepted} | ${metrics.contractsKept} | ${metrics.contractsBroken} | ${metrics.supportMarches} | ${metrics.coalitions.join(' ') || '-'} | ${formatNumber(metrics.coalitionMeanStanding)} | ${formatNumber(metrics.soloMeanStanding)} | ${metrics.betrayalSwings} | ${winnerText} |`;
   });
   return [header, divider, ...rows];
 }

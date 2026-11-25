@@ -1,5 +1,4 @@
 import { clock } from '#shared/clock.ts';
-import { WARGAMES_RULES_VERSION } from '#shared/contracts/wargames.ts';
 import type {
   MatchAnalytics,
   SeatId,
@@ -55,7 +54,7 @@ type ResyncRequester = (matchId: string) => Promise<void>;
 const listeners = new Set<Listener>();
 
 let matches: WargamesMatchSummary[] = [];
-let history: WargamesHistory = { currentRulesVersion: WARGAMES_RULES_VERSION, eloByModel: [], eloByVersion: {}, matches: [] };
+let history: WargamesHistory = { eloByModel: [], matches: [] };
 let watchedMatchId: string | null = null;
 let events: WargamesEvent[] = [];
 let headState: MatchState | null = null;

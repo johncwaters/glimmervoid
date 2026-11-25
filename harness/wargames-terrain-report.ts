@@ -1,25 +1,22 @@
-import { createHash } from 'node:crypto';
 import { WARGAMES_SEAT_IDS, WargamesMatchSpec } from '../shared/contracts/wargames.ts';
 import { createInitialMatchState } from '../shared/wargames/engine.ts';
 import type { MatchState } from '../shared/wargames/engine.ts';
 import { isPassable, widthRuleViolations } from '../shared/wargames/terrain.ts';
 
 const SEED_COUNT = 50;
-const NEW_TERRAIN_VERSION = 'v8';
 const MIN_BLOCKED_SHARE = 0.08;
 const MAX_BLOCKED_SHARE = 0.12;
 const MAP_SIZES = [{ name: 'Large', mapRadius: 6 }, { name: 'Huge', mapRadius: 8 }] as const;
 const SEAT_COUNTS = [4, 6] as const;
 const DIRECTIONS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]] as const;
 
-function specFor(rulesVersion: string, mapRadius: number, seatCount: number, seed: number): WargamesMatchSpec {
+function specFor(mapRadius: number, seatCount: number, seed: number): WargamesMatchSpec {
   return WargamesMatchSpec.parse({
     version: 1,
     title: 'Terrain report',
     seed,
     tickDeadlineSeconds: 60,
     maxTicks: 40,
-    rulesVersion,
     mapRadius,
     seats: WARGAMES_SEAT_IDS.slice(0, seatCount).map((seatId, index) => ({
       seatId,
@@ -67,23 +64,8 @@ function blockedNextToSite(state: MatchState): number {
   return siteIndices.filter((siteIndex) => neighborIndices(state, siteIndex).some((neighbor) => !isPassable(state.terrain[neighbor]))).length;
 }
 
-function terrainFingerprint(rulesVersions: readonly string[]): string {
-  const hash = createHash('sha256');
-  for (const rulesVersion of rulesVersions) {
-    for (const { mapRadius } of MAP_SIZES) {
-      for (const seatCount of SEAT_COUNTS) {
-        for (let index = 0; index < SEED_COUNT; index += 1) {
-          const state = createInitialMatchState('fingerprint', 0, specFor(rulesVersion, mapRadius, seatCount, seedAt(index)));
-          hash.update(JSON.stringify([state.terrain, state.villages.map((village) => (village === null ? null : { ...village, guests: undefined }))]));
-        }
-      }
-    }
-  }
-  return hash.digest('hex').slice(0, 16);
-}
-
 let failures = 0;
-console.log(`rules ${NEW_TERRAIN_VERSION}, ${SEED_COUNT} seeds per row`);
+console.log(`${SEED_COUNT} seeds per row`);
 console.log('size   seats  blocked share min/mean/max  width violations  largest feature  lone blockers  blocked next to home or beacon');
 for (const { name, mapRadius } of MAP_SIZES) {
   for (const seatCount of SEAT_COUNTS) {
@@ -93,7 +75,7 @@ for (const { name, mapRadius } of MAP_SIZES) {
     let loneBlockers = 0;
     let crowdedSites = 0;
     for (let index = 0; index < SEED_COUNT; index += 1) {
-      const state = createInitialMatchState('report', 0, specFor(NEW_TERRAIN_VERSION, mapRadius, seatCount, seedAt(index)));
+      const state = createInitialMatchState('report', 0, specFor(mapRadius, seatCount, seedAt(index)));
       shares.push(state.terrain.filter((kind) => !isPassable(kind)).length / state.terrain.length);
       violations += widthRuleViolations(state.hexes, state.terrain);
       const featureSizes = blockedFeatureSizes(state);
@@ -108,5 +90,4 @@ for (const { name, mapRadius } of MAP_SIZES) {
     console.log(`${name.padEnd(6)} ${String(seatCount).padEnd(6)} ${`${percent(Math.min(...shares))} / ${percent(mean)} / ${percent(Math.max(...shares))}`.padEnd(29)} ${String(violations).padEnd(17)} ${String(largest).padEnd(16)} ${String(loneBlockers).padEnd(14)} ${crowdedSites}${outOfBand > 0 ? `  (${outOfBand} seeds outside 8-12%)` : ''}`);
   }
 }
-console.log(`v6 and v7 terrain fingerprint: ${terrainFingerprint(['v6', 'v7'])}`);
 process.exitCode = failures === 0 ? 0 : 1;

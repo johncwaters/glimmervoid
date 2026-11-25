@@ -1623,7 +1623,7 @@
     },
     {
       "name": "elo",
-      "definition": "The Wargames rating of each model from finished matches, kept separately per rules version"
+      "definition": "The Wargames rating of each model from finished matches on the current rules"
     },
     {
       "name": "cost",
