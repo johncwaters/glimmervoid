@@ -113,6 +113,12 @@ interface TranscriptLine {
   content?: unknown;
   message?: { content?: unknown };
   apiError?: unknown;
+  isApiErrorMessage?: unknown;
+  compactMetadata?: { preTokens?: unknown; postTokens?: unknown } | null;
+  retryInMs?: unknown;
+  retryAttempt?: unknown;
+  maxRetries?: unknown;
+  error?: unknown;
   apiErrorParams?: { rate_limit_info?: { resetsAt?: unknown; rateLimitType?: unknown } | null } | null;
   origin?: { kind?: unknown } | null;
   turnOrigin?: { kind?: unknown } | string | null;
@@ -396,6 +402,8 @@ function usageLimitRecord(line: TranscriptLine, context: TraceLineContext): Trac
 function mapAssistantLine(rawLine: string, line: TranscriptLine, context: TraceLineContext): TraceRecord[] {
   const usageLimit = usageLimitRecord(line, context);
   if (usageLimit !== null) return [usageLimit];
+  const apiErrorMessage = apiErrorMessageRecord(line, context);
+  if (apiErrorMessage !== null) return [apiErrorMessage];
   const base = baseRecord(line, context);
   const records: TraceRecord[] = [];
   let hasSkippedThinkingBlock = false;
@@ -441,6 +449,39 @@ function isTypedCommandText(content: string): boolean {
   return TYPED_COMMAND_PATTERN.test(content);
 }
 
+function countOrNull(value: unknown, minimum: number): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= minimum ? value : null;
+}
+
+function apiErrorTextOf(error: unknown): string {
+  if (typeof error !== 'object' || error === null) return 'API error';
+  const formatted = Reflect.get(error, 'formatted');
+  const message = Reflect.get(error, 'message');
+  return rawTextOr(formatted, null) || rawTextOr(message, null) || 'API error';
+}
+
+function systemEventRecords(line: TranscriptLine, context: TraceLineContext): TraceRecord[] | null {
+  if (line.type !== 'system') return null;
+  if (line.subtype === 'compact_boundary') {
+    return [{ ...baseRecord(line, context), kind: 'compaction', tokensBefore: countOrNull(line.compactMetadata?.preTokens, 0), tokensAfter: countOrNull(line.compactMetadata?.postTokens, 0) }];
+  }
+  if (line.subtype !== 'api_error') return null;
+  return [{
+    ...baseRecord(line, context),
+    kind: 'agent-error',
+    text: apiErrorTextOf(line.error).slice(0, MAX_RAW_LINE_CHARS),
+    retryInMs: countOrNull(line.retryInMs, 0),
+    attempt: countOrNull(line.retryAttempt, 1),
+    maxAttempts: countOrNull(line.maxRetries, 1),
+  }];
+}
+
+function apiErrorMessageRecord(line: TranscriptLine, context: TraceLineContext): TraceRecord | null {
+  if (line.isApiErrorMessage !== true) return null;
+  const text = (firstTextBlock(contentBlocks(line)) ?? 'API error').slice(0, MAX_RAW_LINE_CHARS);
+  return { ...baseRecord(line, context), kind: 'agent-error', text, retryInMs: null, attempt: null, maxAttempts: null };
+}
+
 function localCommandRecords(line: TranscriptLine, context: TraceLineContext): TraceRecord[] | null {
   if (line.type !== 'system' || line.subtype !== 'local_command' || typeof line.content !== 'string') return null;
   const base = baseRecord(line, context);
@@ -456,6 +497,8 @@ function traceRecordsFromTranscriptLine(rawLine: string, context: TraceLineConte
   if (queuedRecords) return queuedRecords;
   const localCommand = localCommandRecords(line, context);
   if (localCommand) return localCommand;
+  const systemEvent = systemEventRecords(line, context);
+  if (systemEvent) return systemEvent;
   if (isDroppedLine(line)) return [];
   if (line.type === 'user') return mapUserLine(rawLine, line, context);
   if (line.type === 'assistant') return mapAssistantLine(rawLine, line, context);

@@ -24,12 +24,15 @@ export type ChatPart =
   | { kind: 'skill'; id: string; skillName: string }
   | { kind: 'system-line'; id: string; label: string; at: number; isRelayNews: boolean }
   | CommandPart
+  | AgentEventPart
   | BackgroundTaskPart
   | { kind: 'card'; id: string; card: ChatCard };
 
 export type TurnPart = { kind: 'turn'; id: string; openedAt: number | null; segments: readonly TurnSegment[]; droppedSegmentCount: number; toolCount: number; failedCount: number; fileEdits: FileEditTally; filePatches: readonly FilePatch[]; unshownPatchCount: number; thoughtText: string | null; durationText: string | null; isOver: boolean };
 
 export type CommandPart = { kind: 'command'; id: string; name: string; args: string; output: string | null; isOutputError: boolean; at: number };
+
+export type AgentEventPart = { kind: 'agent-event'; id: string; tone: 'plain' | 'warn' | 'error'; label: string; at: number };
 
 export type BackgroundTaskPart = { kind: 'background-task'; id: string; taskType: string | null; label: string; command: string | null; startedAt: number; endedAt: number | null };
 

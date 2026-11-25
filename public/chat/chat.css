@@ -181,6 +181,10 @@
 
 .chat-skill .chat-subagent-row { cursor: default; }
 
+.chat-agent-event[data-tone="warn"] .chat-system-label { color: var(--state-waiting); }
+
+.chat-agent-event[data-tone="error"] .chat-system-label { color: var(--state-failed); }
+
 .chat-command { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 
 .chat-command-chip {

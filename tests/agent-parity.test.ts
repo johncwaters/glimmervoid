@@ -466,6 +466,51 @@ for (const agent of FIRST_CLASS_AGENTS) {
   });
 }
 
+const COMPACTION_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-system-events.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
+  codex: { file: 'codex-compaction.jsonl', vendorSessionId: '01a11562-2d1f-7050-b101-621264c08ce9' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host; kimi-code 2.7.3 declares a compaction.completed wire record whose fields stay unknown until one is captured' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed compaction event exists to capture' },
+  pi: { unproducible: 'No pi session on the capture host has compacted, so no compaction entry exists to capture' },
+  antigravity: { file: 'antigravity-compaction.jsonl', vendorSessionId: '509ff452-883c-4f61-95c9-ddc2042dddec' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = COMPACTION_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`compaction on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`compaction on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    assert.ok(records.some((record) => record.kind === 'compaction'), `${agent} dropped the compaction`);
+  });
+}
+
+const AGENT_ERROR_FIXTURE_BY_AGENT: Record<FirstClassAgent, ConversationFixture | UnproducibleScenario> = {
+  'claude-code': { file: 'claude-system-events.jsonl', vendorSessionId: 'd20d65c5-7daf-4816-98db-8b99bd535ae6' },
+  codex: { unproducible: 'None of the 847 Codex rollouts on the capture host holds an error or stream_error item; Codex shows API errors and retries only in its TUI' },
+  kimi: { unproducible: 'No Kimi Code session exists on the capture host; kimi-code 2.7.3 declares turn.failed and turn.step.retrying wire records whose fields stay unknown until one is captured' },
+  opencode: { unproducible: 'OpenCode is not installed on the capture host, so no relayed session error event exists to capture' },
+  pi: { unproducible: 'No pi session on the capture host has hit an API error, so no error message entry exists to capture' },
+  antigravity: { unproducible: 'None of the 141 Antigravity transcripts on the capture host records an API error or retry step' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const fixture = AGENT_ERROR_FIXTURE_BY_AGENT[agent];
+  if ('unproducible' in fixture) {
+    test(`agent API errors and retries on ${agent}`, { skip: fixture.unproducible }, () => {});
+    continue;
+  }
+  test(`agent API errors and retries on ${agent}`, () => {
+    const records = convertedConversation(agent, fixture).map((record) => TraceRecord.parse(record));
+    const errors = records.filter((record) => record.kind === 'agent-error');
+    assert.ok(errors.some((record) => record.retryInMs !== null && record.attempt !== null), `${agent} dropped the retry`);
+    assert.ok(errors.some((record) => record.retryInMs === null && record.text.startsWith('API Error')), `${agent} dropped the API error reply`);
+    assert.ok(records.every((record) => record.kind !== 'assistant'), `${agent} showed an API error as a reply`);
+  });
+}
+
 function parsedUsageEntries(agent: FirstClassAgent, fixture: ConversationFixture): UsageEntry[] {
   const fixturePath = path.join(CONVERSATION_FIXTURE_DIRECTORY, fixture.file);
   const lines = fs.readFileSync(fixturePath, 'utf8').split('\n').filter((line) => line.length > 0);

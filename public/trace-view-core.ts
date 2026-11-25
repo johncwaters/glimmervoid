@@ -2,6 +2,7 @@ import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { byteSizeText } from '#shared/display-text.ts';
 import { formatClockOffset } from './radar/radar-core.ts';
 import type { TraceSessionOption, TraceTurn } from './trace-store-core.ts';
+import { agentErrorText, compactionText } from '#shared/trace-event-text.ts';
 
 export { hasEarlierTracePages } from './trace-store-core.ts';
 export type { TracePrepend, TraceSessionOption, TraceTurn, TraceTurnAppend, TraceViewRow } from './trace-store-core.ts';
@@ -9,6 +10,8 @@ export type { TracePrepend, TraceSessionOption, TraceTurn, TraceTurnAppend, Trac
 export function traceRecordBody(record: TraceRecord): string {
   if (record.kind === 'prompt' || record.kind === 'expansion' || record.kind === 'thinking' || record.kind === 'assistant' || record.kind === 'notice' || record.kind === 'usage_limit' || record.kind === 'command-output') return record.text;
   if (record.kind === 'model-change') return record.model;
+  if (record.kind === 'compaction') return compactionText(record);
+  if (record.kind === 'agent-error') return agentErrorText(record);
   if (record.kind === 'tool_result') return record.content;
   if (record.kind === 'raw') return record.line;
   if (record.kind === 'attachments') return record.files.join('\n');

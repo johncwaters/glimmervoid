@@ -174,3 +174,18 @@ test('each tool call settles from its result into the turn rows with its state, 
   ]);
   assert.deepEqual({ failedCount: endedTurn.failedCount, thoughtText: endedTurn.thoughtText }, { failedCount: 1, thoughtText: 'thought 2s' });
 });
+
+test('a retry abandoned by a new prompt settles as retried and never shares its row with the next turn', () => {
+  const base = { uuid: null, parentUuid: null, vendorSessionId: 'retry-session' };
+  const retry = (ts: number, attempt: number): TraceRecord => ({ ...base, ts, kind: 'agent-error', text: '529 Overloaded.', retryInMs: 2000, attempt, maxAttempts: 10 });
+  const state = createChatPartsState();
+  const agentEventsOf = (records: TraceRecord[]) => appendChatRecords(state, records).parts.filter((part) => part.kind === 'agent-event');
+  const [firstRetry] = agentEventsOf([{ ...base, ts: 1, kind: 'prompt', text: 'go' }, retry(2, 1), retry(3, 2)]);
+  assert.equal(firstRetry?.label, '529 Overloaded. Retrying in 2s, attempt 2 of 10');
+  const [settledRetry] = agentEventsOf([{ ...base, ts: 4, kind: 'notice', text: 'Interrupted' }]);
+  assert.deepEqual([settledRetry?.id, settledRetry?.label], [firstRetry?.id, '529 Overloaded. Retried 2 times']);
+  const nextTurnEvents = agentEventsOf([{ ...base, ts: 5, kind: 'prompt', text: 'turn two' }, retry(6, 1), { ...base, ts: 7, kind: 'assistant', text: 'done' }]);
+  assert.equal(nextTurnEvents.length, 1);
+  assert.notEqual(nextTurnEvents[0]?.id, firstRetry?.id);
+  assert.equal(nextTurnEvents[0]?.label, '529 Overloaded. Recovered after 1 retry');
+});

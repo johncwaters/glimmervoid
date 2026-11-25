@@ -1,0 +1,1 @@
+{"timestamp":"2026-10-07T08:07:16.555Z","ordinal":173,"type":"event_msg","payload":{"type":"item_completed","thread_id":"01a11562-2d1f-7050-b101-621264c08ce9","turn_id":"01a11562-2d72-75c0-a4bd-6f2128128163","item":{"type":"ContextCompaction","id":"01a11564-b1cb-7520-befc-6f6ebd971723"},"started_at_ms":1791360283083,"completed_at_ms":1791360436555}}

@@ -26,6 +26,8 @@ const Step = z.object({
 
 type Step = z.infer<typeof Step>;
 
+const COMPACTION_CHECKPOINT_HEADING = '# Resuming from a compaction';
+
 function stepId(vendorSessionId: string, stepIndex: number): string {
   return `${vendorSessionId}:step-${stepIndex}`;
 }
@@ -72,6 +74,7 @@ function midTurnRecords(records: TraceRecord[]): TraceRecord[] {
 function recordsOfStep(base: RecordBase, stepNamespace: string, step: Step): TraceRecord[] {
   if (step.type === 'PLANNER_RESPONSE') return plannerRecords(base, stepNamespace, step);
   if (step.type === 'GENERIC') return toolResultRecords(base, stepNamespace, step);
+  if (step.type === 'CHECKPOINT' && step.content.startsWith(COMPACTION_CHECKPOINT_HEADING)) return [{ ...base, kind: 'compaction', tokensBefore: null, tokensAfter: null }];
   if (step.type === 'SYSTEM_MESSAGE') return midTurnRecords(textRecords(base, 'expansion', taggedText(step.content, 'SYSTEM_MESSAGE') ?? step.content));
   if (step.type !== 'USER_INPUT') return [];
   const request = taggedText(step.content, 'USER_REQUEST') ?? step.content;

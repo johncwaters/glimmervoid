@@ -113,6 +113,18 @@ export const TraceRecord = z.discriminatedUnion('kind', [
     isError: z.boolean(),
   }),
   TraceRecordBase.extend({
+    kind: z.literal('compaction'),
+    tokensBefore: z.number().int().nonnegative().nullable(),
+    tokensAfter: z.number().int().nonnegative().nullable(),
+  }),
+  TraceRecordBase.extend({
+    kind: z.literal('agent-error'),
+    text: z.string().max(MAX_RAW_LINE_CHARS),
+    retryInMs: z.number().int().nonnegative().nullable(),
+    attempt: z.number().int().positive().nullable(),
+    maxAttempts: z.number().int().positive().nullable(),
+  }),
+  TraceRecordBase.extend({
     kind: z.literal('model-change'),
     model: z.string().min(1).max(200),
   }),

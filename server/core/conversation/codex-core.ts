@@ -111,7 +111,7 @@ function recordsOfItem(base: RecordBase, item: ItemCompleted['payload']['item'],
       return toolCallAndResult(base, item.id, 'view_image', { path: viewedPath }, viewedPath, false);
     }
     case 'ContextCompaction':
-      return [];
+      return [{ ...base, kind: 'compaction', tokensBefore: null, tokensAfter: null }];
     default:
       return rawRecord(base, rawLine);
   }

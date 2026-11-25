@@ -492,6 +492,13 @@ function renderCommand(part: Extract<ChatPart, { kind: 'command' }>): HTMLElemen
   return row;
 }
 
+function renderAgentEvent(part: Extract<ChatPart, { kind: 'agent-event' }>): HTMLElement {
+  const line = renderSystemLine({ kind: 'system-line', id: part.id, label: part.label, at: part.at, isRelayNews: false });
+  line.classList.add('chat-agent-event');
+  line.dataset.tone = part.tone;
+  return line;
+}
+
 function renderSkill(part: Extract<ChatPart, { kind: 'skill' }>): HTMLElement {
   const skillRow = el('div', 'chat-subagent chat-skill');
   const row = el('div', 'chat-subagent-row');
@@ -532,6 +539,7 @@ const RENDERER_BY_PART_KIND = {
   skill: renderSkill,
   'system-line': renderSystemLine,
   command: renderCommand,
+  'agent-event': renderAgentEvent,
   'background-task': renderBackgroundTask,
   card: (part) => renderCard(part.card),
 } satisfies ChatPartRendererTable;

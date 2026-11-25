@@ -1,7 +1,8 @@
 import type { TraceRecord } from '#shared/contracts/trace.ts';
 import { twoUnitDurationText } from '#shared/display-text.ts';
 import { type ActivityBeat, beatOfRecord, isEditingTool, loadedSkillOf } from './chat-activity-core.ts';
-import type { BackgroundTaskPart, ChatCard, ChatPart, CommandPart, TurnPart } from './chat-part.ts';
+import type { AgentEventPart, BackgroundTaskPart, ChatCard, ChatPart, CommandPart, TurnPart } from './chat-part.ts';
+import { agentErrorReasonOf, agentErrorText, compactionText, settledRetryText } from '#shared/trace-event-text.ts';
 import { SUBAGENT_TOOL_NAMES } from '#shared/subagent-tools.ts';
 import { opensOperatorTurn } from '#shared/trace-turn.ts';
 import { glimmervoidLineLabelOf, isRelayNewsLine, taskNotificationLabelOf } from '#shared/glimmervoid-lines.ts';
@@ -54,6 +55,7 @@ interface ChatPartsState {
   latestPrompt: PromptPart | null;
   newestPrompt: PromptPart | null;
   latestCommand: CommandPart | null;
+  openRetry: { part: AgentEventPart; reason: string; attempts: number } | null;
   openUsageLimitCard: UsageLimitCard | null;
   runningSubagents: Set<TrackedSubagent>;
   subagentByToolUseId: Map<string, TrackedSubagent>;
@@ -82,7 +84,7 @@ const BACKGROUND_TASK_TYPE_BY_TOOL_NAME: ReadonlyMap<string, string> = new Map([
 const BACKGROUND_TASK_LABEL_BY_TYPE: ReadonlyMap<string, string> = new Map([['shell', 'Shell'], ['monitor', 'Monitor'], ['workflow', 'Workflow']]);
 
 export function createChatPartsState(workingDirectory: string | null = null): ChatPartsState {
-  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, pendingBoardAnswer: null, latestPrompt: null, newestPrompt: null, latestCommand: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
+  return { nextPartNumber: 0, residentPartIds: [], turn: freshTurn(null), pendingAttachments: null, pendingBoardAnswer: null, latestPrompt: null, newestPrompt: null, latestCommand: null, openRetry: null, openUsageLimitCard: null, runningSubagents: new Set(), subagentByToolUseId: new Map(), subagentById: new Map(), backgroundCallByToolUseId: new Map(), backgroundLaunchByTaskId: new Map(), backgroundTaskById: new Map(), workingDirectory };
 }
 
 function freshTurn(promptAt: number | null): ChatTurn {
@@ -339,6 +341,8 @@ function systemLinePartOf(state: ChatPartsState, record: TraceRecord): ChatPart 
   return { kind: 'system-line', id: nextPartId(state, 'system-line'), label, at: record.ts, isRelayNews };
 }
 
+const RETRY_ABANDONING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['prompt', 'notice', 'usage_limit', 'session', 'compaction']);
+const RETRY_SETTLING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['assistant', 'tool_call', 'thinking']);
 const COMMAND_ENDING_KINDS: ReadonlySet<TraceRecord['kind']> = new Set(['prompt', 'assistant', 'tool_call']);
 const COMMAND_NAME_PATTERN = /^\s*(?:<command-message>[\s\S]*?)?<command-name>([^<\r\n]+)<\/command-name>/;
 const COMMAND_ARGS_PATTERN = /<command-args>([\s\S]*?)<\/command-args>/;
@@ -361,7 +365,34 @@ function commandWithOutputOf(state: ChatPartsState, record: Extract<TraceRecord,
   return state.latestCommand;
 }
 
+function agentErrorPartOf(state: ChatPartsState, record: Extract<TraceRecord, { kind: 'agent-error' }>): AgentEventPart {
+  if (record.retryInMs === null) {
+    state.openRetry = null;
+    return { kind: 'agent-event', id: nextPartId(state, 'agent-event'), tone: 'error', label: record.text, at: record.ts };
+  }
+  const id = state.openRetry?.part.id ?? nextPartId(state, 'agent-event');
+  const part: AgentEventPart = { kind: 'agent-event', id, tone: 'warn', label: agentErrorText(record), at: record.ts };
+  state.openRetry = { part, reason: agentErrorReasonOf(record), attempts: (state.openRetry?.attempts ?? 0) + 1 };
+  return part;
+}
+
+function hasRetryGivenUp(record: TraceRecord): boolean {
+  if (record.kind === 'agent-error') return record.retryInMs === null;
+  return RETRY_ABANDONING_KINDS.has(record.kind);
+}
+
+function settledRetryPartOf(state: ChatPartsState, record: TraceRecord): AgentEventPart | null {
+  const openRetry = state.openRetry;
+  if (openRetry === null) return null;
+  const hasRecovered = RETRY_SETTLING_KINDS.has(record.kind);
+  if (!hasRecovered && !hasRetryGivenUp(record)) return null;
+  state.openRetry = null;
+  return { ...openRetry.part, tone: 'plain', label: settledRetryText(openRetry.reason, openRetry.attempts, hasRecovered) };
+}
+
 function nonPromptPartOf(state: ChatPartsState, record: TraceRecord): ChatPart | null {
+  if (record.kind === 'compaction') return { kind: 'agent-event', id: nextPartId(state, 'agent-event'), tone: 'plain', label: compactionText(record), at: record.ts };
+  if (record.kind === 'agent-error') return agentErrorPartOf(state, record);
   const commandPart = typedCommandPartOf(state, record);
   if (commandPart !== null) return commandPart;
   if (record.kind === 'command-output') return commandWithOutputOf(state, record);
@@ -601,6 +632,8 @@ export function appendChatRecords(state: ChatPartsState, appended: readonly Trac
   for (const record of appended) {
     const passedUsageLimitPart = passedUsageLimitPartOf(state, record);
     if (passedUsageLimitPart) emit(passedUsageLimitPart);
+    const settledRetryPart = record.agentId === undefined ? settledRetryPartOf(state, record) : null;
+    if (settledRetryPart) emit(settledRetryPart);
     const part = chatPartOf(state, record);
     if (part) emit(part);
     noteTurnRecord(state, record, emit);

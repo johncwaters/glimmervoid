@@ -1,0 +1,1 @@
+{"step_index":85,"source":"SYSTEM","type":"CHECKPOINT","status":"DONE","created_at":"2026-11-16T21:22:30Z","input_tokens":3074,"cache_read_tokens":43959,"output_tokens":1407,"content":"# Resuming from a compaction\n\nYou are continuing work on the task described above, but you have lost access to the full conversation history.","truncated_fields":["content"]}
