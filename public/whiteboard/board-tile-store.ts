@@ -348,7 +348,6 @@ function resyncTilesIfBehind(versionByBoardId: ReadonlyMap<string, number>): voi
 
 function resendTilesView(): void {
   if (!state) return;
-  state.version = null;
   sendView(state);
 }
 

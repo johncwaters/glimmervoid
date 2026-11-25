@@ -218,14 +218,6 @@ function peekChangedBox(event: PointerEvent): void {
   paintChangesPeek();
 }
 
-function closeWatches(): void {
-  for (const watch of watchBySessionId.values()) {
-    watch.feed.close();
-    watch.waits.close();
-  }
-  watchBySessionId = new Map();
-}
-
 function openWatch(sessionId: string): SessionWatch {
   const watch: SessionWatch = {
     feed: createChatFeed({
@@ -249,6 +241,11 @@ function openWatch(sessionId: string): SessionWatch {
     waits: createAgentWaits(sessionId, showNotice),
   };
   return watch;
+}
+
+function catchUpWatch(watch: SessionWatch): void {
+  watch.feed.whenCaughtUp(paintPresence);
+  watch.feed.refresh();
 }
 
 function syncWatches(): void {
@@ -511,7 +508,7 @@ function observeFixedAreas(observed: readonly HTMLElement[]): void {
 }
 
 function paintPresence(): void {
-  if (!parts) return;
+  if (!parts || !isActive) return;
   const tierByBoxId = new Map<string, GlowTier>();
   const markPaths = (sessionId: string, paths: readonly string[], tier: GlowTier) => {
     for (const boxId of paths.flatMap((presencePath) => boxIdOfPresencePath(sessionId, presencePath) ?? [])) {
@@ -916,6 +913,7 @@ function activateBoardSessionView(): void {
   if (host.parentElement !== parts.root) parts.root.replaceChildren(host);
   placeBoardTitle(null);
   seatOnHost();
+  for (const watch of watchBySessionId.values()) catchUpWatch(watch);
   showStudio();
   requestDigests();
   reopenSelectedBoard();
@@ -924,7 +922,7 @@ function activateBoardSessionView(): void {
 function deactivateBoardSessionView(): void {
   isActive = false;
   missingMap = null;
-  closeWatches();
+  for (const watch of watchBySessionId.values()) watch.waits.close();
   ensuredAnchorId = null;
   closeMenu();
   if (parts) leaveBoardHost(parts.guest);

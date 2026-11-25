@@ -603,6 +603,29 @@ async function verifyQueuedMessagesDeliveredOnceInOrder(page: Page, studioMainId
   await root.locator('.bs-card[data-main][data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
 }
 
+const SentControlFrame = z.object({ type: z.string(), endingAt: z.unknown().optional(), knownVersion: z.number().nullable().optional() }).passthrough();
+
+async function verifyStudioReopenKeepsState(page: Page, orchestratorFace: Locator): Promise<void> {
+  await page.evaluate(() => {
+    const recorded: string[] = [];
+    Reflect.set(window, '__sentControlFrames', recorded);
+    const nativeSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function recordAndSend(frame) {
+      if (typeof frame === 'string') recorded.push(frame);
+      nativeSend.call(this, frame);
+    };
+  });
+  await page.locator('#tab-settings').click();
+  await page.locator('#tab-board-session').click();
+  await orchestratorFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await delay(ADDRESS_SETTLE_MS);
+  const sentFrames = z.array(z.string()).parse(await page.evaluate(() => Reflect.get(window, '__sentControlFrames'))).map((frame) => SentControlFrame.parse(JSON.parse(frame)));
+  const seedTraceReads = sentFrames.filter((frame) => frame.type === 'session-trace' && frame.endingAt === 'tail');
+  assert.equal(seedTraceReads.length, 0, `reopening Studio reads only new trace records, never a session's tail again (${seedTraceReads.length} tail reads)`);
+  const freshTileViews = sentFrames.filter((frame) => frame.type === 'whiteboard-view' && frame.knownVersion === null);
+  assert.equal(freshTileViews.length, 0, `reopening Studio asks for the map with the tile version it holds, so only missing tiles come back (${freshTileViews.length} fresh views)`);
+}
+
 async function verifyStudioModelSwitch(page: Page, root: Locator): Promise<void> {
   const railModelButton = root.locator('.bs-pill .chat-rail').getByRole('button', { name: /^Change model/ });
   await railModelButton.waitFor({ timeout: RAIL_REPAINT_WAIT_MS });
@@ -702,6 +725,7 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   await page.locator('#tab-board-session').click();
   await orchestratorFace.waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   assertSameBox(pillBefore, await boxOf(page, '.board-session-view .bs-pill'), 'the pill after the Orchestrator replies');
+  await verifyStudioReopenKeepsState(page, orchestratorFace);
   await verifyStudioModelSwitch(page, root);
 
   const mapViewport = root.locator('.wb-viewport');

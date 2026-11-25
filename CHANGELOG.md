@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Studio no longer reloads every time you open it.** Coming back to Studio keeps each agent card's glow, activity and digest and reads only what happened while it was hidden, and the map asks only for tiles it is missing instead of downloading all of them again. The same applies when the board view comes back in Focus or Boards.
 - **Idle compaction no longer strands a session waiting on background work in RUNNING.** When Claude Code auto-compacted while a stopped turn was still held over a background shell task or subagent, Glimmervoid dropped the held turn-end gate and muted title signals, leaving the card in RUNNING even after the background task timed out. Glimmervoid now preserves and re-arms the held gate across idle compaction so the card settles once the background work finishes or expires.
 - **pnpm 11 lockfiles it cannot read are skipped quietly again.** pnpm 11 writes its error code in brackets (`[ERR_PNPM_LOCKFILE_BREAKING_CHANGE]`), which Glimmervoid missed, so an old lockfile in a session worktree showed an install warning ending "To keep the existing lockfile, install the version of pnpm that generated it" instead of being skipped. Other pnpm 11 install failures now quote their error code too.
 
