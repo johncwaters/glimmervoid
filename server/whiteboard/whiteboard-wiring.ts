@@ -215,6 +215,7 @@ interface WhiteboardPort {
   putPrCard(boardId: string, card: ServerCard): Promise<WhiteboardReply>;
   openAsksOf(boardId: string): Promise<OpenBoardAsk[]>;
   boardOf(boardId: string): Promise<Board | null>;
+  boxRectsOf(boardId: string, boxIds: readonly string[]): Promise<Record<string, Rect>>;
   readPlanBoard(caller: WhiteboardCaller, boardRef: string): Promise<{ ok: true; board: Board; summary: BoardSummary } | { ok: false; reply: WhiteboardReply }>;
   handleOperator: {
     create(title: string): Promise<OperatorReply>;
@@ -1610,6 +1611,16 @@ function createWhiteboardWiring({
     }
   }
 
+  async function boxRectsOf(boardId: string, boxIds: readonly string[]): Promise<Record<string, Rect>> {
+    const board = boxIds.length === 0 ? null : await loadedBoardOf(boardId);
+    if (!board) return {};
+    const pins = await tiles.pinPositionsOf(board, [...new Set(boxIds)]);
+    return Object.fromEntries(boxIds.flatMap((boxId) => {
+      const laidOut = pins.laidOutBoxOf(boxId);
+      return laidOut ? [[boxId, { x: laidOut.x, y: laidOut.y, width: laidOut.width, height: laidOut.height }]] : [];
+    }));
+  }
+
   async function ownCardNear(board: Board, sessionId: string, pinnedOffsetY: number): Promise<{ rect: Rect; boxesNear: Rect[] } | null> {
     const newestOwnCardId = ownShownCardIdsOf(board, sessionId).at(-1);
     if (newestOwnCardId === undefined) return null;
@@ -1949,7 +1960,7 @@ function createWhiteboardWiring({
     operatorViewOf: tiles.operatorViewOf,
   };
 
-  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, putPrCard, openAsksOf, boardOf: loadedBoardOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, close, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
+  return { loaded, assets, handleAgent, layoutChecksOf, layoutFreshnessOf, putWithoutReadCheck, putAsks, putPrCard, openAsksOf, boardOf: loadedBoardOf, boxRectsOf, readPlanBoard, handleOperator, retitleProvisionalBoard, forgetSession, forgetClosedSessions, fileUnfiledBoards, followLinkedFolders, stopFollowingLinkedFolders, close, takeBoardNotice, isConnected, snapshotMessage, tiles: tilesOnFirstUse, layouts };
 }
 
 export { createWhiteboardWiring, WHITEBOARDS_FOLDER_NAME };

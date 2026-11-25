@@ -17,6 +17,7 @@ import { createKeyedSerialQueue } from '../spawn-gate.ts';
 import { BoxMedia, Op, WHITEBOARD_LIMITS } from '../../shared/contracts/whiteboard.ts';
 import { CODEMAP_AUTHOR } from '../../shared/contracts/whiteboard-ops-core.ts';
 import type { WhiteboardPort } from '../whiteboard/whiteboard-wiring.ts';
+import type { Rect } from '../../shared/whiteboard-layout-core.ts';
 import { createJsonStateStore, writeTextAtomic } from '../json-file.ts';
 import { fileTextAtCommit, mainlineShaOf, readCodemapSetup, readDesignSpec, recentCommitsOf, repoKeyOf, revParse, ticketTrailersOf, updateCodemapSetup, judgedTreeOf, worktreeRootOf } from './codemap-store.ts';
 import { CODEMAP_EXPORT_FILE_BY_KIND, branchBoxChoicesOf, buildCodemapModel, folderOfMapBoxId, folderMatrixCsvOf, withoutUnchangedSets, ceilingBreachesOf, checkTextOf, seededSetupOf, settledSetupOf, exportedMapTextOf, exportVerdictOf, isExportWrittenText, lintConfigTextOf, churnByModuleOf, CODEMAP_TUNABLES, drawnBoxIdOfPath, fallbackBoxIdOf, moduleBoxIdOf, moduleOfPath, overlayOpsOf, specPlanOpsOf, codemapNoticeOf, isCheckRefusing, newCyclesOf, shrunkAllowListOf, staleAllowedEdgesOf, unallowedEdgesOf, unjudgedPathsOf, unresolvedImportsOf, impactOf, mapBoardOpsOf, mapStampOpsOf, mapTextOf, whereOf } from '../core/codemap-graph-core.ts';
@@ -234,7 +235,7 @@ async function noDefaultBranch(): Promise<string | null> {
   return null;
 }
 
-type MapBoards = Pick<WhiteboardPort, 'handleAgent' | 'putWithoutReadCheck' | 'handleOperator' | 'readPlanBoard'>;
+type MapBoards = Pick<WhiteboardPort, 'handleAgent' | 'putWithoutReadCheck' | 'handleOperator' | 'readPlanBoard' | 'boxRectsOf'>;
 
 interface CodemapServiceOptions {
   client?: CodemapClient;
@@ -664,6 +665,10 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     };
   }
 
+  function boxRectsOf(boardId: string, boxIds: readonly string[]): Promise<Record<string, Rect>> {
+    return whiteboards ? whiteboards.boxRectsOf(boardId, boxIds) : Promise.resolve({});
+  }
+
   function branchTargetAt(boxId: string, repoPath: string): BranchTarget {
     const title = repoPath === '.' ? REPO_ROOT_BRANCH_TITLE : repoPath;
     if (title.length > WHITEBOARD_LIMITS.title) return { ok: false, error: `${repoPath} is too long a path to name a branch after; start the branch on a folder above it` };
@@ -792,7 +797,7 @@ function createCodemapService({ client = createCodemapClient(), detectDefaultBra
     return { ok: true, reply: { ok: true, text: checked.text, status } };
   }
 
-  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, branchTargetOf, setFolderOpen, mapBoardIdOfRepo };
+  return { handle, attachSession, noticeOf, builtInChecksOf, requiredCheckIdsOf, boxesOfSession, boxRectsOf, branchTargetOf, setFolderOpen, mapBoardIdOfRepo };
 }
 
 type CodemapService = ReturnType<typeof createCodemapService>;

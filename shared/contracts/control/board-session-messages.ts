@@ -3,6 +3,7 @@ import { loose, optionalError, requestId, sessionId } from './control-fields.ts'
 import { SessionProgressAnswer } from '../director-digests.ts';
 import { StudioGuideStep } from '../studio-guide.ts';
 import { BoardAsk } from '../whiteboard.ts';
+import { LayoutRect } from '../whiteboard-tiles.ts';
 import { WHITEBOARD_LIMITS } from '../../whiteboard-constants.ts';
 
 export const CODEMAP_BOXES_MAX_PATHS = 200;
@@ -48,6 +49,7 @@ export const boardSessionServerVariants = [
     boxIdByPath: z.record(z.string(), z.string()).default({}),
     fallbackBoxId: z.string().nullable().default(null),
     changedBoxIds: z.array(z.string()).default([]),
+    boxRectById: z.record(z.string(), LayoutRect).default({}),
     boxChoices: z.array(z.object({ boxId: z.string(), title: z.string() })).max(CODEMAP_BOX_CHOICES_MAX).default([]),
     isMapFailed: z.boolean().default(false),
     error: optionalError,

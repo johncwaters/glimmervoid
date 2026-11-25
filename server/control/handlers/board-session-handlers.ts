@@ -49,7 +49,8 @@ function createBoardSessionHandlers(context: ControlContext, deps: ControlHandle
       if (!codemap) return ws.send(JSON.stringify({ ...reply, ok: false, error: CODE_MAP_OFF_TEXT }));
       try {
         const boxes = await codemap.boxesOfSession(session.path, session.id, message.paths);
-        ws.send(JSON.stringify({ ...reply, ...boxes }));
+        const boxRectById = boxes.ok && boxes.boardId ? await codemap.boxRectsOf(boxes.boardId, [...Object.values(boxes.boxIdByPath), ...boxes.changedBoxIds, boxes.fallbackBoxId]) : {};
+        ws.send(JSON.stringify({ ...reply, ...boxes, boxRectById }));
       } catch (error) {
         ws.send(JSON.stringify({ ...reply, ok: false, error: `Code map read failed: ${errorMessage(error)}` }));
       }
