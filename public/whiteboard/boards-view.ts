@@ -142,12 +142,14 @@ interface BoardsViewParts {
   world: HTMLElement;
 }
 
+export type GuestFirstView = { isReady: false } | { isReady: true; camera: Camera | null };
+
 export interface BoardHostGuest {
   chrome: HTMLElement;
   overlays: readonly HTMLElement[];
   worldLayer: HTMLElement;
   markedBoxIds: () => ReadonlySet<string>;
-  firstViewArea: (boardBounds: Rect, viewWidthPx: number, viewHeightPx: number) => Rect | null;
+  firstView: (boardBounds: Rect, viewWidthPx: number, viewHeightPx: number) => GuestFirstView;
   setStackOpen: (boardId: string, frameId: string, isOpen: boolean) => Promise<boolean>;
   onBoxClicked: (boardId: string, boxId: string) => void;
   onPainted: (camera: Camera) => void;
@@ -779,32 +781,31 @@ export function paintBoard(): void {
   paintReview();
   paintAgentChange();
   editor?.afterBoardPaint(tiled.version);
-  if (firstViewOfNextRender) {
-    showFirstView(board.id, firstViewOfNextRender);
-    firstViewOfNextRender = null;
-  }
+  if (firstViewOfNextRender && showFirstView(board.id, firstViewOfNextRender)) firstViewOfNextRender = null;
   focusAgentChangeOf(board.id);
   paintToolbar();
   guest?.onPainted(hostCamera);
 }
 
-function showFirstView(boardId: string, firstView: 'fit' | 'kept camera'): void {
+function showFirstView(boardId: string, firstView: 'fit' | 'kept camera'): boolean {
   const keptCamera = firstView === 'kept camera' ? keptCameraByBoardId.get(boardId) : undefined;
   if (keptCamera) {
     editor?.showCamera(keptCamera);
-    return;
+    return true;
   }
-  fitFirstView();
+  return fitFirstView();
 }
 
-function fitFirstView(): void {
+function fitFirstView(): boolean {
   const layout = renderer?.layout();
-  const area = layout && parts ? guest?.firstViewArea(layout.bounds, parts.viewport.clientWidth, parts.viewport.clientHeight) : null;
-  if (area) {
-    editor?.fitArea(area);
-    return;
+  const guestFirstView = layout && parts && guest ? guest.firstView(layout.bounds, parts.viewport.clientWidth, parts.viewport.clientHeight) : null;
+  if (guestFirstView && !guestFirstView.isReady) return false;
+  if (guestFirstView?.camera) {
+    editor?.showCamera(guestFirstView.camera);
+    return true;
   }
   editor?.fit();
+  return true;
 }
 
 const boardPickListeners: ((boardId: string) => void)[] = [];

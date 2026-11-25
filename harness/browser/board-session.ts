@@ -4,6 +4,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Locator, Page } from 'playwright-core';
 import { BOARD_ASK_QUESTION, DIRECTOR_DIGEST_TEXT, RESUMED_AFTER_QUESTION_TEXT, SHOWN_PAGE_REPLY, SHOWN_PAGE_TICKED_TEXT, SHOW_CARD_BELOW_COMMAND, STUDIO_PROGRESS_ANSWER } from './cases-core.ts';
 import fs from 'node:fs';
+import { z } from 'zod';
+import { readableFloorScale } from '../../public/board-session/board-session-core.ts';
 import { boardElementsOf, boxBoardRectsOf, boxScreenRectsOf, clickBoardBoxWhere, controlReplyOf, createBoardOverControl, hoverBoardBoxWhere, showBoardInFocus } from './boards.ts';
 import { DRAFT_PR_STATE, FAKE_PR_NUMBER, FAKE_PR_STATE_ENV, FAKE_PR_URL, READY_PR_STATE } from './fake-pr.ts';
 import type { Element as BoardElement } from '../../shared/contracts/whiteboard.ts';
@@ -32,6 +34,7 @@ const STEADY_PAN_STEP_PX = 50;
 const STEADY_PAN_SETTLE_MS = 1500;
 const MAP_PAN_STEP_PX = 1500;
 const MAP_GLIDE_SETTLE_MS = 800;
+const FIRST_VIEW_CENTER_TOLERANCE_PX = 2;
 
 async function boxOf(page: Page, selector: string): Promise<Box> {
   const box = await page.locator(selector).boundingBox();
@@ -60,25 +63,34 @@ async function waitForRefundsInParent(projectDirectory: string): Promise<void> {
   assert.fail(`the branch commit reached ${branchesHoldingRefunds(projectDirectory)} branch, not the branch and its parent`);
 }
 
+const StudioMapBoxes = z.object({
+  boardId: z.string().nullable().default(null),
+  changedBoxIds: z.array(z.string()).default([]),
+  boxRectById: z.record(z.string(), z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })).default({}),
+});
+
 async function studioMapBoardIdOf(page: Page, root: Locator): Promise<string | null> {
+  return (await studioMapBoxesOf(page, root)).boardId;
+}
+
+async function studioMapBoxesOf(page: Page, root: Locator): Promise<z.infer<typeof StudioMapBoxes>> {
   const mapSessionId = await root.locator('.bs-card[data-main]').first().getAttribute('data-session-id');
   assert.ok(mapSessionId, 'the main card names its session');
-  return page.evaluate(async (sessionId) => {
+  return StudioMapBoxes.parse(await page.evaluate(async (sessionId) => {
     const tokenReply: unknown = await fetch('/control-token', { credentials: 'same-origin', cache: 'no-store' }).then((response) => response.json());
     const token = typeof tokenReply === 'object' && tokenReply !== null && 'token' in tokenReply && typeof tokenReply.token === 'string' ? tokenReply.token : '';
     const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/control?token=${encodeURIComponent(token)}`);
     const requestId = `harness-boxes-${Date.now()}`;
-    return new Promise<string | null>((resolve) => {
+    return new Promise<unknown>((resolve) => {
       socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'codemap-boxes-of', requestId, id: sessionId, paths: [] })));
       socket.addEventListener('message', (event) => {
         const reply: unknown = JSON.parse(String(event.data));
         if (typeof reply !== 'object' || reply === null || Reflect.get(reply, 'requestId') !== requestId) return;
         socket.close();
-        const boardId = Reflect.get(reply, 'boardId');
-        resolve(typeof boardId === 'string' ? boardId : null);
+        resolve(reply);
       });
     });
-  }, mapSessionId);
+  }, mapSessionId));
 }
 
 async function shownPageBoundsOf(page: Page): Promise<Box> {
@@ -230,6 +242,7 @@ async function verifyShownCardKeepsMapInView(page: Page): Promise<void> {
   const pageReplyChangeAt = await pageReplyRow.getAttribute('data-board-change-at');
   const anchorBox = (await boardElementsOf(page, root, boardId)).find((element) => element.kind === 'box' && element.title.startsWith('Map at'));
   assert.ok(anchorBox, 'the map has its freshness box to show a card below');
+  await root.getByRole('button', { name: 'Fit', exact: true }).click();
   const viewport = await boxOf(page, '.board-session-view .wb-viewport');
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const anchorRect = (await boxScreenRectsOf(page, root, boardId)).get(anchorBox.id);
@@ -447,8 +460,56 @@ async function waitForLogAtNewest(page: Page, reason: string): Promise<void> {
   assert.equal(reachedNewest, true, reason);
 }
 
+async function holdStudioMapBoxesReplies(page: Page): Promise<() => Promise<void>> {
+  const heldReplies: (() => void)[] = [];
+  let isHolding = true;
+  await page.routeWebSocket((url) => url.pathname === '/control', (pageSide) => {
+    const serverSide = pageSide.connectToServer();
+    pageSide.onMessage((message) => serverSide.send(message));
+    serverSide.onMessage((message) => {
+      const text = typeof message === 'string' ? message : message.toString('utf8');
+      const isStudioBoxesReply = text.includes('"codemap-boxes-of-response"') && !text.includes('harness-boxes-');
+      if (isHolding && isStudioBoxesReply) {
+        heldReplies.push(() => pageSide.send(message));
+        return;
+      }
+      pageSide.send(message);
+    });
+    pageSide.onClose(() => serverSide.close());
+    serverSide.onClose(() => pageSide.close());
+  });
+  return async () => {
+    isHolding = false;
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    for (const sendHeldReply of heldReplies) sendHeldReply();
+    assert.ok(heldReplies.length > 0, 'Studio asked for its map boxes while the harness held the replies');
+  };
+}
+
+async function verifyFirstViewFramesSessionBoxes(page: Page, root: Locator): Promise<void> {
+  const { changedBoxIds, boxRectById } = await studioMapBoxesOf(page, root);
+  const floorScale = readableFloorScale(await root.evaluate((element) => Number.parseFloat(getComputedStyle(element).getPropertyValue('--type-title'))));
+  const viewport = await boxOf(page, '.board-session-view .wb-viewport');
+  const sessionRects = changedBoxIds.flatMap((boxId) => boxRectById[boxId] ?? []);
+  const sessionLeft = Math.min(...sessionRects.map((rect) => rect.x));
+  const sessionRight = Math.max(...sessionRects.map((rect) => rect.x + rect.width));
+  const isFirstViewRight = (camera: { x: number; y: number; scale: number }) => {
+    if (camera.scale < floorScale - 0.001 || camera.scale > 1.001) return false;
+    if (sessionRects.length === 0) return Math.abs(camera.scale - floorScale) < 0.001;
+    const sessionCenterPx = viewport.x + ((sessionLeft + sessionRight) / 2 - camera.x) * camera.scale;
+    return Math.abs(sessionCenterPx - (viewport.x + viewport.width / 2)) <= FIRST_VIEW_CENTER_TOLERANCE_PX;
+  };
+  let camera = await studioCameraOf(page);
+  await pollFor('the Studio first view to frame the session boxes', BOARD_SESSION_TIMEOUT_MS, async () => {
+    camera = await studioCameraOf(page);
+    return isFirstViewRight(camera) ? true : null;
+  }).catch(() => undefined);
+  assert.ok(isFirstViewRight(camera), `after a reload, with the map boxes arriving while Focus shows, Studio frames the session boxes ${JSON.stringify(sessionRects)} between the readable floor ${floorScale} and natural size (camera ${JSON.stringify(camera)})`);
+}
+
 async function verifyStudioChatOpensAtNewest(page: Page): Promise<void> {
   const root = page.locator('.board-session-view');
+  const releaseMapBoxesReplies = await holdStudioMapBoxesReplies(page);
   await page.reload();
   await page.locator('#tab-board-session').click();
   await root.locator('.bs-card[data-main][data-phase="working"]').first().waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
@@ -457,9 +518,11 @@ async function verifyStudioChatOpensAtNewest(page: Page): Promise<void> {
   await waitForLogAtNewest(page, 'the Studio chat opens on its newest message');
   await page.locator('#tab-focus').click();
   await page.locator('.focus-view').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
+  await releaseMapBoxesReplies();
   await page.locator('#tab-board-session').click();
   await root.locator('.bs-log').waitFor({ timeout: BOARD_SESSION_TIMEOUT_MS });
   await waitForLogAtNewest(page, 'the Studio chat reopens on its newest message after another tab');
+  await verifyFirstViewFramesSessionBoxes(page, root);
 }
 
 async function verifyStudioRailShowsNoSubagents(page: Page, studioMainId: string): Promise<void> {
@@ -605,13 +668,13 @@ export async function verifyBoardSession(page: Page, projectDirectory: string): 
   const offsetBeforePan = await mainCardOffsetFromMap();
   await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
   for (let step = 0; step < STEADY_PAN_STEPS; step += 1) {
-    await page.mouse.wheel(STEADY_PAN_STEP_PX, STEADY_PAN_STEP_PX);
+    await page.mouse.wheel(STEADY_PAN_STEP_PX, 0);
     await pollFor(`the main card to move with the map while it pans (step ${step + 1})`, STEADY_PAN_SETTLE_MS, async () => {
       const offset = await mainCardOffsetFromMap();
       return offset.x === offsetBeforePan.x && offset.y === offsetBeforePan.y ? offset : null;
     });
   }
-  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX, -STEADY_PAN_STEP_PX);
+  for (let step = 0; step < STEADY_PAN_STEPS; step += 1) await page.mouse.wheel(-STEADY_PAN_STEP_PX, 0);
   const panMap = async (deltaY: number) => {
     await page.mouse.move(panAwayFrom.x + 30, panAwayFrom.y + panAwayFrom.height / 2);
     for (let step = 0; step < MAP_PAN_STEPS; step += 1) await page.mouse.wheel(0, deltaY);

@@ -2194,7 +2194,6 @@ export function createBoardEditor(options: BoardEditorOptions) {
 
   return {
     fit,
-    fitArea: (bounds: Rect) => fitArea(bounds, MAX_FIT_ZOOM),
     frameArea: glideToArea,
     glideToView,
     showCamera,

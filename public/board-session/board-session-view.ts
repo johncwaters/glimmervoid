@@ -15,13 +15,13 @@ import { createPressable } from '../ui/pressable.ts';
 import type { ViewModule } from '../view-registry-core.ts';
 import type { Camera } from '../whiteboard/board-gl-renderer.ts';
 import { boundsOfHostBox, glideHostTo, leaveBoardHost, mountBoardHost, paintBoard, placeBoardTitle, reopenSelectedBoard, showBoardBeside } from '../whiteboard/boards-view.ts';
-import type { BoardHostGuest } from '../whiteboard/boards-view.ts';
+import type { BoardHostGuest, GuestFirstView } from '../whiteboard/boards-view.ts';
 import { boardSummariesOf, onBoardListChanged } from '../whiteboard/board-store.ts';
 import { dismissAgentChange, markAgentChangeShown, onAgentChange, ringAgentChange, tiledBoardOf } from '../whiteboard/board-tile-store.ts';
 import type { AgentChip } from '../whiteboard/board-tile-store.ts';
 import { SHOWN_BOX_ID_RE } from '#shared/whiteboard-constants.ts';
 import { onBoardSessionStatusChanged, onBoardSessionTraceChanged, onDirectorDigestKept } from './board-session-signals.ts';
-import { isBelowFloor, pickedRepoPath, readableFloorScale, repoChoicesOf, viewMovedToShow } from './board-session-core.ts';
+import { firstViewCamera, pickedRepoPath, readableFloorScale, repoChoicesOf, viewMovedToShow } from './board-session-core.ts';
 import { unionOf } from '#shared/whiteboard-route-core.ts';
 import type { Rect } from '#shared/whiteboard-layout-core.ts';
 import type { RepoChoice, RepoSession } from './board-session-core.ts';
@@ -124,6 +124,8 @@ let hostCamera: Camera = { x: 0, y: 0, scale: 1 };
 let shownFixedAreas: readonly Rect[] = [];
 let dock: Dock | null = null;
 let boxesRequestSerial = 0;
+let boxesAnsweredSessionId: string | null = null;
+let boxRectById: Readonly<Record<string, Rect>> = {};
 type MissingMap = { boardId: string | null; boardVersion: number | null; knownBoardIds: ReadonlySet<string> };
 
 let missingMap: MissingMap | null = null;
@@ -420,12 +422,15 @@ function reservedBelow(element: HTMLElement | null, overlay: HTMLElement): numbe
   return Math.max(0, overlay.getBoundingClientRect().bottom - element.getBoundingClientRect().top);
 }
 
-function firstViewArea(mapBounds: Rect, viewWidthPx: number, viewHeightPx: number): Rect | null {
-  if (!parts) return null;
-  const reservedBottomPx = reservedBelow(parts.dockSlot.querySelector<HTMLElement>('[data-board-island]'), parts.askCards.element);
+function firstView(mapBounds: Rect, viewWidthPx: number, viewHeightPx: number): GuestFirstView {
+  if (!parts) return { isReady: true, camera: null };
+  const dockBar = parts.dockSlot.querySelector<HTMLElement>('[data-board-island]');
+  const isWaitingForSession = shownSessionId !== null && (dockBar === null || boxesAnsweredSessionId !== shownSessionId);
+  if (isWaitingForSession) return { isReady: false };
   const titleSizePx = Number.parseFloat(getComputedStyle(parts.root).getPropertyValue('--type-title')) || TITLE_SIZE_FALLBACK_PX;
-  if (!isBelowFloor(mapBounds, viewWidthPx, viewHeightPx, reservedBottomPx, readableFloorScale(titleSizePx))) return null;
-  return unionOf(sessionBoxIds().flatMap((boxId) => boundsOfHostBox(boxId) ?? []));
+  const sessionArea = unionOf(sessionBoxIds().flatMap((boxId) => boxRectById[boxId] ?? []));
+  const reservedBottomPx = reservedBelow(dockBar, parts.askCards.element);
+  return { isReady: true, camera: firstViewCamera({ mapBounds, sessionArea, viewWidthPx, viewHeightPx, reservedBottomPx, floorScale: readableFloorScale(titleSizePx) }) };
 }
 
 function showNotice(text: string | null): void {
@@ -626,18 +631,25 @@ function requestBoxes(): void {
   boxesRequestSerial += 1;
   const serial = boxesRequestSerial;
   const askedPaths = watchedPaths().filter(isUnaskedPath).slice(0, CODEMAP_BOXES_MAX_PATHS);
+  const showMissingAndFirstView = (text: string, isMapFailed: boolean) => {
+    showMapMissing(text, isMapFailed, knownMapBoardIdOf(sessionId));
+    paintBoard();
+  };
   sendControlRequest('codemap-boxes-of', { id: sessionId, paths: askedPaths }, { timeoutMs: BOXES_TIMEOUT_MS })
     .then((reply) => {
-      if (serial !== boxesRequestSerial || reply.type !== 'codemap-boxes-of-response') return;
+      if (serial !== boxesRequestSerial) return;
+      boxesAnsweredSessionId = sessionId;
+      if (reply.type !== 'codemap-boxes-of-response') return paintBoard();
       if (reply.boardId !== null) mapBoardIdBySessionId.set(sessionId, reply.boardId);
-      if (!reply.ok) return showMapMissing(reply.error ?? NO_MAP_TEXT, reply.isMapFailed, knownMapBoardIdOf(sessionId));
-      if (reply.boardId === null) return showMapMissing(NO_MAP_TEXT, false, knownMapBoardIdOf(sessionId));
+      if (!reply.ok) return showMissingAndFirstView(reply.error ?? NO_MAP_TEXT, reply.isMapFailed);
+      if (reply.boardId === null) return showMissingAndFirstView(NO_MAP_TEXT, false);
       missingMap = null;
       showNotice(null);
       showMapState('drawn');
       changedBoxIds = new Set(reply.changedBoxIds);
       fallbackBoxId = reply.fallbackBoxId;
       boxIdByPath = { ...boxIdByPath, ...reply.boxIdByPath };
+      boxRectById = { ...boxRectById, ...reply.boxRectById };
       for (const askedPath of askedPaths) answeredPaths.add(askedPath);
       moduleChoices = reply.boxChoices;
       boardId = reply.boardId;
@@ -647,7 +659,9 @@ function requestBoxes(): void {
       if (watchedPaths().some(isUnaskedPath)) requestBoxes();
     })
     .catch(() => {
-      if (serial === boxesRequestSerial) showMapMissing(NO_MAP_TEXT, true, knownMapBoardIdOf(sessionId));
+      if (serial !== boxesRequestSerial) return;
+      boxesAnsweredSessionId = sessionId;
+      showMissingAndFirstView(NO_MAP_TEXT, true);
     });
 }
 
@@ -699,6 +713,7 @@ function showSession(sessionId: string | null): void {
     progressAnswers = [];
     changedBoxIds = new Set();
     boxIdByPath = {};
+    boxRectById = {};
     answeredPaths = new Set();
     moduleChoices = [];
     peekedBoxId = null;
@@ -877,7 +892,7 @@ function mountBoardSessionView(panel: HTMLElement): void {
     overlays: [notice, guide.element, dockSlot, agentCards.element, askCards.element, changesPeek.element, diffPanel.element],
     worldLayer: presenceLayer.element,
     markedBoxIds: () => changedBoxIds,
-    firstViewArea,
+    firstView,
     setStackOpen: setFolderOpen,
     onBoxClicked: addressBox,
     onPainted: (camera) => {
