@@ -11,6 +11,7 @@ import { button } from '../ui/button.ts';
 import { parsePlanMarkdown } from '../plan/plan-markdown-core.ts';
 import { renderPlanBlocks } from '../plan/plan-render.ts';
 import { PLAN_GATE_FEEDBACK_MAX_CHARS } from '#shared/contracts/plan-gate.ts';
+import { CONVERSATION_ANSWER_MAX_CHARS, type ElicitationField } from '#shared/contracts/session.ts';
 import { keycap } from '../ui/keycap.ts';
 import { createPressable } from '../ui/pressable.ts';
 import type { ChatCard, ChatCardType } from './chat-part.ts';
@@ -384,6 +385,95 @@ function renderPlanCard(card: ChatCardByType['plan']): HTMLElement {
   return shell;
 }
 
+const ELICITATION_RECEIPT_BY_ACTION = { accept: 'Sent', decline: 'Declined' } as const;
+const ELICITATION_HEADING_BY_MODE = { form: 'needs a few details', url: 'asks you to open a link' } as const;
+const NUMBER_STEP_BY_FIELD_TYPE: Readonly<Record<string, string>> = { number: 'any', integer: '1' };
+
+function elicitationControlOf(field: ElicitationField): HTMLInputElement | HTMLSelectElement {
+  if (field.type === 'enum') {
+    const select = el('select', 'chat-card-field-control');
+    if (!field.isRequired) select.append(new Option('', ''));
+    for (const option of field.options) select.append(new Option(option, option));
+    return select;
+  }
+  const input = el('input', 'chat-card-field-control');
+  input.type = field.type === 'boolean' ? 'checkbox' : field.type === 'string' ? 'text' : 'number';
+  const numberStep = NUMBER_STEP_BY_FIELD_TYPE[field.type];
+  if (numberStep !== undefined) input.step = numberStep;
+  input.required = field.isRequired && field.type !== 'boolean';
+  if (input.type === 'text') input.maxLength = CONVERSATION_ANSWER_MAX_CHARS;
+  return input;
+}
+
+function elicitationValueOf(control: HTMLInputElement | HTMLSelectElement): string {
+  if (control instanceof HTMLInputElement && control.type === 'checkbox') return String(control.checked);
+  return control.value.trim();
+}
+
+function elicitationFormOf(shell: HTMLElement, card: ChatCardByType['elicitation']): HTMLElement {
+  const form = el('form', 'chat-card-form');
+  const controlByName = new Map<string, HTMLInputElement | HTMLSelectElement>();
+  for (const field of card.data.fields) {
+    const control = elicitationControlOf(field);
+    control.id = `${card.cardId}-${field.name}`;
+    control.name = field.name;
+    const label = el('label', 'chat-card-field-label', field.isRequired ? `${field.title} (required)` : field.title);
+    label.htmlFor = control.id;
+    controlByName.set(field.name, control);
+    form.append(label, control);
+    if (!field.description) continue;
+    const hint = el('p', 'chat-card-field-hint', field.description);
+    hint.id = `${control.id}-hint`;
+    control.setAttribute('aria-describedby', hint.id);
+    form.append(hint);
+  }
+  const submitButton = button({ variant: 'primary', textCase: 'sentence', label: 'Submit', shortcutKey: '1' });
+  submitButton.type = 'submit';
+  const declineButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Decline', shortcutKey: '2', onClick: () => dispatchCardAction(shell, card, 'elicitation-decline', '') });
+  markCardKeys(submitButton, ['1']);
+  markCardKeys(declineButton, ['2']);
+  const actions = el('div', 'chat-card-actions');
+  actions.append(submitButton, declineButton);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    for (const [name, control] of controlByName) {
+      const field = card.data.fields.find((candidate) => candidate.name === name);
+      control.setCustomValidity(field?.isRequired && field.type !== 'boolean' && elicitationValueOf(control) === '' ? 'Fill in this field.' : '');
+    }
+    if (!form.reportValidity()) return;
+    const answers = Object.fromEntries([...controlByName].map(([name, control]) => [name, elicitationValueOf(control)]).filter(([, value]) => value !== ''));
+    dispatchCardAction(shell, card, 'elicitation-submit', JSON.stringify(answers));
+  });
+  form.append(actions);
+  return form;
+}
+
+function elicitationLinkActionsOf(shell: HTMLElement, card: ChatCardByType['elicitation'], url: string): HTMLElement {
+  const openLink = button({ variant: 'primary', textCase: 'sentence', label: 'Open link', shortcutKey: '1', onClick: () => window.open(url, '_blank', 'noopener,noreferrer') });
+  const doneButton = button({ variant: 'secondary', textCase: 'sentence', label: 'Done', shortcutKey: '2', onClick: () => dispatchCardAction(shell, card, 'elicitation-done', '') });
+  const declineButton = button({ variant: 'quiet', textCase: 'sentence', label: 'Decline', shortcutKey: '3', onClick: () => dispatchCardAction(shell, card, 'elicitation-decline', '') });
+  markCardKeys(openLink, ['1']);
+  markCardKeys(doneButton, ['2']);
+  markCardKeys(declineButton, ['3']);
+  const actions = el('div', 'chat-card-actions');
+  actions.append(openLink, doneButton, declineButton);
+  return actions;
+}
+
+function renderElicitationCard(card: ChatCardByType['elicitation']): HTMLElement {
+  const { serverName, message, mode, url } = card.data;
+  const shell = cardShell(card, `${serverName} ${ELICITATION_HEADING_BY_MODE[mode]}`);
+  shell.appendChild(el('div', 'chat-card-source', `MCP server ${serverName}`));
+  if (message) shell.appendChild(el('p', 'chat-card-text', message));
+  if (url) shell.appendChild(el('div', 'chat-card-link', url));
+  if (card.resolution) {
+    shell.appendChild(receipt(ELICITATION_RECEIPT_BY_ACTION[card.resolution.action]));
+    return shell;
+  }
+  shell.appendChild(url ? elicitationLinkActionsOf(shell, card, url) : elicitationFormOf(shell, card));
+  return shell;
+}
+
 const MS_PER_SECOND = 1000;
 const LIMIT_COUNTDOWN_SELECTOR = '.chat-limit-countdown';
 
@@ -443,6 +533,7 @@ const RENDERER_BY_CARD_TYPE = {
   'sign-in': renderSignInCard,
   'usage-limit': renderUsageLimitCard,
   plan: renderPlanCard,
+  elicitation: renderElicitationCard,
 } satisfies ChatCardRendererTable;
 
 const rendererByCardType: ChatCardRendererTable = RENDERER_BY_CARD_TYPE;

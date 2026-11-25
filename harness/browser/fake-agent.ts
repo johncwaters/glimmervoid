@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { BRANCH_PROMPT_PREFIX } from '../../shared/board-branch-core.ts';
-import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML } from './cases-core.ts';
+import { BOARD_ASK_QUESTION, RESUMED_AFTER_QUESTION_TEXT, STACKED_ANSWERS_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, ELICITATION_REPLY_PREFIX, ELICITATION_SERVER_NAME, ELICITATION_LINK_URL, AGENT_DONE_LINE, AWAY_REPLY_TEXT, DIRECTOR_DIGEST_TEXT, STUDIO_PROGRESS_ANSWER, DONE_CHILD_LINES, DONE_CHILD_NAME, LONG_CHECKOUT_REPLY, SHOWN_PAGE_FILE_NAME, SHOWN_PAGE_HTML } from './cases-core.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -147,6 +147,25 @@ function answerPrompt(command: string, replyText: string): void {
   appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
   appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: replyText }] } });
 }
+
+const FORM_ELICITATION = {
+  hook_event_name: 'Elicitation',
+  mcp_server_name: ELICITATION_SERVER_NAME,
+  message: 'Details for the new issue',
+  mode: 'form',
+  requested_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', title: 'Title' },
+      priority: { type: 'string', title: 'Priority', enum: ['Urgent', 'High', 'Low'] },
+      estimate: { type: 'integer', title: 'Estimate' },
+      isBlocking: { type: 'boolean', title: 'Blocking' },
+    },
+    required: ['title', 'priority'],
+  },
+};
+
+const LINK_ELICITATION = { hook_event_name: 'Elicitation', mcp_server_name: ELICITATION_SERVER_NAME, message: 'Sign in to continue', mode: 'url', url: ELICITATION_LINK_URL };
 
 const PLAN_REQUEST = {
   hook_event_name: 'PermissionRequest',
@@ -391,6 +410,15 @@ function dispatch(command: string): void {
     const proposeUntilDecided = (): Promise<string> => postHookAwaitingReply('permissionrequest-plangate', PLAN_REQUEST).then((replyText) => (replyText.includes('"behavior":"deny"') ? proposeUntilDecided() : replyText));
     void proposeUntilDecided().then((replyText) => {
       appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${PLAN_REPLY_PREFIX}${replyText}` }] } });
+      postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
+      setTitle(IDLE_GLYPH, 'idle');
+    });
+    return;
+  }
+  if (command === 'ask-mcp-form' || command === 'ask-mcp-link') {
+    appendTranscriptLine({ type: 'user', message: { role: 'user', content: command } });
+    void postHookAwaitingReply('elicitation-conversation', command === 'ask-mcp-form' ? FORM_ELICITATION : LINK_ELICITATION).then((replyText) => {
+      appendTranscriptLine({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${ELICITATION_REPLY_PREFIX}${replyText}` }] } });
       postHook('stop', { hook_event_name: 'Stop', stop_hook_active: false });
       setTitle(IDLE_GLYPH, 'idle');
     });

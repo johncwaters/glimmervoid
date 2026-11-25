@@ -43,7 +43,7 @@ export const CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS = 4000;
 export { CONVERSATION_PERMISSION_HOOK_EVENT } from '../question-tool-hold.ts';
 export const CONVERSATION_TOOL_RESULT_HOOK_EVENT = 'posttooluse-conversation';
 const CONVERSATION_QUESTION_MAX_CHARS = 1000;
-const CONVERSATION_ANSWER_MAX_CHARS = 2000;
+export const CONVERSATION_ANSWER_MAX_CHARS = 2000;
 const CONVERSATION_OPTION_PREVIEW_MAX_CHARS = 4000;
 
 export const ConversationQuestion = z.object({
@@ -57,13 +57,34 @@ export const ConversationQuestion = z.object({
   multiSelect: z.boolean().default(false),
 });
 
+export const ELICITATION_MAX_FIELDS = 12;
+export const ELICITATION_HOOK_EVENT = 'elicitation-conversation';
+
+export const ElicitationField = z.strictObject({
+  name: z.string().min(1).max(100),
+  title: z.string().max(200),
+  description: z.string().max(CONVERSATION_QUESTION_MAX_CHARS),
+  type: z.enum(['string', 'number', 'integer', 'boolean', 'enum']),
+  options: z.array(z.string().min(1).max(200)).max(50),
+  isRequired: z.boolean(),
+});
+
+export const ElicitationRequest = z.strictObject({
+  serverName: z.string().min(1).max(200),
+  message: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
+  mode: z.enum(['form', 'url']),
+  url: z.string().url().max(2000).nullable(),
+  fields: z.array(ElicitationField).max(ELICITATION_MAX_FIELDS),
+});
+
 export const ConversationApproval = z.object({
   requestId: z.union([z.string().min(1).max(128), z.number().int()]),
-  kind: z.enum(['question', 'permission']),
+  kind: z.enum(['question', 'permission', 'elicitation']),
   toolName: z.string().min(1).max(200).optional(),
   summary: z.string().max(CONVERSATION_APPROVAL_SUMMARY_MAX_CHARS),
   isSummaryTruncated: z.boolean(),
   questions: z.array(ConversationQuestion).min(1).max(4).optional(),
+  elicitation: ElicitationRequest.optional(),
 });
 
 export const PermissionDecision = z.enum(['allow', 'deny']);
@@ -185,6 +206,8 @@ export type SessionState = z.infer<typeof SessionState>;
 export type UnseenOutcome = z.infer<typeof UnseenOutcome>;
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>;
 export type ConversationApproval = z.infer<typeof ConversationApproval>;
+export type ElicitationField = z.infer<typeof ElicitationField>;
+export type ElicitationRequest = z.infer<typeof ElicitationRequest>;
 export type ChatOutboxEntry = z.infer<typeof ChatOutboxEntry>;
 export type ChatOutboxOrigin = z.infer<typeof ChatOutboxOrigin>;
 export type ConversationQuestion = z.infer<typeof ConversationQuestion>;

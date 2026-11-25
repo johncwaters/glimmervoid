@@ -640,6 +640,63 @@ for (const [agent, { heldRequest: questionRequest, ownToolEvent }] of Object.ent
   });
 }
 
+const MCP_FORM_ELICITATION = {
+  hook_event_name: 'Elicitation',
+  mcp_server_name: 'linear',
+  message: 'Details for the new issue',
+  mode: 'form',
+  requested_schema: { type: 'object', properties: { title: { type: 'string', title: 'Title' }, estimate: { type: 'integer', title: 'Estimate' }, isBlocking: { type: 'boolean' } }, required: ['title'] },
+};
+
+const ELICITATION_HOLD_BY_AGENT: Record<FirstClassAgent, { payload: Record<string, unknown> } | UnproducibleScenario> = {
+  'claude-code': { payload: MCP_FORM_ELICITATION },
+  codex: { unproducible: 'The Codex adapter has no hook for MCP elicitations; its elicitation prompt kind comes from request_user_input (session/adapters/codex.ts), which the question hold answers from Chat' },
+  kimi: { unproducible: 'The Kimi Code adapter installs no hook that answers an MCP elicitation (session/adapters/kimi.ts), so its own dialog stays in the terminal card' },
+  opencode: { unproducible: 'An OpenCode form is the UI of its own question tool, which the question hold already answers from Chat' },
+  pi: { unproducible: 'pi extension prompts carry only a title and no schema, so no form can be built from them' },
+  antigravity: { unproducible: 'The Antigravity plugin relays no MCP elicitation event (session/core/antigravity-plugin-core.ts), so its own dialog stays in the terminal card' },
+};
+
+for (const agent of FIRST_CLASS_AGENTS) {
+  const scenario = ELICITATION_HOLD_BY_AGENT[agent];
+  if ('unproducible' in scenario) {
+    test(`an MCP elicitation is held for Chat on ${agent}`, { skip: scenario.unproducible }, () => {});
+    continue;
+  }
+  test(`an MCP elicitation is held for Chat on ${agent}`, async () => {
+    const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'glimmervoid-chat-elicitation-'));
+    const session = new Session({ id: `chat-elicitation-${agent}`, name: agent, path: projectPath, agent, readChatApprovals: () => 'questions', ptySpawn: () => capturingPty([]) });
+    try {
+      const held = session.holdElicitation(scenario.payload, new AbortController().signal);
+      assert.ok(held, 'the elicitation was not held');
+      const approval = session.toSnapshot().conversationApproval;
+      assert.equal(approval?.kind, 'elicitation');
+      assert.deepEqual(approval?.elicitation?.fields.map((field) => [field.name, field.type, field.isRequired]), [['title', 'string', true], ['estimate', 'integer', false], ['isBlocking', 'boolean', false]]);
+      assert.equal(session.answerConversationApproval(approval.requestId, { estimate: '3' }), false, 'a missing required field is refused');
+      assert.ok(session.answerConversationApproval(approval.requestId, { title: 'Flaky upload', estimate: '3', isBlocking: 'true' }));
+      assert.deepEqual(await held, { hookSpecificOutput: { hookEventName: 'Elicitation', action: 'accept', content: { title: 'Flaky upload', estimate: 3, isBlocking: true } } });
+      const declined = session.holdElicitation(scenario.payload, new AbortController().signal);
+      const declinedApproval = session.toSnapshot().conversationApproval;
+      assert.ok(declined && declinedApproval);
+      assert.ok(session.decideConversationApproval(declinedApproval.requestId, 'deny'));
+      assert.deepEqual(await declined, { hookSpecificOutput: { hookEventName: 'Elicitation', action: 'decline' } });
+      assert.equal(session.holdElicitation({ ...scenario.payload, mode: 'url', url: 'javascript:alert(1)' }, new AbortController().signal), null, 'a link that is not http or https stays with the agent');
+      const formWith = (properties: Record<string, unknown>) => ({ ...scenario.payload, requested_schema: { type: 'object', properties } });
+      assert.equal(session.holdElicitation(formWith({ note: { type: 'string', title: 'T'.repeat(201) } }), new AbortController().signal), null, 'a field past the card limits stays with the agent');
+      assert.equal(session.holdElicitation(formWith({ pick: { type: 'string', enum: Array.from({ length: 51 }, (_, index) => `option ${index}`) } }), new AbortController().signal), null, 'more options than the card shows stays with the agent');
+      assert.equal(session.holdElicitation(formWith({ pick: { type: 'string', oneOf: [{ const: 'p1', title: 'High' }] } }), new AbortController().signal), null, 'a schema keyword the card cannot enforce stays with the agent');
+      const inheritedName = session.holdElicitation(formWith({ city: { type: 'string' }, constructor: { type: 'string', title: 'Notes' } }), new AbortController().signal);
+      const inheritedApproval = session.toSnapshot().conversationApproval;
+      assert.ok(inheritedName && inheritedApproval);
+      assert.ok(session.answerConversationApproval(inheritedApproval.requestId, { city: 'Paris' }));
+      assert.deepEqual(await inheritedName, { hookSpecificOutput: { hookEventName: 'Elicitation', action: 'accept', content: { city: 'Paris' } } }, 'a field named like an object builtin is read as blank');
+    } finally {
+      session.destroy();
+      fs.rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+}
+
 test('an OpenCode permission denied from Chat with a message is rejected with the operator words', async (t) => {
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-plugin-'));
   const heldReplyText = JSON.stringify(permissionReplyFor('opencode', 'deny', 'Run npm run clean instead'));

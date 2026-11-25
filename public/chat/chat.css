@@ -541,6 +541,32 @@
 
 .chat-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+.chat-card-source { color: var(--text-muted); font: var(--type-meta)/1.5 var(--font-mono); }
+
+.chat-card-link { color: var(--text-dim); font: var(--type-meta)/1.5 var(--font-mono); overflow-wrap: anywhere; }
+
+.chat-card-form { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; align-items: center; }
+
+.chat-card-form > .chat-card-actions { grid-column: 1 / -1; }
+
+.chat-card-field-label { color: var(--text-dim); }
+
+.chat-card-field-hint { grid-column: 2; margin: -4px 0 0; color: var(--text-muted); font-size: var(--type-meta); }
+
+.chat-card-field-control {
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.chat-card-field-control[type="checkbox"] { justify-self: start; width: 16px; height: 16px; padding: 0; accent-color: var(--accent); }
+
+.chat-card-field-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .chat-card-plan {
   max-height: 320px;
   overflow: auto;

@@ -1,4 +1,4 @@
-import type { UsageLimit } from '#shared/contracts/session.ts';
+import type { ElicitationRequest, UsageLimit } from '#shared/contracts/session.ts';
 import type { FileEditTally, FilePatch, TurnSegment } from './turn-digest-core.ts';
 
 export type ChatCard =
@@ -7,6 +7,7 @@ export type ChatCard =
   | { cardType: 'notice'; cardId: string; data: { text: string }; resolution: null }
   | { cardType: 'board-change'; cardId: string; data: { changed: string; boardTitle: string | null }; resolution: null }
   | { cardType: 'live-terminal'; cardId: string; data: { heading: string }; resolution: null }
+  | { cardType: 'elicitation'; cardId: string; data: ElicitationRequest; resolution: { action: 'accept' | 'decline' } | null }
   | { cardType: 'plan'; cardId: string; data: { agentName: string; planText: string; isPlanTruncated: boolean }; resolution: { decision: PlanVerdict; feedback: string | null } | null }
   | { cardType: 'sign-in'; cardId: string; data: { agentName: string; stage: SignInStage }; resolution: { isSignedIn: true } | null }
   | { cardType: 'usage-limit'; cardId: string; data: UsageLimit; resolution: { isContinuingAtReset: true } | { isPassed: true } | null };

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { Locator, Page } from 'playwright-core';
 import { findSessionWorktree, pollFor } from './review-changes.ts';
-import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, STACKED_ANSWERS_PREFIX } from './cases-core.ts';
+import { AGENT_DONE_LINE, AWAY_REPLY_TEXT, DONE_CHILD_NAME, ELICITATION_LINK_URL, ELICITATION_REPLY_PREFIX, PLAN_REPLY_PREFIX, PROPOSED_PLAN_HEADING, STACKED_ANSWERS_PREFIX } from './cases-core.ts';
 import { PANEL_MIN_CHANGED_LINES } from '../../shared/contracts/verification.ts';
 import { DataClientMessage } from '../../shared/contracts/data-messages.ts';
 import { parseJsonOrNull } from '../../shared/coerce.ts';
@@ -665,6 +665,35 @@ export async function verifyChatTerminal(page: Page): Promise<void> {
 }
 
 const PLAN_FEEDBACK_TEXT = 'Measure on the phone too';
+
+export async function verifyChatElicitation(page: Page): Promise<void> {
+  await openChat(page);
+  await sendFromComposer(page, 'ask-mcp-form');
+  const formCard = page.locator('.session-chat .chat-card[data-card-type="elicitation"][data-resolved="false"]');
+  await formCard.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await formCard.locator('.chat-card-heading').innerText(), /^linear needs a few details$/, 'the form card names the MCP server');
+  await page.waitForTimeout(INLINE_TERMINAL_STEADY_WATCH_MS);
+  assert.equal(await page.locator('.session-chat .chat-card[data-card-type="live-terminal"]').count(), 0, 'an MCP form never lends the terminal to Chat');
+  await formCard.getByLabel('Title (required)').fill('Upload test flakes');
+  await formCard.getByLabel('Priority (required)').selectOption('High');
+  await formCard.getByLabel('Estimate').fill('3');
+  await formCard.getByLabel('Blocking').check();
+  await formCard.getByRole('button', { name: /Submit/ }).click();
+  const formReply = page.locator('.session-chat').getByText(ELICITATION_REPLY_PREFIX, { exact: false }).first();
+  await formReply.waitFor({ timeout: CARD_TIMEOUT_MS });
+  const formReplyJson = JSON.parse(((await formReply.textContent()) ?? '').trim().slice(ELICITATION_REPLY_PREFIX.length));
+  assert.deepEqual(formReplyJson.hookSpecificOutput, { hookEventName: 'Elicitation', action: 'accept', content: { title: 'Upload test flakes', priority: 'High', estimate: 3, isBlocking: true } }, 'Submit sends each value with its schema type');
+  await sendFromComposer(page, 'ask-mcp-link');
+  const linkCard = page.locator('.session-chat .chat-card[data-card-type="elicitation"][data-resolved="false"]');
+  await linkCard.waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.equal(await linkCard.locator('.chat-card-link').innerText(), ELICITATION_LINK_URL, 'the card shows the server link it opens');
+  await linkCard.getByRole('button', { name: /Open link/ }).waitFor();
+  await linkCard.getByRole('button', { name: /Done/ }).click();
+  const replies = page.locator('.session-chat').getByText(ELICITATION_REPLY_PREFIX, { exact: false });
+  await replies.nth(1).waitFor({ timeout: CARD_TIMEOUT_MS });
+  assert.match(await replies.nth(1).innerText(), /"action":"accept"/, 'Done accepts the sign-in link');
+  assert.deepEqual(await page.locator('.session-chat .chat-card[data-card-type="elicitation"] .chat-card-receipt').allInnerTexts(), ['Sent', 'Sent'], 'each settled card keeps its receipt');
+}
 
 export async function verifyChatPlan(page: Page): Promise<void> {
   await openChat(page);

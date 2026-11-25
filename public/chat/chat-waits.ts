@@ -1,4 +1,5 @@
-import { UsageLimit, type ConversationApproval } from '#shared/contracts/session.ts';
+import { ConversationAnswers, UsageLimit, type ConversationApproval } from '#shared/contracts/session.ts';
+import { parseJsonOrNull } from '#shared/coerce.ts';
 import type { PlanGate } from '#shared/contracts/plan-gate.ts';
 import { API_KEY_PROMPT_KIND, LOGIN_COMMAND_BY_AGENT, LOGIN_PROMPT_KINDS, RATE_LIMIT_PROMPT_KIND, STATES } from '#shared/states.ts';
 import { errorMessage } from '#shared/text.ts';
@@ -56,7 +57,7 @@ const WAKE_NOT_SET_TEXT = 'The wake at reset was not set.';
 const SIGN_IN_REQUEST_TIMEOUT_MS = 10000;
 const SIGNED_IN_STATES: ReadonlySet<string> = new Set([STATES.COMPLETE, STATES.IDLE]);
 
-const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'plan', 'sign-in', 'usage-limit', 'live-terminal'] as const;
+const ANSWERABLE_CARD_TYPES = ['question', 'permission', 'elicitation', 'plan', 'sign-in', 'usage-limit', 'live-terminal'] as const;
 const PLAN_VERDICT_BY_ACTION: Readonly<Record<string, PlanVerdict>> = { 'plan-approve': 'approve', 'plan-reject': 'reject' };
 const PLAN_VERDICT_BY_STATUS: Readonly<Record<PlanGate['status'], PlanVerdict | null>> = { pending: null, approved: 'approve', rejected: 'reject' };
 const ANSWERABLE_CARD_TYPE_MATCH = `:is(${ANSWERABLE_CARD_TYPES.map((cardType) => `[data-card-type="${cardType}"]`).join(', ')})`;
@@ -92,6 +93,16 @@ function answeredQuestionsStep(sessionId: string, shown: ShownApproval, card: Ex
   return { message: { type: 'answer-approval', id: sessionId, requestId: shown.approval.requestId, answers: Object.fromEntries(answers) }, resolvedCards, answers };
 }
 
+function elicitationStepOf(sessionId: string, shown: ShownApproval, card: Extract<ChatCard, { cardType: 'elicitation' }>, action: string, value: string): ApprovalStep | null {
+  const { requestId } = shown.approval;
+  if (action === 'elicitation-decline') return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'deny' }, resolvedCards: [{ ...card, resolution: { action: 'decline' } }], answers: shown.answers };
+  if (action === 'elicitation-done') return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'allow' }, resolvedCards: [{ ...card, resolution: { action: 'accept' } }], answers: shown.answers };
+  if (action !== 'elicitation-submit') return null;
+  const answers = ConversationAnswers.safeParse(parseJsonOrNull(value));
+  if (!answers.success) return null;
+  return { message: { type: 'answer-approval', id: sessionId, requestId, answers: answers.data }, resolvedCards: [{ ...card, resolution: { action: 'accept' } }], answers: shown.answers };
+}
+
 function approvalStepOf(sessionId: string, shown: ShownApproval, cardId: string, action: string, value: string): ApprovalStep | null {
   const card = shown.cards.find((shownCard) => shownCard.cardId === cardId);
   if (card && action === 'change') return reopenedQuestionStep(shown, card);
@@ -103,6 +114,7 @@ function approvalStepOf(sessionId: string, shown: ShownApproval, cardId: string,
   if (card.cardType === 'permission' && action === 'deny-with-message') {
     return { message: { type: 'decide-approval', id: sessionId, requestId, decision: 'deny', message: value }, resolvedCards: [{ ...card, resolution: { decision: 'deny', message: value } }], answers: shown.answers };
   }
+  if (card.cardType === 'elicitation') return elicitationStepOf(sessionId, shown, card, action, value);
   if (card.cardType === 'question' && action === 'dismiss') return dismissedQuestionsStep(sessionId, shown);
   if (card.cardType !== 'question' || action !== 'answer') return null;
   return answeredQuestionsStep(sessionId, shown, card, value);
@@ -119,6 +131,7 @@ function withApprovalStep(shown: ShownApproval, step: ApprovalStep): ShownApprov
 
 function approvalCardsOf(approval: ConversationApproval): ChatCard[] {
   const requestKey = `approval-${approval.requestId}`;
+  if (approval.kind === 'elicitation') return approval.elicitation ? [{ cardType: 'elicitation', cardId: requestKey, data: approval.elicitation, resolution: null }] : [];
   if (approval.kind === 'permission') {
     const title = approval.toolName ? `Allow ${approval.toolName}?` : 'Allow this tool?';
     return [{ cardType: 'permission', cardId: requestKey, data: { title, detail: approval.summary }, resolution: null }];

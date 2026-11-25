@@ -6,12 +6,15 @@ import type { QuestionDenyReply, QuestionToolDenyResponse } from "../shared/cont
 import { operatorAnswerDenyReason, questionToolDenyReason } from "../server/question-manager/core/question-manager-core.ts";
 import { areAnswersComplete, claudeAnswerReply, claudeApprovalFor, DISMISSED_FROM_CHAT, claudePermissionApprovalFor, isHoldReleasedByHookEvent, isReadOnlyCommandRequest, permissionReplyFor, parseClaudePermissionRequest, questionDismissedReply, TOOL_RESULT_HOOK_EVENTS } from "./core/claude-approval-core.ts";
 import type { ClaudeHookReply, ClaudePermissionRequest, PermissionHookReply } from "./core/claude-approval-core.ts";
+import { elicitationApprovalOf, elicitationContentOf, elicitationReply, elicitationRequestOf, isElicitationHoldReleasedBy } from "./core/claude-elicitation-core.ts";
+import type { ElicitationHookReply } from "./core/claude-elicitation-core.ts";
+import type { ElicitationRequest } from "../shared/contracts/session.ts";
 import { clock } from '../shared/clock.ts';
 import type { PlanDecision, PlanGate } from "../shared/contracts/plan-gate.ts";
 import { claudePlanDecisionReply, isExitPlanModeTool, nextPlanGate, planTextOfToolInput, shouldClearPlanGate } from "./core/plan-gate-core.ts";
 import type { PlanGateEvent } from "./core/plan-gate-core.ts";
 
-type HeldReply = PermissionHookReply | QuestionToolDenyResponse;
+type HeldReply = PermissionHookReply | QuestionToolDenyResponse | ElicitationHookReply;
 
 interface ChatHoldKind<Reply extends HeldReply> {
   toAnswers(approval: ConversationApproval, answers: ConversationAnswers): Reply | null;
@@ -35,8 +38,8 @@ interface ApprovalPort<Signal extends QuestionStatusSignal> {
   ingestStatus: (signal: Signal) => void;
   noteQuestionDismissed: () => void;
   pushAuditEntry: (entry: Record<string, unknown>) => void;
-  noteQuestionHeldForChat: (toolName: string, payload: Record<string, unknown>) => void;
-  noteQuestionAnsweredFromChat: () => void;
+  noteHeldForChat: (toolName: string, payload: Record<string, unknown>) => void;
+  noteAnsweredFromChat: () => void;
   notePassedQuestion: (seq: number) => void;
   taskTitle: () => string | null;
 }
@@ -73,6 +76,13 @@ interface SessionApprovalHoldsOptions<Signal extends QuestionStatusSignal> {
   port: ApprovalPort<Signal>;
 }
 
+const ELICITATION_TOOL_NAME = "Elicitation";
+
+function agentKeyOfPayload(payload: unknown): string {
+  const agentId = typeof payload === "object" && payload !== null && "agent_id" in payload ? payload.agent_id : null;
+  return typeof agentId === "string" ? agentId : "";
+}
+
 const QUESTION_TOOL_OWN_HOOK_EVENTS: ReadonlySet<string> = new Set(["pretooluse", QUESTION_TOOL_HOLD_HOOK_EVENT, "elicitation"]);
 const QUESTION_TOOL_NAMES: ReadonlySet<string> = new Set([ASK_USER_QUESTION_TOOL_NAME, REQUEST_USER_INPUT_TOOL_NAME]);
 
@@ -94,6 +104,7 @@ interface SessionApprovalHolds<Signal extends QuestionStatusSignal> {
   readonly latestManagerDecisionSeq: number;
   hold(payload: unknown, abandoned: AbortSignal): Promise<PermissionHookReply | null> | null;
   holdQuestionTool(payload: unknown, abandoned: AbortSignal): Promise<QuestionToolDenyResponse | null> | null;
+  holdElicitation(payload: unknown, abandoned: AbortSignal): Promise<ElicitationHookReply | null> | null;
   parksQuestionStatus(signal: Signal): boolean;
   releaseAfterHookEvent(event: string, payload: Record<string, unknown>): void;
   releaseAll(): void;
@@ -348,8 +359,8 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
       toAnswers: (approval, answers) => (areAnswersComplete(approval, answers) ? questionToolDenyOf(operatorAnswerDenyReason(answers)) : null),
       toDecision: (_approval, decision) => (decision === "deny" ? questionToolDenyOf(DISMISSED_FROM_CHAT) : null),
       isReleasedBy: (event, payload) => !QUESTION_TOOL_OWN_HOOK_EVENTS.has(event.toLowerCase()) && isHoldReleasedByHookEvent(request, event, payload),
-      didHold: () => port.noteQuestionHeldForChat(request.toolName, { tool_name: request.toolName, tool_input: request.toolInput }),
-      didSettle: port.noteQuestionAnsweredFromChat,
+      didHold: () => port.noteHeldForChat(request.toolName, { tool_name: request.toolName, tool_input: request.toolInput }),
+      didSettle: port.noteAnsweredFromChat,
     };
   }
 
@@ -363,6 +374,30 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     const holdQuestionForChat = () => holdForChat(request, (requestId) => claudeApprovalFor(request, requestId), abandoned, questionToolHoldKindFor(request));
     if (managerReply === null) return holdQuestionForChat();
     return managerReply.then((reply) => (reply !== null || abandoned.aborted ? reply : holdQuestionForChat()));
+  }
+
+  function elicitationHoldKindFor(elicitation: ElicitationRequest): ChatHoldKind<ElicitationHookReply> {
+    return {
+      toAnswers: (_approval, answers) => {
+        const content = elicitationContentOf(elicitation, answers);
+        return content === null ? null : elicitationReply("accept", content);
+      },
+      toDecision: (_approval, decision) => {
+        if (decision === "deny") return elicitationReply("decline");
+        return elicitation.mode === "url" ? elicitationReply("accept") : null;
+      },
+      isReleasedBy: isElicitationHoldReleasedBy,
+      didHold: () => port.noteHeldForChat(ELICITATION_TOOL_NAME, { tool_name: ELICITATION_TOOL_NAME, mcp_server_name: elicitation.serverName }),
+      didSettle: port.noteAnsweredFromChat,
+    };
+  }
+
+  function holdElicitation(payload: unknown, abandoned: AbortSignal): Promise<ElicitationHookReply | null> | null {
+    if (agentId !== "claude-code" || readChatApprovals() === "off") return null;
+    const elicitation = elicitationRequestOf(payload);
+    if (elicitation === null) return null;
+    const request: ClaudePermissionRequest = { toolName: `${ELICITATION_TOOL_NAME}:${elicitation.serverName}`, toolInput: {}, agentKey: agentKeyOfPayload(payload) };
+    return holdForChat(request, (requestId) => elicitationApprovalOf(elicitation, requestId), abandoned, elicitationHoldKindFor(elicitation));
   }
 
   function setConversationApproval(approval: ConversationApproval | null): void {
@@ -500,6 +535,7 @@ function createSessionApprovalHolds<Signal extends QuestionStatusSignal>({ agent
     decidePlan,
     hold,
     holdQuestionTool,
+    holdElicitation,
     yieldManagerDecisions,
     parksQuestionStatus,
     releaseAfterHookEvent,

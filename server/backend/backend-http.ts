@@ -12,7 +12,7 @@ import { mountPreviewProxy } from '../preview-proxy.ts';
 import express from 'express';
 import type { Express, Request, RequestHandler, Response } from 'express';
 import { HOOK_EVENTS } from '../../detection/settings-injector.ts';
-import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT, ELICITATION_HOOK_EVENT } from '../../shared/contracts/session.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import { PLAN_GATE_HOOK_EVENT } from '../../shared/contracts/plan-gate.ts';
 import { sparseBoardReply } from '../../shared/contracts/whiteboard.ts';
@@ -65,7 +65,7 @@ import { clock } from '../../shared/clock.ts';
 
 const HOOK_BODY_CAP_BYTES = 64 * 1024;
 const AGENT_OVERSIZE_DRAIN_BYTES = 4 * 1024 * 1024;
-const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { agentstate: 512 * 1024, permissionrequest: 512 * 1024, [CONVERSATION_PERMISSION_HOOK_EVENT]: 512 * 1024, [QUESTION_TOOL_HOLD_HOOK_EVENT]: 512 * 1024, [PLAN_GATE_HOOK_EVENT]: 512 * 1024 };
+const HOOK_BODY_CAP_BYTES_BY_EVENT: Readonly<Record<string, number>> = { agentstate: 512 * 1024, permissionrequest: 512 * 1024, [CONVERSATION_PERMISSION_HOOK_EVENT]: 512 * 1024, [QUESTION_TOOL_HOLD_HOOK_EVENT]: 512 * 1024, [PLAN_GATE_HOOK_EVENT]: 512 * 1024, [ELICITATION_HOOK_EVENT]: 512 * 1024 };
 const AGENT_BODY_CAP_BYTES_BY_VERB: Readonly<Record<string, number>> = { whiteboard: WHITEBOARD_LIMITS.putBytes + HOOK_BODY_CAP_BYTES };
 const UNNAMED_HOOK_EVENT = 'an unknown event';
 const SILENT_OVERSIZE_HOOK_EVENTS: ReadonlySet<string> = new Set(['posttooluse', 'posttoolusefailure', CONVERSATION_TOOL_RESULT_HOOK_EVENT]);
@@ -79,6 +79,7 @@ const KNOWN_HOOK_EVENTS: ReadonlySet<string> = new Set([
   CONVERSATION_PERMISSION_HOOK_EVENT,
   CONVERSATION_TOOL_RESULT_HOOK_EVENT,
   PLAN_GATE_HOOK_EVENT,
+  ELICITATION_HOOK_EVENT,
   RESUME_NOTE_HOOK_EVENT,
 ]);
 
@@ -573,9 +574,11 @@ function mountAgentIngressRoutes(app: Express, dependencies: AgentIngressDepende
       const isConversationPermission = output.status === 200 && req.params.event.toLowerCase() === CONVERSATION_PERMISSION_HOOK_EVENT;
       const isQuestionToolHold = output.status === 200 && req.params.event.toLowerCase() === QUESTION_TOOL_HOLD_HOOK_EVENT;
       const isPlanGateHold = output.status === 200 && req.params.event.toLowerCase() === PLAN_GATE_HOOK_EVENT;
+      const isElicitationHold = output.status === 200 && req.params.event.toLowerCase() === ELICITATION_HOOK_EVENT;
       const heldDecision = (isConversationPermission ? getSession(req.params.glimmervoidId)?.holdConversationPermission(payload, abandonedByClaudeCode.signal) ?? null : null)
         || (isQuestionToolHold ? getSession(req.params.glimmervoidId)?.holdQuestionTool(payload, abandonedByClaudeCode.signal) ?? null : null)
-        || (isPlanGateHold ? getSession(req.params.glimmervoidId)?.holdPlanPermission(payload, abandonedByClaudeCode.signal, isPlanGateOn()) ?? null : null);
+        || (isPlanGateHold ? getSession(req.params.glimmervoidId)?.holdPlanPermission(payload, abandonedByClaudeCode.signal, isPlanGateOn()) ?? null : null)
+        || (isElicitationHold ? getSession(req.params.glimmervoidId)?.holdElicitation(payload, abandonedByClaudeCode.signal) ?? null : null);
       if (!heldDecision) {
         answer(null);
         return;

@@ -12,7 +12,7 @@ import { verifyFullScreenAppRow, verifyTerminalTyping, verifyTouchSelectCopy, ve
 import { searchTerminalTyping } from './typing-search.ts';
 import type { TypingSearchOptions } from './typing-search.ts';
 import { verifyBoardSession } from './board-session.ts';
-import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal, verifyChatPlan } from './chat-page.ts';
+import { verifyChatApprovals, verifyChatAwayReply, verifyChatDoneMeans, verifyChatSignIn, verifyChatUsageLimit, verifyChatStaysDefault, verifyChatStaysDefaultOnPhone, verifyChatTerminal, verifyChatPlan, verifyChatElicitation } from './chat-page.ts';
 import { verifyPhoneChanges, verifyReviewChanges } from './review-changes.ts';
 import { verifyTeamReviewRows } from './team-review.ts';
 import { CARD_REGISTRY_URL, boardRowIds, sessionCardIds, dispatchWindowBlur, dropDataSocket, holdConfirmedSessionRemovals, pillIds, readDocumentEngagement, readGrid, readLayout, readSettingsHistory, readTerminalFocus, readTerminalWatch, scrollTerminalToTop, setDocumentEngagement, setFitMeasurement, watchTerminal } from './probe.ts';
@@ -1276,6 +1276,10 @@ export async function runCase({
     if (step.kind === 'assert-chat-plan') {
       await verifyChatPlan(viewer.page);
       return passedOutcome('chat-plan', 'a proposed plan shows as a plan card in Chat with no inline terminal, and 1 in the empty composer approves it with the typed feedback');
+    }
+    if (step.kind === 'assert-chat-elicitation') {
+      await verifyChatElicitation(viewer.page);
+      return passedOutcome('chat-elicitation', 'an MCP form shows as a Chat form card with no inline terminal and Submit sends typed values; an MCP sign-in link shows Open link and Done sends accept');
     }
     if (step.kind === 'assert-board-session') {
       await verifyBoardSession(viewer.page, projectDirectory);

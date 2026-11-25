@@ -1,7 +1,7 @@
 import { isRecord, textOr } from '../../shared/coerce.ts';
 import { HTTP_URL_RE, MAX_TIMEOUT_SEC } from '../../shared/contracts/hooks.ts';
 import type { AgentHookGroup } from '../../shared/contracts/hooks.ts';
-import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../../shared/contracts/session.ts';
+import { CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT, ELICITATION_HOOK_EVENT } from '../../shared/contracts/session.ts';
 import { PLAN_GATE_HOOK_EVENT } from '../../shared/contracts/plan-gate.ts';
 import { QUESTION_TOOL_HOLD_HOOK_EVENT } from '../../shared/contracts/question-manager.ts';
 import { HOOK_TOOLS, isHookToolId } from './hook-tools.ts';
@@ -278,6 +278,7 @@ const BUILTIN_PURPOSE_BY_ROUTE: Readonly<Record<string, string>> = Object.freeze
   [CONVERSATION_TOOL_RESULT_HOOK_EVENT]: 'Questions: release a held question the terminal answered',
   [QUESTION_TOOL_HOLD_HOOK_EVENT]: 'Questions: hold a question so the question manager can answer it',
   [PLAN_GATE_HOOK_EVENT]: 'Plan gate: hold a proposed plan until the dashboard approves or rejects it',
+  [ELICITATION_HOOK_EVENT]: 'MCP forms: hold a form an MCP server asks for so Chat can fill it in or decline it',
 });
 
 const BUILTIN_PURPOSE_BY_EVENT: Readonly<Record<string, string>> = Object.freeze({

@@ -17,6 +17,7 @@ export type Step =
   | { kind: 'assert-chat-done-means'; viewer?: ViewerId }
   | { kind: 'assert-chat-terminal'; viewer?: ViewerId }
   | { kind: 'assert-chat-plan'; viewer?: ViewerId }
+  | { kind: 'assert-chat-elicitation'; viewer?: ViewerId }
   | { kind: 'assert-board-session'; viewer?: ViewerId }
   | { kind: 'assert-chat-sign-in'; viewer?: ViewerId }
   | { kind: 'assert-chat-usage-limit'; viewer?: ViewerId }
@@ -301,6 +302,11 @@ export const SCENARIOS: readonly Scenario[] = [
     name: 'chat-plan',
     viewports: ['desktop-1280'],
     steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-plan' }, { kind: 'shot', name: 'chat-plan' }],
+  },
+  {
+    name: 'chat-elicitation',
+    viewports: ['desktop-1280'],
+    steps: [{ kind: 'open' }, { kind: 'settle' }, { kind: 'type', text: 'stop' }, { kind: 'assert-chat-elicitation' }, { kind: 'shot', name: 'chat-elicitation' }],
   },
   {
     name: 'chat-sign-in',
@@ -807,7 +813,7 @@ export function needsTeamReview(scenario: Scenario): boolean {
 }
 
 export function needsSessionChat(scenario: Scenario): boolean {
-  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-plan' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-away-reply' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
+  return scenario.steps.some((step) => step.kind === 'assert-chat-approvals' || step.kind === 'assert-chat-done-means' || step.kind === 'assert-chat-terminal' || step.kind === 'assert-chat-plan' || step.kind === 'assert-chat-elicitation' || step.kind === 'assert-chat-sign-in' || step.kind === 'assert-chat-usage-limit' || step.kind === 'assert-chat-away-reply' || step.kind === 'assert-chat-default' || step.kind === 'assert-chat-default-phone' || step.kind === 'assert-board-session');
 }
 
 export function needsGitOrigin(scenario: Scenario): boolean {
@@ -860,6 +866,9 @@ export const RESUMED_AFTER_QUESTION_TEXT = 'Going with the rollout you picked.';
 export const BOARD_ASK_QUESTION = 'Should refunds go through the card module too, or keep their own charge path so the two can change apart later?';
 export const STACKED_ANSWERS_PREFIX = 'Answers received: ';
 export const PLAN_REPLY_PREFIX = 'Plan decision: ';
+export const ELICITATION_REPLY_PREFIX = 'Form reply: ';
+export const ELICITATION_SERVER_NAME = 'linear';
+export const ELICITATION_LINK_URL = 'https://example.com/oauth/start';
 export const PROPOSED_PLAN_HEADING = 'Worker per board';
 export const DIRECTOR_DIGEST_TEXT = 'Checkout totals now add tax before the card charge';
 export const STUDIO_PROGRESS_ANSWER = 'Checkout totals are in, and no plan step is left.';

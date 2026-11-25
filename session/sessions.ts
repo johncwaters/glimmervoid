@@ -58,6 +58,7 @@ import type { ResolvedCommand } from "./core/spawn-command.ts";
 import { DEFAULT_AGENT_ID, isFirstClassAgent, resolveAdapter, commandFor } from "./adapters/index.ts";
 import type { AgentDoneLine, AttentionOwner, ChatApprovalMode, ChatOutboxEntry, ChatOutboxOrigin, ConversationAnswers, ConversationApproval, PermissionDecision, UnseenOutcome, UsageLimit } from "../shared/contracts/session.ts";
 import type { ClaudeHookReply, PermissionHookReply } from "./core/claude-approval-core.ts";
+import type { ElicitationHookReply } from "./core/claude-elicitation-core.ts";
 import type { AgentAdapter, AgentCapabilities, ScratchAgentHome } from "./adapters/index.ts";
 
 import {
@@ -616,8 +617,8 @@ class Session extends EventEmitter {
         ingestStatus: (signal) => this._ingestHookSignal(signal),
         noteQuestionDismissed: () => this._ingestHookSignal({ signal: "ready", source: "hook", confidence: "high", ts: clock.nowMs() }),
         pushAuditEntry: (entry) => this._pushAuditEntry(entry),
-        noteQuestionHeldForChat: (toolName, payload) => this._ingestHookSignal({ signal: "awaiting-input", source: "hook", ts: clock.nowMs(), promptKind: "elicitation", promptToolName: toolName, payload }),
-        noteQuestionAnsweredFromChat: () => this._ingestHookSignal({ signal: "working", source: "hook", confidence: "high", ts: clock.nowMs() }),
+        noteHeldForChat: (toolName, payload) => this._ingestHookSignal({ signal: "awaiting-input", source: "hook", ts: clock.nowMs(), promptKind: "elicitation", promptToolName: toolName, payload }),
+        noteAnsweredFromChat: () => this._ingestHookSignal({ signal: "working", source: "hook", confidence: "high", ts: clock.nowMs() }),
         taskTitle: () => this.refocusTaskTitle,
       },
     });
@@ -1366,6 +1367,10 @@ class Session extends EventEmitter {
 
   get planGate(): PlanGate | null {
     return this._approvals.planGate;
+  }
+
+  holdElicitation(payload: unknown, abandoned: AbortSignal): Promise<ElicitationHookReply | null> | null {
+    return this._approvals.holdElicitation(payload, abandoned);
   }
 
   holdPlanPermission(payload: unknown, abandoned: AbortSignal, isPlanGateOn: boolean): Promise<ClaudeHookReply | null> | null {

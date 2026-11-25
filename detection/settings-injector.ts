@@ -11,7 +11,7 @@ import { HOOK_TOOLS } from '../session/core/hook-tools.ts';
 import type { ResolvedHookTool } from '../session/core/hook-tools.ts';
 import { appendUserHooks } from '../session/core/user-hooks-core.ts';
 import type { InstalledHookFlags, InstalledHooks, UserHook } from '../session/core/user-hooks-core.ts';
-import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT } from '../shared/contracts/session.ts';
+import { ASK_USER_QUESTION_TOOL_NAME, CONVERSATION_PERMISSION_HOOK_EVENT, CONVERSATION_TOOL_RESULT_HOOK_EVENT, ELICITATION_HOOK_EVENT } from '../shared/contracts/session.ts';
 import type { ChatApprovalMode } from '../shared/contracts/session.ts';
 import { EXIT_PLAN_MODE_TOOL_NAME, PLAN_GATE_HOOK_EVENT } from '../shared/contracts/plan-gate.ts';
 import { RESUME_NOTE_HOOK_EVENT, REWAKE_RELAY_MODE } from '../shared/contracts/refocus.ts';
@@ -235,6 +235,7 @@ function buildHookSettings({ port, glimmervoidId, token, timeoutSec = DEFAULT_TI
       hooks: [{ type: 'http', url: hookUrl(PLAN_GATE_HOOK_EVENT), timeout: HELD_HOOK_TIMEOUT_SEC }],
     });
   }
+  hooks.Elicitation = [{ hooks: [{ type: 'http', url: hookUrl(ELICITATION_HOOK_EVENT), timeout: HELD_HOOK_TIMEOUT_SEC }] }];
   const sharedPostToolUseMatchers: string[] = [];
   if (detectScheduledWakeups) sharedPostToolUseMatchers.push(WAKEUP_TOOL_MATCHER);
   sharedPostToolUseMatchers.push(PR_LINK_TOOL_MATCHER, ASK_USER_QUESTION_TOOL_NAME, COMMAND_HINT_TOOL_MATCHER, EXIT_PLAN_MODE_TOOL_NAME);
