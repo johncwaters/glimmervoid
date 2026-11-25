@@ -11,6 +11,7 @@ import { ModelSelection } from '../agent-models.ts';
 export const CHANGES_POLL_INTERVAL_MS = 4_000;
 
 export const requestId = z.string().nullable().optional();
+export const ResentRequest = z.looseObject({ requestId: z.string(), resent: z.literal(true) });
 export const sessionId = z.string();
 export const KeptWorkPath = z.object({ path: z.string(), reason: z.string() }).strict();
 export type KeptWorkPath = z.infer<typeof KeptWorkPath>;

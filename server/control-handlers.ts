@@ -26,6 +26,9 @@ import type { ConfigStore, GlimmervoidConfig, ProjectEntry } from './config-stor
 import type { ControlMessageRecord, ReplayLog } from './core/control-replay-core.ts';
 import type { TelegramDeliveryControl } from './core/telegram-delivery-core.ts';
 import { normalizeClientTrust } from './core/request-trust.ts';
+import { createReplyLedger } from './control/reply-ledger.ts';
+import { ResentRequest } from '../shared/contracts/control/control-fields.ts';
+import { clock } from '../shared/clock.ts';
 import type * as radarLaneCore from './radar/core/radar-lane-core.ts';
 import type { PrSessionCheckout } from './github/team-review-wiring.ts';
 import type { GithubLaneStore } from './github/github-store-wiring.ts';
@@ -216,9 +219,13 @@ function parseSinceParam(url: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const REPLY_LEDGER_KEEP_MS = 120_000;
+const REPLY_LEDGER_MAX_ENTRIES = 512;
+
 function registerControlHandlers(onControlConnection: (handleConnection: ControlConnectionHandler) => void, deps: ControlHandlerDeps) {
   const { serverBuild = () => null, controlReplayLog = null } = deps;
   const context = createControlContext(deps);
+  const replyLedger = createReplyLedger({ nowMs: () => clock.nowMs(), keepMs: REPLY_LEDGER_KEEP_MS, maxEntries: REPLY_LEDGER_MAX_ENTRIES });
   const session = createSessionHandlers(context, deps);
   const branches = createBranchWiring({
     findSession: (sessionId) => context.findSession({ id: sessionId }),
@@ -272,6 +279,7 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
 
   onControlConnection((socket: WebSocket, req) => {
     const ws = socket as ControlSocket;
+    replyLedger.watch(ws);
     ws.send(JSON.stringify(buildSnapshot()));
 
     ws.send(JSON.stringify({ type: 'client-trust', trust: normalizeClientTrust(ws.glimmervoidTrust) }));
@@ -306,10 +314,12 @@ function registerControlHandlers(onControlConnection: (handleConnection: Control
       }
       const request: ControlRequest = parsedMessage.data;
       if (!Object.hasOwn(merged.handlers, request.type)) return;
+      if (typeof request.requestId === 'string' && replyLedger.admit(request.requestId, ws, ResentRequest.safeParse(request).success) !== 'run') return;
 
       const result = dispatchControlRequest(request, ws);
       if (result instanceof Promise) {
         return result.catch((err: unknown) => {
+          if (typeof request.requestId === 'string') replyLedger.release(request.requestId);
           console.warn(`[control] ${request.type} handler failed: ${errorMessage(err)}`);
           deps.telemetry?.captureException(err, { handled: true });
         });

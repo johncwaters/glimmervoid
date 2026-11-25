@@ -41,10 +41,11 @@ interface ControlClient {
 }
 
 let requestSequence = 0;
+const pageRequestTag = Array.from(crypto.getRandomValues(new Uint8Array(6)), (randomByte) => randomByte.toString(16).padStart(2, '0')).join('');
 
 export function nextRequestId(prefix: string): string {
   requestSequence += 1;
-  return `${prefix}-${requestSequence}`;
+  return `${prefix}-${pageRequestTag}-${requestSequence}`;
 }
 
 function createControlClient(options: ControlClientOptions): ControlClient {

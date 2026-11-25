@@ -82,3 +82,8 @@ The backend runtime: the HTTP server and both WebSockets on loopback, the lanes,
   via: an agent adds a git pack source whose packs stay off until the operator enables one, update reinstalls it so a changed pack waits for approval again, and removing the source deletes its clone and installs
   because: an approved pack can start agents and run commands on this machine; an approval the operator never saw would run code they never read
   kinds: none
+- resent control request runs once: A control request resent under its requestId and marked resent runs its handler at most once while the server keeps its answer, and gets the first answer; a request not marked resent always runs.
+  over: every control request that carries a requestId, on any control socket
+  via: a request resent under the same requestId on a new control socket gets the first answer instead of running again
+  because: a dashboard whose control socket was replaced mid-request reported a sent Chat message or a removed session as failed although the server had done it, and a resend without this would run it twice
+  kinds: none

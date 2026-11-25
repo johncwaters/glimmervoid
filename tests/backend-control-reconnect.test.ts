@@ -96,3 +96,25 @@ test('a data socket whose id does not exist is still refused', withBackend(async
   const code = await new Promise<number>((resolve) => { ws.once('close', (closeCode: number) => resolve(closeCode)); });
   assert.equal(code, 1008);
 }));
+
+interface ChatSendResultFrame extends ControlFrame {
+  requestId?: string | null;
+  acceptedAt?: number;
+}
+
+test('a request resent under the same requestId on a new control socket gets the first answer instead of running again', withBackend(async (client) => {
+  const repeatedRequestId = 'chat-send-page-1';
+  const isRepeatedAnswer = (frame: ChatSendResultFrame) => frame.type === 'chat-send-result' && frame.requestId === repeatedRequestId;
+  const first = await openRecordingSocket<ChatSendResultFrame>(client, '/control');
+  first.ws.send(JSON.stringify({ type: 'chat-send', requestId: repeatedRequestId, id: SESSION_ID, text: 'hello', attachments: [] }));
+  const firstAnswer = await waitForMessage(first.received, isRepeatedAnswer, 'the first chat-send answer');
+  await closeSocket(first.ws);
+
+  const second = await openRecordingSocket<ChatSendResultFrame>(client, '/control');
+  second.ws.send(JSON.stringify({ type: 'chat-send', requestId: repeatedRequestId, resent: true, id: 'another-session', text: 'hello', attachments: [] }));
+  const resentAnswer = await waitForMessage(second.received, isRepeatedAnswer, 'the resent chat-send answer');
+  await closeSocket(second.ws);
+
+  assert.equal(resentAnswer.id, SESSION_ID, 'the handler did not run again for the resent request');
+  assert.equal(resentAnswer.acceptedAt, firstAnswer.acceptedAt);
+}));
