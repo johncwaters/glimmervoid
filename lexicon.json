@@ -1664,6 +1664,10 @@
     {
       "name": "talk",
       "definition": "The first phase of each Wargames tick, when seats send direct or public messages; nothing in the game enforces what is said"
+    },
+    {
+      "name": "orders",
+      "definition": "The Wargames seat's sealed list for one tick (train, build, march, scout, found), submitted in the orders phase and resolved together with every other seat's"
     }
   ],
   "retired": [
